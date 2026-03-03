@@ -10,7 +10,8 @@
       "cwd": "${workspaceFolder}/backend",
       "envFile": "${workspaceFolder}/.env",
       "console": "integratedTerminal",
-      "python": "${workspaceFolder}/backend/.venv/bin/python"
+      "python": "${workspaceFolder}/backend/.venv/bin/python",
+      "justMyCode": false
     },
     {
       "name": "gateway",
@@ -21,7 +22,8 @@
       "cwd": "${workspaceFolder}/backend",
       "envFile": "${workspaceFolder}/.env",
       "console": "integratedTerminal",
-      "python": "${workspaceFolder}/backend/.venv/bin/python"
+      "python": "${workspaceFolder}/backend/.venv/bin/python",
+      "justMyCode": false
     },
     {
       "name": "frontend",

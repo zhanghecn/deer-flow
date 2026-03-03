@@ -1,3 +1,3 @@
 "ANTHROPIC_AUTH_TOKEN": "sk-sp-7f7dd6439d8e4af0a4241da5e4ea2e8c",
 "ANTHROPIC_BASE_URL": "https://coding.dashscope.aliyuncs.com/apps/anthropic",
-"ANTHROPIC_MODEL": "glm5"
+"ANTHROPIC_MODEL": "glm-5"
