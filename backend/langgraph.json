@@ -6,9 +6,5 @@
   "env": ".env",
   "graphs": {
     "lead_agent": "src.agents:make_lead_agent"
-  },
-  "server": {
-    "host": "0.0.0.0",
-    "port": 2024
   }
 }

@@ -28,7 +28,7 @@ extensions_config.json
 
 # IDE
 .idea/
-.vscode/
+# .vscode/
 
 # Coverage report
 coverage.xml
