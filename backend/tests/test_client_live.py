@@ -1,4 +1,4 @@
-"""Live integration tests for DeerFlowClient with real API.
+"""Live integration tests for OpenAgentsClient with real API.
 
 These tests require a working config.yaml with valid API credentials.
 They are skipped in CI and must be run explicitly:
@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from src.client import DeerFlowClient, StreamEvent
+from src.client import OpenAgentsClient, StreamEvent
 
 # Skip entire module in CI or when no config.yaml exists
 _skip_reason = None
@@ -30,8 +30,8 @@ if _skip_reason:
 
 @pytest.fixture(scope="module")
 def client():
-    """Create a real DeerFlowClient (no mocks)."""
-    return DeerFlowClient(thinking_enabled=False)
+    """Create a real OpenAgentsClient (no mocks)."""
+    return OpenAgentsClient(thinking_enabled=False)
 
 
 @pytest.fixture
@@ -117,7 +117,7 @@ class TestLiveToolUse:
         assert len(tr_events) >= 1, f"Expected tool result event, got types: {types}"
         assert len(ai_events) >= 1
 
-        assert tc_events[0].data["tool_calls"][0]["name"] == "bash"
+        assert tc_events[0].data["tool_calls"][0]["name"] == "execute"
         assert "LIVE_TEST_OK" in tr_events[0].data["content"]
 
     def test_agent_uses_ls_tool(self, client):

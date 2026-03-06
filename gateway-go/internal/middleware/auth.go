@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/deer-flow/gateway/internal/repository"
-	"github.com/deer-flow/gateway/pkg/jwt"
+	"github.com/openagents/gateway/internal/repository"
+	"github.com/openagents/gateway/pkg/jwt"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )

@@ -8,7 +8,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 
-	"github.com/deer-flow/gateway/internal/middleware"
+	"github.com/openagents/gateway/internal/middleware"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )

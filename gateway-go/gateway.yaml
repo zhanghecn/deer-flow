@@ -10,7 +10,7 @@ database:
   port: 5432
   user: $DB_USER
   password: $DB_PASSWORD
-  dbname: deerflow
+  dbname: openagents
   sslmode: disable
 
 jwt:
@@ -18,7 +18,7 @@ jwt:
   expire_hour: 72
 
 storage:
-  base_dir: .deer-flow
+  base_dir: .openagents
 
 upstream:
   langgraph_url: http://localhost:2024

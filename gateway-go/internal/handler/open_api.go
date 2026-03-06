@@ -8,10 +8,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/deer-flow/gateway/internal/middleware"
-	"github.com/deer-flow/gateway/internal/model"
-	"github.com/deer-flow/gateway/internal/repository"
-	"github.com/deer-flow/gateway/pkg/storage"
+	"github.com/openagents/gateway/internal/middleware"
+	"github.com/openagents/gateway/internal/model"
+	"github.com/openagents/gateway/internal/repository"
+	"github.com/openagents/gateway/pkg/storage"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )

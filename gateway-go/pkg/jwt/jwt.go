@@ -33,7 +33,7 @@ func (m *Manager) Generate(userID uuid.UUID, role string) (string, error) {
 		RegisteredClaims: jwtv5.RegisteredClaims{
 			ExpiresAt: jwtv5.NewNumericDate(time.Now().Add(time.Duration(m.expireHour) * time.Hour)),
 			IssuedAt:  jwtv5.NewNumericDate(time.Now()),
-			Issuer:    "deer-flow",
+			Issuer:    "openagents",
 		},
 	}
 	token := jwtv5.NewWithClaims(jwtv5.SigningMethodHS256, claims)

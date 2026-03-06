@@ -6,14 +6,14 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/deer-flow/gateway/internal/config"
-	"github.com/deer-flow/gateway/internal/handler"
-	"github.com/deer-flow/gateway/internal/middleware"
-	"github.com/deer-flow/gateway/internal/proxy"
-	"github.com/deer-flow/gateway/internal/repository"
-	"github.com/deer-flow/gateway/internal/service"
-	"github.com/deer-flow/gateway/pkg/jwt"
-	"github.com/deer-flow/gateway/pkg/storage"
+	"github.com/openagents/gateway/internal/config"
+	"github.com/openagents/gateway/internal/handler"
+	"github.com/openagents/gateway/internal/middleware"
+	"github.com/openagents/gateway/internal/proxy"
+	"github.com/openagents/gateway/internal/repository"
+	"github.com/openagents/gateway/internal/service"
+	"github.com/openagents/gateway/pkg/jwt"
+	"github.com/openagents/gateway/pkg/storage"
 	"github.com/gin-gonic/gin"
 )
 
@@ -82,7 +82,7 @@ func main() {
 
 	// Health check
 	r.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok", "service": "deer-flow-gateway"})
+		c.JSON(200, gin.H{"status": "ok", "service": "openagents-gateway"})
 	})
 
 	// Public auth routes
@@ -150,7 +150,7 @@ func main() {
 	}
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-	log.Printf("DeerFlow Gateway starting on %s", addr)
+	log.Printf("OpenAgents Gateway starting on %s", addr)
 	if err := r.Run(addr); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}

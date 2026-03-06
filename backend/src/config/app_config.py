@@ -20,7 +20,7 @@ load_dotenv()
 
 
 class AppConfig(BaseModel):
-    """Config for the DeerFlow application"""
+    """Config for the OpenAgents application"""
 
     models: list[ModelConfig] = Field(default_factory=list, description="Available models")
     sandbox: SandboxConfig = Field(description="Sandbox configuration")
@@ -36,7 +36,7 @@ class AppConfig(BaseModel):
 
         Priority:
         1. If provided `config_path` argument, use it.
-        2. If provided `DEER_FLOW_CONFIG_PATH` environment variable, use it.
+        2. If provided `OPENAGENTS_CONFIG_PATH` environment variable, use it.
         3. Otherwise, first check the `config.yaml` in the current directory, then fallback to `config.yaml` in the parent directory.
         """
         if config_path:
@@ -44,10 +44,10 @@ class AppConfig(BaseModel):
             if not Path.exists(path):
                 raise FileNotFoundError(f"Config file specified by param `config_path` not found at {path}")
             return path
-        elif os.getenv("DEER_FLOW_CONFIG_PATH"):
-            path = Path(os.getenv("DEER_FLOW_CONFIG_PATH"))
+        elif os.getenv("OPENAGENTS_CONFIG_PATH"):
+            path = Path(os.getenv("OPENAGENTS_CONFIG_PATH"))
             if not Path.exists(path):
-                raise FileNotFoundError(f"Config file specified by environment variable `DEER_FLOW_CONFIG_PATH` not found at {path}")
+                raise FileNotFoundError(f"Config file specified by environment variable `OPENAGENTS_CONFIG_PATH` not found at {path}")
             return path
         else:
             # Check if the config.yaml is in the current directory
@@ -162,7 +162,7 @@ _app_config: AppConfig | None = None
 
 
 def get_app_config() -> AppConfig:
-    """Get the DeerFlow config instance.
+    """Get the OpenAgents config instance.
 
     Returns a cached singleton instance. Use `reload_app_config()` to reload
     from file, or `reset_app_config()` to clear the cache.

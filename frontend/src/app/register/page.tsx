@@ -33,7 +33,7 @@ export default function RegisterPage() {
       <div className="w-full max-w-sm rounded-xl border border-gray-200 bg-white p-8 shadow-sm dark:border-gray-800 dark:bg-gray-900">
         <div className="mb-8 text-center">
           <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">
-            DeerFlow
+            OpenAgents
           </h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             Create a new account

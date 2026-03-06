@@ -3,9 +3,9 @@ package handler
 import (
 	"net/http"
 
-	"github.com/deer-flow/gateway/internal/middleware"
-	"github.com/deer-flow/gateway/internal/model"
-	"github.com/deer-flow/gateway/internal/service"
+	"github.com/openagents/gateway/internal/middleware"
+	"github.com/openagents/gateway/internal/model"
+	"github.com/openagents/gateway/internal/service"
 	"github.com/gin-gonic/gin"
 )
 

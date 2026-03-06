@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/deer-flow/gateway/internal/model"
+	"github.com/openagents/gateway/internal/model"
 	"github.com/gin-gonic/gin"
 	"gopkg.in/yaml.v3"
 )

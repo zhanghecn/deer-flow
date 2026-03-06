@@ -80,7 +80,7 @@ def test_make_lead_agent_disables_thinking_when_model_does_not_support_it(monkey
 
     monkeypatch.setattr(lead_agent_module, "get_app_config", lambda: app_config)
     monkeypatch.setattr(tools_module, "get_available_tools", lambda **kwargs: [])
-    monkeypatch.setattr(lead_agent_module, "_build_deerflow_middlewares", lambda model_name: [])
+    monkeypatch.setattr(lead_agent_module, "_build_openagents_middlewares", lambda model_name: [])
     monkeypatch.setattr(lead_agent_module, "build_backend", lambda thread_id, agent_name, agent_status="dev": None)
     monkeypatch.setattr(lead_agent_module, "get_paths", lambda: type("P", (), {"agent_dir": lambda self, n, s: type("D", (), {"exists": lambda: False})(), "skills_dir": type("D", (), {"exists": False})})())
 
@@ -111,8 +111,8 @@ def test_make_lead_agent_disables_thinking_when_model_does_not_support_it(monkey
     assert result["model"] is not None
 
 
-def test_build_deerflow_middlewares_includes_vision_middleware_for_vision_model(monkeypatch):
-    """_build_deerflow_middlewares includes ViewImageMiddleware for vision-capable models."""
+def test_build_openagents_middlewares_includes_vision_middleware_for_vision_model(monkeypatch):
+    """_build_openagents_middlewares includes ViewImageMiddleware for vision-capable models."""
     app_config = _make_app_config(
         [
             _make_model("stale-model", supports_thinking=False),
@@ -130,20 +130,20 @@ def test_build_deerflow_middlewares_includes_vision_middleware_for_vision_model(
 
     monkeypatch.setattr(lead_agent_module, "get_app_config", lambda: app_config)
 
-    middlewares = lead_agent_module._build_deerflow_middlewares("vision-model")
+    middlewares = lead_agent_module._build_openagents_middlewares("vision-model")
 
     from src.agents.middlewares.view_image_middleware import ViewImageMiddleware
 
     assert any(isinstance(m, ViewImageMiddleware) for m in middlewares)
 
 
-def test_build_deerflow_middlewares_excludes_vision_middleware_for_non_vision_model(monkeypatch):
-    """_build_deerflow_middlewares excludes ViewImageMiddleware for non-vision models."""
+def test_build_openagents_middlewares_excludes_vision_middleware_for_non_vision_model(monkeypatch):
+    """_build_openagents_middlewares excludes ViewImageMiddleware for non-vision models."""
     app_config = _make_app_config([_make_model("text-model", supports_thinking=False)])
 
     monkeypatch.setattr(lead_agent_module, "get_app_config", lambda: app_config)
 
-    middlewares = lead_agent_module._build_deerflow_middlewares("text-model")
+    middlewares = lead_agent_module._build_openagents_middlewares("text-model")
 
     from src.agents.middlewares.view_image_middleware import ViewImageMiddleware
 

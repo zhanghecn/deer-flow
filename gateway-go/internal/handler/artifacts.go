@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/deer-flow/gateway/internal/model"
-	"github.com/deer-flow/gateway/pkg/storage"
+	"github.com/openagents/gateway/internal/model"
+	"github.com/openagents/gateway/pkg/storage"
 	"github.com/gin-gonic/gin"
 )
 

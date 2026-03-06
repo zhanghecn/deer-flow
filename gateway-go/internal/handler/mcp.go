@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/deer-flow/gateway/internal/model"
+	"github.com/openagents/gateway/internal/model"
 	"github.com/gin-gonic/gin"
 )
 

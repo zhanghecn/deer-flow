@@ -1,4 +1,4 @@
--- DeerFlow Enterprise Schema v1
+-- OpenAgents Enterprise Schema v1
 -- Run: psql $DATABASE_URL -f migrations/001_init.sql
 
 BEGIN;

@@ -4,18 +4,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-DeerFlow is a LangGraph-based AI super agent system with a full-stack architecture. The backend provides a "super agent" with sandbox execution, persistent memory, subagent delegation, and extensible tool integration - all operating in per-thread isolated environments.
+OpenAgents is a LangGraph-based AI super agent system with a full-stack architecture. The backend provides a "super agent" with sandbox execution, persistent memory, subagent delegation, and extensible tool integration - all operating in per-thread isolated environments.
 
 **Architecture**:
-- **LangGraph Server** (port 2024): Agent runtime and workflow execution
-- **Gateway API** (port 8001): REST API for models, MCP, skills, memory, artifacts, and uploads
-- **Frontend** (port 3000): Next.js web interface
+- **LangGraph Server** (port 2024): Agent runtime and workflow execution (deepagents engine)
+- **Go Gateway** (port 8001): JWT/API Token auth, Agent/Skill CRUD, LangGraph reverse proxy with user_id injection
+- **Python Gateway** (port 8001, legacy): FastAPI REST API, being replaced by Go Gateway
+- **Frontend** (port 3000): Next.js web interface with JWT authentication
 - **Nginx** (port 2026): Unified reverse proxy entry point
 - **Provisioner** (port 8002, optional in Docker dev): Started only when sandbox is configured for provisioner/Kubernetes mode
 
+**Note**: The system is transitioning from Python Gateway to Go Gateway. Both implement the same API surface. The Go Gateway additionally provides multi-user JWT auth, API Token auth, PostgreSQL storage, and Open API endpoints.
+
 **Project Structure**:
 ```
-deer-flow/
+openagents/
 ├── Makefile                    # Root commands (check, install, dev, stop)
 ├── config.yaml                 # Main application configuration
 ├── extensions_config.json      # MCP servers and skills configuration
@@ -23,34 +26,35 @@ deer-flow/
 │   ├── Makefile               # Backend-only commands (dev, gateway, lint)
 │   ├── langgraph.json         # LangGraph server configuration
 │   ├── src/
-│   │   ├── agents/            # LangGraph agent system
-│   │   │   ├── lead_agent/    # Main agent (factory + system prompt)
-│   │   │   ├── middlewares/   # 10 middleware components
+│   │   ├── agents/            # LangGraph agent system (deepagents engine)
+│   │   │   ├── lead_agent/    # Main agent (create_deep_agent + system prompt)
+│   │   │   ├── middlewares/   # OpenAgents-specific middleware components
 │   │   │   ├── memory/        # Memory extraction, queue, prompts
 │   │   │   └── thread_state.py # ThreadState schema
-│   │   ├── gateway/           # FastAPI Gateway API
+│   │   ├── gateway/           # FastAPI Gateway API (legacy, being replaced by Go)
 │   │   │   ├── app.py         # FastAPI application
-│   │   │   └── routers/       # 6 route modules
-│   │   ├── sandbox/           # Sandbox execution system
-│   │   │   ├── local/         # Local filesystem provider
-│   │   │   ├── sandbox.py     # Abstract Sandbox interface
-│   │   │   ├── tools.py       # bash, ls, read/write/str_replace
-│   │   │   └── middleware.py  # Sandbox lifecycle management
-│   │   ├── subagents/         # Subagent delegation system
-│   │   │   ├── builtins/      # general-purpose, bash agents
-│   │   │   ├── executor.py    # Background execution engine
-│   │   │   └── registry.py    # Agent registry
-│   │   ├── tools/builtins/    # Built-in tools (present_files, ask_clarification, view_image)
+│   │   │   └── routers/       # 6 route modules (agents, skills, models, etc.)
+│   │   ├── sandbox/           # Sandbox execution system (legacy, replaced by deepagents backends)
+│   │   ├── subagents/         # Subagent delegation system (legacy, replaced by deepagents SubAgentMiddleware)
+│   │   ├── tools/builtins/    # Built-in tools (present_files, ask_clarification, view_image, setup_agent)
 │   │   ├── mcp/               # MCP integration (tools, cache, client)
 │   │   ├── models/            # Model factory with thinking/vision support
 │   │   ├── skills/            # Skills discovery, loading, parsing
-│   │   ├── config/            # Configuration system (app, model, sandbox, tool, etc.)
+│   │   ├── config/            # Configuration system (app, model, paths, tool, etc.)
 │   │   ├── community/         # Community tools (tavily, jina_ai, firecrawl, image_search, aio_sandbox)
 │   │   ├── reflection/        # Dynamic module loading (resolve_variable, resolve_class)
 │   │   ├── utils/             # Utilities (network, readability)
-│   │   └── client.py          # Embedded Python client (DeerFlowClient)
+│   │   └── client.py          # Embedded Python client (OpenAgentsClient)
+│   ├── scripts/
+│   │   └── migrate_agents.py  # SOUL.md → AGENTS.md + directory layout migration
 │   ├── tests/                 # Test suite
 │   └── docs/                  # Documentation
+├── gateway-go/                 # Go Gateway (replacing Python Gateway)
+│   ├── cmd/server/main.go     # Entry point
+│   ├── internal/              # Handlers, middleware, repository, service, proxy
+│   ├── pkg/                   # JWT, filesystem storage
+│   ├── migrations/            # PostgreSQL schema
+│   └── gateway.yaml           # Gateway configuration
 ├── frontend/                   # Next.js frontend application
 └── skills/                     # Agent skills directory
     ├── public/                # Public skills (committed)
@@ -100,9 +104,12 @@ CI runs these regression tests for every pull request via [.github/workflows/bac
 
 **Lead Agent** (`src/agents/lead_agent/agent.py`):
 - Entry point: `make_lead_agent(config: RunnableConfig)` registered in `langgraph.json`
-- Dynamic model selection via `create_chat_model()` with thinking/vision support
-- Tools loaded via `get_available_tools()` - combines sandbox, built-in, MCP, community, and subagent tools
-- System prompt generated by `apply_prompt_template()` with skills, memory, and subagent instructions
+- Uses `create_deep_agent()` from deepagents framework (replaced legacy `create_agent()`)
+- `build_backend()` creates `CompositeBackend` with `LocalShellBackend` (replaces legacy `LocalSandbox`)
+- `_build_openagents_middlewares()` returns OpenAgents-specific extra middleware
+- `OPENAGENTS_SUBAGENTS` defines subagent configs for deepagents `SubAgentMiddleware`
+- Tools loaded via `get_available_tools(exclude_groups=["file:read", "file:write", "bash"])` — sandbox tools provided by deepagents `FilesystemMiddleware`
+- System prompt generated by `apply_prompt_template()` with AGENTS.md, skills, memory, and subagent instructions
 
 **ThreadState** (`src/agents/thread_state.py`):
 - Extends `AgentState` with: `sandbox`, `thread_data`, `title`, `artifacts`, `todos`, `uploaded_files`, `viewed_images`
@@ -114,21 +121,25 @@ CI runs these regression tests for every pull request via [.github/workflows/bac
 - `is_plan_mode` - Enable TodoList middleware
 - `subagent_enabled` - Enable task delegation tool
 
-### Middleware Chain
+### Middleware Architecture
 
-Middlewares execute in strict order in `src/agents/lead_agent/agent.py`:
+The agent uses **deepagents built-in middleware** plus **OpenAgents-specific extra middleware**.
 
-1. **ThreadDataMiddleware** - Creates per-thread directories (`backend/.deer-flow/threads/{thread_id}/user-data/{workspace,uploads,outputs}`)
-2. **UploadsMiddleware** - Tracks and injects newly uploaded files into conversation
-3. **SandboxMiddleware** - Acquires sandbox, stores `sandbox_id` in state
-4. **DanglingToolCallMiddleware** - Injects placeholder ToolMessages for AIMessage tool_calls that lack responses (e.g., due to user interruption)
-5. **SummarizationMiddleware** - Context reduction when approaching token limits (optional, if enabled)
-6. **TodoListMiddleware** - Task tracking with `write_todos` tool (optional, if plan_mode)
-7. **TitleMiddleware** - Auto-generates thread title after first complete exchange
-8. **MemoryMiddleware** - Queues conversations for async memory update (filters to user + final AI responses)
-9. **ViewImageMiddleware** - Injects base64 image data before LLM call (conditional on vision support)
-10. **SubagentLimitMiddleware** - Truncates excess `task` tool calls from model response to enforce `MAX_CONCURRENT_SUBAGENTS` limit (optional, if subagent_enabled)
-11. **ClarificationMiddleware** - Intercepts `ask_clarification` tool calls, interrupts via `Command(goto=END)` (must be last)
+**deepagents built-in** (provided automatically by `create_deep_agent()`):
+- `PatchToolCallsMiddleware` — Fixes dangling tool calls (replaces `DanglingToolCallMiddleware`)
+- `SummarizationMiddleware` — Context reduction when approaching token limits
+- `TodoListMiddleware` — Task tracking (when plan_mode enabled)
+- `MemoryMiddleware` — Memory injection and update
+- `SubAgentMiddleware` — Subagent delegation (when subagents provided)
+- `SkillsMiddleware` — Skills loading and injection
+- `FilesystemMiddleware` — Provides sandbox tools (ls, read_file, write_file, edit_file, execute, glob, grep)
+- `HumanInTheLoopMiddleware` — Handles `ask_clarification` interrupts
+
+**OpenAgents-specific extra middleware** (`_build_openagents_middlewares()`):
+1. **ThreadDataMiddleware** — Creates per-thread directories
+2. **UploadsMiddleware** — Tracks and injects uploaded files
+3. **TitleMiddleware** — Auto-generates thread title
+4. **ViewImageMiddleware** — Injects base64 image data (conditional on vision support)
 
 ### Configuration System
 
@@ -138,7 +149,7 @@ Setup: Copy `config.example.yaml` to `config.yaml` in the **project root** direc
 
 Configuration priority:
 1. Explicit `config_path` argument
-2. `DEER_FLOW_CONFIG_PATH` environment variable
+2. `OPENAGENTS_CONFIG_PATH` environment variable
 3. `config.yaml` in current directory (backend/)
 4. `config.yaml` in parent directory (project root - **recommended location**)
 
@@ -150,18 +161,24 @@ MCP servers and skills are configured together in `extensions_config.json` in pr
 
 Configuration priority:
 1. Explicit `config_path` argument
-2. `DEER_FLOW_EXTENSIONS_CONFIG_PATH` environment variable
+2. `OPENAGENTS_EXTENSIONS_CONFIG_PATH` environment variable
 3. `extensions_config.json` in current directory (backend/)
 4. `extensions_config.json` in parent directory (project root - **recommended location**)
 
-### Gateway API (`src/gateway/`)
+### Gateway API
 
-FastAPI application on port 8001 with health check at `GET /health`.
+**Go Gateway** (`gateway-go/`, replacing Python Gateway):
+- See `gateway-go/CLAUDE.md` for full documentation
+- JWT + API Token auth, PostgreSQL, Agent/Skill CRUD with filesystem sync
+- LangGraph reverse proxy with user_id injection
+- Open API: `POST /open/v1/agents/:name/stream` (SSE, API Token auth, prod agents only)
 
-**Routers**:
+**Python Gateway** (`src/gateway/`, legacy):
+- FastAPI application with health check at `GET /health`
 
 | Router | Endpoints |
 |--------|-----------|
+| **Agents** (`/api/agents`) | `GET /` - list; `POST /` - create; `GET /{name}` - details; `PUT /{name}` - update; `DELETE /{name}` - delete; `POST /{name}/publish` - publish dev→prod |
 | **Models** (`/api/models`) | `GET /` - list models; `GET /{name}` - model details |
 | **MCP** (`/api/mcp`) | `GET /config` - get config; `PUT /config` - update config (saves to extensions_config.json) |
 | **Skills** (`/api/skills`) | `GET /` - list skills; `GET /{name}` - details; `PUT /{name}` - update enabled; `POST /install` - install from .skill archive |
@@ -169,30 +186,21 @@ FastAPI application on port 8001 with health check at `GET /health`.
 | **Uploads** (`/api/threads/{id}/uploads`) | `POST /` - upload files (auto-converts PDF/PPT/Excel/Word); `GET /list` - list; `DELETE /{filename}` - delete |
 | **Artifacts** (`/api/threads/{id}/artifacts`) | `GET /{path}` - serve artifacts; `?download=true` for file download |
 
-Proxied through nginx: `/api/langgraph/*` → LangGraph, all other `/api/*` → Gateway.
+Proxied through nginx: all `/api/*` → Gateway (Go or Python).
 
-### Sandbox System (`src/sandbox/`)
+### Backend System (deepagents)
 
-**Interface**: Abstract `Sandbox` with `execute_command`, `read_file`, `write_file`, `list_dir`
-**Provider Pattern**: `SandboxProvider` with `acquire`, `get`, `release` lifecycle
-**Implementations**:
-- `LocalSandboxProvider` - Singleton local filesystem execution with path mappings
-- `AioSandboxProvider` (`src/community/`) - Docker-based isolation
+The lead agent uses `deepagents.create_deep_agent()` which provides:
+- **CompositeBackend** — Routes filesystem operations by path prefix:
+  - Default → `LocalShellBackend` (thread workspace, execute commands)
+  - `/skills/` → agent-specific skills (shared definition layer)
+  - `/public-skills/` → global public skills
+- **FilesystemMiddleware** — Built-in sandbox tools (ls, read_file, write_file, edit_file, execute, glob, grep)
+- **SubAgentMiddleware** — Subagent delegation with `OPENAGENTS_SUBAGENTS` config
 
-**Virtual Path System**:
-- Agent sees: `/mnt/user-data/{workspace,uploads,outputs}`, `/mnt/skills`
-- Physical: `backend/.deer-flow/threads/{thread_id}/user-data/...`, `deer-flow/skills/`
-- Translation: `replace_virtual_path()` / `replace_virtual_paths_in_command()`
-- Detection: `is_local_sandbox()` checks `sandbox_id == "local"`
+**Legacy Sandbox** (`src/sandbox/`) and **Legacy Subagents** (`src/subagents/`) are retained for backward compatibility but replaced by deepagents backends.
 
-**Sandbox Tools** (in `src/sandbox/tools.py`):
-- `bash` - Execute commands with path translation and error handling
-- `ls` - Directory listing (tree format, max 2 levels)
-- `read_file` - Read file contents with optional line range
-- `write_file` - Write/append to files, creates directories
-- `str_replace` - Substring replacement (single or all occurrences)
-
-### Subagent System (`src/subagents/`)
+### Subagent System
 
 **Built-in Agents**: `general-purpose` (all tools except `task`) and `bash` (command specialist)
 **Execution**: Dual thread pool - `_scheduler_pool` (3 workers) + `_execution_pool` (3 workers)
@@ -202,7 +210,9 @@ Proxied through nginx: `/api/langgraph/*` → LangGraph, all other `/api/*` → 
 
 ### Tool System (`src/tools/`)
 
-`get_available_tools(groups, include_mcp, model_name, subagent_enabled)` assembles:
+`get_available_tools(groups, exclude_groups, include_mcp, model_name, subagent_enabled)` assembles:
+
+**Note**: When called from `make_lead_agent()` or `OpenAgentsClient`, `exclude_groups=["file:read", "file:write", "bash"]` is passed to avoid duplicating tools already provided by deepagents `FilesystemMiddleware`.
 1. **Config-defined tools** - Resolved from `config.yaml` via `resolve_variable()`
 2. **MCP tools** - From enabled MCP servers (lazy initialized, cached with mtime invalidation)
 3. **Built-in tools**:
@@ -229,7 +239,7 @@ Proxied through nginx: `/api/langgraph/*` → LangGraph, all other `/api/*` → 
 
 ### Skills System (`src/skills/`)
 
-- **Location**: `deer-flow/skills/{public,custom}/`
+- **Location**: `openagents/skills/{public,custom}/`
 - **Format**: Directory with `SKILL.md` (YAML frontmatter: name, description, license, allowed-tools)
 - **Loading**: `load_skills()` recursively scans `skills/{public,custom}` for `SKILL.md`, parses metadata, and reads enabled state from extensions_config.json
 - **Injection**: Enabled skills listed in agent system prompt with container paths
@@ -250,7 +260,7 @@ Proxied through nginx: `/api/langgraph/*` → LangGraph, all other `/api/*` → 
 - `queue.py` - Debounced update queue (per-thread deduplication, configurable wait time)
 - `prompt.py` - Prompt templates for memory updates
 
-**Data Structure** (stored in `backend/.deer-flow/memory.json`):
+**Data Structure** (stored in `backend/.openagents/memory.json`):
 - **User Context**: `workContext`, `personalContext`, `topOfMind` (1-3 sentence summaries)
 - **History**: `recentMonths`, `earlierContext`, `longTermBackground`
 - **Facts**: Discrete facts with `id`, `content`, `category` (preference/knowledge/context/behavior/goal), `confidence` (0-1), `createdAt`, `source`
@@ -292,11 +302,11 @@ Proxied through nginx: `/api/langgraph/*` → LangGraph, all other `/api/*` → 
 - `mcpServers` - Map of server name → config (enabled, type, command, args, env, url, headers, oauth, description)
 - `skills` - Map of skill name → state (enabled)
 
-Both can be modified at runtime via Gateway API endpoints or `DeerFlowClient` methods.
+Both can be modified at runtime via Gateway API endpoints or `OpenAgentsClient` methods.
 
 ### Embedded Client (`src/client.py`)
 
-`DeerFlowClient` provides direct in-process access to all DeerFlow capabilities without HTTP services. All return types align with the Gateway API response schemas, so consumer code works identically in HTTP and embedded modes.
+`OpenAgentsClient` provides direct in-process access to all OpenAgents capabilities without HTTP services. All return types align with the Gateway API response schemas, so consumer code works identically in HTTP and embedded modes.
 
 **Architecture**: Imports the same `src/` modules that LangGraph Server and Gateway API use. Shares the same config files and data directories. No FastAPI dependency.
 
@@ -306,7 +316,7 @@ Both can be modified at runtime via Gateway API endpoints or `DeerFlowClient` me
   - `"values"` — full state snapshot (title, messages, artifacts)
   - `"messages-tuple"` — per-message update (AI text, tool calls, tool results)
   - `"end"` — stream finished
-- Agent created lazily via `create_agent()` + `_build_middlewares()`, same as `make_lead_agent`
+- Agent created lazily via `create_deep_agent()` + `_build_openagents_middlewares()` + `build_backend()`, same as `make_lead_agent`
 - Supports `checkpointer` parameter for state persistence across turns
 - `reset_agent()` forces agent recreation (e.g. after memory or skill changes)
 

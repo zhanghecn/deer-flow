@@ -152,7 +152,7 @@ SYSTEM_PROMPT_TEMPLATE = """
 You are {agent_name}, an open-source super agent.
 </role>
 
-{soul}
+{agents_md}
 {memory_context}
 
 <thinking_style>
@@ -358,12 +358,16 @@ You have access to skills that provide optimized workflows for specific tasks. E
 </skill_system>"""
 
 
-def get_agent_soul(agent_name: str | None) -> str:
-    # Append AGENTS.md (agent personality) if present (legacy name kept for prompt compat)
-    soul = load_agents_md(agent_name)
-    if soul:
-        return f"<soul>\n{soul}\n</soul>\n" if soul else ""
+def get_agents_md_section(agent_name: str | None) -> str:
+    """Return the AGENTS.md content wrapped in XML tags for the system prompt."""
+    content = load_agents_md(agent_name)
+    if content:
+        return f"<agents_md>\n{content}\n</agents_md>\n"
     return ""
+
+
+# Backward compatibility alias
+get_agent_soul = get_agents_md_section
 
 
 def apply_prompt_template(subagent_enabled: bool = False, max_concurrent_subagents: int = 3, *, agent_name: str | None = None, available_skills: set[str] | None = None) -> str:
@@ -397,8 +401,8 @@ def apply_prompt_template(subagent_enabled: bool = False, max_concurrent_subagen
 
     # Format the prompt with dynamic skills and memory
     prompt = SYSTEM_PROMPT_TEMPLATE.format(
-        agent_name=agent_name or "DeerFlow 2.0",
-        soul=get_agent_soul(agent_name),
+        agent_name=agent_name or "OpenAgents",
+        agents_md=get_agents_md_section(agent_name),
         skills_section=skills_section,
         memory_context=memory_context,
         subagent_section=subagent_section,

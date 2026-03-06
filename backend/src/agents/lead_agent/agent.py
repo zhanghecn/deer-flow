@@ -82,8 +82,8 @@ def build_backend(thread_id: str, agent_name: str | None, status: str = "dev"):
     return CompositeBackend(default=workspace_backend, routes=routes)
 
 
-def _build_deerflow_middlewares(model_name: str | None):
-    """Build deer-flow specific extra middlewares (not handled by deepagents).
+def _build_openagents_middlewares(model_name: str | None):
+    """Build openagents specific extra middlewares (not handled by deepagents).
 
     deepagents already provides:
     - PatchToolCallsMiddleware (replaces DanglingToolCallMiddleware)
@@ -94,7 +94,7 @@ def _build_deerflow_middlewares(model_name: str | None):
     - SkillsMiddleware (replaces SkillsLoader)
     - FilesystemMiddleware (replaces sandbox tools: bash, ls, read_file, write_file, str_replace, edit_file, glob, grep)
 
-    We only keep deer-flow specific middlewares:
+    We only keep openagents specific middlewares:
     - ThreadDataMiddleware: Creates per-thread workspace directories
     - UploadsMiddleware: Tracks and injects newly uploaded files
     - TitleMiddleware: Auto-generates thread title
@@ -111,7 +111,7 @@ def _build_deerflow_middlewares(model_name: str | None):
 
 
 # SubAgent definitions (replace backend/src/subagents/builtins/)
-DEERFLOW_SUBAGENTS: list[SubAgent] = [
+OPENAGENTS_SUBAGENTS: list[SubAgent] = [
     {
         "name": "general-purpose",
         "description": "General-purpose subagent for research, code exploration, file operations, analysis, and any non-trivial task. Has access to all tools except task and ask_clarification.",
@@ -204,10 +204,10 @@ def make_lead_agent(config: RunnableConfig):
             memory_sources.append(str(agents_md_path))
 
     # SubAgents (only if enabled)
-    subagents = DEERFLOW_SUBAGENTS if subagent_enabled else None
+    subagents = OPENAGENTS_SUBAGENTS if subagent_enabled else None
 
-    # deer-flow specific extra middlewares
-    extra_middleware = _build_deerflow_middlewares(model_name)
+    # openagents specific extra middlewares
+    extra_middleware = _build_openagents_middlewares(model_name)
 
     # Community tools + MCP tools (sandbox tools provided by deepagents FilesystemMiddleware)
     # Exclude file:read, file:write, bash groups — deepagents provides ls, read_file, write_file, edit_file, execute, glob, grep

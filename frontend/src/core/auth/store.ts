@@ -13,7 +13,7 @@ interface AuthState {
   user: AuthUser | null;
 }
 
-const AUTH_STORAGE_KEY = "deer-flow-auth";
+const AUTH_STORAGE_KEY = "openagents-auth";
 
 function loadState(): AuthState {
   if (typeof window === "undefined") {

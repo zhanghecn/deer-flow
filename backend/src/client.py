@@ -1,12 +1,12 @@
-"""DeerFlowClient — Embedded Python client for DeerFlow agent system.
+"""OpenAgentsClient — Embedded Python client for OpenAgents agent system.
 
-Provides direct programmatic access to DeerFlow's agent capabilities
+Provides direct programmatic access to OpenAgents's agent capabilities
 without requiring LangGraph Server or Gateway API processes.
 
 Usage:
-    from src.client import DeerFlowClient
+    from src.client import OpenAgentsClient
 
-    client = DeerFlowClient()
+    client = OpenAgentsClient()
     response = client.chat("Analyze this paper for me", thread_id="my-thread")
     print(response)
 
@@ -33,7 +33,7 @@ from deepagents import create_deep_agent
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 
-from src.agents.lead_agent.agent import DEERFLOW_SUBAGENTS, _build_deerflow_middlewares, build_backend
+from src.agents.lead_agent.agent import OPENAGENTS_SUBAGENTS, _build_openagents_middlewares, build_backend
 from src.agents.lead_agent.prompt import apply_prompt_template
 from src.config.app_config import get_app_config, reload_app_config
 from src.config.extensions_config import ExtensionsConfig, SkillStateConfig, get_extensions_config, reload_extensions_config
@@ -61,10 +61,10 @@ class StreamEvent:
     data: dict[str, Any] = field(default_factory=dict)
 
 
-class DeerFlowClient:
-    """Embedded Python client for DeerFlow agent system.
+class OpenAgentsClient:
+    """Embedded Python client for OpenAgents agent system.
 
-    Provides direct programmatic access to DeerFlow's agent capabilities
+    Provides direct programmatic access to OpenAgents's agent capabilities
     without requiring LangGraph Server or Gateway API processes.
 
     Note:
@@ -79,9 +79,9 @@ class DeerFlowClient:
 
     Example::
 
-        from src.client import DeerFlowClient
+        from src.client import OpenAgentsClient
 
-        client = DeerFlowClient()
+        client = OpenAgentsClient()
 
         # Simple one-shot
         print(client.chat("hello"))
@@ -197,8 +197,8 @@ class DeerFlowClient:
 
         # Build backend and middleware using shared agent.py functions
         backend = build_backend(thread_id, agent_name=None)
-        extra_middleware = _build_deerflow_middlewares(model_name)
-        subagents = DEERFLOW_SUBAGENTS if subagent_enabled else None
+        extra_middleware = _build_openagents_middlewares(model_name)
+        subagents = OPENAGENTS_SUBAGENTS if subagent_enabled else None
 
         self._agent = create_deep_agent(
             model=create_chat_model(name=model_name, thinking_enabled=thinking_enabled),
@@ -505,7 +505,7 @@ class DeerFlowClient:
         if config_path is None:
             raise FileNotFoundError(
                 "Cannot locate extensions_config.json. "
-                "Set DEER_FLOW_EXTENSIONS_CONFIG_PATH or ensure it exists in the project root."
+                "Set OPENAGENTS_EXTENSIONS_CONFIG_PATH or ensure it exists in the project root."
             )
 
         current_config = get_extensions_config()
@@ -572,7 +572,7 @@ class DeerFlowClient:
         if config_path is None:
             raise FileNotFoundError(
                 "Cannot locate extensions_config.json. "
-                "Set DEER_FLOW_EXTENSIONS_CONFIG_PATH or ensure it exists in the project root."
+                "Set OPENAGENTS_EXTENSIONS_CONFIG_PATH or ensure it exists in the project root."
             )
 
         extensions_config = get_extensions_config()

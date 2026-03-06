@@ -57,15 +57,15 @@ func Load(path string) (*Config, error) {
 		Database: DatabaseConfig{
 			Host:    "localhost",
 			Port:    5432,
-			User:    "deerflow",
-			DBName:  "deerflow",
+			User:    "openagents",
+			DBName:  "openagents",
 			SSLMode: "disable",
 		},
 		JWT: JWTConfig{
 			ExpireHour: 72,
 		},
 		Storage: StorageConfig{
-			BaseDir: ".deer-flow",
+			BaseDir: ".openagents",
 		},
 		Upstream: UpstreamConfig{
 			LangGraphURL: "http://localhost:2024",
@@ -85,6 +85,13 @@ func Load(path string) (*Config, error) {
 	}
 
 	cfg.resolveEnvVars()
+
+	// Allow OPENAGENTS_HOME env var to override storage.base_dir
+	// This is the same env var used by the Python backend (src/config/paths.py)
+	if envHome := os.Getenv("OPENAGENTS_HOME"); envHome != "" && cfg.Storage.BaseDir == ".openagents" {
+		cfg.Storage.BaseDir = envHome
+	}
+
 	return cfg, nil
 }
 

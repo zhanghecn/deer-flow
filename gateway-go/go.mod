@@ -1,4 +1,4 @@
-module github.com/deer-flow/gateway
+module github.com/openagents/gateway
 
 go 1.22
 

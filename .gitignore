@@ -1,4 +1,4 @@
-# DeerFlow docker image cache
+# OpenAgents docker image cache
 docker/.cache/
 # OS generated files
 .DS_Store
@@ -33,7 +33,7 @@ extensions_config.json
 # Coverage report
 coverage.xml
 coverage/
-.deer-flow/
+.openagents/
 .claude/
 skills/custom/*
 logs/
@@ -52,3 +52,4 @@ sandbox_image_cache.tar
 
 # ignore the legacy `web` folder
 web/
+.deer-flow
