@@ -118,8 +118,13 @@ CI runs these regression tests for every pull request via [.github/workflows/bac
 **Runtime Configuration** (via `config.configurable`):
 - `thinking_enabled` - Enable model's extended thinking
 - `model_name` - Select specific LLM model
+- `model_config` - Inject full runtime model config for this run (DB-driven mode)
 - `is_plan_mode` - Enable TodoList middleware
 - `subagent_enabled` - Enable task delegation tool
+- **No implicit model fallback in agent runtime**: each run must resolve model from one of:
+  - `configurable.model_name` / `configurable.model`
+  - `configurable.model_config`
+  - `agent.model` in agent definition
 
 ### Middleware Architecture
 
@@ -143,15 +148,21 @@ The agent uses **deepagents built-in middleware** plus **OpenAgents-specific ext
 
 ### Configuration System
 
-**Main Configuration** (`config.yaml`):
+**Main Configuration** (`config.yaml`, optional in cloud mode):
 
-Setup: Copy `config.example.yaml` to `config.yaml` in the **project root** directory.
+Setup for local/dev: copy `config.example.yaml` to `config.yaml` in the **project root** directory.
+In cloud/database mode, runtime can start without `config.yaml` and load model config from:
+- `configurable.model_config` injected per request (preferred for Open API)
+- `OPENAGENTS_MODELS_JSON`
+
+No implicit model fallback is allowed in cloud mode.
 
 Configuration priority:
 1. Explicit `config_path` argument
 2. `OPENAGENTS_CONFIG_PATH` environment variable
 3. `config.yaml` in current directory (backend/)
 4. `config.yaml` in parent directory (project root - **recommended location**)
+5. If not found: no-file runtime mode (expects per-request model injection or explicit `OPENAGENTS_MODELS_JSON`)
 
 Config values starting with `$` are resolved as environment variables (e.g., `$OPENAI_API_KEY`).
 
@@ -193,8 +204,8 @@ Proxied through nginx: all `/api/*` → Gateway (Go or Python).
 The lead agent uses `deepagents.create_deep_agent()` which provides:
 - **CompositeBackend** — Routes filesystem operations by path prefix:
   - Default → `LocalShellBackend` (thread workspace, execute commands)
-  - `/skills/` → agent-specific skills (shared definition layer)
-  - `/public-skills/` → global public skills
+  - Named agent run: `/skills/` only (agent-specific skills, no implicit public fallback)
+  - Default lead-agent run: `/public-skills/` (global skills)
 - **FilesystemMiddleware** — Built-in sandbox tools (ls, read_file, write_file, edit_file, execute, glob, grep)
 - **SubAgentMiddleware** — Subagent delegation with `OPENAGENTS_SUBAGENTS` config
 

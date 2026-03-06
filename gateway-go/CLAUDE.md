@@ -32,7 +32,7 @@ internal/
 │   ├── auth.go              # Register/Login/Token management
 │   ├── agents.go            # Agent CRUD + publish
 │   ├── skills.go            # Skill CRUD + publish
-│   ├── models.go            # Model list (reads main config.yaml)
+│   ├── models.go            # Model list (reads PostgreSQL models table)
 │   ├── memory.go            # Memory management (proxy/direct)
 │   ├── mcp.go               # MCP config read/write
 │   ├── uploads.go           # File upload to thread dirs
@@ -85,7 +85,9 @@ Agent and Skill metadata are stored in PostgreSQL for querying, while AGENTS.md/
 - `$DB_HOST` → `os.Getenv("DB_HOST")`
 - `$JWT_SECRET` → `os.Getenv("JWT_SECRET")`
 
-The gateway also locates the main project `config.yaml` (for model list compatibility) by searching `../config.yaml`, `config.yaml`, `../../config.yaml`.
+The gateway locates the main project `config.yaml` for MCP config compatibility by searching `../config.yaml`, `config.yaml`, `../../config.yaml`.
+
+Open API (`/open/v1/agents/:name/*`) resolves the run model from PostgreSQL (`agents.model` -> `models.config_json`) and injects both `model_name` and `model_config` into LangGraph `configurable`.
 
 ## Database Schema
 

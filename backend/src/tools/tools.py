@@ -19,6 +19,7 @@ def get_available_tools(
     include_mcp: bool = True,
     mcp_servers: list[str] | None = None,
     model_name: str | None = None,
+    model_supports_vision: bool | None = None,
     subagent_enabled: bool = False,
 ) -> list[BaseTool]:
     """Get all available tools from config.
@@ -33,6 +34,7 @@ def get_available_tools(
         mcp_servers: Optional list of MCP server names to include.
             If None, includes tools from all enabled servers.
         model_name: Optional model name to determine if vision tools should be included.
+        model_supports_vision: Optional direct override for vision support.
         subagent_enabled: Whether to include subagent tools (task, task_status).
 
     Returns:
@@ -76,8 +78,11 @@ def get_available_tools(
         model_name = config.models[0].name
 
     # Add view_image_tool only if the model supports vision
-    model_config = config.get_model_config(model_name) if model_name else None
-    if model_config is not None and model_config.supports_vision:
+    if model_supports_vision is None:
+        model_config = config.get_model_config(model_name) if model_name else None
+        model_supports_vision = bool(model_config and model_config.supports_vision)
+
+    if model_supports_vision:
         builtin_tools.append(view_image_tool)
         logger.info(f"Including view_image_tool for model '{model_name}' (supports_vision=True)")
 

@@ -143,7 +143,7 @@ go run ./cmd/server
 | GET/POST | `/api/skills` | Skill 列表/创建 |
 | PUT/DELETE | `/api/skills/:name` | Skill 更新/删除 |
 | POST | `/api/skills/:name/publish` | 发布 Skill |
-| GET | `/api/models` | 模型列表 |
+| GET | `/api/models` | 模型列表（读取 PostgreSQL `models` 表） |
 | GET/POST | `/api/memory` | 记忆管理 |
 | GET/PUT | `/api/mcp` | MCP 配置 |
 | POST | `/api/threads/:id/uploads` | 文件上传 |
@@ -220,6 +220,8 @@ POST /open/v1/agents/:name/stream  # 只有 prod agent 可通过 Open API 调用
 - `threads` — 对话线程索引
 - `models` — 模型配置
 
+`/api/models` 与 Open API 运行时模型选择均基于 `models` 表。Open API 会将选定模型的 `config_json` 注入到 LangGraph `configurable.model_config`，避免依赖本地 `config.yaml`。
+
 ### 文件系统（双写同步）
 
 Agent/Skill 的 AGENTS.md 和 config.yaml 同步写入文件系统，供 LangGraph Server 读取：
@@ -256,6 +258,12 @@ Go 网关代理 `/api/langgraph/*` 请求到 LangGraph Server 时，自动注入
   }
 }
 ```
+
+对于 Open API (`/open/v1/agents/:name/*`)，网关还会根据 `agents.model` 注入：
+- `configurable.model_name`
+- `configurable.model_config`（来自 `models.config_json`）
+
+如果 `agents.model` 为空或对应模型未启用，请求会直接报错（不做隐式兜底）。
 
 ## 开发
 

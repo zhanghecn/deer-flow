@@ -6,24 +6,26 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/openagents/gateway/internal/middleware"
 	"github.com/openagents/gateway/internal/model"
 	"github.com/openagents/gateway/internal/repository"
 	"github.com/openagents/gateway/pkg/storage"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 type OpenAPIHandler struct {
 	agentRepo    *repository.AgentRepo
+	modelRepo    *repository.ModelRepo
 	langGraphURL string
 	fs           *storage.FS
 }
 
-func NewOpenAPIHandler(agentRepo *repository.AgentRepo, langGraphURL string, fs *storage.FS) *OpenAPIHandler {
-	return &OpenAPIHandler{agentRepo: agentRepo, langGraphURL: langGraphURL, fs: fs}
+func NewOpenAPIHandler(agentRepo *repository.AgentRepo, modelRepo *repository.ModelRepo, langGraphURL string, fs *storage.FS) *OpenAPIHandler {
+	return &OpenAPIHandler{agentRepo: agentRepo, modelRepo: modelRepo, langGraphURL: langGraphURL, fs: fs}
 }
 
 func (h *OpenAPIHandler) Chat(c *gin.Context) {
@@ -60,6 +62,12 @@ func (h *OpenAPIHandler) handleRequest(c *gin.Context, agentName string, stream 
 		threadID = uuid.New().String()
 	}
 
+	modelName, modelConfig, err := h.resolveModelForRun(c, agent)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
+		return
+	}
+
 	// Ensure thread directories
 	_ = h.fs.EnsureThreadDirs(threadID)
 
@@ -72,6 +80,8 @@ func (h *OpenAPIHandler) handleRequest(c *gin.Context, agentName string, stream 
 			"agent_name":   agentName,
 			"agent_status": "prod",
 			"thread_id":    threadID,
+			"model_name":   modelName,
+			"model_config": modelConfig,
 		},
 	}
 
@@ -133,6 +143,33 @@ func (h *OpenAPIHandler) handleRequest(c *gin.Context, agentName string, stream 
 		c.Header("X-Thread-ID", threadID)
 		c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), body)
 	}
+}
+
+func (h *OpenAPIHandler) resolveModelForRun(c *gin.Context, agent *model.Agent) (string, map[string]interface{}, error) {
+	if agent.Model == nil || strings.TrimSpace(*agent.Model) == "" {
+		return "", nil, fmt.Errorf("agent has no model configured; fallback selection is disabled")
+	}
+
+	row, err := h.modelRepo.FindEnabledByName(c.Request.Context(), *agent.Model)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to load model %q: %w", *agent.Model, err)
+	}
+	if row == nil {
+		return "", nil, fmt.Errorf("agent model %q not found or disabled", *agent.Model)
+	}
+
+	config := map[string]interface{}{}
+	if len(row.ConfigJSON) > 0 {
+		if err := json.Unmarshal(row.ConfigJSON, &config); err != nil {
+			return "", nil, fmt.Errorf("invalid model config_json for %q: %w", row.Name, err)
+		}
+	}
+	config["name"] = row.Name
+	if row.DisplayName != nil && strings.TrimSpace(*row.DisplayName) != "" {
+		config["display_name"] = *row.DisplayName
+	}
+
+	return row.Name, config, nil
 }
 
 func (h *OpenAPIHandler) GetArtifact(c *gin.Context) {

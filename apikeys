@@ -1,3 +1,7 @@
 "ANTHROPIC_AUTH_TOKEN": "sk-sp-7f7dd6439d8e4af0a4241da5e4ea2e8c",
 "ANTHROPIC_BASE_URL": "https://coding.dashscope.aliyuncs.com/apps/anthropic",
 "ANTHROPIC_MODEL": "glm-5"
+
+
+1	anthropic	kimi-k2.5-1	sk-kimi-iTmVzeQofVNhi0NVJVn0gY21zEdrbXpEMlSeX6QotEpYL4op46Fb8TWzsQbPSSn1	https://api.kimi.com/coding/	kimi-k2.5	
+2	anthropic	kimi-k2.5-2	sk-kimi-OOSOEpfXJsjGQGB5dIuDTqNfrNWSzYCLlwHNuxD2cmsihdYQmq1qYRDfjx75kH4T	https://api.kimi.com/coding/	kimi-k2.5	

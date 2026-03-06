@@ -1,3 +1,5 @@
+import json
+import logging
 import os
 from pathlib import Path
 from typing import Any, Self
@@ -17,6 +19,7 @@ from src.config.title_config import load_title_config_from_dict
 from src.config.tool_config import ToolConfig, ToolGroupConfig
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 
 class AppConfig(BaseModel):
@@ -31,13 +34,14 @@ class AppConfig(BaseModel):
     model_config = ConfigDict(extra="allow", frozen=False)
 
     @classmethod
-    def resolve_config_path(cls, config_path: str | None = None) -> Path:
+    def resolve_config_path(cls, config_path: str | None = None) -> Path | None:
         """Resolve the config file path.
 
         Priority:
         1. If provided `config_path` argument, use it.
         2. If provided `OPENAGENTS_CONFIG_PATH` environment variable, use it.
         3. Otherwise, first check the `config.yaml` in the current directory, then fallback to `config.yaml` in the parent directory.
+           If neither exists, return None (runtime fallback mode).
         """
         if config_path:
             path = Path(config_path)
@@ -56,8 +60,59 @@ class AppConfig(BaseModel):
                 # Check if the config.yaml is in the parent directory of CWD
                 path = Path(os.getcwd()).parent / "config.yaml"
                 if not path.exists():
-                    raise FileNotFoundError("`config.yaml` file not found at the current directory nor its parent directory")
+                    return None
             return path
+
+    @classmethod
+    def _load_models_from_models_json_env(cls) -> list[ModelConfig]:
+        """Load models from OPENAGENTS_MODELS_JSON (explicit runtime source)."""
+        raw = os.getenv("OPENAGENTS_MODELS_JSON")
+        if not raw:
+            return []
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as e:
+            logger.warning("OPENAGENTS_MODELS_JSON is not valid JSON: %s", e)
+            return []
+
+        if isinstance(payload, dict):
+            payload = payload.get("models", [])
+        if not isinstance(payload, list):
+            logger.warning("OPENAGENTS_MODELS_JSON must be a JSON array (or object with key 'models').")
+            return []
+
+        models: list[ModelConfig] = []
+        for index, item in enumerate(payload):
+            if not isinstance(item, dict):
+                logger.warning("Skip OPENAGENTS_MODELS_JSON[%s]: expected object, got %s", index, type(item).__name__)
+                continue
+            try:
+                models.append(ModelConfig(**cls.resolve_env_variables(item)))
+            except Exception as e:
+                logger.warning("Skip invalid model entry in OPENAGENTS_MODELS_JSON[%s]: %s", index, e)
+        return models
+
+    @classmethod
+    def from_runtime_defaults(cls) -> Self:
+        """Create runtime config without config.yaml.
+
+        No implicit fallback is applied. Model config must be injected per run
+        (e.g., via `configurable.model_config`) or provided explicitly through
+        OPENAGENTS_MODELS_JSON.
+        """
+        models = cls._load_models_from_models_json_env()
+        if not models:
+            logger.info("No config.yaml found and OPENAGENTS_MODELS_JSON is empty. Runtime expects per-request model injection.")
+
+        sandbox_use = os.getenv("OPENAGENTS_SANDBOX_PROVIDER", "src.sandbox.local:LocalSandboxProvider")
+        return cls(
+            models=models,
+            sandbox=SandboxConfig(use=sandbox_use),
+            tools=[],
+            tool_groups=[],
+            skills=SkillsConfig(),
+            extensions=ExtensionsConfig.from_file(),
+        )
 
     @classmethod
     def from_file(cls, config_path: str | None = None) -> Self:
@@ -72,9 +127,21 @@ class AppConfig(BaseModel):
             AppConfig: The loaded config.
         """
         resolved_path = cls.resolve_config_path(config_path)
+        if resolved_path is None:
+            logger.info("config.yaml not found. Use runtime fallback config mode.")
+            return cls.from_runtime_defaults()
+
         with open(resolved_path, encoding="utf-8") as f:
-            config_data = yaml.safe_load(f)
+            config_data = yaml.safe_load(f) or {}
         config_data = cls.resolve_env_variables(config_data)
+        if not isinstance(config_data, dict):
+            raise ValueError(f"Config file {resolved_path} must contain a YAML object at top-level.")
+
+        config_data.setdefault("models", [])
+        config_data.setdefault("tools", [])
+        config_data.setdefault("tool_groups", [])
+        config_data.setdefault("skills", {})
+        config_data.setdefault("sandbox", {"use": os.getenv("OPENAGENTS_SANDBOX_PROVIDER", "src.sandbox.local:LocalSandboxProvider")})
 
         # Load title config if present
         if "title" in config_data:

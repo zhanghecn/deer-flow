@@ -82,6 +82,8 @@ Learn more and see **real demos** on our official website.
        temperature: 0.7                  # Sampling temperature
    ```
 
+   Note: In cloud mode (Go Gateway + PostgreSQL models table), Open API requests inject runtime model config per request; agent runtime no longer relies on implicit default model fallback.
+
   
 4. **Set API keys for your configured model(s)**
 

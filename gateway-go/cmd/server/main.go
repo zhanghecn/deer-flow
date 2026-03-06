@@ -43,7 +43,7 @@ func main() {
 		baseDir = filepath.Join(homeDir, baseDir)
 	}
 
-	// Find main config.yaml (for model list compatibility)
+	// Find main config.yaml (for MCP config compatibility)
 	mainConfigPath := findMainConfig()
 
 	// Initialize database
@@ -62,6 +62,7 @@ func main() {
 	tokenRepo := repository.NewAPITokenRepo(pool)
 	agentRepo := repository.NewAgentRepo(pool)
 	skillRepo := repository.NewSkillRepo(pool)
+	modelRepo := repository.NewModelRepo(pool)
 
 	// Services
 	agentSvc := service.NewAgentService(agentRepo, fs)
@@ -71,12 +72,12 @@ func main() {
 	authH := handler.NewAuthHandler(userRepo, tokenRepo, jwtMgr, fs)
 	agentH := handler.NewAgentHandler(agentSvc)
 	skillH := handler.NewSkillHandler(skillSvc)
-	modelH := handler.NewModelHandler(mainConfigPath)
+	modelH := handler.NewModelHandler(modelRepo)
 	memoryH := handler.NewMemoryHandler(fs)
 	mcpH := handler.NewMCPHandler(filepath.Dir(mainConfigPath))
 	uploadsH := handler.NewUploadsHandler(fs)
 	artifactsH := handler.NewArtifactsHandler(fs)
-	openAPIH := handler.NewOpenAPIHandler(agentRepo, cfg.Upstream.LangGraphURL, fs)
+	openAPIH := handler.NewOpenAPIHandler(agentRepo, modelRepo, cfg.Upstream.LangGraphURL, fs)
 
 	// Compile proxy routes from gateway.yaml config
 	loggingLevel := strings.ToLower(cfg.Logging.Level)

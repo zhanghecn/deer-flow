@@ -3,12 +3,18 @@ import logging
 from langchain.chat_models import BaseChatModel
 
 from src.config import get_app_config, get_tracing_config, is_tracing_enabled
+from src.config.model_config import ModelConfig
 from src.reflection import resolve_class
 
 logger = logging.getLogger(__name__)
 
 
-def create_chat_model(name: str | None = None, thinking_enabled: bool = False, **kwargs) -> BaseChatModel:
+def create_chat_model(
+    name: str | None = None,
+    thinking_enabled: bool = False,
+    runtime_model_config: ModelConfig | dict | None = None,
+    **kwargs,
+) -> BaseChatModel:
     """Create a chat model instance from the config.
 
     Args:
@@ -17,12 +23,28 @@ def create_chat_model(name: str | None = None, thinking_enabled: bool = False, *
     Returns:
         A chat model instance.
     """
-    config = get_app_config()
-    if name is None:
-        name = config.models[0].name
-    model_config = config.get_model_config(name)
-    if model_config is None:
-        raise ValueError(f"Model {name} not found in config") from None
+    model_config: ModelConfig | None = None
+
+    if runtime_model_config is not None:
+        if isinstance(runtime_model_config, ModelConfig):
+            model_config = runtime_model_config
+        else:
+            model_config = ModelConfig.model_validate(runtime_model_config)
+
+        if name is None:
+            name = model_config.name
+        elif model_config.name != name:
+            logger.warning("Runtime model config name '%s' does not match requested model '%s'; use runtime model config.", model_config.name, name)
+            name = model_config.name
+    else:
+        config = get_app_config()
+        if name is None:
+            name = config.models[0].name
+        model_config = config.get_model_config(name)
+        if model_config is None:
+            raise ValueError(f"Model {name} not found in config") from None
+
+    assert model_config is not None
     model_class = resolve_class(model_config.use, BaseChatModel)
     model_settings_from_config = model_config.model_dump(
         exclude_none=True,
@@ -39,13 +61,15 @@ def create_chat_model(name: str | None = None, thinking_enabled: bool = False, *
     )
     if thinking_enabled and model_config.when_thinking_enabled is not None:
         if not model_config.supports_thinking:
-            raise ValueError(f"Model {name} does not support thinking. Set `supports_thinking` to true in the `config.yaml` to enable thinking.") from None
+            raise ValueError(
+                f"Model {name} does not support thinking. Set `supports_thinking` to true in your runtime model configuration."
+            ) from None
         model_settings_from_config.update(model_config.when_thinking_enabled)
     if not thinking_enabled and model_config.when_thinking_enabled and model_config.when_thinking_enabled.get("extra_body", {}).get("thinking", {}).get("type"):
         kwargs.update({"extra_body": {"thinking": {"type": "disabled"}}})
         kwargs.update({"reasoning_effort": "minimal"})
     if not model_config.supports_reasoning_effort:
-        kwargs.update({"reasoning_effort": None})
+        kwargs.pop("reasoning_effort", None)
     model_instance = model_class(**kwargs, **model_settings_from_config)
 
     if is_tracing_enabled():

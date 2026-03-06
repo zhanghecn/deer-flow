@@ -1,57 +1,48 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
-	"os"
 	"strings"
 
-	"github.com/openagents/gateway/internal/model"
 	"github.com/gin-gonic/gin"
-	"gopkg.in/yaml.v3"
+	"github.com/openagents/gateway/internal/model"
+	"github.com/openagents/gateway/internal/repository"
 )
 
 type ModelHandler struct {
-	configPath string
+	repo *repository.ModelRepo
 }
 
-func NewModelHandler(configPath string) *ModelHandler {
-	return &ModelHandler{configPath: configPath}
+func NewModelHandler(repo *repository.ModelRepo) *ModelHandler {
+	return &ModelHandler{repo: repo}
 }
 
-// ModelConfig represents a model entry from config.yaml
 type ModelConfig struct {
-	Name               string `yaml:"name" json:"name"`
-	DisplayName        string `yaml:"display_name" json:"display_name"`
-	Model              string `yaml:"model" json:"model"`
-	SupportsThinking   bool   `yaml:"supports_thinking" json:"supports_thinking"`
-	SupportsVision     bool   `yaml:"supports_vision" json:"supports_vision"`
-	SupportsReasoning  bool   `yaml:"supports_reasoning_effort" json:"supports_reasoning_effort"`
-}
-
-type configFile struct {
-	Models []ModelConfig `yaml:"models"`
+	Name              string `json:"name"`
+	DisplayName       string `json:"display_name"`
+	Model             string `json:"model"`
+	SupportsThinking  bool   `json:"supports_thinking"`
+	SupportsVision    bool   `json:"supports_vision"`
+	SupportsReasoning bool   `json:"supports_reasoning_effort"`
 }
 
 func (h *ModelHandler) List(c *gin.Context) {
-	data, err := os.ReadFile(h.configPath)
+	rows, err := h.repo.ListEnabled(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to read config"})
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to query models"})
 		return
 	}
 
-	// Resolve environment variables
-	content := os.ExpandEnv(string(data))
-
-	var cfg configFile
-	if err := yaml.Unmarshal([]byte(content), &cfg); err != nil {
-		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to parse config"})
-		return
+	models := make([]ModelConfig, 0, len(rows))
+	for _, row := range rows {
+		models = append(models, mapModelRow(row))
 	}
 
 	// Filter by query
 	query := strings.ToLower(c.Query("q"))
 	var result []ModelConfig
-	for _, m := range cfg.Models {
+	for _, m := range models {
 		if query == "" || strings.Contains(strings.ToLower(m.Name), query) || strings.Contains(strings.ToLower(m.DisplayName), query) {
 			result = append(result, m)
 		}
@@ -61,4 +52,33 @@ func (h *ModelHandler) List(c *gin.Context) {
 		result = []ModelConfig{}
 	}
 	c.JSON(http.StatusOK, gin.H{"models": result})
+}
+
+func mapModelRow(row repository.ModelRecord) ModelConfig {
+	cfgMap := map[string]interface{}{}
+	_ = json.Unmarshal(row.ConfigJSON, &cfgMap)
+
+	displayName := row.Name
+	if row.DisplayName != nil && strings.TrimSpace(*row.DisplayName) != "" {
+		displayName = *row.DisplayName
+	}
+
+	modelName, _ := cfgMap["model"].(string)
+	if strings.TrimSpace(modelName) == "" {
+		modelName = row.Name
+	}
+
+	return ModelConfig{
+		Name:              row.Name,
+		DisplayName:       displayName,
+		Model:             modelName,
+		SupportsThinking:  toBool(cfgMap["supports_thinking"]),
+		SupportsVision:    toBool(cfgMap["supports_vision"]),
+		SupportsReasoning: toBool(cfgMap["supports_reasoning_effort"]),
+	}
+}
+
+func toBool(v interface{}) bool {
+	b, ok := v.(bool)
+	return ok && b
 }

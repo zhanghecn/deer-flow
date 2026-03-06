@@ -9,28 +9,13 @@ from src.agents.middlewares.thread_data_middleware import ThreadDataMiddleware
 from src.agents.middlewares.title_middleware import TitleMiddleware
 from src.agents.middlewares.uploads_middleware import UploadsMiddleware
 from src.agents.middlewares.view_image_middleware import ViewImageMiddleware
-from src.agents.thread_state import ThreadState
-from src.config.agents_config import load_agent_config, load_agents_md
+from src.config.agents_config import load_agent_config
 from src.config.app_config import get_app_config
+from src.config.model_config import ModelConfig
 from src.config.paths import get_paths
 from src.models import create_chat_model
 
 logger = logging.getLogger(__name__)
-
-
-def _resolve_model_name(requested_model_name: str | None = None) -> str:
-    """Resolve a runtime model name safely, falling back to default if invalid."""
-    app_config = get_app_config()
-    default_model_name = app_config.models[0].name if app_config.models else None
-    if default_model_name is None:
-        raise ValueError("No chat models are configured. Please configure at least one model in config.yaml.")
-
-    if requested_model_name and app_config.get_model_config(requested_model_name):
-        return requested_model_name
-
-    if requested_model_name and requested_model_name != default_model_name:
-        logger.warning(f"Model '{requested_model_name}' not found in config; fallback to default model '{default_model_name}'.")
-    return default_model_name
 
 
 def build_backend(thread_id: str, agent_name: str | None, status: str = "dev"):
@@ -71,18 +56,19 @@ def build_backend(thread_id: str, agent_name: str | None, status: str = "dev"):
                 virtual_mode=True,
             )
 
-    # Global public skills
-    skills_root = paths.skills_dir
-    if skills_root.exists():
-        routes["/public-skills/"] = FilesystemBackend(
-            root_dir=str(skills_root),
-            virtual_mode=True,
-        )
+    # Global public skills are only exposed for the default agent flow.
+    if not agent_name:
+        skills_root = paths.skills_dir
+        if skills_root.exists():
+            routes["/public-skills/"] = FilesystemBackend(
+                root_dir=str(skills_root),
+                virtual_mode=True,
+            )
 
     return CompositeBackend(default=workspace_backend, routes=routes)
 
 
-def _build_openagents_middlewares(model_name: str | None):
+def _build_openagents_middlewares(model_name: str | None, runtime_model_config: ModelConfig | None = None):
     """Build openagents specific extra middlewares (not handled by deepagents).
 
     deepagents already provides:
@@ -102,8 +88,10 @@ def _build_openagents_middlewares(model_name: str | None):
     """
     middlewares = [ThreadDataMiddleware(), UploadsMiddleware(), TitleMiddleware()]
 
-    app_config = get_app_config()
-    model_config = app_config.get_model_config(model_name) if model_name else None
+    model_config = runtime_model_config
+    if model_config is None:
+        app_config = get_app_config()
+        model_config = app_config.get_model_config(model_name) if model_name else None
     if model_config is not None and model_config.supports_vision:
         middlewares.append(ViewImageMiddleware())
 
@@ -150,17 +138,41 @@ def make_lead_agent(config: RunnableConfig):
     agent_name = cfg.get("agent_name")
     agent_status = cfg.get("agent_status", "dev")
     thread_id = cfg.get("thread_id")
-    user_id = cfg.get("user_id")
+    runtime_model_payload = cfg.get("model_config")
+
+    runtime_model_config: ModelConfig | None = None
+    if runtime_model_payload is not None:
+        if isinstance(runtime_model_payload, ModelConfig):
+            runtime_model_config = runtime_model_payload
+        elif isinstance(runtime_model_payload, dict):
+            runtime_model_config = ModelConfig.model_validate(runtime_model_payload)
+        else:
+            raise ValueError("`configurable.model_config` must be an object.")
 
     agent_config = load_agent_config(agent_name, status=agent_status) if (agent_name and not is_bootstrap) else None
-    agent_model_name = agent_config.model if agent_config and agent_config.model else _resolve_model_name()
-    model_name = requested_model_name or agent_model_name
+    if requested_model_name:
+        model_name = requested_model_name
+    elif agent_config and agent_config.model:
+        model_name = agent_config.model
+    elif runtime_model_config is not None:
+        model_name = runtime_model_config.name
+    else:
+        raise ValueError(
+            "No model resolved for this run. Provide `configurable.model_name`/`model`, "
+            "or `configurable.model_config`, or set `agent.model`."
+        )
 
     app_config = get_app_config()
-    model_config = app_config.get_model_config(model_name) if model_name else None
+    if runtime_model_config is not None and runtime_model_config.name == model_name:
+        model_config = runtime_model_config
+    else:
+        model_config = app_config.get_model_config(model_name) if model_name else None
 
     if model_config is None:
-        raise ValueError("No chat model could be resolved. Please configure at least one model in config.yaml or provide a valid 'model_name'/'model' in the request.")
+        raise ValueError(
+            "Resolved model is not available. Provide a valid `configurable.model_name`/`model`, "
+            "or inject `configurable.model_config`, or configure the model in config.yaml / OPENAGENTS_MODELS_JSON."
+        )
     if thinking_enabled and not model_config.supports_thinking:
         logger.warning(f"Thinking mode is enabled but model '{model_name}' does not support it; fallback to non-thinking mode.")
         thinking_enabled = False
@@ -191,8 +203,12 @@ def make_lead_agent(config: RunnableConfig):
     # Build CompositeBackend (replaces LocalSandbox + replace_virtual_path)
     backend = build_backend(thread_id, agent_name, agent_status)
 
-    # Skills sources for deepagents SkillsMiddleware
-    skills_sources = ["/skills/", "/public-skills/"]
+    # Skills sources for deepagents SkillsMiddleware.
+    # For named agents, only use agent-owned skills to avoid implicit fallback.
+    if agent_name:
+        skills_sources = ["/skills/"]
+    else:
+        skills_sources = ["/public-skills/"]
 
     # Memory sources (AGENTS.md loaded from agent definition directory)
     memory_sources = []
@@ -207,12 +223,13 @@ def make_lead_agent(config: RunnableConfig):
     subagents = OPENAGENTS_SUBAGENTS if subagent_enabled else None
 
     # openagents specific extra middlewares
-    extra_middleware = _build_openagents_middlewares(model_name)
+    extra_middleware = _build_openagents_middlewares(model_name, runtime_model_config=model_config)
 
     # Community tools + MCP tools (sandbox tools provided by deepagents FilesystemMiddleware)
     # Exclude file:read, file:write, bash groups — deepagents provides ls, read_file, write_file, edit_file, execute, glob, grep
     tools = get_available_tools(
         model_name=model_name,
+        model_supports_vision=model_config.supports_vision,
         groups=agent_config.tool_groups if agent_config else None,
         exclude_groups=["file:read", "file:write", "bash"],
         mcp_servers=agent_config.mcp_servers if agent_config else None,
@@ -234,7 +251,12 @@ def make_lead_agent(config: RunnableConfig):
     interrupt_on = {"ask_clarification": True}
 
     return create_deep_agent(
-        model=create_chat_model(name=model_name, thinking_enabled=thinking_enabled, reasoning_effort=reasoning_effort),
+        model=create_chat_model(
+            name=model_name,
+            thinking_enabled=thinking_enabled,
+            reasoning_effort=reasoning_effort,
+            runtime_model_config=model_config,
+        ),
         tools=tools,
         system_prompt=system_prompt,
         middleware=extra_middleware,
