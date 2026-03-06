@@ -52,7 +52,7 @@ Nginx (:2026)
 createdb openagents
 
 # 运行迁移
-make migrate DATABASE_URL="postgres://user:pass@localhost:5432/openagents?sslmode=disable"
+make migrate DATABASE_URL="postgres://root:zhangxuan66@localhost:5432/openagents?sslmode=disable"
 ```
 
 ### 2. 配置
@@ -67,8 +67,8 @@ server:
 database:
   host: localhost       # 或 $DB_HOST 环境变量
   port: 5432
-  user: openagents        # 或 $DB_USER
-  password: secret      # 或 $DB_PASSWORD
+  user: root            # 或 $DB_USER
+  password: zhangxuan66 # 或 $DB_PASSWORD
   dbname: openagents
   sslmode: disable
 

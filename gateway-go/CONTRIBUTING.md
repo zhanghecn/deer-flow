@@ -21,7 +21,7 @@ cd openagents/gateway-go
 createdb openagents
 
 # 3. 运行迁移
-export DATABASE_URL="postgres://user:pass@localhost:5432/openagents?sslmode=disable"
+export DATABASE_URL="postgres://root:zhangxuan66.@localhost:5432/openagents?sslmode=disable"
 make migrate
 
 # 4. 配置环境变量

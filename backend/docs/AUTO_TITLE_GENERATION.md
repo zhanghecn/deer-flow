@@ -41,7 +41,7 @@ class ThreadState(AgentState):
 from langgraph.checkpoint.postgres import PostgresSaver
 
 checkpointer = PostgresSaver.from_conn_string(
-    "postgresql://user:pass@localhost/dbname"
+    "postgresql://root:zhangxuan66@localhost/dbname"
 )
 ```
 

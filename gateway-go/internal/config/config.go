@@ -69,11 +69,12 @@ func Load(path string) (*Config, error) {
 			Host: "0.0.0.0",
 		},
 		Database: DatabaseConfig{
-			Host:    "localhost",
-			Port:    5432,
-			User:    "openagents",
-			DBName:  "openagents",
-			SSLMode: "disable",
+			Host:     "localhost",
+			Port:     5432,
+			User:     "root",
+			Password: "zhangxuan66",
+			DBName:   "openagents",
+			SSLMode:  "disable",
 		},
 		JWT: JWTConfig{
 			ExpireHour: 72,
