@@ -17,11 +17,8 @@ test:
 clean:
 	rm -rf bin/
 
-# 数据库迁移：遍历 migrations/ 目录下的所有 .sql 文件，使用 psql 依次执行
+# 数据库迁移：使用 golang-migrate 执行 migrations/ 目录下的 .up.sql 文件
 migrate:
 	@echo "Running migrations..."
-	@for f in migrations/*.sql; do \
-		echo "Applying $$f..."; \
-		psql "$(DATABASE_URL)" -f "$$f"; \
-	done
+	@go run ./cmd/migrate
 	@echo "Migrations complete."

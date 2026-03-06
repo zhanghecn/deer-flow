@@ -6,11 +6,11 @@ server:
 
 database:
   host: $DB_HOST
-  port: 5432
+  port: $DB_PORT
   user: $DB_USER
   password: $DB_PASSWORD
-  dbname: openagents
-  sslmode: disable
+  dbname: $DB_NAME
+  sslmode: $DB_SSLMODE
 
 jwt:
   secret: $JWT_SECRET

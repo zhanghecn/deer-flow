@@ -20,15 +20,15 @@ cd openagents/gateway-go
 # 2. 创建 PostgreSQL 数据库
 createdb openagents
 
-# 3. 运行迁移
-export DATABASE_URL="postgres://root:zhangxuan66.@localhost:5432/openagents?sslmode=disable"
-make migrate
-
-# 4. 配置环境变量
+# 3. 配置环境变量
 export DB_HOST=localhost
-export DB_USER=openagents
-export DB_PASSWORD=secret
+export DB_USER=root
+export DB_PASSWORD=zhangxuan66
+export DB_NAME=openagents
 export JWT_SECRET=dev-secret-change-me
+
+# 4. 运行迁移
+make migrate
 
 # 5. 启动
 make run

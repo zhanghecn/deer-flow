@@ -51,13 +51,29 @@ Nginx (:2026)
 # 创建数据库
 createdb openagents
 
-# 运行迁移
-make migrate DATABASE_URL="postgres://root:zhangxuan66@localhost:5432/openagents?sslmode=disable"
+# 运行迁移（会自动读取 .env 中的 DB_HOST/USER/PASSWORD 等变量）
+make migrate
 ```
 
 ### 2. 配置
 
-复制并编辑 `gateway.yaml`：
+**方式一：使用环境变量（推荐）**
+
+复制 `.env.example` 为 `.env` 并配置：
+
+```bash
+cp .env.example .env
+# 编辑 .env 填写实际值
+```
+
+所需环境变量：
+- `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` — 数据库连接
+- `JWT_SECRET` — JWT 签名密钥（生成：`openssl rand -base64 32`）
+- `OPENAGENTS_HOME` — 数据存储目录（可选，默认 `.openagents`）
+
+**方式二：使用配置文件**
+
+编辑 `gateway.yaml`（支持环境变量占位符 `$VAR`）：
 
 ```yaml
 server:
@@ -65,25 +81,23 @@ server:
   host: 0.0.0.0
 
 database:
-  host: localhost       # 或 $DB_HOST 环境变量
+  host: $DB_HOST       # 或填写实际值
   port: 5432
-  user: root            # 或 $DB_USER
-  password: zhangxuan66 # 或 $DB_PASSWORD
+  user: $DB_USER
+  password: $DB_PASSWORD
   dbname: openagents
   sslmode: disable
 
 jwt:
-  secret: your-secret   # 或 $JWT_SECRET（生产环境务必使用强密钥）
+  secret: $JWT_SECRET   # 生产环境务必使用强密钥
   expire_hour: 72
 
 storage:
-  base_dir: .openagents  # Agent/Skill 文件系统同步根目录
+  base_dir: .openagents
 
 upstream:
   langgraph_url: http://localhost:2024
 ```
-
-以 `$` 开头的值会自动解析为环境变量。
 
 ### 3. 构建和运行
 

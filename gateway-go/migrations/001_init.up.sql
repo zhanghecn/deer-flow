@@ -1,7 +1,10 @@
 -- OpenAgents Enterprise Schema v1
--- Run: psql $DATABASE_URL -f migrations/001_init.sql
+-- Run: make migrate (reads DB_HOST/PORT/USER/PASSWORD from .env)
 
 BEGIN;
+
+-- 设置时区为中国时间
+SET TIME ZONE 'Asia/Shanghai';
 
 -- Users
 CREATE TABLE IF NOT EXISTS users (
