@@ -77,10 +77,10 @@ Host Machine
   ↓
 Docker Compose (openagents-dev)
   ├→ nginx (port 2026) ← Reverse proxy
-  ├→ web (port 3000) ← Frontend with hot-reload
-  ├→ api (port 8001) ← Gateway API with hot-reload
-   ├→ langgraph (port 2024) ← LangGraph server with hot-reload
-   └→ provisioner (optional, port 8002) ← Started only in provisioner/K8s sandbox mode
+  ├→ frontend (port 3000) ← Next.js with hot-reload
+  ├→ gateway (port 8001) ← Go Gateway (JWT auth, Agent/Skill CRUD, LangGraph proxy)
+  ├→ langgraph (port 2024) ← LangGraph server (deepagents engine)
+  └→ provisioner (optional, port 8002) ← Started only in provisioner/K8s sandbox mode
 ```
 
 **Benefits of Docker Development**:
@@ -107,7 +107,9 @@ Required tools:
 - Node.js 22+
 - pnpm
 - uv (Python package manager)
+- Go 1.22+
 - nginx
+- PostgreSQL 14+ (for Go Gateway)
 
 #### Setup Steps
 
@@ -170,42 +172,67 @@ The nginx configuration provides:
 
 ```
 openagents/
-├── config.example.yaml      # Configuration template
-├── extensions_config.example.json  # MCP and Skills configuration template
-├── Makefile                 # Build and development commands
+├── config.example.yaml           # Configuration template
+├── extensions_config.example.json # MCP and Skills configuration template
+├── Makefile                      # Build and development commands
 ├── scripts/
-│   └── docker.sh           # Docker management script
+│   ├── docker.sh                 # Docker management script
+│   └── cleanup-containers.sh     # Sandbox container cleanup
 ├── docker/
-│   ├── docker-compose-dev.yaml  # Docker Compose configuration
-│   └── nginx/
-│       ├── nginx.conf      # Nginx config for Docker
-│       └── nginx.local.conf # Nginx config for local dev
-├── backend/                 # Backend application
+│   ├── docker-compose-dev.yaml   # Docker Compose configuration
+│   ├── nginx/
+│   │   ├── nginx.conf            # Nginx config for Docker
+│   │   └── nginx.local.conf      # Nginx config for local dev
+│   └── provisioner/              # Sandbox provisioner (K8s mode)
+├── gateway-go/                   # Go Gateway (replacing Python Gateway)
+│   ├── cmd/server/main.go        # Entry point
+│   ├── internal/                 # Handlers, middleware, repository, service, proxy
+│   ├── pkg/                      # JWT, filesystem storage
+│   ├── migrations/               # PostgreSQL schema
+│   └── gateway.yaml              # Gateway configuration
+├── backend/                      # Backend application (LangGraph Server)
 │   ├── src/
-│   │   ├── gateway/        # Gateway API (port 8001)
-│   │   ├── agents/         # LangGraph agents (port 2024)
-│   │   ├── mcp/            # Model Context Protocol integration
-│   │   ├── skills/         # Skills system
-│   │   └── sandbox/        # Sandbox execution
-│   ├── docs/               # Backend documentation
-│   └── Makefile            # Backend commands
-├── frontend/               # Frontend application
-│   └── Makefile            # Frontend commands
-└── skills/                 # Agent skills
-    ├── public/             # Public skills
-    └── custom/             # Custom skills
+│   │   ├── agents/               # LangGraph agents (deepagents engine)
+│   │   ├── gateway/              # Python Gateway (legacy, being replaced by Go)
+│   │   ├── mcp/                  # Model Context Protocol integration
+│   │   ├── skills/               # Skills system
+│   │   ├── tools/                # Built-in tools
+│   │   ├── community/            # Community tools (tavily, jina, firecrawl)
+│   │   └── client.py             # Embedded Python client (OpenAgentsClient)
+│   ├── docs/                     # Backend documentation
+│   └── Makefile                  # Backend commands
+├── frontend/                     # Next.js frontend (JWT auth)
+└── skills/                       # Agent skills
+    ├── public/                   # Public skills
+    └── custom/                   # Custom skills (gitignored)
 ```
 
 ## Architecture
 
 ```
-Browser
+Browser (JWT auth)
   ↓
 Nginx (port 2026) ← Unified entry point
   ├→ Frontend (port 3000) ← / (non-API requests)
-  ├→ Gateway API (port 8001) ← /api/models, /api/mcp, /api/skills, /api/threads/*/artifacts
-  └→ LangGraph Server (port 2024) ← /api/langgraph/* (agent interactions)
+  ├→ Go Gateway (port 8001) ← /api/* (auth, agents, skills, models, uploads, artifacts)
+  │   ├→ JWT/API Token authentication
+  │   ├→ Agent/Skill CRUD (PostgreSQL + filesystem dual-write)
+  │   ├→ Open API: /open/v1/agents/:name/* (external API Token auth)
+  │   └→ Reverse proxy to LangGraph with user_id injection
+  └→ LangGraph Server (port 2024) ← /api/langgraph/* (agent execution)
+      ├→ deepagents engine (create_deep_agent)
+      ├→ CompositeBackend (LocalShellBackend + FilesystemBackend)
+      ├→ SubAgentMiddleware (general-purpose, bash)
+      └→ SkillsMiddleware + FilesystemMiddleware
 ```
+
+### Key Design Decisions
+
+- **Go Gateway** replaces Python Gateway for multi-user JWT auth, PostgreSQL storage, and Open API
+- **deepagents framework** replaces legacy sandbox/subagent systems with `create_deep_agent()`
+- **Dual-write pattern**: Agent/Skill metadata in PostgreSQL + AGENTS.md/config.yaml on filesystem
+- **Agent status model**: `dev` (internal) → `prod` (published, accessible via Open API)
+- **Unified env var**: `OPENAGENTS_HOME` controls base data directory for both Go and Python
 
 ## Development Workflow
 
@@ -234,11 +261,18 @@ Nginx (port 2026) ← Unified entry point
 ```bash
 # Backend tests
 cd backend
-uv run pytest
+make test
 
-# Frontend tests
+# Go Gateway build
+make gateway-build
+
+# Go Gateway tests
+cd gateway-go
+go test ./...
+
+# Frontend type check
 cd frontend
-pnpm test
+pnpm typecheck
 ```
 
 ### PR Regression Checks
@@ -257,7 +291,9 @@ Every pull request runs the backend regression workflow at [.github/workflows/ba
 
 - [Configuration Guide](backend/docs/CONFIGURATION.md) - Setup and configuration
 - [Architecture Overview](backend/CLAUDE.md) - Technical architecture
-- [MCP Setup Guide](MCP_SETUP.md) - Model Context Protocol configuration
+- [Go Gateway](gateway-go/README.md) - Go Gateway setup, API routes, and authentication
+- [Go Gateway Contributing](gateway-go/CONTRIBUTING.md) - Gateway development guide
+- [MCP Setup Guide](backend/docs/MCP_SERVER.md) - Model Context Protocol configuration
 
 ## Need Help?
 
