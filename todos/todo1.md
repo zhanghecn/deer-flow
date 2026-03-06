@@ -39,13 +39,11 @@ agents 还需要分 prod 和 dev 目录
 方便后续进行维护。但是目录结构沿用
 模型维护也是通过后台维护,但也支持通过 本地环境配置文件进行测试
 
-## 前端
-前端目前效果很不错,可以考虑直接复制一份,但是智能体接入需要参考后面的要求
-
 ## agent 
-agent也需要改造,不在使用langchain,原因在于langchain更新幅度很大,不适合自定义。
+agent也需要改造 
 而是使用opencode。 但是opencode 是个写代码的智能体。 所以需要进行改造。
 改造后的智能体就叫做 openagent
+
 ## opencode
 opencode目前需要先了解可行性。
 他拥有可以媲美 langchain Middleware 的 插件系统。
