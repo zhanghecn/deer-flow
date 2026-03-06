@@ -5,6 +5,7 @@ import {
   deleteAgent,
   getAgent,
   listAgents,
+  publishAgent,
   updateAgent,
 } from "./api";
 import type { CreateAgentRequest, UpdateAgentRequest } from "./types";
@@ -49,6 +50,16 @@ export function useUpdateAgent() {
     onSuccess: (_data, { name }) => {
       void queryClient.invalidateQueries({ queryKey: ["agents"] });
       void queryClient.invalidateQueries({ queryKey: ["agents", name] });
+    },
+  });
+}
+
+export function usePublishAgent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => publishAgent(name),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["agents"] });
     },
   });
 }

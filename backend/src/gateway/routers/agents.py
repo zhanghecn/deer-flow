@@ -8,7 +8,7 @@ import yaml
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from src.config.agents_config import AgentConfig, list_custom_agents, load_agent_config, load_agent_soul
+from src.config.agents_config import AgentConfig, list_custom_agents, load_agent_config, load_agents_md
 from src.config.paths import get_paths
 
 logger = logging.getLogger(__name__)
@@ -24,7 +24,10 @@ class AgentResponse(BaseModel):
     description: str = Field(default="", description="Agent description")
     model: str | None = Field(default=None, description="Optional model override")
     tool_groups: list[str] | None = Field(default=None, description="Optional tool group whitelist")
-    soul: str | None = Field(default=None, description="SOUL.md content (included on GET /{name})")
+    status: str | None = Field(default=None, description="Agent status: prod or dev")
+    agents_md: str | None = Field(default=None, description="AGENTS.md content (included on GET /{name})")
+    # Backward compatibility alias
+    soul: str | None = Field(default=None, description="Deprecated: use agents_md instead")
 
 
 class AgentsListResponse(BaseModel):
@@ -40,7 +43,9 @@ class AgentCreateRequest(BaseModel):
     description: str = Field(default="", description="Agent description")
     model: str | None = Field(default=None, description="Optional model override")
     tool_groups: list[str] | None = Field(default=None, description="Optional tool group whitelist")
-    soul: str = Field(default="", description="SOUL.md content — agent personality and behavioral guardrails")
+    agents_md: str = Field(default="", description="AGENTS.md content — agent personality and behavioral guardrails")
+    # Backward compatibility alias
+    soul: str | None = Field(default=None, description="Deprecated: use agents_md instead")
 
 
 class AgentUpdateRequest(BaseModel):
@@ -49,7 +54,9 @@ class AgentUpdateRequest(BaseModel):
     description: str | None = Field(default=None, description="Updated description")
     model: str | None = Field(default=None, description="Updated model override")
     tool_groups: list[str] | None = Field(default=None, description="Updated tool group whitelist")
-    soul: str | None = Field(default=None, description="Updated SOUL.md content")
+    agents_md: str | None = Field(default=None, description="Updated AGENTS.md content")
+    # Backward compatibility alias
+    soul: str | None = Field(default=None, description="Deprecated: use agents_md instead")
 
 
 def _validate_agent_name(name: str) -> None:
@@ -73,18 +80,20 @@ def _normalize_agent_name(name: str) -> str:
     return name.lower()
 
 
-def _agent_config_to_response(agent_cfg: AgentConfig, include_soul: bool = False) -> AgentResponse:
+def _agent_config_to_response(agent_cfg: AgentConfig, include_agents_md: bool = False) -> AgentResponse:
     """Convert AgentConfig to AgentResponse."""
-    soul: str | None = None
-    if include_soul:
-        soul = load_agent_soul(agent_cfg.name) or ""
+    agents_md: str | None = None
+    if include_agents_md:
+        agents_md = load_agents_md(agent_cfg.name) or ""
 
     return AgentResponse(
         name=agent_cfg.name,
         description=agent_cfg.description,
         model=agent_cfg.model,
         tool_groups=agent_cfg.tool_groups,
-        soul=soul,
+        status=agent_cfg.status,
+        agents_md=agents_md,
+        soul=agents_md,  # Backward compatibility
     )
 
 
@@ -98,7 +107,7 @@ async def list_agents() -> AgentsListResponse:
     """List all custom agents.
 
     Returns:
-        List of all custom agents with their metadata (without soul content).
+        List of all custom agents with their metadata (without AGENTS.md content).
     """
     try:
         agents = list_custom_agents()
@@ -135,7 +144,7 @@ async def check_agent_name(name: str) -> dict:
     "/agents/{name}",
     response_model=AgentResponse,
     summary="Get Custom Agent",
-    description="Retrieve details and SOUL.md content for a specific custom agent.",
+    description="Retrieve details and AGENTS.md content for a specific custom agent.",
 )
 async def get_agent(name: str) -> AgentResponse:
     """Get a specific custom agent by name.
@@ -144,7 +153,7 @@ async def get_agent(name: str) -> AgentResponse:
         name: The agent name.
 
     Returns:
-        Agent details including SOUL.md content.
+        Agent details including AGENTS.md content.
 
     Raises:
         HTTPException: 404 if agent not found.
@@ -154,7 +163,7 @@ async def get_agent(name: str) -> AgentResponse:
 
     try:
         agent_cfg = load_agent_config(name)
-        return _agent_config_to_response(agent_cfg, include_soul=True)
+        return _agent_config_to_response(agent_cfg, include_agents_md=True)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"Agent '{name}' not found")
     except Exception as e:
@@ -167,7 +176,7 @@ async def get_agent(name: str) -> AgentResponse:
     response_model=AgentResponse,
     status_code=201,
     summary="Create Custom Agent",
-    description="Create a new custom agent with its config and SOUL.md.",
+    description="Create a new custom agent with its config and AGENTS.md.",
 )
 async def create_agent_endpoint(request: AgentCreateRequest) -> AgentResponse:
     """Create a new custom agent.
@@ -205,14 +214,15 @@ async def create_agent_endpoint(request: AgentCreateRequest) -> AgentResponse:
         with open(config_file, "w", encoding="utf-8") as f:
             yaml.dump(config_data, f, default_flow_style=False, allow_unicode=True)
 
-        # Write SOUL.md
-        soul_file = agent_dir / "SOUL.md"
-        soul_file.write_text(request.soul, encoding="utf-8")
+        # Write AGENTS.md (accept agents_md or legacy soul field)
+        agents_md_content = request.agents_md or request.soul or ""
+        agents_md_file = agent_dir / "AGENTS.md"
+        agents_md_file.write_text(agents_md_content, encoding="utf-8")
 
         logger.info(f"Created agent '{normalized_name}' at {agent_dir}")
 
         agent_cfg = load_agent_config(normalized_name)
-        return _agent_config_to_response(agent_cfg, include_soul=True)
+        return _agent_config_to_response(agent_cfg, include_agents_md=True)
 
     except HTTPException:
         raise
@@ -228,7 +238,7 @@ async def create_agent_endpoint(request: AgentCreateRequest) -> AgentResponse:
     "/agents/{name}",
     response_model=AgentResponse,
     summary="Update Custom Agent",
-    description="Update an existing custom agent's config and/or SOUL.md.",
+    description="Update an existing custom agent's config and/or AGENTS.md.",
 )
 async def update_agent(name: str, request: AgentUpdateRequest) -> AgentResponse:
     """Update an existing custom agent.
@@ -274,21 +284,80 @@ async def update_agent(name: str, request: AgentUpdateRequest) -> AgentResponse:
             with open(config_file, "w", encoding="utf-8") as f:
                 yaml.dump(updated, f, default_flow_style=False, allow_unicode=True)
 
-        # Update SOUL.md if provided
-        if request.soul is not None:
-            soul_path = agent_dir / "SOUL.md"
-            soul_path.write_text(request.soul, encoding="utf-8")
+        # Update AGENTS.md if provided (accept agents_md or legacy soul field)
+        agents_md_content = request.agents_md if request.agents_md is not None else request.soul
+        if agents_md_content is not None:
+            agents_md_path = agent_dir / "AGENTS.md"
+            agents_md_path.write_text(agents_md_content, encoding="utf-8")
 
         logger.info(f"Updated agent '{name}'")
 
         refreshed_cfg = load_agent_config(name)
-        return _agent_config_to_response(refreshed_cfg, include_soul=True)
+        return _agent_config_to_response(refreshed_cfg, include_agents_md=True)
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Failed to update agent '{name}': {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to update agent: {str(e)}")
+
+
+@router.post(
+    "/agents/{name}/publish",
+    response_model=AgentResponse,
+    summary="Publish Agent",
+    description="Publish a dev agent to prod by copying its directory from dev/ to prod/.",
+)
+async def publish_agent(name: str) -> AgentResponse:
+    """Publish a dev agent to prod.
+
+    Copies agents/dev/{name}/ → agents/prod/{name}/ and updates config status.
+
+    Args:
+        name: The agent name.
+
+    Returns:
+        The published agent details (status=prod).
+
+    Raises:
+        HTTPException: 404 if dev agent not found, 409 if already published.
+    """
+    _validate_agent_name(name)
+    name = _normalize_agent_name(name)
+
+    paths = get_paths()
+    dev_dir = paths.agent_dir(name, "dev")
+    prod_dir = paths.agent_dir(name, "prod")
+
+    if not dev_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Dev agent '{name}' not found")
+
+    try:
+        # Copy dev → prod (overwrite if exists)
+        if prod_dir.exists():
+            shutil.rmtree(prod_dir)
+        prod_dir.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(dev_dir, prod_dir)
+
+        # Update status in prod config.yaml
+        config_file = prod_dir / "config.yaml"
+        if config_file.exists():
+            with open(config_file, encoding="utf-8") as f:
+                config_data: dict = yaml.safe_load(f) or {}
+            config_data["status"] = "prod"
+            with open(config_file, "w", encoding="utf-8") as f:
+                yaml.dump(config_data, f, default_flow_style=False, allow_unicode=True)
+
+        logger.info(f"Published agent '{name}' from dev to prod")
+
+        agent_cfg = load_agent_config(name, status="prod")
+        return _agent_config_to_response(agent_cfg, include_agents_md=True)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to publish agent '{name}': {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to publish agent: {str(e)}")
 
 
 class UserProfileResponse(BaseModel):
@@ -356,7 +425,7 @@ async def update_user_profile(request: UserProfileUpdateRequest) -> UserProfileR
     "/agents/{name}",
     status_code=204,
     summary="Delete Custom Agent",
-    description="Delete a custom agent and all its files (config, SOUL.md, memory).",
+    description="Delete a custom agent and all its files (config, AGENTS.md, memory).",
 )
 async def delete_agent(name: str) -> None:
     """Delete a custom agent.

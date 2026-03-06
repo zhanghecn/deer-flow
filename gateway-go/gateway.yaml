@@ -1,0 +1,24 @@
+# Gateway configuration
+# This file configures the Go gateway. It also reads the main config.yaml for model info.
+
+server:
+  port: 8001
+  host: 0.0.0.0
+
+database:
+  host: $DB_HOST
+  port: 5432
+  user: $DB_USER
+  password: $DB_PASSWORD
+  dbname: deerflow
+  sslmode: disable
+
+jwt:
+  secret: $JWT_SECRET
+  expire_hour: 72
+
+storage:
+  base_dir: .deer-flow
+
+upstream:
+  langgraph_url: http://localhost:2024

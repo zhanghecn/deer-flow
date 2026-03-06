@@ -348,8 +348,9 @@ class TestEnsureAgent:
 
         with (
             patch("src.client.create_chat_model"),
-            patch("src.client.create_agent", return_value=mock_agent),
-            patch("src.client._build_middlewares", return_value=[]),
+            patch("src.client.create_deep_agent", return_value=mock_agent),
+            patch("src.client._build_deerflow_middlewares", return_value=[]),
+            patch("src.client.build_backend"),
             patch("src.client.apply_prompt_template", return_value="prompt"),
             patch.object(client, "_get_tools", return_value=[]),
         ):
@@ -1028,8 +1029,9 @@ class TestScenarioAgentRecreation:
 
         with (
             patch("src.client.create_chat_model"),
-            patch("src.client.create_agent", side_effect=fake_create_agent),
-            patch("src.client._build_middlewares", return_value=[]),
+            patch("src.client.create_deep_agent", side_effect=fake_create_agent),
+            patch("src.client._build_deerflow_middlewares", return_value=[]),
+            patch("src.client.build_backend"),
             patch("src.client.apply_prompt_template", return_value="prompt"),
             patch.object(client, "_get_tools", return_value=[]),
         ):
@@ -1055,8 +1057,9 @@ class TestScenarioAgentRecreation:
 
         with (
             patch("src.client.create_chat_model"),
-            patch("src.client.create_agent", side_effect=fake_create_agent),
-            patch("src.client._build_middlewares", return_value=[]),
+            patch("src.client.create_deep_agent", side_effect=fake_create_agent),
+            patch("src.client._build_deerflow_middlewares", return_value=[]),
+            patch("src.client.build_backend"),
             patch("src.client.apply_prompt_template", return_value="prompt"),
             patch.object(client, "_get_tools", return_value=[]),
         ):
@@ -1079,8 +1082,9 @@ class TestScenarioAgentRecreation:
 
         with (
             patch("src.client.create_chat_model"),
-            patch("src.client.create_agent", side_effect=fake_create_agent),
-            patch("src.client._build_middlewares", return_value=[]),
+            patch("src.client.create_deep_agent", side_effect=fake_create_agent),
+            patch("src.client._build_deerflow_middlewares", return_value=[]),
+            patch("src.client.build_backend"),
             patch("src.client.apply_prompt_template", return_value="prompt"),
             patch.object(client, "_get_tools", return_value=[]),
         ):

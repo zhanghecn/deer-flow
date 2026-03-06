@@ -13,14 +13,14 @@ logger = logging.getLogger(__name__)
 
 @tool
 def setup_agent(
-    soul: str,
+    agents_md: str,
     description: str,
     runtime: ToolRuntime,
 ) -> Command:
     """Setup the custom DeerFlow agent.
 
     Args:
-        soul: Full SOUL.md content defining the agent's personality and behavior.
+        agents_md: Full AGENTS.md content defining the agent's personality and behavior.
         description: One-line description of what the agent does.
     """
 
@@ -41,8 +41,8 @@ def setup_agent(
             with open(config_file, "w", encoding="utf-8") as f:
                 yaml.dump(config_data, f, default_flow_style=False, allow_unicode=True)
 
-        soul_file = agent_dir / "SOUL.md"
-        soul_file.write_text(soul, encoding="utf-8")
+        agents_md_file = agent_dir / "AGENTS.md"
+        agents_md_file.write_text(agents_md, encoding="utf-8")
 
         logger.info(f"[agent_creator] Created agent '{agent_name}' at {agent_dir}")
         return Command(

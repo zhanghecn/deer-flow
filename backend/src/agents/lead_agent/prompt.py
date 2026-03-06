@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from src.config.agents_config import load_agent_soul
+from src.config.agents_config import load_agents_md
 from src.skills import load_skills
 
 
@@ -359,8 +359,8 @@ You have access to skills that provide optimized workflows for specific tasks. E
 
 
 def get_agent_soul(agent_name: str | None) -> str:
-    # Append SOUL.md (agent personality) if present
-    soul = load_agent_soul(agent_name)
+    # Append AGENTS.md (agent personality) if present (legacy name kept for prompt compat)
+    soul = load_agents_md(agent_name)
     if soul:
         return f"<soul>\n{soul}\n</soul>\n" if soul else ""
     return ""

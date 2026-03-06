@@ -22,7 +22,7 @@ def _make_paths(base_dir: Path):
 
 
 def _write_agent(base_dir: Path, name: str, config: dict, soul: str = "You are helpful.") -> None:
-    """Write an agent directory with config.yaml and SOUL.md."""
+    """Write an agent directory with config.yaml and AGENTS.md."""
     agent_dir = base_dir / "agents" / name
     agent_dir.mkdir(parents=True, exist_ok=True)
 
@@ -33,7 +33,7 @@ def _write_agent(base_dir: Path, name: str, config: dict, soul: str = "You are h
     with open(agent_dir / "config.yaml", "w") as f:
         yaml.dump(config_copy, f)
 
-    (agent_dir / "SOUL.md").write_text(soul, encoding="utf-8")
+    (agent_dir / "AGENTS.md").write_text(soul, encoding="utf-8")
 
 
 # ===========================================================================
@@ -48,11 +48,12 @@ class TestPaths:
 
     def test_agent_dir(self, tmp_path):
         paths = _make_paths(tmp_path)
-        assert paths.agent_dir("code-reviewer") == tmp_path / "agents" / "code-reviewer"
+        assert paths.agent_dir("code-reviewer") == tmp_path / "agents" / "dev" / "code-reviewer"
+        assert paths.agent_dir("code-reviewer", "prod") == tmp_path / "agents" / "prod" / "code-reviewer"
 
     def test_agent_memory_file(self, tmp_path):
         paths = _make_paths(tmp_path)
-        assert paths.agent_memory_file("code-reviewer") == tmp_path / "agents" / "code-reviewer" / "memory.json"
+        assert paths.agent_memory_file("code-reviewer") == tmp_path / "agents" / "dev" / "code-reviewer" / "memory.json"
 
     def test_user_md_file(self, tmp_path):
         paths = _make_paths(tmp_path)
@@ -62,7 +63,7 @@ class TestPaths:
         paths = _make_paths(tmp_path)
         assert paths.memory_file != paths.agent_memory_file("my-agent")
         assert paths.memory_file == tmp_path / "memory.json"
-        assert paths.agent_memory_file("my-agent") == tmp_path / "agents" / "my-agent" / "memory.json"
+        assert paths.agent_memory_file("my-agent") == tmp_path / "agents" / "dev" / "my-agent" / "memory.json"
 
 
 # ===========================================================================
@@ -144,7 +145,7 @@ class TestLoadAgentConfig:
         agent_dir = tmp_path / "agents" / "inferred-name"
         agent_dir.mkdir(parents=True)
         (agent_dir / "config.yaml").write_text("description: My agent\n")
-        (agent_dir / "SOUL.md").write_text("Hello")
+        (agent_dir / "AGENTS.md").write_text("Hello")
 
         with patch("src.config.agents_config.get_paths", return_value=_make_paths(tmp_path)):
             from src.config.agents_config import load_agent_config
@@ -169,7 +170,7 @@ class TestLoadAgentConfig:
         agent_dir = tmp_path / "agents" / "legacy-agent"
         agent_dir.mkdir(parents=True)
         (agent_dir / "config.yaml").write_text("name: legacy-agent\nprompt_file: system.md\n")
-        (agent_dir / "SOUL.md").write_text("Soul content")
+        (agent_dir / "AGENTS.md").write_text("Agent content")
 
         with patch("src.config.agents_config.get_paths", return_value=_make_paths(tmp_path)):
             from src.config.agents_config import load_agent_config
@@ -180,50 +181,74 @@ class TestLoadAgentConfig:
 
 
 # ===========================================================================
-# 4. load_agent_soul
+# 4. load_agents_md (and backward-compatible load_agent_soul alias)
 # ===========================================================================
 
 
-class TestLoadAgentSoul:
-    def test_reads_soul_file(self, tmp_path):
-        expected_soul = "You are a specialized code review expert."
-        _write_agent(tmp_path, "code-reviewer", {"name": "code-reviewer"}, soul=expected_soul)
+class TestLoadAgentsMd:
+    def test_reads_agents_md_file(self, tmp_path):
+        expected = "You are a specialized code review expert."
+        _write_agent(tmp_path, "code-reviewer", {"name": "code-reviewer"}, soul=expected)
+
+        with patch("src.config.agents_config.get_paths", return_value=_make_paths(tmp_path)):
+            from src.config.agents_config import AgentConfig, load_agents_md
+
+            cfg = AgentConfig(name="code-reviewer")
+            content = load_agents_md(cfg.name)
+
+        assert content == expected
+
+    def test_backward_compat_load_agent_soul(self, tmp_path):
+        """load_agent_soul alias should still work."""
+        expected = "You are a specialized code review expert."
+        _write_agent(tmp_path, "code-reviewer", {"name": "code-reviewer"}, soul=expected)
 
         with patch("src.config.agents_config.get_paths", return_value=_make_paths(tmp_path)):
             from src.config.agents_config import AgentConfig, load_agent_soul
 
             cfg = AgentConfig(name="code-reviewer")
-            soul = load_agent_soul(cfg.name)
+            content = load_agent_soul(cfg.name)
 
-        assert soul == expected_soul
+        assert content == expected
 
-    def test_missing_soul_file_returns_none(self, tmp_path):
-        agent_dir = tmp_path / "agents" / "no-soul"
+    def test_falls_back_to_legacy_soul_md(self, tmp_path):
+        """Should fall back to SOUL.md when AGENTS.md doesn't exist."""
+        agent_dir = tmp_path / "agents" / "legacy"
         agent_dir.mkdir(parents=True)
-        (agent_dir / "config.yaml").write_text("name: no-soul\n")
-        # No SOUL.md created
+        (agent_dir / "config.yaml").write_text("name: legacy\n")
+        (agent_dir / "SOUL.md").write_text("Legacy soul content")
 
         with patch("src.config.agents_config.get_paths", return_value=_make_paths(tmp_path)):
-            from src.config.agents_config import AgentConfig, load_agent_soul
+            from src.config.agents_config import load_agents_md
 
-            cfg = AgentConfig(name="no-soul")
-            soul = load_agent_soul(cfg.name)
+            content = load_agents_md("legacy")
 
-        assert soul is None
+        assert content == "Legacy soul content"
 
-    def test_empty_soul_file_returns_none(self, tmp_path):
-        agent_dir = tmp_path / "agents" / "empty-soul"
+    def test_missing_agents_md_returns_none(self, tmp_path):
+        agent_dir = tmp_path / "agents" / "no-md"
         agent_dir.mkdir(parents=True)
-        (agent_dir / "config.yaml").write_text("name: empty-soul\n")
-        (agent_dir / "SOUL.md").write_text("   \n   ")
+        (agent_dir / "config.yaml").write_text("name: no-md\n")
 
         with patch("src.config.agents_config.get_paths", return_value=_make_paths(tmp_path)):
-            from src.config.agents_config import AgentConfig, load_agent_soul
+            from src.config.agents_config import load_agents_md
 
-            cfg = AgentConfig(name="empty-soul")
-            soul = load_agent_soul(cfg.name)
+            content = load_agents_md("no-md")
 
-        assert soul is None
+        assert content is None
+
+    def test_empty_agents_md_returns_none(self, tmp_path):
+        agent_dir = tmp_path / "agents" / "empty-md"
+        agent_dir.mkdir(parents=True)
+        (agent_dir / "config.yaml").write_text("name: empty-md\n")
+        (agent_dir / "AGENTS.md").write_text("   \n   ")
+
+        with patch("src.config.agents_config.get_paths", return_value=_make_paths(tmp_path)):
+            from src.config.agents_config import load_agents_md
+
+            content = load_agents_md("empty-md")
+
+        assert content is None
 
 
 # ===========================================================================
@@ -316,7 +341,7 @@ class TestMemoryFilePath:
 
         with patch("src.agents.memory.updater.get_paths", return_value=_make_paths(tmp_path)):
             path = updater_mod._get_memory_file_path("code-reviewer")
-        assert path == tmp_path / "agents" / "code-reviewer" / "memory.json"
+        assert path == tmp_path / "agents" / "dev" / "code-reviewer" / "memory.json"
 
     def test_different_paths_for_different_agents(self, tmp_path):
         import src.agents.memory.updater as updater_mod
@@ -370,22 +395,36 @@ class TestAgentsAPI:
         payload = {
             "name": "code-reviewer",
             "description": "Reviews code",
-            "soul": "You are a code reviewer.",
+            "agents_md": "You are a code reviewer.",
         }
         response = agent_client.post("/api/agents", json=payload)
         assert response.status_code == 201
         data = response.json()
         assert data["name"] == "code-reviewer"
         assert data["description"] == "Reviews code"
-        assert data["soul"] == "You are a code reviewer."
+        assert data["agents_md"] == "You are a code reviewer."
+        assert data["soul"] == "You are a code reviewer."  # backward compat
+
+    def test_create_agent_legacy_soul_field(self, agent_client):
+        """Legacy 'soul' field should still work for backward compatibility."""
+        payload = {
+            "name": "legacy-agent",
+            "description": "Legacy",
+            "soul": "Legacy soul content.",
+        }
+        response = agent_client.post("/api/agents", json=payload)
+        assert response.status_code == 201
+        data = response.json()
+        assert data["agents_md"] == "Legacy soul content."
+        assert data["soul"] == "Legacy soul content."
 
     def test_create_agent_invalid_name(self, agent_client):
-        payload = {"name": "Code Reviewer!", "soul": "test"}
+        payload = {"name": "Code Reviewer!", "agents_md": "test"}
         response = agent_client.post("/api/agents", json=payload)
         assert response.status_code == 422
 
     def test_create_duplicate_agent_409(self, agent_client):
-        payload = {"name": "my-agent", "soul": "test"}
+        payload = {"name": "my-agent", "agents_md": "test"}
         agent_client.post("/api/agents", json=payload)
 
         # Second create should fail
@@ -393,8 +432,8 @@ class TestAgentsAPI:
         assert response.status_code == 409
 
     def test_list_agents_after_create(self, agent_client):
-        agent_client.post("/api/agents", json={"name": "agent-one", "soul": "p1"})
-        agent_client.post("/api/agents", json={"name": "agent-two", "soul": "p2"})
+        agent_client.post("/api/agents", json={"name": "agent-one", "agents_md": "p1"})
+        agent_client.post("/api/agents", json={"name": "agent-two", "agents_md": "p2"})
 
         response = agent_client.get("/api/agents")
         assert response.status_code == 200
@@ -403,38 +442,46 @@ class TestAgentsAPI:
         assert "agent-two" in names
 
     def test_get_agent(self, agent_client):
-        agent_client.post("/api/agents", json={"name": "test-agent", "soul": "Hello world"})
+        agent_client.post("/api/agents", json={"name": "test-agent", "agents_md": "Hello world"})
 
         response = agent_client.get("/api/agents/test-agent")
         assert response.status_code == 200
         data = response.json()
         assert data["name"] == "test-agent"
-        assert data["soul"] == "Hello world"
+        assert data["agents_md"] == "Hello world"
 
     def test_get_missing_agent_404(self, agent_client):
         response = agent_client.get("/api/agents/nonexistent")
         assert response.status_code == 404
 
-    def test_update_agent_soul(self, agent_client):
-        agent_client.post("/api/agents", json={"name": "update-me", "soul": "original"})
+    def test_update_agent_agents_md(self, agent_client):
+        agent_client.post("/api/agents", json={"name": "update-me", "agents_md": "original"})
 
-        response = agent_client.put("/api/agents/update-me", json={"soul": "updated"})
+        response = agent_client.put("/api/agents/update-me", json={"agents_md": "updated"})
         assert response.status_code == 200
-        assert response.json()["soul"] == "updated"
+        assert response.json()["agents_md"] == "updated"
+
+    def test_update_agent_legacy_soul_field(self, agent_client):
+        """Legacy 'soul' field should still work for updates."""
+        agent_client.post("/api/agents", json={"name": "update-legacy", "agents_md": "original"})
+
+        response = agent_client.put("/api/agents/update-legacy", json={"soul": "updated via soul"})
+        assert response.status_code == 200
+        assert response.json()["agents_md"] == "updated via soul"
 
     def test_update_agent_description(self, agent_client):
-        agent_client.post("/api/agents", json={"name": "desc-agent", "description": "old desc", "soul": "p"})
+        agent_client.post("/api/agents", json={"name": "desc-agent", "description": "old desc", "agents_md": "p"})
 
         response = agent_client.put("/api/agents/desc-agent", json={"description": "new desc"})
         assert response.status_code == 200
         assert response.json()["description"] == "new desc"
 
     def test_update_missing_agent_404(self, agent_client):
-        response = agent_client.put("/api/agents/ghost-agent", json={"soul": "new"})
+        response = agent_client.put("/api/agents/ghost-agent", json={"agents_md": "new"})
         assert response.status_code == 404
 
     def test_delete_agent(self, agent_client):
-        agent_client.post("/api/agents", json={"name": "del-me", "soul": "bye"})
+        agent_client.post("/api/agents", json={"name": "del-me", "agents_md": "bye"})
 
         response = agent_client.delete("/api/agents/del-me")
         assert response.status_code == 204
@@ -453,7 +500,7 @@ class TestAgentsAPI:
             "description": "Specialized agent",
             "model": "deepseek-v3",
             "tool_groups": ["file:read", "bash"],
-            "soul": "You are specialized.",
+            "agents_md": "You are specialized.",
         }
         response = agent_client.post("/api/agents", json=payload)
         assert response.status_code == 201
@@ -462,17 +509,17 @@ class TestAgentsAPI:
         assert data["tool_groups"] == ["file:read", "bash"]
 
     def test_create_persists_files_on_disk(self, agent_client, tmp_path):
-        agent_client.post("/api/agents", json={"name": "disk-check", "soul": "disk soul"})
+        agent_client.post("/api/agents", json={"name": "disk-check", "agents_md": "disk content"})
 
-        agent_dir = tmp_path / "agents" / "disk-check"
+        agent_dir = tmp_path / "agents" / "dev" / "disk-check"
         assert agent_dir.exists()
         assert (agent_dir / "config.yaml").exists()
-        assert (agent_dir / "SOUL.md").exists()
-        assert (agent_dir / "SOUL.md").read_text() == "disk soul"
+        assert (agent_dir / "AGENTS.md").exists()
+        assert (agent_dir / "AGENTS.md").read_text() == "disk content"
 
     def test_delete_removes_files_from_disk(self, agent_client, tmp_path):
-        agent_client.post("/api/agents", json={"name": "remove-me", "soul": "bye"})
-        agent_dir = tmp_path / "agents" / "remove-me"
+        agent_client.post("/api/agents", json={"name": "remove-me", "agents_md": "bye"})
+        agent_dir = tmp_path / "agents" / "dev" / "remove-me"
         assert agent_dir.exists()
 
         agent_client.delete("/api/agents/remove-me")
@@ -480,7 +527,64 @@ class TestAgentsAPI:
 
 
 # ===========================================================================
-# 9. Gateway API – User Profile endpoints
+# 9. Gateway API – Publish endpoint
+# ===========================================================================
+
+
+class TestPublishAPI:
+    def test_publish_agent(self, agent_client, tmp_path):
+        """Publish copies dev → prod and sets status=prod."""
+        agent_client.post("/api/agents", json={"name": "pub-test", "agents_md": "Hello"})
+        dev_dir = tmp_path / "agents" / "dev" / "pub-test"
+        assert dev_dir.exists()
+
+        response = agent_client.post("/api/agents/pub-test/publish")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == "pub-test"
+        assert data["status"] == "prod"
+        assert data["agents_md"] == "Hello"
+
+        # Verify prod directory exists on disk
+        prod_dir = tmp_path / "agents" / "prod" / "pub-test"
+        assert prod_dir.exists()
+        assert (prod_dir / "AGENTS.md").read_text(encoding="utf-8") == "Hello"
+
+        # Verify prod config.yaml has status=prod
+        prod_config = yaml.safe_load((prod_dir / "config.yaml").read_text(encoding="utf-8"))
+        assert prod_config["status"] == "prod"
+
+    def test_publish_missing_agent_404(self, agent_client):
+        response = agent_client.post("/api/agents/nonexistent/publish")
+        assert response.status_code == 404
+
+    def test_publish_overwrites_existing_prod(self, agent_client, tmp_path):
+        """Publishing again overwrites existing prod directory."""
+        agent_client.post("/api/agents", json={"name": "re-pub", "agents_md": "v1"})
+        agent_client.post("/api/agents/re-pub/publish")
+
+        # Update dev and re-publish
+        agent_client.put("/api/agents/re-pub", json={"agents_md": "v2"})
+        response = agent_client.post("/api/agents/re-pub/publish")
+        assert response.status_code == 200
+
+        prod_dir = tmp_path / "agents" / "prod" / "re-pub"
+        assert (prod_dir / "AGENTS.md").read_text(encoding="utf-8") == "v2"
+
+    def test_publish_agent_appears_in_list(self, agent_client):
+        """Published agent should appear in list with status=prod."""
+        agent_client.post("/api/agents", json={"name": "listed-pub", "agents_md": "Hi"})
+        agent_client.post("/api/agents/listed-pub/publish")
+
+        response = agent_client.get("/api/agents")
+        agents = response.json()["agents"]
+        # Should have both dev and prod entries, or at least the agent appears
+        names = [a["name"] for a in agents]
+        assert "listed-pub" in names
+
+
+# ===========================================================================
+# 10. Gateway API – User Profile endpoints
 # ===========================================================================
 
 

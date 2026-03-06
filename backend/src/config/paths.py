@@ -5,7 +5,7 @@ from pathlib import Path
 # Virtual path prefix seen by agents inside the sandbox
 VIRTUAL_PATH_PREFIX = "/mnt/user-data"
 
-_SAFE_THREAD_ID_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
+_SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
 
 
 class Paths:
@@ -14,19 +14,26 @@ class Paths:
 
     Directory layout (host side):
         {base_dir}/
-        ├── memory.json
-        ├── USER.md          <-- global user profile (injected into all agents)
-        ├── agents/
-        │   └── {agent_name}/
+        ├── agents/                          # Agent definitions (shared across all users)
+        │   ├── prod/{agent-name}/
+        │   │   ├── config.yaml
+        │   │   ├── AGENTS.md                # System prompt / personality
+        │   │   └── skills/{skill-name}/SKILL.md
+        │   └── dev/{agent-name}/
         │       ├── config.yaml
-        │       ├── SOUL.md  <-- agent personality/identity (injected alongside lead prompt)
-        │       └── memory.json
-        └── threads/
-            └── {thread_id}/
-                └── user-data/         <-- mounted as /mnt/user-data/ inside sandbox
-                    ├── workspace/     <-- /mnt/user-data/workspace/
-                    ├── uploads/       <-- /mnt/user-data/uploads/
-                    └── outputs/       <-- /mnt/user-data/outputs/
+        │       ├── AGENTS.md
+        │       └── skills/{skill-name}/SKILL.md
+        ├── skills/                          # Global public skills
+        │   ├── public/{skill-name}/SKILL.md
+        │   └── custom/{skill-name}/SKILL.md
+        ├── users/{user_id}/                 # Per-user data
+        │   ├── memory.json
+        │   └── USER.md
+        └── threads/{thread_id}/             # Per-thread runtime data
+            └── user-data/
+                ├── workspace/
+                ├── uploads/
+                └── outputs/
 
     BaseDir resolution (in priority order):
         1. Constructor argument `base_dir`
@@ -53,6 +60,8 @@ class Paths:
 
         return Path.home() / ".deer-flow"
 
+    # ── Legacy compat (global memory / user profile for single-user mode) ──
+
     @property
     def memory_file(self) -> Path:
         """Path to the persisted memory file: `{base_dir}/memory.json`."""
@@ -63,64 +72,60 @@ class Paths:
         """Path to the global user profile file: `{base_dir}/USER.md`."""
         return self.base_dir / "USER.md"
 
+    # ── Agent definition layer (shared across all users) ──
+
     @property
     def agents_dir(self) -> Path:
-        """Root directory for all custom agents: `{base_dir}/agents/`."""
+        """Root directory for all agents: `{base_dir}/agents/`."""
         return self.base_dir / "agents"
 
-    def agent_dir(self, name: str) -> Path:
-        """Directory for a specific agent: `{base_dir}/agents/{name}/`."""
-        return self.agents_dir / name.lower()
+    def agent_dir(self, name: str, status: str = "dev") -> Path:
+        """Directory for an agent: `{base_dir}/agents/{status}/{name}/`."""
+        return self.agents_dir / status / name.lower()
 
-    def agent_memory_file(self, name: str) -> Path:
-        """Per-agent memory file: `{base_dir}/agents/{name}/memory.json`."""
-        return self.agent_dir(name) / "memory.json"
+    def agent_memory_file(self, name: str, status: str = "dev") -> Path:
+        """Per-agent memory file (legacy compat)."""
+        return self.agent_dir(name, status) / "memory.json"
+
+    # ── User layer (per-user data) ──
+
+    def user_dir(self, user_id: str) -> Path:
+        """Directory for a user: `{base_dir}/users/{user_id}/`."""
+        if not _SAFE_ID_RE.match(user_id):
+            raise ValueError(f"Invalid user_id {user_id!r}")
+        return self.base_dir / "users" / user_id
+
+    def user_memory_file(self, user_id: str) -> Path:
+        """Per-user memory file: `{base_dir}/users/{user_id}/memory.json`."""
+        return self.user_dir(user_id) / "memory.json"
+
+    # ── Global skills ──
+
+    @property
+    def skills_dir(self) -> Path:
+        """Root directory for global skills (public + custom)."""
+        # skills/ lives at project root (sibling of backend/.deer-flow)
+        project_root = self.base_dir.parent
+        return project_root / "skills"
+
+    # ── Thread runtime layer (per-thread isolated) ──
 
     def thread_dir(self, thread_id: str) -> Path:
-        """
-        Host path for a thread's data: `{base_dir}/threads/{thread_id}/`
-
-        This directory contains a `user-data/` subdirectory that is mounted
-        as `/mnt/user-data/` inside the sandbox.
-
-        Raises:
-            ValueError: If `thread_id` contains unsafe characters (path separators
-                        or `..`) that could cause directory traversal.
-        """
-        if not _SAFE_THREAD_ID_RE.match(thread_id):
+        """Host path for a thread's data: `{base_dir}/threads/{thread_id}/`."""
+        if not _SAFE_ID_RE.match(thread_id):
             raise ValueError(f"Invalid thread_id {thread_id!r}: only alphanumeric characters, hyphens, and underscores are allowed.")
         return self.base_dir / "threads" / thread_id
 
     def sandbox_work_dir(self, thread_id: str) -> Path:
-        """
-        Host path for the agent's workspace directory.
-        Host: `{base_dir}/threads/{thread_id}/user-data/workspace/`
-        Sandbox: `/mnt/user-data/workspace/`
-        """
         return self.thread_dir(thread_id) / "user-data" / "workspace"
 
     def sandbox_uploads_dir(self, thread_id: str) -> Path:
-        """
-        Host path for user-uploaded files.
-        Host: `{base_dir}/threads/{thread_id}/user-data/uploads/`
-        Sandbox: `/mnt/user-data/uploads/`
-        """
         return self.thread_dir(thread_id) / "user-data" / "uploads"
 
     def sandbox_outputs_dir(self, thread_id: str) -> Path:
-        """
-        Host path for agent-generated artifacts.
-        Host: `{base_dir}/threads/{thread_id}/user-data/outputs/`
-        Sandbox: `/mnt/user-data/outputs/`
-        """
         return self.thread_dir(thread_id) / "user-data" / "outputs"
 
     def sandbox_user_data_dir(self, thread_id: str) -> Path:
-        """
-        Host path for the user-data root.
-        Host: `{base_dir}/threads/{thread_id}/user-data/`
-        Sandbox: `/mnt/user-data/`
-        """
         return self.thread_dir(thread_id) / "user-data"
 
     def ensure_thread_dirs(self, thread_id: str) -> None:
@@ -130,26 +135,10 @@ class Paths:
         self.sandbox_outputs_dir(thread_id).mkdir(parents=True, exist_ok=True)
 
     def resolve_virtual_path(self, thread_id: str, virtual_path: str) -> Path:
-        """Resolve a sandbox virtual path to the actual host filesystem path.
-
-        Args:
-            thread_id: The thread ID.
-            virtual_path: Virtual path as seen inside the sandbox, e.g.
-                          ``/mnt/user-data/outputs/report.pdf``.
-                          Leading slashes are stripped before matching.
-
-        Returns:
-            The resolved absolute host filesystem path.
-
-        Raises:
-            ValueError: If the path does not start with the expected virtual
-                        prefix or a path-traversal attempt is detected.
-        """
+        """Resolve a sandbox virtual path to the actual host filesystem path."""
         stripped = virtual_path.lstrip("/")
         prefix = VIRTUAL_PATH_PREFIX.lstrip("/")
 
-        # Require an exact segment-boundary match to avoid prefix confusion
-        # (e.g. reject paths like "mnt/user-dataX/...").
         if stripped != prefix and not stripped.startswith(prefix + "/"):
             raise ValueError(f"Path must start with /{prefix}")
 

@@ -1,14 +1,15 @@
 # DeerFlow - Unified Development Environment
 
-.PHONY: help config check install dev stop clean docker-init docker-start docker-stop docker-logs docker-logs-frontend docker-logs-gateway
+.PHONY: help config check install dev stop clean docker-init docker-start docker-stop docker-logs docker-logs-frontend docker-logs-gateway gateway-build
 
 help:
 	@echo "DeerFlow Development Commands:"
 	@echo "  make config          - Generate local config files (aborts if config already exists)"
 	@echo "  make check           - Check if all required tools are installed"
-	@echo "  make install         - Install all dependencies (frontend + backend)"
+	@echo "  make install         - Install all dependencies (frontend + backend + gateway)"
+	@echo "  make gateway-build   - Build Go gateway binary"
 	@echo "  make setup-sandbox   - Pre-pull sandbox container image (recommended)"
-	@echo "  make dev             - Start all services (frontend + backend + nginx on localhost:2026)"
+	@echo "  make dev             - Start all services (frontend + backend + gateway + nginx on localhost:2026)"
 	@echo "  make stop            - Stop all running services"
 	@echo "  make clean           - Clean up processes and temporary files"
 	@echo ""
@@ -75,6 +76,16 @@ check:
 		FAILED=1; \
 	fi; \
 	echo ""; \
+	echo "Checking Go..."; \
+	if command -v go >/dev/null 2>&1; then \
+		GO_VERSION=$$(go version | awk '{print $$3}' | sed 's/go//'); \
+		echo "  ✓ Go $$GO_VERSION"; \
+	else \
+		echo "  ✗ Go not found (version 1.23+ required)"; \
+		echo "    Install from: https://go.dev/dl/"; \
+		FAILED=1; \
+	fi; \
+	echo ""; \
 	echo "Checking nginx..."; \
 	if command -v nginx >/dev/null 2>&1; then \
 		NGINX_VERSION=$$(nginx -v 2>&1 | awk -F'/' '{print $$2}'); \
@@ -104,10 +115,18 @@ check:
 		exit 1; \
 	fi
 
+# Build Go gateway
+gateway-build:
+	@echo "Building Go gateway..."
+	@cd gateway-go && GOTOOLCHAIN=local go build -o bin/gateway ./cmd/server
+	@echo "✓ Go gateway built"
+
 # Install all dependencies
 install:
 	@echo "Installing backend dependencies..."
 	@cd backend && uv sync
+	@echo "Installing Go gateway dependencies..."
+	@cd gateway-go && go mod download
 	@echo "Installing frontend dependencies..."
 	@cd frontend && pnpm install
 	@echo "✓ All dependencies installed"
@@ -153,6 +172,7 @@ setup-sandbox:
 dev:
 	@echo "Stopping existing services if any..."
 	@-pkill -f "langgraph dev" 2>/dev/null || true
+	@-pkill -f "gateway-go/bin/gateway" 2>/dev/null || true
 	@-pkill -f "uvicorn src.gateway.app:app" 2>/dev/null || true
 	@-pkill -f "next dev" 2>/dev/null || true
 	@-nginx -c $(PWD)/docker/nginx/nginx.local.conf -p $(PWD) -s quit 2>/dev/null || true
@@ -166,7 +186,8 @@ dev:
 	@echo "=========================================="
 	@echo ""
 	@echo "Services starting up..."
-	@echo "  → Backend: LangGraph + Gateway"
+	@echo "  → Backend: LangGraph Server"
+	@echo "  → Gateway: Go Gateway"
 	@echo "  → Frontend: Next.js"
 	@echo "  → Nginx: Reverse Proxy"
 	@echo ""
@@ -175,6 +196,7 @@ dev:
 		echo ""; \
 		echo "Shutting down services..."; \
 		pkill -f "langgraph dev" 2>/dev/null || true; \
+		pkill -f "gateway-go/bin/gateway" 2>/dev/null || true; \
 		pkill -f "uvicorn src.gateway.app:app" 2>/dev/null || true; \
 		pkill -f "next dev" 2>/dev/null || true; \
 		nginx -c $(PWD)/docker/nginx/nginx.local.conf -p $(PWD) -s quit 2>/dev/null || true; \
@@ -191,15 +213,22 @@ dev:
 	cd backend && NO_COLOR=1 uv run langgraph dev --no-browser --allow-blocking --no-reload > ../logs/langgraph.log 2>&1 & \
 	sleep 3; \
 	echo "✓ LangGraph server started on localhost:2024"; \
-	echo "Starting Gateway API..."; \
-	cd backend && uv run uvicorn src.gateway.app:app --host 0.0.0.0 --port 8001 > ../logs/gateway.log 2>&1 & \
-	sleep 3; \
+	echo "Building Go Gateway..."; \
+	cd gateway-go && GOTOOLCHAIN=local go build -o bin/gateway ./cmd/server 2> ../logs/gateway-build.log; \
+	if [ $$? -ne 0 ]; then \
+		echo "✗ Go Gateway build failed. See logs/gateway-build.log"; \
+		tail -30 logs/gateway-build.log; \
+		cleanup; \
+	fi; \
+	echo "Starting Go Gateway..."; \
+	cd gateway-go && GATEWAY_CONFIG_PATH=gateway.yaml ./bin/gateway > ../logs/gateway.log 2>&1 & \
+	sleep 2; \
 	if ! lsof -i :8001 -sTCP:LISTEN -t >/dev/null 2>&1; then \
-		echo "✗ Gateway API failed to start. Last log output:"; \
+		echo "✗ Go Gateway failed to start. Last log output:"; \
 		tail -30 logs/gateway.log; \
 		cleanup; \
 	fi; \
-	echo "✓ Gateway API started on localhost:8001"; \
+	echo "✓ Go Gateway started on localhost:8001"; \
 	echo "Starting Frontend..."; \
 	cd frontend && pnpm run dev > ../logs/frontend.log 2>&1 & \
 	sleep 3; \
@@ -214,7 +243,7 @@ dev:
 	echo "=========================================="; \
 	echo ""; \
 	echo "  🌐 Application: http://localhost:2026"; \
-	echo "  📡 API Gateway: http://localhost:2026/api/*"; \
+	echo "  📡 Go Gateway:  http://localhost:2026/api/*"; \
 	echo "  🤖 LangGraph:   http://localhost:2026/api/langgraph/*"; \
 	echo ""; \
 	echo "  📋 Logs:"; \
@@ -231,6 +260,7 @@ dev:
 stop:
 	@echo "Stopping all services..."
 	@-pkill -f "langgraph dev" 2>/dev/null || true
+	@-pkill -f "gateway-go/bin/gateway" 2>/dev/null || true
 	@-pkill -f "uvicorn src.gateway.app:app" 2>/dev/null || true
 	@-pkill -f "next dev" 2>/dev/null || true
 	@-nginx -c $(PWD)/docker/nginx/nginx.local.conf -p $(PWD) -s quit 2>/dev/null || true

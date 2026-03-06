@@ -11,7 +11,9 @@ from src.config.paths import get_paths
 
 logger = logging.getLogger(__name__)
 
-SOUL_FILENAME = "SOUL.md"
+AGENTS_MD_FILENAME = "AGENTS.md"
+# Legacy filename for backward compatibility
+_LEGACY_SOUL_FILENAME = "SOUL.md"
 AGENT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9-]+$")
 
 
@@ -22,28 +24,28 @@ class AgentConfig(BaseModel):
     description: str = ""
     model: str | None = None
     tool_groups: list[str] | None = None
+    status: str = "dev"
 
 
-def load_agent_config(name: str | None) -> AgentConfig | None:
+def load_agent_config(name: str | None, status: str = "dev") -> AgentConfig | None:
     """Load the custom or default agent's config from its directory.
 
-    Args:
-        name: The agent name.
-
-    Returns:
-        AgentConfig instance.
-
-    Raises:
-        FileNotFoundError: If the agent directory or config.yaml does not exist.
-        ValueError: If config.yaml cannot be parsed.
+    Looks in {base_dir}/agents/{status}/{name}/ first (new layout),
+    then falls back to {base_dir}/agents/{name}/ (legacy layout).
     """
-
     if name is None:
         return None
 
     if not AGENT_NAME_PATTERN.match(name):
         raise ValueError(f"Invalid agent name '{name}'. Must match pattern: {AGENT_NAME_PATTERN.pattern}")
-    agent_dir = get_paths().agent_dir(name)
+
+    paths = get_paths()
+    # Try new layout: agents/{status}/{name}/
+    agent_dir = paths.agent_dir(name, status)
+    if not agent_dir.exists():
+        # Fallback to legacy layout: agents/{name}/
+        agent_dir = paths.agents_dir / name.lower()
+
     config_file = agent_dir / "config.yaml"
 
     if not agent_dir.exists():
@@ -58,62 +60,89 @@ def load_agent_config(name: str | None) -> AgentConfig | None:
     except yaml.YAMLError as e:
         raise ValueError(f"Failed to parse agent config {config_file}: {e}") from e
 
-    # Ensure name is set from directory name if not in file
     if "name" not in data:
         data["name"] = name
+    if "status" not in data:
+        data["status"] = status
 
-    # Strip unknown fields before passing to Pydantic (e.g. legacy prompt_file)
     known_fields = set(AgentConfig.model_fields.keys())
     data = {k: v for k, v in data.items() if k in known_fields}
 
     return AgentConfig(**data)
 
 
-def load_agent_soul(agent_name: str | None) -> str | None:
-    """Read the SOUL.md file for a custom agent, if it exists.
+def load_agents_md(agent_name: str | None, status: str = "dev") -> str | None:
+    """Read the AGENTS.md (or legacy SOUL.md) file for an agent.
 
-    SOUL.md defines the agent's personality, values, and behavioral guardrails.
-    It is injected into the lead agent's system prompt as additional context.
-
-    Args:
-        agent_name: The name of the agent or None for the default agent.
-
-    Returns:
-        The SOUL.md content as a string, or None if the file does not exist.
+    AGENTS.md defines the agent's personality, values, and behavioral guardrails.
     """
-    agent_dir = get_paths().agent_dir(agent_name) if agent_name else get_paths().base_dir
-    soul_path = agent_dir / SOUL_FILENAME
-    if not soul_path.exists():
-        return None
-    content = soul_path.read_text(encoding="utf-8").strip()
-    return content or None
+    paths = get_paths()
+
+    if agent_name:
+        # Try new layout first
+        agent_dir = paths.agent_dir(agent_name, status)
+        if not agent_dir.exists():
+            # Fallback to legacy layout
+            agent_dir = paths.agents_dir / agent_name.lower()
+    else:
+        agent_dir = paths.base_dir
+
+    # Try AGENTS.md first, then legacy SOUL.md
+    for filename in (AGENTS_MD_FILENAME, _LEGACY_SOUL_FILENAME):
+        md_path = agent_dir / filename
+        if md_path.exists():
+            content = md_path.read_text(encoding="utf-8").strip()
+            return content or None
+
+    return None
+
+
+# Keep backward compatibility alias
+load_agent_soul = load_agents_md
 
 
 def list_custom_agents() -> list[AgentConfig]:
     """Scan the agents directory and return all valid custom agents.
 
-    Returns:
-        List of AgentConfig for each valid agent directory found.
+    Scans both new layout (agents/{status}/{name}/) and legacy layout (agents/{name}/).
     """
     agents_dir = get_paths().agents_dir
-
     if not agents_dir.exists():
         return []
 
     agents: list[AgentConfig] = []
+    seen_names: set[str] = set()
 
-    for entry in sorted(agents_dir.iterdir()):
-        if not entry.is_dir():
+    # Scan new layout: agents/{status}/{name}/
+    for status_dir_name in ("prod", "dev"):
+        status_dir = agents_dir / status_dir_name
+        if not status_dir.exists():
             continue
+        for entry in sorted(status_dir.iterdir()):
+            if not entry.is_dir() or (entry / "config.yaml").exists() is False:
+                continue
+            try:
+                agent_cfg = load_agent_config(entry.name, status=status_dir_name)
+                if agent_cfg and agent_cfg.name not in seen_names:
+                    agents.append(agent_cfg)
+                    seen_names.add(agent_cfg.name)
+            except Exception as e:
+                logger.warning(f"Skipping agent '{entry.name}' ({status_dir_name}): {e}")
 
+    # Scan legacy layout: agents/{name}/ (skip status dirs)
+    for entry in sorted(agents_dir.iterdir()):
+        if not entry.is_dir() or entry.name in ("prod", "dev"):
+            continue
+        if entry.name in seen_names:
+            continue
         config_file = entry / "config.yaml"
         if not config_file.exists():
-            logger.debug(f"Skipping {entry.name}: no config.yaml")
             continue
-
         try:
             agent_cfg = load_agent_config(entry.name)
-            agents.append(agent_cfg)
+            if agent_cfg:
+                agents.append(agent_cfg)
+                seen_names.add(agent_cfg.name)
         except Exception as e:
             logger.warning(f"Skipping agent '{entry.name}': {e}")
 

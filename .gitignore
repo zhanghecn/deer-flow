@@ -42,6 +42,10 @@ log/
 # Local git hooks (keep only on this machine, do not push)
 .githooks/
 
+# Go gateway build artifacts
+gateway-go/bin/
+gateway-go/server
+
 # pnpm
 .pnpm-store
 sandbox_image_cache.tar

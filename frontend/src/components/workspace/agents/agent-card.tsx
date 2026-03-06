@@ -1,6 +1,6 @@
 "use client";
 
-import { BotIcon, MessageSquareIcon, Trash2Icon } from "lucide-react";
+import { BotIcon, MessageSquareIcon, RocketIcon, Trash2Icon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -23,7 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useDeleteAgent } from "@/core/agents";
+import { useDeleteAgent, usePublishAgent } from "@/core/agents";
 import type { Agent } from "@/core/agents";
 import { useI18n } from "@/core/i18n/hooks";
 
@@ -35,10 +35,21 @@ export function AgentCard({ agent }: AgentCardProps) {
   const { t } = useI18n();
   const router = useRouter();
   const deleteAgent = useDeleteAgent();
+  const publishAgentMutation = usePublishAgent();
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const isProd = agent.status === "prod";
 
   function handleChat() {
     router.push(`/workspace/agents/${agent.name}/chats/new`);
+  }
+
+  async function handlePublish() {
+    try {
+      await publishAgentMutation.mutateAsync(agent.name);
+      toast.success(`Agent '${agent.name}' published`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    }
   }
 
   async function handleDelete() {
@@ -64,11 +75,21 @@ export function AgentCard({ agent }: AgentCardProps) {
                 <CardTitle className="truncate text-base">
                   {agent.name}
                 </CardTitle>
-                {agent.model && (
-                  <Badge variant="secondary" className="mt-0.5 text-xs">
-                    {agent.model}
-                  </Badge>
-                )}
+                <div className="mt-0.5 flex gap-1">
+                  {agent.status && (
+                    <Badge
+                      variant={isProd ? "default" : "outline"}
+                      className={`text-xs ${isProd ? "bg-green-600 text-white" : ""}`}
+                    >
+                      {agent.status}
+                    </Badge>
+                  )}
+                  {agent.model && (
+                    <Badge variant="secondary" className="text-xs">
+                      {agent.model}
+                    </Badge>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -97,6 +118,18 @@ export function AgentCard({ agent }: AgentCardProps) {
             {t.agents.chat}
           </Button>
           <div className="flex gap-1">
+            {!isProd && (
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8 shrink-0"
+                onClick={handlePublish}
+                disabled={publishAgentMutation.isPending}
+                title="Publish"
+              >
+                <RocketIcon className="h-3.5 w-3.5" />
+              </Button>
+            )}
             <Button
               size="icon"
               variant="ghost"

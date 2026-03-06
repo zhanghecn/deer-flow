@@ -21,6 +21,7 @@ SUBAGENT_TOOLS = [
 
 def get_available_tools(
     groups: list[str] | None = None,
+    exclude_groups: list[str] | None = None,
     include_mcp: bool = True,
     model_name: str | None = None,
     subagent_enabled: bool = False,
@@ -32,6 +33,7 @@ def get_available_tools(
 
     Args:
         groups: Optional list of tool groups to filter by.
+        exclude_groups: Optional list of tool groups to exclude (applied after groups filter).
         include_mcp: Whether to include tools from MCP servers (default: True).
         model_name: Optional model name to determine if vision tools should be included.
         subagent_enabled: Whether to include subagent tools (task, task_status).
@@ -40,7 +42,12 @@ def get_available_tools(
         List of available tools.
     """
     config = get_app_config()
-    loaded_tools = [resolve_variable(tool.use, BaseTool) for tool in config.tools if groups is None or tool.group in groups]
+    exclude_set = set(exclude_groups) if exclude_groups else set()
+    loaded_tools = [
+        resolve_variable(tool.use, BaseTool)
+        for tool in config.tools
+        if (groups is None or tool.group in groups) and tool.group not in exclude_set
+    ]
 
     # Get cached MCP tools if enabled
     # NOTE: We use ExtensionsConfig.from_file() instead of config.extensions

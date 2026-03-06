@@ -29,13 +29,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from langchain.agents import create_agent
+from deepagents import create_deep_agent
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 
-from src.agents.lead_agent.agent import _build_middlewares
+from src.agents.lead_agent.agent import DEERFLOW_SUBAGENTS, _build_deerflow_middlewares, build_backend
 from src.agents.lead_agent.prompt import apply_prompt_template
-from src.agents.thread_state import ThreadState
 from src.config.app_config import get_app_config, reload_app_config
 from src.config.extensions_config import ExtensionsConfig, SkillStateConfig, get_extensions_config, reload_extensions_config
 from src.config.paths import get_paths
@@ -194,21 +193,26 @@ class DeerFlowClient:
         model_name = cfg.get("model_name")
         subagent_enabled = cfg.get("subagent_enabled", False)
         max_concurrent_subagents = cfg.get("max_concurrent_subagents", 3)
+        thread_id = cfg.get("thread_id", "_default")
 
-        kwargs: dict[str, Any] = {
-            "model": create_chat_model(name=model_name, thinking_enabled=thinking_enabled),
-            "tools": self._get_tools(model_name=model_name, subagent_enabled=subagent_enabled),
-            "middleware": _build_middlewares(config, model_name=model_name),
-            "system_prompt": apply_prompt_template(
+        # Build backend and middleware using shared agent.py functions
+        backend = build_backend(thread_id, agent_name=None)
+        extra_middleware = _build_deerflow_middlewares(model_name)
+        subagents = DEERFLOW_SUBAGENTS if subagent_enabled else None
+
+        self._agent = create_deep_agent(
+            model=create_chat_model(name=model_name, thinking_enabled=thinking_enabled),
+            tools=self._get_tools(model_name=model_name, subagent_enabled=subagent_enabled),
+            system_prompt=apply_prompt_template(
                 subagent_enabled=subagent_enabled,
                 max_concurrent_subagents=max_concurrent_subagents,
             ),
-            "state_schema": ThreadState,
-        }
-        if self._checkpointer is not None:
-            kwargs["checkpointer"] = self._checkpointer
-
-        self._agent = create_agent(**kwargs)
+            middleware=extra_middleware,
+            subagents=subagents,
+            backend=backend,
+            interrupt_on={"ask_clarification": True},
+            name="lead_agent",
+        )
         self._agent_config_key = key
         logger.info("Agent created: model=%s, thinking=%s", model_name, thinking_enabled)
 
@@ -217,7 +221,12 @@ class DeerFlowClient:
         """Lazy import to avoid circular dependency at module level."""
         from src.tools import get_available_tools
 
-        return get_available_tools(model_name=model_name, subagent_enabled=subagent_enabled)
+        # Exclude sandbox tool groups — deepagents FilesystemMiddleware provides them
+        return get_available_tools(
+            model_name=model_name,
+            subagent_enabled=subagent_enabled,
+            exclude_groups=["file:read", "file:write", "bash"],
+        )
 
     @staticmethod
     def _serialize_message(msg) -> dict:
