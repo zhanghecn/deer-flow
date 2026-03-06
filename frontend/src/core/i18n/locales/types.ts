@@ -26,6 +26,7 @@ export interface Translations {
     loading: string;
     version: string;
     lastUpdated: string;
+    logout: string;
     code: string;
     preview: string;
     cancel: string;
@@ -155,6 +156,41 @@ export interface Translations {
   // Chats
   chats: {
     searchChats: string;
+  };
+
+  // Auth
+  auth: {
+    heroTitle: string;
+    heroDescription: string;
+    heroFeatureThreads: string;
+    heroFeatureSkills: string;
+    heroFeatureJwt: string;
+    panelSubtitle: string;
+    badge: string;
+    signInTab: string;
+    registerTab: string;
+    emailLabel: string;
+    passwordLabel: string;
+    nameLabel: string;
+    confirmPasswordLabel: string;
+    loginEmailPlaceholder: string;
+    loginPasswordPlaceholder: string;
+    registerNamePlaceholder: string;
+    registerEmailPlaceholder: string;
+    registerPasswordPlaceholder: string;
+    confirmPasswordPlaceholder: string;
+    signingIn: string;
+    signInAction: string;
+    creatingAccount: string;
+    createAccountAction: string;
+    newHere: string;
+    createAccountLink: string;
+    alreadyHaveAccount: string;
+    signInLink: string;
+    passwordMismatchError: string;
+    passwordTooShortError: string;
+    loginFailed: string;
+    registrationFailed: string;
   };
 
   // Page titles (document title)

@@ -37,6 +37,7 @@ export const enUS: Translations = {
     loading: "Loading...",
     version: "Version",
     lastUpdated: "Last updated",
+    logout: "Log out",
     code: "Code",
     preview: "Preview",
     cancel: "Cancel",
@@ -216,6 +217,42 @@ export const enUS: Translations = {
   // Chats
   chats: {
     searchChats: "Search chats",
+  },
+
+  // Auth
+  auth: {
+    heroTitle: "Build, research, and ship with a single agent workspace.",
+    heroDescription:
+      "Sign in to continue your threads, tools, skills, and sandboxes. If you are new, create an account and start from the same workspace immediately.",
+    heroFeatureThreads: "Thread history and context stay synced.",
+    heroFeatureSkills: "Agent skills and tool settings are ready out of the box.",
+    heroFeatureJwt: "JWT-based auth for workspace and API features.",
+    panelSubtitle: "Access your workspace in seconds.",
+    badge: "v2.0 Auth",
+    signInTab: "Sign in",
+    registerTab: "Register",
+    emailLabel: "Email",
+    passwordLabel: "Password",
+    nameLabel: "Name",
+    confirmPasswordLabel: "Confirm password",
+    loginEmailPlaceholder: "you@example.com",
+    loginPasswordPlaceholder: "Enter your password",
+    registerNamePlaceholder: "Your name",
+    registerEmailPlaceholder: "you@example.com",
+    registerPasswordPlaceholder: "At least 8 characters",
+    confirmPasswordPlaceholder: "Type password again",
+    signingIn: "Signing in...",
+    signInAction: "Sign in",
+    creatingAccount: "Creating account...",
+    createAccountAction: "Create account",
+    newHere: "New here?",
+    createAccountLink: "Create an account",
+    alreadyHaveAccount: "Already have an account?",
+    signInLink: "Sign in",
+    passwordMismatchError: "Passwords do not match.",
+    passwordTooShortError: "Password must be at least 8 characters.",
+    loginFailed: "Login failed",
+    registrationFailed: "Registration failed",
   },
 
   // Page titles (document title)

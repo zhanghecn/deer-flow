@@ -5,10 +5,12 @@ import {
   ChevronsUpDown,
   GlobeIcon,
   InfoIcon,
+  LogOutIcon,
   MailIcon,
   Settings2Icon,
   SettingsIcon,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import {
@@ -25,6 +27,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { clearAuth } from "@/core/auth/store";
 import { useI18n } from "@/core/i18n/hooks";
 
 import { GithubIcon } from "./github-icon";
@@ -56,12 +59,18 @@ export function WorkspaceNavMenu() {
     "appearance" | "memory" | "tools" | "skills" | "notification" | "about"
   >("appearance");
   const [mounted, setMounted] = useState(false);
+  const router = useRouter();
   const { open: isSidebarOpen } = useSidebar();
   const { t } = useI18n();
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  const handleLogout = () => {
+    clearAuth();
+    router.push("/login");
+  };
 
   return (
     <>
@@ -145,6 +154,14 @@ export function WorkspaceNavMenu() {
                 >
                   <InfoIcon />
                   {t.workspace.about}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onClick={handleLogout}
+                >
+                  <LogOutIcon />
+                  {t.common.logout}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

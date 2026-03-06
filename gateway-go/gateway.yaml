@@ -19,6 +19,14 @@ jwt:
 storage:
   base_dir: .openagents
 
+logging:
+  level: info
+  access_log: true
+  # Enable detailed proxy logs for troubleshooting 502/timeout/upstream issues.
+  proxy_debug: false
+  # Only enable in local debugging; may expose sensitive headers.
+  proxy_log_headers: false
+
 # Declarative proxy routes
 # Add new upstream services here — no code changes needed.
 # Supports: HTTP, SSE/streaming, WebSocket (auto-detected via Upgrade header)

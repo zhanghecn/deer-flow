@@ -67,7 +67,7 @@ cp .env.example .env
 ```
 
 所需环境变量：
-- `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` — 数据库连接
+- `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_SSLMODE` — 数据库连接
 - `JWT_SECRET` — JWT 签名密钥（生成：`openssl rand -base64 32`）
 - `OPENAGENTS_HOME` — 数据存储目录（可选，默认 `.openagents`）
 
@@ -82,11 +82,11 @@ server:
 
 database:
   host: $DB_HOST       # 或填写实际值
-  port: 5432
+  port: $DB_PORT
   user: $DB_USER
   password: $DB_PASSWORD
-  dbname: openagents
-  sslmode: disable
+  dbname: $DB_NAME
+  sslmode: $DB_SSLMODE
 
 jwt:
   secret: $JWT_SECRET   # 生产环境务必使用强密钥
@@ -94,6 +94,12 @@ jwt:
 
 storage:
   base_dir: .openagents
+
+logging:
+  level: info                # debug | info | warn | error
+  access_log: true           # Gin access log
+  proxy_debug: false         # 代理层详细日志（推荐排查 502 时开启）
+  proxy_log_headers: false   # 打印请求头（会脱敏 Authorization/Cookie）
 
 upstream:
   langgraph_url: http://localhost:2024

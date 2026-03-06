@@ -5,7 +5,9 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/joho/godotenv"
 	"github.com/openagents/gateway/internal/config"
 	"github.com/openagents/gateway/internal/handler"
 	"github.com/openagents/gateway/internal/middleware"
@@ -19,6 +21,11 @@ import (
 )
 
 func main() {
+	// Load .env file if exists
+	if err := godotenv.Load(); err != nil {
+		log.Printf("Note: .env file not found or error loading: %v", err)
+	}
+
 	// Load gateway config
 	cfgPath := os.Getenv("GATEWAY_CONFIG_PATH")
 	if cfgPath == "" {
@@ -72,6 +79,8 @@ func main() {
 	openAPIH := handler.NewOpenAPIHandler(agentRepo, cfg.Upstream.LangGraphURL, fs)
 
 	// Compile proxy routes from gateway.yaml config
+	loggingLevel := strings.ToLower(cfg.Logging.Level)
+	proxyDebug := cfg.Logging.ProxyDebug || loggingLevel == "debug"
 	var proxyRoutes []*proxy.Route
 	for _, rc := range cfg.Proxy.Routes {
 		route, err := proxy.NewRoute(proxy.RouteConfig{
@@ -81,17 +90,43 @@ func main() {
 			Auth:          rc.Auth,
 			InjectHeaders: rc.InjectHeaders,
 			InjectBody:    rc.InjectBody,
+			Debug:         proxyDebug,
+			LogHeaders:    cfg.Logging.ProxyLogHeaders,
 		})
 		if err != nil {
 			log.Fatalf("Failed to create proxy route %s: %v", rc.Prefix, err)
 		}
 		proxyRoutes = append(proxyRoutes, route)
-		log.Printf("Proxy route: %s -> %s (auth=%s, strip=%v)", rc.Prefix, rc.Upstream, rc.Auth, rc.StripPrefix)
+		log.Printf(
+			"Proxy route: %s -> %s (auth=%s, strip=%v, debug=%v, log_headers=%v)",
+			rc.Prefix,
+			rc.Upstream,
+			rc.Auth,
+			rc.StripPrefix,
+			proxyDebug,
+			cfg.Logging.ProxyLogHeaders,
+		)
 	}
 
 	// Router
-	r := gin.Default()
+	if loggingLevel == "debug" {
+		gin.SetMode(gin.DebugMode)
+	} else {
+		gin.SetMode(gin.ReleaseMode)
+	}
+	r := gin.New()
+	if cfg.Logging.AccessLog {
+		r.Use(gin.Logger())
+	}
+	r.Use(gin.Recovery())
 	r.Use(middleware.CORS())
+	log.Printf(
+		"Gateway logging: level=%s access_log=%v proxy_debug=%v proxy_log_headers=%v",
+		cfg.Logging.Level,
+		cfg.Logging.AccessLog,
+		proxyDebug,
+		cfg.Logging.ProxyLogHeaders,
+	)
 
 	// Health check
 	r.GET("/health", func(c *gin.Context) {

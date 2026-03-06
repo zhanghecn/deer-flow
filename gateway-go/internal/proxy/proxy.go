@@ -3,15 +3,19 @@ package proxy
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
+	"log"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"time"
 
-	"github.com/openagents/gateway/internal/middleware"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/openagents/gateway/internal/middleware"
 )
 
 // RouteConfig is a single declarative proxy route from gateway.yaml.
@@ -22,6 +26,8 @@ type RouteConfig struct {
 	Auth          string            `yaml:"auth"`           // "jwt", "token", "none"
 	InjectHeaders map[string]string `yaml:"inject_headers"` // headers to forward
 	InjectBody    map[string]string `yaml:"inject_body"`    // fields to inject into JSON body, e.g. {"configurable.user_id": "{{.UserID}}"}
+	Debug         bool
+	LogHeaders    bool
 }
 
 // Route is a compiled proxy route ready to serve requests.
@@ -39,6 +45,20 @@ func NewRoute(cfg RouteConfig) (*Route, error) {
 	}
 
 	rp := httputil.NewSingleHostReverseProxy(target)
+	rp.Transport = &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   5 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          256,
+		MaxIdleConnsPerHost:   128,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   5 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		ResponseHeaderTimeout: 120 * time.Second,
+	}
 
 	originalDirector := rp.Director
 	rp.Director = func(req *http.Request) {
@@ -48,6 +68,45 @@ func NewRoute(cfg RouteConfig) (*Route, error) {
 
 	// SSE/streaming: flush immediately
 	rp.FlushInterval = -1
+	rp.ModifyResponse = func(resp *http.Response) error {
+		// Gateway owns CORS policy. Strip upstream CORS headers to avoid duplicated
+		// values like "Access-Control-Allow-Origin: *, *" that browsers reject.
+		stripCORSHeaders(resp.Header)
+
+		if cfg.Debug {
+			log.Printf(
+				"[proxy][resp] route=%s upstream=%s method=%s path=%s status=%d content_length=%d",
+				cfg.Prefix,
+				cfg.Upstream,
+				resp.Request.Method,
+				resp.Request.URL.Path,
+				resp.StatusCode,
+				resp.ContentLength,
+			)
+		}
+		return nil
+	}
+	rp.ErrorHandler = func(w http.ResponseWriter, req *http.Request, err error) {
+		log.Printf(
+			"[proxy][error] route=%s upstream=%s method=%s path=%s raw_query=%s err=%v",
+			cfg.Prefix,
+			cfg.Upstream,
+			req.Method,
+			req.URL.Path,
+			req.URL.RawQuery,
+			err,
+		)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		if cfg.Debug {
+			_, _ = w.Write([]byte(
+				fmt.Sprintf("{\"error\":\"bad gateway\",\"detail\":%q}", err.Error()),
+			))
+			return
+		}
+		_, _ = w.Write([]byte("{\"error\":\"bad gateway\"}"))
+	}
 
 	return &Route{cfg: cfg, target: target, proxy: rp}, nil
 }
@@ -89,6 +148,21 @@ func (r *Route) Handler() gin.HandlerFunc {
 			r.injectBody(c)
 		}
 
+		if r.cfg.Debug {
+			log.Printf(
+				"[proxy][req] route=%s upstream=%s method=%s path=%s raw_query=%s content_length=%d",
+				r.cfg.Prefix,
+				r.cfg.Upstream,
+				c.Request.Method,
+				c.Request.URL.Path,
+				c.Request.URL.RawQuery,
+				c.Request.ContentLength,
+			)
+			if r.cfg.LogHeaders {
+				log.Printf("[proxy][req][headers] %s", redactHeaders(c.Request.Header))
+			}
+		}
+
 		r.proxy.ServeHTTP(c.Writer, c.Request)
 	}
 }
@@ -100,11 +174,20 @@ func (r *Route) injectBody(c *gin.Context) {
 	if c.Request.Body == nil {
 		return
 	}
+	contentType := c.ContentType()
+	if contentType != "application/json" {
+		return
+	}
+
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		return
 	}
 	c.Request.Body.Close()
+	if len(body) == 0 {
+		c.Request.Body = io.NopCloser(bytes.NewReader(body))
+		return
+	}
 
 	var data map[string]interface{}
 	if err := json.Unmarshal(body, &data); err != nil {
@@ -162,4 +245,30 @@ func resolveTemplate(tmpl string, c *gin.Context) string {
 		result = strings.ReplaceAll(result, "{{.Role}}", middleware.GetRole(c))
 	}
 	return result
+}
+
+func redactHeaders(headers http.Header) string {
+	safe := make(http.Header, len(headers))
+	for k, values := range headers {
+		if strings.EqualFold(k, "authorization") || strings.EqualFold(k, "cookie") {
+			safe[k] = []string{"<redacted>"}
+			continue
+		}
+		safe[k] = values
+	}
+	data, err := json.Marshal(safe)
+	if err != nil {
+		return "{}"
+	}
+	return string(data)
+}
+
+func stripCORSHeaders(headers http.Header) {
+	headers.Del("Access-Control-Allow-Origin")
+	headers.Del("Access-Control-Allow-Methods")
+	headers.Del("Access-Control-Allow-Headers")
+	headers.Del("Access-Control-Allow-Credentials")
+	headers.Del("Access-Control-Expose-Headers")
+	headers.Del("Access-Control-Max-Age")
+	headers.Del("Access-Control-Allow-Private-Network")
 }

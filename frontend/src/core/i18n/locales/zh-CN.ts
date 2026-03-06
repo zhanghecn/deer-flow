@@ -37,6 +37,7 @@ export const zhCN: Translations = {
     loading: "加载中...",
     version: "版本",
     lastUpdated: "最后更新",
+    logout: "退出登录",
     code: "代码",
     preview: "预览",
     cancel: "取消",
@@ -206,6 +207,42 @@ export const zhCN: Translations = {
   // Chats
   chats: {
     searchChats: "搜索对话",
+  },
+
+  // Auth
+  auth: {
+    heroTitle: "在一个智能体工作区内完成研究、构建与交付。",
+    heroDescription:
+      "登录后可继续使用你的对话线程、工具、技能与沙盒。如果你是新用户，可以立即注册并开始使用同一工作区。",
+    heroFeatureThreads: "对话历史与上下文持续同步。",
+    heroFeatureSkills: "智能体技能与工具配置开箱即用。",
+    heroFeatureJwt: "基于 JWT 的工作区与 API 认证。",
+    panelSubtitle: "几秒内进入你的工作区。",
+    badge: "v2.0 认证",
+    signInTab: "登录",
+    registerTab: "注册",
+    emailLabel: "邮箱",
+    passwordLabel: "密码",
+    nameLabel: "名称",
+    confirmPasswordLabel: "确认密码",
+    loginEmailPlaceholder: "you@example.com",
+    loginPasswordPlaceholder: "请输入你的密码",
+    registerNamePlaceholder: "你的名称",
+    registerEmailPlaceholder: "you@example.com",
+    registerPasswordPlaceholder: "至少 8 个字符",
+    confirmPasswordPlaceholder: "再次输入密码",
+    signingIn: "登录中...",
+    signInAction: "登录",
+    creatingAccount: "创建账号中...",
+    createAccountAction: "创建账号",
+    newHere: "第一次使用？",
+    createAccountLink: "立即注册",
+    alreadyHaveAccount: "已有账号？",
+    signInLink: "去登录",
+    passwordMismatchError: "两次输入的密码不一致。",
+    passwordTooShortError: "密码至少需要 8 个字符。",
+    loginFailed: "登录失败",
+    registrationFailed: "注册失败",
   },
 
   // Page titles (document title)

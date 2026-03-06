@@ -10,18 +10,16 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/joho/godotenv"
+
+	"github.com/openagents/gateway/internal/config"
 )
 
-func getEnvOrDefault(key, defaultVal string) string {
-	if val := os.Getenv(key); val != "" {
-		return val
+func checkPassword() string {
+	password := os.Getenv("DB_PASSWORD")
+	if password == "" {
+		fmt.Println("Warning: DB_PASSWORD is not set (empty)")
 	}
-	return defaultVal
-}
-
-func buildDSN(host, port, user, password, dbname, sslmode string) string {
-	return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
-		user, password, host, port, dbname, sslmode)
+	return password
 }
 
 func main() {
@@ -32,16 +30,21 @@ func main() {
 
 	fmt.Println("Starting database migration...")
 
-	host := getEnvOrDefault("DB_HOST", "localhost")
-	port := getEnvOrDefault("DB_PORT", "5432")
-	user := getEnvOrDefault("DB_USER", "root")
-	password := checkPassword()
-	dbname := getEnvOrDefault("DB_NAME", "openagents")
+	// Load config from gateway.yaml
+	cfg, err := config.Load("gateway.yaml")
+	if err != nil {
+		fmt.Printf("Error loading config: %v\n", err)
+		os.Exit(1)
+	}
 
-	fmt.Printf("Connecting to database: %s:%s@%s:%s/%s\n", user, password, host, port, dbname)
+	// Override password if set in env (for security)
+	if password := checkPassword(); password != "" {
+		cfg.Database.Password = password
+	}
 
-	sslmode := getEnvOrDefault("DB_SSLMODE", "disable")
-	dsn := buildDSN(host, port, user, password, dbname, sslmode)
+	dsn := cfg.Database.DSN()
+	fmt.Printf("Connecting to database: %s@%s:%s/%s\n",
+		cfg.Database.User, cfg.Database.Host, cfg.Database.Port, cfg.Database.DBName)
 
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
@@ -81,12 +84,4 @@ func main() {
 
 	version, dirty, _ = m.Version()
 	fmt.Printf("Migration completed. Current version: %d (dirty: %v)\n", version, dirty)
-}
-
-func checkPassword() string {
-	password := os.Getenv("DB_PASSWORD")
-	if password == "" {
-		fmt.Println("Warning: DB_PASSWORD is not set (empty)")
-	}
-	return password
 }
