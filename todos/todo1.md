@@ -18,7 +18,7 @@
 2. 支持管理 agents ,并且每个agent 支持 通过传递agent名称 + 授权token 形成开放式接口在任意地方进行调用,中间产生的任何文件任何结构都可以获取到
 3. 支持管理 skill 并且每个 skill 拥有prod/dev 状态
 4. 支持通过一个对话 生成 agent . 通过 引导的skill。 询问用户想要什么,生成专业性的 skill 以及 系统提示词(放在AGENTS.md)  并附带自测试
-5. 每个agent 可以配置 agent名称 agent 描述 使用的模型 以及 AGENTS.md 位置 和 使用哪些 skill 的配置。 包括 prod/dev 状态。
+5. 每个agent 可以配置 agent名称 agent头像 agent描述 使用的模型 以及 AGENTS.md 位置 和 使用哪些 skill 的配置。 包括 prod/dev 状态。
 
 # 储存方面:
 可以参考现有的 replace_virtual_path 。
@@ -40,9 +40,10 @@ agents 还需要分 prod 和 dev 目录
 模型维护也是通过后台维护,但也支持通过 本地环境配置文件进行测试
 
 ## agent 
-agent也需要改造 
-而是使用opencode。 但是opencode 是个写代码的智能体。 所以需要进行改造。
-改造后的智能体就叫做 openagent
+agent也需要改造 目前agent 注册的工具和编排实际是不太靠谱的。
+需要使用 deepagents 框架
+关于 deepagents 我已经把源码下载下来了。你可以从 deepagents/examples 中作为起发点了解源码实现
+然后在
 
 ## opencode
 opencode目前需要先了解可行性。
