@@ -14,6 +14,20 @@ type Config struct {
 	JWT      JWTConfig      `yaml:"jwt"`
 	Storage  StorageConfig  `yaml:"storage"`
 	Upstream UpstreamConfig `yaml:"upstream"`
+	Proxy    ProxyConfig    `yaml:"proxy"`
+}
+
+type ProxyConfig struct {
+	Routes []ProxyRouteConfig `yaml:"routes"`
+}
+
+type ProxyRouteConfig struct {
+	Prefix        string            `yaml:"prefix"`
+	Upstream      string            `yaml:"upstream"`
+	StripPrefix   bool              `yaml:"strip_prefix"`
+	Auth          string            `yaml:"auth"`
+	InjectHeaders map[string]string `yaml:"inject_headers"`
+	InjectBody    map[string]string `yaml:"inject_body"`
 }
 
 type ServerConfig struct {
@@ -106,4 +120,8 @@ func (c *Config) resolveEnvVars() {
 	c.Database.User = resolve(c.Database.User)
 	c.Database.Host = resolve(c.Database.Host)
 	c.JWT.Secret = resolve(c.JWT.Secret)
+	c.Upstream.LangGraphURL = resolve(c.Upstream.LangGraphURL)
+	for i := range c.Proxy.Routes {
+		c.Proxy.Routes[i].Upstream = resolve(c.Proxy.Routes[i].Upstream)
+	}
 }

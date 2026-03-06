@@ -1,5 +1,4 @@
 # Gateway configuration
-# This file configures the Go gateway. It also reads the main config.yaml for model info.
 
 server:
   port: 8001
@@ -20,5 +19,14 @@ jwt:
 storage:
   base_dir: .openagents
 
-upstream:
-  langgraph_url: http://localhost:2024
+# Declarative proxy routes
+# Add new upstream services here — no code changes needed.
+# Supports: HTTP, SSE/streaming, WebSocket (auto-detected via Upgrade header)
+proxy:
+  routes:
+    - prefix: /api/langgraph
+      upstream: http://localhost:2024
+      strip_prefix: true
+      auth: jwt
+      inject_body:
+        configurable.user_id: "{{.UserID}}"

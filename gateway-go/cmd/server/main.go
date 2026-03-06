@@ -14,6 +14,7 @@ import (
 	"github.com/openagents/gateway/internal/service"
 	"github.com/openagents/gateway/pkg/jwt"
 	"github.com/openagents/gateway/pkg/storage"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -70,10 +71,22 @@ func main() {
 	artifactsH := handler.NewArtifactsHandler(fs)
 	openAPIH := handler.NewOpenAPIHandler(agentRepo, cfg.Upstream.LangGraphURL, fs)
 
-	// LangGraph proxy
-	lgProxy, err := proxy.NewLangGraphProxy(cfg.Upstream.LangGraphURL)
-	if err != nil {
-		log.Fatalf("Failed to create LangGraph proxy: %v", err)
+	// Compile proxy routes from gateway.yaml config
+	var proxyRoutes []*proxy.Route
+	for _, rc := range cfg.Proxy.Routes {
+		route, err := proxy.NewRoute(proxy.RouteConfig{
+			Prefix:        rc.Prefix,
+			Upstream:      rc.Upstream,
+			StripPrefix:   rc.StripPrefix,
+			Auth:          rc.Auth,
+			InjectHeaders: rc.InjectHeaders,
+			InjectBody:    rc.InjectBody,
+		})
+		if err != nil {
+			log.Fatalf("Failed to create proxy route %s: %v", rc.Prefix, err)
+		}
+		proxyRoutes = append(proxyRoutes, route)
+		log.Printf("Proxy route: %s -> %s (auth=%s, strip=%v)", rc.Prefix, rc.Upstream, rc.Auth, rc.StripPrefix)
 	}
 
 	// Router
@@ -136,8 +149,19 @@ func main() {
 		// Artifacts
 		api.GET("/threads/:id/artifacts/*path", artifactsH.Serve)
 
-		// LangGraph proxy (all methods)
-		api.Any("/langgraph/*path", lgProxy.Handler())
+	}
+
+	// Register proxy routes from config (declarative, no code changes needed)
+	for _, route := range proxyRoutes {
+		switch route.AuthType() {
+		case "jwt":
+			// Register under the JWT-protected api group
+			r.Any(route.Prefix()+"/*path", middleware.JWTAuth(jwtMgr), route.Handler())
+		case "token":
+			r.Any(route.Prefix()+"/*path", middleware.APITokenAuth(tokenRepo), route.Handler())
+		default:
+			r.Any(route.Prefix()+"/*path", route.Handler())
+		}
 	}
 
 	// Open API routes (API Token auth)

@@ -69,7 +69,6 @@ func (h *OpenAPIHandler) handleRequest(c *gin.Context, agentName string, stream 
 			{"role": "user", "content": req.Message},
 		},
 		"configurable": map[string]interface{}{
-			"user_id":      userID.String(),
 			"agent_name":   agentName,
 			"agent_status": "prod",
 			"thread_id":    threadID,
@@ -91,6 +90,7 @@ func (h *OpenAPIHandler) handleRequest(c *gin.Context, agentName string, stream 
 		return
 	}
 	lgReq.Header.Set("Content-Type", "application/json")
+	lgReq.Header.Set("X-User-ID", userID.String())
 
 	client := &http.Client{Timeout: 10 * time.Minute}
 	resp, err := client.Do(lgReq)
