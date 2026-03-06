@@ -34,6 +34,7 @@ func (s *AgentService) Create(ctx context.Context, req model.CreateAgentRequest,
 		AvatarURL:   req.AvatarURL,
 		Model:       req.Model,
 		ToolGroups:  req.ToolGroups,
+		McpServers:  req.McpServers,
 		Status:      "dev",
 		AgentsMD:    req.AgentsMD,
 		ConfigJSON:  json.RawMessage("{}"),
@@ -49,6 +50,7 @@ func (s *AgentService) Create(ctx context.Context, req model.CreateAgentRequest,
 		"name":        agent.Name,
 		"model":       agent.Model,
 		"tool_groups": agent.ToolGroups,
+		"mcp_servers": agent.McpServers,
 	}
 	if err := s.fs.WriteAgentFiles(agent.Name, "dev", agent.AgentsMD, config); err != nil {
 		return nil, fmt.Errorf("sync agent files: %w", err)
@@ -95,6 +97,9 @@ func (s *AgentService) Update(ctx context.Context, name string, req model.Update
 	if req.ToolGroups != nil {
 		existing.ToolGroups = req.ToolGroups
 	}
+	if req.McpServers != nil {
+		existing.McpServers = req.McpServers
+	}
 	if req.AgentsMD != nil {
 		existing.AgentsMD = *req.AgentsMD
 	}
@@ -108,6 +113,7 @@ func (s *AgentService) Update(ctx context.Context, name string, req model.Update
 		"name":        existing.Name,
 		"model":       existing.Model,
 		"tool_groups": existing.ToolGroups,
+		"mcp_servers": existing.McpServers,
 	}
 	_ = s.fs.WriteAgentFiles(existing.Name, existing.Status, existing.AgentsMD, config)
 

@@ -40,6 +40,7 @@ type Agent struct {
 	AvatarURL   *string         `json:"avatar_url" db:"avatar_url"`
 	Model       *string         `json:"model" db:"model"`
 	ToolGroups  []string        `json:"tool_groups" db:"tool_groups"`
+	McpServers  []string        `json:"mcp_servers" db:"mcp_servers"`
 	Status      string          `json:"status" db:"status"`
 	AgentsMD    string          `json:"agents_md" db:"agents_md"`
 	ConfigJSON  json.RawMessage `json:"config_json" db:"config_json"`
@@ -59,25 +60,4 @@ type Skill struct {
 	CreatedBy   *uuid.UUID      `json:"created_by" db:"created_by"`
 	CreatedAt   time.Time       `json:"created_at" db:"created_at"`
 	UpdatedAt   time.Time       `json:"updated_at" db:"updated_at"`
-}
-
-// Thread represents a conversation thread.
-type Thread struct {
-	ID        string     `json:"id" db:"id"`
-	UserID    uuid.UUID  `json:"user_id" db:"user_id"`
-	AgentID   *uuid.UUID `json:"agent_id" db:"agent_id"`
-	Title     *string    `json:"title" db:"title"`
-	CreatedAt time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at" db:"updated_at"`
-}
-
-// Model represents a configured LLM model.
-type Model struct {
-	ID          uuid.UUID       `json:"id" db:"id"`
-	Name        string          `json:"name" db:"name"`
-	DisplayName *string         `json:"display_name" db:"display_name"`
-	Provider    string          `json:"provider" db:"provider"`
-	ConfigJSON  json.RawMessage `json:"config_json" db:"config_json"`
-	Enabled     bool            `json:"enabled" db:"enabled"`
-	CreatedAt   time.Time       `json:"created_at" db:"created_at"`
 }

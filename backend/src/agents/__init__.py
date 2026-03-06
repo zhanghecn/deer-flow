@@ -1,4 +1,4 @@
 from .lead_agent import make_lead_agent
-from .thread_state import SandboxState, ThreadState
+from .thread_state import ThreadState
 
-__all__ = ["make_lead_agent", "SandboxState", "ThreadState"]
+__all__ = ["make_lead_agent", "ThreadState"]

@@ -17,18 +17,9 @@ func NewFS(baseDir string) *FS {
 	return &FS{baseDir: baseDir}
 }
 
-func (f *FS) BaseDir() string {
-	return f.baseDir
-}
-
 // AgentDir returns the directory for an agent: {baseDir}/agents/{status}/{name}/
 func (f *FS) AgentDir(name, status string) string {
 	return filepath.Join(f.baseDir, "agents", status, name)
-}
-
-// SkillDir returns the directory for a skill within an agent.
-func (f *FS) AgentSkillDir(agentName, status, skillName string) string {
-	return filepath.Join(f.AgentDir(agentName, status), "skills", skillName)
 }
 
 // GlobalSkillDir returns the directory for a global skill.
@@ -78,15 +69,6 @@ func (f *FS) WriteAgentFiles(name, status, agentsMD string, config map[string]in
 	_ = os.MkdirAll(filepath.Join(dir, "skills"), 0755)
 
 	return nil
-}
-
-// WriteSkillFile writes SKILL.md for a skill within an agent directory.
-func (f *FS) WriteAgentSkillFile(agentName, status, skillName, skillMD string) error {
-	dir := f.AgentSkillDir(agentName, status, skillName)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("mkdir skill: %w", err)
-	}
-	return os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(skillMD), 0644)
 }
 
 // WriteGlobalSkillFile writes a global SKILL.md.

@@ -60,5 +60,5 @@ func (h *ModelHandler) List(c *gin.Context) {
 	if result == nil {
 		result = []ModelConfig{}
 	}
-	c.JSON(http.StatusOK, result)
+	c.JSON(http.StatusOK, gin.H{"models": result})
 }

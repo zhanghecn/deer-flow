@@ -39,6 +39,7 @@ type CreateAgentRequest struct {
 	AvatarURL   *string  `json:"avatar_url"`
 	Model       *string  `json:"model"`
 	ToolGroups  []string `json:"tool_groups"`
+	McpServers  []string `json:"mcp_servers"`
 	AgentsMD    string   `json:"agents_md"`
 }
 
@@ -48,6 +49,7 @@ type UpdateAgentRequest struct {
 	AvatarURL   *string  `json:"avatar_url"`
 	Model       *string  `json:"model"`
 	ToolGroups  []string `json:"tool_groups"`
+	McpServers  []string `json:"mcp_servers"`
 	AgentsMD    *string  `json:"agents_md"`
 }
 

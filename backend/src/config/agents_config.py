@@ -24,6 +24,7 @@ class AgentConfig(BaseModel):
     description: str = ""
     model: str | None = None
     tool_groups: list[str] | None = None
+    mcp_servers: list[str] | None = None
     status: str = "dev"
 
 

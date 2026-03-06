@@ -116,6 +116,7 @@ func main() {
 
 		// Agents
 		api.GET("/agents", agentH.List)
+		api.GET("/agents/check", agentH.CheckName)
 		api.POST("/agents", agentH.Create)
 		api.GET("/agents/:name", agentH.Get)
 		api.PUT("/agents/:name", agentH.Update)
@@ -126,6 +127,7 @@ func main() {
 		// Skills
 		api.GET("/skills", skillH.List)
 		api.POST("/skills", skillH.Create)
+		api.POST("/skills/install", skillH.Install)
 		api.PUT("/skills/:name", skillH.Update)
 		api.DELETE("/skills/:name", skillH.Delete)
 		api.POST("/skills/:name/publish", skillH.Publish)
@@ -138,13 +140,13 @@ func main() {
 		api.POST("/memory", memoryH.Update)
 
 		// MCP
-		api.GET("/mcp", mcpH.Get)
-		api.PUT("/mcp", mcpH.Update)
+		api.GET("/mcp/config", mcpH.Get)
+		api.PUT("/mcp/config", mcpH.Update)
 
 		// Uploads
 		api.POST("/threads/:id/uploads", uploadsH.Upload)
-		api.GET("/threads/:id/uploads", uploadsH.List)
-		api.DELETE("/threads/:id/uploads", uploadsH.Delete)
+		api.GET("/threads/:id/uploads/list", uploadsH.List)
+		api.DELETE("/threads/:id/uploads/:filename", uploadsH.Delete)
 
 		// Artifacts
 		api.GET("/threads/:id/artifacts/*path", artifactsH.Serve)

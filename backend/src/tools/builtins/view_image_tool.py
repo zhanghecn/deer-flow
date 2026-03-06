@@ -8,8 +8,34 @@ from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 from langgraph.typing import ContextT
 
-from src.agents.thread_state import ThreadState
-from src.sandbox.tools import get_thread_data, replace_virtual_path
+from src.agents.thread_state import ThreadDataState, ThreadState
+from src.config.paths import VIRTUAL_PATH_PREFIX
+
+
+def _get_thread_data(runtime: ToolRuntime[ContextT, ThreadState] | None) -> ThreadDataState | None:
+    if runtime is None or runtime.state is None:
+        return None
+    return runtime.state.get("thread_data")
+
+
+def _replace_virtual_path(path: str, thread_data: ThreadDataState | None) -> str:
+    if not path.startswith(VIRTUAL_PATH_PREFIX) or thread_data is None:
+        return path
+    path_mapping = {
+        "workspace": thread_data.get("workspace_path"),
+        "uploads": thread_data.get("uploads_path"),
+        "outputs": thread_data.get("outputs_path"),
+    }
+    relative_path = path[len(VIRTUAL_PATH_PREFIX):].lstrip("/")
+    if not relative_path:
+        return path
+    parts = relative_path.split("/", 1)
+    subdir = parts[0]
+    rest = parts[1] if len(parts) > 1 else ""
+    actual_base = path_mapping.get(subdir)
+    if actual_base is None:
+        return path
+    return f"{actual_base}/{rest}" if rest else actual_base
 
 
 @tool("view_image", parse_docstring=True)
@@ -33,9 +59,8 @@ def view_image_tool(
         image_path: Absolute path to the image file. Common formats supported: jpg, jpeg, png, webp.
     """
     # Replace virtual path with actual path
-    # /mnt/user-data/* paths are mapped to thread-specific directories
-    thread_data = get_thread_data(runtime)
-    actual_path = replace_virtual_path(image_path, thread_data)
+    thread_data = _get_thread_data(runtime)
+    actual_path = _replace_virtual_path(image_path, thread_data)
 
     # Validate that the path is absolute
     path = Path(actual_path)
@@ -66,7 +91,6 @@ def view_image_tool(
     # Detect MIME type from file extension
     mime_type, _ = mimetypes.guess_type(actual_path)
     if mime_type is None:
-        # Fallback to default MIME types for common image formats
         extension_to_mime = {
             ".jpg": "image/jpeg",
             ".jpeg": "image/jpeg",
@@ -86,7 +110,6 @@ def view_image_tool(
         )
 
     # Update viewed_images in state
-    # The merge_viewed_images reducer will handle merging with existing images
     new_viewed_images = {image_path: {"base64": image_base64, "mime_type": mime_type}}
 
     return Command(

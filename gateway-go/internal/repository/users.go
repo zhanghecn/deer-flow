@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	"github.com/openagents/gateway/internal/model"
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -39,14 +38,3 @@ func (r *UserRepo) FindByEmail(ctx context.Context, email string) (*model.User, 
 	return u, err
 }
 
-func (r *UserRepo) FindByID(ctx context.Context, id uuid.UUID) (*model.User, error) {
-	u := &model.User{}
-	err := r.pool.QueryRow(ctx,
-		`SELECT id, email, name, password_hash, avatar_url, role, created_at, updated_at
-		 FROM users WHERE id = $1`, id,
-	).Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.AvatarURL, &u.Role, &u.CreatedAt, &u.UpdatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
-	}
-	return u, err
-}

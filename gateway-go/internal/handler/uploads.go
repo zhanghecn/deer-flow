@@ -37,19 +37,36 @@ func (h *UploadsHandler) Upload(c *gin.Context) {
 	_ = os.MkdirAll(uploadsDir, 0755)
 
 	files := form.File["files"]
-	var uploaded []string
+	var uploadedFiles []gin.H
 	for _, f := range files {
 		// Sanitize filename
 		name := filepath.Base(f.Filename)
+		if name == "." || name == ".." {
+			continue
+		}
 		dst := filepath.Join(uploadsDir, name)
 		if err := c.SaveUploadedFile(f, dst); err != nil {
 			c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: fmt.Sprintf("failed to save %s", name)})
 			return
 		}
-		uploaded = append(uploaded, name)
+		info, _ := os.Stat(dst)
+		virtualPath := fmt.Sprintf("/mnt/user-data/uploads/%s", name)
+		uploadedFiles = append(uploadedFiles, gin.H{
+			"filename":     name,
+			"size":         fmt.Sprintf("%d", info.Size()),
+			"virtual_path": virtualPath,
+			"artifact_url": fmt.Sprintf("/api/threads/%s/artifacts/mnt/user-data/uploads/%s", threadID, name),
+		})
+	}
+	if uploadedFiles == nil {
+		uploadedFiles = []gin.H{}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"uploaded": uploaded})
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"files":   uploadedFiles,
+		"message": fmt.Sprintf("Successfully uploaded %d file(s)", len(uploadedFiles)),
+	})
 }
 
 func (h *UploadsHandler) List(c *gin.Context) {
@@ -59,28 +76,38 @@ func (h *UploadsHandler) List(c *gin.Context) {
 	entries, err := os.ReadDir(uploadsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			c.JSON(http.StatusOK, []string{})
+			c.JSON(http.StatusOK, gin.H{"files": []gin.H{}, "count": 0})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to list uploads"})
 		return
 	}
 
-	var names []string
+	var files []gin.H
 	for _, e := range entries {
-		if !e.IsDir() {
-			names = append(names, e.Name())
+		if e.IsDir() {
+			continue
 		}
+		info, _ := e.Info()
+		name := e.Name()
+		files = append(files, gin.H{
+			"filename":     name,
+			"size":         info.Size(),
+			"virtual_path": fmt.Sprintf("/mnt/user-data/uploads/%s", name),
+			"artifact_url": fmt.Sprintf("/api/threads/%s/artifacts/mnt/user-data/uploads/%s", threadID, name),
+			"extension":    filepath.Ext(name),
+			"modified":     info.ModTime().Unix(),
+		})
 	}
-	if names == nil {
-		names = []string{}
+	if files == nil {
+		files = []gin.H{}
 	}
-	c.JSON(http.StatusOK, names)
+	c.JSON(http.StatusOK, gin.H{"files": files, "count": len(files)})
 }
 
 func (h *UploadsHandler) Delete(c *gin.Context) {
 	threadID := c.Param("id")
-	filename := c.Query("filename")
+	filename := c.Param("filename")
 	if filename == "" {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "missing filename"})
 		return
@@ -97,5 +124,5 @@ func (h *UploadsHandler) Delete(c *gin.Context) {
 		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "file not found"})
 		return
 	}
-	c.JSON(http.StatusOK, model.SuccessResponse{Message: "file deleted"})
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": fmt.Sprintf("Deleted %s", filename)})
 }

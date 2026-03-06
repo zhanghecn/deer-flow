@@ -7,7 +7,6 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from src.config.paths import VIRTUAL_PATH_PREFIX, get_paths
-from src.sandbox.sandbox_provider import get_sandbox_provider
 
 logger = logging.getLogger(__name__)
 
@@ -97,10 +96,6 @@ async def upload_files(
     paths = get_paths()
     uploaded_files = []
 
-    sandbox_provider = get_sandbox_provider()
-    sandbox_id = sandbox_provider.acquire(thread_id)
-    sandbox = sandbox_provider.get(sandbox_id)
-
     for file in files:
         if not file.filename:
             continue
@@ -120,11 +115,6 @@ async def upload_files(
             relative_path = str(paths.sandbox_uploads_dir(thread_id) / safe_filename)
             virtual_path = f"{VIRTUAL_PATH_PREFIX}/uploads/{safe_filename}"
 
-            # Keep local sandbox source of truth in thread-scoped host storage.
-            # For non-local sandboxes, also sync to virtual path for runtime visibility.
-            if sandbox_id != "local":
-                sandbox.update_file(virtual_path, content)
-
             file_info = {
                 "filename": safe_filename,
                 "size": str(len(content)),
@@ -142,9 +132,6 @@ async def upload_files(
                 if md_path:
                     md_relative_path = str(paths.sandbox_uploads_dir(thread_id) / md_path.name)
                     md_virtual_path = f"{VIRTUAL_PATH_PREFIX}/uploads/{md_path.name}"
-
-                    if sandbox_id != "local":
-                        sandbox.update_file(md_virtual_path, md_path.read_bytes())
 
                     file_info["markdown_file"] = md_path.name
                     file_info["markdown_path"] = md_relative_path

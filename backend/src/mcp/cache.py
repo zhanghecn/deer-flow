@@ -8,7 +8,8 @@ from langchain_core.tools import BaseTool
 
 logger = logging.getLogger(__name__)
 
-_mcp_tools_cache: list[BaseTool] | None = None
+# Per-server tool cache: {server_name: [tools]}
+_mcp_tools_by_server: dict[str, list[BaseTool]] | None = None
 _cache_initialized = False
 _initialization_lock = asyncio.Lock()
 _config_mtime: float | None = None  # Track config file modification time
@@ -53,46 +54,35 @@ def _is_cache_stale() -> bool:
     return False
 
 
-async def initialize_mcp_tools() -> list[BaseTool]:
-    """Initialize and cache MCP tools.
+async def initialize_mcp_tools() -> dict[str, list[BaseTool]]:
+    """Initialize and cache MCP tools per server.
 
     This should be called once at application startup.
 
     Returns:
-        List of LangChain tools from all enabled MCP servers.
+        Dict mapping server name to list of tools.
     """
-    global _mcp_tools_cache, _cache_initialized, _config_mtime
+    global _mcp_tools_by_server, _cache_initialized, _config_mtime
 
     async with _initialization_lock:
         if _cache_initialized:
             logger.info("MCP tools already initialized")
-            return _mcp_tools_cache or []
+            return _mcp_tools_by_server or {}
 
-        from src.mcp.tools import get_mcp_tools
+        from src.mcp.tools import get_mcp_tools_by_server
 
         logger.info("Initializing MCP tools...")
-        _mcp_tools_cache = await get_mcp_tools()
+        _mcp_tools_by_server = await get_mcp_tools_by_server()
         _cache_initialized = True
         _config_mtime = _get_config_mtime()  # Record config file mtime
-        logger.info(f"MCP tools initialized: {len(_mcp_tools_cache)} tool(s) loaded (config mtime: {_config_mtime})")
+        total = sum(len(tools) for tools in _mcp_tools_by_server.values())
+        logger.info(f"MCP tools initialized: {total} tool(s) from {len(_mcp_tools_by_server)} server(s) (config mtime: {_config_mtime})")
 
-        return _mcp_tools_cache
+        return _mcp_tools_by_server
 
 
-def get_cached_mcp_tools() -> list[BaseTool]:
-    """Get cached MCP tools with lazy initialization.
-
-    If tools are not initialized, automatically initializes them.
-    This ensures MCP tools work in both FastAPI and LangGraph Studio contexts.
-
-    Also checks if the config file has been modified since last initialization,
-    and re-initializes if needed. This ensures that changes made through the
-    Gateway API (which runs in a separate process) are reflected in the
-    LangGraph Server.
-
-    Returns:
-        List of cached MCP tools.
-    """
+def _ensure_initialized() -> None:
+    """Ensure MCP tools are initialized (lazy init if needed)."""
     global _cache_initialized
 
     # Check if cache is stale due to config file changes
@@ -106,24 +96,48 @@ def get_cached_mcp_tools() -> list[BaseTool]:
             # Try to initialize in the current event loop
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                # If loop is already running (e.g., in LangGraph Studio),
-                # we need to create a new loop in a thread
                 import concurrent.futures
-
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     future = executor.submit(asyncio.run, initialize_mcp_tools())
                     future.result()
             else:
-                # If no loop is running, we can use the current loop
                 loop.run_until_complete(initialize_mcp_tools())
         except RuntimeError:
-            # No event loop exists, create one
             asyncio.run(initialize_mcp_tools())
         except Exception as e:
             logger.error(f"Failed to lazy-initialize MCP tools: {e}")
-            return []
 
-    return _mcp_tools_cache or []
+
+def get_cached_mcp_tools(server_names: list[str] | None = None) -> list[BaseTool]:
+    """Get cached MCP tools, optionally filtered by server names.
+
+    Args:
+        server_names: Optional list of MCP server names to include.
+            If None, returns tools from all servers.
+
+    Returns:
+        List of cached MCP tools.
+    """
+    _ensure_initialized()
+
+    if _mcp_tools_by_server is None:
+        return []
+
+    if server_names is None:
+        # Return all tools from all servers
+        all_tools = []
+        for tools in _mcp_tools_by_server.values():
+            all_tools.extend(tools)
+        return all_tools
+
+    # Return tools only from specified servers
+    filtered = []
+    for name in server_names:
+        if name in _mcp_tools_by_server:
+            filtered.extend(_mcp_tools_by_server[name])
+        else:
+            logger.warning(f"MCP server '{name}' not found in cache, skipping")
+    return filtered
 
 
 def reset_mcp_tools_cache() -> None:
@@ -131,8 +145,8 @@ def reset_mcp_tools_cache() -> None:
 
     This is useful for testing or when you want to reload MCP tools.
     """
-    global _mcp_tools_cache, _cache_initialized, _config_mtime
-    _mcp_tools_cache = None
+    global _mcp_tools_by_server, _cache_initialized, _config_mtime
+    _mcp_tools_by_server = None
     _cache_initialized = False
     _config_mtime = None
     logger.info("MCP tools cache reset")

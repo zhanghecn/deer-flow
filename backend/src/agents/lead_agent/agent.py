@@ -215,6 +215,7 @@ def make_lead_agent(config: RunnableConfig):
         model_name=model_name,
         groups=agent_config.tool_groups if agent_config else None,
         exclude_groups=["file:read", "file:write", "bash"],
+        mcp_servers=agent_config.mcp_servers if agent_config else None,
         subagent_enabled=False,  # SubAgent handled by deepagents SubAgentMiddleware
     )
 

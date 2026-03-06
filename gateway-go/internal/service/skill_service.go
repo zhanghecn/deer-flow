@@ -46,10 +46,6 @@ func (s *SkillService) Create(ctx context.Context, req model.CreateSkillRequest,
 	return skill, nil
 }
 
-func (s *SkillService) Get(ctx context.Context, name string) (*model.Skill, error) {
-	return s.repo.FindByName(ctx, name)
-}
-
 func (s *SkillService) List(ctx context.Context, status string) ([]model.Skill, error) {
 	return s.repo.List(ctx, status)
 }

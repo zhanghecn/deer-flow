@@ -27,7 +27,7 @@ func (h *AgentHandler) List(c *gin.Context) {
 	if agents == nil {
 		agents = []model.Agent{}
 	}
-	c.JSON(http.StatusOK, agents)
+	c.JSON(http.StatusOK, gin.H{"agents": agents})
 }
 
 func (h *AgentHandler) Get(c *gin.Context) {
@@ -93,6 +93,20 @@ func (h *AgentHandler) Publish(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, agent)
+}
+
+func (h *AgentHandler) CheckName(c *gin.Context) {
+	name := c.Query("name")
+	if name == "" {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "missing name"})
+		return
+	}
+	agent, err := h.svc.Get(c.Request.Context(), name)
+	if err != nil || agent == nil {
+		c.JSON(http.StatusOK, gin.H{"available": true, "name": name})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"available": false, "name": name})
 }
 
 func (h *AgentHandler) Export(c *gin.Context) {

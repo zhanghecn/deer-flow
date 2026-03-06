@@ -27,7 +27,7 @@ func (h *SkillHandler) List(c *gin.Context) {
 	if skills == nil {
 		skills = []model.Skill{}
 	}
-	c.JSON(http.StatusOK, skills)
+	c.JSON(http.StatusOK, gin.H{"skills": skills})
 }
 
 func (h *SkillHandler) Create(c *gin.Context) {
@@ -69,6 +69,11 @@ func (h *SkillHandler) Delete(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, model.SuccessResponse{Message: "skill deleted"})
+}
+
+func (h *SkillHandler) Install(c *gin.Context) {
+	// TODO: implement skill installation from .skill archive
+	c.JSON(http.StatusNotImplemented, model.ErrorResponse{Error: "skill installation not yet implemented in Go gateway"})
 }
 
 func (h *SkillHandler) Publish(c *gin.Context) {
