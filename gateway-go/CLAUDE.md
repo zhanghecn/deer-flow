@@ -4,7 +4,7 @@ This file provides guidance to Claude Code when working with the Go Gateway code
 
 ## Project Overview
 
-OpenAgents Go Gateway is a Gin-based HTTP gateway that replaces the Python FastAPI Gateway (port 8001). It provides JWT/API Token authentication, Agent/Skill CRUD with PostgreSQL + filesystem dual-write, LangGraph reverse proxy with user_id injection, and an Open API for external agent invocation.
+OpenAgents Go Gateway is a Gin-based HTTP gateway that replaces the Python FastAPI Gateway (port 8001). It provides JWT/API Token authentication, Agent/Skill CRUD with PostgreSQL + filesystem dual-write, LangGraph reverse proxy with runtime model injection/validation, and an Open API for external agent invocation.
 
 **Stack**: Go 1.22, Gin, PostgreSQL (pgx), golang-jwt, bcrypt
 
@@ -53,7 +53,7 @@ internal/
 │   ├── agent_service.go     # Agent business logic + filesystem sync
 │   └── skill_service.go     # Skill business logic + filesystem sync
 └── proxy/
-    └── langgraph.go         # Reverse proxy to LangGraph with user_id injection
+    └── proxy.go             # Declarative reverse proxy routes
 pkg/
 ├── jwt/jwt.go               # JWT token generation and validation
 └── storage/fs.go            # Filesystem operations for agent/skill sync
@@ -71,7 +71,7 @@ Agent and Skill metadata are stored in PostgreSQL for querying, while AGENTS.md/
 
 1. **JWT**: Frontend → `POST /api/auth/login` → JWT (user_id, role, exp) → `Authorization: Bearer <jwt>`
 2. **API Token**: External clients → `POST /api/auth/tokens` (create) → SHA256-hashed in DB → `Authorization: Bearer <token>`
-3. **LangGraph Proxy**: Go gateway validates JWT → extracts user_id → injects into `configurable` → forwards to LangGraph
+3. **LangGraph Proxy**: Go gateway validates JWT → resolves runtime model from DB (`models` + `agents`) → injects `user_id` + `model_name` + `model_config` into `configurable` → forwards to LangGraph
 
 ### Agent Status Model
 

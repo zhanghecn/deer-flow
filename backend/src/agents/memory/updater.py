@@ -226,7 +226,7 @@ class MemoryUpdater:
         """Initialize the memory updater.
 
         Args:
-            model_name: Optional model name to use. If None, uses config or default.
+            model_name: Optional model name override. If None, uses config.model_name.
         """
         self._model_name = model_name
 
@@ -234,6 +234,10 @@ class MemoryUpdater:
         """Get the model for memory updates."""
         config = get_memory_config()
         model_name = self._model_name or config.model_name
+        if not model_name:
+            raise ValueError(
+                "Memory update model is not configured. Set `memory.model_name`."
+            )
         return create_chat_model(name=model_name, thinking_enabled=False)
 
     def update_memory(self, messages: list[Any], thread_id: str | None = None, agent_name: str | None = None) -> bool:

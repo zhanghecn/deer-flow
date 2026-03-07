@@ -78,19 +78,25 @@ func main() {
 	uploadsH := handler.NewUploadsHandler(fs)
 	artifactsH := handler.NewArtifactsHandler(fs)
 	openAPIH := handler.NewOpenAPIHandler(agentRepo, modelRepo, cfg.Upstream.LangGraphURL, fs)
+	langGraphRuntimeH := handler.NewLangGraphRuntimeHandler(agentRepo, modelRepo)
 
 	// Compile proxy routes from gateway.yaml config
 	loggingLevel := strings.ToLower(cfg.Logging.Level)
 	proxyDebug := cfg.Logging.ProxyDebug || loggingLevel == "debug"
 	var proxyRoutes []*proxy.Route
 	for _, rc := range cfg.Proxy.Routes {
+		injectBody := rc.InjectBody
+		if rc.Prefix == "/api/langgraph" {
+			// LangGraph route uses dedicated runtime injector middleware.
+			injectBody = nil
+		}
 		route, err := proxy.NewRoute(proxy.RouteConfig{
 			Prefix:        rc.Prefix,
 			Upstream:      rc.Upstream,
 			StripPrefix:   rc.StripPrefix,
 			Auth:          rc.Auth,
 			InjectHeaders: rc.InjectHeaders,
-			InjectBody:    rc.InjectBody,
+			InjectBody:    injectBody,
 			Debug:         proxyDebug,
 			LogHeaders:    cfg.Logging.ProxyLogHeaders,
 		})
@@ -191,10 +197,20 @@ func main() {
 
 	// Register proxy routes from config (declarative, no code changes needed)
 	for _, route := range proxyRoutes {
+		isLangGraphRoute := route.Prefix() == "/api/langgraph"
 		switch route.AuthType() {
 		case "jwt":
-			// Register under the JWT-protected api group
-			r.Any(route.Prefix()+"/*path", middleware.JWTAuth(jwtMgr), route.Handler())
+			if isLangGraphRoute {
+				r.Any(
+					route.Prefix()+"/*path",
+					middleware.JWTAuth(jwtMgr),
+					langGraphRuntimeH.InjectRuntimeConfig(),
+					route.Handler(),
+				)
+			} else {
+				// Register under the JWT-protected api group
+				r.Any(route.Prefix()+"/*path", middleware.JWTAuth(jwtMgr), route.Handler())
+			}
 		case "token":
 			r.Any(route.Prefix()+"/*path", middleware.APITokenAuth(tokenRepo), route.Handler())
 		default:

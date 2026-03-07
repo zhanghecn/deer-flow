@@ -18,7 +18,7 @@ def create_chat_model(
     """Create a chat model instance from the config.
 
     Args:
-        name: The name of the model to create. If None, the first model in the config will be used.
+        name: The name of the model to create. Must be explicitly provided unless runtime_model_config is provided.
 
     Returns:
         A chat model instance.
@@ -37,9 +37,11 @@ def create_chat_model(
             logger.warning("Runtime model config name '%s' does not match requested model '%s'; use runtime model config.", model_config.name, name)
             name = model_config.name
     else:
-        config = get_app_config()
         if name is None:
-            name = config.models[0].name
+            raise ValueError(
+                "Model name is required when `runtime_model_config` is not provided."
+            ) from None
+        config = get_app_config()
         model_config = config.get_model_config(name)
         if model_config is None:
             raise ValueError(f"Model {name} not found in config") from None

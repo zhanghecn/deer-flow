@@ -73,10 +73,6 @@ def get_available_tools(
     # Conditionally add tools based on config
     builtin_tools = BUILTIN_TOOLS.copy()
 
-    # If no model_name specified, use the first model (default)
-    if model_name is None and config.models:
-        model_name = config.models[0].name
-
     # Add view_image_tool only if the model supports vision
     if model_supports_vision is None:
         model_config = config.get_model_config(model_name) if model_name else None

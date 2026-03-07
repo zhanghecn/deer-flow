@@ -31,7 +31,7 @@ class MemoryConfig(BaseModel):
     )
     model_name: str | None = Field(
         default=None,
-        description="Model name to use for memory updates (None = use default model)",
+        description="Model name to use for memory updates. Must be set when memory updates are enabled.",
     )
     max_facts: int = Field(
         default=100,

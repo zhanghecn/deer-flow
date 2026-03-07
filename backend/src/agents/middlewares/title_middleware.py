@@ -56,8 +56,14 @@ class TitleMiddleware(AgentMiddleware[TitleMiddlewareState]):
         user_msg = str(user_msg_content) if user_msg_content else ""
         assistant_msg = str(assistant_msg_content) if assistant_msg_content else ""
 
-        # Use a lightweight model to generate title
-        model = create_chat_model(thinking_enabled=False)
+        if not config.model_name:
+            fallback_chars = min(config.max_chars, 50)
+            if len(user_msg) > fallback_chars:
+                return user_msg[:fallback_chars].rstrip() + "..."
+            return user_msg if user_msg else "New Conversation"
+
+        # Use explicitly configured title model; no implicit default model fallback.
+        model = create_chat_model(name=config.model_name, thinking_enabled=False)
 
         prompt = config.prompt_template.format(
             max_words=config.max_words,

@@ -36,5 +36,3 @@ proxy:
       upstream: http://localhost:2024
       strip_prefix: true
       auth: jwt
-      inject_body:
-        configurable.user_id: "{{.UserID}}"

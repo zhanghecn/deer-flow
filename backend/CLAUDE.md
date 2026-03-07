@@ -125,6 +125,7 @@ CI runs these regression tests for every pull request via [.github/workflows/bac
   - `configurable.model_name` / `configurable.model`
   - `configurable.model_config`
   - `agent.model` in agent definition
+- **No implicit capability downgrade**: if `thinking_enabled=true` but model does not support thinking, runtime raises error.
 
 ### Middleware Architecture
 

@@ -98,6 +98,47 @@ def _build_openagents_middlewares(model_name: str | None, runtime_model_config: 
     return middlewares
 
 
+def _parse_runtime_model_config(payload: object) -> ModelConfig | None:
+    if payload is None:
+        return None
+    if isinstance(payload, ModelConfig):
+        return payload
+    if isinstance(payload, dict):
+        return ModelConfig.model_validate(payload)
+    raise ValueError("`configurable.model_config` must be an object.")
+
+
+def _resolve_run_model(
+    *,
+    requested_model_name: str | None,
+    runtime_model_config: ModelConfig | None,
+    agent_model_name: str | None,
+) -> tuple[str, ModelConfig]:
+    """Resolve run model with explicit precedence and no implicit fallback."""
+    if runtime_model_config is not None:
+        if requested_model_name and requested_model_name != runtime_model_config.name:
+            raise ValueError(
+                "Model conflict: `configurable.model_name` and `configurable.model_config.name` must match."
+            )
+        return runtime_model_config.name, runtime_model_config
+
+    model_name = requested_model_name or agent_model_name
+    if not model_name:
+        raise ValueError(
+            "No model resolved for this run. Provide `configurable.model_name`/`model`, "
+            "or `configurable.model_config`, or set `agent.model`."
+        )
+
+    app_config = get_app_config()
+    model_config = app_config.get_model_config(model_name)
+    if model_config is None:
+        raise ValueError(
+            "Resolved model is not available. Provide a valid `configurable.model_name`/`model`, "
+            "or inject `configurable.model_config`, or configure the model in config.yaml / OPENAGENTS_MODELS_JSON."
+        )
+    return model_name, model_config
+
+
 # SubAgent definitions (replace backend/src/subagents/builtins/)
 OPENAGENTS_SUBAGENTS: list[SubAgent] = [
     {
@@ -140,42 +181,16 @@ def make_lead_agent(config: RunnableConfig):
     thread_id = cfg.get("thread_id")
     runtime_model_payload = cfg.get("model_config")
 
-    runtime_model_config: ModelConfig | None = None
-    if runtime_model_payload is not None:
-        if isinstance(runtime_model_payload, ModelConfig):
-            runtime_model_config = runtime_model_payload
-        elif isinstance(runtime_model_payload, dict):
-            runtime_model_config = ModelConfig.model_validate(runtime_model_payload)
-        else:
-            raise ValueError("`configurable.model_config` must be an object.")
-
+    runtime_model_config = _parse_runtime_model_config(runtime_model_payload)
     agent_config = load_agent_config(agent_name, status=agent_status) if (agent_name and not is_bootstrap) else None
-    if requested_model_name:
-        model_name = requested_model_name
-    elif agent_config and agent_config.model:
-        model_name = agent_config.model
-    elif runtime_model_config is not None:
-        model_name = runtime_model_config.name
-    else:
-        raise ValueError(
-            "No model resolved for this run. Provide `configurable.model_name`/`model`, "
-            "or `configurable.model_config`, or set `agent.model`."
-        )
-
-    app_config = get_app_config()
-    if runtime_model_config is not None and runtime_model_config.name == model_name:
-        model_config = runtime_model_config
-    else:
-        model_config = app_config.get_model_config(model_name) if model_name else None
-
-    if model_config is None:
-        raise ValueError(
-            "Resolved model is not available. Provide a valid `configurable.model_name`/`model`, "
-            "or inject `configurable.model_config`, or configure the model in config.yaml / OPENAGENTS_MODELS_JSON."
-        )
+    agent_model_name = agent_config.model if agent_config else None
+    model_name, model_config = _resolve_run_model(
+        requested_model_name=requested_model_name,
+        runtime_model_config=runtime_model_config,
+        agent_model_name=agent_model_name,
+    )
     if thinking_enabled and not model_config.supports_thinking:
-        logger.warning(f"Thinking mode is enabled but model '{model_name}' does not support it; fallback to non-thinking mode.")
-        thinking_enabled = False
+        raise ValueError(f"Thinking mode is enabled but model '{model_name}' does not support thinking.")
 
     logger.info(
         "Create Agent(%s) -> thinking_enabled: %s, reasoning_effort: %s, model_name: %s, subagent_enabled: %s, agent_status: %s",

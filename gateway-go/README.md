@@ -249,21 +249,18 @@ Agent/Skill 的 AGENTS.md 和 config.yaml 同步写入文件系统，供 LangGra
 
 ## LangGraph 代理
 
-Go 网关代理 `/api/langgraph/*` 请求到 LangGraph Server 时，自动注入当前用户 ID 到请求体的 `configurable` 字段：
-
-```json
-{
-  "configurable": {
-    "user_id": "uuid-from-jwt"
-  }
-}
-```
-
-对于 Open API (`/open/v1/agents/:name/*`)，网关还会根据 `agents.model` 注入：
+Go 网关代理 `/api/langgraph/*` 请求到 LangGraph Server 时，会在运行前注入并校验：
+- `configurable.user_id`（来自 JWT）
 - `configurable.model_name`
 - `configurable.model_config`（来自 `models.config_json`）
 
-如果 `agents.model` 为空或对应模型未启用，请求会直接报错（不做隐式兜底）。
+模型解析优先级与约束（无隐式兜底）：
+- `configurable.model_config.name` 与 `configurable.model_name`（如同时提供，必须一致）
+- `agent.model`（当传入 `configurable.agent_name` 时，必须与请求模型一致）
+- 解析后模型必须在 `models` 表中且 `enabled = true`
+
+对于 Open API (`/open/v1/agents/:name/*`)，网关同样从数据库注入 `model_name` + `model_config`。
+若模型缺失、冲突或未启用，请求直接报错，不会降级到默认模型。
 
 ## 开发
 
