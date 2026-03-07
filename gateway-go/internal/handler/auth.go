@@ -6,13 +6,13 @@ import (
 	"encoding/hex"
 	"net/http"
 
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/openagents/gateway/internal/middleware"
 	"github.com/openagents/gateway/internal/model"
 	"github.com/openagents/gateway/internal/repository"
 	"github.com/openagents/gateway/pkg/jwt"
 	"github.com/openagents/gateway/pkg/storage"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -46,12 +46,22 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
+	role := "user"
+	userCount, err := h.userRepo.Count(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to initialize user role"})
+		return
+	}
+	if userCount == 0 {
+		role = "admin"
+	}
+
 	user := &model.User{
 		ID:           uuid.New(),
 		Email:        req.Email,
 		Name:         req.Name,
 		PasswordHash: string(hash),
-		Role:         "user",
+		Role:         role,
 	}
 
 	if err := h.userRepo.Create(c.Request.Context(), user); err != nil {

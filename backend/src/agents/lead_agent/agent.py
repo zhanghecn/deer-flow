@@ -10,10 +10,11 @@ from src.agents.middlewares.thread_data_middleware import ThreadDataMiddleware
 from src.agents.middlewares.title_middleware import TitleMiddleware
 from src.agents.middlewares.uploads_middleware import UploadsMiddleware
 from src.agents.middlewares.view_image_middleware import ViewImageMiddleware
-from src.config.runtime_db import DBAgentConfig, RuntimeDBStore, get_runtime_db_store
 from src.config.model_config import ModelConfig
 from src.config.paths import get_paths
+from src.config.runtime_db import DBAgentConfig, RuntimeDBStore, get_runtime_db_store
 from src.models import create_chat_model
+from src.observability import create_agent_trace_callback
 
 logger = logging.getLogger(__name__)
 
@@ -197,6 +198,19 @@ def _load_agent_runtime_config(
     return config
 
 
+def _merge_callbacks(
+    existing_callbacks: object,
+    callback: object,
+) -> list:
+    if existing_callbacks is None:
+        return [callback]
+    if isinstance(existing_callbacks, list):
+        return [*existing_callbacks, callback]
+    if isinstance(existing_callbacks, tuple):
+        return [*existing_callbacks, callback]
+    return [existing_callbacks, callback]
+
+
 # SubAgent definitions (replace backend/src/subagents/builtins/)
 OPENAGENTS_SUBAGENTS: list[SubAgent] = [
     {
@@ -325,18 +339,30 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         agent_status,
     )
 
-    # Inject run metadata for LangSmith trace tagging
+    # Inject run metadata for observability
     if "metadata" not in config:
         config["metadata"] = {}
-    config["metadata"].update(
-        {
-            "agent_name": agent_name or "default",
-            "model_name": model_name or "default",
-            "thinking_enabled": thinking_enabled,
-            "reasoning_effort": reasoning_effort,
-            "subagent_enabled": subagent_enabled,
-        }
+    run_metadata = {
+        "agent_name": agent_name or "default",
+        "model_name": model_name or "default",
+        "thinking_enabled": thinking_enabled,
+        "reasoning_effort": reasoning_effort,
+        "subagent_enabled": subagent_enabled,
+        "thread_id": thread_id,
+        "user_id": user_id,
+    }
+    config["metadata"].update(run_metadata)
+
+    trace_callback = create_agent_trace_callback(
+        user_id=user_id,
+        thread_id=thread_id,
+        agent_name=agent_name or "lead_agent",
+        model_name=model_name,
+        metadata=run_metadata,
     )
+    if trace_callback is not None:
+        config["callbacks"] = _merge_callbacks(config.get("callbacks"), trace_callback)
+        config["metadata"]["trace_id"] = trace_callback.trace_id
 
     # Build CompositeBackend (replaces LocalSandbox + replace_virtual_path)
     backend = build_backend(thread_id, agent_name, agent_status)
