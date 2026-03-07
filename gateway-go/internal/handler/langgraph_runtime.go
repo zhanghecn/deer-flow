@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -25,15 +26,36 @@ type modelFinder interface {
 }
 
 type LangGraphRuntimeHandler struct {
-	agentRepo agentFinder
-	modelRepo modelFinder
+	agentRepo          agentFinder
+	modelRepo          modelFinder
+	modelRequiredPaths []string
+	modelOptionalPaths []string
 }
 
-func NewLangGraphRuntimeHandler(agentRepo agentFinder, modelRepo modelFinder) *LangGraphRuntimeHandler {
-	return &LangGraphRuntimeHandler{
-		agentRepo: agentRepo,
-		modelRepo: modelRepo,
+func NewLangGraphRuntimeHandlerWithPatterns(
+	agentRepo agentFinder,
+	modelRepo modelFinder,
+	requiredPaths []string,
+	optionalPaths []string,
+) (*LangGraphRuntimeHandler, error) {
+	required := sanitizePatterns(requiredPaths)
+	optional := sanitizePatterns(optionalPaths)
+	if len(required) == 0 {
+		return nil, fmt.Errorf("langgraph_runtime.model_required_paths must not be empty")
 	}
+	if err := validatePathPatterns(required); err != nil {
+		return nil, fmt.Errorf("invalid langgraph_runtime.model_required_paths: %w", err)
+	}
+	if err := validatePathPatterns(optional); err != nil {
+		return nil, fmt.Errorf("invalid langgraph_runtime.model_optional_paths: %w", err)
+	}
+
+	return &LangGraphRuntimeHandler{
+		agentRepo:          agentRepo,
+		modelRepo:          modelRepo,
+		modelRequiredPaths: required,
+		modelOptionalPaths: optional,
+	}, nil
 }
 
 func (h *LangGraphRuntimeHandler) InjectRuntimeConfig() gin.HandlerFunc {
@@ -63,18 +85,19 @@ func (h *LangGraphRuntimeHandler) InjectRuntimeConfig() gin.HandlerFunc {
 			return
 		}
 
-		configurable, found := extractConfigurable(payload)
-		requiresModel := requiresModelResolution(c.Request.URL.Path)
-		if !found && !requiresModel {
-			restoreRequestBody(c, originalBody)
-			c.Next()
+		userID := middleware.GetUserID(c)
+		if err := h.scopeThreadRequest(payload, c.Request.URL.Path, userID); err != nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 			return
 		}
+
+		configurable, found := extractConfigurable(payload)
+		mode := h.modelResolutionMode(c.Request.URL.Path)
 		if !found {
 			configurable = map[string]interface{}{}
 		}
 
-		if err := h.resolveAndInjectModel(c.Request.Context(), configurable, middleware.GetUserID(c)); err != nil {
+		if err := h.resolveAndInjectModel(c.Request.Context(), configurable, userID, mode); err != nil {
 			c.AbortWithStatusJSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 			return
 		}
@@ -94,7 +117,15 @@ func (h *LangGraphRuntimeHandler) resolveAndInjectModel(
 	ctx context.Context,
 	configurable map[string]interface{},
 	userID uuid.UUID,
+	mode modelResolutionPolicy,
 ) error {
+	if userID != uuid.Nil {
+		configurable["user_id"] = userID.String()
+	}
+	if mode == modelResolutionNone {
+		return nil
+	}
+
 	requestedModelName := firstString(configurable, "model_name", "model")
 	agentName := firstString(configurable, "agent_name")
 
@@ -122,6 +153,9 @@ func (h *LangGraphRuntimeHandler) resolveAndInjectModel(
 
 	modelName := firstNonEmpty(runtimeModelName, requestedModelName, agentModelName)
 	if modelName == "" {
+		if mode == modelResolutionOptional {
+			return nil
+		}
 		return fmt.Errorf(
 			"No model resolved for this run. Provide `configurable.model_name`/`model`, " +
 				"`configurable.model_config.name`, or set `agent.model`",
@@ -153,9 +187,6 @@ func (h *LangGraphRuntimeHandler) resolveAndInjectModel(
 	configurable["model_name"] = row.Name
 	configurable["model"] = row.Name
 	configurable["model_config"] = modelConfig
-	if userID != uuid.Nil {
-		configurable["user_id"] = userID.String()
-	}
 	return nil
 }
 
@@ -262,6 +293,150 @@ func isJSONRequest(method, contentType string) bool {
 	return contentType == "application/json"
 }
 
-func requiresModelResolution(path string) bool {
-	return strings.Contains(path, "/runs") || strings.HasSuffix(path, "/history")
+type modelResolutionPolicy int
+
+const (
+	modelResolutionNone modelResolutionPolicy = iota
+	modelResolutionOptional
+	modelResolutionRequired
+)
+
+func (h *LangGraphRuntimeHandler) modelResolutionMode(requestPath string) modelResolutionPolicy {
+	normalizedPath := normalizeLangGraphPath(requestPath)
+	if matchesAnyPattern(normalizedPath, h.modelRequiredPaths) {
+		return modelResolutionRequired
+	}
+	if matchesAnyPattern(normalizedPath, h.modelOptionalPaths) {
+		return modelResolutionOptional
+	}
+	return modelResolutionNone
+}
+
+func normalizeLangGraphPath(path string) string {
+	trimmed := strings.TrimPrefix(path, "/api/langgraph")
+	if trimmed == "" {
+		return "/"
+	}
+	return trimmed
+}
+
+func sanitizePatterns(patterns []string) []string {
+	cleaned := make([]string, 0, len(patterns))
+	for _, p := range patterns {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		cleaned = append(cleaned, p)
+	}
+	return cleaned
+}
+
+func validatePathPatterns(patterns []string) error {
+	for _, patternValue := range patterns {
+		patternValue = strings.TrimSpace(patternValue)
+		if patternValue == "" {
+			return fmt.Errorf("pattern must not be empty")
+		}
+		if _, err := path.Match(patternValue, "/__validate__"); err != nil {
+			return fmt.Errorf("%q: %w", patternValue, err)
+		}
+	}
+	return nil
+}
+
+func matchesAnyPattern(targetPath string, patterns []string) bool {
+	for _, patternValue := range patterns {
+		if pathMatches(patternValue, targetPath) {
+			return true
+		}
+	}
+	return false
+}
+
+func pathMatches(patternValue string, targetPath string) bool {
+	if strings.HasSuffix(patternValue, "/*") {
+		base := strings.TrimSuffix(patternValue, "/*")
+		if targetPath == base {
+			return true
+		}
+	}
+	matched, _ := path.Match(patternValue, targetPath)
+	return matched
+}
+
+var userScopedSearchPaths = []string{
+	"/threads/search",
+	"/threads/count",
+}
+
+var userScopedMetadataPaths = []string{
+	"/threads",
+	"/threads/*",
+	"/threads/*/copy",
+	"/threads/*/runs",
+	"/threads/*/runs/*",
+}
+
+func (h *LangGraphRuntimeHandler) scopeThreadRequest(
+	payload map[string]interface{},
+	requestPath string,
+	userID uuid.UUID,
+) error {
+	if userID == uuid.Nil {
+		return nil
+	}
+	normalizedPath := normalizeLangGraphPath(requestPath)
+	userIDStr := userID.String()
+
+	if matchesAnyPattern(normalizedPath, userScopedSearchPaths) {
+		metadata, err := ensureMapField(payload, "metadata")
+		if err != nil {
+			return err
+		}
+		if err := setMetadataUserID(metadata, userIDStr); err != nil {
+			return err
+		}
+	}
+
+	if matchesAnyPattern(normalizedPath, userScopedMetadataPaths) {
+		metadata, err := ensureMapField(payload, "metadata")
+		if err != nil {
+			return err
+		}
+		if err := setMetadataUserID(metadata, userIDStr); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func ensureMapField(payload map[string]interface{}, field string) (map[string]interface{}, error) {
+	raw, exists := payload[field]
+	if !exists || raw == nil {
+		created := map[string]interface{}{}
+		payload[field] = created
+		return created, nil
+	}
+	asMap, ok := raw.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("`%s` must be an object", field)
+	}
+	return asMap, nil
+}
+
+func setMetadataUserID(metadata map[string]interface{}, userID string) error {
+	if raw, ok := metadata["user_id"]; ok && raw != nil {
+		asString, ok := raw.(string)
+		if !ok {
+			return fmt.Errorf("`metadata.user_id` must be a string")
+		}
+		asString = strings.TrimSpace(asString)
+		if asString != "" && asString != userID {
+			return fmt.Errorf("`metadata.user_id` does not match the authenticated user")
+		}
+	}
+	metadata["user_id"] = userID
+	return nil
 }

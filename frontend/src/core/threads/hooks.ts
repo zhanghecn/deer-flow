@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 
 import { getAPIClient } from "../api";
+import { getAuthUser } from "../auth/store";
 import { useI18n } from "../i18n/hooks";
 import type { FileInMessage } from "../messages/utils";
 import type { LocalSettings } from "../settings";
@@ -40,6 +41,7 @@ export function useThreadStream({
   onToolEnd,
 }: ThreadStreamOptions) {
   const { t } = useI18n();
+  const apiClient = getAPIClient(isMock);
   const [_threadId, setThreadId] = useState<string | null>(threadId ?? null);
   const startedRef = useRef(false);
 
@@ -53,7 +55,7 @@ export function useThreadStream({
   const queryClient = useQueryClient();
   const updateSubtask = useUpdateSubtask();
   const thread = useStream<AgentThreadState>({
-    client: getAPIClient(isMock),
+    client: apiClient,
     assistantId: "lead_agent",
     threadId: _threadId,
     reconnectOnMount: true,
@@ -119,6 +121,30 @@ export function useThreadStream({
 
       // Capture current count before showing optimistic messages
       prevMsgCountRef.current = thread.messages.length;
+
+      // Ensure thread exists with user-scoped metadata so backend/user filtering works.
+      if (threadId) {
+        const authUser = getAuthUser();
+        const metadata: Record<string, string> = {};
+        if (authUser?.id) {
+          metadata.user_id = authUser.id;
+        }
+        if (authUser?.name) {
+          metadata.user_name = authUser.name;
+        }
+        if (authUser?.email) {
+          metadata.user_email = authUser.email;
+        }
+        try {
+          await apiClient.threads.create({
+            threadId,
+            ifExists: "do_nothing",
+            metadata,
+          });
+        } catch (error) {
+          console.warn("Failed to pre-create thread metadata:", error);
+        }
+      }
 
       // Build optimistic files list with uploading status
       const optimisticFiles: FileInMessage[] = (message.files ?? []).map(
@@ -289,7 +315,7 @@ export function useThreadStream({
         throw error;
       }
     },
-    [thread, t.uploads.uploadingFiles, onStart, context, queryClient],
+    [apiClient, thread, t.uploads.uploadingFiles, onStart, context, queryClient],
   );
 
   // Merge thread with optimistic messages for display

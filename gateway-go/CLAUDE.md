@@ -73,6 +73,21 @@ Agent and Skill metadata are stored in PostgreSQL for querying, while AGENTS.md/
 2. **API Token**: External clients → `POST /api/auth/tokens` (create) → SHA256-hashed in DB → `Authorization: Bearer <token>`
 3. **LangGraph Proxy**: Go gateway validates JWT → resolves runtime model from DB (`models` + `agents`) → injects `user_id` + `model_name` + `model_config` into `configurable` → forwards to LangGraph
 
+### LangGraph Runtime Policy
+
+`/api/langgraph/*` is mixed traffic:
+- execution endpoints (must resolve model),
+- query/management endpoints (must not require model).
+
+Use `gateway.yaml` `langgraph_runtime` to control this behavior:
+- `model_required_paths`: strict model resolution (400 on missing/invalid model), required and non-empty
+- `model_optional_paths`: resolve model only when request carries model hints (optional field)
+- all other paths: inject only `user_id`
+
+There are no built-in default runtime path patterns. Keep all path policy in `gateway.yaml` only.
+
+Do not apply global "all POST require model" rules. That breaks endpoints like `POST /threads/{id}/history`.
+
 ### Agent Status Model
 
 - `dev` — Development, only accessible via internal API

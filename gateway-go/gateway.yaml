@@ -36,3 +36,14 @@ proxy:
       upstream: http://localhost:2024
       strip_prefix: true
       auth: jwt
+
+# Runtime model resolution policy for /api/langgraph requests.
+# Supports shell-style path matching:
+# - `*` matches any chars within one path segment.
+# - A pattern ending with `/*` also matches the base path itself.
+# - `model_required_paths` is required and must not be empty.
+langgraph_runtime:
+  model_required_paths:
+    - /threads/*/runs
+    - /threads/*/runs/stream
+    - /threads/*/runs/wait

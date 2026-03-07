@@ -9,13 +9,14 @@ import (
 )
 
 type Config struct {
-	Server   ServerConfig   `yaml:"server"`
-	Database DatabaseConfig `yaml:"database"`
-	JWT      JWTConfig      `yaml:"jwt"`
-	Storage  StorageConfig  `yaml:"storage"`
-	Logging  LoggingConfig  `yaml:"logging"`
-	Upstream UpstreamConfig `yaml:"upstream"`
-	Proxy    ProxyConfig    `yaml:"proxy"`
+	Server           ServerConfig           `yaml:"server"`
+	Database         DatabaseConfig         `yaml:"database"`
+	JWT              JWTConfig              `yaml:"jwt"`
+	Storage          StorageConfig          `yaml:"storage"`
+	Logging          LoggingConfig          `yaml:"logging"`
+	Upstream         UpstreamConfig         `yaml:"upstream"`
+	Proxy            ProxyConfig            `yaml:"proxy"`
+	LangGraphRuntime LangGraphRuntimeConfig `yaml:"langgraph_runtime"`
 }
 
 type ProxyConfig struct {
@@ -29,6 +30,11 @@ type ProxyRouteConfig struct {
 	Auth          string            `yaml:"auth"`
 	InjectHeaders map[string]string `yaml:"inject_headers"`
 	InjectBody    map[string]string `yaml:"inject_body"`
+}
+
+type LangGraphRuntimeConfig struct {
+	ModelRequiredPaths []string `yaml:"model_required_paths"`
+	ModelOptionalPaths []string `yaml:"model_optional_paths"`
 }
 
 type ServerConfig struct {

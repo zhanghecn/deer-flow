@@ -8,11 +8,11 @@ import {
   LogOutIcon,
   MailIcon,
   Settings2Icon,
-  SettingsIcon,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,28 +27,65 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { clearAuth } from "@/core/auth/store";
+import { useAuth } from "@/core/auth/hooks";
 import { useI18n } from "@/core/i18n/hooks";
 
 import { GithubIcon } from "./github-icon";
 import { SettingsDialog } from "./settings";
 
+function initialsOf(label: string): string {
+  const cleaned = label.trim();
+  if (!cleaned) {
+    return "OA";
+  }
+  const segments = cleaned
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "");
+  if (segments.length > 0) {
+    return segments.join("");
+  }
+  return cleaned.slice(0, 2).toUpperCase();
+}
+
 function NavMenuButtonContent({
   isSidebarOpen,
-  t,
+  displayName,
+  secondaryLine,
+  avatarURL,
+  initials,
 }: {
   isSidebarOpen: boolean;
-  t: ReturnType<typeof useI18n>["t"];
+  displayName: string;
+  secondaryLine: string;
+  avatarURL?: string | null;
+  initials: string;
 }) {
   return isSidebarOpen ? (
-    <div className="text-muted-foreground flex w-full items-center gap-2 text-left text-sm">
-      <SettingsIcon className="size-4" />
-      <span>{t.workspace.settingsAndMore}</span>
+    <div className="flex w-full items-center gap-2 rounded-lg border border-sidebar-border/60 bg-sidebar-accent/35 p-1.5 text-left">
+      <Avatar className="size-8 rounded-lg">
+        <AvatarImage src={avatarURL ?? undefined} alt={displayName} />
+        <AvatarFallback className="rounded-lg bg-cyan-200/85 text-xs font-semibold text-cyan-950">
+          {initials}
+        </AvatarFallback>
+      </Avatar>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-sidebar-foreground">
+          {displayName}
+        </p>
+        <p className="text-muted-foreground truncate text-xs">{secondaryLine}</p>
+      </div>
       <ChevronsUpDown className="text-muted-foreground ml-auto size-4" />
     </div>
   ) : (
     <div className="flex size-full items-center justify-center">
-      <SettingsIcon className="text-muted-foreground size-4" />
+      <Avatar className="size-7 rounded-md">
+        <AvatarImage src={avatarURL ?? undefined} alt={displayName} />
+        <AvatarFallback className="rounded-md bg-cyan-200/85 text-[10px] font-semibold text-cyan-950">
+          {initials}
+        </AvatarFallback>
+      </Avatar>
     </div>
   );
 }
@@ -62,13 +99,19 @@ export function WorkspaceNavMenu() {
   const router = useRouter();
   const { open: isSidebarOpen } = useSidebar();
   const { t } = useI18n();
+  const { user, logout } = useAuth();
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
+  const displayName =
+    user?.name.trim() || user?.email.trim() || t.workspace.settingsAndMore;
+  const secondaryLine = user?.email.trim() || user?.role.toUpperCase() || "USER";
+  const userInitials = initialsOf(displayName);
+
   const handleLogout = () => {
-    clearAuth();
+    logout();
     router.push("/login");
   };
 
@@ -88,7 +131,13 @@ export function WorkspaceNavMenu() {
                   size="lg"
                   className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
                 >
-                  <NavMenuButtonContent isSidebarOpen={isSidebarOpen} t={t} />
+                  <NavMenuButtonContent
+                    isSidebarOpen={isSidebarOpen}
+                    displayName={displayName}
+                    secondaryLine={secondaryLine}
+                    avatarURL={user?.avatar_url}
+                    initials={userInitials}
+                  />
                 </SidebarMenuButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent
@@ -97,6 +146,13 @@ export function WorkspaceNavMenu() {
                 sideOffset={4}
               >
                 <DropdownMenuGroup>
+                  <div className="space-y-0.5 rounded-md px-2 py-1.5">
+                    <p className="truncate text-sm font-medium">{displayName}</p>
+                    <p className="text-muted-foreground truncate text-xs">
+                      {secondaryLine}
+                    </p>
+                  </div>
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onClick={() => {
                       setSettingsDefaultSection("appearance");
@@ -167,7 +223,13 @@ export function WorkspaceNavMenu() {
             </DropdownMenu>
           ) : (
             <SidebarMenuButton size="lg" className="pointer-events-none">
-              <NavMenuButtonContent isSidebarOpen={isSidebarOpen} t={t} />
+              <NavMenuButtonContent
+                isSidebarOpen={isSidebarOpen}
+                displayName={displayName}
+                secondaryLine={secondaryLine}
+                avatarURL={user?.avatar_url}
+                initials={userInitials}
+              />
             </SidebarMenuButton>
           )}
         </SidebarMenuItem>

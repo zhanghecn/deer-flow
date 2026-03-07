@@ -262,6 +262,73 @@ Go 网关代理 `/api/langgraph/*` 请求到 LangGraph Server 时，会在运行
 对于 Open API (`/open/v1/agents/:name/*`)，网关同样从数据库注入 `model_name` + `model_config`。
 若模型缺失、冲突或未启用，请求直接报错，不会降级到默认模型。
 
+可通过 `gateway.yaml` 的 `langgraph_runtime` 配置模型解析策略路径（支持 `*` 通配）：
+
+- `model_required_paths` 必填，且不能为空（网关启动时校验）
+- `model_optional_paths` 可省略（省略即无 optional 规则）
+- 不再内置默认路径，避免双边维护分叉
+
+```yaml
+langgraph_runtime:
+  model_required_paths:
+    - /threads/*/runs
+    - /threads/*/runs/stream
+    - /threads/*/runs/wait
+# model_optional_paths:
+#   - /threads/*/history
+```
+
+### 维护说明（为什么不是所有接口都强制模型）
+
+`/api/langgraph/*` 下既有“执行智能体”的接口，也有“查询/管理”接口。  
+只有执行接口会真正调用模型，查询接口（如 history）通常不带模型参数。
+
+如果对所有 POST 都强制模型解析，会导致查询请求误报 400（例如 `POST /threads/{id}/history` 只有 `{"limit":1}`）。
+
+#### Runtime 决策流程（ASCII）
+
+```text
+[request /api/langgraph/*]
+        |
+        v
+[parse json + merge configurable]
+        |
+        v
+[inject configurable.user_id]
+        |
+        v
+[path policy match]
+   |              |               |
+   | required     | optional      | none
+   v              v               v
+[resolve model] [resolve if any] [skip model resolve]
+   |              |               |
+   v              v               v
+[inject model_*] [maybe inject]  [forward]
+   |
+   v
+[forward]
+```
+
+#### 路径分类建议
+
+- `model_required_paths`: 只放真实执行入口（如 `/runs`、`/threads/*/runs*`）
+- `model_optional_paths`: 放可带可不带模型的读取接口（如 `/threads/*/history`）
+- 其他路径：仅注入 `user_id`
+
+#### 关于通配
+
+可以配置成：
+
+```yaml
+model_required_paths:
+  - /runs/*
+  - /threads/*/runs/*
+```
+
+但这会把 `/runs/cancel`、`/threads/*/runs/*/cancel` 这类管理接口也纳入“必须模型”。  
+生产建议优先使用精确白名单，避免误拦截。
+
 ## 开发
 
 ```bash
