@@ -285,7 +285,7 @@ docker exec openagents-gateway curl -s $SANDBOX_URL/v1/sandbox
 - Verify the paths exist on your host machine:
   ```bash
   ls -la /path/to/skills
-  ls -la /path/to/backend/.openagents/threads
+  ls -la /path/to/backend/agents/.openagents/threads
   ```
 
 ### Issue: Pod stuck in "ContainerCreating"

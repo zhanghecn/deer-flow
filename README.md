@@ -167,13 +167,13 @@ OpenAgents supports multiple sandbox execution modes:
 
 For Docker development, service startup follows `config.yaml` sandbox mode. In Local/Docker modes, `provisioner` is not started.
 
-See the [Sandbox Configuration Guide](backend/docs/CONFIGURATION.md#sandbox) to configure your preferred mode.
+See the [Sandbox Configuration Guide](backend/agents/docs/CONFIGURATION.md#sandbox) to configure your preferred mode.
 
 #### MCP Server
 
 OpenAgents supports configurable MCP servers and skills to extend its capabilities.
 For HTTP/SSE MCP servers, OAuth token flows are supported (`client_credentials`, `refresh_token`).
-See the [MCP Server Guide](backend/docs/MCP_SERVER.md) for detailed instructions.
+See the [MCP Server Guide](backend/agents/docs/MCP_SERVER.md) for detailed instructions.
 
 ## From Deep Research to Super Agent Harness
 
@@ -281,22 +281,22 @@ client.update_skill("web-search", enabled=True)
 client.upload_files("thread-1", ["./report.pdf"])  # {"success": True, "files": [...]}
 ```
 
-All dict-returning methods are validated against Gateway Pydantic response models in CI (`TestGatewayConformance`), ensuring the embedded client stays in sync with the HTTP API schemas. See `backend/src/client.py` for full API documentation.
+All dict-returning methods are validated against Gateway Pydantic response models in CI (`TestGatewayConformance`), ensuring the embedded client stays in sync with the HTTP API schemas. See `backend/agents/src/client.py` for full API documentation.
 
 ## Documentation
 
 - [Contributing Guide](CONTRIBUTING.md) - Development environment setup and workflow
-- [Configuration Guide](backend/docs/CONFIGURATION.md) - Setup and configuration instructions
-- [Architecture Overview](backend/CLAUDE.md) - Technical architecture details
-- [Backend Architecture](backend/README.md) - Backend architecture and API reference
-- [Go Gateway](gateway-go/README.md) - Go Gateway setup, API routes, and authentication
-- [Go Gateway Contributing](gateway-go/CONTRIBUTING.md) - Gateway development guide
+- [Configuration Guide](backend/agents/docs/CONFIGURATION.md) - Setup and configuration instructions
+- [Architecture Overview](backend/agents/CLAUDE.md) - Technical architecture details
+- [Agents Architecture](backend/agents/README.md) - Python LangGraph agents architecture and API reference
+- [Gateway](backend/gateway/README.md) - Go Gateway setup, API routes, and authentication
+- [Gateway Contributing](backend/gateway/CONTRIBUTING.md) - Gateway development guide
 
 ## Contributing
 
 We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, workflow, and guidelines.
 
-Regression coverage includes Docker sandbox mode detection and provisioner kubeconfig-path handling tests in `backend/tests/`.
+Regression coverage includes Docker sandbox mode detection and provisioner kubeconfig-path handling tests in `backend/agents/tests/`.
 
 ## License
 

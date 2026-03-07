@@ -7,7 +7,7 @@
   "settings": {
     "python-envs.pythonProjects": [
       {
-        "path": "backend",
+        "path": "backend/agents",
         "envManager": "ms-python.python:venv",
         "packageManager": "ms-python.python:pip",
         "workspace": "openagents"
@@ -21,11 +21,11 @@
         "name": "Debug Lead Agent",
         "type": "debugpy",
         "request": "launch",
-        "program": "${workspaceFolder}/backend/debug.py",
+        "program": "${workspaceFolder}/backend/agents/debug.py",
         "console": "integratedTerminal",
-        "cwd": "${workspaceFolder}/backend",
+        "cwd": "${workspaceFolder}/backend/agents",
         "env": {
-          "PYTHONPATH": "${workspaceFolder}/backend"
+          "PYTHONPATH": "${workspaceFolder}/backend/agents"
         },
         "justMyCode": false
       },
@@ -33,11 +33,11 @@
         "name": "Debug Lead Agent (justMyCode)",
         "type": "debugpy",
         "request": "launch",
-        "program": "${workspaceFolder}/backend/debug.py",
+        "program": "${workspaceFolder}/backend/agents/debug.py",
         "console": "integratedTerminal",
-        "cwd": "${workspaceFolder}/backend",
+        "cwd": "${workspaceFolder}/backend/agents",
         "env": {
-          "PYTHONPATH": "${workspaceFolder}/backend"
+          "PYTHONPATH": "${workspaceFolder}/backend/agents"
         },
         "justMyCode": true
       }

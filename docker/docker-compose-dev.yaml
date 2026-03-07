@@ -35,7 +35,7 @@ services:
       # Set these in your shell before running docker-compose:
       #   export OPENAGENTS_ROOT=/absolute/path/to/openagents
       - SKILLS_HOST_PATH=${OPENAGENTS_ROOT}/skills
-      - THREADS_HOST_PATH=${OPENAGENTS_ROOT}/backend/.openagents/threads
+      - THREADS_HOST_PATH=${OPENAGENTS_ROOT}/backend/agents/.openagents/threads
       - KUBECONFIG_PATH=/root/.kube/config
       - NODE_HOST=host.docker.internal
       # Override K8S API server URL since kubeconfig uses 127.0.0.1
@@ -79,15 +79,15 @@ services:
   frontend:
     build:
       context: ../
-      dockerfile: frontend/Dockerfile
+      dockerfile: frontend/app/Dockerfile
       args:
         PNPM_STORE_PATH: ${PNPM_STORE_PATH:-/root/.local/share/pnpm/store}
     container_name: openagents-frontend
-    command: sh -c "cd frontend && pnpm run dev > /app/logs/frontend.log 2>&1"
+    command: sh -c "cd frontend/app && pnpm run dev > /app/logs/frontend.log 2>&1"
     volumes:
-      - ../frontend/src:/app/frontend/src
-      - ../frontend/public:/app/frontend/public
-      - ../frontend/next.config.js:/app/frontend/next.config.js:ro
+      - ../frontend/app/src:/app/frontend/app/src
+      - ../frontend/app/public:/app/frontend/app/public
+      - ../frontend/app/next.config.js:/app/frontend/app/next.config.js:ro
       - ../logs:/app/logs
       # Mount pnpm store for caching
       - ${PNPM_STORE_PATH:-~/.local/share/pnpm/store}:/root/.local/share/pnpm/store
@@ -97,7 +97,7 @@ services:
       - WATCHPACK_POLLING=true
       - CI=true
     env_file:
-      - ../frontend/.env
+      - ../frontend/app/.env
     networks:
       - openagents-dev
     restart: unless-stopped
@@ -106,20 +106,17 @@ services:
   gateway:
     build:
       context: ../
-      dockerfile: backend/Dockerfile
+      dockerfile: backend/gateway/Dockerfile
       cache_from:
         - type=local,src=/tmp/docker-cache-gateway
     container_name: openagents-gateway
-    command: sh -c "cd backend && uv run uvicorn src.gateway.app:app --host 0.0.0.0 --port 8001 --reload --reload-include='*.yaml .env' > /app/logs/gateway.log 2>&1"
+    command: sh -c "cd backend/gateway && GATEWAY_CONFIG_PATH=gateway.yaml go run ./cmd/server > /app/logs/gateway.log 2>&1"
     volumes:
-      - ../backend/src:/app/backend/src
-      - ../backend/.env:/app/backend/.env
-      - ../config.yaml:/app/config.yaml
-      - ../skills:/app/skills
+      - ../backend/gateway:/app/backend/gateway
+      - ../.env:/app/.env:ro
       - ../logs:/app/logs
-      - ../backend/.openagents:/app/backend/.openagents
-      # Mount uv cache for faster dependency installation
-      - ~/.cache/uv:/root/.cache/uv
+      # Mount Go cache for faster dependency installation
+      - ~/.cache/go-build:/root/.cache/go-build
     working_dir: /app
     environment:
       - CI=true
@@ -136,18 +133,18 @@ services:
   langgraph:
     build:
       context: ../
-      dockerfile: backend/Dockerfile
+      dockerfile: backend/agents/Dockerfile
       cache_from:
         - type=local,src=/tmp/docker-cache-langgraph
     container_name: openagents-langgraph
-    command: sh -c "cd backend && uv run langgraph dev --no-browser --allow-blocking --host 0.0.0.0 --port 2024 > /app/logs/langgraph.log 2>&1"
+    command: sh -c "cd backend/agents && uv run langgraph dev --no-browser --allow-blocking --host 0.0.0.0 --port 2024 > /app/logs/langgraph.log 2>&1"
     volumes:
-      - ../backend/src:/app/backend/src
-      - ../backend/.env:/app/backend/.env
+      - ../backend/agents:/app/backend/agents
+      - ../.env:/app/.env:ro
       - ../config.yaml:/app/config.yaml
       - ../skills:/app/skills
       - ../logs:/app/logs
-      - ../backend/.openagents:/app/backend/.openagents
+      - ../backend/agents/.openagents:/app/backend/agents/.openagents
       # Mount uv cache for faster dependency installation
       - ~/.cache/uv:/root/.cache/uv
     working_dir: /app

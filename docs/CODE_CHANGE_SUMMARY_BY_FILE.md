@@ -23,7 +23,7 @@
 
 ---
 
-### 2. `backend/src/agents/lead_agent/prompt.py`
+### 2. `backend/agents/src/agents/lead_agent/prompt.py`
 
 ```diff
 @@ -240,34 +240,8 @@ You have access to skills that provide optimized workflows for specific tasks. E
@@ -76,7 +76,7 @@
 
 ---
 
-### 3. `backend/src/gateway/routers/artifacts.py`
+### 3. `backend/agents/src/gateway/routers/artifacts.py`
 
 ```diff
 @@ -1,12 +1,10 @@
@@ -176,7 +176,7 @@
 
 ---
 
-### 4. `backend/src/subagents/builtins/general_purpose.py`
+### 4. `backend/agents/src/subagents/builtins/general_purpose.py`
 
 ```diff
 @@ -24,21 +24,10 @@ Do NOT use for simple, single-step operations.""",

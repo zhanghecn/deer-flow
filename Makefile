@@ -6,7 +6,7 @@ help:
 	@echo "OpenAgents Development Commands:"
 	@echo "  make config          - Generate local config files (aborts if config already exists)"
 	@echo "  make check           - Check if all required tools are installed"
-	@echo "  make install         - Install all dependencies (frontend + backend + gateway)"
+	@echo "  make install         - Install all dependencies (frontend app + frontend admin + agents + gateway)"
 	@echo "  make gateway-build   - Build Go gateway binary"
 	@echo "  make setup-sandbox   - Pre-pull sandbox container image (recommended)"
 	@echo "  make dev             - Start all services (frontend + backend + gateway + nginx on localhost:2026)"
@@ -28,7 +28,7 @@ config:
 	fi
 	@cp config.example.yaml config.yaml
 	@test -f .env || cp .env.example .env
-	@test -f frontend/.env || cp frontend/.env.example frontend/.env
+	@test -f frontend/app/.env || cp frontend/app/.env.example frontend/app/.env
 
 # Check required tools
 check:
@@ -118,17 +118,19 @@ check:
 # Build Go gateway
 gateway-build:
 	@echo "Building Go gateway..."
-	@cd gateway-go && GOTOOLCHAIN=local go build -o bin/gateway ./cmd/server
+	@cd backend/gateway && GOTOOLCHAIN=local go build -o bin/gateway ./cmd/server
 	@echo "✓ Go gateway built"
 
 # Install all dependencies
 install:
-	@echo "Installing backend dependencies..."
-	@cd backend && uv sync
+	@echo "Installing agents dependencies..."
+	@cd backend/agents && uv sync
 	@echo "Installing Go gateway dependencies..."
-	@cd gateway-go && go mod download
-	@echo "Installing frontend dependencies..."
-	@cd frontend && pnpm install
+	@cd backend/gateway && go mod download
+	@echo "Installing frontend app dependencies..."
+	@cd frontend/app && pnpm install
+	@echo "Installing frontend admin dependencies..."
+	@cd frontend/admin && pnpm install
 	@echo "✓ All dependencies installed"
 	@echo ""
 	@echo "=========================================="
@@ -172,7 +174,7 @@ setup-sandbox:
 dev:
 	@echo "Stopping existing services if any..."
 	@-pkill -f "langgraph dev" 2>/dev/null || true
-	@-pkill -f "gateway-go/bin/gateway" 2>/dev/null || true
+	@-pkill -f "backend/gateway/bin/gateway" 2>/dev/null || true
 	@-pkill -f "uvicorn src.gateway.app:app" 2>/dev/null || true
 	@-pkill -f "next dev" 2>/dev/null || true
 	@-nginx -c $(PWD)/docker/nginx/nginx.local.conf -p $(PWD) -s quit 2>/dev/null || true
@@ -196,7 +198,7 @@ dev:
 		echo ""; \
 		echo "Shutting down services..."; \
 		pkill -f "langgraph dev" 2>/dev/null || true; \
-		pkill -f "gateway-go/bin/gateway" 2>/dev/null || true; \
+		pkill -f "backend/gateway/bin/gateway" 2>/dev/null || true; \
 		pkill -f "uvicorn src.gateway.app:app" 2>/dev/null || true; \
 		pkill -f "next dev" 2>/dev/null || true; \
 		nginx -c $(PWD)/docker/nginx/nginx.local.conf -p $(PWD) -s quit 2>/dev/null || true; \
@@ -210,18 +212,18 @@ dev:
 	trap cleanup INT TERM; \
 	mkdir -p logs; \
 	echo "Starting LangGraph server..."; \
-	cd backend && NO_COLOR=1 uv run langgraph dev --no-browser --allow-blocking --no-reload > ../logs/langgraph.log 2>&1 & \
+	cd backend/agents && NO_COLOR=1 uv run langgraph dev --no-browser --allow-blocking --no-reload > ../../logs/langgraph.log 2>&1 & \
 	sleep 3; \
 	echo "✓ LangGraph server started on localhost:2024"; \
 	echo "Building Go Gateway..."; \
-	cd gateway-go && GOTOOLCHAIN=local go build -o bin/gateway ./cmd/server 2> ../logs/gateway-build.log; \
+	cd backend/gateway && GOTOOLCHAIN=local go build -o bin/gateway ./cmd/server 2> ../../logs/gateway-build.log; \
 	if [ $$? -ne 0 ]; then \
 		echo "✗ Go Gateway build failed. See logs/gateway-build.log"; \
 		tail -30 logs/gateway-build.log; \
 		cleanup; \
 	fi; \
 	echo "Starting Go Gateway..."; \
-	cd gateway-go && GATEWAY_CONFIG_PATH=gateway.yaml ./bin/gateway > ../logs/gateway.log 2>&1 & \
+	cd backend/gateway && GATEWAY_CONFIG_PATH=gateway.yaml ./bin/gateway > ../../logs/gateway.log 2>&1 & \
 	sleep 2; \
 	if ! lsof -i :8001 -sTCP:LISTEN -t >/dev/null 2>&1; then \
 		echo "✗ Go Gateway failed to start. Last log output:"; \
@@ -230,7 +232,7 @@ dev:
 	fi; \
 	echo "✓ Go Gateway started on localhost:8001"; \
 	echo "Starting Frontend..."; \
-	cd frontend && pnpm run dev > ../logs/frontend.log 2>&1 & \
+	cd frontend/app && pnpm run dev > ../../logs/frontend.log 2>&1 & \
 	sleep 3; \
 	echo "✓ Frontend started on localhost:3000"; \
 	echo "Starting Nginx reverse proxy..."; \
@@ -260,7 +262,7 @@ dev:
 stop:
 	@echo "Stopping all services..."
 	@-pkill -f "langgraph dev" 2>/dev/null || true
-	@-pkill -f "gateway-go/bin/gateway" 2>/dev/null || true
+	@-pkill -f "backend/gateway/bin/gateway" 2>/dev/null || true
 	@-pkill -f "uvicorn src.gateway.app:app" 2>/dev/null || true
 	@-pkill -f "next dev" 2>/dev/null || true
 	@-nginx -c $(PWD)/docker/nginx/nginx.local.conf -p $(PWD) -s quit 2>/dev/null || true

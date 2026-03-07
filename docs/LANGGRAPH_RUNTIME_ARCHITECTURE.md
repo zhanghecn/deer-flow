@@ -43,7 +43,7 @@ Python make_lead_agent(config, runtime)
   |   1) model_name/model
   |   2) model_config.name
   |   3) agent.model
-  |   4) thread_runtime_configs(thread_id,user_id)
+  |   4) thread_bindings(thread_id,user_id)
   | persist thread runtime(model/agent)
   v
 DeepAgent execution + checkpoints
@@ -69,12 +69,13 @@ LangGraph threads.read context
 Return thread states/checkpoints
 ```
 
-## 4) 为什么有 005 和 006
+## 4) 线程表收敛（现状）
 
-- `005_thread_runtime_configs`：线程运行时配置（`model_name`/`agent_name`）持久化。
-- `006_thread_ownerships`：线程归属（`thread_id -> user_id`）强隔离。
-
-两张表职责不同，不再互相回填，不重复。
+- SQL 已清理为单表模型，不再保留线程拆分表（`thread_runtime_configs` / `thread_ownerships`）。
+- 当前运行时只使用 `thread_bindings`：
+  - `thread_id -> user_id`（租户隔离）
+  - `agent_name` / `assistant_id` / `model_name`（运行时绑定）
+- 线程元数据（如 title/metadata）由 LangGraph `threads` 接口提供，不落本地 `threads` 业务表。
 
 ## 5) 必备环境配置
 
@@ -84,8 +85,8 @@ LangGraph 需要允许把网关附加头透传到 `configurable`：
 LANGGRAPH_HTTP='{"configurable_headers":{"includes":["x-user-id","x-thread-id"]}}'
 ```
 
-统一放在项目根目录 `.env`（单一真源）。`backend/langgraph.json` 读取 `../.env`，
-`gateway-go` 启动/迁移优先读取 `../.env`，其次读取本目录 `.env`（仅本地覆盖）。
+统一放在项目根目录 `.env`（单一真源）。`backend/agents/langgraph.json` 读取 `../../.env`，
+`backend/gateway` 启动/迁移优先读取 `../../.env`，其次读取本目录 `.env`（仅本地覆盖）。
 
 ## 6) 维护检查清单
 
@@ -96,5 +97,4 @@ LANGGRAPH_HTTP='{"configurable_headers":{"includes":["x-user-id","x-thread-id"]}
 5. DB 必须存在并可读：
    - `models`（enabled=true）
    - `agents`
-   - `thread_runtime_configs`
-   - `thread_ownerships`
+   - `thread_bindings`

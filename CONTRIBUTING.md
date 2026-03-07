@@ -136,22 +136,25 @@ If you need to start services individually:
 1. **Start backend services**:
    ```bash
    # Terminal 1: Start LangGraph Server (port 2024)
-   cd backend
+   cd backend/agents
    make dev
 
    # Terminal 2: Start Gateway API (port 8001)
-   cd backend
-   make gateway
+   cd backend/gateway
+   make run
 
-   # Terminal 3: Start Frontend (port 3000)
-   cd frontend
+   # Terminal 3: Start Frontend App (port 3000)
+   cd frontend/app
+   pnpm dev
+
+   # Terminal 4: Start Frontend Admin (port 5173, optional)
+   cd frontend/admin
    pnpm dev
    ```
 
 2. **Start nginx**:
    ```bash
-   make nginx
-   # or directly: nginx -c $(pwd)/docker/nginx/nginx.local.conf -g 'daemon off;'
+   nginx -c $(pwd)/docker/nginx/nginx.local.conf -p $(pwd) -g 'daemon off;'
    ```
 
 3. **Access the application**:
@@ -184,24 +187,22 @@ openagents/
 │   │   ├── nginx.conf            # Nginx config for Docker
 │   │   └── nginx.local.conf      # Nginx config for local dev
 │   └── provisioner/              # Sandbox provisioner (K8s mode)
-├── gateway-go/                   # Go Gateway (replacing Python Gateway)
-│   ├── cmd/server/main.go        # Entry point
-│   ├── internal/                 # Handlers, middleware, repository, service, proxy
-│   ├── pkg/                      # JWT, filesystem storage
-│   ├── migrations/               # PostgreSQL schema
-│   └── gateway.yaml              # Gateway configuration
-├── backend/                      # Backend application (LangGraph Server)
-│   ├── src/
-│   │   ├── agents/               # LangGraph agents (deepagents engine)
-│   │   ├── gateway/              # Python Gateway (legacy, being replaced by Go)
-│   │   ├── mcp/                  # Model Context Protocol integration
-│   │   ├── skills/               # Skills system
-│   │   ├── tools/                # Built-in tools
-│   │   ├── community/            # Community tools (tavily, jina, firecrawl)
-│   │   └── client.py             # Embedded Python client (OpenAgentsClient)
-│   ├── docs/                     # Backend documentation
-│   └── Makefile                  # Backend commands
-├── frontend/                     # Next.js frontend (JWT auth)
+├── backend/
+│   ├── agents/                   # Python LangGraph runtime
+│   │   ├── src/                  # Agents, tools, sandbox, community integrations
+│   │   ├── docs/                 # Agents documentation
+│   │   ├── tests/                # Agents test suite
+│   │   └── langgraph.json        # LangGraph server config
+│   ├── deepagents/               # Vendored deepagents upstream source
+│   └── gateway/                  # Go Gateway
+│       ├── cmd/server/main.go    # Entry point
+│       ├── internal/             # Handlers, middleware, repository, service, proxy
+│       ├── pkg/                  # JWT, filesystem storage
+│       ├── migrations/           # PostgreSQL schema
+│       └── gateway.yaml          # Gateway configuration
+├── frontend/
+│   ├── app/                      # Next.js user frontend
+│   └── admin/                    # Vite admin console
 └── skills/                       # Agent skills
     ├── public/                   # Public skills
     └── custom/                   # Custom skills (gitignored)
@@ -260,19 +261,23 @@ Nginx (port 2026) ← Unified entry point
 
 ```bash
 # Backend tests
-cd backend
+cd backend/agents
 make test
 
 # Go Gateway build
 make gateway-build
 
 # Go Gateway tests
-cd gateway-go
+cd backend/gateway
 go test ./...
 
-# Frontend type check
-cd frontend
+# Frontend app type check
+cd frontend/app
 pnpm typecheck
+
+# Frontend admin build
+cd frontend/admin
+pnpm build
 ```
 
 ### PR Regression Checks
@@ -289,16 +294,16 @@ Every pull request runs the backend regression workflow at [.github/workflows/ba
 
 ## Documentation
 
-- [Configuration Guide](backend/docs/CONFIGURATION.md) - Setup and configuration
-- [Architecture Overview](backend/CLAUDE.md) - Technical architecture
-- [Go Gateway](gateway-go/README.md) - Go Gateway setup, API routes, and authentication
-- [Go Gateway Contributing](gateway-go/CONTRIBUTING.md) - Gateway development guide
-- [MCP Setup Guide](backend/docs/MCP_SERVER.md) - Model Context Protocol configuration
+- [Configuration Guide](backend/agents/docs/CONFIGURATION.md) - Setup and configuration
+- [Architecture Overview](backend/agents/CLAUDE.md) - Technical architecture
+- [Gateway](backend/gateway/README.md) - Gateway setup, API routes, and authentication
+- [Gateway Contributing](backend/gateway/CONTRIBUTING.md) - Gateway development guide
+- [MCP Setup Guide](backend/agents/docs/MCP_SERVER.md) - Model Context Protocol configuration
 
 ## Need Help?
 
 - Check existing [Issues](https://github.com/bytedance/openagents/issues)
-- Read the [Documentation](backend/docs/)
+- Read the [Documentation](backend/agents/docs/)
 - Ask questions in [Discussions](https://github.com/bytedance/openagents/discussions)
 
 ## License

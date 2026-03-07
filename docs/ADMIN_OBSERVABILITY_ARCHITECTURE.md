@@ -86,7 +86,7 @@ If LangGraph runs in local in-memory mode, Postgres checkpoint tables are not cr
 
 Current check result in this environment only shows project tables:
 
-- `users`, `agents`, `skills`, `models`, `thread_runtime_configs`, `thread_ownerships`, `threads`, ...
+- `users`, `agents`, `skills`, `models`, `thread_bindings`, ...
 - no `checkpoints` / `checkpoint_blobs` / `checkpoint_writes`
 
 So admin page exposes a checkpoint status endpoint:
@@ -94,19 +94,14 @@ So admin page exposes a checkpoint status endpoint:
 - `enabled=false`: checkpoint persistence not active
 - `enabled=true`: required tables detected in PostgreSQL
 
-## Thread Tables: Why Three Exist
+## Thread Runtime Binding
 
-Current schema has:
+Current schema is unified:
 
-- `threads`: business-facing thread metadata (title, created_at, etc.)
-- `thread_ownerships`: hard tenant isolation (`thread_id -> user_id`)
-- `thread_runtime_configs`: per-thread runtime binding (`agent_name`, `model_name`)
+- `thread_bindings`: single authoritative table for runtime binding and tenant ownership
+  (`thread_id -> user_id`, plus `agent_name` / `assistant_id` / `model_name`)
 
-They are split by responsibility, but this can feel redundant operationally.
-
-### Practical recommendation
-
-For enterprise long-term maintenance, unify to a single authoritative runtime binding table in a later migration (e.g. `thread_bindings`) and keep `threads` only for UI metadata. This reduces cross-table drift.
+Thread metadata itself is sourced from LangGraph `threads` storage/APIs, not from gateway-local thread tables.
 
 ## Admin Scope and RBAC
 

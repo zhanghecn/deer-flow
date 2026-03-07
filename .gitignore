@@ -43,8 +43,8 @@ log/
 .githooks/
 
 # Go gateway build artifacts
-gateway-go/bin/
-gateway-go/server
+backend/gateway/bin/
+backend/gateway/server
 
 # pnpm
 .pnpm-store

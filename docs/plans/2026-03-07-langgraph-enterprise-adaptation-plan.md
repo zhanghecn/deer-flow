@@ -91,7 +91,7 @@ Add test/assertion that run payload always includes:
 
 **Step 2: Run tests to verify failure**
 
-Run: `cd frontend && pnpm test` (or project test command)
+Run: `cd frontend/app && pnpm test` (or project test command)
 Expected: failing assertion for missing required runtime fields.
 
 **Step 3: Implement minimal payload normalization**
@@ -100,7 +100,7 @@ Ensure one canonical payload builder is used by all send paths.
 
 **Step 4: Run tests to verify pass**
 
-Run: `cd frontend && pnpm test`
+Run: `cd frontend/app && pnpm test`
 Expected: payload contract tests pass.
 
 **Step 5: Commit**
@@ -113,9 +113,9 @@ git commit -m "feat(frontend): enforce canonical langgraph runtime payload contr
 ### Task 2: Add Thread Ownership Registry (Python side)
 
 **Files:**
-- Create: `gateway-go/migrations/006_thread_ownerships.up.sql`
-- Modify: `backend/src/config/runtime_db.py`
-- Create: `backend/tests/test_thread_ownership_store.py`
+- Create: `backend/gateway/migrations/006_thread_ownerships.up.sql`
+- Modify: `backend/agents/src/config/runtime_db.py`
+- Create: `backend/agents/tests/test_thread_ownership_store.py`
 
 **Step 1: Write failing tests**
 
@@ -125,7 +125,7 @@ Add tests for:
 
 **Step 2: Run tests to verify failure**
 
-Run: `cd backend && pytest -q backend/tests/test_thread_ownership_store.py`
+Run: `cd backend/agents && pytest -q backend/agents/tests/test_thread_ownership_store.py`
 Expected: FAIL (methods/table not implemented yet).
 
 **Step 3: Implement minimal DB store methods**
@@ -136,22 +136,22 @@ Add:
 
 **Step 4: Run tests to verify pass**
 
-Run: `cd backend && pytest -q backend/tests/test_thread_ownership_store.py`
+Run: `cd backend/agents && pytest -q backend/agents/tests/test_thread_ownership_store.py`
 Expected: PASS.
 
 **Step 5: Commit**
 
 ```bash
-git add gateway-go/migrations/006_thread_ownerships.up.sql backend/src/config/runtime_db.py backend/tests/test_thread_ownership_store.py
+git add backend/gateway/migrations/006_thread_ownerships.up.sql backend/agents/src/config/runtime_db.py backend/agents/tests/test_thread_ownership_store.py
 git commit -m "feat(backend): add thread ownership registry for multi-tenant isolation"
 ```
 
 ### Task 3: Enforce Ownership on LangGraph Thread Endpoints
 
 **Files:**
-- Create: `backend/src/http/middleware/thread_access_guard.py`
-- Modify: `backend/src/server.py` (or app bootstrap where middleware is registered)
-- Test: `backend/tests/test_thread_access_guard.py`
+- Create: `backend/agents/src/http/middleware/thread_access_guard.py`
+- Modify: `backend/agents/src/server.py` (or app bootstrap where middleware is registered)
+- Test: `backend/agents/tests/test_thread_access_guard.py`
 
 **Step 1: Write failing tests**
 
@@ -162,7 +162,7 @@ Cover endpoint access:
 
 **Step 2: Run tests to verify failure**
 
-Run: `cd backend && pytest -q backend/tests/test_thread_access_guard.py`
+Run: `cd backend/agents && pytest -q backend/agents/tests/test_thread_access_guard.py`
 Expected: FAIL before middleware.
 
 **Step 3: Implement middleware**
@@ -171,22 +171,22 @@ Extract `user_id` from runtime context/request, parse thread_id from path, enfor
 
 **Step 4: Run tests to verify pass**
 
-Run: `cd backend && pytest -q backend/tests/test_thread_access_guard.py`
+Run: `cd backend/agents && pytest -q backend/agents/tests/test_thread_access_guard.py`
 Expected: PASS.
 
 **Step 5: Commit**
 
 ```bash
-git add backend/src/http/middleware/thread_access_guard.py backend/src/server.py backend/tests/test_thread_access_guard.py
+git add backend/agents/src/http/middleware/thread_access_guard.py backend/agents/src/server.py backend/agents/tests/test_thread_access_guard.py
 git commit -m "feat(backend): enforce thread ownership guard on langgraph thread routes"
 ```
 
 ### Task 4: Make First Run Persist Runtime Deterministically
 
 **Files:**
-- Modify: `backend/src/agents/lead_agent/agent.py`
-- Modify: `backend/src/config/runtime_db.py`
-- Test: `backend/tests/test_lead_agent_model_resolution.py`
+- Modify: `backend/agents/src/agents/lead_agent/agent.py`
+- Modify: `backend/agents/src/config/runtime_db.py`
+- Test: `backend/agents/tests/test_lead_agent_model_resolution.py`
 
 **Step 1: Write failing tests**
 
@@ -197,7 +197,7 @@ Cases:
 
 **Step 2: Run tests to verify failure**
 
-Run: `cd backend && pytest -q backend/tests/test_lead_agent_model_resolution.py`
+Run: `cd backend/agents && pytest -q backend/agents/tests/test_lead_agent_model_resolution.py`
 Expected: at least one case failing.
 
 **Step 3: Implement minimal resolver hardening**
@@ -206,24 +206,24 @@ Keep strict precedence, no default model. Persist runtime only after successful 
 
 **Step 4: Run tests to verify pass**
 
-Run: `cd backend && pytest -q backend/tests/test_lead_agent_model_resolution.py`
+Run: `cd backend/agents && pytest -q backend/agents/tests/test_lead_agent_model_resolution.py`
 Expected: PASS.
 
 **Step 5: Commit**
 
 ```bash
-git add backend/src/agents/lead_agent/agent.py backend/src/config/runtime_db.py backend/tests/test_lead_agent_model_resolution.py
+git add backend/agents/src/agents/lead_agent/agent.py backend/agents/src/config/runtime_db.py backend/agents/tests/test_lead_agent_model_resolution.py
 git commit -m "feat(backend): deterministic thread runtime persistence without model fallback"
 ```
 
 ### Task 5: Gateway As Pure Auth + Context Injector + Proxy Debug
 
 **Files:**
-- Modify: `gateway-go/internal/handler/langgraph_runtime.go`
-- Modify: `gateway-go/internal/proxy/proxy.go`
-- Modify: `gateway-go/internal/middleware/cors.go`
-- Test: `gateway-go/internal/handler/langgraph_runtime_test.go`
-- Test: `gateway-go/internal/middleware/cors_test.go`
+- Modify: `backend/gateway/internal/handler/langgraph_runtime.go`
+- Modify: `backend/gateway/internal/proxy/proxy.go`
+- Modify: `backend/gateway/internal/middleware/cors.go`
+- Test: `backend/gateway/internal/handler/langgraph_runtime_test.go`
+- Test: `backend/gateway/internal/middleware/cors_test.go`
 
 **Step 1: Write failing tests**
 
@@ -233,7 +233,7 @@ git commit -m "feat(backend): deterministic thread runtime persistence without m
 
 **Step 2: Run tests to verify failure**
 
-Run: `cd gateway-go && go test ./...`
+Run: `cd backend/gateway && go test ./...`
 Expected: FAIL before adjustments.
 
 **Step 3: Implement minimal fixes**
@@ -246,21 +246,21 @@ Keep only:
 
 **Step 4: Run tests to verify pass**
 
-Run: `cd gateway-go && go test ./...`
+Run: `cd backend/gateway && go test ./...`
 Expected: PASS.
 
 **Step 5: Commit**
 
 ```bash
-git add gateway-go/internal/handler/langgraph_runtime.go gateway-go/internal/proxy/proxy.go gateway-go/internal/middleware/cors.go gateway-go/internal/handler/langgraph_runtime_test.go gateway-go/internal/middleware/cors_test.go
+git add backend/gateway/internal/handler/langgraph_runtime.go backend/gateway/internal/proxy/proxy.go backend/gateway/internal/middleware/cors.go backend/gateway/internal/handler/langgraph_runtime_test.go backend/gateway/internal/middleware/cors_test.go
 git commit -m "refactor(gateway): keep auth+context injection only and improve upstream observability"
 ```
 
 ### Task 6: End-to-End Contract Tests (Go calls real Python agent)
 
 **Files:**
-- Create: `gateway-go/internal/e2e/langgraph_runtime_e2e_test.go`
-- Modify: `gateway-go/Makefile` (optional e2e target)
+- Create: `backend/gateway/internal/e2e/langgraph_runtime_e2e_test.go`
+- Modify: `backend/gateway/Makefile` (optional e2e target)
 
 **Step 1: Write failing e2e tests**
 
@@ -273,7 +273,7 @@ Scenario chain:
 
 **Step 2: Run tests to verify failure**
 
-Run: `cd gateway-go && go test ./internal/e2e -v`
+Run: `cd backend/gateway && go test ./internal/e2e -v`
 Expected: FAIL before full alignment.
 
 **Step 3: Implement minimal harness/runtime setup**
@@ -282,13 +282,13 @@ Use env-configured LangGraph URL and test users/tokens.
 
 **Step 4: Run tests to verify pass**
 
-Run: `cd gateway-go && go test ./internal/e2e -v`
+Run: `cd backend/gateway && go test ./internal/e2e -v`
 Expected: PASS.
 
 **Step 5: Commit**
 
 ```bash
-git add gateway-go/internal/e2e/langgraph_runtime_e2e_test.go gateway-go/Makefile
+git add backend/gateway/internal/e2e/langgraph_runtime_e2e_test.go backend/gateway/Makefile
 git commit -m "test(e2e): verify langgraph multi-tenant runtime contract through gateway"
 ```
 
@@ -307,7 +307,7 @@ git commit -m "test(e2e): verify langgraph multi-tenant runtime contract through
 
 **Step 2: Run tests to verify failure**
 
-Run: `cd frontend && pnpm test`
+Run: `cd frontend/app && pnpm test`
 Expected: FAIL before UI mapping.
 
 **Step 3: Implement minimal error mapping**
@@ -316,7 +316,7 @@ Map backend errors to stable front-end messages; avoid repeated noisy retries fo
 
 **Step 4: Run tests to verify pass**
 
-Run: `cd frontend && pnpm test`
+Run: `cd frontend/app && pnpm test`
 Expected: PASS.
 
 **Step 5: Commit**
