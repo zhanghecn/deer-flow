@@ -9,7 +9,6 @@ now handled by deepagents MemoryMiddleware internally.
 
 from src.agents.memory.updater import _strip_upload_mentions_from_memory
 
-
 # ===========================================================================
 # _strip_upload_mentions_from_memory
 # ===========================================================================

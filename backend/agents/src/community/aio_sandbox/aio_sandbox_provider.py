@@ -21,10 +21,11 @@ import threading
 import time
 import uuid
 
-from src.config import get_app_config
-from src.config.paths import VIRTUAL_PATH_PREFIX, get_paths
 from src.sandbox.sandbox import Sandbox
 from src.sandbox.sandbox_provider import SandboxProvider
+
+from src.config import get_app_config
+from src.config.paths import VIRTUAL_PATH_PREFIX, get_paths
 
 from .aio_sandbox import AioSandbox
 from .backend import SandboxBackend, wait_for_sandbox_ready

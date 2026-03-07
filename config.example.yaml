@@ -23,7 +23,7 @@ tool_groups:
 tools:
   - name: web_search
     group: web
-    use: src.community.exa.tools:web_search_tool
+    use: src.community.opencode_web.tools:web_search_tool
     num_results: 8
     search_type: auto
     livecrawl: fallback

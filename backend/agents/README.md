@@ -300,7 +300,7 @@ MCP servers and skill states in a single file:
 - `OPENAGENTS_CONFIG_PATH` - Override config.yaml location
 - `OPENAGENTS_EXTENSIONS_CONFIG_PATH` - Override extensions_config.json location
 - Model API keys: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, etc.
-- Tool API keys: `TAVILY_API_KEY`, `GITHUB_TOKEN`, etc.
+- Tool API keys: `EXA_API_KEY`, `GITHUB_TOKEN`, etc.
 
 ---
 

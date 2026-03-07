@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.community.exa import tools as exa_tools
+from src.community.opencode_web import tools as web_tools
 
 
 class _FakeToolConfig:
@@ -9,13 +9,14 @@ class _FakeToolConfig:
 
 
 class _FakeAppConfig:
-    def __init__(self, tool_config: _FakeToolConfig | None):
-        self._tool_config = tool_config
+    def __init__(self, web_search: _FakeToolConfig | None = None, web_fetch: _FakeToolConfig | None = None):
+        self._configs = {
+            "web_search": web_search,
+            "web_fetch": web_fetch,
+        }
 
     def get_tool_config(self, name: str):
-        if name != "web_search":
-            return None
-        return self._tool_config
+        return self._configs.get(name)
 
 
 class _FakeResponse:
@@ -26,9 +27,9 @@ class _FakeResponse:
 
 def test_web_search_parses_sse_payload(monkeypatch):
     monkeypatch.setattr(
-        exa_tools,
+        web_tools,
         "get_app_config",
-        lambda: _FakeAppConfig(_FakeToolConfig({"num_results": 3})),
+        lambda: _FakeAppConfig(web_search=_FakeToolConfig({"num_results": 3})),
     )
 
     captured: dict[str, object] = {}
@@ -43,9 +44,9 @@ def test_web_search_parses_sse_payload(monkeypatch):
             'event: message\ndata: {"jsonrpc":"2.0","result":{"content":[{"type":"text","text":"search ok"}]}}\n\n',
         )
 
-    monkeypatch.setattr(exa_tools.httpx, "post", _fake_post)
+    monkeypatch.setattr(web_tools.httpx, "post", _fake_post)
 
-    result = exa_tools.web_search_tool.invoke({"query": "langgraph"})
+    result = web_tools.web_search_tool.invoke({"query": "langgraph"})
 
     assert result == "search ok"
     assert captured["url"] == "https://mcp.exa.ai/mcp"
@@ -53,7 +54,7 @@ def test_web_search_parses_sse_payload(monkeypatch):
 
 
 def test_web_search_uses_exa_api_key_header(monkeypatch):
-    monkeypatch.setattr(exa_tools, "get_app_config", lambda: _FakeAppConfig(None))
+    monkeypatch.setattr(web_tools, "get_app_config", lambda: _FakeAppConfig())
     monkeypatch.setenv("EXA_API_KEY", "exa-test-key")
 
     captured_headers: dict[str, str] = {}
@@ -62,21 +63,21 @@ def test_web_search_uses_exa_api_key_header(monkeypatch):
         captured_headers.update(headers)
         return _FakeResponse(200, '{"jsonrpc":"2.0","result":{"content":[{"type":"text","text":"ok"}]}}')
 
-    monkeypatch.setattr(exa_tools.httpx, "post", _fake_post)
+    monkeypatch.setattr(web_tools.httpx, "post", _fake_post)
 
-    result = exa_tools.web_search_tool.invoke({"query": "python"})
+    result = web_tools.web_search_tool.invoke({"query": "python"})
 
     assert result == "ok"
     assert captured_headers["x-api-key"] == "exa-test-key"
 
 
 def test_web_search_handles_http_error(monkeypatch):
-    monkeypatch.setattr(exa_tools, "get_app_config", lambda: _FakeAppConfig(None))
+    monkeypatch.setattr(web_tools, "get_app_config", lambda: _FakeAppConfig())
     monkeypatch.delenv("EXA_API_KEY", raising=False)
 
-    monkeypatch.setattr(exa_tools.httpx, "post", lambda *args, **kwargs: _FakeResponse(500, "upstream error"))
+    monkeypatch.setattr(web_tools.httpx, "post", lambda *args, **kwargs: _FakeResponse(500, "upstream error"))
 
-    result = exa_tools.web_search_tool.invoke({"query": "python"})
+    result = web_tools.web_search_tool.invoke({"query": "python"})
 
     assert "HTTP 500" in result
     assert "upstream error" in result

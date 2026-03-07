@@ -33,8 +33,9 @@ from deepagents import create_deep_agent
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 
-from src.agents.lead_agent.agent import OPENAGENTS_SUBAGENTS, _build_openagents_middlewares, build_backend
+from src.agents.lead_agent.agent import _build_openagents_middlewares, build_backend
 from src.agents.lead_agent.prompt import apply_prompt_template
+from src.agents.lead_agent.subagents import load_subagent_specs
 from src.config.app_config import get_app_config, reload_app_config
 from src.config.extensions_config import ExtensionsConfig, SkillStateConfig, get_extensions_config, reload_extensions_config
 from src.config.paths import get_paths
@@ -206,7 +207,20 @@ class OpenAgentsClient:
         # Build backend and middleware using shared agent.py functions
         backend = build_backend(thread_id, agent_name=None)
         extra_middleware = _build_openagents_middlewares(model_config)
-        subagents = OPENAGENTS_SUBAGENTS if subagent_enabled else None
+        tools = self._get_tools(
+            model_name=effective_model_name,
+            model_supports_vision=model_config.supports_vision,
+            subagent_enabled=subagent_enabled,
+        )
+        subagents = (
+            load_subagent_specs(
+                tools,
+                agent_name=None,
+                agent_status="dev",
+            )
+            if subagent_enabled
+            else None
+        )
 
         self._agent = create_deep_agent(
             model=create_chat_model(
@@ -214,11 +228,7 @@ class OpenAgentsClient:
                 thinking_enabled=thinking_enabled,
                 runtime_model_config=model_config,
             ),
-            tools=self._get_tools(
-                model_name=effective_model_name,
-                model_supports_vision=model_config.supports_vision,
-                subagent_enabled=subagent_enabled,
-            ),
+            tools=tools,
             system_prompt=apply_prompt_template(
                 subagent_enabled=subagent_enabled,
                 max_concurrent_subagents=max_concurrent_subagents,

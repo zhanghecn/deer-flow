@@ -2,7 +2,6 @@ import base64
 import logging
 
 from agent_sandbox import Sandbox as AioSandboxClient
-
 from src.sandbox.sandbox import Sandbox
 
 logger = logging.getLogger(__name__)

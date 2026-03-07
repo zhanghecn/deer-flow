@@ -1,11 +1,12 @@
 import logging
 
-from deepagents import SubAgent, create_deep_agent
+from deepagents import create_deep_agent
 from deepagents.backends import CompositeBackend, FilesystemBackend, LocalShellBackend
 from langchain_core.runnables import RunnableConfig
 from langgraph_sdk.runtime import ServerRuntime
 
 from src.agents.lead_agent.prompt import apply_prompt_template
+from src.agents.lead_agent.subagents import load_subagent_specs
 from src.agents.middlewares.thread_data_middleware import ThreadDataMiddleware
 from src.agents.middlewares.title_middleware import TitleMiddleware
 from src.agents.middlewares.uploads_middleware import UploadsMiddleware
@@ -211,47 +212,6 @@ def _merge_callbacks(
     return [existing_callbacks, callback]
 
 
-# SubAgent definitions (replace backend/agents/src/subagents/builtins/)
-OPENAGENTS_SUBAGENTS: list[SubAgent] = [
-    {
-        "name": "general-purpose",
-        "description": "General-purpose subagent for research, code exploration, file operations, analysis, and any non-trivial task. Has access to all tools except task and ask_clarification.",
-        "system_prompt": (
-            "You are a general-purpose subagent. Complete the assigned task thoroughly and return a clear result.\n"
-            "Use all available tools as needed. Be systematic and thorough.\n"
-            "When doing research, always cite sources with markdown links."
-        ),
-    },
-    {
-        "name": "explore",
-        "description": "File search specialist for navigating large codebases quickly with glob/grep/read patterns and returning precise file-level findings.",
-        "system_prompt": (
-            "You are a file search specialist. You excel at thoroughly navigating and exploring codebases.\n"
-            "Your strengths:\n"
-            "- Rapidly finding files using glob patterns\n"
-            "- Searching code and text using grep patterns\n"
-            "- Reading and analyzing file contents with pagination\n"
-            "Guidelines:\n"
-            "- Use glob for broad file pattern matching\n"
-            "- Use grep for locating relevant content, then read_file for focused inspection\n"
-            "- Return absolute file paths in your final answer\n"
-            "- Do not modify files unless the caller explicitly asks you to edit\n"
-            "- Keep findings concise and structured for handoff to the parent agent"
-        ),
-    },
-    {
-        "name": "bash",
-        "description": "Command execution specialist for git, build, test, deploy, and other shell operations.",
-        "system_prompt": (
-            "You are a bash command specialist subagent.\n"
-            "Execute the requested shell commands carefully.\n"
-            "Report command output and any errors clearly.\n"
-            "For destructive operations, always verify the target first."
-        ),
-    },
-]
-
-
 def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None):
     # Lazy import to avoid circular dependency
     from src.tools import get_available_tools
@@ -383,12 +343,6 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         if agents_md_path.exists():
             memory_sources.append(str(agents_md_path))
 
-    # SubAgents (only if enabled)
-    subagents = OPENAGENTS_SUBAGENTS if subagent_enabled else None
-
-    # openagents specific extra middlewares
-    extra_middleware = _build_openagents_middlewares(model_config)
-
     # Community tools + MCP tools (sandbox tools provided by deepagents FilesystemMiddleware)
     # Exclude file:read, file:write, bash groups — deepagents provides ls, read_file, write_file, edit_file, execute, glob, grep
     tools = get_available_tools(
@@ -402,6 +356,20 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
 
     if is_bootstrap:
         tools = tools + [setup_agent]
+
+    # SubAgents (only if enabled)
+    subagents = (
+        load_subagent_specs(
+            tools,
+            agent_name=agent_name,
+            agent_status=agent_status,
+        )
+        if subagent_enabled
+        else None
+    )
+
+    # openagents specific extra middlewares
+    extra_middleware = _build_openagents_middlewares(model_config)
 
     # System prompt
     system_prompt = apply_prompt_template(

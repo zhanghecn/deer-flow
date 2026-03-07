@@ -8,7 +8,7 @@ from pathlib import Path
 
 def _load_provisioner_module():
     """Load docker/provisioner/app.py as an importable test module."""
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = Path(__file__).resolve().parents[3]
     module_path = repo_root / "docker" / "provisioner" / "app.py"
     spec = importlib.util.spec_from_file_location("provisioner_app_test", module_path)
     assert spec is not None
