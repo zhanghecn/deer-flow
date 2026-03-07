@@ -4,6 +4,14 @@
     "."
   ],
   "env": "../.env",
+  "http": {
+    "configurable_headers": {
+      "includes": [
+        "x-user-id",
+        "x-thread-id"
+      ]
+    }
+  },
   "graphs": {
     "lead_agent": "src.agents:make_lead_agent"
   }

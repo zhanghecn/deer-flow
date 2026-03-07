@@ -8,7 +8,6 @@ import { toast } from "sonner";
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 
 import { getAPIClient } from "../api";
-import { getAuthUser } from "../auth/store";
 import { useI18n } from "../i18n/hooks";
 import type { FileInMessage } from "../messages/utils";
 import type { LocalSettings } from "../settings";
@@ -46,8 +45,8 @@ export function useThreadStream({
   const startedRef = useRef(false);
 
   useEffect(() => {
-    if (_threadId && _threadId !== threadId) {
-      setThreadId(threadId ?? null);
+    if (threadId && _threadId !== threadId) {
+      setThreadId(threadId);
       startedRef.current = false; // Reset for new thread
     }
   }, [threadId, _threadId]);
@@ -100,7 +99,6 @@ export function useThreadStream({
   const [optimisticMessages, setOptimisticMessages] = useState<Message[]>([]);
   // Track message count before sending so we know when server has responded
   const prevMsgCountRef = useRef(thread.messages.length);
-  const ensuredThreadMetadataRef = useRef<Set<string>>(new Set());
 
   // Clear optimistic when server messages arrive (count increases)
   useEffect(() => {
@@ -127,37 +125,6 @@ export function useThreadStream({
 
       // Capture current count before showing optimistic messages
       prevMsgCountRef.current = thread.messages.length;
-
-      // Ensure thread exists with user-scoped metadata so backend/user filtering works.
-      if (threadId) {
-        if (!ensuredThreadMetadataRef.current.has(threadId)) {
-          const authUser = getAuthUser();
-          const metadata: Record<string, string> = {};
-          if (authUser?.id) {
-            metadata.user_id = authUser.id;
-          }
-          if (authUser?.name) {
-            metadata.user_name = authUser.name;
-          }
-          if (authUser?.email) {
-            metadata.user_email = authUser.email;
-          }
-          metadata.model_name = selectedModelName;
-          if (typeof extraContext?.agent_name === "string") {
-            metadata.agent_name = extraContext.agent_name;
-          }
-          try {
-            await apiClient.threads.create({
-              threadId,
-              ifExists: "do_nothing",
-              metadata,
-            });
-            ensuredThreadMetadataRef.current.add(threadId);
-          } catch (error) {
-            console.warn("Failed to pre-create thread metadata:", error);
-          }
-        }
-      }
 
       // Build optimistic files list with uploading status
       const optimisticFiles: FileInMessage[] = (message.files ?? []).map(

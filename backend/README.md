@@ -184,8 +184,13 @@ Important variables:
 - `DATABASE_URI`:
   shared PostgreSQL DSN for Python runtime DB queries (`models`, `agents`, `thread_runtime_configs`, `thread_ownerships`)
   and LangGraph persistence/checkpointer backend
-- `LANGGRAPH_HTTP`:
-  allows `x-user-id` / `x-thread-id` headers into `config.configurable`
+- Note:
+  `langgraph dev` uses in-memory persistence by default and sets process `DATABASE_URI=:memory:`.
+  OpenAgents runtime DB loader reads `DATABASE_URI` from shared root `.env` in this case.
+- `LANGGRAPH_URL`:
+  gateway upstream target for LangGraph server
+- Header pass-through (`x-user-id`, `x-thread-id`) is configured in `backend/langgraph.json`:
+  `http.configurable_headers.includes`
 
 ### Running
 

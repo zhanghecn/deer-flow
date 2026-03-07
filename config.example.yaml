@@ -6,7 +6,8 @@
 # 2) Runtime DB credentials are provided via environment variable:
 #    DATABASE_URI
 # 3) LangGraph persistence/checkpointer is configured via env:
-#    DATABASE_URI, LANGGRAPH_CHECKPOINTER (optional), LANGGRAPH_HTTP
+#    DATABASE_URI, LANGGRAPH_CHECKPOINTER (optional)
+#    Header pass-through is configured in backend/langgraph.json (http.configurable_headers)
 
 # Sandbox provider
 sandbox:

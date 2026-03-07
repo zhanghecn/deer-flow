@@ -14,18 +14,6 @@
       "justMyCode": false
     },
     {
-      "name": "gateway",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "uvicorn",
-      "args": ["src.gateway.app:app", "--host", "0.0.0.0", "--port", "8001"],
-      "cwd": "${workspaceFolder}/backend",
-      "envFile": "${workspaceFolder}/.env",
-      "console": "integratedTerminal",
-      "python": "${workspaceFolder}/backend/.venv/bin/python",
-      "justMyCode": false
-    },
-    {
       "name": "frontend",
       "type": "node-terminal",
       "request": "launch",
@@ -36,6 +24,19 @@
         "uriFormat": "%s",
         "action": "openExternally"
       }
+    },
+    {
+      "name": "gateway-go (breakpoints)",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/gateway-go/cmd/server",
+      "cwd": "${workspaceFolder}/gateway-go",
+      "envFile": "${workspaceFolder}/.env",
+      "env": {
+        "GOTOOLCHAIN": "local"
+      },
+      "console": "integratedTerminal"
     }
   ]
 }

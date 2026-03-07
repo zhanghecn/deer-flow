@@ -2,6 +2,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from threading import Lock
 
 from src.config.model_config import ModelConfig
@@ -190,13 +191,36 @@ class RuntimeDBStore:
 
 def _build_runtime_db_dsn() -> str:
     database_uri = os.getenv("DATABASE_URI", "").strip()
-    if database_uri:
+    if database_uri and database_uri != ":memory:":
         return database_uri
+
+    # `langgraph dev` (in-memory runtime) sets DATABASE_URI=:memory: internally.
+    # Runtime DB access must still use the project PostgreSQL DSN from shared root .env.
+    env_path = _root_env_path()
+    if env_path.exists():
+        try:
+            from dotenv import dotenv_values
+        except ImportError:  # pragma: no cover - environment dependency
+            dotenv_values = None
+        if dotenv_values is not None:
+            env_database_uri = str(dotenv_values(str(env_path)).get("DATABASE_URI", "")).strip()
+            if env_database_uri and env_database_uri != ":memory:":
+                return env_database_uri
+
+    if database_uri == ":memory:":
+        raise RuntimeError(
+            "DATABASE_URI resolved to ':memory:' in LangGraph dev runtime. "
+            "Set DATABASE_URI in project root .env to a PostgreSQL DSN."
+        )
     raise RuntimeError("Missing required environment variable: DATABASE_URI")
 
 
 _db_store: RuntimeDBStore | None = None
 _db_store_lock = Lock()
+
+
+def _root_env_path() -> Path:
+    return Path(__file__).resolve().parents[3] / ".env"
 
 
 def get_runtime_db_store() -> RuntimeDBStore:
