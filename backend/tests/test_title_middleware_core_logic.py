@@ -73,7 +73,7 @@ class TestTitleMiddlewareCoreLogic:
         assert middleware._should_generate_title(state) is False
 
     def test_generate_title_trims_quotes_and_respects_max_chars(self, monkeypatch):
-        _set_test_title_config(max_chars=12)
+        _set_test_title_config(max_chars=12, model_name="title-model")
         middleware = TitleMiddleware()
         fake_model = MagicMock()
         fake_model.invoke.return_value = MagicMock(content='"A very long generated title"')

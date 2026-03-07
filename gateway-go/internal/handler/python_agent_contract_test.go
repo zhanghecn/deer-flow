@@ -25,6 +25,33 @@ func TestPythonLeadAgentModelResolutionContract(t *testing.T) {
 
 	script := `
 from src.agents.lead_agent.agent import _parse_runtime_model_config, _resolve_run_model
+from src.config.model_config import ModelConfig
+from src.config.runtime_db import DBAgentConfig
+
+class FakeStore:
+    def __init__(self):
+        self.models = {
+            "contract-model": ModelConfig.model_validate({
+                "name": "contract-model",
+                "use": "langchain_openai:ChatOpenAI",
+                "model": "gpt-4.1"
+            }),
+            "thread-model": ModelConfig.model_validate({
+                "name": "thread-model",
+                "use": "langchain_openai:ChatOpenAI",
+                "model": "gpt-4.1"
+            }),
+        }
+
+    def get_model(self, name):
+        return self.models.get(name)
+
+    def get_thread_runtime_model(self, *, thread_id, user_id):
+        if thread_id == "thread-1" and user_id == "user-1":
+            return "thread-model"
+        return None
+
+store = FakeStore()
 
 runtime = _parse_runtime_model_config({
     "name": "contract-model",
@@ -33,38 +60,59 @@ runtime = _parse_runtime_model_config({
 })
 name, config = _resolve_run_model(
     requested_model_name=None,
-    runtime_model_config=runtime,
-    agent_model_name=None,
+    runtime_model_name=runtime,
+    agent_config=None,
+    thread_id=None,
+    user_id=None,
+    db_store=store,
 )
 assert name == "contract-model"
 assert config.name == "contract-model"
 
-try:
-    _resolve_run_model(
-        requested_model_name=None,
-        runtime_model_config=None,
-        agent_model_name=None,
-    )
-except ValueError as e:
-    assert "No model resolved for this run" in str(e), str(e)
-else:
-    raise AssertionError("expected unresolved model error")
+name, config = _resolve_run_model(
+    requested_model_name=None,
+    runtime_model_name=None,
+    agent_config=None,
+    thread_id="thread-1",
+    user_id="user-1",
+    db_store=store,
+)
+assert name == "thread-model"
+assert config.name == "thread-model"
 
-runtime_conflict = _parse_runtime_model_config({
-    "name": "model-a",
-    "use": "langchain_openai:ChatOpenAI",
-    "model": "gpt-4.1"
-})
 try:
     _resolve_run_model(
         requested_model_name="model-b",
-        runtime_model_config=runtime_conflict,
-        agent_model_name=None,
+        runtime_model_name=None,
+        agent_config=DBAgentConfig(
+            name="agent-a",
+            status="dev",
+            model="model-a",
+            tool_groups=[],
+            mcp_servers=[],
+        ),
+        thread_id=None,
+        user_id=None,
+        db_store=store,
     )
 except ValueError as e:
     assert "Model conflict" in str(e), str(e)
 else:
     raise AssertionError("expected model conflict error")
+
+try:
+    _resolve_run_model(
+        requested_model_name=None,
+        runtime_model_name=None,
+        agent_config=None,
+        thread_id=None,
+        user_id=None,
+        db_store=store,
+    )
+except ValueError as e:
+    assert "No model resolved for this run" in str(e), str(e)
+else:
+    raise AssertionError("expected unresolved model error")
 `
 
 	cmd := exec.Command(pythonBin, "-c", script)

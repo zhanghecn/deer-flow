@@ -1,5 +1,5 @@
 # 声明伪目标（不生成实际文件的目标）
-.PHONY: build run test clean migrate
+.PHONY: build run restart test clean migrate
 
 # 构建：编译 Go 项目，输出到 bin/gateway
 build:
@@ -8,6 +8,9 @@ build:
 # 运行：直接运行 Go 程序（不生成可执行文件）
 run:
 	go run ./cmd/server
+
+# 重启：先构建再运行
+restart: build run
 
 # 测试：运行所有测试用例
 test:

@@ -3,6 +3,7 @@ import logging
 from langchain.tools import BaseTool
 
 from src.config import get_app_config
+from src.config.runtime_db import get_runtime_db_store
 from src.reflection import resolve_variable
 from src.tools.builtins import ask_clarification_tool, present_file_tool, view_image_tool
 
@@ -75,7 +76,7 @@ def get_available_tools(
 
     # Add view_image_tool only if the model supports vision
     if model_supports_vision is None:
-        model_config = config.get_model_config(model_name) if model_name else None
+        model_config = get_runtime_db_store().get_model(model_name) if model_name else None
         model_supports_vision = bool(model_config and model_config.supports_vision)
 
     if model_supports_vision:

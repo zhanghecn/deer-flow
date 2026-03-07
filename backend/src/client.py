@@ -194,15 +194,31 @@ class OpenAgentsClient:
         subagent_enabled = cfg.get("subagent_enabled", False)
         max_concurrent_subagents = cfg.get("max_concurrent_subagents", 3)
         thread_id = cfg.get("thread_id", "_default")
+        effective_model_name = model_name
+        if effective_model_name is None and self._app_config.models:
+            effective_model_name = self._app_config.models[0].name
+        if effective_model_name is None:
+            raise ValueError("No model configured for OpenAgentsClient runtime.")
+        model_config = self._app_config.get_model_config(effective_model_name)
+        if model_config is None:
+            raise ValueError(f"Model '{effective_model_name}' is not available in config.")
 
         # Build backend and middleware using shared agent.py functions
         backend = build_backend(thread_id, agent_name=None)
-        extra_middleware = _build_openagents_middlewares(model_name)
+        extra_middleware = _build_openagents_middlewares(model_config)
         subagents = OPENAGENTS_SUBAGENTS if subagent_enabled else None
 
         self._agent = create_deep_agent(
-            model=create_chat_model(name=model_name, thinking_enabled=thinking_enabled),
-            tools=self._get_tools(model_name=model_name, subagent_enabled=subagent_enabled),
+            model=create_chat_model(
+                name=effective_model_name,
+                thinking_enabled=thinking_enabled,
+                runtime_model_config=model_config,
+            ),
+            tools=self._get_tools(
+                model_name=effective_model_name,
+                model_supports_vision=model_config.supports_vision,
+                subagent_enabled=subagent_enabled,
+            ),
             system_prompt=apply_prompt_template(
                 subagent_enabled=subagent_enabled,
                 max_concurrent_subagents=max_concurrent_subagents,
@@ -217,13 +233,14 @@ class OpenAgentsClient:
         logger.info("Agent created: model=%s, thinking=%s", model_name, thinking_enabled)
 
     @staticmethod
-    def _get_tools(*, model_name: str | None, subagent_enabled: bool):
+    def _get_tools(*, model_name: str | None, model_supports_vision: bool, subagent_enabled: bool):
         """Lazy import to avoid circular dependency at module level."""
         from src.tools import get_available_tools
 
         # Exclude sandbox tool groups — deepagents FilesystemMiddleware provides them
         return get_available_tools(
             model_name=model_name,
+            model_supports_vision=model_supports_vision,
             subagent_enabled=subagent_enabled,
             exclude_groups=["file:read", "file:write", "bash"],
         )

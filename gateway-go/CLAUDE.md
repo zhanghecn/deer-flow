@@ -4,7 +4,7 @@ This file provides guidance to Claude Code when working with the Go Gateway code
 
 ## Project Overview
 
-OpenAgents Go Gateway is a Gin-based HTTP gateway that replaces the Python FastAPI Gateway (port 8001). It provides JWT/API Token authentication, Agent/Skill CRUD with PostgreSQL + filesystem dual-write, LangGraph reverse proxy with runtime model injection/validation, and an Open API for external agent invocation.
+OpenAgents Go Gateway is a Gin-based HTTP gateway (port 8001). It provides JWT/API Token authentication, Agent/Skill CRUD with PostgreSQL + filesystem dual-write, LangGraph reverse proxy, and an Open API for external agent invocation.
 
 **Stack**: Go 1.22, Gin, PostgreSQL (pgx), golang-jwt, bcrypt
 
@@ -71,22 +71,17 @@ Agent and Skill metadata are stored in PostgreSQL for querying, while AGENTS.md/
 
 1. **JWT**: Frontend → `POST /api/auth/login` → JWT (user_id, role, exp) → `Authorization: Bearer <jwt>`
 2. **API Token**: External clients → `POST /api/auth/tokens` (create) → SHA256-hashed in DB → `Authorization: Bearer <token>`
-3. **LangGraph Proxy**: Go gateway validates JWT → resolves runtime model from DB (`models` + `agents`) → injects `user_id` + `model_name` + `model_config` into `configurable` → forwards to LangGraph
+3. **LangGraph Proxy**: Go gateway validates JWT → injects `user_id` (+ `thread_id` when path includes `/threads/{id}`) into `configurable` → forwards to LangGraph
+   - Gateway does not resolve/inject model config.
+   - Gateway does not query DB for runtime model selection.
+   - `GET /threads/{thread_id}/runs/{run_id}/stream` is stream-join path (no body), so runtime body injection is not involved.
 
 ### LangGraph Runtime Policy
 
-`/api/langgraph/*` is mixed traffic:
-- execution endpoints (must resolve model),
-- query/management endpoints (must not require model).
-
-Use `gateway.yaml` `langgraph_runtime` to control this behavior:
-- `model_required_paths`: strict model resolution (400 on missing/invalid model), required and non-empty
-- `model_optional_paths`: resolve model only when request carries model hints (optional field)
-- all other paths: inject only `user_id`
-
-There are no built-in default runtime path patterns. Keep all path policy in `gateway.yaml` only.
-
-Do not apply global "all POST require model" rules. That breaks endpoints like `POST /threads/{id}/history`.
+`/api/langgraph/*` runtime policy is intentionally minimal:
+- pass through frontend payload as-is
+- inject authenticated identity into `configurable`
+- leave model/agent/skill resolution to Python graph factory + PostgreSQL
 
 ### Agent Status Model
 
@@ -102,7 +97,7 @@ Do not apply global "all POST require model" rules. That breaks endpoints like `
 
 The gateway locates the main project `config.yaml` for MCP config compatibility by searching `../config.yaml`, `config.yaml`, `../../config.yaml`.
 
-Open API (`/open/v1/agents/:name/*`) resolves the run model from PostgreSQL (`agents.model` -> `models.config_json`) and injects both `model_name` and `model_config` into LangGraph `configurable`.
+Open API (`/open/v1/agents/:name/*`) keeps API-token auth at gateway. Runtime model resolution is handled by Python execution layer.
 
 ## Database Schema
 

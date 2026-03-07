@@ -18,6 +18,13 @@ import (
 	"github.com/openagents/gateway/internal/middleware"
 )
 
+const upstreamErrorBodyLogLimit = 4096
+
+type replayReadCloser struct {
+	io.Reader
+	io.Closer
+}
+
 // RouteConfig is a single declarative proxy route from gateway.yaml.
 type RouteConfig struct {
 	Prefix        string            `yaml:"prefix"`
@@ -72,6 +79,9 @@ func NewRoute(cfg RouteConfig) (*Route, error) {
 		// Gateway owns CORS policy. Strip upstream CORS headers to avoid duplicated
 		// values like "Access-Control-Allow-Origin: *, *" that browsers reject.
 		stripCORSHeaders(resp.Header)
+		if resp.StatusCode >= http.StatusBadRequest {
+			logUpstreamRejection(cfg, resp)
+		}
 
 		if cfg.Debug {
 			log.Printf(
@@ -271,4 +281,99 @@ func stripCORSHeaders(headers http.Header) {
 	headers.Del("Access-Control-Expose-Headers")
 	headers.Del("Access-Control-Max-Age")
 	headers.Del("Access-Control-Allow-Private-Network")
+}
+
+func logUpstreamRejection(cfg RouteConfig, resp *http.Response) {
+	requestID := firstHeaderValue(resp.Header, "x-request-id", "request-id")
+	method := "-"
+	path := "-"
+	if resp != nil && resp.Request != nil {
+		if resp.Request.Method != "" {
+			method = resp.Request.Method
+		}
+		if resp.Request.URL != nil && resp.Request.URL.Path != "" {
+			path = resp.Request.URL.Path
+		}
+	}
+
+	detail, truncated := extractUpstreamErrorDetail(resp, upstreamErrorBodyLogLimit)
+	if detail == "" {
+		log.Printf(
+			"[proxy][upstream-reject] route=%s upstream=%s method=%s path=%s status=%d request_id=%s",
+			cfg.Prefix,
+			cfg.Upstream,
+			method,
+			path,
+			resp.StatusCode,
+			requestID,
+		)
+		return
+	}
+
+	if truncated {
+		detail += " ...(truncated)"
+	}
+	log.Printf(
+		"[proxy][upstream-reject] route=%s upstream=%s method=%s path=%s status=%d request_id=%s detail=%q",
+		cfg.Prefix,
+		cfg.Upstream,
+		method,
+		path,
+		resp.StatusCode,
+		requestID,
+		detail,
+	)
+}
+
+func extractUpstreamErrorDetail(resp *http.Response, limit int) (string, bool) {
+	if resp == nil || resp.Body == nil || limit <= 0 {
+		return "", false
+	}
+
+	contentEncoding := strings.TrimSpace(resp.Header.Get("Content-Encoding"))
+	if contentEncoding != "" && !strings.EqualFold(contentEncoding, "identity") {
+		return "", false
+	}
+
+	contentType := strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Type")))
+	if strings.Contains(contentType, "text/event-stream") {
+		return "", false
+	}
+	if contentType != "" && !strings.Contains(contentType, "application/json") && !strings.HasPrefix(contentType, "text/") {
+		return "", false
+	}
+
+	originalBody := resp.Body
+	sampled, err := io.ReadAll(io.LimitReader(originalBody, int64(limit+1)))
+	if err != nil {
+		return fmt.Sprintf("<failed to read upstream error body: %v>", err), false
+	}
+	if len(sampled) == 0 {
+		return "", false
+	}
+
+	truncated := len(sampled) > limit
+	if truncated {
+		resp.Body = &replayReadCloser{
+			Reader: io.MultiReader(bytes.NewReader(sampled), originalBody),
+			Closer: originalBody,
+		}
+		return strings.TrimSpace(string(sampled[:limit])), true
+	}
+
+	_ = originalBody.Close()
+	resp.Body = io.NopCloser(bytes.NewReader(sampled))
+	resp.ContentLength = int64(len(sampled))
+	resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(sampled)))
+	return strings.TrimSpace(string(sampled)), false
+}
+
+func firstHeaderValue(header http.Header, names ...string) string {
+	for _, name := range names {
+		value := strings.TrimSpace(header.Get(name))
+		if value != "" {
+			return value
+		}
+	}
+	return "-"
 }

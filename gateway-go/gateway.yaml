@@ -20,10 +20,10 @@ storage:
   base_dir: .openagents
 
 logging:
-  level: info
+  level: debug
   access_log: true
   # Enable detailed proxy logs for troubleshooting 502/timeout/upstream issues.
-  proxy_debug: false
+  proxy_debug: true
   # Only enable in local debugging; may expose sensitive headers.
   proxy_log_headers: false
 
@@ -37,13 +37,7 @@ proxy:
       strip_prefix: true
       auth: jwt
 
-# Runtime model resolution policy for /api/langgraph requests.
-# Supports shell-style path matching:
-# - `*` matches any chars within one path segment.
-# - A pattern ending with `/*` also matches the base path itself.
-# - `model_required_paths` is required and must not be empty.
-langgraph_runtime:
-  model_required_paths:
-    - /threads/*/runs
-    - /threads/*/runs/stream
-    - /threads/*/runs/wait
+# Note:
+# LangGraph runtime payload is forwarded as-is.
+# Gateway only injects authenticated user_id (+ thread_id when path has /threads/{id})
+# into JSON POST/PUT/PATCH requests.

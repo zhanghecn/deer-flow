@@ -105,9 +105,13 @@ export function WorkspaceNavMenu() {
     setMounted(true);
   }, []);
 
+  const hydratedUser = mounted ? user : null;
   const displayName =
-    user?.name.trim() || user?.email.trim() || t.workspace.settingsAndMore;
-  const secondaryLine = user?.email.trim() || user?.role.toUpperCase() || "USER";
+    hydratedUser?.name.trim() ||
+    hydratedUser?.email.trim() ||
+    t.workspace.settingsAndMore;
+  const secondaryLine =
+    hydratedUser?.email.trim() || hydratedUser?.role.toUpperCase() || "USER";
   const userInitials = initialsOf(displayName);
 
   const handleLogout = () => {
@@ -135,7 +139,7 @@ export function WorkspaceNavMenu() {
                     isSidebarOpen={isSidebarOpen}
                     displayName={displayName}
                     secondaryLine={secondaryLine}
-                    avatarURL={user?.avatar_url}
+                    avatarURL={hydratedUser?.avatar_url}
                     initials={userInitials}
                   />
                 </SidebarMenuButton>
@@ -227,7 +231,7 @@ export function WorkspaceNavMenu() {
                 isSidebarOpen={isSidebarOpen}
                 displayName={displayName}
                 secondaryLine={secondaryLine}
-                avatarURL={user?.avatar_url}
+                avatarURL={hydratedUser?.avatar_url}
                 initials={userInitials}
               />
             </SidebarMenuButton>

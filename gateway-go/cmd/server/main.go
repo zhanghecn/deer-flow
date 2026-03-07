@@ -78,15 +78,7 @@ func main() {
 	uploadsH := handler.NewUploadsHandler(fs)
 	artifactsH := handler.NewArtifactsHandler(fs)
 	openAPIH := handler.NewOpenAPIHandler(agentRepo, modelRepo, cfg.Upstream.LangGraphURL, fs)
-	langGraphRuntimeH, err := handler.NewLangGraphRuntimeHandlerWithPatterns(
-		agentRepo,
-		modelRepo,
-		cfg.LangGraphRuntime.ModelRequiredPaths,
-		cfg.LangGraphRuntime.ModelOptionalPaths,
-	)
-	if err != nil {
-		log.Fatalf("Invalid langgraph runtime path config: %v", err)
-	}
+	langGraphRuntimeH := handler.NewLangGraphRuntimeHandler()
 
 	// Compile proxy routes from gateway.yaml config
 	loggingLevel := strings.ToLower(cfg.Logging.Level)

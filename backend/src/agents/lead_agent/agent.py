@@ -3,14 +3,14 @@ import logging
 from deepagents import SubAgent, create_deep_agent
 from deepagents.backends import CompositeBackend, FilesystemBackend, LocalShellBackend
 from langchain_core.runnables import RunnableConfig
+from langgraph_sdk.runtime import ServerRuntime
 
 from src.agents.lead_agent.prompt import apply_prompt_template
 from src.agents.middlewares.thread_data_middleware import ThreadDataMiddleware
 from src.agents.middlewares.title_middleware import TitleMiddleware
 from src.agents.middlewares.uploads_middleware import UploadsMiddleware
 from src.agents.middlewares.view_image_middleware import ViewImageMiddleware
-from src.config.agents_config import load_agent_config
-from src.config.app_config import get_app_config
+from src.config.runtime_db import DBAgentConfig, RuntimeDBStore, get_runtime_db_store
 from src.config.model_config import ModelConfig
 from src.config.paths import get_paths
 from src.models import create_chat_model
@@ -68,7 +68,7 @@ def build_backend(thread_id: str, agent_name: str | None, status: str = "dev"):
     return CompositeBackend(default=workspace_backend, routes=routes)
 
 
-def _build_openagents_middlewares(model_name: str | None, runtime_model_config: ModelConfig | None = None):
+def _build_openagents_middlewares(model_config: ModelConfig):
     """Build openagents specific extra middlewares (not handled by deepagents).
 
     deepagents already provides:
@@ -88,55 +88,96 @@ def _build_openagents_middlewares(model_name: str | None, runtime_model_config: 
     """
     middlewares = [ThreadDataMiddleware(), UploadsMiddleware(), TitleMiddleware()]
 
-    model_config = runtime_model_config
-    if model_config is None:
-        app_config = get_app_config()
-        model_config = app_config.get_model_config(model_name) if model_name else None
-    if model_config is not None and model_config.supports_vision:
+    if model_config.supports_vision:
         middlewares.append(ViewImageMiddleware())
 
     return middlewares
 
 
-def _parse_runtime_model_config(payload: object) -> ModelConfig | None:
+def _parse_runtime_model_config(payload: object) -> str | None:
     if payload is None:
         return None
     if isinstance(payload, ModelConfig):
-        return payload
+        return payload.name
     if isinstance(payload, dict):
-        return ModelConfig.model_validate(payload)
-    raise ValueError("`configurable.model_config` must be an object.")
+        raw_name = payload.get("name")
+        if raw_name is None:
+            raise ValueError("`configurable.model_config.name` is required.")
+        name = str(raw_name).strip()
+        if not name:
+            raise ValueError("`configurable.model_config.name` must be a non-empty string.")
+        return name
+    raise ValueError("`configurable.model_config` must be an object with `name`.")
+
+
+def _extract_runtime_context(runtime: ServerRuntime | None) -> dict:
+    if runtime is None:
+        return {}
+    execution_runtime = runtime.execution_runtime
+    if execution_runtime is None:
+        return {}
+    context = execution_runtime.context
+    if isinstance(context, dict):
+        return dict(context)
+    return {}
 
 
 def _resolve_run_model(
     *,
     requested_model_name: str | None,
-    runtime_model_config: ModelConfig | None,
-    agent_model_name: str | None,
+    runtime_model_name: str | None,
+    agent_config: DBAgentConfig | None,
+    thread_id: str | None,
+    user_id: str | None,
+    db_store: RuntimeDBStore,
 ) -> tuple[str, ModelConfig]:
     """Resolve run model with explicit precedence and no implicit fallback."""
-    if runtime_model_config is not None:
-        if requested_model_name and requested_model_name != runtime_model_config.name:
-            raise ValueError(
-                "Model conflict: `configurable.model_name` and `configurable.model_config.name` must match."
-            )
-        return runtime_model_config.name, runtime_model_config
+    agent_model_name = agent_config.model if agent_config and agent_config.model else None
+    if requested_model_name and agent_model_name and requested_model_name != agent_model_name:
+        raise ValueError(
+            f"Model conflict: requested model '{requested_model_name}' does not match agent model '{agent_model_name}'."
+        )
+    if runtime_model_name and agent_model_name and runtime_model_name != agent_model_name:
+        raise ValueError(
+            f"Model conflict: requested model '{runtime_model_name}' does not match agent model '{agent_model_name}'."
+        )
+    if requested_model_name and runtime_model_name and requested_model_name != runtime_model_name:
+        raise ValueError(
+            "Model conflict: `configurable.model_name` and `configurable.model_config.name` must match."
+        )
 
-    model_name = requested_model_name or agent_model_name
+    persisted_thread_model_name: str | None = None
+    if thread_id and user_id:
+        persisted_thread_model_name = db_store.get_thread_runtime_model(thread_id=thread_id, user_id=user_id)
+
+    model_name = requested_model_name or runtime_model_name or agent_model_name or persisted_thread_model_name
     if not model_name:
         raise ValueError(
-            "No model resolved for this run. Provide `configurable.model_name`/`model`, "
-            "or `configurable.model_config`, or set `agent.model`."
+            "No model resolved for this run. Provide `configurable.model_name`/`model` or "
+            "`configurable.model_config.name`, set `agent.model`, or ensure this thread has "
+            "a persisted runtime model."
         )
 
-    app_config = get_app_config()
-    model_config = app_config.get_model_config(model_name)
+    model_config = db_store.get_model(model_name)
     if model_config is None:
         raise ValueError(
-            "Resolved model is not available. Provide a valid `configurable.model_name`/`model`, "
-            "or inject `configurable.model_config`, or configure the model in config.yaml / OPENAGENTS_MODELS_JSON."
+            f"Resolved model '{model_name}' is not available in database or is disabled."
         )
     return model_name, model_config
+
+
+def _load_agent_runtime_config(
+    *,
+    agent_name: str | None,
+    agent_status: str,
+    db_store: RuntimeDBStore,
+) -> DBAgentConfig | None:
+    if not agent_name:
+        return None
+    config = db_store.get_agent(agent_name, agent_status)
+    if config is None:
+        raise ValueError(f"Agent '{agent_name}' with status '{agent_status}' not found in database.")
+    return config
 
 
 # SubAgent definitions (replace backend/src/subagents/builtins/)
@@ -163,32 +204,77 @@ OPENAGENTS_SUBAGENTS: list[SubAgent] = [
 ]
 
 
-def make_lead_agent(config: RunnableConfig):
+def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None):
     # Lazy import to avoid circular dependency
     from src.tools import get_available_tools
     from src.tools.builtins import setup_agent
 
-    cfg = config.get("configurable", {})
+    configurable_payload = config.get("configurable", {})
+    if configurable_payload is None:
+        configurable_payload = {}
+    if not isinstance(configurable_payload, dict):
+        raise ValueError("`configurable` must be an object.")
+
+    runtime_context_payload = _extract_runtime_context(runtime)
+
+    cfg = dict(runtime_context_payload)
+    cfg.update(configurable_payload)
 
     thinking_enabled = cfg.get("thinking_enabled", True)
     reasoning_effort = cfg.get("reasoning_effort", None)
-    requested_model_name: str | None = cfg.get("model_name") or cfg.get("model")
+    requested_model_raw = cfg.get("model_name") or cfg.get("model")
+    requested_model_name: str | None = str(requested_model_raw).strip() if requested_model_raw is not None else None
+    if requested_model_name == "":
+        requested_model_name = None
     subagent_enabled = cfg.get("subagent_enabled", False)
     max_concurrent_subagents = cfg.get("max_concurrent_subagents", 3)
     is_bootstrap = cfg.get("is_bootstrap", False)
-    agent_name = cfg.get("agent_name")
-    agent_status = cfg.get("agent_status", "dev")
-    thread_id = cfg.get("thread_id")
+    agent_name_raw = cfg.get("agent_name")
+    agent_name = str(agent_name_raw).strip() if agent_name_raw is not None else None
+    if agent_name == "":
+        agent_name = None
+
+    agent_status_raw = cfg.get("agent_status", "dev")
+    agent_status = str(agent_status_raw).strip() if agent_status_raw is not None else "dev"
+    if agent_status == "":
+        agent_status = "dev"
+
+    thread_id_raw = cfg.get("thread_id")
+    thread_id = str(thread_id_raw).strip() if thread_id_raw is not None else None
+    if thread_id == "":
+        thread_id = None
+    user_id_raw = cfg.get("user_id")
+    user_id = str(user_id_raw).strip() if user_id_raw is not None else None
+    if user_id == "":
+        user_id = None
     runtime_model_payload = cfg.get("model_config")
 
-    runtime_model_config = _parse_runtime_model_config(runtime_model_payload)
-    agent_config = load_agent_config(agent_name, status=agent_status) if (agent_name and not is_bootstrap) else None
-    agent_model_name = agent_config.model if agent_config else None
+    db_store = get_runtime_db_store()
+    if thread_id and user_id:
+        db_store.assert_thread_access(thread_id=thread_id, user_id=user_id)
+
+    runtime_model_name = _parse_runtime_model_config(runtime_model_payload)
+    agent_config = (
+        _load_agent_runtime_config(agent_name=agent_name, agent_status=agent_status, db_store=db_store)
+        if (agent_name and not is_bootstrap)
+        else None
+    )
     model_name, model_config = _resolve_run_model(
         requested_model_name=requested_model_name,
-        runtime_model_config=runtime_model_config,
-        agent_model_name=agent_model_name,
+        runtime_model_name=runtime_model_name,
+        agent_config=agent_config,
+        thread_id=thread_id,
+        user_id=user_id,
+        db_store=db_store,
     )
+    if thread_id and user_id:
+        db_store.save_thread_runtime(
+            thread_id=thread_id,
+            user_id=user_id,
+            model_name=model_name,
+            agent_name=agent_name,
+        )
+
     if thinking_enabled and not model_config.supports_thinking:
         raise ValueError(f"Thinking mode is enabled but model '{model_name}' does not support thinking.")
 
@@ -238,7 +324,7 @@ def make_lead_agent(config: RunnableConfig):
     subagents = OPENAGENTS_SUBAGENTS if subagent_enabled else None
 
     # openagents specific extra middlewares
-    extra_middleware = _build_openagents_middlewares(model_name, runtime_model_config=model_config)
+    extra_middleware = _build_openagents_middlewares(model_config)
 
     # Community tools + MCP tools (sandbox tools provided by deepagents FilesystemMiddleware)
     # Exclude file:read, file:write, bash groups — deepagents provides ls, read_file, write_file, edit_file, execute, glob, grep

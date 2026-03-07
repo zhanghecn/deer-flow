@@ -5,19 +5,81 @@ from __future__ import annotations
 import pytest
 
 from src.agents.lead_agent import agent as lead_agent_module
-from src.config.app_config import AppConfig
 from src.config.model_config import ModelConfig
-from src.config.sandbox_config import SandboxConfig
 
 
-def _make_app_config(models: list[ModelConfig]) -> AppConfig:
-    return AppConfig(
-        models=models,
-        sandbox=SandboxConfig(use="src.sandbox.local:LocalSandboxProvider"),
-    )
+class _FakeDBStore:
+    def __init__(
+        self,
+        *,
+        models: dict[str, ModelConfig],
+        thread_models: dict[tuple[str, str], str] | None = None,
+        thread_owners: dict[str, str] | None = None,
+    ):
+        self.models = models
+        self.thread_models = thread_models or {}
+        self.thread_owners = thread_owners or {}
+        self.saved: list[tuple[str, str, str, str | None]] = []
+
+    def get_model(self, name: str) -> ModelConfig | None:
+        return self.models.get(name)
+
+    def get_thread_runtime_model(self, *, thread_id: str, user_id: str) -> str | None:
+        return self.thread_models.get((thread_id, user_id))
+
+    def get_thread_runtime_owner(self, thread_id: str) -> str | None:
+        for (tid, uid), _model in self.thread_models.items():
+            if tid == thread_id:
+                return uid
+        return None
+
+    def get_thread_owner(self, thread_id: str) -> str | None:
+        return self.thread_owners.get(thread_id)
+
+    def claim_thread_ownership(self, *, thread_id: str, user_id: str, assistant_id: str | None) -> None:
+        existing = self.thread_owners.get(thread_id)
+        if existing is None:
+            self.thread_owners[thread_id] = user_id
+            return
+        if existing != user_id:
+            raise ValueError(
+                f"Thread access denied for thread '{thread_id}': owned by another user ({existing})."
+            )
+
+    def assert_thread_access(self, *, thread_id: str, user_id: str) -> None:
+        owner = self.get_thread_owner(thread_id)
+        if owner is not None and owner != user_id:
+            raise ValueError(
+                f"Thread access denied for thread '{thread_id}': owned by another user ({owner})."
+            )
+        runtime_owner = self.get_thread_runtime_owner(thread_id)
+        if runtime_owner is not None and runtime_owner != user_id:
+            raise ValueError(
+                f"Thread access denied for thread '{thread_id}': owned by another user ({runtime_owner})."
+            )
+
+    def save_thread_runtime(
+        self,
+        *,
+        thread_id: str,
+        user_id: str,
+        model_name: str,
+        agent_name: str | None,
+    ) -> None:
+        self.claim_thread_ownership(thread_id=thread_id, user_id=user_id, assistant_id=agent_name)
+        for (tid, uid) in self.thread_models.keys():
+            if tid == thread_id and uid != user_id:
+                raise ValueError(
+                    f"Thread access denied for thread '{thread_id}': owned by another user ({uid})."
+                )
+        self.saved.append((thread_id, user_id, model_name, agent_name))
+        self.thread_models[(thread_id, user_id)] = model_name
+
+    def get_agent(self, name: str, status: str):
+        return None
 
 
-def _make_model(name: str, *, supports_thinking: bool) -> ModelConfig:
+def _make_model(name: str, *, supports_thinking: bool, supports_vision: bool = False) -> ModelConfig:
     return ModelConfig(
         name=name,
         display_name=name,
@@ -25,126 +87,169 @@ def _make_model(name: str, *, supports_thinking: bool) -> ModelConfig:
         use="langchain_openai:ChatOpenAI",
         model=name,
         supports_thinking=supports_thinking,
-        supports_vision=False,
+        supports_vision=supports_vision,
     )
 
 
-def test_resolve_model_name_falls_back_to_default(monkeypatch, caplog):
-    app_config = _make_app_config(
-        [
-            _make_model("default-model", supports_thinking=False),
-            _make_model("other-model", supports_thinking=True),
-        ]
+def test_parse_runtime_model_config_requires_name_field():
+    with pytest.raises(ValueError, match="model_config.name"):
+        lead_agent_module._parse_runtime_model_config({"use": "langchain_openai:ChatOpenAI"})
+
+
+def test_resolve_run_model_uses_requested_model_name():
+    store = _FakeDBStore(models={"safe-model": _make_model("safe-model", supports_thinking=True)})
+
+    model_name, model_config = lead_agent_module._resolve_run_model(
+        requested_model_name="safe-model",
+        runtime_model_name=None,
+        agent_config=None,
+        thread_id=None,
+        user_id=None,
+        db_store=store,
     )
 
-    monkeypatch.setattr(lead_agent_module, "get_app_config", lambda: app_config)
-
-    with caplog.at_level("WARNING"):
-        resolved = lead_agent_module._resolve_model_name("missing-model")
-
-    assert resolved == "default-model"
-    assert "fallback to default model 'default-model'" in caplog.text
+    assert model_name == "safe-model"
+    assert model_config.name == "safe-model"
 
 
-def test_resolve_model_name_uses_default_when_none(monkeypatch):
-    app_config = _make_app_config(
-        [
-            _make_model("default-model", supports_thinking=False),
-            _make_model("other-model", supports_thinking=True),
-        ]
+def test_resolve_run_model_uses_persisted_thread_runtime_model():
+    store = _FakeDBStore(
+        models={"thread-model": _make_model("thread-model", supports_thinking=True)},
+        thread_models={("thread-1", "user-1"): "thread-model"},
     )
 
-    monkeypatch.setattr(lead_agent_module, "get_app_config", lambda: app_config)
+    model_name, model_config = lead_agent_module._resolve_run_model(
+        requested_model_name=None,
+        runtime_model_name=None,
+        agent_config=None,
+        thread_id="thread-1",
+        user_id="user-1",
+        db_store=store,
+    )
 
-    resolved = lead_agent_module._resolve_model_name(None)
-
-    assert resolved == "default-model"
-
-
-def test_resolve_model_name_raises_when_no_models_configured(monkeypatch):
-    app_config = _make_app_config([])
-
-    monkeypatch.setattr(lead_agent_module, "get_app_config", lambda: app_config)
-
-    with pytest.raises(
-        ValueError,
-        match="No chat models are configured",
-    ):
-        lead_agent_module._resolve_model_name("missing-model")
+    assert model_name == "thread-model"
+    assert model_config.name == "thread-model"
 
 
-def test_make_lead_agent_disables_thinking_when_model_does_not_support_it(monkeypatch):
-    app_config = _make_app_config([_make_model("safe-model", supports_thinking=False)])
+def test_resolve_run_model_raises_for_conflicting_requested_and_agent_model():
+    store = _FakeDBStore(models={"agent-model": _make_model("agent-model", supports_thinking=True)})
+
+    with pytest.raises(ValueError, match="Model conflict"):
+        lead_agent_module._resolve_run_model(
+            requested_model_name="other-model",
+            runtime_model_name=None,
+            agent_config=lead_agent_module.DBAgentConfig(
+                name="agent-a",
+                status="dev",
+                model="agent-model",
+                tool_groups=[],
+                mcp_servers=[],
+            ),
+            thread_id=None,
+            user_id=None,
+            db_store=store,
+        )
+
+
+def test_resolve_run_model_raises_when_model_unavailable():
+    store = _FakeDBStore(models={})
+
+    with pytest.raises(ValueError, match="No model resolved for this run"):
+        lead_agent_module._resolve_run_model(
+            requested_model_name=None,
+            runtime_model_name=None,
+            agent_config=None,
+            thread_id=None,
+            user_id=None,
+            db_store=store,
+        )
+
+
+def test_make_lead_agent_reads_runtime_context_and_persists_thread_runtime(monkeypatch):
+    store = _FakeDBStore(models={"safe-model": _make_model("safe-model", supports_thinking=True)})
 
     import src.tools as tools_module
 
-    monkeypatch.setattr(lead_agent_module, "get_app_config", lambda: app_config)
+    monkeypatch.setattr(lead_agent_module, "get_runtime_db_store", lambda: store)
     monkeypatch.setattr(tools_module, "get_available_tools", lambda **kwargs: [])
-    monkeypatch.setattr(lead_agent_module, "_build_openagents_middlewares", lambda model_name: [])
-    monkeypatch.setattr(lead_agent_module, "build_backend", lambda thread_id, agent_name, agent_status="dev": None)
-    monkeypatch.setattr(lead_agent_module, "get_paths", lambda: type("P", (), {"agent_dir": lambda self, n, s: type("D", (), {"exists": lambda: False})(), "skills_dir": type("D", (), {"exists": False})})())
+    monkeypatch.setattr(lead_agent_module, "build_backend", lambda thread_id, agent_name, status="dev": None)
+    monkeypatch.setattr(lead_agent_module, "create_deep_agent", lambda **kwargs: kwargs)
 
     captured: dict[str, object] = {}
 
-    def _fake_create_chat_model(*, name, thinking_enabled, reasoning_effort=None):
+    def _fake_create_chat_model(*, name, thinking_enabled, reasoning_effort=None, runtime_model_config=None):
         captured["name"] = name
         captured["thinking_enabled"] = thinking_enabled
-        captured["reasoning_effort"] = reasoning_effort
+        captured["runtime_model_config"] = runtime_model_config
         return object()
 
     monkeypatch.setattr(lead_agent_module, "create_chat_model", _fake_create_chat_model)
-    monkeypatch.setattr(lead_agent_module, "create_deep_agent", lambda **kwargs: kwargs)
+
+    class _ExecutionRuntime:
+        def __init__(self, context):
+            self.context = context
+
+    class _Runtime:
+        def __init__(self, context):
+            self.execution_runtime = _ExecutionRuntime(context)
 
     result = lead_agent_module.make_lead_agent(
         {
             "configurable": {
+                "thread_id": "thread-1",
+                "user_id": "user-1",
+            }
+        },
+        runtime=_Runtime(
+            {
                 "model_name": "safe-model",
                 "thinking_enabled": True,
-                "is_plan_mode": False,
                 "subagent_enabled": False,
             }
-        }
+        ),
     )
 
     assert captured["name"] == "safe-model"
-    assert captured["thinking_enabled"] is False
+    assert captured["thinking_enabled"] is True
     assert result["model"] is not None
+    assert store.saved == [("thread-1", "user-1", "safe-model", None)]
 
 
-def test_build_openagents_middlewares_includes_vision_middleware_for_vision_model(monkeypatch):
-    """_build_openagents_middlewares includes ViewImageMiddleware for vision-capable models."""
-    app_config = _make_app_config(
-        [
-            _make_model("stale-model", supports_thinking=False),
-            ModelConfig(
-                name="vision-model",
-                display_name="vision-model",
-                description=None,
-                use="langchain_openai:ChatOpenAI",
-                model="vision-model",
-                supports_thinking=False,
-                supports_vision=True,
-            ),
-        ]
+def test_build_openagents_middlewares_includes_vision_middleware_for_vision_model():
+    middlewares = lead_agent_module._build_openagents_middlewares(
+        _make_model("vision-model", supports_thinking=False, supports_vision=True)
     )
-
-    monkeypatch.setattr(lead_agent_module, "get_app_config", lambda: app_config)
-
-    middlewares = lead_agent_module._build_openagents_middlewares("vision-model")
 
     from src.agents.middlewares.view_image_middleware import ViewImageMiddleware
 
     assert any(isinstance(m, ViewImageMiddleware) for m in middlewares)
 
 
-def test_build_openagents_middlewares_excludes_vision_middleware_for_non_vision_model(monkeypatch):
-    """_build_openagents_middlewares excludes ViewImageMiddleware for non-vision models."""
-    app_config = _make_app_config([_make_model("text-model", supports_thinking=False)])
-
-    monkeypatch.setattr(lead_agent_module, "get_app_config", lambda: app_config)
-
-    middlewares = lead_agent_module._build_openagents_middlewares("text-model")
+def test_build_openagents_middlewares_excludes_vision_middleware_for_non_vision_model():
+    middlewares = lead_agent_module._build_openagents_middlewares(
+        _make_model("text-model", supports_thinking=False, supports_vision=False)
+    )
 
     from src.agents.middlewares.view_image_middleware import ViewImageMiddleware
 
     assert not any(isinstance(m, ViewImageMiddleware) for m in middlewares)
+
+
+def test_make_lead_agent_rejects_cross_user_thread_access(monkeypatch):
+    store = _FakeDBStore(
+        models={"safe-model": _make_model("safe-model", supports_thinking=True)},
+        thread_owners={"thread-1": "user-owner"},
+    )
+    monkeypatch.setattr(lead_agent_module, "get_runtime_db_store", lambda: store)
+
+    with pytest.raises(ValueError, match="Thread access denied"):
+        lead_agent_module.make_lead_agent(
+            {
+                "configurable": {
+                    "thread_id": "thread-1",
+                    "user_id": "user-other",
+                    "model_name": "safe-model",
+                }
+            },
+            runtime=None,
+        )

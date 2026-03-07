@@ -100,6 +100,7 @@ export function useThreadStream({
   const [optimisticMessages, setOptimisticMessages] = useState<Message[]>([]);
   // Track message count before sending so we know when server has responded
   const prevMsgCountRef = useRef(thread.messages.length);
+  const ensuredThreadMetadataRef = useRef<Set<string>>(new Set());
 
   // Clear optimistic when server messages arrive (count increases)
   useEffect(() => {
@@ -117,6 +118,11 @@ export function useThreadStream({
       message: PromptInputMessage,
       extraContext?: Record<string, unknown>,
     ) => {
+      const selectedModelName =
+        typeof context.model_name === "string" ? context.model_name : "";
+      if (!selectedModelName) {
+        throw new Error("Model is required before submitting a run.");
+      }
       const text = message.text.trim();
 
       // Capture current count before showing optimistic messages
@@ -124,25 +130,32 @@ export function useThreadStream({
 
       // Ensure thread exists with user-scoped metadata so backend/user filtering works.
       if (threadId) {
-        const authUser = getAuthUser();
-        const metadata: Record<string, string> = {};
-        if (authUser?.id) {
-          metadata.user_id = authUser.id;
-        }
-        if (authUser?.name) {
-          metadata.user_name = authUser.name;
-        }
-        if (authUser?.email) {
-          metadata.user_email = authUser.email;
-        }
-        try {
-          await apiClient.threads.create({
-            threadId,
-            ifExists: "do_nothing",
-            metadata,
-          });
-        } catch (error) {
-          console.warn("Failed to pre-create thread metadata:", error);
+        if (!ensuredThreadMetadataRef.current.has(threadId)) {
+          const authUser = getAuthUser();
+          const metadata: Record<string, string> = {};
+          if (authUser?.id) {
+            metadata.user_id = authUser.id;
+          }
+          if (authUser?.name) {
+            metadata.user_name = authUser.name;
+          }
+          if (authUser?.email) {
+            metadata.user_email = authUser.email;
+          }
+          metadata.model_name = selectedModelName;
+          if (typeof extraContext?.agent_name === "string") {
+            metadata.agent_name = extraContext.agent_name;
+          }
+          try {
+            await apiClient.threads.create({
+              threadId,
+              ifExists: "do_nothing",
+              metadata,
+            });
+            ensuredThreadMetadataRef.current.add(threadId);
+          } catch (error) {
+            console.warn("Failed to pre-create thread metadata:", error);
+          }
         }
       }
 
@@ -291,23 +304,30 @@ export function useThreadStream({
               },
             ],
           },
-          {
-            threadId: threadId,
-            streamSubgraphs: true,
-            streamResumable: true,
-            streamMode: ["values", "messages-tuple", "custom"],
-            config: {
-              recursion_limit: 1000,
-            },
-            context: {
+          (() => {
+            const runtimeConfigurable = {
               ...extraContext,
               ...context,
+              model_name: selectedModelName,
+              model: selectedModelName,
               thinking_enabled: context.mode !== "flash",
               is_plan_mode: context.mode === "pro" || context.mode === "ultra",
               subagent_enabled: context.mode === "ultra",
               thread_id: threadId,
-            },
-          },
+            };
+
+            return {
+              threadId: threadId,
+              streamSubgraphs: true,
+              streamResumable: true,
+              streamMode: ["values", "messages-tuple", "custom"],
+              config: {
+                recursion_limit: 1000,
+                configurable: runtimeConfigurable,
+              },
+              context: runtimeConfigurable,
+            };
+          })(),
         );
         void queryClient.invalidateQueries({ queryKey: ["threads", "search"] });
       } catch (error) {

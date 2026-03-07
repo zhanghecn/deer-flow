@@ -100,6 +100,7 @@ logging:
   access_log: true           # Gin access log
   proxy_debug: false         # 代理层详细日志（推荐排查 502 时开启）
   proxy_log_headers: false   # 打印请求头（会脱敏 Authorization/Cookie）
+# Note: upstream 4xx/5xx will still emit [proxy][upstream-reject] with response detail summary.
 
 upstream:
   langgraph_url: http://localhost:2024
@@ -220,7 +221,7 @@ POST /open/v1/agents/:name/stream  # 只有 prod agent 可通过 Open API 调用
 - `threads` — 对话线程索引
 - `models` — 模型配置
 
-`/api/models` 与 Open API 运行时模型选择均基于 `models` 表。Open API 会将选定模型的 `config_json` 注入到 LangGraph `configurable.model_config`，避免依赖本地 `config.yaml`。
+`/api/models` 数据来自 `models` 表。运行时模型选择由 Python(LangGraph graph factory)直接查询数据库，不再由网关注入 `model_config`。
 
 ### 文件系统（双写同步）
 
@@ -249,85 +250,54 @@ Agent/Skill 的 AGENTS.md 和 config.yaml 同步写入文件系统，供 LangGra
 
 ## LangGraph 代理
 
-Go 网关代理 `/api/langgraph/*` 请求到 LangGraph Server 时，会在运行前注入并校验：
-- `configurable.user_id`（来自 JWT）
-- `configurable.model_name`
-- `configurable.model_config`（来自 `models.config_json`）
+当前网关对 `/api/langgraph/*` 的职责只有三件事：
+- JWT 鉴权
+- 请求透传（不查模型库、不做模型解析）
+- 对 JSON `POST/PUT/PATCH` 注入运行时身份字段：
+  - `configurable.user_id`
+  - `config.configurable.user_id`
+  - 若 URL 含 `/threads/{thread_id}/...`，再注入 `thread_id` 到同位置
 
-模型解析优先级与约束（无隐式兜底）：
-- `configurable.model_config.name` 与 `configurable.model_name`（如同时提供，必须一致）
-- `agent.model`（当传入 `configurable.agent_name` 时，必须与请求模型一致）
-- 解析后模型必须在 `models` 表中且 `enabled = true`
+模型解析、Agent/Skill 绑定、线程级模型持久化全部在 Python(LangGraph graph factory) 内完成，直接查 PostgreSQL。
 
-对于 Open API (`/open/v1/agents/:name/*`)，网关同样从数据库注入 `model_name` + `model_config`。
-若模型缺失、冲突或未启用，请求直接报错，不会降级到默认模型。
-
-可通过 `gateway.yaml` 的 `langgraph_runtime` 配置模型解析策略路径（支持 `*` 通配）：
-
-- `model_required_paths` 必填，且不能为空（网关启动时校验）
-- `model_optional_paths` 可省略（省略即无 optional 规则）
-- 不再内置默认路径，避免双边维护分叉
-
-```yaml
-langgraph_runtime:
-  model_required_paths:
-    - /threads/*/runs
-    - /threads/*/runs/stream
-    - /threads/*/runs/wait
-# model_optional_paths:
-#   - /threads/*/history
-```
-
-### 维护说明（为什么不是所有接口都强制模型）
-
-`/api/langgraph/*` 下既有“执行智能体”的接口，也有“查询/管理”接口。  
-只有执行接口会真正调用模型，查询接口（如 history）通常不带模型参数。
-
-如果对所有 POST 都强制模型解析，会导致查询请求误报 400（例如 `POST /threads/{id}/history` 只有 `{"limit":1}`）。
-
-#### Runtime 决策流程（ASCII）
+### 运行流程（ASCII）
 
 ```text
-[request /api/langgraph/*]
+Browser / Frontend
+        |
+        | OPTIONS preflight
+        v
+[Gateway CORS]
+- reflect Access-Control-Request-Headers
+- OPTIONS -> 204
+        |
+        | /api/langgraph/*
+        v
+[Gateway JWT]
         |
         v
-[parse json + merge configurable]
+[Gateway runtime middleware]
+- keep payload as-is
+- inject user_id/thread_id into configurable
         |
         v
-[inject configurable.user_id]
+[Reverse proxy -> LangGraph]
         |
         v
-[path policy match]
-   |              |               |
-   | required     | optional      | none
-   v              v               v
-[resolve model] [resolve if any] [skip model resolve]
-   |              |               |
-   v              v               v
-[inject model_*] [maybe inject]  [forward]
-   |
-   v
-[forward]
+[Python make_lead_agent]
+- read configurable + runtime.execution_runtime.context
+- resolve model via DB (models / agents / thread_runtime_configs)
+- persist thread_runtime_configs(thread_id,user_id,model_name,agent_name)
+        |
+        v
+LangGraph run/history response
 ```
 
-#### 路径分类建议
+### 关键约束
 
-- `model_required_paths`: 只放真实执行入口（如 `/runs`、`/threads/*/runs*`）
-- `model_optional_paths`: 放可带可不带模型的读取接口（如 `/threads/*/history`）
-- 其他路径：仅注入 `user_id`
-
-#### 关于通配
-
-可以配置成：
-
-```yaml
-model_required_paths:
-  - /runs/*
-  - /threads/*/runs/*
-```
-
-但这会把 `/runs/cancel`、`/threads/*/runs/*/cancel` 这类管理接口也纳入“必须模型”。  
-生产建议优先使用精确白名单，避免误拦截。
+- 网关不再维护 `langgraph_runtime` 模型策略配置。
+- 前端发什么参数，网关只透传并补充 `user_id/thread_id`。
+- Python 侧必须能通过 DB 独立完成模型与 Agent 解析（无网关兜底）。
 
 ## 开发
 

@@ -2,8 +2,9 @@ import logging
 
 from langchain.chat_models import BaseChatModel
 
-from src.config import get_app_config, get_tracing_config, is_tracing_enabled
+from src.config import get_tracing_config, is_tracing_enabled
 from src.config.model_config import ModelConfig
+from src.config.runtime_db import get_runtime_db_store
 from src.reflection import resolve_class
 
 logger = logging.getLogger(__name__)
@@ -41,10 +42,9 @@ def create_chat_model(
             raise ValueError(
                 "Model name is required when `runtime_model_config` is not provided."
             ) from None
-        config = get_app_config()
-        model_config = config.get_model_config(name)
+        model_config = get_runtime_db_store().get_model(name)
         if model_config is None:
-            raise ValueError(f"Model {name} not found in config") from None
+            raise ValueError(f"Model {name} not found in database or is disabled") from None
 
     assert model_config is not None
     model_class = resolve_class(model_config.use, BaseChatModel)
