@@ -133,6 +133,11 @@ Available agent types and the tools they have access to:
 
 When using the Task tool, you must specify a subagent_type parameter to select which agent type to use.
 
+When NOT to use the Task tool:
+- If you already know the specific file path, use `read_file` directly.
+- If you are doing a quick filename/pattern lookup, use `glob` directly.
+- If the task is a short, single-step action with no context pressure, execute it directly.
+
 ## Usage notes:
 1. Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple tool uses
 2. When the agent is done, it will return a single message back to you. The result returned by the agent is not visible to the user. To show the user the result, you should send a text message back to the user with a concise summary of the result.

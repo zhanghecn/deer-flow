@@ -23,13 +23,16 @@ tool_groups:
 tools:
   - name: web_search
     group: web
-    use: src.community.tavily.tools:web_search_tool
-    max_results: 5
+    use: src.community.exa.tools:web_search_tool
+    num_results: 8
+    search_type: auto
+    livecrawl: fallback
+    timeout: 25
 
   - name: web_fetch
     group: web
-    use: src.community.jina_ai.tools:web_fetch_tool
-    timeout: 10
+    use: src.community.opencode_web.tools:web_fetch_tool
+    timeout: 30
 
   - name: image_search
     group: web

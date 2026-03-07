@@ -185,9 +185,17 @@ if os.path.getsize(file_path) == 0:
 with open(file_path, 'r') as f:
     lines = f.readlines()
 
+total_lines = len(lines)
+
+# Validate offset range
+if offset >= total_lines:
+    print(f'Error: Line offset {{offset}} exceeds file length ({{total_lines}} lines)')
+    sys.exit(0)
+
 # Apply offset and limit
 start_idx = offset
-end_idx = offset + limit
+safe_limit = max(limit, 0)
+end_idx = min(start_idx + safe_limit, total_lines)
 selected_lines = lines[start_idx:end_idx]
 
 # Format with line numbers (1-indexed, starting from offset + 1)
@@ -196,6 +204,20 @@ for i, line in enumerate(selected_lines):
     # Remove trailing newline for formatting, then add it back
     line_content = line.rstrip('\\n')
     print(f'{{line_num:6d}}\\t{{line_content}}')
+
+shown_lines = len(selected_lines)
+remaining_lines = max(total_lines - end_idx, 0)
+
+print()
+if shown_lines == 0:
+    print(f'(Showing 0 lines at offset {{start_idx}}. {{remaining_lines}} lines remaining of {{total_lines}}.)')
+elif remaining_lines > 0:
+    print(
+        f'(Showing lines {{start_idx + 1}}-{{end_idx}} of {{total_lines}}. '
+        f'{{remaining_lines}} lines remaining. Use offset={{end_idx}} to continue.)'
+    )
+else:
+    print(f'(End of file - total {{total_lines}} lines)')
 " <<'__DEEPAGENTS_EOF__'
 {payload_b64}
 __DEEPAGENTS_EOF__"""
@@ -286,8 +308,14 @@ except PermissionError:
         output = result.output.rstrip()
         exit_code = result.exit_code
 
-        if exit_code != 0 or "Error: File not found" in output:
+        if "Error: File not found" in output:
             return f"Error: File '{file_path}' not found"
+
+        if output.startswith("Error: "):
+            return output
+
+        if exit_code != 0:
+            return f"Error reading file '{file_path}'"
 
         return output
 

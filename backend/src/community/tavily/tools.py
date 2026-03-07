@@ -1,4 +1,5 @@
 import json
+import os
 
 from langchain.tools import tool
 from tavily import TavilyClient
@@ -6,11 +7,26 @@ from tavily import TavilyClient
 from src.config import get_app_config
 
 
-def _get_tavily_client() -> TavilyClient:
+def _resolve_tavily_api_key() -> str | None:
     config = get_app_config().get_tool_config("web_search")
-    api_key = None
+    api_key: str | None = None
     if config is not None and "api_key" in config.model_extra:
-        api_key = config.model_extra.get("api_key")
+        raw = config.model_extra.get("api_key")
+        if raw is not None:
+            api_key = str(raw).strip() or None
+    if api_key:
+        return api_key
+    env_key = os.getenv("TAVILY_API_KEY")
+    if env_key:
+        env_key = env_key.strip()
+        return env_key or None
+    return None
+
+
+def _get_tavily_client() -> TavilyClient | None:
+    api_key = _resolve_tavily_api_key()
+    if not api_key:
+        return None
     return TavilyClient(api_key=api_key)
 
 
@@ -27,7 +43,15 @@ def web_search_tool(query: str) -> str:
         max_results = config.model_extra.get("max_results")
 
     client = _get_tavily_client()
-    res = client.search(query, max_results=max_results)
+    if client is None:
+        return (
+            "Error: web_search is unavailable because Tavily API key is not configured. "
+            "Set `TAVILY_API_KEY` or `tools.web_search.api_key` in config."
+        )
+    try:
+        res = client.search(query, max_results=max_results)
+    except Exception as exc:
+        return f"Error: web_search failed: {exc}"
     normalized_results = [
         {
             "title": result["title"],
@@ -52,7 +76,15 @@ def web_fetch_tool(url: str) -> str:
         url: The URL to fetch the contents of.
     """
     client = _get_tavily_client()
-    res = client.extract([url])
+    if client is None:
+        return (
+            "Error: web_fetch is unavailable because Tavily API key is not configured. "
+            "Set `TAVILY_API_KEY` or `tools.web_search.api_key` in config."
+        )
+    try:
+        res = client.extract([url])
+    except Exception as exc:
+        return f"Error: web_fetch failed: {exc}"
     if "failed_results" in res and len(res["failed_results"]) > 0:
         return f"Error: {res['failed_results'][0]['error']}"
     elif "results" in res and len(res["results"]) > 0:

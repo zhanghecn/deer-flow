@@ -175,7 +175,39 @@ def format_read_response(
         return f"Error: Line offset {offset} exceeds file length ({len(lines)} lines)"
 
     selected_lines = lines[start_idx:end_idx]
-    return format_content_with_line_numbers(selected_lines, start_line=start_idx + 1)
+    formatted_content = format_content_with_line_numbers(selected_lines, start_line=start_idx + 1)
+    pagination_footer = format_read_pagination_footer(start_idx=start_idx, end_idx=end_idx, total_lines=len(lines))
+
+    if not formatted_content:
+        return pagination_footer
+
+    return f"{formatted_content}\n\n{pagination_footer}"
+
+
+def format_read_pagination_footer(*, start_idx: int, end_idx: int, total_lines: int) -> str:
+    """Format a read pagination footer with remaining line count and next offset.
+
+    Args:
+        start_idx: Start line index of current page (0-indexed, inclusive).
+        end_idx: End line index of current page (0-indexed, exclusive).
+        total_lines: Total number of lines in the file.
+
+    Returns:
+        A human-readable pagination footer string.
+    """
+    shown_lines = max(end_idx - start_idx, 0)
+    remaining_lines = max(total_lines - end_idx, 0)
+
+    if shown_lines == 0:
+        return f"(Showing 0 lines at offset {start_idx}. {remaining_lines} lines remaining of {total_lines}.)"
+
+    if remaining_lines > 0:
+        return (
+            f"(Showing lines {start_idx + 1}-{end_idx} of {total_lines}. "
+            f"{remaining_lines} lines remaining. Use offset={end_idx} to continue.)"
+        )
+
+    return f"(End of file - total {total_lines} lines)"
 
 
 def perform_string_replacement(
