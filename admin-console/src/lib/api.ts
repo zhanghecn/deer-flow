@@ -61,11 +61,11 @@ export async function api<T = unknown>(
 }
 
 export async function login(
-  email: string,
+  account: string,
   password: string,
 ): Promise<{ token: string; user: { id: string; email: string; name: string; role: string; avatar_url?: string } }> {
   return api("/api/auth/login", {
     method: "POST",
-    body: { email, password },
+    body: { account, password },
   });
 }

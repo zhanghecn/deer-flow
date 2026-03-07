@@ -45,6 +45,21 @@ func (r *UserRepo) FindByEmail(ctx context.Context, email string) (*model.User, 
 	return u, err
 }
 
+func (r *UserRepo) FindByName(ctx context.Context, name string) (*model.User, error) {
+	u := &model.User{}
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, email, name, password_hash, avatar_url, role, created_at, updated_at
+		 FROM users
+		 WHERE lower(name) = lower($1)
+		 LIMIT 1`,
+		name,
+	).Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.AvatarURL, &u.Role, &u.CreatedAt, &u.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return u, err
+}
+
 func (r *UserRepo) List(ctx context.Context) ([]model.User, error) {
 	rows, err := r.pool.Query(
 		ctx,

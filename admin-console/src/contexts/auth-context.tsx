@@ -15,7 +15,7 @@ interface AuthState {
 }
 
 interface AuthContextValue extends AuthState {
-  login: (email: string, password: string) => Promise<void>;
+  login: (account: string, password: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -49,8 +49,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const login = useCallback(async (email: string, password: string) => {
-    const res = await apiLogin(email, password);
+  const login = useCallback(async (account: string, password: string) => {
+    const res = await apiLogin(account, password);
     if (res.user.role !== "admin") {
       throw new Error("Admin access required");
     }

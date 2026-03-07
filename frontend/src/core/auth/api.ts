@@ -8,13 +8,13 @@ interface AuthResponse {
 }
 
 export async function login(
-  email: string,
+  account: string,
   password: string,
 ): Promise<AuthResponse> {
   const res = await fetch(`${getBackendBaseURL()}/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ account, password }),
   });
   if (!res.ok) {
     const err = (await res.json().catch(() => ({}))) as { error?: string };

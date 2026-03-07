@@ -29,7 +29,7 @@ export function AuthScreen() {
 
   const [activeTab, setActiveTab] = useState<AuthTab>(queryMode);
 
-  const [loginEmail, setLoginEmail] = useState("");
+  const [loginAccount, setLoginAccount] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoginLoading, setIsLoginLoading] = useState(false);
@@ -58,7 +58,7 @@ export function AuthScreen() {
     setLoginError(null);
     setIsLoginLoading(true);
     try {
-      await login(loginEmail, loginPassword);
+      await login(loginAccount, loginPassword);
       router.push("/workspace");
     } catch (err) {
       setLoginError(err instanceof Error ? err.message : t.auth.loginFailed);
@@ -191,17 +191,17 @@ export function AuthScreen() {
                   )}
 
                   <div>
-                    <label htmlFor="login-email" className="mb-2 block text-sm text-white/75">
-                      {t.auth.emailLabel}
+                    <label htmlFor="login-account" className="mb-2 block text-sm text-white/75">
+                      Account
                     </label>
                     <Input
-                      id="login-email"
-                      type="email"
-                      autoComplete="email"
+                      id="login-account"
+                      type="text"
+                      autoComplete="username"
                       required
-                      value={loginEmail}
-                      onChange={(e) => setLoginEmail(e.target.value)}
-                      placeholder={t.auth.loginEmailPlaceholder}
+                      value={loginAccount}
+                      onChange={(e) => setLoginAccount(e.target.value)}
+                      placeholder="admin"
                       className="h-11 rounded-lg border-white/20 bg-white/5 text-white placeholder:text-white/40 focus-visible:border-white/35 focus-visible:ring-white/20"
                     />
                   </div>

@@ -17,7 +17,7 @@ export function LoginPage() {
   const { user, isLoading: authLoading, login } = useAuth();
   const navigate = useNavigate();
 
-  const [email, setEmail] = useState("");
+  const [account, setAccount] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -40,7 +40,7 @@ export function LoginPage() {
     setIsSubmitting(true);
 
     try {
-      await login(email, password);
+      await login(account, password);
       navigate("/dashboard", { replace: true });
     } catch (err) {
       setError(
@@ -66,15 +66,15 @@ export function LoginPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="account">Account</Label>
               <Input
-                id="email"
-                type="email"
-                placeholder="admin@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                id="account"
+                type="text"
+                placeholder="admin"
+                value={account}
+                onChange={(e) => setAccount(e.target.value)}
                 required
-                autoComplete="email"
+                autoComplete="username"
                 disabled={isSubmitting}
               />
             </div>

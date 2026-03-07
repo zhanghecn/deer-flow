@@ -39,6 +39,11 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		c.JSON(http.StatusConflict, model.ErrorResponse{Error: "email already registered"})
 		return
 	}
+	existing, _ = h.userRepo.FindByName(c.Request.Context(), req.Name)
+	if existing != nil {
+		c.JSON(http.StatusConflict, model.ErrorResponse{Error: "account already registered"})
+		return
+	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
@@ -88,7 +93,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	user, err := h.userRepo.FindByEmail(c.Request.Context(), req.Email)
+	user, err := h.userRepo.FindByName(c.Request.Context(), req.Account)
 	if err != nil || user == nil {
 		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "invalid credentials"})
 		return
