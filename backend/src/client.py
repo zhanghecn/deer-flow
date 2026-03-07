@@ -38,6 +38,7 @@ from src.agents.lead_agent.prompt import apply_prompt_template
 from src.config.app_config import get_app_config, reload_app_config
 from src.config.extensions_config import ExtensionsConfig, SkillStateConfig, get_extensions_config, reload_extensions_config
 from src.config.paths import get_paths
+from src.config.summarization_config import get_summarization_config
 from src.models import create_chat_model
 
 logger = logging.getLogger(__name__)
@@ -199,6 +200,7 @@ class OpenAgentsClient:
         backend = build_backend(thread_id, agent_name=None)
         extra_middleware = _build_openagents_middlewares(model_name)
         subagents = OPENAGENTS_SUBAGENTS if subagent_enabled else None
+        summarization_prompt = get_summarization_config().summary_prompt
 
         self._agent = create_deep_agent(
             model=create_chat_model(name=model_name, thinking_enabled=thinking_enabled),
@@ -211,6 +213,7 @@ class OpenAgentsClient:
             subagents=subagents,
             backend=backend,
             interrupt_on={"ask_clarification": True},
+            summarization_prompt=summarization_prompt,
             name="lead_agent",
         )
         self._agent_config_key = key

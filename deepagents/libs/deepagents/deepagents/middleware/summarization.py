@@ -1075,6 +1075,12 @@ SummarizationMiddleware = _DeepAgentsSummarizationMiddleware
 def create_summarization_middleware(
     model: BaseChatModel,
     backend: BACKEND_TYPES,
+    *,
+    trigger: ContextSize | list[ContextSize] | None = None,
+    keep: ContextSize | None = None,
+    trim_tokens_to_summarize: int | None = None,
+    summary_prompt: str | None = None,
+    truncate_args_settings: TruncateArgsSettings | None = None,
 ) -> _DeepAgentsSummarizationMiddleware:
     """Create a `SummarizationMiddleware` with model-aware defaults.
 
@@ -1084,6 +1090,11 @@ def create_summarization_middleware(
     Args:
         model: Resolved chat model instance.
         backend: Backend instance or factory for persisting conversation history.
+        trigger: Optional trigger override. If not provided, inferred from model profile.
+        keep: Optional keep-window override. If not provided, inferred from model profile.
+        trim_tokens_to_summarize: Optional trim limit override.
+        summary_prompt: Optional summary prompt override.
+        truncate_args_settings: Optional truncation-settings override.
 
     Returns:
         Configured `SummarizationMiddleware` instance.
@@ -1098,10 +1109,11 @@ def create_summarization_middleware(
     return SummarizationMiddleware(
         model=model,
         backend=backend,
-        trigger=defaults["trigger"],
-        keep=defaults["keep"],
-        trim_tokens_to_summarize=None,
-        truncate_args_settings=defaults["truncate_args_settings"],
+        trigger=defaults["trigger"] if trigger is None else trigger,
+        keep=defaults["keep"] if keep is None else keep,
+        trim_tokens_to_summarize=trim_tokens_to_summarize,
+        summary_prompt=DEFAULT_SUMMARY_PROMPT if summary_prompt is None else summary_prompt,
+        truncate_args_settings=defaults["truncate_args_settings"] if truncate_args_settings is None else truncate_args_settings,
     )
 
 

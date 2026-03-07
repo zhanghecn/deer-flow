@@ -84,7 +84,7 @@ Per-thread isolated execution with virtual path translation:
 
 Async task delegation with concurrent execution:
 
-- **Built-in agents**: `general-purpose` (full toolset) and `bash` (command specialist)
+- **Built-in agents**: `general-purpose` (full toolset), `explore` (codebase exploration specialist), and `bash` (command specialist)
 - **Concurrency**: Max 3 subagents per turn, 15-minute timeout
 - **Execution**: Background thread pools with status tracking and SSE events
 - **Flow**: Agent calls `task()` tool → executor runs subagent in background → polls for completion → returns result
@@ -108,6 +108,8 @@ LLM-powered persistent context retention across conversations:
 | **Community** | Tavily (web search), Jina AI (web fetch), Firecrawl (scraping), DuckDuckGo (image search) |
 | **MCP** | Any Model Context Protocol server (stdio, SSE, HTTP transports) |
 | **Skills** | Domain-specific workflows injected via system prompt |
+
+`read_file` responses include pagination metadata (shown range, total lines, remaining lines, next offset) to support stable multi-page reading loops.
 
 ### Gateway API
 
@@ -248,7 +250,7 @@ Key sections:
 - `sandbox` - Execution environment provider
 - `skills` - Skills directory paths
 - `title` - Auto-title generation settings
-- `summarization` - Context summarization settings
+- `summarization` - Context summarization settings (`summary_prompt` is applied to main + subagent compaction middleware)
 - `subagents` - Subagent system (enabled/disabled)
 - `memory` - Memory system settings (enabled, storage, debounce, facts limits)
 

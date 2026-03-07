@@ -13,6 +13,7 @@ from src.config.agents_config import load_agent_config
 from src.config.app_config import get_app_config
 from src.config.model_config import ModelConfig
 from src.config.paths import get_paths
+from src.config.summarization_config import get_summarization_config
 from src.models import create_chat_model
 
 logger = logging.getLogger(__name__)
@@ -151,6 +152,23 @@ OPENAGENTS_SUBAGENTS: list[SubAgent] = [
         ),
     },
     {
+        "name": "explore",
+        "description": "File search specialist for navigating large codebases quickly with glob/grep/read patterns and returning precise file-level findings.",
+        "system_prompt": (
+            "You are a file search specialist. You excel at thoroughly navigating and exploring codebases.\n"
+            "Your strengths:\n"
+            "- Rapidly finding files using glob patterns\n"
+            "- Searching code and text using grep patterns\n"
+            "- Reading and analyzing file contents with pagination\n"
+            "Guidelines:\n"
+            "- Use glob for broad file pattern matching\n"
+            "- Use grep for locating relevant content, then read_file for focused inspection\n"
+            "- Return absolute file paths in your final answer\n"
+            "- Do not modify files unless the caller explicitly asks you to edit\n"
+            "- Keep findings concise and structured for handoff to the parent agent"
+        ),
+    },
+    {
         "name": "bash",
         "description": "Command execution specialist for git, build, test, deploy, and other shell operations.",
         "system_prompt": (
@@ -261,6 +279,7 @@ def make_lead_agent(config: RunnableConfig):
         agent_name=agent_name,
         available_skills=set(["bootstrap"]) if is_bootstrap else None,
     )
+    summarization_prompt = get_summarization_config().summary_prompt
 
     # Interrupt configuration (replaces ClarificationMiddleware)
     interrupt_on = {"ask_clarification": True}
@@ -280,5 +299,6 @@ def make_lead_agent(config: RunnableConfig):
         memory=memory_sources if memory_sources else None,
         backend=backend,
         interrupt_on=interrupt_on,
+        summarization_prompt=summarization_prompt,
         name=agent_name or "lead_agent",
     )

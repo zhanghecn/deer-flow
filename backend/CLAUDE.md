@@ -208,13 +208,17 @@ The lead agent uses `deepagents.create_deep_agent()` which provides:
   - Named agent run: `/skills/` only (agent-specific skills, no implicit public fallback)
   - Default lead-agent run: `/public-skills/` (global skills)
 - **FilesystemMiddleware** — Built-in sandbox tools (ls, read_file, write_file, edit_file, execute, glob, grep)
+  - `read_file` output now includes pagination footer metadata: shown range, total lines, remaining lines, and next offset hint
 - **SubAgentMiddleware** — Subagent delegation with `OPENAGENTS_SUBAGENTS` config
 
 **Legacy Sandbox** (`src/sandbox/`) and **Legacy Subagents** (`src/subagents/`) are retained for backward compatibility but replaced by deepagents backends.
 
 ### Subagent System
 
-**Built-in Agents**: `general-purpose` (all tools except `task`) and `bash` (command specialist)
+**Built-in Agents**:
+- `general-purpose` (all tools except `task`)
+- `explore` (codebase exploration specialist for glob/grep/read workflows)
+- `bash` (command specialist)
 **Execution**: Dual thread pool - `_scheduler_pool` (3 workers) + `_execution_pool` (3 workers)
 **Concurrency**: `MAX_CONCURRENT_SUBAGENTS = 3` enforced by `SubagentLimitMiddleware` (truncates excess tool calls in `after_model`), 15-minute timeout
 **Flow**: `task()` tool → `SubagentExecutor` → background thread → poll 5s → SSE events → result
@@ -434,6 +438,8 @@ Automatic conversation summarization when approaching token limits:
 - Configured in `config.yaml` under `summarization` key
 - Trigger types: tokens, messages, or fraction of max input
 - Keeps recent messages while summarizing older ones
+- `summarization.summary_prompt` is now wired into `create_deep_agent(...)` and applied to both main agent and subagents
+- Default summary prompt is aligned to the opencode compaction style (focuses on completed work, active work, changed files, and next steps)
 
 See [docs/summarization.md](docs/summarization.md) for details.
 

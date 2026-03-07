@@ -27,7 +27,24 @@ class TitleConfig(BaseModel):
         description="Model name to use for title generation. If None, middleware falls back to user-message-based title.",
     )
     prompt_template: str = Field(
-        default=("Generate a concise title (max {max_words} words) for this conversation.\nUser: {user_msg}\nAssistant: {assistant_msg}\n\nReturn ONLY the title, no quotes, no explanation."),
+        default=(
+            "You are a title generator. You output ONLY a thread title. Nothing else.\n\n"
+            "<task>\n"
+            "Generate a brief title that helps the user find this conversation later.\n"
+            "The output must be a single line and no more than {max_chars} characters.\n"
+            "</task>\n\n"
+            "<rules>\n"
+            "- Use the same language as the user's message.\n"
+            "- Keep the title natural and grammatically correct.\n"
+            "- Focus on the user's main goal, not on tools or process.\n"
+            "- Never include tool names (for example: read_file, execute, edit_file).\n"
+            "- Keep exact technical terms, filenames, and key numbers.\n"
+            "- Do not include explanations, prefixes, or quotes.\n"
+            "</rules>\n\n"
+            "User: {user_msg}\n"
+            "Assistant: {assistant_msg}\n\n"
+            "Title:"
+        ),
         description="Prompt template for title generation",
     )
 

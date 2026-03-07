@@ -23,6 +23,7 @@ from deepagents.backends.protocol import (
 from deepagents.backends.utils import (
     check_empty_content,
     format_content_with_line_numbers,
+    format_read_pagination_footer,
     perform_string_replacement,
 )
 
@@ -329,9 +330,19 @@ class FilesystemBackend(BackendProtocol):
                 return f"Error: Line offset {offset} exceeds file length ({len(lines)} lines)"
 
             selected_lines = lines[start_idx:end_idx]
-            return format_content_with_line_numbers(selected_lines, start_line=start_idx + 1)
+            formatted_content = format_content_with_line_numbers(selected_lines, start_line=start_idx + 1)
+            pagination_footer = format_read_pagination_footer(
+                start_idx=start_idx,
+                end_idx=end_idx,
+                total_lines=len(lines),
+            )
         except (OSError, UnicodeDecodeError) as e:
             return f"Error reading file '{file_path}': {e}"
+        else:
+            if not formatted_content:
+                return pagination_footer
+
+            return f"{formatted_content}\n\n{pagination_footer}"
 
     def write(
         self,

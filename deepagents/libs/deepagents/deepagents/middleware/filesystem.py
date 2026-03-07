@@ -4,6 +4,7 @@
 import asyncio
 import base64
 import concurrent.futures
+import re
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Annotated, Any, Literal, NotRequired, cast
@@ -47,7 +48,7 @@ EMPTY_CONTENT_WARNING = "System reminder: File exists but has empty contents"
 GLOB_TIMEOUT = 20.0  # seconds
 LINE_NUMBER_WIDTH = 6
 DEFAULT_READ_OFFSET = 0
-DEFAULT_READ_LIMIT = 100
+DEFAULT_READ_LIMIT = 2000
 IMAGE_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
 IMAGE_MEDIA_TYPES = {
     ".png": "image/png",
@@ -72,6 +73,31 @@ READ_FILE_TRUNCATION_MSG = (
 # Using 4 chars per token as a conservative approximation (actual ratio varies by content)
 # This errs on the high side to avoid premature eviction of content that might fit
 NUM_CHARS_PER_TOKEN = 4
+READ_FOOTER_SEPARATOR = re.compile(r"\n\n\(.+\)\s*$", re.DOTALL)
+
+
+def _trim_read_output_by_display_lines(result: str, limit: int) -> str:
+    """Trim read output by rendered lines while preserving pagination guidance.
+
+    The backend limits by logical lines. However, very long logical lines can
+    expand to multiple rendered lines due to continuation markers (e.g., `5.1`).
+    This function enforces `limit` on rendered lines to keep read outputs stable
+    for agent loops and context budgeting.
+    """
+    if limit < 0:
+        return result
+    if limit == 0:
+        return ""
+
+    content_part = READ_FOOTER_SEPARATOR.sub("", result)
+
+    content_lines = content_part.splitlines()
+    if len(content_lines) <= limit:
+        return result
+
+    # For continuation-heavy files, maintain strict display-line limit and
+    # avoid appending extra footer lines.
+    return "\n".join(content_lines[:limit])
 
 
 class FileData(TypedDict):
@@ -130,125 +156,80 @@ class FilesystemState(AgentState):
     """Files in the filesystem."""
 
 
-LIST_FILES_TOOL_DESCRIPTION = """Lists all files in a directory.
-
-This is useful for exploring the filesystem and finding the right file to read or edit.
-You should almost ALWAYS use this tool before using the read_file or edit_file tools."""
-
-READ_FILE_TOOL_DESCRIPTION = """Reads a file from the filesystem.
-
-Assume this tool is able to read all files. If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.
+LIST_FILES_TOOL_DESCRIPTION = """Lists files and directories in a given path.
 
 Usage:
-- By default, it reads up to 100 lines starting from the beginning of the file
-- **IMPORTANT for large files and codebase exploration**: Use pagination with offset and limit parameters to avoid context overflow
-  - First scan: read_file(path, limit=100) to see file structure
-  - Read more sections: read_file(path, offset=100, limit=200) for next 200 lines
-  - Only omit limit (read full file) when necessary for editing
-- Specify offset and limit: read_file(path, offset=0, limit=100) reads first 100 lines
-- Results are returned using cat -n format, with line numbers starting at 1
-- Lines longer than 5,000 characters will be split into multiple lines with continuation markers (e.g., 5.1, 5.2, etc.). When you specify a limit, these continuation lines count towards the limit.
-- You have the capability to call multiple tools in a single response. It is always better to speculatively read multiple files as a batch that are potentially useful.
-- If you read a file that exists but has empty contents you will receive a system reminder warning in place of file contents.
-- Image files (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`) are returned as multimodal image content blocks (see https://docs.langchain.com/oss/python/langchain/messages#multimodal).
+- Path must be absolute.
+- Use this when you need a quick directory listing before targeted reads/edits.
+- Prefer `glob`/`grep` when you already know what pattern or content to search."""
 
-For image tasks:
-- Use `read_file(file_path=...)` for `.png/.jpg/.jpeg/.gif/.webp`
-- Do NOT use `offset`/`limit` for images (pagination is text-only)
-- If image details were compacted from history, call `read_file` again on the same path
-
-- You should ALWAYS make sure a file has been read before editing it."""
-
-EDIT_FILE_TOOL_DESCRIPTION = """Performs exact string replacements in files.
+READ_FILE_TOOL_DESCRIPTION = """Read a file from the filesystem. If the path does not exist, an error is returned.
 
 Usage:
-- You must read the file before editing. This tool will error if you attempt an edit without reading the file first.
-- When editing, preserve the exact indentation (tabs/spaces) from the read output. Never include line number prefixes in old_string or new_string.
-- ALWAYS prefer editing existing files over creating new ones.
-- Only use emojis if the user explicitly requests it."""
+- `file_path` should be an absolute path.
+- By default, returns up to 2000 lines.
+- `offset` is 0-indexed in this runtime. Use `offset` + `limit` for pagination.
+- Output includes line numbers and pagination metadata (shown range, total lines, remaining lines, next offset).
+- Use `grep` to find specific text and `glob` to find likely files first.
+- Call `read_file` in parallel when multiple files are likely relevant.
+- Avoid tiny repeated slices (for example 20-30 lines) unless required by precision edits.
+- Empty files return a system reminder.
+- Image files (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`) are returned as multimodal image blocks.
 
+You should always read a file before editing it."""
 
-WRITE_FILE_TOOL_DESCRIPTION = """Writes to a new file in the filesystem.
-
-Usage:
-- The write_file tool will create the a new file.
-- Prefer to edit existing files (with the edit_file tool) over creating new ones when possible.
-"""
-
-GLOB_TOOL_DESCRIPTION = """Find files matching a glob pattern.
-
-Supports standard glob patterns: `*` (any characters), `**` (any directories), `?` (single character).
-Returns a list of absolute file paths that match the pattern.
-
-Examples:
-- `**/*.py` - Find all Python files
-- `*.txt` - Find all text files in root
-- `/subdir/**/*.md` - Find all markdown files under /subdir"""
-
-GREP_TOOL_DESCRIPTION = """Search for a text pattern across files.
-
-Searches for literal text (not regex) and returns matching files or content based on output_mode.
-Special characters like parentheses, brackets, pipes, etc. are treated as literal characters, not regex operators.
-
-Examples:
-- Search all files: `grep(pattern="TODO")`
-- Search Python files only: `grep(pattern="import", glob="*.py")`
-- Show matching lines: `grep(pattern="error", output_mode="content")`
-- Search for code with special chars: `grep(pattern="def __init__(self):")`"""
-
-EXECUTE_TOOL_DESCRIPTION = """Executes a shell command in an isolated sandbox environment.
+EDIT_FILE_TOOL_DESCRIPTION = """Perform exact string replacements in files.
 
 Usage:
-Executes a given command in the sandbox environment with proper handling and security measures.
-Before executing the command, please follow these steps:
-1. Directory Verification:
-   - If the command will create new directories or files, first use the ls tool to verify the parent directory exists and is the correct location
-   - For example, before running "mkdir foo/bar", first use ls to check that "foo" exists and is the intended parent directory
-2. Command Execution:
-   - Always quote file paths that contain spaces with double quotes (e.g., cd "path with spaces/file.txt")
-   - Examples of proper quoting:
-     - cd "/Users/name/My Documents" (correct)
-     - cd /Users/name/My Documents (incorrect - will fail)
-     - python "/path/with spaces/script.py" (correct)
-     - python /path/with spaces/script.py (incorrect - will fail)
-   - After ensuring proper quoting, execute the command
-   - Capture the output of the command
-Usage notes:
-  - Commands run in an isolated sandbox environment
-  - Returns combined stdout/stderr output with exit code
-  - If the output is very large, it may be truncated
-  - For long-running commands, use the optional timeout parameter to override the default timeout (e.g., execute(command="make build", timeout=300))
-  - A timeout of 0 may disable timeouts on backends that support no-timeout execution
-  - VERY IMPORTANT: You MUST avoid using search commands like find and grep. Instead use the grep, glob tools to search. You MUST avoid read tools like cat, head, tail, and use read_file to read files.
-  - When issuing multiple commands, use the ';' or '&&' operator to separate them. DO NOT use newlines (newlines are ok in quoted strings)
-    - Use '&&' when commands depend on each other (e.g., "mkdir dir && cd dir")
-    - Use ';' only when you need to run commands sequentially but don't care if earlier commands fail
-  - Try to maintain your current working directory throughout the session by using absolute paths and avoiding usage of cd
+- Read the file first before editing.
+- Preserve exact indentation and whitespace in `old_string` / `new_string`.
+- Never include line number prefixes from read output in replacement strings.
+- Prefer editing existing files over creating new files.
+- Use `replace_all=True` when the same replacement should apply to every match."""
 
-Examples:
-  Good examples:
-    - execute(command="pytest /foo/bar/tests")
-    - execute(command="python /path/to/script.py")
-    - execute(command="npm install && npm test")
-    - execute(command="make build", timeout=300)
 
-  Bad examples (avoid these):
-    - execute(command="cd /foo/bar && pytest tests")  # Use absolute path instead
-    - execute(command="cat file.txt")  # Use read_file tool instead
-    - execute(command="find . -name '*.py'")  # Use glob tool instead
-    - execute(command="grep -r 'pattern' .")  # Use grep tool instead
+WRITE_FILE_TOOL_DESCRIPTION = """Write a file to the filesystem.
 
-Note: This tool is only available if the backend supports execution (SandboxBackendProtocol).
-If execution is not supported, the tool will return an error message."""
+Usage:
+- Prefer editing existing files with `edit_file` whenever possible.
+- Avoid creating new documentation files unless the user explicitly asks for them.
+- Only use emojis when the user explicitly requests them."""
+
+GLOB_TOOL_DESCRIPTION = """Fast file pattern matching over large codebases.
+
+Usage:
+- Supports glob patterns like `**/*.py`, `src/**/*.ts`, `*.md`.
+- Use this tool to locate candidate files by name/path patterns.
+- For open-ended investigations requiring many search rounds, prefer subagent delegation."""
+
+GREP_TOOL_DESCRIPTION = """Search file contents for a literal text pattern.
+
+Usage:
+- This implementation performs literal matching (not regex parsing).
+- Optionally limit searched files with `glob`.
+- Use `output_mode="content"` for matching lines, or `files_with_matches` for path-only results.
+- For broad iterative exploration, combine with `glob` and paginated `read_file`."""
+
+EXECUTE_TOOL_DESCRIPTION = """Execute a shell command in the sandbox.
+
+Usage:
+- Prefer dedicated tools for filesystem search/read/edit (`glob`, `grep`, `read_file`, `edit_file`, `write_file`).
+- Quote paths containing spaces.
+- Use absolute paths instead of `cd` when possible.
+- Chain dependent commands with `&&`; use `;` only when failures are acceptable.
+- Set `timeout` for long-running commands when needed.
+
+This tool is only available on backends that support execution."""
 
 FILESYSTEM_SYSTEM_PROMPT = """## Following Conventions
 
 - Read files before editing — understand existing content before making changes
 - Mimic existing style, naming conventions, and patterns
+- Prefer specialized tools over shell shortcuts for file operations
 
 ## Tool Usage and File Reading
 
-Follow the tool docs for the available tools. In particular, for filesystem tools, use pagination (offset/limit) when reading large files.
+Follow tool docs. For large files, always paginate with `offset`/`limit` and use the pagination metadata in `read_file` output to continue.
 
 ## Filesystem Tools `ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`
 
@@ -555,11 +536,7 @@ class FilesystemMiddleware(AgentMiddleware[FilesystemState, ContextT, ResponseT]
                 return "Error reading image: unknown error"
 
             result = resolved_backend.read(validated_path, offset=offset, limit=limit)
-
-            lines = result.splitlines(keepends=True)
-            if len(lines) > limit:
-                lines = lines[:limit]
-                result = "".join(lines)
+            result = _trim_read_output_by_display_lines(result, limit)
 
             # Check if result exceeds token threshold and truncate if necessary
             if token_limit and len(result) >= NUM_CHARS_PER_TOKEN * token_limit:
@@ -604,11 +581,7 @@ class FilesystemMiddleware(AgentMiddleware[FilesystemState, ContextT, ResponseT]
                 return "Error reading image: unknown error"
 
             result = await resolved_backend.aread(validated_path, offset=offset, limit=limit)
-
-            lines = result.splitlines(keepends=True)
-            if len(lines) > limit:
-                lines = lines[:limit]
-                result = "".join(lines)
+            result = _trim_read_output_by_display_lines(result, limit)
 
             # Check if result exceeds token threshold and truncate if necessary
             if token_limit and len(result) >= NUM_CHARS_PER_TOKEN * token_limit:

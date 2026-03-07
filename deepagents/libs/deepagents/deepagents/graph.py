@@ -30,7 +30,11 @@ from deepagents.middleware.subagents import (
     SubAgent,
     SubAgentMiddleware,
 )
-from deepagents.middleware.summarization import create_summarization_middleware
+from deepagents.middleware.summarization import (
+    ContextSize,
+    TruncateArgsSettings,
+    create_summarization_middleware,
+)
 
 BASE_AGENT_PROMPT = """You are a Deep Agent, an AI assistant that helps users accomplish tasks using tools. You respond with text and tool calls. The user can see your responses and tool outputs in real time.
 
@@ -119,6 +123,11 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
     store: BaseStore | None = None,
     backend: BackendProtocol | BackendFactory | None = None,
     interrupt_on: dict[str, bool | InterruptOnConfig] | None = None,
+    summarization_trigger: ContextSize | list[ContextSize] | None = None,
+    summarization_keep: ContextSize | None = None,
+    summarization_trim_tokens_to_summarize: int | None = None,
+    summarization_prompt: str | None = None,
+    summarization_truncate_args_settings: TruncateArgsSettings | None = None,
     debug: bool = False,
     name: str | None = None,
     cache: BaseCache | None = None,
@@ -200,6 +209,11 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
             Pass to pause agent execution at specified tool calls for human approval or modification.
 
             Example: `interrupt_on={"edit_file": True}` pauses before every edit.
+        summarization_trigger: Optional summarization trigger override for main and subagents.
+        summarization_keep: Optional summarization keep-window override for main and subagents.
+        summarization_trim_tokens_to_summarize: Optional trim token override for summarization.
+        summarization_prompt: Optional summarization prompt override for context compaction.
+        summarization_truncate_args_settings: Optional tool-arg truncation settings override.
         debug: Whether to enable debug mode. Passed through to `create_agent`.
         name: The name of the agent. Passed through to `create_agent`.
         cache: The cache to use for the agent. Passed through to `create_agent`.
@@ -211,11 +225,22 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
 
     backend = backend if backend is not None else (StateBackend)
 
+    def _make_summarization_middleware(for_model: BaseChatModel) -> AgentMiddleware[Any, Any, Any]:
+        return create_summarization_middleware(
+            for_model,
+            backend,
+            trigger=summarization_trigger,
+            keep=summarization_keep,
+            trim_tokens_to_summarize=summarization_trim_tokens_to_summarize,
+            summary_prompt=summarization_prompt,
+            truncate_args_settings=summarization_truncate_args_settings,
+        )
+
     # Build general-purpose subagent with default middleware stack
     gp_middleware: list[AgentMiddleware[Any, Any, Any]] = [
         TodoListMiddleware(),
         FilesystemMiddleware(backend=backend),
-        create_summarization_middleware(model, backend),
+        _make_summarization_middleware(model),
         AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
         PatchToolCallsMiddleware(),
     ]
@@ -246,7 +271,7 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
             subagent_middleware: list[AgentMiddleware[Any, Any, Any]] = [
                 TodoListMiddleware(),
                 FilesystemMiddleware(backend=backend),
-                create_summarization_middleware(subagent_model, backend),
+                _make_summarization_middleware(subagent_model),
                 AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
                 PatchToolCallsMiddleware(),
             ]
@@ -281,7 +306,7 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
                 backend=backend,
                 subagents=all_subagents,
             ),
-            create_summarization_middleware(model, backend),
+            _make_summarization_middleware(model),
             AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
             PatchToolCallsMiddleware(),
         ]
