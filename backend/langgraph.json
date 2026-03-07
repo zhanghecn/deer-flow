@@ -3,7 +3,7 @@
   "dependencies": [
     "."
   ],
-  "env": ".env",
+  "env": "../.env",
   "graphs": {
     "lead_agent": "src.agents:make_lead_agent"
   }

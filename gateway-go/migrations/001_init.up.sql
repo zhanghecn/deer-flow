@@ -1,5 +1,5 @@
 -- OpenAgents Enterprise Schema v1
--- Run: make migrate (reads DB_HOST/PORT/USER/PASSWORD from .env)
+-- Run: make migrate (reads DATABASE_URI from env)
 
 BEGIN;
 

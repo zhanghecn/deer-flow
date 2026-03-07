@@ -253,3 +253,49 @@ def test_make_lead_agent_rejects_cross_user_thread_access(monkeypatch):
             },
             runtime=None,
         )
+
+
+def test_make_lead_agent_accepts_header_injected_user_id(monkeypatch):
+    store = _FakeDBStore(
+        models={"thread-model": _make_model("thread-model", supports_thinking=True)},
+        thread_models={("thread-1", "user-1"): "thread-model"},
+    )
+
+    import src.tools as tools_module
+
+    monkeypatch.setattr(lead_agent_module, "get_runtime_db_store", lambda: store)
+    monkeypatch.setattr(tools_module, "get_available_tools", lambda **kwargs: [])
+    monkeypatch.setattr(lead_agent_module, "build_backend", lambda thread_id, agent_name, status="dev": None)
+    monkeypatch.setattr(lead_agent_module, "create_deep_agent", lambda **kwargs: kwargs)
+    monkeypatch.setattr(lead_agent_module, "create_chat_model", lambda **kwargs: object())
+
+    result = lead_agent_module.make_lead_agent(
+        {
+            "configurable": {
+                "thread_id": "thread-1",
+                "x-user-id": "user-1",
+                "thinking_enabled": True,
+                "subagent_enabled": False,
+            }
+        },
+        runtime=None,
+    )
+
+    assert result["model"] is not None
+    assert store.saved == [("thread-1", "user-1", "thread-model", None)]
+
+
+def test_make_lead_agent_requires_user_for_thread_scoped_requests(monkeypatch):
+    store = _FakeDBStore(models={"safe-model": _make_model("safe-model", supports_thinking=True)})
+    monkeypatch.setattr(lead_agent_module, "get_runtime_db_store", lambda: store)
+
+    with pytest.raises(ValueError, match="Thread-scoped requests require user identity"):
+        lead_agent_module.make_lead_agent(
+            {
+                "configurable": {
+                    "thread_id": "thread-1",
+                    "model_name": "safe-model",
+                }
+            },
+            runtime=None,
+        )

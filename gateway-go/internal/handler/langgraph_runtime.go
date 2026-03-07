@@ -17,12 +17,21 @@ import (
 
 type LangGraphRuntimeHandler struct{}
 
+const (
+	headerUserID   = "x-user-id"
+	headerThreadID = "x-thread-id"
+)
+
 func NewLangGraphRuntimeHandler() *LangGraphRuntimeHandler {
 	return &LangGraphRuntimeHandler{}
 }
 
 func (h *LangGraphRuntimeHandler) InjectRuntimeConfig() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		userID := middleware.GetUserID(c)
+		threadID := extractThreadIDFromPath(c.Request.URL.Path)
+		injectRuntimeHeaders(c.Request, userID, threadID)
+
 		if c.Request.Body == nil || !isJSONRequest(c.Request.Method, c.ContentType()) {
 			c.Next()
 			return
@@ -49,16 +58,14 @@ func (h *LangGraphRuntimeHandler) InjectRuntimeConfig() gin.HandlerFunc {
 			return
 		}
 
-		userID := middleware.GetUserID(c)
 		if userID != uuid.Nil {
-			if err := injectUserID(payload, userID.String()); err != nil {
+			if err := injectContextValue(payload, "user_id", userID.String()); err != nil {
 				h.abortBadRequest(c, err.Error())
 				return
 			}
 		}
-		threadID := extractThreadIDFromPath(c.Request.URL.Path)
 		if threadID != "" {
-			if err := injectThreadID(payload, threadID); err != nil {
+			if err := injectContextValue(payload, "thread_id", threadID); err != nil {
 				h.abortBadRequest(c, err.Error())
 				return
 			}
@@ -81,54 +88,28 @@ func (h *LangGraphRuntimeHandler) InjectRuntimeConfig() gin.HandlerFunc {
 	}
 }
 
-func injectUserID(payload map[string]interface{}, userID string) error {
-	configurable, err := ensureObjectField(payload, "configurable")
+func injectContextValue(payload map[string]interface{}, key, value string) error {
+	contextPayload, err := ensureObjectField(payload, "context")
 	if err != nil {
 		return err
 	}
-	configurable["user_id"] = userID
-
-	config, err := ensureObjectField(payload, "config")
-	if err != nil {
-		return err
-	}
-	nestedConfigurable, err := ensureObjectField(config, "configurable")
-	if err != nil {
-		return err
-	}
-	nestedConfigurable["user_id"] = userID
-
-	if contextPayload, ok := payload["context"]; ok && contextPayload != nil {
-		if contextMap, ok := contextPayload.(map[string]interface{}); ok {
-			contextMap["user_id"] = userID
-		}
-	}
+	contextPayload[key] = value
 	return nil
 }
 
-func injectThreadID(payload map[string]interface{}, threadID string) error {
-	configurable, err := ensureObjectField(payload, "configurable")
-	if err != nil {
-		return err
+func injectRuntimeHeaders(req *http.Request, userID uuid.UUID, threadID string) {
+	if req == nil {
+		return
 	}
-	configurable["thread_id"] = threadID
-
-	config, err := ensureObjectField(payload, "config")
-	if err != nil {
-		return err
+	if req.Header == nil {
+		req.Header = make(http.Header)
 	}
-	nestedConfigurable, err := ensureObjectField(config, "configurable")
-	if err != nil {
-		return err
+	if userID != uuid.Nil && req.Header.Get(headerUserID) == "" {
+		req.Header.Set(headerUserID, userID.String())
 	}
-	nestedConfigurable["thread_id"] = threadID
-
-	if contextPayload, ok := payload["context"]; ok && contextPayload != nil {
-		if contextMap, ok := contextPayload.(map[string]interface{}); ok {
-			contextMap["thread_id"] = threadID
-		}
+	if threadID != "" && req.Header.Get(headerThreadID) == "" {
+		req.Header.Set(headerThreadID, threadID)
 	}
-	return nil
 }
 
 func ensureObjectField(parent map[string]interface{}, field string) (map[string]interface{}, error) {

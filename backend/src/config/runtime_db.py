@@ -89,24 +89,6 @@ class RuntimeDBStore:
             model_name = str(model_name).strip()
             return model_name or None
 
-    def get_thread_runtime_owner(self, thread_id: str) -> str | None:
-        query = """
-            SELECT user_id::text
-            FROM thread_runtime_configs
-            WHERE thread_id = %s
-            LIMIT 1
-        """
-        with self._connect() as conn, conn.cursor() as cur:
-            cur.execute(query, (thread_id,))
-            row = cur.fetchone()
-            if row is None:
-                return None
-            owner = row[0]
-            if owner is None:
-                return None
-            owner = str(owner).strip()
-            return owner or None
-
     def get_thread_owner(self, thread_id: str) -> str | None:
         query = """
             SELECT user_id::text
@@ -158,18 +140,6 @@ class RuntimeDBStore:
             raise ValueError(
                 f"Thread access denied for thread '{thread_id}': owned by another user ({owner})."
             )
-        if owner is not None:
-            return
-
-        runtime_owner = self.get_thread_runtime_owner(thread_id)
-        if runtime_owner is None:
-            return
-        if runtime_owner != user_id:
-            raise ValueError(
-                f"Thread access denied for thread '{thread_id}': owned by another user ({runtime_owner})."
-            )
-        # Backfill ownership table from legacy runtime rows.
-        self.claim_thread_ownership(thread_id=thread_id, user_id=user_id, assistant_id=None)
 
     def save_thread_runtime(
         self,
@@ -195,7 +165,7 @@ class RuntimeDBStore:
             cur.execute(query, (thread_id, user_id, agent_name, model_name))
             row = cur.fetchone()
             if row is None:
-                owner = self.get_thread_runtime_owner(thread_id) or self.get_thread_owner(thread_id)
+                owner = self.get_thread_owner(thread_id)
                 raise ValueError(
                     f"Thread access denied for thread '{thread_id}': owned by another user ({owner})."
                 )
@@ -219,29 +189,10 @@ class RuntimeDBStore:
 
 
 def _build_runtime_db_dsn() -> str:
-    host = os.getenv("DB_HOST", "").strip()
-    port = os.getenv("DB_PORT", "").strip()
-    user = os.getenv("DB_USER", "").strip()
-    password = os.getenv("DB_PASSWORD", "").strip()
-    db_name = os.getenv("DB_NAME", "").strip()
-    sslmode = os.getenv("DB_SSLMODE", "disable").strip() or "disable"
-
-    missing = [
-        name
-        for name, value in (
-            ("DB_HOST", host),
-            ("DB_PORT", port),
-            ("DB_USER", user),
-            ("DB_PASSWORD", password),
-            ("DB_NAME", db_name),
-        )
-        if not value
-    ]
-    if missing:
-        joined = ", ".join(missing)
-        raise RuntimeError(f"Missing database environment variables: {joined}")
-
-    return f"host={host} port={port} dbname={db_name} user={user} password={password} sslmode={sslmode}"
+    database_uri = os.getenv("DATABASE_URI", "").strip()
+    if database_uri:
+        return database_uri
+    raise RuntimeError("Missing required environment variable: DATABASE_URI")
 
 
 _db_store: RuntimeDBStore | None = None

@@ -21,10 +21,7 @@ cd openagents/gateway-go
 createdb openagents
 
 # 3. 配置环境变量
-export DB_HOST=localhost
-export DB_USER=root
-export DB_PASSWORD=zhangxuan66
-export DB_NAME=openagents
+export DATABASE_URI=postgresql://root:zhangxuan66@localhost:5432/openagents?sslmode=disable
 export JWT_SECRET=dev-secret-change-me
 
 # 4. 运行迁移

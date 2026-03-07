@@ -51,7 +51,7 @@ Nginx (:2026)
 # 创建数据库
 createdb openagents
 
-# 运行迁移（会自动读取 .env 中的 DB_HOST/USER/PASSWORD 等变量）
+# 运行迁移（优先读取 ../.env，其次读取 gateway-go/.env）
 make migrate
 ```
 
@@ -59,17 +59,20 @@ make migrate
 
 **方式一：使用环境变量（推荐）**
 
-复制 `.env.example` 为 `.env` 并配置：
+在项目根目录复制 `.env.example` 为 `.env` 并配置（推荐，单一真源）：
 
 ```bash
-cp .env.example .env
-# 编辑 .env 填写实际值
+cp ../.env.example ../.env
+# 编辑 ../.env 填写实际值
 ```
 
+如需网关单独调试，也可在 `gateway-go/.env` 放置覆盖项；默认不需要。
+
 所需环境变量：
-- `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_SSLMODE` — 数据库连接
+- `DATABASE_URI` — PostgreSQL 连接串
 - `JWT_SECRET` — JWT 签名密钥（生成：`openssl rand -base64 32`）
 - `OPENAGENTS_HOME` — 数据存储目录（可选，默认 `.openagents`）
+- `LANGGRAPH_URL` — LangGraph 上游地址（用于 `/api/langgraph/*` 代理和 OpenAPI 调用）
 
 **方式二：使用配置文件**
 
@@ -81,12 +84,7 @@ server:
   host: 0.0.0.0
 
 database:
-  host: $DB_HOST       # 或填写实际值
-  port: $DB_PORT
-  user: $DB_USER
-  password: $DB_PASSWORD
-  dbname: $DB_NAME
-  sslmode: $DB_SSLMODE
+  uri: $DATABASE_URI
 
 jwt:
   secret: $JWT_SECRET   # 生产环境务必使用强密钥
@@ -103,7 +101,14 @@ logging:
 # Note: upstream 4xx/5xx will still emit [proxy][upstream-reject] with response detail summary.
 
 upstream:
-  langgraph_url: http://localhost:2024
+  langgraph_url: $LANGGRAPH_URL
+
+proxy:
+  routes:
+    - prefix: /api/langgraph
+      upstream: $LANGGRAPH_URL
+      strip_prefix: true
+      auth: jwt
 ```
 
 ### 3. 构建和运行

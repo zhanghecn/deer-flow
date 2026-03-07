@@ -37,17 +37,11 @@ type ServerConfig struct {
 }
 
 type DatabaseConfig struct {
-	Host     string `yaml:"host"`
-	Port     string `yaml:"port"`
-	User     string `yaml:"user"`
-	Password string `yaml:"password"`
-	DBName   string `yaml:"dbname"`
-	SSLMode  string `yaml:"sslmode"`
+	URI string `yaml:"uri"`
 }
 
 func (d DatabaseConfig) DSN() string {
-	return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=%s",
-		d.User, d.Password, d.Host, d.Port, d.DBName, d.SSLMode)
+	return strings.TrimSpace(d.URI)
 }
 
 type JWTConfig struct {
@@ -77,12 +71,7 @@ func Load(path string) (*Config, error) {
 			Host: "0.0.0.0",
 		},
 		Database: DatabaseConfig{
-			Host:     "localhost",
-			Port:     "5432",
-			User:     "root",
-			Password: "zhangxuan66",
-			DBName:   "openagents",
-			SSLMode:  "disable",
+			URI: "",
 		},
 		JWT: JWTConfig{
 			ExpireHour: 72,
@@ -114,6 +103,9 @@ func Load(path string) (*Config, error) {
 	}
 
 	cfg.resolveEnvVars()
+	if cfg.Database.DSN() == "" {
+		return nil, fmt.Errorf("database.uri is required (set DATABASE_URI)")
+	}
 
 	// Allow OPENAGENTS_HOME env var to override storage.base_dir
 	// This is the same env var used by the Python backend (src/config/paths.py)
@@ -131,12 +123,7 @@ func (c *Config) resolveEnvVars() {
 		}
 		return s
 	}
-	c.Database.Password = resolve(c.Database.Password)
-	c.Database.User = resolve(c.Database.User)
-	c.Database.Host = resolve(c.Database.Host)
-	c.Database.Port = resolve(c.Database.Port)
-	c.Database.DBName = resolve(c.Database.DBName)
-	c.Database.SSLMode = resolve(c.Database.SSLMode)
+	c.Database.URI = resolve(c.Database.URI)
 	c.JWT.Secret = resolve(c.JWT.Secret)
 	c.Upstream.LangGraphURL = resolve(c.Upstream.LangGraphURL)
 	for i := range c.Proxy.Routes {

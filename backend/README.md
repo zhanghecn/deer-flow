@@ -171,6 +171,22 @@ Set your API keys:
 export OPENAI_API_KEY="your-api-key-here"
 ```
 
+Configure project root `.env` (required for Postgres runtime/checkpointer):
+
+```bash
+cp ../.env.example ../.env
+```
+
+`backend/langgraph.json` is configured to read `../.env`, so backend and gateway share one env source.
+
+Important variables:
+
+- `DATABASE_URI`:
+  shared PostgreSQL DSN for Python runtime DB queries (`models`, `agents`, `thread_runtime_configs`, `thread_ownerships`)
+  and LangGraph persistence/checkpointer backend
+- `LANGGRAPH_HTTP`:
+  allows `x-user-id` / `x-thread-id` headers into `config.configurable`
+
 ### Running
 
 **Full Application** (from project root):

@@ -122,6 +122,23 @@ def _extract_runtime_context(runtime: ServerRuntime | None) -> dict:
     return {}
 
 
+def _coerce_optional_str(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _extract_runtime_user_id(runtime: ServerRuntime | None) -> str | None:
+    if runtime is None:
+        return None
+    user = getattr(runtime, "user", None)
+    if user is None:
+        return None
+    identity = getattr(user, "identity", None)
+    return _coerce_optional_str(identity)
+
+
 def _resolve_run_model(
     *,
     requested_model_name: str | None,
@@ -223,34 +240,36 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     thinking_enabled = cfg.get("thinking_enabled", True)
     reasoning_effort = cfg.get("reasoning_effort", None)
     requested_model_raw = cfg.get("model_name") or cfg.get("model")
-    requested_model_name: str | None = str(requested_model_raw).strip() if requested_model_raw is not None else None
-    if requested_model_name == "":
-        requested_model_name = None
+    requested_model_name = _coerce_optional_str(requested_model_raw)
     subagent_enabled = cfg.get("subagent_enabled", False)
     max_concurrent_subagents = cfg.get("max_concurrent_subagents", 3)
     is_bootstrap = cfg.get("is_bootstrap", False)
     agent_name_raw = cfg.get("agent_name")
-    agent_name = str(agent_name_raw).strip() if agent_name_raw is not None else None
-    if agent_name == "":
-        agent_name = None
+    agent_name = _coerce_optional_str(agent_name_raw)
 
     agent_status_raw = cfg.get("agent_status", "dev")
-    agent_status = str(agent_status_raw).strip() if agent_status_raw is not None else "dev"
+    agent_status = _coerce_optional_str(agent_status_raw) or "dev"
     if agent_status == "":
         agent_status = "dev"
 
-    thread_id_raw = cfg.get("thread_id")
-    thread_id = str(thread_id_raw).strip() if thread_id_raw is not None else None
-    if thread_id == "":
-        thread_id = None
-    user_id_raw = cfg.get("user_id")
-    user_id = str(user_id_raw).strip() if user_id_raw is not None else None
-    if user_id == "":
-        user_id = None
+    thread_id = _coerce_optional_str(cfg.get("thread_id") or cfg.get("x-thread-id"))
+    runtime_user_id = _extract_runtime_user_id(runtime)
+    user_id = _coerce_optional_str(
+        cfg.get("user_id")
+        or cfg.get("x-user-id")
+        or cfg.get("langgraph_auth_user_id")
+        or runtime_user_id
+    )
     runtime_model_payload = cfg.get("model_config")
 
     db_store = get_runtime_db_store()
-    if thread_id and user_id:
+    if thread_id and not user_id:
+        raise ValueError(
+            "Thread-scoped requests require user identity. Provide `context.user_id`/`configurable.user_id`, "
+            "forward `x-user-id` through LangGraph configurable headers, or configure LangGraph custom auth."
+        )
+    if thread_id:
+        assert user_id is not None
         db_store.assert_thread_access(thread_id=thread_id, user_id=user_id)
 
     runtime_model_name = _parse_runtime_model_config(runtime_model_payload)
@@ -267,7 +286,8 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         user_id=user_id,
         db_store=db_store,
     )
-    if thread_id and user_id:
+    if thread_id:
+        assert user_id is not None
         db_store.save_thread_runtime(
             thread_id=thread_id,
             user_id=user_id,

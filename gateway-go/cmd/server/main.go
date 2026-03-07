@@ -21,9 +21,15 @@ import (
 )
 
 func main() {
-	// Load .env file if exists
-	if err := godotenv.Load(); err != nil {
-		log.Printf("Note: .env file not found or error loading: %v", err)
+	// Prefer shared root env, keep local .env as fallback.
+	loadedEnv := false
+	for _, envPath := range []string{"../.env", ".env"} {
+		if err := godotenv.Load(envPath); err == nil {
+			loadedEnv = true
+		}
+	}
+	if !loadedEnv {
+		log.Printf("Note: .env file not found in ../.env or .env; using environment variables")
 	}
 
 	// Load gateway config

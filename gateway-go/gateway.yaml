@@ -5,12 +5,7 @@ server:
   host: 0.0.0.0
 
 database:
-  host: $DB_HOST
-  port: $DB_PORT
-  user: $DB_USER
-  password: $DB_PASSWORD
-  dbname: $DB_NAME
-  sslmode: $DB_SSLMODE
+  uri: $DATABASE_URI
 
 jwt:
   secret: $JWT_SECRET
@@ -27,17 +22,22 @@ logging:
   # Only enable in local debugging; may expose sensitive headers.
   proxy_log_headers: false
 
+upstream:
+  langgraph_url: $LANGGRAPH_URL
+
 # Declarative proxy routes
 # Add new upstream services here — no code changes needed.
 # Supports: HTTP, SSE/streaming, WebSocket (auto-detected via Upgrade header)
 proxy:
   routes:
     - prefix: /api/langgraph
-      upstream: http://localhost:2024
+      upstream: $LANGGRAPH_URL
       strip_prefix: true
       auth: jwt
 
 # Note:
 # LangGraph runtime payload is forwarded as-is.
-# Gateway only injects authenticated user_id (+ thread_id when path has /threads/{id})
-# into JSON POST/PUT/PATCH requests.
+# Gateway only injects authenticated identity and thread scope:
+# - headers: x-user-id, x-thread-id
+# - JSON body context.user_id/context.thread_id for run-compatible payloads
+# It does not resolve models or query DB.

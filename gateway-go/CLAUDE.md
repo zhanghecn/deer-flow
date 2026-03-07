@@ -92,7 +92,7 @@ Agent and Skill metadata are stored in PostgreSQL for querying, while AGENTS.md/
 ### Config Resolution
 
 `gateway.yaml` values starting with `$` are resolved as environment variables:
-- `$DB_HOST` → `os.Getenv("DB_HOST")`
+- `$DATABASE_URI` → `os.Getenv("DATABASE_URI")`
 - `$JWT_SECRET` → `os.Getenv("JWT_SECRET")`
 
 The gateway locates the main project `config.yaml` for MCP config compatibility by searching `../config.yaml`, `config.yaml`, `../../config.yaml`.

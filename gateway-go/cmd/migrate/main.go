@@ -14,18 +14,16 @@ import (
 	"github.com/openagents/gateway/internal/config"
 )
 
-func checkPassword() string {
-	password := os.Getenv("DB_PASSWORD")
-	if password == "" {
-		fmt.Println("Warning: DB_PASSWORD is not set (empty)")
-	}
-	return password
-}
-
 func main() {
-	// Try to load .env file (ignore error if it doesn't exist)
-	if err := godotenv.Load(); err != nil {
-		fmt.Printf("Note: .env file not found, using environment variables\n")
+	// Prefer shared root env, keep local .env as fallback.
+	loadedEnv := false
+	for _, envPath := range []string{"../.env", ".env"} {
+		if err := godotenv.Load(envPath); err == nil {
+			loadedEnv = true
+		}
+	}
+	if !loadedEnv {
+		fmt.Printf("Note: .env file not found in ../.env or .env, using environment variables\n")
 	}
 
 	fmt.Println("Starting database migration...")
@@ -37,14 +35,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Override password if set in env (for security)
-	if password := checkPassword(); password != "" {
-		cfg.Database.Password = password
-	}
-
 	dsn := cfg.Database.DSN()
-	fmt.Printf("Connecting to database: %s@%s:%s/%s\n",
-		cfg.Database.User, cfg.Database.Host, cfg.Database.Port, cfg.Database.DBName)
+	fmt.Println("Connecting to database using configured DSN")
 
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {

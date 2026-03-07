@@ -305,11 +305,10 @@ export function useThreadStream({
             ],
           },
           (() => {
-            const runtimeConfigurable = {
+            const runtimeContext = {
               ...extraContext,
               ...context,
               model_name: selectedModelName,
-              model: selectedModelName,
               thinking_enabled: context.mode !== "flash",
               is_plan_mode: context.mode === "pro" || context.mode === "ultra",
               subagent_enabled: context.mode === "ultra",
@@ -323,9 +322,8 @@ export function useThreadStream({
               streamMode: ["values", "messages-tuple", "custom"],
               config: {
                 recursion_limit: 1000,
-                configurable: runtimeConfigurable,
               },
-              context: runtimeConfigurable,
+              context: runtimeContext,
             };
           })(),
         );

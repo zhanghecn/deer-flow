@@ -1,51 +1,55 @@
-# LangGraph Runtime Architecture (Gateway + Python + DB)
+# LangGraph Runtime Architecture (Enterprise Multi-Tenant)
 
-## 目标
+## 1) Design原则
 
-- 网关只做鉴权和透传，不做模型拼接/查库。
-- Python 智能体工厂统一负责运行时解析：`user_id + thread_id + 前端参数`。
-- 多用户隔离依赖 `user_id` 贯穿请求与线程运行时表。
+- 前端统一用 `context` 传运行时参数（`model_name`、`agent_name`、`mode` 等）。
+- 网关只做三件事：JWT 鉴权、透传、附加身份（`x-user-id` / `x-thread-id`）。
+- Python/LangGraph 负责所有运行时决策（模型解析、线程归属校验、agent 配置加载）。
+- 不使用默认模型兜底；模型必须可解析且在 DB 可用。
 
-## 端到端流程（运行接口）
+## 2) Run链路（官方推荐对齐）
 
 ```text
 Frontend
   |
   | POST /api/langgraph/threads/{thread_id}/runs/stream
-  | body: input + config + context(model_name, mode, ...)
+  | body:
+  |   input
+  |   config: { recursion_limit: 1000 }
+  |   context: { model_name, agent_name, thinking_enabled, ... }
   v
-Gateway
+Gateway (Go)
   |
-  | 1) JWT 校验
-  | 2) 原样透传 body
-  | 3) 注入 configurable.user_id
-  | 4) 注入 configurable.thread_id (从 URL)
+  | JWT authenticate
+  | add headers:
+  |   x-user-id   = <jwt user id>
+  |   x-thread-id = <path thread id>
+  | inject body context.user_id/thread_id (JSON request only)
+  | proxy to LangGraph
   v
 LangGraph API
   |
-  | invoke graph factory: make_lead_agent(config, runtime)
+  | create_valid_run():
+  |   - context 与 configurable 自动同步
+  |   - configurable 注入 headers(取决于 LANGGRAPH_HTTP.configurable_headers)
   v
-Python Agent Factory
+Python make_lead_agent(config, runtime)
   |
-  | cfg = runtime.execution_runtime.context + config.configurable
-  | model_name 解析优先级:
-  |   configurable.model_name / model
-  |   -> configurable.model_config.name
-  |   -> agent.model (DB)
-  |   -> thread_runtime_configs.model_name (DB)
-  |
-  | DB 查询:
-  | - agents(name,status)
-  | - models(name, enabled=true)
-  | - thread_runtime_configs(thread_id,user_id)
-  |
-  | 成功后写回 thread_runtime_configs:
-  | - thread_id, user_id, model_name, agent_name
+  | cfg = runtime.context + config.configurable
+  | user_id <- user_id | x-user-id | langgraph_auth_user_id
+  | thread_id <- thread_id | x-thread-id
+  | assert thread owner
+  | resolve model (strict, no fallback):
+  |   1) model_name/model
+  |   2) model_config.name
+  |   3) agent.model
+  |   4) thread_runtime_configs(thread_id,user_id)
+  | persist thread runtime(model/agent)
   v
-DeepAgent 执行
+DeepAgent execution + checkpoints
 ```
 
-## 读取接口（history）流程
+## 3) History/Checkpoint链路
 
 ```text
 Frontend
@@ -54,44 +58,43 @@ Frontend
   v
 Gateway
   |
-  | JWT + 注入 configurable.user_id/thread_id
+  | JWT + x-user-id/x-thread-id headers
+  | proxy
   v
-LangGraph API -> make_lead_agent(config, runtime)
+LangGraph threads.read context
   |
-  | runtime.access_context = threads.read (无 execution context)
-  | 仅可从 configurable + DB 解析模型
-  | 优先使用 thread_runtime_configs(thread_id,user_id)
+  | runtime.execution_runtime is None
+  | make_lead_agent 通过 configurable 中的 x-user-id/x-thread-id 做校验与模型解析
   v
-返回历史
+Return thread states/checkpoints
 ```
 
-## 流式续连接口（join stream）
+## 4) 为什么有 005 和 006
 
-```text
-GET /api/langgraph/threads/{thread_id}/runs/{run_id}/stream
+- `005_thread_runtime_configs`：线程运行时配置（`model_name`/`agent_name`）持久化。
+- `006_thread_ownerships`：线程归属（`thread_id -> user_id`）强隔离。
 
-- 无请求体，网关只做 JWT + 反向代理 + CORS
-- 不涉及模型注入
+两张表职责不同，不再互相回填，不重复。
+
+## 5) 必备环境配置
+
+LangGraph 需要允许把网关附加头透传到 `configurable`：
+
+```bash
+LANGGRAPH_HTTP='{"configurable_headers":{"includes":["x-user-id","x-thread-id"]}}'
 ```
 
-## 多用户隔离点
+统一放在项目根目录 `.env`（单一真源）。`backend/langgraph.json` 读取 `../.env`，
+`gateway-go` 启动/迁移优先读取 `../.env`，其次读取本目录 `.env`（仅本地覆盖）。
 
-- 网关从 JWT 注入 `user_id` 到 `configurable`。
-- Python 查 `thread_runtime_configs` 必须使用 `(thread_id, user_id)` 组合。
-- 相同 `thread_id` 若 `user_id` 不同，不会命中同一运行时模型记录。
+## 6) 维护检查清单
 
-## 数据表
-
-- `models`: 大模型运行参数来源（`config_json`）。
-- `agents`: Agent 元数据（含 `model`, `tool_groups`, `mcp_servers`）。
-- `thread_runtime_configs`: 线程级运行时模型持久化。
-
-## 维护约束
-
-- 不在网关新增模型解析策略分支。
-- 不依赖 `config.yaml` 作为运行时模型兜底。
-- 所有 run/history 相关问题先查：
-  1. 请求是否带 `configurable.user_id/thread_id`
-  2. Python 是否能读 DB 环境变量
-  3. `models.enabled` 是否为 `true`
-  4. `thread_runtime_configs` 是否已写入对应 `(thread_id,user_id)`
+1. 前端 run 请求仅使用 `context`，不要和 `config.configurable` 并行传业务字段。
+2. 网关确认请求头已注入：`x-user-id`、`x-thread-id`。
+3. LangGraph 进程确认启用了 `LANGGRAPH_HTTP.configurable_headers`。
+4. Python 侧若有 `thread_id` 且无 `user_id`，应直接报错（禁止无身份线程访问）。
+5. DB 必须存在并可读：
+   - `models`（enabled=true）
+   - `agents`
+   - `thread_runtime_configs`
+   - `thread_ownerships`
