@@ -12,6 +12,10 @@
       ]
     }
   },
+  "checkpointer": {
+    "backend": "custom",
+    "path": "src.checkpointer.checkpointer"
+  },
   "graphs": {
     "lead_agent": "src.agents:make_lead_agent"
   }

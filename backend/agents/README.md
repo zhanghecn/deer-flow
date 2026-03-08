@@ -171,13 +171,21 @@ Important variables:
 - `DATABASE_URI`:
   shared PostgreSQL DSN for Python runtime DB queries (`models`, `agents`, `thread_bindings`)
   and LangGraph persistence/checkpointer backend
-- Note:
-  `langgraph dev` uses in-memory persistence by default and sets process `DATABASE_URI=:memory:`.
-  OpenAgents runtime DB loader reads `DATABASE_URI` from shared root `.env` in this case.
+- `REDIS_URI`:
+  required by LangGraph postgres runtime for queue/scheduler state
+- `LANGGRAPH_RUNTIME_EDITION`:
+  runtime backend selection (default `postgres`; no fallback path in startup script)
 - `LANGGRAPH_URL`:
   gateway upstream target for LangGraph server
 - Header pass-through (`x-user-id`, `x-thread-id`) is configured in `backend/agents/langgraph.json`:
   `http.configurable_headers.includes`
+
+Note:
+- Runtime/checkpoint persistence are configured for PostgreSQL.
+- Ensure postgres runtime dependency is installed in the agents environment:
+  `langgraph-runtime-postgres`
+- Checkpoints are persisted via custom checkpointer
+  (`backend/agents/langgraph.json` → `checkpointer.path=src.checkpointer.checkpointer`).
 
 ### Running
 

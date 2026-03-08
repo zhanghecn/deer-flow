@@ -5,9 +5,10 @@
 #    Do NOT maintain model definitions in this file for normal runtime.
 # 2) Runtime DB credentials are provided via environment variable:
 #    DATABASE_URI
-# 3) LangGraph persistence/checkpointer is configured via env:
-#    DATABASE_URI, LANGGRAPH_CHECKPOINTER (optional)
-#    Header pass-through is configured in backend/agents/langgraph.json (http.configurable_headers)
+# 3) LangGraph checkpoint persistence uses PostgreSQL via custom checkpointer in
+#    backend/agents/langgraph.json (checkpointer.path) and reads DATABASE_URI
+# 4) Header pass-through is configured in backend/agents/langgraph.json
+#    (http.configurable_headers)
 
 # Sandbox provider
 sandbox:

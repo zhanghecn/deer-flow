@@ -137,7 +137,7 @@ services:
       cache_from:
         - type=local,src=/tmp/docker-cache-langgraph
     container_name: openagents-langgraph
-    command: sh -c "cd backend/agents && uv run langgraph dev --no-browser --allow-blocking --host 0.0.0.0 --port 2024 > /app/logs/langgraph.log 2>&1"
+    command: sh -c "cd /app/backend/agents && uv run python -m src.langgraph_dev > /app/logs/langgraph.log 2>&1"
     volumes:
       - ../backend/agents:/app/backend/agents
       - ../.env:/app/.env:ro

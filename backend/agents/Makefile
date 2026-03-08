@@ -2,7 +2,7 @@ install:
 	uv sync
 
 dev:
-	uv run langgraph dev --no-browser --allow-blocking --host 0.0.0.0 --no-reload
+	uv run python -m src.langgraph_dev
 
 test:
 	PYTHONPATH=. uv run pytest tests/ -v

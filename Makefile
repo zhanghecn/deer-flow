@@ -174,6 +174,7 @@ setup-sandbox:
 dev:
 	@echo "Stopping existing services if any..."
 	@-pkill -f "langgraph dev" 2>/dev/null || true
+	@-pkill -f "langgraph_api.cli" 2>/dev/null || true
 	@-pkill -f "backend/gateway/bin/gateway" 2>/dev/null || true
 	@-pkill -f "uvicorn src.gateway.app:app" 2>/dev/null || true
 	@-pkill -f "next dev" 2>/dev/null || true
@@ -198,6 +199,7 @@ dev:
 		echo ""; \
 		echo "Shutting down services..."; \
 		pkill -f "langgraph dev" 2>/dev/null || true; \
+		pkill -f "langgraph_api.cli" 2>/dev/null || true; \
 		pkill -f "backend/gateway/bin/gateway" 2>/dev/null || true; \
 		pkill -f "uvicorn src.gateway.app:app" 2>/dev/null || true; \
 		pkill -f "next dev" 2>/dev/null || true; \
@@ -212,7 +214,7 @@ dev:
 	trap cleanup INT TERM; \
 	mkdir -p logs; \
 	echo "Starting LangGraph server..."; \
-	cd backend/agents && NO_COLOR=1 uv run langgraph dev --no-browser --allow-blocking --no-reload > ../../logs/langgraph.log 2>&1 & \
+	cd backend/agents && NO_COLOR=1 uv run python -m src.langgraph_dev > ../../logs/langgraph.log 2>&1 & \
 	sleep 3; \
 	echo "✓ LangGraph server started on localhost:2024"; \
 	echo "Building Go Gateway..."; \
