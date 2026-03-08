@@ -69,6 +69,7 @@ func main() {
 	agentRepo := repository.NewAgentRepo(pool)
 	skillRepo := repository.NewSkillRepo(pool)
 	modelRepo := repository.NewModelRepo(pool)
+	threadRepo := repository.NewThreadRepo(pool)
 	adminObservabilityRepo := repository.NewAdminObservabilityRepo(pool)
 	llmKeyRepo := repository.NewLLMKeyRepo(pool)
 
@@ -83,6 +84,7 @@ func main() {
 	modelH := handler.NewModelHandler(modelRepo)
 	memoryH := handler.NewMemoryHandler(fs)
 	mcpH := handler.NewMCPHandler(filepath.Dir(mainConfigPath))
+	threadsH := handler.NewThreadsHandler(threadRepo)
 	uploadsH := handler.NewUploadsHandler(fs)
 	artifactsH := handler.NewArtifactsHandler(fs)
 	openAPIH := handler.NewOpenAPIHandler(agentRepo, modelRepo, cfg.Upstream.LangGraphURL, fs)
@@ -193,6 +195,9 @@ func main() {
 		// MCP
 		api.GET("/mcp/config", mcpH.Get)
 		api.PUT("/mcp/config", mcpH.Update)
+
+		// Threads index (database-backed source of truth for sidebar/search)
+		api.POST("/threads/search", threadsH.Search)
 
 		// Uploads
 		api.POST("/threads/:id/uploads", uploadsH.Upload)

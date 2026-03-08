@@ -1,5 +1,7 @@
 "use client";
 
+import dynamic from "next/dynamic";
+
 import {
   Sidebar,
   SidebarHeader,
@@ -9,10 +11,14 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 
-import { RecentChatList } from "./recent-chat-list";
 import { WorkspaceHeader } from "./workspace-header";
 import { WorkspaceNavChatList } from "./workspace-nav-chat-list";
 import { WorkspaceNavMenu } from "./workspace-nav-menu";
+
+const RecentChatList = dynamic(
+  () => import("./recent-chat-list").then((m) => m.RecentChatList),
+  { ssr: false },
+);
 
 export function WorkspaceSidebar({
   ...props

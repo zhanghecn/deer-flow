@@ -1,7 +1,6 @@
 import type { AIMessage, Message } from "@langchain/langgraph-sdk";
-import type { ThreadsClient } from "@langchain/langgraph-sdk/client";
 import { useStream } from "@langchain/langgraph-sdk/react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -15,7 +14,7 @@ import { useUpdateSubtask } from "../tasks/context";
 import type { UploadedFileInfo } from "../uploads";
 import { uploadFiles } from "../uploads";
 
-import type { AgentThread, AgentThreadState } from "./types";
+import type { AgentThreadState } from "./types";
 
 export type ToolEndEvent = {
   name: string;
@@ -41,15 +40,43 @@ export function useThreadStream({
 }: ThreadStreamOptions) {
   const { t } = useI18n();
   const apiClient = getAPIClient(isMock);
-  const [_threadId, setThreadId] = useState<string | null>(threadId ?? null);
+  const [_threadId, setThreadId] = useState<string | null>(null);
   const startedRef = useRef(false);
 
   useEffect(() => {
-    if (threadId && _threadId !== threadId) {
-      setThreadId(threadId);
-      startedRef.current = false; // Reset for new thread
+    let cancelled = false;
+    startedRef.current = false; // Reset for new/existing thread changes
+
+    if (!threadId) {
+      setThreadId(null);
+      return () => {
+        cancelled = true;
+      };
     }
-  }, [threadId, _threadId]);
+
+    setThreadId(null);
+    void apiClient.threads
+      .create({
+        threadId,
+        ifExists: "do_nothing",
+        graphId: "lead_agent",
+      })
+      .catch((error) => {
+        console.warn(
+          `Failed to ensure thread exists before loading history (${threadId}):`,
+          error,
+        );
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setThreadId(threadId);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [threadId, apiClient]);
 
   const queryClient = useQueryClient();
   const updateSubtask = useUpdateSubtask();
@@ -155,11 +182,6 @@ export function useThreadStream({
         });
       }
       setOptimisticMessages(newOptimistic);
-
-      if (!startedRef.current) {
-        onStart?.(threadId);
-        startedRef.current = true;
-      }
 
       let uploadedFileInfo: UploadedFileInfo[] = [];
 
@@ -300,7 +322,7 @@ export function useThreadStream({
         throw error;
       }
     },
-    [apiClient, thread, t.uploads.uploadingFiles, onStart, context, queryClient],
+    [thread, t.uploads.uploadingFiles, context, queryClient],
   );
 
   // Merge thread with optimistic messages for display
@@ -313,84 +335,4 @@ export function useThreadStream({
       : thread;
 
   return [mergedThread, sendMessage] as const;
-}
-
-export function useThreads(
-  params: Parameters<ThreadsClient["search"]>[0] = {
-    limit: 50,
-    sortBy: "updated_at",
-    sortOrder: "desc",
-    select: ["thread_id", "updated_at", "values"],
-  },
-) {
-  const apiClient = getAPIClient();
-  return useQuery<AgentThread[]>({
-    queryKey: ["threads", "search", params],
-    queryFn: async () => {
-      const response = await apiClient.threads.search<AgentThreadState>(params);
-      return response as AgentThread[];
-    },
-    refetchOnWindowFocus: false,
-  });
-}
-
-export function useDeleteThread() {
-  const queryClient = useQueryClient();
-  const apiClient = getAPIClient();
-  return useMutation({
-    mutationFn: async ({ threadId }: { threadId: string }) => {
-      await apiClient.threads.delete(threadId);
-    },
-    onSuccess(_, { threadId }) {
-      queryClient.setQueriesData(
-        {
-          queryKey: ["threads", "search"],
-          exact: false,
-        },
-        (oldData: Array<AgentThread>) => {
-          return oldData.filter((t) => t.thread_id !== threadId);
-        },
-      );
-    },
-  });
-}
-
-export function useRenameThread() {
-  const queryClient = useQueryClient();
-  const apiClient = getAPIClient();
-  return useMutation({
-    mutationFn: async ({
-      threadId,
-      title,
-    }: {
-      threadId: string;
-      title: string;
-    }) => {
-      await apiClient.threads.updateState(threadId, {
-        values: { title },
-      });
-    },
-    onSuccess(_, { threadId, title }) {
-      queryClient.setQueriesData(
-        {
-          queryKey: ["threads", "search"],
-          exact: false,
-        },
-        (oldData: Array<AgentThread>) => {
-          return oldData.map((t) => {
-            if (t.thread_id === threadId) {
-              return {
-                ...t,
-                values: {
-                  ...t.values,
-                  title,
-                },
-              };
-            }
-            return t;
-          });
-        },
-      );
-    },
-  });
 }

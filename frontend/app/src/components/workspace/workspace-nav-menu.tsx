@@ -9,6 +9,7 @@ import {
   MailIcon,
   Settings2Icon,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -31,7 +32,11 @@ import { useAuth } from "@/core/auth/hooks";
 import { useI18n } from "@/core/i18n/hooks";
 
 import { GithubIcon } from "./github-icon";
-import { SettingsDialog } from "./settings";
+
+const SettingsDialog = dynamic(
+  () => import("./settings/settings-dialog").then((m) => m.SettingsDialog),
+  { ssr: false },
+);
 
 function initialsOf(label: string): string {
   const cleaned = label.trim();
@@ -107,11 +112,11 @@ export function WorkspaceNavMenu() {
 
   const hydratedUser = mounted ? user : null;
   const displayName =
-    hydratedUser?.name.trim() ||
-    hydratedUser?.email.trim() ||
+    hydratedUser?.name?.trim() ??
+    hydratedUser?.email?.trim() ??
     t.workspace.settingsAndMore;
   const secondaryLine =
-    hydratedUser?.email.trim() || hydratedUser?.role.toUpperCase() || "USER";
+    hydratedUser?.email?.trim() ?? hydratedUser?.role?.toUpperCase() ?? "USER";
   const userInitials = initialsOf(displayName);
 
   const handleLogout = () => {
@@ -121,11 +126,13 @@ export function WorkspaceNavMenu() {
 
   return (
     <>
-      <SettingsDialog
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        defaultSection={settingsDefaultSection}
-      />
+      {settingsOpen && (
+        <SettingsDialog
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+          defaultSection={settingsDefaultSection}
+        />
+      )}
       <SidebarMenu className="w-full">
         <SidebarMenuItem>
           {mounted ? (

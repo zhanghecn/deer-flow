@@ -7,6 +7,15 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.config.paths import AGENTS_ROOT
+
+
+def _resolve_existing_path(candidates: list[Path]) -> Path | None:
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
 
 class McpOAuthConfig(BaseModel):
     """OAuth configuration for an MCP server (HTTP/SSE transports)."""
@@ -73,8 +82,9 @@ class ExtensionsConfig(BaseModel):
         Priority:
         1. If provided `config_path` argument, use it.
         2. If provided `OPENAGENTS_EXTENSIONS_CONFIG_PATH` environment variable, use it.
-        3. Otherwise, check for `extensions_config.json` in the current directory, then in the parent directory.
-        4. For backward compatibility, also check for `mcp_config.json` if `extensions_config.json` is not found.
+        3. Otherwise, check common local locations:
+           cwd, cwd parent, backend/agents, backend, and project root.
+        4. For backward compatibility, also check for `mcp_config.json`.
         5. If not found, return None (extensions are optional).
 
         Args:
@@ -84,37 +94,31 @@ class ExtensionsConfig(BaseModel):
             Path to the extensions config file if found, otherwise None.
         """
         if config_path:
-            path = Path(config_path)
+            path = Path(config_path).expanduser()
             if not path.exists():
                 raise FileNotFoundError(f"Extensions config file specified by param `config_path` not found at {path}")
             return path
-        elif os.getenv("OPENAGENTS_EXTENSIONS_CONFIG_PATH"):
-            path = Path(os.getenv("OPENAGENTS_EXTENSIONS_CONFIG_PATH"))
+        env_path = os.getenv("OPENAGENTS_EXTENSIONS_CONFIG_PATH")
+        if env_path:
+            path = Path(env_path).expanduser()
             if not path.exists():
                 raise FileNotFoundError(f"Extensions config file specified by environment variable `OPENAGENTS_EXTENSIONS_CONFIG_PATH` not found at {path}")
             return path
-        else:
-            # Check if the extensions_config.json is in the current directory
-            path = Path(os.getcwd()) / "extensions_config.json"
-            if path.exists():
-                return path
 
-            # Check if the extensions_config.json is in the parent directory of CWD
-            path = Path(os.getcwd()).parent / "extensions_config.json"
-            if path.exists():
-                return path
-
-            # Backward compatibility: check for mcp_config.json
-            path = Path(os.getcwd()) / "mcp_config.json"
-            if path.exists():
-                return path
-
-            path = Path(os.getcwd()).parent / "mcp_config.json"
-            if path.exists():
-                return path
-
-            # Extensions are optional, so return None if not found
-            return None
+        return _resolve_existing_path(
+            [
+                Path("extensions_config.json"),
+                Path("..") / "extensions_config.json",
+                AGENTS_ROOT / "extensions_config.json",
+                AGENTS_ROOT.parent / "extensions_config.json",
+                AGENTS_ROOT.parent.parent / "extensions_config.json",
+                Path("mcp_config.json"),
+                Path("..") / "mcp_config.json",
+                AGENTS_ROOT / "mcp_config.json",
+                AGENTS_ROOT.parent / "mcp_config.json",
+                AGENTS_ROOT.parent.parent / "mcp_config.json",
+            ]
+        )
 
     @classmethod
     def from_file(cls, config_path: str | None = None) -> "ExtensionsConfig":

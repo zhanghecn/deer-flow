@@ -4,8 +4,16 @@ from pathlib import Path
 
 # Virtual path prefix seen by agents inside the sandbox
 VIRTUAL_PATH_PREFIX = "/mnt/user-data"
+AGENTS_ROOT = Path(__file__).resolve().parents[2]
 
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
+
+
+def _normalize_base_dir(value: str | Path) -> Path:
+    path = Path(value).expanduser()
+    if path.is_absolute():
+        return path
+    return AGENTS_ROOT / path
 
 
 class Paths:
@@ -38,12 +46,14 @@ class Paths:
     BaseDir resolution (in priority order):
         1. Constructor argument `base_dir`
         2. OPENAGENTS_HOME environment variable
-        3. Local dev fallback: cwd/.openagents  (when cwd is the backend/agents dir)
-        4. Default: $HOME/.openagents
+        3. Local dev fallback: {backend/agents}/.openagents
+    Notes:
+        - Relative paths are resolved against the backend/agents root.
+        - This avoids runtime `cwd` resolution, which can trigger blocking guards.
     """
 
     def __init__(self, base_dir: str | Path | None = None) -> None:
-        self._base_dir = Path(base_dir).resolve() if base_dir is not None else None
+        self._base_dir = _normalize_base_dir(base_dir) if base_dir is not None else None
 
     @property
     def base_dir(self) -> Path:
@@ -52,13 +62,9 @@ class Paths:
             return self._base_dir
 
         if env_home := os.getenv("OPENAGENTS_HOME"):
-            return Path(env_home).resolve()
+            return _normalize_base_dir(env_home)
 
-        cwd = Path.cwd()
-        if cwd.name == "backend" or (cwd / "pyproject.toml").exists():
-            return cwd / ".openagents"
-
-        return Path.home() / ".openagents"
+        return AGENTS_ROOT / ".openagents"
 
     # ── Legacy compat (global memory / user profile for single-user mode) ──
 

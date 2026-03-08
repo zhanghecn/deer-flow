@@ -12,9 +12,9 @@ import {
 } from "@/components/ai-elements/prompt-input";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ArtifactsProvider } from "@/components/workspace/artifacts";
-import { MessageList } from "@/components/workspace/messages";
+import { ArtifactsProvider } from "@/components/workspace/artifacts/context";
 import { ThreadContext } from "@/components/workspace/messages/context";
+import { MessageList } from "@/components/workspace/messages/message-list";
 import type { Agent } from "@/core/agents";
 import { checkAgentName, getAgent } from "@/core/agents/api";
 import { useI18n } from "@/core/i18n/hooks";
@@ -43,7 +43,6 @@ export default function NewAgentPage() {
   const threadId = useMemo(() => uuid(), []);
 
   const [thread, sendMessage] = useThreadStream({
-    threadId: step === "chat" ? threadId : undefined,
     context: {
       mode: "flash",
       is_bootstrap: true,

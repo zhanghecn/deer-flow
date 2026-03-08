@@ -35,7 +35,6 @@ def build_backend(thread_id: str, agent_name: str | None, status: str = "dev"):
     # === Runtime layer (per-thread isolated) ===
     if thread_id:
         user_data_dir = str(paths.sandbox_user_data_dir(thread_id))
-        paths.ensure_thread_dirs(thread_id)
     else:
         user_data_dir = str(paths.base_dir / "threads" / "_default" / "user-data")
 

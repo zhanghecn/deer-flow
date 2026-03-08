@@ -2,11 +2,33 @@ import json
 import logging
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from threading import Lock
+
+from dotenv import dotenv_values
 
 from src.config.model_config import ModelConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _root_env_path() -> Path:
+    return Path(__file__).resolve().parents[4] / ".env"
+
+
+def _database_uri_from_root_env() -> str | None:
+    env_path = _root_env_path()
+    if not env_path.exists():
+        return None
+
+    value = dotenv_values(env_path).get("DATABASE_URI")
+    if value is None:
+        return None
+
+    uri = str(value).strip()
+    if not uri or uri == ":memory:":
+        return None
+    return uri
 
 
 @dataclass
@@ -199,11 +221,21 @@ class RuntimeDBStore:
 
 def _build_runtime_db_dsn() -> str:
     database_uri = os.getenv("DATABASE_URI", "").strip()
-    if not database_uri or database_uri == ":memory:":
+    if database_uri and database_uri != ":memory:":
+        return database_uri
+
+    fallback_uri = _database_uri_from_root_env()
+    if fallback_uri:
+        return fallback_uri
+
+    if database_uri == ":memory:":
         raise RuntimeError(
-            "Missing required PostgreSQL DATABASE_URI for runtime DB access."
+            "DATABASE_URI is ':memory:' and no root .env DATABASE_URI fallback was found."
         )
-    return database_uri
+
+    raise RuntimeError(
+        "Missing required PostgreSQL DATABASE_URI for runtime DB access."
+    )
 
 
 _db_store: RuntimeDBStore | None = None

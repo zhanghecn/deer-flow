@@ -11,11 +11,11 @@ dependencies = [
     "fastapi>=0.115.0",
     "httpx>=0.28.0",
     "kubernetes>=30.0.0",
-    "langchain>=1.2.3",
+    "langchain>=1.2.10",
     "langchain-deepseek>=1.0.1",
     "langchain-mcp-adapters>=0.1.0",
     "langchain-openai>=1.1.7",
-    "langgraph>=1.0.6",
+    "langgraph>=1.0.8",
     "langgraph-cli[inmem]>=0.4.11",
     "langgraph-checkpoint-postgres>=3.0.4",
     "markdownify>=1.2.2",
@@ -37,3 +37,6 @@ dependencies = [
 
 [dependency-groups]
 dev = ["pytest>=8.0.0", "ruff>=0.14.11"]
+
+[tool.uv.sources]
+deepagents = { path = "../deepagents/libs/deepagents", editable = true }

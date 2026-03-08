@@ -158,7 +158,7 @@ Set your API keys:
 export OPENAI_API_KEY="your-api-key-here"
 ```
 
-Configure project root `.env` (required for Postgres runtime/checkpointer):
+Configure project root `.env` (shared by agents + gateway):
 
 ```bash
 cp ../../.env.example ../../.env
@@ -170,22 +170,20 @@ Important variables:
 
 - `DATABASE_URI`:
   shared PostgreSQL DSN for Python runtime DB queries (`models`, `agents`, `thread_bindings`)
-  and LangGraph persistence/checkpointer backend
+  and LangGraph checkpointer persistence backend
 - `REDIS_URI`:
-  required by LangGraph postgres runtime for queue/scheduler state
+  optional; only needed if explicitly using `LANGGRAPH_RUNTIME_EDITION=postgres`
 - `LANGGRAPH_RUNTIME_EDITION`:
-  runtime backend selection (default `postgres`; no fallback path in startup script)
+  runtime backend selection (default `inmem` for OSS/dev)
 - `LANGGRAPH_URL`:
   gateway upstream target for LangGraph server
 - Header pass-through (`x-user-id`, `x-thread-id`) is configured in `backend/agents/langgraph.json`:
   `http.configurable_headers.includes`
 
 Note:
-- Runtime/checkpoint persistence are configured for PostgreSQL.
-- Ensure postgres runtime dependency is installed in the agents environment:
-  `langgraph-runtime-postgres`
-- Checkpoints are persisted via custom checkpointer
+- Checkpoints are persisted via custom PostgreSQL checkpointer
   (`backend/agents/langgraph.json` → `checkpointer.path=src.checkpointer.checkpointer`).
+- Runtime backend defaults to `inmem`; this does not disable checkpoint persistence.
 
 ### Running
 

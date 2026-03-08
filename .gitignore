@@ -54,3 +54,4 @@ sandbox_image_cache.tar
 web/
 .openagents
 .deer-flow
+.playwright-cli

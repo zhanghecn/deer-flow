@@ -36,7 +36,7 @@ import {
   useDeleteThread,
   useRenameThread,
   useThreads,
-} from "@/core/threads/hooks";
+} from "@/core/threads/query-hooks";
 import { pathOfThread, titleOfThread } from "@/core/threads/utils";
 import { env } from "@/env";
 
@@ -136,6 +136,7 @@ export function RecentChatList() {
                         <Link
                           className="text-muted-foreground block w-full whitespace-nowrap group-hover/side-menu-item:overflow-hidden"
                           href={pathOfThread(thread.thread_id)}
+                          prefetch={false}
                         >
                           {titleOfThread(thread)}
                         </Link>

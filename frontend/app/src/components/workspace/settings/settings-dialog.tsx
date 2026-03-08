@@ -8,6 +8,7 @@ import {
   SparklesIcon,
   WrenchIcon,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -17,14 +18,51 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { AboutSettingsPage } from "@/components/workspace/settings/about-settings-page";
-import { AppearanceSettingsPage } from "@/components/workspace/settings/appearance-settings-page";
-import { MemorySettingsPage } from "@/components/workspace/settings/memory-settings-page";
-import { NotificationSettingsPage } from "@/components/workspace/settings/notification-settings-page";
-import { SkillSettingsPage } from "@/components/workspace/settings/skill-settings-page";
-import { ToolSettingsPage } from "@/components/workspace/settings/tool-settings-page";
 import { useI18n } from "@/core/i18n/hooks";
 import { cn } from "@/lib/utils";
+
+const AppearanceSettingsPage = dynamic(
+  () =>
+    import("@/components/workspace/settings/appearance-settings-page").then(
+      (m) => m.AppearanceSettingsPage,
+    ),
+  { ssr: false },
+);
+const MemorySettingsPage = dynamic(
+  () =>
+    import("@/components/workspace/settings/memory-settings-page").then(
+      (m) => m.MemorySettingsPage,
+    ),
+  { ssr: false },
+);
+const ToolSettingsPage = dynamic(
+  () =>
+    import("@/components/workspace/settings/tool-settings-page").then(
+      (m) => m.ToolSettingsPage,
+    ),
+  { ssr: false },
+);
+const SkillSettingsPage = dynamic(
+  () =>
+    import("@/components/workspace/settings/skill-settings-page").then(
+      (m) => m.SkillSettingsPage,
+    ),
+  { ssr: false },
+);
+const NotificationSettingsPage = dynamic(
+  () =>
+    import("@/components/workspace/settings/notification-settings-page").then(
+      (m) => m.NotificationSettingsPage,
+    ),
+  { ssr: false },
+);
+const AboutSettingsPage = dynamic(
+  () =>
+    import("@/components/workspace/settings/about-settings-page").then(
+      (m) => m.AboutSettingsPage,
+    ),
+  { ssr: false },
+);
 
 type SettingsSection =
   | "appearance"

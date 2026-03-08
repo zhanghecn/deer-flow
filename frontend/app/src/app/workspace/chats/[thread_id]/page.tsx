@@ -1,16 +1,13 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useCallback } from "react";
 
 import { type PromptInputMessage } from "@/components/ai-elements/prompt-input";
-import { ArtifactTrigger } from "@/components/workspace/artifacts";
-import {
-  ChatBox,
-  useSpecificChatMode,
-  useThreadChat,
-} from "@/components/workspace/chats";
+import { ArtifactTrigger } from "@/components/workspace/artifacts/artifact-trigger";
+import { useSpecificChatMode } from "@/components/workspace/chats/use-chat-mode";
+import { useThreadChat } from "@/components/workspace/chats/use-thread-chat";
 import { InputBox } from "@/components/workspace/input-box";
-import { MessageList } from "@/components/workspace/messages";
 import { ThreadContext } from "@/components/workspace/messages/context";
 import { ThreadTitle } from "@/components/workspace/thread-title";
 import { TodoList } from "@/components/workspace/todo-list";
@@ -23,11 +20,24 @@ import { textOfMessage } from "@/core/threads/utils";
 import { env } from "@/env";
 import { cn } from "@/lib/utils";
 
+const ChatBox = dynamic(
+  () => import("@/components/workspace/chats/chat-box").then((m) => m.ChatBox),
+  { ssr: false },
+);
+const MessageList = dynamic(
+  () =>
+    import("@/components/workspace/messages/message-list").then(
+      (m) => m.MessageList,
+    ),
+  { ssr: false },
+);
+
 export default function ChatPage() {
   const { t } = useI18n();
   const [settings, setSettings] = useLocalSettings();
 
-  const { threadId, isNewThread, setIsNewThread, isMock } = useThreadChat();
+  const { threadId, setThreadId, isNewThread, setIsNewThread, isMock } =
+    useThreadChat();
   useSpecificChatMode();
 
   const { showNotification } = useNotification();
@@ -36,9 +46,10 @@ export default function ChatPage() {
     threadId: isNewThread ? undefined : threadId,
     context: settings.context,
     isMock,
-    onStart: () => {
+    onStart: (createdThreadId) => {
+      setThreadId(createdThreadId);
       setIsNewThread(false);
-      history.replaceState(null, "", `/workspace/chats/${threadId}`);
+      history.replaceState(null, "", `/workspace/chats/${createdThreadId}`);
     },
     onFinish: (state) => {
       if (document.hidden || !document.hasFocus()) {

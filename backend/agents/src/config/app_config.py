@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from src.config.extensions_config import ExtensionsConfig
 from src.config.memory_config import load_memory_config_from_dict
 from src.config.model_config import ModelConfig
+from src.config.paths import AGENTS_ROOT
 from src.config.sandbox_config import SandboxConfig
 from src.config.skills_config import SkillsConfig
 from src.config.subagents_config import load_subagents_config_from_dict
@@ -20,6 +21,13 @@ from src.config.tool_config import ToolConfig, ToolGroupConfig
 
 load_dotenv()
 logger = logging.getLogger(__name__)
+
+
+def _resolve_existing_path(candidates: list[Path]) -> Path | None:
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
 
 
 class AppConfig(BaseModel):
@@ -40,28 +48,31 @@ class AppConfig(BaseModel):
         Priority:
         1. If provided `config_path` argument, use it.
         2. If provided `OPENAGENTS_CONFIG_PATH` environment variable, use it.
-        3. Otherwise, first check the `config.yaml` in the current directory, then fallback to `config.yaml` in the parent directory.
+        3. Otherwise, check common local locations:
+           cwd, cwd parent, backend/agents, backend, and project root.
            If neither exists, return None (runtime fallback mode).
         """
         if config_path:
-            path = Path(config_path)
-            if not Path.exists(path):
+            path = Path(config_path).expanduser()
+            if not path.exists():
                 raise FileNotFoundError(f"Config file specified by param `config_path` not found at {path}")
             return path
-        elif os.getenv("OPENAGENTS_CONFIG_PATH"):
-            path = Path(os.getenv("OPENAGENTS_CONFIG_PATH"))
-            if not Path.exists(path):
+        env_path = os.getenv("OPENAGENTS_CONFIG_PATH")
+        if env_path:
+            path = Path(env_path).expanduser()
+            if not path.exists():
                 raise FileNotFoundError(f"Config file specified by environment variable `OPENAGENTS_CONFIG_PATH` not found at {path}")
             return path
-        else:
-            # Check if the config.yaml is in the current directory
-            path = Path(os.getcwd()) / "config.yaml"
-            if not path.exists():
-                # Check if the config.yaml is in the parent directory of CWD
-                path = Path(os.getcwd()).parent / "config.yaml"
-                if not path.exists():
-                    return None
-            return path
+
+        return _resolve_existing_path(
+            [
+                Path("config.yaml"),
+                Path("..") / "config.yaml",
+                AGENTS_ROOT / "config.yaml",
+                AGENTS_ROOT.parent / "config.yaml",
+                AGENTS_ROOT.parent.parent / "config.yaml",
+            ]
+        )
 
     @classmethod
     def _load_models_from_models_json_env(cls) -> list[ModelConfig]:
