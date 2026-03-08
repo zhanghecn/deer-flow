@@ -175,6 +175,13 @@ func (h *OpenAPIHandler) resolveModelForRun(c *gin.Context, agent *model.Agent) 
 func (h *OpenAPIHandler) GetArtifact(c *gin.Context) {
 	threadID := c.Param("tid")
 	artifactPath := c.Param("path")
+	if artifactPath == "" {
+		head := c.Param("head")
+		tail := c.Param("tail")
+		if head != "" {
+			artifactPath = "/" + head + tail
+		}
+	}
 
 	ah := &ArtifactsHandler{fs: h.fs}
 	c.Params = append(c.Params, gin.Param{Key: "id", Value: threadID})

@@ -39,6 +39,30 @@ import { Tooltip } from "../tooltip";
 
 import { MarkdownContent } from "./markdown-content";
 
+function getStringArg(args: Record<string, unknown>, ...keys: string[]) {
+  for (const key of keys) {
+    const value = args[key];
+    if (typeof value === "string") {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function getNumberArg(args: Record<string, unknown>, ...keys: string[]) {
+  for (const key of keys) {
+    const value = args[key];
+    if (typeof value === "number") {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function getPathArg(args: Record<string, unknown>) {
+  return getStringArg(args, "path", "file_path");
+}
+
 export function MessageGroup({
   className,
   messages,
@@ -196,7 +220,7 @@ function ToolCall({
   messageId?: string;
   name: string;
   args: Record<string, unknown>;
-  result?: string | Record<string, unknown>;
+  result?: unknown;
   isLast?: boolean;
   isLoading?: boolean;
 }) {
@@ -302,7 +326,7 @@ function ToolCall({
     if (!description) {
       description = t.toolCalls.listFolder;
     }
-    const path: string | undefined = (args as { path: string })?.path;
+    const path = getStringArg(args, "path", "dir_path", "directory");
     return (
       <ChainOfThoughtStep key={id} label={description} icon={FolderOpenIcon}>
         {path && (
@@ -318,7 +342,9 @@ function ToolCall({
     if (!description) {
       description = t.toolCalls.readFile;
     }
-    const { path } = args as { path: string; content: string };
+    const path = getPathArg(args);
+    const offset = getNumberArg(args, "offset");
+    const limit = getNumberArg(args, "limit");
     return (
       <ChainOfThoughtStep key={id} label={description} icon={BookOpenTextIcon}>
         {path && (
@@ -326,16 +352,30 @@ function ToolCall({
             {path}
           </ChainOfThoughtSearchResult>
         )}
+        {(offset !== undefined || limit !== undefined) && (
+          <ChainOfThoughtSearchResult className="text-muted-foreground">
+            offset={offset ?? 0}, limit={limit ?? 2000}
+          </ChainOfThoughtSearchResult>
+        )}
       </ChainOfThoughtStep>
     );
-  } else if (name === "write_file" || name === "str_replace") {
+  } else if (
+    name === "write_file" ||
+    name === "str_replace" ||
+    name === "edit_file"
+  ) {
     let description: string | undefined = (args as { description: string })
       ?.description;
     if (!description) {
-      description = t.toolCalls.writeFile;
+      description = name === "edit_file" ? t.toolCalls.useTool(name) : t.toolCalls.writeFile;
     }
-    const path: string | undefined = (args as { path: string })?.path;
-    if (isLoading && isLast && autoOpen && autoSelect && path) {
+    const path = getPathArg(args);
+    const content = getStringArg(args, "content");
+    const canOpenContent =
+      (name === "write_file" || name === "str_replace") &&
+      Boolean(path && typeof content === "string");
+
+    if (isLoading && isLast && autoOpen && autoSelect && canOpenContent) {
       setTimeout(() => {
         const url = new URL(
           `write-file:${path}?message_id=${messageId}&tool_call_id=${id}`,
@@ -351,17 +391,21 @@ function ToolCall({
     return (
       <ChainOfThoughtStep
         key={id}
-        className="cursor-pointer"
+        className={canOpenContent ? "cursor-pointer" : undefined}
         label={description}
         icon={NotebookPenIcon}
-        onClick={() => {
-          select(
-            new URL(
-              `write-file:${path}?message_id=${messageId}&tool_call_id=${id}`,
-            ).toString(),
-          );
-          setOpen(true);
-        }}
+        onClick={
+          canOpenContent
+            ? () => {
+                select(
+                  new URL(
+                    `write-file:${path}?message_id=${messageId}&tool_call_id=${id}`,
+                  ).toString(),
+                );
+                setOpen(true);
+              }
+            : undefined
+        }
       >
         {path && (
           <ChainOfThoughtSearchResult className="cursor-pointer">
@@ -370,17 +414,14 @@ function ToolCall({
         )}
       </ChainOfThoughtStep>
     );
-  } else if (name === "bash") {
+  } else if (name === "bash" || name === "execute") {
     const description: string | undefined = (args as { description: string })
       ?.description;
-    if (!description) {
-      return t.toolCalls.executeCommand;
-    }
-    const command: string | undefined = (args as { command: string })?.command;
+    const command = getStringArg(args, "command", "cmd");
     return (
       <ChainOfThoughtStep
         key={id}
-        label={description}
+        label={description ?? t.toolCalls.executeCommand}
         icon={SquareTerminalIcon}
       >
         {command && (
@@ -390,6 +431,70 @@ function ToolCall({
             language="bash"
             code={command}
           />
+        )}
+      </ChainOfThoughtStep>
+    );
+  } else if (name === "grep") {
+    const description: string | undefined = (args as { description: string })
+      ?.description;
+    const pattern = getStringArg(args, "pattern");
+    const path = getStringArg(args, "path");
+    const glob = getStringArg(args, "glob");
+    const outputMode = getStringArg(args, "output_mode");
+    return (
+      <ChainOfThoughtStep
+        key={id}
+        label={description ?? t.toolCalls.useTool(name)}
+        icon={SearchIcon}
+      >
+        {pattern && (
+          <CodeBlock
+            className="mx-0 cursor-pointer border-none px-0"
+            showLineNumbers={false}
+            language="bash"
+            code={pattern}
+          />
+        )}
+        {path && (
+          <ChainOfThoughtSearchResult className="text-muted-foreground">
+            path: {path}
+          </ChainOfThoughtSearchResult>
+        )}
+        {glob && (
+          <ChainOfThoughtSearchResult className="text-muted-foreground">
+            glob: {glob}
+          </ChainOfThoughtSearchResult>
+        )}
+        {outputMode && (
+          <ChainOfThoughtSearchResult className="text-muted-foreground">
+            output_mode: {outputMode}
+          </ChainOfThoughtSearchResult>
+        )}
+      </ChainOfThoughtStep>
+    );
+  } else if (name === "glob") {
+    const description: string | undefined = (args as { description: string })
+      ?.description;
+    const pattern = getStringArg(args, "pattern");
+    const path = getStringArg(args, "path");
+    return (
+      <ChainOfThoughtStep
+        key={id}
+        label={description ?? t.toolCalls.useTool(name)}
+        icon={SearchIcon}
+      >
+        {pattern && (
+          <CodeBlock
+            className="mx-0 cursor-pointer border-none px-0"
+            showLineNumbers={false}
+            language="bash"
+            code={pattern}
+          />
+        )}
+        {path && (
+          <ChainOfThoughtSearchResult className="text-muted-foreground">
+            path: {path}
+          </ChainOfThoughtSearchResult>
         )}
       </ChainOfThoughtStep>
     );
@@ -435,7 +540,7 @@ interface CoTReasoningStep extends GenericCoTStep<"reasoning"> {
 interface CoTToolCallStep extends GenericCoTStep<"toolCall"> {
   name: string;
   args: Record<string, unknown>;
-  result?: string;
+  result?: unknown;
 }
 
 type CoTStep = CoTReasoningStep | CoTToolCallStep;

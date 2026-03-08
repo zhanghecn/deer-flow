@@ -5,6 +5,7 @@ from pathlib import Path
 # Virtual path prefix seen by agents inside the sandbox
 VIRTUAL_PATH_PREFIX = "/mnt/user-data"
 AGENTS_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = AGENTS_ROOT.parent.parent
 
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
 
@@ -13,7 +14,7 @@ def _normalize_base_dir(value: str | Path) -> Path:
     path = Path(value).expanduser()
     if path.is_absolute():
         return path
-    return AGENTS_ROOT / path
+    return PROJECT_ROOT / path
 
 
 class Paths:
@@ -46,9 +47,9 @@ class Paths:
     BaseDir resolution (in priority order):
         1. Constructor argument `base_dir`
         2. OPENAGENTS_HOME environment variable
-        3. Local dev fallback: {backend/agents}/.openagents
+        3. Local dev fallback: {project-root}/.openagents
     Notes:
-        - Relative paths are resolved against the backend/agents root.
+        - Relative paths are resolved against the project root.
         - This avoids runtime `cwd` resolution, which can trigger blocking guards.
     """
 
@@ -64,7 +65,7 @@ class Paths:
         if env_home := os.getenv("OPENAGENTS_HOME"):
             return _normalize_base_dir(env_home)
 
-        return AGENTS_ROOT / ".openagents"
+        return AGENTS_ROOT.parent.parent / ".openagents"
 
     # ── Legacy compat (global memory / user profile for single-user mode) ──
 

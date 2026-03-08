@@ -101,6 +101,11 @@ func (h *AdminHandler) ListTraces(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to list traces"})
 		return
 	}
+	total, err := h.observabilityRepo.CountTraces(c.Request.Context(), userID, agentName, threadID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to count traces"})
+		return
+	}
 	if traces == nil {
 		traces = []repository.AgentTraceRecord{}
 	}
@@ -108,6 +113,7 @@ func (h *AdminHandler) ListTraces(c *gin.Context) {
 		"items":  traces,
 		"limit":  limit,
 		"offset": offset,
+		"total":  total,
 	})
 }
 

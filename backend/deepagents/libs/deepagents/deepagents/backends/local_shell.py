@@ -8,6 +8,7 @@ on the host machine with full system access.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import uuid
 import warnings
@@ -295,17 +296,32 @@ class LocalShellBackend(FilesystemBackend, SandboxBackendProtocol):
             msg = f"timeout must be positive, got {effective_timeout}"
             raise ValueError(msg)
 
+        if self.virtual_mode:
+            for subdir in ("workspace", "uploads", "outputs"):
+                (self.cwd / subdir).mkdir(parents=True, exist_ok=True)
+
+        command_to_run = self._rewrite_virtual_paths_for_execute(command)
+
         try:
-            result = subprocess.run(  # noqa: S602
-                command,
-                check=False,
-                shell=True,  # Intentional: designed for LLM-controlled shell execution
-                capture_output=True,
-                text=True,
-                timeout=effective_timeout,
-                env=self._env,
-                cwd=str(self.cwd),  # Use the root_dir from FilesystemBackend
-            )
+            def _run_once() -> subprocess.CompletedProcess[str]:
+                return subprocess.run(  # noqa: S602
+                    command_to_run,
+                    check=False,
+                    shell=True,  # Intentional: designed for LLM-controlled shell execution
+                    capture_output=True,
+                    text=True,
+                    timeout=effective_timeout,
+                    env=self._env,
+                    cwd=str(self.cwd),  # Use the root_dir from FilesystemBackend
+                )
+
+            try:
+                result = _run_once()
+            except FileNotFoundError:
+                # Thread workspaces can be lazily initialized. If cwd does not exist yet,
+                # create it once and retry execution.
+                self.cwd.mkdir(parents=True, exist_ok=True)
+                result = _run_once()
 
             # Combine stdout and stderr
             # Prefix each stderr line with [stderr] for clear attribution.
@@ -354,6 +370,35 @@ class LocalShellBackend(FilesystemBackend, SandboxBackendProtocol):
                 exit_code=1,
                 truncated=False,
             )
+
+    def _rewrite_virtual_paths_for_execute(self, command: str) -> str:
+        """Map sandbox-style absolute paths to this backend's thread root.
+
+        When virtual_mode is enabled, file tools expose virtual paths (for example
+        `/workspace/...` and `/mnt/user-data/...`). Shell execution happens on host,
+        so these paths must be rewritten to the backend's cwd to keep all writes
+        thread-scoped and artifact-serving compatible.
+        """
+        if not self.virtual_mode:
+            return command
+
+        replacements = {
+            "/mnt/user-data": str(self.cwd),
+            "/workspace": str(self.cwd / "workspace"),
+            "/outputs": str(self.cwd / "outputs"),
+            "/uploads": str(self.cwd / "uploads"),
+        }
+
+        rewritten = command
+        for virtual_path, host_path in sorted(
+            replacements.items(),
+            key=lambda item: len(item[0]),
+            reverse=True,
+        ):
+            pattern = rf"(?<![A-Za-z0-9_./-]){re.escape(virtual_path)}(?=(/|\\b))"
+            rewritten = re.sub(pattern, host_path, rewritten)
+
+        return rewritten
 
 
 __all__ = ["DEFAULT_EXECUTE_TIMEOUT", "LocalShellBackend"]

@@ -13,6 +13,7 @@ export async function login(
 ): Promise<AuthResponse> {
   const res = await fetch(`${getBackendBaseURL()}/api/auth/login`, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ account, password }),
   });
@@ -32,6 +33,7 @@ export async function register(
 ): Promise<AuthResponse> {
   const res = await fetch(`${getBackendBaseURL()}/api/auth/register`, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password, name }),
   });

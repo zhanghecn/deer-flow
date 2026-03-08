@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -23,8 +24,16 @@ type AuthHandler struct {
 	fs        *storage.FS
 }
 
+const authCookieMaxAgeSeconds = 7 * 24 * 60 * 60
+
 func NewAuthHandler(userRepo *repository.UserRepo, tokenRepo *repository.APITokenRepo, jwtMgr *jwt.Manager, fs *storage.FS) *AuthHandler {
 	return &AuthHandler{userRepo: userRepo, tokenRepo: tokenRepo, jwtMgr: jwtMgr, fs: fs}
+}
+
+func setAuthCookie(c *gin.Context, token string) {
+	secure := c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie(middleware.AuthCookieName, token, authCookieMaxAgeSeconds, "/", "", secure, true)
 }
 
 func (h *AuthHandler) Register(c *gin.Context) {
@@ -83,6 +92,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
+	setAuthCookie(c, token)
 	c.JSON(http.StatusCreated, model.AuthResponse{Token: token, User: *user})
 }
 
@@ -110,6 +120,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	setAuthCookie(c, token)
 	c.JSON(http.StatusOK, model.AuthResponse{Token: token, User: *user})
 }
 

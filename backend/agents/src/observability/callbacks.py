@@ -118,6 +118,7 @@ class AgentTraceCallbackHandler(BaseCallbackHandler):
         **kwargs: Any,
     ) -> Any:
         node_name = _resolve_name(serialized)
+        request_messages = _extract_chat_messages(messages)
         self._record_start(
             run_id=run_id,
             parent_run_id=parent_run_id,
@@ -125,7 +126,10 @@ class AgentTraceCallbackHandler(BaseCallbackHandler):
             node_name=node_name,
             tool_name=None,
             payload={
-                "messages": _shrink(messages),
+                "model_request": {
+                    "messages": _shrink(request_messages),
+                },
+                "messages": _shrink(request_messages),
                 "metadata": _shrink(metadata),
                 "tags": tags or [],
             },
@@ -141,6 +145,8 @@ class AgentTraceCallbackHandler(BaseCallbackHandler):
         **kwargs: Any,
     ) -> Any:
         in_tok, out_tok, total_tok = _extract_usage(response)
+        response_messages = _extract_response_messages(response)
+        response_tool_calls = _extract_tool_calls(response_messages)
         self._record_end(
             run_id=run_id,
             parent_run_id=parent_run_id,
@@ -149,6 +155,12 @@ class AgentTraceCallbackHandler(BaseCallbackHandler):
             output_tokens=out_tok,
             total_tokens=total_tok,
             payload={
+                "model_response": {
+                    "messages": _shrink(response_messages),
+                    "tool_calls": _shrink(response_tool_calls),
+                },
+                "messages": _shrink(response_messages),
+                "tool_calls": _shrink(response_tool_calls),
                 "llm_output": _shrink(getattr(response, "llm_output", None)),
                 "tags": tags or [],
             },
@@ -184,6 +196,7 @@ class AgentTraceCallbackHandler(BaseCallbackHandler):
         **kwargs: Any,
     ) -> Any:
         tool_name = _resolve_name(serialized)
+        parsed_input = _try_parse_json(input_str)
         self._record_start(
             run_id=run_id,
             parent_run_id=parent_run_id,
@@ -191,6 +204,11 @@ class AgentTraceCallbackHandler(BaseCallbackHandler):
             node_name=tool_name,
             tool_name=tool_name,
             payload={
+                "tool_call": {
+                    "name": tool_name,
+                    "arguments": _shrink(parsed_input),
+                    "inputs": _shrink(inputs),
+                },
                 "input_str": _shrink(input_str),
                 "inputs": _shrink(inputs),
                 "metadata": _shrink(metadata),
@@ -210,7 +228,10 @@ class AgentTraceCallbackHandler(BaseCallbackHandler):
             run_id=run_id,
             parent_run_id=parent_run_id,
             run_type="tool",
-            payload={"output": _shrink(output)},
+            payload={
+                "tool_response": {"output": _shrink(output)},
+                "output": _shrink(output),
+            },
         )
 
     def on_tool_error(
@@ -515,6 +536,189 @@ def _extract_usage(response: Any) -> tuple[int, int, int]:
         total_tokens = input_tokens + output_tokens
 
     return input_tokens, output_tokens, total_tokens
+
+
+def _extract_chat_messages(messages: list[list[Any]]) -> list[dict[str, Any]]:
+    flattened: list[dict[str, Any]] = []
+    is_batched = len(messages) > 1
+    for batch_index, batch in enumerate(messages):
+        if not isinstance(batch, list):
+            continue
+        for message in batch:
+            item = _serialize_message(message)
+            if is_batched:
+                item["batch_index"] = batch_index
+            flattened.append(item)
+    return flattened
+
+
+def _extract_response_messages(response: Any) -> list[dict[str, Any]]:
+    messages: list[dict[str, Any]] = []
+    generations = getattr(response, "generations", None)
+    if not isinstance(generations, list):
+        return messages
+
+    for generation_list in generations:
+        if not isinstance(generation_list, list):
+            continue
+        for generation in generation_list:
+            message = getattr(generation, "message", None)
+            if message is not None:
+                messages.append(_serialize_message(message))
+                continue
+            text = getattr(generation, "text", None)
+            if text not in (None, ""):
+                messages.append({"role": "assistant", "content": _jsonify(text)})
+    return messages
+
+
+def _extract_tool_calls(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    calls: list[dict[str, Any]] = []
+    for message in messages:
+        raw_calls = message.get("tool_calls")
+        if not isinstance(raw_calls, list):
+            continue
+        for raw_call in raw_calls:
+            normalized = _normalize_tool_call(raw_call)
+            if normalized:
+                calls.append(normalized)
+    return calls
+
+
+def _serialize_message(message: Any) -> dict[str, Any]:
+    serialized: dict[str, Any] = {}
+
+    role = _as_non_empty_str(getattr(message, "type", None)) or _as_non_empty_str(
+        getattr(message, "role", None)
+    )
+    if role:
+        serialized["role"] = role
+
+    content = getattr(message, "content", None)
+    if content is not None:
+        serialized["content"] = _jsonify(content)
+
+    message_id = _as_non_empty_str(getattr(message, "id", None))
+    if message_id:
+        serialized["id"] = message_id
+
+    name = _as_non_empty_str(getattr(message, "name", None))
+    if name:
+        serialized["name"] = name
+
+    tool_call_id = _as_non_empty_str(getattr(message, "tool_call_id", None))
+    if tool_call_id:
+        serialized["tool_call_id"] = tool_call_id
+
+    tool_calls = _extract_message_tool_calls(message)
+    if tool_calls:
+        serialized["tool_calls"] = tool_calls
+
+    response_metadata = getattr(message, "response_metadata", None)
+    if response_metadata:
+        serialized["response_metadata"] = _jsonify(response_metadata)
+
+    additional_kwargs = getattr(message, "additional_kwargs", None)
+    if isinstance(additional_kwargs, dict):
+        extra: dict[str, Any] = {}
+        for key in ("finish_reason", "stop_reason", "refusal"):
+            if key in additional_kwargs:
+                extra[key] = _jsonify(additional_kwargs.get(key))
+        if extra:
+            serialized["additional_kwargs"] = extra
+
+    if serialized:
+        return serialized
+    return {"raw": str(message)}
+
+
+def _extract_message_tool_calls(message: Any) -> list[dict[str, Any]]:
+    calls: list[dict[str, Any]] = []
+    direct_calls = getattr(message, "tool_calls", None)
+    if isinstance(direct_calls, list):
+        for call in direct_calls:
+            normalized = _normalize_tool_call(call)
+            if normalized:
+                calls.append(normalized)
+
+    additional_kwargs = getattr(message, "additional_kwargs", None)
+    if isinstance(additional_kwargs, dict):
+        raw_calls = additional_kwargs.get("tool_calls")
+        if isinstance(raw_calls, list):
+            for raw_call in raw_calls:
+                normalized = _normalize_tool_call(raw_call)
+                if normalized:
+                    calls.append(normalized)
+    return calls
+
+
+def _normalize_tool_call(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, dict):
+        if isinstance(value.get("function"), dict):
+            function = value.get("function") or {}
+            arguments = function.get("arguments")
+            parsed_args = _try_parse_json(arguments)
+            normalized = _drop_none(
+                {
+                    "id": _as_non_empty_str(value.get("id")),
+                    "name": _as_non_empty_str(function.get("name")),
+                    "type": _as_non_empty_str(value.get("type")) or "tool_call",
+                    "arguments": _jsonify(parsed_args),
+                }
+            )
+            return normalized or {"raw": _jsonify(value)}
+
+        arguments = value.get("args")
+        if arguments is None:
+            arguments = value.get("arguments")
+        parsed_args = _try_parse_json(arguments)
+        normalized = _drop_none(
+            {
+                "id": _as_non_empty_str(value.get("id")),
+                "name": _as_non_empty_str(value.get("name")),
+                "type": _as_non_empty_str(value.get("type")),
+                "arguments": _jsonify(parsed_args),
+            }
+        )
+        return normalized or {"raw": _jsonify(value)}
+    return {"raw": _jsonify(value)}
+
+
+def _jsonify(value: Any) -> Any:
+    if value is None:
+        return None
+    try:
+        text = json.dumps(value, ensure_ascii=True, default=str)
+    except TypeError:
+        return str(value)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return text
+
+
+def _try_parse_json(value: Any) -> Any:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        return _jsonify(value)
+    text = value.strip()
+    if not text:
+        return ""
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return value
+
+
+def _as_non_empty_str(value: Any) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value
+    return None
+
+
+def _drop_none(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in payload.items() if value is not None}
 
 
 def _to_int(value: Any) -> int:

@@ -137,6 +137,28 @@ func (r *AdminObservabilityRepo) ListTraces(
 	return items, nil
 }
 
+func (r *AdminObservabilityRepo) CountTraces(
+	ctx context.Context,
+	userID *uuid.UUID,
+	agentName string,
+	threadID string,
+) (int64, error) {
+	query := `
+		SELECT COUNT(*)
+		FROM agent_traces
+		WHERE ($1::uuid IS NULL OR user_id = $1::uuid)
+		  AND ($2 = '' OR agent_name = $2)
+		  AND ($3 = '' OR thread_id = $3)
+	`
+
+	var total int64
+	err := r.pool.QueryRow(ctx, query, userID, agentName, threadID).Scan(&total)
+	if err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
 func (r *AdminObservabilityRepo) ListTraceEvents(ctx context.Context, traceID string) ([]AgentTraceEventRecord, error) {
 	query := `
 		SELECT

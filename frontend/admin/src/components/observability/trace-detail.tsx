@@ -1,4 +1,6 @@
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
@@ -10,12 +12,25 @@ import type { TraceItem, TraceEvent } from "@/types";
 
 interface TraceDetailProps {
   trace: TraceItem | null;
+  expanded?: boolean;
 }
 
-export function TraceDetail({ trace }: TraceDetailProps) {
+type ViewMode = "timeline" | "galaxy";
+
+const GalaxyTraceView = lazy(async () => {
+  const module = await import("./galaxy-trace-view");
+  return { default: module.GalaxyTraceView };
+});
+
+export function TraceDetail({ trace, expanded = false }: TraceDetailProps) {
+  const [viewMode, setViewMode] = useState<ViewMode>("timeline");
   const { data, isLoading } = useFetch<{ items: TraceEvent[] }>(
     trace ? `/api/admin/traces/${trace.trace_id}/events` : null,
   );
+
+  useEffect(() => {
+    setViewMode("timeline");
+  }, [trace?.trace_id]);
 
   if (!trace) {
     return (
@@ -26,7 +41,7 @@ export function TraceDetail({ trace }: TraceDetailProps) {
   }
 
   return (
-    <ScrollArea className="h-[calc(100vh-16rem)]">
+    <ScrollArea className={expanded ? "h-[calc(100vh-13rem)]" : "h-[calc(100vh-16rem)]"}>
       <div className="space-y-4 p-4">
         {/* Meta info */}
         <div className="space-y-2">
@@ -83,13 +98,46 @@ export function TraceDetail({ trace }: TraceDetailProps) {
 
         {/* Event tree */}
         <div>
-          <h4 className="text-sm font-medium mb-2">Events</h4>
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <h4 className="text-sm font-medium">Events</h4>
+            <div className="flex items-center gap-2">
+              <Button
+                variant={viewMode === "timeline" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setViewMode("timeline")}
+              >
+                Timeline
+              </Button>
+              <Button
+                variant={viewMode === "galaxy" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setViewMode("galaxy")}
+              >
+                Galaxy 3D
+              </Button>
+            </div>
+          </div>
           {isLoading ? (
             <div className="space-y-2">
               {Array.from({ length: 6 }).map((_, i) => (
                 <Skeleton key={i} className="h-8 w-full" />
               ))}
             </div>
+          ) : viewMode === "galaxy" ? (
+            <Suspense
+              fallback={
+                <div className="space-y-2">
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <Skeleton key={i} className="h-10 w-full" />
+                  ))}
+                </div>
+              }
+            >
+              <GalaxyTraceView
+                events={data?.items ?? []}
+                rootRunId={trace.root_run_id}
+              />
+            </Suspense>
           ) : (
             <EventTree events={data?.items ?? []} />
           )}

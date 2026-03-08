@@ -29,6 +29,12 @@ func TestCORSPreflightAllowsRequestedHeaders(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("expected status 204, got %d", rec.Code)
 	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:3000" {
+		t.Fatalf("expected Access-Control-Allow-Origin to echo request origin, got %q", got)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
+		t.Fatalf("expected Access-Control-Allow-Credentials=true, got %q", got)
+	}
 
 	allowHeaders := strings.ToLower(rec.Header().Get("Access-Control-Allow-Headers"))
 	for _, want := range []string{"authorization", "last-event-id", "x-custom-header"} {

@@ -71,3 +71,17 @@ opencode 的工具注册和智能体更加完善。
 就拿 read 工具举例。
 opencode 实现的read 不仅包含行号还包括剩余多少行的信息,提示词也更完善,参与智能体智能体循环过程中更加稳定,智能体会自动分页调用read工具。 
 包括里面的智能体更容易搭配,这对我的项目配置子智能体用哪些工具 哪个模型 以及总结 上下文压缩策略也更好
+  
+/root/project/ai/deer-flow/backend/agents/src/agents/lead_agent/agent.py 构建的后端协议有问题。 说明你不
+理解我的项目是做什么的。也没有完全统一规范
+1. 创建agent 通过 skill + AGENTS.md 完成属于专业领域agent 要做的工作流
+2. skills 是一个单独的文件夹储存 但是 AGENTS.md 独属于各个智能体。 skills 可以被 agent 引用。 选着哪几个skill 
+3. 本地调试 用的 本地文件系统 但是发版肯定走虚拟机的 此时肯定需要 sandbox 
+4. agent 中的 AGENTS.md 实际也是本地文件。 数据库储存的都是引用。目前看上去实现是有问题的
+5. agent 里面分 dev/prod 的 避免调试污染 
+6. agent 中的skill 是从 skills 库中复制过来的。避免每个agent 修改 skill 被污染。 后续还可以发布agent 内部的skill
+7. 默认的agent 就是 lead_agent 中的 skill 可以用所有归档的skill
+
+完成后画一个 ascii 流程图 以及文档。 让我审查你是否真的理解清楚
+
+

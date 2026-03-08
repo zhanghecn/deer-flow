@@ -7,7 +7,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel
 
-from src.config.paths import get_paths
+from src.config.paths import AGENTS_ROOT, get_paths
 
 logger = logging.getLogger(__name__)
 
@@ -85,15 +85,17 @@ def load_agents_md(agent_name: str | None, status: str = "dev") -> str | None:
         if not agent_dir.exists():
             # Fallback to legacy layout
             agent_dir = paths.agents_dir / agent_name.lower()
+        candidate_dirs = [agent_dir]
     else:
-        agent_dir = paths.base_dir
+        candidate_dirs = [paths.base_dir, AGENTS_ROOT]
 
     # Try AGENTS.md first, then legacy SOUL.md
-    for filename in (AGENTS_MD_FILENAME, _LEGACY_SOUL_FILENAME):
-        md_path = agent_dir / filename
-        if md_path.exists():
-            content = md_path.read_text(encoding="utf-8").strip()
-            return content or None
+    for agent_dir in candidate_dirs:
+        for filename in (AGENTS_MD_FILENAME, _LEGACY_SOUL_FILENAME):
+            md_path = agent_dir / filename
+            if md_path.exists():
+                content = md_path.read_text(encoding="utf-8").strip()
+                return content or None
 
     return None
 

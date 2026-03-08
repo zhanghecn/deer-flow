@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/openagents/gateway/internal/repository"
-	"github.com/openagents/gateway/pkg/jwt"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/openagents/gateway/internal/repository"
+	"github.com/openagents/gateway/pkg/jwt"
 )
 
 type contextKey string
@@ -18,6 +18,8 @@ type contextKey string
 const (
 	UserIDKey contextKey = "user_id"
 	RoleKey   contextKey = "role"
+	// AuthCookieName stores JWT for browser-initiated requests (iframe/download).
+	AuthCookieName = "openagents_token"
 )
 
 func GetUserID(c *gin.Context) uuid.UUID {
@@ -81,9 +83,19 @@ func APITokenAuth(tokenRepo *repository.APITokenRepo) gin.HandlerFunc {
 }
 
 func extractBearerToken(r *http.Request) string {
-	auth := r.Header.Get("Authorization")
+	auth := strings.TrimSpace(r.Header.Get("Authorization"))
 	if strings.HasPrefix(auth, "Bearer ") {
-		return strings.TrimPrefix(auth, "Bearer ")
+		token := strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
+		if token != "" {
+			return token
+		}
+	}
+
+	if cookie, err := r.Cookie(AuthCookieName); err == nil {
+		token := strings.TrimSpace(cookie.Value)
+		if token != "" {
+			return token
+		}
 	}
 	return ""
 }

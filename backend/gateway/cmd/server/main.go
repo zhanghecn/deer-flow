@@ -205,7 +205,7 @@ func main() {
 		api.DELETE("/threads/:id/uploads/:filename", uploadsH.Delete)
 
 		// Artifacts
-		api.GET("/threads/:id/artifacts/*path", artifactsH.Serve)
+		api.GET("/threads/:id/artifacts/:head/*tail", artifactsH.Serve)
 
 		// Admin
 		admin := api.Group("/admin")
@@ -256,7 +256,7 @@ func main() {
 	{
 		open.POST("/agents/:name/chat", openAPIH.Chat)
 		open.POST("/agents/:name/stream", openAPIH.Stream)
-		open.GET("/agents/:name/threads/:tid/artifacts/*path", openAPIH.GetArtifact)
+		open.GET("/agents/:name/threads/:tid/artifacts/:head/*tail", openAPIH.GetArtifact)
 	}
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

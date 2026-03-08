@@ -155,6 +155,12 @@ class FilesystemBackend(BackendProtocol):
         """
         if self.virtual_mode:
             vpath = key if key.startswith("/") else "/" + key
+            # Compatibility: allow callers to use sandbox-style paths while this
+            # backend is rooted at the thread's `/mnt/user-data`.
+            if vpath == "/mnt/user-data":
+                vpath = "/"
+            elif vpath.startswith("/mnt/user-data/"):
+                vpath = "/" + vpath[len("/mnt/user-data/") :]
             if ".." in vpath or vpath.startswith("~"):
                 msg = "Path traversal not allowed"
                 raise ValueError(msg)

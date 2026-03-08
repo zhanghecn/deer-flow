@@ -250,6 +250,45 @@ class TestLoadAgentsMd:
 
         assert content is None
 
+    def test_default_agent_prefers_openagents_home_agents_md(self, tmp_path):
+        from src.config.paths import Paths
+
+        openagents_home = tmp_path / ".openagents"
+        openagents_home.mkdir(parents=True)
+        (openagents_home / "AGENTS.md").write_text("openagents default", encoding="utf-8")
+
+        repo_agents_root = tmp_path / "backend" / "agents"
+        repo_agents_root.mkdir(parents=True)
+        (repo_agents_root / "AGENTS.md").write_text("repo fallback", encoding="utf-8")
+
+        with patch("src.config.agents_config.get_paths", return_value=Paths(base_dir=openagents_home)), patch(
+            "src.config.agents_config.AGENTS_ROOT", repo_agents_root
+        ):
+            from src.config.agents_config import load_agents_md
+
+            content = load_agents_md(None)
+
+        assert content == "openagents default"
+
+    def test_default_agent_falls_back_to_repo_agents_md(self, tmp_path):
+        from src.config.paths import Paths
+
+        openagents_home = tmp_path / ".openagents"
+        openagents_home.mkdir(parents=True)
+
+        repo_agents_root = tmp_path / "backend" / "agents"
+        repo_agents_root.mkdir(parents=True)
+        (repo_agents_root / "AGENTS.md").write_text("repo fallback", encoding="utf-8")
+
+        with patch("src.config.agents_config.get_paths", return_value=Paths(base_dir=openagents_home)), patch(
+            "src.config.agents_config.AGENTS_ROOT", repo_agents_root
+        ):
+            from src.config.agents_config import load_agents_md
+
+            content = load_agents_md(None)
+
+        assert content == "repo fallback"
+
 
 # ===========================================================================
 # 5. list_custom_agents

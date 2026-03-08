@@ -2,6 +2,7 @@ from pathlib import Path
 
 from src.config.app_config import AppConfig
 from src.config.extensions_config import ExtensionsConfig
+from src.config.paths import Paths
 
 
 def test_app_config_resolve_path_finds_project_root(monkeypatch, tmp_path: Path):
@@ -28,3 +29,17 @@ def test_extensions_config_resolve_path_finds_project_root(monkeypatch, tmp_path
 
     resolved = ExtensionsConfig.resolve_config_path()
     assert resolved == project_extensions
+
+
+def test_paths_openagents_home_relative_resolves_from_project_root(monkeypatch, tmp_path: Path):
+    project_root = tmp_path / "repo"
+    agents_root = project_root / "backend" / "agents"
+    agents_root.mkdir(parents=True)
+
+    monkeypatch.setenv("OPENAGENTS_HOME", ".openagents")
+    monkeypatch.setattr("src.config.paths.PROJECT_ROOT", project_root)
+    monkeypatch.setattr("src.config.paths.AGENTS_ROOT", agents_root)
+
+    paths = Paths()
+
+    assert paths.base_dir == project_root / ".openagents"

@@ -33,6 +33,13 @@ export interface TraceItem {
   metadata?: Record<string, unknown>;
 }
 
+export interface PaginatedResponse<T> {
+  items: T[];
+  limit: number;
+  offset: number;
+  total: number;
+}
+
 export interface TraceEvent {
   id: number;
   trace_id: string;

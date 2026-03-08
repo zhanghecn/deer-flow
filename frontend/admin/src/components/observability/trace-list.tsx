@@ -10,7 +10,7 @@ interface TraceListProps {
   traces: TraceItem[] | null;
   isLoading: boolean;
   selectedId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (trace: TraceItem) => void;
 }
 
 function statusColor(status: string) {
@@ -50,12 +50,12 @@ export function TraceList({
   }
 
   return (
-    <ScrollArea className="h-[calc(100vh-16rem)]">
+    <ScrollArea className="h-full">
       <div className="space-y-1 p-2">
         {traces.map((trace) => (
           <button
             key={trace.trace_id}
-            onClick={() => onSelect(trace.trace_id)}
+            onClick={() => onSelect(trace)}
             className={cn(
               "w-full text-left rounded-md border p-3 transition-colors hover:bg-accent",
               selectedId === trace.trace_id && "bg-accent border-primary",

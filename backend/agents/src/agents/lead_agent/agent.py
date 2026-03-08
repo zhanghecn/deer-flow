@@ -7,6 +7,7 @@ from langgraph_sdk.runtime import ServerRuntime
 
 from src.agents.lead_agent.prompt import apply_prompt_template
 from src.agents.lead_agent.subagents import load_subagent_specs
+from src.agents.middlewares.artifacts_middleware import ArtifactsMiddleware
 from src.agents.middlewares.thread_data_middleware import ThreadDataMiddleware
 from src.agents.middlewares.title_middleware import TitleMiddleware
 from src.agents.middlewares.uploads_middleware import UploadsMiddleware
@@ -20,7 +21,7 @@ from src.observability import create_agent_trace_callback
 logger = logging.getLogger(__name__)
 
 
-def build_backend(thread_id: str, agent_name: str | None, status: str = "dev"):
+def build_backend(thread_id: str | None, agent_name: str | None, status: str = "dev"):
     """Build a CompositeBackend for the agent.
 
     Replaces the old LocalSandbox + replace_virtual_path system with deepagents backends.
@@ -60,9 +61,11 @@ def build_backend(thread_id: str, agent_name: str | None, status: str = "dev"):
     # Global public skills are only exposed for the default agent flow.
     if not agent_name:
         skills_root = paths.skills_dir
-        if skills_root.exists():
+        public_skills_root = skills_root / "public"
+        exposed_skills_root = public_skills_root if public_skills_root.exists() else skills_root
+        if exposed_skills_root.exists():
             routes["/public-skills/"] = FilesystemBackend(
-                root_dir=str(skills_root),
+                root_dir=str(exposed_skills_root),
                 virtual_mode=True,
             )
 
@@ -87,7 +90,12 @@ def _build_openagents_middlewares(model_config: ModelConfig):
     - TitleMiddleware: Auto-generates thread title
     - ViewImageMiddleware: Injects base64 image data (conditional on vision support)
     """
-    middlewares = [ThreadDataMiddleware(), UploadsMiddleware(), TitleMiddleware()]
+    middlewares = [
+        ArtifactsMiddleware(),
+        ThreadDataMiddleware(),
+        UploadsMiddleware(),
+        TitleMiddleware(),
+    ]
 
     if model_config.supports_vision:
         middlewares.append(ViewImageMiddleware())
