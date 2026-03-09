@@ -89,6 +89,7 @@ Important directories:
 - Use `authFetch()` for non-LangGraph APIs and `getAPIClient()` for LangGraph APIs.
 - Agent payloads use `agents_md` only.
 - Agent status values are `dev` and `prod`.
+- The new-agent bootstrap flow depends on forwarding `target_agent_name` through thread extra context. Do not re-introduce `is_bootstrap` or `soul` compatibility fields on the frontend side.
 
 ## Code Style
 

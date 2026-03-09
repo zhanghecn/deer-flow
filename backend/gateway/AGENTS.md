@@ -53,6 +53,8 @@ Agent and Skill metadata live in PostgreSQL for querying, while `AGENTS.md` and 
 - Go owns CRUD, publish, DB persistence, and local archive writes.
 - Python owns runtime backend selection, thread-local seeding, and execution.
 - `dev` and `prod` are archive statuses, not runtime backend switches.
+- Do not add runtime-only fields such as `skills_mode` or sandbox selection into DB payloads or archived manifests.
+- `lead_agent` is reserved and should not be created through normal agent CRUD.
 
 ### Agent status model
 
@@ -73,6 +75,8 @@ Agent and Skill metadata live in PostgreSQL for querying, while `AGENTS.md` and 
 ```
 
 The Go gateway writes archived agent definitions. The Python runtime later seeds those archived files into thread-local runtime paths.
+
+When the frontend or lead agent creates a new domain agent, the runtime flow depends on `target_agent_name` being forwarded to Python so `setup_agent` can materialize the correct archive directory.
 
 ## Working Conventions
 

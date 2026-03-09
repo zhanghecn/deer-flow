@@ -11,10 +11,14 @@ Critical agent protocol rules for future work:
 - Agent-owned copies live in `agents/{status}/{name}/skills/`.
 - Agent-owned prompt lives in `agents/{status}/{name}/AGENTS.md`.
 - `lead_agent` also uses `agents/{status}/lead_agent/AGENTS.md` and `agents/{status}/lead_agent/skills/` like every other agent.
+- `lead_agent` does not implicitly read the full shared skills archive anymore. Its default archived skill set is explicit and currently includes `bootstrap`.
 - Go/Gateway owns CRUD, publish, DB persistence, and local archive writes.
 - Python runtime owns backend selection, runtime seeding, and execution.
 - Runtime must read from thread-local copies under `/mnt/user-data/...`, not directly mutate archived files.
 - Open API should resolve `prod` agents only.
+- `setup_agent` must receive an explicit `target_agent_name` or `agent_name` in runtime context. Do not rely on a special bootstrap-only runtime branch.
+- Do not re-introduce `skills_mode`, `soul`/`SOUL.md`, legacy agent directory fallbacks, or `exclude_groups`-style compatibility paths.
+- Do not re-register `file:read`, `file:write`, or `bash` in app config. File access and shell execution come from deepagents `FilesystemMiddleware` only.
 
 When extending the protocol, including dependency-style extensions:
 
