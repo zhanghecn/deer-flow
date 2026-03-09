@@ -110,6 +110,20 @@ class TestTitleMiddlewareCoreLogic:
         assert title.endswith("...")
         assert title.startswith("这是一个非常长的问题描述")
 
+    def test_generate_title_uses_text_blocks_for_list_content(self):
+        _set_test_title_config(max_chars=30)
+        middleware = TitleMiddleware()
+        state = {
+            "messages": [
+                HumanMessage(content=[{"type": "text", "text": "Surprise me"}]),
+                AIMessage(content=[{"type": "text", "text": "当然可以"}]),
+            ]
+        }
+
+        title = middleware._generate_title(state)
+
+        assert title == "Surprise me"
+
     def test_after_agent_returns_title_only_when_needed(self, monkeypatch):
         middleware = TitleMiddleware()
         monkeypatch.setattr(middleware, "_should_generate_title", lambda state: True)

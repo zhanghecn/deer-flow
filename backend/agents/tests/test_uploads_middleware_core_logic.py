@@ -329,6 +329,24 @@ class TestBeforeAgent:
         content = result["messages"][-1].content
         assert "previous messages" not in content
 
+    def test_uses_configurable_thread_id_when_runtime_context_is_empty(self, tmp_path):
+        mw = _middleware(tmp_path)
+        uploads_dir = _uploads_dir(tmp_path)
+        (uploads_dir / "data.csv").write_text("a,b,c")
+
+        msg = _human(
+            "go",
+            files=[{"filename": "data.csv", "size": 5, "path": "/mnt/user-data/uploads/data.csv"}],
+        )
+        result = mw.before_agent(
+            self._state(msg),
+            _runtime(thread_id=None),
+            config={"configurable": {"thread_id": THREAD_ID}},
+        )
+
+        assert result is not None
+        assert result["uploaded_files"][0]["filename"] == "data.csv"
+
     def test_message_id_preserved_on_updated_message(self, tmp_path):
         mw = _middleware(tmp_path)
         uploads_dir = _uploads_dir(tmp_path)

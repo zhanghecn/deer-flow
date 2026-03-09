@@ -2,7 +2,7 @@ import logging
 
 from langchain.tools import BaseTool
 
-from src.config import get_app_config
+from src.config.app_config import load_tool_configs
 from src.config.runtime_db import get_runtime_db_store
 from src.reflection import resolve_variable
 from src.tools.builtins import ask_clarification_tool, present_file_tool, setup_agent, view_image_tool
@@ -38,10 +38,10 @@ def get_available_tools(
     Returns:
         List of available tools.
     """
-    config = get_app_config()
+    tool_configs, _ = load_tool_configs()
     loaded_tools = [
         resolve_variable(tool.use, BaseTool)
-        for tool in config.tools
+        for tool in tool_configs
         if groups is None or tool.group in groups
     ]
 

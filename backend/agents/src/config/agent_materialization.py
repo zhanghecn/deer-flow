@@ -7,6 +7,7 @@ from pathlib import Path
 
 import yaml
 
+from src.config.agent_runtime_seed import prime_agent_runtime_seed
 from src.config.agents_config import AGENTS_MD_FILENAME, AgentConfig, AgentSkillRef
 from src.config.paths import Paths, get_paths
 from src.skills import load_skills
@@ -168,7 +169,7 @@ def materialize_agent_definition(
         skill_refs=skill_refs,
     )
 
-    return AgentConfig(
+    agent_config = AgentConfig(
         name=name,
         description=description,
         model=model,
@@ -178,6 +179,14 @@ def materialize_agent_definition(
         agents_md_path=AGENTS_MD_FILENAME,
         skill_refs=skill_refs,
     )
+    prime_agent_runtime_seed(
+        name,
+        status=status,
+        paths=paths,
+        manifest=agent_config,
+        force_refresh=True,
+    )
+    return agent_config
 
 
 def publish_agent_definition(name: str, *, paths: Paths | None = None) -> AgentConfig:
@@ -203,4 +212,12 @@ def publish_agent_definition(name: str, *, paths: Paths | None = None) -> AgentC
     with open(config_file, "w", encoding="utf-8") as f:
         yaml.dump(config_data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 
-    return AgentConfig.model_validate(config_data)
+    agent_config = AgentConfig.model_validate(config_data)
+    prime_agent_runtime_seed(
+        name,
+        status="prod",
+        paths=paths,
+        manifest=agent_config,
+        force_refresh=True,
+    )
+    return agent_config

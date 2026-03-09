@@ -178,7 +178,7 @@ def test_make_lead_agent_reads_runtime_context_and_persists_thread_runtime(monke
     monkeypatch.setattr(
         lead_agent_module,
         "build_backend",
-        lambda thread_id, agent_name, status="dev": None,
+        lambda thread_id, agent_name, status="dev", agent_config=None: None,
     )
     monkeypatch.setattr(lead_agent_module, "create_deep_agent", lambda **kwargs: kwargs)
 
@@ -200,6 +200,14 @@ def test_make_lead_agent_reads_runtime_context_and_persists_thread_runtime(monke
         def __init__(self, context):
             self.execution_runtime = _ExecutionRuntime(context)
 
+    runtime = _Runtime(
+        {
+            "model_name": "safe-model",
+            "thinking_enabled": True,
+            "subagent_enabled": False,
+        }
+    )
+
     result = lead_agent_module.make_lead_agent(
         {
             "configurable": {
@@ -207,19 +215,15 @@ def test_make_lead_agent_reads_runtime_context_and_persists_thread_runtime(monke
                 "user_id": "user-1",
             }
         },
-        runtime=_Runtime(
-            {
-                "model_name": "safe-model",
-                "thinking_enabled": True,
-                "subagent_enabled": False,
-            }
-        ),
+        runtime=runtime,
     )
 
     assert captured["name"] == "safe-model"
     assert captured["thinking_enabled"] is True
     assert result["model"] is not None
     assert store.saved == [("thread-1", "user-1", "safe-model", LEAD_AGENT_NAME)]
+    assert runtime.execution_runtime.context["thread_id"] == "thread-1"
+    assert runtime.execution_runtime.context["x-thread-id"] == "thread-1"
 
 
 def test_build_openagents_middlewares_includes_vision_middleware_for_vision_model():
@@ -276,7 +280,7 @@ def test_make_lead_agent_accepts_header_injected_user_id(monkeypatch, tmp_path):
     monkeypatch.setattr(
         lead_agent_module,
         "build_backend",
-        lambda thread_id, agent_name, status="dev": None,
+        lambda thread_id, agent_name, status="dev", agent_config=None: None,
     )
     monkeypatch.setattr(lead_agent_module, "create_deep_agent", lambda **kwargs: kwargs)
     monkeypatch.setattr(lead_agent_module, "create_chat_model", lambda **kwargs: object())

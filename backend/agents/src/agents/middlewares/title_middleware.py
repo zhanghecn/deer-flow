@@ -43,6 +43,20 @@ class TitleMiddleware(AgentMiddleware[TitleMiddlewareState]):
         # Generate title after first complete exchange
         return len(user_messages) == 1 and len(assistant_messages) >= 1
 
+    @staticmethod
+    def _stringify_message_content(content: object) -> str:
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            text_parts: list[str] = []
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    text = block.get("text")
+                    if text is not None:
+                        text_parts.append(str(text))
+            return "\n".join(part for part in text_parts if part)
+        return str(content) if content else ""
+
     def _generate_title(self, state: TitleMiddlewareState) -> str:
         """Generate a concise title based on the conversation."""
         config = get_title_config()
@@ -53,8 +67,8 @@ class TitleMiddleware(AgentMiddleware[TitleMiddlewareState]):
         assistant_msg_content = next((m.content for m in messages if m.type == "ai"), "")
 
         # Ensure content is string (LangChain messages can have list content)
-        user_msg = str(user_msg_content) if user_msg_content else ""
-        assistant_msg = str(assistant_msg_content) if assistant_msg_content else ""
+        user_msg = self._stringify_message_content(user_msg_content)
+        assistant_msg = self._stringify_message_content(assistant_msg_content)
 
         if not config.model_name:
             fallback_chars = min(config.max_chars, 50)

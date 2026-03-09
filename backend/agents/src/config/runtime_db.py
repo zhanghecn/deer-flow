@@ -7,6 +7,7 @@ from threading import Lock
 
 from dotenv import dotenv_values
 
+from src.config.agents_config import AgentSkillRef
 from src.config.model_config import ModelConfig
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,9 @@ class DBAgentConfig:
     model: str | None
     tool_groups: list[str] | None
     mcp_servers: list[str] | None
+    agents_md_path: str = "AGENTS.md"
+    skill_refs: list[AgentSkillRef] | None = None
+    revision: str | None = None
 
 
 class RuntimeDBStore:
@@ -55,7 +59,7 @@ class RuntimeDBStore:
 
     def get_agent(self, name: str, status: str) -> DBAgentConfig | None:
         query = """
-            SELECT name, status, model, tool_groups, mcp_servers
+            SELECT name, status, model, tool_groups, mcp_servers, config_json, updated_at
             FROM agents
             WHERE name = %s AND status = %s
             LIMIT 1
@@ -65,12 +69,16 @@ class RuntimeDBStore:
             row = cur.fetchone()
             if row is None:
                 return None
+            config_payload = self._coerce_json_object(row[5])
             return DBAgentConfig(
                 name=row[0],
                 status=row[1],
                 model=row[2],
                 tool_groups=list(row[3]) if row[3] is not None else None,
                 mcp_servers=list(row[4]) if row[4] is not None else None,
+                agents_md_path=self._parse_agent_md_path(config_payload),
+                skill_refs=self._parse_agent_skill_refs(config_payload),
+                revision=self._coerce_revision(row[6]),
             )
 
     def get_model(self, name: str) -> ModelConfig | None:
@@ -217,6 +225,33 @@ class RuntimeDBStore:
         if isinstance(obj, dict):
             return dict(obj)
         raise ValueError(f"Unsupported models.config_json type: {type(value).__name__}")
+
+    @staticmethod
+    def _parse_agent_md_path(payload: dict) -> str:
+        raw_path = payload.get("agents_md_path")
+        if raw_path is None:
+            return "AGENTS.md"
+        path = str(raw_path).strip()
+        return path or "AGENTS.md"
+
+    @staticmethod
+    def _parse_agent_skill_refs(payload: dict) -> list[AgentSkillRef]:
+        raw_refs = payload.get("skill_refs")
+        if raw_refs is None:
+            return []
+        if not isinstance(raw_refs, list):
+            raise ValueError("agents.config_json.skill_refs must be a list.")
+        return [AgentSkillRef.model_validate(raw_ref) for raw_ref in raw_refs]
+
+    @staticmethod
+    def _coerce_revision(value: object) -> str | None:
+        if value is None:
+            return None
+        isoformat = getattr(value, "isoformat", None)
+        if callable(isoformat):
+            return str(isoformat())
+        text = str(value).strip()
+        return text or None
 
 
 def _build_runtime_db_dsn() -> str:

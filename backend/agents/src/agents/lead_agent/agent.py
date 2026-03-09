@@ -1,7 +1,8 @@
 import logging
 import os
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
-from pathlib import Path, PurePosixPath
 from typing import Literal
 
 import yaml
@@ -18,6 +19,7 @@ from src.agents.middlewares.thread_data_middleware import ThreadDataMiddleware
 from src.agents.middlewares.title_middleware import TitleMiddleware
 from src.agents.middlewares.uploads_middleware import UploadsMiddleware
 from src.agents.middlewares.view_image_middleware import ViewImageMiddleware
+from src.config.agent_runtime_seed import runtime_seed_targets
 from src.config.agents_config import load_agent_config
 from src.config.app_config import AppConfig
 from src.config.builtin_agents import (
@@ -25,7 +27,7 @@ from src.config.builtin_agents import (
     normalize_effective_agent_name,
 )
 from src.config.model_config import ModelConfig
-from src.config.paths import VIRTUAL_PATH_PREFIX, get_paths
+from src.config.paths import VIRTUAL_PATH_PREFIX, Paths, get_paths
 from src.config.runtime_db import DBAgentConfig, RuntimeDBStore, get_runtime_db_store
 from src.models import create_chat_model
 from src.observability import create_agent_trace_callback
@@ -36,6 +38,11 @@ logger = logging.getLogger(__name__)
 LOCAL_SANDBOX_PROVIDER = "src.sandbox.local:LocalSandboxProvider"
 DEFAULT_THREAD_ID = "_default"
 ExecutionBackend = Literal["local", "sandbox"]
+_IO_EXECUTOR = ThreadPoolExecutor(max_workers=4)
+
+
+def _run_blocking_io[T](operation: Callable[[], T]) -> T:
+    return _IO_EXECUTOR.submit(operation).result()
 
 
 def _resolve_config_sandbox_provider() -> str | None:
@@ -103,30 +110,33 @@ def _runtime_memory_sources(agent_name: str, status: str) -> list[str]:
     return [f"{_runtime_agent_root(agent_name, status)}/AGENTS.md"]
 
 
-def _iter_local_files(root: Path) -> list[tuple[PurePosixPath, bytes]]:
-    files: list[tuple[PurePosixPath, bytes]] = []
-    for file_path in sorted(root.rglob("*")):
-        if not file_path.is_file():
-            continue
-        files.append((PurePosixPath(file_path.relative_to(root).as_posix()), file_path.read_bytes()))
-    return files
-
-
 def _build_runtime_seed_targets(
-    source_root: Path,
+    *,
+    agent_name: str,
+    status: str,
     target_root: str,
+    agent_config: DBAgentConfig | None,
+    paths: Paths,
 ) -> list[tuple[str, bytes]]:
-    return [
-        (f"{target_root.rstrip('/')}/{relative_path.as_posix()}", content)
-        for relative_path, content in _iter_local_files(source_root)
-    ]
+    return _run_blocking_io(
+        lambda: runtime_seed_targets(
+            agent_name,
+            status=status,
+            target_root=target_root,
+            paths=paths,
+            manifest=agent_config,
+            revision=agent_config.revision if agent_config is not None else None,
+        )
+    )
 
 
 def _collect_missing_runtime_uploads(
     backend: BackendProtocol,
     runtime_targets: list[tuple[str, bytes]],
 ) -> list[tuple[str, bytes]]:
-    existing_files = backend.download_files([path for path, _ in runtime_targets])
+    existing_files = _run_blocking_io(
+        lambda: backend.download_files([path for path, _ in runtime_targets])
+    )
     uploads: list[tuple[str, bytes]] = []
 
     for (path, content), existing_file in zip(runtime_targets, existing_files, strict=True):
@@ -146,35 +156,28 @@ def _upload_runtime_files(
     if not runtime_targets:
         return
 
-    upload_results = backend.upload_files(runtime_targets)
+    upload_results = _run_blocking_io(lambda: backend.upload_files(runtime_targets))
     errors = [f"{result.path}: {result.error}" for result in upload_results if result.error is not None]
     if errors:
         raise RuntimeError(f"Failed to seed runtime definition files: {', '.join(errors)}")
-
-
-def _seed_backend_tree(backend: BackendProtocol, *, source_root: Path, target_root: str) -> None:
-    if not source_root.exists():
-        return
-
-    runtime_targets = _build_runtime_seed_targets(source_root, target_root)
-    missing_uploads = _collect_missing_runtime_uploads(backend, runtime_targets)
-    _upload_runtime_files(backend, missing_uploads)
-
-
 def _seed_runtime_materials(
     backend: BackendProtocol,
     *,
     agent_name: str,
     status: str,
+    agent_config: DBAgentConfig | None,
 ) -> None:
     paths = get_paths()
     ensure_builtin_agent_archive(agent_name, status=status, paths=paths)
-
-    _seed_backend_tree(
-        backend,
-        source_root=paths.agent_dir(agent_name, status),
+    runtime_targets = _build_runtime_seed_targets(
+        agent_name=agent_name,
+        status=status,
         target_root=_runtime_agent_root(agent_name, status),
+        agent_config=agent_config,
+        paths=paths,
     )
+    missing_uploads = _collect_missing_runtime_uploads(backend, runtime_targets)
+    _upload_runtime_files(backend, missing_uploads)
 
 
 def _build_local_workspace_backend(user_data_dir: str) -> LocalShellBackend:
@@ -189,8 +192,8 @@ def _build_local_workspace_backend(user_data_dir: str) -> LocalShellBackend:
 def _build_sandbox_workspace_backend(thread_id: str | None) -> BackendProtocol:
     provider_path = _resolve_sandbox_provider()
     provider = _get_sandbox_provider(provider_path)
-    sandbox_id = provider.acquire(_effective_thread_id(thread_id))
-    sandbox = provider.get(sandbox_id)
+    sandbox_id = _run_blocking_io(lambda: provider.acquire(_effective_thread_id(thread_id)))
+    sandbox = _run_blocking_io(lambda: provider.get(sandbox_id))
     if sandbox is None:
         raise RuntimeError(f"Sandbox provider '{provider_path}' returned sandbox id '{sandbox_id}' but no sandbox instance.")
     return sandbox
@@ -210,6 +213,7 @@ def build_backend(
     thread_id: str | None,
     agent_name: str | None,
     status: str = "dev",
+    agent_config: DBAgentConfig | None = None,
 ):
     """Build a CompositeBackend for the agent.
 
@@ -235,6 +239,7 @@ def build_backend(
         workspace_backend,
         agent_name=effective_agent_name,
         status=status,
+        agent_config=agent_config,
     )
 
     return CompositeBackend(default=workspace_backend, routes={})
@@ -297,6 +302,20 @@ def _extract_runtime_context(runtime: ServerRuntime | None) -> dict:
     if isinstance(context, dict):
         return dict(context)
     return {}
+
+
+def _update_runtime_context(runtime: ServerRuntime | None, **values: object) -> None:
+    if runtime is None:
+        return
+    execution_runtime = runtime.execution_runtime
+    if execution_runtime is None:
+        return
+    context = execution_runtime.context
+    if not isinstance(context, dict):
+        return
+    for key, value in values.items():
+        if value is not None:
+            context[key] = value
 
 
 def _coerce_optional_str(value: object) -> str | None:
@@ -463,6 +482,9 @@ def _load_agent_runtime_config(
             model=file_config.model,
             tool_groups=file_config.tool_groups,
             mcp_servers=file_config.mcp_servers,
+            agents_md_path=file_config.agents_md_path,
+            skill_refs=file_config.skill_refs,
+            revision=None,
         )
 
     raise ValueError(f"Agent '{agent_name}' with status '{agent_status}' not found in database or archive.")
@@ -533,6 +555,20 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         agent_status,
     )
 
+    _update_runtime_context(
+        runtime,
+        thread_id=thread_id,
+        user_id=user_id,
+        x_thread_id=thread_id,
+        x_user_id=user_id,
+        **{
+            "x-thread-id": thread_id,
+            "x-user-id": user_id,
+            "agent_name": agent_name,
+            "agent_status": agent_status,
+        },
+    )
+
     # Inject run metadata for observability
     if "metadata" not in config:
         config["metadata"] = {}
@@ -563,6 +599,7 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         thread_id,
         agent_name,
         agent_status,
+        agent_config,
     )
 
     # Skills sources for deepagents SkillsMiddleware come from the archived copy

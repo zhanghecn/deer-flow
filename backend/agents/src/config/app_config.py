@@ -236,6 +236,38 @@ class AppConfig(BaseModel):
         return next((group for group in self.tool_groups if group.name == name), None)
 
 
+def load_tool_configs(config_path: str | None = None) -> tuple[list[ToolConfig], list[ToolGroupConfig]]:
+    """Load tool definitions without resolving unrelated model configuration.
+
+    Runtime tool loading must keep working even when the process does not have
+    model env vars like `OPENAI_API_KEY`, because runtime models are now loaded
+    from the database. This loader resolves env vars only within the tool
+    sections instead of the whole config file.
+    """
+    resolved_path = AppConfig.resolve_config_path(config_path)
+    if resolved_path is None:
+        return [], []
+
+    with open(resolved_path, encoding="utf-8") as f:
+        config_data = yaml.safe_load(f) or {}
+
+    if not isinstance(config_data, dict):
+        raise ValueError(f"Config file {resolved_path} must contain a YAML object at top-level.")
+
+    raw_tools = AppConfig.resolve_env_variables(config_data.get("tools", []))
+    raw_tool_groups = AppConfig.resolve_env_variables(config_data.get("tool_groups", []))
+
+    tools = [ToolConfig.model_validate(item) for item in raw_tools]
+    tool_groups = [ToolGroupConfig.model_validate(item) for item in raw_tool_groups]
+    return tools, tool_groups
+
+
+def load_tool_config(name: str, config_path: str | None = None) -> ToolConfig | None:
+    """Load a single tool config without resolving unrelated model config."""
+    tools, _ = load_tool_configs(config_path)
+    return next((tool for tool in tools if tool.name == name), None)
+
+
 _app_config: AppConfig | None = None
 
 

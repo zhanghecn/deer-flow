@@ -7,6 +7,7 @@ from typing import NotRequired, override
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import HumanMessage
+from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
 
 from src.config.paths import Paths, get_paths
@@ -116,8 +117,32 @@ class UploadsMiddleware(AgentMiddleware[UploadsMiddlewareState]):
             )
         return files if files else None
 
+    def _resolve_thread_id(
+        self,
+        runtime: Runtime,
+        config: RunnableConfig | None,
+    ) -> str | None:
+        runtime_context = getattr(runtime, "context", None)
+        if isinstance(runtime_context, dict):
+            runtime_thread_id = runtime_context.get("thread_id") or runtime_context.get("x-thread-id")
+            if runtime_thread_id is not None:
+                return str(runtime_thread_id)
+
+        configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
+        if isinstance(configurable, dict):
+            configured_thread_id = configurable.get("thread_id") or configurable.get("x-thread-id")
+            if configured_thread_id is not None:
+                return str(configured_thread_id)
+
+        return None
+
     @override
-    def before_agent(self, state: UploadsMiddlewareState, runtime: Runtime) -> dict | None:
+    def before_agent(
+        self,
+        state: UploadsMiddlewareState,
+        runtime: Runtime,
+        config: RunnableConfig | None = None,
+    ) -> dict | None:  # ty: ignore[invalid-method-override]
         """Inject uploaded files information before agent execution.
 
         New files come from the current message's additional_kwargs.files.
@@ -146,7 +171,7 @@ class UploadsMiddleware(AgentMiddleware[UploadsMiddlewareState]):
             return None
 
         # Resolve uploads directory for existence checks
-        thread_id = runtime.context.get("thread_id")
+        thread_id = self._resolve_thread_id(runtime, config)
         uploads_dir = self._paths.sandbox_uploads_dir(thread_id) if thread_id else None
 
         # Get newly uploaded files from the current message's additional_kwargs.files

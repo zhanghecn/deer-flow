@@ -312,7 +312,7 @@ export function useThreadStream({
           },
           (() => {
             const agentName = resolveAgentName(context, extraContext);
-            const runtimeContext = {
+            const runtimeConfigurable = {
               ...extraContext,
               ...context,
               agent_name: agentName,
@@ -330,8 +330,8 @@ export function useThreadStream({
               streamMode: ["values", "messages-tuple", "custom"],
               config: {
                 recursion_limit: 1000,
+                configurable: runtimeConfigurable,
               },
-              context: runtimeContext,
             };
           })(),
         );

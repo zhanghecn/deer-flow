@@ -8,14 +8,10 @@ class _FakeToolConfig:
         self.model_extra = model_extra or {}
 
 
-class _FakeAppConfig:
-    def __init__(self, tool_config: _FakeToolConfig | None):
-        self._tool_config = tool_config
-
-    def get_tool_config(self, name: str):
-        if name != "web_fetch":
-            return None
-        return self._tool_config
+def _fake_load_tool_config(name: str, tool_config: _FakeToolConfig | None):
+    if name != "web_fetch":
+        return None
+    return tool_config
 
 
 class _FakeResponse:
@@ -27,13 +23,13 @@ class _FakeResponse:
 
 
 def test_web_fetch_rejects_invalid_url(monkeypatch):
-    monkeypatch.setattr(webfetch_tools, "get_app_config", lambda: _FakeAppConfig(None))
+    monkeypatch.setattr(webfetch_tools, "load_tool_config", lambda name: _fake_load_tool_config(name, None))
     result = webfetch_tools.web_fetch_tool.invoke({"url": "example.com"})
     assert "URL must start with http:// or https://" in result
 
 
 def test_web_fetch_upgrades_http_url(monkeypatch):
-    monkeypatch.setattr(webfetch_tools, "get_app_config", lambda: _FakeAppConfig(None))
+    monkeypatch.setattr(webfetch_tools, "load_tool_config", lambda name: _fake_load_tool_config(name, None))
     captured_url: dict[str, str] = {}
 
     def _fake_get(url, headers, timeout, follow_redirects):
@@ -47,7 +43,11 @@ def test_web_fetch_upgrades_http_url(monkeypatch):
 
 
 def test_web_fetch_markdown_and_text_conversion(monkeypatch):
-    monkeypatch.setattr(webfetch_tools, "get_app_config", lambda: _FakeAppConfig(_FakeToolConfig({"timeout": 15})))
+    monkeypatch.setattr(
+        webfetch_tools,
+        "load_tool_config",
+        lambda name: _fake_load_tool_config(name, _FakeToolConfig({"timeout": 15})),
+    )
 
     def _fake_get(url, headers, timeout, follow_redirects):
         assert timeout == 15
@@ -65,7 +65,7 @@ def test_web_fetch_markdown_and_text_conversion(monkeypatch):
 
 
 def test_web_fetch_handles_image_and_http_error(monkeypatch):
-    monkeypatch.setattr(webfetch_tools, "get_app_config", lambda: _FakeAppConfig(None))
+    monkeypatch.setattr(webfetch_tools, "load_tool_config", lambda name: _fake_load_tool_config(name, None))
     calls = {"count": 0}
 
     def _fake_get(url, headers, timeout, follow_redirects):

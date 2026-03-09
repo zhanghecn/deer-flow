@@ -8,15 +8,12 @@ class _FakeToolConfig:
         self.model_extra = model_extra or {}
 
 
-class _FakeAppConfig:
-    def __init__(self, web_search: _FakeToolConfig | None = None, web_fetch: _FakeToolConfig | None = None):
-        self._configs = {
-            "web_search": web_search,
-            "web_fetch": web_fetch,
-        }
-
-    def get_tool_config(self, name: str):
-        return self._configs.get(name)
+def _fake_load_tool_config(name: str, *, web_search: _FakeToolConfig | None = None, web_fetch: _FakeToolConfig | None = None):
+    configs = {
+        "web_search": web_search,
+        "web_fetch": web_fetch,
+    }
+    return configs.get(name)
 
 
 class _FakeResponse:
@@ -28,8 +25,8 @@ class _FakeResponse:
 def test_web_search_parses_sse_payload(monkeypatch):
     monkeypatch.setattr(
         web_tools,
-        "get_app_config",
-        lambda: _FakeAppConfig(web_search=_FakeToolConfig({"num_results": 3})),
+        "load_tool_config",
+        lambda name: _fake_load_tool_config(name, web_search=_FakeToolConfig({"num_results": 3})),
     )
 
     captured: dict[str, object] = {}
@@ -54,7 +51,7 @@ def test_web_search_parses_sse_payload(monkeypatch):
 
 
 def test_web_search_uses_exa_api_key_header(monkeypatch):
-    monkeypatch.setattr(web_tools, "get_app_config", lambda: _FakeAppConfig())
+    monkeypatch.setattr(web_tools, "load_tool_config", lambda name: _fake_load_tool_config(name))
     monkeypatch.setenv("EXA_API_KEY", "exa-test-key")
 
     captured_headers: dict[str, str] = {}
@@ -72,7 +69,7 @@ def test_web_search_uses_exa_api_key_header(monkeypatch):
 
 
 def test_web_search_handles_http_error(monkeypatch):
-    monkeypatch.setattr(web_tools, "get_app_config", lambda: _FakeAppConfig())
+    monkeypatch.setattr(web_tools, "load_tool_config", lambda name: _fake_load_tool_config(name))
     monkeypatch.delenv("EXA_API_KEY", raising=False)
 
     monkeypatch.setattr(web_tools.httpx, "post", lambda *args, **kwargs: _FakeResponse(500, "upstream error"))

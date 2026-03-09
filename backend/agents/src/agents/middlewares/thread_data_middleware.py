@@ -2,6 +2,7 @@ from typing import NotRequired, override
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
+from langchain_core.runnables import RunnableConfig
 from langgraph.runtime import Runtime
 
 from src.agents.thread_state import ThreadDataState
@@ -69,9 +70,33 @@ class ThreadDataMiddleware(AgentMiddleware[ThreadDataMiddlewareState]):
         self._paths.ensure_thread_dirs(thread_id)
         return self._get_thread_paths(thread_id)
 
+    def _resolve_thread_id(
+        self,
+        runtime: Runtime,
+        config: RunnableConfig | None,
+    ) -> str | None:
+        runtime_context = getattr(runtime, "context", None)
+        if isinstance(runtime_context, dict):
+            runtime_thread_id = runtime_context.get("thread_id") or runtime_context.get("x-thread-id")
+            if runtime_thread_id is not None:
+                return str(runtime_thread_id)
+
+        configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
+        if isinstance(configurable, dict):
+            configured_thread_id = configurable.get("thread_id") or configurable.get("x-thread-id")
+            if configured_thread_id is not None:
+                return str(configured_thread_id)
+
+        return None
+
     @override
-    def before_agent(self, state: ThreadDataMiddlewareState, runtime: Runtime) -> dict | None:
-        thread_id = runtime.context.get("thread_id")
+    def before_agent(
+        self,
+        state: ThreadDataMiddlewareState,
+        runtime: Runtime,
+        config: RunnableConfig | None = None,
+    ) -> dict | None:  # ty: ignore[invalid-method-override]
+        thread_id = self._resolve_thread_id(runtime, config)
         if thread_id is None:
             raise ValueError("Thread ID is required in the context")
 

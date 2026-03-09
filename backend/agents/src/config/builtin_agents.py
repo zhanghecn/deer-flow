@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 from pathlib import Path
+from threading import Lock
 
 import yaml
 
+from src.config.agent_runtime_seed import prime_agent_runtime_seed
 from src.config.paths import Paths, get_paths
+from src.skills import load_skills
 
 LEAD_AGENT_NAME = "lead_agent"
 RESERVED_AGENT_NAMES = frozenset({LEAD_AGENT_NAME})
-DEFAULT_LEAD_AGENT_SKILLS = ("bootstrap",)
 
 _BUILTIN_LEAD_AGENT_AGENTS_MD = Path(__file__).resolve().parents[1] / "agents" / "lead_agent" / "AGENTS.md"
+_ENSURED_ARCHIVES: set[tuple[str, str]] = set()
+_ENSURED_ARCHIVES_LOCK = Lock()
 
 
 def normalize_effective_agent_name(agent_name: str | None) -> str:
@@ -31,9 +35,22 @@ def _load_config_data(config_path: Path) -> dict[str, object]:
     return dict(loaded)
 
 
-def _selected_skill_names(config_data: dict[str, object]) -> list[str]:
+def _default_lead_agent_skill_names(paths: Paths) -> list[str]:
+    return [
+        skill.name
+        for skill in load_skills(skills_path=paths.skills_dir, use_config=False, enabled_only=False)
+        if skill.category == "public"
+    ]
+
+
+def _selected_skill_names(
+    config_data: dict[str, object],
+    *,
+    paths: Paths,
+    had_legacy_skills_mode: bool,
+) -> list[str]:
     if "skill_refs" not in config_data:
-        return list(DEFAULT_LEAD_AGENT_SKILLS)
+        return _default_lead_agent_skill_names(paths)
 
     raw_refs = config_data.get("skill_refs")
     if not isinstance(raw_refs, list):
@@ -52,6 +69,8 @@ def _selected_skill_names(config_data: dict[str, object]) -> list[str]:
             continue
         seen.add(name)
         names.append(name)
+    if had_legacy_skills_mode and not names:
+        return _default_lead_agent_skill_names(paths)
     return names
 
 
@@ -76,9 +95,9 @@ def _ensure_lead_agent_archive_for_status(*, status: str, paths: Paths) -> None:
 
     config_path = agent_dir / "config.yaml"
     config_data = _load_config_data(config_path)
-    config_data.pop("skills_mode", None)
+    had_legacy_skills_mode = config_data.pop("skills_mode", None) is not None
 
-    changed = False
+    changed = had_legacy_skills_mode
     required_values: dict[str, object] = {
         "name": LEAD_AGENT_NAME,
         "status": status,
@@ -96,7 +115,11 @@ def _ensure_lead_agent_archive_for_status(*, status: str, paths: Paths) -> None:
     skill_refs = _copy_builtin_skills(
         paths=paths,
         status=status,
-        skill_names=_selected_skill_names(config_data),
+        skill_names=_selected_skill_names(
+            config_data,
+            paths=paths,
+            had_legacy_skills_mode=had_legacy_skills_mode,
+        ),
     )
     if config_data.get("skill_refs") != skill_refs:
         config_data["skill_refs"] = skill_refs
@@ -107,6 +130,13 @@ def _ensure_lead_agent_archive_for_status(*, status: str, paths: Paths) -> None:
             yaml.dump(config_data, default_flow_style=False, allow_unicode=True, sort_keys=False),
             encoding="utf-8",
         )
+
+    prime_agent_runtime_seed(
+        LEAD_AGENT_NAME,
+        status=status,
+        paths=paths,
+        force_refresh=True,
+    )
 
 
 def ensure_builtin_agent_archive(
@@ -120,4 +150,13 @@ def ensure_builtin_agent_archive(
         return
 
     paths = paths or get_paths()
-    _ensure_lead_agent_archive_for_status(status=status, paths=paths)
+    cache_key = (effective_name, status)
+
+    if cache_key in _ENSURED_ARCHIVES:
+        return
+
+    with _ENSURED_ARCHIVES_LOCK:
+        if cache_key in _ENSURED_ARCHIVES:
+            return
+        _ensure_lead_agent_archive_for_status(status=status, paths=paths)
+        _ENSURED_ARCHIVES.add(cache_key)

@@ -9,7 +9,7 @@ import httpx
 from langchain.tools import tool
 from markdownify import markdownify as html_to_markdown
 
-from src.config import get_app_config
+from src.config.app_config import load_tool_config
 
 MAX_RESPONSE_SIZE = 5 * 1024 * 1024  # 5MB
 DEFAULT_FETCH_TIMEOUT_SECONDS = 30
@@ -22,7 +22,7 @@ DEFAULT_EXA_TIMEOUT_SECONDS = 25.0
 
 
 def _tool_extra(tool_name: str, field: str, default: Any = None) -> Any:
-    config = get_app_config().get_tool_config(tool_name)
+    config = load_tool_config(tool_name)
     if config is None:
         return default
     return config.model_extra.get(field, default)
