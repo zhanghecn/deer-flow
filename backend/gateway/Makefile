@@ -20,7 +20,7 @@ test:
 clean:
 	rm -rf bin/
 
-# 数据库迁移：使用 golang-migrate 执行 migrations/ 目录下的 .up.sql 文件
+# 数据库迁移：使用 golang-migrate 执行项目根目录 migrations/ 下的 .up.sql 文件
 migrate:
 	@echo "Running migrations..."
 	@go run ./cmd/migrate

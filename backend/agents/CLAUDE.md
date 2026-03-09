@@ -53,8 +53,8 @@ openagents/
 │   ├── cmd/server/main.go     # Entry point
 │   ├── internal/              # Handlers, middleware, repository, service, proxy
 │   ├── pkg/                   # JWT, filesystem storage
-│   ├── migrations/            # PostgreSQL schema
 │   └── gateway.yaml           # Gateway configuration
+├── migrations/                 # PostgreSQL schema + seed SQL
 ├── frontend/                   # Next.js frontend application
 └── skills/                     # Agent skills directory
     ├── public/                # Public skills (committed)

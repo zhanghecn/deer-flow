@@ -1,6 +1,6 @@
 # LangGraph Enterprise Multi-Tenant Alignment Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **Execution:** Use `executing-plans` to implement this plan task-by-task.
 
 **Goal:** Keep LangGraph built-in execution APIs, but fully align runtime model resolution, user isolation, history/checkpoint restore, and observability for enterprise multi-user + multi-agent usage without model fallback logic.
 
@@ -354,4 +354,3 @@ git commit -m "feat(frontend): stabilize langgraph runtime error UX and non-retr
 - https://docs.langchain.com/oss/javascript/langgraph/persistence
 - https://github.com/langchain-ai/langgraph/blob/main/libs/sdk-py/README.md
 - https://github.com/langchain-ai/langgraph/blob/main/libs/checkpoint/README.md
-

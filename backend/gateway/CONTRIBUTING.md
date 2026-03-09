@@ -53,7 +53,7 @@ backend/gateway/
 ├── pkg/                     # 公共包（可外部导入）
 │   ├── jwt/                 # JWT 工具
 │   └── storage/             # 文件系统操作
-├── migrations/              # SQL 迁移文件
+├── (root)/migrations/       # SQL 迁移文件（项目根目录）
 ├── gateway.yaml             # 配置模板
 ├── Makefile
 └── go.mod
@@ -94,8 +94,8 @@ Handler → Service → Repository → Database
 
 ### 数据库迁移
 
-- 迁移文件放在 `migrations/` 目录
-- 文件名格式：`{序号}_{描述}.sql`（如 `002_add_agent_tags.sql`）
+- 迁移文件放在项目根目录 `migrations/` 目录
+- 文件名格式：`{序号}_{描述}.up.sql`（如 `002_seed_data.up.sql`）
 - 每个迁移文件包裹在 `BEGIN; ... COMMIT;` 事务中
 - 使用 `IF NOT EXISTS` 保证幂等性
 

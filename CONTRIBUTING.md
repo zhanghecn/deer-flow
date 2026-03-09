@@ -198,8 +198,8 @@ openagents/
 │       ├── cmd/server/main.go    # Entry point
 │       ├── internal/             # Handlers, middleware, repository, service, proxy
 │       ├── pkg/                  # JWT, filesystem storage
-│       ├── migrations/           # PostgreSQL schema
 │       └── gateway.yaml          # Gateway configuration
+├── migrations/                   # PostgreSQL schema + seed SQL
 ├── frontend/
 │   ├── app/                      # Next.js user frontend
 │   └── admin/                    # Vite admin console

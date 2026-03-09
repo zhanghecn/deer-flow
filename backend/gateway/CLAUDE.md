@@ -57,8 +57,9 @@ internal/
 pkg/
 ├── jwt/jwt.go               # JWT token generation and validation
 └── storage/fs.go            # Filesystem operations for agent/skill sync
-migrations/
-└── 001_init.sql             # PostgreSQL schema
+(root)/migrations/
+├── 001_init.up.sql          # PostgreSQL schema
+└── 002_seed_data.up.sql     # Initial seed data
 ```
 
 ## Key Concepts
@@ -101,9 +102,9 @@ Open API (`/open/v1/agents/:name/*`) keeps API-token auth at gateway. Runtime mo
 
 ## Database Schema
 
-Tables: `users`, `api_tokens`, `agents`, `skills`, `agent_skills`, `threads`, `models`
+Tables: `users`, `api_tokens`, `agents`, `skills`, `agent_skills`, `models`, `thread_bindings`, `agent_traces`, `agent_trace_events`, `llm_provider_keys`
 
-See `migrations/001_init.sql` for the full schema.
+See `../../migrations/001_init.up.sql` and `../../migrations/002_seed_data.up.sql`.
 
 Key design decisions:
 - Agents and Skills are **shared** (not per-user), with `created_by` for audit

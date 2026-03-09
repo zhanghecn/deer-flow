@@ -51,8 +51,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	sourceURL, err := resolveMigrationsSourceURL()
+	if err != nil {
+		fmt.Printf("Error resolving migrations directory: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Using migrations from: %s\n", sourceURL)
+
 	m, err := migrate.NewWithDatabaseInstance(
-		"file://migrations",
+		sourceURL,
 		"pgx",
 		driver,
 	)
@@ -76,4 +83,20 @@ func main() {
 
 	version, dirty, _ = m.Version()
 	fmt.Printf("Migration completed. Current version: %d (dirty: %v)\n", version, dirty)
+}
+
+func resolveMigrationsSourceURL() (string, error) {
+	candidates := []string{
+		"../../migrations",
+		"migrations",
+	}
+
+	for _, dir := range candidates {
+		info, err := os.Stat(dir)
+		if err == nil && info.IsDir() {
+			return "file://" + dir, nil
+		}
+	}
+
+	return "", fmt.Errorf("migrations directory not found; checked %v", candidates)
 }

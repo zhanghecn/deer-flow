@@ -51,7 +51,7 @@ Nginx (:2026)
 # 创建数据库
 createdb openagents
 
-# 运行迁移（优先读取 ../../.env，其次读取 backend/gateway/.env）
+# 运行迁移（SQL 位于项目根目录 migrations/，优先读取 ../../.env，其次读取 backend/gateway/.env）
 make migrate
 ```
 
@@ -223,8 +223,10 @@ POST /open/v1/agents/:name/stream  # 只有 prod agent 可通过 Open API 调用
 - `agents` — Agent 元数据（共享，非按用户隔离）
 - `skills` — Skill 元数据（共享）
 - `agent_skills` — Agent-Skill 关联
-- `threads` — 对话线程索引
 - `models` — 模型配置
+- `thread_bindings` — 线程归属与运行时绑定
+- `agent_traces` / `agent_trace_events` — Agent 观测数据
+- `llm_provider_keys` — Provider Key 管理
 
 `/api/models` 数据来自 `models` 表。运行时模型选择由 Python(LangGraph graph factory)直接查询数据库，不再由网关注入 `model_config`。
 
