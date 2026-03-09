@@ -32,7 +32,8 @@ func (h *AgentHandler) List(c *gin.Context) {
 
 func (h *AgentHandler) Get(c *gin.Context) {
 	name := c.Param("name")
-	agent, err := h.svc.Get(c.Request.Context(), name)
+	status := c.DefaultQuery("status", "dev")
+	agent, err := h.svc.Get(c.Request.Context(), name, status)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
 		return
@@ -62,13 +63,14 @@ func (h *AgentHandler) Create(c *gin.Context) {
 
 func (h *AgentHandler) Update(c *gin.Context) {
 	name := c.Param("name")
+	status := c.DefaultQuery("status", "dev")
 	var req model.UpdateAgentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return
 	}
 
-	agent, err := h.svc.Update(c.Request.Context(), name, req)
+	agent, err := h.svc.Update(c.Request.Context(), name, status, req)
 	if err != nil {
 		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: err.Error()})
 		return
@@ -78,7 +80,8 @@ func (h *AgentHandler) Update(c *gin.Context) {
 
 func (h *AgentHandler) Delete(c *gin.Context) {
 	name := c.Param("name")
-	if err := h.svc.Delete(c.Request.Context(), name); err != nil {
+	status := c.Query("status")
+	if err := h.svc.Delete(c.Request.Context(), name, status); err != nil {
 		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: err.Error()})
 		return
 	}
@@ -101,8 +104,8 @@ func (h *AgentHandler) CheckName(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "missing name"})
 		return
 	}
-	agent, err := h.svc.Get(c.Request.Context(), name)
-	if err != nil || agent == nil {
+	exists, err := h.svc.ExistsName(c.Request.Context(), name)
+	if err != nil || !exists {
 		c.JSON(http.StatusOK, gin.H{"available": true, "name": name})
 		return
 	}
@@ -111,7 +114,7 @@ func (h *AgentHandler) CheckName(c *gin.Context) {
 
 func (h *AgentHandler) Export(c *gin.Context) {
 	name := c.Param("name")
-	agent, err := h.svc.Get(c.Request.Context(), name)
+	agent, err := h.svc.Get(c.Request.Context(), name, "prod")
 	if err != nil || agent == nil {
 		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "agent not found"})
 		return

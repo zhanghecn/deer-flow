@@ -46,7 +46,7 @@ func (h *OpenAPIHandler) handleRequest(c *gin.Context, agentName string, stream 
 	}
 
 	// Verify agent exists and is published
-	agent, err := h.agentRepo.FindByName(c.Request.Context(), agentName)
+	agent, err := h.agentRepo.FindByName(c.Request.Context(), agentName, "prod")
 	if err != nil || agent == nil {
 		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "agent not found"})
 		return

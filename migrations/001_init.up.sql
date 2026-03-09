@@ -34,7 +34,7 @@ CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
 -- Agents (shared)
 CREATE TABLE IF NOT EXISTS agents (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name VARCHAR(128) UNIQUE NOT NULL,
+    name VARCHAR(128) NOT NULL,
     display_name VARCHAR(256),
     description TEXT DEFAULT '',
     avatar_url TEXT,
@@ -46,7 +46,8 @@ CREATE TABLE IF NOT EXISTS agents (
     config_json JSONB DEFAULT '{}',
     created_by UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (name, status)
 );
 CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
 CREATE INDEX IF NOT EXISTS idx_agents_name ON agents(name);

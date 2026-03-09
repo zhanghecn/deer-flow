@@ -42,12 +42,9 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Resolve base dir relative to project root
-	baseDir := cfg.Storage.BaseDir
-	if !filepath.IsAbs(baseDir) {
-		homeDir, _ := os.UserHomeDir()
-		baseDir = filepath.Join(homeDir, baseDir)
-	}
+	// Align with the Python runtime: relative OPENAGENTS_HOME paths resolve
+	// from the project root, while shared skills live in a sibling skills/ dir.
+	baseDir := storage.ResolveBaseDir(cfg.Storage.BaseDir)
 
 	// Find main config.yaml (for MCP config compatibility)
 	mainConfigPath := findMainConfig()
@@ -74,7 +71,7 @@ func main() {
 	llmKeyRepo := repository.NewLLMKeyRepo(pool)
 
 	// Services
-	agentSvc := service.NewAgentService(agentRepo, fs)
+	agentSvc := service.NewAgentService(agentRepo, skillRepo, fs)
 	skillSvc := service.NewSkillService(skillRepo, fs)
 
 	// Handlers
@@ -260,6 +257,7 @@ func main() {
 	}
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
+	log.Printf("Gateway storage base_dir resolved to %s", baseDir)
 	log.Printf("OpenAgents Gateway starting on %s", addr)
 	if err := r.Run(addr); err != nil {
 		log.Fatalf("Server failed: %v", err)

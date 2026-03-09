@@ -172,7 +172,11 @@ def test_make_lead_agent_reads_runtime_context_and_persists_thread_runtime(monke
 
     monkeypatch.setattr(lead_agent_module, "get_runtime_db_store", lambda: store)
     monkeypatch.setattr(tools_module, "get_available_tools", lambda **kwargs: [])
-    monkeypatch.setattr(lead_agent_module, "build_backend", lambda thread_id, agent_name, status="dev": None)
+    monkeypatch.setattr(
+        lead_agent_module,
+        "build_backend",
+        lambda thread_id, agent_name, status="dev": None,
+    )
     monkeypatch.setattr(lead_agent_module, "create_deep_agent", lambda **kwargs: kwargs)
 
     captured: dict[str, object] = {}
@@ -265,7 +269,11 @@ def test_make_lead_agent_accepts_header_injected_user_id(monkeypatch):
 
     monkeypatch.setattr(lead_agent_module, "get_runtime_db_store", lambda: store)
     monkeypatch.setattr(tools_module, "get_available_tools", lambda **kwargs: [])
-    monkeypatch.setattr(lead_agent_module, "build_backend", lambda thread_id, agent_name, status="dev": None)
+    monkeypatch.setattr(
+        lead_agent_module,
+        "build_backend",
+        lambda thread_id, agent_name, status="dev": None,
+    )
     monkeypatch.setattr(lead_agent_module, "create_deep_agent", lambda **kwargs: kwargs)
     monkeypatch.setattr(lead_agent_module, "create_chat_model", lambda **kwargs: object())
 

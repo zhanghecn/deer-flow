@@ -1,9 +1,15 @@
 import logging
+import os
+from functools import lru_cache
+from pathlib import Path, PurePosixPath
+from typing import Literal
 
 from deepagents import create_deep_agent
-from deepagents.backends import CompositeBackend, FilesystemBackend, LocalShellBackend
+from deepagents.backends import CompositeBackend, LocalShellBackend
+from deepagents.backends.protocol import BackendProtocol
 from langchain_core.runnables import RunnableConfig
 from langgraph_sdk.runtime import ServerRuntime
+import yaml
 
 from src.agents.lead_agent.prompt import apply_prompt_template
 from src.agents.lead_agent.subagents import load_subagent_specs
@@ -12,64 +18,230 @@ from src.agents.middlewares.thread_data_middleware import ThreadDataMiddleware
 from src.agents.middlewares.title_middleware import TitleMiddleware
 from src.agents.middlewares.uploads_middleware import UploadsMiddleware
 from src.agents.middlewares.view_image_middleware import ViewImageMiddleware
+from src.config.app_config import AppConfig
 from src.config.model_config import ModelConfig
-from src.config.paths import get_paths
+from src.config.paths import VIRTUAL_PATH_PREFIX, get_paths
 from src.config.runtime_db import DBAgentConfig, RuntimeDBStore, get_runtime_db_store
 from src.models import create_chat_model
 from src.observability import create_agent_trace_callback
+from src.reflection.resolvers import resolve_class
+from src.sandbox.sandbox_provider import SandboxProvider
 
 logger = logging.getLogger(__name__)
+LOCAL_SANDBOX_PROVIDER = "src.sandbox.local:LocalSandboxProvider"
+DEFAULT_THREAD_ID = "_default"
+DEFAULT_RUNTIME_SKILLS_PATH = f"{VIRTUAL_PATH_PREFIX}/skills/"
+ExecutionBackend = Literal["local", "sandbox"]
 
 
-def build_backend(thread_id: str | None, agent_name: str | None, status: str = "dev"):
-    """Build a CompositeBackend for the agent.
+def _resolve_config_sandbox_provider() -> str | None:
+    config_path = AppConfig.resolve_config_path()
+    if config_path is None or not config_path.exists():
+        return None
 
-    Replaces the old LocalSandbox + replace_virtual_path system with deepagents backends.
+    with open(config_path, encoding="utf-8") as f:
+        config_data = yaml.safe_load(f) or {}
 
-    The backend provides:
-    - Default: LocalShellBackend for thread workspace (per-thread isolated runtime)
-    - /skills/: Agent-specific skills (shared across all threads using this agent)
-    - /public-skills/: Global public skills (shared across all agents)
-    """
+    sandbox_config = config_data.get("sandbox")
+    if not isinstance(sandbox_config, dict):
+        return None
+
+    raw_provider = sandbox_config.get("use")
+    if not isinstance(raw_provider, str):
+        return None
+
+    provider = raw_provider.strip()
+    if not provider:
+        return None
+
+    if provider.startswith("$"):
+        resolved_env = str(os.getenv(provider[1:], "")).strip()
+        return resolved_env or None
+
+    return provider
+
+
+def _resolve_sandbox_provider() -> str:
+    env_provider = str(os.getenv("OPENAGENTS_SANDBOX_PROVIDER", "")).strip()
+    if env_provider:
+        return env_provider
+
+    try:
+        return _resolve_config_sandbox_provider() or LOCAL_SANDBOX_PROVIDER
+    except Exception as exc:
+        logger.warning("Failed to resolve sandbox provider from config. Falling back to local execution backend. Error: %s", exc)
+        return LOCAL_SANDBOX_PROVIDER
+
+
+def _resolve_execution_backend() -> ExecutionBackend:
+    return "local" if _resolve_sandbox_provider() == LOCAL_SANDBOX_PROVIDER else "sandbox"
+
+
+@lru_cache(maxsize=4)
+def _get_sandbox_provider(provider_path: str) -> SandboxProvider:
+    provider_cls = resolve_class(provider_path, base_class=SandboxProvider)
+    return provider_cls()
+
+
+def _effective_thread_id(thread_id: str | None) -> str:
+    return thread_id or DEFAULT_THREAD_ID
+
+
+def _runtime_agent_root(agent_name: str, status: str) -> str:
+    return f"{VIRTUAL_PATH_PREFIX}/agents/{status}/{agent_name.lower()}"
+
+
+def _runtime_skills_path(agent_name: str | None, status: str) -> str:
+    if agent_name:
+        return f"{_runtime_agent_root(agent_name, status)}/skills/"
+    return DEFAULT_RUNTIME_SKILLS_PATH
+
+
+def _runtime_memory_sources(agent_name: str | None, status: str) -> list[str]:
+    if not agent_name:
+        return []
+    return [f"{_runtime_agent_root(agent_name, status)}/AGENTS.md"]
+
+
+def _iter_local_files(root: Path) -> list[tuple[PurePosixPath, bytes]]:
+    files: list[tuple[PurePosixPath, bytes]] = []
+    for file_path in sorted(root.rglob("*")):
+        if not file_path.is_file():
+            continue
+        files.append((PurePosixPath(file_path.relative_to(root).as_posix()), file_path.read_bytes()))
+    return files
+
+
+def _build_runtime_seed_targets(
+    source_root: Path,
+    target_root: str,
+) -> list[tuple[str, bytes]]:
+    return [
+        (f"{target_root.rstrip('/')}/{relative_path.as_posix()}", content)
+        for relative_path, content in _iter_local_files(source_root)
+    ]
+
+
+def _collect_missing_runtime_uploads(
+    backend: BackendProtocol,
+    runtime_targets: list[tuple[str, bytes]],
+) -> list[tuple[str, bytes]]:
+    existing_files = backend.download_files([path for path, _ in runtime_targets])
+    uploads: list[tuple[str, bytes]] = []
+
+    for (path, content), existing_file in zip(runtime_targets, existing_files, strict=True):
+        if existing_file.error == "file_not_found":
+            uploads.append((path, content))
+            continue
+        if existing_file.error is not None:
+            raise RuntimeError(f"Failed to inspect runtime file seed target '{path}': {existing_file.error}")
+
+    return uploads
+
+
+def _upload_runtime_files(
+    backend: BackendProtocol,
+    runtime_targets: list[tuple[str, bytes]],
+) -> None:
+    if not runtime_targets:
+        return
+
+    upload_results = backend.upload_files(runtime_targets)
+    errors = [f"{result.path}: {result.error}" for result in upload_results if result.error is not None]
+    if errors:
+        raise RuntimeError(f"Failed to seed runtime definition files: {', '.join(errors)}")
+
+
+def _seed_backend_tree(backend: BackendProtocol, *, source_root: Path, target_root: str) -> None:
+    if not source_root.exists():
+        return
+
+    runtime_targets = _build_runtime_seed_targets(source_root, target_root)
+    missing_uploads = _collect_missing_runtime_uploads(backend, runtime_targets)
+    _upload_runtime_files(backend, missing_uploads)
+
+
+def _seed_runtime_materials(
+    backend: BackendProtocol,
+    *,
+    agent_name: str | None,
+    status: str,
+) -> None:
     paths = get_paths()
+    if agent_name:
+        _seed_backend_tree(
+            backend,
+            source_root=paths.agent_dir(agent_name, status),
+            target_root=_runtime_agent_root(agent_name, status),
+        )
+        return
 
-    # === Runtime layer (per-thread isolated) ===
-    if thread_id:
-        user_data_dir = str(paths.sandbox_user_data_dir(thread_id))
-    else:
-        user_data_dir = str(paths.base_dir / "threads" / "_default" / "user-data")
+    _seed_backend_tree(
+        backend,
+        source_root=paths.skills_dir,
+        target_root=DEFAULT_RUNTIME_SKILLS_PATH.rstrip("/"),
+    )
 
-    workspace_backend = LocalShellBackend(
+
+def _build_local_workspace_backend(user_data_dir: str) -> LocalShellBackend:
+    return LocalShellBackend(
         root_dir=user_data_dir,
         virtual_mode=True,
         inherit_env=True,
         timeout=600,
     )
 
-    routes = {}
 
-    # === Definition layer (shared across all threads) ===
-    if agent_name:
-        agent_dir = paths.agent_dir(agent_name, status)
-        skills_dir = agent_dir / "skills"
-        if skills_dir.exists():
-            routes["/skills/"] = FilesystemBackend(
-                root_dir=str(skills_dir),
-                virtual_mode=True,
-            )
+def _build_sandbox_workspace_backend(thread_id: str | None) -> BackendProtocol:
+    provider_path = _resolve_sandbox_provider()
+    provider = _get_sandbox_provider(provider_path)
+    sandbox_id = provider.acquire(_effective_thread_id(thread_id))
+    sandbox = provider.get(sandbox_id)
+    if sandbox is None:
+        raise RuntimeError(f"Sandbox provider '{provider_path}' returned sandbox id '{sandbox_id}' but no sandbox instance.")
+    return sandbox
 
-    # Global public skills are only exposed for the default agent flow.
-    if not agent_name:
-        skills_root = paths.skills_dir
-        public_skills_root = skills_root / "public"
-        exposed_skills_root = public_skills_root if public_skills_root.exists() else skills_root
-        if exposed_skills_root.exists():
-            routes["/public-skills/"] = FilesystemBackend(
-                root_dir=str(exposed_skills_root),
-                virtual_mode=True,
-            )
 
-    return CompositeBackend(default=workspace_backend, routes=routes)
+def _build_workspace_backend(
+    *,
+    user_data_dir: str,
+    thread_id: str | None,
+) -> BackendProtocol:
+    if _resolve_execution_backend() == "sandbox":
+        return _build_sandbox_workspace_backend(thread_id)
+    return _build_local_workspace_backend(user_data_dir)
+
+
+def build_backend(
+    thread_id: str | None,
+    agent_name: str | None,
+    status: str = "dev",
+):
+    """Build a CompositeBackend for the agent.
+
+    The backend provides:
+    - Per-thread runtime workspace under `/mnt/user-data`
+    - Thread-local copies of archived agent definition files (`AGENTS.md`, `config.yaml`, copied `skills/`)
+
+    Runtime execution mode is resolved from Python sandbox configuration.
+    """
+    paths = get_paths()
+
+    # === Runtime layer (per-thread isolated) ===
+    effective_thread_id = _effective_thread_id(thread_id)
+    user_data_dir = str(paths.sandbox_user_data_dir(effective_thread_id))
+
+    workspace_backend = _build_workspace_backend(
+        user_data_dir=user_data_dir,
+        thread_id=effective_thread_id,
+    )
+    _seed_runtime_materials(
+        workspace_backend,
+        agent_name=agent_name,
+        status=status,
+    )
+
+    return CompositeBackend(default=workspace_backend, routes={})
 
 
 def _build_openagents_middlewares(model_config: ModelConfig):
@@ -332,23 +504,19 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         config["metadata"]["trace_id"] = trace_callback.trace_id
 
     # Build CompositeBackend (replaces LocalSandbox + replace_virtual_path)
-    backend = build_backend(thread_id, agent_name, agent_status)
+    backend = build_backend(
+        thread_id,
+        agent_name,
+        agent_status,
+    )
 
     # Skills sources for deepagents SkillsMiddleware.
-    # For named agents, only use agent-owned skills to avoid implicit fallback.
-    if agent_name:
-        skills_sources = ["/skills/"]
-    else:
-        skills_sources = ["/public-skills/"]
+    # For named agents, use the thread-local copy of that agent's archived skills.
+    # The default lead_agent gets a thread-local copy of the full archived skills library.
+    skills_sources = [_runtime_skills_path(agent_name, agent_status)]
 
-    # Memory sources (AGENTS.md loaded from agent definition directory)
-    memory_sources = []
-    paths = get_paths()
-    if agent_name:
-        agent_dir = paths.agent_dir(agent_name, agent_status)
-        agents_md_path = agent_dir / "AGENTS.md"
-        if agents_md_path.exists():
-            memory_sources.append(str(agents_md_path))
+    # Memory sources (AGENTS.md loaded from the thread-local runtime copy, not the archive)
+    memory_sources = _runtime_memory_sources(agent_name, agent_status)
 
     # Community tools + MCP tools (sandbox tools provided by deepagents FilesystemMiddleware)
     # Exclude file:read, file:write, bash groups — deepagents provides ls, read_file, write_file, edit_file, execute, glob, grep
@@ -383,6 +551,7 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         subagent_enabled=subagent_enabled,
         max_concurrent_subagents=max_concurrent_subagents,
         agent_name=agent_name,
+        agent_status=agent_status,
         available_skills=set(["bootstrap"]) if is_bootstrap else None,
     )
 

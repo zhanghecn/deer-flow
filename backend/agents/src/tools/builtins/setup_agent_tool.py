@@ -1,14 +1,26 @@
 import logging
 
-import yaml
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 
+from src.config.agent_materialization import materialize_agent_definition
 from src.config.paths import get_paths
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_skill_names(skills: list[dict] | None) -> list[str]:
+    selected: list[str] = []
+    for skill_entry in skills or []:
+        raw_name = skill_entry.get("name") if isinstance(skill_entry, dict) else None
+        if raw_name is None:
+            continue
+        name = str(raw_name).strip()
+        if name:
+            selected.append(name)
+    return selected
 
 
 @tool
@@ -27,46 +39,33 @@ def setup_agent(
         description: One-line description of what the agent does.
         model: Optional model override for the agent (e.g. "openai/gpt-4o").
         tool_groups: Optional list of tool groups the agent can use.
-        skills: Optional list of skills to create for this agent.
-            Each skill is a dict with "name" (str) and "skill_md" (str) keys.
+        skills: Optional list of skills to copy from the shared skills library.
+            Each entry must provide a "name" key.
     """
 
     agent_name: str | None = runtime.context.get("agent_name")
 
     try:
         paths = get_paths()
-        agent_dir = paths.agent_dir(agent_name) if agent_name else paths.base_dir
-        agent_dir.mkdir(parents=True, exist_ok=True)
-
         if agent_name:
-            config_data: dict = {"name": agent_name}
-            if description:
-                config_data["description"] = description
-            if model is not None:
-                config_data["model"] = model
-            if tool_groups is not None:
-                config_data["tool_groups"] = tool_groups
-
-            config_file = agent_dir / "config.yaml"
-            with open(config_file, "w", encoding="utf-8") as f:
-                yaml.dump(config_data, f, default_flow_style=False, allow_unicode=True)
-
-        agents_md_file = agent_dir / "AGENTS.md"
-        agents_md_file.write_text(agents_md, encoding="utf-8")
-
-        # Write agent-specific skills
-        created_skills = []
-        if skills:
-            skills_dir = agent_dir / "skills"
-            for skill_entry in skills:
-                skill_name = skill_entry.get("name", "").strip()
-                skill_md = skill_entry.get("skill_md", "").strip()
-                if not skill_name or not skill_md:
-                    continue
-                skill_dir = skills_dir / skill_name
-                skill_dir.mkdir(parents=True, exist_ok=True)
-                (skill_dir / "SKILL.md").write_text(skill_md, encoding="utf-8")
-                created_skills.append(skill_name)
+            agent_status = str(runtime.context.get("agent_status", "dev")).strip() or "dev"
+            materialized = materialize_agent_definition(
+                name=agent_name,
+                status=agent_status,
+                agents_md=agents_md,
+                description=description,
+                model=model,
+                tool_groups=tool_groups,
+                skill_names=_extract_skill_names(skills),
+                paths=paths,
+            )
+            created_skills = [skill_ref.name for skill_ref in materialized.skill_refs]
+            agent_dir = paths.agent_dir(agent_name, agent_status)
+        else:
+            agent_dir = paths.base_dir
+            agent_dir.mkdir(parents=True, exist_ok=True)
+            (agent_dir / "AGENTS.md").write_text(agents_md, encoding="utf-8")
+            created_skills = []
 
         parts = [f"Agent '{agent_name}' created successfully!"]
         if created_skills:
@@ -81,9 +80,5 @@ def setup_agent(
         )
 
     except Exception as e:
-        import shutil
-
-        if agent_name and agent_dir.exists():
-            shutil.rmtree(agent_dir)
         logger.error(f"[agent_creator] Failed to create agent '{agent_name}': {e}", exc_info=True)
         return Command(update={"messages": [ToolMessage(content=f"Error: {e}", tool_call_id=runtime.tool_call_id)]})

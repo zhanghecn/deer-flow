@@ -40,6 +40,7 @@ type CreateAgentRequest struct {
 	Model       *string  `json:"model"`
 	ToolGroups  []string `json:"tool_groups"`
 	McpServers  []string `json:"mcp_servers"`
+	Skills      []string `json:"skills"`
 	AgentsMD    string   `json:"agents_md"`
 }
 
@@ -50,6 +51,7 @@ type UpdateAgentRequest struct {
 	Model       *string  `json:"model"`
 	ToolGroups  []string `json:"tool_groups"`
 	McpServers  []string `json:"mcp_servers"`
+	Skills      []string `json:"skills"`
 	AgentsMD    *string  `json:"agents_md"`
 }
 
@@ -59,8 +61,12 @@ type AgentResponse struct {
 }
 
 type SkillRef struct {
-	ID   uuid.UUID `json:"id"`
-	Name string    `json:"name"`
+	ID               uuid.UUID `json:"id"`
+	Name             string    `json:"name"`
+	Status           string    `json:"status,omitempty"`
+	Category         string    `json:"category,omitempty"`
+	SourcePath       string    `json:"source_path,omitempty"`
+	MaterializedPath string    `json:"materialized_path,omitempty"`
 }
 
 // Skill DTOs

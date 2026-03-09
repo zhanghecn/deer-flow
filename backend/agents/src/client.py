@@ -33,7 +33,7 @@ from deepagents import create_deep_agent
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 
-from src.agents.lead_agent.agent import _build_openagents_middlewares, build_backend
+from src.agents.lead_agent.agent import DEFAULT_RUNTIME_SKILLS_PATH, _build_openagents_middlewares, build_backend
 from src.agents.lead_agent.prompt import apply_prompt_template
 from src.agents.lead_agent.subagents import load_subagent_specs
 from src.config.app_config import get_app_config, reload_app_config
@@ -235,6 +235,7 @@ class OpenAgentsClient:
             ),
             middleware=extra_middleware,
             subagents=subagents,
+            skills=[DEFAULT_RUNTIME_SKILLS_PATH],
             backend=backend,
             interrupt_on={"ask_clarification": True},
             name="lead_agent",

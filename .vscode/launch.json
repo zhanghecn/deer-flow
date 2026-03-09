@@ -32,9 +32,6 @@
       "program": "${workspaceFolder}/backend/gateway/cmd/server",
       "cwd": "${workspaceFolder}/backend/gateway",
       "envFile": "${workspaceFolder}/.env",
-      "env": {
-        "GOTOOLCHAIN": "local"
-      },
       "console": "integratedTerminal"
     }
   ]

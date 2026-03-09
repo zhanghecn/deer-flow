@@ -26,8 +26,8 @@ class Paths:
         ├── agents/                          # Agent definitions (shared across all users)
         │   ├── prod/{agent-name}/
         │   │   ├── config.yaml
-        │   │   ├── AGENTS.md                # System prompt / personality
-        │   │   └── skills/{skill-name}/SKILL.md
+        │   │   ├── AGENTS.md                # Agent-owned system prompt / personality
+        │   │   └── skills/{skill-name}/SKILL.md   # Copied skill snapshots for this agent
         │   └── dev/{agent-name}/
         │       ├── config.yaml
         │       ├── AGENTS.md
@@ -89,6 +89,18 @@ class Paths:
     def agent_dir(self, name: str, status: str = "dev") -> Path:
         """Directory for an agent: `{base_dir}/agents/{status}/{name}/`."""
         return self.agents_dir / status / name.lower()
+
+    def agent_config_file(self, name: str, status: str = "dev") -> Path:
+        """Path to an agent config manifest."""
+        return self.agent_dir(name, status) / "config.yaml"
+
+    def agent_agents_md_file(self, name: str, status: str = "dev") -> Path:
+        """Path to the agent-owned AGENTS.md file."""
+        return self.agent_dir(name, status) / "AGENTS.md"
+
+    def agent_skills_dir(self, name: str, status: str = "dev") -> Path:
+        """Directory containing skills materialized for an agent."""
+        return self.agent_dir(name, status) / "skills"
 
     def agent_memory_file(self, name: str, status: str = "dev") -> Path:
         """Per-agent memory file (legacy compat)."""

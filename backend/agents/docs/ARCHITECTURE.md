@@ -101,7 +101,7 @@ FastAPI application providing REST endpoints for non-agent operations.
 │  ┌──────────────────────────────────────────────────────────────────┐   │
 │  │ 1. ThreadDataMiddleware  - Initialize workspace/uploads/outputs  │   │
 │  │ 2. UploadsMiddleware     - Process uploaded files               │   │
-│  │ 3. SandboxMiddleware     - Acquire sandbox environment          │   │
+│  │ 3. FilesystemMiddleware  - Route file and execute operations    │   │
 │  │ 4. SummarizationMiddleware - Context reduction (if enabled)     │   │
 │  │ 5. TitleMiddleware       - Auto-generate titles                 │   │
 │  │ 6. TodoListMiddleware    - Task tracking (if plan_mode)         │   │
@@ -120,6 +120,20 @@ FastAPI application providing REST endpoints for non-agent operations.
 │  └──────────────────┘  └──────────────────┘  └──────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
+
+### Agent Definition Protocol
+
+The runtime now separates three concerns:
+
+- **Shared skills archive**: `skills/{public,custom}/`
+- **Agent materialization**: `agents/{status}/{name}/AGENTS.md`, `config.yaml`, copied `skills/`
+- **Thread runtime data**: `threads/{thread_id}/user-data/{workspace,uploads,outputs}`
+
+At runtime, Python seeds a thread-local copy into `/mnt/user-data/...`.
+The default `lead_agent` uses `/mnt/user-data/skills/`.
+Named agents use `/mnt/user-data/agents/{status}/{name}/skills/` and `/mnt/user-data/agents/{status}/{name}/AGENTS.md`.
+
+See [AGENT_PROTOCOL.md](./AGENT_PROTOCOL.md) for the end-to-end lifecycle and ASCII flow.
 
 ### Thread State
 
@@ -160,17 +174,17 @@ class ThreadState(AgentState):
 │  LocalSandboxProvider   │              │  AioSandboxProvider     │
 │  (src/sandbox/local.py) │              │  (src/community/)       │
 │                         │              │                         │
-│  - Singleton instance   │              │  - Docker-based         │
-│  - Direct execution     │              │  - Isolated containers  │
-│  - Development use      │              │  - Production use       │
+│  - Config marker only   │              │  - Docker/remote        │
+│  - Local mode is built  │              │  - Reusable sandboxes   │
+│    directly in Python   │              │  - Runtime provisioning │
 └─────────────────────────┘              └─────────────────────────┘
 
                       ┌─────────────────────────┐
                       │        Sandbox          │ (Abstract)
-                      │  - execute_command()    │
-                      │  - read_file()          │
-                      │  - write_file()         │
-                      │  - list_dir()           │
+                      │  extends BaseSandbox    │
+                      │  - execute()            │
+                      │  - upload_files()       │
+                      │  - download_files()     │
                       └─────────────────────────┘
 ```
 
@@ -181,7 +195,9 @@ class ThreadState(AgentState):
 | `/mnt/user-data/workspace` | `backend/agents/.openagents/threads/{thread_id}/user-data/workspace` |
 | `/mnt/user-data/uploads` | `backend/agents/.openagents/threads/{thread_id}/user-data/uploads` |
 | `/mnt/user-data/outputs` | `backend/agents/.openagents/threads/{thread_id}/user-data/outputs` |
-| `/mnt/skills` | `openagents/skills/` |
+| `/mnt/user-data/skills` (default lead_agent runtime copy) | seeded from full `skills/` archive |
+| `/mnt/user-data/agents/{status}/{name}/skills` | seeded from `agents/{status}/{name}/skills/` |
+| `/mnt/user-data/agents/{status}/{name}/AGENTS.md` | seeded from archived agent `AGENTS.md` |
 
 ### Tool System
 
@@ -356,7 +372,7 @@ SKILL.md Format:
    b. Execute middleware chain:
       - ThreadDataMiddleware: Set up paths
       - UploadsMiddleware: Inject file list
-      - SandboxMiddleware: Acquire sandbox
+      - FilesystemMiddleware: Bind file + execution tools to the configured backend
       - SummarizationMiddleware: Check token limits
       - TitleMiddleware: Generate title if needed
       - TodoListMiddleware: Load todos (if plan mode)
@@ -366,7 +382,7 @@ SKILL.md Format:
    c. Execute agent:
       - Model processes messages
       - May call tools (bash, web_search, etc.)
-      - Tools execute via sandbox
+      - Tools execute via the configured Python runtime backend (`local` or `sandbox`), independent of `dev/prod`
       - Results added to messages
 
    d. Stream response via SSE

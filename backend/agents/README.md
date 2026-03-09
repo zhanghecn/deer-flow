@@ -53,15 +53,31 @@ The single LangGraph agent (`lead_agent`) is the runtime entry point, created vi
 - **Subagent delegation** for parallel task execution
 - **System prompt** with skills injection, memory context, and working directory guidance
 
+### Agent Definition Protocol
+
+Custom agents now follow one filesystem protocol:
+
+- Shared skills live in the global archive: `skills/{public,custom}/`
+- Each agent owns its own `AGENTS.md`
+- Selected skills are copied into `agents/{status}/{name}/skills/`
+- `config.yaml` is the local manifest and records `agents_md_path` and `skill_refs`
+- `dev` and `prod` are separate local archives so prompts, copied skills, and memory do not bleed into each other
+- Runtime sandbox choice belongs to Python startup/config; it does not come from `dev/prod`
+- At runtime, Python seeds a thread-local copy into `/mnt/user-data/...`
+- The default `lead_agent` uses `/mnt/user-data/skills/`
+- Named agents use `/mnt/user-data/agents/{status}/{name}/skills/` and `/mnt/user-data/agents/{status}/{name}/AGENTS.md`
+
+See [docs/AGENT_PROTOCOL.md](docs/AGENT_PROTOCOL.md) for the full contract and ASCII flow diagram.
+
 ### Middleware Chain
 
-Middlewares execute in strict order, each handling a specific concern:
+OpenAgents-specific middlewares are combined with deepagents built-ins such as `FilesystemMiddleware`, `SkillsMiddleware`, `MemoryMiddleware`, and `SummarizationMiddleware`.
 
 | # | Middleware | Purpose |
 |---|-----------|---------|
 | 1 | **ThreadDataMiddleware** | Creates per-thread isolated directories (workspace, uploads, outputs) |
 | 2 | **UploadsMiddleware** | Injects newly uploaded files into conversation context |
-| 3 | **SandboxMiddleware** | Acquires sandbox environment for code execution |
+| 3 | **FilesystemMiddleware** | Exposes file and execution tools over the configured backend |
 | 4 | **SummarizationMiddleware** | Reduces context when approaching token limits (optional) |
 | 5 | **TodoListMiddleware** | Tracks multi-step tasks in plan mode (optional) |
 | 6 | **TitleMiddleware** | Auto-generates conversation titles after first exchange |
@@ -71,14 +87,17 @@ Middlewares execute in strict order, each handling a specific concern:
 
 ### Sandbox System
 
-Per-thread isolated execution with virtual path translation:
+Per-thread isolated execution with a definition/runtime split:
 
-- **Abstract interface**: `execute_command`, `read_file`, `write_file`, `list_dir`
-- **Providers**: `LocalSandboxProvider` (filesystem) and `AioSandboxProvider` (Docker, in community/)
-- **Virtual paths**: `/mnt/user-data/{workspace,uploads,outputs}` → thread-specific physical directories
-- **Skills path**: `/mnt/skills` → `openagents/skills/` directory
-- **Skills loading**: Recursively discovers nested `SKILL.md` files under `skills/{public,custom}` and preserves nested container paths
-- **Tools**: `bash`, `ls`, `read_file`, `write_file`, `str_replace`
+- **Thread workspace**: `/mnt/user-data/{workspace,uploads,outputs}` → thread-specific physical directories
+- **Runtime modes**:
+  - sandbox disabled in Python config: use `LocalShellBackend` rooted at the thread `user-data` directory
+  - sandbox enabled in Python config: resolve the configured provider in Python and acquire a sandbox implementing deepagents `BaseSandbox`
+- **Runtime seeding**:
+  - default `lead_agent`: copy the full archived `skills/` tree into `/mnt/user-data/skills/`
+  - named agent: copy `agents/{status}/{name}/**` into `/mnt/user-data/agents/{status}/{name}/**`
+  - deepagents reads skills and `AGENTS.md` only from that runtime copy
+- `dev/prod` only decide which archived version is loaded; open API always resolves `prod`
 
 ### Subagent System
 
@@ -356,6 +375,7 @@ uv run pytest
 
 - [Configuration Guide](docs/CONFIGURATION.md)
 - [Architecture Details](docs/ARCHITECTURE.md)
+- [Agent Protocol](docs/AGENT_PROTOCOL.md)
 - [API Reference](docs/API.md)
 - [File Upload](docs/FILE_UPLOAD.md)
 - [Path Examples](docs/PATH_EXAMPLES.md)

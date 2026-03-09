@@ -71,8 +71,12 @@ cp ../../.env.example ../../.env
 所需环境变量：
 - `DATABASE_URI` — PostgreSQL 连接串
 - `JWT_SECRET` — JWT 签名密钥（生成：`openssl rand -base64 32`）
-- `OPENAGENTS_HOME` — 数据存储目录（可选，默认 `.openagents`）
+- `OPENAGENTS_HOME` — Agent/线程运行时目录（可选，默认 `.openagents`）
 - `LANGGRAPH_URL` — LangGraph 上游地址（用于 `/api/langgraph/*` 代理和 OpenAPI 调用）
+
+说明：
+- 共享技能库固定在独立的 `skills/` 目录，不放在 `OPENAGENTS_HOME` 里面
+- 当 `OPENAGENTS_HOME` 或 `storage.base_dir` 使用相对路径时，网关会按项目根目录解析，和 Python runtime 保持一致
 
 **方式二：使用配置文件**
 
@@ -214,14 +218,52 @@ POST /api/agents/:name/publish  # dev → prod
 POST /open/v1/agents/:name/stream  # 只有 prod agent 可通过 Open API 调用
 ```
 
+### 统一协议（ASCII）
+
+```text
+                     +----------------------------------+
+                     | shared skills library            |
+                     | skills/public + skills/custom    |
+                     +----------------+-----------------+
+                                      |
+                                      | select skill names
+                                      v
+ +------------------+       +---------+---------+
+ | agent AGENTS.md  | ----> | materialize dev   |
+ | agent metadata   |       | agents/dev/<name> |
+ +------------------+       | - AGENTS.md       |
+                            | - config.yaml     |
+                            | - copied skills/  |
+                            +---------+---------+
+                                      |
+                                      | publish
+                                      v
+                            +---------+---------+
+                            | materialize prod  |
+                            | agents/prod/<name>|
+                            | - AGENTS.md       |
+                            | - config.yaml     |
+                            | - copied skills/  |
+                            | - keep runtime_   |
+                            |   backend         |
+                            +---------+---------+
+                                      |
+                                      | open API / LangGraph
+                                      v
+                    +-----------------+------------------+
+                    | threads/<id>/user-data/*          |
+                    | workspace + uploads + outputs     |
+                    +-----------------------------------+
+```
+
 ## 数据存储
 
 ### PostgreSQL
 
 - `users` — 用户账号
 - `api_tokens` — API 访问令牌
-- `agents` — Agent 元数据（共享，非按用户隔离）
-- `skills` — Skill 元数据（共享）
+- `agents` — Agent 元数据与引用（共享，非按用户隔离）
+- `skills` — Skill 元数据与引用（共享）
 - `agent_skills` — Agent-Skill 关联
 - `models` — 模型配置
 - `thread_bindings` — 线程归属与运行时绑定
@@ -230,30 +272,58 @@ POST /open/v1/agents/:name/stream  # 只有 prod agent 可通过 Open API 调用
 
 `/api/models` 数据来自 `models` 表。运行时模型选择由 Python(LangGraph graph factory)直接查询数据库，不再由网关注入 `model_config`。
 
-### 文件系统（双写同步）
+数据库不再保存 Agent/Skill markdown 正文作为真源：
+- `agents.agents_md` 列保存 `agents/{status}/{name}/AGENTS.md` 这类引用路径
+- `skills.skill_md` 列保存 `skills/{public|custom}/{name}/SKILL.md` 这类引用路径
+- `agents.config_json` 保存与 Python manifest 对齐的引用信息，例如 `agents_md_path`、`skill_refs`
+- `agent_skills` 是“这个 agent 选了哪些共享 skill”的数据库真源
 
-Agent/Skill 的 AGENTS.md 和 config.yaml 同步写入文件系统，供 LangGraph Server 读取：
+Agent 版本隔离规则：
+- 同一个 agent 名称可以同时存在 `dev` 和 `prod` 两行
+- 数据库唯一键为 `(name, status)`，发布时不再覆盖 dev 行
+- Open API 只读取 `status=prod`
+
+运行时职责分界：
+- Go gateway 只负责写归档和元数据引用
+- 是否启用 sandbox 由 Python runtime 启动时根据环境变量 / `config.yaml` 决定
+- 运行时无论是本地还是 sandbox，都读取同一套已归档的 `AGENTS.md` 和 agent-local `skills/`
+
+### 文件系统（运行时物化）
+
+数据库只存引用；真正被 Python runtime 消费的是文件系统物化结果：
 
 ```
-{base_dir}/
-├── agents/
-│   ├── prod/{name}/
-│   │   ├── config.yaml
-│   │   ├── AGENTS.md
-│   │   └── skills/{skill-name}/SKILL.md
-│   └── dev/{name}/
-│       ├── config.yaml
-│       ├── AGENTS.md
-│       └── skills/{skill-name}/SKILL.md
-├── users/{user_id}/
-│   ├── memory.json
-│   └── USER.md
-└── threads/{thread_id}/
-    └── user-data/
-        ├── workspace/
-        ├── uploads/
-        └── outputs/
+{project_root}/
+├── skills/
+│   ├── public/{skill-name}/SKILL.md
+│   └── custom/{skill-name}/SKILL.md
+└── {OPENAGENTS_HOME}/
+    ├── agents/
+    │   ├── prod/{name}/
+    │   │   ├── config.yaml
+    │   │   ├── AGENTS.md
+    │   │   └── skills/{skill-name}/SKILL.md
+    │   └── dev/{name}/
+    │       ├── config.yaml
+    │       ├── AGENTS.md
+    │       └── skills/{skill-name}/SKILL.md
+    ├── users/{user_id}/
+    │   ├── memory.json
+    │   └── USER.md
+    └── threads/{thread_id}/
+        └── user-data/
+            ├── workspace/
+            ├── uploads/
+            └── outputs/
 ```
+
+说明：
+- `AGENTS.md` 归 agent 自己所有
+- 共享 `skills/` 是独立仓库，agent 只引用并复制选中的 skill
+- 发布时 Go gateway 会从共享技能库复制到 `agents/prod/{name}/skills/`
+- 默认 `lead_agent` 不走单个 agent 目录，它直接看到完整共享技能库
+- 本地调试时，runtime 通过本地目录 + `CompositeBackend` 虚拟路径路由运行
+- 启用 sandbox 时，仍然挂载同一套已归档文件，只是执行后端不同
 
 ## LangGraph 代理
 

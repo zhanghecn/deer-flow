@@ -9,14 +9,14 @@ import (
 
 // User represents a platform user.
 type User struct {
-	ID           uuid.UUID  `json:"id" db:"id"`
-	Email        string     `json:"email" db:"email"`
-	Name         string     `json:"name" db:"name"`
-	PasswordHash string     `json:"-" db:"password_hash"`
-	AvatarURL    *string    `json:"avatar_url" db:"avatar_url"`
-	Role         string     `json:"role" db:"role"`
-	CreatedAt    time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at" db:"updated_at"`
+	ID           uuid.UUID `json:"id" db:"id"`
+	Email        string    `json:"email" db:"email"`
+	Name         string    `json:"name" db:"name"`
+	PasswordHash string    `json:"-" db:"password_hash"`
+	AvatarURL    *string   `json:"avatar_url" db:"avatar_url"`
+	Role         string    `json:"role" db:"role"`
+	CreatedAt    time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // APIToken represents an API access token.
@@ -31,31 +31,36 @@ type APIToken struct {
 	CreatedAt time.Time  `json:"created_at" db:"created_at"`
 }
 
-// Agent represents an agent definition (shared across all users).
+// Agent represents a shared agent definition row. Markdown content is
+// materialized on disk; the DB stores filesystem references and metadata.
 type Agent struct {
-	ID          uuid.UUID       `json:"id" db:"id"`
-	Name        string          `json:"name" db:"name"`
-	DisplayName *string         `json:"display_name" db:"display_name"`
-	Description string          `json:"description" db:"description"`
-	AvatarURL   *string         `json:"avatar_url" db:"avatar_url"`
-	Model       *string         `json:"model" db:"model"`
-	ToolGroups  []string        `json:"tool_groups" db:"tool_groups"`
-	McpServers  []string        `json:"mcp_servers" db:"mcp_servers"`
-	Status      string          `json:"status" db:"status"`
-	AgentsMD    string          `json:"agents_md" db:"agents_md"`
-	ConfigJSON  json.RawMessage `json:"config_json" db:"config_json"`
-	CreatedBy   *uuid.UUID      `json:"created_by" db:"created_by"`
-	CreatedAt   time.Time       `json:"created_at" db:"created_at"`
-	UpdatedAt   time.Time       `json:"updated_at" db:"updated_at"`
+	ID             uuid.UUID       `json:"id" db:"id"`
+	Name           string          `json:"name" db:"name"`
+	DisplayName    *string         `json:"display_name" db:"display_name"`
+	Description    string          `json:"description" db:"description"`
+	AvatarURL      *string         `json:"avatar_url" db:"avatar_url"`
+	Model          *string         `json:"model" db:"model"`
+	ToolGroups     []string        `json:"tool_groups" db:"tool_groups"`
+	McpServers     []string        `json:"mcp_servers" db:"mcp_servers"`
+	Status         string          `json:"status" db:"status"`
+	AgentsMD       string          `json:"agents_md"`
+	AgentsMDRef    string          `json:"-" db:"agents_md"`
+	Skills         []SkillRef      `json:"skills,omitempty"`
+	ConfigJSON     json.RawMessage `json:"config_json" db:"config_json"`
+	CreatedBy      *uuid.UUID      `json:"created_by" db:"created_by"`
+	CreatedAt      time.Time       `json:"created_at" db:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at" db:"updated_at"`
 }
 
-// Skill represents a reusable skill definition (shared across all users).
+// Skill represents a shared skill library row. The DB stores a path reference
+// to SKILL.md while the markdown body lives on disk.
 type Skill struct {
 	ID          uuid.UUID       `json:"id" db:"id"`
 	Name        string          `json:"name" db:"name"`
 	Description string          `json:"description" db:"description"`
 	Status      string          `json:"status" db:"status"`
-	SkillMD     string          `json:"skill_md" db:"skill_md"`
+	SkillMD     string          `json:"skill_md"`
+	SkillMDRef  string          `json:"-" db:"skill_md"`
 	Metadata    json.RawMessage `json:"metadata" db:"metadata"`
 	CreatedBy   *uuid.UUID      `json:"created_by" db:"created_by"`
 	CreatedAt   time.Time       `json:"created_at" db:"created_at"`

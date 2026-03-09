@@ -2,10 +2,11 @@
 
 import logging
 import re
+from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.config.paths import AGENTS_ROOT, get_paths
 
@@ -26,6 +27,28 @@ class AgentConfig(BaseModel):
     tool_groups: list[str] | None = None
     mcp_servers: list[str] | None = None
     status: str = "dev"
+    agents_md_path: str = AGENTS_MD_FILENAME
+    skill_refs: list["AgentSkillRef"] = Field(default_factory=list)
+
+
+class AgentSkillRef(BaseModel):
+    """Reference to a skill copied from the shared skills library."""
+
+    name: str
+    category: str | None = None
+    source_path: str | None = None
+    materialized_path: str | None = None
+
+
+AgentConfig.model_rebuild()
+
+
+def _resolve_agent_dir(name: str, status: str) -> Path:
+    paths = get_paths()
+    agent_dir = paths.agent_dir(name, status)
+    if agent_dir.exists():
+        return agent_dir
+    return paths.agents_dir / name.lower()
 
 
 def load_agent_config(name: str | None, status: str = "dev") -> AgentConfig | None:
@@ -40,12 +63,7 @@ def load_agent_config(name: str | None, status: str = "dev") -> AgentConfig | No
     if not AGENT_NAME_PATTERN.match(name):
         raise ValueError(f"Invalid agent name '{name}'. Must match pattern: {AGENT_NAME_PATTERN.pattern}")
 
-    paths = get_paths()
-    # Try new layout: agents/{status}/{name}/
-    agent_dir = paths.agent_dir(name, status)
-    if not agent_dir.exists():
-        # Fallback to legacy layout: agents/{name}/
-        agent_dir = paths.agents_dir / name.lower()
+    agent_dir = _resolve_agent_dir(name, status)
 
     config_file = agent_dir / "config.yaml"
 
@@ -65,6 +83,14 @@ def load_agent_config(name: str | None, status: str = "dev") -> AgentConfig | No
         data["name"] = name
     if "status" not in data:
         data["status"] = status
+    if "agents_md_path" not in data:
+        data["agents_md_path"] = AGENTS_MD_FILENAME
+    if "skill_refs" not in data and "skills" in data:
+        raw_skills = data.get("skills") or []
+        data["skill_refs"] = [
+            skill if isinstance(skill, dict) else {"name": str(skill)}
+            for skill in raw_skills
+        ]
 
     known_fields = set(AgentConfig.model_fields.keys())
     data = {k: v for k, v in data.items() if k in known_fields}
@@ -80,14 +106,25 @@ def load_agents_md(agent_name: str | None, status: str = "dev") -> str | None:
     paths = get_paths()
 
     if agent_name:
-        # Try new layout first
-        agent_dir = paths.agent_dir(agent_name, status)
-        if not agent_dir.exists():
-            # Fallback to legacy layout
-            agent_dir = paths.agents_dir / agent_name.lower()
+        agent_dir = _resolve_agent_dir(agent_name, status)
+        candidate_paths: list[Path] = []
+        try:
+            agent_config = load_agent_config(agent_name, status)
+        except Exception:
+            agent_config = None
+        if agent_config is not None:
+            configured_path = Path(agent_config.agents_md_path)
+            resolved_path = configured_path if configured_path.is_absolute() else agent_dir / configured_path
+            candidate_paths.append(resolved_path)
         candidate_dirs = [agent_dir]
     else:
         candidate_dirs = [paths.base_dir, AGENTS_ROOT]
+        candidate_paths = []
+
+    for md_path in candidate_paths:
+        if md_path.exists():
+            content = md_path.read_text(encoding="utf-8").strip()
+            return content or None
 
     # Try AGENTS.md first, then legacy SOUL.md
     for agent_dir in candidate_dirs:
@@ -114,7 +151,7 @@ def list_custom_agents() -> list[AgentConfig]:
         return []
 
     agents: list[AgentConfig] = []
-    seen_names: set[str] = set()
+    seen_agents: set[tuple[str, str]] = set()
 
     # Scan new layout: agents/{status}/{name}/
     for status_dir_name in ("prod", "dev"):
@@ -126,9 +163,11 @@ def list_custom_agents() -> list[AgentConfig]:
                 continue
             try:
                 agent_cfg = load_agent_config(entry.name, status=status_dir_name)
-                if agent_cfg and agent_cfg.name not in seen_names:
+                key = (agent_cfg.name, agent_cfg.status) if agent_cfg else None
+                if agent_cfg and key not in seen_agents:
                     agents.append(agent_cfg)
-                    seen_names.add(agent_cfg.name)
+                    assert key is not None
+                    seen_agents.add(key)
             except Exception as e:
                 logger.warning(f"Skipping agent '{entry.name}' ({status_dir_name}): {e}")
 
@@ -136,17 +175,17 @@ def list_custom_agents() -> list[AgentConfig]:
     for entry in sorted(agents_dir.iterdir()):
         if not entry.is_dir() or entry.name in ("prod", "dev"):
             continue
-        if entry.name in seen_names:
-            continue
         config_file = entry / "config.yaml"
         if not config_file.exists():
             continue
         try:
             agent_cfg = load_agent_config(entry.name)
-            if agent_cfg:
+            key = (agent_cfg.name, agent_cfg.status) if agent_cfg else None
+            if agent_cfg and key not in seen_agents:
                 agents.append(agent_cfg)
-                seen_names.add(agent_cfg.name)
+                assert key is not None
+                seen_agents.add(key)
         except Exception as e:
             logger.warning(f"Skipping agent '{entry.name}': {e}")
 
-    return agents
+    return sorted(agents, key=lambda agent: (agent.name, agent.status))

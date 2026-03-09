@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from unittest.mock import patch
 
@@ -34,6 +35,17 @@ def _write_agent(base_dir: Path, name: str, config: dict, soul: str = "You are h
         yaml.dump(config_copy, f)
 
     (agent_dir / "AGENTS.md").write_text(soul, encoding="utf-8")
+
+
+def _write_shared_skill(base_dir: Path, skill_name: str, *, category: str = "public", relative_path: str | None = None) -> None:
+    """Write a shared skill into the skills library."""
+    skills_root = _make_paths(base_dir).skills_dir
+    skill_dir = skills_root / category / Path(relative_path or skill_name)
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    skill_dir.joinpath("SKILL.md").write_text(
+        f"---\nname: {skill_name}\ndescription: {skill_name} description\n---\n\n# {skill_name}\n",
+        encoding="utf-8",
+    )
 
 
 # ===========================================================================
@@ -103,6 +115,22 @@ class TestAgentConfig:
         assert cfg.model == "gpt-4"
         assert cfg.tool_groups is None
 
+    def test_config_with_skill_refs(self):
+        from src.config.agents_config import AgentConfig
+
+        cfg = AgentConfig(
+            name="industry-analyst",
+            skill_refs=[
+                {
+                    "name": "data-analysis",
+                    "category": "public",
+                    "source_path": "public/data-analysis",
+                    "materialized_path": "skills/data-analysis",
+                }
+            ],
+        )
+        assert cfg.skill_refs[0].name == "data-analysis"
+
 
 # ===========================================================================
 # 3. load_agent_config
@@ -164,6 +192,44 @@ class TestLoadAgentConfig:
             cfg = load_agent_config("restricted")
 
         assert cfg.tool_groups == ["file:read", "file:write"]
+
+    def test_load_config_with_skill_refs(self, tmp_path):
+        config_dict = {
+            "name": "industry-analyst",
+            "skill_refs": [
+                {
+                    "name": "data-analysis",
+                    "category": "public",
+                    "source_path": "public/data-analysis",
+                    "materialized_path": "skills/data-analysis",
+                }
+            ],
+        }
+        _write_agent(tmp_path, "industry-analyst", config_dict)
+
+        with patch("src.config.agents_config.get_paths", return_value=_make_paths(tmp_path)):
+            from src.config.agents_config import load_agent_config
+
+            cfg = load_agent_config("industry-analyst")
+
+        assert len(cfg.skill_refs) == 1
+        assert cfg.skill_refs[0].name == "data-analysis"
+
+    def test_load_config_ignores_legacy_runtime_backend(self, tmp_path):
+        config_dict = {
+            "name": "industry-analyst",
+            "runtime_backend": "sandbox",
+            "skill_refs": [{"name": "data-analysis"}],
+        }
+        _write_agent(tmp_path, "industry-analyst", config_dict)
+
+        with patch("src.config.agents_config.get_paths", return_value=_make_paths(tmp_path)):
+            from src.config.agents_config import load_agent_config
+
+            cfg = load_agent_config("industry-analyst")
+
+        assert not hasattr(cfg, "runtime_backend")
+        assert cfg.skill_refs[0].name == "data-analysis"
 
     def test_legacy_prompt_file_field_ignored(self, tmp_path):
         """Unknown fields like the old prompt_file should be silently ignored."""
@@ -236,6 +302,22 @@ class TestLoadAgentsMd:
             content = load_agents_md("no-md")
 
         assert content is None
+
+    def test_load_agents_md_respects_status_directory(self, tmp_path):
+        dev_dir = tmp_path / "agents" / "dev" / "status-agent"
+        prod_dir = tmp_path / "agents" / "prod" / "status-agent"
+        dev_dir.mkdir(parents=True)
+        prod_dir.mkdir(parents=True)
+        (dev_dir / "config.yaml").write_text("name: status-agent\nstatus: dev\n")
+        (prod_dir / "config.yaml").write_text("name: status-agent\nstatus: prod\n")
+        (dev_dir / "AGENTS.md").write_text("dev instructions", encoding="utf-8")
+        (prod_dir / "AGENTS.md").write_text("prod instructions", encoding="utf-8")
+
+        with patch("src.config.agents_config.get_paths", return_value=_make_paths(tmp_path)):
+            from src.config.agents_config import load_agents_md
+
+            assert load_agents_md("status-agent", status="dev") == "dev instructions"
+            assert load_agents_md("status-agent", status="prod") == "prod instructions"
 
     def test_empty_agents_md_returns_none(self, tmp_path):
         agent_dir = tmp_path / "agents" / "empty-md"
@@ -394,6 +476,16 @@ class TestMemoryFilePath:
         assert path_global != path_b
         assert path_a != path_b
 
+    def test_agent_memory_path_respects_status(self, tmp_path):
+        import src.agents.memory.updater as updater_mod
+
+        with patch("src.agents.memory.updater.get_paths", return_value=_make_paths(tmp_path)):
+            dev_path = updater_mod._get_memory_file_path("status-agent", "dev")
+            prod_path = updater_mod._get_memory_file_path("status-agent", "prod")
+
+        assert dev_path == tmp_path / "agents" / "dev" / "status-agent" / "memory.json"
+        assert prod_path == tmp_path / "agents" / "prod" / "status-agent" / "memory.json"
+
 
 # ===========================================================================
 # 8. Gateway API – Agents endpoints
@@ -415,6 +507,7 @@ def _make_test_app(tmp_path: Path):
 def agent_client(tmp_path):
     """TestClient with agents router, using tmp_path as base_dir."""
     paths_instance = _make_paths(tmp_path)
+    shutil.rmtree(paths_instance.skills_dir, ignore_errors=True)
 
     with patch("src.config.agents_config.get_paths", return_value=paths_instance), patch("src.gateway.routers.agents.get_paths", return_value=paths_instance):
         app = _make_test_app(tmp_path)
@@ -547,6 +640,32 @@ class TestAgentsAPI:
         assert data["model"] == "deepseek-v3"
         assert data["tool_groups"] == ["file:read", "bash"]
 
+    def test_create_agent_with_selected_skills_copies_library_skill(self, agent_client, tmp_path):
+        _write_shared_skill(tmp_path, "data-analysis", category="public")
+        _write_shared_skill(tmp_path, "deep-research", category="custom")
+
+        payload = {
+            "name": "industry-analyst",
+            "description": "Vertical analyst",
+            "skills": ["data-analysis", "deep-research"],
+            "agents_md": "You are an industry analyst.",
+        }
+        response = agent_client.post("/api/agents", json=payload)
+        assert response.status_code == 201
+
+        data = response.json()
+        assert [skill["name"] for skill in data["skills"]] == ["data-analysis", "deep-research"]
+        assert "runtime_backend" not in data
+
+        agent_dir = tmp_path / "agents" / "dev" / "industry-analyst"
+        assert (agent_dir / "skills" / "data-analysis" / "SKILL.md").exists()
+        assert (agent_dir / "skills" / "deep-research" / "SKILL.md").exists()
+
+        config = yaml.safe_load((agent_dir / "config.yaml").read_text(encoding="utf-8"))
+        assert config["agents_md_path"] == "AGENTS.md"
+        assert [skill["name"] for skill in config["skill_refs"]] == ["data-analysis", "deep-research"]
+        assert "runtime_backend" not in config
+
     def test_create_persists_files_on_disk(self, agent_client, tmp_path):
         agent_client.post("/api/agents", json={"name": "disk-check", "agents_md": "disk content"})
 
@@ -564,6 +683,28 @@ class TestAgentsAPI:
         agent_client.delete("/api/agents/remove-me")
         assert not agent_dir.exists()
 
+    def test_update_agent_replaces_materialized_skills(self, agent_client, tmp_path):
+        _write_shared_skill(tmp_path, "data-analysis", category="public")
+        _write_shared_skill(tmp_path, "deep-research", category="public")
+
+        agent_client.post(
+            "/api/agents",
+            json={"name": "skill-switcher", "skills": ["data-analysis"], "agents_md": "v1"},
+        )
+
+        response = agent_client.put(
+            "/api/agents/skill-switcher",
+            json={"skills": ["deep-research"], "agents_md": "v2"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert [skill["name"] for skill in data["skills"]] == ["deep-research"]
+
+        agent_dir = tmp_path / "agents" / "dev" / "skill-switcher"
+        assert not (agent_dir / "skills" / "data-analysis").exists()
+        assert (agent_dir / "skills" / "deep-research" / "SKILL.md").exists()
+        assert (agent_dir / "AGENTS.md").read_text(encoding="utf-8") == "v2"
+
 
 # ===========================================================================
 # 9. Gateway API – Publish endpoint
@@ -572,8 +713,9 @@ class TestAgentsAPI:
 
 class TestPublishAPI:
     def test_publish_agent(self, agent_client, tmp_path):
-        """Publish copies dev → prod and sets status=prod."""
-        agent_client.post("/api/agents", json={"name": "pub-test", "agents_md": "Hello"})
+        """Publish copies dev → prod without carrying runtime execution config."""
+        _write_shared_skill(tmp_path, "data-analysis", category="public")
+        agent_client.post("/api/agents", json={"name": "pub-test", "agents_md": "Hello", "skills": ["data-analysis"]})
         dev_dir = tmp_path / "agents" / "dev" / "pub-test"
         assert dev_dir.exists()
 
@@ -582,16 +724,20 @@ class TestPublishAPI:
         data = response.json()
         assert data["name"] == "pub-test"
         assert data["status"] == "prod"
+        assert "runtime_backend" not in data
         assert data["agents_md"] == "Hello"
+        assert [skill["name"] for skill in data["skills"]] == ["data-analysis"]
 
         # Verify prod directory exists on disk
         prod_dir = tmp_path / "agents" / "prod" / "pub-test"
         assert prod_dir.exists()
         assert (prod_dir / "AGENTS.md").read_text(encoding="utf-8") == "Hello"
+        assert (prod_dir / "skills" / "data-analysis" / "SKILL.md").exists()
 
         # Verify prod config.yaml has status=prod
         prod_config = yaml.safe_load((prod_dir / "config.yaml").read_text(encoding="utf-8"))
         assert prod_config["status"] == "prod"
+        assert "runtime_backend" not in prod_config
 
     def test_publish_missing_agent_404(self, agent_client):
         response = agent_client.post("/api/agents/nonexistent/publish")
@@ -609,6 +755,21 @@ class TestPublishAPI:
 
         prod_dir = tmp_path / "agents" / "prod" / "re-pub"
         assert (prod_dir / "AGENTS.md").read_text(encoding="utf-8") == "v2"
+
+    def test_get_agent_can_target_prod_status(self, agent_client):
+        agent_client.post("/api/agents", json={"name": "status-agent", "agents_md": "dev version"})
+        agent_client.post("/api/agents/status-agent/publish")
+        agent_client.put("/api/agents/status-agent", json={"agents_md": "dev changed later"})
+
+        prod_response = agent_client.get("/api/agents/status-agent", params={"status": "prod"})
+        assert prod_response.status_code == 200
+        assert prod_response.json()["status"] == "prod"
+        assert prod_response.json()["agents_md"] == "dev version"
+
+        dev_response = agent_client.get("/api/agents/status-agent", params={"status": "dev"})
+        assert dev_response.status_code == 200
+        assert dev_response.json()["status"] == "dev"
+        assert dev_response.json()["agents_md"] == "dev changed later"
 
     def test_publish_agent_appears_in_list(self, agent_client):
         """Published agent should appear in list with status=prod."""

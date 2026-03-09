@@ -145,7 +145,7 @@ Recent breakthroughs in language models have also accelerated progress
 """
 
 
-def _get_memory_context(agent_name: str | None = None) -> str:
+def _get_memory_context(agent_name: str | None = None, agent_status: str = "dev") -> str:
     """Get memory context for injection into system prompt.
 
     Args:
@@ -162,7 +162,7 @@ def _get_memory_context(agent_name: str | None = None) -> str:
         if not config.enabled or not config.injection_enabled:
             return ""
 
-        memory_data = get_memory_data(agent_name)
+        memory_data = get_memory_data(agent_name, agent_status)
         memory_content = format_memory_for_injection(memory_data, max_tokens=config.max_injection_tokens)
 
         if not memory_content.strip():
@@ -177,9 +177,9 @@ def _get_memory_context(agent_name: str | None = None) -> str:
         return ""
 
 
-def get_agents_md_section(agent_name: str | None) -> str:
+def get_agents_md_section(agent_name: str | None, agent_status: str = "dev") -> str:
     """Return the AGENTS.md content wrapped in XML tags for the system prompt."""
-    content = load_agents_md(agent_name)
+    content = load_agents_md(agent_name, status=agent_status)
     if content:
         return f"<agents_md>\n{content}\n</agents_md>\n"
     return ""
@@ -194,13 +194,14 @@ def apply_prompt_template(
     max_concurrent_subagents: int = 3,
     *,
     agent_name: str | None = None,
+    agent_status: str = "dev",
     available_skills: set[str] | None = None,
 ) -> str:
     # Keep signature stable for caller compatibility; skills are injected by middleware.
     _ = available_skills
 
     # Get memory context
-    memory_context = _get_memory_context(agent_name)
+    memory_context = _get_memory_context(agent_name, agent_status)
 
     # Include subagent section only if enabled (from runtime parameter)
     subagent_section = _build_subagent_section(max_concurrent_subagents) if subagent_enabled else ""
@@ -208,7 +209,7 @@ def apply_prompt_template(
     # Format the prompt with dynamic memory
     prompt = SYSTEM_PROMPT_TEMPLATE.format(
         agent_name=agent_name or "OpenAgents",
-        agents_md=get_agents_md_section(agent_name),
+        agents_md=get_agents_md_section(agent_name, agent_status),
         memory_context=memory_context,
         subagent_section=subagent_section,
     )

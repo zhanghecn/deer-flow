@@ -4,17 +4,27 @@ import logging
 import re
 import shutil
 
-import yaml
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from src.config.agents_config import AgentConfig, list_custom_agents, load_agent_config, load_agents_md
+from src.config.agent_materialization import materialize_agent_definition, publish_agent_definition
+from src.config.agents_config import AgentConfig, AgentSkillRef, list_custom_agents, load_agent_config, load_agents_md
 from src.config.paths import get_paths
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["agents"])
 
 AGENT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9-]+$")
+VALID_AGENT_STATUSES = {"dev", "prod"}
+
+
+class AgentSkillResponse(BaseModel):
+    """Response model for an agent skill reference."""
+
+    name: str
+    category: str | None = Field(default=None, description="Shared skill category: public or custom")
+    source_path: str | None = Field(default=None, description="Relative path in the shared skills library")
+    materialized_path: str | None = Field(default=None, description="Relative path inside the agent directory")
 
 
 class AgentResponse(BaseModel):
@@ -24,9 +34,10 @@ class AgentResponse(BaseModel):
     description: str = Field(default="", description="Agent description")
     model: str | None = Field(default=None, description="Optional model override")
     tool_groups: list[str] | None = Field(default=None, description="Optional tool group whitelist")
+    mcp_servers: list[str] | None = Field(default=None, description="Optional MCP server whitelist")
     status: str | None = Field(default=None, description="Agent status: prod or dev")
+    skills: list[AgentSkillResponse] = Field(default_factory=list, description="Skills copied into the agent directory")
     agents_md: str | None = Field(default=None, description="AGENTS.md content (included on GET /{name})")
-    # Backward compatibility alias
     soul: str | None = Field(default=None, description="Deprecated: use agents_md instead")
 
 
@@ -43,8 +54,9 @@ class AgentCreateRequest(BaseModel):
     description: str = Field(default="", description="Agent description")
     model: str | None = Field(default=None, description="Optional model override")
     tool_groups: list[str] | None = Field(default=None, description="Optional tool group whitelist")
+    mcp_servers: list[str] | None = Field(default=None, description="Optional MCP server whitelist")
+    skills: list[str] = Field(default_factory=list, description="Shared skills to copy into the agent")
     agents_md: str = Field(default="", description="AGENTS.md content — agent personality and behavioral guardrails")
-    # Backward compatibility alias
     soul: str | None = Field(default=None, description="Deprecated: use agents_md instead")
 
 
@@ -54,310 +66,10 @@ class AgentUpdateRequest(BaseModel):
     description: str | None = Field(default=None, description="Updated description")
     model: str | None = Field(default=None, description="Updated model override")
     tool_groups: list[str] | None = Field(default=None, description="Updated tool group whitelist")
+    mcp_servers: list[str] | None = Field(default=None, description="Updated MCP server whitelist")
+    skills: list[str] | None = Field(default=None, description="Replacement shared skills to copy into the agent")
     agents_md: str | None = Field(default=None, description="Updated AGENTS.md content")
-    # Backward compatibility alias
     soul: str | None = Field(default=None, description="Deprecated: use agents_md instead")
-
-
-def _validate_agent_name(name: str) -> None:
-    """Validate agent name against allowed pattern.
-
-    Args:
-        name: The agent name to validate.
-
-    Raises:
-        HTTPException: 422 if the name is invalid.
-    """
-    if not AGENT_NAME_PATTERN.match(name):
-        raise HTTPException(
-            status_code=422,
-            detail=f"Invalid agent name '{name}'. Must match ^[A-Za-z0-9-]+$ (letters, digits, and hyphens only).",
-        )
-
-
-def _normalize_agent_name(name: str) -> str:
-    """Normalize agent name to lowercase for filesystem storage."""
-    return name.lower()
-
-
-def _agent_config_to_response(agent_cfg: AgentConfig, include_agents_md: bool = False) -> AgentResponse:
-    """Convert AgentConfig to AgentResponse."""
-    agents_md: str | None = None
-    if include_agents_md:
-        agents_md = load_agents_md(agent_cfg.name) or ""
-
-    return AgentResponse(
-        name=agent_cfg.name,
-        description=agent_cfg.description,
-        model=agent_cfg.model,
-        tool_groups=agent_cfg.tool_groups,
-        status=agent_cfg.status,
-        agents_md=agents_md,
-        soul=agents_md,  # Backward compatibility
-    )
-
-
-@router.get(
-    "/agents",
-    response_model=AgentsListResponse,
-    summary="List Custom Agents",
-    description="List all custom agents available in the agents directory.",
-)
-async def list_agents() -> AgentsListResponse:
-    """List all custom agents.
-
-    Returns:
-        List of all custom agents with their metadata (without AGENTS.md content).
-    """
-    try:
-        agents = list_custom_agents()
-        return AgentsListResponse(agents=[_agent_config_to_response(a) for a in agents])
-    except Exception as e:
-        logger.error(f"Failed to list agents: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to list agents: {str(e)}")
-
-
-@router.get(
-    "/agents/check",
-    summary="Check Agent Name",
-    description="Validate an agent name and check if it is available (case-insensitive).",
-)
-async def check_agent_name(name: str) -> dict:
-    """Check whether an agent name is valid and not yet taken.
-
-    Args:
-        name: The agent name to check.
-
-    Returns:
-        ``{"available": true/false, "name": "<normalized>"}``
-
-    Raises:
-        HTTPException: 422 if the name is invalid.
-    """
-    _validate_agent_name(name)
-    normalized = _normalize_agent_name(name)
-    available = not get_paths().agent_dir(normalized).exists()
-    return {"available": available, "name": normalized}
-
-
-@router.get(
-    "/agents/{name}",
-    response_model=AgentResponse,
-    summary="Get Custom Agent",
-    description="Retrieve details and AGENTS.md content for a specific custom agent.",
-)
-async def get_agent(name: str) -> AgentResponse:
-    """Get a specific custom agent by name.
-
-    Args:
-        name: The agent name.
-
-    Returns:
-        Agent details including AGENTS.md content.
-
-    Raises:
-        HTTPException: 404 if agent not found.
-    """
-    _validate_agent_name(name)
-    name = _normalize_agent_name(name)
-
-    try:
-        agent_cfg = load_agent_config(name)
-        return _agent_config_to_response(agent_cfg, include_agents_md=True)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"Agent '{name}' not found")
-    except Exception as e:
-        logger.error(f"Failed to get agent '{name}': {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get agent: {str(e)}")
-
-
-@router.post(
-    "/agents",
-    response_model=AgentResponse,
-    status_code=201,
-    summary="Create Custom Agent",
-    description="Create a new custom agent with its config and AGENTS.md.",
-)
-async def create_agent_endpoint(request: AgentCreateRequest) -> AgentResponse:
-    """Create a new custom agent.
-
-    Args:
-        request: The agent creation request.
-
-    Returns:
-        The created agent details.
-
-    Raises:
-        HTTPException: 409 if agent already exists, 422 if name is invalid.
-    """
-    _validate_agent_name(request.name)
-    normalized_name = _normalize_agent_name(request.name)
-
-    agent_dir = get_paths().agent_dir(normalized_name)
-
-    if agent_dir.exists():
-        raise HTTPException(status_code=409, detail=f"Agent '{normalized_name}' already exists")
-
-    try:
-        agent_dir.mkdir(parents=True, exist_ok=True)
-
-        # Write config.yaml
-        config_data: dict = {"name": normalized_name}
-        if request.description:
-            config_data["description"] = request.description
-        if request.model is not None:
-            config_data["model"] = request.model
-        if request.tool_groups is not None:
-            config_data["tool_groups"] = request.tool_groups
-
-        config_file = agent_dir / "config.yaml"
-        with open(config_file, "w", encoding="utf-8") as f:
-            yaml.dump(config_data, f, default_flow_style=False, allow_unicode=True)
-
-        # Write AGENTS.md (accept agents_md or legacy soul field)
-        agents_md_content = request.agents_md or request.soul or ""
-        agents_md_file = agent_dir / "AGENTS.md"
-        agents_md_file.write_text(agents_md_content, encoding="utf-8")
-
-        logger.info(f"Created agent '{normalized_name}' at {agent_dir}")
-
-        agent_cfg = load_agent_config(normalized_name)
-        return _agent_config_to_response(agent_cfg, include_agents_md=True)
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        # Clean up on failure
-        if agent_dir.exists():
-            shutil.rmtree(agent_dir)
-        logger.error(f"Failed to create agent '{request.name}': {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to create agent: {str(e)}")
-
-
-@router.put(
-    "/agents/{name}",
-    response_model=AgentResponse,
-    summary="Update Custom Agent",
-    description="Update an existing custom agent's config and/or AGENTS.md.",
-)
-async def update_agent(name: str, request: AgentUpdateRequest) -> AgentResponse:
-    """Update an existing custom agent.
-
-    Args:
-        name: The agent name.
-        request: The update request (all fields optional).
-
-    Returns:
-        The updated agent details.
-
-    Raises:
-        HTTPException: 404 if agent not found.
-    """
-    _validate_agent_name(name)
-    name = _normalize_agent_name(name)
-
-    try:
-        agent_cfg = load_agent_config(name)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"Agent '{name}' not found")
-
-    agent_dir = get_paths().agent_dir(name)
-
-    try:
-        # Update config if any config fields changed
-        config_changed = any(v is not None for v in [request.description, request.model, request.tool_groups])
-
-        if config_changed:
-            updated: dict = {
-                "name": agent_cfg.name,
-                "description": request.description if request.description is not None else agent_cfg.description,
-            }
-            new_model = request.model if request.model is not None else agent_cfg.model
-            if new_model is not None:
-                updated["model"] = new_model
-
-            new_tool_groups = request.tool_groups if request.tool_groups is not None else agent_cfg.tool_groups
-            if new_tool_groups is not None:
-                updated["tool_groups"] = new_tool_groups
-
-            config_file = agent_dir / "config.yaml"
-            with open(config_file, "w", encoding="utf-8") as f:
-                yaml.dump(updated, f, default_flow_style=False, allow_unicode=True)
-
-        # Update AGENTS.md if provided (accept agents_md or legacy soul field)
-        agents_md_content = request.agents_md if request.agents_md is not None else request.soul
-        if agents_md_content is not None:
-            agents_md_path = agent_dir / "AGENTS.md"
-            agents_md_path.write_text(agents_md_content, encoding="utf-8")
-
-        logger.info(f"Updated agent '{name}'")
-
-        refreshed_cfg = load_agent_config(name)
-        return _agent_config_to_response(refreshed_cfg, include_agents_md=True)
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to update agent '{name}': {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to update agent: {str(e)}")
-
-
-@router.post(
-    "/agents/{name}/publish",
-    response_model=AgentResponse,
-    summary="Publish Agent",
-    description="Publish a dev agent to prod by copying its directory from dev/ to prod/.",
-)
-async def publish_agent(name: str) -> AgentResponse:
-    """Publish a dev agent to prod.
-
-    Copies agents/dev/{name}/ → agents/prod/{name}/ and updates config status.
-
-    Args:
-        name: The agent name.
-
-    Returns:
-        The published agent details (status=prod).
-
-    Raises:
-        HTTPException: 404 if dev agent not found, 409 if already published.
-    """
-    _validate_agent_name(name)
-    name = _normalize_agent_name(name)
-
-    paths = get_paths()
-    dev_dir = paths.agent_dir(name, "dev")
-    prod_dir = paths.agent_dir(name, "prod")
-
-    if not dev_dir.exists():
-        raise HTTPException(status_code=404, detail=f"Dev agent '{name}' not found")
-
-    try:
-        # Copy dev → prod (overwrite if exists)
-        if prod_dir.exists():
-            shutil.rmtree(prod_dir)
-        prod_dir.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(dev_dir, prod_dir)
-
-        # Update status in prod config.yaml
-        config_file = prod_dir / "config.yaml"
-        if config_file.exists():
-            with open(config_file, encoding="utf-8") as f:
-                config_data: dict = yaml.safe_load(f) or {}
-            config_data["status"] = "prod"
-            with open(config_file, "w", encoding="utf-8") as f:
-                yaml.dump(config_data, f, default_flow_style=False, allow_unicode=True)
-
-        logger.info(f"Published agent '{name}' from dev to prod")
-
-        agent_cfg = load_agent_config(name, status="prod")
-        return _agent_config_to_response(agent_cfg, include_agents_md=True)
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to publish agent '{name}': {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to publish agent: {str(e)}")
 
 
 class UserProfileResponse(BaseModel):
@@ -372,6 +84,240 @@ class UserProfileUpdateRequest(BaseModel):
     content: str = Field(default="", description="USER.md content — describes the user's background and preferences")
 
 
+def _validate_agent_name(name: str) -> None:
+    """Validate agent name against allowed pattern."""
+    if not AGENT_NAME_PATTERN.match(name):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid agent name '{name}'. Must match ^[A-Za-z0-9-]+$ (letters, digits, and hyphens only).",
+        )
+
+
+def _normalize_agent_name(name: str) -> str:
+    """Normalize agent name to lowercase for filesystem storage."""
+    return name.lower()
+
+
+def _normalize_agent_status(status: str | None, *, default: str = "dev") -> str:
+    normalized = (status or default).strip().lower()
+    if normalized not in VALID_AGENT_STATUSES:
+        raise HTTPException(status_code=422, detail=f"Invalid agent status '{status}'. Use one of: dev, prod.")
+    return normalized
+
+
+def _skill_ref_to_response(skill_ref: AgentSkillRef) -> AgentSkillResponse:
+    return AgentSkillResponse(
+        name=skill_ref.name,
+        category=skill_ref.category,
+        source_path=skill_ref.source_path,
+        materialized_path=skill_ref.materialized_path,
+    )
+
+
+def _agent_config_to_response(agent_cfg: AgentConfig, include_agents_md: bool = False) -> AgentResponse:
+    agents_md: str | None = None
+    if include_agents_md:
+        agents_md = load_agents_md(agent_cfg.name, status=agent_cfg.status) or ""
+
+    return AgentResponse(
+        name=agent_cfg.name,
+        description=agent_cfg.description,
+        model=agent_cfg.model,
+        tool_groups=agent_cfg.tool_groups,
+        mcp_servers=agent_cfg.mcp_servers,
+        status=agent_cfg.status,
+        skills=[_skill_ref_to_response(skill_ref) for skill_ref in agent_cfg.skill_refs],
+        agents_md=agents_md,
+        soul=agents_md,
+    )
+
+
+def _agent_exists(paths, name: str) -> bool:
+    return (
+        paths.agent_dir(name, "dev").exists()
+        or paths.agent_dir(name, "prod").exists()
+        or (paths.agents_dir / name).exists()
+    )
+
+
+@router.get(
+    "/agents",
+    response_model=AgentsListResponse,
+    summary="List Custom Agents",
+    description="List all custom agents available in the agents directory.",
+)
+async def list_agents(status: str | None = Query(default=None, description="Optional status filter: dev or prod")) -> AgentsListResponse:
+    """List all custom agents."""
+    try:
+        normalized_status = _normalize_agent_status(status, default="dev") if status is not None else None
+        agents = list_custom_agents()
+        if normalized_status is not None:
+            agents = [agent for agent in agents if agent.status == normalized_status]
+        return AgentsListResponse(agents=[_agent_config_to_response(a) for a in agents])
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to list agents: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to list agents: {str(e)}")
+
+
+@router.get(
+    "/agents/check",
+    summary="Check Agent Name",
+    description="Validate an agent name and check if it is available (case-insensitive).",
+)
+async def check_agent_name(name: str) -> dict:
+    """Check whether an agent name is valid and not yet taken."""
+    _validate_agent_name(name)
+    normalized = _normalize_agent_name(name)
+    available = not _agent_exists(get_paths(), normalized)
+    return {"available": available, "name": normalized}
+
+
+@router.get(
+    "/agents/{name}",
+    response_model=AgentResponse,
+    summary="Get Custom Agent",
+    description="Retrieve details and AGENTS.md content for a specific custom agent.",
+)
+async def get_agent(
+    name: str,
+    status: str = Query(default="dev", description="Agent status: dev or prod"),
+) -> AgentResponse:
+    """Get a specific custom agent by name."""
+    _validate_agent_name(name)
+    name = _normalize_agent_name(name)
+    normalized_status = _normalize_agent_status(status)
+
+    try:
+        agent_cfg = load_agent_config(name, status=normalized_status)
+        return _agent_config_to_response(agent_cfg, include_agents_md=True)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Agent '{name}' ({normalized_status}) not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get agent '{name}' ({normalized_status}): {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get agent: {str(e)}")
+
+
+@router.post(
+    "/agents",
+    response_model=AgentResponse,
+    status_code=201,
+    summary="Create Custom Agent",
+    description="Create a new dev agent with AGENTS.md and selected copied skills.",
+)
+async def create_agent_endpoint(request: AgentCreateRequest) -> AgentResponse:
+    """Create a new custom agent."""
+    _validate_agent_name(request.name)
+    normalized_name = _normalize_agent_name(request.name)
+    paths = get_paths()
+
+    if _agent_exists(paths, normalized_name):
+        raise HTTPException(status_code=409, detail=f"Agent '{normalized_name}' already exists")
+
+    try:
+        agent_cfg = materialize_agent_definition(
+            name=normalized_name,
+            status="dev",
+            description=request.description,
+            model=request.model,
+            tool_groups=request.tool_groups,
+            mcp_servers=request.mcp_servers,
+            skill_names=request.skills,
+            agents_md=request.agents_md or request.soul or "",
+            paths=paths,
+        )
+        logger.info("Created agent '%s' at %s", normalized_name, paths.agent_dir(normalized_name, "dev"))
+        return _agent_config_to_response(agent_cfg, include_agents_md=True)
+    except ValueError as e:
+        logger.error("Failed to create agent '%s': %s", normalized_name, e, exc_info=True)
+        if paths.agent_dir(normalized_name, "dev").exists():
+            shutil.rmtree(paths.agent_dir(normalized_name, "dev"))
+        raise HTTPException(status_code=422, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        if paths.agent_dir(normalized_name, "dev").exists():
+            shutil.rmtree(paths.agent_dir(normalized_name, "dev"))
+        logger.error(f"Failed to create agent '{request.name}': {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to create agent: {str(e)}")
+
+
+@router.put(
+    "/agents/{name}",
+    response_model=AgentResponse,
+    summary="Update Custom Agent",
+    description="Update an existing custom agent's manifest, AGENTS.md, and copied skill set.",
+)
+async def update_agent(
+    name: str,
+    request: AgentUpdateRequest,
+    status: str = Query(default="dev", description="Agent status: dev or prod"),
+) -> AgentResponse:
+    """Update an existing custom agent."""
+    _validate_agent_name(name)
+    name = _normalize_agent_name(name)
+    normalized_status = _normalize_agent_status(status)
+
+    try:
+        agent_cfg = load_agent_config(name, status=normalized_status)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Agent '{name}' ({normalized_status}) not found")
+
+    try:
+        agents_md_content = request.agents_md if request.agents_md is not None else request.soul
+        if agents_md_content is None:
+            agents_md_content = load_agents_md(name, status=normalized_status) or ""
+
+        updated_cfg = materialize_agent_definition(
+            name=name,
+            status=normalized_status,
+            description=request.description if request.description is not None else agent_cfg.description,
+            model=request.model if request.model is not None else agent_cfg.model,
+            tool_groups=request.tool_groups if request.tool_groups is not None else agent_cfg.tool_groups,
+            mcp_servers=request.mcp_servers if request.mcp_servers is not None else agent_cfg.mcp_servers,
+            skill_names=request.skills if request.skills is not None else [skill_ref.name for skill_ref in agent_cfg.skill_refs],
+            agents_md=agents_md_content,
+            paths=get_paths(),
+        )
+        logger.info("Updated agent '%s' (%s)", name, normalized_status)
+        return _agent_config_to_response(updated_cfg, include_agents_md=True)
+    except ValueError as e:
+        logger.error("Failed to update agent '%s' (%s): %s", name, normalized_status, e, exc_info=True)
+        raise HTTPException(status_code=422, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update agent '{name}' ({normalized_status}): {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to update agent: {str(e)}")
+
+
+@router.post(
+    "/agents/{name}/publish",
+    response_model=AgentResponse,
+    summary="Publish Agent",
+    description="Publish a dev agent to prod by copying its local archived definition from dev/ to prod/.",
+)
+async def publish_agent(name: str) -> AgentResponse:
+    """Publish a dev agent to prod."""
+    _validate_agent_name(name)
+    name = _normalize_agent_name(name)
+
+    try:
+        agent_cfg = publish_agent_definition(name, paths=get_paths())
+        logger.info("Published agent '%s' from dev to prod", name)
+        return _agent_config_to_response(agent_cfg, include_agents_md=True)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Dev agent '{name}' not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to publish agent '{name}': {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to publish agent: {str(e)}")
+
+
 @router.get(
     "/user-profile",
     response_model=UserProfileResponse,
@@ -379,11 +325,7 @@ class UserProfileUpdateRequest(BaseModel):
     description="Read the global USER.md file that is injected into all custom agents.",
 )
 async def get_user_profile() -> UserProfileResponse:
-    """Return the current USER.md content.
-
-    Returns:
-        UserProfileResponse with content=None if USER.md does not exist yet.
-    """
+    """Return the current USER.md content."""
     try:
         user_md_path = get_paths().user_md_file
         if not user_md_path.exists():
@@ -402,14 +344,7 @@ async def get_user_profile() -> UserProfileResponse:
     description="Write the global USER.md file that is injected into all custom agents.",
 )
 async def update_user_profile(request: UserProfileUpdateRequest) -> UserProfileResponse:
-    """Create or overwrite the global USER.md.
-
-    Args:
-        request: The update request with the new USER.md content.
-
-    Returns:
-        UserProfileResponse with the saved content.
-    """
+    """Create or overwrite the global USER.md."""
     try:
         paths = get_paths()
         paths.base_dir.mkdir(parents=True, exist_ok=True)
@@ -425,28 +360,40 @@ async def update_user_profile(request: UserProfileUpdateRequest) -> UserProfileR
     "/agents/{name}",
     status_code=204,
     summary="Delete Custom Agent",
-    description="Delete a custom agent and all its files (config, AGENTS.md, memory).",
+    description="Delete a custom agent materialization by status, or remove all statuses when omitted.",
 )
-async def delete_agent(name: str) -> None:
-    """Delete a custom agent.
-
-    Args:
-        name: The agent name.
-
-    Raises:
-        HTTPException: 404 if agent not found.
-    """
+async def delete_agent(
+    name: str,
+    status: str | None = Query(default=None, description="Optional status to delete: dev or prod. Omit to delete all statuses."),
+) -> None:
+    """Delete a custom agent."""
     _validate_agent_name(name)
     name = _normalize_agent_name(name)
+    paths = get_paths()
 
-    agent_dir = get_paths().agent_dir(name)
-
-    if not agent_dir.exists():
-        raise HTTPException(status_code=404, detail=f"Agent '{name}' not found")
+    target_statuses = [_normalize_agent_status(status)] if status is not None else ["dev", "prod"]
+    deleted = False
 
     try:
-        shutil.rmtree(agent_dir)
-        logger.info(f"Deleted agent '{name}' from {agent_dir}")
+        for target_status in target_statuses:
+            agent_dir = paths.agent_dir(name, target_status)
+            if agent_dir.exists():
+                shutil.rmtree(agent_dir)
+                deleted = True
+                logger.info("Deleted agent '%s' from %s", name, agent_dir)
+
+        legacy_dir = paths.agents_dir / name
+        if status is None and legacy_dir.exists():
+            shutil.rmtree(legacy_dir)
+            deleted = True
+            logger.info("Deleted legacy agent '%s' from %s", name, legacy_dir)
+
+        if not deleted:
+            if status is None:
+                raise HTTPException(status_code=404, detail=f"Agent '{name}' not found")
+            raise HTTPException(status_code=404, detail=f"Agent '{name}' ({target_statuses[0]}) not found")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to delete agent '{name}': {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to delete agent: {str(e)}")

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -17,14 +18,91 @@ func NewFS(baseDir string) *FS {
 	return &FS{baseDir: baseDir}
 }
 
+// ResolveBaseDir resolves a relative OPENAGENTS_HOME-style path against the
+// project root when running from within the repository.
+func ResolveBaseDir(baseDir string) string {
+	if strings.TrimSpace(baseDir) == "" {
+		baseDir = ".openagents"
+	}
+	if filepath.IsAbs(baseDir) {
+		return filepath.Clean(baseDir)
+	}
+
+	if root, ok := detectProjectRoot(); ok {
+		return filepath.Join(root, baseDir)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return filepath.Clean(baseDir)
+	}
+	return filepath.Join(cwd, baseDir)
+}
+
 // AgentDir returns the directory for an agent: {baseDir}/agents/{status}/{name}/
 func (f *FS) AgentDir(name, status string) string {
 	return filepath.Join(f.baseDir, "agents", status, name)
 }
 
+// AgentConfigRef returns the relative reference path for an agent config manifest.
+func (f *FS) AgentConfigRef(name, status string) string {
+	return filepath.ToSlash(filepath.Join("agents", status, name, "config.yaml"))
+}
+
+// AgentMDRef returns the relative reference path for an agent AGENTS.md file.
+func (f *FS) AgentMDRef(name, status string) string {
+	return filepath.ToSlash(filepath.Join("agents", status, name, "AGENTS.md"))
+}
+
+// AgentSkillsDir returns the directory containing copied skills for an agent.
+func (f *FS) AgentSkillsDir(name, status string) string {
+	return filepath.Join(f.AgentDir(name, status), "skills")
+}
+
+// SharedSkillsDir returns the shared skills archive root.
+func (f *FS) SharedSkillsDir() string {
+	for dir := filepath.Dir(filepath.Clean(f.baseDir)); ; {
+		candidate := filepath.Join(dir, "skills")
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			return candidate
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return filepath.Join(filepath.Dir(f.baseDir), "skills")
+}
+
 // GlobalSkillDir returns the directory for a global skill.
 func (f *FS) GlobalSkillDir(category, skillName string) string {
-	return filepath.Join(f.baseDir, "skills", category, skillName)
+	return filepath.Join(f.SharedSkillsDir(), category, skillName)
+}
+
+// SkillMDRef returns the relative reference path for a shared skill file by status.
+func (f *FS) SkillMDRef(name, status string) string {
+	category := "custom"
+	if status == "prod" {
+		category = "public"
+	}
+	return filepath.ToSlash(filepath.Join("skills", category, name, "SKILL.md"))
+}
+
+// ResolveRef resolves a relative storage reference against the gateway base dir.
+func (f *FS) ResolveRef(ref string) string {
+	if filepath.IsAbs(ref) {
+		return ref
+	}
+	clean := filepath.Clean(filepath.FromSlash(ref))
+	skillsPrefix := "skills" + string(filepath.Separator)
+	if clean == "skills" {
+		return f.SharedSkillsDir()
+	}
+	if strings.HasPrefix(clean, skillsPrefix) {
+		return filepath.Join(f.SharedSkillsDir(), strings.TrimPrefix(clean, skillsPrefix))
+	}
+	return filepath.Join(f.baseDir, clean)
 }
 
 // UserDir returns the directory for a user's data.
@@ -71,6 +149,15 @@ func (f *FS) WriteAgentFiles(name, status, agentsMD string, config map[string]in
 	return nil
 }
 
+// ReadTextRef reads a UTF-8 text file from a storage reference.
+func (f *FS) ReadTextRef(ref string) (string, error) {
+	data, err := os.ReadFile(f.ResolveRef(ref))
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
 // WriteGlobalSkillFile writes a global SKILL.md.
 func (f *FS) WriteGlobalSkillFile(category, skillName, skillMD string) error {
 	dir := f.GlobalSkillDir(category, skillName)
@@ -83,6 +170,11 @@ func (f *FS) WriteGlobalSkillFile(category, skillName, skillMD string) error {
 // DeleteAgentDir removes an agent directory.
 func (f *FS) DeleteAgentDir(name, status string) error {
 	return os.RemoveAll(f.AgentDir(name, status))
+}
+
+// DeleteAgentSkillsDir removes the copied skills directory for an agent.
+func (f *FS) DeleteAgentSkillsDir(name, status string) error {
+	return os.RemoveAll(f.AgentSkillsDir(name, status))
 }
 
 // CopyDir copies src directory to dst recursively.
@@ -133,4 +225,37 @@ func (f *FS) EnsureUserDir(userID string) error {
 		_ = os.WriteFile(memFile, []byte("{}"), 0644)
 	}
 	return nil
+}
+
+func detectProjectRoot() (string, bool) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", false
+	}
+	for dir := filepath.Clean(cwd); ; {
+		if looksLikeProjectRoot(dir) {
+			return dir, true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return "", false
+}
+
+func looksLikeProjectRoot(dir string) bool {
+	skillsDir := filepath.Join(dir, "skills")
+	agentsDir := filepath.Join(dir, "backend", "agents")
+
+	skillsInfo, err := os.Stat(skillsDir)
+	if err != nil || !skillsInfo.IsDir() {
+		return false
+	}
+	agentsInfo, err := os.Stat(agentsDir)
+	if err != nil || !agentsInfo.IsDir() {
+		return false
+	}
+	return true
 }
