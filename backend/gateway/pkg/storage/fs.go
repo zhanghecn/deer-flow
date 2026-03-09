@@ -219,11 +219,6 @@ func (f *FS) EnsureUserDir(userID string) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	// Create empty memory.json if not exists
-	memFile := filepath.Join(dir, "memory.json")
-	if _, err := os.Stat(memFile); os.IsNotExist(err) {
-		_ = os.WriteFile(memFile, []byte("{}"), 0644)
-	}
 	return nil
 }
 

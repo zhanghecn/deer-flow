@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.config.builtin_agents import is_reserved_agent_name
 from src.config.paths import get_paths
@@ -28,6 +28,7 @@ class AgentConfig(BaseModel):
     status: str = "dev"
     agents_md_path: str = AGENTS_MD_FILENAME
     skill_refs: list["AgentSkillRef"] = Field(default_factory=list)
+    memory: "AgentMemoryConfig" = Field(default_factory=lambda: AgentMemoryConfig())
 
 
 class AgentSkillRef(BaseModel):
@@ -37,6 +38,30 @@ class AgentSkillRef(BaseModel):
     category: str | None = None
     source_path: str | None = None
     materialized_path: str | None = None
+
+
+class AgentMemoryConfig(BaseModel):
+    """Memory policy for a single agent.
+
+    Scope is fixed in code to user + agent (+ status). No alternate scopes are
+    supported in manifests or runtime APIs.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    model_name: str | None = None
+    debounce_seconds: int = Field(default=30, ge=1, le=300)
+    max_facts: int = Field(default=100, ge=10, le=500)
+    fact_confidence_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
+    injection_enabled: bool = True
+    max_injection_tokens: int = Field(default=2000, ge=100, le=8000)
+
+    @model_validator(mode="after")
+    def validate_enabled_model_name(self) -> "AgentMemoryConfig":
+        if self.enabled and not (self.model_name and self.model_name.strip()):
+            raise ValueError("Agent memory requires `memory.model_name` when `memory.enabled` is true.")
+        return self
 
 
 AgentConfig.model_rebuild()

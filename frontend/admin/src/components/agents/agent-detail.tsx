@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -16,8 +18,28 @@ interface AgentDetailProps {
   onOpenChange: (open: boolean) => void;
 }
 
+function DetailField({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: ReactNode;
+  mono?: boolean;
+}) {
+  return (
+    <div>
+      <span className="text-muted-foreground">{label}:</span>{" "}
+      <span className={mono ? "font-mono" : undefined}>{value}</span>
+    </div>
+  );
+}
+
 export function AgentDetail({ agent, open, onOpenChange }: AgentDetailProps) {
   if (!agent) return null;
+
+  const memory = agent.memory;
+  const memoryEnabled = memory?.enabled ?? false;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -33,22 +55,10 @@ export function AgentDetail({ agent, open, onOpenChange }: AgentDetailProps) {
         <ScrollArea className="max-h-[60vh]">
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <span className="text-muted-foreground">Name:</span>{" "}
-                <span className="font-mono">{agent.name}</span>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Model:</span>{" "}
-                {agent.model || "-"}
-              </div>
-              <div>
-                <span className="text-muted-foreground">Created:</span>{" "}
-                {formatDate(agent.created_at)}
-              </div>
-              <div>
-                <span className="text-muted-foreground">Updated:</span>{" "}
-                {formatDate(agent.updated_at)}
-              </div>
+              <DetailField label="Name" value={agent.name} mono />
+              <DetailField label="Model" value={agent.model || "-"} />
+              <DetailField label="Created" value={formatDate(agent.created_at)} />
+              <DetailField label="Updated" value={formatDate(agent.updated_at)} />
             </div>
 
             {agent.description && (
@@ -94,6 +104,48 @@ export function AgentDetail({ agent, open, onOpenChange }: AgentDetailProps) {
                 </div>
               </>
             )}
+
+            <Separator />
+            <div>
+              <h4 className="mb-1 text-sm font-medium">Memory Policy</h4>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <DetailField
+                  label="Scope"
+                  value="user_id + agent_name + status"
+                  mono
+                />
+                <DetailField
+                  label="Enabled"
+                  value={
+                    <Badge variant={memoryEnabled ? "default" : "outline"}>
+                      {memoryEnabled ? "On" : "Off"}
+                    </Badge>
+                  }
+                />
+                <DetailField label="Model" value={memory?.model_name || "-"} />
+                <DetailField
+                  label="Injection"
+                  value={memory?.injection_enabled ? "On" : "Off"}
+                />
+                <DetailField
+                  label="Debounce"
+                  value={
+                    memory?.debounce_seconds != null
+                      ? `${memory.debounce_seconds}s`
+                      : "-"
+                  }
+                />
+                <DetailField label="Max facts" value={memory?.max_facts ?? "-"} />
+                <DetailField
+                  label="Confidence threshold"
+                  value={memory?.fact_confidence_threshold ?? "-"}
+                />
+                <DetailField
+                  label="Max injection tokens"
+                  value={memory?.max_injection_tokens ?? "-"}
+                />
+              </div>
+            </div>
 
             {agent.agents_md && (
               <>

@@ -1,6 +1,12 @@
 "use client";
 
-import { BotIcon, MessageSquareIcon, RocketIcon, Trash2Icon } from "lucide-react";
+import {
+  BotIcon,
+  BrainIcon,
+  MessageSquareIcon,
+  RocketIcon,
+  Trash2Icon,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -31,6 +37,13 @@ interface AgentCardProps {
   agent: Agent;
 }
 
+function getAgentMemoryBadgeLabel(agent: Agent): string {
+  if (!agent.memory?.enabled) {
+    return "Memory off";
+  }
+  return `Memory · ${agent.memory.model_name ?? "configured"}`;
+}
+
 export function AgentCard({ agent }: AgentCardProps) {
   const { t } = useI18n();
   const router = useRouter();
@@ -38,6 +51,8 @@ export function AgentCard({ agent }: AgentCardProps) {
   const publishAgentMutation = usePublishAgent();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const isProd = agent.status === "prod";
+  const memoryEnabled = agent.memory?.enabled ?? false;
+  const memoryLabel = getAgentMemoryBadgeLabel(agent);
 
   function handleChat() {
     router.push(`/workspace/agents/${agent.name}/chats/new`);
@@ -100,8 +115,17 @@ export function AgentCard({ agent }: AgentCardProps) {
           )}
         </CardHeader>
 
-        {agent.tool_groups && agent.tool_groups.length > 0 && (
-          <CardContent className="pt-0 pb-3">
+        <CardContent className="space-y-3 pt-0 pb-3">
+          <div className="flex flex-wrap gap-1">
+            <Badge
+              variant={memoryEnabled ? "secondary" : "outline"}
+              className="inline-flex items-center gap-1 text-xs"
+            >
+              <BrainIcon className="h-3 w-3" />
+              {memoryLabel}
+            </Badge>
+          </div>
+          {agent.tool_groups && agent.tool_groups.length > 0 && (
             <div className="flex flex-wrap gap-1">
               {agent.tool_groups.map((group) => (
                 <Badge key={group} variant="outline" className="text-xs">
@@ -109,8 +133,8 @@ export function AgentCard({ agent }: AgentCardProps) {
                 </Badge>
               ))}
             </div>
-          </CardContent>
-        )}
+          )}
+        </CardContent>
 
         <CardFooter className="mt-auto flex items-center justify-between gap-2 pt-3">
           <Button size="sm" className="flex-1" onClick={handleChat}>

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from src.config.agents_config import load_agents_md
+from src.config.agents_config import AgentMemoryConfig, load_agents_md
 
 
 def _build_subagent_section(max_concurrent: int) -> str:
@@ -145,36 +145,47 @@ Recent breakthroughs in language models have also accelerated progress
 """
 
 
-def _get_memory_context(agent_name: str | None = None, agent_status: str = "dev") -> str:
+def _get_memory_context(
+    *,
+    user_id: str | None,
+    agent_name: str | None,
+    agent_status: str = "dev",
+    memory_config: AgentMemoryConfig,
+) -> str:
     """Get memory context for injection into system prompt.
 
     Args:
-        agent_name: If provided, loads per-agent memory. If None, loads global memory.
+        user_id: Owning user identifier.
+        agent_name: Agent name.
+        agent_status: Agent namespace.
+        memory_config: Per-agent user-scoped memory policy.
 
     Returns:
         Formatted memory context string wrapped in XML tags, or empty string if disabled.
     """
-    try:
-        from src.agents.memory import format_memory_for_injection, get_memory_data
-        from src.config.memory_config import get_memory_config
+    from src.agents.memory import format_memory_for_injection, get_memory_data
 
-        config = get_memory_config()
-        if not config.enabled or not config.injection_enabled:
-            return ""
+    if not memory_config.enabled or not memory_config.injection_enabled:
+        return ""
+    if not user_id:
+        raise ValueError("Agent memory is enabled but `user_id` is missing.")
+    if not agent_name:
+        raise ValueError("Agent memory is enabled but `agent_name` is missing.")
 
-        memory_data = get_memory_data(agent_name, agent_status)
-        memory_content = format_memory_for_injection(memory_data, max_tokens=config.max_injection_tokens)
+    memory_data = get_memory_data(
+        user_id=user_id,
+        agent_name=agent_name,
+        agent_status=agent_status,
+    )
+    memory_content = format_memory_for_injection(memory_data, max_tokens=memory_config.max_injection_tokens)
 
-        if not memory_content.strip():
-            return ""
+    if not memory_content.strip():
+        return ""
 
-        return f"""<memory>
+    return f"""<memory>
 {memory_content}
 </memory>
 """
-    except Exception as e:
-        print(f"Failed to load memory context: {e}")
-        return ""
 
 
 def get_agents_md_section(agent_name: str | None, agent_status: str = "dev") -> str:
@@ -188,11 +199,18 @@ def apply_prompt_template(
     subagent_enabled: bool = False,
     max_concurrent_subagents: int = 3,
     *,
+    user_id: str | None = None,
     agent_name: str | None = None,
     agent_status: str = "dev",
+    memory_config: AgentMemoryConfig | None = None,
 ) -> str:
     # Get memory context
-    memory_context = _get_memory_context(agent_name, agent_status)
+    memory_context = _get_memory_context(
+        user_id=user_id,
+        agent_name=agent_name,
+        agent_status=agent_status,
+        memory_config=memory_config or AgentMemoryConfig(),
+    )
 
     # Include subagent section only if enabled (from runtime parameter)
     subagent_section = _build_subagent_section(max_concurrent_subagents) if subagent_enabled else ""

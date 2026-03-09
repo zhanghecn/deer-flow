@@ -398,6 +398,17 @@ def _persist_thread_runtime(
     )
 
 
+def _assert_agent_memory_access(
+    *,
+    agent_config: DBAgentConfig,
+    user_id: str | None,
+) -> None:
+    if agent_config.memory.enabled and not user_id:
+        raise ValueError(
+            f"Agent '{agent_config.name}' has memory enabled and requires user identity."
+        )
+
+
 def _load_agent_tools(
     *,
     agent_config: DBAgentConfig,
@@ -484,6 +495,7 @@ def _load_agent_runtime_config(
             mcp_servers=file_config.mcp_servers,
             agents_md_path=file_config.agents_md_path,
             skill_refs=file_config.skill_refs,
+            memory=file_config.memory,
             revision=None,
         )
 
@@ -526,6 +538,7 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
 
     runtime_model_name = _parse_runtime_model_config(runtime_model_payload)
     agent_config = _load_agent_runtime_config(agent_name=agent_name, agent_status=agent_status, db_store=db_store)
+    _assert_agent_memory_access(agent_config=agent_config, user_id=user_id)
     model_name, model_config = _resolve_run_model(
         requested_model_name=requested_model_name,
         runtime_model_name=runtime_model_name,
@@ -634,8 +647,10 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     system_prompt = apply_prompt_template(
         subagent_enabled=subagent_enabled,
         max_concurrent_subagents=max_concurrent_subagents,
+        user_id=user_id,
         agent_name=agent_name,
         agent_status=agent_status,
+        memory_config=agent_config.memory,
     )
 
     # Interrupt configuration (replaces ClarificationMiddleware)

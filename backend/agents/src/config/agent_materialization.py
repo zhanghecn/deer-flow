@@ -8,7 +8,7 @@ from pathlib import Path
 import yaml
 
 from src.config.agent_runtime_seed import prime_agent_runtime_seed
-from src.config.agents_config import AGENTS_MD_FILENAME, AgentConfig, AgentSkillRef
+from src.config.agents_config import AGENTS_MD_FILENAME, AgentConfig, AgentMemoryConfig, AgentSkillRef
 from src.config.paths import Paths, get_paths
 from src.skills import load_skills
 from src.skills.types import Skill
@@ -111,6 +111,7 @@ def _write_agent_manifest(
     tool_groups: list[str] | None,
     mcp_servers: list[str] | None,
     skill_refs: list[AgentSkillRef],
+    memory: AgentMemoryConfig | None,
 ) -> None:
     manifest: dict[str, object] = {
         "name": name,
@@ -118,6 +119,7 @@ def _write_agent_manifest(
         "status": status,
         "agents_md_path": AGENTS_MD_FILENAME,
         "skill_refs": [skill_ref.model_dump(exclude_none=True) for skill_ref in skill_refs],
+        "memory": (memory or AgentMemoryConfig()).model_dump(exclude_none=True),
     }
     if model is not None:
         manifest["model"] = model
@@ -141,6 +143,7 @@ def materialize_agent_definition(
     tool_groups: list[str] | None = None,
     mcp_servers: list[str] | None = None,
     skill_names: list[str] | None = None,
+    memory: AgentMemoryConfig | dict | None = None,
     paths: Paths | None = None,
 ) -> AgentConfig:
     """Write an agent definition to disk and copy referenced skills locally."""
@@ -158,6 +161,8 @@ def materialize_agent_definition(
         paths=paths,
     )
 
+    memory_config = memory if isinstance(memory, AgentMemoryConfig) else AgentMemoryConfig.model_validate(memory or {})
+
     _write_agent_manifest(
         agent_dir=agent_dir,
         name=name,
@@ -167,6 +172,7 @@ def materialize_agent_definition(
         tool_groups=tool_groups,
         mcp_servers=mcp_servers,
         skill_refs=skill_refs,
+        memory=memory_config,
     )
 
     agent_config = AgentConfig(
@@ -178,6 +184,7 @@ def materialize_agent_definition(
         status=status,
         agents_md_path=AGENTS_MD_FILENAME,
         skill_refs=skill_refs,
+        memory=memory_config,
     )
     prime_agent_runtime_seed(
         name,

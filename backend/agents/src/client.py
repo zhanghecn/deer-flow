@@ -36,6 +36,7 @@ from langchain_core.runnables import RunnableConfig
 from src.agents.lead_agent.agent import _build_openagents_middlewares, _runtime_skills_path, build_backend
 from src.agents.lead_agent.prompt import apply_prompt_template
 from src.agents.lead_agent.subagents import load_subagent_specs
+from src.config.agents_config import load_agent_config
 from src.config.app_config import get_app_config, reload_app_config
 from src.config.builtin_agents import LEAD_AGENT_NAME
 from src.config.extensions_config import ExtensionsConfig, SkillStateConfig, get_extensions_config, reload_extensions_config
@@ -172,6 +173,9 @@ class OpenAgentsClient:
             "thinking_enabled": overrides.get("thinking_enabled", self._thinking_enabled),
             "is_plan_mode": overrides.get("plan_mode", self._plan_mode),
             "subagent_enabled": overrides.get("subagent_enabled", self._subagent_enabled),
+            "user_id": overrides.get("user_id"),
+            "agent_name": overrides.get("agent_name"),
+            "agent_status": overrides.get("agent_status"),
         }
         return RunnableConfig(
             configurable=configurable,
@@ -212,6 +216,11 @@ class OpenAgentsClient:
             model_name=effective_model_name,
             model_supports_vision=model_config.supports_vision,
         )
+        user_id = cfg.get("user_id")
+        try:
+            lead_agent_config = load_agent_config(LEAD_AGENT_NAME, status="dev")
+        except FileNotFoundError:
+            lead_agent_config = None
         subagents = (
             load_subagent_specs(
                 tools,
@@ -232,7 +241,10 @@ class OpenAgentsClient:
             system_prompt=apply_prompt_template(
                 subagent_enabled=subagent_enabled,
                 max_concurrent_subagents=max_concurrent_subagents,
+                user_id=user_id,
                 agent_name=LEAD_AGENT_NAME,
+                agent_status="dev",
+                memory_config=lead_agent_config.memory if lead_agent_config is not None else None,
             ),
             middleware=extra_middleware,
             subagents=subagents,
@@ -466,7 +478,7 @@ class OpenAgentsClient:
             ]
         }
 
-    def get_memory(self) -> dict:
+    def get_memory(self, *, user_id: str, agent_name: str, agent_status: str = "dev") -> dict:
         """Get current memory data.
 
         Returns:
@@ -474,7 +486,11 @@ class OpenAgentsClient:
         """
         from src.agents.memory.updater import get_memory_data
 
-        return get_memory_data()
+        return get_memory_data(
+            user_id=user_id,
+            agent_name=agent_name,
+            agent_status=agent_status,
+        )
 
     def get_model(self, name: str) -> dict | None:
         """Get a specific model's configuration by name.
@@ -693,7 +709,7 @@ class OpenAgentsClient:
     # Public API — memory management
     # ------------------------------------------------------------------
 
-    def reload_memory(self) -> dict:
+    def reload_memory(self, *, user_id: str, agent_name: str, agent_status: str = "dev") -> dict:
         """Reload memory data from file, forcing cache invalidation.
 
         Returns:
@@ -701,20 +717,23 @@ class OpenAgentsClient:
         """
         from src.agents.memory.updater import reload_memory_data
 
-        return reload_memory_data()
+        return reload_memory_data(
+            user_id=user_id,
+            agent_name=agent_name,
+            agent_status=agent_status,
+        )
 
-    def get_memory_config(self) -> dict:
-        """Get memory system configuration.
+    def get_memory_config(self, *, agent_name: str, agent_status: str = "dev") -> dict:
+        """Get per-agent memory configuration.
 
         Returns:
             Memory config dict.
         """
-        from src.config.memory_config import get_memory_config
-
-        config = get_memory_config()
+        agent_config = load_agent_config(agent_name, status=agent_status)
+        config = agent_config.memory
         return {
             "enabled": config.enabled,
-            "storage_path": config.storage_path,
+            "model_name": config.model_name,
             "debounce_seconds": config.debounce_seconds,
             "max_facts": config.max_facts,
             "fact_confidence_threshold": config.fact_confidence_threshold,
@@ -722,15 +741,15 @@ class OpenAgentsClient:
             "max_injection_tokens": config.max_injection_tokens,
         }
 
-    def get_memory_status(self) -> dict:
+    def get_memory_status(self, *, user_id: str, agent_name: str, agent_status: str = "dev") -> dict:
         """Get memory status: config + current data.
 
         Returns:
             Dict with "config" and "data" keys.
         """
         return {
-            "config": self.get_memory_config(),
-            "data": self.get_memory(),
+            "config": self.get_memory_config(agent_name=agent_name, agent_status=agent_status),
+            "data": self.get_memory(user_id=user_id, agent_name=agent_name, agent_status=agent_status),
         }
 
     # ------------------------------------------------------------------

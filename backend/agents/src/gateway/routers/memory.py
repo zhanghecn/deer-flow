@@ -1,10 +1,10 @@
-"""Memory API router for retrieving and managing global memory data."""
+"""Memory API router for retrieving and managing user-agent scoped memory data."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
 from src.agents.memory.updater import get_memory_data, reload_memory_data
-from src.config.memory_config import get_memory_config
+from src.config.agents_config import load_agent_config
 
 router = APIRouter(prefix="/api", tags=["memory"])
 
@@ -57,7 +57,7 @@ class MemoryConfigResponse(BaseModel):
     """Response model for memory configuration."""
 
     enabled: bool = Field(..., description="Whether memory is enabled")
-    storage_path: str = Field(..., description="Path to memory storage file")
+    model_name: str | None = Field(default=None, description="Model used for memory extraction")
     debounce_seconds: int = Field(..., description="Debounce time for memory updates")
     max_facts: int = Field(..., description="Maximum number of facts to store")
     fact_confidence_threshold: float = Field(..., description="Minimum confidence threshold for facts")
@@ -76,10 +76,14 @@ class MemoryStatusResponse(BaseModel):
     "/memory",
     response_model=MemoryResponse,
     summary="Get Memory Data",
-    description="Retrieve the current global memory data including user context, history, and facts.",
+    description="Retrieve the current user-agent memory data including user context, history, and facts.",
 )
-async def get_memory() -> MemoryResponse:
-    """Get the current global memory data.
+async def get_memory(
+    user_id: str = Query(..., description="Owning user identifier"),
+    agent_name: str = Query(..., description="Agent name"),
+    agent_status: str = Query(default="dev", description="Agent status: dev or prod"),
+) -> MemoryResponse:
+    """Get the current user-agent memory data.
 
     Returns:
         The current memory data with user context, history, and facts.
@@ -112,7 +116,7 @@ async def get_memory() -> MemoryResponse:
         }
         ```
     """
-    memory_data = get_memory_data()
+    memory_data = get_memory_data(user_id=user_id, agent_name=agent_name, agent_status=agent_status)
     return MemoryResponse(**memory_data)
 
 
@@ -122,7 +126,11 @@ async def get_memory() -> MemoryResponse:
     summary="Reload Memory Data",
     description="Reload memory data from the storage file, refreshing the in-memory cache.",
 )
-async def reload_memory() -> MemoryResponse:
+async def reload_memory(
+    user_id: str = Query(..., description="Owning user identifier"),
+    agent_name: str = Query(..., description="Agent name"),
+    agent_status: str = Query(default="dev", description="Agent status: dev or prod"),
+) -> MemoryResponse:
     """Reload memory data from file.
 
     This forces a reload of the memory data from the storage file,
@@ -131,7 +139,7 @@ async def reload_memory() -> MemoryResponse:
     Returns:
         The reloaded memory data.
     """
-    memory_data = reload_memory_data()
+    memory_data = reload_memory_data(user_id=user_id, agent_name=agent_name, agent_status=agent_status)
     return MemoryResponse(**memory_data)
 
 
@@ -141,7 +149,10 @@ async def reload_memory() -> MemoryResponse:
     summary="Get Memory Configuration",
     description="Retrieve the current memory system configuration.",
 )
-async def get_memory_config_endpoint() -> MemoryConfigResponse:
+async def get_memory_config_endpoint(
+    agent_name: str = Query(..., description="Agent name"),
+    agent_status: str = Query(default="dev", description="Agent status: dev or prod"),
+) -> MemoryConfigResponse:
     """Get the memory system configuration.
 
     Returns:
@@ -151,7 +162,7 @@ async def get_memory_config_endpoint() -> MemoryConfigResponse:
         ```json
         {
             "enabled": true,
-            "storage_path": ".openagents/memory.json",
+            "model_name": "memory-extractor",
             "debounce_seconds": 30,
             "max_facts": 100,
             "fact_confidence_threshold": 0.7,
@@ -160,10 +171,10 @@ async def get_memory_config_endpoint() -> MemoryConfigResponse:
         }
         ```
     """
-    config = get_memory_config()
+    config = load_agent_config(agent_name, status=agent_status).memory
     return MemoryConfigResponse(
         enabled=config.enabled,
-        storage_path=config.storage_path,
+        model_name=config.model_name,
         debounce_seconds=config.debounce_seconds,
         max_facts=config.max_facts,
         fact_confidence_threshold=config.fact_confidence_threshold,
@@ -178,19 +189,23 @@ async def get_memory_config_endpoint() -> MemoryConfigResponse:
     summary="Get Memory Status",
     description="Retrieve both memory configuration and current data in a single request.",
 )
-async def get_memory_status() -> MemoryStatusResponse:
+async def get_memory_status(
+    user_id: str = Query(..., description="Owning user identifier"),
+    agent_name: str = Query(..., description="Agent name"),
+    agent_status: str = Query(default="dev", description="Agent status: dev or prod"),
+) -> MemoryStatusResponse:
     """Get the memory system status including configuration and data.
 
     Returns:
         Combined memory configuration and current data.
     """
-    config = get_memory_config()
-    memory_data = get_memory_data()
+    config = load_agent_config(agent_name, status=agent_status).memory
+    memory_data = get_memory_data(user_id=user_id, agent_name=agent_name, agent_status=agent_status)
 
     return MemoryStatusResponse(
         config=MemoryConfigResponse(
             enabled=config.enabled,
-            storage_path=config.storage_path,
+            model_name=config.model_name,
             debounce_seconds=config.debounce_seconds,
             max_facts=config.max_facts,
             fact_confidence_threshold=config.fact_confidence_threshold,

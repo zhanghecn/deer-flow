@@ -1,13 +1,13 @@
 import json
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Lock
 
 from dotenv import dotenv_values
 
-from src.config.agents_config import AgentSkillRef
+from src.config.agents_config import AgentMemoryConfig, AgentSkillRef
 from src.config.model_config import ModelConfig
 
 logger = logging.getLogger(__name__)
@@ -41,6 +41,7 @@ class DBAgentConfig:
     mcp_servers: list[str] | None
     agents_md_path: str = "AGENTS.md"
     skill_refs: list[AgentSkillRef] | None = None
+    memory: AgentMemoryConfig = field(default_factory=AgentMemoryConfig)
     revision: str | None = None
 
 
@@ -78,6 +79,7 @@ class RuntimeDBStore:
                 mcp_servers=list(row[4]) if row[4] is not None else None,
                 agents_md_path=self._parse_agent_md_path(config_payload),
                 skill_refs=self._parse_agent_skill_refs(config_payload),
+                memory=self._parse_agent_memory(config_payload),
                 revision=self._coerce_revision(row[6]),
             )
 
@@ -267,6 +269,15 @@ class RuntimeDBStore:
         if not isinstance(raw_refs, list):
             raise ValueError("agents.config_json.skill_refs must be a list.")
         return [AgentSkillRef.model_validate(raw_ref) for raw_ref in raw_refs]
+
+    @staticmethod
+    def _parse_agent_memory(payload: dict) -> AgentMemoryConfig:
+        raw_memory = payload.get("memory")
+        if raw_memory is None:
+            return AgentMemoryConfig()
+        if not isinstance(raw_memory, dict):
+            raise ValueError("agents.config_json.memory must be an object.")
+        return AgentMemoryConfig.model_validate(raw_memory)
 
     @staticmethod
     def _coerce_revision(value: object) -> str | None:

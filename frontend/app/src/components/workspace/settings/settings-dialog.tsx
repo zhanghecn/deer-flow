@@ -3,7 +3,6 @@
 import {
   BellIcon,
   InfoIcon,
-  BrainIcon,
   PaletteIcon,
   SparklesIcon,
   WrenchIcon,
@@ -25,13 +24,6 @@ const AppearanceSettingsPage = dynamic(
   () =>
     import("@/components/workspace/settings/appearance-settings-page").then(
       (m) => m.AppearanceSettingsPage,
-    ),
-  { ssr: false },
-);
-const MemorySettingsPage = dynamic(
-  () =>
-    import("@/components/workspace/settings/memory-settings-page").then(
-      (m) => m.MemorySettingsPage,
     ),
   { ssr: false },
 );
@@ -66,7 +58,6 @@ const AboutSettingsPage = dynamic(
 
 type SettingsSection =
   | "appearance"
-  | "memory"
   | "tools"
   | "skills"
   | "notification"
@@ -102,18 +93,12 @@ export function SettingsDialog(props: SettingsDialogProps) {
         label: t.settings.sections.notification,
         icon: BellIcon,
       },
-      {
-        id: "memory",
-        label: t.settings.sections.memory,
-        icon: BrainIcon,
-      },
       { id: "tools", label: t.settings.sections.tools, icon: WrenchIcon },
       { id: "skills", label: t.settings.sections.skills, icon: SparklesIcon },
       { id: "about", label: t.settings.sections.about, icon: InfoIcon },
     ],
     [
       t.settings.sections.appearance,
-      t.settings.sections.memory,
       t.settings.sections.tools,
       t.settings.sections.skills,
       t.settings.sections.notification,
@@ -163,7 +148,6 @@ export function SettingsDialog(props: SettingsDialogProps) {
           <ScrollArea className="h-full min-h-0 rounded-lg border">
             <div className="space-y-8 p-6">
               {activeSection === "appearance" && <AppearanceSettingsPage />}
-              {activeSection === "memory" && <MemorySettingsPage />}
               {activeSection === "tools" && <ToolSettingsPage />}
               {activeSection === "skills" && (
                 <SkillSettingsPage

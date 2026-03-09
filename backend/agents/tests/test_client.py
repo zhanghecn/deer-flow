@@ -126,8 +126,8 @@ class TestConfigQueries:
     def test_get_memory(self, client):
         memory = {"version": "1.0", "facts": []}
         with patch("src.agents.memory.updater.get_memory_data", return_value=memory) as mock_mem:
-            result = client.get_memory()
-            mock_mem.assert_called_once()
+            result = client.get_memory(user_id="user-1", agent_name="analyst")
+            mock_mem.assert_called_once_with(user_id="user-1", agent_name="analyst", agent_status="dev")
         assert result == memory
 
 
@@ -560,30 +560,34 @@ class TestSkillsManagement:
 class TestMemoryManagement:
     def test_reload_memory(self, client):
         data = {"version": "1.0", "facts": []}
-        with patch("src.agents.memory.updater.reload_memory_data", return_value=data):
-            result = client.reload_memory()
+        with patch("src.agents.memory.updater.reload_memory_data", return_value=data) as mock_reload:
+            result = client.reload_memory(user_id="user-1", agent_name="analyst")
+            mock_reload.assert_called_once_with(user_id="user-1", agent_name="analyst", agent_status="dev")
         assert result == data
 
     def test_get_memory_config(self, client):
         config = MagicMock()
         config.enabled = True
-        config.storage_path = ".openagents/memory.json"
+        config.model_name = "memory-model"
         config.debounce_seconds = 30
         config.max_facts = 100
         config.fact_confidence_threshold = 0.7
         config.injection_enabled = True
         config.max_injection_tokens = 2000
 
-        with patch("src.config.memory_config.get_memory_config", return_value=config):
-            result = client.get_memory_config()
+        agent_config = MagicMock()
+        agent_config.memory = config
+        with patch("src.client.load_agent_config", return_value=agent_config):
+            result = client.get_memory_config(agent_name="analyst")
 
         assert result["enabled"] is True
+        assert result["model_name"] == "memory-model"
         assert result["max_facts"] == 100
 
     def test_get_memory_status(self, client):
         config = MagicMock()
         config.enabled = True
-        config.storage_path = ".openagents/memory.json"
+        config.model_name = "memory-model"
         config.debounce_seconds = 30
         config.max_facts = 100
         config.fact_confidence_threshold = 0.7
@@ -591,12 +595,14 @@ class TestMemoryManagement:
         config.max_injection_tokens = 2000
 
         data = {"version": "1.0", "facts": []}
+        agent_config = MagicMock()
+        agent_config.memory = config
 
         with (
-            patch("src.config.memory_config.get_memory_config", return_value=config),
+            patch("src.client.load_agent_config", return_value=agent_config),
             patch("src.agents.memory.updater.get_memory_data", return_value=data),
         ):
-            result = client.get_memory_status()
+            result = client.get_memory_status(user_id="user-1", agent_name="analyst")
 
         assert "config" in result
         assert "data" in result
@@ -1177,26 +1183,28 @@ class TestScenarioMemoryWorkflow:
 
         config = MagicMock()
         config.enabled = True
-        config.storage_path = ".openagents/memory.json"
+        config.model_name = "memory-model"
         config.debounce_seconds = 30
         config.max_facts = 100
         config.fact_confidence_threshold = 0.7
         config.injection_enabled = True
         config.max_injection_tokens = 2000
+        agent_config = MagicMock()
+        agent_config.memory = config
 
         with patch("src.agents.memory.updater.get_memory_data", return_value=initial_data):
-            mem = client.get_memory()
+            mem = client.get_memory(user_id="user-1", agent_name="analyst")
         assert len(mem["facts"]) == 1
 
         with patch("src.agents.memory.updater.reload_memory_data", return_value=updated_data):
-            refreshed = client.reload_memory()
+            refreshed = client.reload_memory(user_id="user-1", agent_name="analyst")
         assert len(refreshed["facts"]) == 2
 
         with (
-            patch("src.config.memory_config.get_memory_config", return_value=config),
+            patch("src.client.load_agent_config", return_value=agent_config),
             patch("src.agents.memory.updater.get_memory_data", return_value=updated_data),
         ):
-            status = client.get_memory_status()
+            status = client.get_memory_status(user_id="user-1", agent_name="analyst")
         assert status["config"]["enabled"] is True
         assert len(status["data"]["facts"]) == 2
 
@@ -1529,15 +1537,18 @@ class TestGatewayConformance:
     def test_get_memory_config(self, client):
         mem_cfg = MagicMock()
         mem_cfg.enabled = True
-        mem_cfg.storage_path = ".openagents/memory.json"
+        mem_cfg.model_name = "memory-model"
         mem_cfg.debounce_seconds = 30
         mem_cfg.max_facts = 100
         mem_cfg.fact_confidence_threshold = 0.7
         mem_cfg.injection_enabled = True
         mem_cfg.max_injection_tokens = 2000
 
-        with patch("src.config.memory_config.get_memory_config", return_value=mem_cfg):
-            result = client.get_memory_config()
+        agent_config = MagicMock()
+        agent_config.memory = mem_cfg
+
+        with patch("src.client.load_agent_config", return_value=agent_config):
+            result = client.get_memory_config(agent_name="analyst")
 
         parsed = MemoryConfigResponse(**result)
         assert parsed.enabled is True
@@ -1546,12 +1557,14 @@ class TestGatewayConformance:
     def test_get_memory_status(self, client):
         mem_cfg = MagicMock()
         mem_cfg.enabled = True
-        mem_cfg.storage_path = ".openagents/memory.json"
+        mem_cfg.model_name = "memory-model"
         mem_cfg.debounce_seconds = 30
         mem_cfg.max_facts = 100
         mem_cfg.fact_confidence_threshold = 0.7
         mem_cfg.injection_enabled = True
         mem_cfg.max_injection_tokens = 2000
+        agent_config = MagicMock()
+        agent_config.memory = mem_cfg
 
         memory_data = {
             "version": "1.0",
@@ -1570,10 +1583,10 @@ class TestGatewayConformance:
         }
 
         with (
-            patch("src.config.memory_config.get_memory_config", return_value=mem_cfg),
+            patch("src.client.load_agent_config", return_value=agent_config),
             patch("src.agents.memory.updater.get_memory_data", return_value=memory_data),
         ):
-            result = client.get_memory_status()
+            result = client.get_memory_status(user_id="user-1", agent_name="analyst")
 
         parsed = MemoryStatusResponse(**result)
         assert parsed.config.enabled is True

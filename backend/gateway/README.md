@@ -14,7 +14,7 @@ Nginx (:2026)
      ├── /api/agents/*        → Go Gateway (:8001)   # Agent CRUD
      ├── /api/skills/*        → Go Gateway (:8001)   # Skill CRUD
      ├── /api/models          → Go Gateway (:8001)   # 模型列表
-     ├── /api/memory          → Go Gateway (:8001)   # 记忆管理
+     ├── /api/memory          → Go Gateway (:8001)   # 用户+Agent 作用域记忆
      ├── /api/mcp             → Go Gateway (:8001)   # MCP 配置
      ├── /api/langgraph/*     → Go Gateway (:8001)   # 反向代理到 LangGraph，注入 user_id
      ├── /api/threads/*/uploads   → Go Gateway       # 文件上传
@@ -154,13 +154,17 @@ go run ./cmd/server
 | PUT/DELETE | `/api/skills/:name` | Skill 更新/删除 |
 | POST | `/api/skills/:name/publish` | 发布 Skill |
 | GET | `/api/models` | 模型列表（读取 PostgreSQL `models` 表） |
-| GET/POST | `/api/memory` | 记忆管理 |
+| GET/POST | `/api/memory?agent_name=:name&agent_status=dev|prod` | 读取/写入当前用户在指定 Agent 下的记忆 |
 | GET/PUT | `/api/mcp` | MCP 配置 |
 | POST | `/api/threads/:id/uploads` | 文件上传 |
 | GET | `/api/threads/:id/uploads` | 上传文件列表 |
 | DELETE | `/api/threads/:id/uploads` | 删除上传文件 |
 | GET | `/api/threads/:id/artifacts/*path` | 制品访问 |
 | ALL | `/api/langgraph/*` | 反向代理到 LangGraph |
+
+说明：
+- `/api/memory` 必须显式传 `agent_name`；`agent_status` 省略时默认为 `dev`
+- 记忆文件固定存储在 `{OPENAGENTS_HOME}/users/{user_id}/agents/{status}/{agent_name}/memory.json`
 
 ### 开放式 API（API Token 认证）
 
@@ -308,8 +312,8 @@ Agent 版本隔离规则：
     │       ├── AGENTS.md
     │       └── skills/{skill-name}/SKILL.md
     ├── users/{user_id}/
-    │   ├── memory.json
-    │   └── USER.md
+    │   ├── USER.md
+    │   └── agents/{status}/{agent_name}/memory.json
     └── threads/{thread_id}/
         └── user-data/
             ├── workspace/

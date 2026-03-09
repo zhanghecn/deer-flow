@@ -34,22 +34,33 @@ type APIToken struct {
 // Agent represents a shared agent definition row. Markdown content is
 // materialized on disk; the DB stores filesystem references and metadata.
 type Agent struct {
-	ID             uuid.UUID       `json:"id" db:"id"`
-	Name           string          `json:"name" db:"name"`
-	DisplayName    *string         `json:"display_name" db:"display_name"`
-	Description    string          `json:"description" db:"description"`
-	AvatarURL      *string         `json:"avatar_url" db:"avatar_url"`
-	Model          *string         `json:"model" db:"model"`
-	ToolGroups     []string        `json:"tool_groups" db:"tool_groups"`
-	McpServers     []string        `json:"mcp_servers" db:"mcp_servers"`
-	Status         string          `json:"status" db:"status"`
-	AgentsMD       string          `json:"agents_md"`
-	AgentsMDRef    string          `json:"-" db:"agents_md"`
-	Skills         []SkillRef      `json:"skills,omitempty"`
-	ConfigJSON     json.RawMessage `json:"config_json" db:"config_json"`
-	CreatedBy      *uuid.UUID      `json:"created_by" db:"created_by"`
-	CreatedAt      time.Time       `json:"created_at" db:"created_at"`
-	UpdatedAt      time.Time       `json:"updated_at" db:"updated_at"`
+	ID          uuid.UUID          `json:"id" db:"id"`
+	Name        string             `json:"name" db:"name"`
+	DisplayName *string            `json:"display_name" db:"display_name"`
+	Description string             `json:"description" db:"description"`
+	AvatarURL   *string            `json:"avatar_url" db:"avatar_url"`
+	Model       *string            `json:"model" db:"model"`
+	ToolGroups  []string           `json:"tool_groups" db:"tool_groups"`
+	McpServers  []string           `json:"mcp_servers" db:"mcp_servers"`
+	Status      string             `json:"status" db:"status"`
+	Memory      *AgentMemoryConfig `json:"memory,omitempty"`
+	AgentsMD    string             `json:"agents_md"`
+	AgentsMDRef string             `json:"-" db:"agents_md"`
+	Skills      []SkillRef         `json:"skills,omitempty"`
+	ConfigJSON  json.RawMessage    `json:"config_json" db:"config_json"`
+	CreatedBy   *uuid.UUID         `json:"created_by" db:"created_by"`
+	CreatedAt   time.Time          `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time          `json:"updated_at" db:"updated_at"`
+}
+
+type AgentMemoryConfig struct {
+	Enabled                 bool    `json:"enabled"`
+	ModelName               *string `json:"model_name,omitempty"`
+	DebounceSeconds         int     `json:"debounce_seconds"`
+	MaxFacts                int     `json:"max_facts"`
+	FactConfidenceThreshold float64 `json:"fact_confidence_threshold"`
+	InjectionEnabled        bool    `json:"injection_enabled"`
+	MaxInjectionTokens      int     `json:"max_injection_tokens"`
 }
 
 // Skill represents a shared skill library row. The DB stores a path reference

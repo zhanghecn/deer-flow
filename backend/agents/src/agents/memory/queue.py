@@ -6,18 +6,20 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from src.config.memory_config import get_memory_config
+from src.config.agents_config import AgentMemoryConfig
 
 
 @dataclass
 class ConversationContext:
     """Context for a conversation to be processed for memory update."""
 
+    user_id: str
     thread_id: str
     messages: list[Any]
     timestamp: datetime = field(default_factory=datetime.utcnow)
-    agent_name: str | None = None
+    agent_name: str = ""
     agent_status: str = "dev"
+    memory_config: AgentMemoryConfig = field(default_factory=AgentMemoryConfig)
 
 
 class MemoryUpdateQueue:
@@ -37,28 +39,34 @@ class MemoryUpdateQueue:
 
     def add(
         self,
+        *,
+        user_id: str,
         thread_id: str,
         messages: list[Any],
-        agent_name: str | None = None,
+        agent_name: str,
         agent_status: str = "dev",
+        memory_config: AgentMemoryConfig,
     ) -> None:
         """Add a conversation to the update queue.
 
         Args:
             thread_id: The thread ID.
             messages: The conversation messages.
-            agent_name: If provided, memory is stored per-agent. If None, uses global memory.
-            agent_status: Agent status namespace for per-agent memory isolation.
+            user_id: Owning user identifier.
+            agent_name: Agent name.
+            agent_status: Agent status namespace.
+            memory_config: Per-agent memory policy.
         """
-        config = get_memory_config()
-        if not config.enabled:
+        if not memory_config.enabled:
             return
 
         context = ConversationContext(
+            user_id=user_id,
             thread_id=thread_id,
             messages=messages,
             agent_name=agent_name,
             agent_status=agent_status,
+            memory_config=memory_config,
         )
 
         with self._lock:
@@ -68,27 +76,25 @@ class MemoryUpdateQueue:
             self._queue.append(context)
 
             # Reset or start the debounce timer
-            self._reset_timer()
+            self._reset_timer(memory_config.debounce_seconds)
 
         print(f"Memory update queued for thread {thread_id}, queue size: {len(self._queue)}")
 
-    def _reset_timer(self) -> None:
+    def _reset_timer(self, debounce_seconds: int) -> None:
         """Reset the debounce timer."""
-        config = get_memory_config()
-
         # Cancel existing timer if any
         if self._timer is not None:
             self._timer.cancel()
 
         # Start new timer
         self._timer = threading.Timer(
-            config.debounce_seconds,
+            debounce_seconds,
             self._process_queue,
         )
         self._timer.daemon = True
         self._timer.start()
 
-        print(f"Memory update timer set for {config.debounce_seconds}s")
+        print(f"Memory update timer set for {debounce_seconds}s")
 
     def _process_queue(self) -> None:
         """Process all queued conversation contexts."""
@@ -98,7 +104,8 @@ class MemoryUpdateQueue:
         with self._lock:
             if self._processing:
                 # Already processing, reschedule
-                self._reset_timer()
+                if self._queue:
+                    self._reset_timer(self._queue[-1].memory_config.debounce_seconds)
                 return
 
             if not self._queue:
@@ -112,13 +119,13 @@ class MemoryUpdateQueue:
         print(f"Processing {len(contexts_to_process)} queued memory updates")
 
         try:
-            updater = MemoryUpdater()
-
             for context in contexts_to_process:
                 try:
+                    updater = MemoryUpdater(context.memory_config)
                     print(f"Updating memory for thread {context.thread_id}")
                     success = updater.update_memory(
                         messages=context.messages,
+                        user_id=context.user_id,
                         thread_id=context.thread_id,
                         agent_name=context.agent_name,
                         agent_status=context.agent_status,

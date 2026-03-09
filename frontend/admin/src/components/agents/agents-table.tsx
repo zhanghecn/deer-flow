@@ -70,6 +70,7 @@ export function AgentsTable({
             <TableHead>Name</TableHead>
             <TableHead>Display Name</TableHead>
             <TableHead>Model</TableHead>
+            <TableHead>Memory</TableHead>
             <TableHead>Status</TableHead>
             <TableHead>Updated</TableHead>
             <TableHead className="text-right">Actions</TableHead>
@@ -84,6 +85,15 @@ export function AgentsTable({
               </TableCell>
               <TableCell className="text-muted-foreground text-sm">
                 {agent.model || "-"}
+              </TableCell>
+              <TableCell className="text-sm">
+                {agent.memory?.enabled ? (
+                  <Badge variant="outline">
+                    {agent.memory.model_name || "Enabled"}
+                  </Badge>
+                ) : (
+                  <span className="text-muted-foreground">Off</span>
+                )}
               </TableCell>
               <TableCell>
                 <Badge
