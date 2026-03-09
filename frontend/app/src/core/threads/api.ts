@@ -39,3 +39,19 @@ export async function searchThreads(
   }
   return (await res.json()) as AgentThread[];
 }
+
+export async function updateThreadTitle(
+  threadId: string,
+  title: string,
+): Promise<{ thread_id: string; title: string }> {
+  const res = await authFetch(`${getBackendBaseURL()}/api/threads/${threadId}/title`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error ?? `Failed to update thread title: ${res.statusText}`);
+  }
+  return (await res.json()) as { thread_id: string; title: string };
+}

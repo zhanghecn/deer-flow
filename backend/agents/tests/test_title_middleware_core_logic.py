@@ -1,5 +1,6 @@
 """Core behavior tests for TitleMiddleware."""
 
+from dataclasses import dataclass
 from unittest.mock import MagicMock
 
 from langchain_core.messages import AIMessage, HumanMessage
@@ -128,10 +129,74 @@ class TestTitleMiddlewareCoreLogic:
         middleware = TitleMiddleware()
         monkeypatch.setattr(middleware, "_should_generate_title", lambda state: True)
         monkeypatch.setattr(middleware, "_generate_title", lambda state: "核心逻辑回归")
+        persisted: dict[str, str] = {}
 
-        result = middleware.after_agent({"messages": []}, runtime=MagicMock())
+        class StubStore:
+            def save_thread_title(self, *, thread_id: str, user_id: str, title: str):
+                persisted["thread_id"] = thread_id
+                persisted["user_id"] = user_id
+                persisted["title"] = title
+
+        monkeypatch.setattr(
+            "src.agents.middlewares.title_middleware.get_runtime_db_store",
+            lambda: StubStore(),
+        )
+        monkeypatch.setattr(
+            "src.agents.middlewares.title_middleware.get_config",
+            lambda: {"configurable": {}, "metadata": {}},
+        )
+
+        @dataclass
+        class RuntimeContext:
+            thread_id: str
+            user_id: str
+
+        runtime = MagicMock()
+        runtime.context = RuntimeContext(thread_id="thread-1", user_id="user-1")
+
+        result = middleware.after_agent({"messages": []}, runtime=runtime)
 
         assert result == {"title": "核心逻辑回归"}
+        assert persisted == {
+            "thread_id": "thread-1",
+            "user_id": "user-1",
+            "title": "核心逻辑回归",
+        }
 
         monkeypatch.setattr(middleware, "_should_generate_title", lambda state: False)
         assert middleware.after_agent({"messages": []}, runtime=MagicMock()) is None
+
+    def test_after_agent_uses_runnable_config_metadata_when_runtime_context_lacks_ids(self, monkeypatch):
+        middleware = TitleMiddleware()
+        monkeypatch.setattr(middleware, "_should_generate_title", lambda state: True)
+        monkeypatch.setattr(middleware, "_generate_title", lambda state: "元数据标题")
+        persisted: dict[str, str] = {}
+
+        class StubStore:
+            def save_thread_title(self, *, thread_id: str, user_id: str, title: str):
+                persisted["thread_id"] = thread_id
+                persisted["user_id"] = user_id
+                persisted["title"] = title
+
+        monkeypatch.setattr(
+            "src.agents.middlewares.title_middleware.get_runtime_db_store",
+            lambda: StubStore(),
+        )
+        monkeypatch.setattr(
+            "src.agents.middlewares.title_middleware.get_config",
+            lambda: {
+                "configurable": {"thread_id": "thread-from-config"},
+                "metadata": {"user_id": "user-from-metadata"},
+            },
+        )
+        runtime = MagicMock()
+        runtime.context = object()
+
+        result = middleware.after_agent({"messages": []}, runtime=runtime)
+
+        assert result == {"title": "元数据标题"}
+        assert persisted == {
+            "thread_id": "thread-from-config",
+            "user_id": "user-from-metadata",
+            "title": "元数据标题",
+        }

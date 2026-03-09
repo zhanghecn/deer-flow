@@ -12,6 +12,12 @@ The user provides frontend requirements: a component, page, application, or inte
 
 **MANDATORY**: The entry HTML file MUST be named `index.html`. This is a strict requirement for all generated frontend projects to ensure compatibility with standard web hosting and deployment workflows.
 
+**MANDATORY**: Save the final frontend artifact under `/mnt/user-data/outputs/<project-name>/index.html`. Do not leave the finished experience only in `/mnt/user-data/workspace`.
+
+**MANDATORY**: After writing the final artifact, call `present_files` with the final output path so the client can preview it.
+
+If the experience needs multiple files, keep them together under the same `/mnt/user-data/outputs/<project-name>/` directory and present the main `index.html`.
+
 ## Design Thinking
 
 Before coding, understand the context and commit to a BOLD aesthetic direction:

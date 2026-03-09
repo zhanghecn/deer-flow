@@ -90,8 +90,9 @@ def _ensure_lead_agent_archive_for_status(*, status: str, paths: Paths) -> None:
     agent_dir.mkdir(parents=True, exist_ok=True)
 
     agents_md_path = agent_dir / "AGENTS.md"
-    if not agents_md_path.exists():
-        agents_md_path.write_text(_BUILTIN_LEAD_AGENT_AGENTS_MD.read_text(encoding="utf-8"), encoding="utf-8")
+    builtin_agents_md = _BUILTIN_LEAD_AGENT_AGENTS_MD.read_text(encoding="utf-8")
+    if not agents_md_path.exists() or agents_md_path.read_text(encoding="utf-8") != builtin_agents_md:
+        agents_md_path.write_text(builtin_agents_md, encoding="utf-8")
 
     config_path = agent_dir / "config.yaml"
     config_data = _load_config_data(config_path)

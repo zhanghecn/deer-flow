@@ -195,6 +195,7 @@ func main() {
 
 		// Threads index (database-backed source of truth for sidebar/search)
 		api.POST("/threads/search", threadsH.Search)
+		api.PATCH("/threads/:id/title", threadsH.UpdateTitle)
 
 		// Uploads
 		api.POST("/threads/:id/uploads", uploadsH.Upload)

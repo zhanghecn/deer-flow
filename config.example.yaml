@@ -1,25 +1,32 @@
-# OpenAgents runtime config (DB-first minimal template)
+# OpenAgents runtime config
 #
-# Important:
-# 1) Models and agents are managed in PostgreSQL (`models`, `agents` tables).
-#    Do NOT maintain model definitions in this file for normal runtime.
-# 2) Runtime DB credentials are provided via environment variable:
-#    DATABASE_URI
-# 3) LangGraph checkpoint persistence uses PostgreSQL via custom checkpointer in
-#    backend/agents/langgraph.json (checkpointer.path) and reads DATABASE_URI
-# 4) Header pass-through is configured in backend/agents/langgraph.json
-#    (http.configurable_headers)
+# Usage:
+# - Local or embedded runtime: define at least one model in `models`.
+# - Cloud / gateway runtime: models can be injected per request or loaded from
+#   PostgreSQL, so `models` can be left empty if your deployment does that.
+# - Runtime DB access and checkpoint persistence use the `DATABASE_URI`
+#   environment variable.
 
-# Sandbox provider
+# Optional for local/dev. Keep this list empty if your runtime injects models.
+models: []
+# models:
+#   - name: gpt-4o
+#     display_name: GPT-4o
+#     use: langchain_openai:ChatOpenAI
+#     model: gpt-4o
+#     api_key: $OPENAI_API_KEY
+#     # base_url: $OPENAI_BASE_URL
+#     max_tokens: 16384
+#     supports_thinking: false
+#     supports_vision: true
+
 sandbox:
   use: src.sandbox.local:LocalSandboxProvider
 
-# Tool registry (still file-based)
+# Filesystem tools are provided by deepagents' FilesystemMiddleware and do not
+# need to be declared here. Keep this registry for tools loaded from config.
 tool_groups:
   - name: web
-  - name: file:read
-  - name: file:write
-  - name: bash
 
 tools:
   - name: web_search
@@ -40,39 +47,29 @@ tools:
     use: src.community.image_search.tools:image_search_tool
     max_results: 5
 
-  - name: ls
-    group: file:read
-    use: src.sandbox.tools:ls_tool
-
-  - name: read_file
-    group: file:read
-    use: src.sandbox.tools:read_file_tool
-
-  - name: write_file
-    group: file:write
-    use: src.sandbox.tools:write_file_tool
-
-  - name: str_replace
-    group: file:write
-    use: src.sandbox.tools:str_replace_tool
-
-  - name: bash
-    group: bash
-    use: src.sandbox.tools:bash_tool
-
-# Skills mount config
 skills:
   container_path: /mnt/skills
 
-# Thread title generation (optional)
 title:
   enabled: true
   max_words: 6
   max_chars: 60
   model_name: null
 
-# Memory config
-# If enabled=true, memory.model_name must be a valid model in DB.
+summarization:
+  enabled: true
+  model_name: null
+  trigger:
+    - type: tokens
+      value: 15564
+  keep:
+    type: messages
+    value: 10
+  trim_tokens_to_summarize: 15564
+  summary_prompt: null
+
+# Safe default for the template. Turn this on only when your runtime has a
+# usable memory update model available.
 memory:
   enabled: false
   storage_path: memory.json

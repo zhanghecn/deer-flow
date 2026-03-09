@@ -34,12 +34,24 @@ Generate a structured JSON file in `/mnt/user-data/workspace/` with naming patte
 
 ### Step 3: Execute Generation
 
-Call the Python script:
+Run the generator script from the copied skill directory that belongs to the current agent.
+Do not hardcode shared-library paths such as `/mnt/skills/public/...`.
+Resolve the script relative to this skill, for example:
+
 ```bash
-python /mnt/skills/public/image-generation/scripts/generate.py \
+python /mnt/user-data/agents/<status>/<agent-name>/skills/image-generation/scripts/generate.py \
   --prompt-file /mnt/user-data/workspace/prompt-file.json \
   --reference-images /path/to/ref1.jpg /path/to/ref2.png \
-  --output-file /mnt/user-data/outputs/generated-image.jpg
+  --output-file /mnt/user-data/outputs/generated-image.jpg \
+  --aspect-ratio 16:9
+```
+
+Call the Python script:
+```bash
+python /mnt/user-data/agents/<status>/<agent-name>/skills/image-generation/scripts/generate.py \
+  --prompt-file /mnt/user-data/workspace/prompt-file.json \
+  --reference-images /path/to/ref1.jpg /path/to/ref2.png \
+  --output-file /mnt/user-data/outputs/generated-image.jpg \
   --aspect-ratio 16:9
 ```
 
@@ -52,6 +64,9 @@ Parameters:
 
 [!NOTE]
 Do NOT read the python file, just call it with the parameters.
+After execution, verify that the expected output file was actually created.
+If the command exits successfully but no output file exists, treat the generation as failed.
+Do not present a missing file to the user.
 
 ## Character Generation Example
 
@@ -80,7 +95,7 @@ Create prompt file: `/mnt/user-data/workspace/asian-woman.json`
 
 Execute generation:
 ```bash
-python /mnt/skills/public/image-generation/scripts/generate.py \
+python /mnt/user-data/agents/<status>/<agent-name>/skills/image-generation/scripts/generate.py \
   --prompt-file /mnt/user-data/workspace/cyberpunk-hacker.json \
   --output-file /mnt/user-data/outputs/cyberpunk-hacker-01.jpg \
   --aspect-ratio 2:3
@@ -113,7 +128,7 @@ With reference images:
 }
 ```
 ```bash
-python /mnt/skills/public/image-generation/scripts/generate.py \
+python /mnt/user-data/agents/<status>/<agent-name>/skills/image-generation/scripts/generate.py \
   --prompt-file /mnt/user-data/workspace/star-wars-scene.json \
   --reference-images /mnt/user-data/uploads/character-ref.jpg /mnt/user-data/uploads/vehicle-ref.jpg \
   --output-file /mnt/user-data/outputs/star-wars-scene-01.jpg \
@@ -154,6 +169,7 @@ Read the following template file only when matching the user request.
 After generation:
 
 - Images are typically saved in `/mnt/user-data/outputs/`
+- Confirm the output file exists before proceeding
 - Share generated images with user using present_files tool
 - Provide brief description of the generation result
 - Offer to iterate if adjustments needed
@@ -185,3 +201,4 @@ This approach significantly improves generation quality by providing the model w
 - Reference images enhance generation quality significantly
 - Iterative refinement is normal for optimal results
 - For character generation, include the detailed character object plus a consolidated prompt field
+- If required credentials are unavailable or the script produces no file, stop using this skill for the current deliverable and pivot to a deliverable that can complete successfully

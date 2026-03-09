@@ -1,0 +1,2 @@
+ALTER TABLE thread_bindings
+ADD COLUMN IF NOT EXISTS title TEXT;

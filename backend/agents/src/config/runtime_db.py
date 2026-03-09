@@ -209,6 +209,31 @@ class RuntimeDBStore:
                     f"Thread access denied for thread '{thread_id}': owned by another user ({owner})."
                 )
 
+    def save_thread_title(
+        self,
+        *,
+        thread_id: str,
+        user_id: str,
+        title: str,
+    ) -> None:
+        normalized_title = str(title).strip()
+        if not normalized_title:
+            return
+
+        query = """
+            UPDATE thread_bindings
+            SET title = %s, updated_at = NOW()
+            WHERE thread_id = %s AND user_id = %s::uuid
+        """
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(query, (normalized_title, thread_id, user_id))
+            if cur.rowcount and cur.rowcount > 0:
+                return
+            owner = self.get_thread_owner(thread_id)
+            raise ValueError(
+                f"Thread access denied for thread '{thread_id}': owned by another user ({owner})."
+            )
+
     @staticmethod
     def _coerce_json_object(value: object) -> dict:
         if value is None:

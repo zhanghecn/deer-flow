@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -53,7 +54,8 @@ func (r *ThreadRepo) SearchByUser(
 	query := `
 		SELECT
 			thread_id,
-			updated_at
+			updated_at,
+			title
 		FROM thread_bindings
 		WHERE user_id = $1
 		ORDER BY ` + sortBy + ` ` + sortOrder + `
@@ -68,16 +70,49 @@ func (r *ThreadRepo) SearchByUser(
 	items := make([]ThreadSearchRecord, 0)
 	for rows.Next() {
 		var item ThreadSearchRecord
-		if err := rows.Scan(&item.ThreadID, &item.UpdatedAt); err != nil {
+		var title *string
+		if err := rows.Scan(&item.ThreadID, &item.UpdatedAt, &title); err != nil {
 			return nil, err
 		}
-		item.Values = nil
+		if title != nil {
+			trimmedTitle := strings.TrimSpace(*title)
+			if trimmedTitle != "" {
+				item.Values = map[string]any{"title": trimmedTitle}
+			}
+		}
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	return items, nil
+}
+
+func (r *ThreadRepo) UpdateTitle(
+	ctx context.Context,
+	userID uuid.UUID,
+	threadID string,
+	title string,
+) error {
+	trimmedTitle := strings.TrimSpace(title)
+	if trimmedTitle == "" {
+		return pgx.ErrNoRows
+	}
+
+	tag, err := r.pool.Exec(
+		ctx,
+		`UPDATE thread_bindings SET title = $1, updated_at = NOW() WHERE thread_id = $2 AND user_id = $3`,
+		trimmedTitle,
+		threadID,
+		userID,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
 }
 
 func normalizeThreadSortBy(raw string) string {

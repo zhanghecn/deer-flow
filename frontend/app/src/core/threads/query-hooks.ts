@@ -2,7 +2,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { getAPIClient } from "../api";
 
-import { searchThreads, type ThreadSearchParams } from "./api";
+import {
+  searchThreads,
+  type ThreadSearchParams,
+  updateThreadTitle,
+} from "./api";
 import type { AgentThread } from "./types";
 
 export function useThreads(
@@ -59,6 +63,7 @@ export function useRenameThread() {
       await apiClient.threads.updateState(threadId, {
         values: { title },
       });
+      await updateThreadTitle(threadId, title);
     },
     onSuccess(_, { threadId, title }) {
       queryClient.setQueriesData(

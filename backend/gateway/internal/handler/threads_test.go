@@ -11,13 +11,19 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/openagents/gateway/internal/middleware"
 	"github.com/openagents/gateway/internal/repository"
 )
 
 type fakeThreadRepo struct {
-	items []repository.ThreadSearchRecord
-	err   error
+	items            []repository.ThreadSearchRecord
+	err              error
+	updateTitleErr   error
+	updateTitleCalls []struct {
+		threadID string
+		title    string
+	}
 }
 
 func (f *fakeThreadRepo) SearchByUser(
@@ -31,6 +37,22 @@ func (f *fakeThreadRepo) SearchByUser(
 	return f.items, nil
 }
 
+func (f *fakeThreadRepo) UpdateTitle(
+	_ context.Context,
+	_ uuid.UUID,
+	threadID string,
+	title string,
+) error {
+	f.updateTitleCalls = append(
+		f.updateTitleCalls,
+		struct {
+			threadID string
+			title    string
+		}{threadID: threadID, title: title},
+	)
+	return f.updateTitleErr
+}
+
 func TestThreadsHandlerSearchReturnsUserThreads(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
@@ -41,7 +63,7 @@ func TestThreadsHandlerSearchReturnsUserThreads(t *testing.T) {
 			{
 				ThreadID:  "thread-1",
 				UpdatedAt: &now,
-				Values:    nil,
+				Values:    map[string]any{"title": "Greeting"},
 			},
 		},
 	}
@@ -74,6 +96,13 @@ func TestThreadsHandlerSearchReturnsUserThreads(t *testing.T) {
 	if payload[0]["thread_id"] != "thread-1" {
 		t.Fatalf("expected thread_id thread-1, got %v", payload[0]["thread_id"])
 	}
+	values, ok := payload[0]["values"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected values map, got %T", payload[0]["values"])
+	}
+	if values["title"] != "Greeting" {
+		t.Fatalf("expected title Greeting, got %v", values["title"])
+	}
 }
 
 func TestThreadsHandlerSearchRejectsMissingUser(t *testing.T) {
@@ -92,5 +121,70 @@ func TestThreadsHandlerSearchRejectsMissingUser(t *testing.T) {
 	router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected status 401, got %d, body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestThreadsHandlerUpdateTitle(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	repo := &fakeThreadRepo{}
+	h := NewThreadsHandler(repo)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware.UserIDKey), uuid.MustParse("11111111-1111-1111-1111-111111111111"))
+		c.Next()
+	})
+	router.PATCH("/api/threads/:id/title", h.UpdateTitle)
+
+	req := httptest.NewRequest(
+		http.MethodPatch,
+		"/api/threads/thread-1/title",
+		bytes.NewBufferString(`{"title":"  New Title  "}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if len(repo.updateTitleCalls) != 1 {
+		t.Fatalf("expected 1 update call, got %d", len(repo.updateTitleCalls))
+	}
+	if repo.updateTitleCalls[0].threadID != "thread-1" {
+		t.Fatalf("expected thread-1, got %s", repo.updateTitleCalls[0].threadID)
+	}
+	if repo.updateTitleCalls[0].title != "New Title" {
+		t.Fatalf("expected trimmed title, got %q", repo.updateTitleCalls[0].title)
+	}
+}
+
+func TestThreadsHandlerUpdateTitleNotFound(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	repo := &fakeThreadRepo{updateTitleErr: pgx.ErrNoRows}
+	h := NewThreadsHandler(repo)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware.UserIDKey), uuid.MustParse("11111111-1111-1111-1111-111111111111"))
+		c.Next()
+	})
+	router.PATCH("/api/threads/:id/title", h.UpdateTitle)
+
+	req := httptest.NewRequest(
+		http.MethodPatch,
+		"/api/threads/missing/title",
+		bytes.NewBufferString(`{"title":"Missing"}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected status 404, got %d, body=%s", rec.Code, rec.Body.String())
 	}
 }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path, PurePosixPath
 from threading import Lock
 from typing import Protocol
@@ -148,6 +149,35 @@ def _read_archive_entry(agent_dir: Path, relative_path: PurePosixPath) -> list[t
     return [(relative_path, absolute_path.read_bytes())]
 
 
+def _compute_local_archive_revision(
+    *,
+    agent_dir: Path,
+    manifest: AgentSeedManifest,
+) -> str:
+    digest = sha256()
+
+    for relative_path in _manifest_relative_paths(manifest):
+        absolute_path = _resolve_archive_file(agent_dir, relative_path)
+        if absolute_path.is_dir():
+            nested_files = sorted(nested for nested in absolute_path.rglob("*") if nested.is_file())
+            for nested_file in nested_files:
+                nested_relative = relative_path / PurePosixPath(
+                    nested_file.relative_to(absolute_path).as_posix()
+                )
+                digest.update(nested_relative.as_posix().encode("utf-8"))
+                digest.update(b"\0")
+                digest.update(nested_file.read_bytes())
+                digest.update(b"\0")
+            continue
+
+        digest.update(relative_path.as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(absolute_path.read_bytes())
+        digest.update(b"\0")
+
+    return digest.hexdigest()
+
+
 def _build_seed(
     *,
     agent_name: str,
@@ -182,19 +212,25 @@ def prime_agent_runtime_seed(
 ) -> AgentRuntimeSeed:
     paths = paths or get_paths()
     key = _cache_key(agent_name, status)
+    loaded_manifest = manifest or _load_manifest(agent_name, status, paths=paths)
+    effective_revision = revision
+    if effective_revision is None:
+        effective_revision = _compute_local_archive_revision(
+            agent_dir=paths.agent_dir(agent_name, status),
+            manifest=loaded_manifest,
+        )
 
     with _RUNTIME_SEEDS_LOCK:
         cached = _RUNTIME_SEEDS.get(key)
-        if cached is not None and not force_refresh and cached.revision == revision:
+        if cached is not None and not force_refresh and cached.revision == effective_revision:
             return cached
 
-        loaded_manifest = manifest or _load_manifest(agent_name, status, paths=paths)
         seed = _build_seed(
             agent_name=key[0],
             status=key[1],
             agent_dir=paths.agent_dir(agent_name, status),
             manifest=loaded_manifest,
-            revision=revision,
+            revision=effective_revision,
         )
         _RUNTIME_SEEDS[key] = seed
         return seed
