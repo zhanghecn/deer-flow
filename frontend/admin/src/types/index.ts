@@ -98,6 +98,16 @@ export interface LLMProviderKey {
   updated_at: string;
 }
 
+export interface AgentMemoryConfig {
+  enabled: boolean;
+  model_name?: string | null;
+  debounce_seconds: number;
+  max_facts: number;
+  fact_confidence_threshold: number;
+  injection_enabled: boolean;
+  max_injection_tokens: number;
+}
+
 export interface Agent {
   id: string;
   name: string;
@@ -108,6 +118,7 @@ export interface Agent {
   tool_groups?: string[];
   mcp_servers?: string[];
   status: string;
+  memory?: AgentMemoryConfig | null;
   agents_md: string;
   config_json?: Record<string, unknown>;
   created_by?: string;

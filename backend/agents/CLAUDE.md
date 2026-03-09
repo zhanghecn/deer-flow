@@ -205,7 +205,7 @@ Configuration priority:
 | **Models** (`/api/models`) | `GET /` - list models; `GET /{name}` - model details |
 | **MCP** (`/api/mcp`) | `GET /config` - get config; `PUT /config` - update config (saves to extensions_config.json) |
 | **Skills** (`/api/skills`) | `GET /` - list skills; `GET /{name}` - details; `PUT /{name}` - update enabled; `POST /install` - install from .skill archive |
-| **Memory** (`/api/memory`) | `GET /` - memory data; `POST /reload` - force reload; `GET /config` - config; `GET /status` - config + data |
+| **Memory** (`/api/memory`) | `GET /?user_id&agent_name&agent_status` - memory data; `POST /reload?user_id&agent_name&agent_status` - reload; `GET /config?agent_name&agent_status` - per-agent policy; `GET /status?user_id&agent_name&agent_status` - policy + data |
 | **Uploads** (`/api/threads/{id}/uploads`) | `POST /` - upload files (auto-converts PDF/PPT/Excel/Word); `GET /list` - list; `DELETE /{filename}` - delete |
 | **Artifacts** (`/api/threads/{id}/artifacts`) | `GET /{path}` - serve artifacts; `?download=true` for file download |
 
@@ -284,7 +284,11 @@ The lead agent uses `deepagents.create_deep_agent()` which provides:
 - `queue.py` - Debounced update queue (per-thread deduplication, configurable wait time)
 - `prompt.py` - Prompt templates for memory updates
 
-**Data Structure** (stored in `backend/agents/.openagents/memory.json`):
+**Scope and Storage**:
+- Single supported scope: `user_id + agent_name + agent_status`
+- Stored at `{OPENAGENTS_HOME}/users/{user_id}/agents/{status}/{agent_name}/memory.json`
+
+**Data Structure**:
 - **User Context**: `workContext`, `personalContext`, `topOfMind` (1-3 sentence summaries)
 - **History**: `recentMonths`, `earlierContext`, `longTermBackground`
 - **Facts**: Discrete facts with `id`, `content`, `category` (preference/knowledge/context/behavior/goal), `confidence` (0-1), `createdAt`, `source`
@@ -296,11 +300,10 @@ The lead agent uses `deepagents.create_deep_agent()` which provides:
 4. Applies updates atomically (temp file + rename) with cache invalidation
 5. Next interaction injects top 15 facts + context into `<memory>` tags in system prompt
 
-**Configuration** (`config.yaml` → `memory`):
+**Configuration** (per-agent `agents/{status}/{name}/config.yaml` → `memory`):
 - `enabled` / `injection_enabled` - Master switches
-- `storage_path` - Path to memory.json
 - `debounce_seconds` - Wait time before processing (default: 30)
-- `model_name` - LLM for updates (null = default model)
+- `model_name` - Required when memory is enabled
 - `max_facts` / `fact_confidence_threshold` - Fact storage limits (100 / 0.7)
 - `max_injection_tokens` - Token limit for prompt injection (2000)
 
@@ -320,7 +323,7 @@ The lead agent uses `deepagents.create_deep_agent()` which provides:
 - `title` - Auto-title generation (enabled, max_words, max_chars, prompt_template)
 - `summarization` - Context summarization (enabled, trigger conditions, keep policy)
 - `subagents.enabled` - Master switch for subagent delegation
-- `memory` - Memory system (enabled, storage_path, debounce_seconds, model_name, max_facts, fact_confidence_threshold, injection_enabled, max_injection_tokens)
+- agent-local `memory` - Memory system policy (enabled, model_name, debounce_seconds, max_facts, fact_confidence_threshold, injection_enabled, max_injection_tokens)
 
 **`extensions_config.json`**:
 - `mcpServers` - Map of server name → config (enabled, type, command, args, env, url, headers, oauth, description)
@@ -351,7 +354,7 @@ Both can be modified at runtime via Gateway API endpoints or `OpenAgentsClient` 
 | Models | `list_models()`, `get_model(name)` | `{"models": [...]}`, `{name, display_name, ...}` |
 | MCP | `get_mcp_config()`, `update_mcp_config(servers)` | `{"mcp_servers": {...}}` |
 | Skills | `list_skills()`, `get_skill(name)`, `update_skill(name, enabled)`, `install_skill(path)` | `{"skills": [...]}` |
-| Memory | `get_memory()`, `reload_memory()`, `get_memory_config()`, `get_memory_status()` | dict |
+| Memory | `get_memory(user_id, agent_name, agent_status="dev")`, `reload_memory(user_id, agent_name, agent_status="dev")`, `get_memory_config(agent_name, agent_status="dev")`, `get_memory_status(user_id, agent_name, agent_status="dev")` | dict |
 | Uploads | `upload_files(thread_id, files)`, `list_uploads(thread_id)`, `delete_upload(thread_id, filename)` | `{"success": true, "files": [...]}`, `{"files": [...], "count": N}` |
 | Artifacts | `get_artifact(thread_id, path)` → `(bytes, mime_type)` | tuple |
 

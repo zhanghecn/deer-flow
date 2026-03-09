@@ -33,26 +33,28 @@ type APITokenResponse struct {
 // Agent DTOs
 
 type CreateAgentRequest struct {
-	Name        string   `json:"name" binding:"required,min=1,max=128"`
-	DisplayName string   `json:"display_name"`
-	Description string   `json:"description"`
-	AvatarURL   *string  `json:"avatar_url"`
-	Model       *string  `json:"model"`
-	ToolGroups  []string `json:"tool_groups"`
-	McpServers  []string `json:"mcp_servers"`
-	Skills      []string `json:"skills"`
-	AgentsMD    string   `json:"agents_md"`
+	Name        string             `json:"name" binding:"required,min=1,max=128"`
+	DisplayName string             `json:"display_name"`
+	Description string             `json:"description"`
+	AvatarURL   *string            `json:"avatar_url"`
+	Model       *string            `json:"model"`
+	ToolGroups  []string           `json:"tool_groups"`
+	McpServers  []string           `json:"mcp_servers"`
+	Memory      *AgentMemoryConfig `json:"memory"`
+	Skills      []string           `json:"skills"`
+	AgentsMD    string             `json:"agents_md"`
 }
 
 type UpdateAgentRequest struct {
-	DisplayName *string  `json:"display_name"`
-	Description *string  `json:"description"`
-	AvatarURL   *string  `json:"avatar_url"`
-	Model       *string  `json:"model"`
-	ToolGroups  []string `json:"tool_groups"`
-	McpServers  []string `json:"mcp_servers"`
-	Skills      []string `json:"skills"`
-	AgentsMD    *string  `json:"agents_md"`
+	DisplayName *string            `json:"display_name"`
+	Description *string            `json:"description"`
+	AvatarURL   *string            `json:"avatar_url"`
+	Model       *string            `json:"model"`
+	ToolGroups  []string           `json:"tool_groups"`
+	McpServers  []string           `json:"mcp_servers"`
+	Memory      *AgentMemoryConfig `json:"memory"`
+	Skills      []string           `json:"skills"`
+	AgentsMD    *string            `json:"agents_md"`
 }
 
 type AgentResponse struct {

@@ -68,6 +68,11 @@ func (s *AgentService) Create(ctx context.Context, req model.CreateAgentRequest,
 		AgentsMDRef: s.fs.AgentMDRef(req.Name, "dev"),
 		CreatedBy:   &userID,
 	}
+	memoryConfig, err := normalizeAgentMemoryConfig(req.Memory)
+	if err != nil {
+		return nil, err
+	}
+	agent.Memory = &memoryConfig
 	agent.ConfigJSON = s.mustMarshalConfig(agent, selectedSkills)
 
 	if err := s.syncAgentFilesystem(agent, req.AgentsMD, selectedSkills); err != nil {
@@ -132,6 +137,13 @@ func (s *AgentService) Update(ctx context.Context, name string, status string, r
 	}
 	if req.McpServers != nil {
 		existing.McpServers = req.McpServers
+	}
+	if req.Memory != nil {
+		memoryConfig, err := normalizeAgentMemoryConfig(req.Memory)
+		if err != nil {
+			return nil, err
+		}
+		existing.Memory = &memoryConfig
 	}
 
 	selectedSkillNames, err := s.currentSkillNames(ctx, existing)
@@ -236,6 +248,7 @@ func (s *AgentService) Publish(ctx context.Context, name string) (*model.Agent, 
 			Model:       devAgent.Model,
 			ToolGroups:  devAgent.ToolGroups,
 			McpServers:  devAgent.McpServers,
+			Memory:      devAgent.Memory,
 			Status:      "prod",
 			CreatedBy:   devAgent.CreatedBy,
 		}
@@ -246,6 +259,7 @@ func (s *AgentService) Publish(ctx context.Context, name string) (*model.Agent, 
 		prodAgent.Model = devAgent.Model
 		prodAgent.ToolGroups = devAgent.ToolGroups
 		prodAgent.McpServers = devAgent.McpServers
+		prodAgent.Memory = devAgent.Memory
 	}
 	prodAgent.AgentsMDRef = s.fs.AgentMDRef(name, "prod")
 	prodAgent.ConfigJSON = s.mustMarshalConfig(prodAgent, selectedSkills)
@@ -324,6 +338,7 @@ func (s *AgentService) syncAgentFilesystem(agent *model.Agent, agentsMD string, 
 		"status":         agent.Status,
 		"agents_md_path": "AGENTS.md",
 		"skill_refs":     s.manifestSkillRefs(skills),
+		"memory":         agentMemoryPayload(agent.Memory),
 	}
 	if agent.Model != nil {
 		config["model"] = agent.Model
@@ -380,6 +395,12 @@ func (s *AgentService) hydrateAgent(ctx context.Context, agent *model.Agent) (*m
 	}
 	agent.AgentsMD = agentsMD
 
+	memoryConfig, err := parseAgentMemoryConfig(agent.ConfigJSON)
+	if err != nil {
+		return nil, fmt.Errorf("parse agent memory config: %w", err)
+	}
+	agent.Memory = &memoryConfig
+
 	skillRefs, err := s.repo.GetSkills(ctx, agent.ID)
 	if err != nil {
 		return nil, fmt.Errorf("load agent skills: %w", err)
@@ -400,6 +421,7 @@ func (s *AgentService) mustMarshalConfig(agent *model.Agent, skills []model.Skil
 		"agents_md_path":  "AGENTS.md",
 		"selected_skills": collectSkillNames(skills),
 		"skill_refs":      s.manifestSkillRefs(skills),
+		"memory":          agentMemoryPayload(agent.Memory),
 	}
 	if agent.Model != nil {
 		payload["model"] = *agent.Model
@@ -438,4 +460,85 @@ func strPtr(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+func defaultAgentMemoryConfig() model.AgentMemoryConfig {
+	return model.AgentMemoryConfig{
+		Enabled:                 false,
+		DebounceSeconds:         30,
+		MaxFacts:                100,
+		FactConfidenceThreshold: 0.7,
+		InjectionEnabled:        true,
+		MaxInjectionTokens:      2000,
+	}
+}
+
+func normalizeAgentMemoryConfig(cfg *model.AgentMemoryConfig) (model.AgentMemoryConfig, error) {
+	normalized := defaultAgentMemoryConfig()
+	if cfg == nil {
+		return normalized, nil
+	}
+
+	normalized.Enabled = cfg.Enabled
+	normalized.ModelName = cfg.ModelName
+	if cfg.DebounceSeconds != 0 {
+		normalized.DebounceSeconds = cfg.DebounceSeconds
+	}
+	if cfg.MaxFacts != 0 {
+		normalized.MaxFacts = cfg.MaxFacts
+	}
+	if cfg.FactConfidenceThreshold != 0 {
+		normalized.FactConfidenceThreshold = cfg.FactConfidenceThreshold
+	}
+	normalized.InjectionEnabled = cfg.InjectionEnabled
+	if cfg.MaxInjectionTokens != 0 {
+		normalized.MaxInjectionTokens = cfg.MaxInjectionTokens
+	}
+
+	if normalized.Enabled && (normalized.ModelName == nil || strings.TrimSpace(*normalized.ModelName) == "") {
+		return model.AgentMemoryConfig{}, fmt.Errorf("agent memory requires memory.model_name when memory.enabled is true")
+	}
+	return normalized, nil
+}
+
+func agentMemoryPayload(cfg *model.AgentMemoryConfig) map[string]interface{} {
+	normalized := defaultAgentMemoryConfig()
+	if cfg != nil {
+		var err error
+		normalized, err = normalizeAgentMemoryConfig(cfg)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	payload := map[string]interface{}{
+		"enabled":                   normalized.Enabled,
+		"debounce_seconds":          normalized.DebounceSeconds,
+		"max_facts":                 normalized.MaxFacts,
+		"fact_confidence_threshold": normalized.FactConfidenceThreshold,
+		"injection_enabled":         normalized.InjectionEnabled,
+		"max_injection_tokens":      normalized.MaxInjectionTokens,
+	}
+	if normalized.ModelName != nil && strings.TrimSpace(*normalized.ModelName) != "" {
+		payload["model_name"] = strings.TrimSpace(*normalized.ModelName)
+	}
+	return payload
+}
+
+func parseAgentMemoryConfig(configJSON json.RawMessage) (model.AgentMemoryConfig, error) {
+	normalized := defaultAgentMemoryConfig()
+	if len(configJSON) == 0 {
+		return normalized, nil
+	}
+
+	var payload struct {
+		Memory *model.AgentMemoryConfig `json:"memory"`
+	}
+	if err := json.Unmarshal(configJSON, &payload); err != nil {
+		return model.AgentMemoryConfig{}, err
+	}
+	if payload.Memory == nil {
+		return normalized, nil
+	}
+	return normalizeAgentMemoryConfig(payload.Memory)
 }

@@ -112,11 +112,13 @@ Async task delegation with concurrent execution:
 
 LLM-powered persistent context retention across conversations:
 
+- **Single scope**: Memory is always isolated by `user_id + agent_name + agent_status`
+- **Per-agent policy**: Enablement and extraction/injection limits live in each agent's archived `config.yaml`
 - **Automatic extraction**: Analyzes conversations for user context, facts, and preferences
 - **Structured storage**: User context (work, personal, top-of-mind), history, and confidence-scored facts
 - **Debounced updates**: Batches updates to minimize LLM calls (configurable wait time)
 - **System prompt injection**: Top facts + context injected into agent prompts
-- **Storage**: JSON file with mtime-based cache invalidation
+- **Storage**: JSON file with mtime-based cache invalidation at `{OPENAGENTS_HOME}/users/{user_id}/agents/{status}/{agent_name}/memory.json`
 
 ### Tool Ecosystem
 
@@ -281,7 +283,10 @@ Key sections:
 - `title` - Auto-title generation settings
 - `summarization` - Context summarization settings
 - `subagents` - Subagent system (enabled/disabled)
-- `memory` - Memory system settings (enabled, storage, debounce, facts limits)
+
+Memory note:
+- Long-term memory is configured per agent in each archived agent `config.yaml`, not in the root `config.yaml`
+- Runtime memory storage is user-agent scoped: `{OPENAGENTS_HOME}/users/{user_id}/agents/{status}/{agent_name}/memory.json`
 
 Provider note:
 - `models[*].use` references provider classes by module path (for example `langchain_openai:ChatOpenAI`).

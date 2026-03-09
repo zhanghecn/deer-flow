@@ -1,7 +1,8 @@
 """Memory module for OpenAgents.
 
-This module provides a global memory mechanism that:
-- Stores user context and conversation history in memory.json
+This module provides a user-agent scoped memory mechanism that:
+- Stores user context and conversation history under
+  `{OPENAGENTS_HOME}/users/{user_id}/agents/{status}/{agent_name}/memory.json`
 - Uses LLM to summarize and extract facts from conversations
 - Injects relevant memory into system prompts for personalized responses
 """

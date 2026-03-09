@@ -5,11 +5,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/gin-gonic/gin"
 	"github.com/openagents/gateway/internal/middleware"
 	"github.com/openagents/gateway/internal/model"
 	"github.com/openagents/gateway/pkg/storage"
-	"github.com/gin-gonic/gin"
 )
 
 type MemoryHandler struct {
@@ -20,9 +21,30 @@ func NewMemoryHandler(fs *storage.FS) *MemoryHandler {
 	return &MemoryHandler{fs: fs}
 }
 
+func normalizeMemoryAgentStatus(raw string) (string, bool) {
+	status := strings.TrimSpace(raw)
+	if status == "" {
+		return "dev", true
+	}
+	if status != "dev" && status != "prod" {
+		return "", false
+	}
+	return status, true
+}
+
 func (h *MemoryHandler) Get(c *gin.Context) {
 	userID := middleware.GetUserID(c)
-	memPath := filepath.Join(h.fs.UserDir(userID.String()), "memory.json")
+	agentName := strings.TrimSpace(c.Query("agent_name"))
+	if agentName == "" {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "missing agent_name"})
+		return
+	}
+	agentStatus, ok := normalizeMemoryAgentStatus(c.Query("agent_status"))
+	if !ok {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "invalid agent_status"})
+		return
+	}
+	memPath := filepath.Join(h.fs.UserDir(userID.String()), "agents", agentStatus, agentName, "memory.json")
 
 	data, err := os.ReadFile(memPath)
 	if err != nil {
@@ -44,6 +66,16 @@ func (h *MemoryHandler) Get(c *gin.Context) {
 
 func (h *MemoryHandler) Update(c *gin.Context) {
 	userID := middleware.GetUserID(c)
+	agentName := strings.TrimSpace(c.Query("agent_name"))
+	if agentName == "" {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "missing agent_name"})
+		return
+	}
+	agentStatus, ok := normalizeMemoryAgentStatus(c.Query("agent_status"))
+	if !ok {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "invalid agent_status"})
+		return
+	}
 
 	var body interface{}
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -57,7 +89,7 @@ func (h *MemoryHandler) Update(c *gin.Context) {
 		return
 	}
 
-	dir := h.fs.UserDir(userID.String())
+	dir := filepath.Join(h.fs.UserDir(userID.String()), "agents", agentStatus, agentName)
 	_ = os.MkdirAll(dir, 0755)
 	memPath := filepath.Join(dir, "memory.json")
 

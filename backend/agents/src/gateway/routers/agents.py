@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from src.config.agent_materialization import materialize_agent_definition, publish_agent_definition
-from src.config.agents_config import AgentConfig, AgentSkillRef, list_custom_agents, load_agent_config, load_agents_md
+from src.config.agents_config import AgentConfig, AgentMemoryConfig, AgentSkillRef, list_custom_agents, load_agent_config, load_agents_md
 from src.config.builtin_agents import LEAD_AGENT_NAME, is_reserved_agent_name
 from src.config.paths import get_paths
 
@@ -37,6 +37,7 @@ class AgentResponse(BaseModel):
     tool_groups: list[str] | None = Field(default=None, description="Optional tool group whitelist")
     mcp_servers: list[str] | None = Field(default=None, description="Optional MCP server whitelist")
     status: str | None = Field(default=None, description="Agent status: prod or dev")
+    memory: AgentMemoryConfig = Field(default_factory=AgentMemoryConfig, description="Per-agent user-scoped memory policy")
     skills: list[AgentSkillResponse] = Field(default_factory=list, description="Skills copied into the agent directory")
     agents_md: str | None = Field(default=None, description="AGENTS.md content (included on GET /{name})")
 
@@ -55,6 +56,7 @@ class AgentCreateRequest(BaseModel):
     model: str | None = Field(default=None, description="Optional model override")
     tool_groups: list[str] | None = Field(default=None, description="Optional tool group whitelist")
     mcp_servers: list[str] | None = Field(default=None, description="Optional MCP server whitelist")
+    memory: AgentMemoryConfig = Field(default_factory=AgentMemoryConfig, description="Per-agent user-scoped memory policy")
     skills: list[str] = Field(default_factory=list, description="Shared skills to copy into the agent")
     agents_md: str = Field(default="", description="AGENTS.md content — agent personality and behavioral guardrails")
 
@@ -66,6 +68,7 @@ class AgentUpdateRequest(BaseModel):
     model: str | None = Field(default=None, description="Updated model override")
     tool_groups: list[str] | None = Field(default=None, description="Updated tool group whitelist")
     mcp_servers: list[str] | None = Field(default=None, description="Updated MCP server whitelist")
+    memory: AgentMemoryConfig | None = Field(default=None, description="Updated per-agent user-scoped memory policy")
     skills: list[str] | None = Field(default=None, description="Replacement shared skills to copy into the agent")
     agents_md: str | None = Field(default=None, description="Updated AGENTS.md content")
 
@@ -129,6 +132,7 @@ def _agent_config_to_response(agent_cfg: AgentConfig, include_agents_md: bool = 
         tool_groups=agent_cfg.tool_groups,
         mcp_servers=agent_cfg.mcp_servers,
         status=agent_cfg.status,
+        memory=agent_cfg.memory,
         skills=[_skill_ref_to_response(skill_ref) for skill_ref in agent_cfg.skill_refs],
         agents_md=agents_md,
     )
@@ -229,6 +233,7 @@ async def create_agent_endpoint(request: AgentCreateRequest) -> AgentResponse:
             model=request.model,
             tool_groups=request.tool_groups,
             mcp_servers=request.mcp_servers,
+            memory=request.memory,
             skill_names=request.skills,
             agents_md=request.agents_md,
             paths=paths,
@@ -283,6 +288,7 @@ async def update_agent(
             model=request.model if request.model is not None else agent_cfg.model,
             tool_groups=request.tool_groups if request.tool_groups is not None else agent_cfg.tool_groups,
             mcp_servers=request.mcp_servers if request.mcp_servers is not None else agent_cfg.mcp_servers,
+            memory=request.memory if request.memory is not None else agent_cfg.memory,
             skill_names=request.skills if request.skills is not None else [skill_ref.name for skill_ref in agent_cfg.skill_refs],
             agents_md=agents_md_content,
             paths=get_paths(),

@@ -9,7 +9,6 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.config.extensions_config import ExtensionsConfig
-from src.config.memory_config import load_memory_config_from_dict
 from src.config.model_config import ModelConfig
 from src.config.paths import AGENTS_ROOT
 from src.config.sandbox_config import SandboxConfig
@@ -161,10 +160,6 @@ class AppConfig(BaseModel):
         # Load summarization config if present
         if "summarization" in config_data:
             load_summarization_config_from_dict(config_data["summarization"])
-
-        # Load memory config if present
-        if "memory" in config_data:
-            load_memory_config_from_dict(config_data["memory"])
 
         # Load subagents config if present
         if "subagents" in config_data:

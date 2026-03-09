@@ -36,8 +36,8 @@ class Paths:
         │   ├── public/{skill-name}/SKILL.md
         │   └── custom/{skill-name}/SKILL.md
         ├── users/{user_id}/                 # Per-user data
-        │   ├── memory.json
-        │   └── USER.md
+        │   ├── USER.md
+        │   └── agents/{status}/{agent-name}/memory.json
         └── threads/{thread_id}/             # Per-thread runtime data
             └── user-data/
                 ├── workspace/
@@ -67,12 +67,7 @@ class Paths:
 
         return AGENTS_ROOT.parent.parent / ".openagents"
 
-    # ── Legacy compat (global memory / user profile for single-user mode) ──
-
-    @property
-    def memory_file(self) -> Path:
-        """Path to the persisted memory file: `{base_dir}/memory.json`."""
-        return self.base_dir / "memory.json"
+    # ── User profile ──
 
     @property
     def user_md_file(self) -> Path:
@@ -102,10 +97,6 @@ class Paths:
         """Directory containing skills materialized for an agent."""
         return self.agent_dir(name, status) / "skills"
 
-    def agent_memory_file(self, name: str, status: str = "dev") -> Path:
-        """Per-agent memory file (legacy compat)."""
-        return self.agent_dir(name, status) / "memory.json"
-
     # ── User layer (per-user data) ──
 
     def user_dir(self, user_id: str) -> Path:
@@ -114,9 +105,9 @@ class Paths:
             raise ValueError(f"Invalid user_id {user_id!r}")
         return self.base_dir / "users" / user_id
 
-    def user_memory_file(self, user_id: str) -> Path:
-        """Per-user memory file: `{base_dir}/users/{user_id}/memory.json`."""
-        return self.user_dir(user_id) / "memory.json"
+    def user_agent_memory_file(self, user_id: str, agent_name: str, status: str = "dev") -> Path:
+        """Per-user per-agent memory file."""
+        return self.user_dir(user_id) / "agents" / status / agent_name.lower() / "memory.json"
 
     # ── Global skills ──
 

@@ -68,14 +68,4 @@ summarization:
   trim_tokens_to_summarize: 15564
   summary_prompt: null
 
-# Safe default for the template. Turn this on only when your runtime has a
-# usable memory update model available.
-memory:
-  enabled: false
-  storage_path: memory.json
-  debounce_seconds: 30
-  model_name: null
-  max_facts: 100
-  fact_confidence_threshold: 0.7
-  injection_enabled: true
-  max_injection_tokens: 2000
+# Memory is configured per agent, not in this root config file.

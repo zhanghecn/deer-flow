@@ -64,19 +64,24 @@ class TestPaths:
         assert paths.agent_dir("code-reviewer") == tmp_path / "agents" / "dev" / "code-reviewer"
         assert paths.agent_dir("code-reviewer", "prod") == tmp_path / "agents" / "prod" / "code-reviewer"
 
-    def test_agent_memory_file(self, tmp_path):
+    def test_user_agent_memory_file(self, tmp_path):
         paths = _make_paths(tmp_path)
-        assert paths.agent_memory_file("code-reviewer") == tmp_path / "agents" / "dev" / "code-reviewer" / "memory.json"
+        assert paths.user_agent_memory_file("user-1", "code-reviewer") == (
+            tmp_path / "users" / "user-1" / "agents" / "dev" / "code-reviewer" / "memory.json"
+        )
 
     def test_user_md_file(self, tmp_path):
         paths = _make_paths(tmp_path)
         assert paths.user_md_file == tmp_path / "USER.md"
 
-    def test_paths_are_different_from_global(self, tmp_path):
+    def test_user_agent_memory_path_respects_status(self, tmp_path):
         paths = _make_paths(tmp_path)
-        assert paths.memory_file != paths.agent_memory_file("my-agent")
-        assert paths.memory_file == tmp_path / "memory.json"
-        assert paths.agent_memory_file("my-agent") == tmp_path / "agents" / "dev" / "my-agent" / "memory.json"
+        assert paths.user_agent_memory_file("user-1", "my-agent", "dev") == (
+            tmp_path / "users" / "user-1" / "agents" / "dev" / "my-agent" / "memory.json"
+        )
+        assert paths.user_agent_memory_file("user-1", "my-agent", "prod") == (
+            tmp_path / "users" / "user-1" / "agents" / "prod" / "my-agent" / "memory.json"
+        )
 
 
 class TestAgentConfig:
@@ -117,6 +122,36 @@ class TestAgentConfig:
             ],
         )
         assert cfg.skill_refs[0].name == "data-analysis"
+
+    def test_config_with_memory_policy(self):
+        from src.config.agents_config import AgentConfig
+
+        cfg = AgentConfig(
+            name="industry-analyst",
+            memory={
+                "enabled": True,
+                "model_name": "memory-model",
+                "max_facts": 50,
+            },
+        )
+        assert cfg.memory.enabled is True
+        assert cfg.memory.model_name == "memory-model"
+        assert cfg.memory.max_facts == 50
+
+    def test_config_rejects_enabled_memory_without_model(self):
+        from src.config.agents_config import AgentConfig
+
+        with pytest.raises(ValueError, match="memory.model_name"):
+            AgentConfig(name="industry-analyst", memory={"enabled": True})
+
+    def test_config_rejects_scope_field(self):
+        from src.config.agents_config import AgentConfig
+
+        with pytest.raises(ValueError, match="scope"):
+            AgentConfig(
+                name="industry-analyst",
+                memory={"enabled": True, "model_name": "memory-model", "scope": "user"},
+            )
 
 
 class TestLoadAgentConfig:
@@ -300,29 +335,29 @@ class TestListCustomAgents:
 
 
 class TestMemoryFilePath:
-    def test_global_memory_path(self, tmp_path):
+    def test_user_agent_memory_path(self, tmp_path):
         import src.agents.memory.updater as updater_mod
 
         with patch("src.agents.memory.updater.get_paths", return_value=_make_paths(tmp_path)):
-            path = updater_mod._get_memory_file_path(None)
-        assert path == tmp_path / "memory.json"
+            path = updater_mod._get_memory_file_path(user_id="user-1", agent_name="code-reviewer")
+        assert path == tmp_path / "users" / "user-1" / "agents" / "dev" / "code-reviewer" / "memory.json"
 
-    def test_agent_memory_path(self, tmp_path):
+    def test_user_agent_memory_path_respects_status(self, tmp_path):
         import src.agents.memory.updater as updater_mod
 
         with patch("src.agents.memory.updater.get_paths", return_value=_make_paths(tmp_path)):
-            path = updater_mod._get_memory_file_path("code-reviewer")
-        assert path == tmp_path / "agents" / "dev" / "code-reviewer" / "memory.json"
+            dev_path = updater_mod._get_memory_file_path(user_id="user-1", agent_name="status-agent", agent_status="dev")
+            prod_path = updater_mod._get_memory_file_path(user_id="user-1", agent_name="status-agent", agent_status="prod")
 
-    def test_agent_memory_path_respects_status(self, tmp_path):
+        assert dev_path == tmp_path / "users" / "user-1" / "agents" / "dev" / "status-agent" / "memory.json"
+        assert prod_path == tmp_path / "users" / "user-1" / "agents" / "prod" / "status-agent" / "memory.json"
+
+    def test_memory_path_requires_user_id(self, tmp_path):
         import src.agents.memory.updater as updater_mod
 
         with patch("src.agents.memory.updater.get_paths", return_value=_make_paths(tmp_path)):
-            dev_path = updater_mod._get_memory_file_path("status-agent", "dev")
-            prod_path = updater_mod._get_memory_file_path("status-agent", "prod")
-
-        assert dev_path == tmp_path / "agents" / "dev" / "status-agent" / "memory.json"
-        assert prod_path == tmp_path / "agents" / "prod" / "status-agent" / "memory.json"
+            with pytest.raises(ValueError, match="user_id"):
+                updater_mod._get_memory_file_path(user_id="", agent_name="status-agent")
 
 
 def _make_test_app():
@@ -359,6 +394,7 @@ class TestAgentsAPI:
         payload = {
             "name": "code-reviewer",
             "description": "Reviews code",
+            "memory": {"enabled": True, "model_name": "memory-model"},
             "agents_md": "You are a code reviewer.",
         }
         response = agent_client.post("/api/agents", json=payload)
@@ -366,6 +402,8 @@ class TestAgentsAPI:
         data = response.json()
         assert data["name"] == "code-reviewer"
         assert data["description"] == "Reviews code"
+        assert data["memory"]["enabled"] is True
+        assert data["memory"]["model_name"] == "memory-model"
         assert data["agents_md"] == "You are a code reviewer."
 
     def test_create_agent_rejects_reserved_lead_agent_name(self, agent_client):
@@ -474,6 +512,7 @@ class TestAgentsAPI:
         config = yaml.safe_load((agent_dir / "config.yaml").read_text(encoding="utf-8"))
         assert config["agents_md_path"] == "AGENTS.md"
         assert [skill["name"] for skill in config["skill_refs"]] == ["data-analysis", "deep-research"]
+        assert config["memory"]["enabled"] is False
         assert "skills_mode" not in config
 
     def test_update_agent_replaces_materialized_skills(self, agent_client, tmp_path):
