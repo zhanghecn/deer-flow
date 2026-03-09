@@ -1,7 +1,5 @@
 import logging
 import os
-from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from typing import Literal
 
@@ -38,11 +36,6 @@ logger = logging.getLogger(__name__)
 LOCAL_SANDBOX_PROVIDER = "src.sandbox.local:LocalSandboxProvider"
 DEFAULT_THREAD_ID = "_default"
 ExecutionBackend = Literal["local", "sandbox"]
-_IO_EXECUTOR = ThreadPoolExecutor(max_workers=4)
-
-
-def _run_blocking_io[T](operation: Callable[[], T]) -> T:
-    return _IO_EXECUTOR.submit(operation).result()
 
 
 def _resolve_config_sandbox_provider() -> str | None:
@@ -106,10 +99,6 @@ def _runtime_skills_path(agent_name: str, status: str) -> str:
     return f"{_runtime_agent_root(agent_name, status)}/skills/"
 
 
-def _runtime_memory_sources(agent_name: str, status: str) -> list[str]:
-    return [f"{_runtime_agent_root(agent_name, status)}/AGENTS.md"]
-
-
 def _build_runtime_seed_targets(
     *,
     agent_name: str,
@@ -118,15 +107,13 @@ def _build_runtime_seed_targets(
     agent_config: DBAgentConfig | None,
     paths: Paths,
 ) -> list[tuple[str, bytes]]:
-    return _run_blocking_io(
-        lambda: runtime_seed_targets(
-            agent_name,
-            status=status,
-            target_root=target_root,
-            paths=paths,
-            manifest=agent_config,
-            revision=agent_config.revision if agent_config is not None else None,
-        )
+    return runtime_seed_targets(
+        agent_name,
+        status=status,
+        target_root=target_root,
+        paths=paths,
+        manifest=agent_config,
+        revision=agent_config.revision if agent_config is not None else None,
     )
 
 
@@ -134,9 +121,7 @@ def _collect_missing_runtime_uploads(
     backend: BackendProtocol,
     runtime_targets: list[tuple[str, bytes]],
 ) -> list[tuple[str, bytes]]:
-    existing_files = _run_blocking_io(
-        lambda: backend.download_files([path for path, _ in runtime_targets])
-    )
+    existing_files = backend.download_files([path for path, _ in runtime_targets])
     uploads: list[tuple[str, bytes]] = []
 
     for (path, content), existing_file in zip(runtime_targets, existing_files, strict=True):
@@ -156,10 +141,12 @@ def _upload_runtime_files(
     if not runtime_targets:
         return
 
-    upload_results = _run_blocking_io(lambda: backend.upload_files(runtime_targets))
+    upload_results = backend.upload_files(runtime_targets)
     errors = [f"{result.path}: {result.error}" for result in upload_results if result.error is not None]
     if errors:
         raise RuntimeError(f"Failed to seed runtime definition files: {', '.join(errors)}")
+
+
 def _seed_runtime_materials(
     backend: BackendProtocol,
     *,
@@ -192,8 +179,8 @@ def _build_local_workspace_backend(user_data_dir: str) -> LocalShellBackend:
 def _build_sandbox_workspace_backend(thread_id: str | None) -> BackendProtocol:
     provider_path = _resolve_sandbox_provider()
     provider = _get_sandbox_provider(provider_path)
-    sandbox_id = _run_blocking_io(lambda: provider.acquire(_effective_thread_id(thread_id)))
-    sandbox = _run_blocking_io(lambda: provider.get(sandbox_id))
+    sandbox_id = provider.acquire(_effective_thread_id(thread_id))
+    sandbox = provider.get(sandbox_id)
     if sandbox is None:
         raise RuntimeError(f"Sandbox provider '{provider_path}' returned sandbox id '{sandbox_id}' but no sandbox instance.")
     return sandbox
@@ -503,18 +490,36 @@ def _merge_callbacks(
     return [existing_callbacks, callback]
 
 
+def _build_run_metadata(
+    *,
+    agent_name: str,
+    model_name: str,
+    thinking_enabled: object,
+    reasoning_effort: object,
+    subagent_enabled: object,
+    thread_id: str | None,
+    user_id: str | None,
+) -> dict[str, object]:
+    return {
+        "agent_name": agent_name,
+        "model_name": model_name,
+        "thinking_enabled": thinking_enabled,
+        "reasoning_effort": reasoning_effort,
+        "subagent_enabled": subagent_enabled,
+        "thread_id": thread_id,
+        "user_id": user_id,
+    }
+
+
 def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None):
     cfg = _load_configurable_payload(config, runtime)
 
     thinking_enabled = cfg.get("thinking_enabled", True)
-    reasoning_effort = cfg.get("reasoning_effort", None)
-    requested_model_raw = cfg.get("model_name") or cfg.get("model")
-    requested_model_name = _coerce_optional_str(requested_model_raw)
+    reasoning_effort = cfg.get("reasoning_effort")
+    requested_model_name = _coerce_optional_str(cfg.get("model_name") or cfg.get("model"))
     subagent_enabled = cfg.get("subagent_enabled", False)
     max_concurrent_subagents = cfg.get("max_concurrent_subagents", 3)
-    agent_name_raw = cfg.get("agent_name")
-    requested_agent_name = _coerce_optional_str(agent_name_raw)
-    agent_name = normalize_effective_agent_name(requested_agent_name)
+    agent_name = normalize_effective_agent_name(_coerce_optional_str(cfg.get("agent_name")))
     agent_status = _resolve_agent_status(cfg.get("agent_status", "dev"))
 
     thread_id = _coerce_optional_str(cfg.get("thread_id") or cfg.get("x-thread-id"))
@@ -559,8 +564,6 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         runtime,
         thread_id=thread_id,
         user_id=user_id,
-        x_thread_id=thread_id,
-        x_user_id=user_id,
         **{
             "x-thread-id": thread_id,
             "x-user-id": user_id,
@@ -572,15 +575,15 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     # Inject run metadata for observability
     if "metadata" not in config:
         config["metadata"] = {}
-    run_metadata = {
-        "agent_name": agent_name,
-        "model_name": model_name or "default",
-        "thinking_enabled": thinking_enabled,
-        "reasoning_effort": reasoning_effort,
-        "subagent_enabled": subagent_enabled,
-        "thread_id": thread_id,
-        "user_id": user_id,
-    }
+    run_metadata = _build_run_metadata(
+        agent_name=agent_name,
+        model_name=model_name,
+        thinking_enabled=thinking_enabled,
+        reasoning_effort=reasoning_effort,
+        subagent_enabled=subagent_enabled,
+        thread_id=thread_id,
+        user_id=user_id,
+    )
     config["metadata"].update(run_metadata)
 
     trace_callback = create_agent_trace_callback(
@@ -605,9 +608,6 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     # Skills sources for deepagents SkillsMiddleware come from the archived copy
     # materialized under the agent's own runtime directory.
     skills_sources = [_runtime_skills_path(agent_name, agent_status)]
-
-    # Memory sources (AGENTS.md loaded from the thread-local runtime copy, not the archive)
-    memory_sources = _runtime_memory_sources(agent_name, agent_status)
 
     # Community tools + MCP tools. Filesystem tools are provided by deepagents.
     tools = _load_agent_tools(
@@ -653,7 +653,6 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         middleware=extra_middleware,
         subagents=subagents,
         skills=skills_sources,
-        memory=memory_sources if memory_sources else None,
         backend=backend,
         interrupt_on=interrupt_on,
         name=agent_name,

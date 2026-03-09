@@ -90,6 +90,7 @@ CREATE TABLE IF NOT EXISTS thread_bindings (
     agent_name VARCHAR(128),
     assistant_id VARCHAR(128),
     model_name VARCHAR(128),
+    title TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );

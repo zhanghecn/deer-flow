@@ -62,7 +62,7 @@ func (h *OpenAPIHandler) handleRequest(c *gin.Context, agentName string, stream 
 		threadID = uuid.New().String()
 	}
 
-	modelName, modelConfig, err := h.resolveModelForRun(c, agent)
+	modelName, err := h.resolveModelNameForRun(c, agent)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return
@@ -81,7 +81,6 @@ func (h *OpenAPIHandler) handleRequest(c *gin.Context, agentName string, stream 
 			"agent_status": "prod",
 			"thread_id":    threadID,
 			"model_name":   modelName,
-			"model_config": modelConfig,
 		},
 	}
 
@@ -145,31 +144,20 @@ func (h *OpenAPIHandler) handleRequest(c *gin.Context, agentName string, stream 
 	}
 }
 
-func (h *OpenAPIHandler) resolveModelForRun(c *gin.Context, agent *model.Agent) (string, map[string]interface{}, error) {
+func (h *OpenAPIHandler) resolveModelNameForRun(c *gin.Context, agent *model.Agent) (string, error) {
 	if agent.Model == nil || strings.TrimSpace(*agent.Model) == "" {
-		return "", nil, fmt.Errorf("agent has no model configured; fallback selection is disabled")
+		return "", fmt.Errorf("agent has no model configured; fallback selection is disabled")
 	}
 
 	row, err := h.modelRepo.FindEnabledByName(c.Request.Context(), *agent.Model)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to load model %q: %w", *agent.Model, err)
+		return "", fmt.Errorf("failed to load model %q: %w", *agent.Model, err)
 	}
 	if row == nil {
-		return "", nil, fmt.Errorf("agent model %q not found or disabled", *agent.Model)
+		return "", fmt.Errorf("agent model %q not found or disabled", *agent.Model)
 	}
 
-	config := map[string]interface{}{}
-	if len(row.ConfigJSON) > 0 {
-		if err := json.Unmarshal(row.ConfigJSON, &config); err != nil {
-			return "", nil, fmt.Errorf("invalid model config_json for %q: %w", row.Name, err)
-		}
-	}
-	config["name"] = row.Name
-	if row.DisplayName != nil && strings.TrimSpace(*row.DisplayName) != "" {
-		config["display_name"] = *row.DisplayName
-	}
-
-	return row.Name, config, nil
+	return row.Name, nil
 }
 
 func (h *OpenAPIHandler) GetArtifact(c *gin.Context) {

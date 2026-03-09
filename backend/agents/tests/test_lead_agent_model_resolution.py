@@ -221,9 +221,12 @@ def test_make_lead_agent_reads_runtime_context_and_persists_thread_runtime(monke
     assert captured["name"] == "safe-model"
     assert captured["thinking_enabled"] is True
     assert result["model"] is not None
+    assert "memory" not in result
     assert store.saved == [("thread-1", "user-1", "safe-model", LEAD_AGENT_NAME)]
     assert runtime.execution_runtime.context["thread_id"] == "thread-1"
     assert runtime.execution_runtime.context["x-thread-id"] == "thread-1"
+    assert "x_thread_id" not in runtime.execution_runtime.context
+    assert "x_user_id" not in runtime.execution_runtime.context
 
 
 def test_build_openagents_middlewares_includes_vision_middleware_for_vision_model():
