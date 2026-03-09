@@ -45,7 +45,6 @@ export default function NewAgentPage() {
   const [thread, sendMessage] = useThreadStream({
     context: {
       mode: "flash",
-      is_bootstrap: true,
     },
     onToolEnd({ name }) {
       if (name !== "setup_agent" || !agentName) return;
@@ -82,10 +81,14 @@ export default function NewAgentPage() {
     }
     setAgentName(trimmed);
     setStep("chat");
-    await sendMessage(threadId, {
-      text: t.agents.nameStepBootstrapMessage.replace("{name}", trimmed),
-      files: [],
-    });
+    await sendMessage(
+      threadId,
+      {
+        text: t.agents.nameStepBootstrapMessage.replace("{name}", trimmed),
+        files: [],
+      },
+      { target_agent_name: trimmed },
+    );
   }, [
     nameInput,
     sendMessage,
@@ -110,7 +113,7 @@ export default function NewAgentPage() {
       await sendMessage(
         threadId,
         { text: trimmed, files: [] },
-        { agent_name: agentName },
+        { target_agent_name: agentName },
       );
     },
     [thread.isLoading, sendMessage, threadId, agentName],

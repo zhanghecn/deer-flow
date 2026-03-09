@@ -1,6 +1,6 @@
-# SOUL.md Template
+# AGENTS.md Template
 
-Use this exact structure when generating the final SOUL.md. Replace all `[bracketed]` placeholders with content extracted from the conversation.
+Use this exact structure when generating the final AGENTS.md. Replace all `[bracketed]` placeholders with content extracted from the conversation.
 
 ---
 

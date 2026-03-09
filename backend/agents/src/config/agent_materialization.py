@@ -60,6 +60,46 @@ def resolve_skill_refs(skill_names: list[str] | None, paths: Paths | None = None
     return resolved
 
 
+def _skill_relative_path(skill: Skill) -> Path:
+    if str(skill.relative_path) != ".":
+        return skill.relative_path
+    return Path(skill.skill_dir.name)
+
+
+def _to_agent_skill_ref(skill: Skill, relative_path: Path) -> AgentSkillRef:
+    return AgentSkillRef(
+        name=skill.name,
+        category=skill.category,
+        source_path=Path(skill.category, skill.skill_path or skill.skill_dir.name).as_posix(),
+        materialized_path=Path("skills", relative_path).as_posix(),
+    )
+
+
+def materialize_agent_skills(
+    *,
+    skills_dir: Path,
+    skill_names: list[str] | None,
+    paths: Paths | None = None,
+) -> list[AgentSkillRef]:
+    """Copy selected shared skills into an agent-owned skills directory."""
+
+    paths = paths or get_paths()
+    if skills_dir.exists():
+        shutil.rmtree(skills_dir)
+    skills_dir.mkdir(parents=True, exist_ok=True)
+
+    resolved_skills = resolve_skill_refs(skill_names, paths)
+    skill_refs: list[AgentSkillRef] = []
+    for skill in resolved_skills:
+        relative_path = _skill_relative_path(skill)
+        materialized_dir = skills_dir / relative_path
+        materialized_dir.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(skill.skill_dir, materialized_dir, dirs_exist_ok=True)
+        skill_refs.append(_to_agent_skill_ref(skill, relative_path))
+
+    return skill_refs
+
+
 def _write_agent_manifest(
     *,
     agent_dir: Path,
@@ -111,26 +151,11 @@ def materialize_agent_definition(
     agents_md_path = agent_dir / AGENTS_MD_FILENAME
     agents_md_path.write_text(agents_md, encoding="utf-8")
 
-    skills_dir = paths.agent_skills_dir(name, status)
-    if skills_dir.exists():
-        shutil.rmtree(skills_dir)
-    skills_dir.mkdir(parents=True, exist_ok=True)
-
-    resolved_skills = resolve_skill_refs(skill_names, paths)
-    skill_refs: list[AgentSkillRef] = []
-    for skill in resolved_skills:
-        relative_path = skill.relative_path if str(skill.relative_path) != "." else Path(skill.skill_dir.name)
-        materialized_dir = skills_dir / relative_path
-        materialized_dir.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(skill.skill_dir, materialized_dir, dirs_exist_ok=True)
-        skill_refs.append(
-            AgentSkillRef(
-                name=skill.name,
-                category=skill.category,
-                source_path=Path(skill.category, skill.skill_path or skill.skill_dir.name).as_posix(),
-                materialized_path=Path("skills", relative_path).as_posix(),
-            )
-        )
+    skill_refs = materialize_agent_skills(
+        skills_dir=paths.agent_skills_dir(name, status),
+        skill_names=skill_names,
+        paths=paths,
+    )
 
     _write_agent_manifest(
         agent_dir=agent_dir,

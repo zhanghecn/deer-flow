@@ -5,23 +5,22 @@ from langchain.tools import BaseTool
 from src.config import get_app_config
 from src.config.runtime_db import get_runtime_db_store
 from src.reflection import resolve_variable
-from src.tools.builtins import ask_clarification_tool, present_file_tool, view_image_tool
+from src.tools.builtins import ask_clarification_tool, present_file_tool, setup_agent, view_image_tool
 
 logger = logging.getLogger(__name__)
 
 BUILTIN_TOOLS = [
     present_file_tool,
     ask_clarification_tool,
+    setup_agent,
 ]
 
 def get_available_tools(
     groups: list[str] | None = None,
-    exclude_groups: list[str] | None = None,
     include_mcp: bool = True,
     mcp_servers: list[str] | None = None,
     model_name: str | None = None,
     model_supports_vision: bool | None = None,
-    subagent_enabled: bool = False,
 ) -> list[BaseTool]:
     """Get all available tools from config.
 
@@ -30,23 +29,20 @@ def get_available_tools(
 
     Args:
         groups: Optional list of tool groups to filter by.
-        exclude_groups: Optional list of tool groups to exclude (applied after groups filter).
         include_mcp: Whether to include tools from MCP servers (default: True).
         mcp_servers: Optional list of MCP server names to include.
             If None, includes tools from all enabled servers.
         model_name: Optional model name to determine if vision tools should be included.
         model_supports_vision: Optional direct override for vision support.
-        subagent_enabled: Whether to include subagent tools (task, task_status).
 
     Returns:
         List of available tools.
     """
     config = get_app_config()
-    exclude_set = set(exclude_groups) if exclude_groups else set()
     loaded_tools = [
         resolve_variable(tool.use, BaseTool)
         for tool in config.tools
-        if (groups is None or tool.group in groups) and tool.group not in exclude_set
+        if groups is None or tool.group in groups
     ]
 
     # Get cached MCP tools if enabled

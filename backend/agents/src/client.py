@@ -33,10 +33,11 @@ from deepagents import create_deep_agent
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 
-from src.agents.lead_agent.agent import DEFAULT_RUNTIME_SKILLS_PATH, _build_openagents_middlewares, build_backend
+from src.agents.lead_agent.agent import _build_openagents_middlewares, _runtime_skills_path, build_backend
 from src.agents.lead_agent.prompt import apply_prompt_template
 from src.agents.lead_agent.subagents import load_subagent_specs
 from src.config.app_config import get_app_config, reload_app_config
+from src.config.builtin_agents import LEAD_AGENT_NAME
 from src.config.extensions_config import ExtensionsConfig, SkillStateConfig, get_extensions_config, reload_extensions_config
 from src.config.paths import get_paths
 from src.models import create_chat_model
@@ -205,17 +206,16 @@ class OpenAgentsClient:
             raise ValueError(f"Model '{effective_model_name}' is not available in config.")
 
         # Build backend and middleware using shared agent.py functions
-        backend = build_backend(thread_id, agent_name=None)
+        backend = build_backend(thread_id, agent_name=LEAD_AGENT_NAME)
         extra_middleware = _build_openagents_middlewares(model_config)
         tools = self._get_tools(
             model_name=effective_model_name,
             model_supports_vision=model_config.supports_vision,
-            subagent_enabled=subagent_enabled,
         )
         subagents = (
             load_subagent_specs(
                 tools,
-                agent_name=None,
+                agent_name=LEAD_AGENT_NAME,
                 agent_status="dev",
             )
             if subagent_enabled
@@ -232,28 +232,26 @@ class OpenAgentsClient:
             system_prompt=apply_prompt_template(
                 subagent_enabled=subagent_enabled,
                 max_concurrent_subagents=max_concurrent_subagents,
+                agent_name=LEAD_AGENT_NAME,
             ),
             middleware=extra_middleware,
             subagents=subagents,
-            skills=[DEFAULT_RUNTIME_SKILLS_PATH],
+            skills=[_runtime_skills_path(LEAD_AGENT_NAME, "dev")],
             backend=backend,
             interrupt_on={"ask_clarification": True},
-            name="lead_agent",
+            name=LEAD_AGENT_NAME,
         )
         self._agent_config_key = key
         logger.info("Agent created: model=%s, thinking=%s", model_name, thinking_enabled)
 
     @staticmethod
-    def _get_tools(*, model_name: str | None, model_supports_vision: bool, subagent_enabled: bool):
+    def _get_tools(*, model_name: str | None, model_supports_vision: bool):
         """Lazy import to avoid circular dependency at module level."""
         from src.tools import get_available_tools
 
-        # Exclude sandbox tool groups — deepagents FilesystemMiddleware provides them
         return get_available_tools(
             model_name=model_name,
             model_supports_vision=model_supports_vision,
-            subagent_enabled=subagent_enabled,
-            exclude_groups=["file:read", "file:write", "bash"],
         )
 
     @staticmethod

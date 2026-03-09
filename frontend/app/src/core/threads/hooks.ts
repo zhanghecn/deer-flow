@@ -30,6 +30,23 @@ export type ThreadStreamOptions = {
   onToolEnd?: (event: ToolEndEvent) => void;
 };
 
+function resolveAgentName(
+  context: LocalSettings["context"],
+  extraContext?: Record<string, unknown>,
+) {
+  const fromContext =
+    typeof context.agent_name === "string" ? context.agent_name.trim() : "";
+  if (fromContext) {
+    return fromContext;
+  }
+
+  const fromExtra =
+    typeof extraContext?.agent_name === "string"
+      ? extraContext.agent_name.trim()
+      : "";
+  return fromExtra || "lead_agent";
+}
+
 export function useThreadStream({
   threadId,
   context,
@@ -294,9 +311,11 @@ export function useThreadStream({
             ],
           },
           (() => {
+            const agentName = resolveAgentName(context, extraContext);
             const runtimeContext = {
               ...extraContext,
               ...context,
+              agent_name: agentName,
               model_name: selectedModelName,
               thinking_enabled: context.mode !== "flash",
               is_plan_mode: context.mode === "pro" || context.mode === "ultra",

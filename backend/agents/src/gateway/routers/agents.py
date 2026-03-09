@@ -9,12 +9,13 @@ from pydantic import BaseModel, Field
 
 from src.config.agent_materialization import materialize_agent_definition, publish_agent_definition
 from src.config.agents_config import AgentConfig, AgentSkillRef, list_custom_agents, load_agent_config, load_agents_md
+from src.config.builtin_agents import LEAD_AGENT_NAME, is_reserved_agent_name
 from src.config.paths import get_paths
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["agents"])
 
-AGENT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9-]+$")
+AGENT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 VALID_AGENT_STATUSES = {"dev", "prod"}
 
 
@@ -30,7 +31,7 @@ class AgentSkillResponse(BaseModel):
 class AgentResponse(BaseModel):
     """Response model for a custom agent."""
 
-    name: str = Field(..., description="Agent name (hyphen-case)")
+    name: str = Field(..., description="Agent name")
     description: str = Field(default="", description="Agent description")
     model: str | None = Field(default=None, description="Optional model override")
     tool_groups: list[str] | None = Field(default=None, description="Optional tool group whitelist")
@@ -38,7 +39,6 @@ class AgentResponse(BaseModel):
     status: str | None = Field(default=None, description="Agent status: prod or dev")
     skills: list[AgentSkillResponse] = Field(default_factory=list, description="Skills copied into the agent directory")
     agents_md: str | None = Field(default=None, description="AGENTS.md content (included on GET /{name})")
-    soul: str | None = Field(default=None, description="Deprecated: use agents_md instead")
 
 
 class AgentsListResponse(BaseModel):
@@ -50,14 +50,13 @@ class AgentsListResponse(BaseModel):
 class AgentCreateRequest(BaseModel):
     """Request body for creating a custom agent."""
 
-    name: str = Field(..., description="Agent name (must match ^[A-Za-z0-9-]+$, stored as lowercase)")
+    name: str = Field(..., description="Agent name (must match ^[A-Za-z0-9_-]+$, stored as lowercase)")
     description: str = Field(default="", description="Agent description")
     model: str | None = Field(default=None, description="Optional model override")
     tool_groups: list[str] | None = Field(default=None, description="Optional tool group whitelist")
     mcp_servers: list[str] | None = Field(default=None, description="Optional MCP server whitelist")
     skills: list[str] = Field(default_factory=list, description="Shared skills to copy into the agent")
     agents_md: str = Field(default="", description="AGENTS.md content — agent personality and behavioral guardrails")
-    soul: str | None = Field(default=None, description="Deprecated: use agents_md instead")
 
 
 class AgentUpdateRequest(BaseModel):
@@ -69,7 +68,6 @@ class AgentUpdateRequest(BaseModel):
     mcp_servers: list[str] | None = Field(default=None, description="Updated MCP server whitelist")
     skills: list[str] | None = Field(default=None, description="Replacement shared skills to copy into the agent")
     agents_md: str | None = Field(default=None, description="Updated AGENTS.md content")
-    soul: str | None = Field(default=None, description="Deprecated: use agents_md instead")
 
 
 class UserProfileResponse(BaseModel):
@@ -89,13 +87,18 @@ def _validate_agent_name(name: str) -> None:
     if not AGENT_NAME_PATTERN.match(name):
         raise HTTPException(
             status_code=422,
-            detail=f"Invalid agent name '{name}'. Must match ^[A-Za-z0-9-]+$ (letters, digits, and hyphens only).",
+            detail=f"Invalid agent name '{name}'. Must match ^[A-Za-z0-9_-]+$ (letters, digits, underscores, and hyphens only).",
         )
 
 
 def _normalize_agent_name(name: str) -> str:
     """Normalize agent name to lowercase for filesystem storage."""
     return name.lower()
+
+
+def _reject_reserved_agent_name(name: str) -> None:
+    if is_reserved_agent_name(name):
+        raise HTTPException(status_code=409, detail=f"Agent name '{LEAD_AGENT_NAME}' is reserved for the built-in lead agent.")
 
 
 def _normalize_agent_status(status: str | None, *, default: str = "dev") -> str:
@@ -128,7 +131,6 @@ def _agent_config_to_response(agent_cfg: AgentConfig, include_agents_md: bool = 
         status=agent_cfg.status,
         skills=[_skill_ref_to_response(skill_ref) for skill_ref in agent_cfg.skill_refs],
         agents_md=agents_md,
-        soul=agents_md,
     )
 
 
@@ -136,7 +138,6 @@ def _agent_exists(paths, name: str) -> bool:
     return (
         paths.agent_dir(name, "dev").exists()
         or paths.agent_dir(name, "prod").exists()
-        or (paths.agents_dir / name).exists()
     )
 
 
@@ -170,6 +171,8 @@ async def check_agent_name(name: str) -> dict:
     """Check whether an agent name is valid and not yet taken."""
     _validate_agent_name(name)
     normalized = _normalize_agent_name(name)
+    if is_reserved_agent_name(normalized):
+        return {"available": False, "name": normalized}
     available = not _agent_exists(get_paths(), normalized)
     return {"available": available, "name": normalized}
 
@@ -212,6 +215,7 @@ async def create_agent_endpoint(request: AgentCreateRequest) -> AgentResponse:
     """Create a new custom agent."""
     _validate_agent_name(request.name)
     normalized_name = _normalize_agent_name(request.name)
+    _reject_reserved_agent_name(normalized_name)
     paths = get_paths()
 
     if _agent_exists(paths, normalized_name):
@@ -226,7 +230,7 @@ async def create_agent_endpoint(request: AgentCreateRequest) -> AgentResponse:
             tool_groups=request.tool_groups,
             mcp_servers=request.mcp_servers,
             skill_names=request.skills,
-            agents_md=request.agents_md or request.soul or "",
+            agents_md=request.agents_md,
             paths=paths,
         )
         logger.info("Created agent '%s' at %s", normalized_name, paths.agent_dir(normalized_name, "dev"))
@@ -259,6 +263,7 @@ async def update_agent(
     """Update an existing custom agent."""
     _validate_agent_name(name)
     name = _normalize_agent_name(name)
+    _reject_reserved_agent_name(name)
     normalized_status = _normalize_agent_status(status)
 
     try:
@@ -267,7 +272,7 @@ async def update_agent(
         raise HTTPException(status_code=404, detail=f"Agent '{name}' ({normalized_status}) not found")
 
     try:
-        agents_md_content = request.agents_md if request.agents_md is not None else request.soul
+        agents_md_content = request.agents_md
         if agents_md_content is None:
             agents_md_content = load_agents_md(name, status=normalized_status) or ""
 
@@ -304,6 +309,7 @@ async def publish_agent(name: str) -> AgentResponse:
     """Publish a dev agent to prod."""
     _validate_agent_name(name)
     name = _normalize_agent_name(name)
+    _reject_reserved_agent_name(name)
 
     try:
         agent_cfg = publish_agent_definition(name, paths=get_paths())
@@ -369,6 +375,7 @@ async def delete_agent(
     """Delete a custom agent."""
     _validate_agent_name(name)
     name = _normalize_agent_name(name)
+    _reject_reserved_agent_name(name)
     paths = get_paths()
 
     target_statuses = [_normalize_agent_status(status)] if status is not None else ["dev", "prod"]
@@ -381,12 +388,6 @@ async def delete_agent(
                 shutil.rmtree(agent_dir)
                 deleted = True
                 logger.info("Deleted agent '%s' from %s", name, agent_dir)
-
-        legacy_dir = paths.agents_dir / name
-        if status is None and legacy_dir.exists():
-            shutil.rmtree(legacy_dir)
-            deleted = True
-            logger.info("Deleted legacy agent '%s' from %s", name, legacy_dir)
 
         if not deleted:
             if status is None:

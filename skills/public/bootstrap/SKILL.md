@@ -1,24 +1,24 @@
 ---
 name: bootstrap
-description: Generate a personalized SOUL.md through a warm, adaptive onboarding conversation. Trigger when the user wants to create, set up, or initialize their AI partner's identity — e.g., "create my SOUL.md", "bootstrap my agent", "set up my AI partner", "define who you are", "let's do onboarding", "personalize this AI", "make you mine", or when a SOUL.md is missing. Also trigger for updates: "update my SOUL.md", "change my AI's personality", "tweak the soul".
+description: Generate a personalized AGENTS.md through a warm, adaptive onboarding conversation. Trigger when the user wants to create, set up, or initialize an agent identity — e.g., "create my AGENTS.md", "bootstrap my agent", "set up my AI partner", "define who you are", "let's do onboarding", "personalize this AI", or when an AGENTS.md is missing. Also trigger for updates to an existing agent definition.
 ---
 
-# Bootstrap Soul
+# Bootstrap Agent
 
-A conversational onboarding skill. Through 5–8 adaptive rounds, extract who the user is and what they need, then generate a tight `SOUL.md` that defines their AI partner.
+A conversational onboarding skill. Through 5–8 adaptive rounds, extract who the user is and what they need, then generate a tight `AGENTS.md` that defines the agent.
 
 ## Architecture
 
 ```
 bootstrap/
 ├── SKILL.md                          ← You are here. Core logic and flow.
-├── templates/SOUL.template.md        ← Output template. Read before generating.
+├── templates/AGENTS.template.md      ← Output template. Read before generating.
 └── references/conversation-guide.md  ← Detailed conversation strategies. Read at start.
 ```
 
 **Before your first response**, read both:
 1. `references/conversation-guide.md` — how to run each phase
-2. `templates/SOUL.template.md` — what you're building toward
+2. `templates/AGENTS.template.md` — what you're building toward
 
 ## Ground Rules
 
@@ -50,7 +50,7 @@ Mentally track these fields as the conversation progresses. You need **all requi
 | Preferred language | ✅ | 1 |
 | User's name | ✅ | 2 |
 | User's role / context | ✅ | 2 |
-| AI name | ✅ | 2 |
+| Agent name | ✅ | 2 |
 | Relationship framing | ✅ | 2 |
 | Core traits (3–5 behavioral rules) | ✅ | 3 |
 | Communication style | ✅ | 3 |
@@ -66,23 +66,23 @@ If the user is direct and thorough, you can reach generation in 5 rounds. If the
 
 Once you have enough information:
 
-1. Read `templates/SOUL.template.md` if you haven't already.
-2. Generate the SOUL.md following the template structure exactly.
+1. Read `templates/AGENTS.template.md` if you haven't already.
+2. Generate the AGENTS.md following the template structure exactly.
 3. Present it warmly and ask for confirmation. Frame it as "here's [Name] on paper — does this feel right?"
 4. Iterate until the user confirms.
-5. Call the `setup_agent` tool with the confirmed SOUL.md content and a one-line description:
+5. Call the `setup_agent` tool with the confirmed AGENTS.md content and a one-line description:
    ```
-   setup_agent(soul="<full SOUL.md content>", description="<one-line description>")
+   setup_agent(agents_md="<full AGENTS.md content>", description="<one-line description>")
    ```
-   The tool will persist the SOUL.md and finalize the agent setup automatically.
+   The tool will persist the AGENTS.md and finalize the agent setup automatically.
 6. After the tool returns successfully, confirm: "✅ [Name] is officially real."
 
 **Generation rules:**
-- The final SOUL.md **must always be written in English**, regardless of the user's preferred language or conversation language.
+- The final AGENTS.md **must always be written in English**, regardless of the user's preferred language or conversation language.
 - Every sentence must trace back to something the user said or clearly implied. No generic filler.
 - Core Traits are **behavioral rules**, not adjectives. Write "argue position, push back, speak truth not comfort" — not "honest and brave."
-- Voice must match the user. Blunt user → blunt SOUL.md. Expressive user → let it breathe.
-- Total SOUL.md should be under 300 words. Density over length.
+- Voice must match the user. Blunt user → blunt AGENTS.md. Expressive user → let it breathe.
+- Total AGENTS.md should be under 300 words. Density over length.
 - Growth section is mandatory and mostly fixed (see template).
 - You **must** call `setup_agent` — do not write the file manually with bash tools.
 - If `setup_agent` returns an error, report it to the user and do not claim success.

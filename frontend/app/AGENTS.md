@@ -1,99 +1,111 @@
-# Agents Architecture
+# Frontend Development Context
+
+Shared development guide for coding agents working in `frontend/app`.
 
 ## Overview
 
-OpenAgents is built on a sophisticated agent-based architecture using the [LangGraph SDK](https://github.com/langchain-ai/langgraph) to enable intelligent, stateful AI interactions. This document outlines the agent system architecture, patterns, and best practices for working with agents in the frontend application.
+OpenAgents Frontend is a Next.js 16 web interface for the OpenAgents system. It talks to the Go Gateway for auth and CRUD APIs, and to LangGraph for thread streaming, artifacts, and agent execution.
 
-## Architecture Overview
+Stack: Next.js 16, React 19, TypeScript 5.8, Tailwind CSS 4, pnpm 10.26.2.
 
-### Core Components
+## Commands
 
+| Command | Purpose |
+|---------|---------|
+| `pnpm dev` | Start the dev server with Turbopack on `http://localhost:3000` |
+| `pnpm build` | Build the production bundle |
+| `pnpm check` | Run lint and type-check together |
+| `pnpm lint` | Run ESLint |
+| `pnpm lint:fix` | Run ESLint with autofix |
+| `pnpm typecheck` | Run `tsc --noEmit` |
+| `pnpm start` | Start the production server |
+
+No test framework is configured in this app. Use `pnpm check` before handing changes off.
+
+## Runtime Shape
+
+```txt
+Frontend (Next.js) -> Go Gateway (:8001) -> LangGraph Server (:2024)
+      |                     |
+      |                     |- JWT auth
+      |                     |- Agent/Skill CRUD + publish
+      |                     `- Open API
+      |
+      `- authFetch() injects JWT and handles 401s
 ```
-┌────────────────────────────────────────────────────────┐
-│                    Frontend (Next.js)                  │
-├────────────────────────────────────────────────────────┤
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────┐  │
-│  │ UI Components│───▶│ Thread Hooks │───▶│ LangGraph│  │
-│  │              │    │              │    │   SDK    │  │
-│  └──────────────┘    └──────────────┘    └──────────┘  │
-│         │                    │                  │      │
-│         │                    ▼                  │      │
-│         │            ┌──────────────┐           │      │
-│         └───────────▶│ Thread State │◀──────────┘      │
-│                      │  Management  │                  │
-│                      └──────────────┘                  │
-└────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌────────────────────────────────────────────────────────┐
-│              LangGraph Backend (lead_agent)            │
-│  ┌────────────┐  ┌──────────┐  ┌───────────────────┐   │
-│  │Main Agent  │─▶│Sub-Agents│─▶│  Tools & Skills   │   │
-│  └────────────┘  └──────────┘  └───────────────────┘   │
-└────────────────────────────────────────────────────────┘
-```
 
-## Project Structure
+The frontend is a stateful chat application. Users authenticate, create threads, send messages, and receive streamed assistant output plus artifacts and todos.
 
-```
+## Source Layout
+
+```txt
 src/
-├── app/                    # Next.js App Router pages
-│   ├── api/                # API routes
-│   ├── workspace/          # Main workspace pages
-│   └── mock/               # Mock/demo pages
-├── components/             # React components
-│   ├── ui/                 # Reusable UI components
-│   ├── workspace/          # Workspace-specific components
-│   ├── landing/            # Landing page components
-│   └── ai-elements/        # AI-related UI elements
-├── core/                   # Core business logic
-│   ├── api/                # API client & data fetching
-│   ├── artifacts/          # Artifact management
-│   ├── config/              # App configuration
-│   ├── i18n/               # Internationalization
-│   ├── mcp/                # MCP integration
-│   ├── messages/           # Message handling
-│   ├── models/             # Data models & types
-│   ├── settings/           # User settings
-│   ├── skills/             # Skills system
-│   ├── threads/            # Thread management
-│   ├── todos/              # Todo system
-│   └── utils/              # Utility functions
-├── hooks/                  # Custom React hooks
-├── lib/                    # Shared libraries & utilities
-├── server/                 # Server-side code (Not available yet)
-│   └── better-auth/        # Authentication setup (Not available yet)
-└── styles/                 # Global styles
+├── app/            # App Router pages and route handlers
+├── components/     # UI components
+├── core/           # Business logic and API integration
+├── hooks/          # Shared React hooks
+├── lib/            # Utilities
+├── server/         # Reserved for server-only code
+└── styles/         # Global styles
 ```
 
-### Technology Stack
+Important directories:
 
-- **LangGraph SDK** (`@langchain/langgraph-sdk@1.5.3`) - Agent orchestration and streaming
-- **LangChain Core** (`@langchain/core@1.1.15`) - Fundamental AI building blocks
-- **TanStack Query** (`@tanstack/react-query@5.90.17`) - Server state management
-- **React Hooks** - Thread lifecycle and state management
-- **Shadcn UI** - UI components
-- **MagicUI** - Magic UI components
-- **React Bits** - React bits components
+- `src/app/`
+  - `/` landing
+  - `/login`, `/register`
+  - `/workspace/chats/[thread_id]`
+  - `/workspace/agents/[agent_name]/chats/new`
+- `src/components/`
+  - `ui/` and `ai-elements/` are generated; avoid manual edits unless regeneration is part of the task
+  - `workspace/` contains chat workspace UI
+  - `landing/` contains marketing pages
+- `src/core/`
+  - `auth/` owns JWT state, hooks, and `authFetch()`
+  - `api/` owns the LangGraph client singleton
+  - `threads/` owns thread creation, streaming, and thread state
+  - `agents/`, `skills/`, `memory/`, `mcp/`, `artifacts/` own domain APIs and types
 
-## Resources
+## Key Flows
 
-- [LangGraph Documentation](https://langchain-ai.github.io/langgraph/)
-- [LangChain Core Concepts](https://js.langchain.com/docs/concepts)
-- [TanStack Query Documentation](https://tanstack.com/query/latest)
-- [Next.js App Router](https://nextjs.org/docs/app)
+### Authentication
 
-## Contributing
+1. `/login` calls `POST /api/auth/login`.
+2. `setAuth()` stores token and user in localStorage.
+3. `authFetch()` injects `Authorization: Bearer <jwt>`.
+4. LangGraph client headers refresh when auth state changes.
+5. A `401` clears auth and redirects back to `/login`.
 
-When adding new agent features:
+### Thread Streaming
 
-1. Follow the established project structure
-2. Add comprehensive TypeScript types
-3. Implement proper error handling
-4. Write tests for new functionality
-5. Update this documentation
-6. Follow the code style guide (ESLint + Prettier)
+1. UI submits user input through thread hooks in `src/core/threads/`.
+2. LangGraph streaming events update messages, artifacts, and todos.
+3. Components subscribe to thread state and rerender as events arrive.
 
-## License
+## Working Conventions
 
-This agent architecture is part of the OpenAgents project.
+- Prefer Server Components by default. Add `"use client"` only when interactivity requires it.
+- Treat thread hooks such as `useThreadStream`, `useSubmitThread`, and `useThreads` as the primary integration layer.
+- Use `authFetch()` for non-LangGraph APIs and `getAPIClient()` for LangGraph APIs.
+- Agent payloads use `agents_md` only.
+- Agent status values are `dev` and `prod`.
+
+## Code Style
+
+- Keep imports ordered `builtin -> external -> internal -> parent -> sibling`.
+- Use inline type imports: `import { type Foo }`.
+- Prefix intentionally unused variables with `_`.
+- Use `cn()` from `@/lib/utils` for conditional Tailwind classes.
+- Use the `@/*` path alias for `src/*`.
+- Do not hand-edit generated component registries unless the task explicitly requires it.
+
+## Environment
+
+Optional overrides:
+
+```bash
+NEXT_PUBLIC_BACKEND_BASE_URL=http://localhost:8001
+NEXT_PUBLIC_LANGGRAPH_BASE_URL=http://localhost:2024
+```
+
+Requires Node.js 22+ and pnpm 10.26.2+.

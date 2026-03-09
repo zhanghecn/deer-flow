@@ -8,14 +8,13 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field
 
-from src.config.paths import AGENTS_ROOT, get_paths
+from src.config.builtin_agents import is_reserved_agent_name
+from src.config.paths import get_paths
 
 logger = logging.getLogger(__name__)
 
 AGENTS_MD_FILENAME = "AGENTS.md"
-# Legacy filename for backward compatibility
-_LEGACY_SOUL_FILENAME = "SOUL.md"
-AGENT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9-]+$")
+AGENT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 class AgentConfig(BaseModel):
@@ -44,18 +43,13 @@ AgentConfig.model_rebuild()
 
 
 def _resolve_agent_dir(name: str, status: str) -> Path:
-    paths = get_paths()
-    agent_dir = paths.agent_dir(name, status)
-    if agent_dir.exists():
-        return agent_dir
-    return paths.agents_dir / name.lower()
+    return get_paths().agent_dir(name, status)
 
 
 def load_agent_config(name: str | None, status: str = "dev") -> AgentConfig | None:
     """Load the custom or default agent's config from its directory.
 
-    Looks in {base_dir}/agents/{status}/{name}/ first (new layout),
-    then falls back to {base_dir}/agents/{name}/ (legacy layout).
+    Agent definitions are stored only in `{base_dir}/agents/{status}/{name}/`.
     """
     if name is None:
         return None
@@ -85,12 +79,6 @@ def load_agent_config(name: str | None, status: str = "dev") -> AgentConfig | No
         data["status"] = status
     if "agents_md_path" not in data:
         data["agents_md_path"] = AGENTS_MD_FILENAME
-    if "skill_refs" not in data and "skills" in data:
-        raw_skills = data.get("skills") or []
-        data["skill_refs"] = [
-            skill if isinstance(skill, dict) else {"name": str(skill)}
-            for skill in raw_skills
-        ]
 
     known_fields = set(AgentConfig.model_fields.keys())
     data = {k: v for k, v in data.items() if k in known_fields}
@@ -99,52 +87,35 @@ def load_agent_config(name: str | None, status: str = "dev") -> AgentConfig | No
 
 
 def load_agents_md(agent_name: str | None, status: str = "dev") -> str | None:
-    """Read the AGENTS.md (or legacy SOUL.md) file for an agent.
+    """Read the AGENTS.md file for an agent.
 
     AGENTS.md defines the agent's personality, values, and behavioral guardrails.
     """
-    paths = get_paths()
+    if agent_name is None:
+        return None
 
-    if agent_name:
-        agent_dir = _resolve_agent_dir(agent_name, status)
-        candidate_paths: list[Path] = []
-        try:
-            agent_config = load_agent_config(agent_name, status)
-        except Exception:
-            agent_config = None
-        if agent_config is not None:
-            configured_path = Path(agent_config.agents_md_path)
-            resolved_path = configured_path if configured_path.is_absolute() else agent_dir / configured_path
-            candidate_paths.append(resolved_path)
-        candidate_dirs = [agent_dir]
-    else:
-        candidate_dirs = [paths.base_dir, AGENTS_ROOT]
-        candidate_paths = []
+    agent_dir = _resolve_agent_dir(agent_name, status)
+    try:
+        agent_config = load_agent_config(agent_name, status)
+    except FileNotFoundError:
+        agent_config = None
 
-    for md_path in candidate_paths:
-        if md_path.exists():
-            content = md_path.read_text(encoding="utf-8").strip()
-            return content or None
+    candidate_path = agent_dir / AGENTS_MD_FILENAME
+    if agent_config is not None:
+        configured_path = Path(agent_config.agents_md_path)
+        candidate_path = configured_path if configured_path.is_absolute() else agent_dir / configured_path
 
-    # Try AGENTS.md first, then legacy SOUL.md
-    for agent_dir in candidate_dirs:
-        for filename in (AGENTS_MD_FILENAME, _LEGACY_SOUL_FILENAME):
-            md_path = agent_dir / filename
-            if md_path.exists():
-                content = md_path.read_text(encoding="utf-8").strip()
-                return content or None
+    if not candidate_path.exists():
+        return None
 
-    return None
-
-
-# Keep backward compatibility alias
-load_agent_soul = load_agents_md
+    content = candidate_path.read_text(encoding="utf-8").strip()
+    return content or None
 
 
 def list_custom_agents() -> list[AgentConfig]:
     """Scan the agents directory and return all valid custom agents.
 
-    Scans both new layout (agents/{status}/{name}/) and legacy layout (agents/{name}/).
+    Scans `agents/{status}/{name}/` for both `dev` and `prod`.
     """
     agents_dir = get_paths().agents_dir
     if not agents_dir.exists():
@@ -153,13 +124,14 @@ def list_custom_agents() -> list[AgentConfig]:
     agents: list[AgentConfig] = []
     seen_agents: set[tuple[str, str]] = set()
 
-    # Scan new layout: agents/{status}/{name}/
     for status_dir_name in ("prod", "dev"):
         status_dir = agents_dir / status_dir_name
         if not status_dir.exists():
             continue
         for entry in sorted(status_dir.iterdir()):
-            if not entry.is_dir() or (entry / "config.yaml").exists() is False:
+            if not entry.is_dir() or not (entry / "config.yaml").exists():
+                continue
+            if is_reserved_agent_name(entry.name):
                 continue
             try:
                 agent_cfg = load_agent_config(entry.name, status=status_dir_name)
@@ -170,22 +142,5 @@ def list_custom_agents() -> list[AgentConfig]:
                     seen_agents.add(key)
             except Exception as e:
                 logger.warning(f"Skipping agent '{entry.name}' ({status_dir_name}): {e}")
-
-    # Scan legacy layout: agents/{name}/ (skip status dirs)
-    for entry in sorted(agents_dir.iterdir()):
-        if not entry.is_dir() or entry.name in ("prod", "dev"):
-            continue
-        config_file = entry / "config.yaml"
-        if not config_file.exists():
-            continue
-        try:
-            agent_cfg = load_agent_config(entry.name)
-            key = (agent_cfg.name, agent_cfg.status) if agent_cfg else None
-            if agent_cfg and key not in seen_agents:
-                agents.append(agent_cfg)
-                assert key is not None
-                seen_agents.add(key)
-        except Exception as e:
-            logger.warning(f"Skipping agent '{entry.name}': {e}")
 
     return sorted(agents, key=lambda agent: (agent.name, agent.status))

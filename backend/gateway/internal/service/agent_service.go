@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/openagents/gateway/internal/model"
@@ -20,15 +21,27 @@ type AgentService struct {
 	fs        *storage.FS
 }
 
+const builtinLeadAgentName = "lead_agent"
+
 func NewAgentService(repo *repository.AgentRepo, skillRepo *repository.SkillRepo, fs *storage.FS) *AgentService {
 	return &AgentService{repo: repo, skillRepo: skillRepo, fs: fs}
 }
 
+func isReservedAgentName(name string) bool {
+	return strings.EqualFold(strings.TrimSpace(name), builtinLeadAgentName)
+}
+
 func (s *AgentService) ExistsName(ctx context.Context, name string) (bool, error) {
+	if isReservedAgentName(name) {
+		return true, nil
+	}
 	return s.repo.ExistsName(ctx, name)
 }
 
 func (s *AgentService) Create(ctx context.Context, req model.CreateAgentRequest, userID uuid.UUID) (*model.Agent, error) {
+	if isReservedAgentName(req.Name) {
+		return nil, fmt.Errorf("agent %q is reserved for the built-in lead agent", req.Name)
+	}
 	exists, err := s.repo.ExistsName(ctx, req.Name)
 	if err != nil {
 		return nil, fmt.Errorf("check agent existence: %w", err)
@@ -43,17 +56,17 @@ func (s *AgentService) Create(ctx context.Context, req model.CreateAgentRequest,
 	}
 
 	agent := &model.Agent{
-		ID:             uuid.New(),
-		Name:           req.Name,
-		DisplayName:    strPtr(req.DisplayName),
-		Description:    req.Description,
-		AvatarURL:      req.AvatarURL,
-		Model:          req.Model,
-		ToolGroups:     req.ToolGroups,
-		McpServers:     req.McpServers,
-		Status:         "dev",
-		AgentsMDRef:    s.fs.AgentMDRef(req.Name, "dev"),
-		CreatedBy:      &userID,
+		ID:          uuid.New(),
+		Name:        req.Name,
+		DisplayName: strPtr(req.DisplayName),
+		Description: req.Description,
+		AvatarURL:   req.AvatarURL,
+		Model:       req.Model,
+		ToolGroups:  req.ToolGroups,
+		McpServers:  req.McpServers,
+		Status:      "dev",
+		AgentsMDRef: s.fs.AgentMDRef(req.Name, "dev"),
+		CreatedBy:   &userID,
 	}
 	agent.ConfigJSON = s.mustMarshalConfig(agent, selectedSkills)
 

@@ -5,7 +5,9 @@ from __future__ import annotations
 import pytest
 
 from src.agents.lead_agent import agent as lead_agent_module
+from src.config.builtin_agents import LEAD_AGENT_NAME
 from src.config.model_config import ModelConfig
+from src.config.paths import Paths
 
 
 class _FakeDBStore:
@@ -165,11 +167,12 @@ def test_resolve_run_model_raises_when_model_unavailable():
         )
 
 
-def test_make_lead_agent_reads_runtime_context_and_persists_thread_runtime(monkeypatch):
+def test_make_lead_agent_reads_runtime_context_and_persists_thread_runtime(monkeypatch, tmp_path):
     store = _FakeDBStore(models={"safe-model": _make_model("safe-model", supports_thinking=True)})
 
     import src.tools as tools_module
 
+    monkeypatch.setattr(lead_agent_module, "get_paths", lambda: Paths(base_dir=tmp_path / ".openagents"))
     monkeypatch.setattr(lead_agent_module, "get_runtime_db_store", lambda: store)
     monkeypatch.setattr(tools_module, "get_available_tools", lambda **kwargs: [])
     monkeypatch.setattr(
@@ -216,7 +219,7 @@ def test_make_lead_agent_reads_runtime_context_and_persists_thread_runtime(monke
     assert captured["name"] == "safe-model"
     assert captured["thinking_enabled"] is True
     assert result["model"] is not None
-    assert store.saved == [("thread-1", "user-1", "safe-model", None)]
+    assert store.saved == [("thread-1", "user-1", "safe-model", LEAD_AGENT_NAME)]
 
 
 def test_build_openagents_middlewares_includes_vision_middleware_for_vision_model():
@@ -259,7 +262,7 @@ def test_make_lead_agent_rejects_cross_user_thread_access(monkeypatch):
         )
 
 
-def test_make_lead_agent_accepts_header_injected_user_id(monkeypatch):
+def test_make_lead_agent_accepts_header_injected_user_id(monkeypatch, tmp_path):
     store = _FakeDBStore(
         models={"thread-model": _make_model("thread-model", supports_thinking=True)},
         thread_models={("thread-1", "user-1"): "thread-model"},
@@ -267,6 +270,7 @@ def test_make_lead_agent_accepts_header_injected_user_id(monkeypatch):
 
     import src.tools as tools_module
 
+    monkeypatch.setattr(lead_agent_module, "get_paths", lambda: Paths(base_dir=tmp_path / ".openagents"))
     monkeypatch.setattr(lead_agent_module, "get_runtime_db_store", lambda: store)
     monkeypatch.setattr(tools_module, "get_available_tools", lambda **kwargs: [])
     monkeypatch.setattr(
@@ -290,7 +294,7 @@ def test_make_lead_agent_accepts_header_injected_user_id(monkeypatch):
     )
 
     assert result["model"] is not None
-    assert store.saved == [("thread-1", "user-1", "thread-model", None)]
+    assert store.saved == [("thread-1", "user-1", "thread-model", LEAD_AGENT_NAME)]
 
 
 def test_make_lead_agent_requires_user_for_thread_scoped_requests(monkeypatch):

@@ -5,8 +5,6 @@ export interface Agent {
   tool_groups: string[] | null;
   status?: "prod" | "dev";
   agents_md?: string | null;
-  /** @deprecated Use agents_md instead */
-  soul?: string | null;
 }
 
 export interface CreateAgentRequest {
@@ -15,8 +13,6 @@ export interface CreateAgentRequest {
   model?: string | null;
   tool_groups?: string[] | null;
   agents_md?: string;
-  /** @deprecated Use agents_md instead */
-  soul?: string;
 }
 
 export interface UpdateAgentRequest {
@@ -24,6 +20,4 @@ export interface UpdateAgentRequest {
   model?: string | null;
   tool_groups?: string[] | null;
   agents_md?: string | null;
-  /** @deprecated Use agents_md instead */
-  soul?: string | null;
 }

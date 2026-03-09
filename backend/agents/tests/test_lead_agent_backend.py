@@ -1,9 +1,10 @@
-"""Tests for lead agent backend wiring and default path behavior."""
+"""Tests for lead agent backend wiring and runtime seeding."""
 
 from pathlib import Path
 from unittest.mock import patch
 
 from src.agents.lead_agent import agent as lead_agent_module
+from src.config.builtin_agents import LEAD_AGENT_NAME
 from src.config.model_config import ModelConfig
 from src.config.paths import Paths
 
@@ -12,11 +13,18 @@ def _make_paths(base_dir: Path) -> Paths:
     return Paths(base_dir=base_dir)
 
 
+def _write_shared_skill(base_dir: Path, name: str, *, category: str = "public", body: str = "skill") -> None:
+    skill_file = base_dir.parent / "skills" / category / name / "SKILL.md"
+    skill_file.parent.mkdir(parents=True, exist_ok=True)
+    skill_file.write_text(
+        f"---\nname: {name}\ndescription: {name} description\n---\n\n{body}\n",
+        encoding="utf-8",
+    )
+
+
 def test_build_backend_sets_thread_user_data_as_shell_cwd(tmp_path):
     base_dir = tmp_path / ".openagents"
-    skills_public = tmp_path / "skills" / "public" / "dummy-skill"
-    (skills_public / "SKILL.md").parent.mkdir(parents=True, exist_ok=True)
-    (skills_public / "SKILL.md").write_text("dummy", encoding="utf-8")
+    _write_shared_skill(base_dir, "bootstrap", body="bootstrap")
     paths = _make_paths(base_dir)
 
     with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
@@ -29,9 +37,7 @@ def test_build_backend_sets_thread_user_data_as_shell_cwd(tmp_path):
 
 def test_build_backend_sets_default_user_data_as_shell_cwd_when_thread_missing(tmp_path):
     base_dir = tmp_path / ".openagents"
-    skill_file = tmp_path / "skills" / "public" / "dummy-skill" / "SKILL.md"
-    skill_file.parent.mkdir(parents=True)
-    skill_file.write_text("dummy", encoding="utf-8")
+    _write_shared_skill(base_dir, "bootstrap", body="bootstrap")
     paths = _make_paths(base_dir)
 
     with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
@@ -41,28 +47,25 @@ def test_build_backend_sets_default_user_data_as_shell_cwd_when_thread_missing(t
     assert backend.default.cwd == default_user_data_dir.resolve()
 
 
-def test_build_backend_default_agent_seeds_full_skills_archive_into_thread_runtime(tmp_path):
+def test_build_backend_default_agent_seeds_archived_agent_tree_into_thread_runtime(tmp_path):
     base_dir = tmp_path / ".openagents"
-    public_root = tmp_path / "skills" / "public"
-    custom_root = tmp_path / "skills" / "custom"
-    (public_root / "dummy-skill").mkdir(parents=True)
-    (custom_root / "team-skill").mkdir(parents=True)
-    (public_root / "dummy-skill" / "SKILL.md").write_text("public skill", encoding="utf-8")
-    (custom_root / "team-skill" / "SKILL.md").write_text("custom skill", encoding="utf-8")
+    _write_shared_skill(base_dir, "bootstrap", body="bootstrap skill")
     paths = _make_paths(base_dir)
 
     with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
         backend = lead_agent_module.build_backend("thread-1", agent_name=None)
 
-    assert backend.routes == {}
+    runtime_agent_root = lead_agent_module._runtime_agent_root(LEAD_AGENT_NAME, "dev")
     responses = backend.download_files(
         [
-            f"{lead_agent_module.DEFAULT_RUNTIME_SKILLS_PATH}public/dummy-skill/SKILL.md",
-            f"{lead_agent_module.DEFAULT_RUNTIME_SKILLS_PATH}custom/team-skill/SKILL.md",
+            f"{runtime_agent_root}/AGENTS.md",
+            f"{runtime_agent_root}/config.yaml",
+            f"{runtime_agent_root}/skills/bootstrap/SKILL.md",
         ]
     )
-    assert responses[0].content == b"public skill"
-    assert responses[1].content == b"custom skill"
+    assert b"Lead Agent" in responses[0].content
+    assert b"skill_refs" in responses[1].content
+    assert b"bootstrap skill" in responses[2].content
 
 
 def test_build_backend_named_agent_seeds_agent_definition_into_thread_runtime(tmp_path):

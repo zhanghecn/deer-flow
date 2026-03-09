@@ -32,7 +32,7 @@ def setup_agent(
     tool_groups: list[str] | None = None,
     skills: list[dict] | None = None,
 ) -> Command:
-    """Setup the custom OpenAgents agent with optional skills.
+    """Create or update an archived agent definition with optional copied skills.
 
     Args:
         agents_md: Full AGENTS.md content defining the agent's personality and behavior.
@@ -43,29 +43,27 @@ def setup_agent(
             Each entry must provide a "name" key.
     """
 
-    agent_name: str | None = runtime.context.get("agent_name")
+    target_agent_name = runtime.context.get("target_agent_name") or runtime.context.get("agent_name")
+    agent_name = str(target_agent_name).strip() if target_agent_name is not None else None
 
     try:
+        if not agent_name:
+            raise ValueError("setup_agent requires `agent_name` or `target_agent_name` in runtime context.")
+
         paths = get_paths()
-        if agent_name:
-            agent_status = str(runtime.context.get("agent_status", "dev")).strip() or "dev"
-            materialized = materialize_agent_definition(
-                name=agent_name,
-                status=agent_status,
-                agents_md=agents_md,
-                description=description,
-                model=model,
-                tool_groups=tool_groups,
-                skill_names=_extract_skill_names(skills),
-                paths=paths,
-            )
-            created_skills = [skill_ref.name for skill_ref in materialized.skill_refs]
-            agent_dir = paths.agent_dir(agent_name, agent_status)
-        else:
-            agent_dir = paths.base_dir
-            agent_dir.mkdir(parents=True, exist_ok=True)
-            (agent_dir / "AGENTS.md").write_text(agents_md, encoding="utf-8")
-            created_skills = []
+        agent_status = str(runtime.context.get("agent_status", "dev")).strip() or "dev"
+        materialized = materialize_agent_definition(
+            name=agent_name,
+            status=agent_status,
+            agents_md=agents_md,
+            description=description,
+            model=model,
+            tool_groups=tool_groups,
+            skill_names=_extract_skill_names(skills),
+            paths=paths,
+        )
+        created_skills = [skill_ref.name for skill_ref in materialized.skill_refs]
+        agent_dir = paths.agent_dir(agent_name, agent_status)
 
         parts = [f"Agent '{agent_name}' created successfully!"]
         if created_skills:

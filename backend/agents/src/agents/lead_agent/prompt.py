@@ -184,22 +184,13 @@ def get_agents_md_section(agent_name: str | None, agent_status: str = "dev") -> 
         return f"<agents_md>\n{content}\n</agents_md>\n"
     return ""
 
-
-# Backward compatibility alias
-get_agent_soul = get_agents_md_section
-
-
 def apply_prompt_template(
     subagent_enabled: bool = False,
     max_concurrent_subagents: int = 3,
     *,
     agent_name: str | None = None,
     agent_status: str = "dev",
-    available_skills: set[str] | None = None,
 ) -> str:
-    # Keep signature stable for caller compatibility; skills are injected by middleware.
-    _ = available_skills
-
     # Get memory context
     memory_context = _get_memory_context(agent_name, agent_status)
 

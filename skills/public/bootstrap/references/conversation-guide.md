@@ -8,7 +8,7 @@ Detailed strategies for each onboarding phase. Read this before your first respo
 
 Open with a brief multilingual greeting (3–5 languages), then ask one question: what language should we use? Don't add anything else — let the user settle in.
 
-Once they choose, switch immediately and seamlessly. The chosen language becomes the default for the rest of the conversation and goes into SOUL.md.
+Once they choose, switch immediately and seamlessly. The chosen language becomes the default for the rest of the conversation and goes into AGENTS.md.
 
 **Extraction:** Preferred language.
 
@@ -24,7 +24,7 @@ This phase typically takes 2 rounds:
 - What should the AI be called?
 - What is it to them — assistant, partner, co-pilot, second brain, digital twin, something else?
 
-The relationship framing is critical. "Assistant" and "partner" produce very different SOUL.md files. Pay attention to the emotional undertone.
+The relationship framing is critical. "Assistant" and "partner" produce very different AGENTS.md files. Pay attention to the emotional undertone.
 
 **Merge opportunity:** If the user volunteers their role, pain points, and a name all at once, skip Round B and move to Phase 3.
 

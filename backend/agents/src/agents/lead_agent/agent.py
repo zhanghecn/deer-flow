@@ -4,12 +4,12 @@ from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
+import yaml
 from deepagents import create_deep_agent
 from deepagents.backends import CompositeBackend, LocalShellBackend
 from deepagents.backends.protocol import BackendProtocol
 from langchain_core.runnables import RunnableConfig
 from langgraph_sdk.runtime import ServerRuntime
-import yaml
 
 from src.agents.lead_agent.prompt import apply_prompt_template
 from src.agents.lead_agent.subagents import load_subagent_specs
@@ -18,7 +18,12 @@ from src.agents.middlewares.thread_data_middleware import ThreadDataMiddleware
 from src.agents.middlewares.title_middleware import TitleMiddleware
 from src.agents.middlewares.uploads_middleware import UploadsMiddleware
 from src.agents.middlewares.view_image_middleware import ViewImageMiddleware
+from src.config.agents_config import load_agent_config
 from src.config.app_config import AppConfig
+from src.config.builtin_agents import (
+    ensure_builtin_agent_archive,
+    normalize_effective_agent_name,
+)
 from src.config.model_config import ModelConfig
 from src.config.paths import VIRTUAL_PATH_PREFIX, get_paths
 from src.config.runtime_db import DBAgentConfig, RuntimeDBStore, get_runtime_db_store
@@ -30,7 +35,6 @@ from src.sandbox.sandbox_provider import SandboxProvider
 logger = logging.getLogger(__name__)
 LOCAL_SANDBOX_PROVIDER = "src.sandbox.local:LocalSandboxProvider"
 DEFAULT_THREAD_ID = "_default"
-DEFAULT_RUNTIME_SKILLS_PATH = f"{VIRTUAL_PATH_PREFIX}/skills/"
 ExecutionBackend = Literal["local", "sandbox"]
 
 
@@ -91,15 +95,11 @@ def _runtime_agent_root(agent_name: str, status: str) -> str:
     return f"{VIRTUAL_PATH_PREFIX}/agents/{status}/{agent_name.lower()}"
 
 
-def _runtime_skills_path(agent_name: str | None, status: str) -> str:
-    if agent_name:
-        return f"{_runtime_agent_root(agent_name, status)}/skills/"
-    return DEFAULT_RUNTIME_SKILLS_PATH
+def _runtime_skills_path(agent_name: str, status: str) -> str:
+    return f"{_runtime_agent_root(agent_name, status)}/skills/"
 
 
-def _runtime_memory_sources(agent_name: str | None, status: str) -> list[str]:
-    if not agent_name:
-        return []
+def _runtime_memory_sources(agent_name: str, status: str) -> list[str]:
     return [f"{_runtime_agent_root(agent_name, status)}/AGENTS.md"]
 
 
@@ -164,22 +164,16 @@ def _seed_backend_tree(backend: BackendProtocol, *, source_root: Path, target_ro
 def _seed_runtime_materials(
     backend: BackendProtocol,
     *,
-    agent_name: str | None,
+    agent_name: str,
     status: str,
 ) -> None:
     paths = get_paths()
-    if agent_name:
-        _seed_backend_tree(
-            backend,
-            source_root=paths.agent_dir(agent_name, status),
-            target_root=_runtime_agent_root(agent_name, status),
-        )
-        return
+    ensure_builtin_agent_archive(agent_name, status=status, paths=paths)
 
     _seed_backend_tree(
         backend,
-        source_root=paths.skills_dir,
-        target_root=DEFAULT_RUNTIME_SKILLS_PATH.rstrip("/"),
+        source_root=paths.agent_dir(agent_name, status),
+        target_root=_runtime_agent_root(agent_name, status),
     )
 
 
@@ -226,6 +220,8 @@ def build_backend(
     Runtime execution mode is resolved from Python sandbox configuration.
     """
     paths = get_paths()
+    effective_agent_name = normalize_effective_agent_name(agent_name)
+    ensure_builtin_agent_archive(effective_agent_name, status=status, paths=paths)
 
     # === Runtime layer (per-thread isolated) ===
     effective_thread_id = _effective_thread_id(thread_id)
@@ -237,7 +233,7 @@ def build_backend(
     )
     _seed_runtime_materials(
         workspace_backend,
-        agent_name=agent_name,
+        agent_name=effective_agent_name,
         status=status,
     )
 
@@ -310,6 +306,22 @@ def _coerce_optional_str(value: object) -> str | None:
     return text or None
 
 
+def _load_configurable_payload(config: RunnableConfig, runtime: ServerRuntime | None) -> dict:
+    configurable_payload = config.get("configurable", {})
+    if configurable_payload is None:
+        configurable_payload = {}
+    if not isinstance(configurable_payload, dict):
+        raise ValueError("`configurable` must be an object.")
+
+    merged_payload = _extract_runtime_context(runtime)
+    merged_payload.update(configurable_payload)
+    return merged_payload
+
+
+def _resolve_agent_status(raw_status: object) -> str:
+    return _coerce_optional_str(raw_status) or "dev"
+
+
 def _extract_runtime_user_id(runtime: ServerRuntime | None) -> str | None:
     if runtime is None:
         return None
@@ -318,6 +330,69 @@ def _extract_runtime_user_id(runtime: ServerRuntime | None) -> str | None:
         return None
     identity = getattr(user, "identity", None)
     return _coerce_optional_str(identity)
+
+
+def _resolve_request_user_id(cfg: dict, runtime: ServerRuntime | None) -> str | None:
+    runtime_user_id = _extract_runtime_user_id(runtime)
+    return _coerce_optional_str(
+        cfg.get("user_id")
+        or cfg.get("x-user-id")
+        or cfg.get("langgraph_auth_user_id")
+        or runtime_user_id
+    )
+
+
+def _assert_thread_access(
+    *,
+    db_store: RuntimeDBStore,
+    thread_id: str | None,
+    user_id: str | None,
+) -> None:
+    if thread_id and not user_id:
+        raise ValueError(
+            "Thread-scoped requests require user identity. Provide `context.user_id`/`configurable.user_id`, "
+            "forward `x-user-id` through LangGraph configurable headers, or configure LangGraph custom auth."
+        )
+
+    if thread_id:
+        assert user_id is not None
+        db_store.assert_thread_access(thread_id=thread_id, user_id=user_id)
+
+
+def _persist_thread_runtime(
+    *,
+    db_store: RuntimeDBStore,
+    thread_id: str | None,
+    user_id: str | None,
+    model_name: str,
+    agent_name: str,
+) -> None:
+    if not thread_id:
+        return
+
+    assert user_id is not None
+    db_store.save_thread_runtime(
+        thread_id=thread_id,
+        user_id=user_id,
+        model_name=model_name,
+        agent_name=agent_name,
+    )
+
+
+def _load_agent_tools(
+    *,
+    agent_config: DBAgentConfig,
+    model_name: str,
+    model_supports_vision: bool,
+):
+    from src.tools import get_available_tools
+
+    return get_available_tools(
+        model_name=model_name,
+        model_supports_vision=model_supports_vision,
+        groups=agent_config.tool_groups,
+        mcp_servers=agent_config.mcp_servers,
+    )
 
 
 def _resolve_run_model(
@@ -366,16 +441,31 @@ def _resolve_run_model(
 
 def _load_agent_runtime_config(
     *,
-    agent_name: str | None,
+    agent_name: str,
     agent_status: str,
     db_store: RuntimeDBStore,
 ) -> DBAgentConfig | None:
-    if not agent_name:
-        return None
     config = db_store.get_agent(agent_name, agent_status)
-    if config is None:
-        raise ValueError(f"Agent '{agent_name}' with status '{agent_status}' not found in database.")
-    return config
+    if config is not None:
+        return config
+
+    ensure_builtin_agent_archive(agent_name, status=agent_status)
+
+    try:
+        file_config = load_agent_config(agent_name, status=agent_status)
+    except FileNotFoundError:
+        file_config = None
+
+    if file_config is not None:
+        return DBAgentConfig(
+            name=file_config.name,
+            status=file_config.status,
+            model=file_config.model,
+            tool_groups=file_config.tool_groups,
+            mcp_servers=file_config.mcp_servers,
+        )
+
+    raise ValueError(f"Agent '{agent_name}' with status '{agent_status}' not found in database or archive.")
 
 
 def _merge_callbacks(
@@ -392,20 +482,7 @@ def _merge_callbacks(
 
 
 def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None):
-    # Lazy import to avoid circular dependency
-    from src.tools import get_available_tools
-    from src.tools.builtins import setup_agent
-
-    configurable_payload = config.get("configurable", {})
-    if configurable_payload is None:
-        configurable_payload = {}
-    if not isinstance(configurable_payload, dict):
-        raise ValueError("`configurable` must be an object.")
-
-    runtime_context_payload = _extract_runtime_context(runtime)
-
-    cfg = dict(runtime_context_payload)
-    cfg.update(configurable_payload)
+    cfg = _load_configurable_payload(config, runtime)
 
     thinking_enabled = cfg.get("thinking_enabled", True)
     reasoning_effort = cfg.get("reasoning_effort", None)
@@ -413,41 +490,20 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     requested_model_name = _coerce_optional_str(requested_model_raw)
     subagent_enabled = cfg.get("subagent_enabled", False)
     max_concurrent_subagents = cfg.get("max_concurrent_subagents", 3)
-    is_bootstrap = cfg.get("is_bootstrap", False)
     agent_name_raw = cfg.get("agent_name")
-    agent_name = _coerce_optional_str(agent_name_raw)
-
-    agent_status_raw = cfg.get("agent_status", "dev")
-    agent_status = _coerce_optional_str(agent_status_raw) or "dev"
-    if agent_status == "":
-        agent_status = "dev"
+    requested_agent_name = _coerce_optional_str(agent_name_raw)
+    agent_name = normalize_effective_agent_name(requested_agent_name)
+    agent_status = _resolve_agent_status(cfg.get("agent_status", "dev"))
 
     thread_id = _coerce_optional_str(cfg.get("thread_id") or cfg.get("x-thread-id"))
-    runtime_user_id = _extract_runtime_user_id(runtime)
-    user_id = _coerce_optional_str(
-        cfg.get("user_id")
-        or cfg.get("x-user-id")
-        or cfg.get("langgraph_auth_user_id")
-        or runtime_user_id
-    )
+    user_id = _resolve_request_user_id(cfg, runtime)
     runtime_model_payload = cfg.get("model_config")
 
     db_store = get_runtime_db_store()
-    if thread_id and not user_id:
-        raise ValueError(
-            "Thread-scoped requests require user identity. Provide `context.user_id`/`configurable.user_id`, "
-            "forward `x-user-id` through LangGraph configurable headers, or configure LangGraph custom auth."
-        )
-    if thread_id:
-        assert user_id is not None
-        db_store.assert_thread_access(thread_id=thread_id, user_id=user_id)
+    _assert_thread_access(db_store=db_store, thread_id=thread_id, user_id=user_id)
 
     runtime_model_name = _parse_runtime_model_config(runtime_model_payload)
-    agent_config = (
-        _load_agent_runtime_config(agent_name=agent_name, agent_status=agent_status, db_store=db_store)
-        if (agent_name and not is_bootstrap)
-        else None
-    )
+    agent_config = _load_agent_runtime_config(agent_name=agent_name, agent_status=agent_status, db_store=db_store)
     model_name, model_config = _resolve_run_model(
         requested_model_name=requested_model_name,
         runtime_model_name=runtime_model_name,
@@ -456,21 +512,20 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         user_id=user_id,
         db_store=db_store,
     )
-    if thread_id:
-        assert user_id is not None
-        db_store.save_thread_runtime(
-            thread_id=thread_id,
-            user_id=user_id,
-            model_name=model_name,
-            agent_name=agent_name,
-        )
+    _persist_thread_runtime(
+        db_store=db_store,
+        thread_id=thread_id,
+        user_id=user_id,
+        model_name=model_name,
+        agent_name=agent_name,
+    )
 
     if thinking_enabled and not model_config.supports_thinking:
         raise ValueError(f"Thinking mode is enabled but model '{model_name}' does not support thinking.")
 
     logger.info(
         "Create Agent(%s) -> thinking_enabled: %s, reasoning_effort: %s, model_name: %s, subagent_enabled: %s, agent_status: %s",
-        agent_name or "default",
+        agent_name,
         thinking_enabled,
         reasoning_effort,
         model_name,
@@ -482,7 +537,7 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     if "metadata" not in config:
         config["metadata"] = {}
     run_metadata = {
-        "agent_name": agent_name or "default",
+        "agent_name": agent_name,
         "model_name": model_name or "default",
         "thinking_enabled": thinking_enabled,
         "reasoning_effort": reasoning_effort,
@@ -495,7 +550,7 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     trace_callback = create_agent_trace_callback(
         user_id=user_id,
         thread_id=thread_id,
-        agent_name=agent_name or "lead_agent",
+        agent_name=agent_name,
         model_name=model_name,
         metadata=run_metadata,
     )
@@ -510,27 +565,19 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         agent_status,
     )
 
-    # Skills sources for deepagents SkillsMiddleware.
-    # For named agents, use the thread-local copy of that agent's archived skills.
-    # The default lead_agent gets a thread-local copy of the full archived skills library.
+    # Skills sources for deepagents SkillsMiddleware come from the archived copy
+    # materialized under the agent's own runtime directory.
     skills_sources = [_runtime_skills_path(agent_name, agent_status)]
 
     # Memory sources (AGENTS.md loaded from the thread-local runtime copy, not the archive)
     memory_sources = _runtime_memory_sources(agent_name, agent_status)
 
-    # Community tools + MCP tools (sandbox tools provided by deepagents FilesystemMiddleware)
-    # Exclude file:read, file:write, bash groups — deepagents provides ls, read_file, write_file, edit_file, execute, glob, grep
-    tools = get_available_tools(
+    # Community tools + MCP tools. Filesystem tools are provided by deepagents.
+    tools = _load_agent_tools(
+        agent_config=agent_config,
         model_name=model_name,
         model_supports_vision=model_config.supports_vision,
-        groups=agent_config.tool_groups if agent_config else None,
-        exclude_groups=["file:read", "file:write", "bash"],
-        mcp_servers=agent_config.mcp_servers if agent_config else None,
-        subagent_enabled=False,  # SubAgent handled by deepagents SubAgentMiddleware
     )
-
-    if is_bootstrap:
-        tools = tools + [setup_agent]
 
     # SubAgents (only if enabled)
     subagents = (
@@ -552,7 +599,6 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         max_concurrent_subagents=max_concurrent_subagents,
         agent_name=agent_name,
         agent_status=agent_status,
-        available_skills=set(["bootstrap"]) if is_bootstrap else None,
     )
 
     # Interrupt configuration (replaces ClarificationMiddleware)
@@ -569,9 +615,9 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         system_prompt=system_prompt,
         middleware=extra_middleware,
         subagents=subagents,
-        skills=skills_sources if not is_bootstrap else None,
+        skills=skills_sources,
         memory=memory_sources if memory_sources else None,
         backend=backend,
         interrupt_on=interrupt_on,
-        name=agent_name or "lead_agent",
+        name=agent_name,
     )
