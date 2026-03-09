@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from src.agents.lead_agent import agent as lead_agent_module
@@ -208,7 +210,7 @@ def test_make_lead_agent_reads_runtime_context_and_persists_thread_runtime(monke
         }
     )
 
-    result = lead_agent_module.make_lead_agent(
+    result = asyncio.run(lead_agent_module.make_lead_agent(
         {
             "configurable": {
                 "thread_id": "thread-1",
@@ -216,7 +218,7 @@ def test_make_lead_agent_reads_runtime_context_and_persists_thread_runtime(monke
             }
         },
         runtime=runtime,
-    )
+    ))
 
     assert captured["name"] == "safe-model"
     assert captured["thinking_enabled"] is True
@@ -257,7 +259,7 @@ def test_make_lead_agent_rejects_cross_user_thread_access(monkeypatch):
     monkeypatch.setattr(lead_agent_module, "get_runtime_db_store", lambda: store)
 
     with pytest.raises(ValueError, match="Thread access denied"):
-        lead_agent_module.make_lead_agent(
+        asyncio.run(lead_agent_module.make_lead_agent(
             {
                 "configurable": {
                     "thread_id": "thread-1",
@@ -266,7 +268,7 @@ def test_make_lead_agent_rejects_cross_user_thread_access(monkeypatch):
                 }
             },
             runtime=None,
-        )
+        ))
 
 
 def test_make_lead_agent_accepts_header_injected_user_id(monkeypatch, tmp_path):
@@ -288,7 +290,7 @@ def test_make_lead_agent_accepts_header_injected_user_id(monkeypatch, tmp_path):
     monkeypatch.setattr(lead_agent_module, "create_deep_agent", lambda **kwargs: kwargs)
     monkeypatch.setattr(lead_agent_module, "create_chat_model", lambda **kwargs: object())
 
-    result = lead_agent_module.make_lead_agent(
+    result = asyncio.run(lead_agent_module.make_lead_agent(
         {
             "configurable": {
                 "thread_id": "thread-1",
@@ -298,7 +300,7 @@ def test_make_lead_agent_accepts_header_injected_user_id(monkeypatch, tmp_path):
             }
         },
         runtime=None,
-    )
+    ))
 
     assert result["model"] is not None
     assert store.saved == [("thread-1", "user-1", "thread-model", LEAD_AGENT_NAME)]
@@ -309,7 +311,7 @@ def test_make_lead_agent_requires_user_for_thread_scoped_requests(monkeypatch):
     monkeypatch.setattr(lead_agent_module, "get_runtime_db_store", lambda: store)
 
     with pytest.raises(ValueError, match="Thread-scoped requests require user identity"):
-        lead_agent_module.make_lead_agent(
+        asyncio.run(lead_agent_module.make_lead_agent(
             {
                 "configurable": {
                     "thread_id": "thread-1",
@@ -317,4 +319,38 @@ def test_make_lead_agent_requires_user_for_thread_scoped_requests(monkeypatch):
                 }
             },
             runtime=None,
+        ))
+
+
+def test_make_lead_agent_skips_runtime_seeding_for_read_context(monkeypatch, tmp_path):
+    store = _FakeDBStore(models={"safe-model": _make_model("safe-model", supports_thinking=True)})
+
+    import src.tools as tools_module
+
+    monkeypatch.setattr(lead_agent_module, "get_paths", lambda: Paths(base_dir=tmp_path / ".openagents"))
+    monkeypatch.setattr(lead_agent_module, "get_runtime_db_store", lambda: store)
+    monkeypatch.setattr(tools_module, "get_available_tools", lambda **kwargs: [])
+    monkeypatch.setattr(
+        lead_agent_module,
+        "build_backend",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("build_backend should not run in read context")),
+    )
+    monkeypatch.setattr(lead_agent_module, "create_deep_agent", lambda **kwargs: kwargs)
+    monkeypatch.setattr(lead_agent_module, "create_chat_model", lambda **kwargs: object())
+
+    class _Runtime:
+        execution_runtime = None
+        user = None
+
+    result = asyncio.run(
+        lead_agent_module.make_lead_agent(
+            {
+                "configurable": {
+                    "model_name": "safe-model",
+                }
+            },
+            runtime=_Runtime(),
         )
+    )
+
+    assert result["backend"] is not None

@@ -1,5 +1,7 @@
+import asyncio
 import logging
 import os
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import Literal
 
@@ -36,6 +38,27 @@ logger = logging.getLogger(__name__)
 LOCAL_SANDBOX_PROVIDER = "src.sandbox.local:LocalSandboxProvider"
 DEFAULT_THREAD_ID = "_default"
 ExecutionBackend = Literal["local", "sandbox"]
+
+
+@dataclass(frozen=True)
+class LeadAgentRequest:
+    thinking_enabled: object
+    reasoning_effort: object
+    requested_model_name: str | None
+    subagent_enabled: object
+    max_concurrent_subagents: object
+    agent_name: str
+    agent_status: str
+    thread_id: str | None
+    user_id: str | None
+    runtime_model_name: str | None
+
+
+@dataclass(frozen=True)
+class LeadAgentResolution:
+    agent_config: DBAgentConfig
+    model_name: str
+    model_config: ModelConfig
 
 
 def _resolve_config_sandbox_provider() -> str | None:
@@ -194,6 +217,13 @@ def _build_workspace_backend(
     if _resolve_execution_backend() == "sandbox":
         return _build_sandbox_workspace_backend(thread_id)
     return _build_local_workspace_backend(user_data_dir)
+
+
+def _build_read_context_backend(thread_id: str | None) -> CompositeBackend:
+    paths = get_paths()
+    effective_thread_id = _effective_thread_id(thread_id)
+    user_data_dir = str(paths.sandbox_user_data_dir(effective_thread_id))
+    return CompositeBackend(default=_build_local_workspace_backend(user_data_dir), routes={})
 
 
 def build_backend(
@@ -523,145 +553,222 @@ def _build_run_metadata(
     }
 
 
-def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None):
+def _resolve_lead_agent_request(
+    config: RunnableConfig,
+    runtime: ServerRuntime | None,
+) -> LeadAgentRequest:
     cfg = _load_configurable_payload(config, runtime)
+    return LeadAgentRequest(
+        thinking_enabled=cfg.get("thinking_enabled", True),
+        reasoning_effort=cfg.get("reasoning_effort"),
+        requested_model_name=_coerce_optional_str(cfg.get("model_name") or cfg.get("model")),
+        subagent_enabled=cfg.get("subagent_enabled", False),
+        max_concurrent_subagents=cfg.get("max_concurrent_subagents", 3),
+        agent_name=normalize_effective_agent_name(_coerce_optional_str(cfg.get("agent_name"))),
+        agent_status=_resolve_agent_status(cfg.get("agent_status", "dev")),
+        thread_id=_coerce_optional_str(cfg.get("thread_id") or cfg.get("x-thread-id")),
+        user_id=_resolve_request_user_id(cfg, runtime),
+        runtime_model_name=_parse_runtime_model_config(cfg.get("model_config")),
+    )
 
-    thinking_enabled = cfg.get("thinking_enabled", True)
-    reasoning_effort = cfg.get("reasoning_effort")
-    requested_model_name = _coerce_optional_str(cfg.get("model_name") or cfg.get("model"))
-    subagent_enabled = cfg.get("subagent_enabled", False)
-    max_concurrent_subagents = cfg.get("max_concurrent_subagents", 3)
-    agent_name = normalize_effective_agent_name(_coerce_optional_str(cfg.get("agent_name")))
-    agent_status = _resolve_agent_status(cfg.get("agent_status", "dev"))
 
-    thread_id = _coerce_optional_str(cfg.get("thread_id") or cfg.get("x-thread-id"))
-    user_id = _resolve_request_user_id(cfg, runtime)
-    runtime_model_payload = cfg.get("model_config")
-
-    db_store = get_runtime_db_store()
-    _assert_thread_access(db_store=db_store, thread_id=thread_id, user_id=user_id)
-
-    runtime_model_name = _parse_runtime_model_config(runtime_model_payload)
-    agent_config = _load_agent_runtime_config(agent_name=agent_name, agent_status=agent_status, db_store=db_store)
-    _assert_agent_memory_access(agent_config=agent_config, user_id=user_id)
+def _resolve_lead_agent_runtime(
+    *,
+    request: LeadAgentRequest,
+    db_store: RuntimeDBStore,
+) -> LeadAgentResolution:
+    _assert_thread_access(
+        db_store=db_store,
+        thread_id=request.thread_id,
+        user_id=request.user_id,
+    )
+    agent_config = _load_agent_runtime_config(
+        agent_name=request.agent_name,
+        agent_status=request.agent_status,
+        db_store=db_store,
+    )
+    _assert_agent_memory_access(agent_config=agent_config, user_id=request.user_id)
     model_name, model_config = _resolve_run_model(
-        requested_model_name=requested_model_name,
-        runtime_model_name=runtime_model_name,
+        requested_model_name=request.requested_model_name,
+        runtime_model_name=request.runtime_model_name,
         agent_config=agent_config,
-        thread_id=thread_id,
-        user_id=user_id,
+        thread_id=request.thread_id,
+        user_id=request.user_id,
         db_store=db_store,
     )
     _persist_thread_runtime(
         db_store=db_store,
-        thread_id=thread_id,
-        user_id=user_id,
+        thread_id=request.thread_id,
+        user_id=request.user_id,
         model_name=model_name,
-        agent_name=agent_name,
+        agent_name=request.agent_name,
+    )
+    return LeadAgentResolution(
+        agent_config=agent_config,
+        model_name=model_name,
+        model_config=model_config,
     )
 
-    if thinking_enabled and not model_config.supports_thinking:
-        raise ValueError(f"Thinking mode is enabled but model '{model_name}' does not support thinking.")
 
-    logger.info(
-        "Create Agent(%s) -> thinking_enabled: %s, reasoning_effort: %s, model_name: %s, subagent_enabled: %s, agent_status: %s",
-        agent_name,
-        thinking_enabled,
-        reasoning_effort,
-        model_name,
-        subagent_enabled,
-        agent_status,
-    )
-
+def _update_request_runtime_context(
+    runtime: ServerRuntime | None,
+    request: LeadAgentRequest,
+) -> None:
     _update_runtime_context(
         runtime,
-        thread_id=thread_id,
-        user_id=user_id,
+        thread_id=request.thread_id,
+        user_id=request.user_id,
         **{
-            "x-thread-id": thread_id,
-            "x-user-id": user_id,
-            "agent_name": agent_name,
-            "agent_status": agent_status,
+            "x-thread-id": request.thread_id,
+            "x-user-id": request.user_id,
+            "agent_name": request.agent_name,
+            "agent_status": request.agent_status,
         },
     )
 
-    # Inject run metadata for observability
+
+def _attach_trace_metadata(
+    config: RunnableConfig,
+    *,
+    request: LeadAgentRequest,
+    model_name: str,
+) -> None:
     if "metadata" not in config:
         config["metadata"] = {}
+
     run_metadata = _build_run_metadata(
-        agent_name=agent_name,
+        agent_name=request.agent_name,
         model_name=model_name,
-        thinking_enabled=thinking_enabled,
-        reasoning_effort=reasoning_effort,
-        subagent_enabled=subagent_enabled,
-        thread_id=thread_id,
-        user_id=user_id,
+        thinking_enabled=request.thinking_enabled,
+        reasoning_effort=request.reasoning_effort,
+        subagent_enabled=request.subagent_enabled,
+        thread_id=request.thread_id,
+        user_id=request.user_id,
     )
     config["metadata"].update(run_metadata)
 
     trace_callback = create_agent_trace_callback(
-        user_id=user_id,
-        thread_id=thread_id,
-        agent_name=agent_name,
+        user_id=request.user_id,
+        thread_id=request.thread_id,
+        agent_name=request.agent_name,
         model_name=model_name,
         metadata=run_metadata,
     )
-    if trace_callback is not None:
-        config["callbacks"] = _merge_callbacks(config.get("callbacks"), trace_callback)
-        config["metadata"]["trace_id"] = trace_callback.trace_id
+    if trace_callback is None:
+        return
 
-    # Build CompositeBackend (replaces LocalSandbox + replace_virtual_path)
-    backend = build_backend(
-        thread_id,
-        agent_name,
-        agent_status,
+    config["callbacks"] = _merge_callbacks(config.get("callbacks"), trace_callback)
+    config["metadata"]["trace_id"] = trace_callback.trace_id
+
+
+def _resolve_agent_backend(
+    *,
+    request: LeadAgentRequest,
+    agent_config: DBAgentConfig,
+    prepare_runtime_resources: bool,
+) -> BackendProtocol:
+    if not prepare_runtime_resources:
+        return _build_read_context_backend(request.thread_id)
+    return build_backend(
+        request.thread_id,
+        request.agent_name,
+        request.agent_status,
         agent_config,
+    )
+
+
+def _build_agent_subagents(
+    *,
+    request: LeadAgentRequest,
+    tools: object,
+):
+    if not request.subagent_enabled:
+        return None
+    return load_subagent_specs(
+        tools,
+        agent_name=request.agent_name,
+        agent_status=request.agent_status,
+    )
+
+
+def _should_prepare_runtime_resources(runtime: ServerRuntime | None) -> bool:
+    if runtime is None:
+        return True
+    return getattr(runtime, "execution_runtime", None) is not None
+
+
+def _create_lead_agent(
+    config: RunnableConfig,
+    runtime: ServerRuntime | None = None,
+    *,
+    prepare_runtime_resources: bool,
+):
+    request = _resolve_lead_agent_request(config, runtime)
+    db_store = get_runtime_db_store()
+    resolution = _resolve_lead_agent_runtime(
+        request=request,
+        db_store=db_store,
+    )
+
+    if request.thinking_enabled and not resolution.model_config.supports_thinking:
+        raise ValueError(
+            f"Thinking mode is enabled but model '{resolution.model_name}' does not support thinking."
+        )
+
+    logger.info(
+        "Create Agent(%s) -> thinking_enabled: %s, reasoning_effort: %s, model_name: %s, subagent_enabled: %s, agent_status: %s",
+        request.agent_name,
+        request.thinking_enabled,
+        request.reasoning_effort,
+        resolution.model_name,
+        request.subagent_enabled,
+        request.agent_status,
+    )
+
+    _update_request_runtime_context(runtime, request)
+    _attach_trace_metadata(
+        config,
+        request=request,
+        model_name=resolution.model_name,
+    )
+    backend = _resolve_agent_backend(
+        request=request,
+        agent_config=resolution.agent_config,
+        prepare_runtime_resources=prepare_runtime_resources,
     )
 
     # Skills sources for deepagents SkillsMiddleware come from the archived copy
     # materialized under the agent's own runtime directory.
-    skills_sources = [_runtime_skills_path(agent_name, agent_status)]
+    skills_sources = [_runtime_skills_path(request.agent_name, request.agent_status)]
 
     # Community tools + MCP tools. Filesystem tools are provided by deepagents.
     tools = _load_agent_tools(
-        agent_config=agent_config,
-        model_name=model_name,
-        model_supports_vision=model_config.supports_vision,
+        agent_config=resolution.agent_config,
+        model_name=resolution.model_name,
+        model_supports_vision=resolution.model_config.supports_vision,
     )
 
-    # SubAgents (only if enabled)
-    subagents = (
-        load_subagent_specs(
-            tools,
-            agent_name=agent_name,
-            agent_status=agent_status,
-        )
-        if subagent_enabled
-        else None
+    subagents = _build_agent_subagents(
+        request=request,
+        tools=tools,
     )
-
-    # openagents specific extra middlewares
-    extra_middleware = _build_openagents_middlewares(model_config)
-
-    # System prompt
+    extra_middleware = _build_openagents_middlewares(resolution.model_config)
     system_prompt = apply_prompt_template(
-        subagent_enabled=subagent_enabled,
-        max_concurrent_subagents=max_concurrent_subagents,
-        user_id=user_id,
-        agent_name=agent_name,
-        agent_status=agent_status,
-        memory_config=agent_config.memory,
+        subagent_enabled=bool(request.subagent_enabled),
+        max_concurrent_subagents=int(request.max_concurrent_subagents),
+        user_id=request.user_id,
+        agent_name=request.agent_name,
+        agent_status=request.agent_status,
+        memory_config=resolution.agent_config.memory,
     )
-
-    # Interrupt configuration (replaces ClarificationMiddleware)
     interrupt_on = {"ask_clarification": True}
 
     return create_deep_agent(
         model=create_chat_model(
-            name=model_name,
-            thinking_enabled=thinking_enabled,
-            reasoning_effort=reasoning_effort,
-            runtime_model_config=model_config,
+            name=resolution.model_name,
+            thinking_enabled=bool(request.thinking_enabled),
+            reasoning_effort=request.reasoning_effort,
+            runtime_model_config=resolution.model_config,
         ),
         tools=tools,
         system_prompt=system_prompt,
@@ -670,5 +777,15 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         skills=skills_sources,
         backend=backend,
         interrupt_on=interrupt_on,
-        name=agent_name,
+        name=request.agent_name,
+    )
+
+
+async def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None):
+    prepare_runtime_resources = _should_prepare_runtime_resources(runtime)
+    return await asyncio.to_thread(
+        _create_lead_agent,
+        config,
+        runtime,
+        prepare_runtime_resources=prepare_runtime_resources,
     )
