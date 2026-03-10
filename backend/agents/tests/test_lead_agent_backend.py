@@ -17,7 +17,7 @@ def setup_function() -> None:
 
 
 def _make_paths(base_dir: Path) -> Paths:
-    return Paths(base_dir=base_dir)
+    return Paths(base_dir=base_dir, skills_dir=base_dir.parent / "skills")
 
 
 def _write_shared_skill(base_dir: Path, name: str, *, category: str = "public", body: str = "skill") -> None:

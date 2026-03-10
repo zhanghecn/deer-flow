@@ -21,11 +21,10 @@ import threading
 import time
 import uuid
 
-from src.sandbox.sandbox import Sandbox
-from src.sandbox.sandbox_provider import SandboxProvider
-
 from src.config import get_app_config
 from src.config.paths import VIRTUAL_PATH_PREFIX, get_paths
+from src.sandbox.sandbox import Sandbox
+from src.sandbox.sandbox_provider import SandboxProvider
 
 from .aio_sandbox import AioSandbox
 from .backend import SandboxBackend, wait_for_sandbox_ready
@@ -219,7 +218,7 @@ class AioSandboxProvider(SandboxProvider):
         """Get the skills directory mount configuration."""
         try:
             config = get_app_config()
-            skills_path = config.skills.get_skills_path()
+            skills_path = config.skills.get_skills_path(config.config_dir)
             container_path = config.skills.container_path
 
             if skills_path.exists():

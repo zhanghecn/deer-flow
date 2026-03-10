@@ -36,7 +36,7 @@ LangGraph / DeepAgent execution
    |
    | callback emits:
    | - chain start/end/error
-   | - llm start/end/error (with token usage)
+   | - llm start/end/error (with token usage, structured request messages, registered tools, request settings)
    | - tool start/end/error
    | - task tool => subagent branch id (task_run_id)
    v
@@ -78,7 +78,10 @@ Ordered event stream under a trace.
 - `run_id`, `parent_run_id` build run tree
 - `run_type` (`chain|llm|tool`), `event_type` (`start|end|error`)
 - `tool_name`, `task_run_id` (used to isolate subagent branches)
-- per-event token usage + payload snapshot + timing
+- per-event token usage + structured payload snapshot + timing
+- LLM `start` payload keeps `model_request.messages`, `model_request.tools`,
+  request settings/options, and provider extras with field-level truncation instead of a
+  single flat preview string
 
 ## Why `checkpoints` Tables Might Be Missing
 
@@ -113,5 +116,10 @@ Thread metadata itself is sourced from LangGraph `threads` storage/APIs, not fro
 ## Current UI Tabs
 
 - `智能体监控`: trace list + event stream tree + token summary
+- Admin UI groups raw events by `run_id` before rendering, so operators inspect one run at
+  a time (timeline row or 3D node) in a detail dialog instead of expanding individual
+  start/end events
+- Run detail panels prioritize readable blocks (messages, tool cards, request config, outputs)
+  and keep raw JSON in collapsed advanced inspectors
 - `Checkpoint / Threads`: checkpoint table status + runtime thread list
 - `管理账号`: grant/revoke admin role

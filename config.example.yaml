@@ -23,6 +23,9 @@ models: []
 sandbox:
   use: src.sandbox.local:LocalSandboxProvider
 
+storage:
+  base_dir: .openagents
+
 # Filesystem tools are provided by deepagents' FilesystemMiddleware and do not
 # need to be declared here. Keep this registry for tools loaded from config.
 tool_groups:
@@ -48,6 +51,7 @@ tools:
     max_results: 5
 
 skills:
+  path: skills
   container_path: /mnt/skills
 
 title:

@@ -6,13 +6,14 @@ from typing import Any, Self
 
 import yaml
 from dotenv import load_dotenv
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
+from src.config.config_files import resolve_config_file
 from src.config.extensions_config import ExtensionsConfig
 from src.config.model_config import ModelConfig
-from src.config.paths import AGENTS_ROOT
 from src.config.sandbox_config import SandboxConfig
 from src.config.skills_config import SkillsConfig
+from src.config.storage_config import StorageConfig
 from src.config.subagents_config import load_subagents_config_from_dict
 from src.config.summarization_config import load_summarization_config_from_dict
 from src.config.title_config import load_title_config_from_dict
@@ -22,23 +23,18 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 
-def _resolve_existing_path(candidates: list[Path]) -> Path | None:
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return None
-
-
 class AppConfig(BaseModel):
     """Config for the OpenAgents application"""
 
     models: list[ModelConfig] = Field(default_factory=list, description="Available models")
+    storage: StorageConfig | None = Field(default=None, description="Filesystem storage configuration")
     sandbox: SandboxConfig = Field(description="Sandbox configuration")
     tools: list[ToolConfig] = Field(default_factory=list, description="Available tools")
     tool_groups: list[ToolGroupConfig] = Field(default_factory=list, description="Available tool groups")
     skills: SkillsConfig = Field(default_factory=SkillsConfig, description="Skills configuration")
     extensions: ExtensionsConfig = Field(default_factory=ExtensionsConfig, description="Extensions configuration (MCP servers and skills state)")
     model_config = ConfigDict(extra="allow", frozen=False)
+    _config_path: Path | None = PrivateAttr(default=None)
 
     @classmethod
     def resolve_config_path(cls, config_path: str | None = None) -> Path | None:
@@ -47,30 +43,13 @@ class AppConfig(BaseModel):
         Priority:
         1. If provided `config_path` argument, use it.
         2. If provided `OPENAGENTS_CONFIG_PATH` environment variable, use it.
-        3. Otherwise, check common local locations:
-           cwd, cwd parent, backend/agents, backend, and project root.
+        3. Otherwise, search from the current working directory upward.
            If neither exists, return None (runtime fallback mode).
         """
-        if config_path:
-            path = Path(config_path).expanduser()
-            if not path.exists():
-                raise FileNotFoundError(f"Config file specified by param `config_path` not found at {path}")
-            return path
-        env_path = os.getenv("OPENAGENTS_CONFIG_PATH")
-        if env_path:
-            path = Path(env_path).expanduser()
-            if not path.exists():
-                raise FileNotFoundError(f"Config file specified by environment variable `OPENAGENTS_CONFIG_PATH` not found at {path}")
-            return path
-
-        return _resolve_existing_path(
-            [
-                Path("config.yaml"),
-                Path("..") / "config.yaml",
-                AGENTS_ROOT / "config.yaml",
-                AGENTS_ROOT.parent / "config.yaml",
-                AGENTS_ROOT.parent.parent / "config.yaml",
-            ]
+        return resolve_config_file(
+            config_path=config_path,
+            env_var_name="OPENAGENTS_CONFIG_PATH",
+            default_filenames=("config.yaml",),
         )
 
     @classmethod
@@ -117,6 +96,7 @@ class AppConfig(BaseModel):
         sandbox_use = os.getenv("OPENAGENTS_SANDBOX_PROVIDER", "src.sandbox.local:LocalSandboxProvider")
         return cls(
             models=models,
+            storage=None,
             sandbox=SandboxConfig(use=sandbox_use),
             tools=[],
             tool_groups=[],
@@ -170,6 +150,7 @@ class AppConfig(BaseModel):
         config_data["extensions"] = extensions_config.model_dump()
 
         result = cls.model_validate(config_data)
+        result._config_path = resolved_path
         return result
 
     @classmethod
@@ -230,6 +211,19 @@ class AppConfig(BaseModel):
         """
         return next((group for group in self.tool_groups if group.name == name), None)
 
+    @property
+    def config_dir(self) -> Path:
+        if self._config_path is None:
+            raise RuntimeError("AppConfig was loaded without config.yaml, so relative storage paths cannot be resolved.")
+        return self._config_path.parent
+
+
+class PathConfig(BaseModel):
+    """Subset of config.yaml needed for filesystem path resolution."""
+
+    storage: StorageConfig
+    skills: SkillsConfig = Field(default_factory=SkillsConfig)
+
 
 def load_tool_configs(config_path: str | None = None) -> tuple[list[ToolConfig], list[ToolGroupConfig]]:
     """Load tool definitions without resolving unrelated model configuration.
@@ -263,7 +257,36 @@ def load_tool_config(name: str, config_path: str | None = None) -> ToolConfig | 
     return next((tool for tool in tools if tool.name == name), None)
 
 
+def load_path_config(config_path: str | None = None) -> tuple[PathConfig, Path]:
+    """Load only storage/skills config without touching model env vars."""
+    resolved_path = AppConfig.resolve_config_path(config_path)
+    if resolved_path is None:
+        raise RuntimeError("config.yaml not found. Runtime paths require an explicit project config file.")
+
+    with open(resolved_path, encoding="utf-8") as f:
+        config_data = yaml.safe_load(f) or {}
+
+    if not isinstance(config_data, dict):
+        raise ValueError(f"Config file {resolved_path} must contain a YAML object at top-level.")
+
+    raw_storage = AppConfig.resolve_env_variables(config_data.get("storage"))
+    if raw_storage is None:
+        raise RuntimeError("storage.base_dir must be configured in config.yaml before runtime paths can be used.")
+    raw_skills = AppConfig.resolve_env_variables(config_data.get("skills", {}))
+    payload = {
+        "storage": raw_storage,
+        "skills": raw_skills,
+    }
+    return PathConfig.model_validate(payload), resolved_path.parent
+
+
 _app_config: AppConfig | None = None
+
+
+def _reset_dependent_caches() -> None:
+    from src.config.paths import reset_paths
+
+    reset_paths()
 
 
 def get_app_config() -> AppConfig:
@@ -293,6 +316,7 @@ def reload_app_config(config_path: str | None = None) -> AppConfig:
     """
     global _app_config
     _app_config = AppConfig.from_file(config_path)
+    _reset_dependent_caches()
     return _app_config
 
 
@@ -305,6 +329,7 @@ def reset_app_config() -> None:
     """
     global _app_config
     _app_config = None
+    _reset_dependent_caches()
 
 
 def set_app_config(config: AppConfig) -> None:
@@ -317,3 +342,4 @@ def set_app_config(config: AppConfig) -> None:
     """
     global _app_config
     _app_config = config
+    _reset_dependent_caches()

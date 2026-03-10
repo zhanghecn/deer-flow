@@ -2,38 +2,31 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from src.config.config_files import resolve_relative_to_config_dir
+
 
 class SkillsConfig(BaseModel):
     """Configuration for skills system"""
 
     path: str | None = Field(
         default=None,
-        description="Path to skills directory. If not specified, defaults to ../skills relative to backend directory",
+        description="Path to the shared skills archive directory.",
     )
     container_path: str = Field(
         default="/mnt/skills",
         description="Path where skills are mounted in the sandbox container",
     )
 
-    def get_skills_path(self) -> Path:
+    def get_skills_path(self, config_dir: Path) -> Path:
         """
         Get the resolved skills directory path.
 
         Returns:
             Path to the skills directory
         """
-        if self.path:
-            # Use configured path (can be absolute or relative)
-            path = Path(self.path)
-            if not path.is_absolute():
-                # If relative, resolve from current working directory
-                path = Path.cwd() / path
-            return path.resolve()
-        else:
-            # Default: ../skills relative to backend directory
-            from src.skills.loader import get_skills_root_path
-
-            return get_skills_root_path()
+        if not self.path or not self.path.strip():
+            raise RuntimeError("skills.path must be configured in config.yaml.")
+        return resolve_relative_to_config_dir(self.path, config_dir=config_dir)
 
     def get_skill_container_path(self, skill_name: str, category: str = "public") -> str:
         """

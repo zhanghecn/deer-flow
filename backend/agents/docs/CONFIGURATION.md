@@ -147,13 +147,19 @@ sandbox:
 Configure the skills directory for specialized workflows:
 
 ```yaml
+storage:
+  # Required. Archived agents, users, and thread runtime data.
+  base_dir: .openagents
+
 skills:
-  # Host path (optional, default: ../skills)
-  path: /custom/path/to/skills
+  # Required host path to the shared skills archive.
+  path: skills
 
   # Container mount path (default: /mnt/skills)
   container_path: /mnt/skills
 ```
+
+Relative `storage.base_dir` and `skills.path` values are resolved from the directory containing `config.yaml`.
 
 **How Skills Work**:
 - Skills are stored in `openagents/skills/{public,custom}/`

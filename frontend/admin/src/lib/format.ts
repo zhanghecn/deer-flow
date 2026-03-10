@@ -9,6 +9,20 @@ export function formatDate(ts: string | null | undefined): string {
   });
 }
 
+export function formatDateTime(ts: string | null | undefined): string {
+  if (!ts) return "-";
+  const d = new Date(ts);
+  return d.toLocaleString("sv-SE", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
+
 export function formatAgo(ts: string | null | undefined): string {
   if (!ts) return "-";
   const diff = Date.now() - new Date(ts).getTime();

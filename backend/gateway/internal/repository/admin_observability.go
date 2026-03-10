@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -20,20 +21,21 @@ func NewAdminObservabilityRepo(pool *pgxpool.Pool) *AdminObservabilityRepo {
 }
 
 type AgentTraceRecord struct {
-	TraceID      string          `json:"trace_id"`
-	RootRunID    string          `json:"root_run_id"`
-	ThreadID     *string         `json:"thread_id"`
-	UserID       *uuid.UUID      `json:"user_id"`
-	AgentName    *string         `json:"agent_name"`
-	ModelName    *string         `json:"model_name"`
-	StartedAt    time.Time       `json:"started_at"`
-	FinishedAt   *time.Time      `json:"finished_at"`
-	Status       string          `json:"status"`
-	InputTokens  int64           `json:"input_tokens"`
-	OutputTokens int64           `json:"output_tokens"`
-	TotalTokens  int64           `json:"total_tokens"`
-	Error        *string         `json:"error"`
-	Metadata     json.RawMessage `json:"metadata"`
+	TraceID            string          `json:"trace_id"`
+	RootRunID          string          `json:"root_run_id"`
+	ThreadID           *string         `json:"thread_id"`
+	UserID             *uuid.UUID      `json:"user_id"`
+	AgentName          *string         `json:"agent_name"`
+	ModelName          *string         `json:"model_name"`
+	StartedAt          time.Time       `json:"started_at"`
+	FinishedAt         *time.Time      `json:"finished_at"`
+	Status             string          `json:"status"`
+	InputTokens        int64           `json:"input_tokens"`
+	OutputTokens       int64           `json:"output_tokens"`
+	TotalTokens        int64           `json:"total_tokens"`
+	Error              *string         `json:"error"`
+	Metadata           json.RawMessage `json:"metadata"`
+	InitialUserMessage *string         `json:"initial_user_message,omitempty"`
 }
 
 type AgentTraceEventRecord struct {
@@ -83,25 +85,34 @@ func (r *AdminObservabilityRepo) ListTraces(
 ) ([]AgentTraceRecord, error) {
 	query := `
 		SELECT
-			trace_id,
-			root_run_id,
-			thread_id,
-			user_id,
-			agent_name,
-			model_name,
-			started_at,
-			finished_at,
-			status,
-			input_tokens,
-			output_tokens,
-			total_tokens,
-			error,
-			metadata
-		FROM agent_traces
-		WHERE ($1::uuid IS NULL OR user_id = $1::uuid)
-		  AND ($2 = '' OR agent_name = $2)
-		  AND ($3 = '' OR thread_id = $3)
-		ORDER BY started_at DESC
+			t.trace_id,
+			t.root_run_id,
+			t.thread_id,
+			t.user_id,
+			t.agent_name,
+			t.model_name,
+			t.started_at,
+			t.finished_at,
+			t.status,
+			t.input_tokens,
+			t.output_tokens,
+			t.total_tokens,
+			t.error,
+			t.metadata,
+			first_event.payload
+		FROM agent_traces t
+		LEFT JOIN LATERAL (
+			SELECT payload
+			FROM agent_trace_events e
+			WHERE e.trace_id = t.trace_id
+			  AND e.event_type = 'start'
+			ORDER BY e.event_index ASC
+			LIMIT 1
+		) first_event ON TRUE
+		WHERE ($1::uuid IS NULL OR t.user_id = $1::uuid)
+		  AND ($2 = '' OR t.agent_name = $2)
+		  AND ($3 = '' OR t.thread_id = $3)
+		ORDER BY t.started_at DESC
 		LIMIT $4 OFFSET $5
 	`
 
@@ -114,6 +125,7 @@ func (r *AdminObservabilityRepo) ListTraces(
 	items := make([]AgentTraceRecord, 0)
 	for rows.Next() {
 		var item AgentTraceRecord
+		var firstPayload json.RawMessage
 		if err := rows.Scan(
 			&item.TraceID,
 			&item.RootRunID,
@@ -129,9 +141,11 @@ func (r *AdminObservabilityRepo) ListTraces(
 			&item.TotalTokens,
 			&item.Error,
 			&item.Metadata,
+			&firstPayload,
 		); err != nil {
 			return nil, err
 		}
+		item.InitialUserMessage = extractInitialUserMessage(firstPayload)
 		items = append(items, item)
 	}
 	return items, nil
@@ -354,4 +368,184 @@ func parsePositiveInt(raw string) (int, error) {
 		return 0, err
 	}
 	return value, nil
+}
+
+var (
+	singleQuotedTextPattern    = regexp.MustCompile(`'text'\s*:\s*'([^']*)'`)
+	doubleQuotedTextPattern    = regexp.MustCompile(`"text"\s*:\s*"([^"]*)"`)
+	singleQuotedContentPattern = regexp.MustCompile(`content='([^']*)'`)
+	doubleQuotedContentPattern = regexp.MustCompile(`content="([^"]*)"`)
+	unicodeEscapePattern       = regexp.MustCompile(`\\u([0-9a-fA-F]{4})`)
+	hexEscapePattern           = regexp.MustCompile(`\\x([0-9a-fA-F]{2})`)
+)
+
+func extractInitialUserMessage(payload json.RawMessage) *string {
+	if len(payload) == 0 {
+		return nil
+	}
+
+	var root map[string]any
+	if err := json.Unmarshal(payload, &root); err != nil {
+		return nil
+	}
+
+	inputs, _ := root["inputs"].(map[string]any)
+	if inputs == nil {
+		return nil
+	}
+
+	messages, _ := inputs["messages"].([]any)
+	if len(messages) == 0 {
+		return nil
+	}
+
+	fallbackText := ""
+	for _, rawMessage := range messages {
+		if text := strings.TrimSpace(extractStringMessageText(rawMessage)); text != "" && fallbackText == "" {
+			fallbackText = text
+		}
+
+		message, ok := rawMessage.(map[string]any)
+		if !ok {
+			continue
+		}
+		role := strings.ToLower(strings.TrimSpace(stringValue(message["role"])))
+		if role == "" {
+			role = strings.ToLower(strings.TrimSpace(stringValue(message["type"])))
+		}
+		if role != "human" && role != "user" {
+			continue
+		}
+
+		text := strings.TrimSpace(extractTextValue(message["content"]))
+		if text == "" {
+			continue
+		}
+		text = collapseWhitespace(text)
+		text = truncatePreview(text, 140)
+		return &text
+	}
+
+	if fallbackText != "" {
+		fallbackText = collapseWhitespace(fallbackText)
+		fallbackText = truncatePreview(fallbackText, 140)
+		return &fallbackText
+	}
+
+	return nil
+}
+
+func extractStringMessageText(value any) string {
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return extractTextValue(text)
+}
+
+func extractTextValue(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return extractTraceText(typed)
+	case []any:
+		parts := make([]string, 0, len(typed))
+		for _, item := range typed {
+			text := strings.TrimSpace(extractTextValue(item))
+			if text == "" {
+				continue
+			}
+			parts = append(parts, text)
+		}
+		return strings.Join(parts, " ")
+	case map[string]any:
+		if text := strings.TrimSpace(stringValue(typed["text"])); text != "" {
+			return decodeEscapedUnicode(text)
+		}
+		if text := strings.TrimSpace(stringValue(typed["content"])); text != "" {
+			return decodeEscapedUnicode(text)
+		}
+		return ""
+	default:
+		return ""
+	}
+}
+
+func extractTraceText(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return ""
+	}
+
+	matches := append(
+		collectRegexMatches(singleQuotedTextPattern, trimmed),
+		collectRegexMatches(doubleQuotedTextPattern, trimmed)...,
+	)
+	if len(matches) > 0 {
+		return strings.Join(matches, " ")
+	}
+
+	if match := singleQuotedContentPattern.FindStringSubmatch(trimmed); len(match) == 2 {
+		return decodeEscapedUnicode(strings.TrimSpace(match[1]))
+	}
+	if match := doubleQuotedContentPattern.FindStringSubmatch(trimmed); len(match) == 2 {
+		return decodeEscapedUnicode(strings.TrimSpace(match[1]))
+	}
+
+	return decodeEscapedUnicode(trimmed)
+}
+
+func collectRegexMatches(pattern *regexp.Regexp, value string) []string {
+	allMatches := pattern.FindAllStringSubmatch(value, -1)
+	if len(allMatches) == 0 {
+		return nil
+	}
+
+	results := make([]string, 0, len(allMatches))
+	for _, match := range allMatches {
+		if len(match) < 2 {
+			continue
+		}
+		text := decodeEscapedUnicode(strings.TrimSpace(match[1]))
+		if text == "" {
+			continue
+		}
+		results = append(results, text)
+	}
+	return results
+}
+
+func stringValue(value any) string {
+	text, _ := value.(string)
+	return text
+}
+
+func decodeEscapedUnicode(value string) string {
+	value = unicodeEscapePattern.ReplaceAllStringFunc(value, func(match string) string {
+		hex := match[2:]
+		code, err := strconv.ParseInt(hex, 16, 32)
+		if err != nil {
+			return match
+		}
+		return string(rune(code))
+	})
+
+	return hexEscapePattern.ReplaceAllStringFunc(value, func(match string) string {
+		hex := match[2:]
+		code, err := strconv.ParseInt(hex, 16, 32)
+		if err != nil {
+			return match
+		}
+		return string(rune(code))
+	})
+}
+
+func collapseWhitespace(value string) string {
+	return strings.Join(strings.Fields(value), " ")
+}
+
+func truncatePreview(value string, maxLen int) string {
+	if len(value) <= maxLen {
+		return value
+	}
+	return value[:maxLen-3] + "..."
 }

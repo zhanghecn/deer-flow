@@ -6,18 +6,10 @@ from .types import Skill
 
 
 def get_skills_root_path() -> Path:
-    """
-    Get the root path of the skills directory.
+    from src.config import get_app_config
 
-    Returns:
-        Path to the skills directory (openagents/skills)
-    """
-    current = Path(__file__).resolve()
-    for parent in current.parents:
-        candidate = parent / "skills"
-        if candidate.exists():
-            return candidate
-    return current.parent.parent.parent.parent / "skills"
+    config = get_app_config()
+    return config.skills.get_skills_path(config.config_dir)
 
 
 def load_skills(skills_path: Path | None = None, use_config: bool = True, enabled_only: bool = False) -> list[Skill]:
@@ -39,16 +31,9 @@ def load_skills(skills_path: Path | None = None, use_config: bool = True, enable
     """
     if skills_path is None:
         if use_config:
-            try:
-                from src.config import get_app_config
-
-                config = get_app_config()
-                skills_path = config.skills.get_skills_path()
-            except Exception:
-                # Fallback to default if config fails
-                skills_path = get_skills_root_path()
-        else:
             skills_path = get_skills_root_path()
+        else:
+            raise RuntimeError("skills_path must be provided when use_config is False.")
 
     if not skills_path.exists():
         return []

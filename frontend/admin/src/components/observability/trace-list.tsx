@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { formatAgo, maskString } from "@/lib/format";
+import { formatAgo, formatDateTime, maskString } from "@/lib/format";
 import type { TraceItem } from "@/types";
 
 interface TraceListProps {
@@ -74,11 +74,20 @@ export function TraceList({
                 {trace.total_tokens} tok
               </Badge>
             </div>
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <p className="text-sm text-foreground/85 line-clamp-2">
+              {trace.initial_user_message || "No user message preview"}
+            </p>
+            <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
               <span className="truncate max-w-[120px]">
                 {trace.thread_id
                   ? maskString(trace.thread_id, 6, 4)
                   : "no thread"}
+              </span>
+              <span className="truncate">{formatDateTime(trace.started_at)}</span>
+            </div>
+            <div className="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+              <span className="truncate">
+                {trace.model_name || "unknown model"}
               </span>
               <span>{formatAgo(trace.started_at)}</span>
             </div>

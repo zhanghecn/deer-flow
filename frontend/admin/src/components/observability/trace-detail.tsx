@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -9,6 +9,7 @@ import { EventTree } from "./event-tree";
 import { TokenSummary } from "./token-summary";
 import { useFetch } from "@/hooks/use-fetch";
 import type { TraceItem, TraceEvent } from "@/types";
+import { buildTraceRuns } from "./trace-run-utils";
 
 interface TraceDetailProps {
   trace: TraceItem | null;
@@ -27,6 +28,16 @@ export function TraceDetail({ trace, expanded = false }: TraceDetailProps) {
   const { data, isLoading } = useFetch<{ items: TraceEvent[] }>(
     trace ? `/api/admin/traces/${trace.trace_id}/events` : null,
   );
+  const events = data?.items ?? [];
+  const runs = useMemo(
+    () => buildTraceRuns(events, trace?.root_run_id),
+    [events, trace?.root_run_id],
+  );
+  const toolNames = useMemo(() => {
+    const rawToolNames = trace?.metadata?.tool_names;
+    if (!Array.isArray(rawToolNames)) return [];
+    return rawToolNames.filter((item): item is string => typeof item === "string");
+  }, [trace?.metadata]);
 
   useEffect(() => {
     setViewMode("timeline");
@@ -84,7 +95,30 @@ export function TraceDetail({ trace, expanded = false }: TraceDetailProps) {
               <span className="text-muted-foreground">Finished:</span>{" "}
               {formatDate(trace.finished_at)}
             </div>
+            <div>
+              <span className="text-muted-foreground">Runs:</span> {runs.length}
+            </div>
+            <div>
+              <span className="text-muted-foreground">Raw Events:</span> {events.length}
+            </div>
           </div>
+          {toolNames.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">Registered Tools</p>
+              <div className="flex flex-wrap gap-1.5">
+                {toolNames.map((toolName) => (
+                  <Badge key={toolName} variant="outline" className="text-xs">
+                    {toolName}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+          {trace.initial_user_message && (
+            <div className="rounded-md bg-muted/50 p-2 text-sm">
+              {trace.initial_user_message}
+            </div>
+          )}
           {trace.error && (
             <div className="rounded-md bg-red-50 dark:bg-red-950/30 p-2 text-sm text-red-700 dark:text-red-300">
               {trace.error}
@@ -134,12 +168,12 @@ export function TraceDetail({ trace, expanded = false }: TraceDetailProps) {
               }
             >
               <GalaxyTraceView
-                events={data?.items ?? []}
+                runs={runs}
                 rootRunId={trace.root_run_id}
               />
             </Suspense>
           ) : (
-            <EventTree events={data?.items ?? []} />
+            <EventTree runs={runs} />
           )}
         </div>
       </div>

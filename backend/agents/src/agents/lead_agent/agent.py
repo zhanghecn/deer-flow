@@ -370,12 +370,7 @@ def _extract_runtime_user_id(runtime: ServerRuntime | None) -> str | None:
 
 def _resolve_request_user_id(cfg: dict, runtime: ServerRuntime | None) -> str | None:
     runtime_user_id = _extract_runtime_user_id(runtime)
-    return _coerce_optional_str(
-        cfg.get("user_id")
-        or cfg.get("x-user-id")
-        or cfg.get("langgraph_auth_user_id")
-        or runtime_user_id
-    )
+    return _coerce_optional_str(cfg.get("user_id") or cfg.get("x-user-id") or cfg.get("langgraph_auth_user_id") or runtime_user_id)
 
 
 def _assert_thread_access(
@@ -385,10 +380,7 @@ def _assert_thread_access(
     user_id: str | None,
 ) -> None:
     if thread_id and not user_id:
-        raise ValueError(
-            "Thread-scoped requests require user identity. Provide `context.user_id`/`configurable.user_id`, "
-            "forward `x-user-id` through LangGraph configurable headers, or configure LangGraph custom auth."
-        )
+        raise ValueError("Thread-scoped requests require user identity. Provide `context.user_id`/`configurable.user_id`, forward `x-user-id` through LangGraph configurable headers, or configure LangGraph custom auth.")
 
     if thread_id:
         assert user_id is not None
@@ -421,9 +413,7 @@ def _assert_agent_memory_access(
     user_id: str | None,
 ) -> None:
     if agent_config.memory.enabled and not user_id:
-        raise ValueError(
-            f"Agent '{agent_config.name}' has memory enabled and requires user identity."
-        )
+        raise ValueError(f"Agent '{agent_config.name}' has memory enabled and requires user identity.")
 
 
 def _load_agent_tools(
@@ -454,17 +444,11 @@ def _resolve_run_model(
     """Resolve run model with explicit precedence and no implicit fallback."""
     agent_model_name = agent_config.model if agent_config and agent_config.model else None
     if requested_model_name and agent_model_name and requested_model_name != agent_model_name:
-        raise ValueError(
-            f"Model conflict: requested model '{requested_model_name}' does not match agent model '{agent_model_name}'."
-        )
+        raise ValueError(f"Model conflict: requested model '{requested_model_name}' does not match agent model '{agent_model_name}'.")
     if runtime_model_name and agent_model_name and runtime_model_name != agent_model_name:
-        raise ValueError(
-            f"Model conflict: requested model '{runtime_model_name}' does not match agent model '{agent_model_name}'."
-        )
+        raise ValueError(f"Model conflict: requested model '{runtime_model_name}' does not match agent model '{agent_model_name}'.")
     if requested_model_name and runtime_model_name and requested_model_name != runtime_model_name:
-        raise ValueError(
-            "Model conflict: `configurable.model_name` and `configurable.model_config.name` must match."
-        )
+        raise ValueError("Model conflict: `configurable.model_name` and `configurable.model_config.name` must match.")
 
     persisted_thread_model_name: str | None = None
     if thread_id and user_id:
@@ -472,17 +456,11 @@ def _resolve_run_model(
 
     model_name = requested_model_name or runtime_model_name or agent_model_name or persisted_thread_model_name
     if not model_name:
-        raise ValueError(
-            "No model resolved for this run. Provide `configurable.model_name`/`model` or "
-            "`configurable.model_config.name`, set `agent.model`, or ensure this thread has "
-            "a persisted runtime model."
-        )
+        raise ValueError("No model resolved for this run. Provide `configurable.model_name`/`model` or `configurable.model_config.name`, set `agent.model`, or ensure this thread has a persisted runtime model.")
 
     model_config = db_store.get_model(model_name)
     if model_config is None:
-        raise ValueError(
-            f"Resolved model '{model_name}' is not available in database or is disabled."
-        )
+        raise ValueError(f"Resolved model '{model_name}' is not available in database or is disabled.")
     return model_name, model_config
 
 
@@ -541,6 +519,7 @@ def _build_run_metadata(
     subagent_enabled: object,
     thread_id: str | None,
     user_id: str | None,
+    tool_names: list[str],
 ) -> dict[str, object]:
     return {
         "agent_name": agent_name,
@@ -550,6 +529,8 @@ def _build_run_metadata(
         "subagent_enabled": subagent_enabled,
         "thread_id": thread_id,
         "user_id": user_id,
+        "tool_names": tool_names,
+        "tool_count": len(tool_names),
     }
 
 
@@ -632,6 +613,7 @@ def _attach_trace_metadata(
     *,
     request: LeadAgentRequest,
     model_name: str,
+    tool_names: list[str],
 ) -> None:
     if "metadata" not in config:
         config["metadata"] = {}
@@ -644,6 +626,7 @@ def _attach_trace_metadata(
         subagent_enabled=request.subagent_enabled,
         thread_id=request.thread_id,
         user_id=request.user_id,
+        tool_names=tool_names,
     )
     config["metadata"].update(run_metadata)
 
@@ -659,6 +642,13 @@ def _attach_trace_metadata(
 
     config["callbacks"] = _merge_callbacks(config.get("callbacks"), trace_callback)
     config["metadata"]["trace_id"] = trace_callback.trace_id
+
+
+def _extract_tool_names(tools: object) -> list[str]:
+    if not isinstance(tools, list):
+        return []
+    names = [getattr(tool, "name", None) for tool in tools]
+    return [name for name in names if isinstance(name, str) and name.strip()]
 
 
 def _resolve_agent_backend(
@@ -711,9 +701,7 @@ def _create_lead_agent(
     )
 
     if request.thinking_enabled and not resolution.model_config.supports_thinking:
-        raise ValueError(
-            f"Thinking mode is enabled but model '{resolution.model_name}' does not support thinking."
-        )
+        raise ValueError(f"Thinking mode is enabled but model '{resolution.model_name}' does not support thinking.")
 
     logger.info(
         "Create Agent(%s) -> thinking_enabled: %s, reasoning_effort: %s, model_name: %s, subagent_enabled: %s, agent_status: %s",
@@ -726,11 +714,6 @@ def _create_lead_agent(
     )
 
     _update_request_runtime_context(runtime, request)
-    _attach_trace_metadata(
-        config,
-        request=request,
-        model_name=resolution.model_name,
-    )
     backend = _resolve_agent_backend(
         request=request,
         agent_config=resolution.agent_config,
@@ -746,6 +729,12 @@ def _create_lead_agent(
         agent_config=resolution.agent_config,
         model_name=resolution.model_name,
         model_supports_vision=resolution.model_config.supports_vision,
+    )
+    _attach_trace_metadata(
+        config,
+        request=request,
+        model_name=resolution.model_name,
+        tool_names=_extract_tool_names(tools),
     )
 
     subagents = _build_agent_subagents(

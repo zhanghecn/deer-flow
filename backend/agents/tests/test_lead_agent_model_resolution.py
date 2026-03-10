@@ -174,7 +174,11 @@ def test_make_lead_agent_reads_runtime_context_and_persists_thread_runtime(monke
 
     import src.tools as tools_module
 
-    monkeypatch.setattr(lead_agent_module, "get_paths", lambda: Paths(base_dir=tmp_path / ".openagents"))
+    monkeypatch.setattr(
+        lead_agent_module,
+        "get_paths",
+        lambda: Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / "skills"),
+    )
     monkeypatch.setattr(lead_agent_module, "get_runtime_db_store", lambda: store)
     monkeypatch.setattr(tools_module, "get_available_tools", lambda **kwargs: [])
     monkeypatch.setattr(
@@ -279,7 +283,11 @@ def test_make_lead_agent_accepts_header_injected_user_id(monkeypatch, tmp_path):
 
     import src.tools as tools_module
 
-    monkeypatch.setattr(lead_agent_module, "get_paths", lambda: Paths(base_dir=tmp_path / ".openagents"))
+    monkeypatch.setattr(
+        lead_agent_module,
+        "get_paths",
+        lambda: Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / "skills"),
+    )
     monkeypatch.setattr(lead_agent_module, "get_runtime_db_store", lambda: store)
     monkeypatch.setattr(tools_module, "get_available_tools", lambda **kwargs: [])
     monkeypatch.setattr(
@@ -327,7 +335,11 @@ def test_make_lead_agent_skips_runtime_seeding_for_read_context(monkeypatch, tmp
 
     import src.tools as tools_module
 
-    monkeypatch.setattr(lead_agent_module, "get_paths", lambda: Paths(base_dir=tmp_path / ".openagents"))
+    monkeypatch.setattr(
+        lead_agent_module,
+        "get_paths",
+        lambda: Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / "skills"),
+    )
     monkeypatch.setattr(lead_agent_module, "get_runtime_db_store", lambda: store)
     monkeypatch.setattr(tools_module, "get_available_tools", lambda **kwargs: [])
     monkeypatch.setattr(

@@ -34,7 +34,7 @@ def test_ensure_builtin_agent_archive_rewrites_legacy_skills_mode(tmp_path, monk
         encoding="utf-8",
     )
 
-    paths = Paths(base_dir=base_dir)
+    paths = Paths(base_dir=base_dir, skills_dir=base_dir.parent / "skills")
     agent_dir = paths.agent_dir("lead_agent", "dev")
     agent_dir.mkdir(parents=True, exist_ok=True)
     (agent_dir / "config.yaml").write_text(

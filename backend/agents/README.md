@@ -52,6 +52,8 @@ The single LangGraph agent (`lead_agent`) is the runtime entry point, created vi
 - **Tool system** with sandbox, MCP, community, and built-in tools
 - **Subagent delegation** for parallel task execution
 - **System prompt** with skills injection, memory context, and working directory guidance
+- **Structured observability** that records LLM request messages, registered tool schemas,
+  and per-run payloads for the admin console
 
 ### Agent Definition Protocol
 
@@ -292,6 +294,7 @@ Place in project root. Config values starting with `$` resolve as environment va
 
 Key sections:
 - `models` - LLM configurations with class paths, API keys, thinking/vision flags
+- `storage` - Archived agent data and thread runtime root directory
 - `tools` - Tool definitions with module paths and groups
 - `tool_groups` - Logical tool groupings
 - `sandbox` - Execution environment provider
@@ -303,6 +306,10 @@ Key sections:
 Memory note:
 - Long-term memory is configured per agent in each archived agent `config.yaml`, not in the root `config.yaml`
 - Runtime memory storage is user-agent scoped: `{OPENAGENTS_HOME}/users/{user_id}/agents/{status}/{agent_name}/memory.json`
+
+Path note:
+- `storage.base_dir` and `skills.path` are explicit project-level settings.
+- Relative paths are resolved from the directory containing `config.yaml`.
 
 Provider note:
 - `models[*].use` references provider classes by module path (for example `langchain_openai:ChatOpenAI`).

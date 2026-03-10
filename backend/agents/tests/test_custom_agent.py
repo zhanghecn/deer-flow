@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 def _make_paths(base_dir: Path):
     from src.config.paths import Paths
 
-    return Paths(base_dir=base_dir)
+    return Paths(base_dir=base_dir, skills_dir=base_dir.parent / "skills")
 
 
 def _write_agent(

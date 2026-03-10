@@ -33,6 +33,18 @@ OpenAgents uses a YAML configuration file that should be placed in the **project
    python -c "from src.config import get_app_config; print('✓ Config loaded:', get_app_config().models[0].name)"
    ```
 
+Required project paths in `config.yaml`:
+```yaml
+storage:
+  base_dir: .openagents
+
+skills:
+  path: skills
+  container_path: /mnt/skills
+```
+
+Relative paths are resolved from the directory containing `config.yaml`.
+
 ## Important Notes
 
 - **Location**: `config.yaml` should be in `openagents/` (project root), not `openagents/backend/agents/`

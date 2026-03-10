@@ -1,25 +1,24 @@
-import os
 import re
 from pathlib import Path
 
+from src.config.app_config import load_path_config
+
 # Virtual path prefix seen by agents inside the sandbox
 VIRTUAL_PATH_PREFIX = "/mnt/user-data"
-AGENTS_ROOT = Path(__file__).resolve().parents[2]
-PROJECT_ROOT = AGENTS_ROOT.parent.parent
 
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
 
 
-def _normalize_base_dir(value: str | Path) -> Path:
+def _resolve_explicit_path(value: str | Path) -> Path:
     path = Path(value).expanduser()
-    if path.is_absolute():
-        return path
-    return PROJECT_ROOT / path
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    return path.resolve()
 
 
 class Paths:
     """
-    Centralized path configuration for OpenAgents application data.
+    Centralized path builder for OpenAgents application data.
 
     Directory layout (host side):
         {base_dir}/
@@ -43,29 +42,16 @@ class Paths:
                 ├── workspace/
                 ├── uploads/
                 └── outputs/
-
-    BaseDir resolution (in priority order):
-        1. Constructor argument `base_dir`
-        2. OPENAGENTS_HOME environment variable
-        3. Local dev fallback: {project-root}/.openagents
-    Notes:
-        - Relative paths are resolved against the project root.
-        - This avoids runtime `cwd` resolution, which can trigger blocking guards.
     """
 
-    def __init__(self, base_dir: str | Path | None = None) -> None:
-        self._base_dir = _normalize_base_dir(base_dir) if base_dir is not None else None
+    def __init__(self, base_dir: str | Path, *, skills_dir: str | Path | None = None) -> None:
+        self._base_dir = _resolve_explicit_path(base_dir)
+        self._skills_dir = _resolve_explicit_path(skills_dir) if skills_dir is not None else None
 
     @property
     def base_dir(self) -> Path:
         """Root directory for all application data."""
-        if self._base_dir is not None:
-            return self._base_dir
-
-        if env_home := os.getenv("OPENAGENTS_HOME"):
-            return _normalize_base_dir(env_home)
-
-        return AGENTS_ROOT.parent.parent / ".openagents"
+        return self._base_dir
 
     # ── User profile ──
 
@@ -114,12 +100,9 @@ class Paths:
     @property
     def skills_dir(self) -> Path:
         """Root directory for global skills (public + custom)."""
-        # Locate project-root skills/ by walking upward from OPENAGENTS_HOME.
-        for parent in self.base_dir.parents:
-            candidate = parent / "skills"
-            if candidate.exists():
-                return candidate
-        return self.base_dir.parent / "skills"
+        if self._skills_dir is None:
+            raise RuntimeError("Skills directory is not configured. Set skills.path in config.yaml or pass skills_dir explicitly.")
+        return self._skills_dir
 
     # ── Thread runtime layer (per-thread isolated) ──
 
@@ -173,8 +156,17 @@ _paths: Paths | None = None
 
 
 def get_paths() -> Paths:
-    """Return the global Paths singleton (lazy-initialized)."""
+    """Return the global Paths singleton (lazy-initialized from app config)."""
     global _paths
     if _paths is None:
-        _paths = Paths()
+        config, config_dir = load_path_config()
+        _paths = Paths(
+            base_dir=config.storage.resolve_base_dir(config_dir),
+            skills_dir=config.skills.get_skills_path(config_dir),
+        )
     return _paths
+
+
+def reset_paths() -> None:
+    global _paths
+    _paths = None

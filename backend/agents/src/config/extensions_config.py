@@ -7,14 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.config.paths import AGENTS_ROOT
-
-
-def _resolve_existing_path(candidates: list[Path]) -> Path | None:
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return None
+from src.config.config_files import resolve_config_file
 
 
 class McpOAuthConfig(BaseModel):
@@ -82,8 +75,7 @@ class ExtensionsConfig(BaseModel):
         Priority:
         1. If provided `config_path` argument, use it.
         2. If provided `OPENAGENTS_EXTENSIONS_CONFIG_PATH` environment variable, use it.
-        3. Otherwise, check common local locations:
-           cwd, cwd parent, backend/agents, backend, and project root.
+        3. Otherwise, search from the current working directory upward.
         4. For backward compatibility, also check for `mcp_config.json`.
         5. If not found, return None (extensions are optional).
 
@@ -93,31 +85,10 @@ class ExtensionsConfig(BaseModel):
         Returns:
             Path to the extensions config file if found, otherwise None.
         """
-        if config_path:
-            path = Path(config_path).expanduser()
-            if not path.exists():
-                raise FileNotFoundError(f"Extensions config file specified by param `config_path` not found at {path}")
-            return path
-        env_path = os.getenv("OPENAGENTS_EXTENSIONS_CONFIG_PATH")
-        if env_path:
-            path = Path(env_path).expanduser()
-            if not path.exists():
-                raise FileNotFoundError(f"Extensions config file specified by environment variable `OPENAGENTS_EXTENSIONS_CONFIG_PATH` not found at {path}")
-            return path
-
-        return _resolve_existing_path(
-            [
-                Path("extensions_config.json"),
-                Path("..") / "extensions_config.json",
-                AGENTS_ROOT / "extensions_config.json",
-                AGENTS_ROOT.parent / "extensions_config.json",
-                AGENTS_ROOT.parent.parent / "extensions_config.json",
-                Path("mcp_config.json"),
-                Path("..") / "mcp_config.json",
-                AGENTS_ROOT / "mcp_config.json",
-                AGENTS_ROOT.parent / "mcp_config.json",
-                AGENTS_ROOT.parent.parent / "mcp_config.json",
-            ]
+        return resolve_config_file(
+            config_path=config_path,
+            env_var_name="OPENAGENTS_EXTENSIONS_CONFIG_PATH",
+            default_filenames=("extensions_config.json", "mcp_config.json"),
         )
 
     @classmethod

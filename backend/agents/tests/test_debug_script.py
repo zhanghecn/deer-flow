@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from unittest.mock import Mock
+import asyncio
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -56,6 +57,79 @@ def test_build_runnable_config_includes_runtime_identity():
             "subagent_enabled": True,
         }
     }
+
+
+def test_extract_text_reads_only_plain_text_blocks():
+    content = [
+        "line one",
+        {"type": "text", "text": "line two"},
+        {"type": "image", "url": "https://example.com/image.png"},
+        123,
+    ]
+
+    assert debug_module._extract_text(content) == "line one\nline two"
+
+
+def test_strip_text_returns_none_for_blank_values():
+    assert debug_module._strip_text("   ") is None
+    assert debug_module._strip_text(" value ") == "value"
+
+
+def test_stream_tool_calls_skips_invalid_items():
+    tool_calls = debug_module._stream_tool_calls(
+        [
+            {"name": "bash", "args": {"cmd": "pwd"}, "id": "tc-1"},
+            {"name": "", "args": {"cmd": "ls"}},
+            {"args": {"cmd": "whoami"}},
+            "not-a-tool-call",
+        ]
+    )
+
+    assert tool_calls == [{"name": "bash", "args": {"cmd": "pwd"}, "id": "tc-1"}]
+
+
+def test_debug_session_runs_runtime_turn(monkeypatch):
+    options = debug_module.DebugOptions(
+        mode="runtime",
+        thread_id="thread-123",
+        user_id="00000000-0000-0000-0000-000000000099",
+        model_name="glm-5",
+        thinking_enabled=True,
+        plan_mode=False,
+        subagent_enabled=False,
+        message=None,
+    )
+    runtime_agent = Mock()
+    run_runtime_turn = AsyncMock()
+    monkeypatch.setattr(debug_module, "_run_runtime_turn", run_runtime_turn)
+
+    session = debug_module.DebugSession(options=options, runtime_agent=runtime_agent)
+
+    asyncio.run(session.run_turn("hello"))
+
+    run_runtime_turn.assert_awaited_once_with(runtime_agent, options, "hello")
+
+
+def test_debug_session_runs_embedded_turn(monkeypatch):
+    options = debug_module.DebugOptions(
+        mode="embedded",
+        thread_id="thread-123",
+        user_id="00000000-0000-0000-0000-000000000099",
+        model_name="glm-5",
+        thinking_enabled=True,
+        plan_mode=False,
+        subagent_enabled=False,
+        message=None,
+    )
+    embedded_client = Mock()
+    run_embedded_turn = Mock()
+    monkeypatch.setattr(debug_module, "_run_embedded_turn", run_embedded_turn)
+
+    session = debug_module.DebugSession(options=options, embedded_client=embedded_client)
+
+    asyncio.run(session.run_turn("hello"))
+
+    run_embedded_turn.assert_called_once_with(embedded_client, options, "hello")
 
 
 def test_validate_runtime_options_rejects_non_uuid_user_id():

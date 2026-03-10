@@ -119,6 +119,7 @@ class AgentTraceCallbackHandler(BaseCallbackHandler):
     ) -> Any:
         node_name = _resolve_name(serialized)
         request_messages = _extract_chat_messages(messages)
+        request_context = _extract_model_request_context(serialized, kwargs)
         self._record_start(
             run_id=run_id,
             parent_run_id=parent_run_id,
@@ -126,10 +127,17 @@ class AgentTraceCallbackHandler(BaseCallbackHandler):
             node_name=node_name,
             tool_name=None,
             payload={
-                "model_request": {
-                    "messages": _shrink(request_messages),
-                },
-                "messages": _shrink(request_messages),
+                "model_request": _drop_none(
+                    {
+                        "messages": _shrink(
+                            request_messages,
+                            max_string_len=200000,
+                            max_items=256,
+                            max_depth=16,
+                        ),
+                        **request_context,
+                    }
+                ),
                 "metadata": _shrink(metadata),
                 "tags": tags or [],
             },
@@ -156,11 +164,19 @@ class AgentTraceCallbackHandler(BaseCallbackHandler):
             total_tokens=total_tok,
             payload={
                 "model_response": {
-                    "messages": _shrink(response_messages),
-                    "tool_calls": _shrink(response_tool_calls),
+                    "messages": _shrink(
+                        response_messages,
+                        max_string_len=120000,
+                        max_items=256,
+                        max_depth=16,
+                    ),
+                    "tool_calls": _shrink(
+                        response_tool_calls,
+                        max_string_len=120000,
+                        max_items=256,
+                        max_depth=16,
+                    ),
                 },
-                "messages": _shrink(response_messages),
-                "tool_calls": _shrink(response_tool_calls),
                 "llm_output": _shrink(getattr(response, "llm_output", None)),
                 "tags": tags or [],
             },
@@ -505,19 +521,9 @@ def _extract_usage(response: Any) -> tuple[int, int, int]:
     if isinstance(llm_output, dict):
         usage = llm_output.get("token_usage") or llm_output.get("usage")
         if isinstance(usage, dict):
-            input_tokens = _to_int(
-                usage.get("prompt_tokens")
-                or usage.get("input_tokens")
-                or usage.get("input_token_count")
-            )
-            output_tokens = _to_int(
-                usage.get("completion_tokens")
-                or usage.get("output_tokens")
-                or usage.get("output_token_count")
-            )
-            total_tokens = _to_int(
-                usage.get("total_tokens") or usage.get("total_token_count")
-            )
+            input_tokens = _to_int(usage.get("prompt_tokens") or usage.get("input_tokens") or usage.get("input_token_count"))
+            output_tokens = _to_int(usage.get("completion_tokens") or usage.get("output_tokens") or usage.get("output_token_count"))
+            total_tokens = _to_int(usage.get("total_tokens") or usage.get("total_token_count"))
 
     generations = getattr(response, "generations", None)
     if generations and isinstance(generations, list):
@@ -585,12 +591,84 @@ def _extract_tool_calls(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return calls
 
 
+def _extract_model_request_context(
+    serialized: dict[str, Any] | None,
+    kwargs: dict[str, Any],
+) -> dict[str, Any]:
+    request: dict[str, Any] = {}
+    invocation_params = kwargs.get("invocation_params")
+    options = kwargs.get("options")
+
+    if isinstance(invocation_params, dict):
+        model_name = _first_non_empty_str(
+            invocation_params.get("model_name"),
+            invocation_params.get("model"),
+            invocation_params.get("model_id"),
+        )
+        provider = _first_non_empty_str(
+            invocation_params.get("_type"),
+            invocation_params.get("provider"),
+        )
+        tool_choice = invocation_params.get("tool_choice")
+        parallel_tool_calls = invocation_params.get("parallel_tool_calls")
+        response_format = invocation_params.get("response_format")
+        extra_body = invocation_params.get("extra_body")
+        stop = invocation_params.get("stop")
+        temperature = invocation_params.get("temperature")
+        max_tokens = invocation_params.get("max_tokens")
+        reasoning_effort = invocation_params.get("reasoning_effort")
+        tools = _extract_registered_tools(invocation_params.get("tools"))
+        settings = _drop_none(
+            {
+                "temperature": _jsonify(temperature),
+                "max_tokens": _jsonify(max_tokens),
+                "reasoning_effort": _jsonify(reasoning_effort),
+                "stop": _jsonify(stop),
+            }
+        )
+
+        request.update(
+            _drop_none(
+                {
+                    "model": model_name,
+                    "provider": provider,
+                    "tool_choice": _jsonify(tool_choice),
+                    "parallel_tool_calls": _jsonify(parallel_tool_calls),
+                    "response_format": _shrink(response_format),
+                    "extra_body": _shrink(extra_body),
+                    "settings": _shrink(settings) if settings else None,
+                    "tools": _shrink(
+                        tools,
+                        max_string_len=120000,
+                        max_items=256,
+                        max_depth=16,
+                    )
+                    if tools
+                    else None,
+                }
+            )
+        )
+
+    if isinstance(options, dict):
+        option_settings = _drop_none(
+            {
+                "stop": _jsonify(options.get("stop")),
+                "structured_output": _jsonify(options.get("ls_structured_output_format")),
+            }
+        )
+        if option_settings:
+            request["options"] = _shrink(option_settings)
+
+    if "model" not in request:
+        request["model"] = _resolve_name(serialized)
+
+    return request
+
+
 def _serialize_message(message: Any) -> dict[str, Any]:
     serialized: dict[str, Any] = {}
 
-    role = _as_non_empty_str(getattr(message, "type", None)) or _as_non_empty_str(
-        getattr(message, "role", None)
-    )
+    role = _as_non_empty_str(getattr(message, "type", None)) or _as_non_empty_str(getattr(message, "role", None))
     if role:
         serialized["role"] = role
 
@@ -684,6 +762,51 @@ def _normalize_tool_call(value: Any) -> dict[str, Any] | None:
     return {"raw": _jsonify(value)}
 
 
+def _extract_registered_tools(raw_tools: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw_tools, list):
+        return []
+
+    tools: list[dict[str, Any]] = []
+    for raw_tool in raw_tools:
+        normalized = _normalize_registered_tool(raw_tool)
+        if normalized:
+            tools.append(normalized)
+    return tools
+
+
+def _normalize_registered_tool(value: Any) -> dict[str, Any] | None:
+    if hasattr(value, "model_dump"):
+        value = value.model_dump()
+    elif hasattr(value, "dict"):
+        value = value.dict()
+
+    payload = _jsonify(value)
+    if not isinstance(payload, dict):
+        return {"raw": payload}
+
+    if isinstance(payload.get("function"), dict):
+        function = payload.get("function") or {}
+        return _drop_none(
+            {
+                "type": _as_non_empty_str(payload.get("type")) or "function",
+                "name": _as_non_empty_str(function.get("name")),
+                "description": _jsonify(function.get("description")),
+                "parameters": _jsonify(function.get("parameters") or function.get("input_schema")),
+                "strict": _jsonify(function.get("strict")),
+            }
+        ) or {"raw": payload}
+
+    return _drop_none(
+        {
+            "type": _as_non_empty_str(payload.get("type")),
+            "name": _as_non_empty_str(payload.get("name")),
+            "description": _jsonify(payload.get("description")),
+            "parameters": _jsonify(payload.get("parameters") or payload.get("input_schema")),
+            "strict": _jsonify(payload.get("strict")),
+        }
+    ) or {"raw": payload}
+
+
 def _jsonify(value: Any) -> Any:
     if value is None:
         return None
@@ -717,6 +840,14 @@ def _as_non_empty_str(value: Any) -> str | None:
     return None
 
 
+def _first_non_empty_str(*values: Any) -> str | None:
+    for value in values:
+        text = _as_non_empty_str(value)
+        if text is not None:
+            return text
+    return None
+
+
 def _drop_none(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if value is not None}
 
@@ -730,16 +861,80 @@ def _to_int(value: Any) -> int:
         return 0
 
 
-def _shrink(value: Any, *, max_len: int = 3000) -> Any:
+def _truncate_text(value: str, max_len: int) -> str:
+    if len(value) <= max_len:
+        return value
+    omitted = len(value) - max_len
+    return f"{value[:max_len]}\n...[truncated {omitted} chars]"
+
+
+def _shrink(
+    value: Any,
+    *,
+    max_string_len: int = 12000,
+    max_items: int = 128,
+    max_depth: int = 10,
+) -> Any:
     if value is None:
         return None
-    try:
-        text = json.dumps(value, ensure_ascii=True, default=str)
-    except TypeError:
-        text = json.dumps(str(value), ensure_ascii=True)
-    if len(text) > max_len:
-        return {"truncated": True, "preview": text[:max_len]}
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return text
+    normalized = _jsonify(value)
+    return _shrink_value(
+        normalized,
+        depth=0,
+        max_string_len=max_string_len,
+        max_items=max_items,
+        max_depth=max_depth,
+    )
+
+
+def _shrink_value(
+    value: Any,
+    *,
+    depth: int,
+    max_string_len: int,
+    max_items: int,
+    max_depth: int,
+) -> Any:
+    if value is None:
+        return None
+    if depth >= max_depth:
+        return _truncate_text(json.dumps(value, ensure_ascii=True, default=str), max_string_len)
+    if isinstance(value, str):
+        return _truncate_text(value, max_string_len)
+    if isinstance(value, list):
+        items = [
+            _shrink_value(
+                item,
+                depth=depth + 1,
+                max_string_len=max_string_len,
+                max_items=max_items,
+                max_depth=max_depth,
+            )
+            for item in value[:max_items]
+        ]
+        if len(value) > max_items:
+            items.append(
+                {
+                    "truncated": True,
+                    "omitted_items": len(value) - max_items,
+                }
+            )
+        return items
+    if isinstance(value, dict):
+        items = list(value.items())
+        shrunken = {
+            str(key): _shrink_value(
+                item,
+                depth=depth + 1,
+                max_string_len=max_string_len,
+                max_items=max_items,
+                max_depth=max_depth,
+            )
+            for key, item in items[:max_items]
+        }
+        if len(items) > max_items:
+            shrunken["__truncated__"] = {
+                "omitted_keys": len(items) - max_items,
+            }
+        return shrunken
+    return value

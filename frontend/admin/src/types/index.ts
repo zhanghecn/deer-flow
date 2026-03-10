@@ -31,6 +31,7 @@ export interface TraceItem {
   total_tokens: number;
   error?: string;
   metadata?: Record<string, unknown>;
+  initial_user_message?: string;
 }
 
 export interface PaginatedResponse<T> {
