@@ -283,6 +283,15 @@ client.upload_files("thread-1", ["./report.pdf"])  # {"success": True, "files": 
 
 All dict-returning methods are validated against Gateway Pydantic response models in CI (`TestGatewayConformance`), ensuring the embedded client stays in sync with the HTTP API schemas. See `backend/agents/src/client.py` for full API documentation.
 
+For direct `lead_agent` debugging without the frontend, run:
+
+```bash
+cd backend/agents
+uv run python debug.py
+```
+
+Edit the `Quick Edit` variables at the top of [`backend/agents/debug.py`](./backend/agents/debug.py) first. `debug.py` also supports an interactive REPL and an `--mode embedded` option that uses `OpenAgentsClient` instead of calling `make_lead_agent()` directly.
+
 ## Documentation
 
 - [Contributing Guide](CONTRIBUTING.md) - Development environment setup and workflow

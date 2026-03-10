@@ -29,6 +29,7 @@ Frontend (Next.js) -> Go Gateway (:8001) -> LangGraph Server (:2024)
       |                     |
       |                     |- JWT auth
       |                     |- Agent/Skill CRUD + publish
+      |                     |- /api/langgraph/* reverse proxy
       |                     `- Open API
       |
       `- authFetch() injects JWT and handles 401s
@@ -102,11 +103,10 @@ Important directories:
 
 ## Environment
 
-Optional overrides:
+Optional override:
 
 ```bash
 NEXT_PUBLIC_BACKEND_BASE_URL=http://localhost:8001
-NEXT_PUBLIC_LANGGRAPH_BASE_URL=http://localhost:2024
 ```
 
 Requires Node.js 22+ and pnpm 10.26.2+.

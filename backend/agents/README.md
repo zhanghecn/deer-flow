@@ -229,6 +229,22 @@ make run
 
 Direct access: LangGraph at http://localhost:2024, Gateway at http://localhost:8001
 
+### Direct lead_agent debugging
+
+For backend-only debugging without the frontend, use the built-in runner:
+
+```bash
+cd backend/agents
+uv run python debug.py
+```
+
+Notes:
+- Edit the `Quick Edit` variables at the top of `debug.py` directly before running.
+- Default mode is `runtime`, which creates the real `lead_agent` via `make_lead_agent()`.
+- `runtime` mode now requires a valid UUID `--user-id` because thread bindings are stored in PostgreSQL.
+- Use `--mode embedded` to run through `OpenAgentsClient` when you want a lighter in-process smoke test.
+- Omit `--message` to enter an interactive REPL.
+
 ---
 
 ## Project Structure

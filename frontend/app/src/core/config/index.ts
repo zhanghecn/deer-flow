@@ -1,27 +1,40 @@
 import { env } from "@/env";
 
-export function getBackendBaseURL() {
-  if (env.NEXT_PUBLIC_BACKEND_BASE_URL) {
-    return env.NEXT_PUBLIC_BACKEND_BASE_URL;
-  } else {
-    return "";
+const DEFAULT_APP_BASE_URL = "http://localhost:3000";
+const DEFAULT_GATEWAY_BASE_URL = "http://localhost:8001";
+
+function trimTrailingSlash(url: string) {
+  return url.replace(/\/+$/, "");
+}
+
+function getBrowserBaseURL() {
+  if (typeof window === "undefined") {
+    return null;
   }
+
+  return window.location.origin;
+}
+
+function getGatewayBaseURL() {
+  return trimTrailingSlash(
+    env.NEXT_PUBLIC_BACKEND_BASE_URL ?? DEFAULT_GATEWAY_BASE_URL,
+  );
+}
+
+export function getBackendBaseURL() {
+  return getBrowserBaseURL() ?? getGatewayBaseURL();
 }
 
 export function getLangGraphBaseURL(isMock?: boolean) {
-  if (env.NEXT_PUBLIC_LANGGRAPH_BASE_URL) {
-    return env.NEXT_PUBLIC_LANGGRAPH_BASE_URL;
-  } else if (isMock) {
-    if (typeof window !== "undefined") {
-      return `${window.location.origin}/mock/api`;
+  const browserBaseURL = getBrowserBaseURL();
+
+  if (isMock) {
+    if (browserBaseURL) {
+      return `${browserBaseURL}/mock/api`;
     }
-    return "http://localhost:3000/mock/api";
-  } else {
-    // LangGraph SDK requires a full URL, construct it from current origin
-    if (typeof window !== "undefined") {
-      return `${window.location.origin}/api/langgraph`;
-    }
-    // Fallback for SSR
-    return "http://localhost:2026/api/langgraph";
+
+    return `${DEFAULT_APP_BASE_URL}/mock/api`;
   }
+
+  return `${browserBaseURL ?? getGatewayBaseURL()}/api/langgraph`;
 }

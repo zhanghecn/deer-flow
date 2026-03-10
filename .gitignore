@@ -33,7 +33,17 @@ extensions_config.json
 # Coverage report
 coverage.xml
 coverage/
-.openagents/
+# Track archived agent definitions in .openagents/agents/{dev,prod},
+# but keep runtime thread/user data out of git.
+.openagents/*
+!.openagents/agents/
+.openagents/agents/*
+!.openagents/agents/dev/
+!.openagents/agents/dev/**
+!.openagents/agents/prod/
+!.openagents/agents/prod/**
+.openagents/threads/
+.openagents/users/
 .claude/
 skills/custom/*
 logs/
@@ -52,7 +62,6 @@ sandbox_image_cache.tar
 
 # ignore the legacy `web` folder
 web/
-.openagents
 .deer-flow
 .playwright-cli
 server
