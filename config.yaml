@@ -1,0 +1,75 @@
+# OpenAgents local runtime config
+#
+# This file keeps your local/dev model settings. In cloud / gateway runtime,
+# model config can also come from PostgreSQL or per-request injection.
+
+models:
+  - name: glm-5
+    display_name: glm-5
+    use: langchain_openai:ChatOpenAI
+    model: glm-5
+    api_key: $OPENAI_API_KEY
+    base_url: $OPENAI_BASE_URL
+    max_tokens: 16384
+    # temperature: 0.7
+    supports_thinking: true
+    supports_vision: true
+    supports_reasoning_effort: true
+    when_thinking_enabled:
+      extra_body:
+        thinking:
+          type: enabled
+
+sandbox:
+  use: src.sandbox.local:LocalSandboxProvider
+
+storage:
+  base_dir: .openagents
+
+# Filesystem tools are provided by deepagents' FilesystemMiddleware and do not
+# need to be declared here.
+tool_groups:
+  - name: web
+
+tools:
+  - name: web_search
+    group: web
+    use: src.community.opencode_web.tools:web_search_tool
+    num_results: 8
+    search_type: auto
+    livecrawl: fallback
+    timeout: 25
+
+  - name: web_fetch
+    group: web
+    use: src.community.opencode_web.tools:web_fetch_tool
+    timeout: 30
+
+  - name: image_search
+    group: web
+    use: src.community.image_search.tools:image_search_tool
+    max_results: 5
+
+skills:
+  path: skills
+  container_path: /mnt/skills
+
+title:
+  enabled: true
+  max_words: 6
+  max_chars: 60
+  model_name: null
+
+summarization:
+  enabled: true
+  model_name: null
+  trigger:
+    - type: tokens
+      value: 15564
+  keep:
+    type: messages
+    value: 10
+  trim_tokens_to_summarize: 15564
+  summary_prompt: null
+
+# Memory is configured per agent, not in this root config file.
