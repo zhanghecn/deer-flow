@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -15,6 +16,7 @@ type ModelRecord struct {
 	Provider    string
 	ConfigJSON  json.RawMessage
 	Enabled     bool
+	CreatedAt   time.Time
 }
 
 type ModelRepo struct {
@@ -25,13 +27,40 @@ func NewModelRepo(pool *pgxpool.Pool) *ModelRepo {
 	return &ModelRepo{pool: pool}
 }
 
+type modelScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanModelRecord(scanner modelScanner) (ModelRecord, error) {
+	var row ModelRecord
+	err := scanner.Scan(
+		&row.Name,
+		&row.DisplayName,
+		&row.Provider,
+		&row.ConfigJSON,
+		&row.Enabled,
+		&row.CreatedAt,
+	)
+	return row, err
+}
+
 func (r *ModelRepo) ListEnabled(ctx context.Context) ([]ModelRecord, error) {
+	return r.list(ctx, `SELECT name, display_name, provider, config_json, enabled, created_at
+		FROM models
+		WHERE enabled = TRUE
+		ORDER BY created_at ASC, name ASC`)
+}
+
+func (r *ModelRepo) ListAll(ctx context.Context) ([]ModelRecord, error) {
+	return r.list(ctx, `SELECT name, display_name, provider, config_json, enabled, created_at
+		FROM models
+		ORDER BY created_at ASC, name ASC`)
+}
+
+func (r *ModelRepo) list(ctx context.Context, query string) ([]ModelRecord, error) {
 	rows, err := r.pool.Query(
 		ctx,
-		`SELECT name, display_name, provider, config_json, enabled
-		 FROM models
-		 WHERE enabled = TRUE
-		 ORDER BY created_at ASC`,
+		query,
 	)
 	if err != nil {
 		return nil, err
@@ -40,8 +69,8 @@ func (r *ModelRepo) ListEnabled(ctx context.Context) ([]ModelRecord, error) {
 
 	var result []ModelRecord
 	for rows.Next() {
-		var row ModelRecord
-		if err := rows.Scan(&row.Name, &row.DisplayName, &row.Provider, &row.ConfigJSON, &row.Enabled); err != nil {
+		row, err := scanModelRecord(rows)
+		if err != nil {
 			return nil, err
 		}
 		result = append(result, row)
@@ -50,14 +79,33 @@ func (r *ModelRepo) ListEnabled(ctx context.Context) ([]ModelRecord, error) {
 }
 
 func (r *ModelRepo) FindEnabledByName(ctx context.Context, name string) (*ModelRecord, error) {
-	var row ModelRecord
-	err := r.pool.QueryRow(
+	return r.findByQuery(
 		ctx,
-		`SELECT name, display_name, provider, config_json, enabled
+		`SELECT name, display_name, provider, config_json, enabled, created_at
 		 FROM models
 		 WHERE name = $1 AND enabled = TRUE`,
 		name,
-	).Scan(&row.Name, &row.DisplayName, &row.Provider, &row.ConfigJSON, &row.Enabled)
+	)
+}
+
+func (r *ModelRepo) FindByName(ctx context.Context, name string) (*ModelRecord, error) {
+	return r.findByQuery(
+		ctx,
+		`SELECT name, display_name, provider, config_json, enabled, created_at
+		FROM models
+		WHERE name = $1`,
+		name,
+	)
+}
+
+func (r *ModelRepo) findByQuery(ctx context.Context, query string, name string) (*ModelRecord, error) {
+	row, err := scanModelRecord(
+		r.pool.QueryRow(
+			ctx,
+			query,
+			name,
+		),
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -65,4 +113,62 @@ func (r *ModelRepo) FindEnabledByName(ctx context.Context, name string) (*ModelR
 		return nil, err
 	}
 	return &row, nil
+}
+
+func (r *ModelRepo) Create(ctx context.Context, record *ModelRecord) error {
+	row, err := scanModelRecord(
+		r.pool.QueryRow(
+			ctx,
+			`INSERT INTO models (name, display_name, provider, config_json, enabled)
+			VALUES ($1, $2, $3, $4, $5)
+			RETURNING name, display_name, provider, config_json, enabled, created_at`,
+			record.Name,
+			record.DisplayName,
+			record.Provider,
+			record.ConfigJSON,
+			record.Enabled,
+		),
+	)
+	if err != nil {
+		return err
+	}
+	*record = row
+	return nil
+}
+
+func (r *ModelRepo) UpdateByName(ctx context.Context, currentName string, record *ModelRecord) error {
+	row, err := scanModelRecord(
+		r.pool.QueryRow(
+			ctx,
+			`UPDATE models
+			SET name = $1, display_name = $2, provider = $3, config_json = $4, enabled = $5
+			WHERE name = $6
+			RETURNING name, display_name, provider, config_json, enabled, created_at`,
+			record.Name,
+			record.DisplayName,
+			record.Provider,
+			record.ConfigJSON,
+			record.Enabled,
+			currentName,
+		),
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return pgx.ErrNoRows
+	}
+	if err != nil {
+		return err
+	}
+	*record = row
+	return nil
+}
+
+func (r *ModelRepo) DeleteByName(ctx context.Context, name string) error {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM models WHERE name = $1`, name)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
 }

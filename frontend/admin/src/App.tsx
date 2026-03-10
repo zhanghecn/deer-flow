@@ -5,6 +5,7 @@ import { LoginPage } from "@/pages/login";
 import { DashboardPage } from "@/pages/dashboard";
 import { UsersPage } from "@/pages/users";
 import { AgentsPage } from "@/pages/agents";
+import { ModelsPage } from "@/pages/models";
 import { ObservabilityPage } from "@/pages/observability";
 import { ThreadsPage } from "@/pages/threads";
 
@@ -34,6 +35,10 @@ const router = createBrowserRouter([
           {
             path: "agents",
             element: <AgentsPage />,
+          },
+          {
+            path: "models",
+            element: <ModelsPage />,
           },
           {
             path: "observability",

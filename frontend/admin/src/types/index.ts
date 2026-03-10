@@ -87,6 +87,15 @@ export interface AdminStats {
   thread_count: number;
 }
 
+export interface AdminModel {
+  name: string;
+  display_name?: string | null;
+  provider: string;
+  enabled: boolean;
+  config_json: Record<string, unknown>;
+  created_at: string;
+}
+
 export interface AgentMemoryConfig {
   enabled: boolean;
   model_name?: string | null;

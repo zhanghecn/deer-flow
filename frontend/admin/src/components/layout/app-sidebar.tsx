@@ -3,6 +3,7 @@ import {
   Activity,
   Bot,
   ChevronsUpDown,
+  Cpu,
   LayoutDashboard,
   LogOut,
   MessagesSquare,
@@ -45,6 +46,7 @@ const NAV_ITEMS = [
     items: [
       { title: "Users", href: "/users", icon: Users },
       { title: "Agents", href: "/agents", icon: Bot },
+      { title: "Models", href: "/models", icon: Cpu },
     ],
   },
   {

@@ -85,7 +85,7 @@ func main() {
 	artifactsH := handler.NewArtifactsHandler(fs)
 	openAPIH := handler.NewOpenAPIHandler(agentRepo, modelRepo, cfg.Upstream.LangGraphURL, fs)
 	langGraphRuntimeH := handler.NewLangGraphRuntimeHandler()
-	adminH := handler.NewAdminHandler(userRepo, adminObservabilityRepo)
+	adminH := handler.NewAdminHandler(userRepo, adminObservabilityRepo, modelRepo)
 
 	// Compile proxy routes from gateway.yaml config
 	loggingLevel := strings.ToLower(cfg.Logging.Level)
@@ -212,6 +212,10 @@ func main() {
 			admin.PATCH("/users/:id/role", adminH.UpdateUserRole)
 			admin.DELETE("/users/:id", adminH.DeleteUser)
 			admin.GET("/stats", adminH.GetStats)
+			admin.GET("/models", adminH.ListModels)
+			admin.POST("/models", adminH.CreateModel)
+			admin.PUT("/models/:name", adminH.UpdateModel)
+			admin.DELETE("/models/:name", adminH.DeleteModel)
 			admin.GET("/traces", adminH.ListTraces)
 			admin.GET("/traces/:trace_id/events", adminH.GetTraceEvents)
 			admin.GET("/runtime/threads", adminH.ListRuntimeThreads)

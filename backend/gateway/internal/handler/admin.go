@@ -14,13 +14,19 @@ import (
 type AdminHandler struct {
 	userRepo          *repository.UserRepo
 	observabilityRepo *repository.AdminObservabilityRepo
+	modelRepo         *repository.ModelRepo
 }
 
 func NewAdminHandler(
 	userRepo *repository.UserRepo,
 	observabilityRepo *repository.AdminObservabilityRepo,
+	modelRepo *repository.ModelRepo,
 ) *AdminHandler {
-	return &AdminHandler{userRepo: userRepo, observabilityRepo: observabilityRepo}
+	return &AdminHandler{
+		userRepo:          userRepo,
+		observabilityRepo: observabilityRepo,
+		modelRepo:         modelRepo,
+	}
 }
 
 type updateUserRoleRequest struct {

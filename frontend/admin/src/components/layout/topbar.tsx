@@ -29,6 +29,7 @@ const ROUTE_LABELS: Record<string, string> = {
   dashboard: "Dashboard",
   users: "Users",
   agents: "Agents",
+  models: "Models",
   observability: "Observability",
   threads: "Threads",
 };
