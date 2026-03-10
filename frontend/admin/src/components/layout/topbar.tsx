@@ -29,7 +29,6 @@ const ROUTE_LABELS: Record<string, string> = {
   dashboard: "Dashboard",
   users: "Users",
   agents: "Agents",
-  "llm-keys": "LLM Keys",
   observability: "Observability",
   threads: "Threads",
 };

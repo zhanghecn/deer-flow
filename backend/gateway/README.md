@@ -272,9 +272,8 @@ POST /open/v1/agents/:name/stream  # 只有 prod agent 可通过 Open API 调用
 - `models` — 模型配置
 - `thread_bindings` — 线程归属与运行时绑定
 - `agent_traces` / `agent_trace_events` — Agent 观测数据
-- `llm_provider_keys` — Provider Key 管理
 
-`/api/models` 数据来自 `models` 表。运行时模型选择由 Python(LangGraph graph factory)直接查询数据库，不再由网关注入 `model_config`。
+`/api/models` 数据来自 `models` 表。运行时模型选择由 Python(LangGraph graph factory)直接查询数据库，不再由网关注入 `model_config`。`models` 是唯一的模型配置真源。
 
 数据库不再保存 Agent/Skill markdown 正文作为真源：
 - `agents.agents_md` 列保存 `agents/{status}/{name}/AGENTS.md` 这类引用路径

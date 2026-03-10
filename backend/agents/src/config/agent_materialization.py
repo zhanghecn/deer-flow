@@ -7,8 +7,13 @@ from pathlib import Path
 
 import yaml
 
-from src.config.agent_runtime_seed import prime_agent_runtime_seed
-from src.config.agents_config import AGENTS_MD_FILENAME, AgentConfig, AgentMemoryConfig, AgentSkillRef
+from src.config.agents_config import (
+    AGENTS_MD_FILENAME,
+    AgentConfig,
+    AgentMemoryConfig,
+    AgentSkillRef,
+    serialize_agent_skill_ref,
+)
 from src.config.paths import Paths, get_paths
 from src.skills import load_skills
 from src.skills.types import Skill
@@ -67,12 +72,10 @@ def _skill_relative_path(skill: Skill) -> Path:
     return Path(skill.skill_dir.name)
 
 
-def _to_agent_skill_ref(skill: Skill, relative_path: Path) -> AgentSkillRef:
+def _to_agent_skill_ref(skill: Skill) -> AgentSkillRef:
     return AgentSkillRef(
         name=skill.name,
-        category=skill.category,
         source_path=Path(skill.category, skill.skill_path or skill.skill_dir.name).as_posix(),
-        materialized_path=Path("skills", relative_path).as_posix(),
     )
 
 
@@ -96,7 +99,7 @@ def materialize_agent_skills(
         materialized_dir = skills_dir / relative_path
         materialized_dir.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(skill.skill_dir, materialized_dir, dirs_exist_ok=True)
-        skill_refs.append(_to_agent_skill_ref(skill, relative_path))
+        skill_refs.append(_to_agent_skill_ref(skill))
 
     return skill_refs
 
@@ -118,7 +121,7 @@ def _write_agent_manifest(
         "description": description,
         "status": status,
         "agents_md_path": AGENTS_MD_FILENAME,
-        "skill_refs": [skill_ref.model_dump(exclude_none=True) for skill_ref in skill_refs],
+        "skill_refs": [serialize_agent_skill_ref(skill_ref) for skill_ref in skill_refs],
         "memory": (memory or AgentMemoryConfig()).model_dump(exclude_none=True),
     }
     if model is not None:
@@ -186,13 +189,6 @@ def materialize_agent_definition(
         skill_refs=skill_refs,
         memory=memory_config,
     )
-    prime_agent_runtime_seed(
-        name,
-        status=status,
-        paths=paths,
-        manifest=agent_config,
-        force_refresh=True,
-    )
     return agent_config
 
 
@@ -220,11 +216,4 @@ def publish_agent_definition(name: str, *, paths: Paths | None = None) -> AgentC
         yaml.dump(config_data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 
     agent_config = AgentConfig.model_validate(config_data)
-    prime_agent_runtime_seed(
-        name,
-        status="prod",
-        paths=paths,
-        manifest=agent_config,
-        force_refresh=True,
-    )
     return agent_config

@@ -3,7 +3,6 @@ import {
   Activity,
   Bot,
   ChevronsUpDown,
-  Key,
   LayoutDashboard,
   LogOut,
   MessagesSquare,
@@ -46,7 +45,6 @@ const NAV_ITEMS = [
     items: [
       { title: "Users", href: "/users", icon: Users },
       { title: "Agents", href: "/agents", icon: Bot },
-      { title: "LLM Keys", href: "/llm-keys", icon: Key },
     ],
   },
   {

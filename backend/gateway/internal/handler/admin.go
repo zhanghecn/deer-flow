@@ -14,15 +14,13 @@ import (
 type AdminHandler struct {
 	userRepo          *repository.UserRepo
 	observabilityRepo *repository.AdminObservabilityRepo
-	llmKeyRepo        *repository.LLMKeyRepo
 }
 
 func NewAdminHandler(
 	userRepo *repository.UserRepo,
 	observabilityRepo *repository.AdminObservabilityRepo,
-	llmKeyRepo *repository.LLMKeyRepo,
 ) *AdminHandler {
-	return &AdminHandler{userRepo: userRepo, observabilityRepo: observabilityRepo, llmKeyRepo: llmKeyRepo}
+	return &AdminHandler{userRepo: userRepo, observabilityRepo: observabilityRepo}
 }
 
 type updateUserRoleRequest struct {
@@ -195,159 +193,4 @@ func (h *AdminHandler) GetStats(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, stats)
-}
-
-// maskAPIKey returns a masked version of an API key for display.
-func maskAPIKey(key string) string {
-	if len(key) <= 8 {
-		return "****"
-	}
-	return key[:4] + "****" + key[len(key)-4:]
-}
-
-type createLLMKeyRequest struct {
-	ProviderName string  `json:"provider_name" binding:"required"`
-	DisplayName  string  `json:"display_name" binding:"required"`
-	APIKey       string  `json:"api_key" binding:"required"`
-	BaseURL      *string `json:"base_url"`
-	IsActive     *bool   `json:"is_active"`
-}
-
-type updateLLMKeyRequest struct {
-	ProviderName string  `json:"provider_name" binding:"required"`
-	DisplayName  string  `json:"display_name" binding:"required"`
-	APIKey       string  `json:"api_key" binding:"required"`
-	BaseURL      *string `json:"base_url"`
-	IsActive     *bool   `json:"is_active"`
-}
-
-type llmKeyResponse struct {
-	ID           uuid.UUID  `json:"id"`
-	ProviderName string     `json:"provider_name"`
-	DisplayName  string     `json:"display_name"`
-	APIKey       string     `json:"api_key"`
-	BaseURL      *string    `json:"base_url"`
-	IsActive     bool       `json:"is_active"`
-	CreatedBy    *uuid.UUID `json:"created_by"`
-	CreatedAt    string     `json:"created_at"`
-	UpdatedAt    string     `json:"updated_at"`
-}
-
-func toLLMKeyResponse(k repository.LLMProviderKey) llmKeyResponse {
-	return llmKeyResponse{
-		ID:           k.ID,
-		ProviderName: k.ProviderName,
-		DisplayName:  k.DisplayName,
-		APIKey:       maskAPIKey(k.APIKey),
-		BaseURL:      k.BaseURL,
-		IsActive:     k.IsActive,
-		CreatedBy:    k.CreatedBy,
-		CreatedAt:    k.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-		UpdatedAt:    k.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
-	}
-}
-
-// ListLLMKeys returns all LLM provider keys (with masked API keys).
-func (h *AdminHandler) ListLLMKeys(c *gin.Context) {
-	keys, err := h.llmKeyRepo.List(c.Request.Context())
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to list LLM keys"})
-		return
-	}
-	items := make([]llmKeyResponse, len(keys))
-	for i, k := range keys {
-		items[i] = toLLMKeyResponse(k)
-	}
-	c.JSON(http.StatusOK, gin.H{"items": items})
-}
-
-// CreateLLMKey creates a new LLM provider key.
-func (h *AdminHandler) CreateLLMKey(c *gin.Context) {
-	var req createLLMKeyRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
-		return
-	}
-
-	isActive := true
-	if req.IsActive != nil {
-		isActive = *req.IsActive
-	}
-
-	record := &repository.LLMProviderKey{
-		ProviderName: req.ProviderName,
-		DisplayName:  req.DisplayName,
-		APIKey:       req.APIKey,
-		BaseURL:      req.BaseURL,
-		IsActive:     isActive,
-	}
-
-	if err := h.llmKeyRepo.Create(c.Request.Context(), record); err != nil {
-		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to create LLM key"})
-		return
-	}
-
-	c.JSON(http.StatusCreated, toLLMKeyResponse(*record))
-}
-
-// UpdateLLMKey updates an existing LLM provider key.
-func (h *AdminHandler) UpdateLLMKey(c *gin.Context) {
-	idRaw := strings.TrimSpace(c.Param("id"))
-	id, err := uuid.Parse(idRaw)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "invalid id"})
-		return
-	}
-
-	var req updateLLMKeyRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
-		return
-	}
-
-	isActive := true
-	if req.IsActive != nil {
-		isActive = *req.IsActive
-	}
-
-	record := &repository.LLMProviderKey{
-		ProviderName: req.ProviderName,
-		DisplayName:  req.DisplayName,
-		APIKey:       req.APIKey,
-		BaseURL:      req.BaseURL,
-		IsActive:     isActive,
-	}
-
-	if err := h.llmKeyRepo.Update(c.Request.Context(), id, record); err != nil {
-		if err == pgx.ErrNoRows {
-			c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "LLM key not found"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to update LLM key"})
-		return
-	}
-
-	record.ID = id
-	c.JSON(http.StatusOK, toLLMKeyResponse(*record))
-}
-
-// DeleteLLMKey removes an LLM provider key by ID.
-func (h *AdminHandler) DeleteLLMKey(c *gin.Context) {
-	idRaw := strings.TrimSpace(c.Param("id"))
-	id, err := uuid.Parse(idRaw)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "invalid id"})
-		return
-	}
-
-	if err := h.llmKeyRepo.Delete(c.Request.Context(), id); err != nil {
-		if err == pgx.ErrNoRows {
-			c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "LLM key not found"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to delete LLM key"})
-		return
-	}
-
-	c.JSON(http.StatusOK, model.SuccessResponse{Message: "LLM key deleted"})
 }

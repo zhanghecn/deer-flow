@@ -26,6 +26,14 @@ type MessageGroup =
   | AssistantClarificationGroup
   | AssistantSubagentGroup;
 
+type MessageContentBlock = {
+  type?: string;
+  text?: string;
+  thinking?: string;
+  reasoning?: string;
+  reasoning_content?: string;
+};
+
 export function groupMessages<T>(
   messages: Message[],
   mapper: (group: MessageGroup) => T,
@@ -162,20 +170,75 @@ export function extractContentFromMessage(message: Message) {
 }
 
 export function extractReasoningContentFromMessage(message: Message) {
-  if (message.type !== "ai" || !message.additional_kwargs) {
+  if (message.type !== "ai") {
     return null;
   }
-  if ("reasoning_content" in message.additional_kwargs) {
-    return message.additional_kwargs.reasoning_content as string | null;
+
+  const reasoningFromKwargs = message.additional_kwargs?.reasoning_content;
+  if (
+    typeof reasoningFromKwargs === "string" &&
+    reasoningFromKwargs.trim().length > 0
+  ) {
+    return reasoningFromKwargs;
+  }
+
+  if (!Array.isArray(message.content)) {
+    return null;
+  }
+
+  const parts = message.content
+    .map((block) => extractReasoningFromContentBlock(block))
+    .filter(
+      (part): part is string => typeof part === "string" && part.length > 0,
+    );
+  if (parts.length > 0) {
+    return parts.join("\n\n");
   }
   return null;
 }
 
+function extractReasoningFromContentBlock(block: unknown): string | null {
+  if (!block || typeof block !== "object") {
+    return null;
+  }
+
+  const contentBlock = block as MessageContentBlock;
+  const blockType = contentBlock.type;
+  if (blockType !== "thinking" && blockType !== "reasoning") {
+    return null;
+  }
+
+  for (const key of [
+    "thinking",
+    "reasoning",
+    "reasoning_content",
+    "text",
+  ] as const) {
+    const value = contentBlock[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
 export function removeReasoningContentFromMessage(message: Message) {
-  if (message.type !== "ai" || !message.additional_kwargs) {
+  if (message.type !== "ai") {
     return;
   }
-  delete message.additional_kwargs.reasoning_content;
+  if (message.additional_kwargs) {
+    delete message.additional_kwargs.reasoning_content;
+  }
+  if (Array.isArray(message.content)) {
+    message.content = message.content.filter((block) => {
+      if (!block || typeof block !== "object") {
+        return true;
+      }
+      const blockType = (block as MessageContentBlock).type;
+      return blockType !== "thinking" && blockType !== "reasoning";
+    });
+  }
 }
 
 export function extractURLFromImageURLContent(
@@ -202,10 +265,7 @@ export function hasContent(message: Message) {
 }
 
 export function hasReasoning(message: Message) {
-  return (
-    message.type === "ai" &&
-    typeof message.additional_kwargs?.reasoning_content === "string"
-  );
+  return typeof extractReasoningContentFromMessage(message) === "string";
 }
 
 export function hasToolCalls(message: Message) {

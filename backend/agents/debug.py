@@ -294,10 +294,47 @@ def _extract_text(content: object) -> str:
     return str(content)
 
 
+def _extract_reasoning_block(block: object) -> str | None:
+    if not isinstance(block, Mapping):
+        return None
+
+    block_type = block.get("type")
+    if block_type not in {"thinking", "reasoning"}:
+        return None
+
+    for key in ("thinking", "reasoning", "reasoning_content", "text"):
+        value = block.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
+
+
+def _extract_reasoning(content: object) -> str:
+    if not isinstance(content, list):
+        return ""
+
+    parts: list[str] = []
+    for block in content:
+        reasoning = _extract_reasoning_block(block)
+        if reasoning:
+            parts.append(reasoning)
+    return "\n".join(parts)
+
+
 def _print_ai_message(message: AIMessage) -> None:
     if message.tool_calls:
         for tool_call in message.tool_calls:
             print(f"\nTool Call [{tool_call['name']}]: {tool_call['args']}")
+
+    reasoning = (
+        message.additional_kwargs.get("reasoning_content")
+        if isinstance(message.additional_kwargs, dict)
+        else None
+    )
+    if not isinstance(reasoning, str) or not reasoning.strip():
+        reasoning = _extract_reasoning(message.content)
+    if isinstance(reasoning, str) and reasoning.strip():
+        print(f"\nReasoning: {reasoning.strip()}")
 
     text = _extract_text(message.content).strip()
     if text:

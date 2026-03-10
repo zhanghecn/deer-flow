@@ -146,18 +146,4 @@ CREATE INDEX IF NOT EXISTS idx_agent_trace_events_trace_id ON agent_trace_events
 CREATE INDEX IF NOT EXISTS idx_agent_trace_events_task_run_id ON agent_trace_events(task_run_id);
 CREATE INDEX IF NOT EXISTS idx_agent_trace_events_run_id ON agent_trace_events(run_id);
 
--- Provider keys
-CREATE TABLE IF NOT EXISTS llm_provider_keys (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    provider_name VARCHAR(64) NOT NULL,
-    display_name VARCHAR(256) NOT NULL,
-    api_key TEXT NOT NULL,
-    base_url TEXT,
-    is_active BOOLEAN NOT NULL DEFAULT true,
-    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_llm_provider_keys_provider ON llm_provider_keys(provider_name);
-
 COMMIT;

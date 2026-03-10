@@ -5,14 +5,13 @@ from unittest.mock import patch
 
 from src.agents.lead_agent import agent as lead_agent_module
 from src.config import builtin_agents
-from src.config.agent_runtime_seed import clear_agent_runtime_seed_cache, runtime_seed_targets
+from src.config.agent_runtime_seed import runtime_seed_targets
 from src.config.builtin_agents import LEAD_AGENT_NAME
 from src.config.model_config import ModelConfig
 from src.config.paths import Paths
 
 
 def setup_function() -> None:
-    clear_agent_runtime_seed_cache()
     builtin_agents._ENSURED_ARCHIVES.clear()
 
 
@@ -114,43 +113,7 @@ def test_build_backend_named_agent_seeds_agent_definition_into_thread_runtime(tm
     assert responses[2].content == b"Analyze data"
 
 
-def test_runtime_seed_targets_refresh_on_revision_change(tmp_path):
-    base_dir = tmp_path / ".openagents"
-    agent_dir = base_dir / "agents" / "dev" / "analyst"
-    (agent_dir / "skills" / "data-analysis").mkdir(parents=True)
-    (agent_dir / "AGENTS.md").write_text("v1", encoding="utf-8")
-    (agent_dir / "config.yaml").write_text(
-        "name: analyst\nstatus: dev\nagents_md_path: AGENTS.md\n"
-        "skill_refs:\n  - name: data-analysis\n    materialized_path: skills/data-analysis/SKILL.md\n",
-        encoding="utf-8",
-    )
-    (agent_dir / "skills" / "data-analysis" / "SKILL.md").write_text("skill-v1", encoding="utf-8")
-    paths = _make_paths(base_dir)
-
-    first_targets = runtime_seed_targets(
-        "analyst",
-        status="dev",
-        target_root=lead_agent_module._runtime_agent_root("analyst", "dev"),
-        paths=paths,
-        revision="rev-1",
-    )
-
-    (agent_dir / "AGENTS.md").write_text("v2", encoding="utf-8")
-    second_targets = runtime_seed_targets(
-        "analyst",
-        status="dev",
-        target_root=lead_agent_module._runtime_agent_root("analyst", "dev"),
-        paths=paths,
-        revision="rev-2",
-    )
-
-    first_agents_md = dict(first_targets)[f"{lead_agent_module._runtime_agent_root('analyst', 'dev')}/AGENTS.md"]
-    second_agents_md = dict(second_targets)[f"{lead_agent_module._runtime_agent_root('analyst', 'dev')}/AGENTS.md"]
-    assert first_agents_md == b"v1"
-    assert second_agents_md == b"v2"
-
-
-def test_runtime_seed_targets_refresh_when_local_archive_changes_without_explicit_revision(tmp_path):
+def test_runtime_seed_targets_reads_latest_archive_contents(tmp_path):
     base_dir = tmp_path / ".openagents"
     agent_dir = base_dir / "agents" / "dev" / "analyst"
     (agent_dir / "skills" / "data-analysis").mkdir(parents=True)

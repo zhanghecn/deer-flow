@@ -3,22 +3,7 @@
 # This file keeps your local/dev model settings. In cloud / gateway runtime,
 # model config can also come from PostgreSQL or per-request injection.
 
-models:
-  - name: glm-5
-    display_name: glm-5
-    use: langchain_openai:ChatOpenAI
-    model: glm-5
-    api_key: $OPENAI_API_KEY
-    base_url: $OPENAI_BASE_URL
-    max_tokens: 16384
-    # temperature: 0.7
-    supports_thinking: true
-    supports_vision: true
-    supports_reasoning_effort: true
-    when_thinking_enabled:
-      extra_body:
-        thinking:
-          type: enabled
+models: []
 
 sandbox:
   use: src.sandbox.local:LocalSandboxProvider

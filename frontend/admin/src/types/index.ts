@@ -87,18 +87,6 @@ export interface AdminStats {
   thread_count: number;
 }
 
-export interface LLMProviderKey {
-  id: string;
-  provider_name: string;
-  display_name: string;
-  api_key: string;
-  base_url?: string;
-  is_active: boolean;
-  created_by?: string;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface AgentMemoryConfig {
   enabled: boolean;
   model_name?: string | null;

@@ -1,7 +1,6 @@
 import yaml
 
 from src.config import builtin_agents
-from src.config.agent_runtime_seed import clear_agent_runtime_seed_cache
 from src.config.paths import Paths
 
 
@@ -23,7 +22,6 @@ def test_ensure_builtin_agent_archive_is_cached_per_status(monkeypatch):
 
 
 def test_ensure_builtin_agent_archive_rewrites_legacy_skills_mode(tmp_path, monkeypatch):
-    clear_agent_runtime_seed_cache()
     monkeypatch.setattr(builtin_agents, "_ENSURED_ARCHIVES", set())
 
     base_dir = tmp_path / ".openagents"
@@ -47,4 +45,7 @@ def test_ensure_builtin_agent_archive_rewrites_legacy_skills_mode(tmp_path, monk
     config_data = yaml.safe_load((agent_dir / "config.yaml").read_text(encoding="utf-8"))
     assert "skills_mode" not in config_data
     assert config_data["skill_refs"]
-    assert config_data["skill_refs"][0]["name"] == "bootstrap"
+    assert config_data["skill_refs"][0] == {
+        "name": "bootstrap",
+        "source_path": "public/bootstrap",
+    }

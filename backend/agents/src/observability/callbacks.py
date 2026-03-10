@@ -699,7 +699,7 @@ def _serialize_message(message: Any) -> dict[str, Any]:
     additional_kwargs = getattr(message, "additional_kwargs", None)
     if isinstance(additional_kwargs, dict):
         extra: dict[str, Any] = {}
-        for key in ("finish_reason", "stop_reason", "refusal"):
+        for key in ("finish_reason", "stop_reason", "refusal", "reasoning_content"):
             if key in additional_kwargs:
                 extra[key] = _jsonify(additional_kwargs.get(key))
         if extra:

@@ -138,12 +138,60 @@ function ToolCard({ tool }: { tool: Record<string, unknown> }) {
   );
 }
 
+function extractReasoningContent(value: unknown): string | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const parts = value
+    .map((item) => {
+      if (!isObject(item)) {
+        return null;
+      }
+      const blockType = item.type;
+      if (blockType !== "thinking" && blockType !== "reasoning") {
+        return null;
+      }
+
+      for (const key of [
+        "thinking",
+        "reasoning",
+        "reasoning_content",
+        "text",
+      ] as const) {
+        const blockValue = item[key];
+        if (typeof blockValue === "string" && blockValue.trim().length > 0) {
+          return blockValue;
+        }
+      }
+
+      return null;
+    })
+    .filter(
+      (item): item is string => typeof item === "string" && item.length > 0,
+    );
+
+  if (parts.length === 0) {
+    return null;
+  }
+
+  return parts.join("\n\n");
+}
+
 function MessageCard({ message }: { message: Record<string, unknown> }) {
   const role = typeof message.role === "string" ? message.role : "message";
   const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
   const responseMetadata = isObject(message.response_metadata)
     ? message.response_metadata
     : null;
+  const additionalKwargs = isObject(message.additional_kwargs)
+    ? message.additional_kwargs
+    : null;
+  const reasoningContent =
+    (typeof additionalKwargs?.reasoning_content === "string" &&
+    additionalKwargs.reasoning_content.trim().length > 0
+      ? additionalKwargs.reasoning_content
+      : null) ?? extractReasoningContent(message.content);
 
   return (
     <div className="rounded-md border bg-background/60 px-3 py-3 space-y-3">
@@ -160,6 +208,17 @@ function MessageCard({ message }: { message: Record<string, unknown> }) {
           </span>
         )}
       </div>
+
+      {reasoningContent && (
+        <div className="space-y-1">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            Reasoning
+          </p>
+          <div className="rounded-md border border-dashed bg-background/50 px-3 py-3">
+            {renderMarkdown(reasoningContent)}
+          </div>
+        </div>
+      )}
 
       <MarkdownBlock value={message.content} emptyLabel="No text content." />
 

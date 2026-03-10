@@ -115,13 +115,13 @@ class TestAgentConfig:
             skill_refs=[
                 {
                     "name": "data-analysis",
-                    "category": "public",
                     "source_path": "public/data-analysis",
-                    "materialized_path": "skills/data-analysis",
                 }
             ],
         )
         assert cfg.skill_refs[0].name == "data-analysis"
+        assert cfg.skill_refs[0].category == "public"
+        assert cfg.skill_refs[0].materialized_path == "skills/data-analysis"
 
     def test_config_with_memory_policy(self):
         from src.config.agents_config import AgentConfig
@@ -208,9 +208,7 @@ class TestLoadAgentConfig:
                 "skill_refs": [
                     {
                         "name": "data-analysis",
-                        "category": "public",
                         "source_path": "public/data-analysis",
-                        "materialized_path": "skills/data-analysis",
                     }
                 ]
             },
@@ -223,6 +221,8 @@ class TestLoadAgentConfig:
 
         assert len(cfg.skill_refs) == 1
         assert cfg.skill_refs[0].name == "data-analysis"
+        assert cfg.skill_refs[0].category == "public"
+        assert cfg.skill_refs[0].materialized_path == "skills/data-analysis"
 
     def test_unknown_fields_are_ignored(self, tmp_path):
         agent_dir = tmp_path / "agents" / "dev" / "legacy-agent"
@@ -511,7 +511,10 @@ class TestAgentsAPI:
 
         config = yaml.safe_load((agent_dir / "config.yaml").read_text(encoding="utf-8"))
         assert config["agents_md_path"] == "AGENTS.md"
-        assert [skill["name"] for skill in config["skill_refs"]] == ["data-analysis", "deep-research"]
+        assert config["skill_refs"] == [
+            {"name": "data-analysis", "source_path": "public/data-analysis"},
+            {"name": "deep-research", "source_path": "custom/deep-research"},
+        ]
         assert config["memory"]["enabled"] is False
         assert "skills_mode" not in config
 

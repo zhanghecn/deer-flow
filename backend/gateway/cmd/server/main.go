@@ -68,7 +68,6 @@ func main() {
 	modelRepo := repository.NewModelRepo(pool)
 	threadRepo := repository.NewThreadRepo(pool)
 	adminObservabilityRepo := repository.NewAdminObservabilityRepo(pool)
-	llmKeyRepo := repository.NewLLMKeyRepo(pool)
 
 	// Services
 	agentSvc := service.NewAgentService(agentRepo, skillRepo, fs)
@@ -86,7 +85,7 @@ func main() {
 	artifactsH := handler.NewArtifactsHandler(fs)
 	openAPIH := handler.NewOpenAPIHandler(agentRepo, modelRepo, cfg.Upstream.LangGraphURL, fs)
 	langGraphRuntimeH := handler.NewLangGraphRuntimeHandler()
-	adminH := handler.NewAdminHandler(userRepo, adminObservabilityRepo, llmKeyRepo)
+	adminH := handler.NewAdminHandler(userRepo, adminObservabilityRepo)
 
 	// Compile proxy routes from gateway.yaml config
 	loggingLevel := strings.ToLower(cfg.Logging.Level)
@@ -217,10 +216,6 @@ func main() {
 			admin.GET("/traces/:trace_id/events", adminH.GetTraceEvents)
 			admin.GET("/runtime/threads", adminH.ListRuntimeThreads)
 			admin.GET("/runtime/checkpoint-status", adminH.GetCheckpointStatus)
-			admin.GET("/llm-keys", adminH.ListLLMKeys)
-			admin.POST("/llm-keys", adminH.CreateLLMKey)
-			admin.PUT("/llm-keys/:id", adminH.UpdateLLMKey)
-			admin.DELETE("/llm-keys/:id", adminH.DeleteLLMKey)
 		}
 
 	}

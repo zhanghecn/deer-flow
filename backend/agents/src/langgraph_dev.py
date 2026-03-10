@@ -9,7 +9,6 @@ from typing import Any
 from dotenv import dotenv_values
 from langgraph_api.cli import run_server
 
-from src.config.agent_runtime_seed import prime_all_agent_runtime_seeds
 from src.config.builtin_agents import ensure_builtin_agent_archive
 
 ALLOWED_RUNTIME_EDITIONS = {"inmem", "postgres", "community"}
@@ -107,12 +106,9 @@ def main() -> None:
         f"(host={host} port={port})"
     )
 
-    # Pre-materialize archived agent files before the async runtime starts so
-    # request handling never needs to walk archived directories under blockbuster.
+    # Ensure built-in archived agent files exist before serving requests.
     ensure_builtin_agent_archive("lead_agent", status="dev")
     ensure_builtin_agent_archive("lead_agent", status="prod")
-    primed_archives = prime_all_agent_runtime_seeds()
-    print(f"Primed {len(primed_archives)} archived agent runtime seeds")
 
     run_server(
         host=host,

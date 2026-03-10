@@ -2,7 +2,7 @@
 
 import logging
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
@@ -15,6 +15,48 @@ logger = logging.getLogger(__name__)
 
 AGENTS_MD_FILENAME = "AGENTS.md"
 AGENT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+_SKILL_SOURCE_CATEGORIES = frozenset({"public", "custom"})
+
+
+def _normalize_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
+def _parse_skill_source_path(source_path: str) -> tuple[str, PurePosixPath]:
+    path = PurePosixPath(source_path)
+    if path.is_absolute() or ".." in path.parts or len(path.parts) < 2:
+        raise ValueError("Agent skill source_path must be a safe relative path like 'public/my-skill'.")
+
+    category = path.parts[0]
+    if category not in _SKILL_SOURCE_CATEGORIES:
+        valid = ", ".join(sorted(_SKILL_SOURCE_CATEGORIES))
+        raise ValueError(f"Agent skill source_path must start with one of: {valid}.")
+
+    return category, PurePosixPath(*path.parts[1:])
+
+
+def _derive_materialized_path(source_path: str) -> str:
+    _category, relative_path = _parse_skill_source_path(source_path)
+    return PurePosixPath("skills", relative_path).as_posix()
+
+
+def _derive_source_path(category: str, materialized_path: str) -> str:
+    normalized_category = category.strip()
+    if normalized_category not in _SKILL_SOURCE_CATEGORIES:
+        valid = ", ".join(sorted(_SKILL_SOURCE_CATEGORIES))
+        raise ValueError(f"Agent skill category must be one of: {valid}.")
+
+    path = PurePosixPath(materialized_path)
+    if path.is_absolute() or ".." in path.parts or not path.parts or path.parts[0] != "skills":
+        raise ValueError("Agent skill materialized_path must stay under 'skills/'.")
+
+    relative_path = PurePosixPath(*path.parts[1:])
+    if str(relative_path) == ".":
+        raise ValueError("Agent skill materialized_path must point to a concrete skill directory.")
+    return PurePosixPath(normalized_category, relative_path).as_posix()
 
 
 class AgentConfig(BaseModel):
@@ -38,6 +80,36 @@ class AgentSkillRef(BaseModel):
     category: str | None = None
     source_path: str | None = None
     materialized_path: str | None = None
+
+    @model_validator(mode="after")
+    def normalize_reference(self) -> "AgentSkillRef":
+        self.name = self.name.strip()
+        if not self.name:
+            raise ValueError("Agent skill ref requires a non-empty name.")
+
+        category = _normalize_optional_text(self.category)
+        source_path = _normalize_optional_text(self.source_path)
+        materialized_path = _normalize_optional_text(self.materialized_path)
+
+        if source_path is not None:
+            derived_category, _relative_path = _parse_skill_source_path(source_path)
+            derived_materialized_path = _derive_materialized_path(source_path)
+            if category is None:
+                category = derived_category
+            elif category != derived_category:
+                raise ValueError("Agent skill ref category does not match source_path.")
+
+            if materialized_path is None:
+                materialized_path = derived_materialized_path
+            elif materialized_path != derived_materialized_path:
+                raise ValueError("Agent skill ref materialized_path does not match source_path.")
+        elif category is not None and materialized_path is not None:
+            source_path = _derive_source_path(category, materialized_path)
+
+        self.category = category
+        self.source_path = source_path
+        self.materialized_path = materialized_path
+        return self
 
 
 class AgentMemoryConfig(BaseModel):
@@ -65,6 +137,19 @@ class AgentMemoryConfig(BaseModel):
 
 
 AgentConfig.model_rebuild()
+
+
+def serialize_agent_skill_ref(skill_ref: AgentSkillRef) -> dict[str, str]:
+    payload = {"name": skill_ref.name}
+    if skill_ref.source_path is not None:
+        payload["source_path"] = skill_ref.source_path
+        return payload
+
+    if skill_ref.category is not None:
+        payload["category"] = skill_ref.category
+    if skill_ref.materialized_path is not None:
+        payload["materialized_path"] = skill_ref.materialized_path
+    return payload
 
 
 def _resolve_agent_dir(name: str, status: str) -> Path:

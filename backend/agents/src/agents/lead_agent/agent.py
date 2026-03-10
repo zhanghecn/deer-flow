@@ -136,7 +136,6 @@ def _build_runtime_seed_targets(
         target_root=target_root,
         paths=paths,
         manifest=agent_config,
-        revision=agent_config.revision if agent_config is not None else None,
     )
 
 
@@ -491,7 +490,6 @@ def _load_agent_runtime_config(
             agents_md_path=file_config.agents_md_path,
             skill_refs=file_config.skill_refs,
             memory=file_config.memory,
-            revision=None,
         )
 
     raise ValueError(f"Agent '{agent_name}' with status '{agent_status}' not found in database or archive.")

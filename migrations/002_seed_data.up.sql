@@ -16,7 +16,12 @@ VALUES
           "base_url": "https://api.kimi.com/coding/",
           "supports_thinking": true,
           "supports_vision": false,
-          "supports_reasoning_effort": false
+          "supports_reasoning_effort": false,
+          "when_thinking_enabled": {
+            "thinking": {
+              "type": "enabled"
+            }
+          }
         }'::jsonb,
         true
     ),
@@ -31,7 +36,12 @@ VALUES
           "base_url": "https://api.kimi.com/coding/",
           "supports_thinking": true,
           "supports_vision": false,
-          "supports_reasoning_effort": false
+          "supports_reasoning_effort": false,
+          "when_thinking_enabled": {
+            "thinking": {
+              "type": "enabled"
+            }
+          }
         }'::jsonb,
         true
     ),
@@ -46,7 +56,12 @@ VALUES
           "base_url": "https://coding.dashscope.aliyuncs.com/apps/anthropic",
           "supports_thinking": true,
           "supports_vision": false,
-          "supports_reasoning_effort": false
+          "supports_reasoning_effort": false,
+          "when_thinking_enabled": {
+            "thinking": {
+              "type": "enabled"
+            }
+          }
         }'::jsonb,
         true
     )

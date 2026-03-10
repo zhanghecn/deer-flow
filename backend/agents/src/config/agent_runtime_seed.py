@@ -1,11 +1,9 @@
-"""Cache archived agent files used to seed thread runtime backends."""
+"""Build archived agent files that should be copied into a thread runtime."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from hashlib import sha256
 from pathlib import Path, PurePosixPath
-from threading import Lock
 from typing import Protocol
 
 import yaml
@@ -28,22 +26,6 @@ class _LocalSkillRef:
 class _LocalSeedManifest:
     agents_md_path: str
     skill_refs: list[_LocalSkillRef]
-
-
-@dataclass(frozen=True)
-class AgentRuntimeSeed:
-    agent_name: str
-    status: str
-    revision: str | None
-    files: tuple[tuple[PurePosixPath, bytes], ...]
-
-
-_RUNTIME_SEEDS: dict[tuple[str, str], AgentRuntimeSeed] = {}
-_RUNTIME_SEEDS_LOCK = Lock()
-
-
-def _cache_key(agent_name: str, status: str) -> tuple[str, str]:
-    return (agent_name.strip().lower(), status.strip().lower())
 
 
 def _normalize_relative_path(raw_path: str, *, field_name: str) -> PurePosixPath:
@@ -71,6 +53,8 @@ def _dedupe_paths(paths: list[PurePosixPath]) -> tuple[PurePosixPath, ...]:
 
 
 def _load_manifest(agent_name: str, status: str, *, paths: Paths) -> _LocalSeedManifest:
+    from src.config.agents_config import AgentSkillRef
+
     config_path = paths.agent_config_file(agent_name, status)
     if not config_path.exists():
         raise FileNotFoundError(f"Agent '{agent_name}' ({status}) not found in local archive.")
@@ -88,21 +72,15 @@ def _load_manifest(agent_name: str, status: str, *, paths: Paths) -> _LocalSeedM
     for index, raw_ref in enumerate(raw_skill_refs):
         if not isinstance(raw_ref, dict):
             raise ValueError(f"Agent config field 'skill_refs[{index}]' must be an object: {config_path}")
+        parsed_ref = AgentSkillRef.model_validate(raw_ref)
         skill_refs.append(
             _LocalSkillRef(
-                name=str(raw_ref.get("name") or "").strip(),
-                materialized_path=(
-                    str(raw_ref.get("materialized_path")).strip()
-                    if raw_ref.get("materialized_path") is not None
-                    else None
-                ),
+                name=parsed_ref.name,
+                materialized_path=parsed_ref.materialized_path,
             )
         )
 
-    return _LocalSeedManifest(
-        agents_md_path=agents_md_path,
-        skill_refs=skill_refs,
-    )
+    return _LocalSeedManifest(agents_md_path=agents_md_path, skill_refs=skill_refs)
 
 
 def _manifest_relative_paths(manifest: AgentSeedManifest) -> tuple[PurePosixPath, ...]:
@@ -149,93 +127,6 @@ def _read_archive_entry(agent_dir: Path, relative_path: PurePosixPath) -> list[t
     return [(relative_path, absolute_path.read_bytes())]
 
 
-def _compute_local_archive_revision(
-    *,
-    agent_dir: Path,
-    manifest: AgentSeedManifest,
-) -> str:
-    digest = sha256()
-
-    for relative_path in _manifest_relative_paths(manifest):
-        absolute_path = _resolve_archive_file(agent_dir, relative_path)
-        if absolute_path.is_dir():
-            nested_files = sorted(nested for nested in absolute_path.rglob("*") if nested.is_file())
-            for nested_file in nested_files:
-                nested_relative = relative_path / PurePosixPath(
-                    nested_file.relative_to(absolute_path).as_posix()
-                )
-                digest.update(nested_relative.as_posix().encode("utf-8"))
-                digest.update(b"\0")
-                digest.update(nested_file.read_bytes())
-                digest.update(b"\0")
-            continue
-
-        digest.update(relative_path.as_posix().encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(absolute_path.read_bytes())
-        digest.update(b"\0")
-
-    return digest.hexdigest()
-
-
-def _build_seed(
-    *,
-    agent_name: str,
-    status: str,
-    agent_dir: Path,
-    manifest: AgentSeedManifest,
-    revision: str | None,
-) -> AgentRuntimeSeed:
-    files: list[tuple[PurePosixPath, bytes]] = []
-    for relative_path in _manifest_relative_paths(manifest):
-        files.extend(_read_archive_entry(agent_dir, relative_path))
-    return AgentRuntimeSeed(
-        agent_name=agent_name,
-        status=status,
-        revision=revision,
-        files=tuple(files),
-    )
-
-
-def get_cached_agent_runtime_seed(agent_name: str, status: str = "dev") -> AgentRuntimeSeed | None:
-    return _RUNTIME_SEEDS.get(_cache_key(agent_name, status))
-
-
-def prime_agent_runtime_seed(
-    agent_name: str,
-    *,
-    status: str = "dev",
-    paths: Paths | None = None,
-    manifest: AgentSeedManifest | None = None,
-    revision: str | None = None,
-    force_refresh: bool = False,
-) -> AgentRuntimeSeed:
-    paths = paths or get_paths()
-    key = _cache_key(agent_name, status)
-    loaded_manifest = manifest or _load_manifest(agent_name, status, paths=paths)
-    effective_revision = revision
-    if effective_revision is None:
-        effective_revision = _compute_local_archive_revision(
-            agent_dir=paths.agent_dir(agent_name, status),
-            manifest=loaded_manifest,
-        )
-
-    with _RUNTIME_SEEDS_LOCK:
-        cached = _RUNTIME_SEEDS.get(key)
-        if cached is not None and not force_refresh and cached.revision == effective_revision:
-            return cached
-
-        seed = _build_seed(
-            agent_name=key[0],
-            status=key[1],
-            agent_dir=paths.agent_dir(agent_name, status),
-            manifest=loaded_manifest,
-            revision=effective_revision,
-        )
-        _RUNTIME_SEEDS[key] = seed
-        return seed
-
-
 def runtime_seed_targets(
     agent_name: str,
     *,
@@ -243,39 +134,14 @@ def runtime_seed_targets(
     target_root: str,
     paths: Paths | None = None,
     manifest: AgentSeedManifest | None = None,
-    revision: str | None = None,
 ) -> list[tuple[str, bytes]]:
-    seed = prime_agent_runtime_seed(
-        agent_name,
-        status=status,
-        paths=paths,
-        manifest=manifest,
-        revision=revision,
-    )
-    normalized_target_root = target_root.rstrip("/")
-    return [
-        (f"{normalized_target_root}/{relative_path.as_posix()}", content)
-        for relative_path, content in seed.files
-    ]
-
-
-def prime_all_agent_runtime_seeds(paths: Paths | None = None) -> list[tuple[str, str]]:
     paths = paths or get_paths()
-    primed: list[tuple[str, str]] = []
+    loaded_manifest = manifest or _load_manifest(agent_name, status, paths=paths)
+    agent_dir = paths.agent_dir(agent_name, status)
+    normalized_target_root = target_root.rstrip("/")
 
-    for status in ("dev", "prod"):
-        status_dir = paths.agents_dir / status
-        if not status_dir.exists():
-            continue
-        for agent_dir in sorted(status_dir.iterdir()):
-            if not agent_dir.is_dir() or not (agent_dir / "config.yaml").exists():
-                continue
-            prime_agent_runtime_seed(agent_dir.name, status=status, paths=paths, force_refresh=True)
-            primed.append((agent_dir.name, status))
-
-    return primed
-
-
-def clear_agent_runtime_seed_cache() -> None:
-    with _RUNTIME_SEEDS_LOCK:
-        _RUNTIME_SEEDS.clear()
+    targets: list[tuple[str, bytes]] = []
+    for relative_path in _manifest_relative_paths(loaded_manifest):
+        for nested_relative, content in _read_archive_entry(agent_dir, relative_path):
+            targets.append((f"{normalized_target_root}/{nested_relative.as_posix()}", content))
+    return targets

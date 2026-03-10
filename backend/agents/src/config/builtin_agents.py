@@ -5,7 +5,6 @@ from threading import Lock
 
 import yaml
 
-from src.config.agent_runtime_seed import prime_agent_runtime_seed
 from src.config.paths import Paths, get_paths
 from src.skills import load_skills
 
@@ -76,13 +75,14 @@ def _selected_skill_names(
 
 def _copy_builtin_skills(*, paths: Paths, status: str, skill_names: list[str]) -> list[dict[str, str]]:
     from src.config.agent_materialization import materialize_agent_skills
+    from src.config.agents_config import serialize_agent_skill_ref
 
     skill_refs = materialize_agent_skills(
         skills_dir=paths.agent_skills_dir(LEAD_AGENT_NAME, status),
         skill_names=skill_names,
         paths=paths,
     )
-    return [skill_ref.model_dump(exclude_none=True) for skill_ref in skill_refs]
+    return [serialize_agent_skill_ref(skill_ref) for skill_ref in skill_refs]
 
 
 def _ensure_lead_agent_archive_for_status(*, status: str, paths: Paths) -> None:
@@ -131,13 +131,6 @@ def _ensure_lead_agent_archive_for_status(*, status: str, paths: Paths) -> None:
             yaml.dump(config_data, default_flow_style=False, allow_unicode=True, sort_keys=False),
             encoding="utf-8",
         )
-
-    prime_agent_runtime_seed(
-        LEAD_AGENT_NAME,
-        status=status,
-        paths=paths,
-        force_refresh=True,
-    )
 
 
 def ensure_builtin_agent_archive(

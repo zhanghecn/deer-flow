@@ -1,4 +1,10 @@
-from src.observability.callbacks import _extract_model_request_context, _shrink
+from langchain_core.messages import AIMessage
+
+from src.observability.callbacks import (
+    _extract_model_request_context,
+    _serialize_message,
+    _shrink,
+)
 
 
 def test_shrink_preserves_message_structure_when_text_is_long():
@@ -59,3 +65,15 @@ def test_extract_model_request_context_keeps_tool_registration_without_secret_fi
     assert context["options"]["stop"] == ["END"]
     assert context["tools"][0]["name"] == "read_file"
     assert "api_key" not in context
+
+
+def test_serialize_message_keeps_reasoning_content():
+    message = AIMessage(
+        content="final answer",
+        additional_kwargs={"reasoning_content": "internal reasoning"},
+    )
+
+    result = _serialize_message(message)
+
+    assert result["content"] == "final answer"
+    assert result["additional_kwargs"]["reasoning_content"] == "internal reasoning"

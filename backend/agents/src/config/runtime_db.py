@@ -42,7 +42,6 @@ class DBAgentConfig:
     agents_md_path: str = "AGENTS.md"
     skill_refs: list[AgentSkillRef] | None = None
     memory: AgentMemoryConfig = field(default_factory=AgentMemoryConfig)
-    revision: str | None = None
 
 
 class RuntimeDBStore:
@@ -60,7 +59,7 @@ class RuntimeDBStore:
 
     def get_agent(self, name: str, status: str) -> DBAgentConfig | None:
         query = """
-            SELECT name, status, model, tool_groups, mcp_servers, config_json, updated_at
+            SELECT name, status, model, tool_groups, mcp_servers, config_json
             FROM agents
             WHERE name = %s AND status = %s
             LIMIT 1
@@ -80,7 +79,6 @@ class RuntimeDBStore:
                 agents_md_path=self._parse_agent_md_path(config_payload),
                 skill_refs=self._parse_agent_skill_refs(config_payload),
                 memory=self._parse_agent_memory(config_payload),
-                revision=self._coerce_revision(row[6]),
             )
 
     def get_model(self, name: str) -> ModelConfig | None:
@@ -278,17 +276,6 @@ class RuntimeDBStore:
         if not isinstance(raw_memory, dict):
             raise ValueError("agents.config_json.memory must be an object.")
         return AgentMemoryConfig.model_validate(raw_memory)
-
-    @staticmethod
-    def _coerce_revision(value: object) -> str | None:
-        if value is None:
-            return None
-        isoformat = getattr(value, "isoformat", None)
-        if callable(isoformat):
-            return str(isoformat())
-        text = str(value).strip()
-        return text or None
-
 
 def _build_runtime_db_dsn() -> str:
     database_uri = os.getenv("DATABASE_URI", "").strip()
