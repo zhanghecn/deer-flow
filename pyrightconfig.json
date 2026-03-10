@@ -1,0 +1,20 @@
+{
+  "venvPath": "backend/agents",
+  "venv": ".venv",
+  "include": [
+    "backend/agents/src",
+    "backend/agents/tests"
+  ],
+  "exclude": [
+    "deepagents"
+  ],
+  "executionEnvironments": [
+    {
+      "root": "backend/agents",
+      "extraPaths": [
+        "backend/agents",
+        "backend/deepagents/libs/deepagents"
+      ]
+    }
+  ]
+}

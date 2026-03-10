@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -2032,6 +2032,7 @@ dependencies = [
     { name = "httpx" },
     { name = "kubernetes" },
     { name = "langchain" },
+    { name = "langchain-core" },
     { name = "langchain-deepseek" },
     { name = "langchain-google-genai" },
     { name = "langchain-mcp-adapters" },
@@ -2069,12 +2070,13 @@ requires-dist = [
     { name = "firecrawl-py", specifier = ">=1.15.0" },
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "kubernetes", specifier = ">=30.0.0" },
-    { name = "langchain", specifier = ">=1.2.10" },
+    { name = "langchain", specifier = ">=1.2.10,<2.0.0" },
+    { name = "langchain-core", specifier = ">=1.2.10,<2.0.0" },
     { name = "langchain-deepseek", specifier = ">=1.0.1" },
-    { name = "langchain-google-genai", specifier = ">=4.2.1" },
+    { name = "langchain-google-genai", specifier = ">=4.2.0,<5.0.0" },
     { name = "langchain-mcp-adapters", specifier = ">=0.1.0" },
     { name = "langchain-openai", specifier = ">=1.1.7" },
-    { name = "langgraph", specifier = ">=1.0.8" },
+    { name = "langgraph", specifier = ">=1.0.8,<2.0.0" },
     { name = "langgraph-checkpoint-postgres", specifier = ">=3.0.4" },
     { name = "langgraph-cli", extras = ["inmem"], specifier = ">=0.4.11" },
     { name = "markdownify", specifier = ">=1.2.2" },
