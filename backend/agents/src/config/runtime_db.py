@@ -101,6 +101,46 @@ class RuntimeDBStore:
                 payload.setdefault("display_name", display_name)
             return ModelConfig.model_validate(payload)
 
+    def get_user_id_by_name(self, name: str) -> str | None:
+        normalized_name = str(name).strip()
+        if not normalized_name:
+            return None
+
+        query = """
+            SELECT id::text
+            FROM users
+            WHERE LOWER(name) = LOWER(%s)
+            LIMIT 1
+        """
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(query, (normalized_name,))
+            row = cur.fetchone()
+            if row is None:
+                return None
+            user_id = row[0]
+            if user_id is None:
+                return None
+            user_id = str(user_id).strip()
+            return user_id or None
+
+    def get_any_user_id(self) -> str | None:
+        query = """
+            SELECT id::text
+            FROM users
+            ORDER BY created_at ASC
+            LIMIT 1
+        """
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(query)
+            row = cur.fetchone()
+            if row is None:
+                return None
+            user_id = row[0]
+            if user_id is None:
+                return None
+            user_id = str(user_id).strip()
+            return user_id or None
+
     def get_thread_runtime_model(self, thread_id: str, user_id: str) -> str | None:
         query = """
             SELECT model_name

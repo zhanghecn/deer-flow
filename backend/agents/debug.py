@@ -1,15 +1,9 @@
 #!/usr/bin/env python
 """Direct lead_agent debug runner without frontend.
 
-Supports two execution modes:
-
-- runtime: create the real lead_agent via ``make_lead_agent()``.
-- embedded: use ``OpenAgentsClient`` for a lighter in-process smoke test.
-
 Examples:
     uv run python debug.py
     uv run python debug.py --message "Reply with OK"
-    uv run python debug.py --mode embedded --message "List available skills"
 """
 
 from __future__ import annotations
@@ -32,7 +26,6 @@ from langchain_core.runnables import RunnableConfig
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from src.agents import make_lead_agent
-from src.client import OpenAgentsClient, StreamEvent
 from src.config.app_config import get_app_config
 from src.config.runtime_db import get_runtime_db_store
 
@@ -44,10 +37,10 @@ from src.config.runtime_db import get_runtime_db_store
 #   uv run python debug.py
 #
 # Notes:
-# - runtime mode requires DEBUG_USER_ID to exist in the `users` table.
+# - set DEBUG_USER_ID to an existing UUID, or leave it as None to auto-pick one from the DB.
+# - DEBUG_THREAD_ID is generated once per process to avoid cross-run collisions.
 # - set DEBUG_MESSAGE = None to enter interactive REPL mode.
 
-type DebugMode = Literal["runtime", "embedded"]
 type MessageKey = tuple[object, ...]
 
 
@@ -73,12 +66,6 @@ class RuntimeChunk(TypedDict, total=False):
     messages: list[BaseMessage]
 
 
-class StreamToolCall(TypedDict, total=False):
-    name: str
-    args: object
-    id: str
-
-
 class RuntimeAgent(Protocol):
     def astream(
         self,
@@ -90,12 +77,17 @@ class RuntimeAgent(Protocol):
     ) -> AsyncIterator[RuntimeChunk]: ...
 
 
-DEFAULT_THREAD_ID = "debug-thread-001"
 DEFAULT_USER_ID = "00000000-0000-0000-0000-000000000001"
+DEFAULT_DEBUG_USER_NAME = "admin"
 
-DEBUG_MODE: DebugMode = "runtime"
-DEBUG_THREAD_ID = "real-test-001"
-DEBUG_USER_ID = "79533825-1bb8-435d-9256-049691b655e0"
+
+def _new_debug_thread_id() -> str:
+    return f"debug-thread-{uuid.uuid4().hex[:12]}"
+
+
+DEFAULT_THREAD_ID = _new_debug_thread_id()
+DEBUG_THREAD_ID = DEFAULT_THREAD_ID
+DEBUG_USER_ID: str | None = None
 DEBUG_MODEL_NAME: str | None = "kimi-k2.5-1"
 DEBUG_THINKING_ENABLED = True
 DEBUG_PLAN_MODE = False
@@ -105,7 +97,6 @@ DEBUG_MESSAGE: str | None = "Reply with exactly: REAL_TEST_OK"
 
 @dataclass(frozen=True)
 class DebugOptions:
-    mode: DebugMode
     thread_id: str
     user_id: str
     model_name: str | None
@@ -118,16 +109,10 @@ class DebugOptions:
 @dataclass(frozen=True)
 class DebugSession:
     options: DebugOptions
-    runtime_agent: RuntimeAgent | None = None
-    embedded_client: OpenAgentsClient | None = None
+    runtime_agent: RuntimeAgent
 
     async def run_turn(self, message: str) -> None:
-        if self.runtime_agent is not None:
-            await _run_runtime_turn(self.runtime_agent, self.options, message)
-            return
-
-        assert self.embedded_client is not None
-        _run_embedded_turn(self.embedded_client, self.options, message)
+        await _run_runtime_turn(self.runtime_agent, self.options, message)
 
 
 def _default_model_name() -> str | None:
@@ -141,7 +126,26 @@ def _default_model_name() -> str | None:
     return app_config.models[0].name
 
 
+def _default_user_id() -> str:
+    configured_user_id = _strip_text(DEBUG_USER_ID)
+    if configured_user_id is not None:
+        return configured_user_id
+
+    try:
+        db_store = get_runtime_db_store()
+    except Exception:
+        return DEFAULT_USER_ID
+
+    return (
+        db_store.get_user_id_by_name(DEFAULT_DEBUG_USER_NAME)
+        or db_store.get_any_user_id()
+        or DEFAULT_USER_ID
+    )
+
+
 def _strip_text(value: object) -> str | None:
+    if value is None:
+        return None
     text = str(value).strip()
     return text or None
 
@@ -156,9 +160,8 @@ def _default_options() -> DebugOptions:
         model_name = _default_model_name()
 
     return DebugOptions(
-        mode=DEBUG_MODE,
         thread_id=DEBUG_THREAD_ID,
-        user_id=DEBUG_USER_ID,
+        user_id=_default_user_id(),
         model_name=model_name,
         thinking_enabled=DEBUG_THINKING_ENABLED,
         plan_mode=DEBUG_PLAN_MODE,
@@ -170,12 +173,6 @@ def _default_options() -> DebugOptions:
 def parse_args(argv: Sequence[str] | None = None) -> DebugOptions:
     defaults = _default_options()
     parser = argparse.ArgumentParser(description="Direct lead_agent debug runner")
-    parser.add_argument(
-        "--mode",
-        choices=("runtime", "embedded"),
-        default=defaults.mode,
-        help="runtime: call make_lead_agent directly; embedded: use OpenAgentsClient",
-    )
     parser.add_argument(
         "--thread-id",
         default=defaults.thread_id,
@@ -217,7 +214,6 @@ def parse_args(argv: Sequence[str] | None = None) -> DebugOptions:
 
     args = parser.parse_args(argv)
     return DebugOptions(
-        mode=args.mode,
         thread_id=_strip_text_or_default(args.thread_id, defaults.thread_id or DEFAULT_THREAD_ID),
         user_id=_strip_text_or_default(args.user_id, defaults.user_id or DEFAULT_USER_ID),
         model_name=_strip_text(args.model_name) if args.model_name is not None else None,
@@ -248,14 +244,15 @@ def validate_runtime_options(options: DebugOptions) -> None:
             f"Runtime mode requires a valid UUID user_id, got: {options.user_id!r}"
         ) from exc
 
+    db_store = get_runtime_db_store()
     if options.model_name is None:
         return
 
-    model = get_runtime_db_store().get_model(options.model_name)
+    model = db_store.get_model(options.model_name)
     if model is None:
         raise ValueError(
             f"Model {options.model_name!r} was not found in the runtime database. "
-            "Use --model-name with a seeded DB model or switch to --mode embedded."
+            "Use --model-name with a seeded DB model."
         )
 
 
@@ -358,37 +355,6 @@ def _message_key(message: BaseMessage) -> MessageKey:
     )
 
 
-def _stream_tool_calls(value: object) -> list[StreamToolCall]:
-    if not isinstance(value, list):
-        return []
-
-    tool_calls: list[StreamToolCall] = []
-    for item in value:
-        if not isinstance(item, Mapping):
-            continue
-
-        name = item.get("name")
-        if not isinstance(name, str) or not name:
-            continue
-
-        tool_call: StreamToolCall = {"name": name}
-        if "args" in item:
-            tool_call["args"] = item["args"]
-
-        tool_call_id = item.get("id")
-        if isinstance(tool_call_id, str):
-            tool_call["id"] = tool_call_id
-
-        tool_calls.append(tool_call)
-
-    return tool_calls
-
-
-def _print_stream_tool_calls(tool_calls: Sequence[StreamToolCall]) -> None:
-    for tool_call in tool_calls:
-        print(f"\nTool Call [{tool_call['name']}]: {tool_call.get('args')}")
-
-
 def _print_new_langchain_messages(messages: Sequence[BaseMessage], seen: set[MessageKey]) -> None:
     for message in messages:
         if isinstance(message, HumanMessage):
@@ -403,26 +369,6 @@ def _print_new_langchain_messages(messages: Sequence[BaseMessage], seen: set[Mes
             continue
         if isinstance(message, ToolMessage):
             _print_tool_message(message)
-
-
-def _print_stream_event(event: StreamEvent) -> None:
-    if event.type != "messages-tuple":
-        return
-
-    payload = cast(Mapping[str, object], event.data)
-    event_type = payload.get("type")
-    if event_type == "ai":
-        _print_stream_tool_calls(_stream_tool_calls(payload.get("tool_calls")))
-        content = str(payload.get("content", "")).strip()
-        if content:
-            print(f"\nAgent: {content}")
-        return
-
-    if event_type == "tool":
-        name = payload.get("name") or "tool"
-        content = payload.get("content", "")
-        print(f"\nTool Result [{name}]: {content}")
-
 
 async def _run_runtime_turn(agent: RuntimeAgent, options: DebugOptions, message: str) -> None:
     config = build_runnable_config(options)
@@ -442,48 +388,20 @@ async def _run_runtime_turn(agent: RuntimeAgent, options: DebugOptions, message:
     ):
         _print_new_langchain_messages(chunk.get("messages") or [], seen)
 
-
-def _run_embedded_turn(client: OpenAgentsClient, options: DebugOptions, message: str) -> None:
-    for event in client.stream(
-        message,
-        thread_id=options.thread_id,
-        user_id=options.user_id,
-        model_name=options.model_name,
-        thinking_enabled=options.thinking_enabled,
-        plan_mode=options.plan_mode,
-        subagent_enabled=options.subagent_enabled,
-    ):
-        _print_stream_event(event)
-
-
 async def _build_runtime_agent(options: DebugOptions) -> RuntimeAgent:
     validate_runtime_options(options)
     config = build_runnable_config(options)
     return cast(RuntimeAgent, await make_lead_agent(config))
 
 
-def _build_embedded_client(options: DebugOptions) -> OpenAgentsClient:
-    return OpenAgentsClient(
-        model_name=options.model_name,
-        thinking_enabled=options.thinking_enabled,
-        subagent_enabled=options.subagent_enabled,
-        plan_mode=options.plan_mode,
-    )
-
-
 async def _build_debug_session(options: DebugOptions) -> DebugSession:
     await _initialize_mcp_tools()
-
-    if options.mode == "runtime":
-        return DebugSession(options=options, runtime_agent=await _build_runtime_agent(options))
-
-    return DebugSession(options=options, embedded_client=_build_embedded_client(options))
+    return DebugSession(options=options, runtime_agent=await _build_runtime_agent(options))
 
 
 def _print_session_banner(options: DebugOptions) -> None:
     print("=" * 60)
     print("Lead Agent Debug Mode")
-    print(f"Mode: {options.mode}")
     print(f"Thread ID: {options.thread_id}")
     print(f"User ID: {options.user_id}")
     print(f"Model: {options.model_name or '<runtime-resolved>'}")

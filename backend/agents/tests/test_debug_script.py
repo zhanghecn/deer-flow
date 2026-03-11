@@ -11,7 +11,6 @@ import debug as debug_module
 
 
 def test_parse_args_uses_quick_edit_defaults(monkeypatch):
-    monkeypatch.setattr(debug_module, "DEBUG_MODE", "embedded")
     monkeypatch.setattr(debug_module, "DEBUG_THREAD_ID", "thread-from-file")
     monkeypatch.setattr(debug_module, "DEBUG_USER_ID", "00000000-0000-0000-0000-000000000111")
     monkeypatch.setattr(debug_module, "DEBUG_MODEL_NAME", None)
@@ -23,7 +22,6 @@ def test_parse_args_uses_quick_edit_defaults(monkeypatch):
 
     options = debug_module.parse_args([])
 
-    assert options.mode == "embedded"
     assert options.thread_id == "thread-from-file"
     assert options.user_id == "00000000-0000-0000-0000-000000000111"
     assert options.model_name == "glm-5"
@@ -33,9 +31,24 @@ def test_parse_args_uses_quick_edit_defaults(monkeypatch):
     assert options.message == "hello from file"
 
 
+def test_parse_args_auto_resolves_existing_runtime_user(monkeypatch):
+    fake_store = Mock()
+    fake_store.get_user_id_by_name.return_value = "00000000-0000-0000-0000-000000000222"
+    fake_store.get_any_user_id.return_value = None
+    monkeypatch.setattr(debug_module, "DEBUG_USER_ID", None)
+    monkeypatch.setattr(debug_module, "DEBUG_MODEL_NAME", None)
+    monkeypatch.setattr(debug_module, "_default_model_name", lambda: "glm-5")
+    monkeypatch.setattr(debug_module, "get_runtime_db_store", lambda: fake_store)
+
+    options = debug_module.parse_args([])
+
+    assert options.user_id == "00000000-0000-0000-0000-000000000222"
+    fake_store.get_user_id_by_name.assert_called_once_with(debug_module.DEFAULT_DEBUG_USER_NAME)
+    fake_store.get_any_user_id.assert_not_called()
+
+
 def test_build_runnable_config_includes_runtime_identity():
     options = debug_module.DebugOptions(
-        mode="runtime",
         thread_id="thread-123",
         user_id="00000000-0000-0000-0000-000000000099",
         model_name="glm-5",
@@ -59,6 +72,15 @@ def test_build_runnable_config_includes_runtime_identity():
     }
 
 
+def test_new_debug_thread_id_is_unique():
+    first = debug_module._new_debug_thread_id()
+    second = debug_module._new_debug_thread_id()
+
+    assert first.startswith("debug-thread-")
+    assert second.startswith("debug-thread-")
+    assert first != second
+
+
 def test_extract_text_reads_only_plain_text_blocks():
     content = [
         "line one",
@@ -71,26 +93,13 @@ def test_extract_text_reads_only_plain_text_blocks():
 
 
 def test_strip_text_returns_none_for_blank_values():
+    assert debug_module._strip_text(None) is None
     assert debug_module._strip_text("   ") is None
     assert debug_module._strip_text(" value ") == "value"
 
 
-def test_stream_tool_calls_skips_invalid_items():
-    tool_calls = debug_module._stream_tool_calls(
-        [
-            {"name": "bash", "args": {"cmd": "pwd"}, "id": "tc-1"},
-            {"name": "", "args": {"cmd": "ls"}},
-            {"args": {"cmd": "whoami"}},
-            "not-a-tool-call",
-        ]
-    )
-
-    assert tool_calls == [{"name": "bash", "args": {"cmd": "pwd"}, "id": "tc-1"}]
-
-
 def test_debug_session_runs_runtime_turn(monkeypatch):
     options = debug_module.DebugOptions(
-        mode="runtime",
         thread_id="thread-123",
         user_id="00000000-0000-0000-0000-000000000099",
         model_name="glm-5",
@@ -110,9 +119,8 @@ def test_debug_session_runs_runtime_turn(monkeypatch):
     run_runtime_turn.assert_awaited_once_with(runtime_agent, options, "hello")
 
 
-def test_debug_session_runs_embedded_turn(monkeypatch):
+def test_build_debug_session_uses_runtime_agent(monkeypatch):
     options = debug_module.DebugOptions(
-        mode="embedded",
         thread_id="thread-123",
         user_id="00000000-0000-0000-0000-000000000099",
         model_name="glm-5",
@@ -121,20 +129,21 @@ def test_debug_session_runs_embedded_turn(monkeypatch):
         subagent_enabled=False,
         message=None,
     )
-    embedded_client = Mock()
-    run_embedded_turn = Mock()
-    monkeypatch.setattr(debug_module, "_run_embedded_turn", run_embedded_turn)
+    initialize_mcp_tools = AsyncMock()
+    runtime_agent = Mock()
+    build_runtime_agent = AsyncMock(return_value=runtime_agent)
+    monkeypatch.setattr(debug_module, "_initialize_mcp_tools", initialize_mcp_tools)
+    monkeypatch.setattr(debug_module, "_build_runtime_agent", build_runtime_agent)
 
-    session = debug_module.DebugSession(options=options, embedded_client=embedded_client)
+    session = asyncio.run(debug_module._build_debug_session(options))
 
-    asyncio.run(session.run_turn("hello"))
-
-    run_embedded_turn.assert_called_once_with(embedded_client, options, "hello")
+    assert session == debug_module.DebugSession(options=options, runtime_agent=runtime_agent)
+    initialize_mcp_tools.assert_awaited_once_with()
+    build_runtime_agent.assert_awaited_once_with(options)
 
 
 def test_validate_runtime_options_rejects_non_uuid_user_id():
     options = debug_module.DebugOptions(
-        mode="runtime",
         thread_id="thread-123",
         user_id="not-a-uuid",
         model_name="glm-5",
@@ -154,7 +163,6 @@ def test_validate_runtime_options_requires_seeded_runtime_model(monkeypatch):
     monkeypatch.setattr(debug_module, "get_runtime_db_store", lambda: fake_store)
 
     options = debug_module.DebugOptions(
-        mode="runtime",
         thread_id="thread-123",
         user_id=debug_module.DEFAULT_USER_ID,
         model_name="missing-model",

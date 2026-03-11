@@ -242,9 +242,9 @@ uv run python debug.py
 
 Notes:
 - Edit the `Quick Edit` variables at the top of `debug.py` directly before running.
-- Default mode is `runtime`, which creates the real `lead_agent` via `make_lead_agent()`.
-- `runtime` mode now requires a valid UUID `--user-id` because thread bindings are stored in PostgreSQL.
-- Use `--mode embedded` to run through `OpenAgentsClient` when you want a lighter in-process smoke test.
+- `debug.py` always runs the real `lead_agent` via `make_lead_agent()`.
+- `runtime` mode requires a valid UUID `--user-id`; if `DEBUG_USER_ID = None`, the script auto-selects `admin` or the first available user when the DB is reachable.
+- `DEBUG_THREAD_ID` is generated automatically on each process start to avoid accidental cross-run reuse.
 - Omit `--message` to enter an interactive REPL.
 
 ---

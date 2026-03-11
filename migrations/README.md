@@ -4,7 +4,6 @@ This directory is split into schema + data migrations:
 
 - `001_init.up.sql`
 - `002_seed_data.up.sql`
-- `003_drop_llm_provider_keys.up.sql`
 
 `001_init.up.sql` contains the full schema baseline:
 
@@ -26,9 +25,6 @@ This directory is split into schema + data migrations:
   - password: `admin123`
   - email: `admin@163.com`
 
-`003_drop_llm_provider_keys.up.sql` removes the deprecated `llm_provider_keys`
-table so `models` remains the single source of truth for runtime model config.
-
 If your environment was migrated with older numbered files, reset or rebuild the
 database before re-running migrations so `schema_migrations` matches this
-three-file baseline.
+two-file baseline.

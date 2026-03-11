@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS models (
 -- Runtime thread ownership/bindings
 CREATE TABLE IF NOT EXISTS thread_bindings (
     thread_id VARCHAR(64) PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL,
     agent_name VARCHAR(128),
     assistant_id VARCHAR(128),
     model_name VARCHAR(128),

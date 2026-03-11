@@ -105,7 +105,7 @@ CI runs these regression tests for every pull request via [.github/workflows/bac
 
 **Lead Agent** (`src/agents/lead_agent/agent.py`):
 - Entry point: `make_lead_agent(config: RunnableConfig)` registered in `langgraph.json`
-- `debug.py` is the supported no-frontend debug entry. Default `runtime` mode calls `make_lead_agent()` directly; `--mode embedded` uses `OpenAgentsClient` for a lighter smoke test.
+- `debug.py` is the supported no-frontend debug entry and calls `make_lead_agent()` directly.
 - Uses `create_deep_agent()` from deepagents framework (replaced legacy `create_agent()`)
 - `build_backend()` creates the per-thread runtime backend and seeds archived files into `/mnt/user-data/...`
 - `dev/prod` only decide which archived agent definition is loaded at runtime
