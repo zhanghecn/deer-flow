@@ -18,14 +18,13 @@ import (
 )
 
 type OpenAPIHandler struct {
-	agentRepo    *repository.AgentRepo
 	modelRepo    *repository.ModelRepo
 	langGraphURL string
 	fs           *storage.FS
 }
 
-func NewOpenAPIHandler(agentRepo *repository.AgentRepo, modelRepo *repository.ModelRepo, langGraphURL string, fs *storage.FS) *OpenAPIHandler {
-	return &OpenAPIHandler{agentRepo: agentRepo, modelRepo: modelRepo, langGraphURL: langGraphURL, fs: fs}
+func NewOpenAPIHandler(modelRepo *repository.ModelRepo, langGraphURL string, fs *storage.FS) *OpenAPIHandler {
+	return &OpenAPIHandler{modelRepo: modelRepo, langGraphURL: langGraphURL, fs: fs}
 }
 
 func (h *OpenAPIHandler) Chat(c *gin.Context) {
@@ -45,8 +44,8 @@ func (h *OpenAPIHandler) handleRequest(c *gin.Context, agentName string, stream 
 		return
 	}
 
-	// Verify agent exists and is published
-	agent, err := h.agentRepo.FindByName(c.Request.Context(), agentName, "prod")
+	// Verify the published agent exists on disk.
+	agent, err := loadFilesystemAgent(h.fs, agentName, "prod", false)
 	if err != nil || agent == nil {
 		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "agent not found"})
 		return

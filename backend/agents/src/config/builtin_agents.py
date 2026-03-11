@@ -38,7 +38,7 @@ def _default_lead_agent_skill_names(paths: Paths) -> list[str]:
     return [
         skill.name
         for skill in load_skills(skills_path=paths.skills_dir, use_config=False, enabled_only=False)
-        if skill.category == "public"
+        if skill.category == "shared"
     ]
 
 

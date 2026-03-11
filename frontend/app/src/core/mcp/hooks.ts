@@ -1,11 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { useAuth } from "@/core/auth/hooks";
+
 import { loadMCPConfig, updateMCPConfig } from "./api";
 
 export function useMCPConfig() {
+  const { authenticated } = useAuth();
   const { data, isLoading, error } = useQuery({
     queryKey: ["mcpConfig"],
     queryFn: () => loadMCPConfig(),
+    enabled: authenticated,
   });
   return { config: data, isLoading, error };
 }

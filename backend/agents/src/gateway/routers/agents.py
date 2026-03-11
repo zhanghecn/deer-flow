@@ -23,8 +23,8 @@ class AgentSkillResponse(BaseModel):
     """Response model for an agent skill reference."""
 
     name: str
-    category: str | None = Field(default=None, description="Shared skill category: public or custom")
-    source_path: str | None = Field(default=None, description="Relative path in the shared skills library")
+    category: str | None = Field(default=None, description="Skill source scope: shared, store/dev, or store/prod")
+    source_path: str | None = Field(default=None, description="Relative path inside .openagents/skills")
     materialized_path: str | None = Field(default=None, description="Relative path inside the agent directory")
 
 

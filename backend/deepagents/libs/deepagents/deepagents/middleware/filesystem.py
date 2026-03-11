@@ -188,9 +188,11 @@ Usage:
 - Use `replace_all=True` when the same replacement should apply to every match."""
 
 
-WRITE_FILE_TOOL_DESCRIPTION = """Write a file to the filesystem.
+WRITE_FILE_TOOL_DESCRIPTION = """Create a new file in the filesystem.
 
 Usage:
+- This tool does not overwrite existing files.
+- If the target file already exists, read it and use `edit_file` instead.
 - Prefer editing existing files with `edit_file` whenever possible.
 - Avoid creating new documentation files unless the user explicitly asks for them.
 - Only use emojis when the user explicitly requests them."""
@@ -238,7 +240,7 @@ All file paths must start with a /.
 
 - ls: list files in a directory (requires absolute path)
 - read_file: read a file from the filesystem
-- write_file: write to a file in the filesystem
+- write_file: create a new file in the filesystem; if the file already exists, use `edit_file`
 - edit_file: edit a file in the filesystem
 - glob: find files matching a pattern (e.g., "**/*.py")
 - grep: search for text within files"""

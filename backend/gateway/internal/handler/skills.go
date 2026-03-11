@@ -3,29 +3,32 @@ package handler
 import (
 	"net/http"
 
+	"github.com/gin-gonic/gin"
 	"github.com/openagents/gateway/internal/middleware"
 	"github.com/openagents/gateway/internal/model"
 	"github.com/openagents/gateway/internal/service"
-	"github.com/gin-gonic/gin"
+	"github.com/openagents/gateway/pkg/storage"
 )
 
 type SkillHandler struct {
-	svc *service.SkillService
+	svc       *service.SkillService
+	fs        *storage.FS
+	configDir string
 }
 
-func NewSkillHandler(svc *service.SkillService) *SkillHandler {
-	return &SkillHandler{svc: svc}
+func NewSkillHandler(svc *service.SkillService, fs *storage.FS, configDir string) *SkillHandler {
+	return &SkillHandler{svc: svc, fs: fs, configDir: configDir}
 }
 
 func (h *SkillHandler) List(c *gin.Context) {
 	status := c.Query("status")
-	skills, err := h.svc.List(c.Request.Context(), status)
+	skills, err := listFilesystemSkills(h.fs, h.configDir, status)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
 		return
 	}
 	if skills == nil {
-		skills = []model.Skill{}
+		skills = []skillListItem{}
 	}
 	c.JSON(http.StatusOK, gin.H{"skills": skills})
 }
@@ -48,13 +51,47 @@ func (h *SkillHandler) Create(c *gin.Context) {
 
 func (h *SkillHandler) Update(c *gin.Context) {
 	name := c.Param("name")
-	var req model.UpdateSkillRequest
+	var req struct {
+		Enabled     *bool   `json:"enabled"`
+		Description *string `json:"description"`
+		SkillMD     *string `json:"skill_md"`
+	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return
 	}
 
-	skill, err := h.svc.Update(c.Request.Context(), name, req)
+	if req.Enabled != nil {
+		skill, err := loadFilesystemSkillByName(h.fs, h.configDir, name)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
+			return
+		}
+		if skill == nil {
+			c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "skill not found"})
+			return
+		}
+
+		cfg, err := readExtensionsConfig(h.configDir)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to read extensions config"})
+			return
+		}
+		cfg.Skills[name] = skillStateJSON{Enabled: *req.Enabled}
+		if err := writeExtensionsConfig(h.configDir, cfg); err != nil {
+			c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to write extensions config"})
+			return
+		}
+
+		skill.Enabled = *req.Enabled
+		c.JSON(http.StatusOK, skill)
+		return
+	}
+
+	skill, err := h.svc.Update(c.Request.Context(), name, model.UpdateSkillRequest{
+		Description: req.Description,
+		SkillMD:     req.SkillMD,
+	})
 	if err != nil {
 		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: err.Error()})
 		return
@@ -72,8 +109,26 @@ func (h *SkillHandler) Delete(c *gin.Context) {
 }
 
 func (h *SkillHandler) Install(c *gin.Context) {
-	// TODO: implement skill installation from .skill archive
-	c.JSON(http.StatusNotImplemented, model.ErrorResponse{Error: "skill installation not yet implemented in Go gateway"})
+	var req struct {
+		ThreadID string `json:"thread_id" binding:"required"`
+		Path     string `json:"path" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	skillName, err := installSkillArchive(h.fs, req.ThreadID, req.Path)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":    true,
+		"skill_name": skillName,
+		"message":    "Skill '" + skillName + "' installed successfully to .openagents/skills/store/dev",
+	})
 }
 
 func (h *SkillHandler) Publish(c *gin.Context) {

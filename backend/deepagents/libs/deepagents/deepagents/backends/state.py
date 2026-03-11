@@ -126,7 +126,12 @@ class StateBackend(BackendProtocol):
         files = self.runtime.state.get("files", {})
 
         if file_path in files:
-            return WriteResult(error=f"Cannot write to {file_path} because it already exists. Read and then make an edit, or write to a new path.")
+            return WriteResult(
+                error=(
+                    f"Cannot write to {file_path} because it already exists. "
+                    "Read it and use edit_file to modify the existing file, or write to a new path."
+                )
+            )
 
         new_file_data = create_file_data(content)
         return WriteResult(path=file_path, files_update={file_path: new_file_data})

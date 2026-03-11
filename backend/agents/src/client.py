@@ -655,7 +655,6 @@ class OpenAgentsClient:
             ValueError: If the file is invalid.
         """
         from src.gateway.routers.skills import _validate_skill_frontmatter
-        from src.skills.loader import get_skills_root_path
 
         path = Path(skill_path)
         if not path.exists():
@@ -667,9 +666,8 @@ class OpenAgentsClient:
         if not zipfile.is_zipfile(path):
             raise ValueError("File is not a valid ZIP archive")
 
-        skills_root = get_skills_root_path()
-        custom_dir = skills_root / "custom"
-        custom_dir.mkdir(parents=True, exist_ok=True)
+        target_root = get_paths().store_dev_skills_dir
+        target_root.mkdir(parents=True, exist_ok=True)
 
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -697,7 +695,7 @@ class OpenAgentsClient:
             if not re.fullmatch(r"[a-zA-Z0-9_-]+", skill_name):
                 raise ValueError(f"Invalid skill name: {skill_name}")
 
-            target = custom_dir / skill_name
+            target = target_root / skill_name
             if target.exists():
                 raise ValueError(f"Skill '{skill_name}' already exists")
 

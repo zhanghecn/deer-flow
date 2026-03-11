@@ -95,6 +95,20 @@ def _make_model(name: str, *, supports_thinking: bool, supports_vision: bool = F
     )
 
 
+def _make_agent_config(
+    *,
+    name: str = LEAD_AGENT_NAME,
+    model: str | None = None,
+) -> lead_agent_module.DBAgentConfig:
+    return lead_agent_module.DBAgentConfig(
+        name=name,
+        status="dev",
+        model=model,
+        tool_groups=[],
+        mcp_servers=[],
+    )
+
+
 def test_parse_runtime_model_config_requires_name_field():
     with pytest.raises(ValueError, match="model_config.name"):
         lead_agent_module._parse_runtime_model_config({"use": "langchain_openai:ChatOpenAI"})
@@ -186,6 +200,12 @@ def test_make_lead_agent_reads_runtime_context_and_persists_thread_runtime(monke
         "build_backend",
         lambda thread_id, agent_name, status="dev", agent_config=None: None,
     )
+    monkeypatch.setattr(
+        lead_agent_module,
+        "_load_agent_runtime_config",
+        lambda **kwargs: _make_agent_config(),
+    )
+    monkeypatch.setattr(lead_agent_module, "apply_prompt_template", lambda **kwargs: "prompt")
     monkeypatch.setattr(lead_agent_module, "create_deep_agent", lambda **kwargs: kwargs)
 
     captured: dict[str, object] = {}
@@ -295,6 +315,12 @@ def test_make_lead_agent_accepts_header_injected_user_id(monkeypatch, tmp_path):
         "build_backend",
         lambda thread_id, agent_name, status="dev", agent_config=None: None,
     )
+    monkeypatch.setattr(
+        lead_agent_module,
+        "_load_agent_runtime_config",
+        lambda **kwargs: _make_agent_config(),
+    )
+    monkeypatch.setattr(lead_agent_module, "apply_prompt_template", lambda **kwargs: "prompt")
     monkeypatch.setattr(lead_agent_module, "create_deep_agent", lambda **kwargs: kwargs)
     monkeypatch.setattr(lead_agent_module, "create_chat_model", lambda **kwargs: object())
 
@@ -347,6 +373,12 @@ def test_make_lead_agent_skips_runtime_seeding_for_read_context(monkeypatch, tmp
         "build_backend",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("build_backend should not run in read context")),
     )
+    monkeypatch.setattr(
+        lead_agent_module,
+        "_load_agent_runtime_config",
+        lambda **kwargs: _make_agent_config(),
+    )
+    monkeypatch.setattr(lead_agent_module, "apply_prompt_template", lambda **kwargs: "prompt")
     monkeypatch.setattr(lead_agent_module, "create_deep_agent", lambda **kwargs: kwargs)
     monkeypatch.setattr(lead_agent_module, "create_chat_model", lambda **kwargs: object())
 

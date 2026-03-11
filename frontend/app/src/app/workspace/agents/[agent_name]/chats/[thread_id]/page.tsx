@@ -71,8 +71,8 @@ export default function AgentChatPage() {
   });
 
   const handleSubmit = useCallback(
-    (message: PromptInputMessage) => {
-      void sendMessage(threadId, message, { agent_name });
+    (message: PromptInputMessage, extraContext?: Record<string, unknown>) => {
+      void sendMessage(threadId, message, { agent_name, ...extraContext });
     },
     [sendMessage, threadId, agent_name],
   );

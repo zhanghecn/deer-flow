@@ -17,6 +17,7 @@ import { ThreadContext } from "@/components/workspace/messages/context";
 import { MessageList } from "@/components/workspace/messages/message-list";
 import type { Agent } from "@/core/agents";
 import { checkAgentName, getAgent } from "@/core/agents/api";
+import { resolveCommandIntent } from "@/core/commands/transform";
 import { useI18n } from "@/core/i18n/hooks";
 import { useThreadStream } from "@/core/threads/hooks";
 import { uuid } from "@/core/utils/uuid";
@@ -47,7 +48,9 @@ export default function NewAgentPage() {
       mode: "flash",
     },
     onToolEnd({ name }) {
-      if (name !== "setup_agent" || !agentName) return;
+      if (!["setup_agent", "save_agent_to_store"].includes(name) || !agentName) {
+        return;
+      }
       getAgent(agentName)
         .then((fetched) => setAgent(fetched))
         .catch(() => {
@@ -81,19 +84,28 @@ export default function NewAgentPage() {
     }
     setAgentName(trimmed);
     setStep("chat");
+    const createCommand =
+      resolveCommandIntent(
+        `/create-agent 请帮我创建一个名为 ${trimmed} 的智能体，并先从需求澄清开始。`,
+      ) ??
+      (() => {
+        throw new Error("Missing create-agent command registry");
+      })();
     await sendMessage(
       threadId,
       {
-        text: t.agents.nameStepBootstrapMessage.replace("{name}", trimmed),
+        text: createCommand.promptText,
         files: [],
       },
-      { target_agent_name: trimmed },
+      {
+        target_agent_name: trimmed,
+        ...createCommand.extraContext,
+      },
     );
   }, [
     nameInput,
     sendMessage,
     threadId,
-    t.agents.nameStepBootstrapMessage,
     t.agents.nameStepInvalidError,
     t.agents.nameStepAlreadyExistsError,
     t.agents.nameStepCheckError,
@@ -110,10 +122,17 @@ export default function NewAgentPage() {
     async (text: string) => {
       const trimmed = text.trim();
       if (!trimmed || thread.isLoading) return;
+      const resolvedCommand = resolveCommandIntent(trimmed);
       await sendMessage(
         threadId,
-        { text: trimmed, files: [] },
-        { target_agent_name: agentName },
+        {
+          text: resolvedCommand?.promptText ?? trimmed,
+          files: [],
+        },
+        {
+          target_agent_name: agentName,
+          ...(resolvedCommand?.extraContext ?? {}),
+        },
       );
     },
     [thread.isLoading, sendMessage, threadId, agentName],

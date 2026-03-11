@@ -70,8 +70,8 @@ export default function ChatPage() {
   });
 
   const handleSubmit = useCallback(
-    (message: PromptInputMessage) => {
-      void sendMessage(threadId, message);
+    (message: PromptInputMessage, extraContext?: Record<string, unknown>) => {
+      void sendMessage(threadId, message, extraContext);
     },
     [sendMessage, threadId],
   );

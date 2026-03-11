@@ -22,6 +22,9 @@ class ThreadDataMiddleware(AgentMiddleware[ThreadDataMiddlewareState]):
     - {base_dir}/threads/{thread_id}/user-data/workspace
     - {base_dir}/threads/{thread_id}/user-data/uploads
     - {base_dir}/threads/{thread_id}/user-data/outputs
+    - {base_dir}/threads/{thread_id}/user-data/agents
+    - {base_dir}/threads/{thread_id}/user-data/authoring/agents
+    - {base_dir}/threads/{thread_id}/user-data/authoring/skills
 
     Lifecycle Management:
     - With lazy_init=True (default): Only compute paths, directories created on-demand
@@ -50,12 +53,16 @@ class ThreadDataMiddleware(AgentMiddleware[ThreadDataMiddlewareState]):
             thread_id: The thread ID.
 
         Returns:
-            Dictionary with workspace_path, uploads_path, and outputs_path.
+            Dictionary with runtime and authoring paths.
         """
         return {
             "workspace_path": str(self._paths.sandbox_work_dir(thread_id)),
             "uploads_path": str(self._paths.sandbox_uploads_dir(thread_id)),
             "outputs_path": str(self._paths.sandbox_outputs_dir(thread_id)),
+            "agents_path": str(self._paths.sandbox_agents_dir(thread_id)),
+            "authoring_path": str(self._paths.sandbox_authoring_dir(thread_id)),
+            "authoring_agents_path": str(self._paths.sandbox_authoring_agents_dir(thread_id)),
+            "authoring_skills_path": str(self._paths.sandbox_authoring_skills_dir(thread_id)),
         }
 
     def _create_thread_directories(self, thread_id: str) -> dict[str, str]:

@@ -5,6 +5,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 
+import { useAuth } from "@/core/auth/hooks";
+
 import {
   deleteUploadedFile,
   listUploadedFiles,
@@ -34,10 +36,11 @@ export function useUploadFiles(threadId: string) {
  * Hook to list uploaded files
  */
 export function useUploadedFiles(threadId: string) {
+  const { authenticated } = useAuth();
   return useQuery({
     queryKey: ["uploads", "list", threadId],
     queryFn: () => listUploadedFiles(threadId),
-    enabled: !!threadId,
+    enabled: authenticated && !!threadId,
   });
 }
 

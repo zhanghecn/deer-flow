@@ -47,6 +47,9 @@ class LeadAgentRequest:
     requested_model_name: str | None
     subagent_enabled: object
     max_concurrent_subagents: object
+    command_name: str | None
+    command_kind: str | None
+    authoring_actions: tuple[str, ...]
     agent_name: str
     agent_status: str
     thread_id: str | None
@@ -341,6 +344,20 @@ def _coerce_optional_str(value: object) -> str | None:
     return text or None
 
 
+def _coerce_optional_str_list(value: object) -> tuple[str, ...]:
+    if value is None or not isinstance(value, list):
+        return ()
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        text = _coerce_optional_str(item)
+        if text is None or text in seen:
+            continue
+        normalized.append(text)
+        seen.add(text)
+    return tuple(normalized)
+
+
 def _load_configurable_payload(config: RunnableConfig, runtime: ServerRuntime | None) -> dict:
     configurable_payload = config.get("configurable", {})
     if configurable_payload is None:
@@ -420,6 +437,8 @@ def _load_agent_tools(
     agent_config: DBAgentConfig,
     model_name: str,
     model_supports_vision: bool,
+    agent_status: str,
+    authoring_actions: tuple[str, ...],
 ):
     from src.tools import get_available_tools
 
@@ -428,6 +447,8 @@ def _load_agent_tools(
         model_supports_vision=model_supports_vision,
         groups=agent_config.tool_groups,
         mcp_servers=agent_config.mcp_servers,
+        agent_status=agent_status,
+        authoring_actions=list(authoring_actions),
     )
 
 
@@ -469,14 +490,12 @@ def _load_agent_runtime_config(
     agent_status: str,
     db_store: RuntimeDBStore,
 ) -> DBAgentConfig | None:
-    config = db_store.get_agent(agent_name, agent_status)
-    if config is not None:
-        return config
-
-    ensure_builtin_agent_archive(agent_name, status=agent_status)
+    _ = db_store
+    paths = get_paths()
+    ensure_builtin_agent_archive(agent_name, status=agent_status, paths=paths)
 
     try:
-        file_config = load_agent_config(agent_name, status=agent_status)
+        file_config = load_agent_config(agent_name, status=agent_status, paths=paths)
     except FileNotFoundError:
         file_config = None
 
@@ -492,7 +511,7 @@ def _load_agent_runtime_config(
             memory=file_config.memory,
         )
 
-    raise ValueError(f"Agent '{agent_name}' with status '{agent_status}' not found in database or archive.")
+    raise ValueError(f"Agent '{agent_name}' with status '{agent_status}' not found in archive.")
 
 
 def _merge_callbacks(
@@ -543,6 +562,9 @@ def _resolve_lead_agent_request(
         requested_model_name=_coerce_optional_str(cfg.get("model_name") or cfg.get("model")),
         subagent_enabled=cfg.get("subagent_enabled", False),
         max_concurrent_subagents=cfg.get("max_concurrent_subagents", 3),
+        command_name=_coerce_optional_str(cfg.get("command_name")),
+        command_kind=_coerce_optional_str(cfg.get("command_kind")),
+        authoring_actions=_coerce_optional_str_list(cfg.get("authoring_actions")),
         agent_name=normalize_effective_agent_name(_coerce_optional_str(cfg.get("agent_name"))),
         agent_status=_resolve_agent_status(cfg.get("agent_status", "dev")),
         thread_id=_coerce_optional_str(cfg.get("thread_id") or cfg.get("x-thread-id")),
@@ -727,6 +749,8 @@ def _create_lead_agent(
         agent_config=resolution.agent_config,
         model_name=resolution.model_name,
         model_supports_vision=resolution.model_config.supports_vision,
+        agent_status=request.agent_status,
+        authoring_actions=request.authoring_actions,
     )
     _attach_trace_metadata(
         config,

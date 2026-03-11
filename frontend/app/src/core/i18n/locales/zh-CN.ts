@@ -322,7 +322,7 @@ export const zhCN: Translations = {
       createSkill: "新建技能",
       emptyTitle: "还没有技能",
       emptyDescription:
-        "将你的 Agent Skill 文件夹放在 OpenAgents 根目录下的 `/skills/custom` 文件夹中。",
+        "将新的 skill 创建或保存到 `.openagents/skills/store/dev`，验证后再继续推送和共享。",
       emptyButton: "创建你的第一个技能",
     },
     notification: {

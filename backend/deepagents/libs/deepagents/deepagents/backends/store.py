@@ -414,7 +414,12 @@ class StoreBackend(BackendProtocol):
         # Check if file exists
         existing = store.get(namespace, file_path)
         if existing is not None:
-            return WriteResult(error=f"Cannot write to {file_path} because it already exists. Read and then make an edit, or write to a new path.")
+            return WriteResult(
+                error=(
+                    f"Cannot write to {file_path} because it already exists. "
+                    "Read it and use edit_file to modify the existing file, or write to a new path."
+                )
+            )
 
         # Create new file
         file_data = create_file_data(content)
@@ -437,7 +442,12 @@ class StoreBackend(BackendProtocol):
         # Check if file exists using async method
         existing = await store.aget(namespace, file_path)
         if existing is not None:
-            return WriteResult(error=f"Cannot write to {file_path} because it already exists. Read and then make an edit, or write to a new path.")
+            return WriteResult(
+                error=(
+                    f"Cannot write to {file_path} because it already exists. "
+                    "Read it and use edit_file to modify the existing file, or write to a new path."
+                )
+            )
 
         # Create new file using async method
         file_data = create_file_data(content)

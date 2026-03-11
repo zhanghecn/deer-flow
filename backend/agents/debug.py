@@ -90,9 +90,9 @@ DEBUG_THREAD_ID = DEFAULT_THREAD_ID
 DEBUG_USER_ID: str | None = None
 DEBUG_MODEL_NAME: str | None = "kimi-k2.5-1"
 DEBUG_THINKING_ENABLED = True
-DEBUG_PLAN_MODE = False
-DEBUG_SUBAGENT_ENABLED = False
-DEBUG_MESSAGE: str | None = "Reply with exactly: REAL_TEST_OK"
+DEBUG_PLAN_MODE = True
+DEBUG_SUBAGENT_ENABLED = True
+DEBUG_MESSAGE: str | None = "给我一个惊喜"
 
 
 @dataclass(frozen=True)

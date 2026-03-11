@@ -18,6 +18,12 @@ from src.config.paths import Paths, get_paths
 from src.skills import load_skills
 from src.skills.types import Skill
 
+_SKILL_SCOPE_PRIORITY: dict[str, int] = {
+    "shared": 0,
+    "store/prod": 1,
+    "store/dev": 2,
+}
+
 
 def _dedupe_skill_names(skill_names: list[str] | None) -> list[str]:
     ordered: list[str] = []
@@ -33,19 +39,16 @@ def _dedupe_skill_names(skill_names: list[str] | None) -> list[str]:
 
 def _get_skill_catalog(paths: Paths) -> dict[str, Skill]:
     catalog: dict[str, Skill] = {}
-    duplicates: set[str] = set()
     for skill in load_skills(skills_path=paths.skills_dir, use_config=False, enabled_only=False):
-        if skill.name in catalog:
-            duplicates.add(skill.name)
+        existing = catalog.get(skill.name)
+        if existing is None:
+            catalog[skill.name] = skill
             continue
-        catalog[skill.name] = skill
 
-    if duplicates:
-        duplicate_list = ", ".join(sorted(duplicates))
-        raise ValueError(
-            f"Duplicate skill names found in skills library: {duplicate_list}. "
-            "Agent references must point to unique skill names."
-        )
+        existing_priority = _SKILL_SCOPE_PRIORITY.get(existing.category, 999)
+        next_priority = _SKILL_SCOPE_PRIORITY.get(skill.category, 999)
+        if next_priority < existing_priority:
+            catalog[skill.name] = skill
 
     return catalog
 
@@ -61,7 +64,7 @@ def resolve_skill_refs(skill_names: list[str] | None, paths: Paths | None = None
     for name in requested:
         skill = catalog.get(name)
         if skill is None:
-            raise ValueError(f"Skill '{name}' not found in shared skills library.")
+            raise ValueError(f"Skill '{name}' not found in OpenAgents skills library.")
         resolved.append(skill)
     return resolved
 

@@ -31,47 +31,6 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash);
 CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
 
--- Agents (shared)
-CREATE TABLE IF NOT EXISTS agents (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name VARCHAR(128) NOT NULL,
-    display_name VARCHAR(256),
-    description TEXT DEFAULT '',
-    avatar_url TEXT,
-    model VARCHAR(128),
-    tool_groups TEXT[] DEFAULT '{}',
-    mcp_servers TEXT[] DEFAULT '{}',
-    status VARCHAR(10) DEFAULT 'dev',
-    agents_md TEXT DEFAULT '',
-    config_json JSONB DEFAULT '{}',
-    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE (name, status)
-);
-CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
-CREATE INDEX IF NOT EXISTS idx_agents_name ON agents(name);
-
--- Skills (shared)
-CREATE TABLE IF NOT EXISTS skills (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name VARCHAR(64) UNIQUE NOT NULL,
-    description TEXT DEFAULT '',
-    status VARCHAR(10) DEFAULT 'dev',
-    skill_md TEXT NOT NULL,
-    metadata JSONB DEFAULT '{}',
-    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_skills_status ON skills(status);
-
-CREATE TABLE IF NOT EXISTS agent_skills (
-    agent_id UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-    skill_id UUID NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
-    PRIMARY KEY (agent_id, skill_id)
-);
-
 -- Models
 CREATE TABLE IF NOT EXISTS models (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

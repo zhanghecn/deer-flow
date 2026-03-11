@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from src.config.agents_config import AgentMemoryConfig, load_agents_md
+from src.config.builtin_agents import ensure_builtin_agent_archive
 
 
 def _build_subagent_section(max_concurrent: int) -> str:
@@ -106,12 +107,14 @@ You: "Deploying to staging..." [proceed]
 - User uploads: `/mnt/user-data/uploads` - Files uploaded by the user (automatically listed in context)
 - User workspace: `/mnt/user-data/workspace` - Working directory for temporary files
 - Output files: `/mnt/user-data/outputs` - Final deliverables must be saved here
+- Draft authoring: `/mnt/user-data/authoring` - Draft agents and skills can be created here before explicit save/publish actions
 
 **File Management:**
 - Uploaded files are automatically listed in the <uploaded_files> section before each request
 - Use `read_file` tool to read uploaded files using their paths from the list
 - For PDF, PPT, Excel, and Word files, converted Markdown versions (*.md) are available alongside originals
 - All temporary work happens in `/mnt/user-data/workspace`
+- Draft agent/skill authoring can happen under `/mnt/user-data/authoring/agents` and `/mnt/user-data/authoring/skills`
 - Final deliverables must be copied to `/mnt/user-data/outputs` and presented using `present_files`
 </working_directory>
 
@@ -141,6 +144,7 @@ Recent breakthroughs in language models have also accelerated progress
 - Multi-task: Better utilize parallel tool calling to call multiple tools at one time for better performance
 - Language Consistency: Keep using the same language as user's
 - Always Respond: Your thinking is internal. You MUST always provide a visible response to the user after thinking.
+- Persistence of drafted agents/skills requires explicit user confirmation through the runtime's save/push commands
 </critical_reminders>
 """
 
@@ -190,6 +194,7 @@ def _get_memory_context(
 
 def get_agents_md_section(agent_name: str | None, agent_status: str = "dev") -> str:
     """Return the AGENTS.md content wrapped in XML tags for the system prompt."""
+    ensure_builtin_agent_archive(agent_name, status=agent_status)
     content = load_agents_md(agent_name, status=agent_status)
     if content:
         return f"<agents_md>\n{content}\n</agents_md>\n"

@@ -5,59 +5,63 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/openagents/gateway/internal/model"
-	"github.com/openagents/gateway/internal/repository"
 	"github.com/openagents/gateway/pkg/storage"
+	"gopkg.in/yaml.v3"
 )
 
 type AgentService struct {
-	repo      *repository.AgentRepo
-	skillRepo *repository.SkillRepo
-	fs        *storage.FS
+	fs *storage.FS
+}
+
+type diskAgentConfig struct {
+	Name        string                   `yaml:"name"`
+	Description string                   `yaml:"description"`
+	Model       *string                  `yaml:"model"`
+	ToolGroups  []string                 `yaml:"tool_groups"`
+	McpServers  []string                 `yaml:"mcp_servers"`
+	Status      string                   `yaml:"status"`
+	AgentsMD    string                   `yaml:"agents_md_path"`
+	Memory      *model.AgentMemoryConfig `yaml:"memory"`
+	SkillRefs   []model.SkillRef         `yaml:"skill_refs"`
 }
 
 const builtinLeadAgentName = "lead_agent"
 
-func NewAgentService(repo *repository.AgentRepo, skillRepo *repository.SkillRepo, fs *storage.FS) *AgentService {
-	return &AgentService{repo: repo, skillRepo: skillRepo, fs: fs}
+func NewAgentService(fs *storage.FS) *AgentService {
+	return &AgentService{fs: fs}
 }
 
 func isReservedAgentName(name string) bool {
 	return strings.EqualFold(strings.TrimSpace(name), builtinLeadAgentName)
 }
 
-func (s *AgentService) ExistsName(ctx context.Context, name string) (bool, error) {
+func (s *AgentService) Create(_ context.Context, req model.CreateAgentRequest, _ uuid.UUID) (*model.Agent, error) {
+	name := strings.TrimSpace(req.Name)
 	if isReservedAgentName(name) {
-		return true, nil
+		return nil, fmt.Errorf("agent %q is reserved for the built-in lead agent", name)
 	}
-	return s.repo.ExistsName(ctx, name)
-}
+	if s.agentExists(name) {
+		return nil, fmt.Errorf("agent %q already exists", name)
+	}
 
-func (s *AgentService) Create(ctx context.Context, req model.CreateAgentRequest, userID uuid.UUID) (*model.Agent, error) {
-	if isReservedAgentName(req.Name) {
-		return nil, fmt.Errorf("agent %q is reserved for the built-in lead agent", req.Name)
-	}
-	exists, err := s.repo.ExistsName(ctx, req.Name)
+	skillRefs, err := s.resolveSkillRefsByNames(req.Skills)
 	if err != nil {
-		return nil, fmt.Errorf("check agent existence: %w", err)
-	}
-	if exists {
-		return nil, fmt.Errorf("agent %q already exists", req.Name)
+		return nil, err
 	}
 
-	selectedSkills, err := s.resolveSkills(ctx, req.Skills)
+	memoryConfig, err := normalizeAgentMemoryConfig(req.Memory)
 	if err != nil {
 		return nil, err
 	}
 
 	agent := &model.Agent{
-		ID:          uuid.New(),
-		Name:        req.Name,
+		Name:        name,
 		DisplayName: strPtr(req.DisplayName),
 		Description: req.Description,
 		AvatarURL:   req.AvatarURL,
@@ -65,58 +69,22 @@ func (s *AgentService) Create(ctx context.Context, req model.CreateAgentRequest,
 		ToolGroups:  req.ToolGroups,
 		McpServers:  req.McpServers,
 		Status:      "dev",
-		AgentsMDRef: s.fs.AgentMDRef(req.Name, "dev"),
-		CreatedBy:   &userID,
+		Memory:      &memoryConfig,
 	}
-	memoryConfig, err := normalizeAgentMemoryConfig(req.Memory)
-	if err != nil {
-		return nil, err
-	}
-	agent.Memory = &memoryConfig
-	agent.ConfigJSON = s.mustMarshalConfig(agent, selectedSkills)
+	agent.ConfigJSON = s.mustMarshalConfig(agent, skillRefs)
 
-	if err := s.syncAgentFilesystem(agent, req.AgentsMD, selectedSkills); err != nil {
+	if err := s.syncAgentFilesystem(agent, req.AgentsMD, skillRefs); err != nil {
 		return nil, fmt.Errorf("sync agent files: %w", err)
 	}
-	if err := s.repo.Create(ctx, agent); err != nil {
-		return nil, fmt.Errorf("create agent: %w", err)
-	}
-	if err := s.repo.ReplaceSkills(ctx, agent.ID, collectSkillIDs(selectedSkills)); err != nil {
-		return nil, fmt.Errorf("replace agent skills: %w", err)
-	}
-
-	return s.hydrateAgent(ctx, agent)
+	return s.hydrateFilesystemAgent(agent, req.AgentsMD, skillRefs), nil
 }
 
-func (s *AgentService) Get(ctx context.Context, name string, status string) (*model.Agent, error) {
-	agent, err := s.repo.FindByName(ctx, name, status)
+func (s *AgentService) Update(_ context.Context, name string, status string, req model.UpdateAgentRequest) (*model.Agent, error) {
+	existing, err := s.loadAgent(name, status, true)
 	if err != nil {
 		return nil, err
 	}
-	if agent == nil {
-		return nil, nil
-	}
-	return s.hydrateAgent(ctx, agent)
-}
-
-func (s *AgentService) List(ctx context.Context, status string) ([]model.Agent, error) {
-	agents, err := s.repo.List(ctx, status)
-	if err != nil {
-		return nil, err
-	}
-	for i := range agents {
-		hydrated, err := s.hydrateAgent(ctx, &agents[i])
-		if err != nil {
-			return nil, err
-		}
-		agents[i] = *hydrated
-	}
-	return agents, nil
-}
-
-func (s *AgentService) Update(ctx context.Context, name string, status string, req model.UpdateAgentRequest) (*model.Agent, error) {
-	existing, err := s.repo.FindByName(ctx, name, status)
-	if err != nil || existing == nil {
+	if existing == nil {
 		return nil, fmt.Errorf("agent %q (%s) not found", name, status)
 	}
 
@@ -146,202 +114,257 @@ func (s *AgentService) Update(ctx context.Context, name string, status string, r
 		existing.Memory = &memoryConfig
 	}
 
-	selectedSkillNames, err := s.currentSkillNames(ctx, existing)
+	skillRefs, err := s.normalizeSkillRefs(existing.Skills)
 	if err != nil {
 		return nil, err
 	}
 	if req.Skills != nil {
-		selectedSkillNames = req.Skills
+		skillRefs, err = s.resolveSkillRefsByNames(req.Skills)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	selectedSkills, err := s.resolveSkills(ctx, selectedSkillNames)
-	if err != nil {
-		return nil, err
-	}
-
-	agentsMDContent, err := s.fs.ReadTextRef(existing.AgentsMDRef)
-	if err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("read agent markdown: %w", err)
-	}
+	agentsMDContent := existing.AgentsMD
 	if req.AgentsMD != nil {
 		agentsMDContent = *req.AgentsMD
 	}
 
-	existing.ConfigJSON = s.mustMarshalConfig(existing, selectedSkills)
-
-	if err := s.syncAgentFilesystem(existing, agentsMDContent, selectedSkills); err != nil {
+	existing.ConfigJSON = s.mustMarshalConfig(existing, skillRefs)
+	if err := s.syncAgentFilesystem(existing, agentsMDContent, skillRefs); err != nil {
 		return nil, fmt.Errorf("sync agent files: %w", err)
 	}
-	if err := s.repo.Update(ctx, name, status, existing); err != nil {
-		return nil, fmt.Errorf("update agent: %w", err)
-	}
-	if err := s.repo.ReplaceSkills(ctx, existing.ID, collectSkillIDs(selectedSkills)); err != nil {
-		return nil, fmt.Errorf("replace agent skills: %w", err)
-	}
-
-	return s.hydrateAgent(ctx, existing)
+	return s.hydrateFilesystemAgent(existing, agentsMDContent, skillRefs), nil
 }
 
-func (s *AgentService) Delete(ctx context.Context, name string, status string) error {
-	targetStatuses := []string{status}
-	if status == "" {
-		targetStatuses = []string{"dev", "prod"}
-	}
-
-	deletedAny := false
-	for _, targetStatus := range targetStatuses {
-		existing, err := s.repo.FindByName(ctx, name, targetStatus)
-		if err != nil {
-			return err
+func (s *AgentService) agentExists(name string) bool {
+	for _, status := range []string{"dev", "prod"} {
+		info, err := os.Stat(s.fs.AgentDir(name, status))
+		if err == nil && info.IsDir() {
+			return true
 		}
-		if existing == nil {
-			continue
-		}
-		if err := s.repo.Delete(ctx, name, targetStatus); err != nil {
-			return err
-		}
-		_ = s.fs.DeleteAgentDir(name, targetStatus)
-		deletedAny = true
 	}
-
-	if !deletedAny {
-		return fmt.Errorf("agent %q not found", name)
-	}
-	return nil
+	return false
 }
 
-func (s *AgentService) Publish(ctx context.Context, name string) (*model.Agent, error) {
-	devAgent, err := s.repo.FindByName(ctx, name, "dev")
-	if err != nil || devAgent == nil {
-		return nil, fmt.Errorf("agent %q not found", name)
-	}
-
-	devSkills, err := s.repo.GetSkills(ctx, devAgent.ID)
+func (s *AgentService) loadAgent(name string, status string, includeMarkdown bool) (*model.Agent, error) {
+	configFile := filepath.Join(s.fs.AgentDir(name, status), "config.yaml")
+	info, err := os.Stat(configFile)
 	if err != nil {
-		return nil, fmt.Errorf("load dev agent skills: %w", err)
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
 	}
-	skillNames := make([]string, 0, len(devSkills))
-	for _, skill := range devSkills {
-		skillNames = append(skillNames, skill.Name)
+	if info.IsDir() {
+		return nil, nil
 	}
-	selectedSkills, err := s.resolveSkills(ctx, skillNames)
+
+	data, err := os.ReadFile(configFile)
 	if err != nil {
 		return nil, err
 	}
 
-	agentsMDContent, err := s.fs.ReadTextRef(devAgent.AgentsMDRef)
-	if err != nil {
-		return nil, fmt.Errorf("read dev AGENTS.md: %w", err)
+	var cfg diskAgentConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, err
 	}
 
-	prodAgent, err := s.repo.FindByName(ctx, name, "prod")
+	agentName := strings.TrimSpace(cfg.Name)
+	if agentName == "" {
+		agentName = name
+	}
+
+	skillRefs, err := s.normalizeSkillRefs(cfg.SkillRefs)
 	if err != nil {
 		return nil, err
 	}
-	if prodAgent == nil {
-		prodAgent = &model.Agent{
-			ID:          uuid.New(),
-			Name:        devAgent.Name,
-			DisplayName: devAgent.DisplayName,
-			Description: devAgent.Description,
-			AvatarURL:   devAgent.AvatarURL,
-			Model:       devAgent.Model,
-			ToolGroups:  devAgent.ToolGroups,
-			McpServers:  devAgent.McpServers,
-			Memory:      devAgent.Memory,
-			Status:      "prod",
-			CreatedBy:   devAgent.CreatedBy,
-		}
-	} else {
-		prodAgent.DisplayName = devAgent.DisplayName
-		prodAgent.Description = devAgent.Description
-		prodAgent.AvatarURL = devAgent.AvatarURL
-		prodAgent.Model = devAgent.Model
-		prodAgent.ToolGroups = devAgent.ToolGroups
-		prodAgent.McpServers = devAgent.McpServers
-		prodAgent.Memory = devAgent.Memory
-	}
-	prodAgent.AgentsMDRef = s.fs.AgentMDRef(name, "prod")
-	prodAgent.ConfigJSON = s.mustMarshalConfig(prodAgent, selectedSkills)
 
-	if err := s.syncAgentFilesystem(prodAgent, agentsMDContent, selectedSkills); err != nil {
-		return nil, fmt.Errorf("sync prod agent files: %w", err)
+	agent := &model.Agent{
+		Name:        agentName,
+		DisplayName: nil,
+		Description: cfg.Description,
+		Model:       cfg.Model,
+		ToolGroups:  cfg.ToolGroups,
+		McpServers:  cfg.McpServers,
+		Status:      status,
+		Memory:      cfg.Memory,
+		AgentsMDRef: s.fs.AgentMDRef(agentName, status),
+		Skills:      skillRefs,
 	}
-	if existing, _ := s.repo.FindByName(ctx, name, "prod"); existing == nil {
-		if err := s.repo.Create(ctx, prodAgent); err != nil {
-			return nil, fmt.Errorf("create prod agent: %w", err)
-		}
-	} else {
-		if err := s.repo.Update(ctx, name, "prod", prodAgent); err != nil {
-			return nil, fmt.Errorf("update prod agent: %w", err)
-		}
+	if agent.Memory == nil {
+		normalized := defaultAgentMemoryConfig()
+		agent.Memory = &normalized
 	}
-	if err := s.repo.ReplaceSkills(ctx, prodAgent.ID, collectSkillIDs(selectedSkills)); err != nil {
-		return nil, fmt.Errorf("replace prod agent skills: %w", err)
+	agent.ConfigJSON = s.mustMarshalConfig(agent, skillRefs)
+
+	if includeMarkdown {
+		agentsMDPath := strings.TrimSpace(cfg.AgentsMD)
+		if agentsMDPath == "" {
+			agentsMDPath = "AGENTS.md"
+		}
+		markdownPath := filepath.Join(s.fs.AgentDir(agentName, status), filepath.Clean(agentsMDPath))
+		markdown, err := os.ReadFile(markdownPath)
+		if err != nil && !os.IsNotExist(err) {
+			return nil, err
+		}
+		agent.AgentsMD = string(markdown)
 	}
 
-	return s.hydrateAgent(ctx, prodAgent)
+	return agent, nil
 }
 
-func (s *AgentService) resolveSkills(ctx context.Context, names []string) ([]model.Skill, error) {
-	uniqueNames := make([]string, 0, len(names))
+func (s *AgentService) resolveSkillRefsByNames(names []string) ([]model.SkillRef, error) {
+	resolved := make([]model.SkillRef, 0, len(names))
+	seen := make(map[string]struct{}, len(names))
 	for _, name := range names {
-		trimmed := name
-		if trimmed == "" || slices.Contains(uniqueNames, trimmed) {
+		trimmed := strings.TrimSpace(name)
+		if trimmed == "" {
 			continue
 		}
-		uniqueNames = append(uniqueNames, trimmed)
+		key := strings.ToLower(trimmed)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		ref, err := s.resolveSkillRefByName(trimmed)
+		if err != nil {
+			return nil, err
+		}
+		resolved = append(resolved, ref)
+		seen[key] = struct{}{}
 	}
-	resolved, err := s.skillRepo.FindByNames(ctx, uniqueNames)
-	if err != nil {
-		return nil, fmt.Errorf("load selected skills: %w", err)
-	}
-	if len(resolved) != len(uniqueNames) {
-		found := map[string]struct{}{}
-		for _, skill := range resolved {
-			found[skill.Name] = struct{}{}
-		}
-		for _, name := range uniqueNames {
-			if _, ok := found[name]; !ok {
-				return nil, fmt.Errorf("skill %q not found", name)
-			}
-		}
-	}
-	slices.SortFunc(resolved, func(a, b model.Skill) int {
-		if a.Name < b.Name {
-			return -1
-		}
-		if a.Name > b.Name {
-			return 1
-		}
-		return 0
-	})
 	return resolved, nil
 }
 
-func (s *AgentService) currentSkillNames(ctx context.Context, agent *model.Agent) ([]string, error) {
-	skillRefs, err := s.repo.GetSkills(ctx, agent.ID)
-	if err != nil {
-		return nil, fmt.Errorf("load agent skills: %w", err)
+func (s *AgentService) resolveSkillRefByName(name string) (model.SkillRef, error) {
+	matches := make([]model.SkillRef, 0, 3)
+	for _, scope := range []string{"shared", "store/dev", "store/prod"} {
+		if ref, ok := s.skillRefFromScope(name, scope); ok {
+			matches = append(matches, ref)
+		}
 	}
-	names := make([]string, 0, len(skillRefs))
-	for _, ref := range skillRefs {
-		names = append(names, ref.Name)
+
+	switch len(matches) {
+	case 0:
+		return model.SkillRef{}, fmt.Errorf("skill %q not found", name)
+	case 1:
+		return matches[0], nil
+	default:
+		scopes := make([]string, 0, len(matches))
+		for _, match := range matches {
+			scopes = append(scopes, match.Category)
+		}
+		return model.SkillRef{}, fmt.Errorf("skill %q is ambiguous across %s", name, strings.Join(scopes, ", "))
 	}
-	return names, nil
 }
 
-func (s *AgentService) syncAgentFilesystem(agent *model.Agent, agentsMD string, skills []model.Skill) error {
+func (s *AgentService) normalizeSkillRefs(refs []model.SkillRef) ([]model.SkillRef, error) {
+	normalized := make([]model.SkillRef, 0, len(refs))
+	seen := make(map[string]struct{}, len(refs))
+	for _, ref := range refs {
+		norm, err := s.normalizeSkillRef(ref)
+		if err != nil {
+			return nil, err
+		}
+		key := strings.ToLower(norm.Name)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		normalized = append(normalized, norm)
+		seen[key] = struct{}{}
+	}
+	return normalized, nil
+}
+
+func (s *AgentService) normalizeSkillRef(ref model.SkillRef) (model.SkillRef, error) {
+	name := strings.TrimSpace(ref.Name)
+	if name == "" {
+		return model.SkillRef{}, fmt.Errorf("skill ref name is required")
+	}
+
+	category := strings.Trim(strings.TrimSpace(ref.Category), "/")
+	sourcePath := strings.Trim(strings.TrimSpace(ref.SourcePath), "/")
+
+	switch {
+	case category == "" && sourcePath != "":
+		if path.Base(sourcePath) == name {
+			category = path.Dir(sourcePath)
+		} else {
+			category = sourcePath
+		}
+	case category == "" && ref.Status != "":
+		if ref.Status == "prod" {
+			category = "store/prod"
+		} else {
+			category = "store/dev"
+		}
+	case category == "":
+		return s.resolveSkillRefByName(name)
+	}
+
+	if sourcePath == "" {
+		sourcePath = path.Join(category, name)
+	}
+
+	normalized := model.SkillRef{
+		Name:             name,
+		Status:           ref.Status,
+		Category:         category,
+		SourcePath:       path.Clean(sourcePath),
+		MaterializedPath: ref.MaterializedPath,
+	}
+	if normalized.MaterializedPath == "" {
+		normalized.MaterializedPath = path.Join("skills", name)
+	}
+	if normalized.Status == "" {
+		switch category {
+		case "store/dev":
+			normalized.Status = "dev"
+		case "store/prod":
+			normalized.Status = "prod"
+		}
+	}
+	if _, ok := s.skillRefFromScope(name, category); !ok {
+		return model.SkillRef{}, fmt.Errorf("skill %q not found in %s", name, category)
+	}
+	return normalized, nil
+}
+
+func (s *AgentService) skillRefFromScope(name string, scope string) (model.SkillRef, bool) {
+	skillMD := filepath.Join(s.fs.GlobalSkillDir(scope, name), "SKILL.md")
+	info, err := os.Stat(skillMD)
+	if err != nil || info.IsDir() {
+		return model.SkillRef{}, false
+	}
+
+	status := ""
+	switch scope {
+	case "store/dev":
+		status = "dev"
+	case "store/prod":
+		status = "prod"
+	}
+
+	return model.SkillRef{
+		Name:             name,
+		Status:           status,
+		Category:         scope,
+		SourcePath:       path.Join(scope, name),
+		MaterializedPath: path.Join("skills", name),
+	}, true
+}
+
+func (s *AgentService) syncAgentFilesystem(agent *model.Agent, agentsMD string, skillRefs []model.SkillRef) error {
 	config := map[string]interface{}{
 		"name":           agent.Name,
 		"description":    agent.Description,
 		"status":         agent.Status,
 		"agents_md_path": "AGENTS.md",
-		"skill_refs":     s.manifestSkillRefs(skills),
+		"skill_refs":     skillRefs,
 		"memory":         agentMemoryPayload(agent.Memory),
 	}
 	if agent.Model != nil {
-		config["model"] = agent.Model
+		config["model"] = *agent.Model
 	}
 	if agent.ToolGroups != nil {
 		config["tool_groups"] = agent.ToolGroups
@@ -359,68 +382,46 @@ func (s *AgentService) syncAgentFilesystem(agent *model.Agent, agentsMD string, 
 	if err := os.MkdirAll(s.fs.AgentSkillsDir(agent.Name, agent.Status), 0755); err != nil {
 		return err
 	}
-	for _, skill := range skills {
-		srcDir := filepath.Dir(s.fs.ResolveRef(skill.SkillMDRef))
-		dstDir := filepath.Join(s.fs.AgentSkillsDir(agent.Name, agent.Status), skill.Name)
-		if err := s.fs.CopyDir(srcDir, dstDir); err != nil {
+
+	for _, ref := range skillRefs {
+		sourceDir := s.fs.GlobalSkillDir(ref.Category, ref.Name)
+		info, err := os.Stat(sourceDir)
+		if err != nil || !info.IsDir() {
+			return fmt.Errorf("skill %q not found in %s", ref.Name, ref.Category)
+		}
+		targetDir := filepath.Join(s.fs.AgentSkillsDir(agent.Name, agent.Status), ref.Name)
+		if err := s.fs.CopyDir(sourceDir, targetDir); err != nil {
 			return err
 		}
 	}
 
 	agent.AgentsMDRef = s.fs.AgentMDRef(agent.Name, agent.Status)
+	agent.AgentsMD = agentsMD
+	agent.Skills = append([]model.SkillRef(nil), skillRefs...)
 	return nil
 }
 
-func (s *AgentService) manifestSkillRefs(skills []model.Skill) []map[string]string {
-	refs := make([]map[string]string, 0, len(skills))
-	for _, skill := range skills {
-		category := "custom"
-		if skill.Status == "prod" {
-			category = "public"
-		}
-		refs = append(refs, map[string]string{
-			"name":              skill.Name,
-			"category":          category,
-			"source_path":       filepath.ToSlash(filepath.Join(category, skill.Name)),
-			"materialized_path": filepath.ToSlash(filepath.Join("skills", skill.Name)),
-		})
-	}
-	return refs
-}
-
-func (s *AgentService) hydrateAgent(ctx context.Context, agent *model.Agent) (*model.Agent, error) {
-	agentsMD, err := s.fs.ReadTextRef(agent.AgentsMDRef)
-	if err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("read agent markdown: %w", err)
-	}
+func (s *AgentService) hydrateFilesystemAgent(agent *model.Agent, agentsMD string, skillRefs []model.SkillRef) *model.Agent {
+	agent.AgentsMDRef = s.fs.AgentMDRef(agent.Name, agent.Status)
 	agent.AgentsMD = agentsMD
-
-	memoryConfig, err := parseAgentMemoryConfig(agent.ConfigJSON)
-	if err != nil {
-		return nil, fmt.Errorf("parse agent memory config: %w", err)
+	agent.Skills = append([]model.SkillRef(nil), skillRefs...)
+	if agent.Memory == nil {
+		normalized := defaultAgentMemoryConfig()
+		agent.Memory = &normalized
 	}
-	agent.Memory = &memoryConfig
-
-	skillRefs, err := s.repo.GetSkills(ctx, agent.ID)
-	if err != nil {
-		return nil, fmt.Errorf("load agent skills: %w", err)
-	}
-	for i := range skillRefs {
-		skillRefs[i].MaterializedPath = filepath.ToSlash(filepath.Join("skills", skillRefs[i].Name))
-	}
-	agent.Skills = skillRefs
-	return agent, nil
+	agent.ConfigJSON = s.mustMarshalConfig(agent, skillRefs)
+	return agent
 }
 
-func (s *AgentService) mustMarshalConfig(agent *model.Agent, skills []model.Skill) json.RawMessage {
+func (s *AgentService) mustMarshalConfig(agent *model.Agent, skillRefs []model.SkillRef) json.RawMessage {
 	payload := map[string]interface{}{
 		"name":            agent.Name,
 		"description":     agent.Description,
 		"status":          agent.Status,
 		"agents_md_ref":   s.fs.AgentMDRef(agent.Name, agent.Status),
 		"agents_md_path":  "AGENTS.md",
-		"selected_skills": collectSkillNames(skills),
-		"skill_refs":      s.manifestSkillRefs(skills),
+		"selected_skills": collectSkillRefNames(skillRefs),
+		"skill_refs":      skillRefs,
 		"memory":          agentMemoryPayload(agent.Memory),
 	}
 	if agent.Model != nil {
@@ -439,12 +440,12 @@ func (s *AgentService) mustMarshalConfig(agent *model.Agent, skills []model.Skil
 	return data
 }
 
-func collectSkillIDs(skills []model.Skill) []uuid.UUID {
-	ids := make([]uuid.UUID, 0, len(skills))
+func collectSkillRefNames(skills []model.SkillRef) []string {
+	names := make([]string, 0, len(skills))
 	for _, skill := range skills {
-		ids = append(ids, skill.ID)
+		names = append(names, skill.Name)
 	}
-	return ids
+	return names
 }
 
 func collectSkillNames(skills []model.Skill) []string {

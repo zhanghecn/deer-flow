@@ -2,24 +2,27 @@ package handler
 
 import (
 	"net/http"
+	"strings"
 
+	"github.com/gin-gonic/gin"
 	"github.com/openagents/gateway/internal/middleware"
 	"github.com/openagents/gateway/internal/model"
 	"github.com/openagents/gateway/internal/service"
-	"github.com/gin-gonic/gin"
+	"github.com/openagents/gateway/pkg/storage"
 )
 
 type AgentHandler struct {
 	svc *service.AgentService
+	fs  *storage.FS
 }
 
-func NewAgentHandler(svc *service.AgentService) *AgentHandler {
-	return &AgentHandler{svc: svc}
+func NewAgentHandler(svc *service.AgentService, fs *storage.FS) *AgentHandler {
+	return &AgentHandler{svc: svc, fs: fs}
 }
 
 func (h *AgentHandler) List(c *gin.Context) {
 	status := c.Query("status")
-	agents, err := h.svc.List(c.Request.Context(), status)
+	agents, err := listFilesystemAgents(h.fs, status)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
 		return
@@ -33,7 +36,7 @@ func (h *AgentHandler) List(c *gin.Context) {
 func (h *AgentHandler) Get(c *gin.Context) {
 	name := c.Param("name")
 	status := c.DefaultQuery("status", "dev")
-	agent, err := h.svc.Get(c.Request.Context(), name, status)
+	agent, err := loadFilesystemAgent(h.fs, name, status, true)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
 		return
@@ -81,7 +84,7 @@ func (h *AgentHandler) Update(c *gin.Context) {
 func (h *AgentHandler) Delete(c *gin.Context) {
 	name := c.Param("name")
 	status := c.Query("status")
-	if err := h.svc.Delete(c.Request.Context(), name, status); err != nil {
+	if err := deleteFilesystemAgent(h.fs, name, status); err != nil {
 		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: err.Error()})
 		return
 	}
@@ -90,7 +93,7 @@ func (h *AgentHandler) Delete(c *gin.Context) {
 
 func (h *AgentHandler) Publish(c *gin.Context) {
 	name := c.Param("name")
-	agent, err := h.svc.Publish(c.Request.Context(), name)
+	agent, err := publishFilesystemAgent(h.fs, name)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return
@@ -104,17 +107,21 @@ func (h *AgentHandler) CheckName(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "missing name"})
 		return
 	}
-	exists, err := h.svc.ExistsName(c.Request.Context(), name)
-	if err != nil || !exists {
+	normalized := strings.ToLower(strings.TrimSpace(name))
+	if normalized == "lead_agent" {
+		c.JSON(http.StatusOK, gin.H{"available": false, "name": normalized})
+		return
+	}
+	if !filesystemAgentExists(h.fs, normalized) {
 		c.JSON(http.StatusOK, gin.H{"available": true, "name": name})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"available": false, "name": name})
+	c.JSON(http.StatusOK, gin.H{"available": false, "name": normalized})
 }
 
 func (h *AgentHandler) Export(c *gin.Context) {
 	name := c.Param("name")
-	agent, err := h.svc.Get(c.Request.Context(), name, "prod")
+	agent, err := loadFilesystemAgent(h.fs, name, "prod", true)
 	if err != nil || agent == nil {
 		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "agent not found"})
 		return

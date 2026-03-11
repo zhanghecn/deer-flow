@@ -63,27 +63,25 @@ func main() {
 	// Repositories
 	userRepo := repository.NewUserRepo(pool)
 	tokenRepo := repository.NewAPITokenRepo(pool)
-	agentRepo := repository.NewAgentRepo(pool)
-	skillRepo := repository.NewSkillRepo(pool)
 	modelRepo := repository.NewModelRepo(pool)
 	threadRepo := repository.NewThreadRepo(pool)
 	adminObservabilityRepo := repository.NewAdminObservabilityRepo(pool)
 
 	// Services
-	agentSvc := service.NewAgentService(agentRepo, skillRepo, fs)
-	skillSvc := service.NewSkillService(skillRepo, fs)
+	agentSvc := service.NewAgentService(fs)
+	skillSvc := service.NewSkillService(fs)
 
 	// Handlers
 	authH := handler.NewAuthHandler(userRepo, tokenRepo, jwtMgr, fs)
-	agentH := handler.NewAgentHandler(agentSvc)
-	skillH := handler.NewSkillHandler(skillSvc)
+	agentH := handler.NewAgentHandler(agentSvc, fs)
+	skillH := handler.NewSkillHandler(skillSvc, fs, filepath.Dir(mainConfigPath))
 	modelH := handler.NewModelHandler(modelRepo)
 	memoryH := handler.NewMemoryHandler(fs)
 	mcpH := handler.NewMCPHandler(filepath.Dir(mainConfigPath))
 	threadsH := handler.NewThreadsHandler(threadRepo)
 	uploadsH := handler.NewUploadsHandler(fs)
 	artifactsH := handler.NewArtifactsHandler(fs)
-	openAPIH := handler.NewOpenAPIHandler(agentRepo, modelRepo, cfg.Upstream.LangGraphURL, fs)
+	openAPIH := handler.NewOpenAPIHandler(modelRepo, cfg.Upstream.LangGraphURL, fs)
 	langGraphRuntimeH := handler.NewLangGraphRuntimeHandler()
 	adminH := handler.NewAdminHandler(userRepo, adminObservabilityRepo, modelRepo)
 

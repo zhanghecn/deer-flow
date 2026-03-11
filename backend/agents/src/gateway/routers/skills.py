@@ -11,9 +11,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from src.config.extensions_config import ExtensionsConfig, SkillStateConfig, get_extensions_config, reload_extensions_config
+from src.config.paths import get_paths
 from src.gateway.path_utils import resolve_thread_virtual_path
 from src.skills import Skill, load_skills
-from src.skills.loader import get_skills_root_path
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["skills"])
@@ -25,7 +25,7 @@ class SkillResponse(BaseModel):
     name: str = Field(..., description="Name of the skill")
     description: str = Field(..., description="Description of what the skill does")
     license: str | None = Field(None, description="License information")
-    category: str = Field(..., description="Category of the skill (public or custom)")
+    category: str = Field(..., description="Skill scope: shared, store/dev, or store/prod")
     enabled: bool = Field(default=True, description="Whether this skill is enabled")
 
 
@@ -148,7 +148,7 @@ def _skill_to_response(skill: Skill) -> SkillResponse:
     "/skills",
     response_model=SkillsListResponse,
     summary="List All Skills",
-    description="Retrieve a list of all available skills from both public and custom directories.",
+    description="Retrieve a list of all available skills from the shared and store skill scopes.",
 )
 async def list_skills() -> SkillsListResponse:
     """List all available skills.
@@ -166,14 +166,14 @@ async def list_skills() -> SkillsListResponse:
                     "name": "PDF Processing",
                     "description": "Extract and analyze PDF content",
                     "license": "MIT",
-                    "category": "public",
+                    "category": "shared",
                     "enabled": true
                 },
                 {
                     "name": "Frontend Design",
                     "description": "Generate frontend designs and components",
                     "license": null,
-                    "category": "custom",
+                    "category": "store/dev",
                     "enabled": false
                 }
             ]
@@ -213,7 +213,7 @@ async def get_skill(skill_name: str) -> SkillResponse:
             "name": "PDF Processing",
             "description": "Extract and analyze PDF content",
             "license": "MIT",
-            "category": "public",
+            "category": "shared",
             "enabled": true
         }
         ```
@@ -268,7 +268,7 @@ async def update_skill(skill_name: str, request: SkillUpdateRequest) -> SkillRes
             "name": "PDF Processing",
             "description": "Extract and analyze PDF content",
             "license": "MIT",
-            "category": "public",
+            "category": "shared",
             "enabled": false
         }
         ```
@@ -389,12 +389,9 @@ async def install_skill(request: SkillInstallRequest) -> SkillInstallResponse:
         if not zipfile.is_zipfile(skill_file_path):
             raise HTTPException(status_code=400, detail="File is not a valid ZIP archive")
 
-        # Get the custom skills directory
-        skills_root = get_skills_root_path()
-        custom_skills_dir = skills_root / "custom"
-
-        # Create custom directory if it doesn't exist
-        custom_skills_dir.mkdir(parents=True, exist_ok=True)
+        # Install imported skills into the dev store scope.
+        target_root = get_paths().store_dev_skills_dir
+        target_root.mkdir(parents=True, exist_ok=True)
 
         # Extract to a temporary directory first for validation
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -402,7 +399,16 @@ async def install_skill(request: SkillInstallRequest) -> SkillInstallResponse:
 
             # Extract the .skill file
             with zipfile.ZipFile(skill_file_path, "r") as zip_ref:
+                total_size = sum(info.file_size for info in zip_ref.infolist())
+                if total_size > 100 * 1024 * 1024:
+                    raise HTTPException(status_code=400, detail="Skill archive too large when extracted (>100MB)")
+                for info in zip_ref.infolist():
+                    if Path(info.filename).is_absolute() or ".." in Path(info.filename).parts:
+                        raise HTTPException(status_code=400, detail=f"Unsafe path in archive: {info.filename}")
                 zip_ref.extractall(temp_path)
+            for extracted_path in temp_path.rglob("*"):
+                if extracted_path.is_symlink():
+                    extracted_path.unlink()
 
             # Find the skill directory (should be the only top-level directory)
             extracted_items = list(temp_path.iterdir())
@@ -425,15 +431,19 @@ async def install_skill(request: SkillInstallRequest) -> SkillInstallResponse:
                 raise HTTPException(status_code=400, detail="Could not determine skill name")
 
             # Check if skill already exists
-            target_dir = custom_skills_dir / skill_name
+            target_dir = target_root / skill_name
             if target_dir.exists():
                 raise HTTPException(status_code=409, detail=f"Skill '{skill_name}' already exists. Please remove it first or use a different name.")
 
-            # Move the skill directory to the custom skills directory
+            # Save into the durable dev store scope.
             shutil.copytree(skill_dir, target_dir)
 
         logger.info(f"Skill '{skill_name}' installed successfully to {target_dir}")
-        return SkillInstallResponse(success=True, skill_name=skill_name, message=f"Skill '{skill_name}' installed successfully")
+        return SkillInstallResponse(
+            success=True,
+            skill_name=skill_name,
+            message=f"Skill '{skill_name}' installed successfully to .openagents/skills/store/dev",
+        )
 
     except HTTPException:
         raise

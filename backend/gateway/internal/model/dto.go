@@ -63,12 +63,12 @@ type AgentResponse struct {
 }
 
 type SkillRef struct {
-	ID               uuid.UUID `json:"id"`
-	Name             string    `json:"name"`
-	Status           string    `json:"status,omitempty"`
-	Category         string    `json:"category,omitempty"`
-	SourcePath       string    `json:"source_path,omitempty"`
-	MaterializedPath string    `json:"materialized_path,omitempty"`
+	ID               uuid.UUID `json:"id" yaml:"-"`
+	Name             string    `json:"name" yaml:"name"`
+	Status           string    `json:"status,omitempty" yaml:"status,omitempty"`
+	Category         string    `json:"category,omitempty" yaml:"category,omitempty"`
+	SourcePath       string    `json:"source_path,omitempty" yaml:"source_path,omitempty"`
+	MaterializedPath string    `json:"materialized_path,omitempty" yaml:"materialized_path,omitempty"`
 }
 
 // Skill DTOs

@@ -28,32 +28,40 @@ export default function NewChatClient() {
   const [pendingMessage, setPendingMessage] = useState<PromptInputMessage | null>(
     null,
   );
+  const [pendingExtraContext, setPendingExtraContext] = useState<
+    Record<string, unknown> | undefined
+  >(undefined);
   const isMock = searchParams.get("mock") === "true";
 
   const inputInitialValue = (() => {
     if (searchParams.get("mode") !== "skill") {
       return undefined;
     }
-    return t.inputBox.createSkillPrompt;
+    return "/create-skill ";
   })();
 
   const handleSubmit = useCallback(
-    (message: PromptInputMessage) => {
+    (message: PromptInputMessage, extraContext?: Record<string, unknown>) => {
       setPendingMessage(message);
+      setPendingExtraContext(extraContext);
     },
     [],
   );
 
   if (pendingMessage) {
     return (
-      <NewChatSender
-        message={pendingMessage}
-        context={settings.context}
-        isMock={isMock}
-        onError={() => setPendingMessage(null)}
-        onStartedThread={(threadId) => {
-          router.replace(
-            isMock
+        <NewChatSender
+          message={pendingMessage}
+          extraContext={pendingExtraContext}
+          context={settings.context}
+          isMock={isMock}
+          onError={() => {
+            setPendingMessage(null);
+            setPendingExtraContext(undefined);
+          }}
+          onStartedThread={(threadId) => {
+            router.replace(
+              isMock
               ? `/workspace/chats/${threadId}?mock=true`
               : `/workspace/chats/${threadId}`,
           );
@@ -63,7 +71,7 @@ export default function NewChatClient() {
   }
 
   return (
-    <PromptInputProvider>
+    <PromptInputProvider initialInput={inputInitialValue}>
       <div className="relative flex size-full min-h-0 justify-between">
         <main className="flex min-h-0 max-w-full grow flex-col">
           <div className="absolute right-0 bottom-0 left-0 z-30 flex justify-center px-4">

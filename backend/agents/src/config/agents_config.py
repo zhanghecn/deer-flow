@@ -9,13 +9,13 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.config.builtin_agents import is_reserved_agent_name
-from src.config.paths import get_paths
+from src.config.paths import Paths, get_paths
 
 logger = logging.getLogger(__name__)
 
 AGENTS_MD_FILENAME = "AGENTS.md"
 AGENT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
-_SKILL_SOURCE_CATEGORIES = frozenset({"public", "custom"})
+_SKILL_SOURCE_SCOPES = ("shared", "store/prod", "store/dev")
 
 
 def _normalize_optional_text(value: str | None) -> str | None:
@@ -28,14 +28,20 @@ def _normalize_optional_text(value: str | None) -> str | None:
 def _parse_skill_source_path(source_path: str) -> tuple[str, PurePosixPath]:
     path = PurePosixPath(source_path)
     if path.is_absolute() or ".." in path.parts or len(path.parts) < 2:
-        raise ValueError("Agent skill source_path must be a safe relative path like 'public/my-skill'.")
+        raise ValueError("Agent skill source_path must be a safe relative path like 'shared/my-skill' or 'store/prod/my-skill'.")
 
-    category = path.parts[0]
-    if category not in _SKILL_SOURCE_CATEGORIES:
-        valid = ", ".join(sorted(_SKILL_SOURCE_CATEGORIES))
-        raise ValueError(f"Agent skill source_path must start with one of: {valid}.")
+    path_str = path.as_posix()
+    for scope in sorted(_SKILL_SOURCE_SCOPES, key=len, reverse=True):
+        scope_prefix = f"{scope}/"
+        if not path_str.startswith(scope_prefix):
+            continue
+        relative_path = PurePosixPath(path_str[len(scope_prefix) :])
+        if str(relative_path) == "." or not relative_path.parts:
+            raise ValueError("Agent skill source_path must point to a concrete skill directory.")
+        return scope, relative_path
 
-    return category, PurePosixPath(*path.parts[1:])
+    valid = ", ".join(_SKILL_SOURCE_SCOPES)
+    raise ValueError(f"Agent skill source_path must start with one of: {valid}.")
 
 
 def _derive_materialized_path(source_path: str) -> str:
@@ -45,8 +51,8 @@ def _derive_materialized_path(source_path: str) -> str:
 
 def _derive_source_path(category: str, materialized_path: str) -> str:
     normalized_category = category.strip()
-    if normalized_category not in _SKILL_SOURCE_CATEGORIES:
-        valid = ", ".join(sorted(_SKILL_SOURCE_CATEGORIES))
+    if normalized_category not in _SKILL_SOURCE_SCOPES:
+        valid = ", ".join(_SKILL_SOURCE_SCOPES)
         raise ValueError(f"Agent skill category must be one of: {valid}.")
 
     path = PurePosixPath(materialized_path)
@@ -74,7 +80,7 @@ class AgentConfig(BaseModel):
 
 
 class AgentSkillRef(BaseModel):
-    """Reference to a skill copied from the shared skills library."""
+    """Reference to a skill copied from the OpenAgents skills library."""
 
     name: str
     category: str | None = None
@@ -152,11 +158,11 @@ def serialize_agent_skill_ref(skill_ref: AgentSkillRef) -> dict[str, str]:
     return payload
 
 
-def _resolve_agent_dir(name: str, status: str) -> Path:
-    return get_paths().agent_dir(name, status)
+def _resolve_agent_dir(name: str, status: str, paths: Paths | None = None) -> Path:
+    return (paths or get_paths()).agent_dir(name, status)
 
 
-def load_agent_config(name: str | None, status: str = "dev") -> AgentConfig | None:
+def load_agent_config(name: str | None, status: str = "dev", *, paths: Paths | None = None) -> AgentConfig | None:
     """Load the custom or default agent's config from its directory.
 
     Agent definitions are stored only in `{base_dir}/agents/{status}/{name}/`.
@@ -167,7 +173,7 @@ def load_agent_config(name: str | None, status: str = "dev") -> AgentConfig | No
     if not AGENT_NAME_PATTERN.match(name):
         raise ValueError(f"Invalid agent name '{name}'. Must match pattern: {AGENT_NAME_PATTERN.pattern}")
 
-    agent_dir = _resolve_agent_dir(name, status)
+    agent_dir = _resolve_agent_dir(name, status, paths)
 
     config_file = agent_dir / "config.yaml"
 
@@ -196,7 +202,7 @@ def load_agent_config(name: str | None, status: str = "dev") -> AgentConfig | No
     return AgentConfig(**data)
 
 
-def load_agents_md(agent_name: str | None, status: str = "dev") -> str | None:
+def load_agents_md(agent_name: str | None, status: str = "dev", *, paths: Paths | None = None) -> str | None:
     """Read the AGENTS.md file for an agent.
 
     AGENTS.md defines the agent's personality, values, and behavioral guardrails.
@@ -204,9 +210,9 @@ def load_agents_md(agent_name: str | None, status: str = "dev") -> str | None:
     if agent_name is None:
         return None
 
-    agent_dir = _resolve_agent_dir(agent_name, status)
+    agent_dir = _resolve_agent_dir(agent_name, status, paths)
     try:
-        agent_config = load_agent_config(agent_name, status)
+        agent_config = load_agent_config(agent_name, status, paths=paths)
     except FileNotFoundError:
         agent_config = None
 

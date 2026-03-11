@@ -20,59 +20,56 @@ func TestResolveRefKeepsAgentRefsUnderBaseDir(t *testing.T) {
 	}
 }
 
-func TestResolveRefRoutesSkillRefsToSharedSkillsRoot(t *testing.T) {
+func TestResolveRefRoutesSkillRefsToOpenAgentsSkillsRoot(t *testing.T) {
 	t.Parallel()
 
 	projectDir := t.TempDir()
 	baseDir := filepath.Join(projectDir, ".openagents")
-	skillsDir := filepath.Join(projectDir, "skills", "public", "research")
+	skillsDir := filepath.Join(baseDir, "skills", "shared", "research")
 	if err := os.MkdirAll(skillsDir, 0755); err != nil {
 		t.Fatalf("mkdir skills dir: %v", err)
 	}
 
 	fs := NewFS(baseDir)
 
-	got := fs.ResolveRef("skills/public/research/SKILL.md")
-	want := filepath.Join(projectDir, "skills", "public", "research", "SKILL.md")
+	got := fs.ResolveRef("skills/shared/research/SKILL.md")
+	want := filepath.Join(baseDir, "skills", "shared", "research", "SKILL.md")
 	if got != want {
 		t.Fatalf("ResolveRef() = %q, want %q", got, want)
 	}
 }
 
-func TestGlobalSkillDirUsesSharedSkillsArchive(t *testing.T) {
+func TestGlobalSkillDirUsesOpenAgentsSkillsArchive(t *testing.T) {
 	t.Parallel()
 
 	projectDir := t.TempDir()
 	baseDir := filepath.Join(projectDir, ".openagents")
-	if err := os.MkdirAll(filepath.Join(projectDir, "skills"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(baseDir, "skills"), 0755); err != nil {
 		t.Fatalf("mkdir shared skills root: %v", err)
 	}
 
 	fs := NewFS(baseDir)
 
-	got := fs.GlobalSkillDir("custom", "data-analysis")
-	want := filepath.Join(projectDir, "skills", "custom", "data-analysis")
+	got := fs.GlobalSkillDir("store/dev", "data-analysis")
+	want := filepath.Join(baseDir, "skills", "store", "dev", "data-analysis")
 	if got != want {
 		t.Fatalf("GlobalSkillDir() = %q, want %q", got, want)
 	}
 }
 
-func TestSharedSkillsDirIgnoresNestedOpenAgentsSkillsDir(t *testing.T) {
+func TestSharedSkillsDirUsesOpenAgentsSharedScope(t *testing.T) {
 	t.Parallel()
 
 	projectDir := t.TempDir()
 	baseDir := filepath.Join(projectDir, ".openagents")
-	if err := os.MkdirAll(filepath.Join(baseDir, "skills", "public"), 0755); err != nil {
-		t.Fatalf("mkdir nested openagents skills: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Join(projectDir, "skills", "public"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(baseDir, "skills", "shared"), 0755); err != nil {
 		t.Fatalf("mkdir shared skills root: %v", err)
 	}
 
 	fs := NewFS(baseDir)
 
 	got := fs.SharedSkillsDir()
-	want := filepath.Join(projectDir, "skills")
+	want := filepath.Join(baseDir, "skills", "shared")
 	if got != want {
 		t.Fatalf("SharedSkillsDir() = %q, want %q", got, want)
 	}

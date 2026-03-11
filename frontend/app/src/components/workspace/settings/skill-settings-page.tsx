@@ -2,7 +2,7 @@
 
 import { SparklesIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -57,7 +57,12 @@ function SkillSettingsList({
 }) {
   const { t } = useI18n();
   const router = useRouter();
-  const [filter, setFilter] = useState<string>("public");
+  const categories = useMemo(
+    () =>
+      Array.from(new Set(skills.map((skill) => skill.category))).filter(Boolean),
+    [skills],
+  );
+  const [filter, setFilter] = useState<string>("shared");
   const { mutate: enableSkill } = useEnableSkill();
   const filteredSkills = useMemo(
     () => skills.filter((skill) => skill.category === filter),
@@ -67,14 +72,31 @@ function SkillSettingsList({
     onClose?.();
     router.push("/workspace/chats/new?mode=skill");
   };
+
+  const categoryLabel = useCallback(
+    (category: string) => {
+      if (category === "shared") return "Shared";
+      if (category === "store/dev") return "Store Dev";
+      if (category === "store/prod") return "Store Prod";
+      return category;
+    },
+    [],
+  );
   return (
     <div className="flex w-full flex-col gap-4">
       <header className="flex justify-between">
         <div className="flex gap-2">
-          <Tabs defaultValue="public" onValueChange={setFilter}>
+          <Tabs
+            defaultValue={categories[0] ?? "shared"}
+            value={filter}
+            onValueChange={setFilter}
+          >
             <TabsList variant="line">
-              <TabsTrigger value="public">{t.common.public}</TabsTrigger>
-              <TabsTrigger value="custom">{t.common.custom}</TabsTrigger>
+              {categories.map((category) => (
+                <TabsTrigger key={category} value={category}>
+                  {categoryLabel(category)}
+                </TabsTrigger>
+              ))}
             </TabsList>
           </Tabs>
         </div>

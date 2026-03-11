@@ -9,9 +9,6 @@ This directory is split into schema + data migrations:
 
 - `users`
 - `api_tokens`
-- `agents` (includes `mcp_servers` and `UNIQUE (name, status)`)
-- `skills`
-- `agent_skills`
 - `models`
 - `thread_bindings` (includes `title`)
 - `agent_traces`

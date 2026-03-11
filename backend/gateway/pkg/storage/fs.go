@@ -18,6 +18,10 @@ func NewFS(baseDir string) *FS {
 	return &FS{baseDir: baseDir}
 }
 
+func (f *FS) BaseDir() string {
+	return f.baseDir
+}
+
 // ResolveBaseDir resolves a relative OPENAGENTS_HOME-style path against the
 // project root when running from within the repository.
 func ResolveBaseDir(baseDir string) string {
@@ -59,34 +63,36 @@ func (f *FS) AgentSkillsDir(name, status string) string {
 	return filepath.Join(f.AgentDir(name, status), "skills")
 }
 
+// SkillsDir returns the root directory for all global skills.
+func (f *FS) SkillsDir() string {
+	return filepath.Join(f.baseDir, "skills")
+}
+
 // SharedSkillsDir returns the shared skills archive root.
 func (f *FS) SharedSkillsDir() string {
-	for dir := filepath.Dir(filepath.Clean(f.baseDir)); ; {
-		candidate := filepath.Join(dir, "skills")
-		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
-			return candidate
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-	return filepath.Join(filepath.Dir(f.baseDir), "skills")
+	return filepath.Join(f.SkillsDir(), "shared")
+}
+
+func (f *FS) StoreDevSkillsDir() string {
+	return filepath.Join(f.SkillsDir(), "store", "dev")
+}
+
+func (f *FS) StoreProdSkillsDir() string {
+	return filepath.Join(f.SkillsDir(), "store", "prod")
 }
 
 // GlobalSkillDir returns the directory for a global skill.
-func (f *FS) GlobalSkillDir(category, skillName string) string {
-	return filepath.Join(f.SharedSkillsDir(), category, skillName)
+func (f *FS) GlobalSkillDir(scope, skillName string) string {
+	return filepath.Join(f.SkillsDir(), filepath.FromSlash(scope), skillName)
 }
 
-// SkillMDRef returns the relative reference path for a shared skill file by status.
+// SkillMDRef returns the relative reference path for a store skill file by status.
 func (f *FS) SkillMDRef(name, status string) string {
-	category := "custom"
+	scope := filepath.Join("store", "dev")
 	if status == "prod" {
-		category = "public"
+		scope = filepath.Join("store", "prod")
 	}
-	return filepath.ToSlash(filepath.Join("skills", category, name, "SKILL.md"))
+	return filepath.ToSlash(filepath.Join("skills", scope, name, "SKILL.md"))
 }
 
 // ResolveRef resolves a relative storage reference against the gateway base dir.
@@ -97,10 +103,10 @@ func (f *FS) ResolveRef(ref string) string {
 	clean := filepath.Clean(filepath.FromSlash(ref))
 	skillsPrefix := "skills" + string(filepath.Separator)
 	if clean == "skills" {
-		return f.SharedSkillsDir()
+		return f.SkillsDir()
 	}
 	if strings.HasPrefix(clean, skillsPrefix) {
-		return filepath.Join(f.SharedSkillsDir(), strings.TrimPrefix(clean, skillsPrefix))
+		return filepath.Join(f.SkillsDir(), strings.TrimPrefix(clean, skillsPrefix))
 	}
 	return filepath.Join(f.baseDir, clean)
 }

@@ -5,151 +5,250 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/openagents/gateway/internal/model"
-	"github.com/openagents/gateway/internal/repository"
 	"github.com/openagents/gateway/pkg/storage"
+	"gopkg.in/yaml.v3"
 )
 
 type SkillService struct {
-	repo *repository.SkillRepo
-	fs   *storage.FS
+	fs *storage.FS
 }
 
-func NewSkillService(repo *repository.SkillRepo, fs *storage.FS) *SkillService {
-	return &SkillService{repo: repo, fs: fs}
+type skillFrontmatter struct {
+	Name        string `yaml:"name"`
+	Description string `yaml:"description"`
+	License     string `yaml:"license"`
 }
 
-func (s *SkillService) Create(ctx context.Context, req model.CreateSkillRequest, userID uuid.UUID) (*model.Skill, error) {
-	existing, err := s.repo.FindAnyByName(ctx, req.Name)
-	if err != nil {
-		return nil, fmt.Errorf("check skill existence: %w", err)
-	}
-	if existing != nil {
-		return nil, fmt.Errorf("skill %q already exists", req.Name)
-	}
-
-	skill := &model.Skill{
-		ID:         uuid.New(),
-		Name:       req.Name,
-		Description: req.Description,
-		Status:     "dev",
-		SkillMDRef: s.fs.SkillMDRef(req.Name, "dev"),
-		Metadata:   s.mustMarshalMetadata(req.Name, "dev"),
-		CreatedBy:  &userID,
-	}
-
-	if err := s.fs.WriteGlobalSkillFile("custom", skill.Name, req.SkillMD); err != nil {
-		return nil, fmt.Errorf("write skill file: %w", err)
-	}
-	if err := s.repo.Create(ctx, skill); err != nil {
-		return nil, fmt.Errorf("create skill: %w", err)
-	}
-
-	return s.hydrateSkill(skill)
+func NewSkillService(fs *storage.FS) *SkillService {
+	return &SkillService{fs: fs}
 }
 
-func (s *SkillService) List(ctx context.Context, status string) ([]model.Skill, error) {
-	skills, err := s.repo.List(ctx, status)
+func (s *SkillService) Create(_ context.Context, req model.CreateSkillRequest, _ uuid.UUID) (*model.Skill, error) {
+	name := strings.TrimSpace(req.Name)
+	if scopes := s.findSkillScopes(name); len(scopes) > 0 {
+		return nil, fmt.Errorf("skill %q already exists in %s", name, strings.Join(scopes, ", "))
+	}
+
+	skillMD, err := ensureSkillFrontmatter(name, req.Description, req.SkillMD)
 	if err != nil {
 		return nil, err
 	}
-	for i := range skills {
-		hydrated, err := s.hydrateSkill(&skills[i])
-		if err != nil {
-			return nil, err
-		}
-		skills[i] = *hydrated
+	if err := s.fs.WriteGlobalSkillFile("store/dev", name, skillMD); err != nil {
+		return nil, fmt.Errorf("write skill file: %w", err)
 	}
-	return skills, nil
+
+	return s.loadSkillFromScope(name, "store/dev")
 }
 
-func (s *SkillService) Update(ctx context.Context, name string, req model.UpdateSkillRequest) (*model.Skill, error) {
-	existing, err := s.repo.FindByName(ctx, name)
-	if err != nil || existing == nil {
-		return nil, fmt.Errorf("skill %q not found", name)
+func (s *SkillService) Update(_ context.Context, name string, req model.UpdateSkillRequest) (*model.Skill, error) {
+	scope, err := s.locateUniqueSkillScope(name)
+	if err != nil {
+		return nil, err
 	}
 
+	existing, err := s.loadSkillFromScope(name, scope)
+	if err != nil {
+		return nil, err
+	}
+
+	description := existing.Description
 	if req.Description != nil {
-		existing.Description = *req.Description
+		description = *req.Description
 	}
-	skillMDContent, err := s.fs.ReadTextRef(existing.SkillMDRef)
-	if err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("read skill file: %w", err)
-	}
+
+	skillMD := existing.SkillMD
 	if req.SkillMD != nil {
-		skillMDContent = *req.SkillMD
+		skillMD = *req.SkillMD
+	}
+	skillMD, err = ensureSkillFrontmatter(name, description, skillMD)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.fs.WriteGlobalSkillFile(scope, name, skillMD); err != nil {
+		return nil, fmt.Errorf("write skill file: %w", err)
 	}
 
-	if existing.Status == "prod" {
-		if err := s.fs.WriteGlobalSkillFile("public", name, skillMDContent); err != nil {
-			return nil, fmt.Errorf("write skill file: %w", err)
-		}
-	} else {
-		if err := s.fs.WriteGlobalSkillFile("custom", name, skillMDContent); err != nil {
-			return nil, fmt.Errorf("write skill file: %w", err)
-		}
-	}
-	existing.SkillMDRef = s.fs.SkillMDRef(name, existing.Status)
-	existing.Metadata = s.mustMarshalMetadata(name, existing.Status)
-
-	if err := s.repo.Update(ctx, name, existing); err != nil {
-		return nil, fmt.Errorf("update skill: %w", err)
-	}
-
-	return s.hydrateSkill(existing)
+	return s.loadSkillFromScope(name, scope)
 }
 
-func (s *SkillService) Delete(ctx context.Context, name string) error {
-	if err := s.repo.Delete(ctx, name); err != nil {
-		return err
+func (s *SkillService) Delete(_ context.Context, name string) error {
+	deleted := false
+	for _, scope := range []string{"store/dev", "store/prod", "shared"} {
+		targetDir := s.fs.GlobalSkillDir(scope, name)
+		if info, err := os.Stat(targetDir); err == nil && info.IsDir() {
+			if err := os.RemoveAll(targetDir); err != nil {
+				return err
+			}
+			deleted = true
+		}
 	}
-	_ = os.RemoveAll(s.fs.GlobalSkillDir("custom", name))
-	_ = os.RemoveAll(s.fs.GlobalSkillDir("public", name))
+	if !deleted {
+		return fmt.Errorf("skill %q not found", name)
+	}
 	return nil
 }
 
-func (s *SkillService) Publish(ctx context.Context, name string) (*model.Skill, error) {
-	existing, err := s.repo.FindByName(ctx, name)
-	if err != nil || existing == nil {
-		return nil, fmt.Errorf("skill %q not found", name)
-	}
-	skillMDContent, err := s.fs.ReadTextRef(existing.SkillMDRef)
-	if err != nil {
-		return nil, fmt.Errorf("read skill file: %w", err)
-	}
-	if err := s.fs.WriteGlobalSkillFile("public", name, skillMDContent); err != nil {
-		return nil, fmt.Errorf("write public skill file: %w", err)
+func (s *SkillService) Publish(_ context.Context, name string) (*model.Skill, error) {
+	sourceDir := s.fs.GlobalSkillDir("store/dev", name)
+	info, err := os.Stat(sourceDir)
+	if err != nil || !info.IsDir() {
+		return nil, fmt.Errorf("skill %q not found in store/dev", name)
 	}
 
-	existing.Status = "prod"
-	existing.SkillMDRef = s.fs.SkillMDRef(name, "prod")
-	existing.Metadata = s.mustMarshalMetadata(name, "prod")
-
-	if err := s.repo.UpdateStatus(ctx, name, "prod"); err != nil {
-		return nil, fmt.Errorf("update status: %w", err)
+	targetDir := s.fs.GlobalSkillDir("store/prod", name)
+	_ = os.RemoveAll(targetDir)
+	if err := s.fs.CopyDir(sourceDir, targetDir); err != nil {
+		return nil, fmt.Errorf("copy skill to prod: %w", err)
 	}
 
-	return s.hydrateSkill(existing)
+	return s.loadSkillFromScope(name, "store/prod")
 }
 
-func (s *SkillService) hydrateSkill(skill *model.Skill) (*model.Skill, error) {
-	skillMD, err := s.fs.ReadTextRef(skill.SkillMDRef)
-	if err != nil && !os.IsNotExist(err) {
+func (s *SkillService) findSkillScopes(name string) []string {
+	scopes := make([]string, 0, 3)
+	for _, scope := range []string{"shared", "store/dev", "store/prod"} {
+		info, err := os.Stat(s.fs.GlobalSkillDir(scope, name))
+		if err == nil && info.IsDir() {
+			scopes = append(scopes, scope)
+		}
+	}
+	return scopes
+}
+
+func (s *SkillService) locateUniqueSkillScope(name string) (string, error) {
+	scopes := s.findSkillScopes(name)
+	switch len(scopes) {
+	case 0:
+		return "", fmt.Errorf("skill %q not found", name)
+	case 1:
+		return scopes[0], nil
+	default:
+		return "", fmt.Errorf("skill %q is ambiguous across %s", name, strings.Join(scopes, ", "))
+	}
+}
+
+func (s *SkillService) loadSkillFromScope(name string, scope string) (*model.Skill, error) {
+	skillPath := filepath.Join(s.fs.GlobalSkillDir(scope, name), "SKILL.md")
+	data, err := os.ReadFile(skillPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("skill %q not found", name)
+		}
 		return nil, err
 	}
-	skill.SkillMD = skillMD
-	return skill, nil
+
+	meta, err := parseSkillFrontmatter(string(data))
+	if err != nil {
+		return nil, err
+	}
+
+	status := "shared"
+	switch scope {
+	case "store/dev":
+		status = "dev"
+	case "store/prod":
+		status = "prod"
+	}
+
+	return &model.Skill{
+		Name:        name,
+		Description: meta.Description,
+		Status:      status,
+		SkillMD:     string(data),
+		SkillMDRef:  filepath.ToSlash(filepath.Join("skills", scope, name, "SKILL.md")),
+		Metadata:    s.mustMarshalMetadata(name, scope),
+	}, nil
 }
 
-func (s *SkillService) mustMarshalMetadata(name string, status string) json.RawMessage {
+func (s *SkillService) mustMarshalMetadata(name string, scope string) json.RawMessage {
 	payload := map[string]interface{}{
-		"skill_md_ref": s.fs.SkillMDRef(name, status),
+		"scope":        scope,
+		"skill_md_ref": filepath.ToSlash(filepath.Join("skills", scope, name, "SKILL.md")),
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return json.RawMessage("{}")
 	}
 	return data
+}
+
+func ensureSkillFrontmatter(name string, description string, skillMD string) (string, error) {
+	meta, body, hasFrontmatter, err := splitSkillFrontmatter(skillMD)
+	if err != nil {
+		return "", err
+	}
+	if meta == nil {
+		meta = map[string]interface{}{}
+	}
+	meta["name"] = strings.TrimSpace(name)
+	if strings.TrimSpace(description) != "" {
+		meta["description"] = strings.TrimSpace(description)
+	}
+
+	data, err := yaml.Marshal(meta)
+	if err != nil {
+		return "", err
+	}
+
+	content := strings.TrimLeft(body, "\n")
+	if hasFrontmatter {
+		if content == "" {
+			return fmt.Sprintf("---\n%s---\n", string(data)), nil
+		}
+		return fmt.Sprintf("---\n%s---\n\n%s", string(data), content), nil
+	}
+	if content == "" {
+		return fmt.Sprintf("---\n%s---\n", string(data)), nil
+	}
+	return fmt.Sprintf("---\n%s---\n\n%s", string(data), content), nil
+}
+
+func splitSkillFrontmatter(skillMD string) (map[string]interface{}, string, bool, error) {
+	if !strings.HasPrefix(skillMD, "---\n") {
+		return map[string]interface{}{}, skillMD, false, nil
+	}
+
+	rest := strings.TrimPrefix(skillMD, "---\n")
+	end := strings.Index(rest, "\n---")
+	if end < 0 {
+		return nil, "", false, fmt.Errorf("invalid skill frontmatter")
+	}
+
+	meta := map[string]interface{}{}
+	if err := yaml.Unmarshal([]byte(rest[:end]), &meta); err != nil {
+		return nil, "", false, err
+	}
+
+	body := strings.TrimPrefix(rest[end:], "\n---")
+	body = strings.TrimPrefix(body, "\n")
+	return meta, body, true, nil
+}
+
+func parseSkillFrontmatter(skillMD string) (skillFrontmatter, error) {
+	meta, _, _, err := splitSkillFrontmatter(skillMD)
+	if err != nil {
+		return skillFrontmatter{}, err
+	}
+
+	raw, err := yaml.Marshal(meta)
+	if err != nil {
+		return skillFrontmatter{}, err
+	}
+
+	var parsed skillFrontmatter
+	if err := yaml.Unmarshal(raw, &parsed); err != nil {
+		return skillFrontmatter{}, err
+	}
+	parsed.Name = strings.TrimSpace(parsed.Name)
+	parsed.Description = strings.TrimSpace(parsed.Description)
+	parsed.License = strings.TrimSpace(parsed.License)
+	if parsed.Name == "" {
+		return skillFrontmatter{}, fmt.Errorf("skill name missing in frontmatter")
+	}
+	return parsed, nil
 }

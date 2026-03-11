@@ -16,11 +16,11 @@ def setup_function() -> None:
 
 
 def _make_paths(base_dir: Path) -> Paths:
-    return Paths(base_dir=base_dir, skills_dir=base_dir.parent / "skills")
+    return Paths(base_dir=base_dir, skills_dir=base_dir / "skills")
 
 
-def _write_shared_skill(base_dir: Path, name: str, *, category: str = "public", body: str = "skill") -> None:
-    skill_file = base_dir.parent / "skills" / category / name / "SKILL.md"
+def _write_shared_skill(base_dir: Path, name: str, *, category: str = "shared", body: str = "skill") -> None:
+    skill_file = base_dir / "skills" / Path(category) / name / "SKILL.md"
     skill_file.parent.mkdir(parents=True, exist_ok=True)
     skill_file.write_text(
         f"---\nname: {name}\ndescription: {name} description\n---\n\n{body}\n",
@@ -111,6 +111,32 @@ def test_build_backend_named_agent_seeds_agent_definition_into_thread_runtime(tm
     assert b"status: prod" in responses[1].content
     assert b"skill_refs" in responses[1].content
     assert responses[2].content == b"Analyze data"
+
+
+def test_build_backend_supports_store_prod_skill_refs(tmp_path):
+    base_dir = tmp_path / ".openagents"
+    agent_dir = base_dir / "agents" / "prod" / "reviewer"
+    (agent_dir / "skills" / "contracts" / "review").mkdir(parents=True)
+    (agent_dir / "AGENTS.md").write_text("You review contracts.", encoding="utf-8")
+    (agent_dir / "config.yaml").write_text(
+        "name: reviewer\n"
+        "status: prod\n"
+        "agents_md_path: AGENTS.md\n"
+        "skill_refs:\n"
+        "  - name: contract-review\n"
+        "    source_path: store/prod/contracts/review\n",
+        encoding="utf-8",
+    )
+    (agent_dir / "skills" / "contracts" / "review" / "SKILL.md").write_text("Review contracts", encoding="utf-8")
+    paths = _make_paths(base_dir)
+
+    with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
+        backend = lead_agent_module.build_backend("thread-1", agent_name="reviewer", status="prod")
+
+    runtime_agent_root = lead_agent_module._runtime_agent_root("reviewer", "prod")
+    response = backend.download_files([f"{runtime_agent_root}/skills/contracts/review/SKILL.md"])[0]
+
+    assert response.content == b"Review contracts"
 
 
 def test_runtime_seed_targets_reads_latest_archive_contents(tmp_path):

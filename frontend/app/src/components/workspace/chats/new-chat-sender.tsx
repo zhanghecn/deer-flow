@@ -9,12 +9,14 @@ import { uuid } from "@/core/utils/uuid";
 
 export default function NewChatSender({
   message,
+  extraContext,
   context,
   isMock,
   onStartedThread,
   onError,
 }: {
   message: PromptInputMessage;
+  extraContext?: Record<string, unknown>;
   context: LocalSettings["context"];
   isMock: boolean;
   onStartedThread: (threadId: string) => void;
@@ -34,11 +36,11 @@ export default function NewChatSender({
       return;
     }
     sentRef.current = true;
-    void sendMessage(threadId, message).catch(() => {
+    void sendMessage(threadId, message, extraContext).catch(() => {
       sentRef.current = false;
       onError();
     });
-  }, [message, onError, sendMessage, threadId]);
+  }, [extraContext, message, onError, sendMessage, threadId]);
 
   return (
     <div className="text-muted-foreground flex h-full items-center justify-center text-sm">

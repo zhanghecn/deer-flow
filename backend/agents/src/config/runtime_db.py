@@ -57,30 +57,6 @@ class RuntimeDBStore:
             ) from e
         return psycopg.connect(self._dsn)
 
-    def get_agent(self, name: str, status: str) -> DBAgentConfig | None:
-        query = """
-            SELECT name, status, model, tool_groups, mcp_servers, config_json
-            FROM agents
-            WHERE name = %s AND status = %s
-            LIMIT 1
-        """
-        with self._connect() as conn, conn.cursor() as cur:
-            cur.execute(query, (name, status))
-            row = cur.fetchone()
-            if row is None:
-                return None
-            config_payload = self._coerce_json_object(row[5])
-            return DBAgentConfig(
-                name=row[0],
-                status=row[1],
-                model=row[2],
-                tool_groups=list(row[3]) if row[3] is not None else None,
-                mcp_servers=list(row[4]) if row[4] is not None else None,
-                agents_md_path=self._parse_agent_md_path(config_payload),
-                skill_refs=self._parse_agent_skill_refs(config_payload),
-                memory=self._parse_agent_memory(config_payload),
-            )
-
     def get_model(self, name: str) -> ModelConfig | None:
         query = """
             SELECT name, display_name, config_json

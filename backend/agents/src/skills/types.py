@@ -11,13 +11,13 @@ class Skill:
     license: str | None
     skill_dir: Path
     skill_file: Path
-    relative_path: Path  # Relative path from category root to skill directory
-    category: str  # 'public' or 'custom'
+    relative_path: Path  # Relative path from the scope root to the skill directory
+    category: str  # e.g. 'shared', 'store/dev', or 'store/prod'
     enabled: bool = False  # Whether this skill is enabled
 
     @property
     def skill_path(self) -> str:
-        """Returns the relative path from the category root (skills/{category}) to this skill's directory"""
+        """Returns the relative path from the scope root to this skill's directory."""
         path = self.relative_path.as_posix()
         return "" if path == "." else path
 

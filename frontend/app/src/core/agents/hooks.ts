@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { useAuth } from "@/core/auth/hooks";
+
 import {
   createAgent,
   deleteAgent,
@@ -11,18 +13,21 @@ import {
 import type { CreateAgentRequest, UpdateAgentRequest } from "./types";
 
 export function useAgents() {
+  const { authenticated } = useAuth();
   const { data, isLoading, error } = useQuery({
     queryKey: ["agents"],
     queryFn: () => listAgents(),
+    enabled: authenticated,
   });
   return { agents: data ?? [], isLoading, error };
 }
 
 export function useAgent(name: string | null | undefined) {
+  const { authenticated } = useAuth();
   const { data, isLoading, error } = useQuery({
     queryKey: ["agents", name],
     queryFn: () => getAgent(name!),
-    enabled: !!name,
+    enabled: authenticated && !!name,
   });
   return { agent: data ?? null, isLoading, error };
 }

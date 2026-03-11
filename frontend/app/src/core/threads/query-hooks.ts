@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { getAPIClient } from "../api";
+import { useAuth } from "../auth";
 
 import {
   searchThreads,
@@ -18,9 +19,11 @@ export function useThreads(
     select: ["thread_id", "updated_at", "values"],
   },
 ) {
+  const { authenticated } = useAuth();
   return useQuery<AgentThread[]>({
     queryKey: ["threads", "search", params],
     queryFn: () => searchThreads(params),
+    enabled: authenticated,
     refetchOnWindowFocus: false,
   });
 }

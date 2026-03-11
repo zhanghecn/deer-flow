@@ -35,7 +35,6 @@ import {
   PromptInputTextarea,
   PromptInputTools,
   usePromptInputAttachments,
-  usePromptInputController,
   type PromptInputMessage,
 } from "@/components/ai-elements/prompt-input";
 import { ConfettiButton } from "@/components/ui/confetti-button";
@@ -44,6 +43,11 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import { PROMPT_COMMANDS } from "@/core/commands";
+import {
+  getSlashQuery,
+  resolveCommandIntent,
+} from "@/core/commands/transform";
 import { useI18n } from "@/core/i18n/hooks";
 import { useModels } from "@/core/models/hooks";
 import type { AgentThreadContext } from "@/core/threads";
@@ -120,13 +124,21 @@ export function InputBox({
       reasoning_effort?: "minimal" | "low" | "medium" | "high";
     },
   ) => void;
-  onSubmit?: (message: PromptInputMessage) => void;
+  onSubmit?: (
+    message: PromptInputMessage,
+    extraContext?: Record<string, unknown>,
+  ) => void;
   onStop?: () => void;
 }) {
   const { t } = useI18n();
   const searchParams = useSearchParams();
   const [modelDialogOpen, setModelDialogOpen] = useState(false);
+  const [draftText, setDraftText] = useState(initialValue ?? "");
   const { models } = useModels();
+
+  useEffect(() => {
+    setDraftText(initialValue ?? "");
+  }, [initialValue]);
 
   useEffect(() => {
     if (models.length === 0) {
@@ -213,10 +225,37 @@ export function InputBox({
       if (!message.text) {
         return;
       }
-      onSubmit?.(message);
+      const resolvedCommand = resolveCommandIntent(message.text);
+      onSubmit?.(
+        {
+          ...message,
+          text: resolvedCommand?.promptText ?? message.text,
+        },
+        resolvedCommand?.extraContext,
+      );
+      setDraftText("");
     },
     [onSubmit, onStop, status],
   );
+
+  const applyInputText = useCallback((nextValue: string) => {
+    setDraftText(nextValue);
+    const textarea = document.querySelector<HTMLTextAreaElement>(
+      "textarea[name='message']",
+    );
+    if (!textarea) {
+      return;
+    }
+    textarea.value = nextValue;
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    textarea.focus();
+  }, []);
+
+  const slashQuery = getSlashQuery(draftText);
+  const slashSuggestions =
+    slashQuery === null
+      ? []
+      : PROMPT_COMMANDS.filter((command) => command.name.startsWith(slashQuery));
   return (
     <PromptInput
       className={cn(
@@ -245,7 +284,7 @@ export function InputBox({
           disabled={disabled}
           placeholder={t.inputBox.placeholder}
           autoFocus={autoFocus}
-          defaultValue={initialValue}
+          onChange={(event) => setDraftText(event.currentTarget.value)}
         />
       </PromptInputBody>
       <PromptInputFooter className="flex">
@@ -580,9 +619,33 @@ export function InputBox({
           />
         </PromptInputTools>
       </PromptInputFooter>
+      {slashSuggestions.length > 0 && (
+        <div className="absolute right-0 bottom-18 left-0 z-20 flex justify-center px-4">
+          <div className="bg-background/95 w-full max-w-(--container-width-md) rounded-2xl border p-2 shadow-lg backdrop-blur">
+            <div className="text-muted-foreground px-2 py-1 text-[11px] uppercase tracking-[0.18em]">
+              Commands
+            </div>
+            <div className="flex flex-col gap-1">
+              {slashSuggestions.map((command) => (
+                <button
+                  key={command.name}
+                  type="button"
+                  className="hover:bg-muted flex items-start justify-between rounded-xl px-3 py-2 text-left transition-colors"
+                  onClick={() => applyInputText(`/${command.name} `)}
+                >
+                  <span className="font-mono text-sm">/{command.name}</span>
+                  <span className="text-muted-foreground ml-4 text-xs">
+                    {command.description}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       {isNewThread && searchParams.get("mode") !== "skill" && (
         <div className="absolute right-0 -bottom-20 left-0 z-0 flex items-center justify-center">
-          <SuggestionList />
+          <SuggestionList onInsertPrompt={applyInputText} />
         </div>
       )}
       {!isNewThread && (
@@ -592,13 +655,16 @@ export function InputBox({
   );
 }
 
-function SuggestionList() {
+function SuggestionList({
+  onInsertPrompt,
+}: {
+  onInsertPrompt: (prompt: string) => void;
+}) {
   const { t } = useI18n();
-  const { textInput } = usePromptInputController();
   const handleSuggestionClick = useCallback(
     (prompt: string | undefined) => {
       if (!prompt) return;
-      textInput.setInput(prompt);
+      onInsertPrompt(prompt);
       setTimeout(() => {
         const textarea = document.querySelector<HTMLTextAreaElement>(
           "textarea[name='message']",
@@ -613,7 +679,7 @@ function SuggestionList() {
         }
       }, 500);
     },
-    [textInput],
+    [onInsertPrompt],
   );
   return (
     <Suggestions className="min-h-16 w-fit items-start">

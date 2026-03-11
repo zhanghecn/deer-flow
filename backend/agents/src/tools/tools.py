@@ -5,15 +5,31 @@ from langchain.tools import BaseTool
 from src.config.app_config import load_tool_configs
 from src.config.runtime_db import get_runtime_db_store
 from src.reflection import resolve_variable
-from src.tools.builtins import ask_clarification_tool, present_file_tool, setup_agent, view_image_tool
+from src.tools.builtins import (
+    ask_clarification_tool,
+    present_file_tool,
+    promote_skill_shared,
+    push_agent_prod,
+    push_skill_prod,
+    save_agent_to_store,
+    save_skill_to_store,
+    view_image_tool,
+)
 
 logger = logging.getLogger(__name__)
 
 BUILTIN_TOOLS = [
     present_file_tool,
     ask_clarification_tool,
-    setup_agent,
 ]
+
+AUTHORING_TOOL_REGISTRY = {
+    "save_agent_to_store": save_agent_to_store,
+    "save_skill_to_store": save_skill_to_store,
+    "push_agent_prod": push_agent_prod,
+    "push_skill_prod": push_skill_prod,
+    "promote_skill_shared": promote_skill_shared,
+}
 
 def get_available_tools(
     groups: list[str] | None = None,
@@ -21,6 +37,8 @@ def get_available_tools(
     mcp_servers: list[str] | None = None,
     model_name: str | None = None,
     model_supports_vision: bool | None = None,
+    agent_status: str | None = None,
+    authoring_actions: list[str] | None = None,
 ) -> list[BaseTool]:
     """Get all available tools from config.
 
@@ -69,6 +87,12 @@ def get_available_tools(
 
     # Conditionally add tools based on config
     builtin_tools = BUILTIN_TOOLS.copy()
+    if agent_status == "dev":
+        for action in authoring_actions or []:
+            authoring_tool = AUTHORING_TOOL_REGISTRY.get(action)
+            if authoring_tool is None or authoring_tool in builtin_tools:
+                continue
+            builtin_tools.append(authoring_tool)
 
     # Add view_image_tool only if the model supports vision
     if model_supports_vision is None:

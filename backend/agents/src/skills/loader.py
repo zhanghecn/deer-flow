@@ -4,6 +4,12 @@ from pathlib import Path
 from .parser import parse_skill_file
 from .types import Skill
 
+_SKILL_SCOPE_PATHS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("shared", ("shared",)),
+    ("store/dev", ("store", "dev")),
+    ("store/prod", ("store", "prod")),
+)
+
 
 def get_skills_root_path() -> Path:
     from src.config import get_app_config
@@ -16,7 +22,7 @@ def load_skills(skills_path: Path | None = None, use_config: bool = True, enable
     """
     Load all skills from the skills directory.
 
-    Scans both public and custom skill directories, parsing SKILL.md files
+    Scans OpenAgents skill scopes, parsing SKILL.md files
     to extract metadata. The enabled state is determined by the skills_state_config.json file.
 
     Args:
@@ -40,9 +46,9 @@ def load_skills(skills_path: Path | None = None, use_config: bool = True, enable
 
     skills = []
 
-    # Scan public and custom directories
-    for category in ["public", "custom"]:
-        category_path = skills_path / category
+    # Scan supported skill scopes.
+    for category, path_parts in _SKILL_SCOPE_PATHS:
+        category_path = skills_path.joinpath(*path_parts)
         if not category_path.exists() or not category_path.is_dir():
             continue
 

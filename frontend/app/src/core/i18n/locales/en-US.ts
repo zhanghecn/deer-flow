@@ -336,7 +336,7 @@ export const enUS: Translations = {
       createSkill: "Create skill",
       emptyTitle: "No agent skill yet",
       emptyDescription:
-        "Put your agent skill folders under the `/skills/custom` folder under the root folder of OpenAgents.",
+        "Create or save skills into `.openagents/skills/store/dev`, then promote them through the store lifecycle when ready.",
       emptyButton: "Create Your First Skill",
     },
     notification: {

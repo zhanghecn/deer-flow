@@ -526,18 +526,19 @@ class TestSkillsManagement:
             with zipfile.ZipFile(archive_path, "w") as zf:
                 zf.write(skill_dir / "SKILL.md", "my-skill/SKILL.md")
 
-            skills_root = tmp_path / "skills"
-            (skills_root / "custom").mkdir(parents=True)
+            skills_root = tmp_path / ".openagents" / "skills"
+            (skills_root / "store" / "dev").mkdir(parents=True)
 
             with (
-                patch("src.skills.loader.get_skills_root_path", return_value=skills_root),
+                patch("src.client.get_paths") as mock_get_paths,
                 patch("src.gateway.routers.skills._validate_skill_frontmatter", return_value=(True, "OK", "my-skill")),
             ):
+                mock_get_paths.return_value.store_dev_skills_dir = skills_root / "store" / "dev"
                 result = client.install_skill(archive_path)
 
             assert result["success"] is True
             assert result["skill_name"] == "my-skill"
-            assert (skills_root / "custom" / "my-skill").exists()
+            assert (skills_root / "store" / "dev" / "my-skill").exists()
 
     def test_install_skill_not_found(self, client):
         with pytest.raises(FileNotFoundError):
@@ -1227,24 +1228,25 @@ class TestScenarioSkillInstallAndUse:
             with zipfile.ZipFile(archive, "w") as zf:
                 zf.write(skill_src / "SKILL.md", "my-analyzer/SKILL.md")
 
-            skills_root = tmp_path / "skills"
-            (skills_root / "custom").mkdir(parents=True)
+            skills_root = tmp_path / ".openagents" / "skills"
+            (skills_root / "store" / "dev").mkdir(parents=True)
 
             # Step 1: Install
             with (
-                patch("src.skills.loader.get_skills_root_path", return_value=skills_root),
+                patch("src.client.get_paths") as mock_get_paths,
                 patch("src.gateway.routers.skills._validate_skill_frontmatter", return_value=(True, "OK", "my-analyzer")),
             ):
+                mock_get_paths.return_value.store_dev_skills_dir = skills_root / "store" / "dev"
                 result = client.install_skill(archive)
             assert result["success"] is True
-            assert (skills_root / "custom" / "my-analyzer" / "SKILL.md").exists()
+            assert (skills_root / "store" / "dev" / "my-analyzer" / "SKILL.md").exists()
 
             # Step 2: List and find it
             installed_skill = MagicMock()
             installed_skill.name = "my-analyzer"
             installed_skill.description = "Analyze code"
             installed_skill.license = "MIT"
-            installed_skill.category = "custom"
+            installed_skill.category = "store/dev"
             installed_skill.enabled = True
 
             with patch("src.skills.loader.load_skills", return_value=[installed_skill]):
@@ -1256,7 +1258,7 @@ class TestScenarioSkillInstallAndUse:
             disabled_skill.name = "my-analyzer"
             disabled_skill.description = "Analyze code"
             disabled_skill.license = "MIT"
-            disabled_skill.category = "custom"
+            disabled_skill.category = "store/dev"
             disabled_skill.enabled = False
 
             ext_config = MagicMock()

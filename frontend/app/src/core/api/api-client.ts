@@ -22,7 +22,7 @@ export function getAPIClient(isMock?: boolean): LangGraphClient {
   if (!_singleton) {
     const headers: Record<string, string> = {};
     if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
+      headers.Authorization = `Bearer ${token}`;
     }
     if (userId) {
       headers["x-user-id"] = userId;
