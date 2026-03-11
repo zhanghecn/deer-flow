@@ -59,7 +59,7 @@ The single LangGraph agent (`lead_agent`) is the runtime entry point, created vi
 
 Custom agents now follow one filesystem protocol:
 
-- Shared skills live in the global archive: `skills/{public,custom}/`
+- Shared skills live in the global archive: `.openagents/skills/{shared,store/dev,store/prod}/`
 - Each agent owns its own `AGENTS.md`
 - Selected skills are copied into `agents/{status}/{name}/skills/`
 - `config.yaml` is the local manifest and records `agents_md_path` and `skill_refs`
@@ -192,7 +192,7 @@ cp ../../.env.example ../../.env
 Important variables:
 
 - `DATABASE_URI`:
-  shared PostgreSQL DSN for Python runtime DB queries (`models`, `agents`, `thread_bindings`)
+  shared PostgreSQL DSN for Python runtime DB queries (`models`, `thread_bindings`)
   and LangGraph checkpointer persistence backend
 - `REDIS_URI`:
   optional; only needed if explicitly using `LANGGRAPH_RUNTIME_EDITION=postgres`

@@ -32,7 +32,7 @@ Nginx (:2026)
 
 - **Go 1.22+**
 - **Gin** — HTTP 框架
-- **PostgreSQL** — 用户/Agent/Skill/Token 元数据存储
+- **PostgreSQL** — 用户、Token、模型配置、线程绑定与观测数据存储
 - **pgx** — PostgreSQL 驱动
 - **golang-jwt** — JWT 认证
 - **bcrypt** — 密码哈希
@@ -75,7 +75,7 @@ cp ../../.env.example ../../.env
 - `LANGGRAPH_URL` — LangGraph 上游地址（用于 `/api/langgraph/*` 代理和 OpenAPI 调用）
 
 说明：
-- 共享技能库固定在独立的 `skills/` 目录，不放在 `OPENAGENTS_HOME` 里面
+- 共享技能库位于 `OPENAGENTS_HOME/skills/`，默认即 `.openagents/skills/`
 - 当 `OPENAGENTS_HOME` 或 `storage.base_dir` 使用相对路径时，网关会按项目根目录解析，和 Python runtime 保持一致
 
 **方式二：使用配置文件**
@@ -266,28 +266,19 @@ POST /open/v1/agents/:name/stream  # 只有 prod agent 可通过 Open API 调用
 
 - `users` — 用户账号
 - `api_tokens` — API 访问令牌
-- `agents` — Agent 元数据与引用（共享，非按用户隔离）
-- `skills` — Skill 元数据与引用（共享）
-- `agent_skills` — Agent-Skill 关联
 - `models` — 模型配置
 - `thread_bindings` — 线程归属与运行时绑定
 - `agent_traces` / `agent_trace_events` — Agent 观测数据
 
 `/api/models` 数据来自 `models` 表。运行时模型选择由 Python(LangGraph graph factory)直接查询数据库，不再由网关注入 `model_config`。`models` 是唯一的模型配置真源。
 
-数据库不再保存 Agent/Skill markdown 正文作为真源：
-- `agents.agents_md` 列保存 `agents/{status}/{name}/AGENTS.md` 这类引用路径
-- `skills.skill_md` 列保存 `skills/{public|custom}/{name}/SKILL.md` 这类引用路径
-- `agents.config_json` 保存与 Python manifest 对齐的引用信息，例如 `agents_md_path`、`skill_refs`
-- `agent_skills` 是“这个 agent 选了哪些共享 skill”的数据库真源
-
-Agent 版本隔离规则：
-- 同一个 agent 名称可以同时存在 `dev` 和 `prod` 两行
-- 数据库唯一键为 `(name, status)`，发布时不再覆盖 dev 行
-- Open API 只读取 `status=prod`
+Agent/Skill 定义已经完全脱离数据库：
+- Agent 真源在 `.openagents/agents/{status}/{name}/`
+- Skill 真源在 `.openagents/skills/{shared|store/dev|store/prod}/{name}/`
+- 发布只是文件复制与状态切换，不写任何 agent/skill 元数据表
 
 运行时职责分界：
-- Go gateway 只负责写归档和元数据引用
+- Go gateway 只负责写归档文件
 - 是否启用 sandbox 由 Python runtime 启动时根据环境变量 / `config.yaml` 决定
 - 运行时无论是本地还是 sandbox，都读取同一套已归档的 `AGENTS.md` 和 agent-local `skills/`
 
@@ -366,7 +357,7 @@ Browser / Frontend
         v
 [Python make_lead_agent]
 - read configurable + runtime.execution_runtime.context
-- resolve model via DB (models / agents / thread_bindings)
+- resolve model via DB (models / thread_bindings)
 - persist thread_bindings(thread_id,user_id,model_name,agent_name,assistant_id)
         |
         v

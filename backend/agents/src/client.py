@@ -33,7 +33,13 @@ from deepagents import create_deep_agent
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 
-from src.agents.lead_agent.agent import _build_openagents_middlewares, _runtime_skills_path, build_backend
+from src.agents.lead_agent.agent import (
+    LEAD_AGENT_INTERRUPT_ON,
+    LeadAgentRuntimeContext,
+    _build_openagents_middlewares,
+    _runtime_skills_path,
+    build_backend,
+)
 from src.agents.lead_agent.prompt import apply_prompt_template
 from src.agents.lead_agent.subagents import load_subagent_specs
 from src.config.agents_config import load_agent_config
@@ -173,6 +179,7 @@ class OpenAgentsClient:
             "thinking_enabled": overrides.get("thinking_enabled", self._thinking_enabled),
             "is_plan_mode": overrides.get("plan_mode", self._plan_mode),
             "subagent_enabled": overrides.get("subagent_enabled", self._subagent_enabled),
+            "max_concurrent_subagents": overrides.get("max_concurrent_subagents", 3),
             "user_id": overrides.get("user_id"),
             "agent_name": overrides.get("agent_name"),
             "agent_status": overrides.get("agent_status"),
@@ -182,16 +189,91 @@ class OpenAgentsClient:
             recursion_limit=overrides.get("recursion_limit", 100),
         )
 
-    def _ensure_agent(self, config: RunnableConfig):
-        """Create (or recreate) the agent when config-dependent params change."""
-        cfg = config.get("configurable", {})
-        key = (
+    @staticmethod
+    def _build_agent_cache_key(cfg: dict[str, Any]) -> tuple[Any, ...]:
+        """Return the cache key for the compiled Deep Agent graph.
+
+        The graph closes over thread-scoped backend state plus prompt inputs such
+        as `user_id` and `max_concurrent_subagents`. Reusing the same compiled
+        graph across different values would leak the wrong workspace or prompt.
+        """
+
+        return (
+            cfg.get("thread_id"),
+            cfg.get("user_id"),
             cfg.get("model_name"),
             cfg.get("thinking_enabled"),
             cfg.get("is_plan_mode"),
             cfg.get("subagent_enabled"),
+            cfg.get("max_concurrent_subagents", 3),
         )
 
+    def _create_embedded_lead_agent(
+        self,
+        *,
+        effective_model_name: str,
+        model_config: Any,
+        thinking_enabled: bool,
+        subagent_enabled: bool,
+        max_concurrent_subagents: int,
+        thread_id: str,
+        user_id: str | None,
+    ):
+        """Assemble the embedded lead-agent graph.
+
+        This mirrors the server-side lead-agent defaults closely so embedded
+        callers exercise the same skills, middleware, approval policy, and
+        runtime context contract as the HTTP/SSE runtime.
+        """
+
+        backend = build_backend(thread_id, agent_name=LEAD_AGENT_NAME)
+        tools = self._get_tools(
+            model_name=effective_model_name,
+            model_supports_vision=model_config.supports_vision,
+        )
+        try:
+            lead_agent_config = load_agent_config(LEAD_AGENT_NAME, status="dev")
+        except FileNotFoundError:
+            lead_agent_config = None
+
+        subagents = (
+            load_subagent_specs(
+                tools,
+                agent_name=LEAD_AGENT_NAME,
+                agent_status="dev",
+            )
+            if subagent_enabled
+            else None
+        )
+        return create_deep_agent(
+            model=create_chat_model(
+                name=effective_model_name,
+                thinking_enabled=thinking_enabled,
+                runtime_model_config=model_config,
+            ),
+            tools=tools,
+            system_prompt=apply_prompt_template(
+                subagent_enabled=subagent_enabled,
+                max_concurrent_subagents=max_concurrent_subagents,
+                user_id=user_id,
+                agent_name=LEAD_AGENT_NAME,
+                agent_status="dev",
+                memory_config=lead_agent_config.memory if lead_agent_config is not None else None,
+            ),
+            middleware=_build_openagents_middlewares(model_config),
+            subagents=subagents,
+            skills=[_runtime_skills_path(LEAD_AGENT_NAME, "dev")],
+            backend=backend,
+            context_schema=LeadAgentRuntimeContext,
+            interrupt_on=LEAD_AGENT_INTERRUPT_ON,
+            checkpointer=self._checkpointer,
+            name=LEAD_AGENT_NAME,
+        )
+
+    def _ensure_agent(self, config: RunnableConfig):
+        """Create (or recreate) the agent when graph-defining inputs change."""
+        cfg = config.get("configurable", {})
+        key = self._build_agent_cache_key(cfg)
         if self._agent is not None and self._agent_config_key == key:
             return
 
@@ -209,52 +291,23 @@ class OpenAgentsClient:
         if model_config is None:
             raise ValueError(f"Model '{effective_model_name}' is not available in config.")
 
-        # Build backend and middleware using shared agent.py functions
-        backend = build_backend(thread_id, agent_name=LEAD_AGENT_NAME)
-        extra_middleware = _build_openagents_middlewares(model_config)
-        tools = self._get_tools(
-            model_name=effective_model_name,
-            model_supports_vision=model_config.supports_vision,
-        )
         user_id = cfg.get("user_id")
-        try:
-            lead_agent_config = load_agent_config(LEAD_AGENT_NAME, status="dev")
-        except FileNotFoundError:
-            lead_agent_config = None
-        subagents = (
-            load_subagent_specs(
-                tools,
-                agent_name=LEAD_AGENT_NAME,
-                agent_status="dev",
-            )
-            if subagent_enabled
-            else None
-        )
-
-        self._agent = create_deep_agent(
-            model=create_chat_model(
-                name=effective_model_name,
-                thinking_enabled=thinking_enabled,
-                runtime_model_config=model_config,
-            ),
-            tools=tools,
-            system_prompt=apply_prompt_template(
-                subagent_enabled=subagent_enabled,
-                max_concurrent_subagents=max_concurrent_subagents,
-                user_id=user_id,
-                agent_name=LEAD_AGENT_NAME,
-                agent_status="dev",
-                memory_config=lead_agent_config.memory if lead_agent_config is not None else None,
-            ),
-            middleware=extra_middleware,
-            subagents=subagents,
-            skills=[_runtime_skills_path(LEAD_AGENT_NAME, "dev")],
-            backend=backend,
-            interrupt_on={"ask_clarification": True},
-            name=LEAD_AGENT_NAME,
+        self._agent = self._create_embedded_lead_agent(
+            effective_model_name=effective_model_name,
+            model_config=model_config,
+            thinking_enabled=thinking_enabled,
+            subagent_enabled=subagent_enabled,
+            max_concurrent_subagents=max_concurrent_subagents,
+            thread_id=thread_id,
+            user_id=user_id,
         )
         self._agent_config_key = key
-        logger.info("Agent created: model=%s, thinking=%s", model_name, thinking_enabled)
+        logger.info(
+            "Agent created: model=%s, thinking=%s, thread_id=%s",
+            effective_model_name,
+            thinking_enabled,
+            thread_id,
+        )
 
     @staticmethod
     def _get_tools(*, model_name: str | None, model_supports_vision: bool):

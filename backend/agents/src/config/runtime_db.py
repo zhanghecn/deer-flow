@@ -1,13 +1,11 @@
 import json
 import logging
 import os
-from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Lock
 
 from dotenv import dotenv_values
 
-from src.config.agents_config import AgentMemoryConfig, AgentSkillRef
 from src.config.model_config import ModelConfig
 
 logger = logging.getLogger(__name__)
@@ -32,18 +30,6 @@ def _database_uri_from_root_env() -> str | None:
     return uri
 
 
-@dataclass
-class DBAgentConfig:
-    name: str
-    status: str
-    model: str | None
-    tool_groups: list[str] | None
-    mcp_servers: list[str] | None
-    agents_md_path: str = "AGENTS.md"
-    skill_refs: list[AgentSkillRef] | None = None
-    memory: AgentMemoryConfig = field(default_factory=AgentMemoryConfig)
-
-
 class RuntimeDBStore:
     def __init__(self, dsn: str):
         self._dsn = dsn
@@ -52,9 +38,7 @@ class RuntimeDBStore:
         try:
             import psycopg
         except ImportError as e:  # pragma: no cover - environment dependency
-            raise RuntimeError(
-                "psycopg is required for runtime database access. Install `psycopg[binary]`."
-            ) from e
+            raise RuntimeError("psycopg is required for runtime database access. Install `psycopg[binary]`.") from e
         return psycopg.connect(self._dsn)
 
     def get_model(self, name: str) -> ModelConfig | None:
@@ -176,16 +160,12 @@ class RuntimeDBStore:
             if row is not None:
                 return
             owner = self.get_thread_owner(thread_id)
-            raise ValueError(
-                f"Thread access denied for thread '{thread_id}': owned by another user ({owner})."
-            )
+            raise ValueError(f"Thread access denied for thread '{thread_id}': owned by another user ({owner}).")
 
     def assert_thread_access(self, *, thread_id: str, user_id: str) -> None:
         owner = self.get_thread_owner(thread_id)
         if owner is not None and owner != user_id:
-            raise ValueError(
-                f"Thread access denied for thread '{thread_id}': owned by another user ({owner})."
-            )
+            raise ValueError(f"Thread access denied for thread '{thread_id}': owned by another user ({owner}).")
 
     def save_thread_runtime(
         self,
@@ -221,9 +201,7 @@ class RuntimeDBStore:
             row = cur.fetchone()
             if row is None:
                 owner = self.get_thread_owner(thread_id)
-                raise ValueError(
-                    f"Thread access denied for thread '{thread_id}': owned by another user ({owner})."
-                )
+                raise ValueError(f"Thread access denied for thread '{thread_id}': owned by another user ({owner}).")
 
     def save_thread_title(
         self,
@@ -246,9 +224,7 @@ class RuntimeDBStore:
             if cur.rowcount and cur.rowcount > 0:
                 return
             owner = self.get_thread_owner(thread_id)
-            raise ValueError(
-                f"Thread access denied for thread '{thread_id}': owned by another user ({owner})."
-            )
+            raise ValueError(f"Thread access denied for thread '{thread_id}': owned by another user ({owner}).")
 
     @staticmethod
     def _coerce_json_object(value: object) -> dict:
@@ -267,31 +243,6 @@ class RuntimeDBStore:
             return dict(obj)
         raise ValueError(f"Unsupported models.config_json type: {type(value).__name__}")
 
-    @staticmethod
-    def _parse_agent_md_path(payload: dict) -> str:
-        raw_path = payload.get("agents_md_path")
-        if raw_path is None:
-            return "AGENTS.md"
-        path = str(raw_path).strip()
-        return path or "AGENTS.md"
-
-    @staticmethod
-    def _parse_agent_skill_refs(payload: dict) -> list[AgentSkillRef]:
-        raw_refs = payload.get("skill_refs")
-        if raw_refs is None:
-            return []
-        if not isinstance(raw_refs, list):
-            raise ValueError("agents.config_json.skill_refs must be a list.")
-        return [AgentSkillRef.model_validate(raw_ref) for raw_ref in raw_refs]
-
-    @staticmethod
-    def _parse_agent_memory(payload: dict) -> AgentMemoryConfig:
-        raw_memory = payload.get("memory")
-        if raw_memory is None:
-            return AgentMemoryConfig()
-        if not isinstance(raw_memory, dict):
-            raise ValueError("agents.config_json.memory must be an object.")
-        return AgentMemoryConfig.model_validate(raw_memory)
 
 def _build_runtime_db_dsn() -> str:
     database_uri = os.getenv("DATABASE_URI", "").strip()
@@ -303,13 +254,9 @@ def _build_runtime_db_dsn() -> str:
         return fallback_uri
 
     if database_uri == ":memory:":
-        raise RuntimeError(
-            "DATABASE_URI is ':memory:' and no root .env DATABASE_URI fallback was found."
-        )
+        raise RuntimeError("DATABASE_URI is ':memory:' and no root .env DATABASE_URI fallback was found.")
 
-    raise RuntimeError(
-        "Missing required PostgreSQL DATABASE_URI for runtime DB access."
-    )
+    raise RuntimeError("Missing required PostgreSQL DATABASE_URI for runtime DB access.")
 
 
 _db_store: RuntimeDBStore | None = None

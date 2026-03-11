@@ -34,6 +34,7 @@ export function resolveCommandIntent(
     extraContext: {
       command_name: command.name,
       command_kind: command.kind,
+      command_args: argsText,
       authoring_actions: command.authoringActions ?? [],
       original_user_input: rawInput,
     },

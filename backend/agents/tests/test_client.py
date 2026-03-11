@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage  # noqa: F401
 
+from src.agents.lead_agent.agent import LEAD_AGENT_INTERRUPT_ON, LeadAgentRuntimeContext
 from src.client import OpenAgentsClient
 from src.gateway.routers.mcp import McpConfigResponse
 from src.gateway.routers.memory import MemoryConfigResponse, MemoryStatusResponse
@@ -345,10 +346,17 @@ class TestEnsureAgent:
         """_ensure_agent creates an agent on first call."""
         mock_agent = MagicMock()
         config = client._get_runnable_config("t1")
+        checkpointer = MagicMock()
+        client._checkpointer = checkpointer
+        captured_kwargs: dict[str, object] = {}
+
+        def fake_create_agent(**kwargs):
+            captured_kwargs.update(kwargs)
+            return mock_agent
 
         with (
             patch("src.client.create_chat_model"),
-            patch("src.client.create_deep_agent", return_value=mock_agent),
+            patch("src.client.create_deep_agent", side_effect=fake_create_agent),
             patch("src.client._build_openagents_middlewares", return_value=[]),
             patch("src.client.build_backend"),
             patch("src.client.apply_prompt_template", return_value="prompt"),
@@ -357,14 +365,16 @@ class TestEnsureAgent:
             client._ensure_agent(config)
 
         assert client._agent is mock_agent
+        assert captured_kwargs["context_schema"] is LeadAgentRuntimeContext
+        assert captured_kwargs["interrupt_on"] == LEAD_AGENT_INTERRUPT_ON
+        assert captured_kwargs["checkpointer"] is checkpointer
 
     def test_reuses_agent_same_config(self, client):
         """_ensure_agent does not recreate if config key unchanged."""
         mock_agent = MagicMock()
-        client._agent = mock_agent
-        client._agent_config_key = (None, True, False, False)
-
         config = client._get_runnable_config("t1")
+        client._agent = mock_agent
+        client._agent_config_key = client._build_agent_cache_key(config.get("configurable", {}))
         client._ensure_agent(config)
 
         # Should still be the same mock — no recreation
@@ -1051,6 +1061,81 @@ class TestScenarioAgentRecreation:
         assert len(agents_created) == 2
         assert first_agent is not second_agent
 
+    def test_different_thread_id_triggers_rebuild(self, client):
+        """A new thread requires a new graph because the backend is thread-scoped."""
+        agents_created = []
+
+        def fake_create_agent(**kwargs):
+            agent = MagicMock()
+            agents_created.append(agent)
+            return agent
+
+        config_a = client._get_runnable_config("t1", model_name="gpt-4")
+        config_b = client._get_runnable_config("t2", model_name="gpt-4")
+
+        with (
+            patch("src.client.create_chat_model"),
+            patch("src.client.create_deep_agent", side_effect=fake_create_agent),
+            patch("src.client._build_openagents_middlewares", return_value=[]),
+            patch("src.client.build_backend"),
+            patch("src.client.apply_prompt_template", return_value="prompt"),
+            patch.object(client, "_get_tools", return_value=[]),
+        ):
+            client._ensure_agent(config_a)
+            client._ensure_agent(config_b)
+
+        assert len(agents_created) == 2
+
+    def test_different_user_id_triggers_rebuild(self, client):
+        """Changing user identity must rebuild because prompt and memory scope change."""
+        agents_created = []
+
+        def fake_create_agent(**kwargs):
+            agent = MagicMock()
+            agents_created.append(agent)
+            return agent
+
+        config_a = client._get_runnable_config("t1", model_name="gpt-4", user_id="user-a")
+        config_b = client._get_runnable_config("t1", model_name="gpt-4", user_id="user-b")
+
+        with (
+            patch("src.client.create_chat_model"),
+            patch("src.client.create_deep_agent", side_effect=fake_create_agent),
+            patch("src.client._build_openagents_middlewares", return_value=[]),
+            patch("src.client.build_backend"),
+            patch("src.client.apply_prompt_template", return_value="prompt"),
+            patch.object(client, "_get_tools", return_value=[]),
+        ):
+            client._ensure_agent(config_a)
+            client._ensure_agent(config_b)
+
+        assert len(agents_created) == 2
+
+    def test_different_subagent_limits_trigger_rebuild(self, client):
+        """Prompt-affecting subagent limits must participate in the cache key."""
+        agents_created = []
+
+        def fake_create_agent(**kwargs):
+            agent = MagicMock()
+            agents_created.append(agent)
+            return agent
+
+        config_a = client._get_runnable_config("t1", model_name="gpt-4", max_concurrent_subagents=2)
+        config_b = client._get_runnable_config("t1", model_name="gpt-4", max_concurrent_subagents=5)
+
+        with (
+            patch("src.client.create_chat_model"),
+            patch("src.client.create_deep_agent", side_effect=fake_create_agent),
+            patch("src.client._build_openagents_middlewares", return_value=[]),
+            patch("src.client.build_backend"),
+            patch("src.client.apply_prompt_template", return_value="prompt"),
+            patch.object(client, "_get_tools", return_value=[]),
+        ):
+            client._ensure_agent(config_a)
+            client._ensure_agent(config_b)
+
+        assert len(agents_created) == 2
+
     def test_same_config_reuses_agent(self, client):
         """Repeated calls with identical config do not rebuild."""
         agents_created = []
@@ -1463,9 +1548,10 @@ class TestGatewayConformance:
         with zipfile.ZipFile(archive, "w") as zf:
             zf.write(skill_dir / "SKILL.md", "my-skill/SKILL.md")
 
-        custom_dir = tmp_path / "custom"
-        custom_dir.mkdir()
-        with patch("src.skills.loader.get_skills_root_path", return_value=tmp_path):
+        store_dev_dir = tmp_path / ".openagents" / "skills" / "store" / "dev"
+        store_dev_dir.mkdir(parents=True)
+        with patch("src.client.get_paths") as mock_get_paths:
+            mock_get_paths.return_value.store_dev_skills_dir = store_dev_dir
             result = client.install_skill(archive)
 
         parsed = SkillInstallResponse(**result)

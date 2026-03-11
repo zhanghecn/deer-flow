@@ -60,7 +60,7 @@ Agent and Skill metadata live in PostgreSQL for querying, while `AGENTS.md` and 
 
 - `dev` is internal-only.
 - `prod` is published and available through `/open/v1/agents/:name/*`.
-- Publish copies `agents/dev/{name}/` to `agents/prod/{name}/` and updates DB state.
+- Publish copies `agents/dev/{name}/` to `agents/prod/{name}/`. Agent definitions are filesystem-only and do not have companion DB rows.
 
 ## Filesystem Layout
 

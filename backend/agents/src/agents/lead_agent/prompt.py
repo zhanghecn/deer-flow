@@ -15,6 +15,45 @@ def _build_subagent_section(max_concurrent: int) -> str:
 </subagent_policy>"""
 
 
+def _build_command_section(
+    *,
+    command_name: str | None,
+    command_kind: str | None,
+    command_args: str | None,
+    authoring_actions: tuple[str, ...],
+) -> str:
+    if not command_name and not authoring_actions:
+        return ""
+
+    lines = [
+        "<runtime_command>",
+        f"- command_name: {command_name or 'none'}",
+        f"- command_kind: {command_kind or 'none'}",
+        f"- command_args: {command_args or 'none'}",
+    ]
+    if authoring_actions:
+        lines.append(f"- allowed_authoring_actions: {', '.join(authoring_actions)}")
+
+    if command_kind == "hard":
+        lines.extend(
+            [
+                "- This turn is an explicit user confirmation to persist or publish authored content.",
+                "- First priority: if the matching authoring tool is available and prerequisites are satisfied, call it before any other work.",
+                "- Do not continue drafting, refactoring, or filesystem editing before attempting the matching authoring tool.",
+                "- If the tool fails, explain the blocker briefly and ask only the minimal clarification needed.",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "- This command provides runtime intent only. You still decide the workflow based on the user's request.",
+            ]
+        )
+
+    lines.append("</runtime_command>")
+    return "\n".join(lines)
+
+
 SYSTEM_PROMPT_TEMPLATE = """
 <role>
 You are {agent_name}, an open-source super agent.
@@ -22,6 +61,7 @@ You are {agent_name}, an open-source super agent.
 
 {agents_md}
 {memory_context}
+{command_context}
 
 <thinking_style>
 - Think concisely and strategically about the user's request BEFORE taking action
@@ -208,6 +248,10 @@ def apply_prompt_template(
     agent_name: str | None = None,
     agent_status: str = "dev",
     memory_config: AgentMemoryConfig | None = None,
+    command_name: str | None = None,
+    command_kind: str | None = None,
+    command_args: str | None = None,
+    authoring_actions: tuple[str, ...] = (),
 ) -> str:
     # Get memory context
     memory_context = _get_memory_context(
@@ -219,12 +263,19 @@ def apply_prompt_template(
 
     # Include subagent section only if enabled (from runtime parameter)
     subagent_section = _build_subagent_section(max_concurrent_subagents) if subagent_enabled else ""
+    command_context = _build_command_section(
+        command_name=command_name,
+        command_kind=command_kind,
+        command_args=command_args,
+        authoring_actions=authoring_actions,
+    )
 
     # Format the prompt with dynamic memory
     prompt = SYSTEM_PROMPT_TEMPLATE.format(
         agent_name=agent_name or "OpenAgents",
         agents_md=get_agents_md_section(agent_name, agent_status),
         memory_context=memory_context,
+        command_context=command_context,
         subagent_section=subagent_section,
     )
 

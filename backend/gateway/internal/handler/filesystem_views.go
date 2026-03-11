@@ -12,10 +12,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/google/uuid"
-	"github.com/openagents/gateway/internal/model"
+	"github.com/openagents/gateway/internal/skillfs"
 	"github.com/openagents/gateway/pkg/storage"
-	"gopkg.in/yaml.v3"
 )
 
 const threadVirtualPathPrefix = "/mnt/user-data"
@@ -35,24 +33,6 @@ type skillStateJSON struct {
 type extensionsConfigJSON struct {
 	MCPServers map[string]any            `json:"mcpServers"`
 	Skills     map[string]skillStateJSON `json:"skills"`
-}
-
-type skillFrontmatter struct {
-	Name        string `yaml:"name"`
-	Description string `yaml:"description"`
-	License     string `yaml:"license"`
-}
-
-type diskAgentConfig struct {
-	Name        string                   `yaml:"name"`
-	Description string                   `yaml:"description"`
-	Model       *string                  `yaml:"model"`
-	ToolGroups  []string                 `yaml:"tool_groups"`
-	McpServers  []string                 `yaml:"mcp_servers"`
-	Status      string                   `yaml:"status"`
-	AgentsMD    string                   `yaml:"agents_md_path"`
-	Memory      *model.AgentMemoryConfig `yaml:"memory"`
-	SkillRefs   []model.SkillRef         `yaml:"skill_refs"`
 }
 
 func readExtensionsConfig(configDir string) (extensionsConfigJSON, error) {
@@ -94,35 +74,6 @@ func writeExtensionsConfig(configDir string, cfg extensionsConfigJSON) error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(configDir, "extensions_config.json"), data, 0644)
-}
-
-func parseSkillFrontmatter(skillFile string) (skillFrontmatter, error) {
-	data, err := os.ReadFile(skillFile)
-	if err != nil {
-		return skillFrontmatter{}, err
-	}
-
-	text := string(data)
-	if !strings.HasPrefix(text, "---\n") {
-		return skillFrontmatter{}, fmt.Errorf("missing YAML frontmatter: %s", skillFile)
-	}
-	rest := strings.TrimPrefix(text, "---\n")
-	end := strings.Index(rest, "\n---")
-	if end < 0 {
-		return skillFrontmatter{}, fmt.Errorf("invalid YAML frontmatter: %s", skillFile)
-	}
-
-	var meta skillFrontmatter
-	if err := yaml.Unmarshal([]byte(rest[:end]), &meta); err != nil {
-		return skillFrontmatter{}, err
-	}
-	meta.Name = strings.TrimSpace(meta.Name)
-	meta.Description = strings.TrimSpace(meta.Description)
-	meta.License = strings.TrimSpace(meta.License)
-	if meta.Name == "" {
-		return skillFrontmatter{}, fmt.Errorf("skill name missing in %s", skillFile)
-	}
-	return meta, nil
 }
 
 func skillScopeRoots(fsStore *storage.FS, status string) map[string]string {
@@ -169,7 +120,7 @@ func listFilesystemSkills(fsStore *storage.FS, configDir string, status string) 
 				return nil
 			}
 
-			meta, err := parseSkillFrontmatter(path)
+			meta, err := skillfs.ParseFrontmatterFile(path)
 			if err != nil {
 				return nil
 			}
@@ -205,170 +156,6 @@ func loadFilesystemSkillByName(fsStore *storage.FS, configDir string, name strin
 		}
 	}
 	return nil, nil
-}
-
-func agentStatusRoots(fsStore *storage.FS, status string) []string {
-	switch strings.TrimSpace(status) {
-	case "dev":
-		return []string{filepath.Join(fsStore.BaseDir(), "agents", "dev")}
-	case "prod":
-		return []string{filepath.Join(fsStore.BaseDir(), "agents", "prod")}
-	default:
-		return []string{
-			filepath.Join(fsStore.BaseDir(), "agents", "dev"),
-			filepath.Join(fsStore.BaseDir(), "agents", "prod"),
-		}
-	}
-}
-
-func parseAgentConfigFile(configFile string) (diskAgentConfig, error) {
-	data, err := os.ReadFile(configFile)
-	if err != nil {
-		return diskAgentConfig{}, err
-	}
-	var cfg diskAgentConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return diskAgentConfig{}, err
-	}
-	return cfg, nil
-}
-
-func loadFilesystemAgent(fsStore *storage.FS, name string, status string, includeMarkdown bool) (*model.Agent, error) {
-	agentDir := fsStore.AgentDir(name, status)
-	configFile := filepath.Join(agentDir, "config.yaml")
-	if info, err := os.Stat(configFile); err != nil || info.IsDir() {
-		return nil, nil
-	}
-
-	cfg, err := parseAgentConfigFile(configFile)
-	if err != nil {
-		return nil, err
-	}
-
-	agent := &model.Agent{
-		ID:          uuid.Nil,
-		Name:        strings.TrimSpace(cfg.Name),
-		Description: cfg.Description,
-		Model:       cfg.Model,
-		ToolGroups:  cfg.ToolGroups,
-		McpServers:  cfg.McpServers,
-		Status:      status,
-		Memory:      cfg.Memory,
-		Skills:      cfg.SkillRefs,
-	}
-	if agent.Name == "" {
-		agent.Name = filepath.Base(agentDir)
-	}
-
-	if includeMarkdown {
-		agentsMDPath := strings.TrimSpace(cfg.AgentsMD)
-		if agentsMDPath == "" {
-			agentsMDPath = "AGENTS.md"
-		}
-		data, err := os.ReadFile(filepath.Join(agentDir, filepath.Clean(agentsMDPath)))
-		if err == nil {
-			agent.AgentsMD = string(data)
-		}
-	}
-	return agent, nil
-}
-
-func listFilesystemAgents(fsStore *storage.FS, status string) ([]model.Agent, error) {
-	var agents []model.Agent
-	for _, root := range agentStatusRoots(fsStore, status) {
-		entries, err := os.ReadDir(root)
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			return nil, err
-		}
-
-		currentStatus := filepath.Base(root)
-		for _, entry := range entries {
-			if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
-				continue
-			}
-			agent, err := loadFilesystemAgent(fsStore, entry.Name(), currentStatus, false)
-			if err != nil {
-				return nil, err
-			}
-			if agent != nil {
-				agents = append(agents, *agent)
-			}
-		}
-	}
-
-	slices.SortFunc(agents, func(a, b model.Agent) int {
-		return strings.Compare(a.Name, b.Name)
-	})
-	return agents, nil
-}
-
-func filesystemAgentExists(fsStore *storage.FS, name string) bool {
-	for _, status := range []string{"dev", "prod"} {
-		if info, err := os.Stat(fsStore.AgentDir(name, status)); err == nil && info.IsDir() {
-			return true
-		}
-	}
-	return false
-}
-
-func rewriteAgentStatus(agentDir string, status string) error {
-	configFile := filepath.Join(agentDir, "config.yaml")
-	data, err := os.ReadFile(configFile)
-	if err != nil {
-		return err
-	}
-	var payload map[string]any
-	if err := yaml.Unmarshal(data, &payload); err != nil {
-		return err
-	}
-	payload["status"] = status
-	updated, err := yaml.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(configFile, updated, 0644)
-}
-
-func publishFilesystemAgent(fsStore *storage.FS, name string) (*model.Agent, error) {
-	sourceDir := fsStore.AgentDir(name, "dev")
-	if info, err := os.Stat(sourceDir); err != nil || !info.IsDir() {
-		return nil, fmt.Errorf("agent %q not found", name)
-	}
-
-	targetDir := fsStore.AgentDir(name, "prod")
-	_ = os.RemoveAll(targetDir)
-	if err := fsStore.CopyDir(sourceDir, targetDir); err != nil {
-		return nil, err
-	}
-	if err := rewriteAgentStatus(targetDir, "prod"); err != nil {
-		return nil, err
-	}
-	return loadFilesystemAgent(fsStore, name, "prod", true)
-}
-
-func deleteFilesystemAgent(fsStore *storage.FS, name string, status string) error {
-	targetStatuses := []string{"dev", "prod"}
-	if status != "" {
-		targetStatuses = []string{status}
-	}
-
-	deleted := false
-	for _, item := range targetStatuses {
-		targetDir := fsStore.AgentDir(name, item)
-		if info, err := os.Stat(targetDir); err == nil && info.IsDir() {
-			if err := os.RemoveAll(targetDir); err != nil {
-				return err
-			}
-			deleted = true
-		}
-	}
-	if !deleted {
-		return fmt.Errorf("agent %q not found", name)
-	}
-	return nil
 }
 
 func resolveThreadVirtualPath(fsStore *storage.FS, threadID string, virtualPath string) (string, error) {
@@ -473,7 +260,7 @@ func installSkillArchive(fsStore *storage.FS, threadID string, virtualPath strin
 		skillDir = filepath.Join(tempDir, items[0].Name())
 	}
 
-	meta, err := parseSkillFrontmatter(filepath.Join(skillDir, "SKILL.md"))
+	meta, err := skillfs.ParseFrontmatterFile(filepath.Join(skillDir, "SKILL.md"))
 	if err != nil {
 		return "", err
 	}

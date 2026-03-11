@@ -16,7 +16,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
-import { formatDate } from "@/lib/format";
 import type { Agent } from "@/types";
 import { toast } from "sonner";
 
@@ -36,7 +35,7 @@ export function AgentsTable({
   async function handlePublish(agent: Agent) {
     try {
       await api(`/api/agents/${agent.name}/publish`, { method: "POST" });
-      toast.success(`${agent.display_name || agent.name} published`);
+      toast.success(`${agent.name} published`);
       onRefetch();
     } catch {
       toast.error("Failed to publish agent");
@@ -68,21 +67,16 @@ export function AgentsTable({
         <TableHeader>
           <TableRow>
             <TableHead>Name</TableHead>
-            <TableHead>Display Name</TableHead>
             <TableHead>Model</TableHead>
             <TableHead>Memory</TableHead>
             <TableHead>Status</TableHead>
-            <TableHead>Updated</TableHead>
             <TableHead className="text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {agents.map((agent) => (
-            <TableRow key={agent.id}>
+            <TableRow key={`${agent.name}:${agent.status}`}>
               <TableCell className="font-mono text-sm">{agent.name}</TableCell>
-              <TableCell className="font-medium">
-                {agent.display_name || agent.name}
-              </TableCell>
               <TableCell className="text-muted-foreground text-sm">
                 {agent.model || "-"}
               </TableCell>
@@ -101,9 +95,6 @@ export function AgentsTable({
                 >
                   {agent.status}
                 </Badge>
-              </TableCell>
-              <TableCell className="text-muted-foreground">
-                {formatDate(agent.updated_at)}
               </TableCell>
               <TableCell className="text-right">
                 <div className="flex items-center justify-end gap-1">

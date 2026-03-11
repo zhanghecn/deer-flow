@@ -1,0 +1,213 @@
+package agentfs
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+
+	"github.com/openagents/gateway/internal/model"
+	"github.com/openagents/gateway/pkg/storage"
+	"gopkg.in/yaml.v3"
+)
+
+const builtinLeadAgentName = "lead_agent"
+
+type manifest struct {
+	Name        string                   `yaml:"name"`
+	Description string                   `yaml:"description"`
+	Model       *string                  `yaml:"model"`
+	ToolGroups  []string                 `yaml:"tool_groups"`
+	McpServers  []string                 `yaml:"mcp_servers"`
+	Status      string                   `yaml:"status"`
+	AgentsMD    string                   `yaml:"agents_md_path"`
+	Memory      *model.AgentMemoryConfig `yaml:"memory"`
+	SkillRefs   []model.SkillRef         `yaml:"skill_refs"`
+}
+
+func LoadAgent(fsStore *storage.FS, name string, status string, includeMarkdown bool) (*model.Agent, error) {
+	configFile := filepath.Join(fsStore.AgentDir(name, status), "config.yaml")
+	info, err := os.Stat(configFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if info.IsDir() {
+		return nil, nil
+	}
+
+	data, err := os.ReadFile(configFile)
+	if err != nil {
+		return nil, err
+	}
+
+	var cfg manifest
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+
+	agentName := strings.TrimSpace(cfg.Name)
+	if agentName == "" {
+		agentName = name
+	}
+
+	agent := &model.Agent{
+		Name:        agentName,
+		Description: cfg.Description,
+		Model:       cfg.Model,
+		ToolGroups:  cfg.ToolGroups,
+		McpServers:  cfg.McpServers,
+		Status:      status,
+		Memory:      cfg.Memory,
+		Skills:      cfg.SkillRefs,
+	}
+	if agent.Memory == nil {
+		normalized := defaultMemoryConfig()
+		agent.Memory = &normalized
+	}
+
+	if includeMarkdown {
+		agentsMDPath := strings.TrimSpace(cfg.AgentsMD)
+		if agentsMDPath == "" {
+			agentsMDPath = "AGENTS.md"
+		}
+		markdown, err := os.ReadFile(filepath.Join(fsStore.AgentDir(agentName, status), filepath.Clean(agentsMDPath)))
+		if err != nil && !os.IsNotExist(err) {
+			return nil, err
+		}
+		agent.AgentsMD = string(markdown)
+	}
+
+	return agent, nil
+}
+
+func ListAgents(fsStore *storage.FS, status string) ([]model.Agent, error) {
+	var agents []model.Agent
+	for _, root := range statusRoots(fsStore, status) {
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, err
+		}
+
+		currentStatus := filepath.Base(root)
+		for _, entry := range entries {
+			if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+				continue
+			}
+			if strings.EqualFold(strings.TrimSpace(entry.Name()), builtinLeadAgentName) {
+				continue
+			}
+			agent, err := LoadAgent(fsStore, entry.Name(), currentStatus, false)
+			if err != nil {
+				return nil, err
+			}
+			if agent != nil {
+				agents = append(agents, *agent)
+			}
+		}
+	}
+
+	slices.SortFunc(agents, func(a, b model.Agent) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+	return agents, nil
+}
+
+func AgentExists(fsStore *storage.FS, name string) bool {
+	for _, status := range []string{"dev", "prod"} {
+		info, err := os.Stat(fsStore.AgentDir(name, status))
+		if err == nil && info.IsDir() {
+			return true
+		}
+	}
+	return false
+}
+
+func PublishAgent(fsStore *storage.FS, name string) (*model.Agent, error) {
+	sourceDir := fsStore.AgentDir(name, "dev")
+	info, err := os.Stat(sourceDir)
+	if err != nil || !info.IsDir() {
+		return nil, fmt.Errorf("agent %q not found", name)
+	}
+
+	targetDir := fsStore.AgentDir(name, "prod")
+	_ = os.RemoveAll(targetDir)
+	if err := fsStore.CopyDir(sourceDir, targetDir); err != nil {
+		return nil, err
+	}
+	if err := rewriteStatus(targetDir, "prod"); err != nil {
+		return nil, err
+	}
+	return LoadAgent(fsStore, name, "prod", true)
+}
+
+func DeleteAgent(fsStore *storage.FS, name string, status string) error {
+	targetStatuses := []string{"dev", "prod"}
+	if status != "" {
+		targetStatuses = []string{status}
+	}
+
+	deleted := false
+	for _, item := range targetStatuses {
+		targetDir := fsStore.AgentDir(name, item)
+		if info, err := os.Stat(targetDir); err == nil && info.IsDir() {
+			if err := os.RemoveAll(targetDir); err != nil {
+				return err
+			}
+			deleted = true
+		}
+	}
+	if !deleted {
+		return fmt.Errorf("agent %q not found", name)
+	}
+	return nil
+}
+
+func statusRoots(fsStore *storage.FS, status string) []string {
+	switch strings.TrimSpace(status) {
+	case "dev":
+		return []string{filepath.Join(fsStore.BaseDir(), "agents", "dev")}
+	case "prod":
+		return []string{filepath.Join(fsStore.BaseDir(), "agents", "prod")}
+	default:
+		return []string{
+			filepath.Join(fsStore.BaseDir(), "agents", "dev"),
+			filepath.Join(fsStore.BaseDir(), "agents", "prod"),
+		}
+	}
+}
+
+func rewriteStatus(agentDir string, status string) error {
+	configFile := filepath.Join(agentDir, "config.yaml")
+	data, err := os.ReadFile(configFile)
+	if err != nil {
+		return err
+	}
+	var payload map[string]any
+	if err := yaml.Unmarshal(data, &payload); err != nil {
+		return err
+	}
+	payload["status"] = status
+	updated, err := yaml.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(configFile, updated, 0o644)
+}
+
+func defaultMemoryConfig() model.AgentMemoryConfig {
+	return model.AgentMemoryConfig{
+		Enabled:                 false,
+		DebounceSeconds:         30,
+		MaxFacts:                100,
+		FactConfidenceThreshold: 0.7,
+		InjectionEnabled:        true,
+		MaxInjectionTokens:      2000,
+	}
+}

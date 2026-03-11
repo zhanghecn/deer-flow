@@ -5,11 +5,6 @@ from src.config.agents_config import AgentMemoryConfig
 from src.config.paths import Paths
 
 
-class _FakeDBStore:
-    def get_agent(self, name: str, status: str):
-        raise AssertionError("agent definitions should no longer be read from DB")
-
-
 def _write_agent(base_dir: Path, name: str, status: str = "dev") -> None:
     agent_dir = base_dir / "agents" / status / name
     (agent_dir / "skills" / "bootstrap").mkdir(parents=True, exist_ok=True)
@@ -19,16 +14,7 @@ def _write_agent(base_dir: Path, name: str, status: str = "dev") -> None:
         encoding="utf-8",
     )
     (agent_dir / "config.yaml").write_text(
-        "name: analyst\n"
-        f"status: {status}\n"
-        "description: file config\n"
-        "model: model-from-file\n"
-        "tool_groups:\n"
-        "  - web\n"
-        "agents_md_path: AGENTS.md\n"
-        "skill_refs:\n"
-        "  - name: bootstrap\n"
-        "    source_path: shared/bootstrap\n",
+        f"name: analyst\nstatus: {status}\ndescription: file config\nmodel: model-from-file\ntool_groups:\n  - web\nagents_md_path: AGENTS.md\nskill_refs:\n  - name: bootstrap\n    source_path: shared/bootstrap\n",
         encoding="utf-8",
     )
 
@@ -43,7 +29,6 @@ def test_load_agent_runtime_config_prefers_filesystem_archive(monkeypatch, tmp_p
     resolved = lead_agent_module._load_agent_runtime_config(
         agent_name="analyst",
         agent_status="dev",
-        db_store=_FakeDBStore(),
     )
 
     assert resolved is not None
@@ -61,7 +46,6 @@ def test_load_agent_runtime_config_raises_when_archive_missing(monkeypatch, tmp_
         lead_agent_module._load_agent_runtime_config(
             agent_name="missing-agent",
             agent_status="dev",
-            db_store=_FakeDBStore(),
         )
     except ValueError as exc:
         assert "not found in archive" in str(exc)

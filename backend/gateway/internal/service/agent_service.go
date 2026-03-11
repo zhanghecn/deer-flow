@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path"
@@ -10,25 +9,13 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/openagents/gateway/internal/agentfs"
 	"github.com/openagents/gateway/internal/model"
 	"github.com/openagents/gateway/pkg/storage"
-	"gopkg.in/yaml.v3"
 )
 
 type AgentService struct {
 	fs *storage.FS
-}
-
-type diskAgentConfig struct {
-	Name        string                   `yaml:"name"`
-	Description string                   `yaml:"description"`
-	Model       *string                  `yaml:"model"`
-	ToolGroups  []string                 `yaml:"tool_groups"`
-	McpServers  []string                 `yaml:"mcp_servers"`
-	Status      string                   `yaml:"status"`
-	AgentsMD    string                   `yaml:"agents_md_path"`
-	Memory      *model.AgentMemoryConfig `yaml:"memory"`
-	SkillRefs   []model.SkillRef         `yaml:"skill_refs"`
 }
 
 const builtinLeadAgentName = "lead_agent"
@@ -46,7 +33,7 @@ func (s *AgentService) Create(_ context.Context, req model.CreateAgentRequest, _
 	if isReservedAgentName(name) {
 		return nil, fmt.Errorf("agent %q is reserved for the built-in lead agent", name)
 	}
-	if s.agentExists(name) {
+	if agentfs.AgentExists(s.fs, name) {
 		return nil, fmt.Errorf("agent %q already exists", name)
 	}
 
@@ -62,17 +49,13 @@ func (s *AgentService) Create(_ context.Context, req model.CreateAgentRequest, _
 
 	agent := &model.Agent{
 		Name:        name,
-		DisplayName: strPtr(req.DisplayName),
 		Description: req.Description,
-		AvatarURL:   req.AvatarURL,
 		Model:       req.Model,
 		ToolGroups:  req.ToolGroups,
 		McpServers:  req.McpServers,
 		Status:      "dev",
 		Memory:      &memoryConfig,
 	}
-	agent.ConfigJSON = s.mustMarshalConfig(agent, skillRefs)
-
 	if err := s.syncAgentFilesystem(agent, req.AgentsMD, skillRefs); err != nil {
 		return nil, fmt.Errorf("sync agent files: %w", err)
 	}
@@ -80,7 +63,7 @@ func (s *AgentService) Create(_ context.Context, req model.CreateAgentRequest, _
 }
 
 func (s *AgentService) Update(_ context.Context, name string, status string, req model.UpdateAgentRequest) (*model.Agent, error) {
-	existing, err := s.loadAgent(name, status, true)
+	existing, err := agentfs.LoadAgent(s.fs, name, status, true)
 	if err != nil {
 		return nil, err
 	}
@@ -88,14 +71,8 @@ func (s *AgentService) Update(_ context.Context, name string, status string, req
 		return nil, fmt.Errorf("agent %q (%s) not found", name, status)
 	}
 
-	if req.DisplayName != nil {
-		existing.DisplayName = req.DisplayName
-	}
 	if req.Description != nil {
 		existing.Description = *req.Description
-	}
-	if req.AvatarURL != nil {
-		existing.AvatarURL = req.AvatarURL
 	}
 	if req.Model != nil {
 		existing.Model = req.Model
@@ -130,88 +107,10 @@ func (s *AgentService) Update(_ context.Context, name string, status string, req
 		agentsMDContent = *req.AgentsMD
 	}
 
-	existing.ConfigJSON = s.mustMarshalConfig(existing, skillRefs)
 	if err := s.syncAgentFilesystem(existing, agentsMDContent, skillRefs); err != nil {
 		return nil, fmt.Errorf("sync agent files: %w", err)
 	}
 	return s.hydrateFilesystemAgent(existing, agentsMDContent, skillRefs), nil
-}
-
-func (s *AgentService) agentExists(name string) bool {
-	for _, status := range []string{"dev", "prod"} {
-		info, err := os.Stat(s.fs.AgentDir(name, status))
-		if err == nil && info.IsDir() {
-			return true
-		}
-	}
-	return false
-}
-
-func (s *AgentService) loadAgent(name string, status string, includeMarkdown bool) (*model.Agent, error) {
-	configFile := filepath.Join(s.fs.AgentDir(name, status), "config.yaml")
-	info, err := os.Stat(configFile)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	if info.IsDir() {
-		return nil, nil
-	}
-
-	data, err := os.ReadFile(configFile)
-	if err != nil {
-		return nil, err
-	}
-
-	var cfg diskAgentConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, err
-	}
-
-	agentName := strings.TrimSpace(cfg.Name)
-	if agentName == "" {
-		agentName = name
-	}
-
-	skillRefs, err := s.normalizeSkillRefs(cfg.SkillRefs)
-	if err != nil {
-		return nil, err
-	}
-
-	agent := &model.Agent{
-		Name:        agentName,
-		DisplayName: nil,
-		Description: cfg.Description,
-		Model:       cfg.Model,
-		ToolGroups:  cfg.ToolGroups,
-		McpServers:  cfg.McpServers,
-		Status:      status,
-		Memory:      cfg.Memory,
-		AgentsMDRef: s.fs.AgentMDRef(agentName, status),
-		Skills:      skillRefs,
-	}
-	if agent.Memory == nil {
-		normalized := defaultAgentMemoryConfig()
-		agent.Memory = &normalized
-	}
-	agent.ConfigJSON = s.mustMarshalConfig(agent, skillRefs)
-
-	if includeMarkdown {
-		agentsMDPath := strings.TrimSpace(cfg.AgentsMD)
-		if agentsMDPath == "" {
-			agentsMDPath = "AGENTS.md"
-		}
-		markdownPath := filepath.Join(s.fs.AgentDir(agentName, status), filepath.Clean(agentsMDPath))
-		markdown, err := os.ReadFile(markdownPath)
-		if err != nil && !os.IsNotExist(err) {
-			return nil, err
-		}
-		agent.AgentsMD = string(markdown)
-	}
-
-	return agent, nil
 }
 
 func (s *AgentService) resolveSkillRefsByNames(names []string) ([]model.SkillRef, error) {
@@ -379,7 +278,7 @@ func (s *AgentService) syncAgentFilesystem(agent *model.Agent, agentsMD string, 
 	if err := s.fs.DeleteAgentSkillsDir(agent.Name, agent.Status); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(s.fs.AgentSkillsDir(agent.Name, agent.Status), 0755); err != nil {
+	if err := os.MkdirAll(s.fs.AgentSkillsDir(agent.Name, agent.Status), 0o755); err != nil {
 		return err
 	}
 
@@ -395,72 +294,19 @@ func (s *AgentService) syncAgentFilesystem(agent *model.Agent, agentsMD string, 
 		}
 	}
 
-	agent.AgentsMDRef = s.fs.AgentMDRef(agent.Name, agent.Status)
 	agent.AgentsMD = agentsMD
 	agent.Skills = append([]model.SkillRef(nil), skillRefs...)
 	return nil
 }
 
 func (s *AgentService) hydrateFilesystemAgent(agent *model.Agent, agentsMD string, skillRefs []model.SkillRef) *model.Agent {
-	agent.AgentsMDRef = s.fs.AgentMDRef(agent.Name, agent.Status)
 	agent.AgentsMD = agentsMD
 	agent.Skills = append([]model.SkillRef(nil), skillRefs...)
 	if agent.Memory == nil {
 		normalized := defaultAgentMemoryConfig()
 		agent.Memory = &normalized
 	}
-	agent.ConfigJSON = s.mustMarshalConfig(agent, skillRefs)
 	return agent
-}
-
-func (s *AgentService) mustMarshalConfig(agent *model.Agent, skillRefs []model.SkillRef) json.RawMessage {
-	payload := map[string]interface{}{
-		"name":            agent.Name,
-		"description":     agent.Description,
-		"status":          agent.Status,
-		"agents_md_ref":   s.fs.AgentMDRef(agent.Name, agent.Status),
-		"agents_md_path":  "AGENTS.md",
-		"selected_skills": collectSkillRefNames(skillRefs),
-		"skill_refs":      skillRefs,
-		"memory":          agentMemoryPayload(agent.Memory),
-	}
-	if agent.Model != nil {
-		payload["model"] = *agent.Model
-	}
-	if agent.ToolGroups != nil {
-		payload["tool_groups"] = agent.ToolGroups
-	}
-	if agent.McpServers != nil {
-		payload["mcp_servers"] = agent.McpServers
-	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return json.RawMessage("{}")
-	}
-	return data
-}
-
-func collectSkillRefNames(skills []model.SkillRef) []string {
-	names := make([]string, 0, len(skills))
-	for _, skill := range skills {
-		names = append(names, skill.Name)
-	}
-	return names
-}
-
-func collectSkillNames(skills []model.Skill) []string {
-	names := make([]string, 0, len(skills))
-	for _, skill := range skills {
-		names = append(names, skill.Name)
-	}
-	return names
-}
-
-func strPtr(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
 }
 
 func defaultAgentMemoryConfig() model.AgentMemoryConfig {
@@ -524,22 +370,4 @@ func agentMemoryPayload(cfg *model.AgentMemoryConfig) map[string]interface{} {
 		payload["model_name"] = strings.TrimSpace(*normalized.ModelName)
 	}
 	return payload
-}
-
-func parseAgentMemoryConfig(configJSON json.RawMessage) (model.AgentMemoryConfig, error) {
-	normalized := defaultAgentMemoryConfig()
-	if len(configJSON) == 0 {
-		return normalized, nil
-	}
-
-	var payload struct {
-		Memory *model.AgentMemoryConfig `json:"memory"`
-	}
-	if err := json.Unmarshal(configJSON, &payload); err != nil {
-		return model.AgentMemoryConfig{}, err
-	}
-	if payload.Memory == nil {
-		return normalized, nil
-	}
-	return normalizeAgentMemoryConfig(payload.Memory)
 }

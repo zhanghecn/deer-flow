@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/openagents/gateway/internal/agentfs"
 	"github.com/openagents/gateway/internal/middleware"
 	"github.com/openagents/gateway/internal/model"
 	"github.com/openagents/gateway/internal/repository"
@@ -45,7 +46,7 @@ func (h *OpenAPIHandler) handleRequest(c *gin.Context, agentName string, stream 
 	}
 
 	// Verify the published agent exists on disk.
-	agent, err := loadFilesystemAgent(h.fs, agentName, "prod", false)
+	agent, err := agentfs.LoadAgent(h.fs, agentName, "prod", false)
 	if err != nil || agent == nil {
 		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "agent not found"})
 		return

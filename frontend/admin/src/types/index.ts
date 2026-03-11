@@ -107,19 +107,19 @@ export interface AgentMemoryConfig {
 }
 
 export interface Agent {
-  id: string;
   name: string;
-  display_name?: string;
   description: string;
-  avatar_url?: string;
   model?: string;
   tool_groups?: string[];
   mcp_servers?: string[];
   status: string;
   memory?: AgentMemoryConfig | null;
   agents_md: string;
-  config_json?: Record<string, unknown>;
-  created_by?: string;
-  created_at: string;
-  updated_at: string;
+  skills?: Array<{
+    name: string;
+    status?: string;
+    category?: string;
+    source_path?: string;
+    materialized_path?: string;
+  }>;
 }

@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,18 +9,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/openagents/gateway/internal/model"
+	"github.com/openagents/gateway/internal/skillfs"
 	"github.com/openagents/gateway/pkg/storage"
 	"gopkg.in/yaml.v3"
 )
 
 type SkillService struct {
 	fs *storage.FS
-}
-
-type skillFrontmatter struct {
-	Name        string `yaml:"name"`
-	Description string `yaml:"description"`
-	License     string `yaml:"license"`
 }
 
 func NewSkillService(fs *storage.FS) *SkillService {
@@ -142,7 +136,7 @@ func (s *SkillService) loadSkillFromScope(name string, scope string) (*model.Ski
 		return nil, err
 	}
 
-	meta, err := parseSkillFrontmatter(string(data))
+	meta, err := skillfs.ParseFrontmatter(string(data))
 	if err != nil {
 		return nil, err
 	}
@@ -160,21 +154,7 @@ func (s *SkillService) loadSkillFromScope(name string, scope string) (*model.Ski
 		Description: meta.Description,
 		Status:      status,
 		SkillMD:     string(data),
-		SkillMDRef:  filepath.ToSlash(filepath.Join("skills", scope, name, "SKILL.md")),
-		Metadata:    s.mustMarshalMetadata(name, scope),
 	}, nil
-}
-
-func (s *SkillService) mustMarshalMetadata(name string, scope string) json.RawMessage {
-	payload := map[string]interface{}{
-		"scope":        scope,
-		"skill_md_ref": filepath.ToSlash(filepath.Join("skills", scope, name, "SKILL.md")),
-	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return json.RawMessage("{}")
-	}
-	return data
 }
 
 func ensureSkillFrontmatter(name string, description string, skillMD string) (string, error) {
@@ -227,28 +207,4 @@ func splitSkillFrontmatter(skillMD string) (map[string]interface{}, string, bool
 	body := strings.TrimPrefix(rest[end:], "\n---")
 	body = strings.TrimPrefix(body, "\n")
 	return meta, body, true, nil
-}
-
-func parseSkillFrontmatter(skillMD string) (skillFrontmatter, error) {
-	meta, _, _, err := splitSkillFrontmatter(skillMD)
-	if err != nil {
-		return skillFrontmatter{}, err
-	}
-
-	raw, err := yaml.Marshal(meta)
-	if err != nil {
-		return skillFrontmatter{}, err
-	}
-
-	var parsed skillFrontmatter
-	if err := yaml.Unmarshal(raw, &parsed); err != nil {
-		return skillFrontmatter{}, err
-	}
-	parsed.Name = strings.TrimSpace(parsed.Name)
-	parsed.Description = strings.TrimSpace(parsed.Description)
-	parsed.License = strings.TrimSpace(parsed.License)
-	if parsed.Name == "" {
-		return skillFrontmatter{}, fmt.Errorf("skill name missing in frontmatter")
-	}
-	return parsed, nil
 }

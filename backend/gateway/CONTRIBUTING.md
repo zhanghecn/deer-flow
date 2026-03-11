@@ -121,7 +121,7 @@ refactor(handler): extract common error response
 
 Go 网关与 Python 后端（LangGraph Server）协同工作：
 
-- Go 网关管理用户认证、Agent/Skill 元数据和文件系统同步
+- Go 网关管理用户认证、模型配置、线程绑定和文件系统同步
 - LangGraph Server 负责 Agent 执行和对话管理
 - Go 网关代理 `/api/langgraph/*` 请求到 LangGraph，注入 `user_id`
 - Agent/Skill 的 AGENTS.md 和 config.yaml 通过文件系统同步给 LangGraph 读取

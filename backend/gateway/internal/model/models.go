@@ -1,7 +1,6 @@
 package model
 
 import (
-	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,26 +30,18 @@ type APIToken struct {
 	CreatedAt time.Time  `json:"created_at" db:"created_at"`
 }
 
-// Agent represents a shared agent definition row. Markdown content is
-// materialized on disk; the DB stores filesystem references and metadata.
+// Agent is a filesystem-backed agent definition stored under
+// `.openagents/agents/{status}/{name}/`.
 type Agent struct {
-	ID          uuid.UUID          `json:"id" db:"id"`
-	Name        string             `json:"name" db:"name"`
-	DisplayName *string            `json:"display_name" db:"display_name"`
-	Description string             `json:"description" db:"description"`
-	AvatarURL   *string            `json:"avatar_url" db:"avatar_url"`
-	Model       *string            `json:"model" db:"model"`
-	ToolGroups  []string           `json:"tool_groups" db:"tool_groups"`
-	McpServers  []string           `json:"mcp_servers" db:"mcp_servers"`
-	Status      string             `json:"status" db:"status"`
+	Name        string             `json:"name"`
+	Description string             `json:"description"`
+	Model       *string            `json:"model"`
+	ToolGroups  []string           `json:"tool_groups"`
+	McpServers  []string           `json:"mcp_servers"`
+	Status      string             `json:"status"`
 	Memory      *AgentMemoryConfig `json:"memory,omitempty"`
 	AgentsMD    string             `json:"agents_md"`
-	AgentsMDRef string             `json:"-" db:"agents_md"`
 	Skills      []SkillRef         `json:"skills,omitempty"`
-	ConfigJSON  json.RawMessage    `json:"config_json" db:"config_json"`
-	CreatedBy   *uuid.UUID         `json:"created_by" db:"created_by"`
-	CreatedAt   time.Time          `json:"created_at" db:"created_at"`
-	UpdatedAt   time.Time          `json:"updated_at" db:"updated_at"`
 }
 
 type AgentMemoryConfig struct {
@@ -63,17 +54,10 @@ type AgentMemoryConfig struct {
 	MaxInjectionTokens      int     `json:"max_injection_tokens"`
 }
 
-// Skill represents a shared skill library row. The DB stores a path reference
-// to SKILL.md while the markdown body lives on disk.
+// Skill is a filesystem-backed skill definition stored under `.openagents/skills/`.
 type Skill struct {
-	ID          uuid.UUID       `json:"id" db:"id"`
-	Name        string          `json:"name" db:"name"`
-	Description string          `json:"description" db:"description"`
-	Status      string          `json:"status" db:"status"`
-	SkillMD     string          `json:"skill_md"`
-	SkillMDRef  string          `json:"-" db:"skill_md"`
-	Metadata    json.RawMessage `json:"metadata" db:"metadata"`
-	CreatedBy   *uuid.UUID      `json:"created_by" db:"created_by"`
-	CreatedAt   time.Time       `json:"created_at" db:"created_at"`
-	UpdatedAt   time.Time       `json:"updated_at" db:"updated_at"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Status      string `json:"status"`
+	SkillMD     string `json:"skill_md"`
 }

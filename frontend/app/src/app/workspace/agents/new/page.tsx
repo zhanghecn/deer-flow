@@ -19,6 +19,7 @@ import type { Agent } from "@/core/agents";
 import { checkAgentName, getAgent } from "@/core/agents/api";
 import { resolveCommandIntent } from "@/core/commands/transform";
 import { useI18n } from "@/core/i18n/hooks";
+import { useLocalSettings } from "@/core/settings";
 import { useThreadStream } from "@/core/threads/hooks";
 import { uuid } from "@/core/utils/uuid";
 import { cn } from "@/lib/utils";
@@ -30,6 +31,7 @@ const NAME_RE = /^[A-Za-z0-9-]+$/;
 export default function NewAgentPage() {
   const { t } = useI18n();
   const router = useRouter();
+  const [settings] = useLocalSettings();
 
   // ── Step 1: name form ──────────────────────────────────────────────────────
   const [step, setStep] = useState<Step>("name");
@@ -44,9 +46,7 @@ export default function NewAgentPage() {
   const threadId = useMemo(() => uuid(), []);
 
   const [thread, sendMessage] = useThreadStream({
-    context: {
-      mode: "flash",
-    },
+    context: settings.context,
     onToolEnd({ name }) {
       if (!["setup_agent", "save_agent_to_store"].includes(name) || !agentName) {
         return;
@@ -109,6 +109,7 @@ export default function NewAgentPage() {
     t.agents.nameStepInvalidError,
     t.agents.nameStepAlreadyExistsError,
     t.agents.nameStepCheckError,
+    settings.context,
   ]);
 
   const handleNameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {

@@ -53,11 +53,6 @@ func (f *FS) AgentConfigRef(name, status string) string {
 	return filepath.ToSlash(filepath.Join("agents", status, name, "config.yaml"))
 }
 
-// AgentMDRef returns the relative reference path for an agent AGENTS.md file.
-func (f *FS) AgentMDRef(name, status string) string {
-	return filepath.ToSlash(filepath.Join("agents", status, name, "AGENTS.md"))
-}
-
 // AgentSkillsDir returns the directory containing copied skills for an agent.
 func (f *FS) AgentSkillsDir(name, status string) string {
 	return filepath.Join(f.AgentDir(name, status), "skills")
@@ -84,15 +79,6 @@ func (f *FS) StoreProdSkillsDir() string {
 // GlobalSkillDir returns the directory for a global skill.
 func (f *FS) GlobalSkillDir(scope, skillName string) string {
 	return filepath.Join(f.SkillsDir(), filepath.FromSlash(scope), skillName)
-}
-
-// SkillMDRef returns the relative reference path for a store skill file by status.
-func (f *FS) SkillMDRef(name, status string) string {
-	scope := filepath.Join("store", "dev")
-	if status == "prod" {
-		scope = filepath.Join("store", "prod")
-	}
-	return filepath.ToSlash(filepath.Join("skills", scope, name, "SKILL.md"))
 }
 
 // ResolveRef resolves a relative storage reference against the gateway base dir.

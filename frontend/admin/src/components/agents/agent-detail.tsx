@@ -9,7 +9,6 @@ import {
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { formatDate } from "@/lib/format";
 import type { Agent } from "@/types";
 
 interface AgentDetailProps {
@@ -46,7 +45,7 @@ export function AgentDetail({ agent, open, onOpenChange }: AgentDetailProps) {
       <DialogContent className="sm:max-w-2xl max-h-[80vh]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            {agent.display_name || agent.name}
+            {agent.name}
             <Badge variant={agent.status === "prod" ? "default" : "secondary"}>
               {agent.status}
             </Badge>
@@ -57,8 +56,6 @@ export function AgentDetail({ agent, open, onOpenChange }: AgentDetailProps) {
             <div className="grid grid-cols-2 gap-3 text-sm">
               <DetailField label="Name" value={agent.name} mono />
               <DetailField label="Model" value={agent.model || "-"} />
-              <DetailField label="Created" value={formatDate(agent.created_at)} />
-              <DetailField label="Updated" value={formatDate(agent.updated_at)} />
             </div>
 
             {agent.description && (

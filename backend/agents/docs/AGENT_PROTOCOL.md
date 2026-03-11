@@ -1,7 +1,7 @@
 # Agent Definition Protocol
 
 This document defines the unified definition/materialization contract shared by
-`backend/agents`, `backend/gateway`, and the PostgreSQL metadata layer.
+`backend/agents` and `backend/gateway`.
 
 ## Goals
 
@@ -13,14 +13,16 @@ This document defines the unified definition/materialization contract shared by
 - Local debugging uses the host filesystem.
 - Runtime sandbox selection is decided by Python startup configuration, not by agent metadata stored through Go.
 - The default `lead_agent` is the catch-all agent and can see the full archived skills library.
+- Agent and skill definitions are filesystem archives, not database rows.
 
 ## Three Layers
 
 ### 1. Definition Layer
 
 - Shared skills archive:
-  - `skills/public/.../SKILL.md`
-  - `skills/custom/.../SKILL.md`
+  - `skills/shared/.../SKILL.md`
+  - `skills/store/dev/.../SKILL.md`
+  - `skills/store/prod/.../SKILL.md`
 - Agent-owned files:
   - `agents/{status}/{name}/AGENTS.md`
   - `agents/{status}/{name}/config.yaml`
@@ -28,11 +30,8 @@ This document defines the unified definition/materialization contract shared by
   - `agents_md_path`
   - `skill_refs[]`
   - normal agent metadata such as `model`, `tool_groups`, `mcp_servers`
-- Database rows store references, not markdown bodies:
-  - `agents.agents_md` -> `agents/{status}/{name}/AGENTS.md`
-  - `skills.skill_md` -> `skills/{public|custom}/{name}/SKILL.md`
-  - `agent_skills` is the source of truth for which shared skills an agent selected
-- Agent versions are keyed by `(name, status)`, so `dev` and `prod` rows can coexist.
+- There are no `agents`, `skills`, or `agent_skills` database tables in the current architecture.
+- Agent versions coexist as directories under `agents/dev/` and `agents/prod/`.
 
 ### 2. Materialization Layer
 
@@ -123,7 +122,7 @@ This document defines the unified definition/materialization contract shared by
 - If sandbox is not enabled, Python uses `LocalShellBackend` rooted at the thread's `user-data` directory.
 - The Python runtime now carries that protocol explicitly.
 - The Go gateway now materializes the same filesystem layout that the Python runtime expects.
-- Shared skills stay outside `OPENAGENTS_HOME`; agent-owned copies stay under `agents/{status}/{name}/skills/`.
+- Shared skills live under `OPENAGENTS_HOME/skills/`; agent-owned copies stay under `agents/{status}/{name}/skills/`.
 - Open API resolves agents by `(name, status="prod")` only.
 - Runtime seeding targets thread-local virtual paths, so runtime edits do not mutate archived `dev/prod` files.
 
@@ -136,12 +135,12 @@ This document defines the unified definition/materialization contract shared by
 
 ## Gateway Responsibilities
 
-- `backend/gateway` owns CRUD, publish, and reference persistence in PostgreSQL.
+- `backend/gateway` owns CRUD, publish, and filesystem persistence for archived agent definitions.
 - On create/update/publish it writes:
   - agent-owned `AGENTS.md`
   - agent-owned `config.yaml`
   - copied agent-local `skills/`
-- On publish it promotes the `dev` definition to `prod` without deleting the `dev` row.
+- On publish it promotes the `dev` definition to `prod` without deleting the `dev` archive.
 - On create/update/publish it always writes local archived files first:
   - `agents/{status}/{name}/AGENTS.md`
   - `agents/{status}/{name}/skills/...`

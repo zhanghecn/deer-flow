@@ -3,7 +3,7 @@ import logging
 import os
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Literal
+from typing import Any, Literal
 
 import yaml
 from deepagents import create_deep_agent
@@ -11,6 +11,7 @@ from deepagents.backends import CompositeBackend, LocalShellBackend
 from deepagents.backends.protocol import BackendProtocol
 from langchain_core.runnables import RunnableConfig
 from langgraph_sdk.runtime import ServerRuntime
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.agents.lead_agent.prompt import apply_prompt_template
 from src.agents.lead_agent.subagents import load_subagent_specs
@@ -20,7 +21,7 @@ from src.agents.middlewares.title_middleware import TitleMiddleware
 from src.agents.middlewares.uploads_middleware import UploadsMiddleware
 from src.agents.middlewares.view_image_middleware import ViewImageMiddleware
 from src.config.agent_runtime_seed import runtime_seed_targets
-from src.config.agents_config import load_agent_config
+from src.config.agents_config import AgentConfig, load_agent_config
 from src.config.app_config import AppConfig
 from src.config.builtin_agents import (
     ensure_builtin_agent_archive,
@@ -28,7 +29,7 @@ from src.config.builtin_agents import (
 )
 from src.config.model_config import ModelConfig
 from src.config.paths import VIRTUAL_PATH_PREFIX, Paths, get_paths
-from src.config.runtime_db import DBAgentConfig, RuntimeDBStore, get_runtime_db_store
+from src.config.runtime_db import RuntimeDBStore, get_runtime_db_store
 from src.models import create_chat_model
 from src.observability import create_agent_trace_callback
 from src.reflection.resolvers import resolve_class
@@ -38,6 +39,52 @@ logger = logging.getLogger(__name__)
 LOCAL_SANDBOX_PROVIDER = "src.sandbox.local:LocalSandboxProvider"
 DEFAULT_THREAD_ID = "_default"
 ExecutionBackend = Literal["local", "sandbox"]
+LEAD_AGENT_INTERRUPT_ON = {"ask_clarification": True}
+
+
+class LeadAgentRuntimeContext(BaseModel):
+    """Typed runtime context shared between the UI, LangGraph, and tools.
+
+    LangGraph serializes the runtime context into streamed state updates. When the
+    graph has no declared context schema, those updates emit noisy serializer
+    warnings for every injected field. Declaring the shape here makes the runtime
+    contract explicit and keeps per-turn metadata documented in one place.
+
+    We intentionally allow unknown keys because the frontend can attach short-lived
+    UI hints that are not semantically important to the graph itself.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+        populate_by_name=True,
+    )
+
+    agent_name: str | None = None
+    target_agent_name: str | None = None
+    agent_status: str | None = None
+    model_name: str | None = None
+    model: str | None = None
+    runtime_model_config: dict[str, Any] | ModelConfig | None = Field(
+        default=None,
+        alias="model_config",
+    )
+    thinking_enabled: bool | None = None
+    reasoning_effort: Any = None
+    subagent_enabled: bool | None = None
+    max_concurrent_subagents: int | None = None
+    command_name: str | None = None
+    command_kind: str | None = None
+    command_args: str | None = None
+    authoring_actions: list[str] = Field(default_factory=list)
+    original_user_input: str | None = None
+    mode: str | None = None
+    is_plan_mode: bool | None = None
+    thread_id: str | None = None
+    runtime_thread_id: str | None = Field(default=None, alias="x-thread-id")
+    user_id: str | None = None
+    runtime_user_id: str | None = Field(default=None, alias="x-user-id")
+    langgraph_auth_user_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -49,6 +96,7 @@ class LeadAgentRequest:
     max_concurrent_subagents: object
     command_name: str | None
     command_kind: str | None
+    command_args: str | None
     authoring_actions: tuple[str, ...]
     agent_name: str
     agent_status: str
@@ -56,12 +104,38 @@ class LeadAgentRequest:
     user_id: str | None
     runtime_model_name: str | None
 
+    def requires_direct_authoring_tool(self) -> bool:
+        """Return whether this turn is a save/push confirmation command.
+
+        Hard authoring commands such as `/save-agent-to-store` or
+        `/push-skill-prod` are explicit user confirmations. Those turns should
+        keep the model focused on a single persistence tool call instead of
+        branching into authoring skills or delegated subagent work.
+        """
+
+        return self.command_kind == "hard" and len(self.authoring_actions) > 0
+
 
 @dataclass(frozen=True)
 class LeadAgentResolution:
-    agent_config: DBAgentConfig
+    agent_config: AgentConfig
     model_name: str
     model_config: ModelConfig
+
+
+@dataclass(frozen=True)
+class LeadAgentGraphParts:
+    """Precomputed pieces used to assemble the deep agent graph.
+
+    Keeping these values in a small carrier object makes `_create_lead_agent`
+    read top-down: resolve request, resolve runtime, build graph parts, compile.
+    """
+
+    tools: list[Any]
+    middleware: list[Any]
+    subagents: list[Any] | None
+    skill_sources: list[str]
+    system_prompt: str
 
 
 def _resolve_config_sandbox_provider() -> str | None:
@@ -130,7 +204,7 @@ def _build_runtime_seed_targets(
     agent_name: str,
     status: str,
     target_root: str,
-    agent_config: DBAgentConfig | None,
+    agent_config: AgentConfig | None,
     paths: Paths,
 ) -> list[tuple[str, bytes]]:
     return runtime_seed_targets(
@@ -177,7 +251,7 @@ def _seed_runtime_materials(
     *,
     agent_name: str,
     status: str,
-    agent_config: DBAgentConfig | None,
+    agent_config: AgentConfig | None,
 ) -> None:
     paths = get_paths()
     ensure_builtin_agent_archive(agent_name, status=status, paths=paths)
@@ -232,7 +306,7 @@ def build_backend(
     thread_id: str | None,
     agent_name: str | None,
     status: str = "dev",
-    agent_config: DBAgentConfig | None = None,
+    agent_config: AgentConfig | None = None,
 ):
     """Build a CompositeBackend for the agent.
 
@@ -425,7 +499,7 @@ def _persist_thread_runtime(
 
 def _assert_agent_memory_access(
     *,
-    agent_config: DBAgentConfig,
+    agent_config: AgentConfig,
     user_id: str | None,
 ) -> None:
     if agent_config.memory.enabled and not user_id:
@@ -434,7 +508,7 @@ def _assert_agent_memory_access(
 
 def _load_agent_tools(
     *,
-    agent_config: DBAgentConfig,
+    agent_config: AgentConfig,
     model_name: str,
     model_supports_vision: bool,
     agent_status: str,
@@ -456,7 +530,7 @@ def _resolve_run_model(
     *,
     requested_model_name: str | None,
     runtime_model_name: str | None,
-    agent_config: DBAgentConfig | None,
+    agent_config: AgentConfig | None,
     thread_id: str | None,
     user_id: str | None,
     db_store: RuntimeDBStore,
@@ -488,9 +562,7 @@ def _load_agent_runtime_config(
     *,
     agent_name: str,
     agent_status: str,
-    db_store: RuntimeDBStore,
-) -> DBAgentConfig | None:
-    _ = db_store
+) -> AgentConfig | None:
     paths = get_paths()
     ensure_builtin_agent_archive(agent_name, status=agent_status, paths=paths)
 
@@ -500,16 +572,7 @@ def _load_agent_runtime_config(
         file_config = None
 
     if file_config is not None:
-        return DBAgentConfig(
-            name=file_config.name,
-            status=file_config.status,
-            model=file_config.model,
-            tool_groups=file_config.tool_groups,
-            mcp_servers=file_config.mcp_servers,
-            agents_md_path=file_config.agents_md_path,
-            skill_refs=file_config.skill_refs,
-            memory=file_config.memory,
-        )
+        return file_config
 
     raise ValueError(f"Agent '{agent_name}' with status '{agent_status}' not found in archive.")
 
@@ -564,6 +627,7 @@ def _resolve_lead_agent_request(
         max_concurrent_subagents=cfg.get("max_concurrent_subagents", 3),
         command_name=_coerce_optional_str(cfg.get("command_name")),
         command_kind=_coerce_optional_str(cfg.get("command_kind")),
+        command_args=_coerce_optional_str(cfg.get("command_args")),
         authoring_actions=_coerce_optional_str_list(cfg.get("authoring_actions")),
         agent_name=normalize_effective_agent_name(_coerce_optional_str(cfg.get("agent_name"))),
         agent_status=_resolve_agent_status(cfg.get("agent_status", "dev")),
@@ -586,7 +650,6 @@ def _resolve_lead_agent_runtime(
     agent_config = _load_agent_runtime_config(
         agent_name=request.agent_name,
         agent_status=request.agent_status,
-        db_store=db_store,
     )
     _assert_agent_memory_access(agent_config=agent_config, user_id=request.user_id)
     model_name, model_config = _resolve_run_model(
@@ -674,7 +737,7 @@ def _extract_tool_names(tools: object) -> list[str]:
 def _resolve_agent_backend(
     *,
     request: LeadAgentRequest,
-    agent_config: DBAgentConfig,
+    agent_config: AgentConfig,
     prepare_runtime_resources: bool,
 ) -> BackendProtocol:
     if not prepare_runtime_resources:
@@ -692,6 +755,8 @@ def _build_agent_subagents(
     request: LeadAgentRequest,
     tools: object,
 ):
+    if request.requires_direct_authoring_tool():
+        return None
     if not request.subagent_enabled:
         return None
     return load_subagent_specs(
@@ -707,6 +772,91 @@ def _should_prepare_runtime_resources(runtime: ServerRuntime | None) -> bool:
     return getattr(runtime, "execution_runtime", None) is not None
 
 
+def _assert_requested_model_capabilities(
+    *,
+    request: LeadAgentRequest,
+    resolution: LeadAgentResolution,
+) -> None:
+    """Validate model features after the final model has been resolved.
+
+    Request parsing only tells us what the caller asked for. Capability checks
+    belong here, after agent defaults, thread-persisted runtime settings, and
+    explicit request overrides have been merged into one resolved model choice.
+    """
+
+    if request.thinking_enabled and not resolution.model_config.supports_thinking:
+        raise ValueError(f"Thinking mode is enabled but model '{resolution.model_name}' does not support thinking.")
+
+
+def _build_skill_sources(request: LeadAgentRequest) -> list[str]:
+    """Return Deep Agents skill directories for this turn.
+
+    Skills are progressively disclosed from the archived runtime copy under the
+    agent workspace. Direct save/push confirmations intentionally skip skill
+    loading so the model stays focused on the explicit persistence tool call
+    that the user just approved.
+    """
+
+    if request.requires_direct_authoring_tool():
+        return []
+    return [_runtime_skills_path(request.agent_name, request.agent_status)]
+
+
+def _build_system_prompt(
+    *,
+    request: LeadAgentRequest,
+    resolution: LeadAgentResolution,
+) -> str:
+    """Build the lead-agent prompt from resolved runtime state.
+
+    Keeping prompt assembly in one function avoids scattering prompt inputs
+    across `_create_lead_agent`, which makes later prompt changes easier to
+    audit against the runtime contract.
+    """
+
+    return apply_prompt_template(
+        subagent_enabled=bool(request.subagent_enabled),
+        max_concurrent_subagents=int(request.max_concurrent_subagents),
+        user_id=request.user_id,
+        agent_name=request.agent_name,
+        agent_status=request.agent_status,
+        memory_config=resolution.agent_config.memory,
+        command_name=request.command_name,
+        command_kind=request.command_kind,
+        command_args=request.command_args,
+        authoring_actions=request.authoring_actions,
+    )
+
+
+def _build_graph_parts(
+    *,
+    request: LeadAgentRequest,
+    resolution: LeadAgentResolution,
+) -> LeadAgentGraphParts:
+    """Assemble request-specific Deep Agents graph inputs.
+
+    This groups together the pieces that materially change the compiled graph:
+    tool set, middleware, prompt, subagents, and skills. The resulting object is
+    easy to inspect in tests and keeps `_create_lead_agent` as a short
+    orchestration narrative instead of a long construction routine.
+    """
+
+    tools = _load_agent_tools(
+        agent_config=resolution.agent_config,
+        model_name=resolution.model_name,
+        model_supports_vision=resolution.model_config.supports_vision,
+        agent_status=request.agent_status,
+        authoring_actions=request.authoring_actions,
+    )
+    return LeadAgentGraphParts(
+        tools=tools,
+        middleware=_build_openagents_middlewares(resolution.model_config),
+        subagents=_build_agent_subagents(request=request, tools=tools),
+        skill_sources=_build_skill_sources(request),
+        system_prompt=_build_system_prompt(request=request, resolution=resolution),
+    )
+
+
 def _create_lead_agent(
     config: RunnableConfig,
     runtime: ServerRuntime | None = None,
@@ -719,9 +869,10 @@ def _create_lead_agent(
         request=request,
         db_store=db_store,
     )
-
-    if request.thinking_enabled and not resolution.model_config.supports_thinking:
-        raise ValueError(f"Thinking mode is enabled but model '{resolution.model_name}' does not support thinking.")
+    _assert_requested_model_capabilities(
+        request=request,
+        resolution=resolution,
+    )
 
     logger.info(
         "Create Agent(%s) -> thinking_enabled: %s, reasoning_effort: %s, model_name: %s, subagent_enabled: %s, agent_status: %s",
@@ -739,40 +890,16 @@ def _create_lead_agent(
         agent_config=resolution.agent_config,
         prepare_runtime_resources=prepare_runtime_resources,
     )
-
-    # Skills sources for deepagents SkillsMiddleware come from the archived copy
-    # materialized under the agent's own runtime directory.
-    skills_sources = [_runtime_skills_path(request.agent_name, request.agent_status)]
-
-    # Community tools + MCP tools. Filesystem tools are provided by deepagents.
-    tools = _load_agent_tools(
-        agent_config=resolution.agent_config,
-        model_name=resolution.model_name,
-        model_supports_vision=resolution.model_config.supports_vision,
-        agent_status=request.agent_status,
-        authoring_actions=request.authoring_actions,
+    graph_parts = _build_graph_parts(
+        request=request,
+        resolution=resolution,
     )
     _attach_trace_metadata(
         config,
         request=request,
         model_name=resolution.model_name,
-        tool_names=_extract_tool_names(tools),
+        tool_names=_extract_tool_names(graph_parts.tools),
     )
-
-    subagents = _build_agent_subagents(
-        request=request,
-        tools=tools,
-    )
-    extra_middleware = _build_openagents_middlewares(resolution.model_config)
-    system_prompt = apply_prompt_template(
-        subagent_enabled=bool(request.subagent_enabled),
-        max_concurrent_subagents=int(request.max_concurrent_subagents),
-        user_id=request.user_id,
-        agent_name=request.agent_name,
-        agent_status=request.agent_status,
-        memory_config=resolution.agent_config.memory,
-    )
-    interrupt_on = {"ask_clarification": True}
 
     return create_deep_agent(
         model=create_chat_model(
@@ -781,13 +908,14 @@ def _create_lead_agent(
             reasoning_effort=request.reasoning_effort,
             runtime_model_config=resolution.model_config,
         ),
-        tools=tools,
-        system_prompt=system_prompt,
-        middleware=extra_middleware,
-        subagents=subagents,
-        skills=skills_sources,
+        tools=graph_parts.tools,
+        system_prompt=graph_parts.system_prompt,
+        middleware=graph_parts.middleware,
+        subagents=graph_parts.subagents,
+        skills=graph_parts.skill_sources,
         backend=backend,
-        interrupt_on=interrupt_on,
+        context_schema=LeadAgentRuntimeContext,
+        interrupt_on=LEAD_AGENT_INTERRUPT_ON,
         name=request.agent_name,
     )
 

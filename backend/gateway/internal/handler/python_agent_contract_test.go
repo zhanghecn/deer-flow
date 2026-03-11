@@ -26,7 +26,7 @@ func TestPythonLeadAgentModelResolutionContract(t *testing.T) {
 	script := `
 from src.agents.lead_agent.agent import _parse_runtime_model_config, _resolve_run_model
 from src.config.model_config import ModelConfig
-from src.config.runtime_db import DBAgentConfig
+from src.config.agents_config import AgentConfig
 
 class FakeStore:
     def __init__(self):
@@ -84,7 +84,7 @@ try:
     _resolve_run_model(
         requested_model_name="model-b",
         runtime_model_name=None,
-        agent_config=DBAgentConfig(
+        agent_config=AgentConfig(
             name="agent-a",
             status="dev",
             model="model-a",
