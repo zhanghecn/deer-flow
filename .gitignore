@@ -35,13 +35,6 @@ coverage.xml
 coverage/
 # Track archived agent definitions in .openagents/agents/{dev,prod},
 # but keep runtime thread/user data out of git.
-.openagents/*
-!.openagents/agents/
-.openagents/agents/*
-!.openagents/agents/dev/
-!.openagents/agents/dev/**
-!.openagents/agents/prod/
-!.openagents/agents/prod/**
 .openagents/threads/
 .openagents/users/
 .claude/

@@ -3,6 +3,7 @@ import base64
 import json
 import logging
 import os
+import sys
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Literal, Optional
@@ -243,5 +244,6 @@ if __name__ == "__main__":
         print(result)
     except Exception as e:
         import traceback
-        print(f"Error generating podcast: {e}")
+        print(f"Error generating podcast: {e}", file=sys.stderr)
         traceback.print_exc()
+        raise SystemExit(1) from e

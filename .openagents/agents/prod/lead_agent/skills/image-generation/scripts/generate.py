@@ -1,5 +1,6 @@
 import base64
 import os
+import sys
 
 import requests
 from PIL import Image
@@ -33,7 +34,7 @@ def generate_image(
     output_file: str,
     aspect_ratio: str = "16:9",
 ) -> str:
-    with open(prompt_file, "r") as f:
+    with open(prompt_file, "r", encoding="utf-8") as f:
         prompt = f.read()
     parts = []
     i = 0
@@ -64,7 +65,7 @@ def generate_image(
 
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        return "GEMINI_API_KEY is not set"
+        raise RuntimeError("GEMINI_API_KEY is not set")
     response = requests.post(
         "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent",
         headers={
@@ -85,6 +86,8 @@ def generate_image(
         # Save the image to a file
         with open(output_file, "wb") as f:
             f.write(base64.b64decode(base64_image))
+        if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
+            raise RuntimeError(f"Image generation did not produce a valid file: {output_file}")
         return f"Successfully generated image to {output_file}"
     else:
         raise Exception("Failed to generate image")
@@ -129,4 +132,5 @@ if __name__ == "__main__":
             )
         )
     except Exception as e:
-        print(f"Error while generating image: {e}")
+        print(f"Error while generating image: {e}", file=sys.stderr)
+        raise SystemExit(1) from e

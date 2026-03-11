@@ -34,6 +34,7 @@ import {
   PromptInputSubmit,
   PromptInputTextarea,
   PromptInputTools,
+  usePromptInputController,
   usePromptInputAttachments,
   type PromptInputMessage,
 } from "@/components/ai-elements/prompt-input";
@@ -133,12 +134,16 @@ export function InputBox({
   const { t } = useI18n();
   const searchParams = useSearchParams();
   const [modelDialogOpen, setModelDialogOpen] = useState(false);
-  const [draftText, setDraftText] = useState(initialValue ?? "");
   const { models } = useModels();
+  const promptInputController = usePromptInputController();
+  const draftText = promptInputController.textInput.value;
 
   useEffect(() => {
-    setDraftText(initialValue ?? "");
-  }, [initialValue]);
+    if (typeof initialValue !== "string") {
+      return;
+    }
+    promptInputController.textInput.setInput(initialValue);
+  }, [initialValue, promptInputController]);
 
   useEffect(() => {
     if (models.length === 0) {
@@ -233,13 +238,13 @@ export function InputBox({
         },
         resolvedCommand?.extraContext,
       );
-      setDraftText("");
+      promptInputController.textInput.clear();
     },
-    [onSubmit, onStop, status],
+    [onSubmit, onStop, promptInputController, status],
   );
 
   const applyInputText = useCallback((nextValue: string) => {
-    setDraftText(nextValue);
+    promptInputController.textInput.setInput(nextValue);
     const textarea = document.querySelector<HTMLTextAreaElement>(
       "textarea[name='message']",
     );
@@ -249,7 +254,7 @@ export function InputBox({
     textarea.value = nextValue;
     textarea.dispatchEvent(new Event("input", { bubbles: true }));
     textarea.focus();
-  }, []);
+  }, [promptInputController]);
 
   const slashQuery = getSlashQuery(draftText);
   const slashSuggestions =
@@ -284,7 +289,6 @@ export function InputBox({
           disabled={disabled}
           placeholder={t.inputBox.placeholder}
           autoFocus={autoFocus}
-          onChange={(event) => setDraftText(event.currentTarget.value)}
         />
       </PromptInputBody>
       <PromptInputFooter className="flex">
@@ -674,10 +678,10 @@ function SuggestionList({
           const selEnd = prompt.indexOf("]");
           if (selStart !== -1 && selEnd !== -1) {
             textarea.setSelectionRange(selStart, selEnd + 1);
-            textarea.focus();
           }
+          textarea.focus();
         }
-      }, 500);
+      }, 0);
     },
     [onInsertPrompt],
   );
