@@ -27,6 +27,7 @@ from typing_extensions import TypedDict
 
 from deepagents.backends import StateBackend
 from deepagents.backends.composite import CompositeBackend
+from deepagents.backends.local_shell import LocalShellBackend
 from deepagents.backends.protocol import (
     BACKEND_TYPES as BACKEND_TYPES,  # Re-export type here for backwards compatibility
     BackendProtocol,
@@ -172,7 +173,7 @@ Usage:
 - Output includes line numbers and pagination metadata (shown range, total lines, remaining lines, next offset).
 - Use `grep` to find specific text and `glob` to find likely files first.
 - Call `read_file` in parallel when multiple files are likely relevant.
-- Avoid tiny repeated slices (for example 20-30 lines) unless required by precision edits.
+- Avoid tiny repeated slices unless you need a narrow precision edit. Use windows large enough to understand the surrounding structure.
 - Empty files return a system reminder.
 - Image files (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`) are returned as multimodal image blocks.
 
@@ -194,6 +195,8 @@ Usage:
 - This tool does not overwrite existing files.
 - If the target file already exists, read it and use `edit_file` instead.
 - Prefer editing existing files with `edit_file` whenever possible.
+- Never use this tool for an existing path in the codebase.
+- Keep file mutations sequential. Do not issue parallel `write_file` / `edit_file` calls that touch the same file.
 - Avoid creating new documentation files unless the user explicitly asks for them.
 - Only use emojis when the user explicitly requests them."""
 
@@ -219,6 +222,7 @@ Usage:
 - Quote paths containing spaces.
 - Use absolute paths instead of `cd` when possible.
 - Chain dependent commands with `&&`; use `;` only when failures are acceptable.
+- Run independent commands in parallel only when they do not mutate the same files or directories.
 - Set `timeout` for long-running commands when needed.
 
 This tool is only available on backends that support execution."""
@@ -231,7 +235,7 @@ FILESYSTEM_SYSTEM_PROMPT = """## Following Conventions
 
 ## Tool Usage and File Reading
 
-Follow tool docs. For large files, always paginate with `offset`/`limit` and use the pagination metadata in `read_file` output to continue.
+Follow tool docs. For large files, paginate with `offset`/`limit` and use the pagination metadata in `read_file` output to continue. Do not default to tiny fixed windows like 100 lines unless the task truly needs that.
 
 ## Filesystem Tools `ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`
 
@@ -243,7 +247,11 @@ All file paths must start with a /.
 - write_file: create a new file in the filesystem; if the file already exists, use `edit_file`
 - edit_file: edit a file in the filesystem
 - glob: find files matching a pattern (e.g., "**/*.py")
-- grep: search for text within files"""
+- grep: search for text within files
+
+Parallelism guidance:
+- Parallelize independent discovery work (`ls`, `glob`, `grep`, `read_file`) when it helps.
+- Keep stateful mutations (`write_file`, `edit_file`, `execute`) sequential when they touch related paths or depend on prior results."""
 
 EXECUTION_SYSTEM_PROMPT = """## Execute Tool `execute`
 
@@ -271,6 +279,62 @@ def _supports_execution(backend: BackendProtocol) -> bool:
 
     # For other backends, use isinstance check
     return isinstance(backend, SandboxBackendProtocol)
+
+
+def _unwrap_execution_backend(backend: BackendProtocol) -> BackendProtocol:
+    if isinstance(backend, CompositeBackend):
+        return backend.default
+    return backend
+
+
+def _execution_backend_mode(backend: BackendProtocol) -> Literal["local", "sandbox", "unknown"]:
+    resolved_backend = _unwrap_execution_backend(backend)
+    if isinstance(resolved_backend, LocalShellBackend):
+        return "local"
+    if isinstance(resolved_backend, SandboxBackendProtocol):
+        return "sandbox"
+    return "unknown"
+
+
+def _missing_environment_variables(output: str) -> list[str]:
+    patterns = (
+        re.compile(r"\b([A-Z][A-Z0-9_]{2,})\b is not set"),
+        re.compile(r"Missing required env:\s*([A-Z][A-Z0-9_]{2,})"),
+        re.compile(r"Environment variable\s+([A-Z][A-Z0-9_]{2,})\s+not found"),
+        re.compile(r"([A-Z][A-Z0-9_]{2,}(?:\s+and\s+[A-Z][A-Z0-9_]{2,})*) environment variables? must be set"),
+    )
+    names: list[str] = []
+    seen: set[str] = set()
+    for pattern in patterns:
+        for match in pattern.findall(output):
+            candidates = [part.strip() for part in str(match).split(" and ")]
+            for candidate in candidates:
+                if candidate and candidate not in seen:
+                    names.append(candidate)
+                    seen.add(candidate)
+    return names
+
+
+def _format_missing_environment_hint(backend: BackendProtocol, output: str) -> str | None:
+    env_vars = _missing_environment_variables(output)
+    if not env_vars:
+        return None
+
+    names = ", ".join(env_vars)
+    mode = _execution_backend_mode(backend)
+    if mode == "local":
+        return (
+            f"[Missing environment variables: {names}] "
+            "Local execution inherits the agent runtime process environment. "
+            "Add the variable(s) to the environment or to the project's startup `.env`, then restart the runtime before retrying."
+        )
+    if mode == "sandbox":
+        return (
+            f"[Missing environment variables: {names}] "
+            "Sandbox execution does not automatically inherit host secrets. "
+            "Map the variable(s) through your sandbox configuration (for example `sandbox.environment`) and restart the sandbox/runtime before retrying."
+        )
+    return f"[Missing environment variables: {names}] Configure them in the runtime environment before retrying."
 
 
 # Tools that should be excluded from the large result eviction logic.
@@ -308,7 +372,7 @@ TOO_LARGE_TOOL_MSG = """Tool result too large, the result of this tool call {too
 
 You can read the result from the filesystem by using the read_file tool, but make sure to only read part of the result at a time.
 
-You can do this by specifying an offset and limit in the read_file tool call. For example, to read the first 100 lines, you can use the read_file tool with offset=0 and limit=100.
+Use `offset` and `limit` to page through the saved result. Pick a window size that matches the task instead of defaulting to tiny scans.
 
 Here is a preview showing the head and tail of the result (lines of the form `... [N lines truncated] ...` indicate omitted lines in the middle of the content):
 
@@ -901,6 +965,10 @@ class FilesystemMiddleware(AgentMiddleware[FilesystemState, ContextT, ResponseT]
             if result.truncated:
                 parts.append("\n[Output was truncated due to size limits]")
 
+            env_hint = _format_missing_environment_hint(resolved_backend, result.output)
+            if env_hint is not None:
+                parts.append(f"\n\n{env_hint}")
+
             return "".join(parts)
 
         async def async_execute(  # noqa: PLR0911 - early returns for distinct error conditions
@@ -955,6 +1023,10 @@ class FilesystemMiddleware(AgentMiddleware[FilesystemState, ContextT, ResponseT]
 
             if result.truncated:
                 parts.append("\n[Output was truncated due to size limits]")
+
+            env_hint = _format_missing_environment_hint(resolved_backend, result.output)
+            if env_hint is not None:
+                parts.append(f"\n\n{env_hint}")
 
             return "".join(parts)
 

@@ -39,7 +39,7 @@ from fastapi import FastAPI, HTTPException
 from kubernetes import client as k8s_client
 from kubernetes import config as k8s_config
 from kubernetes.client.rest import ApiException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # Suppress only the InsecureRequestWarning from urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -187,6 +187,7 @@ app = FastAPI(title="OpenAgents Sandbox Provisioner", lifespan=lifespan)
 class CreateSandboxRequest(BaseModel):
     sandbox_id: str
     thread_id: str
+    environment: dict[str, str] = Field(default_factory=dict)
 
 
 class SandboxResponse(BaseModel):
@@ -211,8 +212,20 @@ def _sandbox_url(node_port: int) -> str:
     return f"http://{NODE_HOST}:{node_port}"
 
 
-def _build_pod(sandbox_id: str, thread_id: str) -> k8s_client.V1Pod:
+def _build_container_env(environment: dict[str, str]) -> list[k8s_client.V1EnvVar]:
+    return [
+        k8s_client.V1EnvVar(name=name, value=value)
+        for name, value in sorted(environment.items())
+    ]
+
+
+def _build_pod(
+    sandbox_id: str,
+    thread_id: str,
+    environment: dict[str, str] | None = None,
+) -> k8s_client.V1Pod:
     """Construct a Pod manifest for a single sandbox."""
+    env_vars = _build_container_env(environment or {})
     return k8s_client.V1Pod(
         metadata=k8s_client.V1ObjectMeta(
             name=_pod_name(sandbox_id),
@@ -269,6 +282,7 @@ def _build_pod(sandbox_id: str, thread_id: str) -> k8s_client.V1Pod:
                             "ephemeral-storage": "500Mi",
                         },
                     ),
+                    env=env_vars,
                     volume_mounts=[
                         k8s_client.V1VolumeMount(
                             name="skills",
@@ -378,6 +392,7 @@ async def create_sandbox(req: CreateSandboxRequest):
     """
     sandbox_id = req.sandbox_id
     thread_id = req.thread_id
+    environment = req.environment
 
     logger.info(
         f"Received request to create sandbox '{sandbox_id}' for thread '{thread_id}'"
@@ -394,7 +409,10 @@ async def create_sandbox(req: CreateSandboxRequest):
 
     # ── Create Pod ───────────────────────────────────────────────────
     try:
-        core_v1.create_namespaced_pod(K8S_NAMESPACE, _build_pod(sandbox_id, thread_id))
+        core_v1.create_namespaced_pod(
+            K8S_NAMESPACE,
+            _build_pod(sandbox_id, thread_id, environment),
+        )
         logger.info(f"Created Pod {_pod_name(sandbox_id)}")
     except ApiException as exc:
         if exc.status != 409:  # 409 = AlreadyExists

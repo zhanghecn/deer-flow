@@ -3,6 +3,8 @@ import { useMemo } from "react";
 import { visit } from "unist-util-visit";
 import type { BuildVisitor } from "unist-util-visit";
 
+const ENABLE_STREAMING_WORD_ANIMATION = false;
+
 export function rehypeSplitWordsIntoSpans() {
   return (tree: Root) => {
     visit(tree, "element", ((node: Element) => {
@@ -42,7 +44,12 @@ export function rehypeSplitWordsIntoSpans() {
 
 export function useRehypeSplitWordsIntoSpans(enabled = true) {
   const rehypePlugins = useMemo(
-    () => (enabled ? [rehypeSplitWordsIntoSpans] : []),
+    // Word-by-word span animation causes excessive DOM churn during live
+    // streams, which amplifies thinking/tool updates into visible jank.
+    () =>
+      enabled && ENABLE_STREAMING_WORD_ANIMATION
+        ? [rehypeSplitWordsIntoSpans]
+        : [],
     [enabled],
   );
   return rehypePlugins;

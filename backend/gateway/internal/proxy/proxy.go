@@ -79,6 +79,7 @@ func NewRoute(cfg RouteConfig) (*Route, error) {
 		// Gateway owns CORS policy. Strip upstream CORS headers to avoid duplicated
 		// values like "Access-Control-Allow-Origin: *, *" that browsers reject.
 		stripCORSHeaders(resp.Header)
+		maybeTransformLangGraphHistoryResponse(resp)
 		if resp.StatusCode >= http.StatusBadRequest {
 			logUpstreamRejection(cfg, resp)
 		}

@@ -219,8 +219,8 @@ class BackendProtocol(abc.ABC):  # noqa: B024
 
         !!! note
             - Use pagination (offset/limit) for large files to avoid context overflow
-            - First scan: `read(path, limit=100)` to see file structure
-            - Read more: `read(path, offset=100, limit=200)` for next section
+            - Start with a window that is large enough to understand file structure
+            - Use the pagination footer to continue with the next `offset`
             - ALWAYS read a file before editing it
             - If file exists but is empty, you'll receive a system reminder warning
         """

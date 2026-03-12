@@ -17,6 +17,7 @@ from langgraph.types import Command, Overwrite
 
 import deepagents.middleware.filesystem as filesystem_middleware
 from deepagents.backends import CompositeBackend, StateBackend, StoreBackend
+from deepagents.backends.local_shell import LocalShellBackend
 from deepagents.backends.protocol import (
     ExecuteResponse,
     FileDownloadResponse,
@@ -1971,6 +1972,72 @@ class TestBuiltinTruncationTools:
 
         # None should be forwarded without max_execute_timeout rejection
         assert captured_timeout["value"] is None
+
+    def test_execute_tool_adds_local_missing_env_guidance(self, tmp_path):
+        """Missing env errors should explain local runtime setup."""
+        state = FilesystemState(messages=[], files={})
+        rt = ToolRuntime(
+            state=state,
+            context=None,
+            tool_call_id="test_local_missing_env",
+            store=InMemoryStore(),
+            stream_writer=lambda _: None,
+            config={},
+        )
+
+        backend = LocalShellBackend(
+            root_dir=tmp_path,
+            virtual_mode=True,
+            inherit_env=False,
+        )
+        middleware = FilesystemMiddleware(backend=backend)
+
+        execute_tool = next(tool for tool in middleware.tools if tool.name == "execute")
+        result = execute_tool.invoke(
+            {
+                "command": "sh -c 'echo GEMINI_API_KEY is not set >&2; exit 1'",
+                "runtime": rt,
+            }
+        )
+
+        assert isinstance(result, str)
+        assert "GEMINI_API_KEY" in result
+        assert "Local execution inherits the agent runtime process environment" in result
+
+    def test_execute_tool_adds_sandbox_missing_env_guidance(self):
+        """Missing env errors should explain sandbox runtime setup."""
+
+        class MissingEnvSandbox(SandboxBackendProtocol, StateBackend):
+            def execute(self, command: str, *, timeout: int | None = None) -> ExecuteResponse:
+                return ExecuteResponse(
+                    output="[stderr] GEMINI_API_KEY is not set",
+                    exit_code=1,
+                    truncated=False,
+                )
+
+            @property
+            def id(self):
+                return "missing-env-sandbox"
+
+        state = FilesystemState(messages=[], files={})
+        rt = ToolRuntime(
+            state=state,
+            context=None,
+            tool_call_id="test_sandbox_missing_env",
+            store=InMemoryStore(),
+            stream_writer=lambda _: None,
+            config={},
+        )
+
+        backend = MissingEnvSandbox(rt)
+        middleware = FilesystemMiddleware(backend=backend)
+
+        execute_tool = next(tool for tool in middleware.tools if tool.name == "execute")
+        result = execute_tool.invoke({"command": "python missing.py", "runtime": rt})
+
+        assert isinstance(result, str)
+        assert "GEMINI_API_KEY" in result
+        assert "sandbox.environment" in result
 
     def test_max_execute_timeout_init_validation(self):
         """FilesystemMiddleware should reject non-positive max_execute_timeout at init."""

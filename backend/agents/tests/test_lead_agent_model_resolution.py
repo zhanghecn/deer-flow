@@ -28,6 +28,11 @@ class _FakeDBStore:
     def get_model(self, name: str) -> ModelConfig | None:
         return self.models.get(name)
 
+    def get_any_enabled_model(self) -> ModelConfig | None:
+        for name in sorted(self.models):
+            return self.models[name]
+        return None
+
     def get_thread_runtime_model(self, *, thread_id: str, user_id: str) -> str | None:
         return self.thread_models.get((thread_id, user_id))
 
@@ -136,6 +141,25 @@ def test_resolve_run_model_uses_persisted_thread_runtime_model():
 
     assert model_name == "thread-model"
     assert model_config.name == "thread-model"
+
+
+def test_resolve_run_model_falls_back_when_persisted_thread_model_is_unavailable():
+    store = _FakeDBStore(
+        models={"safe-model": _make_model("safe-model", supports_thinking=True)},
+        thread_models={("thread-1", "user-1"): "missing-model"},
+    )
+
+    model_name, model_config = lead_agent_module._resolve_run_model(
+        requested_model_name=None,
+        runtime_model_name=None,
+        agent_config=None,
+        thread_id="thread-1",
+        user_id="user-1",
+        db_store=store,
+    )
+
+    assert model_name == "safe-model"
+    assert model_config.name == "safe-model"
 
 
 def test_resolve_run_model_raises_for_conflicting_requested_and_agent_model():
@@ -251,17 +275,72 @@ def test_make_lead_agent_reads_runtime_context_and_persists_thread_runtime(monke
 def test_build_openagents_middlewares_includes_vision_middleware_for_vision_model():
     middlewares = lead_agent_module._build_openagents_middlewares(_make_model("vision-model", supports_thinking=False, supports_vision=True))
 
+    from src.agents.middlewares.max_tokens_recovery_middleware import MaxTokensRecoveryMiddleware
     from src.agents.middlewares.view_image_middleware import ViewImageMiddleware
 
+    assert any(isinstance(m, MaxTokensRecoveryMiddleware) for m in middlewares)
     assert any(isinstance(m, ViewImageMiddleware) for m in middlewares)
 
 
 def test_build_openagents_middlewares_excludes_vision_middleware_for_non_vision_model():
     middlewares = lead_agent_module._build_openagents_middlewares(_make_model("text-model", supports_thinking=False, supports_vision=False))
 
+    from src.agents.middlewares.max_tokens_recovery_middleware import MaxTokensRecoveryMiddleware
     from src.agents.middlewares.view_image_middleware import ViewImageMiddleware
 
+    assert any(isinstance(m, MaxTokensRecoveryMiddleware) for m in middlewares)
     assert not any(isinstance(m, ViewImageMiddleware) for m in middlewares)
+
+
+def test_make_lead_agent_reuses_cached_graph_for_identical_request(monkeypatch, tmp_path):
+    lead_agent_module._clear_lead_agent_graph_cache()
+    store = _FakeDBStore(models={"safe-model": _make_model("safe-model", supports_thinking=True)})
+
+    import src.tools as tools_module
+
+    monkeypatch.setattr(
+        lead_agent_module,
+        "get_paths",
+        lambda: Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / "skills"),
+    )
+    monkeypatch.setattr(lead_agent_module, "get_runtime_db_store", lambda: store)
+    monkeypatch.setattr(tools_module, "get_available_tools", lambda **kwargs: [])
+    monkeypatch.setattr(
+        lead_agent_module,
+        "build_backend",
+        lambda thread_id, agent_name, status="dev", agent_config=None: {"thread_id": thread_id},
+    )
+    monkeypatch.setattr(
+        lead_agent_module,
+        "_load_agent_runtime_config",
+        lambda **kwargs: _make_agent_config(),
+    )
+    monkeypatch.setattr(lead_agent_module, "apply_prompt_template", lambda **kwargs: "prompt")
+    monkeypatch.setattr(lead_agent_module, "create_chat_model", lambda **kwargs: object())
+
+    create_calls: list[dict[str, object]] = []
+
+    def _fake_create_deep_agent(**kwargs):
+        create_calls.append(kwargs)
+        return {"graph_id": len(create_calls)}
+
+    monkeypatch.setattr(lead_agent_module, "create_deep_agent", _fake_create_deep_agent)
+
+    config = {
+        "configurable": {
+            "thread_id": "thread-1",
+            "user_id": "user-1",
+            "model_name": "safe-model",
+            "thinking_enabled": True,
+            "subagent_enabled": False,
+        }
+    }
+
+    first = asyncio.run(lead_agent_module.make_lead_agent(config, runtime=None))
+    second = asyncio.run(lead_agent_module.make_lead_agent(config, runtime=None))
+
+    assert first is second
+    assert len(create_calls) == 1
 
 
 def test_make_lead_agent_rejects_cross_user_thread_access(monkeypatch):

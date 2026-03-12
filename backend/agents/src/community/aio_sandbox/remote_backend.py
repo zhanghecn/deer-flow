@@ -40,18 +40,24 @@ class RemoteSandboxBackend(SandboxBackend):
           provisioner_url: http://provisioner:8002
     """
 
-    def __init__(self, provisioner_url: str):
+    def __init__(self, provisioner_url: str, environment: dict[str, str] | None = None):
         """Initialize with the provisioner service URL.
 
         Args:
             provisioner_url: URL of the provisioner service
                              (e.g., ``http://provisioner:8002``).
+            environment: Environment variables to inject into provisioned sandbox Pods.
         """
         self._provisioner_url = provisioner_url.rstrip("/")
+        self._environment = dict(environment or {})
 
     @property
     def provisioner_url(self) -> str:
         return self._provisioner_url
+
+    @property
+    def environment(self) -> dict[str, str]:
+        return dict(self._environment)
 
     # ── SandboxBackend interface ──────────────────────────────────────────
 
@@ -94,6 +100,7 @@ class RemoteSandboxBackend(SandboxBackend):
                 json={
                     "sandbox_id": sandbox_id,
                     "thread_id": thread_id,
+                    "environment": self._environment,
                 },
                 timeout=30,
             )

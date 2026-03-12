@@ -59,6 +59,7 @@ export function useThreadStream({
   const apiClient = getAPIClient(isMock);
   const [_threadId, setThreadId] = useState<string | null>(null);
   const startedRef = useRef(false);
+  const streamThrottle = context.mode === "flash" ? 96 : 192;
 
   useEffect(() => {
     let cancelled = false;
@@ -101,6 +102,7 @@ export function useThreadStream({
     client: apiClient,
     assistantId: "lead_agent",
     threadId: _threadId,
+    throttle: streamThrottle,
     reconnectOnMount: true,
     fetchStateHistory: { limit: 1 },
     onCreated(meta) {

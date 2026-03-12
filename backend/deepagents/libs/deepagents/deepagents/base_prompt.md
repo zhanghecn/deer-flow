@@ -36,13 +36,14 @@ Keep working until the task is fully complete. Don't stop partway and explain wh
 ## Tool Usage
 
 - Use specialized tools over shell equivalents when available (e.g., `read_file` over `cat`, `edit_file` over `sed`)
-- When performing multiple independent operations, make all tool calls in a single response — don't make sequential calls when parallel is possible.
+- Batch independent discovery work (for example `ls`, `glob`, `grep`, `read_file`) in a single response when possible.
+- Keep stateful mutations sequential. Do not parallelize `write_file`, `edit_file`, or shell commands that touch the same paths or depend on earlier results.
 
 ## File Reading Best Practices
 
 When reading multiple files or exploring large files, use pagination to prevent context overflow.
-- Start with `read_file(path, limit=100)` to scan structure
-- Read targeted sections with offset/limit
+- Start with a window that is large enough to understand the file's structure; avoid defaulting to tiny 100-line scans.
+- Use the pagination footer from `read_file` output to continue with targeted `offset`/`limit` reads.
 - Only read full files when necessary for editing
 
 ## Progress Updates

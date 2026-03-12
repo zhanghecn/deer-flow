@@ -61,6 +61,27 @@ class RuntimeDBStore:
                 payload.setdefault("display_name", display_name)
             return ModelConfig.model_validate(payload)
 
+    def get_any_enabled_model(self) -> ModelConfig | None:
+        query = """
+            SELECT name, display_name, config_json
+            FROM models
+            WHERE enabled = TRUE
+            ORDER BY created_at ASC, name ASC
+            LIMIT 1
+        """
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(query)
+            row = cur.fetchone()
+            if row is None:
+                return None
+
+            model_name, display_name, config_json = row
+            payload = self._coerce_json_object(config_json)
+            payload["name"] = model_name
+            if display_name is not None and str(display_name).strip() != "":
+                payload.setdefault("display_name", display_name)
+            return ModelConfig.model_validate(payload)
+
     def get_user_id_by_name(self, name: str) -> str | None:
         normalized_name = str(name).strip()
         if not normalized_name:

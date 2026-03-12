@@ -1,5 +1,6 @@
 """Async tests for FilesystemBackend."""
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -93,6 +94,44 @@ async def test_filesystem_backend_async_virtual_mode(tmp_path: Path):
     # path traversal blocked
     with pytest.raises(ValueError, match="traversal"):
         await be.aread("/../a.txt")
+
+
+async def test_filesystem_backend_awrite_rejects_parallel_same_path(tmp_path: Path):
+    """Concurrent writes to the same path should leave one winner and one clean error."""
+    be = FilesystemBackend(root_dir=str(tmp_path), virtual_mode=True)
+
+    results = await asyncio.gather(
+        be.awrite("/same.txt", "first"),
+        be.awrite("/same.txt", "second"),
+    )
+
+    successes = [result for result in results if result.error is None]
+    failures = [result for result in results if result.error is not None]
+
+    assert len(successes) == 1
+    assert len(failures) == 1
+    assert "already exists" in failures[0].error.lower()
+    assert (tmp_path / "same.txt").read_text() in {"first", "second"}
+
+
+async def test_filesystem_backend_aedit_serializes_parallel_same_path(tmp_path: Path):
+    """Concurrent edits to the same file should not silently clobber each other."""
+    target = tmp_path / "same.txt"
+    write_file(target, "alpha")
+    be = FilesystemBackend(root_dir=str(tmp_path), virtual_mode=True)
+
+    results = await asyncio.gather(
+        be.aedit("/same.txt", "alpha", "beta"),
+        be.aedit("/same.txt", "alpha", "gamma"),
+    )
+
+    successes = [result for result in results if result.error is None]
+    failures = [result for result in results if result.error is not None]
+
+    assert len(successes) == 1
+    assert len(failures) == 1
+    assert "not found" in failures[0].error.lower()
+    assert target.read_text() in {"beta", "gamma"}
 
 
 async def test_filesystem_backend_als_nested_directories(tmp_path: Path):

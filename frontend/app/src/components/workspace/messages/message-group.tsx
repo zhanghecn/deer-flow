@@ -26,7 +26,7 @@ import { Button } from "@/components/ui/button";
 import { useI18n } from "@/core/i18n/hooks";
 import {
   extractReasoningContentFromMessage,
-  findToolCallResult,
+  extractTextFromMessage,
 } from "@/core/messages/utils";
 import { useRehypeSplitWordsIntoSpans } from "@/core/rehype";
 import { extractTitleFromMarkdown } from "@/core/utils/markdown";
@@ -547,6 +547,18 @@ type CoTStep = CoTReasoningStep | CoTToolCallStep;
 
 function convertToSteps(messages: Message[]): CoTStep[] {
   const steps: CoTStep[] = [];
+  const toolResults = new Map<string, string>();
+
+  for (const message of messages) {
+    if (message.type !== "tool" || !message.tool_call_id) {
+      continue;
+    }
+    const content = extractTextFromMessage(message);
+    if (content) {
+      toolResults.set(message.tool_call_id, content);
+    }
+  }
+
   for (const message of messages) {
     if (message.type === "ai") {
       const reasoning = extractReasoningContentFromMessage(message);
@@ -555,7 +567,7 @@ function convertToSteps(messages: Message[]): CoTStep[] {
           id: message.id,
           messageId: message.id,
           type: "reasoning",
-          reasoning: extractReasoningContentFromMessage(message),
+          reasoning,
         };
         steps.push(step);
       }
@@ -572,7 +584,7 @@ function convertToSteps(messages: Message[]): CoTStep[] {
         };
         const toolCallId = tool_call.id;
         if (toolCallId) {
-          const toolCallResult = findToolCallResult(toolCallId, messages);
+          const toolCallResult = toolResults.get(toolCallId);
           if (toolCallResult) {
             try {
               const json = JSON.parse(toolCallResult);

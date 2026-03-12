@@ -8,6 +8,8 @@ from src.config.runtime_db import get_runtime_db_store
 from src.reflection import resolve_class
 
 logger = logging.getLogger(__name__)
+DEFAULT_ANTHROPIC_THINKING_MAX_TOKENS = 16384
+DEFAULT_REASONING_EFFORT = "high"
 
 
 def create_chat_model(
@@ -67,6 +69,19 @@ def create_chat_model(
                 f"Model {name} does not support thinking. Set `supports_thinking` to true in your runtime model configuration."
             ) from None
         model_settings_from_config.update(model_config.when_thinking_enabled)
+    if (
+        thinking_enabled
+        and model_config.use == "langchain_anthropic:ChatAnthropic"
+        and "max_tokens" not in model_settings_from_config
+        and "max_tokens" not in kwargs
+    ):
+        kwargs["max_tokens"] = DEFAULT_ANTHROPIC_THINKING_MAX_TOKENS
+    if (
+        thinking_enabled
+        and model_config.supports_reasoning_effort
+        and "reasoning_effort" not in kwargs
+    ):
+        kwargs["reasoning_effort"] = DEFAULT_REASONING_EFFORT
     if not thinking_enabled and model_config.when_thinking_enabled and model_config.when_thinking_enabled.get("extra_body", {}).get("thinking", {}).get("type"):
         kwargs.update({"extra_body": {"thinking": {"type": "disabled"}}})
         kwargs.update({"reasoning_effort": "minimal"})

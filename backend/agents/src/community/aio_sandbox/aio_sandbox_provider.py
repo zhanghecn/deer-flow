@@ -107,7 +107,10 @@ class AioSandboxProvider(SandboxProvider):
         provisioner_url = self._config.get("provisioner_url")
         if provisioner_url:
             logger.info(f"Using remote sandbox backend with provisioner at {provisioner_url}")
-            return RemoteSandboxBackend(provisioner_url=provisioner_url)
+            return RemoteSandboxBackend(
+                provisioner_url=provisioner_url,
+                environment=self._config["environment"],
+            )
 
         if not self._config.get("auto_start", True):
             raise RuntimeError("auto_start is disabled and no base_url is configured")

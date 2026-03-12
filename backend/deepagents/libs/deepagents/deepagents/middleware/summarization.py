@@ -158,6 +158,60 @@ class SummarizationDefaults(TypedDict):
     truncate_args_settings: TruncateArgsSettings
 
 
+def _resolve_external_summarization_config(
+    model: BaseChatModel,
+) -> tuple[BaseChatModel, dict[str, Any]] | None:
+    """Load project-level summarization overrides when available.
+
+    Deep Agents itself is library code, so these overrides must remain optional.
+    In the OpenAgents runtime we expose summarization settings through
+    `src.config.summarization_config`; standalone deepagents users simply fall
+    back to model-derived defaults.
+    """
+    try:
+        from src.config.summarization_config import get_summarization_config
+    except Exception:
+        return None
+
+    try:
+        config = get_summarization_config()
+    except Exception as exc:  # pragma: no cover - defensive runtime guard
+        logger.warning("Failed to load external summarization config: %s", exc)
+        return None
+
+    if not getattr(config, "enabled", False):
+        return None
+
+    summary_model = model
+    summary_model_name = getattr(config, "model_name", None)
+    if summary_model_name:
+        try:
+            from src.models import create_chat_model
+
+            summary_model = create_chat_model(summary_model_name, thinking_enabled=False)
+        except Exception as exc:  # pragma: no cover - optional integration
+            logger.warning(
+                "Failed to resolve summarization model '%s'; falling back to the active run model. Error: %s",
+                summary_model_name,
+                exc,
+            )
+
+    def _to_context_size(value: Any) -> ContextSize | list[ContextSize] | None:
+        if value is None:
+            return None
+        if isinstance(value, list):
+            return [item.to_tuple() for item in value]
+        return value.to_tuple()
+
+    overrides: dict[str, Any] = {
+        "trigger": _to_context_size(getattr(config, "trigger", None)),
+        "keep": _to_context_size(getattr(config, "keep", None)),
+        "trim_tokens_to_summarize": getattr(config, "trim_tokens_to_summarize", None),
+        "summary_prompt": getattr(config, "summary_prompt", None),
+    }
+    return summary_model, overrides
+
+
 def compute_summarization_defaults(model: BaseChatModel) -> SummarizationDefaults:
     """Compute default summarization settings based on model profile.
 
@@ -1095,12 +1149,27 @@ def create_summarization_middleware(
         raise TypeError(msg)
 
     defaults = compute_summarization_defaults(model)
+    summary_model = model
+    trigger: ContextSize | list[ContextSize] = defaults["trigger"]
+    keep: ContextSize = defaults["keep"]
+    trim_tokens_to_summarize: int | None = None
+    summary_prompt = DEFAULT_SUMMARY_PROMPT
+
+    external_config = _resolve_external_summarization_config(model)
+    if external_config is not None:
+        summary_model, overrides = external_config
+        trigger = cast("ContextSize | list[ContextSize]", overrides.get("trigger") or trigger)
+        keep = cast("ContextSize", overrides.get("keep") or keep)
+        trim_tokens_to_summarize = cast("int | None", overrides.get("trim_tokens_to_summarize"))
+        summary_prompt = cast("str", overrides.get("summary_prompt") or summary_prompt)
+
     return SummarizationMiddleware(
-        model=model,
+        model=summary_model,
         backend=backend,
-        trigger=defaults["trigger"],
-        keep=defaults["keep"],
-        trim_tokens_to_summarize=None,
+        trigger=trigger,
+        keep=keep,
+        trim_tokens_to_summarize=trim_tokens_to_summarize,
+        summary_prompt=summary_prompt,
         truncate_args_settings=defaults["truncate_args_settings"],
     )
 

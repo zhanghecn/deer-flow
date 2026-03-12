@@ -22,7 +22,7 @@ def test_load_default_subagents_yaml():
     )
 
     names = [spec["name"] for spec in specs]
-    assert names == ["explore", "bash"]
+    assert names == ["explore"]
 
 
 def test_resolve_named_tools_from_yaml(tmp_path: Path, monkeypatch):

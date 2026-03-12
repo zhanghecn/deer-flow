@@ -117,3 +117,24 @@ def test_init_k8s_client_falls_back_to_incluster_when_missing(tmp_path, monkeypa
 
     assert calls["incluster"] == 1
     assert result == "core-v1"
+
+
+def test_build_pod_injects_environment_variables():
+    provisioner_module = _load_provisioner_module()
+
+    pod = provisioner_module._build_pod(
+        sandbox_id="sandbox-1",
+        thread_id="thread-1",
+        environment={
+            "GEMINI_API_KEY": "secret",
+            "NODE_ENV": "production",
+        },
+    )
+
+    container = pod.spec.containers[0]
+    env_vars = {item.name: item.value for item in container.env}
+
+    assert env_vars == {
+        "GEMINI_API_KEY": "secret",
+        "NODE_ENV": "production",
+    }

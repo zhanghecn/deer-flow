@@ -75,16 +75,21 @@ except Exception as e:
     print(f'Error: Failed to decode write payload: {{e}}', file=sys.stderr)
     sys.exit(1)
 
-# Check if file already exists (atomic with write)
-if os.path.exists(file_path):
-    print(f'Error: File \\'{{file_path}}\\' already exists', file=sys.stderr)
-    sys.exit(1)
-
 # Create parent directory if needed
 parent_dir = os.path.dirname(file_path) or '.'
 os.makedirs(parent_dir, exist_ok=True)
 
-with open(file_path, 'w') as f:
+flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+if hasattr(os, 'O_NOFOLLOW'):
+    flags |= os.O_NOFOLLOW
+
+try:
+    fd = os.open(file_path, flags, 0o644)
+except FileExistsError:
+    print(f'Error: File \\'{{file_path}}\\' already exists', file=sys.stderr)
+    sys.exit(1)
+
+with os.fdopen(fd, 'w', encoding='utf-8') as f:
     f.write(content)
 " <<'__DEEPAGENTS_EOF__'
 {payload_b64}
@@ -99,6 +104,11 @@ import sys
 import base64
 import json
 import os
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 # Read and decode JSON payload from stdin
 payload_b64 = sys.stdin.read().strip()
@@ -120,28 +130,26 @@ except Exception as e:
 if not os.path.isfile(file_path):
     sys.exit(3)  # File not found
 
-# Read file content
-with open(file_path, 'r') as f:
+with open(file_path, 'r+', encoding='utf-8') as f:
+    if fcntl is not None:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+
     text = f.read()
+    count = text.count(old)
 
-# Count occurrences
-count = text.count(old)
+    if count == 0:
+        sys.exit(1)  # String not found
+    elif count > 1 and not {replace_all}:
+        sys.exit(2)  # Multiple occurrences without replace_all
 
-# Exit with error codes if issues found
-if count == 0:
-    sys.exit(1)  # String not found
-elif count > 1 and not {replace_all}:
-    sys.exit(2)  # Multiple occurrences without replace_all
+    if {replace_all}:
+        result = text.replace(old, new)
+    else:
+        result = text.replace(old, new, 1)
 
-# Perform replacement
-if {replace_all}:
-    result = text.replace(old, new)
-else:
-    result = text.replace(old, new, 1)
-
-# Write back to file
-with open(file_path, 'w') as f:
+    f.seek(0)
     f.write(result)
+    f.truncate()
 
 print(count)
 " <<'__DEEPAGENTS_EOF__'
@@ -155,6 +163,8 @@ import os
 import sys
 import base64
 import json
+
+MAX_LINE_LENGTH = 5000
 
 payload_b64 = sys.stdin.read().strip()
 if not payload_b64:
@@ -182,8 +192,14 @@ if os.path.getsize(file_path) == 0:
     sys.exit(0)
 
 # Read file with offset and limit
-with open(file_path, 'r') as f:
-    lines = f.readlines()
+with open(file_path, 'r', encoding='utf-8') as f:
+    content = f.read()
+
+if not content or content.strip() == '':
+    print('System reminder: File exists but has empty contents')
+    sys.exit(0)
+
+lines = content.splitlines()
 
 total_lines = len(lines)
 
@@ -201,9 +217,20 @@ selected_lines = lines[start_idx:end_idx]
 # Format with line numbers (1-indexed, starting from offset + 1)
 for i, line in enumerate(selected_lines):
     line_num = offset + i + 1
-    # Remove trailing newline for formatting, then add it back
-    line_content = line.rstrip('\\n')
-    print(f'{{line_num:6d}}\\t{{line_content}}')
+    if len(line) <= MAX_LINE_LENGTH:
+        print(f'{{line_num:6d}}\\t{{line}}')
+        continue
+
+    num_chunks = (len(line) + MAX_LINE_LENGTH - 1) // MAX_LINE_LENGTH
+    for chunk_idx in range(num_chunks):
+        start = chunk_idx * MAX_LINE_LENGTH
+        end = min(start + MAX_LINE_LENGTH, len(line))
+        chunk = line[start:end]
+        if chunk_idx == 0:
+            print(f'{{line_num:6d}}\\t{{chunk}}')
+        else:
+            continuation_marker = f'{{line_num}}.{{chunk_idx}}'
+            print(f'{{continuation_marker:>6}}\\t{{chunk}}')
 
 shown_lines = len(selected_lines)
 remaining_lines = max(total_lines - end_idx, 0)

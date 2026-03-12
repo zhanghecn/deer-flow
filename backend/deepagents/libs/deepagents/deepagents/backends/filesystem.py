@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import subprocess
+import threading
 import warnings
 from datetime import datetime
 from pathlib import Path
@@ -132,6 +133,26 @@ class FilesystemBackend(BackendProtocol):
             virtual_mode = False
         self.virtual_mode = virtual_mode
         self.max_file_size_bytes = max_file_size_mb * 1024 * 1024
+        self._path_locks: dict[Path, threading.Lock] = {}
+        self._path_locks_guard = threading.Lock()
+
+    @staticmethod
+    def _write_existing_file_error(file_path: str) -> WriteResult:
+        return WriteResult(
+            error=(
+                f"Cannot write to {file_path} because it already exists. "
+                "Read it and use edit_file to modify the existing file, or write to a new path."
+            )
+        )
+
+    def _get_path_lock(self, resolved_path: Path) -> threading.Lock:
+        path_key = resolved_path.resolve()
+        with self._path_locks_guard:
+            lock = self._path_locks.get(path_key)
+            if lock is None:
+                lock = threading.Lock()
+                self._path_locks[path_key] = lock
+            return lock
 
     def _resolve_path(self, key: str) -> Path:
         """Resolve a file path with security checks.
@@ -366,30 +387,27 @@ class FilesystemBackend(BackendProtocol):
                 already exists or write fails. External storage sets `files_update=None`.
         """
         resolved_path = self._resolve_path(file_path)
+        with self._get_path_lock(resolved_path):
+            if resolved_path.exists():
+                return self._write_existing_file_error(file_path)
 
-        if resolved_path.exists():
-            return WriteResult(
-                error=(
-                    f"Cannot write to {file_path} because it already exists. "
-                    "Read it and use edit_file to modify the existing file, or write to a new path."
-                )
-            )
+            try:
+                # Create parent directories if needed
+                resolved_path.parent.mkdir(parents=True, exist_ok=True)
 
-        try:
-            # Create parent directories if needed
-            resolved_path.parent.mkdir(parents=True, exist_ok=True)
+                # Use O_EXCL to preserve "create only" semantics even under parallel calls.
+                flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                if hasattr(os, "O_NOFOLLOW"):
+                    flags |= os.O_NOFOLLOW
+                fd = os.open(resolved_path, flags, 0o644)
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(content)
 
-            # Prefer O_NOFOLLOW to avoid writing through symlinks
-            flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
-            if hasattr(os, "O_NOFOLLOW"):
-                flags |= os.O_NOFOLLOW
-            fd = os.open(resolved_path, flags, 0o644)
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(content)
-
-            return WriteResult(path=file_path, files_update=None)
-        except (OSError, UnicodeEncodeError) as e:
-            return WriteResult(error=f"Error writing file '{file_path}': {e}")
+                return WriteResult(path=file_path, files_update=None)
+            except FileExistsError:
+                return self._write_existing_file_error(file_path)
+            except (OSError, UnicodeEncodeError) as e:
+                return WriteResult(error=f"Error writing file '{file_path}': {e}")
 
     def edit(
         self,
@@ -413,34 +431,33 @@ class FilesystemBackend(BackendProtocol):
                 `files_update=None`.
         """
         resolved_path = self._resolve_path(file_path)
+        with self._get_path_lock(resolved_path):
+            if not resolved_path.exists() or not resolved_path.is_file():
+                return EditResult(error=f"Error: File '{file_path}' not found")
 
-        if not resolved_path.exists() or not resolved_path.is_file():
-            return EditResult(error=f"Error: File '{file_path}' not found")
+            try:
+                # Hold a per-path lock across read-modify-write to reject racing edits cleanly.
+                fd = os.open(resolved_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+                with os.fdopen(fd, "r", encoding="utf-8") as f:
+                    content = f.read()
 
-        try:
-            # Read securely
-            fd = os.open(resolved_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
-            with os.fdopen(fd, "r", encoding="utf-8") as f:
-                content = f.read()
+                result = perform_string_replacement(content, old_string, new_string, replace_all)
 
-            result = perform_string_replacement(content, old_string, new_string, replace_all)
+                if isinstance(result, str):
+                    return EditResult(error=result)
 
-            if isinstance(result, str):
-                return EditResult(error=result)
+                new_content, occurrences = result
 
-            new_content, occurrences = result
+                flags = os.O_WRONLY | os.O_TRUNC
+                if hasattr(os, "O_NOFOLLOW"):
+                    flags |= os.O_NOFOLLOW
+                fd = os.open(resolved_path, flags)
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(new_content)
 
-            # Write securely
-            flags = os.O_WRONLY | os.O_TRUNC
-            if hasattr(os, "O_NOFOLLOW"):
-                flags |= os.O_NOFOLLOW
-            fd = os.open(resolved_path, flags)
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(new_content)
-
-            return EditResult(path=file_path, files_update=None, occurrences=int(occurrences))
-        except (OSError, UnicodeDecodeError, UnicodeEncodeError) as e:
-            return EditResult(error=f"Error editing file '{file_path}': {e}")
+                return EditResult(path=file_path, files_update=None, occurrences=int(occurrences))
+            except (OSError, UnicodeDecodeError, UnicodeEncodeError) as e:
+                return EditResult(error=f"Error editing file '{file_path}': {e}")
 
     def grep_raw(
         self,

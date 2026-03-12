@@ -265,7 +265,7 @@ When NOT to use the task tool:
 - If splitting would add latency without benefit
 
 ## Important Task Tool Usage Notes to Remember
-- Whenever possible, parallelize the work that you do. This is true for both tool_calls, and for tasks. Whenever you have independent steps to complete - make tool_calls, or kick off tasks (subagents) in parallel to accomplish them faster. This saves time for the user, which is incredibly important.
+- Parallelize independent work when it helps, but keep stateful mutations sequential. Do not batch `write_file`, `edit_file`, or shell commands that touch the same files or depend on earlier results.
 - Remember to use the `task` tool to silo independent tasks within a multi-part objective.
 - You should use the `task` tool whenever you have a complex task that will take multiple steps, and is independent from other tasks that the agent needs to complete. These agents are highly competent and efficient."""  # noqa: E501
 

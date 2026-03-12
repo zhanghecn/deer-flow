@@ -30,7 +30,7 @@ skill_refs:
 - name: surprise-me
   source_path: shared/surprise-me
 - name: vercel-deploy
-  source_path: shared/vercel-deploy
+  source_path: shared/vercel-deploy-claimable
 - name: video-generation
   source_path: shared/video-generation
 - name: web-design-guidelines

@@ -3,6 +3,8 @@ import logging
 import os
 from dataclasses import dataclass
 from functools import lru_cache
+from pathlib import Path
+from threading import Lock
 from typing import Any, Literal
 
 import yaml
@@ -16,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from src.agents.lead_agent.prompt import apply_prompt_template
 from src.agents.lead_agent.subagents import load_subagent_specs
 from src.agents.middlewares.artifacts_middleware import ArtifactsMiddleware
+from src.agents.middlewares.max_tokens_recovery_middleware import MaxTokensRecoveryMiddleware
 from src.agents.middlewares.thread_data_middleware import ThreadDataMiddleware
 from src.agents.middlewares.title_middleware import TitleMiddleware
 from src.agents.middlewares.uploads_middleware import UploadsMiddleware
@@ -40,6 +43,10 @@ LOCAL_SANDBOX_PROVIDER = "src.sandbox.local:LocalSandboxProvider"
 DEFAULT_THREAD_ID = "_default"
 ExecutionBackend = Literal["local", "sandbox"]
 LEAD_AGENT_INTERRUPT_ON = {"ask_clarification": True}
+_LEAD_AGENT_GRAPH_CACHE_MAX = 16
+_lead_agent_graph_cache: dict[tuple[object, ...], "LeadAgentGraphCacheEntry"] = {}
+_lead_agent_graph_cache_order: list[tuple[object, ...]] = []
+_lead_agent_graph_cache_lock = Lock()
 
 
 class LeadAgentRuntimeContext(BaseModel):
@@ -136,6 +143,18 @@ class LeadAgentGraphParts:
     subagents: list[Any] | None
     skill_sources: list[str]
     system_prompt: str
+
+
+@dataclass(frozen=True)
+class LeadAgentGraphCacheEntry:
+    graph: Any
+    tool_names: tuple[str, ...]
+
+
+def _clear_lead_agent_graph_cache() -> None:
+    with _lead_agent_graph_cache_lock:
+        _lead_agent_graph_cache.clear()
+        _lead_agent_graph_cache_order.clear()
 
 
 def _resolve_config_sandbox_provider() -> str | None:
@@ -348,7 +367,7 @@ def _build_openagents_middlewares(model_config: ModelConfig):
     - MemoryMiddleware (replaces our custom one)
     - SubAgentMiddleware (replaces SubagentExecutor + SubagentLimitMiddleware)
     - SkillsMiddleware (replaces SkillsLoader)
-    - FilesystemMiddleware (replaces sandbox tools: bash, ls, read_file, write_file, str_replace, edit_file, glob, grep)
+    - FilesystemMiddleware (replaces sandbox tools: execute, ls, read_file, write_file, str_replace, edit_file, glob, grep)
 
     We only keep openagents specific middlewares:
     - ThreadDataMiddleware: Creates per-thread workspace directories
@@ -361,12 +380,67 @@ def _build_openagents_middlewares(model_config: ModelConfig):
         ThreadDataMiddleware(),
         UploadsMiddleware(),
         TitleMiddleware(),
+        MaxTokensRecoveryMiddleware(),
     ]
 
     if model_config.supports_vision:
         middlewares.append(ViewImageMiddleware())
 
     return middlewares
+
+
+def _path_mtime_ns(path: Path) -> int:
+    try:
+        return path.stat().st_mtime_ns
+    except FileNotFoundError:
+        return 0
+
+
+def _lead_agent_graph_cache_key(
+    *,
+    request: LeadAgentRequest,
+    resolution: LeadAgentResolution,
+    prepare_runtime_resources: bool,
+) -> tuple[object, ...]:
+    paths = get_paths()
+    return (
+        request,
+        resolution.model_name,
+        prepare_runtime_resources,
+        _path_mtime_ns(paths.agent_config_file(request.agent_name, request.agent_status)),
+        _path_mtime_ns(paths.agent_agents_md_file(request.agent_name, request.agent_status)),
+    )
+
+
+def _get_cached_lead_agent_graph(
+    cache_key: tuple[object, ...],
+) -> LeadAgentGraphCacheEntry | None:
+    with _lead_agent_graph_cache_lock:
+        entry = _lead_agent_graph_cache.get(cache_key)
+        if entry is None:
+            return None
+        if cache_key in _lead_agent_graph_cache_order:
+            _lead_agent_graph_cache_order.remove(cache_key)
+        _lead_agent_graph_cache_order.append(cache_key)
+        return entry
+
+
+def _store_cached_lead_agent_graph(
+    cache_key: tuple[object, ...],
+    *,
+    graph: Any,
+    tool_names: list[str],
+) -> LeadAgentGraphCacheEntry:
+    entry = LeadAgentGraphCacheEntry(graph=graph, tool_names=tuple(tool_names))
+    with _lead_agent_graph_cache_lock:
+        _lead_agent_graph_cache[cache_key] = entry
+        if cache_key in _lead_agent_graph_cache_order:
+            _lead_agent_graph_cache_order.remove(cache_key)
+        _lead_agent_graph_cache_order.append(cache_key)
+        while len(_lead_agent_graph_cache_order) > _LEAD_AGENT_GRAPH_CACHE_MAX:
+            evicted_key = _lead_agent_graph_cache_order.pop(0)
+            _lead_agent_graph_cache.pop(evicted_key, None)
+    return entry
 
 
 def _parse_runtime_model_config(payload: object) -> str | None:
@@ -535,7 +609,7 @@ def _resolve_run_model(
     user_id: str | None,
     db_store: RuntimeDBStore,
 ) -> tuple[str, ModelConfig]:
-    """Resolve run model with explicit precedence and no implicit fallback."""
+    """Resolve the run model with strict precedence and limited legacy-thread fallback."""
     agent_model_name = agent_config.model if agent_config and agent_config.model else None
     if requested_model_name and agent_model_name and requested_model_name != agent_model_name:
         raise ValueError(f"Model conflict: requested model '{requested_model_name}' does not match agent model '{agent_model_name}'.")
@@ -554,6 +628,16 @@ def _resolve_run_model(
 
     model_config = db_store.get_model(model_name)
     if model_config is None:
+        if not requested_model_name and not runtime_model_name and not agent_model_name and persisted_thread_model_name:
+            fallback_model = db_store.get_any_enabled_model()
+            if fallback_model is not None:
+                logger.warning(
+                    "Persisted thread model '%s' is unavailable; falling back to enabled model '%s' for thread '%s'.",
+                    persisted_thread_model_name,
+                    fallback_model.name,
+                    thread_id,
+                )
+                return fallback_model.name, fallback_model
         raise ValueError(f"Resolved model '{model_name}' is not available in database or is disabled.")
     return model_name, model_config
 
@@ -885,6 +969,21 @@ def _create_lead_agent(
     )
 
     _update_request_runtime_context(runtime, request)
+    cache_key = _lead_agent_graph_cache_key(
+        request=request,
+        resolution=resolution,
+        prepare_runtime_resources=prepare_runtime_resources,
+    )
+    cached_entry = _get_cached_lead_agent_graph(cache_key)
+    if cached_entry is not None:
+        _attach_trace_metadata(
+            config,
+            request=request,
+            model_name=resolution.model_name,
+            tool_names=list(cached_entry.tool_names),
+        )
+        return cached_entry.graph
+
     backend = _resolve_agent_backend(
         request=request,
         agent_config=resolution.agent_config,
@@ -894,14 +993,15 @@ def _create_lead_agent(
         request=request,
         resolution=resolution,
     )
+    tool_names = _extract_tool_names(graph_parts.tools)
     _attach_trace_metadata(
         config,
         request=request,
         model_name=resolution.model_name,
-        tool_names=_extract_tool_names(graph_parts.tools),
+        tool_names=tool_names,
     )
 
-    return create_deep_agent(
+    graph = create_deep_agent(
         model=create_chat_model(
             name=resolution.model_name,
             thinking_enabled=bool(request.thinking_enabled),
@@ -918,6 +1018,11 @@ def _create_lead_agent(
         interrupt_on=LEAD_AGENT_INTERRUPT_ON,
         name=request.agent_name,
     )
+    return _store_cached_lead_agent_graph(
+        cache_key,
+        graph=graph,
+        tool_names=tool_names,
+    ).graph
 
 
 async def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None):

@@ -34,7 +34,7 @@ export function ThreadTitle({
     t.pages.untitled,
     t.pages.appName,
     thread.isThreadLoading,
-    thread.values,
+    thread.values?.title,
   ]);
 
   if (!thread.values?.title) {

@@ -11,7 +11,8 @@ def _build_subagent_section(max_concurrent: int) -> str:
 - Hard limit: at most {n} `task` calls in one response.
 - If total required sub-tasks exceed {n}, execute in multiple batches across turns.
 - Prefer direct tool calls for simple single-step tasks.
-- Prefer specialized subagents (`explore`, `bash`) when the work clearly matches them.
+- Prefer the `explore` subagent for broad codebase discovery.
+- Prefer the direct `execute` tool for shell, build, git, and test commands unless the user explicitly asks you to delegate them.
 </subagent_policy>"""
 
 
@@ -152,6 +153,7 @@ You: "Deploying to staging..." [proceed]
 **File Management:**
 - Uploaded files are automatically listed in the <uploaded_files> section before each request
 - Use `read_file` tool to read uploaded files using their paths from the list
+- `read_file` already returns line numbers plus pagination metadata; use that footer to continue reading instead of defaulting to tiny fixed windows
 - For PDF, PPT, Excel, and Word files, converted Markdown versions (*.md) are available alongside originals
 - All temporary work happens in `/mnt/user-data/workspace`
 - Draft agent/skill authoring can happen under `/mnt/user-data/authoring/agents` and `/mnt/user-data/authoring/skills`
@@ -181,7 +183,7 @@ Recent breakthroughs in language models have also accelerated progress
 - Output Files: Final deliverables must be in `/mnt/user-data/outputs`, not left only in `/mnt/user-data/workspace`
 - Clarity: Be direct and helpful, avoid unnecessary meta-commentary
 - Including Images and Mermaid: Images and Mermaid diagrams are always welcomed in the Markdown format, and you're encouraged to use `![Image Description](image_path)\n\n` or "```mermaid" to display images in response or Markdown files
-- Multi-task: Better utilize parallel tool calling to call multiple tools at one time for better performance
+- Multi-task: Parallelize independent discovery work, but keep `write_file`, `edit_file`, and dependent `execute` calls sequential
 - Language Consistency: Keep using the same language as user's
 - Always Respond: Your thinking is internal. You MUST always provide a visible response to the user after thinking.
 - Persistence of drafted agents/skills requires explicit user confirmation through the runtime's save/push commands

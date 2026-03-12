@@ -245,6 +245,27 @@ class TestLocalSandboxOperations:
         exec_result = sandbox.execute(f"cat {test_path}")
         assert exec_result.output.strip() == "First content"
 
+    def test_parallel_write_same_file_allows_only_one_success(self, sandbox: LocalSubprocessSandbox) -> None:
+        """Parallel writes to the same file should not both succeed."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        test_path = "/tmp/test_sandbox_ops/parallel_existing.txt"
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first, second = pool.map(
+                lambda content: sandbox.write(test_path, content),
+                ["First content", "Second content"],
+            )
+
+        successes = [result for result in (first, second) if result.error is None]
+        failures = [result for result in (first, second) if result.error is not None]
+
+        assert len(successes) == 1
+        assert len(failures) == 1
+        assert "already exists" in failures[0].error.lower()
+        exec_result = sandbox.execute(f"cat {test_path}")
+        assert exec_result.output.strip() in {"First content", "Second content"}
+
     def test_write_special_characters(self, sandbox: LocalSubprocessSandbox) -> None:
         """Test writing content with special characters and escape sequences."""
         test_path = "/tmp/test_sandbox_ops/special.txt"
@@ -418,18 +439,19 @@ class TestLocalSandboxOperations:
         assert "Привет" in result
 
     def test_read_file_with_very_long_lines(self, sandbox: LocalSubprocessSandbox) -> None:
-        """Test reading a file with lines longer than 2000 characters."""
+        """Test reading a file with lines long enough to require continuation markers."""
         test_path = "/tmp/test_sandbox_ops/long_lines.txt"
-        # Create a line with 3000 characters
-        long_line = "x" * 3000
+        # Create a line long enough to trigger sandbox-side continuation markers.
+        long_line = "x" * 7000
         content = f"Short line\n{long_line}\nAnother short line"
         sandbox.write(test_path, content)
 
         result = sandbox.read(test_path)
 
-        # Should still read successfully (implementation may truncate)
         assert "Error:" not in result
         assert "Short line" in result
+        assert "     2\t" in result
+        assert "   2.1\t" in result
 
     def test_read_with_zero_limit(self, sandbox: LocalSubprocessSandbox) -> None:
         """Test reading with limit=0 returns nothing."""
