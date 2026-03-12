@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 from langchain.chat_models import BaseChatModel
 
@@ -10,6 +11,152 @@ from src.reflection import resolve_class
 logger = logging.getLogger(__name__)
 DEFAULT_ANTHROPIC_THINKING_MAX_TOKENS = 16384
 DEFAULT_REASONING_EFFORT = "high"
+MINIMAL_REASONING_EFFORT = "minimal"
+ANTHROPIC_CHAT_MODEL_CLASS = "langchain_anthropic:ChatAnthropic"
+MODEL_CONFIG_EXCLUDE_FIELDS = {
+    "use",
+    "name",
+    "display_name",
+    "description",
+    "supports_thinking",
+    "supports_reasoning_effort",
+    "when_thinking_enabled",
+    "supports_vision",
+}
+
+
+def _resolve_model_config(
+    name: str | None,
+    runtime_model_config: ModelConfig | dict | None,
+) -> tuple[str, ModelConfig]:
+    if runtime_model_config is not None:
+        model_config = (
+            runtime_model_config
+            if isinstance(runtime_model_config, ModelConfig)
+            else ModelConfig.model_validate(runtime_model_config)
+        )
+
+        if name is None:
+            return model_config.name, model_config
+
+        if model_config.name != name:
+            logger.warning(
+                "Runtime model config name '%s' does not match requested model '%s'; use runtime model config.",
+                model_config.name,
+                name,
+            )
+        return model_config.name, model_config
+
+    if name is None:
+        raise ValueError(
+            "Model name is required when `runtime_model_config` is not provided."
+        ) from None
+
+    model_config = get_runtime_db_store().get_model(name)
+    if model_config is None:
+        raise ValueError(f"Model {name} not found in database or is disabled") from None
+
+    return name, model_config
+
+
+def _build_model_settings(model_config: ModelConfig) -> dict[str, Any]:
+    return model_config.model_dump(
+        exclude_none=True,
+        exclude=MODEL_CONFIG_EXCLUDE_FIELDS,
+    )
+
+
+def _apply_enabled_thinking_settings(
+    *,
+    name: str,
+    model_config: ModelConfig,
+    model_settings: dict[str, Any],
+    runtime_kwargs: dict[str, Any],
+) -> None:
+    if model_config.when_thinking_enabled is not None:
+        if not model_config.supports_thinking:
+            raise ValueError(
+                f"Model {name} does not support thinking. Set `supports_thinking` to true in your runtime model configuration."
+            ) from None
+        model_settings.update(model_config.when_thinking_enabled)
+
+    if (
+        model_config.use == ANTHROPIC_CHAT_MODEL_CLASS
+        and "max_tokens" not in model_settings
+        and "max_tokens" not in runtime_kwargs
+    ):
+        runtime_kwargs["max_tokens"] = DEFAULT_ANTHROPIC_THINKING_MAX_TOKENS
+
+    if (
+        model_config.supports_reasoning_effort
+        and "reasoning_effort" not in runtime_kwargs
+    ):
+        runtime_kwargs["reasoning_effort"] = DEFAULT_REASONING_EFFORT
+
+
+def _apply_disabled_thinking_settings(
+    model_config: ModelConfig,
+    runtime_kwargs: dict[str, Any],
+) -> None:
+    if not _uses_extra_body_thinking_toggle(model_config):
+        return
+
+    runtime_kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+    runtime_kwargs["reasoning_effort"] = MINIMAL_REASONING_EFFORT
+
+
+def _uses_extra_body_thinking_toggle(model_config: ModelConfig) -> bool:
+    thinking_config = (model_config.when_thinking_enabled or {}).get(
+        "extra_body", {}
+    )
+    thinking = thinking_config.get("thinking", {})
+    return bool(thinking.get("type"))
+
+
+def _apply_thinking_settings(
+    *,
+    name: str,
+    model_config: ModelConfig,
+    thinking_enabled: bool,
+    model_settings: dict[str, Any],
+    runtime_kwargs: dict[str, Any],
+) -> None:
+    if thinking_enabled:
+        _apply_enabled_thinking_settings(
+            name=name,
+            model_config=model_config,
+            model_settings=model_settings,
+            runtime_kwargs=runtime_kwargs,
+        )
+    else:
+        _apply_disabled_thinking_settings(model_config, runtime_kwargs)
+
+    if not model_config.supports_reasoning_effort:
+        runtime_kwargs.pop("reasoning_effort", None)
+
+
+def _attach_langsmith_tracing(model_instance: BaseChatModel, name: str) -> None:
+    if not is_tracing_enabled():
+        return
+
+    try:
+        from langchain_core.tracers.langchain import LangChainTracer
+
+        tracing_config = get_tracing_config()
+        tracer = LangChainTracer(project_name=tracing_config.project)
+        existing_callbacks = model_instance.callbacks or []
+        model_instance.callbacks = [*existing_callbacks, tracer]
+        logger.debug(
+            "LangSmith tracing attached to model '%s' (project='%s')",
+            name,
+            tracing_config.project,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Failed to attach LangSmith tracing to model '%s': %s",
+            name,
+            exc,
+        )
 
 
 def create_chat_model(
@@ -26,80 +173,19 @@ def create_chat_model(
     Returns:
         A chat model instance.
     """
-    model_config: ModelConfig | None = None
-
-    if runtime_model_config is not None:
-        if isinstance(runtime_model_config, ModelConfig):
-            model_config = runtime_model_config
-        else:
-            model_config = ModelConfig.model_validate(runtime_model_config)
-
-        if name is None:
-            name = model_config.name
-        elif model_config.name != name:
-            logger.warning("Runtime model config name '%s' does not match requested model '%s'; use runtime model config.", model_config.name, name)
-            name = model_config.name
-    else:
-        if name is None:
-            raise ValueError(
-                "Model name is required when `runtime_model_config` is not provided."
-            ) from None
-        model_config = get_runtime_db_store().get_model(name)
-        if model_config is None:
-            raise ValueError(f"Model {name} not found in database or is disabled") from None
-
-    assert model_config is not None
+    name, model_config = _resolve_model_config(name, runtime_model_config)
     model_class = resolve_class(model_config.use, BaseChatModel)
-    model_settings_from_config = model_config.model_dump(
-        exclude_none=True,
-        exclude={
-            "use",
-            "name",
-            "display_name",
-            "description",
-            "supports_thinking",
-            "supports_reasoning_effort",
-            "when_thinking_enabled",
-            "supports_vision",
-        },
+    model_settings_from_config = _build_model_settings(model_config)
+    runtime_kwargs = dict(kwargs)
+
+    _apply_thinking_settings(
+        name=name,
+        model_config=model_config,
+        thinking_enabled=thinking_enabled,
+        model_settings=model_settings_from_config,
+        runtime_kwargs=runtime_kwargs,
     )
-    if thinking_enabled and model_config.when_thinking_enabled is not None:
-        if not model_config.supports_thinking:
-            raise ValueError(
-                f"Model {name} does not support thinking. Set `supports_thinking` to true in your runtime model configuration."
-            ) from None
-        model_settings_from_config.update(model_config.when_thinking_enabled)
-    if (
-        thinking_enabled
-        and model_config.use == "langchain_anthropic:ChatAnthropic"
-        and "max_tokens" not in model_settings_from_config
-        and "max_tokens" not in kwargs
-    ):
-        kwargs["max_tokens"] = DEFAULT_ANTHROPIC_THINKING_MAX_TOKENS
-    if (
-        thinking_enabled
-        and model_config.supports_reasoning_effort
-        and "reasoning_effort" not in kwargs
-    ):
-        kwargs["reasoning_effort"] = DEFAULT_REASONING_EFFORT
-    if not thinking_enabled and model_config.when_thinking_enabled and model_config.when_thinking_enabled.get("extra_body", {}).get("thinking", {}).get("type"):
-        kwargs.update({"extra_body": {"thinking": {"type": "disabled"}}})
-        kwargs.update({"reasoning_effort": "minimal"})
-    if not model_config.supports_reasoning_effort:
-        kwargs.pop("reasoning_effort", None)
-    model_instance = model_class(**kwargs, **model_settings_from_config)
+    model_instance = model_class(**runtime_kwargs, **model_settings_from_config)
 
-    if is_tracing_enabled():
-        try:
-            from langchain_core.tracers.langchain import LangChainTracer
-
-            tracing_config = get_tracing_config()
-            tracer = LangChainTracer(
-                project_name=tracing_config.project,
-            )
-            existing_callbacks = model_instance.callbacks or []
-            model_instance.callbacks = [*existing_callbacks, tracer]
-            logger.debug(f"LangSmith tracing attached to model '{name}' (project='{tracing_config.project}')")
-        except Exception as e:
-            logger.warning(f"Failed to attach LangSmith tracing to model '{name}': {e}")
+    _attach_langsmith_tracing(model_instance, name)
     return model_instance

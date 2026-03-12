@@ -16,7 +16,7 @@ import {
   hasReasoning,
   type MessageGroup as GroupedMessage,
 } from "@/core/messages/utils";
-import { useRehypeSplitWordsIntoSpans } from "@/core/rehype";
+import { workspaceMessageRehypePlugins } from "@/core/streamdown";
 import type { Subtask } from "@/core/tasks";
 import { useUpdateSubtask } from "@/core/tasks/context";
 import type { AgentThreadState } from "@/core/threads";
@@ -34,7 +34,7 @@ import { SubtaskCard } from "./subtask-card";
 type TaskUpdate = Partial<Subtask> & { id: string };
 type MessageRendererContext = {
   isLoading: boolean;
-  rehypePlugins: ReturnType<typeof useRehypeSplitWordsIntoSpans>;
+  rehypePlugins: typeof workspaceMessageRehypePlugins;
   threadId: string;
   t: ReturnType<typeof useI18n>["t"];
 };
@@ -341,7 +341,7 @@ const GroupedMessagesContent = memo(function GroupedMessagesContent({
   threadId: string;
 }) {
   const { t } = useI18n();
-  const rehypePlugins = useRehypeSplitWordsIntoSpans(isLoading);
+  const rehypePlugins = workspaceMessageRehypePlugins;
   const renderer: MessageRendererContext = {
     isLoading,
     rehypePlugins,

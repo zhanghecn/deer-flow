@@ -18,6 +18,19 @@ var langGraphFrontendStateKeys = map[string]struct{}{
 	"todos":         {},
 }
 
+var langGraphMessageFields = []string{
+	"id",
+	"type",
+	"name",
+	"tool_call_id",
+	"status",
+}
+
+var langGraphToolCallFields = []string{
+	"id",
+	"name",
+}
+
 var langGraphDroppableToolMessages = map[string]struct{}{
 	"bash":        {},
 	"edit":        {},
@@ -36,10 +49,31 @@ var langGraphDroppableToolMessages = map[string]struct{}{
 	"str_replace": {},
 }
 
+var langGraphReasoningKeys = map[string]struct{}{
+	"thinking":          {},
+	"reasoning":         {},
+	"reasoning_content": {},
+}
+
+var langGraphTruncatedToolArgKeys = map[string]struct{}{
+	"content":    {},
+	"old_string": {},
+	"new_string": {},
+	"oldString":  {},
+	"newString":  {},
+}
+
+var langGraphPassthroughToolContent = map[string]struct{}{
+	"image_search": {},
+	"task":         {},
+	"web_search":   {},
+}
+
 const (
 	langGraphHistoryReasoningLimit = 4000
 	langGraphHistoryTextLimit      = 16000
 	langGraphHistoryToolArgLimit   = 20000
+	langGraphHistoryTurnTailLimit  = 12
 	langGraphHistoryTruncationNote = "\n...[truncated for history]"
 )
 
@@ -69,21 +103,15 @@ func maybeTransformLangGraphHistoryResponse(resp *http.Response) {
 	transformed, changed, err := transformLangGraphHistoryPayload(raw)
 	if err != nil {
 		log.Printf("[proxy][langgraph-history] failed to transform history payload: %v", err)
-		resp.Body = io.NopCloser(bytes.NewReader(raw))
-		resp.ContentLength = int64(len(raw))
-		resp.Header.Set("Content-Length", strconv.Itoa(len(raw)))
+		setLangGraphResponseBody(resp, raw)
 		return
 	}
 	if !changed {
-		resp.Body = io.NopCloser(bytes.NewReader(raw))
-		resp.ContentLength = int64(len(raw))
-		resp.Header.Set("Content-Length", strconv.Itoa(len(raw)))
+		setLangGraphResponseBody(resp, raw)
 		return
 	}
 
-	resp.Body = io.NopCloser(bytes.NewReader(transformed))
-	resp.ContentLength = int64(len(transformed))
-	resp.Header.Set("Content-Length", strconv.Itoa(len(transformed)))
+	setLangGraphResponseBody(resp, transformed)
 }
 
 func transformLangGraphHistoryPayload(payload []byte) ([]byte, bool, error) {
@@ -128,6 +156,12 @@ func transformLangGraphHistoryPayload(payload []byte) ([]byte, bool, error) {
 	return encoded, true, nil
 }
 
+func setLangGraphResponseBody(resp *http.Response, body []byte) {
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+	resp.ContentLength = int64(len(body))
+	resp.Header.Set("Content-Length", strconv.Itoa(len(body)))
+}
+
 func filterLangGraphStateValues(values map[string]any, event any) (map[string]any, bool) {
 	filtered := make(map[string]any, len(langGraphFrontendStateKeys))
 	changed := false
@@ -151,6 +185,23 @@ func filterLangGraphStateValues(values map[string]any, event any) (map[string]an
 	return filtered, changed
 }
 
+func copyLangGraphFields(source map[string]any, filtered map[string]any, keys []string) {
+	for _, key := range keys {
+		if value, ok := source[key]; ok {
+			filtered[key] = value
+		}
+	}
+}
+
+func removedLangGraphFields(source map[string]any, filtered map[string]any) bool {
+	for key := range source {
+		if _, ok := filtered[key]; !ok {
+			return true
+		}
+	}
+	return false
+}
+
 func compactLangGraphMessages(messages any, event any) (any, bool) {
 	messageList, ok := messages.([]any)
 	if !ok {
@@ -159,7 +210,8 @@ func compactLangGraphMessages(messages any, event any) (any, bool) {
 
 	compactedMessages, compacted := compactLangGraphMessagesForSummary(messageList, event)
 	sanitizedMessages, sanitized := sanitizeLangGraphMessages(compactedMessages)
-	return sanitizedMessages, compacted || sanitized
+	compactedTurns, turnCompacted := compactLangGraphHistoryTurns(sanitizedMessages)
+	return compactedTurns, compacted || sanitized || turnCompacted
 }
 
 func compactLangGraphMessagesForSummary(messageList []any, event any) ([]any, bool) {
@@ -212,6 +264,258 @@ func sanitizeLangGraphMessages(messages []any) ([]any, bool) {
 	return sanitized, changed
 }
 
+func compactLangGraphHistoryTurns(messages []any) ([]any, bool) {
+	if len(messages) == 0 {
+		return messages, false
+	}
+
+	prefix, turns := splitLangGraphHistoryTurns(messages)
+	if len(turns) == 0 {
+		return messages, false
+	}
+
+	compacted := make([]any, 0, len(messages))
+	compacted = append(compacted, prefix...)
+	changed := len(prefix) != 0
+
+	lastTurnIndex := len(turns) - 1
+	for index, turn := range turns {
+		var nextTurn []any
+		var turnChanged bool
+
+		if shouldPreserveLangGraphTurn(turn) {
+			nextTurn = turn
+		} else if index == lastTurnIndex {
+			nextTurn, turnChanged = compactLangGraphActiveTurn(turn)
+		} else {
+			nextTurn, turnChanged = compactLangGraphCompletedTurn(turn)
+		}
+
+		compacted = append(compacted, nextTurn...)
+		changed = changed || turnChanged
+	}
+
+	if !changed {
+		return messages, false
+	}
+
+	return compacted, true
+}
+
+func splitLangGraphHistoryTurns(messages []any) ([]any, [][]any) {
+	prefix := make([]any, 0)
+	turns := make([][]any, 0)
+	currentTurn := make([]any, 0)
+	inTurn := false
+
+	for _, message := range messages {
+		messageMap, ok := message.(map[string]any)
+		if !ok {
+			if inTurn {
+				currentTurn = append(currentTurn, message)
+			} else {
+				prefix = append(prefix, message)
+			}
+			continue
+		}
+
+		if langGraphMessageType(messageMap) == "human" {
+			if inTurn {
+				turns = append(turns, currentTurn)
+			}
+			currentTurn = []any{message}
+			inTurn = true
+			continue
+		}
+
+		if inTurn {
+			currentTurn = append(currentTurn, message)
+			continue
+		}
+
+		prefix = append(prefix, message)
+	}
+
+	if inTurn {
+		turns = append(turns, currentTurn)
+	}
+
+	return prefix, turns
+}
+
+func shouldPreserveLangGraphTurn(turn []any) bool {
+	for _, message := range turn {
+		messageMap, ok := message.(map[string]any)
+		if !ok {
+			continue
+		}
+		if langGraphMessageType(messageMap) != "tool" {
+			continue
+		}
+		if messageMap["name"] == "ask_clarification" {
+			return true
+		}
+	}
+	return false
+}
+
+func compactLangGraphCompletedTurn(turn []any) ([]any, bool) {
+	if len(turn) <= 2 {
+		return turn, false
+	}
+
+	compacted := []any{turn[0]}
+	for index := 1; index < len(turn); index++ {
+		messageMap, ok := turn[index].(map[string]any)
+		if ok && shouldKeepLangGraphDisplayMessage(messageMap) {
+			compacted = append(compacted, turn[index])
+		}
+	}
+
+	if len(compacted) == 1 {
+		fallbackStart := normalizeLangGraphTurnWindowStart(turn, maxInt(1, len(turn)-2))
+		compacted = append(compacted, turn[fallbackStart:]...)
+	}
+
+	if len(compacted) == len(turn) {
+		return turn, false
+	}
+
+	return compacted, true
+}
+
+func compactLangGraphActiveTurn(turn []any) ([]any, bool) {
+	if len(turn) <= langGraphHistoryTurnTailLimit+1 {
+		return turn, false
+	}
+
+	windowStart := normalizeLangGraphTurnWindowStart(turn, len(turn)-langGraphHistoryTurnTailLimit)
+	keepIndexes := make(map[int]struct{}, len(turn)-windowStart+1)
+	keepIndexes[0] = struct{}{}
+
+	for index := windowStart; index < len(turn); index++ {
+		keepIndexes[index] = struct{}{}
+	}
+
+	for index := 1; index < len(turn); index++ {
+		messageMap, ok := turn[index].(map[string]any)
+		if !ok {
+			continue
+		}
+		if shouldKeepLangGraphDisplayMessage(messageMap) {
+			keepIndexes[index] = struct{}{}
+		}
+	}
+
+	compacted := make([]any, 0, len(keepIndexes))
+	for index, message := range turn {
+		if _, ok := keepIndexes[index]; ok {
+			compacted = append(compacted, message)
+		}
+	}
+
+	if len(compacted) == len(turn) {
+		return turn, false
+	}
+
+	return compacted, true
+}
+
+func normalizeLangGraphTurnWindowStart(turn []any, start int) int {
+	if start <= 1 {
+		return 1
+	}
+	if start >= len(turn) {
+		return len(turn) - 1
+	}
+
+	for start > 1 {
+		messageMap, ok := turn[start].(map[string]any)
+		if !ok {
+			return start
+		}
+		if langGraphMessageType(messageMap) != "tool" {
+			return start
+		}
+		start--
+	}
+
+	return start
+}
+
+func shouldKeepLangGraphDisplayMessage(message map[string]any) bool {
+	if langGraphMessageType(message) != "ai" {
+		return false
+	}
+	if hasLangGraphPresentFilesToolCall(message) {
+		return true
+	}
+	if hasLangGraphToolCalls(message) {
+		return false
+	}
+	return hasLangGraphRenderableContent(message["content"])
+}
+
+func hasLangGraphPresentFilesToolCall(message map[string]any) bool {
+	toolCalls, ok := message["tool_calls"].([]any)
+	if !ok {
+		return false
+	}
+
+	for _, item := range toolCalls {
+		toolCall, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if toolCall["name"] == "present_files" {
+			return true
+		}
+	}
+
+	return false
+}
+
+func hasLangGraphToolCalls(message map[string]any) bool {
+	toolCalls, ok := message["tool_calls"].([]any)
+	return ok && len(toolCalls) > 0
+}
+
+func hasLangGraphRenderableContent(content any) bool {
+	switch typed := content.(type) {
+	case string:
+		return strings.TrimSpace(typed) != ""
+	case []any:
+		for _, item := range typed {
+			block, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			blockType, _ := block["type"].(string)
+			if blockType != "" && blockType != "text" && blockType != "image_url" {
+				continue
+			}
+			for _, key := range []string{"text", "image_url"} {
+				switch value := block[key].(type) {
+				case string:
+					if strings.TrimSpace(value) != "" {
+						return true
+					}
+				case map[string]any:
+					if url, ok := value["url"].(string); ok && strings.TrimSpace(url) != "" {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+func langGraphMessageType(message map[string]any) string {
+	messageType, _ := message["type"].(string)
+	return messageType
+}
+
 func sanitizeLangGraphMessage(message map[string]any) (map[string]any, bool, bool) {
 	if shouldDropLangGraphToolMessage(message) {
 		return nil, false, true
@@ -220,21 +524,7 @@ func sanitizeLangGraphMessage(message map[string]any) (map[string]any, bool, boo
 	filtered := make(map[string]any, 8)
 	changed := false
 
-	if value, ok := message["id"]; ok {
-		filtered["id"] = value
-	}
-	if value, ok := message["type"]; ok {
-		filtered["type"] = value
-	}
-	if value, ok := message["name"]; ok {
-		filtered["name"] = value
-	}
-	if value, ok := message["tool_call_id"]; ok {
-		filtered["tool_call_id"] = value
-	}
-	if value, ok := message["status"]; ok {
-		filtered["status"] = value
-	}
+	copyLangGraphFields(message, filtered, langGraphMessageFields)
 	if value, ok := message["content"]; ok {
 		sanitizedContent, contentChanged := sanitizeLangGraphMessageContent(message, value)
 		filtered["content"] = sanitizedContent
@@ -253,11 +543,7 @@ func sanitizeLangGraphMessage(message map[string]any) (map[string]any, bool, boo
 		changed = changed || kwargsChanged
 	}
 
-	for key := range message {
-		if _, ok := filtered[key]; !ok {
-			changed = true
-		}
-	}
+	changed = changed || removedLangGraphFields(message, filtered)
 
 	return filtered, true, changed
 }
@@ -277,7 +563,7 @@ func sanitizeLangGraphMessageContent(message map[string]any, content any) (any, 
 	messageType, _ := message["type"].(string)
 	messageName, _ := message["name"].(string)
 
-	if messageType == "tool" && (messageName == "web_search" || messageName == "image_search" || messageName == "task") {
+	if messageType == "tool" && shouldKeepLangGraphToolContent(messageName) {
 		return content, false
 	}
 
@@ -322,11 +608,7 @@ func sanitizeLangGraphContentBlock(block map[string]any) (map[string]any, bool) 
 			continue
 		}
 
-		limit := langGraphHistoryTextLimit
-		if key == "thinking" || key == "reasoning" || key == "reasoning_content" || (key == "text" && isReasoningBlock) {
-			limit = langGraphHistoryReasoningLimit
-		}
-
+		limit := resolveLangGraphContentLimit(key, isReasoningBlock)
 		truncatedText, truncated := truncateLangGraphString(text, limit)
 		filtered[key] = truncatedText
 		changed = changed || truncated
@@ -352,23 +634,14 @@ func sanitizeLangGraphToolCalls(toolCalls any) (any, bool) {
 		}
 
 		filtered := make(map[string]any, 3)
-		if value, ok := toolCallMap["id"]; ok {
-			filtered["id"] = value
-		}
-		if value, ok := toolCallMap["name"]; ok {
-			filtered["name"] = value
-		}
+		copyLangGraphFields(toolCallMap, filtered, langGraphToolCallFields)
 		if value, ok := toolCallMap["args"]; ok {
 			sanitizedArgs, argsChanged := sanitizeLangGraphToolCallArgs(value)
 			filtered["args"] = sanitizedArgs
 			changed = changed || argsChanged
 		}
 
-		for key := range toolCallMap {
-			if _, ok := filtered[key]; !ok {
-				changed = true
-			}
-		}
+		changed = changed || removedLangGraphFields(toolCallMap, filtered)
 
 		sanitized = append(sanitized, filtered)
 	}
@@ -405,12 +678,8 @@ func sanitizeLangGraphToolCallArgs(args any) (any, bool) {
 }
 
 func shouldTruncateLangGraphToolArg(key string) bool {
-	switch key {
-	case "content", "old_string", "new_string", "oldString", "newString":
-		return true
-	default:
-		return false
-	}
+	_, ok := langGraphTruncatedToolArgKeys[key]
+	return ok
 }
 
 func sanitizeLangGraphAdditionalKwargs(kwargs any) (map[string]any, bool, bool) {
@@ -443,6 +712,21 @@ func sanitizeLangGraphAdditionalKwargs(kwargs any) (map[string]any, bool, bool) 
 	return filtered, len(filtered) > 0, changed
 }
 
+func shouldKeepLangGraphToolContent(toolName string) bool {
+	_, ok := langGraphPassthroughToolContent[toolName]
+	return ok
+}
+
+func resolveLangGraphContentLimit(key string, isReasoningBlock bool) int {
+	if _, ok := langGraphReasoningKeys[key]; ok {
+		return langGraphHistoryReasoningLimit
+	}
+	if key == "text" && isReasoningBlock {
+		return langGraphHistoryReasoningLimit
+	}
+	return langGraphHistoryTextLimit
+}
+
 func truncateLangGraphString(value string, limit int) (string, bool) {
 	if limit <= 0 {
 		if value == "" {
@@ -472,4 +756,11 @@ func parseJSONInt(value any) (int, bool) {
 	default:
 		return 0, false
 	}
+}
+
+func maxInt(a int, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

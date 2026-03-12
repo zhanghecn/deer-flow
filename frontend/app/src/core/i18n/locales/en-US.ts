@@ -40,6 +40,9 @@ export const enUS: Translations = {
     logout: "Log out",
     code: "Code",
     preview: "Preview",
+    previewUnavailable: "Preview unavailable",
+    inlinePreviewUnsupported:
+      "This file type can't be previewed inline yet. Use Open in new window or Download.",
     cancel: "Cancel",
     save: "Save",
     install: "Install",

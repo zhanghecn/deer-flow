@@ -91,3 +91,26 @@ def test_create_chat_model_defaults_reasoning_effort_when_supported(monkeypatch)
     model = factory_module.create_chat_model(name="gpt-5-mini", thinking_enabled=True)
 
     assert model.reasoning_effort == factory_module.DEFAULT_REASONING_EFFORT
+
+
+def test_create_chat_model_disables_extra_body_thinking_when_not_requested(monkeypatch):
+    class FakeModel:
+        def __init__(self, **kwargs) -> None:
+            self.callbacks = None
+            for key, value in kwargs.items():
+                setattr(self, key, value)
+
+    model_config = _openai_model_config(
+        when_thinking_enabled={"extra_body": {"thinking": {"type": "enabled"}}},
+    )
+    monkeypatch.setattr(
+        factory_module,
+        "get_runtime_db_store",
+        lambda: _Store(model_config),
+    )
+    monkeypatch.setattr(factory_module, "resolve_class", lambda *_args, **_kwargs: FakeModel)
+
+    model = factory_module.create_chat_model(name="gpt-5-mini", thinking_enabled=False)
+
+    assert model.extra_body == {"thinking": {"type": "disabled"}}
+    assert model.reasoning_effort == factory_module.MINIMAL_REASONING_EFFORT

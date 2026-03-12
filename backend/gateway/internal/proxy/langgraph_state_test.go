@@ -176,6 +176,188 @@ func TestTransformLangGraphHistoryPayloadSanitizesMessagesForFrontend(t *testing
 	}
 }
 
+func TestTransformLangGraphHistoryPayloadCompactsCompletedTurns(t *testing.T) {
+	t.Parallel()
+
+	payload := []map[string]any{
+		{
+			"values": map[string]any{
+				"messages": []any{
+					map[string]any{
+						"id":      "human-1",
+						"type":    "human",
+						"content": "make something",
+					},
+					map[string]any{
+						"id":   "ai-processing-1",
+						"type": "ai",
+						"content": []any{
+							map[string]any{"type": "thinking", "thinking": "hidden"},
+						},
+						"tool_calls": []any{
+							map[string]any{"id": "tool-1", "name": "write_file", "args": map[string]any{"path": "/tmp/a.html"}},
+						},
+					},
+					map[string]any{
+						"id":           "tool-1-result",
+						"type":         "tool",
+						"name":         "task",
+						"tool_call_id": "tool-1",
+						"content":      "Task Succeeded. Result: done",
+					},
+					map[string]any{
+						"id":      "ai-final-1",
+						"type":    "ai",
+						"content": "here is the final result",
+					},
+					map[string]any{
+						"id":      "human-2",
+						"type":    "human",
+						"content": "continue",
+					},
+					map[string]any{
+						"id":   "ai-processing-2",
+						"type": "ai",
+						"content": []any{
+							map[string]any{"type": "thinking", "thinking": "still running"},
+						},
+						"tool_calls": []any{
+							map[string]any{"id": "tool-2", "name": "task", "args": map[string]any{"prompt": "continue"}},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	transformed, changed, err := transformLangGraphHistoryPayload(raw)
+	if err != nil {
+		t.Fatalf("transform payload: %v", err)
+	}
+	if !changed {
+		t.Fatalf("expected payload to change")
+	}
+
+	var states []map[string]any
+	if err := json.Unmarshal(transformed, &states); err != nil {
+		t.Fatalf("unmarshal transformed payload: %v", err)
+	}
+
+	messages := states[0]["values"].(map[string]any)["messages"].([]any)
+	if len(messages) != 4 {
+		t.Fatalf("expected 4 compacted messages, got %d", len(messages))
+	}
+
+	ids := make([]string, 0, len(messages))
+	for _, message := range messages {
+		messageMap := message.(map[string]any)
+		ids = append(ids, messageMap["id"].(string))
+	}
+
+	expected := []string{"human-1", "ai-final-1", "human-2", "ai-processing-2"}
+	for index, id := range expected {
+		if ids[index] != id {
+			t.Fatalf("expected message %d to be %q, got %q", index, id, ids[index])
+		}
+	}
+}
+
+func TestTransformLangGraphHistoryPayloadTrimsActiveTurnTail(t *testing.T) {
+	t.Parallel()
+
+	messages := []any{
+		map[string]any{
+			"id":      "human-1",
+			"type":    "human",
+			"content": "build ppt",
+		},
+	}
+
+	for index := 0; index < 14; index++ {
+		taskID := "task-" + string(rune('a'+index))
+		messages = append(messages,
+			map[string]any{
+				"id":   "ai-step-" + taskID,
+				"type": "ai",
+				"content": []any{
+					map[string]any{"type": "thinking", "thinking": "step"},
+				},
+				"tool_calls": []any{
+					map[string]any{"id": taskID, "name": "task", "args": map[string]any{"prompt": "do work"}},
+				},
+			},
+			map[string]any{
+				"id":           "tool-step-" + taskID,
+				"type":         "tool",
+				"name":         "task",
+				"tool_call_id": taskID,
+				"content":      "Task Succeeded. Result: done",
+			},
+		)
+	}
+
+	messages = append(messages, map[string]any{
+		"id":      "ai-final",
+		"type":    "ai",
+		"content": "presentation ready",
+	})
+
+	payload := []map[string]any{
+		{
+			"values": map[string]any{
+				"messages": messages,
+			},
+		},
+	}
+
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	transformed, changed, err := transformLangGraphHistoryPayload(raw)
+	if err != nil {
+		t.Fatalf("transform payload: %v", err)
+	}
+	if !changed {
+		t.Fatalf("expected payload to change")
+	}
+
+	var states []map[string]any
+	if err := json.Unmarshal(transformed, &states); err != nil {
+		t.Fatalf("unmarshal transformed payload: %v", err)
+	}
+
+	resultMessages := states[0]["values"].(map[string]any)["messages"].([]any)
+	if len(resultMessages) >= len(messages) {
+		t.Fatalf("expected active turn to be compacted from %d messages, got %d", len(messages), len(resultMessages))
+	}
+
+	ids := make(map[string]struct{}, len(resultMessages))
+	for _, message := range resultMessages {
+		messageMap := message.(map[string]any)
+		ids[messageMap["id"].(string)] = struct{}{}
+	}
+
+	if _, ok := ids["human-1"]; !ok {
+		t.Fatalf("expected human message to be preserved")
+	}
+	if _, ok := ids["ai-final"]; !ok {
+		t.Fatalf("expected final assistant message to be preserved")
+	}
+	if _, ok := ids["ai-step-task-a"]; ok {
+		t.Fatalf("expected oldest processing message to be dropped")
+	}
+	if _, ok := ids["tool-step-task-a"]; ok {
+		t.Fatalf("expected oldest task result to be dropped")
+	}
+}
+
 func TestTransformLangGraphHistoryPayloadNoOpForInvalidJSON(t *testing.T) {
 	t.Parallel()
 

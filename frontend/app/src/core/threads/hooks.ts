@@ -21,17 +21,28 @@ export type ToolEndEvent = {
   data: unknown;
 };
 
+type ThreadContext = LocalSettings["context"];
+type PromptInputFile = PromptInputMessage["files"][number];
+
 export type ThreadStreamOptions = {
   threadId?: string | null | undefined;
-  context: LocalSettings["context"];
+  context: ThreadContext;
   isMock?: boolean;
   onStart?: (threadId: string) => void;
   onFinish?: (state: AgentThreadState) => void;
   onToolEnd?: (event: ToolEndEvent) => void;
 };
 
+const LEAD_AGENT_ID = "lead_agent";
+const FLASH_STREAM_THROTTLE = 96;
+const DEFAULT_STREAM_THROTTLE = 192;
+const HISTORY_PAGE_SIZE = 1;
+const STREAM_RECURSION_LIMIT = 1000;
+const THREAD_SEARCH_QUERY_KEY = ["threads", "search"] as const;
+const STREAM_MODES = ["values", "messages-tuple", "custom"] as const;
+
 function resolveAgentName(
-  context: LocalSettings["context"],
+  context: ThreadContext,
   extraContext?: Record<string, unknown>,
 ) {
   const fromContext =
@@ -44,7 +55,202 @@ function resolveAgentName(
     typeof extraContext?.agent_name === "string"
       ? extraContext.agent_name.trim()
       : "";
-  return fromExtra || "lead_agent";
+  return fromExtra || LEAD_AGENT_ID;
+}
+
+function resolveStreamThrottle(context: ThreadContext) {
+  return context.mode === "flash"
+    ? FLASH_STREAM_THROTTLE
+    : DEFAULT_STREAM_THROTTLE;
+}
+
+function requireModelName(context: ThreadContext) {
+  const modelName =
+    typeof context.model_name === "string" ? context.model_name : "";
+  if (!modelName) {
+    throw new Error("Model is required before submitting a run.");
+  }
+  return modelName;
+}
+
+function toUploadingFiles(files: PromptInputFile[]) {
+  return files.map(
+    (file): FileInMessage => ({
+      filename: file.filename ?? "",
+      size: 0,
+      status: "uploading",
+    }),
+  );
+}
+
+function toUploadedFiles(files: UploadedFileInfo[]) {
+  return files.map(
+    (file): FileInMessage => ({
+      filename: file.filename,
+      size: file.size,
+      path: file.virtual_path,
+      status: "uploaded",
+    }),
+  );
+}
+
+function buildOptimisticMessages(
+  text: string,
+  files: PromptInputFile[],
+  uploadingLabel: string,
+) {
+  const optimisticFiles = toUploadingFiles(files);
+  const timestamp = Date.now();
+  const optimisticMessages: Message[] = [
+    {
+      type: "human",
+      id: `opt-human-${timestamp}`,
+      content: text ? [{ type: "text", text }] : "",
+      additional_kwargs:
+        optimisticFiles.length > 0 ? { files: optimisticFiles } : {},
+    },
+  ];
+
+  if (optimisticFiles.length > 0) {
+    optimisticMessages.push({
+      type: "ai",
+      id: `opt-ai-${timestamp}`,
+      content: uploadingLabel,
+      additional_kwargs: { element: "task" },
+    });
+  }
+
+  return optimisticMessages;
+}
+
+function replaceOptimisticHumanFiles(
+  messages: Message[],
+  uploadedFiles: FileInMessage[],
+) {
+  const [humanMessage, ...remainingMessages] = messages;
+  if (!humanMessage || messages.length < 2) {
+    return messages;
+  }
+
+  return [
+    {
+      ...humanMessage,
+      additional_kwargs: { files: uploadedFiles },
+    },
+    ...remainingMessages,
+  ];
+}
+
+async function convertPromptFileToUpload(file: PromptInputFile) {
+  if (!file.url || !file.filename) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(file.url);
+    const blob = await response.blob();
+    return new File([blob], file.filename, {
+      type: file.mediaType || blob.type,
+    });
+  } catch (error) {
+    console.error(`Failed to fetch file ${file.filename}:`, error);
+    return null;
+  }
+}
+
+async function prepareFilesForUpload(files: PromptInputFile[]) {
+  const convertedFiles = await Promise.all(
+    files.map((file) => convertPromptFileToUpload(file)),
+  );
+  const uploadableFiles = convertedFiles.filter(
+    (file): file is File => file !== null,
+  );
+  const failedConversions = convertedFiles.length - uploadableFiles.length;
+
+  if (failedConversions > 0) {
+    throw new Error(
+      `Failed to prepare ${failedConversions} attachment(s) for upload. Please retry.`,
+    );
+  }
+
+  return uploadableFiles;
+}
+
+async function uploadPromptFiles(threadId: string, files: PromptInputFile[]) {
+  if (files.length === 0) {
+    return [];
+  }
+
+  const uploadableFiles = await prepareFilesForUpload(files);
+  if (uploadableFiles.length === 0) {
+    return [];
+  }
+
+  const response = await uploadFiles(threadId, uploadableFiles);
+  return response.files;
+}
+
+function buildSubmissionPayload(text: string, files: UploadedFileInfo[]) {
+  const uploadedFiles = toUploadedFiles(files);
+
+  return {
+    messages: [
+      {
+        type: "human" as const,
+        content: [
+          {
+            type: "text" as const,
+            text,
+          },
+        ],
+        additional_kwargs:
+          uploadedFiles.length > 0 ? { files: uploadedFiles } : {},
+      },
+    ],
+  };
+}
+
+function buildSubmitOptions(
+  threadId: string,
+  context: ThreadContext,
+  modelName: string,
+  extraContext?: Record<string, unknown>,
+) {
+  const agentName = resolveAgentName(context, extraContext);
+
+  return {
+    threadId,
+    streamSubgraphs: true,
+    streamResumable: true,
+    streamMode: [...STREAM_MODES],
+    config: {
+      recursion_limit: STREAM_RECURSION_LIMIT,
+      configurable: {
+        ...extraContext,
+        ...context,
+        agent_name: agentName,
+        model_name: modelName,
+        thinking_enabled: context.mode !== "flash",
+        is_plan_mode: context.mode === "pro" || context.mode === "ultra",
+        subagent_enabled: context.mode === "ultra",
+        thread_id: threadId,
+      },
+    },
+  };
+}
+
+function mergeOptimisticMessages<T extends { messages: Message[] }>(
+  thread: T,
+  optimisticMessages: Message[],
+) {
+  if (optimisticMessages.length === 0) {
+    return thread;
+  }
+
+  return {
+    ...thread,
+    messages: [...thread.messages, ...optimisticMessages],
+  };
 }
 
 export function useThreadStream({
@@ -57,27 +263,27 @@ export function useThreadStream({
 }: ThreadStreamOptions) {
   const { t } = useI18n();
   const apiClient = getAPIClient(isMock);
-  const [_threadId, setThreadId] = useState<string | null>(null);
-  const startedRef = useRef(false);
-  const streamThrottle = context.mode === "flash" ? 96 : 192;
+  const [streamThreadId, setStreamThreadId] = useState<string | null>(null);
+  const hasStartedStreamRef = useRef(false);
+  const streamThrottle = resolveStreamThrottle(context);
 
   useEffect(() => {
     let cancelled = false;
-    startedRef.current = false; // Reset for new/existing thread changes
+    hasStartedStreamRef.current = false;
 
     if (!threadId) {
-      setThreadId(null);
+      setStreamThreadId(null);
       return () => {
         cancelled = true;
       };
     }
 
-    setThreadId(null);
+    setStreamThreadId(null);
     void apiClient.threads
       .create({
         threadId,
         ifExists: "do_nothing",
-        graphId: "lead_agent",
+        graphId: LEAD_AGENT_ID,
       })
       .catch((error) => {
         console.warn(
@@ -87,7 +293,7 @@ export function useThreadStream({
       })
       .finally(() => {
         if (!cancelled) {
-          setThreadId(threadId);
+          setStreamThreadId(threadId);
         }
       });
 
@@ -100,16 +306,16 @@ export function useThreadStream({
   const updateSubtask = useUpdateSubtask();
   const thread = useStream<AgentThreadState>({
     client: apiClient,
-    assistantId: "lead_agent",
-    threadId: _threadId,
+    assistantId: LEAD_AGENT_ID,
+    threadId: streamThreadId,
     throttle: streamThrottle,
     reconnectOnMount: true,
-    fetchStateHistory: { limit: 1 },
+    fetchStateHistory: { limit: HISTORY_PAGE_SIZE },
     onCreated(meta) {
-      setThreadId(meta.thread_id);
-      if (!startedRef.current) {
+      setStreamThreadId(meta.thread_id);
+      if (!hasStartedStreamRef.current) {
         onStart?.(meta.thread_id);
-        startedRef.current = true;
+        hasStartedStreamRef.current = true;
       }
     },
     onLangChainEvent(event) {
@@ -137,20 +343,19 @@ export function useThreadStream({
     },
     onFinish(state) {
       onFinish?.(state.values);
-      void queryClient.invalidateQueries({ queryKey: ["threads", "search"] });
+      void queryClient.invalidateQueries({
+        queryKey: THREAD_SEARCH_QUERY_KEY,
+      });
     },
   });
 
-  // Optimistic messages shown before the server stream responds
   const [optimisticMessages, setOptimisticMessages] = useState<Message[]>([]);
-  // Track message count before sending so we know when server has responded
-  const prevMsgCountRef = useRef(thread.messages.length);
+  const previousMessageCountRef = useRef(thread.messages.length);
 
-  // Clear optimistic when server messages arrive (count increases)
   useEffect(() => {
     if (
       optimisticMessages.length > 0 &&
-      thread.messages.length > prevMsgCountRef.current
+      thread.messages.length > previousMessageCountRef.current
     ) {
       setOptimisticMessages([]);
     }
@@ -158,121 +363,32 @@ export function useThreadStream({
 
   const sendMessage = useCallback(
     async (
-      threadId: string,
+      runThreadId: string,
       message: PromptInputMessage,
       extraContext?: Record<string, unknown>,
     ) => {
-      const selectedModelName =
-        typeof context.model_name === "string" ? context.model_name : "";
-      if (!selectedModelName) {
-        throw new Error("Model is required before submitting a run.");
-      }
+      const selectedModelName = requireModelName(context);
       const text = message.text.trim();
+      const files = message.files ?? [];
 
-      // Capture current count before showing optimistic messages
-      prevMsgCountRef.current = thread.messages.length;
-
-      // Build optimistic files list with uploading status
-      const optimisticFiles: FileInMessage[] = (message.files ?? []).map(
-        (f) => ({
-          filename: f.filename ?? "",
-          size: 0,
-          status: "uploading" as const,
-        }),
+      previousMessageCountRef.current = thread.messages.length;
+      setOptimisticMessages(
+        buildOptimisticMessages(text, files, t.uploads.uploadingFiles),
       );
 
-      // Create optimistic human message (shown immediately)
-      const optimisticHumanMsg: Message = {
-        type: "human",
-        id: `opt-human-${Date.now()}`,
-        content: text ? [{ type: "text", text }] : "",
-        additional_kwargs:
-          optimisticFiles.length > 0 ? { files: optimisticFiles } : {},
-      };
-
-      const newOptimistic: Message[] = [optimisticHumanMsg];
-      if (optimisticFiles.length > 0) {
-        // Mock AI message while files are being uploaded
-        newOptimistic.push({
-          type: "ai",
-          id: `opt-ai-${Date.now()}`,
-          content: t.uploads.uploadingFiles,
-          additional_kwargs: { element: "task" },
-        });
-      }
-      setOptimisticMessages(newOptimistic);
-
-      let uploadedFileInfo: UploadedFileInfo[] = [];
-
       try {
-        // Upload files first if any
-        if (message.files && message.files.length > 0) {
+        let uploadedFiles: UploadedFileInfo[] = [];
+
+        if (files.length > 0) {
           try {
-            // Convert FileUIPart to File objects by fetching blob URLs
-            const filePromises = message.files.map(async (fileUIPart) => {
-              if (fileUIPart.url && fileUIPart.filename) {
-                try {
-                  // Fetch the blob URL to get the file data
-                  const response = await fetch(fileUIPart.url);
-                  const blob = await response.blob();
-
-                  // Create a File object from the blob
-                  return new File([blob], fileUIPart.filename, {
-                    type: fileUIPart.mediaType || blob.type,
-                  });
-                } catch (error) {
-                  console.error(
-                    `Failed to fetch file ${fileUIPart.filename}:`,
-                    error,
-                  );
-                  return null;
-                }
-              }
-              return null;
-            });
-
-            const conversionResults = await Promise.all(filePromises);
-            const files = conversionResults.filter(
-              (file): file is File => file !== null,
-            );
-            const failedConversions = conversionResults.length - files.length;
-
-            if (failedConversions > 0) {
-              throw new Error(
-                `Failed to prepare ${failedConversions} attachment(s) for upload. Please retry.`,
+            uploadedFiles = await uploadPromptFiles(runThreadId, files);
+            if (uploadedFiles.length > 0) {
+              setOptimisticMessages((messages) =>
+                replaceOptimisticHumanFiles(
+                  messages,
+                  toUploadedFiles(uploadedFiles),
+                ),
               );
-            }
-
-            if (!threadId) {
-              throw new Error("Thread is not ready for file upload.");
-            }
-
-            if (files.length > 0) {
-              const uploadResponse = await uploadFiles(threadId, files);
-              uploadedFileInfo = uploadResponse.files;
-
-              // Update optimistic human message with uploaded status + paths
-              const uploadedFiles: FileInMessage[] = uploadedFileInfo.map(
-                (info) => ({
-                  filename: info.filename,
-                  size: info.size,
-                  path: info.virtual_path,
-                  status: "uploaded" as const,
-                }),
-              );
-              setOptimisticMessages((messages) => {
-                if (messages.length > 1 && messages[0]) {
-                  const humanMessage: Message = messages[0];
-                  return [
-                    {
-                      ...humanMessage,
-                      additional_kwargs: { files: uploadedFiles },
-                    },
-                    ...messages.slice(1),
-                  ];
-                }
-                return messages;
-              });
             }
           } catch (error) {
             console.error("Failed to upload files:", error);
@@ -286,58 +402,18 @@ export function useThreadStream({
           }
         }
 
-        // Build files metadata for submission (included in additional_kwargs)
-        const filesForSubmit: FileInMessage[] = uploadedFileInfo.map(
-          (info) => ({
-            filename: info.filename,
-            size: info.size,
-            path: info.virtual_path,
-            status: "uploaded" as const,
-          }),
-        );
-
         await thread.submit(
-          {
-            messages: [
-              {
-                type: "human",
-                content: [
-                  {
-                    type: "text",
-                    text,
-                  },
-                ],
-                additional_kwargs:
-                  filesForSubmit.length > 0 ? { files: filesForSubmit } : {},
-              },
-            ],
-          },
-          (() => {
-            const agentName = resolveAgentName(context, extraContext);
-            const runtimeConfigurable = {
-              ...extraContext,
-              ...context,
-              agent_name: agentName,
-              model_name: selectedModelName,
-              thinking_enabled: context.mode !== "flash",
-              is_plan_mode: context.mode === "pro" || context.mode === "ultra",
-              subagent_enabled: context.mode === "ultra",
-              thread_id: threadId,
-            };
-
-            return {
-              threadId: threadId,
-              streamSubgraphs: true,
-              streamResumable: true,
-              streamMode: ["values", "messages-tuple", "custom"],
-              config: {
-                recursion_limit: 1000,
-                configurable: runtimeConfigurable,
-              },
-            };
-          })(),
+          buildSubmissionPayload(text, uploadedFiles),
+          buildSubmitOptions(
+            runThreadId,
+            context,
+            selectedModelName,
+            extraContext,
+          ),
         );
-        void queryClient.invalidateQueries({ queryKey: ["threads", "search"] });
+        void queryClient.invalidateQueries({
+          queryKey: THREAD_SEARCH_QUERY_KEY,
+        });
       } catch (error) {
         setOptimisticMessages([]);
         throw error;
@@ -346,14 +422,7 @@ export function useThreadStream({
     [thread, t.uploads.uploadingFiles, context, queryClient],
   );
 
-  // Merge thread with optimistic messages for display
-  const mergedThread =
-    optimisticMessages.length > 0
-      ? ({
-          ...thread,
-          messages: [...thread.messages, ...optimisticMessages],
-        } as typeof thread)
-      : thread;
+  const mergedThread = mergeOptimisticMessages(thread, optimisticMessages);
 
   return [mergedThread, sendMessage] as const;
 }

@@ -34,7 +34,13 @@ import { urlOfArtifact } from "@/core/artifacts/utils";
 import { useI18n } from "@/core/i18n/hooks";
 import { installSkill } from "@/core/skills/api";
 import { streamdownPlugins } from "@/core/streamdown";
-import { checkCodeFile, getFileName } from "@/core/utils/files";
+import {
+  checkCodeFile,
+  getFileExtension,
+  getFileExtensionDisplayName,
+  getFileIcon,
+  getFileName,
+} from "@/core/utils/files";
 import { env } from "@/env";
 import { cn } from "@/lib/utils";
 
@@ -68,6 +74,8 @@ export function ArtifactFileDetail({
   const isSkillFile = useMemo(() => {
     return filepath.endsWith(".skill");
   }, [filepath]);
+  const extension = useMemo(() => getFileExtension(filepath), [filepath]);
+  const isPowerPointFile = extension === "ppt" || extension === "pptx";
   const { isCodeFile, language } = useMemo(() => {
     if (isWriteFile) {
       let language = checkCodeFile(filepath).language;
@@ -83,6 +91,7 @@ export function ArtifactFileDetail({
   const isSupportPreview = useMemo(() => {
     return (language === "html" && !isWriteFile) || language === "markdown";
   }, [isWriteFile, language]);
+  const canRenderInlineFrame = !isCodeFile && !isPowerPointFile;
   const { content } = useArtifactContent({
     threadId,
     filepath: filepathFromProps,
@@ -252,7 +261,28 @@ export function ArtifactFileDetail({
             readonly
           />
         )}
-        {!isCodeFile && (
+        {isPowerPointFile && (
+          <div className="flex size-full items-center justify-center p-6">
+            <div className="bg-muted/20 flex max-w-md flex-col items-center gap-4 rounded-2xl border px-6 py-8 text-center">
+              <div className="text-primary">
+                {getFileIcon(filepath, "size-12")}
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-lg font-medium">
+                  {getFileExtensionDisplayName(filepath)} ·{" "}
+                  {t.common.previewUnavailable}
+                </h3>
+                <p className="text-muted-foreground text-sm">
+                  {getFileName(filepath)}
+                </p>
+              </div>
+              <p className="text-muted-foreground text-sm leading-6">
+                {t.common.inlinePreviewUnsupported}
+              </p>
+            </div>
+          </div>
+        )}
+        {canRenderInlineFrame && (
           <iframe
             className="size-full"
             src={urlOfArtifact({ filepath, threadId, isMock })}

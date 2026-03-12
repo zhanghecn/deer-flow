@@ -29,6 +29,8 @@ export interface Translations {
     logout: string;
     code: string;
     preview: string;
+    previewUnavailable: string;
+    inlinePreviewUnsupported: string;
     cancel: string;
     save: string;
     install: string;

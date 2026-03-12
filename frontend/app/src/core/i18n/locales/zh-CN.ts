@@ -40,6 +40,9 @@ export const zhCN: Translations = {
     logout: "退出登录",
     code: "代码",
     preview: "预览",
+    previewUnavailable: "暂不支持预览",
+    inlinePreviewUnsupported:
+      "当前工作区暂不支持此类文件的内联预览，请使用“在新窗口打开”或“下载”。",
     cancel: "取消",
     save: "保存",
     install: "安装",
