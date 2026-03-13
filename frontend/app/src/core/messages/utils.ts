@@ -1,5 +1,7 @@
 import type { AIMessage, Message } from "@langchain/langgraph-sdk";
 
+import { filterLegacyPptPreviewArtifacts } from "@/core/artifacts/utils";
+
 interface GenericMessageGroup<T = string> {
   type: T;
   id: string | undefined;
@@ -336,7 +338,7 @@ export function extractPresentFilesFromMessage(message: Message) {
       files.push(...(toolCall.args.filepaths as string[]));
     }
   }
-  return files;
+  return filterLegacyPptPreviewArtifacts(files);
 }
 
 export function hasSubagent(message: AIMessage) {

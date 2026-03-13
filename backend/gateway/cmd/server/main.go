@@ -81,6 +81,11 @@ func main() {
 	threadsH := handler.NewThreadsHandler(threadRepo)
 	uploadsH := handler.NewUploadsHandler(fs)
 	artifactsH := handler.NewArtifactsHandler(fs)
+	onlyOfficeH := handler.NewOnlyOfficeHandler(fs, handler.OnlyOfficeConfig{
+		ServerURL:    os.Getenv("ONLYOFFICE_SERVER_URL"),
+		PublicAppURL: os.Getenv("ONLYOFFICE_PUBLIC_APP_URL"),
+		JWTSecret:    os.Getenv("ONLYOFFICE_JWT_SECRET"),
+	})
 	openAPIH := handler.NewOpenAPIHandler(modelRepo, cfg.Upstream.LangGraphURL, fs)
 	langGraphRuntimeH := handler.NewLangGraphRuntimeHandler()
 	adminH := handler.NewAdminHandler(userRepo, adminObservabilityRepo, modelRepo)
@@ -152,6 +157,12 @@ func main() {
 		auth.POST("/login", authH.Login)
 	}
 
+	office := r.Group("/api/office")
+	{
+		office.GET("/threads/:id/files/:head/*tail", onlyOfficeH.File)
+		office.POST("/threads/:id/callback/:head/*tail", onlyOfficeH.Callback)
+	}
+
 	// Protected API routes (JWT)
 	api := r.Group("/api")
 	api.Use(middleware.JWTAuth(jwtMgr))
@@ -201,6 +212,7 @@ func main() {
 
 		// Artifacts
 		api.GET("/threads/:id/artifacts/:head/*tail", artifactsH.Serve)
+		api.GET("/threads/:id/office-config/:head/*tail", onlyOfficeH.Config)
 
 		// Admin
 		admin := api.Group("/admin")

@@ -24,5 +24,13 @@ agent 内部的路径是统一的,外面路径映射虽然不一样,但对于内
 了解清楚后记录这次规范和架构说明,避免下次再犯。
 然后在检查skills 中路径是否被破坏。
 
-32a0e8cb-ffa6-4687-96fd-5da2da9d73df
+
+现在我需要一个更加完善得生图skill。 
+读取文档
 https://www.volcengine.com/docs/82379/1541523?lang=zh
+集成 doubao-seedream-5.0-lite 文生图 图生图的方式
+下面是为的key:
+32a0e8cb-ffa6-4687-96fd-5da2da9d73df
+
+由于目前用的是 /home/zhangxuan/project/ai/deer-flow/.openagents/skills/shared/image-generation/scripts/generate.py 但是我没有 GEMINI_API_KEY 。 帮我自主测试 并维护到里面 以及 对应的环境key。
+

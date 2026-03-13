@@ -7,13 +7,14 @@ description: Use this skill when the user requests to generate, create, imagine,
 
 ## Overview
 
-This skill generates high-quality images using structured prompts and a Python script. The workflow includes creating JSON-formatted prompts and executing image generation with optional reference images.
+This skill generates high-quality images with Volcengine Ark using the `doubao-seedream-5.0-lite` model. It supports both text-to-image and image-to-image generation through the same Python script.
 
 ## Core Capabilities
 
 - Create structured JSON prompts for AIGC image generation
-- Support multiple reference images for style/composition guidance
-- Generate images through automated Python script execution
+- Run text-to-image generation with `doubao-seedream-5.0-lite`
+- Run image-to-image generation when reference images are provided
+- Validate output files after generation
 - Handle various image generation scenarios (character design, scenes, products, etc.)
 
 ## Workflow
@@ -49,7 +50,7 @@ python <current-skill-dir>/scripts/generate.py \
 Parameters:
 
 - `--prompt-file`: Absolute path to JSON prompt file (required)
-- `--reference-images`: Absolute paths to reference images (optional, space-separated)
+- `--reference-images`: Absolute paths to reference images (optional, space-separated). If present, the script switches to image-to-image mode.
 - `--output-file`: Absolute path to output image file (required)
 - `--aspect-ratio`: Aspect ratio of the generated image (optional, default: 16:9)
 
@@ -59,6 +60,8 @@ Do NOT run `pip install` before execution. Use the runtime's existing Python env
 After execution, verify that the expected output file was actually created.
 If the command exits successfully but no output file exists, treat the generation as failed.
 Do not present a missing file to the user.
+The script expects `ARK_API_KEY` or `VOLCENGINE_API_KEY` in the runtime environment and defaults to the `doubao-seedream-5.0-lite` catalog alias. You can also override it with a Volcengine model ID or endpoint ID through `VOLCENGINE_IMAGE_MODEL`.
+The current Volcengine image editing flow accepts a single input image, so if multiple reference images are passed, only the first valid one is used.
 
 ## Character Generation Example
 
@@ -190,7 +193,8 @@ This approach significantly improves generation quality by providing the model w
 
 - Always use English for prompts regardless of user's language
 - JSON format ensures structured, parsable prompts
-- Reference images enhance generation quality significantly
+- Reference images trigger image-to-image generation
 - Iterative refinement is normal for optimal results
 - For character generation, include the detailed character object plus a consolidated prompt field
+- Runtime credentials should be exposed as `ARK_API_KEY` or `VOLCENGINE_API_KEY`
 - If required credentials are unavailable or the script produces no file, stop using this skill for the current deliverable and pivot to a deliverable that can complete successfully

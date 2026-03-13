@@ -77,8 +77,8 @@ func TestSharedSkillsDirUsesOpenAgentsSharedScope(t *testing.T) {
 
 func TestResolveBaseDirUsesProjectRootForRelativePaths(t *testing.T) {
 	projectDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(projectDir, "skills"), 0755); err != nil {
-		t.Fatalf("mkdir skills root: %v", err)
+	if err := os.MkdirAll(filepath.Join(projectDir, ".openagents", "skills"), 0755); err != nil {
+		t.Fatalf("mkdir .openagents/skills: %v", err)
 	}
 	if err := os.MkdirAll(filepath.Join(projectDir, "backend", "agents"), 0755); err != nil {
 		t.Fatalf("mkdir backend/agents: %v", err)

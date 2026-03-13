@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import {
   Code2Icon,
   CopyIcon,
@@ -8,6 +9,7 @@ import {
   SquareArrowOutUpRightIcon,
   XIcon,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Streamdown } from "streamdown";
@@ -30,13 +32,18 @@ import {
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { CodeEditor } from "@/components/workspace/code-editor";
 import { useArtifactContent } from "@/core/artifacts/hooks";
+import {
+  getOnlyOfficeDocumentDescriptor,
+  loadOnlyOfficeConfig,
+  type OnlyOfficeDocumentDescriptor,
+  type OnlyOfficeMode,
+} from "@/core/artifacts/onlyoffice";
 import { urlOfArtifact } from "@/core/artifacts/utils";
 import { useI18n } from "@/core/i18n/hooks";
 import { installSkill } from "@/core/skills/api";
 import { streamdownPlugins } from "@/core/streamdown";
 import {
   checkCodeFile,
-  getFileExtension,
   getFileExtensionDisplayName,
   getFileIcon,
   getFileName,
@@ -49,6 +56,16 @@ import { useThread } from "../messages/context";
 import { Tooltip } from "../tooltip";
 
 import { useArtifacts } from "./context";
+
+const OnlyOfficeDocumentEditor = dynamic(
+  () =>
+    import("@onlyoffice/document-editor-react").then(
+      (mod) => mod.DocumentEditor,
+    ),
+  { ssr: false },
+);
+
+type ArtifactViewMode = "code" | "preview";
 
 export function ArtifactFileDetail({
   className,
@@ -74,8 +91,11 @@ export function ArtifactFileDetail({
   const isSkillFile = useMemo(() => {
     return filepath.endsWith(".skill");
   }, [filepath]);
-  const extension = useMemo(() => getFileExtension(filepath), [filepath]);
-  const isPowerPointFile = extension === "ppt" || extension === "pptx";
+  const officeDescriptor = useMemo(
+    () => getOnlyOfficeDocumentDescriptor(filepath),
+    [filepath],
+  );
+  const isOfficeFile = officeDescriptor !== null;
   const { isCodeFile, language } = useMemo(() => {
     if (isWriteFile) {
       let language = checkCodeFile(filepath).language;
@@ -90,14 +110,22 @@ export function ArtifactFileDetail({
   }, [filepath, isWriteFile, isSkillFile]);
   const previewFilepath = filepath;
   const previewLanguage = language;
+  const { isMock } = useThread();
+  const officePreviewUrl = useMemo(() => {
+    if (!isOfficeFile || isMock) {
+      return null;
+    }
+    return urlOfArtifact({ filepath, threadId, isMock, preview: "pdf" });
+  }, [filepath, isMock, isOfficeFile, threadId]);
   const isSupportPreview = useMemo(() => {
     return (
+      Boolean(officePreviewUrl) ||
       (previewLanguage === "html" && !isWriteFile) ||
       previewLanguage === "markdown"
     );
-  }, [isWriteFile, previewLanguage]);
+  }, [isWriteFile, officePreviewUrl, previewLanguage]);
   const showPreviewToggle = isSupportPreview && isCodeFile;
-  const canRenderInlineFrame = !isCodeFile && !isPowerPointFile;
+  const canRenderInlineFrame = !isCodeFile && !isOfficeFile;
   const { content } = useArtifactContent({
     threadId,
     filepath: filepathFromProps,
@@ -106,16 +134,17 @@ export function ArtifactFileDetail({
 
   const displayContent = content ?? "";
 
-  const [viewMode, setViewMode] = useState<"code" | "preview">("code");
+  const [viewMode, setViewMode] = useState<ArtifactViewMode>("code");
   const [isInstalling, setIsInstalling] = useState(false);
-  const { isMock } = useThread();
   useEffect(() => {
-    if (isSupportPreview) {
+    if (isOfficeFile) {
+      setViewMode("preview");
+    } else if (isSupportPreview) {
       setViewMode("preview");
     } else {
       setViewMode("code");
     }
-  }, [isSupportPreview]);
+  }, [isOfficeFile, isSupportPreview]);
 
   const handleInstallSkill = useCallback(async () => {
     if (isInstalling) return;
@@ -164,7 +193,12 @@ export function ArtifactFileDetail({
           </ArtifactTitle>
         </div>
         <div className="flex min-w-0 grow items-center justify-center">
-          {showPreviewToggle && (
+          {isOfficeFile && officeDescriptor && (
+            <div className="text-muted-foreground text-xs">
+              {officeDescriptor.editorLabel}
+            </div>
+          )}
+          {!isOfficeFile && showPreviewToggle && (
             <ToggleGroup
               className="mx-auto"
               type="single"
@@ -173,7 +207,7 @@ export function ArtifactFileDetail({
               value={viewMode}
               onValueChange={(value) => {
                 if (value) {
-                  setViewMode(value as "code" | "preview");
+                  setViewMode(value as ArtifactViewMode);
                 }
               }}
             >
@@ -203,7 +237,13 @@ export function ArtifactFileDetail({
               </Tooltip>
             )}
             {!isWriteFile && (
-              <a href={urlOfArtifact({ filepath, threadId })} target="_blank">
+              <a
+                href={
+                  officePreviewUrl ??
+                  urlOfArtifact({ filepath, threadId, isMock })
+                }
+                target="_blank"
+              >
                 <ArtifactAction
                   icon={SquareArrowOutUpRightIcon}
                   label={t.common.openInNewWindow}
@@ -267,26 +307,14 @@ export function ArtifactFileDetail({
             readonly
           />
         )}
-        {isPowerPointFile && (
-          <div className="flex size-full items-center justify-center p-6">
-            <div className="bg-muted/20 flex max-w-md flex-col items-center gap-4 rounded-2xl border px-6 py-8 text-center">
-              <div className="text-primary">
-                {getFileIcon(filepath, "size-12")}
-              </div>
-              <div className="space-y-1">
-                <h3 className="text-lg font-medium">
-                  {getFileExtensionDisplayName(filepath)} ·{" "}
-                  {t.common.previewUnavailable}
-                </h3>
-                <p className="text-muted-foreground text-sm">
-                  {getFileName(filepath)}
-                </p>
-              </div>
-              <p className="text-muted-foreground text-sm leading-6">
-                {t.common.inlinePreviewUnsupported}
-              </p>
-            </div>
-          </div>
+        {isOfficeFile && officeDescriptor && (
+          <OfficeArtifactView
+            descriptor={officeDescriptor}
+            filepath={filepath}
+            threadId={threadId}
+            officePreviewUrl={officePreviewUrl}
+            isMock={Boolean(isMock)}
+          />
         )}
         {canRenderInlineFrame && (
           <iframe
@@ -333,4 +361,108 @@ export function ArtifactFilePreview({
     );
   }
   return null;
+}
+
+function OfficeArtifactView({
+  descriptor,
+  filepath,
+  threadId,
+  officePreviewUrl,
+  isMock,
+}: {
+  descriptor: OnlyOfficeDocumentDescriptor;
+  filepath: string;
+  threadId: string;
+  officePreviewUrl: string | null;
+  isMock: boolean;
+}) {
+  const onlyOfficeMode: OnlyOfficeMode = descriptor.defaultMode;
+  const { data, error, isLoading } = useQuery({
+    queryKey: ["onlyoffice-config", threadId, filepath, onlyOfficeMode],
+    queryFn: () =>
+      loadOnlyOfficeConfig({
+        filepath,
+        threadId,
+        mode: onlyOfficeMode,
+      }),
+    retry: false,
+    staleTime: 30 * 1000,
+    refetchOnWindowFocus: false,
+    enabled: !isMock,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex size-full items-center justify-center">
+        <LoaderIcon className="text-muted-foreground size-5 animate-spin" />
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <ArtifactUnavailableCard
+        filepath={filepath}
+        label="Editor unavailable"
+        description={
+          error instanceof Error
+            ? error.message
+            : "Configure ONLYOFFICE to enable direct office editing."
+        }
+        previewUrl={officePreviewUrl}
+      />
+    );
+  }
+
+  return (
+    <div className="size-full overflow-hidden bg-white">
+      <OnlyOfficeDocumentEditor
+        id={`onlyoffice-${threadId}-${getFileName(filepath)}-${onlyOfficeMode}`}
+        key={`${threadId}:${filepath}:${onlyOfficeMode}`}
+        documentServerUrl={data.documentServerUrl}
+        config={data.config}
+        onLoadComponentError={(_code: number, errorDescription: string) => {
+          toast.error(errorDescription || "Failed to load ONLYOFFICE editor");
+        }}
+      />
+    </div>
+  );
+}
+
+function ArtifactUnavailableCard({
+  filepath,
+  label,
+  description,
+  previewUrl,
+}: {
+  filepath: string;
+  label: string;
+  description: string;
+  previewUrl?: string | null;
+}) {
+  return (
+    <div className="flex size-full items-center justify-center p-6">
+      <div className="bg-muted/20 flex max-w-md flex-col items-center gap-4 rounded-2xl border px-6 py-8 text-center">
+        <div className="text-primary">{getFileIcon(filepath, "size-12")}</div>
+        <div className="space-y-1">
+          <h3 className="text-lg font-medium">
+            {getFileExtensionDisplayName(filepath)} · {label}
+          </h3>
+          <p className="text-muted-foreground text-sm">
+            {getFileName(filepath)}
+          </p>
+        </div>
+        <p className="text-muted-foreground text-sm leading-6">{description}</p>
+        {previewUrl && (
+          <a
+            className="text-primary text-sm underline underline-offset-4"
+            href={previewUrl}
+            target="_blank"
+          >
+            Open PDF preview
+          </a>
+        )}
+      </div>
+    </div>
+  );
 }

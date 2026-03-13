@@ -168,7 +168,7 @@ Parameters:
 [!NOTE]
 Do NOT read the python file, just call it with the parameters.
 Do NOT run `pip install`. Use the runtime's existing Python environment and keep the script path on `/mnt/user-data/...`.
-If slide image generation fails or is unavailable, you MUST still call the composition script with `--plan-file` and `--output-file`. The script will create a text-native fallback PPT and an HTML preview next to the PPTX.
+If slide image generation fails or is unavailable, you MUST still call the composition script with `--plan-file` and `--output-file`. The script will create a text-native fallback PPT without generating extra sidecar preview files.
 
 ## Complete Example: Glassmorphism Style (最现代前卫)
 
@@ -423,7 +423,6 @@ After generation:
 
 - The PPTX file is saved in `/mnt/user-data/outputs/`
 - Share the generated presentation with user using `present_files` tool
-- If the composition script creates a sibling HTML preview, present that HTML file together with the PPTX so the client can render a preview
 - Also share the individual slide images if requested
 - Provide brief description of the presentation
 - Offer to iterate or regenerate specific slides if needed

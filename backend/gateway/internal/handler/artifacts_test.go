@@ -52,6 +52,16 @@ func TestArtifactsHandlerSupportsMntUserDataPrefixes(t *testing.T) {
 			url:  "/api/threads/thread-1/artifacts/mnt/user-data/workspace/report.html",
 			want: "workspace-ok",
 		},
+		{
+			name: "url encoded path",
+			url:  "/api/threads/thread-1/artifacts/mnt/user-data/outputs/A%E8%82%A1%E6%8A%A5%E5%91%8A.txt",
+			want: "cn-ok",
+		},
+	}
+
+	encodedFile := filepath.Join(userDataDir, "outputs", "A股报告.txt")
+	if err := os.WriteFile(encodedFile, []byte("cn-ok"), 0o644); err != nil {
+		t.Fatalf("write encoded output file: %v", err)
 	}
 
 	for _, tc := range tests {
@@ -70,7 +80,67 @@ func TestArtifactsHandlerSupportsMntUserDataPrefixes(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
 			}
+			if rec.Body.String() != tc.want {
+				t.Fatalf("expected body %q, got %q", tc.want, rec.Body.String())
+			}
 		})
+	}
+}
+
+func TestArtifactsHandlerServesOfficePreviewPDF(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	baseDir := t.TempDir()
+	threadID := "thread-preview"
+	userDataDir := filepath.Join(baseDir, "threads", threadID, "user-data")
+	deckPath := filepath.Join(userDataDir, "outputs", "deck.docx")
+	previewPath := filepath.Join(userDataDir, "outputs", "deck.docx.preview.pdf")
+
+	if err := os.MkdirAll(filepath.Dir(deckPath), 0o755); err != nil {
+		t.Fatalf("mkdir outputs: %v", err)
+	}
+	if err := os.WriteFile(deckPath, []byte("pptx"), 0o644); err != nil {
+		t.Fatalf("write deck: %v", err)
+	}
+	if err := os.WriteFile(previewPath, []byte("%PDF-1.7 preview"), 0o644); err != nil {
+		t.Fatalf("write preview pdf: %v", err)
+	}
+
+	originalConverter := officePreviewConverter
+	officePreviewConverter = func(filePath string) (string, error) {
+		if filePath != deckPath {
+			t.Fatalf("unexpected converter path %q", filePath)
+		}
+		return previewPath, nil
+	}
+	t.Cleanup(func() {
+		officePreviewConverter = originalConverter
+	})
+
+	handler := NewArtifactsHandler(storage.NewFS(baseDir))
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(
+		http.MethodGet,
+		"/api/threads/thread-preview/artifacts/mnt/user-data/outputs/deck.docx?preview=pdf",
+		nil,
+	)
+	c.Params = gin.Params{
+		{Key: "id", Value: threadID},
+		{Key: "path", Value: "/mnt/user-data/outputs/deck.docx"},
+	}
+
+	handler.Serve(c)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/pdf") {
+		t.Fatalf("expected pdf content-type, got %q", got)
+	}
+	if rec.Body.String() != "%PDF-1.7 preview" {
+		t.Fatalf("unexpected body: %q", rec.Body.String())
 	}
 }
 
@@ -118,5 +188,14 @@ func TestNormalizeArtifactPath(t *testing.T) {
 				t.Fatalf("normalizeArtifactPath(%q) => (%q,%q), want (%q,%q)", tc.input, gotPath, gotScope, tc.path, tc.scope)
 			}
 		})
+	}
+}
+
+func TestOfficePreviewPath(t *testing.T) {
+	t.Parallel()
+
+	got := officePreviewPath("/tmp/demo.docx")
+	if got != "/tmp/demo.docx.preview.pdf" {
+		t.Fatalf("unexpected preview path: %q", got)
 	}
 }

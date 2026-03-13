@@ -1,9 +1,12 @@
 package handler
 
 import (
+	"fmt"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
@@ -17,61 +20,125 @@ type ArtifactsHandler struct {
 	fs *storage.FS
 }
 
+type officeDocumentDescriptor struct {
+	DocumentType string
+	Editable     bool
+}
+
+var officePreviewConverter = ensureOfficePDFPreview
+
 func NewArtifactsHandler(fs *storage.FS) *ArtifactsHandler {
 	return &ArtifactsHandler{fs: fs}
 }
 
 func (h *ArtifactsHandler) Serve(c *gin.Context) {
 	threadID := c.Param("id")
-	artifactPath := c.Param("path")
+	artifactPath := artifactPathFromContext(c)
+
 	if artifactPath == "" {
-		head := c.Param("head")
-		tail := c.Param("tail")
-		if head != "" {
-			artifactPath = "/" + head + tail
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "missing artifact path"})
+		return
+	}
+
+	relativePath, preferredScope, err := decodeArtifactRequestPath(artifactPath)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
+		return
+	}
+	resolvedPath, info, err := resolveArtifactFile(h.fs, threadID, relativePath, preferredScope)
+	if err == nil {
+		if c.Query("preview") == "pdf" && isOfficeDocumentFile(resolvedPath) {
+			previewPath, err := officePreviewConverter(resolvedPath)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to generate artifact preview"})
+				return
+			}
+			previewInfo, err := os.Stat(previewPath)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to stat artifact preview"})
+				return
+			}
+			serveArtifactFile(c, previewPath, previewInfo)
+			return
+		}
+		serveArtifactFile(c, resolvedPath, info)
+		return
+	}
+
+	c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "artifact not found"})
+}
+
+func artifactPathFromContext(c *gin.Context) string {
+	artifactPath := c.Param("path")
+	if artifactPath != "" {
+		return artifactPath
+	}
+	head := c.Param("head")
+	tail := c.Param("tail")
+	if head == "" {
+		return ""
+	}
+	return "/" + head + tail
+}
+
+func resolveArtifactFile(
+	fs *storage.FS,
+	threadID string,
+	relativePath string,
+	preferredScope string,
+) (string, os.FileInfo, error) {
+	for _, candidate := range artifactCandidates(fs, threadID, relativePath, preferredScope) {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate, info, nil
 		}
 	}
+	return "", nil, os.ErrNotExist
+}
 
-	if artifactPath == "" {
-		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "missing artifact path"})
-		return
-	}
-
-	cleaned := path.Clean(strings.TrimPrefix(artifactPath, "/"))
-	if cleaned == "." || cleaned == "" {
-		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "missing artifact path"})
-		return
-	}
-	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
-		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "invalid path"})
-		return
-	}
-
-	relativePath, preferredScope := normalizeArtifactPath(cleaned)
-
-	// Try outputs first, then workspace
-	userDataDir := h.fs.ThreadUserDataDir(threadID)
-	var candidates []string
+func artifactCandidates(
+	fs *storage.FS,
+	threadID string,
+	relativePath string,
+	preferredScope string,
+) []string {
+	userDataDir := fs.ThreadUserDataDir(threadID)
 	switch preferredScope {
 	case "outputs":
-		candidates = []string{filepath.Join(userDataDir, "outputs", relativePath)}
+		return []string{filepath.Join(userDataDir, "outputs", relativePath)}
 	case "workspace":
-		candidates = []string{filepath.Join(userDataDir, "workspace", relativePath)}
+		return []string{filepath.Join(userDataDir, "workspace", relativePath)}
 	default:
-		candidates = []string{
+		return []string{
 			filepath.Join(userDataDir, "outputs", relativePath),
 			filepath.Join(userDataDir, "workspace", relativePath),
 		}
 	}
+}
 
-	for _, path := range candidates {
-		if info, err := os.Stat(path); err == nil && !info.IsDir() {
-			serveArtifactFile(c, path, info)
-			return
-		}
+func decodeArtifactRequestPath(artifactPath string) (string, string, error) {
+	decodedPath, err := url.PathUnescape(artifactPath)
+	if err != nil {
+		return "", "", fmt.Errorf("invalid artifact path")
 	}
 
-	c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "artifact not found"})
+	cleaned := path.Clean(strings.TrimPrefix(decodedPath, "/"))
+	if cleaned == "." || cleaned == "" {
+		return "", "", fmt.Errorf("missing artifact path")
+	}
+	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", "", fmt.Errorf("invalid path")
+	}
+
+	relativePath, preferredScope := normalizeArtifactPath(cleaned)
+	return relativePath, preferredScope, nil
+}
+
+func encodeArtifactPath(filepath string) string {
+	parts := strings.Split(strings.TrimPrefix(filepath, "/"), "/")
+	for index, part := range parts {
+		parts[index] = url.PathEscape(part)
+	}
+	return strings.Join(parts, "/")
 }
 
 func normalizeArtifactPath(cleaned string) (relativePath string, preferredScope string) {
@@ -93,6 +160,78 @@ func normalizeArtifactPath(cleaned string) (relativePath string, preferredScope 
 		}
 	}
 	return cleaned, ""
+}
+
+func officeDocumentDescriptorForPath(filePath string) (officeDocumentDescriptor, bool) {
+	switch strings.ToLower(filepath.Ext(filePath)) {
+	case ".doc":
+		return officeDocumentDescriptor{DocumentType: "word", Editable: false}, true
+	case ".docx":
+		return officeDocumentDescriptor{DocumentType: "word", Editable: true}, true
+	case ".xls":
+		return officeDocumentDescriptor{DocumentType: "cell", Editable: false}, true
+	case ".xlsx":
+		return officeDocumentDescriptor{DocumentType: "cell", Editable: true}, true
+	case ".ppt", ".pptx":
+		return officeDocumentDescriptor{
+			DocumentType: "slide",
+			Editable:     strings.EqualFold(filepath.Ext(filePath), ".pptx"),
+		}, true
+	default:
+		return officeDocumentDescriptor{}, false
+	}
+}
+
+func isOfficeDocumentFile(filePath string) bool {
+	_, ok := officeDocumentDescriptorForPath(filePath)
+	return ok
+}
+
+func officePreviewPath(filePath string) string {
+	return filePath + ".preview.pdf"
+}
+
+func previewIsFresh(sourcePath string, previewInfo os.FileInfo) bool {
+	sourceInfo, err := os.Stat(sourcePath)
+	if err != nil {
+		return false
+	}
+	return !previewInfo.ModTime().Before(sourceInfo.ModTime())
+}
+
+func ensureOfficePDFPreview(filePath string) (string, error) {
+	if !isOfficeDocumentFile(filePath) {
+		return "", fmt.Errorf("preview conversion only supports office documents")
+	}
+
+	previewPath := officePreviewPath(filePath)
+	if previewInfo, err := os.Stat(previewPath); err == nil && !previewInfo.IsDir() && previewIsFresh(filePath, previewInfo) {
+		return previewPath, nil
+	}
+
+	tmpDir, err := os.MkdirTemp(filepath.Dir(previewPath), "artifact-preview-*")
+	if err != nil {
+		return "", fmt.Errorf("create preview temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cmd := exec.Command("soffice", "--headless", "--convert-to", "pdf", "--outdir", tmpDir, filePath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("convert office preview: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+
+	baseName := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
+	convertedPath := filepath.Join(tmpDir, baseName+".pdf")
+	if _, err := os.Stat(convertedPath); err != nil {
+		return "", fmt.Errorf("converted preview missing: %w", err)
+	}
+
+	if err := os.Rename(convertedPath, previewPath); err != nil {
+		return "", fmt.Errorf("persist preview pdf: %w", err)
+	}
+
+	return previewPath, nil
 }
 
 func serveArtifactFile(c *gin.Context, filePath string, info os.FileInfo) {

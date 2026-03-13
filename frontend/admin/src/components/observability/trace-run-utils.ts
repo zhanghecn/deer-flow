@@ -483,6 +483,106 @@ function extractModelName(run: TraceRunSummary): string | undefined {
   return undefined;
 }
 
+const TOOL_PATH_KEYS = [
+  "path",
+  "file_path",
+  "filepath",
+  "output_file",
+  "output_path",
+  "dir_path",
+  "directory",
+] as const;
+
+const TOOL_COMMAND_KEYS = ["command", "cmd"] as const;
+const TOOL_QUERY_KEYS = ["query", "pattern"] as const;
+
+function extractStringAssignment(text: string, keys: readonly string[]): string {
+  for (const key of keys) {
+    const match = text.match(
+      new RegExp(`(?:['"]${key}['"]|\\b${key}\\b)\\s*(?::|=)\\s*(['"])(.*?)\\1`, "s"),
+    );
+    const value = match?.[2]?.trim();
+    if (value) {
+      return value;
+    }
+  }
+  return "";
+}
+
+function extractVirtualPath(text: string): string {
+  const match = text.match(/\/mnt\/user-data\/[^\s'",)]+/);
+  return match?.[0] ?? "";
+}
+
+function extractToolField(
+  value: unknown,
+  keys: readonly string[],
+  depth = 0,
+): string {
+  if (depth > 6 || value == null) {
+    return "";
+  }
+
+  const normalized = normalizeTraceValue(value);
+  if (normalized !== value) {
+    return extractToolField(normalized, keys, depth + 1);
+  }
+
+  if (typeof value === "string") {
+    return (
+      extractStringAssignment(value, keys) ||
+      (keys === TOOL_PATH_KEYS ? extractVirtualPath(value) : "")
+    );
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const candidate = extractToolField(item, keys, depth + 1);
+      if (candidate) {
+        return candidate;
+      }
+    }
+    return "";
+  }
+
+  const payload = toRecord(value);
+  if (!payload) {
+    return "";
+  }
+
+  for (const key of keys) {
+    const candidate = payload[key];
+    if (typeof candidate === "string" && candidate.trim().length > 0) {
+      return candidate.trim();
+    }
+  }
+
+  for (const nestedKey of [
+    "inputs",
+    "arguments",
+    "tool_call",
+    "tool_response",
+    "output",
+    "response",
+    "kwargs",
+    "data",
+  ] as const) {
+    const candidate = extractToolField(payload[nestedKey], keys, depth + 1);
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  for (const nestedValue of Object.values(payload)) {
+    const candidate = extractToolField(nestedValue, keys, depth + 1);
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  return "";
+}
+
 function extractPriorityText(value: unknown, depth = 0): string {
   if (depth > 5 || value == null) return "";
   const normalized = normalizeTraceValue(value);
@@ -564,6 +664,33 @@ function summarizeToolRun(run: TraceRunSummary): string {
   const toolResponse = normalizeTraceValue(
     endPayload?.tool_response ?? endPayload?.output,
   );
+  const toolName = run.toolName ?? extractToolField(toolCall, ["name"]);
+
+  const path =
+    extractToolField(toolCall, TOOL_PATH_KEYS) ||
+    extractToolField(toolResponse, TOOL_PATH_KEYS);
+  if (
+    path &&
+    ["write_file", "edit_file", "str_replace", "read_file", "ls", "glob"].includes(
+      toolName,
+    )
+  ) {
+    return truncateText(path, 140);
+  }
+
+  const command =
+    extractToolField(toolCall, TOOL_COMMAND_KEYS) ||
+    extractToolField(toolResponse, TOOL_COMMAND_KEYS);
+  if (command && ["execute", "bash"].includes(toolName)) {
+    return truncateText(command, 140);
+  }
+
+  const query =
+    extractToolField(toolCall, TOOL_QUERY_KEYS) ||
+    extractToolField(toolResponse, TOOL_QUERY_KEYS);
+  if (query && ["web_search", "image_search", "grep"].includes(toolName)) {
+    return truncateText(query, 140);
+  }
 
   const requestSummary = summarizeValue(toolCall);
   if (requestSummary) return requestSummary;

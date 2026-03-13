@@ -5,6 +5,7 @@
 #   - nginx: Reverse proxy (port 2026)
 #   - frontend: Frontend Next.js dev server (port 3000)
 #   - gateway: Backend Gateway API (port 8001)
+#   - onlyoffice: ONLYOFFICE Docs server (port 8082)
 #   - langgraph: LangGraph server (port 2024)
 #   - provisioner (optional): Sandbox provisioner (creates Pods in host Kubernetes)
 #
@@ -129,6 +130,29 @@ services:
       - openagents-dev
     restart: unless-stopped
 
+  # Document Server - ONLYOFFICE Docs
+  onlyoffice:
+    image: onlyoffice/documentserver@sha256:53a06109f1f4029a78f913a061e14f01bff023d109024073a13d4416b54d2195
+    container_name: openagents-onlyoffice
+    ports:
+      - "127.0.0.1:${ONLYOFFICE_PORT:-8082}:80"
+    env_file:
+      - ../.env
+    environment:
+      - JWT_ENABLED=true
+      - JWT_SECRET=${ONLYOFFICE_JWT_SECRET}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - openagents-dev
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1/healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
   # Backend - LangGraph Server
   langgraph:
     build:
@@ -161,6 +185,3 @@ volumes: {}
 networks:
   openagents-dev:
     driver: bridge
-    ipam:
-      config:
-        - subnet: 192.168.200.0/24

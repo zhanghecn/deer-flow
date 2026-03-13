@@ -233,9 +233,14 @@ func detectProjectRoot() (string, bool) {
 }
 
 func looksLikeProjectRoot(dir string) bool {
-	skillsDir := filepath.Join(dir, "skills")
+	openAgentsDir := filepath.Join(dir, ".openagents")
+	skillsDir := filepath.Join(openAgentsDir, "skills")
 	agentsDir := filepath.Join(dir, "backend", "agents")
 
+	openAgentsInfo, err := os.Stat(openAgentsDir)
+	if err != nil || !openAgentsInfo.IsDir() {
+		return false
+	}
 	skillsInfo, err := os.Stat(skillsDir)
 	if err != nil || !skillsInfo.IsDir() {
 		return false
