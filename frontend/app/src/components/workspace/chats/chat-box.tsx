@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
@@ -208,6 +209,9 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
             <DialogTitle className="sr-only">
               {selectedOfficeArtifact}
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              Preview and edit the selected office document.
+            </DialogDescription>
             <ArtifactFileDetail
               className="size-full rounded-none border-0 shadow-none"
               filepath={selectedOfficeArtifact}

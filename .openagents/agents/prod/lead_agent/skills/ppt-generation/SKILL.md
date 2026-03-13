@@ -162,13 +162,13 @@ python <current-skill-dir>/scripts/generate.py \
 Parameters:
 
 - `--plan-file`: Absolute path to the presentation plan JSON file (required)
-- `--slide-images`: Absolute paths to slide images in order (optional, space-separated)
+- `--slide-images`: Absolute paths to slide images in order (required, space-separated)
 - `--output-file`: Absolute path to output PPTX file (required)
 
 [!NOTE]
 Do NOT read the python file, just call it with the parameters.
 Do NOT run `pip install`. Use the runtime's existing Python environment and keep the script path on `/mnt/user-data/...`.
-If slide image generation fails or is unavailable, you MUST still call the composition script with `--plan-file` and `--output-file`. The script will create a text-native fallback PPT without generating extra sidecar preview files.
+If slide image generation fails or produces missing image files, stop and report the failure. Do not generate text-native fallback slides.
 
 ## Complete Example: Glassmorphism Style (最现代前卫)
 
