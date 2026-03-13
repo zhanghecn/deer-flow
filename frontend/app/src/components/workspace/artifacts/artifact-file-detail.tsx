@@ -88,9 +88,15 @@ export function ArtifactFileDetail({
     }
     return checkCodeFile(filepath);
   }, [filepath, isWriteFile, isSkillFile]);
+  const previewFilepath = filepath;
+  const previewLanguage = language;
   const isSupportPreview = useMemo(() => {
-    return (language === "html" && !isWriteFile) || language === "markdown";
-  }, [isWriteFile, language]);
+    return (
+      (previewLanguage === "html" && !isWriteFile) ||
+      previewLanguage === "markdown"
+    );
+  }, [isWriteFile, previewLanguage]);
+  const showPreviewToggle = isSupportPreview && isCodeFile;
   const canRenderInlineFrame = !isCodeFile && !isPowerPointFile;
   const { content } = useArtifactContent({
     threadId,
@@ -158,7 +164,7 @@ export function ArtifactFileDetail({
           </ArtifactTitle>
         </div>
         <div className="flex min-w-0 grow items-center justify-center">
-          {isSupportPreview && (
+          {showPreviewToggle && (
             <ToggleGroup
               className="mx-auto"
               type="single"
@@ -245,13 +251,13 @@ export function ArtifactFileDetail({
       </ArtifactHeader>
       <ArtifactContent className="p-0">
         {isSupportPreview &&
-          viewMode === "preview" &&
-          (language === "markdown" || language === "html") && (
+          (viewMode === "preview" || !isCodeFile) &&
+          (previewLanguage === "markdown" || previewLanguage === "html") && (
             <ArtifactFilePreview
-              filepath={filepath}
+              filepath={previewFilepath}
               threadId={threadId}
               content={displayContent}
-              language={language ?? "text"}
+              language={previewLanguage ?? "text"}
             />
           )}
         {isCodeFile && viewMode === "code" && (

@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { formatAgo, formatDateTime, maskString } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { JsonMarkdownInspector } from "./json-markdown-inspector";
 import {
   extractRunSections,
@@ -26,6 +27,42 @@ function metaValue(value: number | string | undefined | null): string {
   return String(value);
 }
 
+function sectionKindLabel(kind: ReturnType<typeof extractRunSections>[number]["kind"]) {
+  switch (kind) {
+    case "reasoning":
+      return "Reasoning";
+    case "messages":
+      return "Messages";
+    case "tools":
+      return "Tool Payload";
+    case "config":
+      return "Config";
+    case "metadata":
+      return "Metadata";
+    case "state":
+    default:
+      return "State";
+  }
+}
+
+function sectionChrome(kind: ReturnType<typeof extractRunSections>[number]["kind"]) {
+  switch (kind) {
+    case "reasoning":
+      return "border-amber-200 bg-amber-50/70 dark:border-amber-900 dark:bg-amber-950/20";
+    case "messages":
+      return "border-blue-200 bg-blue-50/60 dark:border-blue-900 dark:bg-blue-950/20";
+    case "tools":
+      return "border-emerald-200 bg-emerald-50/60 dark:border-emerald-900 dark:bg-emerald-950/20";
+    case "config":
+      return "border-violet-200 bg-violet-50/60 dark:border-violet-900 dark:bg-violet-950/20";
+    case "metadata":
+      return "border-slate-200 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-950/30";
+    case "state":
+    default:
+      return "border-zinc-200 bg-background dark:border-zinc-800";
+  }
+}
+
 export function TraceRunDialog({
   open,
   onOpenChange,
@@ -36,6 +73,7 @@ export function TraceRunDialog({
   }
 
   const sections = extractRunSections(run);
+  const truncatedSectionCount = sections.filter((section) => section.truncated).length;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -90,17 +128,47 @@ export function TraceRunDialog({
               <div>Tool: {run.toolName ?? "-"}</div>
             </div>
 
+            {truncatedSectionCount > 0 && (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+                {truncatedSectionCount} section{truncatedSectionCount > 1 ? "s" : ""} contain payloads
+                truncated during backend trace capture before persistence. This
+                is not just a page display cutoff.
+              </div>
+            )}
+
             {sections.length === 0 ? (
               <p className="text-sm text-muted-foreground">No payload details captured.</p>
             ) : (
               <div className="space-y-4">
                 {sections.map((section) => (
-                  <div key={section.key} className="space-y-2">
-                    <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                      {section.title}
-                    </p>
+                  <section
+                    key={section.key}
+                    className={cn(
+                      "space-y-3 rounded-xl border px-4 py-4",
+                      sectionChrome(section.kind),
+                    )}
+                  >
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="outline" className="text-[11px]">
+                          {sectionKindLabel(section.kind)}
+                        </Badge>
+                        {section.truncated && (
+                          <Badge
+                            variant="outline"
+                            className="border-amber-300 text-[11px] text-amber-700 dark:border-amber-800 dark:text-amber-300"
+                          >
+                            trace truncated
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-sm font-medium">{section.title}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {section.description}
+                      </p>
+                    </div>
                     <JsonMarkdownInspector value={section.value} />
-                  </div>
+                  </section>
                 ))}
               </div>
             )}

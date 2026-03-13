@@ -1,20 +1,21 @@
-import type { AIMessage, Message } from "@langchain/langgraph-sdk";
+import type { AIMessage, Command, Message } from "@langchain/langgraph-sdk";
 import { useStream } from "@langchain/langgraph-sdk/react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 
 import { getAPIClient } from "../api";
+import { useAuth } from "../auth/hooks";
 import { useI18n } from "../i18n/hooks";
 import type { FileInMessage } from "../messages/utils";
-import type { LocalSettings } from "../settings";
+import { getLocalSettings, type LocalSettings } from "../settings";
 import { useUpdateSubtask } from "../tasks/context";
 import type { UploadedFileInfo } from "../uploads";
 import { uploadFiles } from "../uploads";
 
-import type { AgentThreadState } from "./types";
+import type { AgentInterruptValue, AgentThreadState } from "./types";
 
 export type ToolEndEvent = {
   name: string;
@@ -40,6 +41,19 @@ const HISTORY_PAGE_SIZE = 1;
 const STREAM_RECURSION_LIMIT = 1000;
 const THREAD_SEARCH_QUERY_KEY = ["threads", "search"] as const;
 const STREAM_MODES = ["values", "messages-tuple", "custom"] as const;
+
+function resolveThreadContext(context: ThreadContext): ThreadContext {
+  const storedContext = getLocalSettings().context;
+
+  return {
+    ...context,
+    model_name: context.model_name ?? storedContext.model_name,
+    mode: context.mode ?? storedContext.mode,
+    reasoning_effort:
+      context.reasoning_effort ?? storedContext.reasoning_effort,
+    agent_name: context.agent_name ?? storedContext.agent_name,
+  };
+}
 
 function resolveAgentName(
   context: ThreadContext,
@@ -215,6 +229,7 @@ function buildSubmitOptions(
   context: ThreadContext,
   modelName: string,
   extraContext?: Record<string, unknown>,
+  command?: Command,
 ) {
   const agentName = resolveAgentName(context, extraContext);
 
@@ -236,6 +251,7 @@ function buildSubmitOptions(
         thread_id: threadId,
       },
     },
+    command,
   };
 }
 
@@ -262,16 +278,21 @@ export function useThreadStream({
   onToolEnd,
 }: ThreadStreamOptions) {
   const { t } = useI18n();
+  const { authenticated } = useAuth();
   const apiClient = getAPIClient(isMock);
   const [streamThreadId, setStreamThreadId] = useState<string | null>(null);
   const hasStartedStreamRef = useRef(false);
-  const streamThrottle = resolveStreamThrottle(context);
+  const resolvedContext = useMemo(
+    () => resolveThreadContext(context),
+    [context],
+  );
+  const streamThrottle = resolveStreamThrottle(resolvedContext);
 
   useEffect(() => {
     let cancelled = false;
     hasStartedStreamRef.current = false;
 
-    if (!threadId) {
+    if (!threadId || !authenticated) {
       setStreamThreadId(null);
       return () => {
         cancelled = true;
@@ -300,11 +321,14 @@ export function useThreadStream({
     return () => {
       cancelled = true;
     };
-  }, [threadId, apiClient]);
+  }, [threadId, authenticated, apiClient]);
 
   const queryClient = useQueryClient();
   const updateSubtask = useUpdateSubtask();
-  const thread = useStream<AgentThreadState>({
+  const thread = useStream<
+    AgentThreadState,
+    { InterruptType: AgentInterruptValue }
+  >({
     client: apiClient,
     assistantId: LEAD_AGENT_ID,
     threadId: streamThreadId,
@@ -367,7 +391,11 @@ export function useThreadStream({
       message: PromptInputMessage,
       extraContext?: Record<string, unknown>,
     ) => {
-      const selectedModelName = requireModelName(context);
+      if (!authenticated) {
+        throw new Error("Authentication is required before submitting a run.");
+      }
+
+      const selectedModelName = requireModelName(resolvedContext);
       const text = message.text.trim();
       const files = message.files ?? [];
 
@@ -406,7 +434,7 @@ export function useThreadStream({
           buildSubmissionPayload(text, uploadedFiles),
           buildSubmitOptions(
             runThreadId,
-            context,
+            resolvedContext,
             selectedModelName,
             extraContext,
           ),
@@ -419,10 +447,49 @@ export function useThreadStream({
         throw error;
       }
     },
-    [thread, t.uploads.uploadingFiles, context, queryClient],
+    [
+      thread,
+      t.uploads.uploadingFiles,
+      authenticated,
+      queryClient,
+      resolvedContext,
+    ],
+  );
+
+  const resumeInterrupt = useCallback(
+    async (
+      runThreadId: string,
+      command: Command,
+      extraContext?: Record<string, unknown>,
+    ) => {
+      if (!authenticated) {
+        throw new Error("Authentication is required before resuming a run.");
+      }
+
+      const selectedModelName = requireModelName(resolvedContext);
+
+      await thread.submit(
+        null,
+        {
+          ...buildSubmitOptions(
+            runThreadId,
+            resolvedContext,
+            selectedModelName,
+            extraContext,
+            command,
+          ),
+          multitaskStrategy: "interrupt",
+        },
+      );
+
+      void queryClient.invalidateQueries({
+        queryKey: THREAD_SEARCH_QUERY_KEY,
+      });
+    },
+    [authenticated, queryClient, resolvedContext, thread],
   );
 
   const mergedThread = mergeOptimisticMessages(thread, optimisticMessages);
 
-  return [mergedThread, sendMessage] as const;
+  return [mergedThread, sendMessage, resumeInterrupt] as const;
 }

@@ -25,14 +25,14 @@ def test_ensure_builtin_agent_archive_rewrites_legacy_skills_mode(tmp_path, monk
     monkeypatch.setattr(builtin_agents, "_ENSURED_ARCHIVES", set())
 
     base_dir = tmp_path / ".openagents"
-    skill_dir = base_dir.parent / "skills" / "public" / "bootstrap"
-    skill_dir.mkdir(parents=True, exist_ok=True)
-    (skill_dir / "SKILL.md").write_text(
+    shared_skill_dir = base_dir / "skills" / "shared" / "bootstrap"
+    shared_skill_dir.mkdir(parents=True, exist_ok=True)
+    (shared_skill_dir / "SKILL.md").write_text(
         "---\nname: bootstrap\ndescription: bootstrap\n---\n\nbootstrap\n",
         encoding="utf-8",
     )
 
-    paths = Paths(base_dir=base_dir, skills_dir=base_dir.parent / "skills")
+    paths = Paths(base_dir=base_dir, skills_dir=base_dir / "skills")
     agent_dir = paths.agent_dir("lead_agent", "dev")
     agent_dir.mkdir(parents=True, exist_ok=True)
     (agent_dir / "config.yaml").write_text(
@@ -47,5 +47,6 @@ def test_ensure_builtin_agent_archive_rewrites_legacy_skills_mode(tmp_path, monk
     assert config_data["skill_refs"]
     assert config_data["skill_refs"][0] == {
         "name": "bootstrap",
-        "source_path": "public/bootstrap",
+        "source_path": "shared/bootstrap",
     }
+    assert (paths.shared_skills_dir / "bootstrap" / "SKILL.md").read_text(encoding="utf-8").strip().endswith("bootstrap")

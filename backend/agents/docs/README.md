@@ -6,48 +6,43 @@ This directory contains detailed documentation for the OpenAgents backend.
 
 | Document | Description |
 |----------|-------------|
+| [AGENT_PROTOCOL.md](AGENT_PROTOCOL.md) | Definition/materialization/runtime contract, including backend and path rules |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture overview |
 | [API.md](API.md) | Complete API reference |
 | [CONFIGURATION.md](CONFIGURATION.md) | Configuration options |
 | [SETUP.md](SETUP.md) | Quick setup guide |
 
-## Feature Documentation
+## Specialized Guides
 
 | Document | Description |
 |----------|-------------|
+| [APPLE_CONTAINER.md](APPLE_CONTAINER.md) | Apple Container and Docker fallback notes |
 | [FILE_UPLOAD.md](FILE_UPLOAD.md) | File upload functionality |
-| [PATH_EXAMPLES.md](PATH_EXAMPLES.md) | Path types and usage examples |
+| [MEMORY_IMPROVEMENTS.md](MEMORY_IMPROVEMENTS.md) | Memory retrieval and token-budget behavior |
 | [summarization.md](summarization.md) | Context summarization feature |
 | [plan_mode_usage.md](plan_mode_usage.md) | Plan mode with TodoList |
-| [AUTO_TITLE_GENERATION.md](AUTO_TITLE_GENERATION.md) | Automatic title generation |
-
-## Development
-
-| Document | Description |
-|----------|-------------|
-| [TODO.md](TODO.md) | Planned features and known issues |
 
 ## Getting Started
 
-1. **New to OpenAgents?** Start with [SETUP.md](SETUP.md) for quick installation
-2. **Configuring the system?** See [CONFIGURATION.md](CONFIGURATION.md)
-3. **Understanding the architecture?** Read [ARCHITECTURE.md](ARCHITECTURE.md)
-4. **Building integrations?** Check [API.md](API.md) for API reference
+1. **Changing agent/runtime/skills behavior?** Read [AGENT_PROTOCOL.md](AGENT_PROTOCOL.md) first.
+2. **Understanding the broader system?** Read [ARCHITECTURE.md](ARCHITECTURE.md).
+3. **Configuring the system?** See [CONFIGURATION.md](CONFIGURATION.md).
+4. **New to OpenAgents?** Start with [SETUP.md](SETUP.md) for quick installation.
+5. **Building integrations?** Check [API.md](API.md) for API reference.
 
 ## Document Organization
 
 ```
 docs/
 ├── README.md                  # This file
+├── AGENT_PROTOCOL.md          # Archived agent + runtime seeding contract
 ├── ARCHITECTURE.md            # System architecture
 ├── API.md                     # API reference
 ├── CONFIGURATION.md           # Configuration guide
 ├── SETUP.md                   # Setup instructions
+├── APPLE_CONTAINER.md         # Apple Container notes
 ├── FILE_UPLOAD.md             # File upload feature
-├── PATH_EXAMPLES.md           # Path usage examples
+├── MEMORY_IMPROVEMENTS.md     # Memory behavior notes
 ├── summarization.md           # Summarization feature
-├── plan_mode_usage.md         # Plan mode feature
-├── AUTO_TITLE_GENERATION.md   # Title generation
-├── TITLE_GENERATION_IMPLEMENTATION.md  # Title implementation details
-└── TODO.md                    # Roadmap and issues
+└── plan_mode_usage.md         # Plan mode feature
 ```

@@ -47,8 +47,10 @@ This is commonly used in signup flows, admin dashboards, or when importing users
 
 ## Generation Command
 
+Resolve the generator script relative to the current podcast-generation skill directory:
+
 ```bash
-python /mnt/skills/public/podcast-generation/scripts/generate.py \
+python <current-skill-dir>/scripts/generate.py \
   --script-file /mnt/user-data/workspace/tech-explainer-script.json \
   --output-file /mnt/user-data/outputs/tech-explainer-podcast.mp3 \
   --transcript-file /mnt/user-data/outputs/tech-explainer-transcript.md

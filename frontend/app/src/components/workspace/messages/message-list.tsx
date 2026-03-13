@@ -20,11 +20,13 @@ import { workspaceMessageRehypePlugins } from "@/core/streamdown";
 import type { Subtask } from "@/core/tasks";
 import { useUpdateSubtask } from "@/core/tasks/context";
 import type { AgentThreadState } from "@/core/threads";
+import type { AgentInterrupt } from "@/core/threads/types";
 import { cn } from "@/lib/utils";
 
 import { ArtifactFileList } from "../artifacts/artifact-file-list";
 import { StreamingIndicator } from "../streaming-indicator";
 
+import { ClarificationInterrupt } from "./clarification-interrupt";
 import { MarkdownContent } from "./markdown-content";
 import { MessageGroup } from "./message-group";
 import { MessageListItem } from "./message-list-item";
@@ -42,6 +44,22 @@ type MessageRendererContext = {
 const TASK_SUCCEEDED_PREFIX = "Task Succeeded. Result:";
 const TASK_FAILED_PREFIX = "Task failed.";
 const TASK_TIMED_OUT_PREFIX = "Task timed out";
+
+type TaskToolCallFallbackArgs = {
+  description?: string;
+  prompt?: string;
+  subagent_type?: string;
+};
+
+function getTaskToolCallFallback(
+  toolCall: { args?: TaskToolCallFallbackArgs },
+): Pick<Subtask, "description" | "prompt" | "subagent_type"> {
+  return {
+    description: toolCall.args?.description ?? "Running subtask",
+    prompt: toolCall.args?.prompt ?? "",
+    subagent_type: toolCall.args?.subagent_type ?? "general-purpose",
+  };
+}
 
 function mergeTaskUpdate(
   updates: Map<string, TaskUpdate>,
@@ -236,11 +254,15 @@ function renderSubagentMessage(
       </div>,
     );
 
-    for (const taskId of message.tool_calls?.map((toolCall) => toolCall.id) ?? []) {
+    for (const toolCall of message.tool_calls ?? []) {
+      if (toolCall.name !== "task" || !toolCall.id) {
+        continue;
+      }
       content.push(
         <SubtaskCard
-          key={"task-group-" + taskId}
-          taskId={taskId!}
+          key={"task-group-" + toolCall.id}
+          taskId={toolCall.id}
+          fallbackTask={getTaskToolCallFallback(toolCall)}
           isLoading={renderer.isLoading}
         />,
       );
@@ -410,6 +432,10 @@ export function MessageList({
           groups={currentTurnGroups}
           isLoading={isStreamingCurrentTurn}
           threadId={threadId}
+        />
+        <ClarificationInterrupt
+          className="mt-2"
+          interrupt={thread.interrupt as AgentInterrupt | undefined}
         />
         {thread.isLoading && <StreamingIndicator className="my-4" />}
         <div style={{ height: `${paddingBottom}px` }} />

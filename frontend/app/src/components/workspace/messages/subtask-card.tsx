@@ -22,6 +22,7 @@ import {
   workspaceMessagePlugins,
   workspaceMessageRehypePlugins,
 } from "@/core/streamdown";
+import type { Subtask } from "@/core/tasks";
 import { useSubtask } from "@/core/tasks/context";
 import { explainLastToolCall } from "@/core/tools/utils";
 import { cn } from "@/lib/utils";
@@ -34,15 +35,31 @@ import { MarkdownContent } from "./markdown-content";
 export function SubtaskCard({
   className,
   taskId,
+  fallbackTask,
   isLoading: _isLoading,
 }: {
   className?: string;
   taskId: string;
+  fallbackTask?: Partial<Subtask>;
   isLoading: boolean;
 }) {
   const { t } = useI18n();
   const [collapsed, setCollapsed] = useState(true);
-  const task = useSubtask(taskId)!;
+  const liveTask = useSubtask(taskId);
+  const task: Subtask = useMemo(
+    () => ({
+      id: taskId,
+      status: fallbackTask?.status ?? "in_progress",
+      subagent_type: fallbackTask?.subagent_type ?? "general-purpose",
+      description: fallbackTask?.description ?? t.subtasks.in_progress,
+      prompt: fallbackTask?.prompt ?? "",
+      result: fallbackTask?.result,
+      error: fallbackTask?.error,
+      latestMessage: fallbackTask?.latestMessage,
+      ...liveTask,
+    }),
+    [fallbackTask, liveTask, t.subtasks.in_progress, taskId],
+  );
   const icon = useMemo(() => {
     if (task.status === "completed") {
       return <CheckCircleIcon className="size-3" />;
@@ -74,13 +91,13 @@ export function SubtaskCard({
       <div className="bg-background/95 flex w-full flex-col rounded-lg">
         <div className="flex w-full items-center justify-between p-0.5">
           <Button
-            className="w-full items-start justify-start text-left"
+            className="h-auto w-full min-w-0 items-start justify-start whitespace-normal px-3 py-2 text-left"
             variant="ghost"
             onClick={() => setCollapsed(!collapsed)}
           >
-            <div className="flex w-full items-center justify-between">
+            <div className="flex w-full min-w-0 items-start justify-between gap-2">
               <ChainOfThoughtStep
-                className="font-normal"
+                className="min-w-0 flex-1 font-normal"
                 label={
                   task.status === "in_progress" ? (
                     <Shimmer duration={3} spread={3}>

@@ -1,4 +1,4 @@
-import type { Message, Thread } from "@langchain/langgraph-sdk";
+import type { Interrupt, Message, Thread } from "@langchain/langgraph-sdk";
 
 import type { Todo } from "../todos";
 
@@ -10,6 +10,20 @@ export interface AgentThreadState extends Record<string, unknown> {
 }
 
 export interface AgentThread extends Thread<AgentThreadState> {}
+
+export type AgentInterruptActionRequest = {
+  id?: string;
+  name?: string;
+  args?: Record<string, unknown>;
+};
+
+export type AgentInterruptValue = {
+  action_requests?: AgentInterruptActionRequest[];
+  review_configs?: unknown[];
+  [key: string]: unknown;
+};
+
+export type AgentInterrupt = Interrupt<AgentInterruptValue>;
 
 export interface AgentThreadContext extends Record<string, unknown> {
   thread_id: string;

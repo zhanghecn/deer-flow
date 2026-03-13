@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -9,7 +9,7 @@ import { EventTree } from "./event-tree";
 import { TokenSummary } from "./token-summary";
 import { useFetch } from "@/hooks/use-fetch";
 import type { TraceItem, TraceEvent } from "@/types";
-import { buildTraceRuns } from "./trace-run-utils";
+import { buildTraceRuns, isCoreTraceRun } from "./trace-run-utils";
 
 interface TraceDetailProps {
   trace: TraceItem | null;
@@ -17,6 +17,7 @@ interface TraceDetailProps {
 }
 
 type ViewMode = "timeline" | "galaxy";
+type RunFilter = "core" | "all";
 
 const GalaxyTraceView = lazy(async () => {
   const module = await import("./galaxy-trace-view");
@@ -24,25 +25,6 @@ const GalaxyTraceView = lazy(async () => {
 });
 
 export function TraceDetail({ trace, expanded = false }: TraceDetailProps) {
-  const [viewMode, setViewMode] = useState<ViewMode>("timeline");
-  const { data, isLoading } = useFetch<{ items: TraceEvent[] }>(
-    trace ? `/api/admin/traces/${trace.trace_id}/events` : null,
-  );
-  const events = data?.items ?? [];
-  const runs = useMemo(
-    () => buildTraceRuns(events, trace?.root_run_id),
-    [events, trace?.root_run_id],
-  );
-  const toolNames = useMemo(() => {
-    const rawToolNames = trace?.metadata?.tool_names;
-    if (!Array.isArray(rawToolNames)) return [];
-    return rawToolNames.filter((item): item is string => typeof item === "string");
-  }, [trace?.metadata]);
-
-  useEffect(() => {
-    setViewMode("timeline");
-  }, [trace?.trace_id]);
-
   if (!trace) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -50,6 +32,54 @@ export function TraceDetail({ trace, expanded = false }: TraceDetailProps) {
       </div>
     );
   }
+
+  return (
+    <TraceDetailContent
+      key={trace.trace_id}
+      trace={trace}
+      expanded={expanded}
+    />
+  );
+}
+
+interface TraceDetailContentProps {
+  trace: TraceItem;
+  expanded: boolean;
+}
+
+function TraceDetailContent({
+  trace,
+  expanded,
+}: TraceDetailContentProps) {
+  const [viewMode, setViewMode] = useState<ViewMode>("timeline");
+  const [runFilter, setRunFilter] = useState<RunFilter>("core");
+  const { data, isLoading } = useFetch<{ items: TraceEvent[] }>(
+    trace ? `/api/admin/traces/${trace.trace_id}/events` : null,
+  );
+  const events = useMemo(() => data?.items ?? [], [data?.items]);
+  const runs = useMemo(
+    () => buildTraceRuns(events, trace.root_run_id),
+    [events, trace.root_run_id],
+  );
+  const toolNames = useMemo(() => {
+    const rawToolNames = trace.metadata?.tool_names;
+    if (!Array.isArray(rawToolNames)) return [];
+    return rawToolNames.filter((item): item is string => typeof item === "string");
+  }, [trace.metadata]);
+
+  const visibleRuns = useMemo(
+    () => (runFilter === "all" ? runs : runs.filter(isCoreTraceRun)),
+    [runFilter, runs],
+  );
+  const hiddenRunCount = runs.length - visibleRuns.length;
+  const reasoningRunCount = useMemo(
+    () => visibleRuns.filter((run) => run.hasReasoning).length,
+    [visibleRuns],
+  );
+  const truncatedRunCount = useMemo(
+    () => visibleRuns.filter((run) => run.hasTruncatedPayload).length,
+    [visibleRuns],
+  );
 
   return (
     <ScrollArea className={expanded ? "h-[calc(100vh-13rem)]" : "h-[calc(100vh-16rem)]"}>
@@ -136,6 +166,20 @@ export function TraceDetail({ trace, expanded = false }: TraceDetailProps) {
             <h4 className="text-sm font-medium">Events</h4>
             <div className="flex items-center gap-2">
               <Button
+                variant={runFilter === "core" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setRunFilter("core")}
+              >
+                Core
+              </Button>
+              <Button
+                variant={runFilter === "all" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setRunFilter("all")}
+              >
+                All
+              </Button>
+              <Button
                 variant={viewMode === "timeline" ? "default" : "outline"}
                 size="sm"
                 onClick={() => setViewMode("timeline")}
@@ -151,6 +195,33 @@ export function TraceDetail({ trace, expanded = false }: TraceDetailProps) {
               </Button>
             </div>
           </div>
+          {runFilter === "core" && hiddenRunCount > 0 && (
+            <p className="mb-3 text-xs text-muted-foreground">
+              Hidden {hiddenRunCount} noisy wrapper runs. Switch to `All` if you
+              need the full raw chain.
+            </p>
+          )}
+          {(reasoningRunCount > 0 || truncatedRunCount > 0) && (
+            <div className="mb-3 flex flex-wrap gap-1.5">
+              {reasoningRunCount > 0 && (
+                <Badge
+                  variant="outline"
+                  className="border-amber-300 text-xs text-amber-700 dark:border-amber-800 dark:text-amber-300"
+                >
+                  {reasoningRunCount} run{reasoningRunCount > 1 ? "s" : ""} with reasoning
+                </Badge>
+              )}
+              {truncatedRunCount > 0 && (
+                <Badge
+                  variant="outline"
+                  className="border-amber-300 text-xs text-amber-700 dark:border-amber-800 dark:text-amber-300"
+                >
+                  {truncatedRunCount} backend-truncated run
+                  {truncatedRunCount > 1 ? "s" : ""}
+                </Badge>
+              )}
+            </div>
+          )}
           {isLoading ? (
             <div className="space-y-2">
               {Array.from({ length: 6 }).map((_, i) => (
@@ -168,12 +239,12 @@ export function TraceDetail({ trace, expanded = false }: TraceDetailProps) {
               }
             >
               <GalaxyTraceView
-                runs={runs}
+                runs={visibleRuns}
                 rootRunId={trace.root_run_id}
               />
             </Suspense>
           ) : (
-            <EventTree runs={runs} />
+            <EventTree runs={visibleRuns} />
           )}
         </div>
       </div>

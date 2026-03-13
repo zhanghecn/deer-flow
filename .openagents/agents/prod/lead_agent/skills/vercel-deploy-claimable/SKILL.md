@@ -19,8 +19,11 @@ Deploy any project to Vercel instantly. No authentication required.
 
 ## Usage
 
+After reading this `SKILL.md`, treat its parent directory as `<current-skill-dir>`.
+Resolve the deploy script relative to this skill directory.
+
 ```bash
-bash /mnt/skills/user/vercel-deploy/scripts/deploy.sh [path]
+bash <current-skill-dir>/scripts/deploy.sh [path]
 ```
 
 **Arguments:**
@@ -30,13 +33,13 @@ bash /mnt/skills/user/vercel-deploy/scripts/deploy.sh [path]
 
 ```bash
 # Deploy current directory
-bash /mnt/skills/user/vercel-deploy/scripts/deploy.sh
+bash <current-skill-dir>/scripts/deploy.sh
 
 # Deploy specific project
-bash /mnt/skills/user/vercel-deploy/scripts/deploy.sh /path/to/project
+bash <current-skill-dir>/scripts/deploy.sh /path/to/project
 
 # Deploy existing tarball
-bash /mnt/skills/user/vercel-deploy/scripts/deploy.sh /path/to/project.tgz
+bash <current-skill-dir>/scripts/deploy.sh /path/to/project.tgz
 ```
 
 ## Output

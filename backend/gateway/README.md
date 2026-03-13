@@ -227,7 +227,7 @@ POST /open/v1/agents/:name/stream  # 只有 prod agent 可通过 Open API 调用
 ```text
                      +----------------------------------+
                      | shared skills library            |
-                     | skills/public + skills/custom    |
+                     | .openagents/skills/{shared,store} |
                      +----------------+-----------------+
                                       |
                                       | select skill names

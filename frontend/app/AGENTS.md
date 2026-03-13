@@ -12,7 +12,7 @@ Stack: Next.js 16, React 19, TypeScript 5.8, Tailwind CSS 4, pnpm 10.26.2.
 
 | Command | Purpose |
 |---------|---------|
-| `pnpm dev` | Start the dev server with Turbopack on `http://localhost:3000` |
+| `pnpm dev` | Start the dev server on `http://localhost:3000` (current script uses `next dev --webpack --disable-source-maps`) |
 | `pnpm build` | Build the production bundle |
 | `pnpm check` | Run lint and type-check together |
 | `pnpm lint` | Run ESLint |

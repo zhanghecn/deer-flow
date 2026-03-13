@@ -200,16 +200,17 @@ Skills are loaded progressively — only when the task needs them, not all at on
 Tools follow the same philosophy. OpenAgents comes with a core toolset — web search, web fetch, file operations, bash execution — and supports custom tools via MCP servers and Python functions. Swap anything. Add anything.
 
 ```
-# Paths inside the sandbox container
-/mnt/skills/public
+# Shared skill archive on the host
+.openagents/skills/shared
 ├── research/SKILL.md
 ├── report-generation/SKILL.md
 ├── slide-creation/SKILL.md
 ├── web-page/SKILL.md
 └── image-generation/SKILL.md
 
-/mnt/skills/custom
-└── your-custom-skill/SKILL.md      ← yours
+# Skill paths visible to an agent at runtime
+/mnt/user-data/agents/dev/lead_agent/skills
+└── image-generation/SKILL.md
 ```
 
 ### Sub-Agents

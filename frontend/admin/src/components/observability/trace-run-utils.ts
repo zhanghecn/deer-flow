@@ -22,11 +22,17 @@ export interface TraceRunSummary {
   errorEvent?: TraceEvent;
   label: string;
   summary: string;
+  hasReasoning: boolean;
+  reasoningPreview?: string;
+  hasTruncatedPayload: boolean;
 }
 
 export interface TracePayloadSection {
   key: string;
   title: string;
+  description: string;
+  kind: "reasoning" | "messages" | "tools" | "config" | "state" | "metadata";
+  truncated: boolean;
   value: unknown;
 }
 
@@ -43,6 +49,15 @@ const PREVIEW_KEYS = [
   "preview",
 ];
 
+const CHAIN_STATE_KEYS = new Set([
+  "messages",
+  "todos",
+  "artifacts",
+  "files",
+  "skills_metadata",
+  "thread_data",
+]);
+
 function toRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -56,6 +71,43 @@ function hasValue(value: unknown): boolean {
   if (Array.isArray(value)) return value.length > 0;
   if (typeof value === "object") return Object.keys(value as object).length > 0;
   return true;
+}
+
+function hasTruncationMarker(value: unknown, depth = 0): boolean {
+  if (depth > 8 || value == null) return false;
+  if (typeof value === "string") {
+    return value.includes("...[truncated");
+  }
+  if (Array.isArray(value)) {
+    return value.some((item) => hasTruncationMarker(item, depth + 1));
+  }
+  if (typeof value === "object") {
+    const payload = toRecord(value);
+    if (!payload) return false;
+    if (payload.truncated === true) return true;
+    if ("__truncated__" in payload) return true;
+    return Object.values(payload).some((item) =>
+      hasTruncationMarker(item, depth + 1),
+    );
+  }
+  return false;
+}
+
+function makeSection(
+  key: string,
+  title: string,
+  description: string,
+  kind: TracePayloadSection["kind"],
+  value: unknown,
+): TracePayloadSection {
+  return {
+    key,
+    title,
+    description,
+    kind,
+    truncated: hasTruncationMarker(value),
+    value,
+  };
 }
 
 function toStatus(status: string | undefined): RunStatus {
@@ -177,6 +229,218 @@ function extractToolNames(rawTools: unknown): string[] {
       return "";
     })
     .filter((name) => name.trim().length > 0);
+}
+
+function normalizeMessageCollection(messages: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(messages)) return [];
+
+  return messages
+    .map((item) => {
+      const rawMessage = toRecord(item);
+      if (rawMessage) {
+        return {
+          ...rawMessage,
+          content: normalizeReadableValue(rawMessage.content),
+          additional_kwargs: normalizeReadableValue(rawMessage.additional_kwargs),
+          response_metadata: normalizeReadableValue(rawMessage.response_metadata),
+        };
+      }
+
+      const normalizedItem = normalizeReadableValue(item);
+      return toRecord(normalizedItem);
+    })
+    .filter((item): item is Record<string, unknown> => item !== null);
+}
+
+function selectRecentMessages(messages: unknown, limit = 2): unknown {
+  const normalizedMessages = normalizeMessageCollection(messages).filter(
+    (message) => {
+      const role = String(message.role ?? message.type ?? "").toLowerCase();
+      return role !== "system";
+    },
+  );
+
+  if (normalizedMessages.length === 0) {
+    return messages;
+  }
+
+  return normalizedMessages.slice(-limit);
+}
+
+function extractReasoningText(content: unknown): string {
+  if (!Array.isArray(content)) return "";
+
+  return content
+    .map((item) => {
+      const block = toRecord(item);
+      if (!block) return "";
+      const blockType = block.type;
+      if (blockType !== "thinking" && blockType !== "reasoning") {
+        return "";
+      }
+
+      for (const key of [
+        "thinking",
+        "reasoning",
+        "reasoning_content",
+        "text",
+      ] as const) {
+        const value = block[key];
+        if (typeof value === "string" && value.trim().length > 0) {
+          return value.trim();
+        }
+      }
+
+      return "";
+    })
+    .filter((value) => value.length > 0)
+    .join("\n\n");
+}
+
+function extractReasoningSectionValue(messages: unknown): string | null {
+  const normalizedMessages = normalizeMessageCollection(messages);
+  const chunks: string[] = [];
+
+  for (const message of normalizedMessages) {
+    const additionalKwargs = toRecord(message.additional_kwargs);
+    const role = typeof message.role === "string" ? message.role : "assistant";
+    const reasoningFromKwargs =
+      typeof additionalKwargs?.reasoning_content === "string"
+        ? additionalKwargs.reasoning_content.trim()
+        : "";
+    const reasoningFromContent = extractReasoningText(message.content);
+    const reasoning = reasoningFromKwargs || reasoningFromContent;
+    if (!reasoning) continue;
+    chunks.push(`### ${role}\n\n${reasoning}`);
+  }
+
+  if (chunks.length === 0) {
+    return null;
+  }
+
+  return chunks.join("\n\n");
+}
+
+function normalizeReasoningPreview(reasoning: string): string {
+  return truncateText(
+    reasoning
+      .replace(/^###\s+[^\n]+\n+/gm, "")
+      .replace(/\s+/g, " ")
+      .trim(),
+    140,
+  );
+}
+
+function splitChainStateSections(
+  prefix: "chain-inputs" | "chain-outputs",
+  title: "Input Snapshot" | "Output Snapshot",
+  value: unknown,
+): TracePayloadSection[] {
+  const payload = toRecord(normalizeTraceValue(value));
+  if (!payload) {
+    return hasValue(value)
+      ? [
+          makeSection(
+            prefix,
+            title,
+            "Captured LangGraph state for this chain run.",
+            "state",
+            value,
+          ),
+        ]
+      : [];
+  }
+
+  const sections: TracePayloadSection[] = [];
+  const recentMessages = selectRecentMessages(payload.messages);
+  if (hasValue(recentMessages)) {
+    sections.push(
+      makeSection(
+        `${prefix}-messages`,
+        "Recent Messages",
+        "Latest non-system messages carried by this chain state. Older conversation history is intentionally hidden here to reduce duplication with LLM runs.",
+        "messages",
+        recentMessages,
+      ),
+    );
+  }
+
+  if (hasValue(payload.todos)) {
+    sections.push(
+      makeSection(
+        `${prefix}-todos`,
+        "Todo State",
+        "Task-planning state tracked for this run.",
+        "state",
+        payload.todos,
+      ),
+    );
+  }
+
+  if (hasValue(payload.artifacts)) {
+    sections.push(
+      makeSection(
+        `${prefix}-artifacts`,
+        "Artifacts",
+        "Artifacts attached to the conversation state at this step.",
+        "state",
+        payload.artifacts,
+      ),
+    );
+  }
+
+  if (hasValue(payload.files)) {
+    sections.push(
+      makeSection(
+        `${prefix}-files`,
+        "Files",
+        "Workspace file state referenced by this run.",
+        "state",
+        payload.files,
+      ),
+    );
+  }
+
+  if (hasValue(payload.skills_metadata)) {
+    sections.push(
+      makeSection(
+        `${prefix}-skills`,
+        "Skill Injection",
+        "Skills injected into the prompt/runtime for this step.",
+        "state",
+        payload.skills_metadata,
+      ),
+    );
+  }
+
+  if (hasValue(payload.thread_data)) {
+    sections.push(
+      makeSection(
+        `${prefix}-thread-data`,
+        "Thread Data",
+        "Resolved workspace, uploads, and output paths for this thread.",
+        "state",
+        payload.thread_data,
+      ),
+    );
+  }
+
+  const remaining = Object.fromEntries(
+    Object.entries(payload).filter(([key]) => !CHAIN_STATE_KEYS.has(key)),
+  );
+  if (hasValue(remaining)) {
+    sections.push(
+      makeSection(
+        prefix,
+        title,
+        "Remaining LangGraph state after separating messages, todos, files, and artifacts into dedicated sections.",
+        "state",
+        remaining,
+      ),
+    );
+  }
+
+  return sections;
 }
 
 function humanizeNodeName(nodeName?: string): string {
@@ -346,6 +610,30 @@ function resolveRunSummary(run: TraceRunSummary): string {
   return summarizeChainRun(run);
 }
 
+function resolveRunReasoningPreview(run: TraceRunSummary): string {
+  if (run.runType !== "llm") {
+    return "";
+  }
+
+  const endPayload = toRecord(run.endEvent?.payload ?? run.errorEvent?.payload);
+  const modelResponse = toRecord(
+    normalizeTraceValue(endPayload?.model_response),
+  );
+  const reasoning = extractReasoningSectionValue(modelResponse?.messages);
+  if (!reasoning) {
+    return "";
+  }
+
+  return normalizeReasoningPreview(reasoning);
+}
+
+function resolveRunTruncation(run: TraceRunSummary): boolean {
+  return (
+    hasTruncationMarker(run.startEvent?.payload) ||
+    hasTruncationMarker(run.endEvent?.payload ?? run.errorEvent?.payload)
+  );
+}
+
 function resolveDepth(
   runId: string,
   runMap: Map<string, TraceRunSummary>,
@@ -404,6 +692,8 @@ export function buildTraceRuns(
       depth: 0,
       label: "",
       summary: "",
+      hasReasoning: false,
+      hasTruncatedPayload: false,
     };
 
     run.parentRunId = run.parentRunId ?? event.parent_run_id ?? null;
@@ -444,6 +734,9 @@ export function buildTraceRuns(
     );
     run.label = resolveRunLabel(run);
     run.summary = resolveRunSummary(run);
+    run.reasoningPreview = resolveRunReasoningPreview(run) || undefined;
+    run.hasReasoning = Boolean(run.reasoningPreview);
+    run.hasTruncatedPayload = resolveRunTruncation(run);
   }
 
   return [...runMap.values()].sort((a, b) => {
@@ -472,21 +765,42 @@ export function extractRunSections(
   );
 
   if (run.runType === "llm") {
+    const reasoning = extractReasoningSectionValue(modelResponse?.messages);
+    if (reasoning) {
+      sections.push(
+        makeSection(
+          "response-reasoning",
+          "Model Reasoning / Thinking",
+          "Internal reasoning blocks emitted by the model and captured by the trace backend.",
+          "reasoning",
+          reasoning,
+        ),
+      );
+    }
+
     const requestMessages = modelRequest?.messages;
     if (hasValue(requestMessages)) {
-      sections.push({
-        key: "request-messages",
-        title: "Model Request Messages",
-        value: requestMessages,
-      });
+      sections.push(
+        makeSection(
+          "request-messages",
+          "Model Request Messages",
+          "Messages sent to the model after middleware and prompt assembly.",
+          "messages",
+          requestMessages,
+        ),
+      );
     }
 
     if (hasValue(modelRequest?.tools)) {
-      sections.push({
-        key: "request-tools",
-        title: "Registered Tools",
-        value: modelRequest?.tools,
-      });
+      sections.push(
+        makeSection(
+          "request-tools",
+          "Registered Tools",
+          "Tool schemas exposed to the model for this invocation.",
+          "tools",
+          modelRequest?.tools,
+        ),
+      );
     }
 
     const requestConfig = {
@@ -503,78 +817,105 @@ export function extractRunSections(
       Object.entries(requestConfig).filter(([, value]) => hasValue(value)),
     );
     if (hasValue(filteredRequestConfig)) {
-      sections.push({
-        key: "request-config",
-        title: "Request Config",
-        value: filteredRequestConfig,
-      });
+      sections.push(
+        makeSection(
+          "request-config",
+          "Request Config",
+          "Resolved model, tool-choice, and inference settings for this call.",
+          "config",
+          filteredRequestConfig,
+        ),
+      );
     }
 
     const responseMessages = modelResponse?.messages;
     if (hasValue(responseMessages)) {
-      sections.push({
-        key: "response-messages",
-        title: "Model Response Messages",
-        value: responseMessages,
-      });
+      sections.push(
+        makeSection(
+          "response-messages",
+          "Model Response Messages",
+          "Assistant messages returned by the model, including tool calls and visible text.",
+          "messages",
+          responseMessages,
+        ),
+      );
     }
 
     const responseToolCalls = modelResponse?.tool_calls;
     if (hasValue(responseToolCalls)) {
-      sections.push({
-        key: "response-tool-calls",
-        title: "Model Tool Calls",
-        value: responseToolCalls,
-      });
+      sections.push(
+        makeSection(
+          "response-tool-calls",
+          "Model Tool Calls",
+          "Normalized tool call payloads emitted by the model.",
+          "tools",
+          responseToolCalls,
+        ),
+      );
     }
 
     if (hasValue(endPayload?.llm_output)) {
-      sections.push({
-        key: "llm-output",
-        title: "LLM Output Metadata",
-        value: endPayload?.llm_output,
-      });
+      sections.push(
+        makeSection(
+          "llm-output",
+          "LLM Output Metadata",
+          "Provider-specific token usage and stop metadata captured from the SDK response.",
+          "metadata",
+          endPayload?.llm_output,
+        ),
+      );
     }
   } else if (run.runType === "tool") {
     if (hasValue(startPayload?.tool_call)) {
-      sections.push({
-        key: "tool-call",
-        title: "Tool Call",
-        value: startPayload?.tool_call,
-      });
+      sections.push(
+        makeSection(
+          "tool-call",
+          "Tool Call",
+          "Arguments passed into the tool at invocation time.",
+          "tools",
+          startPayload?.tool_call,
+        ),
+      );
     }
 
     if (hasValue(endPayload?.tool_response)) {
-      sections.push({
-        key: "tool-response",
-        title: "Tool Response",
-        value: endPayload?.tool_response,
-      });
+      sections.push(
+        makeSection(
+          "tool-response",
+          "Tool Response",
+          "Result returned by the tool. If marked as truncated, the backend capture was shortened before the payload was stored.",
+          "tools",
+          endPayload?.tool_response,
+        ),
+      );
     }
   } else {
-    if (hasValue(startPayload?.inputs)) {
-      sections.push({
-        key: "chain-inputs",
-        title: "Inputs",
-        value: startPayload?.inputs,
-      });
-    }
-
-    if (hasValue(endPayload?.outputs)) {
-      sections.push({
-        key: "chain-outputs",
-        title: "Outputs",
-        value: endPayload?.outputs,
-      });
-    }
+    sections.push(
+      ...splitChainStateSections(
+        "chain-inputs",
+        "Input Snapshot",
+        startPayload?.inputs,
+      ),
+    );
+    sections.push(
+      ...splitChainStateSections(
+        "chain-outputs",
+        "Output Snapshot",
+        endPayload?.outputs,
+      ),
+    );
   }
 
   if (hasValue(startPayload?.metadata)) {
-    sections.push({
-      key: "run-metadata",
-      title: "Run Metadata",
-      value: startPayload?.metadata,
-    });
+    sections.push(
+      makeSection(
+        "run-metadata",
+        "Run Metadata",
+        "LangGraph/OpenAgents metadata captured for this run, including node placement, trace IDs, and runtime config.",
+        "metadata",
+        startPayload?.metadata,
+      ),
+    );
   }
 
   return sections;
@@ -584,4 +925,16 @@ export function isMiddlewareRun(run: TraceRunSummary): boolean {
   return (
     run.runType === "chain" && (run.nodeName?.includes("Middleware") ?? false)
   );
+}
+
+export function isCoreTraceRun(run: TraceRunSummary): boolean {
+  if (isMiddlewareRun(run)) {
+    return false;
+  }
+
+  if (run.runType === "chain" && (run.nodeName === "tools" || run.nodeName === "model")) {
+    return false;
+  }
+
+  return true;
 }

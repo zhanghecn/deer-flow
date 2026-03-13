@@ -1,6 +1,5 @@
 import base64
 import os
-import sys
 import time
 
 import requests
@@ -12,7 +11,7 @@ def generate_video(
     output_file: str,
     aspect_ratio: str = "16:9",
 ) -> str:
-    with open(prompt_file, "r", encoding="utf-8") as f:
+    with open(prompt_file, "r") as f:
         prompt = f.read()
     referenceImages = []
     i = 0
@@ -33,7 +32,7 @@ def generate_video(
         json["instances"][0]["referenceImages"] = referenceImages
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        raise RuntimeError("GEMINI_API_KEY is not set")
+        return "GEMINI_API_KEY is not set"
     response = requests.post(
         "https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:predictLongRunning",
         headers={
@@ -58,22 +57,19 @@ def generate_video(
             download(url, output_file)
             break
         time.sleep(3)
-    if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
-        raise RuntimeError(f"Video generation did not produce a valid file: {output_file}")
     return f"The video has been generated successfully to {output_file}"
 
 
 def download(url: str, output_file: str):
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        raise RuntimeError("GEMINI_API_KEY is not set")
+        return "GEMINI_API_KEY is not set"
     response = requests.get(
         url,
         headers={
             "x-goog-api-key": api_key,
         },
     )
-    response.raise_for_status()
     with open(output_file, "wb") as f:
         f.write(response.content)
 
@@ -117,5 +113,4 @@ if __name__ == "__main__":
             )
         )
     except Exception as e:
-        print(f"Error while generating video: {e}", file=sys.stderr)
-        raise SystemExit(1) from e
+        print(f"Error while generating video: {e}")

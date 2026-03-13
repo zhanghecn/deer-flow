@@ -167,6 +167,51 @@ Relative `storage.base_dir` and `skills.path` values are resolved from the direc
 - Skills are automatically discovered and loaded
 - Available in both local and Docker sandbox via path mapping
 
+### MCP And Extensions
+
+MCP servers and skill enablement are loaded from `extensions_config.json` in the
+project root.
+
+Basic flow:
+
+1. Copy `extensions_config.example.json` to `extensions_config.json`
+2. Enable the desired MCP servers or skills with `"enabled": true`
+3. Configure command/args/env or HTTP/SSE settings per server
+4. Restart the application so tools are reloaded
+
+Example:
+
+```json
+{
+  "mcpServers": {
+    "secure-http-server": {
+      "enabled": true,
+      "type": "http",
+      "url": "https://api.example.com/mcp",
+      "oauth": {
+        "enabled": true,
+        "token_url": "https://auth.example.com/oauth/token",
+        "grant_type": "client_credentials",
+        "client_id": "$MCP_OAUTH_CLIENT_ID",
+        "client_secret": "$MCP_OAUTH_CLIENT_SECRET",
+        "scope": "mcp.read",
+        "refresh_skew_seconds": 60
+      }
+    }
+  }
+}
+```
+
+Supported MCP transports and features:
+
+- `stdio`
+- `http`
+- `sse`
+- OAuth token acquisition and refresh for `http`/`sse` servers
+
+Secrets should be provided through environment variables rather than committed
+into `extensions_config.json`.
+
 ### Title Generation
 
 Automatic conversation title generation:
@@ -217,6 +262,9 @@ OpenAgents searches for configuration in this order:
 4. **Keep `config.example.yaml` updated** - Document all new options
 5. **Test configuration changes locally** - Before deploying
 6. **Use Docker sandbox for production** - Better isolation and security
+
+See [AGENT_PROTOCOL.md](AGENT_PROTOCOL.md) for the runtime-visible path
+contract and backend mapping rules.
 
 ## Troubleshooting
 

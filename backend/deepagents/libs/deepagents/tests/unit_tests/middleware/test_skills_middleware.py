@@ -27,6 +27,7 @@ from deepagents.middleware.skills import (
     MAX_SKILL_COMPATIBILITY_LENGTH,
     MAX_SKILL_DESCRIPTION_LENGTH,
     MAX_SKILL_FILE_SIZE,
+    SKILLS_SYSTEM_PROMPT,
     SkillMetadata,
     SkillsMiddleware,
     _format_skill_annotations,
@@ -758,6 +759,12 @@ def test_format_skills_list_empty() -> None:
     assert "No skills available" in result
     assert "/skills/user/" in result
     assert "/skills/project/" in result
+
+
+def test_skills_system_prompt_describes_relative_path_resolution() -> None:
+    """Skill helper paths should resolve from the loaded SKILL.md directory."""
+    assert "parent directory of the listed `SKILL.md`" in SKILLS_SYSTEM_PROMPT
+    assert "Do not invent host-specific paths" in SKILLS_SYSTEM_PROMPT
 
 
 def test_format_skills_list_single_skill() -> None:

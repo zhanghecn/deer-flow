@@ -66,8 +66,7 @@ Custom agents now follow one filesystem protocol:
 - `dev` and `prod` are separate local archives so prompts, copied skills, and memory do not bleed into each other
 - Runtime sandbox choice belongs to Python startup/config; it does not come from `dev/prod`
 - At runtime, Python seeds a thread-local copy into `/mnt/user-data/...`
-- The default `lead_agent` uses `/mnt/user-data/skills/`
-- Named agents use `/mnt/user-data/agents/{status}/{name}/skills/` and `/mnt/user-data/agents/{status}/{name}/AGENTS.md`
+- All agents, including `lead_agent`, use `/mnt/user-data/agents/{status}/{name}/skills/` and `/mnt/user-data/agents/{status}/{name}/AGENTS.md`
 
 See [docs/AGENT_PROTOCOL.md](docs/AGENT_PROTOCOL.md) for the full contract and ASCII flow diagram.
 
@@ -96,8 +95,7 @@ Per-thread isolated execution with a definition/runtime split:
   - sandbox disabled in Python config: use `LocalShellBackend` rooted at the thread `user-data` directory
   - sandbox enabled in Python config: resolve the configured provider in Python and acquire a sandbox implementing deepagents `BaseSandbox`
 - **Runtime seeding**:
-  - default `lead_agent`: copy the full archived `skills/` tree into `/mnt/user-data/skills/`
-  - named agent: copy `agents/{status}/{name}/**` into `/mnt/user-data/agents/{status}/{name}/**`
+  - every agent, including `lead_agent`: copy `agents/{status}/{name}/**` into `/mnt/user-data/agents/{status}/{name}/**`
   - deepagents reads skills and `AGENTS.md` only from that runtime copy
 - `dev/prod` only decide which archived version is loaded; open API always resolves `prod`
 
@@ -404,9 +402,9 @@ uv run pytest
 - [Configuration Guide](docs/CONFIGURATION.md)
 - [Architecture Details](docs/ARCHITECTURE.md)
 - [Agent Protocol](docs/AGENT_PROTOCOL.md)
+- [Agent Protocol](docs/AGENT_PROTOCOL.md)
 - [API Reference](docs/API.md)
 - [File Upload](docs/FILE_UPLOAD.md)
-- [Path Examples](docs/PATH_EXAMPLES.md)
 - [Context Summarization](docs/summarization.md)
 - [Plan Mode](docs/plan_mode_usage.md)
 - [Setup Guide](docs/SETUP.md)

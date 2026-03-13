@@ -125,13 +125,12 @@ FastAPI application providing REST endpoints for non-agent operations.
 
 The runtime now separates three concerns:
 
-- **Shared skills archive**: `skills/{public,custom}/`
+- **Shared skills archive**: `.openagents/skills/shared/**`, `.openagents/skills/store/dev/**`, `.openagents/skills/store/prod/**`
 - **Agent materialization**: `agents/{status}/{name}/AGENTS.md`, `config.yaml`, copied `skills/`
 - **Thread runtime data**: `threads/{thread_id}/user-data/{workspace,uploads,outputs}`
 
 At runtime, Python seeds a thread-local copy into `/mnt/user-data/...`.
-The default `lead_agent` uses `/mnt/user-data/skills/`.
-Named agents use `/mnt/user-data/agents/{status}/{name}/skills/` and `/mnt/user-data/agents/{status}/{name}/AGENTS.md`.
+All agents, including `lead_agent`, use `/mnt/user-data/agents/{status}/{name}/skills/` and `/mnt/user-data/agents/{status}/{name}/AGENTS.md`.
 
 See [AGENT_PROTOCOL.md](./AGENT_PROTOCOL.md) for the end-to-end lifecycle and ASCII flow.
 
@@ -195,7 +194,6 @@ class ThreadState(AgentState):
 | `/mnt/user-data/workspace` | `backend/agents/.openagents/threads/{thread_id}/user-data/workspace` |
 | `/mnt/user-data/uploads` | `backend/agents/.openagents/threads/{thread_id}/user-data/uploads` |
 | `/mnt/user-data/outputs` | `backend/agents/.openagents/threads/{thread_id}/user-data/outputs` |
-| `/mnt/user-data/skills` (default lead_agent runtime copy) | seeded from full `skills/` archive |
 | `/mnt/user-data/agents/{status}/{name}/skills` | seeded from `agents/{status}/{name}/skills/` |
 | `/mnt/user-data/agents/{status}/{name}/AGENTS.md` | seeded from archived agent `AGENTS.md` |
 
@@ -323,16 +321,16 @@ extensions_config.json:
 
 Directory Structure:
 ┌─────────────────────────────────────────────────────────────────────────┐
-│ skills/                                                                  │
-│ ├── public/                        # Public skills (committed)           │
+│ .openagents/skills/                                                      │
+│ ├── shared/                        # Shared skills source                │
 │ │   ├── pdf-processing/                                                 │
 │ │   │   └── SKILL.md                                                    │
 │ │   ├── frontend-design/                                                │
 │ │   │   └── SKILL.md                                                    │
 │ │   └── ...                                                             │
-│ └── custom/                        # Custom skills (gitignored)          │
-│     └── user-installed/                                                 │
-│         └── SKILL.md                                                    │
+│ └── store/                         # Skill promotion lifecycle           │
+│     ├── dev/                                                            │
+│     └── prod/                                                           │
 └─────────────────────────────────────────────────────────────────────────┘
 
 SKILL.md Format:

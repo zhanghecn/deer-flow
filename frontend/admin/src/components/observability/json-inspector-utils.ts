@@ -130,45 +130,91 @@ function decodeEscapedUnicode(value: string): string {
     );
 }
 
-function collectTextMatches(
+function readQuotedAssignmentValue(
   text: string,
-  pattern: RegExp,
-  valueIndex: number,
-): string[] {
-  return [...text.matchAll(pattern)]
-    .map((match) => normalizeCapturedText(match[valueIndex] ?? ""))
-    .filter((value) => value.length > 0);
+  startIndex: number,
+): { value: string; endIndex: number } | null {
+  const quote = text[startIndex];
+  if (quote !== "'" && quote !== '"') {
+    return null;
+  }
+
+  let rawValue = "";
+  let escaped = false;
+
+  for (let index = startIndex + 1; index < text.length; index += 1) {
+    const char = text[index];
+
+    if (escaped) {
+      rawValue += `\\${char}`;
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (char === quote) {
+      return {
+        value: normalizeCapturedText(rawValue),
+        endIndex: index + 1,
+      };
+    }
+
+    rawValue += char;
+  }
+
+  if (escaped) {
+    rawValue += "\\";
+  }
+
+  return null;
+}
+
+function collectQuotedAssignmentValues(text: string, key: string): string[] {
+  const pattern = new RegExp(
+    `(?:['"]${key}['"]|\\b${key}\\b)\\s*(?::|=)\\s*`,
+    "g",
+  );
+  const values: string[] = [];
+
+  for (const match of text.matchAll(pattern)) {
+    const matchedText = match[0];
+    if (!matchedText) {
+      continue;
+    }
+
+    const matchIndex = match.index ?? -1;
+    if (matchIndex < 0) {
+      continue;
+    }
+
+    const parsedValue = readQuotedAssignmentValue(
+      text,
+      matchIndex + matchedText.length,
+    );
+    if (!parsedValue || parsedValue.value.length === 0) {
+      continue;
+    }
+
+    values.push(parsedValue.value);
+  }
+
+  return values;
 }
 
 export function extractMessageStringText(text: string): string | null {
-  const singleQuotedMatches = collectTextMatches(
-    text,
-    /'text'\s*:\s*'([^']*)'/g,
-    1,
-  );
-  const doubleQuotedMatches = collectTextMatches(
-    text,
-    /"text"\s*:\s*"([^"]*)"/g,
-    1,
-  );
-  const assignedTextMatches = collectTextMatches(
-    text,
-    /\btext=(['"])([\s\S]*?)\1/g,
-    2,
-  );
-  const matches = [
-    ...singleQuotedMatches,
-    ...doubleQuotedMatches,
-    ...assignedTextMatches,
-  ];
+  const matches = collectQuotedAssignmentValues(text, "text");
 
   if (matches.length > 0) {
     return matches.join("\n\n");
   }
 
-  const contentMatch = text.match(/\bcontent=(['"])([\s\S]*?)\1/);
-  if (contentMatch?.[2]) {
-    return normalizeCapturedText(contentMatch[2]);
+  const contentMatches = collectQuotedAssignmentValues(text, "content");
+  if (contentMatches.length > 0) {
+    return contentMatches.join("\n\n");
   }
 
   return null;

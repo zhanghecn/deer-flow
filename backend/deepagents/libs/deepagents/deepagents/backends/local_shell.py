@@ -10,8 +10,10 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 import uuid
 import warnings
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from deepagents.backends.filesystem import FilesystemBackend
@@ -23,6 +25,11 @@ if TYPE_CHECKING:
 
 DEFAULT_EXECUTE_TIMEOUT = 120
 """Default timeout in seconds for shell command execution."""
+
+
+def _prepend_path_entry(path_value: str | None, entry: str) -> str:
+    parts = [part for part in (path_value or "").split(os.pathsep) if part]
+    return os.pathsep.join([entry, *[part for part in parts if part != entry]])
 
 
 class LocalShellBackend(FilesystemBackend, SandboxBackendProtocol):
@@ -196,6 +203,10 @@ class LocalShellBackend(FilesystemBackend, SandboxBackendProtocol):
             self._env = os.environ.copy()
             if env is not None:
                 self._env.update(env)
+            python_dir = str(Path(sys.executable).parent)
+            self._env["PATH"] = _prepend_path_entry(self._env.get("PATH"), python_dir)
+            if sys.prefix != getattr(sys, "base_prefix", sys.prefix):
+                self._env["VIRTUAL_ENV"] = sys.prefix
         else:
             self._env = env if env is not None else {}
 

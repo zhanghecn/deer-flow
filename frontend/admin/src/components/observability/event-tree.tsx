@@ -88,12 +88,33 @@ export function EventTree({ runs }: EventTreeProps) {
                         sub-agent
                       </Badge>
                     )}
+                    {run.hasReasoning && (
+                      <Badge
+                        variant="outline"
+                        className="border-amber-300 px-1.5 py-0 text-xs text-amber-700 dark:border-amber-800 dark:text-amber-300"
+                      >
+                        reasoning
+                      </Badge>
+                    )}
+                    {run.hasTruncatedPayload && (
+                      <Badge
+                        variant="outline"
+                        className="border-amber-300 px-1.5 py-0 text-xs text-amber-700 dark:border-amber-800 dark:text-amber-300"
+                      >
+                        trace truncated
+                      </Badge>
+                    )}
                     <span className="text-sm font-medium">{run.label}</span>
                   </div>
 
                   <p className="mt-1 text-sm text-foreground/90 break-words">
                     {run.summary || "Run details"}
                   </p>
+                  {run.reasoningPreview && (
+                    <p className="mt-1 break-words text-xs text-amber-700 dark:text-amber-300">
+                      Reasoning: {run.reasoningPreview}
+                    </p>
+                  )}
 
                   <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                     <span>{formatDateTime(run.startedAt)}</span>

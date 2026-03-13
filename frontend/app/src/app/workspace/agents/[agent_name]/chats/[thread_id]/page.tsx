@@ -1,5 +1,6 @@
 "use client";
 
+import type { Command } from "@langchain/langgraph-sdk";
 import { BotIcon, PlusSquare } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback } from "react";
@@ -40,7 +41,7 @@ export default function AgentChatPage() {
     useThreadChat();
 
   const { showNotification } = useNotification();
-  const [thread, sendMessage] = useThreadStream({
+  const [thread, sendMessage, resumeInterrupt] = useThreadStream({
     threadId: isNewThread ? undefined : threadId,
     context: { ...settings.context, agent_name: agent_name },
     onStart: (createdThreadId) => {
@@ -70,11 +71,23 @@ export default function AgentChatPage() {
     },
   });
 
-  const handleSubmit = useCallback(
-    (message: PromptInputMessage, extraContext?: Record<string, unknown>) => {
-      void sendMessage(threadId, message, { agent_name, ...extraContext });
+  const handleSendMessage = useCallback(
+    async (message: PromptInputMessage, extraContext?: Record<string, unknown>) => {
+      await sendMessage(threadId, message, { agent_name, ...extraContext });
     },
     [sendMessage, threadId, agent_name],
+  );
+  const handleSubmit = useCallback(
+    (message: PromptInputMessage, extraContext?: Record<string, unknown>) => {
+      void handleSendMessage(message, extraContext);
+    },
+    [handleSendMessage],
+  );
+  const handleResumeInterrupt = useCallback(
+    async (command: Command, extraContext?: Record<string, unknown>) => {
+      await resumeInterrupt(threadId, command, { agent_name, ...extraContext });
+    },
+    [resumeInterrupt, threadId, agent_name],
   );
 
   const handleStop = useCallback(async () => {
@@ -82,7 +95,13 @@ export default function AgentChatPage() {
   }, [thread]);
 
   return (
-    <ThreadContext.Provider value={{ thread }}>
+    <ThreadContext.Provider
+      value={{
+        thread,
+        sendMessage: handleSendMessage,
+        resumeInterrupt: handleResumeInterrupt,
+      }}
+    >
       <ChatBox threadId={threadId}>
         <div className="relative flex size-full min-h-0 justify-between">
           <header

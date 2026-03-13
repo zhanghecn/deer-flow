@@ -16,6 +16,13 @@ OpenAgents is a LangGraph-based AI super agent system with a full-stack architec
 
 **Note**: The system is transitioning from Python Gateway to Go Gateway. Both implement the same API surface. The Go Gateway additionally provides multi-user JWT auth, API Token auth, PostgreSQL storage, and Open API endpoints.
 
+Authoritative architecture docs live under `docs/`. Before changing agent
+runtime, skills loading, backend selection, or path handling, read:
+
+- `docs/ARCHITECTURE.md`
+- `docs/AGENT_PROTOCOL.md`
+- `docs/CONFIGURATION.md`
+
 **Project Structure**:
 ```
 openagents/
@@ -56,9 +63,9 @@ openagents/
 │   └── gateway.yaml           # Gateway configuration
 ├── migrations/                 # PostgreSQL schema + seed SQL
 ├── frontend/                   # Next.js frontend application
-└── skills/                     # Agent skills directory
-    ├── public/                # Public skills (committed)
-    └── custom/                # Custom skills (gitignored)
+└── .openagents/skills/         # Shared skill archive and store lifecycle
+    ├── shared/                # Canonical shared skills source
+    └── store/                 # Dev/prod promoted skills
 ```
 
 ## Important Development Guidelines
@@ -118,7 +125,7 @@ CI runs these regression tests for every pull request via [.github/workflows/bac
   LLM request messages, request settings, registered tools, and field-level truncation markers
 
 **Agent Definition Protocol**:
-- Shared skills live in `skills/{public,custom}/`
+- Shared skills live in `.openagents/skills/{shared,store/dev,store/prod}/`
 - Each agent owns its own `AGENTS.md`
 - Selected skills are copied into `agents/{status}/{name}/skills/`
 - `agents/{status}/{name}/config.yaml` is the manifest and records `agents_md_path` and `skill_refs`
@@ -220,8 +227,7 @@ Proxied through nginx: all `/api/*` → Gateway (Go or Python).
 The lead agent uses `deepagents.create_deep_agent()` which provides:
 - **CompositeBackend** — Exposes one default backend rooted in the thread runtime view:
   - thread workspace → `/mnt/user-data/{workspace,uploads,outputs}`
-  - default `lead_agent` runtime copy → `/mnt/user-data/skills/...`
-  - named agent runtime copy → `/mnt/user-data/agents/{status}/{name}/...`
+  - every agent runtime copy → `/mnt/user-data/agents/{status}/{name}/...`
 - **FilesystemMiddleware** — Built-in sandbox tools (ls, read_file, write_file, edit_file, execute, glob, grep)
 - **SubAgentMiddleware** — Subagent delegation with `OPENAGENTS_SUBAGENTS` config
 
@@ -266,12 +272,12 @@ The lead agent uses `deepagents.create_deep_agent()` which provides:
 
 ### Skills System (`src/skills/`)
 
-- **Location**: `openagents/skills/{public,custom}/`
+- **Location**: `.openagents/skills/{shared,store/dev,store/prod}/`
 - **Format**: Directory with `SKILL.md` (YAML frontmatter: name, description, license, allowed-tools)
-- **Loading**: `load_skills()` recursively scans `skills/{public,custom}` for `SKILL.md`, parses metadata, and reads enabled state from extensions_config.json
+- **Loading**: `load_skills()` scans `.openagents/skills/{shared,store/dev,store/prod}` for `SKILL.md`, parses metadata, and reads enabled state from extensions_config.json
 - **Materialization**: custom agents do not mutate shared skills in place; they copy selected skills into `agents/{status}/{name}/skills/`
-- **Injection**: default `lead_agent` sees the archived skills library, while named agents see only their copied skill snapshots
-- **Installation**: `POST /api/skills/install` extracts .skill ZIP archive to custom/ directory
+- **Injection**: all agents, including `lead_agent`, read skills from their thread-local copied runtime path under `/mnt/user-data/agents/{status}/{name}/skills/`
+- **Installation**: `POST /api/skills/install` extracts `.skill` archives to `.openagents/skills/store/dev/`
 
 ### Model Factory (`src/models/factory.py`)
 
@@ -476,9 +482,9 @@ See `docs/` directory for detailed documentation:
 - [CONFIGURATION.md](docs/CONFIGURATION.md) - Configuration options
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md) - Architecture details
 - [AGENT_PROTOCOL.md](docs/AGENT_PROTOCOL.md) - Agent definition/materialization/runtime contract
+- [AGENT_PROTOCOL.md](docs/AGENT_PROTOCOL.md) - Agent definition, runtime seeding, backend/path contract
 - [API.md](docs/API.md) - API reference
 - [SETUP.md](docs/SETUP.md) - Setup guide
 - [FILE_UPLOAD.md](docs/FILE_UPLOAD.md) - File upload feature
-- [PATH_EXAMPLES.md](docs/PATH_EXAMPLES.md) - Path types and usage
 - [summarization.md](docs/summarization.md) - Context summarization
 - [plan_mode_usage.md](docs/plan_mode_usage.md) - Plan mode with TodoList

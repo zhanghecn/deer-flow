@@ -31,10 +31,13 @@ When a user uploads data files and requests analysis, identify:
 
 ### Step 2: Inspect File Structure
 
+After reading this `SKILL.md`, treat its parent directory as `<current-skill-dir>`.
+Resolve the analysis script relative to this skill directory.
+
 First, inspect the uploaded file to understand its schema:
 
 ```bash
-python /mnt/skills/public/data-analysis/scripts/analyze.py \
+python <current-skill-dir>/scripts/analyze.py \
   --files /mnt/user-data/uploads/data.xlsx \
   --action inspect
 ```
@@ -52,7 +55,7 @@ Based on the schema, construct SQL queries to answer the user's questions.
 #### Run SQL Query
 
 ```bash
-python /mnt/skills/public/data-analysis/scripts/analyze.py \
+python <current-skill-dir>/scripts/analyze.py \
   --files /mnt/user-data/uploads/data.xlsx \
   --action query \
   --sql "SELECT category, COUNT(*) as count, AVG(amount) as avg_amount FROM Sheet1 GROUP BY category ORDER BY count DESC"
@@ -61,7 +64,7 @@ python /mnt/skills/public/data-analysis/scripts/analyze.py \
 #### Generate Statistical Summary
 
 ```bash
-python /mnt/skills/public/data-analysis/scripts/analyze.py \
+python <current-skill-dir>/scripts/analyze.py \
   --files /mnt/user-data/uploads/data.xlsx \
   --action summary \
   --table Sheet1
@@ -73,7 +76,7 @@ For string columns: count, unique, top value, frequency, null_count.
 #### Export Results
 
 ```bash
-python /mnt/skills/public/data-analysis/scripts/analyze.py \
+python <current-skill-dir>/scripts/analyze.py \
   --files /mnt/user-data/uploads/data.xlsx \
   --action query \
   --sql "SELECT * FROM Sheet1 WHERE amount > 1000" \
@@ -173,7 +176,7 @@ User uploads `sales_2024.xlsx` (with sheets: `Orders`, `Products`, `Customers`) 
 ### Step 1: Inspect the file
 
 ```bash
-python /mnt/skills/public/data-analysis/scripts/analyze.py \
+python <current-skill-dir>/scripts/analyze.py \
   --files /mnt/user-data/uploads/sales_2024.xlsx \
   --action inspect
 ```
@@ -181,7 +184,7 @@ python /mnt/skills/public/data-analysis/scripts/analyze.py \
 ### Step 2: Top products by revenue
 
 ```bash
-python /mnt/skills/public/data-analysis/scripts/analyze.py \
+python <current-skill-dir>/scripts/analyze.py \
   --files /mnt/user-data/uploads/sales_2024.xlsx \
   --action query \
   --sql "SELECT p.product_name, SUM(o.quantity * o.unit_price) as total_revenue, SUM(o.quantity) as total_units FROM Orders o JOIN Products p ON o.product_id = p.id GROUP BY p.product_name ORDER BY total_revenue DESC LIMIT 10"
@@ -190,7 +193,7 @@ python /mnt/skills/public/data-analysis/scripts/analyze.py \
 ### Step 3: Monthly revenue trends
 
 ```bash
-python /mnt/skills/public/data-analysis/scripts/analyze.py \
+python <current-skill-dir>/scripts/analyze.py \
   --files /mnt/user-data/uploads/sales_2024.xlsx \
   --action query \
   --sql "SELECT DATE_TRUNC('month', order_date) as month, SUM(quantity * unit_price) as revenue FROM Orders GROUP BY month ORDER BY month" \
@@ -200,7 +203,7 @@ python /mnt/skills/public/data-analysis/scripts/analyze.py \
 ### Step 4: Statistical summary
 
 ```bash
-python /mnt/skills/public/data-analysis/scripts/analyze.py \
+python <current-skill-dir>/scripts/analyze.py \
   --files /mnt/user-data/uploads/sales_2024.xlsx \
   --action summary \
   --table Orders
@@ -213,7 +216,7 @@ Present results to the user with clear explanations of findings, trends, and act
 User uploads `orders.csv` and `customers.xlsx` and asks: "Which region has the highest average order value?"
 
 ```bash
-python /mnt/skills/public/data-analysis/scripts/analyze.py \
+python <current-skill-dir>/scripts/analyze.py \
   --files /mnt/user-data/uploads/orders.csv /mnt/user-data/uploads/customers.xlsx \
   --action query \
   --sql "SELECT c.region, AVG(o.amount) as avg_order_value, COUNT(*) as order_count FROM orders o JOIN Customers c ON o.customer_id = c.id GROUP BY c.region ORDER BY avg_order_value DESC"

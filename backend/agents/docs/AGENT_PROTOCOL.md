@@ -12,7 +12,7 @@ This document defines the unified definition/materialization contract shared by
 - Each agent is materialized into separate `dev` and `prod` directories to avoid prompt, skill, and memory pollution.
 - Local debugging uses the host filesystem.
 - Runtime sandbox selection is decided by Python startup configuration, not by agent metadata stored through Go.
-- The default `lead_agent` is the catch-all agent and can see the full archived skills library.
+- The default `lead_agent` is the catch-all agent, but it still follows the same copied-skill protocol as every other agent.
 - Agent and skill definitions are filesystem archives, not database rows.
 
 ## Three Layers
@@ -20,9 +20,11 @@ This document defines the unified definition/materialization contract shared by
 ### 1. Definition Layer
 
 - Shared skills archive:
-  - `skills/shared/.../SKILL.md`
-  - `skills/store/dev/.../SKILL.md`
-  - `skills/store/prod/.../SKILL.md`
+  - `.openagents/skills/shared/.../SKILL.md`
+  - `.openagents/skills/store/dev/.../SKILL.md`
+  - `.openagents/skills/store/prod/.../SKILL.md`
+- `.openagents/skills/` is the single maintained shared-skill source of truth.
+- There is no repo-side `skills/public` mirror in the active architecture.
 - Agent-owned files:
   - `agents/{status}/{name}/AGENTS.md`
   - `agents/{status}/{name}/config.yaml`
@@ -52,21 +54,19 @@ This document defines the unified definition/materialization contract shared by
   - local debug: `LocalShellBackend(root_dir=threads/{thread_id}/user-data, virtual_mode=True)`
   - sandbox runtime: resolve `sandbox.use` / `OPENAGENTS_SANDBOX_PROVIDER`, instantiate the provider in Python, and acquire a sandbox that implements deepagents `BaseSandbox`
 - Archived files are not mounted directly into the agent anymore. Python seeds a thread-local runtime copy through backend upload/download APIs:
-  - default `lead_agent`: `skills/**` -> `/mnt/user-data/skills/**`
-  - named agent: `agents/{status}/{name}/**` -> `/mnt/user-data/agents/{status}/{name}/**`
+  - every agent, including `lead_agent`: `agents/{status}/{name}/**` -> `/mnt/user-data/agents/{status}/{name}/**`
 - deepagents then reads only the runtime copy:
   - skills source:
-    - default `lead_agent`: `/mnt/user-data/skills/`
-    - named agent: `/mnt/user-data/agents/{status}/{name}/skills/`
+    - every agent, including `lead_agent`: `/mnt/user-data/agents/{status}/{name}/skills/`
   - memory source:
-    - named agent: `/mnt/user-data/agents/{status}/{name}/AGENTS.md`
+    - every agent, including `lead_agent`: `/mnt/user-data/agents/{status}/{name}/AGENTS.md`
 - This prevents runtime edits from polluting archived `dev/prod` definitions while keeping local and sandbox execution on the same virtual paths.
 
 ## ASCII Flow
 
 ```text
  shared skills archive                     archived agent definition
- skills/public + custom                    agents/{status}/{name}
+ .openagents/skills/{shared,store/*}       agents/{status}/{name}
             |                                         |
             | materialize selected skills             | keep AGENTS.md + config.yaml
             +--------------------+--------------------+
@@ -102,7 +102,6 @@ This document defines the unified definition/materialization contract shared by
              | /mnt/user-data/workspace             |
              | /mnt/user-data/uploads               |
              | /mnt/user-data/outputs               |
-             | /mnt/user-data/skills/**             |
              | /mnt/user-data/agents/{status}/{name}|
              +-------------------+-------------------+
                                  |
@@ -126,12 +125,60 @@ This document defines the unified definition/materialization contract shared by
 - Open API resolves agents by `(name, status="prod")` only.
 - Runtime seeding targets thread-local virtual paths, so runtime edits do not mutate archived `dev/prod` files.
 
+## Path Contract
+
+Three path spaces exist and must not be mixed:
+
+### 1. Agent-visible runtime paths
+
+These are the only paths the agent should reason about during execution:
+
+- `/mnt/user-data/workspace/...`
+- `/mnt/user-data/uploads/...`
+- `/mnt/user-data/outputs/...`
+- `/mnt/user-data/agents/{status}/{name}/AGENTS.md`
+- `/mnt/user-data/agents/{status}/{name}/skills/...`
+
+### 2. Host filesystem paths
+
+These are implementation details outside the agent contract:
+
+- `.openagents/threads/{thread_id}/user-data/...`
+- `.openagents/skills/...`
+- `/root/project/...`
+
+They may appear in backend code or local debugging, but must never be hardcoded into
+skills, prompts, or agent-authored commands.
+
+### 3. HTTP artifact routes
+
+These are UI/gateway paths only:
+
+- `/api/threads/{thread_id}/artifacts/...`
+
+They are not execution paths for the agent.
+
+## Skill Runtime Rules
+
+- `SkillsMiddleware` must expose runtime-visible backend paths, not host-specific paths.
+- The runtime-visible skill path is the source of truth, regardless of whether the
+  backend is local or sandboxed.
+- The agent must load skills from `/mnt/user-data/agents/{status}/{name}/skills/`.
+- Unlike tool-driven skill loaders that expose host file URLs directly, OpenAgents
+  relies on `SkillsMiddleware` + `{skills_locations}` to advertise runtime-visible
+  backend paths. Keep those paths on the unified runtime contract and do not swap
+  them back to archive or host paths.
+- When a loaded `SKILL.md` references relative files such as `scripts/generate.py`
+  or `templates/report.md`, resolve them relative to that `SKILL.md` parent directory.
+- Skill docs must not hardcode host paths or local-debug-only paths just because
+  `LocalShellBackend` happens to rewrite them on the host.
+
 ## Why This Protocol
 
 - `AGENTS.md` belongs to the agent, not to the shared skills archive.
 - Skills are reusable building blocks and should be selected by reference, then copied.
 - `dev` and `prod` need separate prompts, skills, and memory buckets.
-- The default `lead_agent` should remain the broad exploration agent with access to all archived skills.
+- The default `lead_agent` should remain the broad exploration agent, but through its own archived/copied skill set rather than implicit access to the full shared archive.
 
 ## Gateway Responsibilities
 

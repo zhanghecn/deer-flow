@@ -29,6 +29,7 @@ import {
   extractTextFromMessage,
 } from "@/core/messages/utils";
 import { workspaceMessageRehypePlugins } from "@/core/streamdown";
+import { extractClarificationRequestFromArgs } from "@/core/threads/interrupts";
 import { extractTitleFromMarkdown } from "@/core/utils/markdown";
 import { env } from "@/env";
 import { cn } from "@/lib/utils";
@@ -498,12 +499,24 @@ function ToolCall({
       </ChainOfThoughtStep>
     );
   } else if (name === "ask_clarification") {
+    const clarification = extractClarificationRequestFromArgs(args);
     return (
       <ChainOfThoughtStep
         key={id}
-        label={t.toolCalls.needYourHelp}
+        label={clarification?.question ?? t.toolCalls.needYourHelp}
         icon={MessageCircleQuestionMarkIcon}
-      ></ChainOfThoughtStep>
+      >
+        {clarification?.context && (
+          <ChainOfThoughtSearchResult className="text-muted-foreground">
+            {clarification.context}
+          </ChainOfThoughtSearchResult>
+        )}
+        {clarification?.options.map((option) => (
+          <ChainOfThoughtSearchResult key={option}>
+            {option}
+          </ChainOfThoughtSearchResult>
+        ))}
+      </ChainOfThoughtStep>
     );
   } else if (name === "write_todos") {
     return (

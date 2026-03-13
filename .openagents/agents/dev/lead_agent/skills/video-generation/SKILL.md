@@ -39,9 +39,10 @@ Generate reference image for the video generation.
 
 ### Step 3: Execute Generation
 
-Call the Python script:
+After reading this `SKILL.md`, treat its parent directory as `<current-skill-dir>`.
+Resolve the generator script relative to this skill directory:
 ```bash
-python /mnt/skills/public/video-generation/scripts/generate.py \
+python <current-skill-dir>/scripts/generate.py \
   --prompt-file /mnt/user-data/workspace/prompt-file.json \
   --reference-images /path/to/ref1.jpg \
   --output-file /mnt/user-data/outputs/generated-video.mp4 \
@@ -114,7 +115,7 @@ Load the image-generation skill and generate a single reference image `narnia-fa
 
 Step 4: Use the generate.py script to generate the video
 ```bash
-python /mnt/skills/public/video-generation/scripts/generate.py \
+python <current-skill-dir>/scripts/generate.py \
   --prompt-file /mnt/user-data/workspace/narnia-farewell-scene.json \
   --reference-images /mnt/user-data/outputs/narnia-farewell-scene-01.jpg \
   --output-file /mnt/user-data/outputs/narnia-farewell-scene-01.mp4 \

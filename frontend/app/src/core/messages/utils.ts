@@ -34,6 +34,50 @@ type MessageContentBlock = {
   reasoning_content?: string;
 };
 
+function isToolCompatibleGroup(group: MessageGroup) {
+  return (
+    group.type === "assistant:processing" ||
+    group.type === "assistant:present-files" ||
+    group.type === "assistant:subagent"
+  );
+}
+
+function groupContainsToolCall(group: MessageGroup, toolCallId: string) {
+  return group.messages.some(
+    (message) =>
+      message.type === "ai" &&
+      message.tool_calls?.some((toolCall) => toolCall.id === toolCallId),
+  );
+}
+
+function findGroupForToolMessage(groups: MessageGroup[], message: Message) {
+  if (message.type !== "tool") {
+    return undefined;
+  }
+
+  const toolCallId = message.tool_call_id;
+  if (toolCallId) {
+    for (let index = groups.length - 1; index >= 0; index -= 1) {
+      const group = groups[index];
+      if (!group || !isToolCompatibleGroup(group)) {
+        continue;
+      }
+      if (groupContainsToolCall(group, toolCallId)) {
+        return group;
+      }
+    }
+  }
+
+  for (let index = groups.length - 1; index >= 0; index -= 1) {
+    const group = groups[index];
+    if (group && isToolCompatibleGroup(group)) {
+      return group;
+    }
+  }
+
+  return undefined;
+}
+
 export function groupMessages<T>(
   messages: Message[],
   mapper: (group: MessageGroup) => T,
@@ -52,16 +96,13 @@ export function groupMessages<T>(
         messages: [message],
       });
     } else if (message.type === "tool") {
+      const matchedGroup = findGroupForToolMessage(groups, message);
+
       // Check if this is a clarification tool message
       if (isClarificationToolMessage(message)) {
         // Add to processing group if available (to maintain tool call association)
-        if (
-          lastGroup &&
-          lastGroup.type !== "human" &&
-          lastGroup.type !== "assistant" &&
-          lastGroup.type !== "assistant:clarification"
-        ) {
-          lastGroup.messages.push(message);
+        if (matchedGroup) {
+          matchedGroup.messages.push(message);
         }
         // Also create a separate clarification group for prominent display
         groups.push({
@@ -69,17 +110,14 @@ export function groupMessages<T>(
           type: "assistant:clarification",
           messages: [message],
         });
-      } else if (
-        lastGroup &&
-        lastGroup.type !== "human" &&
-        lastGroup.type !== "assistant" &&
-        lastGroup.type !== "assistant:clarification"
-      ) {
-        lastGroup.messages.push(message);
+      } else if (matchedGroup) {
+        matchedGroup.messages.push(message);
       } else {
-        throw new Error(
-          "Tool message must be matched with a previous assistant message with tool calls",
-        );
+        groups.push({
+          id: message.id ?? message.tool_call_id,
+          type: "assistant:processing",
+          messages: [message],
+        });
       }
     } else if (message.type === "ai") {
       if (hasReasoning(message) || hasToolCalls(message)) {

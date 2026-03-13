@@ -6,8 +6,8 @@ Usage:
     init_skill.py <skill-name> --path <path>
 
 Examples:
-    init_skill.py my-new-skill --path skills/public
-    init_skill.py my-api-helper --path skills/private
+    init_skill.py my-new-skill --path /path/to/shared-skills-root
+    init_skill.py my-api-helper --path /path/to/store-dev-skills-root
     init_skill.py custom-skill --path /custom/location
 """
 
@@ -279,8 +279,8 @@ def main():
         print("  - Max 40 characters")
         print("  - Must match directory name exactly")
         print("\nExamples:")
-        print("  init_skill.py my-new-skill --path skills/public")
-        print("  init_skill.py my-api-helper --path skills/private")
+        print("  init_skill.py my-new-skill --path /path/to/shared-skills-root")
+        print("  init_skill.py my-api-helper --path /path/to/store-dev-skills-root")
         print("  init_skill.py custom-skill --path /custom/location")
         sys.exit(1)
 

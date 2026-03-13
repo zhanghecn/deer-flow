@@ -13,6 +13,15 @@ from src.observability.store import TraceContext, get_trace_store, now_utc
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_TRACE_STRING_LIMIT = 12_000
+LARGE_TRACE_STRING_LIMIT = 120_000
+TOOL_TRACE_STRING_LIMIT = 48_000
+FILE_TOOL_TRACE_STRING_LIMIT = 120_000
+DEFAULT_TRACE_MAX_ITEMS = 128
+LARGE_TRACE_MAX_ITEMS = 256
+TRACE_MAX_DEPTH = 16
+FILE_IO_TOOL_NAMES = {"read_file", "write_file", "edit_file"}
+
 
 @dataclass
 class _RunState:
@@ -50,6 +59,20 @@ class AgentTraceCallbackHandler(BaseCallbackHandler):
         self._runs: dict[str, _RunState] = {}
         self._event_index = 0
         self._lock = threading.Lock()
+
+    @staticmethod
+    def _tool_shrink(value: Any, *, tool_name: str | None) -> Any:
+        max_string_len = (
+            FILE_TOOL_TRACE_STRING_LIMIT
+            if tool_name in FILE_IO_TOOL_NAMES
+            else TOOL_TRACE_STRING_LIMIT
+        )
+        return _shrink(
+            value,
+            max_string_len=max_string_len,
+            max_items=LARGE_TRACE_MAX_ITEMS,
+            max_depth=TRACE_MAX_DEPTH,
+        )
 
     @property
     def trace_id(self) -> str:
@@ -222,11 +245,11 @@ class AgentTraceCallbackHandler(BaseCallbackHandler):
             payload={
                 "tool_call": {
                     "name": tool_name,
-                    "arguments": _shrink(parsed_input),
-                    "inputs": _shrink(inputs),
+                    "arguments": self._tool_shrink(parsed_input, tool_name=tool_name),
+                    "inputs": self._tool_shrink(inputs, tool_name=tool_name),
                 },
-                "input_str": _shrink(input_str),
-                "inputs": _shrink(inputs),
+                "input_str": self._tool_shrink(input_str, tool_name=tool_name),
+                "inputs": self._tool_shrink(inputs, tool_name=tool_name),
                 "metadata": _shrink(metadata),
                 "tags": tags or [],
             },
@@ -240,13 +263,20 @@ class AgentTraceCallbackHandler(BaseCallbackHandler):
         parent_run_id: UUID | None = None,
         **kwargs: Any,
     ) -> Any:
+        run_id_text = str(run_id)
+        with self._lock:
+            state = self._runs.get(run_id_text)
+            tool_name = state.tool_name if state else None
+
         self._record_end(
             run_id=run_id,
             parent_run_id=parent_run_id,
             run_type="tool",
             payload={
-                "tool_response": {"output": _shrink(output)},
-                "output": _shrink(output),
+                "tool_response": {
+                    "output": self._tool_shrink(output, tool_name=tool_name),
+                },
+                "output": self._tool_shrink(output, tool_name=tool_name),
             },
         )
 

@@ -1,5 +1,6 @@
 """Unit tests for LocalShellBackend."""
 
+import sys
 import tempfile
 from pathlib import Path
 
@@ -239,6 +240,21 @@ def test_local_shell_backend_inherit_env() -> None:
         assert len(result.output.strip()) > 0  # PATH should not be empty
 
 
+def test_local_shell_backend_inherit_env_uses_current_python_runtime() -> None:
+    """Test that inherited shell commands resolve python to the current runtime."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        backend = LocalShellBackend(root_dir=tmpdir, inherit_env=True)
+
+        result = backend.execute(
+            "python -c 'import sys; print(sys.executable); print(sys.prefix)'"
+        )
+
+        assert result.exit_code == 0
+        lines = result.output.strip().splitlines()
+        assert Path(lines[0]).resolve() == Path(sys.executable).resolve()
+        assert lines[1] == sys.prefix
+
+
 def test_local_shell_backend_empty_env_by_default() -> None:
     """Test that environment is empty by default (secure default)."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -265,6 +281,7 @@ def test_local_shell_backend_stderr_formatting() -> None:
         assert "error message" in result.output
 
 
+@pytest.mark.anyio
 async def test_local_shell_backend_async_execute() -> None:
     """Test async execute method."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -277,6 +294,7 @@ async def test_local_shell_backend_async_execute() -> None:
         assert "async test" in result.output
 
 
+@pytest.mark.anyio
 async def test_local_shell_backend_async_filesystem_operations() -> None:
     """Test async filesystem operations."""
     with tempfile.TemporaryDirectory() as tmpdir:

@@ -58,3 +58,4 @@ web/
 .deer-flow
 .playwright-cli
 server
+test-results

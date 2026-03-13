@@ -382,10 +382,10 @@ To add support for a new MCP server:
 
 To create a new skill:
 
-1. Create directory in `skills/public/` or `skills/custom/`:
+1. Create directory in `.openagents/skills/shared/` (or the appropriate store scope):
 
 ```
-skills/public/my-skill/
+.openagents/skills/shared/my-skill/
 └── SKILL.md
 ```
 

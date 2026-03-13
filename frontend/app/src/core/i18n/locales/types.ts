@@ -210,6 +210,12 @@ export interface Translations {
     executeCommand: string;
     presentFiles: string;
     needYourHelp: string;
+    clarificationQuestion: string;
+    clarificationContext: string;
+    clarificationOptions: string;
+    clarificationReplyPlaceholder: string;
+    clarificationReplyAction: string;
+    clarificationResumeError: string;
     useTool: (toolName: string) => string;
     searchForRelatedInfo: string;
     searchForRelatedImages: string;

@@ -1,5 +1,6 @@
 "use client";
 
+import type { Command } from "@langchain/langgraph-sdk";
 import { ArrowLeftIcon, BotIcon, CheckCircleIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
@@ -9,6 +10,7 @@ import {
   PromptInputFooter,
   PromptInputSubmit,
   PromptInputTextarea,
+  type PromptInputMessage,
 } from "@/components/ai-elements/prompt-input";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,7 +47,7 @@ export default function NewAgentPage() {
   // Stable thread ID — all turns belong to the same thread
   const threadId = useMemo(() => uuid(), []);
 
-  const [thread, sendMessage] = useThreadStream({
+  const [thread, sendMessage, resumeInterrupt] = useThreadStream({
     context: settings.context,
     onToolEnd({ name }) {
       if (!["setup_agent", "save_agent_to_store"].includes(name) || !agentName) {
@@ -137,6 +139,27 @@ export default function NewAgentPage() {
     },
     [thread.isLoading, sendMessage, threadId, agentName],
   );
+  const handleAgentSendMessage = useCallback(
+    async (
+      message: PromptInputMessage,
+      extraContext?: Record<string, unknown>,
+    ) => {
+      await sendMessage(threadId, message, {
+        target_agent_name: agentName,
+        ...extraContext,
+      });
+    },
+    [agentName, sendMessage, threadId],
+  );
+  const handleResumeInterrupt = useCallback(
+    async (command: Command, extraContext?: Record<string, unknown>) => {
+      await resumeInterrupt(threadId, command, {
+        target_agent_name: agentName,
+        ...extraContext,
+      });
+    },
+    [agentName, resumeInterrupt, threadId],
+  );
 
   // ── Shared header ──────────────────────────────────────────────────────────
 
@@ -207,7 +230,13 @@ export default function NewAgentPage() {
   // ── Step 2: chat ───────────────────────────────────────────────────────────
 
   return (
-    <ThreadContext.Provider value={{ thread }}>
+    <ThreadContext.Provider
+      value={{
+        thread,
+        sendMessage: handleAgentSendMessage,
+        resumeInterrupt: handleResumeInterrupt,
+      }}
+    >
       <ArtifactsProvider>
         <div className="flex size-full flex-col">
           {header}

@@ -1,5 +1,6 @@
 "use client";
 
+import type { Command } from "@langchain/langgraph-sdk";
 import dynamic from "next/dynamic";
 import { useCallback } from "react";
 
@@ -42,7 +43,7 @@ export default function ChatPage() {
 
   const { showNotification } = useNotification();
 
-  const [thread, sendMessage] = useThreadStream({
+  const [thread, sendMessage, resumeInterrupt] = useThreadStream({
     threadId: isNewThread ? undefined : threadId,
     context: settings.context,
     isMock,
@@ -69,18 +70,37 @@ export default function ChatPage() {
     },
   });
 
-  const handleSubmit = useCallback(
-    (message: PromptInputMessage, extraContext?: Record<string, unknown>) => {
-      void sendMessage(threadId, message, extraContext);
+  const handleSendMessage = useCallback(
+    async (message: PromptInputMessage, extraContext?: Record<string, unknown>) => {
+      await sendMessage(threadId, message, extraContext);
     },
     [sendMessage, threadId],
+  );
+  const handleSubmit = useCallback(
+    (message: PromptInputMessage, extraContext?: Record<string, unknown>) => {
+      void handleSendMessage(message, extraContext);
+    },
+    [handleSendMessage],
+  );
+  const handleResumeInterrupt = useCallback(
+    async (command: Command, extraContext?: Record<string, unknown>) => {
+      await resumeInterrupt(threadId, command, extraContext);
+    },
+    [resumeInterrupt, threadId],
   );
   const handleStop = useCallback(async () => {
     await thread.stop();
   }, [thread]);
 
   return (
-    <ThreadContext.Provider value={{ thread, isMock }}>
+    <ThreadContext.Provider
+      value={{
+        thread,
+        isMock,
+        sendMessage: handleSendMessage,
+        resumeInterrupt: handleResumeInterrupt,
+      }}
+    >
       <ChatBox threadId={threadId}>
         <div className="relative flex size-full min-h-0 justify-between">
           <header

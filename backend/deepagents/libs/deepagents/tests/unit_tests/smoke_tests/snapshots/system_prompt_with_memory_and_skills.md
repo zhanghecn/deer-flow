@@ -158,15 +158,21 @@ Skills follow a **progressive disclosure** pattern - you see their name and desc
 1. **Recognize when a skill applies**: Check if the user's task matches a skill's description
 2. **Read the skill's full instructions**: Use the path shown in the skill list above
 3. **Follow the skill's instructions**: SKILL.md contains step-by-step workflows, best practices, and examples
-4. **Access supporting files**: Skills may include helper scripts, configs, or reference docs - use absolute paths
+4. **Access supporting files**: Treat the parent directory of the listed `SKILL.md` as that skill's base directory. If the skill mentions `scripts/...`, `templates/...`, `references/...`, or any other relative path, resolve it relative to that directory before using it.
 
 **When to Use Skills:**
 - User's request matches a skill's domain (e.g., "research X" -> web-research skill)
 - You need specialized knowledge or structured workflows
 - A skill provides proven patterns for complex tasks
 
+**Skill Path Contract:**
+- The paths shown in the skill list are the runtime-visible backend paths for this session. Use them exactly as shown.
+- For each skill, the parent directory of the listed `SKILL.md` is the skill's base directory.
+- When a skill references relative files, convert them into absolute runtime-visible paths by joining them to that base directory.
+- Do not invent host-specific paths or repository-only paths outside the runtime-visible skill path.
+
 **Executing Skill Scripts:**
-Skills may contain Python scripts or other executable files. Always use absolute paths from the skill list.
+Skills may contain Python scripts or other executable files. Resolve their paths from the loaded skill's base directory, then execute the resulting absolute runtime-visible path.
 
 **Example Workflow:**
 
@@ -174,8 +180,8 @@ User: "Can you research the latest developments in quantum computing?"
 
 1. Check available skills -> See "web-research" skill with its path
 2. Read the skill using the path shown
-3. Follow the skill's research workflow (search -> organize -> synthesize)
-4. Use any helper scripts with absolute paths
+3. Treat that file's parent directory as the skill base directory
+4. Follow the skill's workflow and resolve any relative helper paths from that base directory
 
 Remember: Skills make you more capable and consistent. When in doubt, check if a skill exists for the task!
 

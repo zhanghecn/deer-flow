@@ -34,21 +34,12 @@ Generate a structured JSON file in `/mnt/user-data/workspace/` with naming patte
 
 ### Step 3: Execute Generation
 
-Run the generator script from the copied skill directory that belongs to the current agent.
-Do not hardcode shared-library paths such as `/mnt/skills/public/...`.
-Resolve the script relative to this skill, for example:
+After reading this `SKILL.md`, treat its parent directory as `<current-skill-dir>`.
+Resolve the generator script relative to this skill directory instead of hardcoding
+environment-specific paths.
 
 ```bash
-python /mnt/user-data/agents/<status>/<agent-name>/skills/image-generation/scripts/generate.py \
-  --prompt-file /mnt/user-data/workspace/prompt-file.json \
-  --reference-images /path/to/ref1.jpg /path/to/ref2.png \
-  --output-file /mnt/user-data/outputs/generated-image.jpg \
-  --aspect-ratio 16:9
-```
-
-Call the Python script:
-```bash
-python /mnt/user-data/agents/<status>/<agent-name>/skills/image-generation/scripts/generate.py \
+python <current-skill-dir>/scripts/generate.py \
   --prompt-file /mnt/user-data/workspace/prompt-file.json \
   --reference-images /path/to/ref1.jpg /path/to/ref2.png \
   --output-file /mnt/user-data/outputs/generated-image.jpg \
@@ -64,6 +55,7 @@ Parameters:
 
 [!NOTE]
 Do NOT read the python file, just call it with the parameters.
+Do NOT run `pip install` before execution. Use the runtime's existing Python environment and keep the script path on `/mnt/user-data/...`.
 After execution, verify that the expected output file was actually created.
 If the command exits successfully but no output file exists, treat the generation as failed.
 Do not present a missing file to the user.
@@ -95,7 +87,7 @@ Create prompt file: `/mnt/user-data/workspace/asian-woman.json`
 
 Execute generation:
 ```bash
-python /mnt/user-data/agents/<status>/<agent-name>/skills/image-generation/scripts/generate.py \
+python <current-skill-dir>/scripts/generate.py \
   --prompt-file /mnt/user-data/workspace/cyberpunk-hacker.json \
   --output-file /mnt/user-data/outputs/cyberpunk-hacker-01.jpg \
   --aspect-ratio 2:3
@@ -128,7 +120,7 @@ With reference images:
 }
 ```
 ```bash
-python /mnt/user-data/agents/<status>/<agent-name>/skills/image-generation/scripts/generate.py \
+python <current-skill-dir>/scripts/generate.py \
   --prompt-file /mnt/user-data/workspace/star-wars-scene.json \
   --reference-images /mnt/user-data/uploads/character-ref.jpg /mnt/user-data/uploads/vehicle-ref.jpg \
   --output-file /mnt/user-data/outputs/star-wars-scene-01.jpg \
