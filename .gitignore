@@ -19,7 +19,7 @@ __pycache__/
 venv/
 
 # Environment variables
-.env
+# .env
 
 # Configuration files
 # config.yaml
