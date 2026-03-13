@@ -1,5 +1,6 @@
 # OpenAgents docker image cache
 docker/.cache/
+docker/.env
 # OS generated files
 .DS_Store
 *.local
