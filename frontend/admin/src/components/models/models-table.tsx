@@ -63,6 +63,10 @@ export function ModelsTable({
     () => filterModels(models, search),
     [models, search],
   );
+  // Keep both counts so the toolbar can explain whether the current view is filtered
+  // without forcing operators to infer that from the empty/full table state alone.
+  const totalModels = models?.length ?? 0;
+  const visibleModels = filteredModels?.length ?? 0;
 
   function openCreateForm() {
     setEditModel(null);
@@ -110,17 +114,29 @@ export function ModelsTable({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <Input
-          className="max-w-sm"
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search by name, provider, or runtime model..."
-          value={search}
-        />
-        <Button onClick={openCreateForm}>
-          <Plus className="mr-2 h-4 w-4" />
-          Add Model
-        </Button>
+      <div className="rounded-xl border bg-card/70 p-4 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-foreground">Runtime inventory</p>
+            <p className="text-sm text-muted-foreground">
+              {search.trim()
+                ? `Showing ${visibleModels} of ${totalModels} models`
+                : `${totalModels} models available`}
+            </p>
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <Input
+              className="w-full sm:w-[26rem]"
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search by name, provider, or runtime model..."
+              value={search}
+            />
+            <Button className="shrink-0" onClick={openCreateForm}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Model
+            </Button>
+          </div>
+        </div>
       </div>
 
       {isLoading ? (
@@ -135,18 +151,21 @@ export function ModelsTable({
           <p>No models found</p>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-md border">
-          <Table>
+        <div className="rounded-xl border bg-card/70 shadow-sm">
+          {/* Fixed column widths keep the admin table readable when capability badges
+              and model names get long, instead of letting a single noisy column
+              push status/actions out of alignment. */}
+          <Table className="table-fixed min-w-[980px]">
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Provider</TableHead>
-                <TableHead>Runtime Model</TableHead>
-                <TableHead>Capabilities</TableHead>
-                <TableHead>API Key</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead className="w-[13rem]">Name</TableHead>
+                <TableHead className="w-[6rem]">Provider</TableHead>
+                <TableHead className="w-[9rem]">Runtime Model</TableHead>
+                <TableHead className="w-[14rem]">Capabilities</TableHead>
+                <TableHead className="w-[7rem]">API Key</TableHead>
+                <TableHead className="w-[8rem]">Status</TableHead>
+                <TableHead className="w-[8rem]">Created</TableHead>
+                <TableHead className="w-[4rem] text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -214,22 +233,22 @@ function ModelRow({
 
   return (
     <TableRow>
-      <TableCell>
+      <TableCell className="pr-3">
         <div className="space-y-1">
-          <div className="font-mono text-sm">{model.name}</div>
-          <div className="text-xs text-muted-foreground">
+          <div className="break-all font-mono text-sm leading-5">{model.name}</div>
+          <div className="line-clamp-1 text-xs text-muted-foreground">
             {model.display_name || model.name}
           </div>
         </div>
       </TableCell>
-      <TableCell>
+      <TableCell className="pr-3 align-top">
         <Badge variant="outline">{model.provider}</Badge>
       </TableCell>
-      <TableCell className="text-sm text-muted-foreground">
+      <TableCell className="pr-3 text-sm text-muted-foreground">
         {getRuntimeModelLabel(model)}
       </TableCell>
-      <TableCell>
-        <div className="flex flex-wrap gap-1">
+      <TableCell className="pr-3">
+        <div className="flex max-w-[13rem] flex-wrap gap-1">
           {capabilities.length ? (
             capabilities.map((capability) => (
               <Badge key={capability} variant="secondary">
@@ -244,7 +263,7 @@ function ModelRow({
       <TableCell className="font-mono text-xs text-muted-foreground">
         {maskString(getModelApiKey(model))}
       </TableCell>
-      <TableCell>
+      <TableCell className="pr-3">
         <div className="flex items-center gap-2">
           <Switch
             checked={model.enabled}
@@ -255,7 +274,7 @@ function ModelRow({
           </span>
         </div>
       </TableCell>
-      <TableCell className="text-muted-foreground">
+      <TableCell className="text-sm text-muted-foreground">
         {formatDate(model.created_at)}
       </TableCell>
       <TableCell className="text-right">
