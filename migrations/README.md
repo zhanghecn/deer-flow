@@ -1,11 +1,13 @@
 # Migration Baseline
 
-This directory is split into schema + data migrations:
+The active baseline is split into schema + data migrations:
 
 - `001_init.up.sql`
 - `002_seed_data.up.sql`
+
+Compatibility cleanup retained for older environments:
+
 - `003_drop_legacy_agent_tables.up.sql`
-- `004_backfill_model_context_windows.up.sql`
 
 `001_init.up.sql` contains the full schema baseline:
 
@@ -28,6 +30,7 @@ database rows.
 `002_seed_data.up.sql` contains runtime seed data:
 
 - seeded `models` rows
+- baseline `max_input_tokens` metadata for seeded models
 - default admin user:
   - account: `admin`
   - password: `admin123`
@@ -38,11 +41,6 @@ that were created before agent/skill definitions became filesystem-only. It
 removes legacy `agents`, `skills`, and `agent_skills` tables if they still
 exist.
 
-`004_backfill_model_context_windows.up.sql` backfills `config_json.max_input_tokens`
-for baseline seeded models that did not originally store explicit context-window
-metadata. This keeps summarization ratios and admin UI context reporting working
-after upgrades without overwriting operator-managed model settings.
-
 If your environment was migrated with older numbered files, reset or rebuild the
 database before re-running migrations so `schema_migrations` matches this
-four-file baseline.
+three-file history.
