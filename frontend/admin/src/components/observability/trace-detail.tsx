@@ -9,7 +9,12 @@ import { EventTree } from "./event-tree";
 import { TokenSummary } from "./token-summary";
 import { useFetch } from "@/hooks/use-fetch";
 import type { TraceItem, TraceEvent } from "@/types";
-import { buildTraceRuns, isCoreTraceRun } from "./trace-run-utils";
+import {
+  buildTraceRuns,
+  extractContextWindowPayload,
+  isCoreTraceRun,
+  type TraceRunSummary,
+} from "./trace-run-utils";
 
 interface TraceDetailProps {
   trace: TraceItem | null;
@@ -19,10 +24,53 @@ interface TraceDetailProps {
 type ViewMode = "timeline" | "galaxy";
 type RunFilter = "core" | "all";
 
+type ContextWindowPayload = {
+  usage_ratio?: number | null;
+  usage_ratio_after_summary?: number | null;
+  approx_input_tokens?: number;
+  approx_input_tokens_after_summary?: number | null;
+  max_input_tokens?: number | null;
+  summary_applied?: boolean;
+  summary_count?: number;
+  last_summary?: {
+    created_at?: string;
+    summary_preview?: string;
+  } | null;
+};
+
 const GalaxyTraceView = lazy(async () => {
   const module = await import("./galaxy-trace-view");
   return { default: module.GalaxyTraceView };
 });
+
+function extractLatestContextWindow(runs: TraceRunSummary[]): ContextWindowPayload | null {
+  for (let index = runs.length - 1; index >= 0; index -= 1) {
+    const run = runs[index];
+    if (!run) {
+      continue;
+    }
+    const contextWindow = extractContextWindowPayload(run);
+    if (!contextWindow) {
+      continue;
+    }
+    return contextWindow as ContextWindowPayload;
+  }
+  return null;
+}
+
+function formatPercent(value?: number | null) {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return null;
+  }
+  return `${Math.round(value * 100)}%`;
+}
+
+function formatCount(value?: number | null) {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return "—";
+  }
+  return new Intl.NumberFormat("en-US").format(Math.round(value));
+}
 
 export function TraceDetail({ trace, expanded = false }: TraceDetailProps) {
   if (!trace) {
@@ -79,6 +127,10 @@ function TraceDetailContent({
   const truncatedRunCount = useMemo(
     () => visibleRuns.filter((run) => run.hasTruncatedPayload).length,
     [visibleRuns],
+  );
+  const latestContextWindow = useMemo(
+    () => extractLatestContextWindow(runs),
+    [runs],
   );
 
   return (
@@ -157,6 +209,55 @@ function TraceDetailContent({
         </div>
 
         <TokenSummary trace={trace} />
+
+        {latestContextWindow && (
+          <div className="rounded-md border p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2 text-sm font-medium">
+              <span>Context Window</span>
+              {latestContextWindow.summary_applied && (
+                <Badge variant="outline">Compacted</Badge>
+              )}
+            </div>
+            {typeof latestContextWindow.usage_ratio === "number" && (
+              <div className="flex h-2 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full bg-emerald-500 transition-all"
+                  style={{
+                    width: `${Math.max(
+                      0,
+                      Math.min(100, latestContextWindow.usage_ratio * 100),
+                    )}%`,
+                  }}
+                />
+              </div>
+            )}
+            <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              <span>
+                Active: {formatCount(latestContextWindow.approx_input_tokens)}
+                {latestContextWindow.max_input_tokens
+                  ? ` / ${formatCount(latestContextWindow.max_input_tokens)}`
+                  : ""}
+              </span>
+              {formatPercent(latestContextWindow.usage_ratio) && (
+                <span>{formatPercent(latestContextWindow.usage_ratio)} used</span>
+              )}
+              {formatPercent(latestContextWindow.usage_ratio_after_summary) && (
+                <span>
+                  After compaction:{" "}
+                  {formatPercent(latestContextWindow.usage_ratio_after_summary)}
+                </span>
+              )}
+              {typeof latestContextWindow.summary_count === "number" && (
+                <span>{latestContextWindow.summary_count} summaries</span>
+              )}
+            </div>
+            {latestContextWindow.last_summary?.summary_preview && (
+              <p className="text-xs text-muted-foreground">
+                {latestContextWindow.last_summary.summary_preview}
+              </p>
+            )}
+          </div>
+        )}
 
         <Separator />
 

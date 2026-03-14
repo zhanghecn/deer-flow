@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from src.agents.lead_agent.prompt import apply_prompt_template
 from src.agents.lead_agent.subagents import load_subagent_specs
 from src.agents.middlewares.artifacts_middleware import ArtifactsMiddleware
+from src.agents.middlewares.context_window_middleware import ContextWindowMiddleware
 from src.agents.middlewares.max_tokens_recovery_middleware import MaxTokensRecoveryMiddleware
 from src.agents.middlewares.thread_data_middleware import ThreadDataMiddleware
 from src.agents.middlewares.title_middleware import TitleMiddleware
@@ -438,6 +439,7 @@ def _build_openagents_middlewares(model_config: ModelConfig):
         UploadsMiddleware(),
         TitleMiddleware(),
         MaxTokensRecoveryMiddleware(),
+        ContextWindowMiddleware(),
     ]
 
     if model_config.supports_vision:

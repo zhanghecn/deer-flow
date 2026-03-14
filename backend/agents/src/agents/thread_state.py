@@ -22,6 +22,48 @@ class ViewedImageData(TypedDict):
     mime_type: str
 
 
+class ContextWindowThresholdState(TypedDict):
+    type: NotRequired[str | None]
+    value: NotRequired[int | float | None]
+    current: NotRequired[int | float | None]
+    matched: NotRequired[bool | None]
+    label: NotRequired[str | None]
+
+
+class ContextWindowKeepState(TypedDict):
+    type: NotRequired[str | None]
+    value: NotRequired[int | float | None]
+
+
+class ContextWindowSummaryState(TypedDict):
+    created_at: NotRequired[str | None]
+    cutoff_index: NotRequired[int | None]
+    state_cutoff_index: NotRequired[int | None]
+    summarized_message_count: NotRequired[int | None]
+    preserved_message_count: NotRequired[int | None]
+    file_path: NotRequired[str | None]
+    summary_preview: NotRequired[str | None]
+
+
+class ContextWindowState(TypedDict):
+    updated_at: NotRequired[str | None]
+    approx_input_tokens: NotRequired[int | None]
+    approx_input_tokens_after_summary: NotRequired[int | None]
+    max_input_tokens: NotRequired[int | None]
+    usage_ratio: NotRequired[float | None]
+    usage_ratio_after_summary: NotRequired[float | None]
+    raw_message_count: NotRequired[int | None]
+    effective_message_count: NotRequired[int | None]
+    effective_message_count_after_summary: NotRequired[int | None]
+    trigger_thresholds: NotRequired[list[ContextWindowThresholdState] | None]
+    trigger_reasons: NotRequired[list[str] | None]
+    keep: NotRequired[ContextWindowKeepState | None]
+    triggered: NotRequired[bool | None]
+    summary_applied: NotRequired[bool | None]
+    summary_count: NotRequired[int | None]
+    last_summary: NotRequired[ContextWindowSummaryState | None]
+
+
 def merge_artifacts(existing: list[str] | None, new: list[str] | None) -> list[str]:
     """Reducer for artifacts list - merges and deduplicates artifacts."""
     if existing is None:
@@ -55,5 +97,6 @@ class ThreadState(AgentState):
     title: NotRequired[str | None]
     artifacts: Annotated[list[str], merge_artifacts]
     todos: NotRequired[list | None]
+    context_window: NotRequired[ContextWindowState | None]
     uploaded_files: NotRequired[list[dict] | None]
     viewed_images: Annotated[dict[str, ViewedImageData], merge_viewed_images]  # image_path -> {base64, mime_type}

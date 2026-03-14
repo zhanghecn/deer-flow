@@ -269,6 +269,29 @@ function mergeOptimisticMessages<T extends { messages: Message[] }>(
   };
 }
 
+function extractLatestContextWindow(
+  history: unknown,
+): AgentThreadState["context_window"] | undefined {
+  if (!Array.isArray(history)) {
+    return undefined;
+  }
+
+  for (const item of history) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const values = (item as { values?: AgentThreadState }).values;
+    if (!values || typeof values !== "object") {
+      continue;
+    }
+    if (values.context_window) {
+      return values.context_window;
+    }
+  }
+
+  return undefined;
+}
+
 export function useThreadStream({
   threadId,
   context,
@@ -281,6 +304,9 @@ export function useThreadStream({
   const { authenticated } = useAuth();
   const apiClient = getAPIClient(isMock);
   const [streamThreadId, setStreamThreadId] = useState<string | null>(null);
+  const [historyContextWindow, setHistoryContextWindow] = useState<
+    AgentThreadState["context_window"] | null
+  >(null);
   const hasStartedStreamRef = useRef(false);
   const resolvedContext = useMemo(
     () => resolveThreadContext(context),
@@ -288,9 +314,27 @@ export function useThreadStream({
   );
   const streamThrottle = resolveStreamThrottle(resolvedContext);
 
+  const refreshHistoryContextWindow = useCallback(
+    async (targetThreadId: string) => {
+      try {
+        const history = await apiClient.threads.getHistory(targetThreadId, {
+          limit: HISTORY_PAGE_SIZE,
+        });
+        setHistoryContextWindow(extractLatestContextWindow(history) ?? null);
+      } catch (error) {
+        console.warn(
+          `Failed to refresh context window history for thread ${targetThreadId}:`,
+          error,
+        );
+      }
+    },
+    [apiClient],
+  );
+
   useEffect(() => {
     let cancelled = false;
     hasStartedStreamRef.current = false;
+    setHistoryContextWindow(null);
 
     if (!threadId || !authenticated) {
       setStreamThreadId(null);
@@ -322,6 +366,13 @@ export function useThreadStream({
       cancelled = true;
     };
   }, [threadId, authenticated, apiClient]);
+
+  useEffect(() => {
+    if (!streamThreadId || !authenticated) {
+      return;
+    }
+    void refreshHistoryContextWindow(streamThreadId);
+  }, [streamThreadId, authenticated, refreshHistoryContextWindow]);
 
   const queryClient = useQueryClient();
   const updateSubtask = useUpdateSubtask();
@@ -366,6 +417,9 @@ export function useThreadStream({
       }
     },
     onFinish(state) {
+      if (streamThreadId) {
+        void refreshHistoryContextWindow(streamThreadId);
+      }
       onFinish?.(state.values);
       void queryClient.invalidateQueries({
         queryKey: THREAD_SEARCH_QUERY_KEY,
@@ -490,6 +544,23 @@ export function useThreadStream({
   );
 
   const mergedThread = mergeOptimisticMessages(thread, optimisticMessages);
+  const mergedThreadValues = useMemo(
+    () =>
+      historyContextWindow
+        ? {
+            ...mergedThread.values,
+            context_window: historyContextWindow,
+          }
+        : mergedThread.values,
+    [mergedThread.values, historyContextWindow],
+  );
+  const enrichedThread = useMemo(
+    () => ({
+      ...mergedThread,
+      values: mergedThreadValues,
+    }),
+    [mergedThread, mergedThreadValues],
+  );
 
-  return [mergedThread, sendMessage, resumeInterrupt] as const;
+  return [enrichedThread, sendMessage, resumeInterrupt] as const;
 }

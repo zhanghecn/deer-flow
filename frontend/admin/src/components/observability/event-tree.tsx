@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Bot, ChevronRight, Hammer, Link2, Workflow } from "lucide-react";
+import { Bot, ChevronRight, Gauge, Hammer, Link2, Workflow } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { formatAgo, formatDateTime } from "@/lib/format";
@@ -18,6 +18,8 @@ function runTypeIcon(runType: string) {
       return <Hammer className="h-3.5 w-3.5 text-amber-500" />;
     case "chain":
       return <Link2 className="h-3.5 w-3.5 text-blue-500" />;
+    case "system":
+      return <Gauge className="h-3.5 w-3.5 text-emerald-500" />;
     default:
       return <Workflow className="h-3.5 w-3.5 text-muted-foreground" />;
   }

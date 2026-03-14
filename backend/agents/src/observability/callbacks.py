@@ -78,6 +78,48 @@ class AgentTraceCallbackHandler(BaseCallbackHandler):
     def trace_id(self) -> str:
         return self._trace_id
 
+    def record_system_event(
+        self,
+        *,
+        node_name: str,
+        payload: dict[str, Any],
+        parent_run_id: str | None = None,
+    ) -> None:
+        """Persist an instant system event outside the standard callback hooks."""
+        if self._store is None:
+            return
+
+        finished_at = now_utc()
+        run_id_text = f"system:{node_name}:{uuid4()}"
+
+        with self._lock:
+            event_index = self._next_event_index()
+            resolved_parent = parent_run_id or self._root_run_id
+
+        try:
+            self._store.append_event(
+                trace_id=self._trace_id,
+                event_index=event_index,
+                run_id=run_id_text,
+                parent_run_id=resolved_parent,
+                run_type="system",
+                event_type="end",
+                node_name=node_name,
+                tool_name=None,
+                task_run_id=None,
+                started_at=finished_at,
+                finished_at=finished_at,
+                duration_ms=0,
+                input_tokens=None,
+                output_tokens=None,
+                total_tokens=None,
+                status="completed",
+                error=None,
+                payload=_shrink(payload),
+            )
+        except Exception:
+            logger.exception("Failed to persist system trace event")
+
     def on_chain_start(
         self,
         serialized: dict[str, Any],
@@ -107,6 +149,13 @@ class AgentTraceCallbackHandler(BaseCallbackHandler):
         parent_run_id: UUID | None = None,
         **kwargs: Any,
     ) -> Any:
+        context_window = _extract_context_window_payload(outputs)
+        if context_window:
+            self.record_system_event(
+                node_name="ContextWindow",
+                payload={"context_window": context_window},
+                parent_run_id=str(run_id),
+            )
         self._record_end(
             run_id=run_id,
             parent_run_id=parent_run_id,
@@ -693,6 +742,46 @@ def _extract_model_request_context(
         request["model"] = _resolve_name(serialized)
 
     return request
+
+
+def _extract_context_window_payload(outputs: Any) -> dict[str, Any] | None:
+    return _find_direct_context_window(outputs)
+
+
+def _find_direct_context_window(value: Any, depth: int = 0) -> dict[str, Any] | None:
+    if depth > TRACE_MAX_DEPTH or value is None:
+        return None
+
+    if isinstance(value, dict):
+        context_window = value.get("context_window")
+        if isinstance(context_window, dict):
+            return _jsonify(context_window)
+
+        for nested_key in ("update", "outputs", "values"):
+            if nested_key in value:
+                candidate = _find_direct_context_window(value.get(nested_key), depth + 1)
+                if candidate:
+                    return candidate
+
+        for nested_value in value.values():
+            candidate = _find_direct_context_window(nested_value, depth + 1)
+            if candidate:
+                return candidate
+        return None
+
+    update = getattr(value, "update", None)
+    if update is not None and not callable(update):
+        candidate = _find_direct_context_window(update, depth + 1)
+        if candidate:
+            return candidate
+
+    if isinstance(value, (list, tuple, set)):
+        for item in value:
+            candidate = _find_direct_context_window(item, depth + 1)
+            if candidate:
+                return candidate
+
+    return None
 
 
 def _serialize_message(message: Any) -> dict[str, Any]:

@@ -49,14 +49,12 @@ summarization:
   enabled: true
   model_name: null
   trigger:
-    - type: messages
-      value: 24
-    - type: tokens
-      value: 12000
+    - type: fraction
+      value: 0.95
   keep:
     type: messages
-    value: 8
-  trim_tokens_to_summarize: 6000
+    value: 12
+  trim_tokens_to_summarize: 8000
   summary_prompt: null
 
 # Memory is configured per agent, not in this root config file.

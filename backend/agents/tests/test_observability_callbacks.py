@@ -1,6 +1,10 @@
+from unittest.mock import MagicMock, patch
+from uuid import uuid4
+
 from langchain_core.messages import AIMessage
 
 from src.observability.callbacks import (
+    AgentTraceCallbackHandler,
     _extract_model_request_context,
     _serialize_message,
     _shrink,
@@ -77,3 +81,80 @@ def test_serialize_message_keeps_reasoning_content():
 
     assert result["content"] == "final answer"
     assert result["additional_kwargs"]["reasoning_content"] == "internal reasoning"
+
+
+def test_record_system_event_persists_context_window_snapshot():
+    store = MagicMock()
+
+    with patch("src.observability.callbacks.get_trace_store", return_value=store):
+        callback = AgentTraceCallbackHandler(
+            trace_id=str(uuid4()),
+            user_id=None,
+            thread_id="thread-1",
+            agent_name="lead_agent",
+            model_name="kimi-k2.5-1",
+        )
+
+    callback.record_system_event(
+        node_name="ContextWindow",
+        payload={"context_window": {"usage_ratio": 0.72, "summary_applied": True}},
+    )
+
+    store.append_event.assert_called_once()
+    payload = store.append_event.call_args.kwargs["payload"]
+    assert payload["context_window"]["usage_ratio"] == 0.72
+    assert payload["context_window"]["summary_applied"] is True
+    assert store.append_event.call_args.kwargs["run_type"] == "system"
+
+
+def test_on_chain_end_records_context_window_system_event_from_direct_output():
+    store = MagicMock()
+    run_id = uuid4()
+
+    outputs = {
+        "outputs": {
+            "context_window": {
+                "approx_input_tokens": 30448,
+                "max_input_tokens": 200_000,
+                "usage_ratio": 0.15224,
+                "summary_applied": True,
+                "last_summary": {
+                    "cutoff_index": 43,
+                    "file_path": "/conversation_history/thread-1.md",
+                    "summary_preview": "summary text",
+                },
+            }
+        }
+    }
+
+    with patch("src.observability.callbacks.get_trace_store", return_value=store):
+        callback = AgentTraceCallbackHandler(
+            trace_id=str(uuid4()),
+            user_id=None,
+            thread_id="thread-1",
+            agent_name="lead_agent",
+            model_name="kimi-k2.5-1",
+        )
+
+        callback.on_chain_start(
+            {"name": "lead_agent"},
+            {"messages": []},
+            run_id=run_id,
+        )
+        callback.on_chain_end(outputs, run_id=run_id)
+
+    system_calls = [
+        call.kwargs
+        for call in store.append_event.call_args_list
+        if call.kwargs["run_type"] == "system"
+    ]
+    assert len(system_calls) == 1
+
+    payload = system_calls[0]["payload"]["context_window"]
+    assert payload["summary_applied"] is True
+    assert payload["approx_input_tokens"] == 30448
+    assert payload["max_input_tokens"] == 200_000
+    assert payload["usage_ratio"] == 0.15224
+    assert payload["last_summary"]["cutoff_index"] == 43
+    assert payload["last_summary"]["file_path"] == "/conversation_history/thread-1.md"
+    assert payload["last_summary"]["summary_preview"] == "summary text"

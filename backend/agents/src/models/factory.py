@@ -18,6 +18,7 @@ MODEL_CONFIG_EXCLUDE_FIELDS = {
     "name",
     "display_name",
     "description",
+    "max_input_tokens",
     "supports_thinking",
     "supports_reasoning_effort",
     "when_thinking_enabled",
@@ -159,6 +160,23 @@ def _attach_langsmith_tracing(model_instance: BaseChatModel, name: str) -> None:
         )
 
 
+def _attach_explicit_profile_limits(
+    model_instance: BaseChatModel,
+    model_config: ModelConfig,
+) -> None:
+    if model_config.max_input_tokens is None:
+        return
+
+    profile = getattr(model_instance, "profile", None)
+    if not isinstance(profile, dict):
+        profile = {}
+
+    if not isinstance(profile.get("max_input_tokens"), int):
+        profile["max_input_tokens"] = int(model_config.max_input_tokens)
+
+    model_instance.profile = profile
+
+
 def create_chat_model(
     name: str | None = None,
     thinking_enabled: bool = False,
@@ -187,5 +205,6 @@ def create_chat_model(
     )
     model_instance = model_class(**runtime_kwargs, **model_settings_from_config)
 
+    _attach_explicit_profile_limits(model_instance, model_config)
     _attach_langsmith_tracing(model_instance, name)
     return model_instance

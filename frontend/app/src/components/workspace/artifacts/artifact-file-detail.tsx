@@ -55,7 +55,9 @@ import { useThread } from "../messages/context";
 import { Tooltip } from "../tooltip";
 
 import { useArtifacts } from "./context";
+import type { OnlyOfficeDocumentEditor as OnlyOfficeDocumentEditorValue } from "./onlyoffice-document-editor";
 
+type OnlyOfficeDocumentEditorComponent = typeof OnlyOfficeDocumentEditorValue;
 type ArtifactViewMode = "code" | "preview";
 
 export function ArtifactFileDetail({
@@ -368,9 +370,8 @@ function OfficeArtifactView({
   isMock: boolean;
 }) {
   const onlyOfficeMode: OnlyOfficeMode = descriptor.defaultMode;
-  const [OnlyOfficeDocumentEditor, setOnlyOfficeDocumentEditor] = useState<
-    null | typeof import("./onlyoffice-document-editor").OnlyOfficeDocumentEditor
-  >(null);
+  const [OnlyOfficeDocumentEditor, setOnlyOfficeDocumentEditor] =
+    useState<OnlyOfficeDocumentEditorComponent | null>(null);
   const [editorLoadError, setEditorLoadError] = useState<string | null>(null);
   const { data, error, isLoading } = useQuery({
     queryKey: ["onlyoffice-config", threadId, filepath, onlyOfficeMode],

@@ -114,3 +114,23 @@ def test_create_chat_model_disables_extra_body_thinking_when_not_requested(monke
 
     assert model.extra_body == {"thinking": {"type": "disabled"}}
     assert model.reasoning_effort == factory_module.MINIMAL_REASONING_EFFORT
+
+
+def test_create_chat_model_attaches_explicit_max_input_tokens(monkeypatch):
+    class FakeModel:
+        def __init__(self, **kwargs) -> None:
+            self.callbacks = None
+            self.profile = {}
+            for key, value in kwargs.items():
+                setattr(self, key, value)
+
+    monkeypatch.setattr(
+        factory_module,
+        "get_runtime_db_store",
+        lambda: _Store(_openai_model_config(max_input_tokens=200_000)),
+    )
+    monkeypatch.setattr(factory_module, "resolve_class", lambda *_args, **_kwargs: FakeModel)
+
+    model = factory_module.create_chat_model(name="gpt-5-mini", thinking_enabled=False)
+
+    assert model.profile["max_input_tokens"] == 200_000

@@ -169,13 +169,15 @@ export default function AgentChatPage() {
                     />
                   </div>
                 </div>
-
                 <InputBox
                   className={cn("bg-background/5 w-full -translate-y-4")}
                   isNewThread={isNewThread}
                   autoFocus={isNewThread}
                   status={thread.isLoading ? "streaming" : "ready"}
                   context={settings.context}
+                  contextWindow={
+                    isNewThread ? undefined : thread.values.context_window
+                  }
                   extraHeader={
                     isNewThread && (
                       <AgentWelcome agent={agent} agentName={agent_name} />

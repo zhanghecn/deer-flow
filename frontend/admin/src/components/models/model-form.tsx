@@ -298,6 +298,23 @@ export function ModelForm({
                           }
                         />
                       </Field>
+                      <Field
+                        label="Max Input Tokens"
+                        description="Required if you want fraction-based summarization and context-window percentages to work for this model."
+                      >
+                        <Input
+                          autoComplete="off"
+                          inputMode="numeric"
+                          min={1}
+                          name={`${fieldNamePrefix}-max-input-tokens`}
+                          placeholder="For example 200000"
+                          type="number"
+                          value={values.maxInputTokens}
+                          onChange={(event) =>
+                            updateField("maxInputTokens", event.target.value)
+                          }
+                        />
+                      </Field>
                     </div>
                   </Section>
 

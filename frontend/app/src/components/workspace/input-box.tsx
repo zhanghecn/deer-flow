@@ -53,7 +53,7 @@ import {
 import { useI18n } from "@/core/i18n/hooks";
 import { useModels } from "@/core/models/hooks";
 import type { Model } from "@/core/models/types";
-import type { AgentThreadContext } from "@/core/threads";
+import type { AgentThreadContext, ContextWindowState } from "@/core/threads";
 import { cn } from "@/lib/utils";
 
 import {
@@ -73,6 +73,7 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 
+import { ContextWindowCard } from "./context-window-card";
 import { ModeHoverGuide } from "./mode-hover-guide";
 import { Tooltip } from "./tooltip";
 
@@ -263,6 +264,7 @@ export function InputBox({
   status = "ready",
   context,
   extraHeader,
+  contextWindow,
   isNewThread,
   initialValue,
   onContextChange,
@@ -275,6 +277,7 @@ export function InputBox({
   disabled?: boolean;
   context: InputBoxContext;
   extraHeader?: React.ReactNode;
+  contextWindow?: ContextWindowState;
   isNewThread?: boolean;
   initialValue?: string;
   onContextChange?: (context: InputBoxContext) => void;
@@ -597,6 +600,11 @@ export function InputBox({
             </PromptInputActionMenu>
           )}
         </PromptInputTools>
+        {contextWindow && (
+          <PromptInputTools className="min-w-0 flex-1 justify-center px-2">
+            <ContextWindowCard contextWindow={contextWindow} />
+          </PromptInputTools>
+        )}
         <PromptInputTools>
           <ModelSelector
             open={modelDialogOpen}

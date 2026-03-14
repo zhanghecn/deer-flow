@@ -153,6 +153,9 @@ export default function ChatPage() {
                   autoFocus={isNewThread}
                   status={thread.isLoading ? "streaming" : "ready"}
                   context={settings.context}
+                  contextWindow={
+                    isNewThread ? undefined : thread.values.context_window
+                  }
                   extraHeader={
                     isNewThread && <Welcome mode={settings.context.mode} />
                   }

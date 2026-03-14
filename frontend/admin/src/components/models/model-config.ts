@@ -7,6 +7,7 @@ const KNOWN_CONFIG_KEYS = new Set([
   "model",
   "api_key",
   "base_url",
+  "max_input_tokens",
   "supports_thinking",
   "supports_vision",
   "supports_reasoning_effort",
@@ -36,6 +37,17 @@ function getConfigString(config: Record<string, unknown>, key: string): string {
 
 function getConfigFlag(config: Record<string, unknown>, key: string): boolean {
   return config[key] === true;
+}
+
+function getConfigPositiveInteger(
+  config: Record<string, unknown>,
+  key: string,
+): string {
+  const value = config[key];
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+    return String(value);
+  }
+  return "";
 }
 
 function stringifyJson(value: unknown): string {
@@ -74,6 +86,7 @@ export interface ModelFormValues {
   model: string;
   apiKey: string;
   baseUrl: string;
+  maxInputTokens: string;
   supportsThinking: boolean;
   supportsVision: boolean;
   supportsReasoningEffort: boolean;
@@ -96,6 +109,7 @@ export function getModelFormValues(model: AdminModel | null): ModelFormValues {
     model: getConfigString(config, "model"),
     apiKey: getConfigString(config, "api_key"),
     baseUrl: getConfigString(config, "base_url"),
+    maxInputTokens: getConfigPositiveInteger(config, "max_input_tokens"),
     supportsThinking: getConfigFlag(config, "supports_thinking"),
     supportsVision: getConfigFlag(config, "supports_vision"),
     supportsReasoningEffort: getConfigFlag(config, "supports_reasoning_effort"),
@@ -120,6 +134,17 @@ export function buildModelPayload(values: ModelFormValues): ModelMutationPayload
     configJson.base_url = baseUrl;
   } else {
     delete configJson.base_url;
+  }
+
+  const maxInputTokens = values.maxInputTokens.trim();
+  if (maxInputTokens) {
+    const parsed = Number.parseInt(maxInputTokens, 10);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      throw new Error("Max input tokens must be a positive integer");
+    }
+    configJson.max_input_tokens = parsed;
+  } else {
+    delete configJson.max_input_tokens;
   }
 
   const whenThinkingEnabled = parseJsonObject(
@@ -206,6 +231,14 @@ export function getModelCapabilityBadges(model: AdminModel): string[] {
     Object.keys(config.when_thinking_enabled).length > 0
   ) {
     badges.push("Thinking Config");
+  }
+  const maxInputTokens = config.max_input_tokens;
+  if (
+    typeof maxInputTokens === "number" &&
+    Number.isInteger(maxInputTokens) &&
+    maxInputTokens > 0
+  ) {
+    badges.push(`${Math.round(maxInputTokens / 1000)}K ctx`);
   }
   return badges;
 }

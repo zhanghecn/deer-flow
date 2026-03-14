@@ -15,14 +15,11 @@ func TestTransformLangGraphHistoryPayloadFiltersFrontendState(t *testing.T) {
 			"values": map[string]any{
 				"title":           "Surprise me",
 				"artifacts":       []any{"/outputs/demo.html"},
+				"context_window":  map[string]any{"usage_ratio": 0.42, "summary_applied": false},
 				"todos":           []any{map[string]any{"content": "done"}},
 				"messages":        []any{map[string]any{"id": "m1"}, map[string]any{"id": "m2"}, map[string]any{"id": "m3"}, map[string]any{"id": "m4"}},
 				"skills_metadata": []any{"huge"},
 				"thread_data":     map[string]any{"workspace_path": "/tmp"},
-				"_summarization_event": map[string]any{
-					"cutoff_index":    float64(2),
-					"summary_message": map[string]any{"id": "summary"},
-				},
 			},
 		},
 	}
@@ -57,12 +54,20 @@ func TestTransformLangGraphHistoryPayloadFiltersFrontendState(t *testing.T) {
 	}
 
 	messages := values["messages"].([]any)
-	if len(messages) != 3 {
-		t.Fatalf("expected compacted messages length 3, got %d", len(messages))
+	if len(messages) != 4 {
+		t.Fatalf("expected preserved messages length 4, got %d", len(messages))
 	}
 	first := messages[0].(map[string]any)
-	if first["id"] != "summary" {
-		t.Fatalf("expected first message to be the summary, got %#v", first)
+	if first["id"] != "m1" {
+		t.Fatalf("expected first message to remain m1, got %#v", first)
+	}
+
+	contextWindow, ok := values["context_window"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected persisted context_window")
+	}
+	if contextWindow["usage_ratio"] != 0.42 {
+		t.Fatalf("expected usage_ratio=0.42, got %#v", contextWindow["usage_ratio"])
 	}
 }
 
@@ -176,7 +181,7 @@ func TestTransformLangGraphHistoryPayloadSanitizesMessagesForFrontend(t *testing
 	}
 }
 
-func TestTransformLangGraphHistoryPayloadCompactsCompletedTurns(t *testing.T) {
+func TestTransformLangGraphHistoryPayloadPreservesCompletedTurns(t *testing.T) {
 	t.Parallel()
 
 	payload := []map[string]any{
@@ -239,18 +244,14 @@ func TestTransformLangGraphHistoryPayloadCompactsCompletedTurns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("transform payload: %v", err)
 	}
-	if !changed {
-		t.Fatalf("expected payload to change")
-	}
-
 	var states []map[string]any
 	if err := json.Unmarshal(transformed, &states); err != nil {
 		t.Fatalf("unmarshal transformed payload: %v", err)
 	}
 
 	messages := states[0]["values"].(map[string]any)["messages"].([]any)
-	if len(messages) != 4 {
-		t.Fatalf("expected 4 compacted messages, got %d", len(messages))
+	if len(messages) != 6 {
+		t.Fatalf("expected 6 preserved messages, got %d", len(messages))
 	}
 
 	ids := make([]string, 0, len(messages))
@@ -259,15 +260,18 @@ func TestTransformLangGraphHistoryPayloadCompactsCompletedTurns(t *testing.T) {
 		ids = append(ids, messageMap["id"].(string))
 	}
 
-	expected := []string{"human-1", "ai-final-1", "human-2", "ai-processing-2"}
+	expected := []string{"human-1", "ai-processing-1", "tool-1-result", "ai-final-1", "human-2", "ai-processing-2"}
 	for index, id := range expected {
 		if ids[index] != id {
 			t.Fatalf("expected message %d to be %q, got %q", index, id, ids[index])
 		}
 	}
+	if changed {
+		t.Fatalf("expected payload to remain unchanged when no sanitization is needed")
+	}
 }
 
-func TestTransformLangGraphHistoryPayloadTrimsActiveTurnTail(t *testing.T) {
+func TestTransformLangGraphHistoryPayloadKeepsActiveTurnTail(t *testing.T) {
 	t.Parallel()
 
 	messages := []any{
@@ -324,18 +328,14 @@ func TestTransformLangGraphHistoryPayloadTrimsActiveTurnTail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("transform payload: %v", err)
 	}
-	if !changed {
-		t.Fatalf("expected payload to change")
-	}
-
 	var states []map[string]any
 	if err := json.Unmarshal(transformed, &states); err != nil {
 		t.Fatalf("unmarshal transformed payload: %v", err)
 	}
 
 	resultMessages := states[0]["values"].(map[string]any)["messages"].([]any)
-	if len(resultMessages) >= len(messages) {
-		t.Fatalf("expected active turn to be compacted from %d messages, got %d", len(messages), len(resultMessages))
+	if len(resultMessages) != len(messages) {
+		t.Fatalf("expected active turn to remain intact at %d messages, got %d", len(messages), len(resultMessages))
 	}
 
 	ids := make(map[string]struct{}, len(resultMessages))
@@ -350,11 +350,14 @@ func TestTransformLangGraphHistoryPayloadTrimsActiveTurnTail(t *testing.T) {
 	if _, ok := ids["ai-final"]; !ok {
 		t.Fatalf("expected final assistant message to be preserved")
 	}
-	if _, ok := ids["ai-step-task-a"]; ok {
-		t.Fatalf("expected oldest processing message to be dropped")
+	if _, ok := ids["ai-step-task-a"]; !ok {
+		t.Fatalf("expected oldest processing message to be preserved")
 	}
-	if _, ok := ids["tool-step-task-a"]; ok {
-		t.Fatalf("expected oldest task result to be dropped")
+	if _, ok := ids["tool-step-task-a"]; !ok {
+		t.Fatalf("expected oldest task result to be preserved")
+	}
+	if changed {
+		t.Fatalf("expected payload to remain unchanged when no sanitization is needed")
 	}
 }
 

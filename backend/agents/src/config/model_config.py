@@ -20,3 +20,7 @@ class ModelConfig(BaseModel):
         description="Extra settings to be passed to the model when thinking is enabled",
     )
     supports_vision: bool = Field(default_factory=lambda: False, description="Whether the model supports vision/image inputs")
+    max_input_tokens: int | None = Field(
+        default=None,
+        description="Optional explicit context-window size used when the provider model does not expose max_input_tokens in its profile.",
+    )

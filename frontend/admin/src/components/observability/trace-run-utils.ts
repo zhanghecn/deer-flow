@@ -58,6 +58,19 @@ const CHAIN_STATE_KEYS = new Set([
   "thread_data",
 ]);
 
+export function extractContextWindowPayload(
+  run: TraceRunSummary,
+): Record<string, unknown> | null {
+  const endPayload = toRecord(run.endEvent?.payload ?? run.errorEvent?.payload);
+  const directPayload = toRecord(normalizeTraceValue(endPayload?.context_window));
+  if (directPayload) {
+    return directPayload;
+  }
+
+  const outputsPayload = toRecord(normalizeTraceValue(endPayload?.outputs));
+  return toRecord(normalizeTraceValue(outputsPayload?.context_window));
+}
+
 function toRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -720,6 +733,41 @@ function summarizeLLMRun(run: TraceRunSummary): string {
   return "model exchange";
 }
 
+function summarizeSystemRun(run: TraceRunSummary): string {
+  const contextWindow = extractContextWindowPayload(run);
+  if (!contextWindow) {
+    return "system event";
+  }
+
+  const usageRatio =
+    typeof contextWindow.usage_ratio === "number"
+      ? contextWindow.usage_ratio
+      : null;
+  const usageAfter =
+    typeof contextWindow.usage_ratio_after_summary === "number"
+      ? contextWindow.usage_ratio_after_summary
+      : null;
+  const approxTokens =
+    typeof contextWindow.approx_input_tokens === "number"
+      ? contextWindow.approx_input_tokens
+      : null;
+  const summaryApplied = contextWindow.summary_applied === true;
+
+  if (usageRatio != null && usageAfter != null && summaryApplied) {
+    return `${Math.round(usageRatio * 100)}% -> ${Math.round(usageAfter * 100)}% after compaction`;
+  }
+
+  if (usageRatio != null) {
+    return `${Math.round(usageRatio * 100)}% of prompt window in use`;
+  }
+
+  if (approxTokens != null) {
+    return `${approxTokens} approx prompt tokens`;
+  }
+
+  return "context-window snapshot";
+}
+
 function resolveRunLabel(run: TraceRunSummary): string {
   if (run.runType === "tool") {
     return run.toolName || "Tool";
@@ -728,12 +776,16 @@ function resolveRunLabel(run: TraceRunSummary): string {
     const modelName = extractModelName(run);
     return modelName ? `LLM · ${modelName}` : "LLM";
   }
+  if (run.runType === "system") {
+    return humanizeNodeName(run.nodeName) || "System";
+  }
   return humanizeNodeName(run.nodeName);
 }
 
 function resolveRunSummary(run: TraceRunSummary): string {
   if (run.runType === "tool") return summarizeToolRun(run);
   if (run.runType === "llm") return summarizeLLMRun(run);
+  if (run.runType === "system") return summarizeSystemRun(run);
   return summarizeChainRun(run);
 }
 
@@ -1013,6 +1065,19 @@ export function extractRunSections(
           "Result returned by the tool. If marked as truncated, the backend capture was shortened before the payload was stored.",
           "tools",
           endPayload?.tool_response,
+        ),
+      );
+    }
+  } else if (run.runType === "system") {
+    const contextWindow = extractContextWindowPayload(run);
+    if (hasValue(contextWindow)) {
+      sections.push(
+        makeSection(
+          "context-window",
+          "Context Window Snapshot",
+          "Approximate prompt occupancy captured by the summarization middleware before the model call.",
+          "state",
+          contextWindow,
         ),
       );
     }

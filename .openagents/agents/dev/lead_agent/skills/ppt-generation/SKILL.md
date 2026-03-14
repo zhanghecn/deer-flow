@@ -1,21 +1,21 @@
 ---
 name: ppt-generation
-description: Use this skill when the user requests to generate, create, or make presentations (PPT/PPTX). Creates visually rich slides by generating images for each slide and composing them into a PowerPoint file.
+description: Use this skill when the user requests to generate, create, or make presentations (PPT/PPTX). Creates visually rich slide backgrounds and composes them into a PowerPoint file with native editable text layers.
 ---
 
 # PPT Generation Skill
 
 ## Overview
 
-This skill generates professional PowerPoint presentations by creating AI-generated images for each slide and composing them into a PPTX file. The workflow includes planning the presentation structure with a consistent visual style, generating slide images sequentially (using the previous slide as a reference for style consistency), and assembling them into a final presentation.
+This skill generates professional PowerPoint presentations by creating AI-generated background images for each slide and composing them into a PPTX file with native editable text boxes. The workflow includes planning the presentation structure with a consistent visual style, generating slide backgrounds sequentially (using the previous slide as a reference for style consistency), and assembling them into a final presentation.
 
 ## Core Capabilities
 
 - Plan and structure multi-slide presentations with unified visual style
 - Support multiple presentation styles: Business, Academic, Minimal, Apple Keynote, Creative
-- Generate unique AI images for each slide using image-generation skill
+- Generate unique AI background images for each slide using image-generation skill
 - Maintain visual consistency by using previous slide as reference image
-- Compose images into a professional PPTX file
+- Compose images into a professional PPTX file with native editable titles and body text
 
 ## Presentation Styles
 
@@ -48,6 +48,8 @@ When a user requests presentation generation, identify:
 ### Step 2: Create Presentation Plan
 
 Create a JSON file in `/mnt/user-data/workspace/` with the presentation structure. **Important**: Include the `style` field to define the overall visual consistency.
+
+The plan text fields (`title`, `subtitle`, `key_points`, `body`, etc.) are the single source of truth for slide copy. The composer script will place them into native editable PowerPoint text boxes. Do not rely on background images to render slide text.
 
 ```json
 {
@@ -83,6 +85,8 @@ Create a JSON file in `/mnt/user-data/workspace/` with the presentation structur
 
 **IMPORTANT**: Generate slides **strictly one by one, in order**. Do NOT parallelize or batch image generation. Each slide depends on the previous slide's output as a reference image. Generating slides in parallel will break visual consistency and is not allowed.
 
+**CRITICAL IMAGE RULE**: Background images must be illustration-only. NEVER render titles, subtitles, bullets, numbers, charts labels, or paragraphs directly inside the generated image. Instead, describe clean visual composition and text-safe empty regions where the PPT composer will later place native editable text.
+
 1. After reading this `SKILL.md`, treat its parent directory as `<current-skill-dir>`.
 2. Resolve the sibling image-generation skill relative to this skill directory:
    - `../image-generation/SKILL.md`
@@ -95,9 +99,9 @@ Create a JSON file in `/mnt/user-data/workspace/` with the presentation structur
 
 ```json
 {
-  "prompt": "Professional presentation slide. [style_guidelines from plan]. Title: 'Your Title'. [visual_description]. This slide establishes the visual language for the entire presentation.",
+  "prompt": "Professional presentation background image. [style_guidelines from plan]. Reserve a clean text-safe area for the title/subtitle overlay, but do not render any actual words, glyphs, numbers, or UI text inside the image. [visual_description]. This slide establishes the visual language for the entire presentation.",
   "style": "[Based on chosen style - e.g., Apple Keynote aesthetic, dramatic lighting, cinematic]",
-  "composition": "Clean layout with clear text hierarchy, [style-specific composition]",
+  "composition": "Clean layout with a clear text-safe zone for native PPT text overlay, [style-specific composition]",
   "color_palette": "[From style_guidelines]",
   "typography": "[From style_guidelines]"
 }
@@ -114,9 +118,9 @@ python <image-generation-skill-dir>/scripts/generate.py \
 
 ```json
 {
-  "prompt": "Professional presentation slide continuing the visual style from the reference image. Maintain the same color palette, typography style, and overall aesthetic. Title: 'Slide Title'. [visual_description]. Keep visual consistency with the reference.",
+  "prompt": "Professional presentation background image continuing the visual style from the reference image. Maintain the same color palette, typography style, and overall aesthetic. Reserve a clean text-safe area for the upcoming native PPT text overlay, but do not render any actual words, glyphs, or bullets in the image. [visual_description]. Keep visual consistency with the reference.",
   "style": "Match the style of the reference image exactly",
-  "composition": "Similar layout principles as reference, adapted for this content",
+  "composition": "Similar layout principles as reference, adapted for this content and leaving a text-safe zone for editable PPT text",
   "color_palette": "Same as reference image",
   "consistency_note": "This slide must look like it belongs in the same presentation as the reference image"
 }
@@ -150,6 +154,8 @@ python <image-generation-skill-dir>/scripts/generate.py \
 
 ### Step 4: Compose PPT
 
+The composer script places native editable PowerPoint text boxes on top of the generated background images. The final `.pptx` must remain editable in PowerPoint/OnlyOffice, so image-only slides are not acceptable.
+
 After all slide images are generated, call the composition script:
 
 ```bash
@@ -168,7 +174,7 @@ Parameters:
 [!NOTE]
 Do NOT read the python file, just call it with the parameters.
 Do NOT run `pip install`. Use the runtime's existing Python environment and keep the script path on `/mnt/user-data/...`.
-If slide image generation fails or produces missing image files, stop and report the failure. Do not generate text-native fallback slides.
+If slide image generation fails or produces missing image files, stop and report the failure. Do not generate image-only slides that burn text into the background.
 
 ## Complete Example: Glassmorphism Style (最现代前卫)
 
@@ -196,7 +202,7 @@ Create `/mnt/user-data/workspace/ai-product-plan.json`:
       "type": "title",
       "title": "Introducing Nova AI",
       "subtitle": "Intelligence, Reimagined",
-      "visual_description": "Stunning gradient background flowing from deep purple (#667eea) through magenta to cyan (#00d4ff). Center: large frosted glass panel with strong backdrop blur, containing bold white title 'Introducing Nova AI' and lighter subtitle. Floating 3D glass spheres and abstract shapes around the card creating depth. Soft glow emanating from behind the glass panel. Premium visionOS aesthetic. The glass card has subtle white border (1px rgba 255,255,255,0.3) and soft purple-tinted shadow."
+      "visual_description": "Stunning gradient background flowing from deep purple (#667eea) through magenta to cyan (#00d4ff). Center: large frosted glass panel with strong backdrop blur, reserved as a clean text-safe area for a later native title/subtitle overlay. Floating 3D glass spheres and abstract shapes around the card create depth. Soft glow emanates from behind the glass panel. Premium visionOS aesthetic. The glass card has subtle white border (1px rgba 255,255,255,0.3) and soft purple-tinted shadow. Do not render any actual text inside the image."
     },
     {
       "slide_number": 2,
@@ -224,7 +230,7 @@ Create `/mnt/user-data/workspace/ai-product-plan.json`:
       "type": "conclusion",
       "title": "The Future Starts Now",
       "subtitle": "Join the waitlist",
-      "visual_description": "Dramatic finale slide. Gradient background with slightly increased vibrancy. Central frosted glass card with bold title 'The Future Starts Now' and call-to-action subtitle. Behind the card: burst of soft light rays and floating glass particles creating celebration effect. Multiple layered glass shapes creating depth. The most visually impactful slide while maintaining style consistency."
+      "visual_description": "Dramatic finale slide. Gradient background with slightly increased vibrancy. Central frosted glass card reserved as a clean text-safe area for the final title and call-to-action subtitle overlay. Behind the card: burst of soft light rays and floating glass particles creating celebration effect. Multiple layered glass shapes create depth. The most visually impactful slide while maintaining style consistency. Do not render any actual text inside the image."
     }
   ]
 }
@@ -241,7 +247,7 @@ Read `../image-generation/SKILL.md` and resolve it relative to this skill direct
 Create `/mnt/user-data/workspace/nova-slide-01.json`:
 ```json
 {
-  "prompt": "Ultra-premium presentation title slide with glassmorphism design. Background: smooth flowing gradient from deep purple (#667eea) through magenta (#f093fb) to cyan (#00d4ff), soft and vibrant. Center: large frosted glass panel with strong backdrop blur effect, rounded corners 32px, containing bold white sans-serif title 'Introducing Nova AI' (72pt, SF Pro Display style, font-weight 700) with subtle text shadow, subtitle 'Intelligence, Reimagined' below in lighter weight. The glass panel has subtle white border (1px rgba 255,255,255,0.25) and soft purple-tinted drop shadow. Floating around the card: 3D glass spheres with refraction, translucent geometric shapes (icosahedrons, abstract blobs), creating depth and dimension. Soft luminous glow emanating from behind the glass panel. Small floating particles of light. Apple Vision Pro / visionOS UI aesthetic. Professional presentation slide, 16:9 aspect ratio. Hyper-modern, premium tech product launch feel.",
+  "prompt": "Ultra-premium presentation title-slide background with glassmorphism design. Background: smooth flowing gradient from deep purple (#667eea) through magenta (#f093fb) to cyan (#00d4ff), soft and vibrant. Center: large frosted glass panel with strong backdrop blur effect, rounded corners 32px, reserved as a clean text-safe area for a later native title/subtitle overlay. The glass panel has subtle white border (1px rgba 255,255,255,0.25) and soft purple-tinted drop shadow. Floating around the card: 3D glass spheres with refraction, translucent geometric shapes (icosahedrons, abstract blobs), creating depth and dimension. Soft luminous glow emanating from behind the glass panel. Small floating particles of light. Apple Vision Pro / visionOS UI aesthetic. Professional presentation background, 16:9 aspect ratio. Hyper-modern, premium tech product launch feel. Do not render any actual text, letters, or numbers inside the image.",
   "style": "Glassmorphism, visionOS aesthetic, Apple Vision Pro UI style, premium tech, 2024 design trends",
   "composition": "Centered glass card as focal point, floating 3D elements creating depth at edges, 40% negative space, clear visual hierarchy",
   "lighting": "Soft ambient glow from gradient, light refraction through glass elements, subtle rim lighting on 3D shapes",
@@ -262,7 +268,7 @@ python <image-generation-skill-dir>/scripts/generate.py \
 Create `/mnt/user-data/workspace/nova-slide-02.json`:
 ```json
 {
-  "prompt": "Presentation slide continuing EXACT visual style from reference image. SAME purple-to-cyan gradient background, SAME glassmorphism aesthetic, SAME typography style. Left side: frosted glass card with backdrop blur containing title 'Why Nova?' in bold white (matching reference font style), three feature points as subtle glass pill badges below. Right side: abstract 3D neural network visualization made of interconnected glass nodes with soft cyan glow, floating in space. Floating translucent geometric shapes (matching style from reference) adding depth. The frosted glass has identical treatment: white border, purple-tinted shadow, same blur intensity. CRITICAL: This slide must look like it belongs in the exact same presentation as the reference image - same colors, same glass treatment, same overall aesthetic.",
+  "prompt": "Presentation background continuing EXACT visual style from reference image. SAME purple-to-cyan gradient background, SAME glassmorphism aesthetic, SAME typography direction. Left side: frosted glass card with backdrop blur reserved as a clean text-safe area for a later native title and bullet overlay. Right side: abstract 3D neural network visualization made of interconnected glass nodes with soft cyan glow, floating in space. Floating translucent geometric shapes (matching style from reference) add depth. The frosted glass has identical treatment: white border, purple-tinted shadow, same blur intensity. CRITICAL: This slide must look like it belongs in the exact same presentation as the reference image - same colors, same glass treatment, same overall aesthetic. Do not render any actual words, letters, numbers, or bullet text inside the image.",
   "style": "MATCH REFERENCE EXACTLY - Glassmorphism, visionOS aesthetic, same visual language",
   "composition": "Asymmetric split: glass card left (40%), 3D visualization right (40%), breathing room between elements",
   "color_palette": "EXACTLY match reference: purple #667eea, cyan #00d4ff gradient, same frosted white treatment, same text white",
