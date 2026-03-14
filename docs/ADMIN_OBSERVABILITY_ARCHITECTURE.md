@@ -123,3 +123,13 @@ Thread metadata itself is sourced from LangGraph `threads` storage/APIs, not fro
   and keep raw JSON in collapsed advanced inspectors
 - `Checkpoint / Threads`: checkpoint table status + runtime thread list
 - `管理账号`: grant/revoke admin role
+
+## Context Window Semantics
+
+- `ContextWindow` is recorded as a dedicated `system` event from Python callbacks.
+- The payload comes from persisted LangGraph state `context_window`, not from trace token totals.
+- `trace.total_tokens` answers "how expensive was the whole run".
+- `context_window.approx_input_tokens / max_input_tokens` answers "how full is the active prompt right now".
+- Admin UI should treat these as separate metrics and present them separately.
+
+See [CONTEXT_WINDOW_AND_SUMMARIZATION_NOTES.md](CONTEXT_WINDOW_AND_SUMMARIZATION_NOTES.md) for the engineering notes behind this split.

@@ -48,7 +48,7 @@ OpenAgents is a LangGraph-based AI super agent with sandbox execution, persisten
 The single LangGraph agent (`lead_agent`) is the runtime entry point, created via `make_lead_agent(config)`. It combines:
 
 - **Dynamic model selection** with thinking and vision support
-- **Middleware chain** for cross-cutting concerns (9 middlewares)
+- **Middleware chain** for cross-cutting concerns (OpenAgents extras + deepagents built-ins)
 - **Tool system** with sandbox, MCP, community, and built-in tools
 - **Subagent delegation** for parallel task execution
 - **System prompt** with skills injection, memory context, and working directory guidance
@@ -76,15 +76,26 @@ OpenAgents-specific middlewares are combined with deepagents built-ins such as `
 
 | # | Middleware | Purpose |
 |---|-----------|---------|
-| 1 | **ThreadDataMiddleware** | Creates per-thread isolated directories (workspace, uploads, outputs) |
-| 2 | **UploadsMiddleware** | Injects newly uploaded files into conversation context |
-| 3 | **FilesystemMiddleware** | Exposes file and execution tools over the configured backend |
-| 4 | **SummarizationMiddleware** | Reduces context when approaching token limits (optional) |
-| 5 | **TodoListMiddleware** | Tracks multi-step tasks in plan mode (optional) |
-| 6 | **TitleMiddleware** | Auto-generates conversation titles after first exchange |
-| 7 | **MemoryMiddleware** | Queues conversations for async memory extraction |
-| 8 | **ViewImageMiddleware** | Injects image data for vision-capable models (conditional) |
-| 9 | **ClarificationMiddleware** | Intercepts clarification requests and interrupts execution (must be last) |
+| 1 | **ArtifactsMiddleware** | Tracks tool-produced artifacts for frontend presentation |
+| 2 | **ThreadDataMiddleware** | Creates per-thread isolated directories (workspace, uploads, outputs) |
+| 3 | **UploadsMiddleware** | Injects newly uploaded files into conversation context |
+| 4 | **FilesystemMiddleware** | Exposes file and execution tools over the configured backend |
+| 5 | **SummarizationMiddleware** | Reduces context when approaching token limits (optional) |
+| 6 | **TodoListMiddleware** | Tracks multi-step tasks in plan mode (optional) |
+| 7 | **TitleMiddleware** | Auto-generates conversation titles after first exchange |
+| 8 | **MaxTokensRecoveryMiddleware** | Retries after provider-side max-token/context-overflow failures |
+| 9 | **ContextWindowMiddleware** | Persists current prompt occupancy snapshots into LangGraph state |
+| 10 | **MemoryMiddleware** | Queues conversations for async memory extraction |
+| 11 | **ViewImageMiddleware** | Injects image data for vision-capable models (conditional) |
+| 12 | **ClarificationMiddleware** | Intercepts clarification requests and interrupts execution (must be last) |
+
+Important distinction:
+
+- `SummarizationMiddleware` handles normal proactive compaction.
+- `MaxTokensRecoveryMiddleware` is only a recovery path when the provider already rejected the request for context/max-token reasons.
+- User/admin UI should read current occupancy from persisted `context_window`, not from aggregate trace token totals.
+
+See [../../docs/CONTEXT_WINDOW_AND_SUMMARIZATION_NOTES.md](../../docs/CONTEXT_WINDOW_AND_SUMMARIZATION_NOTES.md) for the concrete runtime notes and validation data.
 
 ### Sandbox System
 
