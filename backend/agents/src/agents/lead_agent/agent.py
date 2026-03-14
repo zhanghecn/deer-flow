@@ -572,6 +572,8 @@ def _load_configurable_payload(config: RunnableConfig, runtime: ServerRuntime | 
     if not isinstance(configurable_payload, dict):
         raise ValueError("`configurable` must be an object.")
 
+    # LangGraph runtime context carries server-injected headers such as thread/user identity.
+    # Let explicit configurable values win so API callers can intentionally override them.
     merged_payload = _extract_runtime_context(runtime)
     merged_payload.update(configurable_payload)
     return merged_payload
@@ -669,6 +671,9 @@ def _resolve_run_model(
     db_store: RuntimeDBStore,
 ) -> tuple[str, ModelConfig]:
     """Resolve the run model with strict precedence and limited legacy-thread fallback."""
+    # Precedence is intentionally strict: explicit per-request selection beats runtime
+    # defaults, which beat the agent archive, which finally beats thread stickiness.
+    # The conflict checks below keep those sources from silently drifting apart.
     agent_model_name = agent_config.model if agent_config and agent_config.model else None
     if requested_model_name and agent_model_name and requested_model_name != agent_model_name:
         raise ValueError(f"Model conflict: requested model '{requested_model_name}' does not match agent model '{agent_model_name}'.")
@@ -687,6 +692,8 @@ def _resolve_run_model(
 
     model_config = db_store.get_model(model_name)
     if model_config is None:
+        # Only use the "any enabled model" fallback for legacy threads that rely purely
+        # on persisted runtime state. If the caller explicitly asked for a model, fail hard.
         if not requested_model_name and not runtime_model_name and not agent_model_name and persisted_thread_model_name:
             fallback_model = db_store.get_any_enabled_model()
             if fallback_model is not None:

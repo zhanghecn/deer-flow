@@ -1,26 +1,33 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, datetime
-from typing import Any, Literal, NotRequired, TypedDict, cast, override
+from typing import Any, Literal, NotRequired, cast, override
 
 from deepagents.middleware.summarization import (
     SummarizationMiddleware,
     compute_summarization_defaults,
 )
+from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
+from langchain.agents.middleware.summarization import ContextSize
 from langchain.agents.middleware.types import ExtendedModelResponse, ModelRequest, ModelResponse
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AnyMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.messages.utils import count_tokens_approximately
 from langgraph.types import Command
 
-from src.agents.thread_state import ContextWindowState
+from src.agents.thread_state import (
+    ContextWindowKeepState,
+    ContextWindowState,
+    ContextWindowSummaryState,
+    ContextWindowThresholdState,
+)
 from src.config.summarization_config import get_summarization_config
 
 ContextSizeType = Literal["fraction", "messages", "tokens"]
 ContextSizeValue = int | float
-ContextSizeTuple = tuple[ContextSizeType, ContextSizeValue]
+ContextSizeTuple = ContextSize
 
 _SUMMARY_TAG_PATTERN = re.compile(r"<summary>\s*(.*?)\s*</summary>", re.DOTALL)
 _SUMMARY_FILE_PATH_PATTERN = re.compile(
@@ -29,22 +36,33 @@ _SUMMARY_FILE_PATH_PATTERN = re.compile(
 )
 
 
-class ContextWindowMiddleware(AgentMiddleware):
+class ContextWindowMiddlewareState(AgentState):
+    """State schema for context-window telemetry."""
+
+    context_window: NotRequired[ContextWindowState | None]
+
+
+class ContextWindowMiddleware(AgentMiddleware[ContextWindowMiddlewareState]):
     """Persist an approximate context-window snapshot for every model call."""
 
-    class state_schema(TypedDict):
-        context_window: NotRequired[ContextWindowState | None]
+    state_schema: type[ContextWindowMiddlewareState] = ContextWindowMiddlewareState
 
     def _build_snapshot(self, request: ModelRequest[Any]) -> ContextWindowState:
         helper, trigger, keep = _build_summarization_helper(request)
         now = _utcnow()
 
-        raw_state_messages = request.state.get("messages")
-        state_messages = raw_state_messages if isinstance(raw_state_messages, list) else list(request.messages)
+        raw_state_messages = request.state.get("messages", request.messages)
+        state_messages = list(cast(Sequence[AnyMessage], raw_state_messages))
         prior_event = request.state.get("_summarization_event")
         previous_state = request.state.get("context_window")
-        previous_context = previous_state if isinstance(previous_state, dict) else {}
+        previous_context: Mapping[str, Any] = (
+            cast(Mapping[str, Any], previous_state)
+            if isinstance(previous_state, Mapping)
+            else {}
+        )
 
+        # Reconstruct the prompt as it looked before the current summarization step,
+        # so thresholds and token usage reflect the pressure that triggered compaction.
         pre_summary_messages = helper._apply_event_to_messages(state_messages, prior_event)
         pre_summary_messages, _ = helper._truncate_args(
             pre_summary_messages,
@@ -53,6 +71,8 @@ class ContextWindowMiddleware(AgentMiddleware):
         )
 
         active_messages = list(request.messages)
+        # A freshly applied summary appears as a synthetic first HumanMessage. Compare it
+        # with the prior event so we can tell a new compaction apart from an old one being replayed.
         current_summary_message = _current_summary_message(active_messages)
         prior_summary_message = _event_summary_message(prior_event)
         summary_applied = (
@@ -93,17 +113,26 @@ class ContextWindowMiddleware(AgentMiddleware):
         summary_count = _previous_summary_count(previous_context, prior_event)
         last_summary = _previous_last_summary(previous_context, prior_event)
 
-        snapshot: ContextWindowState = {
+        # Build incrementally as a plain dict, then convert once at the boundary.
+        # This keeps the assembly readable and avoids TypedDict.update overload issues in pyright.
+        snapshot: dict[str, Any] = {
             "updated_at": now,
             "max_input_tokens": max_input_tokens,
             "raw_message_count": raw_message_count,
             "trigger_thresholds": thresholds,
             "trigger_reasons": trigger_reasons,
-            "keep": {"type": keep[0], "value": keep[1]},
+            "keep": _to_context_window_keep_state(
+                {
+                    "type": keep[0],
+                    "value": keep[1],
+                }
+            ),
         }
 
         if summary_applied:
-            summarized_message_count = max(0, pre_summary_count - max(0, active_count-1))
+            summarized_message_count = max(0, pre_summary_count - max(0, active_count - 1))
+            # Persist both the cutoff within the effective prompt for this step and the
+            # cumulative cutoff against the original thread history for UI/trace consumers.
             state_cutoff_index = _compute_state_cutoff(
                 prior_event,
                 summarized_message_count,
@@ -114,45 +143,43 @@ class ContextWindowMiddleware(AgentMiddleware):
             if not trigger_reasons:
                 trigger_reasons = ["summary applied"]
 
-            last_summary = {
-                "created_at": now,
-                "cutoff_index": summarized_message_count or None,
-                "state_cutoff_index": state_cutoff_index or None,
-                "summarized_message_count": summarized_message_count or None,
-                "preserved_message_count": max(0, active_count - 1),
-                "file_path": _extract_summary_file_path(current_summary_message),
-                "summary_preview": _extract_summary_preview(current_summary_message),
-            }
-
-            snapshot.update(
+            last_summary = _to_context_window_summary_state(
                 {
-                    "approx_input_tokens": pre_summary_tokens,
-                    "approx_input_tokens_after_summary": active_tokens,
-                    "usage_ratio": _usage_ratio(pre_summary_tokens, max_input_tokens),
-                    "usage_ratio_after_summary": _usage_ratio(active_tokens, max_input_tokens),
-                    "effective_message_count": pre_summary_count,
-                    "effective_message_count_after_summary": active_count,
-                    "trigger_reasons": trigger_reasons,
-                    "triggered": True,
-                    "summary_applied": True,
-                    "summary_count": summary_count,
-                    "last_summary": _drop_none(last_summary),
+                    "created_at": now,
+                    "cutoff_index": summarized_message_count or None,
+                    "state_cutoff_index": state_cutoff_index or None,
+                    "summarized_message_count": summarized_message_count or None,
+                    "preserved_message_count": max(0, active_count - 1),
+                    "file_path": _extract_summary_file_path(current_summary_message),
+                    "summary_preview": _extract_summary_preview(current_summary_message),
                 }
             )
-            return _drop_none(snapshot)
 
-        snapshot.update(
-            {
-                "approx_input_tokens": active_tokens,
-                "usage_ratio": _usage_ratio(active_tokens, max_input_tokens),
-                "effective_message_count": active_count,
-                "triggered": triggered,
-                "summary_applied": False,
-                "summary_count": summary_count or None,
-                "last_summary": _drop_none(last_summary) if isinstance(last_summary, dict) else None,
+            snapshot |= {
+                "approx_input_tokens": pre_summary_tokens,
+                "approx_input_tokens_after_summary": active_tokens,
+                "usage_ratio": _usage_ratio(pre_summary_tokens, max_input_tokens),
+                "usage_ratio_after_summary": _usage_ratio(active_tokens, max_input_tokens),
+                "effective_message_count": pre_summary_count,
+                "effective_message_count_after_summary": active_count,
+                "trigger_reasons": trigger_reasons,
+                "triggered": True,
+                "summary_applied": True,
+                "summary_count": summary_count,
+                "last_summary": last_summary,
             }
-        )
-        return _drop_none(snapshot)
+            return _to_context_window_state(snapshot)
+
+        snapshot |= {
+            "approx_input_tokens": active_tokens,
+            "usage_ratio": _usage_ratio(active_tokens, max_input_tokens),
+            "effective_message_count": active_count,
+            "triggered": triggered,
+            "summary_applied": False,
+            "summary_count": summary_count or None,
+            "last_summary": last_summary,
+        }
+        return _to_context_window_state(snapshot)
 
     @override
     def wrap_model_call(
@@ -184,12 +211,14 @@ class ContextWindowMiddleware(AgentMiddleware):
 def _build_summarization_helper(
     request: ModelRequest[Any],
 ) -> tuple[SummarizationMiddleware, list[ContextSizeTuple], ContextSizeTuple]:
+    # Reuse the same trigger/keep policy as the real summarization middleware so the
+    # telemetry reflects runtime behavior instead of a parallel approximation.
     defaults = compute_summarization_defaults(request.model)
     trigger: ContextSizeTuple | list[ContextSizeTuple] = cast(
-        "ContextSizeTuple | list[ContextSizeTuple]",
+        ContextSizeTuple | list[ContextSizeTuple],
         defaults["trigger"],
     )
-    keep: ContextSizeTuple = cast("ContextSizeTuple", defaults["keep"])
+    keep: ContextSizeTuple = defaults["keep"]
     trim_tokens_to_summarize: int | None = None
     summary_prompt: str | None = None
 
@@ -206,6 +235,9 @@ def _build_summarization_helper(
         trim_tokens_to_summarize = getattr(config, "trim_tokens_to_summarize", None)
         summary_prompt = getattr(config, "summary_prompt", None)
 
+    # This helper mirrors summarization decisions for telemetry only. The live
+    # summarization middleware owns persistence, so this probe intentionally runs
+    # without a backend and never writes conversation history on its own.
     helper = SummarizationMiddleware(
         model=request.model,
         backend=cast(Any, None),
@@ -225,10 +257,12 @@ def _coerce_context_sizes(value: Any) -> ContextSizeTuple | list[ContextSizeTupl
 
 
 def _coerce_context_size(value: Any) -> ContextSizeTuple:
-    if isinstance(value, tuple) and len(value) == 2:
-        return cast("ContextSizeTuple", value)
+    if isinstance(value, tuple):
+        if len(value) != 2:
+            raise TypeError(f"Unsupported context-size tuple: {value!r}")
+        return cast(ContextSizeTuple, value)
     if hasattr(value, "to_tuple"):
-        return cast("ContextSizeTuple", value.to_tuple())
+        return cast(ContextSizeTuple, value.to_tuple())
     if isinstance(value, dict):
         return cast(
             "ContextSizeTuple",
@@ -254,8 +288,8 @@ def _build_thresholds(
     total_tokens: int,
     message_count: int,
     max_input_tokens: int | None,
-) -> list[dict[str, Any]]:
-    thresholds: list[dict[str, Any]] = []
+) -> list[ContextWindowThresholdState]:
+    thresholds: list[ContextWindowThresholdState] = []
 
     for threshold_type, raw_value in trigger:
         current: float | int | None
@@ -277,7 +311,7 @@ def _build_thresholds(
             current = None
 
         thresholds.append(
-            _drop_none(
+            _to_context_window_threshold_state(
                 {
                     "type": threshold_type,
                     "value": raw_value,
@@ -306,12 +340,12 @@ def _usage_ratio(tokens: int, max_input_tokens: int | None) -> float | None:
 
 
 def _count_tokens(
-    messages: list[BaseMessage],
+    messages: Sequence[AnyMessage],
     *,
     system_message: SystemMessage | None,
     tools: list[Any] | None,
 ) -> int:
-    counted_messages = [system_message, *messages] if system_message is not None else messages
+    counted_messages = [system_message, *messages] if system_message is not None else list(messages)
     try:
         return count_tokens_approximately(counted_messages, tools=tools)
     except TypeError:
@@ -328,7 +362,7 @@ def _resolve_max_input_tokens(model: Any) -> int | None:
     return None
 
 
-def _current_summary_message(messages: list[BaseMessage]) -> HumanMessage | None:
+def _current_summary_message(messages: Sequence[AnyMessage]) -> HumanMessage | None:
     if not messages:
         return None
     first = messages[0]
@@ -359,7 +393,7 @@ def _messages_equivalent(current: BaseMessage | None, previous: BaseMessage | No
     )
 
 
-def _previous_summary_count(previous_context: dict[str, Any], prior_event: Any) -> int:
+def _previous_summary_count(previous_context: Mapping[str, Any], prior_event: Any) -> int:
     value = previous_context.get("summary_count")
     if isinstance(value, int) and value >= 0:
         return value
@@ -369,18 +403,20 @@ def _previous_summary_count(previous_context: dict[str, Any], prior_event: Any) 
 
 
 def _previous_last_summary(
-    previous_context: dict[str, Any],
+    previous_context: Mapping[str, Any],
     prior_event: Any,
-) -> dict[str, Any] | None:
+) -> ContextWindowSummaryState | None:
     last_summary = previous_context.get("last_summary")
     if isinstance(last_summary, dict):
-        return dict(last_summary)
+        return _to_context_window_summary_state(last_summary)
     if not isinstance(prior_event, dict):
         return None
 
+    # Older checkpoints may only have the raw summarization event. Synthesize the
+    # richer summary payload so the frontend can render a stable shape across versions.
     summary_message = _event_summary_message(prior_event)
     cutoff = prior_event.get("cutoff_index")
-    return _drop_none(
+    return _to_context_window_summary_state(
         {
             "cutoff_index": cutoff if isinstance(cutoff, int) and cutoff > 0 else None,
             "state_cutoff_index": cutoff if isinstance(cutoff, int) and cutoff > 0 else None,
@@ -436,5 +472,21 @@ def _utcnow() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def _drop_none(payload: dict[str, Any]) -> dict[str, Any]:
+def _to_context_window_state(payload: Mapping[str, Any]) -> ContextWindowState:
+    return cast(ContextWindowState, cast(object, _drop_none(payload)))
+
+
+def _to_context_window_summary_state(payload: Mapping[str, Any]) -> ContextWindowSummaryState:
+    return cast(ContextWindowSummaryState, cast(object, _drop_none(payload)))
+
+
+def _to_context_window_keep_state(payload: Mapping[str, Any]) -> ContextWindowKeepState:
+    return cast(ContextWindowKeepState, cast(object, _drop_none(payload)))
+
+
+def _to_context_window_threshold_state(payload: Mapping[str, Any]) -> ContextWindowThresholdState:
+    return cast(ContextWindowThresholdState, cast(object, _drop_none(payload)))
+
+
+def _drop_none(payload: Mapping[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if value is not None}

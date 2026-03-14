@@ -706,6 +706,9 @@ def _extract_model_request_context(
             }
         )
 
+        # Persist enough of the invocation params to explain model behavior in traces,
+        # but aggressively shrink large nested payloads so observability storage does
+        # not balloon on tool schemas or provider-specific request bodies.
         request.update(
             _drop_none(
                 {
@@ -739,6 +742,8 @@ def _extract_model_request_context(
             request["options"] = _shrink(option_settings)
 
     if "model" not in request:
+        # Some integrations omit invocation_params on replayed runs. Fall back to the
+        # serialized runnable name so the trace still shows which model was involved.
         request["model"] = _resolve_name(serialized)
 
     return request
@@ -757,6 +762,8 @@ def _find_direct_context_window(value: Any, depth: int = 0) -> dict[str, Any] | 
         if isinstance(context_window, dict):
             return _jsonify(context_window)
 
+        # LangGraph may wrap middleware updates under several container keys depending on
+        # whether we are looking at raw outputs, Command updates, or persisted state values.
         for nested_key in ("update", "outputs", "values"):
             if nested_key in value:
                 candidate = _find_direct_context_window(value.get(nested_key), depth + 1)

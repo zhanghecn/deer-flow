@@ -23,6 +23,8 @@ class ViewedImageData(TypedDict):
 
 
 class ContextWindowThresholdState(TypedDict):
+    """Evaluation result for one summarization trigger rule."""
+
     type: NotRequired[str | None]
     value: NotRequired[int | float | None]
     current: NotRequired[int | float | None]
@@ -31,11 +33,15 @@ class ContextWindowThresholdState(TypedDict):
 
 
 class ContextWindowKeepState(TypedDict):
+    """Retention policy used when summarization compacts the prompt."""
+
     type: NotRequired[str | None]
     value: NotRequired[int | float | None]
 
 
 class ContextWindowSummaryState(TypedDict):
+    """Details about the most recent summarization event visible to the UI."""
+
     created_at: NotRequired[str | None]
     cutoff_index: NotRequired[int | None]
     state_cutoff_index: NotRequired[int | None]
@@ -46,6 +52,13 @@ class ContextWindowSummaryState(TypedDict):
 
 
 class ContextWindowState(TypedDict):
+    """Context-window telemetry emitted for each model call.
+
+    `approx_input_tokens` and `effective_message_count` always describe the prompt
+    that was actually considered for this turn. The `*_after_summary` fields are
+    only populated when a new summarization step compacted the prompt.
+    """
+
     updated_at: NotRequired[str | None]
     approx_input_tokens: NotRequired[int | None]
     approx_input_tokens_after_summary: NotRequired[int | None]
@@ -92,11 +105,14 @@ def merge_viewed_images(existing: dict[str, ViewedImageData] | None, new: dict[s
 
 
 class ThreadState(AgentState):
+    """Shared LangGraph state carried across lead-agent turns."""
+
     sandbox: NotRequired[SandboxState | None]
     thread_data: NotRequired[ThreadDataState | None]
     title: NotRequired[str | None]
     artifacts: Annotated[list[str], merge_artifacts]
     todos: NotRequired[list | None]
+    # Snapshot of prompt pressure and summarization activity for the latest model call.
     context_window: NotRequired[ContextWindowState | None]
     uploaded_files: NotRequired[list[dict] | None]
     viewed_images: Annotated[dict[str, ViewedImageData], merge_viewed_images]  # image_path -> {base64, mime_type}
