@@ -13,9 +13,12 @@ from PIL import Image
 
 DEFAULT_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
 DEFAULT_MODEL = "doubao-seedream-5.0-lite"
+MIN_CANVAS_PIXELS = 3_686_400
+MAX_REFERENCE_IMAGES = 14
 API_KEY_ENV_NAMES = ("ARK_API_KEY", "VOLCENGINE_API_KEY")
 BASE_URL_ENV_NAMES = ("ARK_API_BASE_URL", "VOLCENGINE_API_BASE_URL")
 MODEL_ENV_NAMES = ("VOLCENGINE_IMAGE_MODEL", "ARK_IMAGE_MODEL")
+SIZE_ENV_NAMES = ("VOLCENGINE_IMAGE_SIZE", "ARK_IMAGE_SIZE")
 MODEL_PREFIX_ALIASES = {
     "doubao-seedream-5.0-lite": "doubao-seedream-5-0",
     "doubao-seedream-5.0": "doubao-seedream-5-0",
@@ -181,50 +184,114 @@ def stringify_value(value: object) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def select_reference_image(reference_images: list[str]) -> str | None:
+def select_reference_images(reference_images: list[str]) -> list[str]:
     valid_images = [image for image in reference_images if validate_image(image)]
     if not valid_images:
-        return None
+        return []
     if len(valid_images) < len(reference_images):
         skipped = len(reference_images) - len(valid_images)
         print(f"Note: skipped {skipped} invalid reference image(s).")
-    if len(valid_images) > 1:
+    if len(valid_images) > MAX_REFERENCE_IMAGES:
         print(
-            "Note: doubao-seedream-5.0-lite image editing accepts a single input image; "
-            "using the first valid reference image."
+            f"Note: Ark image editing accepts at most {MAX_REFERENCE_IMAGES} reference images; "
+            f"using the first {MAX_REFERENCE_IMAGES} valid images."
         )
-    return valid_images[0]
+        return valid_images[:MAX_REFERENCE_IMAGES]
+    return valid_images
 
 
-def encode_image(image_path: str, *, as_data_url: bool) -> str:
+def encode_image_as_data_url(image_path: str) -> str:
     image_bytes = Path(image_path).read_bytes()
     encoded = base64.b64encode(image_bytes).decode("utf-8")
-    if not as_data_url:
-        return encoded
-
     mime_type, _ = mimetypes.guess_type(image_path)
     if not mime_type:
         mime_type = "image/png"
     return f"data:{mime_type};base64,{encoded}"
 
 
+def encode_reference_images(reference_images: list[str]) -> str | list[str] | None:
+    if not reference_images:
+        return None
+
+    encoded_images = [encode_image_as_data_url(image_path) for image_path in reference_images]
+    if len(encoded_images) == 1:
+        return encoded_images[0]
+    return encoded_images
+
+
+def infer_canvas_size(aspect_ratio: str, explicit_size: str) -> str:
+    if explicit_size:
+        return explicit_size
+
+    ratio = parse_aspect_ratio(aspect_ratio)
+    if ratio is None:
+        return ""
+
+    width_ratio, height_ratio = ratio
+    base_width = (MIN_CANVAS_PIXELS * width_ratio / height_ratio) ** 0.5
+    base_height = (MIN_CANVAS_PIXELS * height_ratio / width_ratio) ** 0.5
+    width = round_dimension(base_width)
+    height = round_dimension(base_height)
+
+    while width * height < MIN_CANVAS_PIXELS:
+        width = round_dimension(width + 8)
+        height = round_dimension(width * height_ratio / width_ratio)
+    return f"{width}x{height}"
+
+
+def parse_aspect_ratio(aspect_ratio: str) -> tuple[int, int] | None:
+    cleaned = aspect_ratio.strip()
+    if ":" not in cleaned:
+        return None
+
+    width_str, height_str = cleaned.split(":", 1)
+    try:
+        width = int(width_str)
+        height = int(height_str)
+    except ValueError:
+        return None
+
+    if width <= 0 or height <= 0:
+        return None
+    return width, height
+
+
+def round_dimension(value: float) -> int:
+    return max(512, int(round(value / 8) * 8))
+
+
+def infer_api_output_format(output_file: str) -> str:
+    suffix = Path(output_file).suffix.lower()
+    if suffix == ".png":
+        return "png"
+    if suffix in {".jpg", ".jpeg"}:
+        return "jpeg"
+    return ""
+
+
 def build_payload(
     prompt_text: str,
     model: str,
-    encoded_image: str | None = None,
-) -> dict[str, str]:
-    payload = {
+    canvas_size: str,
+    image_input: str | list[str] | None = None,
+    output_format: str = "",
+) -> dict[str, object]:
+    payload: dict[str, object] = {
         "model": model,
         "prompt": prompt_text,
         "response_format": "b64_json",
     }
-    if encoded_image:
-        payload["image"] = encoded_image
+    if canvas_size:
+        payload["size"] = canvas_size
+    if image_input:
+        payload["image"] = image_input
+    if output_format:
+        payload["output_format"] = output_format
     return payload
 
 
 def call_ark_api(
-    payload: dict[str, str],
+    payload: dict[str, object],
     *,
     api_key: str,
     base_url: str,
@@ -373,57 +440,25 @@ def extract_error_details(error_payload: object) -> tuple[str | None, str]:
     return None, str(error_payload)
 
 
-def should_retry_with_data_url(error: ArkAPIError) -> bool:
-    if error.status_code != 400:
-        return False
-
-    text = str(error).lower()
-    if "image" not in text:
-        return False
-    return "base64" in text or "format" in text or "data url" in text or "mime" in text
-
-
 def request_generation(
     *,
     prompt_text: str,
     model: str,
+    canvas_size: str,
+    output_format: str,
     api_key: str,
     base_url: str,
-    reference_image: str | None,
+    reference_images: list[str],
 ) -> dict:
-    if not reference_image:
-        return call_ark_api(
-            build_payload(prompt_text, model),
-            api_key=api_key,
-            base_url=base_url,
-        )
-
-    attempts = [
-        encode_image(reference_image, as_data_url=False),
-        encode_image(reference_image, as_data_url=True),
-    ]
-    last_error: ArkAPIError | None = None
-
-    for index, encoded_image in enumerate(attempts, start=1):
-        try:
-            return call_ark_api(
-                build_payload(prompt_text, model, encoded_image),
-                api_key=api_key,
-                base_url=base_url,
-            )
-        except ArkAPIError as exc:
-            last_error = exc
-            if index < len(attempts) and should_retry_with_data_url(exc):
-                print(
-                    "Note: raw Base64 image payload was rejected by Ark API; "
-                    "retrying with a data URL payload."
-                )
-                continue
-            break
-
-    if last_error is None:
-        raise ArkAPIError("Ark API request failed before an error could be captured")
-    raise last_error
+    image_input = encode_reference_images(reference_images)
+    payload = build_payload(
+        prompt_text=prompt_text,
+        model=model,
+        canvas_size=canvas_size,
+        image_input=image_input,
+        output_format=output_format,
+    )
+    return call_ark_api(payload, api_key=api_key, base_url=base_url)
 
 
 def decode_response_image(response_payload: dict) -> bytes:
@@ -453,7 +488,7 @@ def save_image(image_bytes: bytes, output_file: str) -> None:
     output_path = Path(output_file)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    output_format = infer_output_format(output_path.suffix)
+    output_format = infer_file_save_format(output_path.suffix)
     if not output_format:
         output_path.write_bytes(image_bytes)
     else:
@@ -464,7 +499,7 @@ def save_image(image_bytes: bytes, output_file: str) -> None:
         raise ArkAPIError(f"Generated file is not a valid image: {output_path}")
 
 
-def infer_output_format(suffix: str) -> str | None:
+def infer_file_save_format(suffix: str) -> str | None:
     normalized = suffix.lower()
     if normalized in {".jpg", ".jpeg"}:
         return "JPEG"
@@ -488,6 +523,7 @@ def generate_image(
     output_file: str,
     aspect_ratio: str = "16:9",
     model: str | None = None,
+    size: str | None = None,
 ) -> str:
     load_env_file()
 
@@ -500,19 +536,23 @@ def generate_image(
     requested_model = model or get_env_value(MODEL_ENV_NAMES, DEFAULT_MODEL)
     resolved_model = resolve_model_identifier(requested_model, api_key, base_url)
     prompt_text = load_prompt_text(prompt_file, aspect_ratio)
-    reference_image = select_reference_image(reference_images)
+    valid_reference_images = select_reference_images(reference_images)
+    canvas_size = infer_canvas_size(aspect_ratio, size or get_env_value(SIZE_ENV_NAMES))
+    output_format = infer_api_output_format(output_file)
 
     response_payload = request_generation(
         prompt_text=prompt_text,
         model=resolved_model,
+        canvas_size=canvas_size,
+        output_format=output_format,
         api_key=api_key,
         base_url=base_url,
-        reference_image=reference_image,
+        reference_images=valid_reference_images,
     )
     image_bytes = decode_response_image(response_payload)
     save_image(image_bytes, output_file)
 
-    mode = "image-to-image" if reference_image else "text-to-image"
+    mode = "image-to-image" if valid_reference_images else "text-to-image"
     return f"Successfully generated {mode} output to {output_file}"
 
 
@@ -537,7 +577,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--aspect-ratio",
         default="16:9",
-        help="Desired aspect ratio, appended to the prompt for compatibility",
+        help="Desired aspect ratio; converted to Ark size unless --size is provided",
+    )
+    parser.add_argument(
+        "--size",
+        default=None,
+        help="Explicit output size like 2048x1152; overrides aspect-ratio derived size",
     )
     parser.add_argument(
         "--model",
@@ -555,6 +600,7 @@ if __name__ == "__main__":
                 args.output_file,
                 args.aspect_ratio,
                 args.model,
+                args.size,
             )
         )
     except Exception as exc:

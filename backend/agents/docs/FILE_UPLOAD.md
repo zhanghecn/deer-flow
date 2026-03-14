@@ -128,11 +128,11 @@ read_file(path="/mnt/user-data/uploads/document.md")
 
 **路径映射关系：**
 - Agent 使用：`/mnt/user-data/uploads/document.pdf`（虚拟路径）
-- 实际存储：`backend/agents/.openagents/threads/{thread_id}/user-data/uploads/document.pdf`
+- 实际存储：`{OPENAGENTS_HOME}/threads/{thread_id}/user-data/uploads/document.pdf`
 - 前端访问：`/api/threads/{thread_id}/artifacts/mnt/user-data/uploads/document.pdf`（HTTP URL）
 
 上传流程采用“线程目录优先”策略：
-- 先写入 `backend/agents/.openagents/threads/{thread_id}/user-data/uploads/` 作为权威存储
+- 先写入 `{OPENAGENTS_HOME}/threads/{thread_id}/user-data/uploads/` 作为权威存储
 - 本地沙箱（`sandbox_id=local`）直接使用线程目录内容
 - 非本地沙箱会额外同步到 `/mnt/user-data/uploads/*`，确保运行时可见
 
@@ -191,7 +191,7 @@ print(response.json())
 ## 文件存储结构
 
 ```
-backend/agents/.openagents/threads/
+{OPENAGENTS_HOME}/threads/
 └── {thread_id}/
     └── user-data/
         └── uploads/
@@ -248,7 +248,7 @@ backend/agents/.openagents/threads/
 
 1. 确认 UploadsMiddleware 已在 agent.py 中注册
 2. 检查 thread_id 是否正确
-3. 确认文件确实已上传到 `backend/agents/.openagents/threads/{thread_id}/user-data/uploads/`
+3. 确认文件确实已上传到 `{OPENAGENTS_HOME}/threads/{thread_id}/user-data/uploads/`
 4. 非本地沙箱场景下，确认上传接口没有报错（需要成功完成 sandbox 同步）
 
 ## 开发建议

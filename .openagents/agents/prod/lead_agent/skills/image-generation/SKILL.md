@@ -53,6 +53,7 @@ Parameters:
 - `--reference-images`: Absolute paths to reference images (optional, space-separated). If present, the script switches to image-to-image mode.
 - `--output-file`: Absolute path to output image file (required)
 - `--aspect-ratio`: Aspect ratio of the generated image (optional, default: 16:9)
+- `--size`: Optional explicit canvas size like `2048x1152`; overrides `--aspect-ratio`
 
 [!NOTE]
 Do NOT read the python file, just call it with the parameters.
@@ -61,7 +62,9 @@ After execution, verify that the expected output file was actually created.
 If the command exits successfully but no output file exists, treat the generation as failed.
 Do not present a missing file to the user.
 The script expects `ARK_API_KEY` or `VOLCENGINE_API_KEY` in the runtime environment and defaults to the `doubao-seedream-5.0-lite` catalog alias. You can also override it with a Volcengine model ID or endpoint ID through `VOLCENGINE_IMAGE_MODEL`.
-The current Volcengine image editing flow accepts a single input image, so if multiple reference images are passed, only the first valid one is used.
+The current Volcengine image editing flow supports multiple reference images. The script validates all supplied images and sends up to 14 valid references to Ark.
+The script converts `--aspect-ratio` into a real Ark `size` automatically unless `--size` is provided explicitly.
+The script infers Ark `output_format` from the output file extension when possible, so `.png` outputs request PNG and `.jpg` outputs request JPEG.
 
 ## Character Generation Example
 
@@ -158,6 +161,7 @@ Use different JSON schemas for different scenarios.
 Read the following template file only when matching the user request.
 
 - [Doraemon Comic](templates/doraemon.md)
+- [Seedream Examples](templates/seedream.md)
 
 ## Output Handling
 
@@ -194,6 +198,7 @@ This approach significantly improves generation quality by providing the model w
 - Always use English for prompts regardless of user's language
 - JSON format ensures structured, parsable prompts
 - Reference images trigger image-to-image generation
+- Up to 14 reference images can be sent for official Seedream image editing flows
 - Iterative refinement is normal for optimal results
 - For character generation, include the detailed character object plus a consolidated prompt field
 - Runtime credentials should be exposed as `ARK_API_KEY` or `VOLCENGINE_API_KEY`

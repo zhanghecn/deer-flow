@@ -191,9 +191,9 @@ class ThreadState(AgentState):
 
 | Virtual Path | Physical Path |
 |-------------|---------------|
-| `/mnt/user-data/workspace` | `backend/agents/.openagents/threads/{thread_id}/user-data/workspace` |
-| `/mnt/user-data/uploads` | `backend/agents/.openagents/threads/{thread_id}/user-data/uploads` |
-| `/mnt/user-data/outputs` | `backend/agents/.openagents/threads/{thread_id}/user-data/outputs` |
+| `/mnt/user-data/workspace` | `{OPENAGENTS_HOME}/threads/{thread_id}/user-data/workspace` |
+| `/mnt/user-data/uploads` | `{OPENAGENTS_HOME}/threads/{thread_id}/user-data/uploads` |
+| `/mnt/user-data/outputs` | `{OPENAGENTS_HOME}/threads/{thread_id}/user-data/outputs` |
 | `/mnt/user-data/agents/{status}/{name}/skills` | seeded from `agents/{status}/{name}/skills/` |
 | `/mnt/user-data/agents/{status}/{name}/AGENTS.md` | seeded from archived agent `AGENTS.md` |
 

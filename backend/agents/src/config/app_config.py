@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Self
 
@@ -21,6 +22,9 @@ from src.config.tool_config import ToolConfig, ToolGroupConfig
 
 load_dotenv()
 logger = logging.getLogger(__name__)
+
+DEFAULT_OPENAGENTS_HOME = ".openagents"
+DEFAULT_SHARED_SKILLS_PATH = f"{DEFAULT_OPENAGENTS_HOME}/skills"
 
 
 class AppConfig(BaseModel):
@@ -105,6 +109,35 @@ class AppConfig(BaseModel):
         )
 
     @classmethod
+    def _apply_openagents_home_overrides(cls, config_data: dict[str, Any]) -> dict[str, Any]:
+        """Rebase default storage paths to OPENAGENTS_HOME when provided.
+
+        Go already treats OPENAGENTS_HOME as the single source of truth when the
+        YAML still uses default `.openagents` locations. Mirror that behavior in
+        Python so gateway, runtime, and Docker/provisioner all resolve the same
+        archive and thread roots without requiring duplicated config edits.
+        """
+        env_home = str(os.getenv("OPENAGENTS_HOME", "")).strip()
+        if not env_home:
+            return config_data
+
+        normalized = deepcopy(config_data)
+
+        storage = normalized.get("storage")
+        if isinstance(storage, dict):
+            base_dir = storage.get("base_dir")
+            if base_dir in (None, "", DEFAULT_OPENAGENTS_HOME):
+                storage["base_dir"] = env_home
+
+        skills = normalized.get("skills")
+        if isinstance(skills, dict):
+            skills_path = skills.get("path")
+            if skills_path in (None, "", DEFAULT_SHARED_SKILLS_PATH):
+                skills["path"] = os.path.join(env_home, "skills")
+
+        return normalized
+
+    @classmethod
     def from_file(cls, config_path: str | None = None) -> Self:
         """Load config from YAML file.
 
@@ -132,6 +165,7 @@ class AppConfig(BaseModel):
         config_data.setdefault("tool_groups", [])
         config_data.setdefault("skills", {})
         config_data.setdefault("sandbox", {"use": os.getenv("OPENAGENTS_SANDBOX_PROVIDER", "src.sandbox.local:LocalSandboxProvider")})
+        config_data = cls._apply_openagents_home_overrides(config_data)
 
         # Load title config if present
         if "title" in config_data:
@@ -277,6 +311,7 @@ def load_path_config(config_path: str | None = None) -> tuple[PathConfig, Path]:
         "storage": raw_storage,
         "skills": raw_skills,
     }
+    payload = AppConfig._apply_openagents_home_overrides(payload)
     return PathConfig.model_validate(payload), resolved_path.parent
 
 

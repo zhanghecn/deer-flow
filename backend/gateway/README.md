@@ -225,10 +225,10 @@ POST /open/v1/agents/:name/stream  # 只有 prod agent 可通过 Open API 调用
 ### 统一协议（ASCII）
 
 ```text
-                     +----------------------------------+
-                     | shared skills library            |
-                     | .openagents/skills/{shared,store} |
-                     +----------------+-----------------+
+                     +-----------------------------------------+
+                     | shared skills library                   |
+                     | {OPENAGENTS_HOME}/skills/{shared,store} |
+                     +-------------------+---------------------+
                                       |
                                       | select skill names
                                       v
@@ -273,8 +273,8 @@ POST /open/v1/agents/:name/stream  # 只有 prod agent 可通过 Open API 调用
 `/api/models` 数据来自 `models` 表。运行时模型选择由 Python(LangGraph graph factory)直接查询数据库，不再由网关注入 `model_config`。`models` 是唯一的模型配置真源。
 
 Agent/Skill 定义已经完全脱离数据库：
-- Agent 真源在 `.openagents/agents/{status}/{name}/`
-- Skill 真源在 `.openagents/skills/{shared|store/dev|store/prod}/{name}/`
+- Agent 真源在 `{OPENAGENTS_HOME}/agents/{status}/{name}/`
+- Skill 真源在 `{OPENAGENTS_HOME}/skills/{shared|store/dev|store/prod}/{name}/`
 - 发布只是文件复制与状态切换，不写任何 agent/skill 元数据表
 
 运行时职责分界：
@@ -287,37 +287,39 @@ Agent/Skill 定义已经完全脱离数据库：
 数据库只存引用；真正被 Python runtime 消费的是文件系统物化结果：
 
 ```
-{project_root}/
+{OPENAGENTS_HOME}/
 ├── skills/
-│   ├── public/{skill-name}/SKILL.md
-│   └── custom/{skill-name}/SKILL.md
-└── {OPENAGENTS_HOME}/
-    ├── agents/
-    │   ├── prod/{name}/
-    │   │   ├── config.yaml
-    │   │   ├── AGENTS.md
-    │   │   └── skills/{skill-name}/SKILL.md
-    │   └── dev/{name}/
-    │       ├── config.yaml
-    │       ├── AGENTS.md
-    │       └── skills/{skill-name}/SKILL.md
-    ├── users/{user_id}/
-    │   ├── USER.md
-    │   └── agents/{status}/{agent_name}/memory.json
-    └── threads/{thread_id}/
-        └── user-data/
-            ├── workspace/
-            ├── uploads/
-            └── outputs/
+│   ├── shared/{skill-name}/SKILL.md
+│   └── store/
+│       ├── dev/{skill-name}/SKILL.md
+│       └── prod/{skill-name}/SKILL.md
+├── agents/
+│   ├── prod/{name}/
+│   │   ├── config.yaml
+│   │   ├── AGENTS.md
+│   │   └── skills/{skill-name}/SKILL.md
+│   └── dev/{name}/
+│       ├── config.yaml
+│       ├── AGENTS.md
+│       └── skills/{skill-name}/SKILL.md
+├── users/{user_id}/
+│   ├── USER.md
+│   └── agents/{status}/{agent_name}/memory.json
+└── threads/{thread_id}/
+    └── user-data/
+        ├── workspace/
+        ├── uploads/
+        └── outputs/
 ```
 
 说明：
 - `AGENTS.md` 归 agent 自己所有
-- 共享 `skills/` 是独立仓库，agent 只引用并复制选中的 skill
+- 共享技能真源位于 `{OPENAGENTS_HOME}/skills/{shared|store/dev|store/prod}/`
+- agent 只引用并复制选中的 skill 到 `agents/{status}/{name}/skills/`
 - 发布时 Go gateway 会从共享技能库复制到 `agents/prod/{name}/skills/`
-- 默认 `lead_agent` 不走单个 agent 目录，它直接看到完整共享技能库
-- 本地调试时，runtime 通过本地目录 + `CompositeBackend` 虚拟路径路由运行
-- 启用 sandbox 时，仍然挂载同一套已归档文件，只是执行后端不同
+- `lead_agent` 也走标准 agent 目录和 agent-local skills 副本
+- 本地调试时，runtime 使用线程级 `/mnt/user-data/...` 虚拟路径，并仅对 legacy `/mnt/skills/...` 做后端映射兼容
+- 启用 sandbox 时，运行时仍读取同一套线程级 `/mnt/user-data/...` 副本，只是执行后端不同
 
 ## LangGraph 代理
 

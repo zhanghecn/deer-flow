@@ -133,10 +133,11 @@ The provisioner is configured via environment variables (set in [docker-compose-
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `OPENAGENTS_HOME` | `/.openagents` | Shared OpenAgents data root on the **host machine** |
 | `K8S_NAMESPACE` | `openagents` | Kubernetes namespace for sandbox resources |
 | `SANDBOX_IMAGE` | `enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest` | Container image for sandbox Pods |
-| `SKILLS_HOST_PATH` | - | **Host machine** path to skills directory (must be absolute) |
-| `THREADS_HOST_PATH` | - | **Host machine** path to threads data directory (must be absolute) |
+| `SKILLS_HOST_PATH` | `${OPENAGENTS_HOME}/skills` | **Host machine** path to shared skills archive (must be absolute) |
+| `THREADS_HOST_PATH` | `${OPENAGENTS_HOME}/threads` | **Host machine** path to thread runtime data (must be absolute) |
 | `KUBECONFIG_PATH` | `/root/.kube/config` | Path to kubeconfig **inside** the provisioner container |
 | `NODE_HOST` | `host.docker.internal` | Hostname that backend containers use to reach host NodePorts |
 | `K8S_API_SERVER` | (from kubeconfig) | Override K8s API server URL (e.g., `https://host.docker.internal:26443`) |
@@ -182,6 +183,7 @@ kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}'
    - The `SKILLS_HOST_PATH` and `THREADS_HOST_PATH` must be **absolute paths on the host machine**
    - These paths are mounted into sandbox Pods via K8s HostPath volumes
    - The paths must exist and be readable by the K8s node
+   - In the default Docker flow they are derived from `OPENAGENTS_HOME`
 
 ### Docker Compose Setup
 
@@ -284,8 +286,8 @@ docker exec openagents-gateway curl -s $SANDBOX_URL/v1/sandbox
 - Use absolute paths for `SKILLS_HOST_PATH` and `THREADS_HOST_PATH`
 - Verify the paths exist on your host machine:
   ```bash
-  ls -la /path/to/skills
-  ls -la /path/to/backend/agents/.openagents/threads
+  ls -la /path/to/.openagents/skills
+  ls -la /path/to/.openagents/threads
   ```
 
 ### Issue: Pod stuck in "ContainerCreating"

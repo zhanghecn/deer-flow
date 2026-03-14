@@ -28,6 +28,7 @@ from src.sandbox.sandbox_provider import SandboxProvider
 
 from .aio_sandbox import AioSandbox
 from .backend import SandboxBackend, wait_for_sandbox_ready
+from .existing_backend import ExistingSandboxBackend
 from .file_state_store import FileSandboxStateStore
 from .local_backend import LocalContainerBackend
 from .remote_backend import RemoteSandboxBackend
@@ -102,7 +103,8 @@ class AioSandboxProvider(SandboxProvider):
         Selection logic (checked in order):
         1. ``provisioner_url`` set → RemoteSandboxBackend (provisioner mode)
               Provisioner dynamically creates Pods + Services in k3s.
-        2. ``auto_start``    → LocalContainerBackend (Docker / Apple Container)
+        2. ``base_url``       → ExistingSandboxBackend (externally managed sandbox)
+        3. ``auto_start``     → LocalContainerBackend (Docker / Apple Container)
         """
         provisioner_url = self._config.get("provisioner_url")
         if provisioner_url:
@@ -111,6 +113,11 @@ class AioSandboxProvider(SandboxProvider):
                 provisioner_url=provisioner_url,
                 environment=self._config["environment"],
             )
+
+        base_url = self._config.get("base_url")
+        if base_url:
+            logger.info("Using externally managed sandbox backend at %s", base_url)
+            return ExistingSandboxBackend(base_url=base_url)
 
         if not self._config.get("auto_start", True):
             raise RuntimeError("auto_start is disabled and no base_url is configured")

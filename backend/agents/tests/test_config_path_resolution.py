@@ -72,6 +72,7 @@ def test_get_paths_resolves_storage_and_skills_relative_to_config_file(monkeypat
 
     monkeypatch.chdir(working_dir)
     monkeypatch.setenv("OPENAGENTS_CONFIG_PATH", str(config_path))
+    monkeypatch.delenv("OPENAGENTS_HOME", raising=False)
 
     paths = get_paths()
 
@@ -102,3 +103,66 @@ def test_get_paths_requires_storage_base_dir(monkeypatch, tmp_path: Path):
 
     with pytest.raises(RuntimeError, match="storage.base_dir"):
         get_paths()
+
+
+def test_get_paths_rebases_default_storage_and_skills_to_openagents_home(monkeypatch, tmp_path: Path):
+    project_root = tmp_path / "repo"
+    config_path = project_root / "config.yaml"
+    runtime_home = tmp_path / "runtime-home"
+    project_root.mkdir(parents=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "models: []",
+                "storage:",
+                "  base_dir: .openagents",
+                "sandbox:",
+                "  use: src.sandbox.local:LocalSandboxProvider",
+                "skills:",
+                "  path: .openagents/skills",
+                "  container_path: /mnt/skills",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("OPENAGENTS_CONFIG_PATH", str(config_path))
+    monkeypatch.setenv("OPENAGENTS_HOME", str(runtime_home))
+
+    paths = get_paths()
+
+    assert paths.base_dir == runtime_home.resolve()
+    assert paths.skills_dir == (runtime_home / "skills").resolve()
+
+
+def test_get_paths_keeps_explicit_non_default_storage_and_skills(monkeypatch, tmp_path: Path):
+    project_root = tmp_path / "repo"
+    config_path = project_root / "config.yaml"
+    explicit_storage = project_root / "runtime-data"
+    explicit_skills = project_root / "custom-skills"
+    project_root.mkdir(parents=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "models: []",
+                "storage:",
+                f"  base_dir: {explicit_storage.name}",
+                "sandbox:",
+                "  use: src.sandbox.local:LocalSandboxProvider",
+                "skills:",
+                f"  path: {explicit_skills.name}",
+                "  container_path: /mnt/skills",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("OPENAGENTS_CONFIG_PATH", str(config_path))
+    monkeypatch.setenv("OPENAGENTS_HOME", str(tmp_path / "other-home"))
+
+    paths = get_paths()
+
+    assert paths.base_dir == explicit_storage.resolve()
+    assert paths.skills_dir == explicit_skills.resolve()

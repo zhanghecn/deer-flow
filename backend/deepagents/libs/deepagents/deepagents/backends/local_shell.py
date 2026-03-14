@@ -118,6 +118,7 @@ class LocalShellBackend(FilesystemBackend, SandboxBackendProtocol):
         max_output_bytes: int = 100_000,
         env: dict[str, str] | None = None,
         inherit_env: bool = False,
+        execute_path_mappings: dict[str, str | Path] | None = None,
     ) -> None:
         """Initialize local shell backend with filesystem access.
 
@@ -166,6 +167,11 @@ class LocalShellBackend(FilesystemBackend, SandboxBackendProtocol):
                 When False (default), only variables in `env` dict are available.
                 When True, inherits all `os.environ` variables and applies `env` overrides.
 
+            execute_path_mappings: Additional absolute-path rewrites applied before
+                shell execution when `virtual_mode=True`. Useful for preserving
+                sandbox-style paths such as `/mnt/skills/...` during local debug
+                runs without exposing host-specific locations to the model.
+
         Raises:
             ValueError: If timeout is not positive.
         """
@@ -212,6 +218,10 @@ class LocalShellBackend(FilesystemBackend, SandboxBackendProtocol):
 
         # Generate unique sandbox ID
         self._sandbox_id = f"local-{uuid.uuid4().hex[:8]}"
+        self._execute_path_mappings = {
+            str(virtual_path).rstrip("/"): str(Path(host_path).resolve())
+            for virtual_path, host_path in (execute_path_mappings or {}).items()
+        }
 
     @property
     def id(self) -> str:
@@ -399,6 +409,7 @@ class LocalShellBackend(FilesystemBackend, SandboxBackendProtocol):
             "/outputs": str(self.cwd / "outputs"),
             "/uploads": str(self.cwd / "uploads"),
         }
+        replacements.update(self._execute_path_mappings)
 
         rewritten = command
         for virtual_path, host_path in sorted(

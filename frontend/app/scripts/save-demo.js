@@ -4,6 +4,7 @@ import path from "path";
 import { env } from "process";
 
 export async function main() {
+  const projectRoot = path.resolve(process.cwd(), "../..");
   const url = new URL(process.argv[2]);
   const threadId = url.pathname.split("/").pop();
   const host = url.host;
@@ -38,11 +39,10 @@ export async function main() {
     path.resolve(rootPath, "thread.json"),
     JSON.stringify(data, null, 2),
   );
-  const backendRootPath = path.resolve(
-    process.cwd(),
-    "../../backend/agents/.openagents/threads",
-    threadId,
-  );
+  const openagentsHome = env.OPENAGENTS_HOME
+    ? path.resolve(projectRoot, env.OPENAGENTS_HOME)
+    : path.resolve(projectRoot, ".openagents");
+  const backendRootPath = path.resolve(openagentsHome, "threads", threadId);
   copyFolder("user-data/outputs", rootPath, backendRootPath);
   copyFolder("user-data/uploads", rootPath, backendRootPath);
   console.info(`Saved demo "${title}" to ${rootPath}`);

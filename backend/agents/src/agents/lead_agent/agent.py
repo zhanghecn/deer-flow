@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 import yaml
 from deepagents import create_deep_agent
-from deepagents.backends import CompositeBackend, LocalShellBackend
+from deepagents.backends import CompositeBackend, FilesystemBackend, LocalShellBackend
 from deepagents.backends.protocol import BackendProtocol
 from langchain_core.runnables import RunnableConfig
 from langgraph_sdk.runtime import ServerRuntime
@@ -25,7 +25,7 @@ from src.agents.middlewares.uploads_middleware import UploadsMiddleware
 from src.agents.middlewares.view_image_middleware import ViewImageMiddleware
 from src.config.agent_runtime_seed import runtime_seed_targets
 from src.config.agents_config import AgentConfig, load_agent_config
-from src.config.app_config import AppConfig
+from src.config.app_config import AppConfig, get_app_config
 from src.config.builtin_agents import (
     ensure_builtin_agent_archive,
     normalize_effective_agent_name,
@@ -285,13 +285,60 @@ def _seed_runtime_materials(
     _upload_runtime_files(backend, missing_uploads)
 
 
-def _build_local_workspace_backend(user_data_dir: str) -> LocalShellBackend:
-    return LocalShellBackend(
+def _normalize_route_prefix(path: str) -> str:
+    normalized = str(path).strip()
+    if not normalized.startswith("/"):
+        raise ValueError(f"Backend route must be absolute, got {path!r}")
+    return normalized.rstrip("/") + "/"
+
+
+def _resolve_shared_skills_mount(paths: Paths) -> tuple[str, str] | None:
+    try:
+        shared_skills_dir = paths.skills_dir
+    except RuntimeError:
+        return None
+
+    if not shared_skills_dir.exists():
+        return None
+
+    container_path = str(get_app_config().skills.container_path or "").strip()
+    if not container_path:
+        return None
+
+    try:
+        return str(shared_skills_dir), _normalize_route_prefix(container_path)
+    except ValueError as exc:
+        logger.warning("Ignoring invalid shared skills container path %r: %s", container_path, exc)
+        return None
+
+
+def _build_local_workspace_backend(
+    user_data_dir: str,
+    *,
+    shared_skills_mount: tuple[str, str] | None = None,
+) -> BackendProtocol:
+    execute_path_mappings: dict[str, str] | None = None
+    routes: dict[str, BackendProtocol] = {}
+
+    if shared_skills_mount is not None:
+        shared_skills_dir, route_prefix = shared_skills_mount
+        execute_path_mappings = {route_prefix.rstrip("/"): shared_skills_dir}
+        routes[route_prefix] = FilesystemBackend(
+            root_dir=shared_skills_dir,
+            virtual_mode=True,
+        )
+
+    workspace_backend = LocalShellBackend(
         root_dir=user_data_dir,
         virtual_mode=True,
         inherit_env=True,
         timeout=600,
+        execute_path_mappings=execute_path_mappings,
     )
+
+    if routes:
+        return CompositeBackend(default=workspace_backend, routes=routes)
+    return workspace_backend
 
 
 def _build_sandbox_workspace_backend(thread_id: str | None) -> BackendProtocol:
@@ -308,17 +355,25 @@ def _build_workspace_backend(
     *,
     user_data_dir: str,
     thread_id: str | None,
+    paths: Paths | None = None,
 ) -> BackendProtocol:
     if _resolve_execution_backend() == "sandbox":
         return _build_sandbox_workspace_backend(thread_id)
-    return _build_local_workspace_backend(user_data_dir)
+    resolved_paths = paths or get_paths()
+    return _build_local_workspace_backend(
+        user_data_dir,
+        shared_skills_mount=_resolve_shared_skills_mount(resolved_paths),
+    )
 
 
-def _build_read_context_backend(thread_id: str | None) -> CompositeBackend:
+def _build_read_context_backend(thread_id: str | None) -> BackendProtocol:
     paths = get_paths()
     effective_thread_id = _effective_thread_id(thread_id)
     user_data_dir = str(paths.sandbox_user_data_dir(effective_thread_id))
-    return CompositeBackend(default=_build_local_workspace_backend(user_data_dir), routes={})
+    return _build_local_workspace_backend(
+        user_data_dir,
+        shared_skills_mount=_resolve_shared_skills_mount(paths),
+    )
 
 
 def build_backend(
@@ -327,11 +382,12 @@ def build_backend(
     status: str = "dev",
     agent_config: AgentConfig | None = None,
 ):
-    """Build a CompositeBackend for the agent.
+    """Build the runtime backend for the agent.
 
     The backend provides:
     - Per-thread runtime workspace under `/mnt/user-data`
     - Thread-local copies of archived agent definition files (`AGENTS.md`, `config.yaml`, copied `skills/`)
+    - Local-debug compatibility routing for shared skills under `/mnt/skills` when execution is not sandboxed
 
     Runtime execution mode is resolved from Python sandbox configuration.
     """
@@ -346,6 +402,7 @@ def build_backend(
     workspace_backend = _build_workspace_backend(
         user_data_dir=user_data_dir,
         thread_id=effective_thread_id,
+        paths=paths,
     )
     _seed_runtime_materials(
         workspace_backend,
@@ -354,7 +411,7 @@ def build_backend(
         agent_config=agent_config,
     )
 
-    return CompositeBackend(default=workspace_backend, routes={})
+    return workspace_backend
 
 
 def _build_openagents_middlewares(model_config: ModelConfig):

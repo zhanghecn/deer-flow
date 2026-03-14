@@ -57,8 +57,10 @@ SANDBOX_IMAGE = os.environ.get(
     "SANDBOX_IMAGE",
     "enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest",
 )
-SKILLS_HOST_PATH = os.environ.get("SKILLS_HOST_PATH", "/skills")
-THREADS_HOST_PATH = os.environ.get("THREADS_HOST_PATH", "/.openagents/threads")
+OPENAGENTS_HOME = os.environ.get("OPENAGENTS_HOME", "").strip()
+_DEFAULT_OPENAGENTS_HOME = OPENAGENTS_HOME or "/.openagents"
+SKILLS_HOST_PATH = os.environ.get("SKILLS_HOST_PATH", f"{_DEFAULT_OPENAGENTS_HOME}/skills")
+THREADS_HOST_PATH = os.environ.get("THREADS_HOST_PATH", f"{_DEFAULT_OPENAGENTS_HOME}/threads")
 
 # Path to the kubeconfig *inside* the provisioner container.
 # Typically the host's ~/.kube/config is mounted here.

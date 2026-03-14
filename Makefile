@@ -214,18 +214,18 @@ dev:
 	trap cleanup INT TERM; \
 	mkdir -p logs; \
 	echo "Starting LangGraph server..."; \
-	cd backend/agents && NO_COLOR=1 uv run python -m src.langgraph_dev > ../../logs/langgraph.log 2>&1 & \
+	cd $(PWD)/backend/agents && NO_COLOR=1 uv run python -m src.langgraph_dev > ../../logs/langgraph.log 2>&1 & \
 	sleep 3; \
 	echo "✓ LangGraph server started on localhost:2024"; \
 	echo "Building Go Gateway..."; \
-	cd backend/gateway && GOTOOLCHAIN=local go build -o bin/gateway ./cmd/server 2> ../../logs/gateway-build.log; \
+	cd $(PWD)/backend/gateway && GOTOOLCHAIN=local go build -o bin/gateway ./cmd/server 2> ../../logs/gateway-build.log; \
 	if [ $$? -ne 0 ]; then \
 		echo "✗ Go Gateway build failed. See logs/gateway-build.log"; \
 		tail -30 logs/gateway-build.log; \
 		cleanup; \
 	fi; \
 	echo "Starting Go Gateway..."; \
-	cd backend/gateway && GATEWAY_CONFIG_PATH=gateway.yaml ./bin/gateway > ../../logs/gateway.log 2>&1 & \
+	cd $(PWD)/backend/gateway && GATEWAY_CONFIG_PATH=gateway.yaml ./bin/gateway > ../../logs/gateway.log 2>&1 & \
 	sleep 2; \
 	if ! lsof -i :8001 -sTCP:LISTEN -t >/dev/null 2>&1; then \
 		echo "✗ Go Gateway failed to start. Last log output:"; \
@@ -234,27 +234,39 @@ dev:
 	fi; \
 	echo "✓ Go Gateway started on localhost:8001"; \
 	echo "Starting Frontend..."; \
-	cd frontend/app && pnpm run dev > ../../logs/frontend.log 2>&1 & \
+	cd $(PWD)/frontend/app && pnpm run dev > ../../logs/frontend.log 2>&1 & \
 	sleep 3; \
 	echo "✓ Frontend started on localhost:3000"; \
-	echo "Starting Nginx reverse proxy..."; \
-	mkdir -p logs && nginx -g 'daemon off;' -c $(PWD)/docker/nginx/nginx.local.conf -p $(PWD) > logs/nginx.log 2>&1 & \
-	sleep 2; \
-	echo "✓ Nginx started on localhost:2026"; \
+	if command -v nginx >/dev/null 2>&1; then \
+		echo "Starting Nginx reverse proxy..."; \
+		mkdir -p logs && nginx -g 'daemon off;' -c $(PWD)/docker/nginx/nginx.local.conf -p $(PWD) > logs/nginx.log 2>&1 & \
+		sleep 2; \
+		echo "✓ Nginx started on localhost:2026"; \
+	else \
+		echo "! nginx not found, skipping reverse proxy"; \
+	fi; \
 	echo ""; \
 	echo "=========================================="; \
 	echo "  OpenAgents is ready!"; \
 	echo "=========================================="; \
 	echo ""; \
-	echo "  🌐 Application: http://localhost:2026"; \
-	echo "  📡 Go Gateway:  http://localhost:2026/api/*"; \
-	echo "  🤖 LangGraph:   http://localhost:2026/api/langgraph/*"; \
+	if command -v nginx >/dev/null 2>&1; then \
+		echo "  🌐 Application: http://localhost:2026"; \
+		echo "  📡 Go Gateway:  http://localhost:2026/api/*"; \
+		echo "  🤖 LangGraph:   http://localhost:2026/api/langgraph/*"; \
+	else \
+		echo "  🌐 Application: http://localhost:3000"; \
+		echo "  📡 Go Gateway:  http://localhost:8001"; \
+		echo "  🤖 LangGraph:   http://localhost:2024"; \
+	fi; \
 	echo ""; \
 	echo "  📋 Logs:"; \
 	echo "     - LangGraph: logs/langgraph.log"; \
 	echo "     - Gateway:   logs/gateway.log"; \
 	echo "     - Frontend:  logs/frontend.log"; \
-	echo "     - Nginx:     logs/nginx.log"; \
+	if command -v nginx >/dev/null 2>&1; then \
+		echo "     - Nginx:     logs/nginx.log"; \
+	fi; \
 	echo ""; \
 	echo "Press Ctrl+C to stop all services"; \
 	echo ""; \

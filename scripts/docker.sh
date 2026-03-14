@@ -60,6 +60,21 @@ detect_sandbox_mode() {
     fi
 }
 
+resolve_openagents_home() {
+    local configured_home="${OPENAGENTS_HOME:-.openagents}"
+    local resolved_home
+
+    if [[ "$configured_home" = /* ]]; then
+        resolved_home="$configured_home"
+    else
+        resolved_home="$PROJECT_ROOT/$configured_home"
+    fi
+
+    mkdir -p "$(dirname "$resolved_home")"
+    resolved_home="$(cd "$(dirname "$resolved_home")" && pwd)/$(basename "$resolved_home")"
+    export OPENAGENTS_HOME="$resolved_home"
+}
+
 # Cleanup function for Ctrl+C
 cleanup() {
     echo ""
@@ -118,13 +133,10 @@ start() {
     fi
     echo ""
     
-    # Set OPENAGENTS_ROOT for provisioner if not already set
-    if [ -z "$OPENAGENTS_ROOT" ]; then
-        export OPENAGENTS_ROOT="$PROJECT_ROOT"
-        echo -e "${BLUE}Setting OPENAGENTS_ROOT=$OPENAGENTS_ROOT${NC}"
-        echo ""
-    fi
-    
+    resolve_openagents_home
+    echo -e "${BLUE}Using OPENAGENTS_HOME=$OPENAGENTS_HOME${NC}"
+    echo ""
+
     echo "Building and starting containers..."
     cd "$DOCKER_DIR" && $COMPOSE_CMD up --build -d --remove-orphans $services
     echo ""

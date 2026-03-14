@@ -9,7 +9,6 @@ import {
   SquareArrowOutUpRightIcon,
   XIcon,
 } from "lucide-react";
-import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Streamdown } from "streamdown";
@@ -56,14 +55,6 @@ import { useThread } from "../messages/context";
 import { Tooltip } from "../tooltip";
 
 import { useArtifacts } from "./context";
-
-const OnlyOfficeDocumentEditor = dynamic(
-  () =>
-    import("@onlyoffice/document-editor-react").then(
-      (mod) => mod.DocumentEditor,
-    ),
-  { ssr: false },
-);
 
 type ArtifactViewMode = "code" | "preview";
 
@@ -377,6 +368,10 @@ function OfficeArtifactView({
   isMock: boolean;
 }) {
   const onlyOfficeMode: OnlyOfficeMode = descriptor.defaultMode;
+  const [OnlyOfficeDocumentEditor, setOnlyOfficeDocumentEditor] = useState<
+    null | typeof import("./onlyoffice-document-editor").OnlyOfficeDocumentEditor
+  >(null);
+  const [editorLoadError, setEditorLoadError] = useState<string | null>(null);
   const { data, error, isLoading } = useQuery({
     queryKey: ["onlyoffice-config", threadId, filepath, onlyOfficeMode],
     queryFn: () =>
@@ -390,6 +385,37 @@ function OfficeArtifactView({
     refetchOnWindowFocus: false,
     enabled: !isMock,
   });
+
+  useEffect(() => {
+    if (!data) {
+      return;
+    }
+
+    let cancelled = false;
+    setEditorLoadError(null);
+    setOnlyOfficeDocumentEditor(null);
+
+    void import("./onlyoffice-document-editor")
+      .then((mod) => {
+        if (!cancelled) {
+          setOnlyOfficeDocumentEditor(() => mod.OnlyOfficeDocumentEditor);
+        }
+      })
+      .catch((loadError) => {
+        console.error("Failed to load ONLYOFFICE editor:", loadError);
+        if (!cancelled) {
+          setEditorLoadError(
+            loadError instanceof Error
+              ? loadError.message
+              : "Failed to load ONLYOFFICE editor",
+          );
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [data]);
 
   if (isLoading) {
     return (
@@ -411,6 +437,25 @@ function OfficeArtifactView({
         }
         previewUrl={officePreviewUrl}
       />
+    );
+  }
+
+  if (!OnlyOfficeDocumentEditor) {
+    if (editorLoadError) {
+      return (
+        <ArtifactUnavailableCard
+          filepath={filepath}
+          label="Editor unavailable"
+          description={editorLoadError}
+          previewUrl={officePreviewUrl}
+        />
+      );
+    }
+
+    return (
+      <div className="flex size-full items-center justify-center">
+        <LoaderIcon className="text-muted-foreground size-5 animate-spin" />
+      </div>
     );
   }
 

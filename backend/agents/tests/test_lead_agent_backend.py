@@ -3,6 +3,8 @@
 from pathlib import Path
 from unittest.mock import patch
 
+from deepagents.backends import CompositeBackend
+
 from src.agents.lead_agent import agent as lead_agent_module
 from src.config import builtin_agents
 from src.config.agent_runtime_seed import runtime_seed_targets
@@ -37,8 +39,9 @@ def test_build_backend_sets_thread_user_data_as_shell_cwd(tmp_path):
         backend = lead_agent_module.build_backend("thread-1", agent_name=None)
 
     user_data_dir = paths.sandbox_user_data_dir("thread-1")
+    assert isinstance(backend, CompositeBackend)
     assert backend.default.cwd == user_data_dir.resolve()
-    assert backend.routes == {}
+    assert "/mnt/skills/" in backend.routes
 
 
 def test_build_backend_sets_default_user_data_as_shell_cwd_when_thread_missing(tmp_path):
@@ -50,6 +53,7 @@ def test_build_backend_sets_default_user_data_as_shell_cwd_when_thread_missing(t
         backend = lead_agent_module.build_backend(None, agent_name=None)
 
     default_user_data_dir = base_dir / "threads" / "_default" / "user-data"
+    assert isinstance(backend, CompositeBackend)
     assert backend.default.cwd == default_user_data_dir.resolve()
 
 
@@ -75,6 +79,21 @@ def test_build_backend_default_agent_seeds_archived_agent_tree_into_thread_runti
     assert b"skill_refs" in responses[1].content
     assert b"bootstrap skill" in responses[2].content
     assert b"surprise skill" in responses[3].content
+
+
+def test_build_backend_routes_shared_skills_into_local_debug_backend(tmp_path):
+    base_dir = tmp_path / ".openagents"
+    _write_shared_skill(base_dir, "bootstrap", body="bootstrap")
+    paths = _make_paths(base_dir)
+
+    with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
+        backend = lead_agent_module.build_backend("thread-1", agent_name=None)
+
+    shared_skill = backend.download_files(["/mnt/skills/shared/bootstrap/SKILL.md"])[0]
+
+    assert shared_skill.error is None
+    assert shared_skill.content is not None
+    assert b"bootstrap" in shared_skill.content
 
 
 def test_build_backend_named_agent_seeds_agent_definition_into_thread_runtime(tmp_path):

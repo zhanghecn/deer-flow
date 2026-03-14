@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from src.community.aio_sandbox.aio_sandbox_provider import AioSandboxProvider
+from src.community.aio_sandbox.existing_backend import ExistingSandboxBackend
 from src.community.aio_sandbox.remote_backend import RemoteSandboxBackend
 
 
@@ -55,3 +56,22 @@ def test_aio_sandbox_provider_passes_environment_to_remote_backend():
     assert isinstance(backend, RemoteSandboxBackend)
     assert backend.provisioner_url == "http://provisioner:8002"
     assert backend.environment == {"GEMINI_API_KEY": "secret"}
+
+
+def test_aio_sandbox_provider_uses_existing_backend_for_base_url():
+    provider = object.__new__(AioSandboxProvider)
+    provider._config = {
+        "provisioner_url": "",
+        "base_url": "http://sandbox.internal:8080",
+        "environment": {},
+        "image": "sandbox:latest",
+        "port": 8080,
+        "container_prefix": "openagents-sandbox",
+        "mounts": [],
+        "auto_start": False,
+    }
+
+    backend = AioSandboxProvider._create_backend(provider)
+
+    assert isinstance(backend, ExistingSandboxBackend)
+    assert backend.base_url == "http://sandbox.internal:8080"

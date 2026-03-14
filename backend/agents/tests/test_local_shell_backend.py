@@ -62,3 +62,24 @@ def test_execute_rewrites_virtual_paths_to_thread_root(tmp_path):
     finally:
         if global_output.exists():
             global_output.unlink()
+
+
+def test_execute_rewrites_additional_virtual_paths(tmp_path):
+    root = tmp_path / "thread" / "user-data"
+    shared_skills_dir = tmp_path / "shared-skills"
+    shared_skills_dir.mkdir(parents=True)
+    proof_file = shared_skills_dir / "proof.txt"
+    proof_file.write_text("shared", encoding="utf-8")
+
+    backend = LocalShellBackend(
+        root_dir=root,
+        virtual_mode=True,
+        inherit_env=True,
+        timeout=30,
+        execute_path_mappings={"/mnt/skills": shared_skills_dir},
+    )
+
+    result = backend.execute("cat /mnt/skills/proof.txt")
+
+    assert result.exit_code == 0, result.output
+    assert result.output.strip() == "shared"

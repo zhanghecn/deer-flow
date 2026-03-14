@@ -31,12 +31,11 @@ services:
     environment:
       - K8S_NAMESPACE=openagents
       - SANDBOX_IMAGE=enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest
-      # Host paths for K8s HostPath volumes (must be absolute paths accessible by K8s node)
-      # On Docker Desktop/OrbStack, use your actual host paths like /Users/username/...
-      # Set these in your shell before running docker-compose:
-      #   export OPENAGENTS_ROOT=/absolute/path/to/openagents
-      - SKILLS_HOST_PATH=${OPENAGENTS_ROOT}/skills
-      - THREADS_HOST_PATH=${OPENAGENTS_ROOT}/backend/agents/.openagents/threads
+      # Host paths for K8s HostPath volumes (must be absolute paths accessible by the K8s node).
+      # `scripts/docker.sh` resolves OPENAGENTS_HOME to an absolute path before compose startup.
+      - OPENAGENTS_HOME=${OPENAGENTS_HOME}
+      - SKILLS_HOST_PATH=${OPENAGENTS_HOME}/skills
+      - THREADS_HOST_PATH=${OPENAGENTS_HOME}/threads
       - KUBECONFIG_PATH=/root/.kube/config
       - NODE_HOST=host.docker.internal
       # Override K8S API server URL since kubeconfig uses 127.0.0.1
@@ -116,11 +115,13 @@ services:
       - ../backend/gateway:/app/backend/gateway
       - ../.env:/app/.env:ro
       - ../logs:/app/logs
+      - ${OPENAGENTS_HOME}:${OPENAGENTS_HOME}
       # Mount Go cache for faster dependency installation
       - ~/.cache/go-build:/root/.cache/go-build
     working_dir: /app
     environment:
       - CI=true
+      - OPENAGENTS_HOME=${OPENAGENTS_HOME}
     env_file:
       - ../.env
     extra_hosts:
@@ -172,14 +173,14 @@ services:
       - ../backend/agents:/app/backend/agents
       - ../.env:/app/.env:ro
       - ../config.yaml:/app/config.yaml
-      - ../skills:/app/skills
       - ../logs:/app/logs
-      - ../backend/agents/.openagents:/app/backend/agents/.openagents
+      - ${OPENAGENTS_HOME}:${OPENAGENTS_HOME}
       # Mount uv cache for faster dependency installation
       - ~/.cache/uv:/root/.cache/uv
     working_dir: /app
     environment:
       - CI=true
+      - OPENAGENTS_HOME=${OPENAGENTS_HOME}
     env_file:
       - ../.env
     networks:
