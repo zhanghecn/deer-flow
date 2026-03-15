@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -166,3 +167,28 @@ def test_get_paths_keeps_explicit_non_default_storage_and_skills(monkeypatch, tm
 
     assert paths.base_dir == explicit_storage.resolve()
     assert paths.skills_dir == explicit_skills.resolve()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits are required for this check")
+def test_ensure_thread_dirs_marks_runtime_tree_writable_for_sandbox_processes(tmp_path: Path):
+    from src.config.paths import Paths
+
+    paths = Paths(base_dir=tmp_path)
+    thread_id = "thread-perms"
+
+    paths.ensure_thread_dirs(thread_id)
+
+    runtime_dirs = (
+        paths.sandbox_user_data_dir(thread_id),
+        paths.sandbox_work_dir(thread_id),
+        paths.sandbox_uploads_dir(thread_id),
+        paths.sandbox_outputs_dir(thread_id),
+        paths.sandbox_agents_dir(thread_id),
+        paths.sandbox_authoring_dir(thread_id),
+        paths.sandbox_authoring_agents_dir(thread_id),
+        paths.sandbox_authoring_skills_dir(thread_id),
+    )
+
+    for runtime_dir in runtime_dirs:
+        assert runtime_dir.exists()
+        assert runtime_dir.stat().st_mode & 0o777 == 0o777

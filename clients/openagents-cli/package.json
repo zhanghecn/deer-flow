@@ -1,0 +1,13 @@
+{
+  "name": "openagents-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "openagents-cli": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "build": "bun build --compile --outfile dist/openagents-cli ./src/index.ts"
+  }
+}

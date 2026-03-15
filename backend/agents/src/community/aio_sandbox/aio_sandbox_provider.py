@@ -157,6 +157,7 @@ class AioSandboxProvider(SandboxProvider):
             "image": sandbox_config.image or DEFAULT_IMAGE,
             "port": sandbox_config.port or DEFAULT_PORT,
             "base_url": sandbox_config.base_url,
+            "shared_data_mount_path": getattr(sandbox_config, "shared_data_mount_path", None) or "",
             "auto_start": sandbox_config.auto_start if sandbox_config.auto_start is not None else True,
             "container_prefix": sandbox_config.container_prefix or DEFAULT_CONTAINER_PREFIX,
             "idle_timeout": getattr(sandbox_config, "idle_timeout", None) or DEFAULT_IDLE_TIMEOUT,
@@ -236,6 +237,33 @@ class AioSandboxProvider(SandboxProvider):
         except Exception as e:
             logger.warning(f"Could not setup skills mount: {e}")
         return None
+
+    def _runtime_root_for_thread(self, thread_id: str | None) -> str | None:
+        """Return the thread-specific runtime root for shared external sandboxes.
+
+        When sandbox lifecycle is managed outside Python and all threads share one
+        long-lived sandbox service, that service must still read and write the
+        host's per-thread runtime tree. We achieve that by mounting
+        `OPENAGENTS_HOME` into the sandbox container once and rewriting the
+        virtual `/mnt/user-data/...` contract into the mounted thread directory.
+        """
+
+        if not thread_id:
+            return None
+
+        base_url = str(self._config.get("base_url", "")).strip()
+        shared_mount = str(self._config.get("shared_data_mount_path", "")).strip().rstrip("/")
+        if not base_url or not shared_mount:
+            return None
+
+        return f"{shared_mount}/threads/{thread_id}/user-data"
+
+    def _build_sandbox_instance(self, sandbox_id: str, sandbox_url: str, thread_id: str | None) -> AioSandbox:
+        return AioSandbox(
+            id=sandbox_id,
+            base_url=sandbox_url,
+            runtime_root=self._runtime_root_for_thread(thread_id),
+        )
 
     # ── Idle timeout management ──────────────────────────────────────────
 
@@ -388,7 +416,11 @@ class AioSandboxProvider(SandboxProvider):
             return None
 
         # Adopt into this process's memory
-        sandbox = AioSandbox(id=discovered.sandbox_id, base_url=discovered.sandbox_url)
+        sandbox = self._build_sandbox_instance(
+            discovered.sandbox_id,
+            discovered.sandbox_url,
+            thread_id,
+        )
         with self._lock:
             self._sandboxes[discovered.sandbox_id] = sandbox
             self._sandbox_infos[discovered.sandbox_id] = discovered
@@ -424,7 +456,7 @@ class AioSandboxProvider(SandboxProvider):
             self._backend.destroy(info)
             raise RuntimeError(f"Sandbox {sandbox_id} failed to become ready within timeout at {info.sandbox_url}")
 
-        sandbox = AioSandbox(id=sandbox_id, base_url=info.sandbox_url)
+        sandbox = self._build_sandbox_instance(sandbox_id, info.sandbox_url, thread_id)
         with self._lock:
             self._sandboxes[sandbox_id] = sandbox
             self._sandbox_infos[sandbox_id] = info

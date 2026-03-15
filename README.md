@@ -160,14 +160,22 @@ If you prefer running services locally:
 ### Advanced
 #### Sandbox Mode
 
-OpenAgents supports multiple sandbox execution modes:
-- **Local Execution** (runs sandbox code directly on the host machine)
-- **Docker Execution** (runs sandbox code in isolated Docker containers)
-- **Docker Execution with Kubernetes** (runs sandbox code in Kubernetes pods via provisioner service)
+OpenAgents now uses one runtime backend protocol with three execution targets:
 
-For Docker development, service startup follows `config.yaml` sandbox mode. In Local/Docker modes, `provisioner` is not started.
+- **Local**: host execution for debugging, still exposed to the agent as `/mnt/user-data/...`
+- **Sandbox**: managed sandbox provider execution, including one-machine and k8s autoscaling modes
+- **Remote**: per-run relay to a connected `openagents-cli` worker on another machine
 
-See the [Sandbox Configuration Guide](backend/agents/docs/CONFIGURATION.md#sandbox) to configure your preferred mode.
+`local` vs `sandbox` is selected from Python config or environment. `remote` is
+selected per request with `configurable.execution_backend="remote"` and
+`configurable.remote_session_id="<session-id>"`.
+
+For Docker development, service startup still follows `config.yaml` sandbox
+mode. The provisioner only starts when the configured sandbox provider requires
+it.
+
+See the [Sandbox Configuration Guide](backend/agents/docs/CONFIGURATION.md) and
+[Remote Backend Guide](docs/remote-backend.md).
 
 #### MCP Server
 
@@ -195,7 +203,9 @@ Skills are what make OpenAgents do *almost anything*.
 
 A standard Agent Skill is a structured capability module — a Markdown file that defines a workflow, best practices, and references to supporting resources. OpenAgents ships with built-in skills for research, report generation, slide creation, web pages, image and video generation, and more. But the real power is extensibility: add your own skills, replace the built-in ones, or combine them into compound workflows.
 
-Skills are loaded progressively — only when the task needs them, not all at once. This keeps the context window lean and makes OpenAgents work well even with token-sensitive models.
+Skills are loaded progressively — only when the task needs them, not all at
+once. This keeps the context window lean and makes OpenAgents work well even
+with token-sensitive models.
 
 Tools follow the same philosophy. OpenAgents comes with a core toolset — web search, web fetch, file operations, bash execution — and supports custom tools via MCP servers and Python functions. Swap anything. Add anything.
 
@@ -208,10 +218,19 @@ Tools follow the same philosophy. OpenAgents comes with a core toolset — web s
 ├── web-page/SKILL.md
 └── image-generation/SKILL.md
 
-# Skill paths visible to an agent at runtime
+# Agent-owned prompt and copied skills
+.openagents/agents/dev/lead_agent
+├── AGENTS.md
+└── skills/
+    └── image-generation/SKILL.md
+
+# Runtime paths visible to an agent
 /mnt/user-data/agents/dev/lead_agent/skills
 └── image-generation/SKILL.md
 ```
+
+Shared skills belong only in `.openagents/skills/`. Vertical or domain prompts
+belong in `.openagents/agents/{dev,prod}/{agent}/AGENTS.md`.
 
 ### Sub-Agents
 
@@ -225,16 +244,20 @@ This is how OpenAgents handles tasks that take minutes to hours: a research task
 
 OpenAgents doesn't just *talk* about doing things. It has its own computer.
 
-Each task runs inside an isolated Docker container with a full filesystem — skills, workspace, uploads, outputs. The agent reads, writes, and edits files. It executes bash commands and codes. It views images. All sandboxed, all auditable, zero contamination between sessions.
+Each task runs against a unified runtime filesystem — whether the backend is
+local, managed sandbox, or remote. The agent reads, writes, and edits files. It
+executes shell commands. It views images. The host implementation changes, but
+the agent-visible contract stays the same.
 
 This is the difference between a chatbot with tool access and an agent with an actual execution environment.
 
 ```
-# Paths inside the sandbox container
+# Paths inside the runtime backend
 /mnt/user-data/
 ├── uploads/          ← your files
 ├── workspace/        ← agents' working directory
-└── outputs/          ← final deliverables
+├── outputs/          ← final deliverables
+└── agents/           ← runtime copy of AGENTS.md and skills
 ```
 
 ### Context Engineering

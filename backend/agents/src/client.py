@@ -183,6 +183,8 @@ class OpenAgentsClient:
             "user_id": overrides.get("user_id"),
             "agent_name": overrides.get("agent_name"),
             "agent_status": overrides.get("agent_status"),
+            "execution_backend": overrides.get("execution_backend"),
+            "remote_session_id": overrides.get("remote_session_id"),
         }
         return RunnableConfig(
             configurable=configurable,

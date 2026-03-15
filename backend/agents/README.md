@@ -1,6 +1,9 @@
 # OpenAgents Agents Runtime
 
-OpenAgents is a LangGraph-based AI super agent with sandbox execution, persistent memory, and extensible tool integration. The backend enables AI agents to execute code, browse the web, manage files, delegate tasks to subagents, and retain context across conversations - all in isolated, per-thread environments.
+OpenAgents is a LangGraph-based AI super agent runtime with unified execution
+backends, persistent memory, and extensible tool integration. The backend lets
+agents execute code, manage files, delegate tasks, and keep context across
+conversations while preserving one runtime contract under `/mnt/user-data/...`.
 
 ---
 
@@ -59,16 +62,35 @@ The single LangGraph agent (`lead_agent`) is the runtime entry point, created vi
 
 Custom agents now follow one filesystem protocol:
 
-- Shared skills live in the global archive: `.openagents/skills/{shared,store/dev,store/prod}/`
-- Each agent owns its own `AGENTS.md`
-- Selected skills are copied into `agents/{status}/{name}/skills/`
+- Shared skills live only in `.openagents/skills/{shared,store/dev,store/prod}/`
+- Each agent owns its own archive under `.openagents/agents/{status}/{name}/`
+- Vertical or domain prompts belong in `.openagents/agents/{status}/{name}/AGENTS.md`
+- Selected skills are copied into `.openagents/agents/{status}/{name}/skills/`
 - `config.yaml` is the local manifest and records `agents_md_path` and `skill_refs`
-- `dev` and `prod` are separate local archives so prompts, copied skills, and memory do not bleed into each other
-- Runtime sandbox choice belongs to Python startup/config; it does not come from `dev/prod`
+- `dev` and `prod` are archive versions only; they are not runtime mode switches
+- Runtime backend choice belongs to Python startup/config or per-run remote params
 - At runtime, Python seeds a thread-local copy into `/mnt/user-data/...`
 - All agents, including `lead_agent`, use `/mnt/user-data/agents/{status}/{name}/skills/` and `/mnt/user-data/agents/{status}/{name}/AGENTS.md`
 
 See [docs/AGENT_PROTOCOL.md](docs/AGENT_PROTOCOL.md) for the full contract and ASCII flow diagram.
+
+### Runtime Backend Selection
+
+All filesystem and shell tools flow through one backend factory.
+
+- `local`
+  - selected when sandbox config resolves to `src.sandbox.local:LocalSandboxProvider`
+  - intended for local debugging on one machine
+- `sandbox`
+  - selected when Python config resolves to a managed sandbox provider
+  - currently backed by `src.community.aio_sandbox:AioSandboxProvider`
+  - works for single-machine sandbox and provisioner/k8s autoscaling modes
+- `remote`
+  - selected per run with `configurable.execution_backend="remote"`
+  - requires `configurable.remote_session_id`
+  - uses the same backend protocol through a relay sidecar and `openagents-cli`
+
+The agent-visible path contract does not change across these modes.
 
 ### Middleware Chain
 
@@ -105,10 +127,26 @@ Per-thread isolated execution with a definition/runtime split:
 - **Runtime modes**:
   - sandbox disabled in Python config: use `LocalShellBackend` rooted at the thread `user-data` directory
   - sandbox enabled in Python config: resolve the configured provider in Python and acquire a sandbox implementing deepagents `BaseSandbox`
+  - remote requested per run: relay the same backend protocol to a connected `openagents-cli` worker
 - **Runtime seeding**:
   - every agent, including `lead_agent`: copy `agents/{status}/{name}/**` into `/mnt/user-data/agents/{status}/{name}/**`
   - deepagents reads skills and `AGENTS.md` only from that runtime copy
 - `dev/prod` only decide which archived version is loaded; open API always resolves `prod`
+
+### Remote Backend
+
+The remote backend is the cloud-agent path that lets a server-side agent operate
+a connected client machine.
+
+- Relay store: `.openagents/remote/sessions/<session_id>/...`
+- Relay HTTP sidecar: started by `src/langgraph_dev.py`
+- Worker CLI: `clients/openagents-cli`
+- Selection:
+  - `configurable.execution_backend = "remote"`
+  - `configurable.remote_session_id = "<session-id>"`
+
+See [../../docs/remote-backend.md](../../docs/remote-backend.md) for the
+session flow and CLI usage.
 
 ### Subagent System
 

@@ -3,6 +3,7 @@
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from deepagents.backends import CompositeBackend
 
 from src.agents.lead_agent import agent as lead_agent_module
@@ -15,6 +16,11 @@ from src.config.paths import Paths
 
 def setup_function() -> None:
     builtin_agents._ENSURED_ARCHIVES.clear()
+
+
+@pytest.fixture(autouse=True)
+def _default_to_local_execution_backend(monkeypatch):
+    monkeypatch.setenv("OPENAGENTS_SANDBOX_PROVIDER", "src.sandbox.local:LocalSandboxProvider")
 
 
 def _make_paths(base_dir: Path) -> Paths:
@@ -94,6 +100,21 @@ def test_build_backend_routes_shared_skills_into_local_debug_backend(tmp_path):
     assert shared_skill.error is None
     assert shared_skill.content is not None
     assert b"bootstrap" in shared_skill.content
+
+
+def test_build_backend_execute_rewrites_runtime_skill_aliases(tmp_path):
+    base_dir = tmp_path / ".openagents"
+    _write_shared_skill(base_dir, "bootstrap", body="bootstrap")
+    paths = _make_paths(base_dir)
+
+    with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
+        backend = lead_agent_module.build_backend("thread-1", agent_name=None)
+
+    assert isinstance(backend, CompositeBackend)
+    result = backend.default.execute("test -f /agents/dev/lead_agent/skills/bootstrap/SKILL.md && echo ok")
+
+    assert result.exit_code == 0, result.output
+    assert "ok" in result.output
 
 
 def test_build_backend_named_agent_seeds_agent_definition_into_thread_runtime(tmp_path):
@@ -221,7 +242,7 @@ def test_build_workspace_backend_uses_configured_sandbox_provider(monkeypatch):
 
     provider = DummyProvider()
     monkeypatch.setenv("OPENAGENTS_SANDBOX_PROVIDER", "src.community.aio_sandbox:AioSandboxProvider")
-    monkeypatch.setattr(lead_agent_module, "_get_sandbox_provider", lambda provider_path: provider)
+    monkeypatch.setattr("src.runtime_backends.sandbox.get_sandbox_provider", lambda provider_path: provider)
 
     backend = lead_agent_module._build_workspace_backend(
         user_data_dir="/tmp/runtime",
@@ -230,6 +251,64 @@ def test_build_workspace_backend_uses_configured_sandbox_provider(monkeypatch):
 
     assert backend is provider.sandbox
     assert provider.thread_id == "thread-1"
+
+
+def test_build_backend_uses_remote_backend_when_requested(monkeypatch, tmp_path):
+    base_dir = tmp_path / ".openagents"
+    _write_shared_skill(base_dir, "bootstrap", body="bootstrap")
+    paths = _make_paths(base_dir)
+    captured: dict[str, str] = {}
+
+    class DummyRemoteBackend:
+        def download_files(self, requested_paths):
+            return [type("Response", (), {"path": path, "content": None, "error": "file_not_found"})() for path in requested_paths]
+
+        def upload_files(self, files):
+            return [type("Response", (), {"path": path, "error": None})() for path, _ in files]
+
+    remote_backend = DummyRemoteBackend()
+
+    def fake_build_remote_workspace_backend(*, session_id: str, paths: Paths | None = None):
+        captured["session_id"] = session_id
+        assert paths is not None
+        return remote_backend
+
+    monkeypatch.setattr(
+        "src.runtime_backends.factory.build_remote_workspace_backend",
+        fake_build_remote_workspace_backend,
+    )
+
+    with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
+        backend = lead_agent_module.build_backend(
+            "thread-1",
+            agent_name=None,
+            execution_backend="remote",
+            remote_session_id="remote-session-1",
+        )
+
+    assert backend is remote_backend
+    assert captured["session_id"] == "remote-session-1"
+
+
+def test_build_backend_remote_requires_session_id(tmp_path):
+    base_dir = tmp_path / ".openagents"
+    _write_shared_skill(base_dir, "bootstrap", body="bootstrap")
+    paths = _make_paths(base_dir)
+
+    with (
+        patch("src.agents.lead_agent.agent.get_paths", return_value=paths),
+        patch("src.runtime_backends.factory.build_remote_workspace_backend"),
+    ):
+        try:
+            lead_agent_module.build_backend(
+                "thread-1",
+                agent_name=None,
+                execution_backend="remote",
+            )
+        except ValueError as exc:
+            assert "remote_session_id" in str(exc)
+        else:
+            raise AssertionError("Expected ValueError when remote_session_id is missing.")
 
 
 def test_openagents_middlewares_include_artifacts_state():

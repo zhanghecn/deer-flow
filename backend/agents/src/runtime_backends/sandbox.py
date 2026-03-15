@@ -1,0 +1,81 @@
+from __future__ import annotations
+
+import logging
+import os
+from functools import lru_cache
+
+import yaml
+from deepagents.backends.protocol import BackendProtocol
+
+from src.config.app_config import AppConfig
+from src.reflection.resolvers import resolve_class
+from src.sandbox.sandbox_provider import SandboxProvider
+
+logger = logging.getLogger(__name__)
+
+LOCAL_SANDBOX_PROVIDER = "src.sandbox.local:LocalSandboxProvider"
+
+
+def resolve_config_sandbox_provider() -> str | None:
+    config_path = AppConfig.resolve_config_path()
+    if config_path is None or not config_path.exists():
+        return None
+
+    with open(config_path, encoding="utf-8") as file:
+        config_data = yaml.safe_load(file) or {}
+
+    sandbox_config = config_data.get("sandbox")
+    if not isinstance(sandbox_config, dict):
+        return None
+
+    raw_provider = sandbox_config.get("use")
+    if not isinstance(raw_provider, str):
+        return None
+
+    provider = raw_provider.strip()
+    if not provider:
+        return None
+
+    if provider.startswith("$"):
+        resolved_env = str(os.getenv(provider[1:], "")).strip()
+        return resolved_env or None
+
+    return provider
+
+
+def resolve_sandbox_provider() -> str:
+    env_provider = str(os.getenv("OPENAGENTS_SANDBOX_PROVIDER", "")).strip()
+    if env_provider:
+        return env_provider
+
+    try:
+        return resolve_config_sandbox_provider() or LOCAL_SANDBOX_PROVIDER
+    except Exception as exc:
+        logger.warning(
+            "Failed to resolve sandbox provider from config. Falling back to local execution backend. Error: %s",
+            exc,
+        )
+        return LOCAL_SANDBOX_PROVIDER
+
+
+def resolve_default_execution_backend() -> str:
+    return "local" if resolve_sandbox_provider() == LOCAL_SANDBOX_PROVIDER else "sandbox"
+
+
+@lru_cache(maxsize=4)
+def get_sandbox_provider(provider_path: str) -> SandboxProvider:
+    provider_cls = resolve_class(provider_path, base_class=SandboxProvider)
+    return provider_cls()
+
+
+def build_sandbox_workspace_backend(thread_id: str) -> BackendProtocol:
+    provider_path = resolve_sandbox_provider()
+    provider = get_sandbox_provider(provider_path)
+    sandbox_id = provider.acquire(thread_id)
+    sandbox = provider.get(sandbox_id)
+    if sandbox is None:
+        raise RuntimeError(
+            f"Sandbox provider '{provider_path}' returned sandbox id '{sandbox_id}' but no sandbox instance."
+        )
+    return sandbox
+

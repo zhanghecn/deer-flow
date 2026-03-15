@@ -1,3 +1,4 @@
+import os
 import re
 from pathlib import Path
 
@@ -7,6 +8,7 @@ from src.config.app_config import load_path_config
 VIRTUAL_PATH_PREFIX = "/mnt/user-data"
 
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
+_RUNTIME_DIR_MODE = 0o777
 
 
 def _resolve_explicit_path(value: str | Path) -> Path:
@@ -150,14 +152,35 @@ class Paths:
     def sandbox_user_data_dir(self, thread_id: str) -> Path:
         return self.thread_dir(thread_id) / "user-data"
 
+    # ── Remote relay layer (shared across runtime + remote clients) ──
+
+    @property
+    def remote_dir(self) -> Path:
+        return self.base_dir / "remote"
+
+    @property
+    def remote_sessions_dir(self) -> Path:
+        return self.remote_dir / "sessions"
+
+    def remote_session_dir(self, session_id: str) -> Path:
+        if not _SAFE_ID_RE.match(session_id):
+            raise ValueError(f"Invalid session_id {session_id!r}")
+        return self.remote_sessions_dir / session_id
+
     def ensure_thread_dirs(self, thread_id: str) -> None:
         """Create all standard sandbox directories for a thread."""
-        self.sandbox_work_dir(thread_id).mkdir(parents=True, exist_ok=True)
-        self.sandbox_uploads_dir(thread_id).mkdir(parents=True, exist_ok=True)
-        self.sandbox_outputs_dir(thread_id).mkdir(parents=True, exist_ok=True)
-        self.sandbox_agents_dir(thread_id).mkdir(parents=True, exist_ok=True)
-        self.sandbox_authoring_agents_dir(thread_id).mkdir(parents=True, exist_ok=True)
-        self.sandbox_authoring_skills_dir(thread_id).mkdir(parents=True, exist_ok=True)
+        runtime_dirs = (
+            self.sandbox_user_data_dir(thread_id),
+            self.sandbox_work_dir(thread_id),
+            self.sandbox_uploads_dir(thread_id),
+            self.sandbox_outputs_dir(thread_id),
+            self.sandbox_agents_dir(thread_id),
+            self.sandbox_authoring_dir(thread_id),
+            self.sandbox_authoring_agents_dir(thread_id),
+            self.sandbox_authoring_skills_dir(thread_id),
+        )
+        for runtime_dir in runtime_dirs:
+            _ensure_runtime_dir(runtime_dir)
 
     def resolve_virtual_path(self, thread_id: str, virtual_path: str) -> Path:
         """Resolve a sandbox virtual path to the actual host filesystem path."""
@@ -199,3 +222,16 @@ def get_paths() -> Paths:
 def reset_paths() -> None:
     global _paths
     _paths = None
+
+
+def _ensure_runtime_dir(path: Path) -> None:
+    """Keep runtime mounts writable for containerized sandbox users.
+
+    The AIO sandbox image serves file APIs as a non-root user, while local
+    debugging creates the host thread directories as the current host user. We
+    normalize the runtime tree to a permissive mode so `/mnt/user-data/...`
+    stays writable in both environments.
+    """
+
+    path.mkdir(parents=True, exist_ok=True)
+    os.chmod(path, _RUNTIME_DIR_MODE)

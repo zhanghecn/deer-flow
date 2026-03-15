@@ -6,7 +6,10 @@
 models: []
 
 sandbox:
-  use: src.sandbox.local:LocalSandboxProvider
+  use: src.community.aio_sandbox:AioSandboxProvider
+  base_url: $OPENAGENTS_SANDBOX_BASE_URL
+  shared_data_mount_path: $OPENAGENTS_SANDBOX_SHARED_DATA_MOUNT_PATH
+  auto_start: false
 
 storage:
   base_dir: .openagents

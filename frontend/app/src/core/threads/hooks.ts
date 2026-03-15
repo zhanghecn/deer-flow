@@ -263,10 +263,30 @@ function mergeOptimisticMessages<T extends { messages: Message[] }>(
     return thread;
   }
 
-  return {
-    ...thread,
+  return cloneThreadStream(thread, {
     messages: [...thread.messages, ...optimisticMessages],
-  };
+  });
+}
+
+function cloneThreadStream<T extends object>(
+  thread: T,
+  overrides: Record<string, unknown>,
+): T {
+  const descriptors = Object.getOwnPropertyDescriptors(thread) as Record<
+    string,
+    PropertyDescriptor
+  >;
+
+  for (const [key, value] of Object.entries(overrides)) {
+    descriptors[key] = {
+      configurable: true,
+      enumerable: true,
+      writable: true,
+      value,
+    };
+  }
+
+  return Object.create(Object.getPrototypeOf(thread), descriptors) as T;
 }
 
 function extractLatestContextWindow(
@@ -307,7 +327,9 @@ export function useThreadStream({
   const [historyContextWindow, setHistoryContextWindow] = useState<
     AgentThreadState["context_window"] | null
   >(null);
+  const [historyEnabled, setHistoryEnabled] = useState(() => !!threadId);
   const hasStartedStreamRef = useRef(false);
+  const previousThreadIdRef = useRef<string | null | undefined>(threadId);
   const resolvedContext = useMemo(
     () => resolveThreadContext(context),
     [context],
@@ -333,8 +355,16 @@ export function useThreadStream({
 
   useEffect(() => {
     let cancelled = false;
+    const previousThreadId = previousThreadIdRef.current;
+    const createdThreadDuringCurrentSession =
+      !previousThreadId && !!threadId && hasStartedStreamRef.current;
+
     hasStartedStreamRef.current = false;
+    previousThreadIdRef.current = threadId;
     setHistoryContextWindow(null);
+    setHistoryEnabled(
+      threadId ? !createdThreadDuringCurrentSession : false,
+    );
 
     if (!threadId || !authenticated) {
       setStreamThreadId(null);
@@ -368,11 +398,11 @@ export function useThreadStream({
   }, [threadId, authenticated, apiClient]);
 
   useEffect(() => {
-    if (!streamThreadId || !authenticated) {
+    if (!streamThreadId || !authenticated || !historyEnabled) {
       return;
     }
     void refreshHistoryContextWindow(streamThreadId);
-  }, [streamThreadId, authenticated, refreshHistoryContextWindow]);
+  }, [streamThreadId, authenticated, historyEnabled, refreshHistoryContextWindow]);
 
   const queryClient = useQueryClient();
   const updateSubtask = useUpdateSubtask();
@@ -385,7 +415,9 @@ export function useThreadStream({
     threadId: streamThreadId,
     throttle: streamThrottle,
     reconnectOnMount: true,
-    fetchStateHistory: { limit: HISTORY_PAGE_SIZE },
+    // Fresh threads can race with the first run before the runtime model is
+    // persisted. Delay history reads until the first turn finishes.
+    fetchStateHistory: historyEnabled ? { limit: HISTORY_PAGE_SIZE } : false,
     onCreated(meta) {
       setStreamThreadId(meta.thread_id);
       if (!hasStartedStreamRef.current) {
@@ -418,6 +450,7 @@ export function useThreadStream({
     },
     onFinish(state) {
       if (streamThreadId) {
+        setHistoryEnabled(true);
         void refreshHistoryContextWindow(streamThreadId);
       }
       onFinish?.(state.values);
@@ -555,10 +588,10 @@ export function useThreadStream({
     [mergedThread.values, historyContextWindow],
   );
   const enrichedThread = useMemo(
-    () => ({
-      ...mergedThread,
-      values: mergedThreadValues,
-    }),
+    () =>
+      cloneThreadStream(mergedThread, {
+        values: mergedThreadValues,
+      }),
     [mergedThread, mergedThreadValues],
   );
 

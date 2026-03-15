@@ -1,292 +1,214 @@
 # Configuration Guide
 
-This guide explains how to configure OpenAgents for your environment.
+This guide covers the runtime settings that matter for local execution,
+single-machine sandboxing, k8s-backed sandboxing, and the remote backend.
 
-## Configuration Sections
+## Core Config
 
-### Models
+`config.yaml` still owns the process-level runtime configuration.
 
-Configure the LLM models available to the agent:
-
-```yaml
-models:
-  - name: gpt-4                    # Internal identifier
-    display_name: GPT-4            # Human-readable name
-    use: langchain_openai:ChatOpenAI  # LangChain class path
-    model: gpt-4                   # Model identifier for API
-    api_key: $OPENAI_API_KEY       # API key (use env var)
-    max_tokens: 4096               # Max tokens per request
-    temperature: 0.7               # Sampling temperature
-```
-
-**Supported Providers**:
-- OpenAI (`langchain_openai:ChatOpenAI`)
-- Anthropic (`langchain_anthropic:ChatAnthropic`)
-- DeepSeek (`langchain_deepseek:ChatDeepSeek`)
-- Any LangChain-compatible provider
-
-For OpenAI-compatible gateways (for example Novita), keep using `langchain_openai:ChatOpenAI` and set `base_url`:
+Minimal example:
 
 ```yaml
-models:
-  - name: novita-deepseek-v3.2
-    display_name: Novita DeepSeek V3.2
-    use: langchain_openai:ChatOpenAI
-    model: deepseek/deepseek-v3.2
-    api_key: $NOVITA_API_KEY
-    base_url: https://api.novita.ai/openai
-    supports_thinking: true
-    when_thinking_enabled:
-      extra_body:
-        thinking:
-          type: enabled
-```
+storage:
+  base_dir: .openagents
 
-**Thinking Models**:
-Some models support "thinking" mode for complex reasoning:
+skills:
+  path: .openagents/skills
+  container_path: /mnt/skills
 
-```yaml
-models:
-  - name: deepseek-v3
-    supports_thinking: true
-    when_thinking_enabled:
-      extra_body:
-        thinking:
-          type: enabled
-```
-
-### Tool Groups
-
-Organize tools into logical groups:
-
-```yaml
-tool_groups:
-  - name: web          # Web browsing and search
-  - name: file:read    # Read-only file operations
-  - name: file:write   # Write file operations
-  - name: bash         # Shell command execution
-```
-
-### Tools
-
-Configure specific tools available to the agent:
-
-```yaml
-tools:
-  - name: web_search
-    group: web
-    use: src.community.tavily.tools:web_search_tool
-    max_results: 5
-    # api_key: $TAVILY_API_KEY  # Optional
-```
-
-**Built-in Tools**:
-- `web_search` - Search the web (Tavily)
-- `web_fetch` - Fetch web pages (Jina AI)
-- `ls` - List directory contents
-- `read_file` - Read file contents
-- `write_file` - Write file contents
-- `str_replace` - String replacement in files
-- `bash` - Execute bash commands
-
-### Sandbox
-
-OpenAgents supports multiple sandbox execution modes. Configure your preferred mode in `config.yaml`:
-
-**Local Execution** (runs sandbox code directly on the host machine):
-```yaml
 sandbox:
-   use: src.sandbox.local:LocalSandboxProvider # Local execution
+  use: src.sandbox.local:LocalSandboxProvider
 ```
 
-**Docker Execution** (runs sandbox code in isolated Docker containers):
-```yaml
-sandbox:
-   use: src.community.aio_sandbox:AioSandboxProvider # Docker-based sandbox
-```
+Notes:
 
-**Docker Execution with Kubernetes** (runs sandbox code in Kubernetes pods via provisioner service):
+- `storage.base_dir` is where archived agents, users, threads, and remote relay
+  session state live.
+- `skills.path` points at the shared skills archive root, not at per-agent skill
+  copies.
+- `skills.container_path` is only a compatibility mount for local execution.
+  Active runtime skills are still read from `/mnt/user-data/agents/...`.
 
-This mode runs each sandbox in an isolated Kubernetes Pod on your **host machine's cluster**. Requires Docker Desktop K8s, OrbStack, or similar local K8s setup.
+## Runtime Backend Modes
 
-```yaml
-sandbox:
-   use: src.community.aio_sandbox:AioSandboxProvider
-   provisioner_url: http://provisioner:8002
-```
+### 1. Local Debug
 
-When using Docker development (`make docker-start`), OpenAgents starts the `provisioner` service only if this provisioner mode is configured. In local or plain Docker sandbox modes, `provisioner` is skipped.
+Use the local provider when you want one-machine debugging with no managed
+sandbox lifecycle.
 
-See [Provisioner Setup Guide](docker/provisioner/README.md) for detailed configuration, prerequisites, and troubleshooting.
-
-Choose between local execution or Docker-based isolation:
-
-**Option 1: Local Sandbox** (default, simpler setup):
 ```yaml
 sandbox:
   use: src.sandbox.local:LocalSandboxProvider
 ```
 
-**Option 2: Docker Sandbox** (isolated, more secure):
+Equivalent environment override:
+
+```bash
+export OPENAGENTS_SANDBOX_PROVIDER=src.sandbox.local:LocalSandboxProvider
+```
+
+Behavior:
+
+- backend kind resolves to `local`
+- execution happens on the current machine
+- agent-visible paths still stay under `/mnt/user-data/...`
+
+### 2. Single-Machine Managed Sandbox
+
+Use `AioSandboxProvider` without a provisioner when you want an isolated sandbox
+provider on one machine.
+
 ```yaml
 sandbox:
   use: src.community.aio_sandbox:AioSandboxProvider
-  port: 8080
-  auto_start: true
-  container_prefix: openagents-sandbox
-
-  # Optional: Additional mounts
-  mounts:
-    - host_path: /path/on/host
-      container_path: /path/in/container
-      read_only: false
 ```
 
-### Skills
+Behavior:
 
-Configure the skills directory for specialized workflows:
+- backend kind resolves to `sandbox`
+- provider lifecycle stays inside Python
+- agent contract does not change
+
+### 3. K8s Autoscaling Sandbox
+
+Use the same provider with a provisioner URL when sandbox instances should be
+created dynamically, including k8s-backed pods.
 
 ```yaml
-storage:
-  # Required. Archived agents, users, and thread runtime data.
-  base_dir: .openagents
-
-skills:
-  # Required host path to the shared skills archive.
-  path: skills
-
-  # Container mount path (default: /mnt/skills)
-  container_path: /mnt/skills
+sandbox:
+  use: src.community.aio_sandbox:AioSandboxProvider
+  provisioner_url: http://provisioner:8002
 ```
 
-Relative `storage.base_dir` and `skills.path` values are resolved from the directory containing `config.yaml`.
+Operational notes:
 
-**How Skills Work**:
-- Skills are stored in `openagents/skills/{public,custom}/`
-- Each skill has a `SKILL.md` file with metadata
-- Skills are automatically discovered and loaded
-- Available in both local and Docker sandbox via path mapping
+- `make docker-start` should start the provisioner only when this mode is
+  configured.
+- kubeconfig and cluster-specific wiring belong to the provisioner deployment,
+  not to agent prompts or skill docs.
+- the LangGraph runtime should still only see a sandbox backend implementing the
+  Deep Agents protocol.
 
-### MCP And Extensions
+### 4. Remote Backend
 
-MCP servers and skill enablement are loaded from `extensions_config.json` in the
-project root.
+`remote` is not chosen in `config.yaml`. It is selected per run.
 
-Basic flow:
+Required runtime params:
 
-1. Copy `extensions_config.example.json` to `extensions_config.json`
-2. Enable the desired MCP servers or skills with `"enabled": true`
-3. Configure command/args/env or HTTP/SSE settings per server
-4. Restart the application so tools are reloaded
-
-Example:
-
-```json
-{
-  "mcpServers": {
-    "secure-http-server": {
-      "enabled": true,
-      "type": "http",
-      "url": "https://api.example.com/mcp",
-      "oauth": {
-        "enabled": true,
-        "token_url": "https://auth.example.com/oauth/token",
-        "grant_type": "client_credentials",
-        "client_id": "$MCP_OAUTH_CLIENT_ID",
-        "client_secret": "$MCP_OAUTH_CLIENT_SECRET",
-        "scope": "mcp.read",
-        "refresh_skew_seconds": 60
-      }
-    }
-  }
-}
+```text
+configurable.execution_backend = "remote"
+configurable.remote_session_id = "<session-id>"
 ```
 
-Supported MCP transports and features:
+Python example with the embedded client:
 
-- `stdio`
-- `http`
-- `sse`
-- OAuth token acquisition and refresh for `http`/`sse` servers
+```python
+from src.client import OpenAgentsClient
 
-Secrets should be provided through environment variables rather than committed
-into `extensions_config.json`.
-
-### Title Generation
-
-Automatic conversation title generation:
-
-```yaml
-title:
-  enabled: true
-  max_words: 6
-  max_chars: 60
-  model_name: null  # Use first model in list
+client = OpenAgentsClient()
+response = client.chat(
+    "Inspect the project and update the README.",
+    thread_id="remote-demo",
+    execution_backend="remote",
+    remote_session_id="abc123session",
+)
 ```
 
-## Environment Variables
+LangGraph/API callers must pass the same keys under `configurable`.
 
-OpenAgents supports environment variable substitution using the `$` prefix:
+Rules:
 
-```yaml
-models:
-  - api_key: $OPENAI_API_KEY  # Reads from environment
+- `remote` is the only per-request backend override.
+- local and sandbox selection still come from process config/env.
+- omitting `remote_session_id` is a hard error.
+
+## Remote Relay Sidecar
+
+The LangGraph dev runtime starts a relay sidecar automatically unless disabled.
+
+Environment variables:
+
+```bash
+export OPENAGENTS_REMOTE_RELAY_ENABLED=true
+export OPENAGENTS_REMOTE_RELAY_HOST=127.0.0.1
+export OPENAGENTS_REMOTE_RELAY_PORT=2025
 ```
 
-**Common Environment Variables**:
-- `OPENAI_API_KEY` - OpenAI API key
-- `ANTHROPIC_API_KEY` - Anthropic API key
-- `DEEPSEEK_API_KEY` - DeepSeek API key
-- `NOVITA_API_KEY` - Novita API key (OpenAI-compatible endpoint)
-- `TAVILY_API_KEY` - Tavily search API key
-- `OPENAGENTS_CONFIG_PATH` - Custom config file path
+Defaults:
 
-## Configuration Location
+- relay enabled: `true`
+- host: `127.0.0.1`
+- port: `2025`
 
-The configuration file should be placed in the **project root directory** (`openagents/config.yaml`), not in the backend directory.
+Relay state is stored under:
 
-## Configuration Priority
+```text
+.openagents/remote/sessions/<session_id>/
+```
 
-OpenAgents searches for configuration in this order:
+## openagents-cli
 
-1. Path specified in code via `config_path` argument
-2. Path from `OPENAGENTS_CONFIG_PATH` environment variable
-3. `config.yaml` in current working directory (typically `backend/` when running)
-4. `config.yaml` in parent directory (project root: `openagents/`)
+The remote worker CLI lives in `clients/openagents-cli`.
+
+Development commands:
+
+```bash
+cd clients/openagents-cli
+bun test
+bun run build
+```
+
+Create or list sessions:
+
+```bash
+bun run src/index.ts session create --json
+bun run src/index.ts sessions
+```
+
+Connect a machine to a session:
+
+```bash
+bun run src/index.ts connect \
+  --session <session_id> \
+  --token <client_token> \
+  --workspace /path/to/project
+```
+
+Compiled binary:
+
+- `bun run build` writes `clients/openagents-cli/dist/openagents-cli`
+- place that binary on your `PATH` if you want to launch it directly as
+  `openagents-cli`
+
+## Skill And Agent Archives
+
+Current ownership rules:
+
+- shared reusable skills:
+  - `.openagents/skills/shared`
+  - `.openagents/skills/store/dev`
+  - `.openagents/skills/store/prod`
+- agent-owned prompt:
+  - `.openagents/agents/{dev,prod}/{agent}/AGENTS.md`
+- agent-owned copied skills:
+  - `.openagents/agents/{dev,prod}/{agent}/skills`
+
+`config.yaml` should reference the shared skills archive and agent manifests.
+Runtime then copies archived agent files into `/mnt/user-data/...`.
+
+## Models, MCP, And Secrets
+
+Model and extension settings remain unchanged:
+
+- model definitions live in `config.yaml`
+- MCP and skill enablement live in `extensions_config.json`
+- secrets should come from environment variables
 
 ## Best Practices
 
-1. **Place `config.yaml` in project root** - Not in `backend/` directory
-2. **Never commit `config.yaml`** - It's already in `.gitignore`
-3. **Use environment variables for secrets** - Don't hardcode API keys
-4. **Keep `config.example.yaml` updated** - Document all new options
-5. **Test configuration changes locally** - Before deploying
-6. **Use Docker sandbox for production** - Better isolation and security
-
-See [AGENT_PROTOCOL.md](AGENT_PROTOCOL.md) for the runtime-visible path
-contract and backend mapping rules.
-
-## Troubleshooting
-
-### "Config file not found"
-- Ensure `config.yaml` exists in the **project root** directory (`openagents/config.yaml`)
-- The backend searches parent directory by default, so root location is preferred
-- Alternatively, set `OPENAGENTS_CONFIG_PATH` environment variable to custom location
-
-### "Invalid API key"
-- Verify environment variables are set correctly
-- Check that `$` prefix is used for env var references
-
-### "Skills not loading"
-- Check that `openagents/skills/` directory exists
-- Verify skills have valid `SKILL.md` files
-- Check `skills.path` configuration if using custom path
-
-### "Docker sandbox fails to start"
-- Ensure Docker is running
-- Check port 8080 (or configured port) is available
-- Verify Docker image is accessible
-
-## Examples
-
-See `config.example.yaml` for complete examples of all configuration options.
+- Keep prompts and skills free of host-specific filesystem paths.
+- Treat `dev` and `prod` as archive lifecycles, not runtime modes.
+- Switch `local` and `sandbox` through config or environment.
+- Switch `remote` through runtime request parameters only.
+- Keep `.openagents/skills/` as the only maintained shared skill source.

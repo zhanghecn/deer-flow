@@ -1,15 +1,11 @@
 import asyncio
 import logging
-import os
 from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
 from threading import Lock
 from typing import Any, Literal
 
-import yaml
 from deepagents import create_deep_agent
-from deepagents.backends import CompositeBackend, FilesystemBackend, LocalShellBackend
 from deepagents.backends.protocol import BackendProtocol
 from langchain_core.runnables import RunnableConfig
 from langgraph_sdk.runtime import ServerRuntime
@@ -26,7 +22,7 @@ from src.agents.middlewares.uploads_middleware import UploadsMiddleware
 from src.agents.middlewares.view_image_middleware import ViewImageMiddleware
 from src.config.agent_runtime_seed import runtime_seed_targets
 from src.config.agents_config import AgentConfig, load_agent_config
-from src.config.app_config import AppConfig, get_app_config
+from src.config.app_config import AppConfig
 from src.config.builtin_agents import (
     ensure_builtin_agent_archive,
     normalize_effective_agent_name,
@@ -36,13 +32,21 @@ from src.config.paths import VIRTUAL_PATH_PREFIX, Paths, get_paths
 from src.config.runtime_db import RuntimeDBStore, get_runtime_db_store
 from src.models import create_chat_model
 from src.observability import create_agent_trace_callback
-from src.reflection.resolvers import resolve_class
-from src.sandbox.sandbox_provider import SandboxProvider
+from src.runtime_backends import (
+    LOCAL_SANDBOX_PROVIDER,
+    build_local_workspace_backend as build_local_runtime_backend,
+    build_runtime_workspace_backend,
+    build_sandbox_workspace_backend as build_sandbox_runtime_backend,
+    get_sandbox_provider as get_runtime_sandbox_provider,
+    normalize_route_prefix,
+    resolve_default_execution_backend,
+    resolve_sandbox_provider as resolve_runtime_sandbox_provider,
+    resolve_shared_skills_mount,
+)
 
 logger = logging.getLogger(__name__)
-LOCAL_SANDBOX_PROVIDER = "src.sandbox.local:LocalSandboxProvider"
 DEFAULT_THREAD_ID = "_default"
-ExecutionBackend = Literal["local", "sandbox"]
+ExecutionBackend = Literal["local", "sandbox", "remote"]
 LEAD_AGENT_INTERRUPT_ON = {"ask_clarification": True}
 _LEAD_AGENT_GRAPH_CACHE_MAX = 16
 _lead_agent_graph_cache: dict[tuple[object, ...], "LeadAgentGraphCacheEntry"] = {}
@@ -89,6 +93,8 @@ class LeadAgentRuntimeContext(BaseModel):
     mode: str | None = None
     is_plan_mode: bool | None = None
     thread_id: str | None = None
+    execution_backend: str | None = None
+    remote_session_id: str | None = None
     runtime_thread_id: str | None = Field(default=None, alias="x-thread-id")
     user_id: str | None = None
     runtime_user_id: str | None = Field(default=None, alias="x-user-id")
@@ -111,6 +117,8 @@ class LeadAgentRequest:
     thread_id: str | None
     user_id: str | None
     runtime_model_name: str | None
+    execution_backend: str | None
+    remote_session_id: str | None
 
     def requires_direct_authoring_tool(self) -> bool:
         """Return whether this turn is a save/push confirmation command.
@@ -158,53 +166,16 @@ def _clear_lead_agent_graph_cache() -> None:
         _lead_agent_graph_cache_order.clear()
 
 
-def _resolve_config_sandbox_provider() -> str | None:
-    config_path = AppConfig.resolve_config_path()
-    if config_path is None or not config_path.exists():
-        return None
-
-    with open(config_path, encoding="utf-8") as f:
-        config_data = yaml.safe_load(f) or {}
-
-    sandbox_config = config_data.get("sandbox")
-    if not isinstance(sandbox_config, dict):
-        return None
-
-    raw_provider = sandbox_config.get("use")
-    if not isinstance(raw_provider, str):
-        return None
-
-    provider = raw_provider.strip()
-    if not provider:
-        return None
-
-    if provider.startswith("$"):
-        resolved_env = str(os.getenv(provider[1:], "")).strip()
-        return resolved_env or None
-
-    return provider
-
-
 def _resolve_sandbox_provider() -> str:
-    env_provider = str(os.getenv("OPENAGENTS_SANDBOX_PROVIDER", "")).strip()
-    if env_provider:
-        return env_provider
-
-    try:
-        return _resolve_config_sandbox_provider() or LOCAL_SANDBOX_PROVIDER
-    except Exception as exc:
-        logger.warning("Failed to resolve sandbox provider from config. Falling back to local execution backend. Error: %s", exc)
-        return LOCAL_SANDBOX_PROVIDER
+    return resolve_runtime_sandbox_provider()
 
 
 def _resolve_execution_backend() -> ExecutionBackend:
-    return "local" if _resolve_sandbox_provider() == LOCAL_SANDBOX_PROVIDER else "sandbox"
+    return resolve_default_execution_backend()
 
 
-@lru_cache(maxsize=4)
-def _get_sandbox_provider(provider_path: str) -> SandboxProvider:
-    provider_cls = resolve_class(provider_path, base_class=SandboxProvider)
-    return provider_cls()
+def _get_sandbox_provider(provider_path: str):
+    return get_runtime_sandbox_provider(provider_path)
 
 
 def _effective_thread_id(thread_id: str | None) -> str:
@@ -286,70 +257,19 @@ def _seed_runtime_materials(
     _upload_runtime_files(backend, missing_uploads)
 
 
-def _normalize_route_prefix(path: str) -> str:
-    normalized = str(path).strip()
-    if not normalized.startswith("/"):
-        raise ValueError(f"Backend route must be absolute, got {path!r}")
-    return normalized.rstrip("/") + "/"
-
-
-def _resolve_shared_skills_mount(paths: Paths) -> tuple[str, str] | None:
-    try:
-        shared_skills_dir = paths.skills_dir
-    except RuntimeError:
-        return None
-
-    if not shared_skills_dir.exists():
-        return None
-
-    container_path = str(get_app_config().skills.container_path or "").strip()
-    if not container_path:
-        return None
-
-    try:
-        return str(shared_skills_dir), _normalize_route_prefix(container_path)
-    except ValueError as exc:
-        logger.warning("Ignoring invalid shared skills container path %r: %s", container_path, exc)
-        return None
-
-
 def _build_local_workspace_backend(
     user_data_dir: str,
     *,
     shared_skills_mount: tuple[str, str] | None = None,
 ) -> BackendProtocol:
-    execute_path_mappings: dict[str, str] | None = None
-    routes: dict[str, BackendProtocol] = {}
-
-    if shared_skills_mount is not None:
-        shared_skills_dir, route_prefix = shared_skills_mount
-        execute_path_mappings = {route_prefix.rstrip("/"): shared_skills_dir}
-        routes[route_prefix] = FilesystemBackend(
-            root_dir=shared_skills_dir,
-            virtual_mode=True,
-        )
-
-    workspace_backend = LocalShellBackend(
-        root_dir=user_data_dir,
-        virtual_mode=True,
-        inherit_env=True,
-        timeout=600,
-        execute_path_mappings=execute_path_mappings,
+    return build_local_runtime_backend(
+        user_data_dir,
+        shared_skills_mount=shared_skills_mount,
     )
-
-    if routes:
-        return CompositeBackend(default=workspace_backend, routes=routes)
-    return workspace_backend
 
 
 def _build_sandbox_workspace_backend(thread_id: str | None) -> BackendProtocol:
-    provider_path = _resolve_sandbox_provider()
-    provider = _get_sandbox_provider(provider_path)
-    sandbox_id = provider.acquire(_effective_thread_id(thread_id))
-    sandbox = provider.get(sandbox_id)
-    if sandbox is None:
-        raise RuntimeError(f"Sandbox provider '{provider_path}' returned sandbox id '{sandbox_id}' but no sandbox instance.")
-    return sandbox
+    return build_sandbox_runtime_backend(_effective_thread_id(thread_id))
 
 
 def _build_workspace_backend(
@@ -357,13 +277,16 @@ def _build_workspace_backend(
     user_data_dir: str,
     thread_id: str | None,
     paths: Paths | None = None,
+    requested_backend: str | None = None,
+    remote_session_id: str | None = None,
 ) -> BackendProtocol:
-    if _resolve_execution_backend() == "sandbox":
-        return _build_sandbox_workspace_backend(thread_id)
     resolved_paths = paths or get_paths()
-    return _build_local_workspace_backend(
-        user_data_dir,
-        shared_skills_mount=_resolve_shared_skills_mount(resolved_paths),
+    return build_runtime_workspace_backend(
+        user_data_dir=user_data_dir,
+        thread_id=_effective_thread_id(thread_id),
+        paths=resolved_paths,
+        requested_backend=requested_backend,
+        remote_session_id=remote_session_id,
     )
 
 
@@ -373,7 +296,7 @@ def _build_read_context_backend(thread_id: str | None) -> BackendProtocol:
     user_data_dir = str(paths.sandbox_user_data_dir(effective_thread_id))
     return _build_local_workspace_backend(
         user_data_dir,
-        shared_skills_mount=_resolve_shared_skills_mount(paths),
+        shared_skills_mount=resolve_shared_skills_mount(paths),
     )
 
 
@@ -382,6 +305,9 @@ def build_backend(
     agent_name: str | None,
     status: str = "dev",
     agent_config: AgentConfig | None = None,
+    *,
+    execution_backend: str | None = None,
+    remote_session_id: str | None = None,
 ):
     """Build the runtime backend for the agent.
 
@@ -404,6 +330,8 @@ def build_backend(
         user_data_dir=user_data_dir,
         thread_id=effective_thread_id,
         paths=paths,
+        requested_backend=execution_backend,
+        remote_session_id=remote_session_id,
     )
     _seed_runtime_materials(
         workspace_backend,
@@ -784,6 +712,8 @@ def _resolve_lead_agent_request(
         thread_id=_coerce_optional_str(cfg.get("thread_id") or cfg.get("x-thread-id")),
         user_id=_resolve_request_user_id(cfg, runtime),
         runtime_model_name=_parse_runtime_model_config(cfg.get("model_config")),
+        execution_backend=_coerce_optional_str(cfg.get("execution_backend")),
+        remote_session_id=_coerce_optional_str(cfg.get("remote_session_id")),
     )
 
 
@@ -837,6 +767,8 @@ def _update_request_runtime_context(
             "x-user-id": request.user_id,
             "agent_name": request.agent_name,
             "agent_status": request.agent_status,
+            "execution_backend": request.execution_backend,
+            "remote_session_id": request.remote_session_id,
         },
     )
 
@@ -897,6 +829,8 @@ def _resolve_agent_backend(
         request.agent_name,
         request.agent_status,
         agent_config,
+        execution_backend=request.execution_backend,
+        remote_session_id=request.remote_session_id,
     )
 
 

@@ -15,6 +15,35 @@
 # Access: http://localhost:2026
 
 services:
+  # Host/container path split for compose-managed services:
+  # - OPENAGENTS_DOCKER_HOST_HOME: host path mounted from the repo machine
+  # - OPENAGENTS_DOCKER_CONTAINER_HOME: path exposed inside app containers
+  #
+  # Keeping them separate makes `docker compose` usable from `docker/`
+  # without requiring a pre-exported absolute OPENAGENTS_HOME.
+  # ── Shared AIO Sandbox ────────────────────────────────────────────────
+  # Single-machine sandbox service managed by Docker Compose.
+  # LangGraph connects through `OPENAGENTS_SANDBOX_BASE_URL` instead of
+  # dynamically creating containers itself.
+  sandbox-aio:
+    image: ${SANDBOX_AIO_IMAGE:-enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest}
+    container_name: openagents-sandbox-aio
+    ports:
+      - "127.0.0.1:${SANDBOX_AIO_PORT:-8083}:8080"
+    volumes:
+      - ${OPENAGENTS_DOCKER_HOST_HOME:-../.openagents}:/openagents
+    security_opt:
+      - seccomp=unconfined
+    networks:
+      - openagents-dev
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/v1/sandbox"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
+
   # ── Sandbox Provisioner ────────────────────────────────────────────────
   # Manages per-sandbox Pod + Service lifecycle in the host Kubernetes
   # cluster via the K8s API.
@@ -32,10 +61,10 @@ services:
       - K8S_NAMESPACE=openagents
       - SANDBOX_IMAGE=enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest
       # Host paths for K8s HostPath volumes (must be absolute paths accessible by the K8s node).
-      # `scripts/docker.sh` resolves OPENAGENTS_HOME to an absolute path before compose startup.
-      - OPENAGENTS_HOME=${OPENAGENTS_HOME}
-      - SKILLS_HOST_PATH=${OPENAGENTS_HOME}/skills
-      - THREADS_HOST_PATH=${OPENAGENTS_HOME}/threads
+      # `scripts/docker.sh` resolves OPENAGENTS_DOCKER_HOST_HOME to an absolute path before compose startup.
+      - OPENAGENTS_HOME=${OPENAGENTS_DOCKER_HOST_HOME:-../.openagents}
+      - SKILLS_HOST_PATH=${OPENAGENTS_DOCKER_HOST_HOME:-../.openagents}/skills
+      - THREADS_HOST_PATH=${OPENAGENTS_DOCKER_HOST_HOME:-../.openagents}/threads
       - KUBECONFIG_PATH=/root/.kube/config
       - NODE_HOST=host.docker.internal
       # Override K8S API server URL since kubeconfig uses 127.0.0.1
@@ -115,13 +144,13 @@ services:
       - ../backend/gateway:/app/backend/gateway
       - ../.env:/app/.env:ro
       - ../logs:/app/logs
-      - ${OPENAGENTS_HOME}:${OPENAGENTS_HOME}
+      - ${OPENAGENTS_DOCKER_HOST_HOME:-../.openagents}:${OPENAGENTS_DOCKER_CONTAINER_HOME:-/openagents-home}
       # Mount Go cache for faster dependency installation
       - ~/.cache/go-build:/root/.cache/go-build
     working_dir: /app
     environment:
       - CI=true
-      - OPENAGENTS_HOME=${OPENAGENTS_HOME}
+      - OPENAGENTS_HOME=${OPENAGENTS_DOCKER_CONTAINER_HOME:-/openagents-home}
     env_file:
       - ../.env
     extra_hosts:
@@ -174,13 +203,15 @@ services:
       - ../.env:/app/.env:ro
       - ../config.yaml:/app/config.yaml
       - ../logs:/app/logs
-      - ${OPENAGENTS_HOME}:${OPENAGENTS_HOME}
+      - ${OPENAGENTS_DOCKER_HOST_HOME:-../.openagents}:${OPENAGENTS_DOCKER_CONTAINER_HOME:-/openagents-home}
       # Mount uv cache for faster dependency installation
       - ~/.cache/uv:/root/.cache/uv
     working_dir: /app
     environment:
       - CI=true
-      - OPENAGENTS_HOME=${OPENAGENTS_HOME}
+      - OPENAGENTS_HOME=${OPENAGENTS_DOCKER_CONTAINER_HOME:-/openagents-home}
+      - OPENAGENTS_SANDBOX_BASE_URL=http://sandbox-aio:8080
+      - OPENAGENTS_SANDBOX_SHARED_DATA_MOUNT_PATH=/openagents
     env_file:
       - ../.env
     networks:

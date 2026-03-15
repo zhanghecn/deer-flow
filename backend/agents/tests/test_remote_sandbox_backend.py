@@ -75,3 +75,15 @@ def test_aio_sandbox_provider_uses_existing_backend_for_base_url():
 
     assert isinstance(backend, ExistingSandboxBackend)
     assert backend.base_url == "http://sandbox.internal:8080"
+
+
+def test_aio_sandbox_provider_builds_thread_runtime_root_for_shared_existing_sandbox():
+    provider = object.__new__(AioSandboxProvider)
+    provider._config = {
+        "base_url": "http://sandbox.internal:8080",
+        "shared_data_mount_path": "/openagents",
+    }
+
+    runtime_root = AioSandboxProvider._runtime_root_for_thread(provider, "thread-1")
+
+    assert runtime_root == "/openagents/threads/thread-1/user-data"

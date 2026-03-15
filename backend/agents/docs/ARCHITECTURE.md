@@ -1,478 +1,220 @@
 # Architecture Overview
 
-This document provides a comprehensive overview of the OpenAgents backend architecture.
+This document describes the current OpenAgents backend architecture after the
+runtime backend unification.
 
-## System Architecture
+If you need the explicit control-plane vs data-plane explanation, or the reason
+the sandbox provider exists at all, read:
 
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                              Client (Browser)                             │
-└─────────────────────────────────┬────────────────────────────────────────┘
-                                  │
-                                  ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│                          Nginx (Port 2026)                               │
-│                    Unified Reverse Proxy Entry Point                      │
-│  ┌────────────────────────────────────────────────────────────────────┐  │
-│  │  /api/langgraph/*  →  LangGraph Server (2024)                      │  │
-│  │  /api/*            →  Gateway API (8001)                           │  │
-│  │  /*                →  Frontend (3000)                               │  │
-│  └────────────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────┬────────────────────────────────────────┘
-                                  │
-          ┌───────────────────────┼───────────────────────┐
-          │                       │                       │
-          ▼                       ▼                       ▼
-┌─────────────────────┐ ┌─────────────────────┐ ┌─────────────────────┐
-│   LangGraph Server  │ │    Gateway API      │ │     Frontend        │
-│     (Port 2024)     │ │    (Port 8001)      │ │    (Port 3000)      │
-│                     │ │                     │ │                     │
-│  - Agent Runtime    │ │  - Models API       │ │  - Next.js App      │
-│  - Thread Mgmt      │ │  - MCP Config       │ │  - React UI         │
-│  - SSE Streaming    │ │  - Skills Mgmt      │ │  - Chat Interface   │
-│  - Checkpointing    │ │  - File Uploads     │ │                     │
-│                     │ │  - Artifacts        │ │                     │
-└─────────────────────┘ └─────────────────────┘ └─────────────────────┘
-          │                       │
-          │     ┌─────────────────┘
-          │     │
-          ▼     ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│                         Shared Configuration                              │
-│  ┌─────────────────────────┐  ┌────────────────────────────────────────┐ │
-│  │      config.yaml        │  │      extensions_config.json            │ │
-│  │  - Models               │  │  - MCP Servers                         │ │
-│  │  - Tools                │  │  - Skills State                        │ │
-│  │  - Sandbox              │  │                                        │ │
-│  │  - Summarization        │  │                                        │ │
-│  └─────────────────────────┘  └────────────────────────────────────────┘ │
-└──────────────────────────────────────────────────────────────────────────┘
+- `docs/runtime-architecture.md`
+
+## System Overview
+
+```text
+Browser / Admin UI
+        |
+        v
+     Nginx :2026
+        |
+        +---------------------------+
+        |                           |
+        v                           v
+LangGraph runtime :2024        Gateway API :8001
+        |                           |
+        |                           +-- agent CRUD / publish
+        |                           +-- skills APIs
+        |                           +-- uploads / artifacts metadata
+        |
+        +-- lead_agent graph
+        +-- middleware chain
+        +-- runtime backend factory
+        +-- remote relay sidecar :2025
 ```
 
-## Component Details
+The frontend runs on `:3000`. The admin/monitoring UI runs on `:5173`.
 
-### LangGraph Server
+## Core Runtime
 
-The LangGraph server is the core agent runtime, built on LangGraph for robust multi-agent workflow orchestration.
+The main entry point is `src/agents/lead_agent/agent.py`.
 
-**Entry Point**: `src/agents/lead_agent/agent.py:make_lead_agent`
+Responsibilities:
 
-**Key Responsibilities**:
-- Agent creation and configuration
-- Thread state management
-- Middleware chain execution
-- Tool execution orchestration
-- SSE streaming for real-time responses
+- resolve the effective agent archive
+- build the Deep Agents graph
+- seed archived agent files into the runtime backend
+- expose filesystem and shell tools through one backend protocol
+- emit observability data for the admin console
 
-**Configuration**: `langgraph.json`
+## Runtime Backend Factory
 
-```json
-{
-  "agent": {
-    "type": "agent",
-    "path": "src.agents:make_lead_agent"
-  }
-}
+Backend construction is centralized under `src/runtime_backends/`.
+
+```text
+build_runtime_workspace_backend(...)
+    |
+    +-- local    -> LocalShellBackend
+    +-- sandbox  -> provider.acquire(...).get(...)
+    +-- remote   -> RemoteShellBackend(session_id=...)
 ```
 
-### Gateway API
+Selection rules:
 
-FastAPI application providing REST endpoints for non-agent operations.
+- `local` vs `sandbox` comes from Python config or
+  `OPENAGENTS_SANDBOX_PROVIDER`.
+- `remote` is chosen per run with:
+  - `configurable.execution_backend = "remote"`
+  - `configurable.remote_session_id = "<session-id>"`
 
-**Entry Point**: `src/gateway/app.py`
+This keeps backend switching out of the agent graph logic and prevents
+`lead_agent` from owning provider-specific branches.
 
-**Routers**:
-- `models.py` - `/api/models` - Model listing and details
-- `mcp.py` - `/api/mcp` - MCP server configuration
-- `skills.py` - `/api/skills` - Skills management
-- `uploads.py` - `/api/threads/{id}/uploads` - File upload
-- `artifacts.py` - `/api/threads/{id}/artifacts` - Artifact serving
+## Unified Path Contract
 
-### Agent Architecture
+Every backend must preserve the same agent-visible paths:
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           make_lead_agent(config)                        │
-└────────────────────────────────────┬────────────────────────────────────┘
-                                     │
-                                     ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                            Middleware Chain                              │
-│  ┌──────────────────────────────────────────────────────────────────┐   │
-│  │ 1. ThreadDataMiddleware  - Initialize workspace/uploads/outputs  │   │
-│  │ 2. UploadsMiddleware     - Process uploaded files               │   │
-│  │ 3. FilesystemMiddleware  - Route file and execute operations    │   │
-│  │ 4. SummarizationMiddleware - Context reduction (if enabled)     │   │
-│  │ 5. TitleMiddleware       - Auto-generate titles                 │   │
-│  │ 6. TodoListMiddleware    - Task tracking (if plan_mode)         │   │
-│  │ 7. ViewImageMiddleware   - Vision model support                 │   │
-│  │ 8. ClarificationMiddleware - Handle clarifications              │   │
-│  └──────────────────────────────────────────────────────────────────┘   │
-└────────────────────────────────────┬────────────────────────────────────┘
-                                     │
-                                     ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                              Agent Core                                  │
-│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────────┐   │
-│  │      Model       │  │      Tools       │  │    System Prompt     │   │
-│  │  (from factory)  │  │  (configured +   │  │  (with skills)       │   │
-│  │                  │  │   MCP + builtin) │  │                      │   │
-│  └──────────────────┘  └──────────────────┘  └──────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────────┘
+- `/mnt/user-data/workspace`
+- `/mnt/user-data/uploads`
+- `/mnt/user-data/outputs`
+- `/mnt/user-data/agents/{status}/{name}/AGENTS.md`
+- `/mnt/user-data/agents/{status}/{name}/skills/...`
+
+Host-side implementations vary, but prompts, skills, and tools must behave as if
+the runtime always lives under `/mnt/user-data/...`.
+
+## Agent And Skill Archives
+
+Archived definitions live under `.openagents/`.
+
+```text
+.openagents/
+├── skills/{shared,store/dev,store/prod}/...
+└── agents/{dev,prod}/{agent}/
+    ├── AGENTS.md
+    ├── config.yaml
+    └── skills/...
 ```
 
-### Agent Definition Protocol
+Ownership rules:
 
-The runtime now separates three concerns:
+- Shared skills belong only in `.openagents/skills/`.
+- Vertical or domain prompt ownership belongs in
+  `.openagents/agents/{dev,prod}/{agent}/AGENTS.md`.
+- Runtime copies are seeded from those archives into `/mnt/user-data/...`.
 
-- **Shared skills archive**: `.openagents/skills/shared/**`, `.openagents/skills/store/dev/**`, `.openagents/skills/store/prod/**`
-- **Agent materialization**: `agents/{status}/{name}/AGENTS.md`, `config.yaml`, copied `skills/`
-- **Thread runtime data**: `threads/{thread_id}/user-data/{workspace,uploads,outputs}`
+## Runtime Backends
 
-At runtime, Python seeds a thread-local copy into `/mnt/user-data/...`.
-All agents, including `lead_agent`, use `/mnt/user-data/agents/{status}/{name}/skills/` and `/mnt/user-data/agents/{status}/{name}/AGENTS.md`.
+### Local
 
-See [AGENT_PROTOCOL.md](./AGENT_PROTOCOL.md) for the end-to-end lifecycle and ASCII flow.
+Used for local debugging on one machine.
 
-### Thread State
+- `LocalShellBackend` is rooted at the thread's `user-data` directory.
+- Path rewriting preserves the `/mnt/user-data/...` illusion.
+- Shared skills may still be mounted through the configured compatibility route,
+  but the active agent reads copied runtime skills from `/mnt/user-data/agents/...`.
 
-The `ThreadState` extends LangGraph's `AgentState` with additional fields:
+### Sandbox
 
-```python
-class ThreadState(AgentState):
-    # Core state from AgentState
-    messages: list[BaseMessage]
+Used for managed isolation through the sandbox provider contract.
 
-    # OpenAgents extensions
-    sandbox: dict             # Sandbox environment info
-    artifacts: list[str]      # Generated file paths
-    thread_data: dict         # {workspace, uploads, outputs} paths
-    title: str | None         # Auto-generated conversation title
-    todos: list[dict]         # Task tracking (plan mode)
-    viewed_images: dict       # Vision model image data
+- Current integrated provider: `src.community.aio_sandbox:AioSandboxProvider`
+- Works for:
+  - single-machine sandbox use
+  - provisioner-backed sandbox lifecycle
+  - k8s autoscaling sandbox pods
+
+The LangGraph runtime only needs a backend implementing the Deep Agents sandbox
+protocol. Provisioning details stay inside the provider.
+
+### Remote
+
+Used when an agent should operate a connected user machine.
+
+- Runtime backend implementation: `src/runtime_backends/remote.py`
+- Relay store: `.openagents/remote/sessions/<session_id>/...`
+- Relay HTTP sidecar: `src/remote/server.py`
+- Worker CLI: `clients/openagents-cli`
+
+The remote backend does not bypass the normal tool layer. It simply relays the
+same backend protocol calls over a session queue.
+
+## Remote Relay Flow
+
+```text
+agent tool call
+    |
+    v
+RemoteShellBackend.submit_request(...)
+    |
+    v
+.openagents/remote/sessions/<id>/requests/pending/*.json
+    |
+    v
+relay sidecar HTTP poll endpoint
+    |
+    v
+openagents-cli worker on user machine
+    |
+    +-- map /mnt/user-data/workspace -> local workspace
+    +-- map /mnt/user-data/uploads   -> local runtime uploads
+    +-- map /mnt/user-data/outputs   -> local runtime outputs
+    +-- map /mnt/user-data/agents    -> local runtime agent copy
+    |
+    v
+response submitted back to relay
+    |
+    v
+RemoteShellBackend.wait_for_response(...)
 ```
 
-### Sandbox System
+## K8s Provisioner Mode
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           Sandbox Architecture                           │
-└─────────────────────────────────────────────────────────────────────────┘
+`AioSandboxProvider` can run against a provisioner service that creates sandbox
+pods on demand.
 
-                      ┌─────────────────────────┐
-                      │    SandboxProvider      │ (Abstract)
-                      │  - acquire()            │
-                      │  - get()                │
-                      │  - release()            │
-                      └────────────┬────────────┘
-                                   │
-              ┌────────────────────┼────────────────────┐
-              │                                         │
-              ▼                                         ▼
-┌─────────────────────────┐              ┌─────────────────────────┐
-│  LocalSandboxProvider   │              │  AioSandboxProvider     │
-│  (src/sandbox/local.py) │              │  (src/community/)       │
-│                         │              │                         │
-│  - Config marker only   │              │  - Docker/remote        │
-│  - Local mode is built  │              │  - Reusable sandboxes   │
-│    directly in Python   │              │  - Runtime provisioning │
-└─────────────────────────┘              └─────────────────────────┘
+Architecture intent:
 
-                      ┌─────────────────────────┐
-                      │        Sandbox          │ (Abstract)
-                      │  extends BaseSandbox    │
-                      │  - execute()            │
-                      │  - upload_files()       │
-                      │  - download_files()     │
-                      └─────────────────────────┘
-```
+- LangGraph keeps the same backend factory contract.
+- Provisioner-specific kubeconfig and pod lifecycle handling stay inside the
+  sandbox provider and provisioner service.
+- Switching between one-machine sandbox and k8s autoscaling should only require
+  config changes, not agent code changes.
 
-**Virtual Path Mapping**:
+## Middleware Chain
 
-| Virtual Path | Physical Path |
-|-------------|---------------|
-| `/mnt/user-data/workspace` | `{OPENAGENTS_HOME}/threads/{thread_id}/user-data/workspace` |
-| `/mnt/user-data/uploads` | `{OPENAGENTS_HOME}/threads/{thread_id}/user-data/uploads` |
-| `/mnt/user-data/outputs` | `{OPENAGENTS_HOME}/threads/{thread_id}/user-data/outputs` |
-| `/mnt/user-data/agents/{status}/{name}/skills` | seeded from `agents/{status}/{name}/skills/` |
-| `/mnt/user-data/agents/{status}/{name}/AGENTS.md` | seeded from archived agent `AGENTS.md` |
+Key runtime middlewares:
 
-### Tool System
+- `ThreadDataMiddleware`
+  - creates thread-local runtime directories
+- `UploadsMiddleware`
+  - injects uploaded file context
+- `FilesystemMiddleware`
+  - exposes file and shell tools over the selected runtime backend
+- `ArtifactsMiddleware`
+  - records generated files for preview/download
+- `ContextWindowMiddleware`
+  - persists prompt occupancy for monitoring
+- `MemoryMiddleware`
+  - queues long-term memory extraction
+- `ClarificationMiddleware`
+  - interrupts for explicit clarification turns
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                            Tool Sources                                  │
-└─────────────────────────────────────────────────────────────────────────┘
+## Observability
 
-┌─────────────────────┐  ┌─────────────────────┐  ┌─────────────────────┐
-│   Built-in Tools    │  │  Configured Tools   │  │     MCP Tools       │
-│  (src/tools/)       │  │  (config.yaml)      │  │  (extensions.json)  │
-├─────────────────────┤  ├─────────────────────┤  ├─────────────────────┤
-│ - present_file      │  │ - web_search        │  │ - github            │
-│ - ask_clarification │  │ - web_fetch         │  │ - filesystem        │
-│ - view_image        │  │ - bash              │  │ - postgres          │
-│                     │  │ - read_file         │  │ - brave-search      │
-│                     │  │ - write_file        │  │ - puppeteer         │
-│                     │  │ - str_replace       │  │ - ...               │
-│                     │  │ - ls                │  │                     │
-└─────────────────────┘  └─────────────────────┘  └─────────────────────┘
-           │                       │                       │
-           └───────────────────────┴───────────────────────┘
-                                   │
-                                   ▼
-                      ┌─────────────────────────┐
-                      │   get_available_tools() │
-                      │   (src/tools/__init__)  │
-                      └─────────────────────────┘
-```
+The admin UI at `http://localhost:5173` is expected to show:
 
-### Model Factory
+- model/tool request traces
+- workflow progression
+- agent runtime state snapshots
+- generated artifacts and related metadata
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                          Model Factory                                   │
-│                     (src/models/factory.py)                              │
-└─────────────────────────────────────────────────────────────────────────┘
+This data should remain backend-agnostic. Whether execution happened on local,
+sandbox, or remote, the trace shape should stay coherent.
 
-config.yaml:
-┌─────────────────────────────────────────────────────────────────────────┐
-│ models:                                                                  │
-│   - name: gpt-4                                                         │
-│     display_name: GPT-4                                                 │
-│     use: langchain_openai:ChatOpenAI                                    │
-│     model: gpt-4                                                        │
-│     api_key: $OPENAI_API_KEY                                            │
-│     max_tokens: 4096                                                    │
-│     supports_thinking: false                                            │
-│     supports_vision: true                                               │
-└─────────────────────────────────────────────────────────────────────────┘
-                                   │
-                                   ▼
-                      ┌─────────────────────────┐
-                      │   create_chat_model()   │
-                      │  - name: str            │
-                      │  - thinking_enabled     │
-                      └────────────┬────────────┘
-                                   │
-                                   ▼
-                      ┌─────────────────────────┐
-                      │   resolve_class()       │
-                      │  (reflection system)    │
-                      └────────────┬────────────┘
-                                   │
-                                   ▼
-                      ┌─────────────────────────┐
-                      │   BaseChatModel         │
-                      │  (LangChain instance)   │
-                      └─────────────────────────┘
-```
+## Design Principles
 
-**Supported Providers**:
-- OpenAI (`langchain_openai:ChatOpenAI`)
-- Anthropic (`langchain_anthropic:ChatAnthropic`)
-- DeepSeek (`langchain_deepseek:ChatDeepSeek`)
-- Custom via LangChain integrations
-
-### MCP Integration
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                          MCP Integration                                 │
-│                        (src/mcp/manager.py)                              │
-└─────────────────────────────────────────────────────────────────────────┘
-
-extensions_config.json:
-┌─────────────────────────────────────────────────────────────────────────┐
-│ {                                                                        │
-│   "mcpServers": {                                                       │
-│     "github": {                                                         │
-│       "enabled": true,                                                  │
-│       "type": "stdio",                                                  │
-│       "command": "npx",                                                 │
-│       "args": ["-y", "@modelcontextprotocol/server-github"],           │
-│       "env": {"GITHUB_TOKEN": "$GITHUB_TOKEN"}                          │
-│     }                                                                   │
-│   }                                                                     │
-│ }                                                                       │
-└─────────────────────────────────────────────────────────────────────────┘
-                                   │
-                                   ▼
-                      ┌─────────────────────────┐
-                      │  MultiServerMCPClient   │
-                      │  (langchain-mcp-adapters)│
-                      └────────────┬────────────┘
-                                   │
-              ┌────────────────────┼────────────────────┐
-              │                    │                    │
-              ▼                    ▼                    ▼
-       ┌───────────┐        ┌───────────┐        ┌───────────┐
-       │  stdio    │        │   SSE     │        │   HTTP    │
-       │ transport │        │ transport │        │ transport │
-       └───────────┘        └───────────┘        └───────────┘
-```
-
-### Skills System
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                          Skills System                                   │
-│                       (src/skills/loader.py)                             │
-└─────────────────────────────────────────────────────────────────────────┘
-
-Directory Structure:
-┌─────────────────────────────────────────────────────────────────────────┐
-│ .openagents/skills/                                                      │
-│ ├── shared/                        # Shared skills source                │
-│ │   ├── pdf-processing/                                                 │
-│ │   │   └── SKILL.md                                                    │
-│ │   ├── frontend-design/                                                │
-│ │   │   └── SKILL.md                                                    │
-│ │   └── ...                                                             │
-│ └── store/                         # Skill promotion lifecycle           │
-│     ├── dev/                                                            │
-│     └── prod/                                                           │
-└─────────────────────────────────────────────────────────────────────────┘
-
-SKILL.md Format:
-┌─────────────────────────────────────────────────────────────────────────┐
-│ ---                                                                      │
-│ name: PDF Processing                                                     │
-│ description: Handle PDF documents efficiently                            │
-│ license: MIT                                                            │
-│ allowed-tools:                                                          │
-│   - read_file                                                           │
-│   - write_file                                                          │
-│   - bash                                                                │
-│ ---                                                                      │
-│                                                                          │
-│ # Skill Instructions                                                     │
-│ Content injected into system prompt...                                   │
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
-### Request Flow
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         Request Flow Example                             │
-│                    User sends message to agent                           │
-└─────────────────────────────────────────────────────────────────────────┘
-
-1. Client → Nginx
-   POST /api/langgraph/threads/{thread_id}/runs
-   {"input": {"messages": [{"role": "user", "content": "Hello"}]}}
-
-2. Nginx → LangGraph Server (2024)
-   Proxied to LangGraph server
-
-3. LangGraph Server
-   a. Load/create thread state
-   b. Execute middleware chain:
-      - ThreadDataMiddleware: Set up paths
-      - UploadsMiddleware: Inject file list
-      - FilesystemMiddleware: Bind file + execution tools to the configured backend
-      - SummarizationMiddleware: Check token limits
-      - TitleMiddleware: Generate title if needed
-      - TodoListMiddleware: Load todos (if plan mode)
-      - ViewImageMiddleware: Process images
-      - ClarificationMiddleware: Check for clarifications
-
-   c. Execute agent:
-      - Model processes messages
-      - May call tools (bash, web_search, etc.)
-      - Tools execute via the configured Python runtime backend (`local` or `sandbox`), independent of `dev/prod`
-      - Results added to messages
-
-   d. Stream response via SSE
-
-4. Client receives streaming response
-```
-
-## Data Flow
-
-### File Upload Flow
-
-```
-1. Client uploads file
-   POST /api/threads/{thread_id}/uploads
-   Content-Type: multipart/form-data
-
-2. Gateway receives file
-   - Validates file
-   - Stores in .openagents/threads/{thread_id}/user-data/uploads/
-   - If document: converts to Markdown via markitdown
-
-3. Returns response
-   {
-     "files": [{
-       "filename": "doc.pdf",
-       "path": ".openagents/.../uploads/doc.pdf",
-       "virtual_path": "/mnt/user-data/uploads/doc.pdf",
-       "artifact_url": "/api/threads/.../artifacts/mnt/.../doc.pdf"
-     }]
-   }
-
-4. Next agent run
-   - UploadsMiddleware lists files
-   - Injects file list into messages
-   - Agent can access via virtual_path
-```
-
-### Configuration Reload
-
-```
-1. Client updates MCP config
-   PUT /api/mcp/config
-
-2. Gateway writes extensions_config.json
-   - Updates mcpServers section
-   - File mtime changes
-
-3. MCP Manager detects change
-   - get_cached_mcp_tools() checks mtime
-   - If changed: reinitializes MCP client
-   - Loads updated server configurations
-
-4. Next agent run uses new tools
-```
-
-## Security Considerations
-
-### Sandbox Isolation
-
-- Agent code executes within sandbox boundaries
-- Local sandbox: Direct execution (development only)
-- Docker sandbox: Container isolation (production recommended)
-- Path traversal prevention in file operations
-
-### API Security
-
-- Thread isolation: Each thread has separate data directories
-- File validation: Uploads checked for path safety
-- Environment variable resolution: Secrets not stored in config
-
-### MCP Security
-
-- Each MCP server runs in its own process
-- Environment variables resolved at runtime
-- Servers can be enabled/disabled independently
-
-## Performance Considerations
-
-### Caching
-
-- MCP tools cached with file mtime invalidation
-- Configuration loaded once, reloaded on file change
-- Skills parsed once at startup, cached in memory
-
-### Streaming
-
-- SSE used for real-time response streaming
-- Reduces time to first token
-- Enables progress visibility for long operations
-
-### Context Management
-
-- Summarization middleware reduces context when limits approached
-- Configurable triggers: tokens, messages, or fraction
-- Preserves recent messages while summarizing older ones
+- One runtime backend protocol
+- One agent-visible path contract
+- One shared skills archive
+- Agent-owned prompts and copied skills
+- No legacy host-path instructions in prompts or skills
+- Backend choice isolated from agent definition lifecycle

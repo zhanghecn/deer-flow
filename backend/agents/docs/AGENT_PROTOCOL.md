@@ -1,137 +1,162 @@
-# Agent Definition Protocol
+# Agent Definition And Runtime Protocol
 
-This document defines the unified definition/materialization contract shared by
-`backend/agents` and `backend/gateway`.
+This document defines the filesystem contract shared by `backend/gateway`,
+`backend/agents`, and the remote execution CLI.
 
 ## Goals
 
-- Agent creation is driven by two inputs:
-  - agent-owned `AGENTS.md`
-  - selected skills copied from the shared skills library
-- Shared skills live in one archive and are never edited in place by individual agents.
-- Each agent is materialized into separate `dev` and `prod` directories to avoid prompt, skill, and memory pollution.
-- Local debugging uses the host filesystem.
-- Runtime sandbox selection is decided by Python startup configuration, not by agent metadata stored through Go.
-- The default `lead_agent` is the catch-all agent, but it still follows the same copied-skill protocol as every other agent.
-- Agent and skill definitions are filesystem archives, not database rows.
+- Keep one shared skills archive under `.openagents/skills/`.
+- Keep each agent's prompt and copied skills under its own archived directory.
+- Seed every run into the same agent-visible runtime paths under
+  `/mnt/user-data/...`.
+- Let Python choose the runtime backend without changing the agent protocol.
+- Let `remote` reuse the same backend protocol as `local` and `sandbox`.
+
+## Source Of Truth
+
+With the default `storage.base_dir: .openagents`, the host-side layout is:
+
+```text
+.openagents/
+├── skills/
+│   ├── shared/<skill>/SKILL.md
+│   └── store/
+│       ├── dev/<skill>/SKILL.md
+│       └── prod/<skill>/SKILL.md
+├── agents/
+│   ├── dev/<agent>/
+│   │   ├── AGENTS.md
+│   │   ├── config.yaml
+│   │   └── skills/<skill>/...
+│   └── prod/<agent>/
+│       ├── AGENTS.md
+│       ├── config.yaml
+│       └── skills/<skill>/...
+├── threads/<thread_id>/user-data/
+└── remote/sessions/<session_id>/
+```
+
+Rules:
+
+- `.openagents/skills/` is the only maintained shared skill archive.
+- Vertical or domain prompts belong in
+  `.openagents/agents/{dev,prod}/{agent}/AGENTS.md`.
+- Agent-owned copied skills belong in
+  `.openagents/agents/{dev,prod}/{agent}/skills/`.
+- `lead_agent` follows the same archive rules as any other agent.
 
 ## Three Layers
 
 ### 1. Definition Layer
 
-- Shared skills archive:
-  - `.openagents/skills/shared/.../SKILL.md`
-  - `.openagents/skills/store/dev/.../SKILL.md`
-  - `.openagents/skills/store/prod/.../SKILL.md`
-- `.openagents/skills/` is the single maintained shared-skill source of truth.
-- There is no repo-side `skills/public` mirror in the active architecture.
-- Agent-owned files:
-  - `agents/{status}/{name}/AGENTS.md`
-  - `agents/{status}/{name}/config.yaml`
-- `config.yaml` is the manifest for local materialization and now includes:
-  - `agents_md_path`
-  - `skill_refs[]`
-  - normal agent metadata such as `model`, `tool_groups`, `mcp_servers`
-- There are no `agents`, `skills`, or `agent_skills` database tables in the current architecture.
-- Agent versions coexist as directories under `agents/dev/` and `agents/prod/`.
+Gateway owns archived agent definitions and shared skill references.
+
+- Shared reusable skills live under `.openagents/skills/{shared,store/dev,store/prod}/`.
+- Agent archives live under `.openagents/agents/{status}/{name}/`.
+- `config.yaml` stores normal agent metadata plus copied `skill_refs`.
+- Publishing is filesystem promotion from `dev` to `prod`.
 
 ### 2. Materialization Layer
 
-- `materialize_agent_definition()` copies selected skills from the shared archive into:
-  - `agents/{status}/{name}/skills/...`
-- The copied skill directory is owned by the agent.
-- This prevents one agent from mutating a shared skill and affecting every other agent.
-- Publishing is filesystem promotion:
-  - `agents/dev/{name}` -> `agents/prod/{name}`
-- Publish only changes the archived version from `dev` to `prod`.
-- Runtime backend selection is not part of publish; Python decides it at startup.
+Materialization copies selected shared skills into an agent-owned archive:
+
+```text
+.openagents/skills/... -> .openagents/agents/{status}/{name}/skills/...
+```
+
+This prevents one agent from mutating the shared archive for every other agent.
 
 ### 3. Runtime Layer
 
-- Per-thread runtime data remains isolated under:
-  - `threads/{thread_id}/user-data/{workspace,uploads,outputs}`
-- Python chooses the runtime backend at startup:
-  - local debug: `LocalShellBackend(root_dir=threads/{thread_id}/user-data, virtual_mode=True)`
-  - sandbox runtime: resolve `sandbox.use` / `OPENAGENTS_SANDBOX_PROVIDER`, instantiate the provider in Python, and acquire a sandbox that implements deepagents `BaseSandbox`
-- Archived files are not mounted directly into the agent anymore. Python seeds a thread-local runtime copy through backend upload/download APIs:
-  - every agent, including `lead_agent`: `agents/{status}/{name}/**` -> `/mnt/user-data/agents/{status}/{name}/**`
-- deepagents then reads only the runtime copy:
-  - skills source:
-    - every agent, including `lead_agent`: `/mnt/user-data/agents/{status}/{name}/skills/`
-  - memory source:
-    - every agent, including `lead_agent`: `/mnt/user-data/agents/{status}/{name}/AGENTS.md`
-- This prevents runtime edits from polluting archived `dev/prod` definitions while keeping local and sandbox execution on the same virtual paths.
-
-## ASCII Flow
+Python seeds archived files into a thread-scoped runtime view before agent tools
+use them:
 
 ```text
- shared skills archive                     archived agent definition
- .openagents/skills/{shared,store/*}       agents/{status}/{name}
-            |                                         |
-            | materialize selected skills             | keep AGENTS.md + config.yaml
-            +--------------------+--------------------+
-                                 |
-                                 v
-                    +------------+-------------+
-                    | archived dev/prod tree   |
-                    | local filesystem only    |
-                    +------------+-------------+
-                                 |
-                                 | Python startup
-                                 v
-                 +---------------+----------------+
-                 | resolve runtime backend in     |
-                 | Python (`sandbox.use` / env)   |
-                 +---------------+----------------+
-                                 |
-                 +---------------+----------------+
-                 |                                |
-                 v                                v
-       +---------+---------+            +---------+---------+
-       | local debug       |            | sandbox runtime   |
-       | LocalShellBackend |            | provider.acquire  |
-       | root=user-data    |            | -> BaseSandbox    |
-       +---------+---------+            +---------+---------+
-                 |                                |
-                 +---------------+----------------+
-                                 |
-                                 | seed runtime copy via backend upload API
-                                 v
-             +-------------------+-------------------+
-             | thread runtime view                  |
-             | /mnt/user-data/workspace             |
-             | /mnt/user-data/uploads               |
-             | /mnt/user-data/outputs               |
-             | /mnt/user-data/agents/{status}/{name}|
-             +-------------------+-------------------+
-                                 |
-                                 v
-             +-------------------+-------------------+
-             | deepagents runtime                    |
-             | skills -> runtime copy                |
-             | AGENTS.md memory -> runtime copy      |
-             +---------------------------------------+
+/mnt/user-data/workspace
+/mnt/user-data/uploads
+/mnt/user-data/outputs
+/mnt/user-data/agents/{status}/{name}/AGENTS.md
+/mnt/user-data/agents/{status}/{name}/skills/...
 ```
 
-## Current Runtime Rules
+Deep Agents reads only from these runtime-visible paths.
 
-- Both `dev` and `prod` are local archived definitions on disk.
-- Python chooses the execution backend at startup from sandbox env/config.
-- If sandbox is enabled in Python config, Python resolves the configured provider and acquires a sandbox backend.
-- If sandbox is not enabled, Python uses `LocalShellBackend` rooted at the thread's `user-data` directory.
-- The Python runtime now carries that protocol explicitly.
-- The Go gateway now materializes the same filesystem layout that the Python runtime expects.
-- Shared skills live under `OPENAGENTS_HOME/skills/`; agent-owned copies stay under `agents/{status}/{name}/skills/`.
-- Open API resolves agents by `(name, status="prod")` only.
-- Runtime seeding targets thread-local virtual paths, so runtime edits do not mutate archived `dev/prod` files.
+## Runtime Backend Selection
 
-## Path Contract
+The runtime backend is selected in Python, not in Go agent metadata.
 
-Three path spaces exist and must not be mixed:
+### Default Backends
 
-### 1. Agent-visible runtime paths
+- `local`
+  - Selected when sandbox config resolves to
+    `src.sandbox.local:LocalSandboxProvider`.
+  - Uses `LocalShellBackend` rooted at the thread `user-data` directory.
+  - Preserves the same `/mnt/user-data/...` contract for local debugging.
+- `sandbox`
+  - Selected when sandbox config resolves to any non-local provider.
+  - Today this is typically `src.community.aio_sandbox:AioSandboxProvider`.
+  - The provider can run on one machine or through the provisioner-backed k8s
+    mode without changing the agent contract.
 
-These are the only paths the agent should reason about during execution:
+### Remote Backend
+
+`remote` is selected per run through runtime params:
+
+```text
+configurable.execution_backend = "remote"
+configurable.remote_session_id = "<session-id>"
+```
+
+Rules:
+
+- `remote` is the only backend selectable per request.
+- `local` and `sandbox` remain process-level config decisions.
+- Missing `remote_session_id` is a runtime error.
+- The return type stays on the same Deep Agents backend protocol as `local` and
+  `sandbox`.
+
+## Remote Relay Contract
+
+The remote backend uses a filesystem-backed relay store under:
+
+```text
+.openagents/remote/sessions/<session_id>/
+├── session.json
+├── requests/
+│   ├── pending/
+│   └── active/
+└── responses/
+```
+
+Components:
+
+- LangGraph runtime
+  - submits backend protocol requests
+  - waits for responses
+- Remote relay HTTP sidecar
+  - registers sessions
+  - authenticates CLI workers with a session token
+  - exposes poll and submit endpoints
+- `openagents-cli`
+  - connects a user machine to one remote session
+  - maps `/mnt/user-data/...` to local folders
+  - executes filesystem and shell operations on behalf of the agent
+
+Supported remote operations:
+
+- `execute`
+- `ls_info`
+- `read`
+- `grep_raw`
+- `glob_info`
+- `write`
+- `edit`
+- `upload_files`
+- `download_files`
+
+## Agent-Visible Path Contract
+
+These are the only execution paths the agent should reason about:
 
 - `/mnt/user-data/workspace/...`
 - `/mnt/user-data/uploads/...`
@@ -139,69 +164,40 @@ These are the only paths the agent should reason about during execution:
 - `/mnt/user-data/agents/{status}/{name}/AGENTS.md`
 - `/mnt/user-data/agents/{status}/{name}/skills/...`
 
-### 2. Host filesystem paths
-
-These are implementation details outside the agent contract:
-
-- `.openagents/threads/{thread_id}/user-data/...`
-- `.openagents/skills/...`
-- `/root/project/...`
-
-They may appear in backend code or local debugging, but must never be hardcoded into
-skills, prompts, or agent-authored commands.
-
-### 3. HTTP artifact routes
-
-These are UI/gateway paths only:
-
-- `/api/threads/{thread_id}/artifacts/...`
-
-They are not execution paths for the agent.
+Do not hardcode host paths such as `.openagents/...` or `/root/project/...`
+into prompts, skills, or agent-authored shell commands.
 
 ## Skill Runtime Rules
 
-- `SkillsMiddleware` must expose runtime-visible backend paths, not host-specific paths.
-- The runtime-visible skill path is the source of truth, regardless of whether the
-  backend is local or sandboxed.
-- The agent must load skills from `/mnt/user-data/agents/{status}/{name}/skills/`.
-- Unlike tool-driven skill loaders that expose host file URLs directly, OpenAgents
-  relies on `SkillsMiddleware` + `{skills_locations}` to advertise runtime-visible
-  backend paths. Keep those paths on the unified runtime contract and do not swap
-  them back to archive or host paths.
-- When a loaded `SKILL.md` references relative files such as `scripts/generate.py`
-  or `templates/report.md`, resolve them relative to that `SKILL.md` parent directory.
-- Skill docs must not hardcode host paths or local-debug-only paths just because
-  `LocalShellBackend` happens to rewrite them on the host.
+- `SkillsMiddleware` must advertise runtime-visible paths, not archive paths.
+- A skill may refer to files relative to its own `SKILL.md` directory.
+- Skill docs should not assume local-debug-only host paths.
+- Runtime edits affect the seeded runtime copy, not the archived source files.
 
-## Why This Protocol
+## Responsibilities
 
-- `AGENTS.md` belongs to the agent, not to the shared skills archive.
-- Skills are reusable building blocks and should be selected by reference, then copied.
-- `dev` and `prod` need separate prompts, skills, and memory buckets.
-- The default `lead_agent` should remain the broad exploration agent, but through its own archived/copied skill set rather than implicit access to the full shared archive.
+### Gateway
 
-## Gateway Responsibilities
+- CRUD for agents and shared skill metadata
+- materialization into `.openagents/agents/{status}/{name}/`
+- publish flow from `dev` to `prod`
 
-- `backend/gateway` owns CRUD, publish, and filesystem persistence for archived agent definitions.
-- On create/update/publish it writes:
-  - agent-owned `AGENTS.md`
-  - agent-owned `config.yaml`
-  - copied agent-local `skills/`
-- On publish it promotes the `dev` definition to `prod` without deleting the `dev` archive.
-- On create/update/publish it always writes local archived files first:
-  - `agents/{status}/{name}/AGENTS.md`
-  - `agents/{status}/{name}/skills/...`
-  - `agents/{status}/{name}/config.yaml`
-- Runtime then seeds those archived files into the chosen runtime backend through backend file APIs.
-- Relative `OPENAGENTS_HOME` paths are resolved from the project root so Go and Python share the same `.openagents` tree and the same top-level `skills/` archive.
-- Go does not decide whether the runtime uses sandbox. That decision belongs to Python startup/config only.
+### Python Runtime
 
-## Runtime Sandbox Contract
+- resolve the runtime backend factory
+- seed archived agent files into the runtime backend
+- keep `/mnt/user-data/...` stable across local, sandbox, and remote execution
 
-- `src.community.aio_sandbox.AioSandbox` is now a deepagents-compatible sandbox backend.
-- It inherits the OpenAgents sandbox base, which itself extends deepagents `BaseSandbox`.
-- `AioSandboxProvider` remains responsible for provisioning/reusing the actual container or remote sandbox.
-- `lead_agent.build_backend()` is responsible for:
-  - deciding local vs sandbox at Python startup
-  - acquiring the sandbox when needed
-  - seeding archived agent files into the runtime backend
+### Remote CLI
+
+- claim work from the relay
+- map virtual paths to local directories
+- execute filesystem and shell actions reliably on the connected machine
+
+## Why This Split
+
+- Shared skills stay reusable and centrally managed.
+- Agent prompts stay agent-owned.
+- `dev` and `prod` remain archive lifecycles, not execution modes.
+- Local debug, managed sandbox, k8s sandbox, and remote execution all share one
+  runtime protocol instead of separate code paths.

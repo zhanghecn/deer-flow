@@ -61,7 +61,7 @@ detect_sandbox_mode() {
 }
 
 resolve_openagents_home() {
-    local configured_home="${OPENAGENTS_HOME:-.openagents}"
+    local configured_home="${OPENAGENTS_DOCKER_HOST_HOME:-${OPENAGENTS_HOME:-.openagents}}"
     local resolved_home
 
     if [[ "$configured_home" = /* ]]; then
@@ -72,6 +72,9 @@ resolve_openagents_home() {
 
     mkdir -p "$(dirname "$resolved_home")"
     resolved_home="$(cd "$(dirname "$resolved_home")" && pwd)/$(basename "$resolved_home")"
+    export OPENAGENTS_DOCKER_HOST_HOME="$resolved_home"
+    export OPENAGENTS_DOCKER_CONTAINER_HOME="${OPENAGENTS_DOCKER_CONTAINER_HOME:-/openagents-home}"
+    # Keep OPENAGENTS_HOME exported for local host-side tools that still read it.
     export OPENAGENTS_HOME="$resolved_home"
 }
 
@@ -92,7 +95,7 @@ init() {
     echo "=========================================="
     echo ""
 
-    SANDBOX_IMAGE="enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest"
+    SANDBOX_IMAGE="${SANDBOX_AIO_IMAGE:-enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest}"
 
     if ! docker images --format '{{.Repository}}:{{.Tag}}' | grep -q "^${SANDBOX_IMAGE}$"; then
         echo -e "${BLUE}Pulling sandbox image: $SANDBOX_IMAGE ...${NC}"
@@ -121,6 +124,8 @@ start() {
 
     if [ "$sandbox_mode" = "provisioner" ]; then
         services="frontend gateway langgraph provisioner nginx"
+    elif [ "$sandbox_mode" = "aio" ]; then
+        services="sandbox-aio frontend gateway langgraph nginx"
     else
         services="frontend gateway langgraph nginx"
     fi
@@ -134,7 +139,8 @@ start() {
     echo ""
     
     resolve_openagents_home
-    echo -e "${BLUE}Using OPENAGENTS_HOME=$OPENAGENTS_HOME${NC}"
+    echo -e "${BLUE}Using OPENAGENTS_DOCKER_HOST_HOME=$OPENAGENTS_DOCKER_HOST_HOME${NC}"
+    echo -e "${BLUE}Using OPENAGENTS_DOCKER_CONTAINER_HOME=$OPENAGENTS_DOCKER_CONTAINER_HOME${NC}"
     echo ""
 
     echo "Building and starting containers..."
@@ -174,12 +180,16 @@ logs() {
             service="provisioner"
             echo -e "${BLUE}Viewing provisioner logs...${NC}"
             ;;
+        --sandbox-aio)
+            service="sandbox-aio"
+            echo -e "${BLUE}Viewing sandbox-aio logs...${NC}"
+            ;;
         "")
             echo -e "${BLUE}Viewing all logs...${NC}"
             ;;
         *)
             echo -e "${YELLOW}Unknown option: $1${NC}"
-            echo "Usage: $0 logs [--frontend|--gateway|--nginx|--provisioner]"
+            echo "Usage: $0 logs [--frontend|--gateway|--nginx|--provisioner|--sandbox-aio]"
             exit 1
             ;;
     esac
@@ -225,6 +235,7 @@ help() {
     echo "                  --gateway    View gateway logs only"
     echo "                  --nginx      View nginx logs only"
     echo "                  --provisioner View provisioner logs only"
+    echo "                  --sandbox-aio View sandbox-aio logs only"
     echo "  stop          - Stop Docker development services"
     echo "  help          - Show this help message"
     echo ""

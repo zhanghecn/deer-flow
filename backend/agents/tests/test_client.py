@@ -132,6 +132,18 @@ class TestConfigQueries:
         assert result == memory
 
 
+class TestRunnableConfig:
+    def test_get_runnable_config_includes_remote_backend_overrides(self, client):
+        config = client._get_runnable_config(
+            "thread-1",
+            execution_backend="remote",
+            remote_session_id="remote-session-1",
+        )
+
+        assert config["configurable"]["execution_backend"] == "remote"
+        assert config["configurable"]["remote_session_id"] == "remote-session-1"
+
+
 # ---------------------------------------------------------------------------
 # stream / chat
 # ---------------------------------------------------------------------------

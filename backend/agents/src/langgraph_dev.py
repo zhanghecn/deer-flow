@@ -10,6 +10,7 @@ from dotenv import dotenv_values
 from langgraph_api.cli import run_server
 
 from src.config.builtin_agents import ensure_builtin_agent_archive
+from src.remote.server import start_remote_relay_sidecar
 
 ALLOWED_RUNTIME_EDITIONS = {"inmem", "postgres", "community"}
 
@@ -109,6 +110,7 @@ def main() -> None:
     # Ensure built-in archived agent files exist before serving requests.
     ensure_builtin_agent_archive("lead_agent", status="dev")
     ensure_builtin_agent_archive("lead_agent", status="prod")
+    start_remote_relay_sidecar()
 
     run_server(
         host=host,

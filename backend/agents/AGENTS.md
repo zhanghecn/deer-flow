@@ -1,4 +1,5 @@
 Read these docs before changing agent/runtime/backend/skills behavior:
+@../../docs/runtime-architecture.md
 @./docs/AGENT_PROTOCOL.md
 @./docs/ARCHITECTURE.md
 @./docs/CONFIGURATION.md
@@ -27,6 +28,8 @@ Critical agent protocol rules for future work:
 - `SkillsMiddleware` is the correct layer for skill path semantics. The `{skills_locations}` prompt block must list runtime-visible backend paths such as `/mnt/user-data/agents/{status}/{name}/skills/`, not archive paths or host paths.
 - SKILL bodies should assume the model already knows each skill's runtime `SKILL.md` location from `SkillsMiddleware`. Inside SKILL docs, use relative-path guidance like `<current-skill-dir>` instead of hardcoding shared-archive or host-specific roots.
 - `LocalShellBackend` is for local debugging only and must preserve the same internal path contract as sandbox mode. If local mode needs special mapping, fix the backend mapping layer instead of changing skills to host paths.
+- `BackendProtocol` and `SandboxBackendProtocol` are data-plane interfaces. `SandboxProvider` is a control-plane interface. Do not collapse sandbox lifecycle allocation back into data-plane runtime backends.
+- `AioSandboxProvider` is not synonymous with single-machine sandbox mode. It is a managed sandbox provisioner that can drive local container sandboxes, provisioner-backed sandboxes, or externally managed sandbox endpoints.
 - Open API should resolve `prod` agents only.
 - `setup_agent` must receive an explicit `target_agent_name` or `agent_name` in runtime context. Do not rely on a special bootstrap-only runtime branch.
 - Do not re-introduce `skills_mode`, `soul`/`SOUL.md`, legacy agent directory fallbacks, or `exclude_groups`-style compatibility paths.
