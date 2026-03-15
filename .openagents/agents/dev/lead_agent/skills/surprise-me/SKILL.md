@@ -33,13 +33,6 @@ If a skill requires unavailable credentials, binaries, or services, skip it and 
 - An aesthetic artifact combining data + design
 - A fun interactive HTML/React experience
 
-**Default product contract for bare "surprise me":**
-- In the OpenAgents workspace, a plain `surprise me` request should default to a directly previewable HTML artifact.
-- Markdown, plain text, or notes-only outputs are not acceptable as the primary surprise unless the user explicitly asked for that format.
-- If a research or writing skill is part of the surprise, transform the final result into a polished HTML presentation instead of leaving the user with a `.md` file.
-- If `frontend-design` is available, prefer it for the final deliverable. Otherwise, build the HTML artifact directly yourself.
-- Do not choose a markdown-first branch unless you already know how that branch will end in HTML in the same turn.
-
 ### Step 3: Fallback — No Other Skills Available
 
 If no other skills are discovered (only surprise-me exists), use one of these fallbacks:
@@ -54,7 +47,7 @@ If no other skills are discovered (only surprise-me exists), use one of these fa
 2. Follow each skill's instructions for technical execution
 3. Combine outputs into one cohesive deliverable
 4. Put the final user-facing deliverable in `/mnt/user-data/outputs`, not only in `/mnt/user-data/workspace`
-5. For a bare `surprise me`, make the main deliverable an HTML artifact saved as `/mnt/user-data/outputs/<project-name>/index.html` or `/mnt/user-data/outputs/<project-name>.html` so the client can render it directly
+5. If the deliverable is a frontend/web experience, save it as `/mnt/user-data/outputs/<project-name>/index.html` so the client can render it directly
 6. Call `present_files` for every final file you want the user to open or preview
 7. Present the result with minimal preamble — let the work speak for itself
 
@@ -67,7 +60,6 @@ If a chosen skill fails to produce its promised output file, abandon that branch
 - The user should never be left with only a workspace file path as the final result
 - A successful surprise ends with one or more final files in `/mnt/user-data/outputs` plus a `present_files` call
 - Prefer a single polished deliverable over many disconnected files
-- For the default workspace flow, prefer HTML first because it supports inline preview and follow-up transformations like PPT generation
 
 ### Step 5: Reveal
 

@@ -8,8 +8,6 @@ description: Use this skill when the user requests to generate, create, or make 
 ## Overview
 
 This skill generates professional PowerPoint presentations by creating AI-generated background images for each slide and composing them into a PPTX file with native editable text boxes. The workflow includes planning the presentation structure with a consistent visual style, generating slide backgrounds sequentially (using the previous slide as a reference for style consistency), and assembling them into a final presentation.
-If the user already has an HTML page, report, research note, or another artifact in the thread and asks for PPT or PPTX, read that artifact first and then use this skill as the primary implementation path instead of writing a one-off presentation script by hand.
-
 ## Core Capabilities
 
 - Plan and structure multi-slide presentations with unified visual style
@@ -44,7 +42,6 @@ When a user requests presentation generation, identify:
 - **Style**: business / academic / minimal / keynote / creative
 - Aspect ratio: Standard (16:9) or classic (4:3)
 - Content outline: Key points for each slide
-- Existing source artifact: if the request references an existing HTML, Markdown, or document artifact, extract the presentation outline from that artifact before building the plan
 - You don't need to check the folder under `/mnt/user-data`
 
 ### Step 2: Create Presentation Plan
@@ -177,7 +174,6 @@ Parameters:
 Do NOT read the python file, just call it with the parameters.
 Do NOT run `pip install`. Use the runtime's existing Python environment and keep the script path on `/mnt/user-data/...`.
 If slide image generation fails or produces missing image files, stop and report the failure. Do not generate image-only slides that burn text into the background.
-The final user-facing deliverable must be a `.pptx` file under `/mnt/user-data/outputs`, followed by a `present_files` call for that `.pptx`.
 
 ## Complete Example: Glassmorphism Style (最现代前卫)
 
