@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 
@@ -9,27 +10,26 @@ import (
 	"github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/joho/godotenv"
 
+	"github.com/openagents/gateway/internal/bootstrap"
 	"github.com/openagents/gateway/internal/config"
 )
 
 func main() {
-	// Prefer shared root env, keep local .env as fallback.
-	loadedEnv := false
-	for _, envPath := range []string{"../../.env", ".env"} {
-		if err := godotenv.Load(envPath); err == nil {
-			loadedEnv = true
+	if err := bootstrap.LoadSharedEnv(); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			fmt.Printf("Error loading root .env: %v\n", err)
+			os.Exit(1)
 		}
-	}
-	if !loadedEnv {
-		fmt.Printf("Note: .env file not found in ../../.env or .env, using environment variables\n")
+		fmt.Printf(
+			"Note: root .env file not found at %s, using environment variables\n",
+			bootstrap.SharedEnvPath(),
+		)
 	}
 
 	fmt.Println("Starting database migration...")
 
-	// Load config from gateway.yaml
-	cfg, err := config.Load("gateway.yaml")
+	cfg, err := config.Load(bootstrap.GatewayConfigPath())
 	if err != nil {
 		fmt.Printf("Error loading config: %v\n", err)
 		os.Exit(1)
@@ -51,7 +51,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	sourceURL, err := resolveMigrationsSourceURL()
+	sourceURL, err := bootstrap.MigrationsSourceURL()
 	if err != nil {
 		fmt.Printf("Error resolving migrations directory: %v\n", err)
 		os.Exit(1)
@@ -83,20 +83,4 @@ func main() {
 
 	version, dirty, _ = m.Version()
 	fmt.Printf("Migration completed. Current version: %d (dirty: %v)\n", version, dirty)
-}
-
-func resolveMigrationsSourceURL() (string, error) {
-	candidates := []string{
-		"../../migrations",
-		"migrations",
-	}
-
-	for _, dir := range candidates {
-		info, err := os.Stat(dir)
-		if err == nil && info.IsDir() {
-			return "file://" + dir, nil
-		}
-	}
-
-	return "", fmt.Errorf("migrations directory not found; checked %v", candidates)
 }

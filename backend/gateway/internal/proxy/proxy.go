@@ -138,6 +138,27 @@ func (r *Route) AuthType() string {
 // Handler returns a Gin handler that proxies requests to the upstream.
 func (r *Route) Handler() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		defer func() {
+			recovered := recover()
+			if recovered == nil {
+				return
+			}
+			if recovered == http.ErrAbortHandler {
+				if r.cfg.Debug {
+					log.Printf(
+						"[proxy][client-abort] route=%s upstream=%s method=%s path=%s raw_query=%s",
+						r.cfg.Prefix,
+						r.cfg.Upstream,
+						c.Request.Method,
+						c.Request.URL.Path,
+						c.Request.URL.RawQuery,
+					)
+				}
+				return
+			}
+			panic(recovered)
+		}()
+
 		// Strip prefix
 		if r.cfg.StripPrefix && r.cfg.Prefix != "" {
 			path := strings.TrimPrefix(c.Request.URL.Path, r.cfg.Prefix)

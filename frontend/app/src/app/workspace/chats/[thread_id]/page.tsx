@@ -3,12 +3,11 @@
 import type { Command } from "@langchain/langgraph-sdk";
 import { BotIcon } from "lucide-react";
 import dynamic from "next/dynamic";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo } from "react";
 
 import { type PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { Badge } from "@/components/ui/badge";
-import { AgentRuntimeControls } from "@/components/workspace/agent-runtime-controls";
 import { ArtifactTrigger } from "@/components/workspace/artifacts/artifact-trigger";
 import { useSpecificChatMode } from "@/components/workspace/chats/use-chat-mode";
 import { useThreadChat } from "@/components/workspace/chats/use-thread-chat";
@@ -44,7 +43,6 @@ const MessageList = dynamic(
 export default function ChatPage() {
   const { t } = useI18n();
   const [settings, setSettings] = useLocalSettings();
-  const router = useRouter();
   const searchParams = useSearchParams();
   const runtimeSelection = useMemo(
     () => readAgentRuntimeSelection(searchParams),
@@ -143,29 +141,6 @@ export default function ChatPage() {
   const handleStop = useCallback(async () => {
     await thread.stop();
   }, [thread]);
-  const handleRuntimeChange = useCallback(
-    (nextValue: {
-      agent_name?: string;
-      agent_status?: "dev" | "prod";
-      execution_backend?: "remote";
-      remote_session_id?: string;
-    }) => {
-      setSettings("context", nextValue);
-      router.push(
-        buildWorkspaceAgentPath(
-          {
-            agentName: nextValue.agent_name,
-            agentStatus: nextValue.agent_status,
-            executionBackend: nextValue.execution_backend,
-            remoteSessionId: nextValue.remote_session_id,
-          },
-          "new",
-        ),
-      );
-    },
-    [router, setSettings],
-  );
-
   return (
     <ThreadContext.Provider
       value={{
@@ -192,11 +167,11 @@ export default function ChatPage() {
             <Badge variant="outline" className="shrink-0 text-[10px]">
               {runtimeSelection.agentStatus}
             </Badge>
-            <Badge variant="outline" className="shrink-0 text-[10px]">
-              {runtimeSelection.executionBackend === "remote"
-                ? "remote cli"
-                : "default runtime"}
-            </Badge>
+            {runtimeSelection.executionBackend === "remote" && (
+              <Badge variant="outline" className="shrink-0 text-[10px]">
+                remote cli
+              </Badge>
+            )}
             <div className="flex w-full items-center text-sm font-medium">
               <ThreadTitle threadId={threadId} thread={thread} />
             </div>
@@ -244,18 +219,7 @@ export default function ChatPage() {
                   }
                   extraHeader={
                     isNewThread && (
-                      <div className="mx-auto w-full max-w-(--container-width-md) space-y-2 px-2">
-                        <AgentRuntimeControls
-                          value={{
-                            agent_name: runtimeSelection.agentName,
-                            agent_status: runtimeSelection.agentStatus,
-                            execution_backend: runtimeSelection.executionBackend,
-                            remote_session_id:
-                              runtimeSelection.remoteSessionId || undefined,
-                          }}
-                          onValueChange={handleRuntimeChange}
-                          showLaunchActions
-                        />
+                      <div className="mx-auto w-full max-w-(--container-width-md) px-2">
                         <Welcome mode={runtimeContext.mode} />
                       </div>
                     )

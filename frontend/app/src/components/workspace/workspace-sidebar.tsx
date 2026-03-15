@@ -31,7 +31,7 @@ export function WorkspaceSidebar({
         <SidebarHeader className="py-0">
           <WorkspaceHeader />
         </SidebarHeader>
-        <SidebarContent>
+        <SidebarContent className="overflow-hidden">
           <WorkspaceNavChatList />
           <WorkspaceAgentList />
           {isSidebarOpen && <RecentChatList />}

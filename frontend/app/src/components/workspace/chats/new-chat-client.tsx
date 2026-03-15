@@ -8,7 +8,6 @@ import {
   PromptInputProvider,
   type PromptInputMessage,
 } from "@/components/ai-elements/prompt-input";
-import { AgentRuntimeControls } from "@/components/workspace/agent-runtime-controls";
 import { InputBox } from "@/components/workspace/input-box";
 import { Welcome } from "@/components/workspace/welcome";
 import {
@@ -82,26 +81,6 @@ export default function NewChatClient() {
     setSettings,
   ]);
 
-  const handleRuntimeChange = useCallback(
-    (nextValue: {
-      agent_name?: string;
-      agent_status?: "dev" | "prod";
-      execution_backend?: "remote";
-      remote_session_id?: string;
-    }) => {
-      setSettings("context", nextValue);
-      router.replace(
-        buildWorkspaceAgentPath({
-          agentName: nextValue.agent_name,
-          agentStatus: nextValue.agent_status,
-          executionBackend: nextValue.execution_backend,
-          remoteSessionId: nextValue.remote_session_id,
-        }),
-      );
-    },
-    [router, setSettings],
-  );
-
   const buildStartedThreadPath = useCallback(
     (threadId: string) => {
       const basePath = buildWorkspaceAgentPath(
@@ -162,18 +141,7 @@ export default function NewChatClient() {
                 context={runtimeContext}
                 initialValue={inputInitialValue}
                 extraHeader={
-                  <div className="mx-auto w-full max-w-(--container-width-md) space-y-2 px-2">
-                    <AgentRuntimeControls
-                      value={{
-                        agent_name: runtimeSelection.agentName,
-                        agent_status: runtimeSelection.agentStatus,
-                        execution_backend: runtimeSelection.executionBackend,
-                        remote_session_id:
-                          runtimeSelection.remoteSessionId || undefined,
-                      }}
-                      onValueChange={handleRuntimeChange}
-                      showLaunchActions
-                    />
+                  <div className="mx-auto w-full max-w-(--container-width-md) px-2">
                     <Welcome mode={runtimeContext.mode} />
                   </div>
                 }

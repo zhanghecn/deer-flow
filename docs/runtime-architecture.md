@@ -159,12 +159,18 @@ Concrete host/container contract:
 - Compose host mount: `OPENAGENTS_DOCKER_HOST_HOME` (default `../.openagents`)
 - App-container runtime path: `OPENAGENTS_DOCKER_CONTAINER_HOME` (default `/openagents-home`)
 - Shared sandbox mount inside `sandbox-aio`: `/openagents`
+- Fixed compose project name: `openagents-dev`
 - Shared root config: repo `.env`
 - Container-view overrides: `*_DOCKER` variables in repo `.env`
 - Browser-facing URLs such as `ONLYOFFICE_SERVER_URL` stay host-view because the browser, not the container, dereferences them
 
 This keeps `docker compose` usable directly from the `docker/` directory without
 requiring a pre-exported absolute `OPENAGENTS_HOME`.
+
+The fixed compose project name is operationally important. If different compose
+invocations create different project names, `gateway` and `langgraph` can land
+on different bridge networks and service DNS like `http://langgraph:2024` stops
+resolving even though container names still exist.
 
 Recommended config rule:
 

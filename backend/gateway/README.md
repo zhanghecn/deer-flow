@@ -51,7 +51,7 @@ Nginx (:2026)
 # 创建数据库
 createdb openagents
 
-# 运行迁移（SQL 位于项目根目录 migrations/，优先读取 ../../.env，其次读取 backend/gateway/.env）
+# 运行迁移（SQL 位于项目根目录 migrations/，读取仓库根目录 .env）
 make migrate
 ```
 
@@ -59,14 +59,12 @@ make migrate
 
 **方式一：使用环境变量（推荐）**
 
-在项目根目录复制 `.env.example` 为 `.env` 并配置（推荐，单一真源）：
+在项目根目录复制 `.env.example` 为 `.env` 并配置：
 
 ```bash
-cp ../../.env.example ../../.env
-# 编辑 ../../.env 填写实际值
+cp .env.example .env
+# 编辑 .env 填写实际值
 ```
-
-如需网关单独调试，也可在 `backend/gateway/.env` 放置覆盖项；默认不需要。
 
 所需环境变量：
 - `DATABASE_URI` — PostgreSQL 连接串

@@ -3,6 +3,8 @@
 Docker Compose in this repo follows one rule:
 
 - repo root `.env` is the single source of truth
+- `docker/docker-compose-dev.yaml` pins `name: openagents-dev` so every
+  `docker compose` invocation joins the same project/network regardless of cwd
 
 The same file contains two views of a few runtime addresses:
 
@@ -84,3 +86,27 @@ make docker-start
 ```
 
 The helper script already injects `--env-file /path/to/repo/.env`.
+
+## Why The Fixed Compose Name Matters
+
+Without a fixed compose project name, starting services from different working
+directories can silently create different bridge networks, for example:
+
+```text
+docker_openagents-dev
+openagents-dev_openagents-dev
+```
+
+That breaks container DNS between services even when the container names look
+correct. The most obvious symptom is:
+
+```text
+gateway -> http://langgraph:2024
+lookup langgraph: i/o timeout
+```
+
+Keep the compose file's top-level `name: openagents-dev` intact so:
+
+- `gateway`, `langgraph`, `sandbox-aio`, `onlyoffice` stay on one network
+- service DNS names such as `langgraph`, `gateway`, `sandbox-aio` keep working
+- rebuilding a single container does not split the stack into multiple projects

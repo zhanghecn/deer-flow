@@ -1,13 +1,14 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/joho/godotenv"
+	"github.com/openagents/gateway/internal/bootstrap"
 	"github.com/openagents/gateway/internal/config"
 	"github.com/openagents/gateway/internal/handler"
 	"github.com/openagents/gateway/internal/middleware"
@@ -21,21 +22,20 @@ import (
 )
 
 func main() {
-	// Prefer shared root env, keep local .env as fallback.
-	loadedEnv := false
-	for _, envPath := range []string{"../../.env", ".env"} {
-		if err := godotenv.Load(envPath); err == nil {
-			loadedEnv = true
+	if err := bootstrap.LoadSharedEnv(); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			log.Fatalf("Failed to load root .env: %v", err)
 		}
-	}
-	if !loadedEnv {
-		log.Printf("Note: .env file not found in ../../.env or .env; using environment variables")
+		log.Printf(
+			"Note: root .env file not found at %s; using environment variables",
+			bootstrap.SharedEnvPath(),
+		)
 	}
 
 	// Load gateway config
 	cfgPath := os.Getenv("GATEWAY_CONFIG_PATH")
 	if cfgPath == "" {
-		cfgPath = "gateway.yaml"
+		cfgPath = bootstrap.GatewayConfigPath()
 	}
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
@@ -46,8 +46,7 @@ func main() {
 	// from the project root, while shared skills live in a sibling skills/ dir.
 	baseDir := storage.ResolveBaseDir(cfg.Storage.BaseDir)
 
-	// Find main config.yaml (for MCP config compatibility)
-	mainConfigPath := findMainConfig()
+	mainConfigPath := bootstrap.MainConfigPath()
 
 	// Initialize database
 	pool, err := repository.NewPool(cfg.Database.DSN())
@@ -272,19 +271,4 @@ func main() {
 	if err := r.Run(addr); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
-}
-
-func findMainConfig() string {
-	candidates := []string{
-		"../config.yaml",
-		"config.yaml",
-		"../../config.yaml",
-	}
-	for _, p := range candidates {
-		if _, err := os.Stat(p); err == nil {
-			abs, _ := filepath.Abs(p)
-			return abs
-		}
-	}
-	return "config.yaml"
 }

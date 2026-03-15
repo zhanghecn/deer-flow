@@ -8,6 +8,7 @@ import {
   LogOutIcon,
   MailIcon,
   Settings2Icon,
+  ShieldIcon,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
@@ -118,6 +119,7 @@ export function WorkspaceNavMenu() {
   const secondaryLine =
     hydratedUser?.email?.trim() ?? hydratedUser?.role?.toUpperCase() ?? "USER";
   const userInitials = initialsOf(displayName);
+  const isAdmin = hydratedUser?.role === "admin";
 
   const handleLogout = () => {
     logout();
@@ -194,6 +196,21 @@ export function WorkspaceNavMenu() {
                       {t.workspace.visitGithub}
                     </DropdownMenuItem>
                   </a>
+                  {isAdmin && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <a
+                        href="/admin/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <DropdownMenuItem>
+                          <ShieldIcon />
+                          Admin Console
+                        </DropdownMenuItem>
+                      </a>
+                    </>
+                  )}
                   <DropdownMenuSeparator />
                   <a
                     href="https://github.com/bytedance/openagents/issues"
