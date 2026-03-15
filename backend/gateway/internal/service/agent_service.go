@@ -186,10 +186,9 @@ func (s *AgentService) normalizeSkillRef(ref model.SkillRef) (model.SkillRef, er
 
 	switch {
 	case category == "" && sourcePath != "":
-		if path.Base(sourcePath) == name {
-			category = path.Dir(sourcePath)
-		} else {
-			category = sourcePath
+		category = path.Dir(sourcePath)
+		if category == "." || category == "/" {
+			category = strings.Trim(sourcePath, "/")
 		}
 	case category == "" && ref.Status != "":
 		if ref.Status == "prod" {
@@ -223,6 +222,16 @@ func (s *AgentService) normalizeSkillRef(ref model.SkillRef) (model.SkillRef, er
 			normalized.Status = "prod"
 		}
 	}
+
+	if sourcePath != "" {
+		sourceDir := filepath.Join(s.fs.SkillsDir(), filepath.FromSlash(sourcePath))
+		info, err := os.Stat(sourceDir)
+		if err != nil || !info.IsDir() {
+			return model.SkillRef{}, fmt.Errorf("skill %q not found in %s", name, sourcePath)
+		}
+		return normalized, nil
+	}
+
 	if _, ok := s.skillRefFromScope(name, category); !ok {
 		return model.SkillRef{}, fmt.Errorf("skill %q not found in %s", name, category)
 	}
@@ -251,6 +260,14 @@ func (s *AgentService) skillRefFromScope(name string, scope string) (model.Skill
 		SourcePath:       path.Join(scope, name),
 		MaterializedPath: path.Join("skills", name),
 	}, true
+}
+
+func (s *AgentService) resolveSkillSourceDir(ref model.SkillRef) string {
+	sourcePath := strings.Trim(strings.TrimSpace(ref.SourcePath), "/")
+	if sourcePath != "" {
+		return filepath.Join(s.fs.SkillsDir(), filepath.FromSlash(sourcePath))
+	}
+	return s.fs.GlobalSkillDir(ref.Category, ref.Name)
 }
 
 func (s *AgentService) syncAgentFilesystem(agent *model.Agent, agentsMD string, skillRefs []model.SkillRef) error {
@@ -283,10 +300,14 @@ func (s *AgentService) syncAgentFilesystem(agent *model.Agent, agentsMD string, 
 	}
 
 	for _, ref := range skillRefs {
-		sourceDir := s.fs.GlobalSkillDir(ref.Category, ref.Name)
+		sourceDir := s.resolveSkillSourceDir(ref)
 		info, err := os.Stat(sourceDir)
 		if err != nil || !info.IsDir() {
-			return fmt.Errorf("skill %q not found in %s", ref.Name, ref.Category)
+			location := ref.Category
+			if strings.TrimSpace(ref.SourcePath) != "" {
+				location = ref.SourcePath
+			}
+			return fmt.Errorf("skill %q not found in %s", ref.Name, location)
 		}
 		targetDir := filepath.Join(s.fs.AgentSkillsDir(agent.Name, agent.Status), ref.Name)
 		if err := s.fs.CopyDir(sourceDir, targetDir); err != nil {

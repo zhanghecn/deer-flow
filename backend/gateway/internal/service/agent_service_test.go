@@ -84,3 +84,66 @@ func TestAgentServiceCreateRejectsAmbiguousSkillNames(t *testing.T) {
 		t.Fatalf("Create() error = %v, want ambiguous error", err)
 	}
 }
+
+func TestAgentServiceUpdatePreservesAliasedSkillSourcePath(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	skillDir := filepath.Join(baseDir, "skills", "shared", "vercel-deploy-claimable")
+	if err := os.MkdirAll(skillDir, 0755); err != nil {
+		t.Fatalf("mkdir aliased skill dir: %v", err)
+	}
+	skillMD := "---\nname: vercel-deploy\ndescription: aliased skill\n---\n\nbody"
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillMD), 0644); err != nil {
+		t.Fatalf("write skill file: %v", err)
+	}
+
+	fsStore := storage.NewFS(baseDir)
+	if err := fsStore.WriteAgentFiles("lead_agent", "prod", "# Lead Agent", map[string]interface{}{
+		"name":           "lead_agent",
+		"description":    "Default system lead agent.",
+		"status":         "prod",
+		"agents_md_path": "AGENTS.md",
+		"skill_refs": []model.SkillRef{
+			{
+				Name:       "vercel-deploy",
+				Category:   "shared",
+				SourcePath: "shared/vercel-deploy-claimable",
+			},
+		},
+		"memory": map[string]interface{}{
+			"enabled":                   false,
+			"debounce_seconds":          30,
+			"max_facts":                 100,
+			"fact_confidence_threshold": 0.7,
+			"injection_enabled":         true,
+			"max_injection_tokens":      2000,
+		},
+	}); err != nil {
+		t.Fatalf("seed lead agent files: %v", err)
+	}
+
+	svc := NewAgentService(fsStore)
+	description := "Updated lead agent"
+	agent, err := svc.Update(context.Background(), "lead_agent", "prod", model.UpdateAgentRequest{
+		Description: &description,
+	})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+
+	if len(agent.Skills) != 1 {
+		t.Fatalf("len(agent.Skills) = %d, want 1", len(agent.Skills))
+	}
+	if got := agent.Skills[0].Category; got != "shared" {
+		t.Fatalf("agent.Skills[0].Category = %q, want %q", got, "shared")
+	}
+	if got := agent.Skills[0].SourcePath; got != "shared/vercel-deploy-claimable" {
+		t.Fatalf("agent.Skills[0].SourcePath = %q, want %q", got, "shared/vercel-deploy-claimable")
+	}
+
+	copiedSkill := filepath.Join(baseDir, "agents", "prod", "lead_agent", "skills", "vercel-deploy", "SKILL.md")
+	if _, err := os.Stat(copiedSkill); err != nil {
+		t.Fatalf("expected copied aliased skill at %s: %v", copiedSkill, err)
+	}
+}

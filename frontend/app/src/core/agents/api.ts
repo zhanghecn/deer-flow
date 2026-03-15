@@ -44,8 +44,10 @@ export async function createAgent(request: CreateAgentRequest): Promise<Agent> {
 export async function updateAgent(
   name: string,
   request: UpdateAgentRequest,
+  status?: AgentStatus,
 ): Promise<Agent> {
-  const res = await authFetch(`${getBackendBaseURL()}/api/agents/${name}`, {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  const res = await authFetch(`${getBackendBaseURL()}/api/agents/${name}${query}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),

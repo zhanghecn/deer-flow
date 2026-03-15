@@ -54,11 +54,13 @@ export function useUpdateAgent() {
   return useMutation({
     mutationFn: ({
       name,
+      status,
       request,
     }: {
       name: string;
+      status?: AgentStatus;
       request: UpdateAgentRequest;
-    }) => updateAgent(name, request),
+    }) => updateAgent(name, request, status),
     onSuccess: (_data, { name }) => {
       void queryClient.invalidateQueries({ queryKey: ["agents"] });
       void queryClient.invalidateQueries({ queryKey: ["agents", name] });
