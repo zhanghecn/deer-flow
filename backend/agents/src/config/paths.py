@@ -120,6 +120,18 @@ class Paths:
     def store_prod_skills_dir(self) -> Path:
         return self.skills_dir / "store" / "prod"
 
+    @property
+    def commands_dir(self) -> Path:
+        """Root directory for shared slash-command definitions."""
+        return self.base_dir / "commands"
+
+    @property
+    def common_commands_dir(self) -> Path:
+        return self.commands_dir / "common"
+
+    def common_command_file(self, name: str) -> Path:
+        return self.common_commands_dir / f"{name}.md"
+
     # ── Thread runtime layer (per-thread isolated) ──
 
     def thread_dir(self, thread_id: str) -> Path:

@@ -2,11 +2,13 @@
 
 import type { Command } from "@langchain/langgraph-sdk";
 import { BotIcon, PlusSquare } from "lucide-react";
-import { useParams, useRouter } from "next/navigation";
-import { useCallback } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo } from "react";
 
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { AgentRuntimeControls } from "@/components/workspace/agent-runtime-controls";
 import { AgentWelcome } from "@/components/workspace/agent-welcome";
 import { ArtifactTrigger } from "@/components/workspace/artifacts/artifact-trigger";
 import { ChatBox } from "@/components/workspace/chats/chat-box";
@@ -17,7 +19,11 @@ import { MessageList } from "@/components/workspace/messages/message-list";
 import { ThreadTitle } from "@/components/workspace/thread-title";
 import { TodoList } from "@/components/workspace/todo-list";
 import { Tooltip } from "@/components/workspace/tooltip";
-import { useAgent } from "@/core/agents";
+import {
+  buildWorkspaceAgentPath,
+  readAgentRuntimeSelection,
+  useAgent,
+} from "@/core/agents";
 import { useI18n } from "@/core/i18n/hooks";
 import { useNotification } from "@/core/notification/hooks";
 import { useLocalSettings } from "@/core/settings";
@@ -30,27 +36,65 @@ export default function AgentChatPage() {
   const { t } = useI18n();
   const [settings, setSettings] = useLocalSettings();
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const { agent_name } = useParams<{
     agent_name: string;
   }>();
+  const runtimeSelection = useMemo(
+    () => readAgentRuntimeSelection(searchParams, agent_name),
+    [agent_name, searchParams],
+  );
+  const runtimeContext = useMemo(
+    () => ({
+      ...settings.context,
+      agent_name: runtimeSelection.agentName,
+      agent_status: runtimeSelection.agentStatus,
+      execution_backend: runtimeSelection.executionBackend,
+      remote_session_id: runtimeSelection.remoteSessionId || undefined,
+    }),
+    [runtimeSelection, settings.context],
+  );
 
-  const { agent } = useAgent(agent_name);
+  const { agent } = useAgent(agent_name, runtimeSelection.agentStatus);
 
   const { threadId, setThreadId, isNewThread, setIsNewThread } =
     useThreadChat();
 
+  useEffect(() => {
+    setSettings("context", {
+      agent_name: runtimeSelection.agentName,
+      agent_status: runtimeSelection.agentStatus,
+      execution_backend: runtimeSelection.executionBackend,
+      remote_session_id: runtimeSelection.remoteSessionId || undefined,
+    });
+  }, [
+    runtimeSelection.agentName,
+    runtimeSelection.agentStatus,
+    runtimeSelection.executionBackend,
+    runtimeSelection.remoteSessionId,
+    setSettings,
+  ]);
+
   const { showNotification } = useNotification();
   const [thread, sendMessage, resumeInterrupt] = useThreadStream({
     threadId: isNewThread ? undefined : threadId,
-    context: { ...settings.context, agent_name: agent_name },
+    context: runtimeContext,
     onStart: (createdThreadId) => {
       setThreadId(createdThreadId);
       setIsNewThread(false);
       history.replaceState(
         null,
         "",
-        `/workspace/agents/${agent_name}/chats/${createdThreadId}`,
+        buildWorkspaceAgentPath(
+          {
+            agentName: runtimeSelection.agentName,
+            agentStatus: runtimeSelection.agentStatus,
+            executionBackend: runtimeSelection.executionBackend,
+            remoteSessionId: runtimeSelection.remoteSessionId,
+          },
+          createdThreadId,
+        ),
       );
     },
     onFinish: (state) => {
@@ -73,9 +117,22 @@ export default function AgentChatPage() {
 
   const handleSendMessage = useCallback(
     async (message: PromptInputMessage, extraContext?: Record<string, unknown>) => {
-      await sendMessage(threadId, message, { agent_name, ...extraContext });
+      await sendMessage(threadId, message, {
+        agent_name: runtimeSelection.agentName,
+        agent_status: runtimeSelection.agentStatus,
+        execution_backend: runtimeSelection.executionBackend,
+        remote_session_id: runtimeSelection.remoteSessionId || undefined,
+        ...extraContext,
+      });
     },
-    [sendMessage, threadId, agent_name],
+    [
+      sendMessage,
+      threadId,
+      runtimeSelection.agentName,
+      runtimeSelection.agentStatus,
+      runtimeSelection.executionBackend,
+      runtimeSelection.remoteSessionId,
+    ],
   );
   const handleSubmit = useCallback(
     (message: PromptInputMessage, extraContext?: Record<string, unknown>) => {
@@ -85,14 +142,49 @@ export default function AgentChatPage() {
   );
   const handleResumeInterrupt = useCallback(
     async (command: Command, extraContext?: Record<string, unknown>) => {
-      await resumeInterrupt(threadId, command, { agent_name, ...extraContext });
+      await resumeInterrupt(threadId, command, {
+        agent_name: runtimeSelection.agentName,
+        agent_status: runtimeSelection.agentStatus,
+        execution_backend: runtimeSelection.executionBackend,
+        remote_session_id: runtimeSelection.remoteSessionId || undefined,
+        ...extraContext,
+      });
     },
-    [resumeInterrupt, threadId, agent_name],
+    [
+      resumeInterrupt,
+      threadId,
+      runtimeSelection.agentName,
+      runtimeSelection.agentStatus,
+      runtimeSelection.executionBackend,
+      runtimeSelection.remoteSessionId,
+    ],
   );
 
   const handleStop = useCallback(async () => {
     await thread.stop();
   }, [thread]);
+  const handleRuntimeChange = useCallback(
+    (nextValue: {
+      agent_name?: string;
+      agent_status?: "dev" | "prod";
+      execution_backend?: "remote";
+      remote_session_id?: string;
+    }) => {
+      setSettings("context", nextValue);
+      router.push(
+        buildWorkspaceAgentPath(
+          {
+            agentName: nextValue.agent_name,
+            agentStatus: nextValue.agent_status,
+            executionBackend: nextValue.execution_backend,
+            remoteSessionId: nextValue.remote_session_id,
+          },
+          "new",
+        ),
+      );
+    },
+    [router, setSettings],
+  );
 
   return (
     <ThreadContext.Provider
@@ -119,6 +211,14 @@ export default function AgentChatPage() {
                 {agent?.name ?? agent_name}
               </span>
             </div>
+            <Badge variant="outline" className="shrink-0 text-[10px]">
+              {runtimeSelection.agentStatus}
+            </Badge>
+            <Badge variant="outline" className="shrink-0 text-[10px]">
+              {runtimeSelection.executionBackend === "remote"
+                ? "remote cli"
+                : "default runtime"}
+            </Badge>
 
             <div className="flex w-full items-center text-sm font-medium">
               <ThreadTitle threadId={threadId} thread={thread} />
@@ -129,7 +229,14 @@ export default function AgentChatPage() {
                   size="sm"
                   variant="secondary"
                   onClick={() => {
-                    router.push(`/workspace/agents/${agent_name}/chats/new`);
+                    router.push(
+                      buildWorkspaceAgentPath({
+                        agentName: runtimeSelection.agentName,
+                        agentStatus: runtimeSelection.agentStatus,
+                        executionBackend: runtimeSelection.executionBackend,
+                        remoteSessionId: runtimeSelection.remoteSessionId,
+                      }),
+                    );
                   }}
                 >
                   <PlusSquare /> {t.agents.newChat}
@@ -174,13 +281,30 @@ export default function AgentChatPage() {
                   isNewThread={isNewThread}
                   autoFocus={isNewThread}
                   status={thread.isLoading ? "streaming" : "ready"}
-                  context={settings.context}
+                  context={runtimeContext}
                   contextWindow={
                     isNewThread ? undefined : thread.values.context_window
                   }
                   extraHeader={
                     isNewThread && (
-                      <AgentWelcome agent={agent} agentName={agent_name} />
+                      <div className="mx-auto w-full max-w-(--container-width-md) space-y-2 px-2">
+                        <AgentRuntimeControls
+                          value={{
+                            agent_name: runtimeSelection.agentName,
+                            agent_status: runtimeSelection.agentStatus,
+                            execution_backend: runtimeSelection.executionBackend,
+                            remote_session_id:
+                              runtimeSelection.remoteSessionId || undefined,
+                          }}
+                          onValueChange={handleRuntimeChange}
+                          showLaunchActions
+                        />
+                        <AgentWelcome
+                          agent={agent}
+                          agentName={runtimeSelection.agentName}
+                          agentStatus={runtimeSelection.agentStatus}
+                        />
+                      </div>
                     )
                   }
                   disabled={env.NEXT_PUBLIC_STATIC_WEBSITE_ONLY === "true"}

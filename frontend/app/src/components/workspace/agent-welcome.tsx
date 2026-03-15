@@ -9,10 +9,12 @@ export function AgentWelcome({
   className,
   agent,
   agentName,
+  agentStatus,
 }: {
   className?: string;
   agent: Agent | null | undefined;
   agentName: string;
+  agentStatus?: "dev" | "prod";
 }) {
   const displayName = agent?.name ?? agentName;
   const description = agent?.description;
@@ -27,7 +29,14 @@ export function AgentWelcome({
       <div className="bg-primary/10 flex h-12 w-12 items-center justify-center rounded-full">
         <BotIcon className="text-primary h-6 w-6" />
       </div>
-      <div className="text-2xl font-bold">{displayName}</div>
+      <div className="flex items-center gap-2 text-2xl font-bold">
+        <span>{displayName}</span>
+        {agentStatus && (
+          <span className="text-muted-foreground text-xs font-medium uppercase tracking-[0.22em]">
+            {agentStatus}
+          </span>
+        )}
+      </div>
       {description && (
         <p className="text-muted-foreground max-w-sm text-sm">{description}</p>
       )}

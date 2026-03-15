@@ -14,6 +14,10 @@ import (
 
 const builtinLeadAgentName = "lead_agent"
 
+func isBuiltinLeadAgent(name string) bool {
+	return strings.EqualFold(strings.TrimSpace(name), builtinLeadAgentName)
+}
+
 type manifest struct {
 	Name        string                   `yaml:"name"`
 	Description string                   `yaml:"description"`
@@ -100,9 +104,6 @@ func ListAgents(fsStore *storage.FS, status string) ([]model.Agent, error) {
 			if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
 				continue
 			}
-			if strings.EqualFold(strings.TrimSpace(entry.Name()), builtinLeadAgentName) {
-				continue
-			}
 			agent, err := LoadAgent(fsStore, entry.Name(), currentStatus, false)
 			if err != nil {
 				return nil, err
@@ -114,7 +115,18 @@ func ListAgents(fsStore *storage.FS, status string) ([]model.Agent, error) {
 	}
 
 	slices.SortFunc(agents, func(a, b model.Agent) int {
-		return strings.Compare(a.Name, b.Name)
+		aBuiltin := isBuiltinLeadAgent(a.Name)
+		bBuiltin := isBuiltinLeadAgent(b.Name)
+		if aBuiltin != bBuiltin {
+			if aBuiltin {
+				return -1
+			}
+			return 1
+		}
+		if byName := strings.Compare(a.Name, b.Name); byName != 0 {
+			return byName
+		}
+		return strings.Compare(a.Status, b.Status)
 	})
 	return agents, nil
 }
@@ -148,6 +160,10 @@ func PublishAgent(fsStore *storage.FS, name string) (*model.Agent, error) {
 }
 
 func DeleteAgent(fsStore *storage.FS, name string, status string) error {
+	if isBuiltinLeadAgent(name) {
+		return fmt.Errorf("agent %q is reserved and cannot be deleted", builtinLeadAgentName)
+	}
+
 	targetStatuses := []string{"dev", "prod"}
 	if status != "" {
 		targetStatuses = []string{status}

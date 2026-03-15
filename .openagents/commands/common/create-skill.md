@@ -1,7 +1,7 @@
 ---
 name: create-skill
 kind: soft
-description: 开始创建一个新技能草稿
+description: 开始创建一个新技能
 authoring_actions: []
 ---
 

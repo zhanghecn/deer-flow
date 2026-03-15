@@ -11,6 +11,7 @@ from src.tools.builtins.authoring_persistence import (
     resolve_runtime_source_path,
     save_agent_directory_to_store,
 )
+from src.tools.builtins.runtime_context import runtime_context_value
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ def save_agent_to_store(
         source_path: Optional explicit runtime or absolute source directory path.
     """
 
-    resolved_agent_name = str(agent_name or runtime.context.get("agent_name") or "").strip()
+    resolved_agent_name = str(agent_name or runtime_context_value(runtime.context, "agent_name") or "").strip()
     try:
         paths = get_paths()
         resolved_source = (

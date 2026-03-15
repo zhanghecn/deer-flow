@@ -1,3 +1,5 @@
+export type AgentStatus = "prod" | "dev";
+
 export interface AgentMemoryConfig {
   enabled: boolean;
   model_name: string | null;
@@ -21,7 +23,7 @@ export interface Agent {
   model: string | null;
   tool_groups: string[] | null;
   mcp_servers?: string[] | null;
-  status?: "prod" | "dev";
+  status: AgentStatus;
   memory?: AgentMemoryConfig | null;
   skills?: AgentSkillRef[];
   agents_md?: string | null;

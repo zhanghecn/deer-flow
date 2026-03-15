@@ -28,11 +28,18 @@ wheels/
 .installed.cfg
 *.egg
 .venv/
+**/.venv/
+.pytest_cache/
+**/.pytest_cache/
+.ruff_cache/
+**/.ruff_cache/
 
 # Web
 node_modules
+**/node_modules/
 npm-debug.log
 .next
+**/.next/
 
 # IDE
 .idea/
@@ -56,13 +63,20 @@ tests/
 # Exclude directories not needed in Docker context
 # Frontend build only needs frontend/
 # Backend build only needs backend/
+.openagents/
 scripts/
 logs/
 docker/
 skills/
 frontend/.next
+frontend/app/.next
 frontend/node_modules
+frontend/app/node_modules
 backend/.venv
+backend/agents/.venv
+backend/deepagents/.venv
+backend/gateway/bin
+backend/gateway/logs
 backend/htmlcov
 backend/.coverage
 *.md

@@ -2,6 +2,23 @@ import type { ResolvedCommandIntent } from "./types";
 
 import { findPromptCommand } from "./index";
 
+function inferTargetAgentName(argsText: string): string | undefined {
+  const patterns = [
+    /(?:名为|名字叫|叫做)\s+([A-Za-z0-9-]+)/i,
+    /(?:named|called)\s+([A-Za-z0-9-]+)/i,
+    /(?:agent[_\s-]*name|name)\s*[:=]\s*([A-Za-z0-9-]+)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const matched = argsText.match(pattern)?.[1]?.trim();
+    if (matched) {
+      return matched;
+    }
+  }
+
+  return undefined;
+}
+
 export function resolveCommandIntent(
   input: string,
 ): ResolvedCommandIntent | null {
@@ -20,22 +37,20 @@ export function resolveCommandIntent(
     return null;
   }
 
-  const promptText = command.promptTemplate.replace(
-    "{{user_text}}",
-    argsText || "无",
-  );
+  const targetAgentName =
+    command.name === "create-agent"
+      ? inferTargetAgentName(argsText)
+      : undefined;
 
   return {
     command,
     rawInput,
     commandText: command.name,
     argsText,
-    promptText,
     extraContext: {
       command_name: command.name,
-      command_kind: command.kind,
       command_args: argsText,
-      authoring_actions: command.authoringActions ?? [],
+      target_agent_name: targetAgentName,
       original_user_input: rawInput,
     },
   };

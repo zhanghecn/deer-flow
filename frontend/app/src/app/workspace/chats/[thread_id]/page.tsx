@@ -1,10 +1,14 @@
 "use client";
 
 import type { Command } from "@langchain/langgraph-sdk";
+import { BotIcon } from "lucide-react";
 import dynamic from "next/dynamic";
-import { useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo } from "react";
 
 import { type PromptInputMessage } from "@/components/ai-elements/prompt-input";
+import { Badge } from "@/components/ui/badge";
+import { AgentRuntimeControls } from "@/components/workspace/agent-runtime-controls";
 import { ArtifactTrigger } from "@/components/workspace/artifacts/artifact-trigger";
 import { useSpecificChatMode } from "@/components/workspace/chats/use-chat-mode";
 import { useThreadChat } from "@/components/workspace/chats/use-thread-chat";
@@ -13,6 +17,10 @@ import { ThreadContext } from "@/components/workspace/messages/context";
 import { ThreadTitle } from "@/components/workspace/thread-title";
 import { TodoList } from "@/components/workspace/todo-list";
 import { Welcome } from "@/components/workspace/welcome";
+import {
+  buildWorkspaceAgentPath,
+  readAgentRuntimeSelection,
+} from "@/core/agents";
 import { useI18n } from "@/core/i18n/hooks";
 import { useNotification } from "@/core/notification/hooks";
 import { useLocalSettings } from "@/core/settings";
@@ -36,6 +44,23 @@ const MessageList = dynamic(
 export default function ChatPage() {
   const { t } = useI18n();
   const [settings, setSettings] = useLocalSettings();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const runtimeSelection = useMemo(
+    () => readAgentRuntimeSelection(searchParams),
+    [searchParams],
+  );
+  const displayAgentName = runtimeSelection.agentName || "lead_agent";
+  const runtimeContext = useMemo(
+    () => ({
+      ...settings.context,
+      agent_name: runtimeSelection.agentName,
+      agent_status: runtimeSelection.agentStatus,
+      execution_backend: runtimeSelection.executionBackend,
+      remote_session_id: runtimeSelection.remoteSessionId || undefined,
+    }),
+    [runtimeSelection, settings.context],
+  );
 
   const { threadId, setThreadId, isNewThread, setIsNewThread, isMock } =
     useThreadChat();
@@ -43,14 +68,41 @@ export default function ChatPage() {
 
   const { showNotification } = useNotification();
 
+  useEffect(() => {
+    setSettings("context", {
+      agent_name: runtimeSelection.agentName,
+      agent_status: runtimeSelection.agentStatus,
+      execution_backend: runtimeSelection.executionBackend,
+      remote_session_id: runtimeSelection.remoteSessionId || undefined,
+    });
+  }, [
+    runtimeSelection.agentName,
+    runtimeSelection.agentStatus,
+    runtimeSelection.executionBackend,
+    runtimeSelection.remoteSessionId,
+    setSettings,
+  ]);
+
   const [thread, sendMessage, resumeInterrupt] = useThreadStream({
     threadId: isNewThread ? undefined : threadId,
-    context: settings.context,
+    context: runtimeContext,
     isMock,
     onStart: (createdThreadId) => {
       setThreadId(createdThreadId);
       setIsNewThread(false);
-      history.replaceState(null, "", `/workspace/chats/${createdThreadId}`);
+      history.replaceState(
+        null,
+        "",
+        buildWorkspaceAgentPath(
+          {
+            agentName: runtimeSelection.agentName,
+            agentStatus: runtimeSelection.agentStatus,
+            executionBackend: runtimeSelection.executionBackend,
+            remoteSessionId: runtimeSelection.remoteSessionId,
+          },
+          createdThreadId,
+        ),
+      );
     },
     onFinish: (state) => {
       if (document.hidden || !document.hasFocus()) {
@@ -91,6 +143,28 @@ export default function ChatPage() {
   const handleStop = useCallback(async () => {
     await thread.stop();
   }, [thread]);
+  const handleRuntimeChange = useCallback(
+    (nextValue: {
+      agent_name?: string;
+      agent_status?: "dev" | "prod";
+      execution_backend?: "remote";
+      remote_session_id?: string;
+    }) => {
+      setSettings("context", nextValue);
+      router.push(
+        buildWorkspaceAgentPath(
+          {
+            agentName: nextValue.agent_name,
+            agentStatus: nextValue.agent_status,
+            executionBackend: nextValue.execution_backend,
+            remoteSessionId: nextValue.remote_session_id,
+          },
+          "new",
+        ),
+      );
+    },
+    [router, setSettings],
+  );
 
   return (
     <ThreadContext.Provider
@@ -105,12 +179,24 @@ export default function ChatPage() {
         <div className="relative flex size-full min-h-0 justify-between">
           <header
             className={cn(
-              "absolute top-0 right-0 left-0 z-30 flex h-12 shrink-0 items-center px-4",
+              "absolute top-0 right-0 left-0 z-30 flex h-12 shrink-0 items-center gap-2 px-4",
               isNewThread
                 ? "bg-background/0 backdrop-blur-none"
                 : "bg-background/80 shadow-xs backdrop-blur",
             )}
           >
+            <div className="flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1">
+              <BotIcon className="text-primary h-3.5 w-3.5" />
+              <span className="text-xs font-medium">{displayAgentName}</span>
+            </div>
+            <Badge variant="outline" className="shrink-0 text-[10px]">
+              {runtimeSelection.agentStatus}
+            </Badge>
+            <Badge variant="outline" className="shrink-0 text-[10px]">
+              {runtimeSelection.executionBackend === "remote"
+                ? "remote cli"
+                : "default runtime"}
+            </Badge>
             <div className="flex w-full items-center text-sm font-medium">
               <ThreadTitle threadId={threadId} thread={thread} />
             </div>
@@ -152,12 +238,27 @@ export default function ChatPage() {
                   isNewThread={isNewThread}
                   autoFocus={isNewThread}
                   status={thread.isLoading ? "streaming" : "ready"}
-                  context={settings.context}
+                  context={runtimeContext}
                   contextWindow={
                     isNewThread ? undefined : thread.values.context_window
                   }
                   extraHeader={
-                    isNewThread && <Welcome mode={settings.context.mode} />
+                    isNewThread && (
+                      <div className="mx-auto w-full max-w-(--container-width-md) space-y-2 px-2">
+                        <AgentRuntimeControls
+                          value={{
+                            agent_name: runtimeSelection.agentName,
+                            agent_status: runtimeSelection.agentStatus,
+                            execution_backend: runtimeSelection.executionBackend,
+                            remote_session_id:
+                              runtimeSelection.remoteSessionId || undefined,
+                          }}
+                          onValueChange={handleRuntimeChange}
+                          showLaunchActions
+                        />
+                        <Welcome mode={runtimeContext.mode} />
+                      </div>
+                    )
                   }
                   disabled={env.NEXT_PUBLIC_STATIC_WEBSITE_ONLY === "true"}
                   onContextChange={(context) => setSettings("context", context)}

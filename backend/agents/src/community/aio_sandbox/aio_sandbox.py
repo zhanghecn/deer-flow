@@ -5,7 +5,15 @@ import re
 
 from agent_sandbox import Sandbox as AioSandboxClient
 from agent_sandbox.core.api_error import ApiError
-from deepagents.backends.protocol import EditResult, ExecuteResponse, FileDownloadResponse, FileUploadResponse, WriteResult
+from deepagents.backends.protocol import (
+    EditResult,
+    ExecuteResponse,
+    FileDownloadResponse,
+    FileInfo,
+    FileUploadResponse,
+    GrepMatch,
+    WriteResult,
+)
 
 from src.config.paths import VIRTUAL_PATH_PREFIX
 from src.sandbox.sandbox import Sandbox
@@ -73,9 +81,12 @@ class AioSandbox(Sandbox):
                 return message
         return str(exc)
 
-    def _normalize_runtime_path(self, path: str) -> str:
-        normalized = str(path).strip()
+    def _apply_runtime_alias(self, value: str) -> str:
+        normalized = str(value).strip()
         runtime_root = self.runtime_root
+
+        if normalized in {"", "/", "."}:
+            return runtime_root
 
         if normalized == runtime_root or normalized.startswith(f"{runtime_root}/"):
             return normalized
@@ -92,6 +103,21 @@ class AioSandbox(Sandbox):
         for alias, target in sorted(replacements.items(), key=lambda item: len(item[0]), reverse=True):
             if normalized == alias or normalized.startswith(f"{alias}/"):
                 return f"{target}{normalized[len(alias):]}"
+        return normalized
+
+    def _normalize_runtime_path(self, path: str) -> str:
+        return self._apply_runtime_alias(path)
+
+    def _normalize_runtime_pattern(self, pattern: str) -> str:
+        return self._apply_runtime_alias(pattern)
+
+    def _to_virtual_runtime_path(self, path: str) -> str:
+        normalized = str(path).strip()
+        runtime_root = self.runtime_root.rstrip("/")
+        if normalized == runtime_root:
+            return VIRTUAL_PATH_PREFIX
+        if normalized.startswith(f"{runtime_root}/"):
+            return f"{VIRTUAL_PATH_PREFIX}{normalized[len(runtime_root):]}"
         return normalized
 
     def _rewrite_command_paths(self, command: str) -> str:
@@ -143,6 +169,47 @@ class AioSandbox(Sandbox):
                 exit_code=1,
                 truncated=False,
             )
+
+    def ls_info(self, path: str) -> list[FileInfo]:
+        normalized_path = self._normalize_runtime_path(path)
+        infos = super().ls_info(normalized_path)
+        return [
+            {
+                **info,
+                "path": self._to_virtual_runtime_path(info["path"]),
+            }
+            for info in infos
+        ]
+
+    def grep_raw(
+        self,
+        pattern: str,
+        path: str | None = None,
+        glob: str | None = None,
+    ) -> list[GrepMatch] | str:
+        normalized_path = self._normalize_runtime_path(path) if path else None
+        result = super().grep_raw(pattern, path=normalized_path, glob=glob)
+        if isinstance(result, str):
+            return result
+        return [
+            {
+                **match,
+                "path": self._to_virtual_runtime_path(match["path"]),
+            }
+            for match in result
+        ]
+
+    def glob_info(self, pattern: str, path: str = "/") -> list[FileInfo]:
+        normalized_path = self._normalize_runtime_path(path)
+        normalized_pattern = self._normalize_runtime_pattern(pattern)
+        infos = super().glob_info(normalized_pattern, path=normalized_path)
+        return [
+            {
+                **info,
+                "path": self._to_virtual_runtime_path(info["path"]),
+            }
+            for info in infos
+        ]
 
     @staticmethod
     def _read_footer(start_idx: int, end_idx: int, total_lines: int) -> str:
@@ -245,62 +312,64 @@ class AioSandbox(Sandbox):
 
     def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
         responses: list[FileUploadResponse] = []
-        for path, content in files:
-            path = self._normalize_runtime_path(path)
+        for requested_path, content in files:
+            path = self._normalize_runtime_path(requested_path)
+            virtual_path = self._to_virtual_runtime_path(path)
             if not self._is_absolute_path(path):
-                responses.append(self._upload_error_for(path))
+                responses.append(self._upload_error_for(virtual_path))
                 continue
             try:
                 self._client.file.upload_file(file=content, path=path)
-                responses.append(FileUploadResponse(path=path, error=None))
+                responses.append(FileUploadResponse(path=virtual_path, error=None))
             except ApiError as exc:
                 if exc.status_code == 403:
-                    responses.append(FileUploadResponse(path=path, error="permission_denied"))
+                    responses.append(FileUploadResponse(path=virtual_path, error="permission_denied"))
                     continue
                 if exc.status_code == 404:
-                    responses.append(FileUploadResponse(path=path, error="file_not_found"))
+                    responses.append(FileUploadResponse(path=virtual_path, error="file_not_found"))
                     continue
                 logger.error("Failed to upload file to sandbox %s: %s", self.id, exc)
-                responses.append(FileUploadResponse(path=path, error="invalid_path"))
+                responses.append(FileUploadResponse(path=virtual_path, error="invalid_path"))
             except PermissionError:
-                responses.append(FileUploadResponse(path=path, error="permission_denied"))
+                responses.append(FileUploadResponse(path=virtual_path, error="permission_denied"))
             except FileNotFoundError:
-                responses.append(FileUploadResponse(path=path, error="file_not_found"))
+                responses.append(FileUploadResponse(path=virtual_path, error="file_not_found"))
             except Exception as exc:  # noqa: BLE001
                 logger.error("Failed to upload file to sandbox %s: %s", self.id, exc)
-                responses.append(FileUploadResponse(path=path, error="invalid_path"))
+                responses.append(FileUploadResponse(path=virtual_path, error="invalid_path"))
         return responses
 
     def download_files(self, paths: list[str]) -> list[FileDownloadResponse]:
         responses: list[FileDownloadResponse] = []
-        for path in paths:
-            path = self._normalize_runtime_path(path)
+        for requested_path in paths:
+            path = self._normalize_runtime_path(requested_path)
+            virtual_path = self._to_virtual_runtime_path(path)
             if not self._is_absolute_path(path):
-                responses.append(self._download_error_for(path))
+                responses.append(self._download_error_for(virtual_path))
                 continue
             try:
                 content = b"".join(self._client.file.download_file(path=path))
-                responses.append(FileDownloadResponse(path=path, content=content, error=None))
+                responses.append(FileDownloadResponse(path=virtual_path, content=content, error=None))
             except ApiError as exc:
                 message = self._api_error_message(exc).lower()
                 if exc.status_code == 403:
-                    responses.append(FileDownloadResponse(path=path, content=None, error="permission_denied"))
+                    responses.append(FileDownloadResponse(path=virtual_path, content=None, error="permission_denied"))
                     continue
                 if exc.status_code == 404:
-                    responses.append(FileDownloadResponse(path=path, content=None, error="file_not_found"))
+                    responses.append(FileDownloadResponse(path=virtual_path, content=None, error="file_not_found"))
                     continue
                 if "directory" in message:
-                    responses.append(FileDownloadResponse(path=path, content=None, error="is_directory"))
+                    responses.append(FileDownloadResponse(path=virtual_path, content=None, error="is_directory"))
                     continue
                 logger.error("Failed to download file from sandbox %s: %s", self.id, exc)
-                responses.append(FileDownloadResponse(path=path, content=None, error="file_not_found"))
+                responses.append(FileDownloadResponse(path=virtual_path, content=None, error="file_not_found"))
             except PermissionError:
-                responses.append(FileDownloadResponse(path=path, content=None, error="permission_denied"))
+                responses.append(FileDownloadResponse(path=virtual_path, content=None, error="permission_denied"))
             except FileNotFoundError:
-                responses.append(FileDownloadResponse(path=path, content=None, error="file_not_found"))
+                responses.append(FileDownloadResponse(path=virtual_path, content=None, error="file_not_found"))
             except IsADirectoryError:
-                responses.append(FileDownloadResponse(path=path, content=None, error="is_directory"))
+                responses.append(FileDownloadResponse(path=virtual_path, content=None, error="is_directory"))
             except Exception as exc:  # noqa: BLE001
                 logger.error("Failed to download file from sandbox %s: %s", self.id, exc)
-                responses.append(FileDownloadResponse(path=path, content=None, error="file_not_found"))
+                responses.append(FileDownloadResponse(path=virtual_path, content=None, error="file_not_found"))
         return responses

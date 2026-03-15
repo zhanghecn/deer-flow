@@ -21,9 +21,10 @@ def _build_command_section(
     command_name: str | None,
     command_kind: str | None,
     command_args: str | None,
+    command_prompt: str | None,
     authoring_actions: tuple[str, ...],
 ) -> str:
-    if not command_name and not authoring_actions:
+    if not command_name and not authoring_actions and not command_prompt:
         return ""
 
     lines = [
@@ -51,7 +52,19 @@ def _build_command_section(
             ]
         )
 
+    if command_prompt:
+        lines.append("- Follow the backend-resolved command instruction below when it is relevant to the user's request.")
+
     lines.append("</runtime_command>")
+
+    if command_prompt:
+        lines.extend(
+            [
+                "<runtime_command_instruction>",
+                command_prompt,
+                "</runtime_command_instruction>",
+            ]
+        )
     return "\n".join(lines)
 
 
@@ -157,7 +170,11 @@ You: "Deploying to staging..." [proceed]
 - For PDF, PPT, Excel, and Word files, converted Markdown versions (*.md) are available alongside originals
 - All temporary work happens in `/mnt/user-data/workspace`
 - Draft agent/skill authoring can happen under `/mnt/user-data/authoring/agents` and `/mnt/user-data/authoring/skills`
-- Final deliverables must be copied to `/mnt/user-data/outputs` and presented using `present_files`
+- Keep intermediate analysis, scratch JSON, chunk indexes, and draft artifacts in `/mnt/user-data/workspace`
+- Only final deliverables belong in `/mnt/user-data/outputs`
+- If the user specifies an output filename or format, you MUST follow that exact filename and format for the final deliverable
+- Do NOT treat intermediate JSON or scratch files as final deliverables
+- Present only final deliverables from `/mnt/user-data/outputs` using `present_files`
 </working_directory>
 
 <response_style>
@@ -181,6 +198,9 @@ Recent breakthroughs in language models have also accelerated progress
 <critical_reminders>
 - **Clarification First**: ALWAYS clarify unclear/missing/ambiguous requirements BEFORE starting work - never assume or guess
 - Output Files: Final deliverables must be in `/mnt/user-data/outputs`, not left only in `/mnt/user-data/workspace`
+- Output Discipline: intermediate files stay in `/mnt/user-data/workspace`; only final deliverables go to `/mnt/user-data/outputs`
+- Output Naming: when the user requests a specific output path, filename, or format, you must use that exact final path, filename, and format
+- Output Presentation: do not present intermediate analysis files as if they were final results
 - Clarity: Be direct and helpful, avoid unnecessary meta-commentary
 - Including Images and Mermaid: Images and Mermaid diagrams are always welcomed in the Markdown format, and you're encouraged to use `![Image Description](image_path)\n\n` or "```mermaid" to display images in response or Markdown files
 - Multi-task: Parallelize independent discovery work, but keep `write_file`, `edit_file`, and dependent `execute` calls sequential
@@ -253,6 +273,7 @@ def apply_prompt_template(
     command_name: str | None = None,
     command_kind: str | None = None,
     command_args: str | None = None,
+    command_prompt: str | None = None,
     authoring_actions: tuple[str, ...] = (),
 ) -> str:
     # Get memory context
@@ -269,6 +290,7 @@ def apply_prompt_template(
         command_name=command_name,
         command_kind=command_kind,
         command_args=command_args,
+        command_prompt=command_prompt,
         authoring_actions=authoring_actions,
     )
 

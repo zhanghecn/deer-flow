@@ -159,9 +159,26 @@ Concrete host/container contract:
 - Compose host mount: `OPENAGENTS_DOCKER_HOST_HOME` (default `../.openagents`)
 - App-container runtime path: `OPENAGENTS_DOCKER_CONTAINER_HOME` (default `/openagents-home`)
 - Shared sandbox mount inside `sandbox-aio`: `/openagents`
+- Shared root config: repo `.env`
+- Container-view overrides: `*_DOCKER` variables in repo `.env`
+- Browser-facing URLs such as `ONLYOFFICE_SERVER_URL` stay host-view because the browser, not the container, dereferences them
 
 This keeps `docker compose` usable directly from the `docker/` directory without
 requiring a pre-exported absolute `OPENAGENTS_HOME`.
+
+Recommended config rule:
+
+```text
+repo .env
+  host-view runtime vars: DATABASE_URI, LANGGRAPH_URL, OPENAGENTS_HOME, ...
+  container-view overrides: DATABASE_URI_DOCKER, LANGGRAPH_URL_DOCKER, ...
+
+docker-compose
+  maps *_DOCKER -> service runtime env names
+
+gateway/langgraph config files
+  continue to read the canonical runtime names only
+```
 
 ## Runtime Path Contract
 

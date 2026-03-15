@@ -9,7 +9,7 @@ import (
 	"github.com/openagents/gateway/pkg/storage"
 )
 
-func TestListFilesystemAgentsSkipsBuiltinLeadAgent(t *testing.T) {
+func TestListFilesystemAgentsIncludesBuiltinLeadAgent(t *testing.T) {
 	t.Parallel()
 
 	baseDir := filepath.Join(t.TempDir(), ".openagents")
@@ -34,10 +34,76 @@ func TestListFilesystemAgentsSkipsBuiltinLeadAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("agentfs.ListAgents() error = %v", err)
 	}
-	if len(agents) != 1 {
-		t.Fatalf("len(agents) = %d, want 1", len(agents))
+	if len(agents) != 2 {
+		t.Fatalf("len(agents) = %d, want 2", len(agents))
 	}
-	if agents[0].Name != "contract-review-agent" {
-		t.Fatalf("agents[0].Name = %q, want %q", agents[0].Name, "contract-review-agent")
+	if agents[0].Name != "lead_agent" {
+		t.Fatalf("agents[0].Name = %q, want %q", agents[0].Name, "lead_agent")
+	}
+	if agents[1].Name != "contract-review-agent" {
+		t.Fatalf("agents[1].Name = %q, want %q", agents[1].Name, "contract-review-agent")
+	}
+}
+
+func TestDeleteBuiltinLeadAgentIsRejected(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	fsStore := storage.NewFS(baseDir)
+
+	err := agentfs.DeleteAgent(fsStore, "lead_agent", "")
+	if err == nil {
+		t.Fatal("expected deleting lead_agent to fail")
+	}
+}
+
+func TestLoadFilesystemAgentPreservesMemoryConfig(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	agentDir := filepath.Join(baseDir, "agents", "dev", "memory-agent")
+	if err := os.MkdirAll(agentDir, 0755); err != nil {
+		t.Fatalf("mkdir %s: %v", agentDir, err)
+	}
+
+	config := `name: memory-agent
+status: dev
+agents_md_path: AGENTS.md
+memory:
+  enabled: false
+  debounce_seconds: 45
+  max_facts: 150
+  fact_confidence_threshold: 0.9
+  injection_enabled: true
+  max_injection_tokens: 4096
+`
+	if err := os.WriteFile(filepath.Join(agentDir, "config.yaml"), []byte(config), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "AGENTS.md"), []byte("# memory-agent"), 0644); err != nil {
+		t.Fatalf("write AGENTS.md: %v", err)
+	}
+
+	agent, err := agentfs.LoadAgent(storage.NewFS(baseDir), "memory-agent", "dev", false)
+	if err != nil {
+		t.Fatalf("agentfs.LoadAgent() error = %v", err)
+	}
+	if agent == nil || agent.Memory == nil {
+		t.Fatal("expected agent memory config to be loaded")
+	}
+	if agent.Memory.DebounceSeconds != 45 {
+		t.Fatalf("agent.Memory.DebounceSeconds = %d, want 45", agent.Memory.DebounceSeconds)
+	}
+	if agent.Memory.MaxFacts != 150 {
+		t.Fatalf("agent.Memory.MaxFacts = %d, want 150", agent.Memory.MaxFacts)
+	}
+	if agent.Memory.FactConfidenceThreshold != 0.9 {
+		t.Fatalf("agent.Memory.FactConfidenceThreshold = %v, want 0.9", agent.Memory.FactConfidenceThreshold)
+	}
+	if !agent.Memory.InjectionEnabled {
+		t.Fatal("agent.Memory.InjectionEnabled = false, want true")
+	}
+	if agent.Memory.MaxInjectionTokens != 4096 {
+		t.Fatalf("agent.Memory.MaxInjectionTokens = %d, want 4096", agent.Memory.MaxInjectionTokens)
 	}
 }

@@ -77,7 +77,11 @@ cp ../../.env.example ../../.env
 说明：
 - 共享技能库位于 `OPENAGENTS_HOME/skills/`，默认即 `.openagents/skills/`
 - 当 `OPENAGENTS_HOME` 或 `storage.base_dir` 使用相对路径时，网关会按项目根目录解析，和 Python runtime 保持一致
-- 若通过 `docker/docker-compose-dev.yaml` 启动容器化开发环境，Compose 会额外区分：
+- 若通过 `docker/docker-compose-dev.yaml` 启动容器化开发环境，根 `.env` 仍是唯一配置源；其中：
+  - 不带后缀的变量是宿主机视角（例如 `LANGGRAPH_URL=http://localhost:2024`）
+  - `*_DOCKER` 变量是容器视角覆盖值（例如 `LANGGRAPH_URL_DOCKER=http://langgraph:2024`）
+  - Compose 只负责把 `*_DOCKER` 映射回服务内部真正读取的运行时变量名
+  - 路径仍通过下列变量区分 host/container：
   - `OPENAGENTS_DOCKER_HOST_HOME`：宿主机上的 `.openagents` 挂载路径
   - `OPENAGENTS_DOCKER_CONTAINER_HOME`：Gateway/LangGraph 容器内看到的运行时根路径
 
@@ -168,7 +172,8 @@ go run ./cmd/server
 说明：
 - `/api/memory` 必须显式传 `agent_name`；`agent_status` 省略时默认为 `dev`
 - 记忆文件固定存储在 `{OPENAGENTS_HOME}/users/{user_id}/agents/{status}/{agent_name}/memory.json`
-- Office 文件的 `?preview=pdf` 转换依赖宿主机可执行的 `soffice`（LibreOffice）。
+- Office 文件的 `?preview=pdf` 转换依赖运行 Gateway 的环境内可执行的 `soffice`（LibreOffice）。
+- `docker/docker-compose-dev.yaml` 构建的 Gateway 镜像已内置 LibreOffice；若直接在宿主机运行 Gateway，需要自行安装 `soffice`。
 - 即使未安装 LibreOffice，工作区内联预览仍可通过 `/api/threads/:id/office-config/*path` 走 ONLYOFFICE 编辑器。
 
 ### 开放式 API（API Token 认证）

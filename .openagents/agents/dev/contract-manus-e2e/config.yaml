@@ -1,0 +1,18 @@
+name: contract-manus-e2e
+status: dev
+agents_md_path: AGENTS.md
+description: Manus 风格的超长合同端到端审查智能体，重点用于企业法务、采购、销售团队的合同风险审查与谈判支持。
+skill_refs:
+  - name: contract-intake-or-indexing
+    materialized_path: skills/contract-intake-or-indexing
+  - name: contract-review-coordinator
+    materialized_path: skills/contract-review-coordinator
+  - name: contract-risk-output
+    materialized_path: skills/contract-risk-output
+memory:
+  enabled: false
+  debounce_seconds: 30
+  max_facts: 100
+  fact_confidence_threshold: 0.7
+  injection_enabled: true
+  max_injection_tokens: 2000

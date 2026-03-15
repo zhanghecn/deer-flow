@@ -20,21 +20,46 @@ def _load_config(config_path: Path) -> dict[str, Any]:
         return json.load(file)
 
 
-def _load_env_from_config(config_path: Path, config_data: dict[str, Any]) -> None:
-    env_config = config_data.get("env")
-    if not isinstance(env_config, str):
-        return
-
+def _resolve_env_path(config_path: Path, env_config: str) -> Path | None:
     env_path = Path(env_config)
     if not env_path.is_absolute():
         env_path = (config_path.parent / env_path).resolve()
     if not env_path.exists():
-        return
+        return None
+    return env_path
 
-    for key, value in dotenv_values(env_path).items():
-        if value is None or key in os.environ:
-            continue
-        os.environ[key] = value
+
+def _merge_runtime_env(env_values: dict[str, str]) -> dict[str, str]:
+    runtime_env: dict[str, str] = {}
+    for key, value in env_values.items():
+        effective_value = os.environ.get(key, value)
+        if key not in os.environ:
+            os.environ[key] = value
+        runtime_env[key] = effective_value
+    return runtime_env
+
+
+def _load_env_from_config(config_path: Path, config_data: dict[str, Any]) -> dict[str, str] | None:
+    env_config = config_data.get("env")
+    if isinstance(env_config, dict):
+        return _merge_runtime_env(
+            {str(key): str(value) for key, value in env_config.items() if value is not None}
+        )
+    if not isinstance(env_config, str):
+        return None
+
+    env_path = _resolve_env_path(config_path, env_config)
+    if env_path is None:
+        return None
+
+    loaded_env = {
+        key: value
+        for key, value in dotenv_values(env_path).items()
+        if value is not None
+    }
+    if not loaded_env:
+        return None
+    return _merge_runtime_env(loaded_env)
 
 
 def _parse_int_env(var_name: str, default: int) -> int:
@@ -67,7 +92,7 @@ def _has_postgres_runtime_backend() -> bool:
 def main() -> None:
     config_path = _resolve_config_path()
     config_data = _load_config(config_path)
-    _load_env_from_config(config_path, config_data)
+    runtime_env = _load_env_from_config(config_path, config_data)
 
     runtime_edition = (
         os.getenv("LANGGRAPH_RUNTIME_EDITION", "inmem").strip() or "inmem"
@@ -117,7 +142,9 @@ def main() -> None:
         port=port,
         reload=False,
         graphs=config_data.get("graphs", {}),
-        env=config_data.get("env"),
+        # Resolve env here so existing process/Docker env keeps priority over
+        # host-view values from a shared `.env` file.
+        env=runtime_env,
         auth=config_data.get("auth"),
         store=config_data.get("store"),
         http=config_data.get("http"),

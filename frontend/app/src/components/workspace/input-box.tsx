@@ -460,7 +460,7 @@ export function InputBox({
       onSubmit?.(
         {
           ...message,
-          text: resolvedCommand?.promptText ?? message.text,
+          text: message.text,
         },
         resolvedCommand?.extraContext,
       );

@@ -74,4 +74,7 @@ export interface AgentThreadContext extends Record<string, unknown> {
   subagent_enabled: boolean;
   reasoning_effort?: "minimal" | "low" | "medium" | "high";
   agent_name?: string;
+  agent_status?: "dev" | "prod";
+  execution_backend?: "remote";
+  remote_session_id?: string;
 }

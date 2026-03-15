@@ -91,7 +91,10 @@ def _ensure_lead_agent_archive_for_status(*, status: str, paths: Paths) -> None:
 
     agents_md_path = agent_dir / "AGENTS.md"
     builtin_agents_md = _BUILTIN_LEAD_AGENT_AGENTS_MD.read_text(encoding="utf-8")
-    if not agents_md_path.exists() or agents_md_path.read_text(encoding="utf-8") != builtin_agents_md:
+    # Seed the built-in prompt once, then treat the archived copy as the
+    # editable source of truth. This keeps the generic system prompt in code
+    # while letting lead_agent-specific instructions live under `.openagents`.
+    if not agents_md_path.exists():
         agents_md_path.write_text(builtin_agents_md, encoding="utf-8")
 
     config_path = agent_dir / "config.yaml"

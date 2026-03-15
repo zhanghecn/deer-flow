@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import shutil
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import yaml
 
@@ -107,6 +107,45 @@ def materialize_agent_skills(
     return skill_refs
 
 
+def materialize_inline_agent_skills(
+    *,
+    skills_dir: Path,
+    inline_skills: list[dict[str, str]] | None,
+) -> list[AgentSkillRef]:
+    """Write inline agent-owned skills directly into the agent skills directory."""
+
+    skill_refs: list[AgentSkillRef] = []
+    seen_names: set[str] = set()
+
+    for raw_skill in inline_skills or []:
+        name = str((raw_skill or {}).get("name") or "").strip()
+        content = str((raw_skill or {}).get("content") or "")
+        if not name:
+            raise ValueError("Inline agent skill requires a non-empty `name`.")
+        if not content.strip():
+            raise ValueError(f"Inline agent skill '{name}' requires non-empty `content`.")
+        if name in seen_names:
+            raise ValueError(f"Duplicate inline agent skill '{name}'.")
+
+        relative_path = PurePosixPath(name)
+        if relative_path.is_absolute() or ".." in relative_path.parts or not relative_path.parts:
+            raise ValueError(f"Inline agent skill '{name}' must use a safe relative name.")
+
+        skill_dir = skills_dir / relative_path
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        (skill_dir / "SKILL.md").write_text(content, encoding="utf-8")
+
+        skill_refs.append(
+            AgentSkillRef(
+                name=name,
+                materialized_path=PurePosixPath("skills", relative_path).as_posix(),
+            )
+        )
+        seen_names.add(name)
+
+    return skill_refs
+
+
 def _write_agent_manifest(
     *,
     agent_dir: Path,
@@ -149,6 +188,7 @@ def materialize_agent_definition(
     tool_groups: list[str] | None = None,
     mcp_servers: list[str] | None = None,
     skill_names: list[str] | None = None,
+    inline_skills: list[dict[str, str]] | None = None,
     memory: AgentMemoryConfig | dict | None = None,
     paths: Paths | None = None,
 ) -> AgentConfig:
@@ -161,11 +201,29 @@ def materialize_agent_definition(
     agents_md_path = agent_dir / AGENTS_MD_FILENAME
     agents_md_path.write_text(agents_md, encoding="utf-8")
 
-    skill_refs = materialize_agent_skills(
-        skills_dir=paths.agent_skills_dir(name, status),
+    skills_dir = paths.agent_skills_dir(name, status)
+    if skills_dir.exists():
+        shutil.rmtree(skills_dir)
+    skills_dir.mkdir(parents=True, exist_ok=True)
+
+    copied_skill_refs = materialize_agent_skills(
+        skills_dir=skills_dir,
         skill_names=skill_names,
         paths=paths,
     )
+    inline_skill_refs = materialize_inline_agent_skills(
+        skills_dir=skills_dir,
+        inline_skills=inline_skills,
+    )
+    duplicate_names = {ref.name for ref in copied_skill_refs} & {
+        ref.name for ref in inline_skill_refs
+    }
+    if duplicate_names:
+        joined = ", ".join(sorted(duplicate_names))
+        raise ValueError(
+            f"Agent definition duplicates skill names across copied and inline skills: {joined}."
+        )
+    skill_refs = copied_skill_refs + inline_skill_refs
 
     memory_config = memory if isinstance(memory, AgentMemoryConfig) else AgentMemoryConfig.model_validate(memory or {})
 

@@ -1,0 +1,18 @@
+name: contract-manus-counsel
+status: dev
+agents_md_path: AGENTS.md
+description: 面向企业法务、采购、销售团队的 Manus 风格长合同审查智能体。
+skill_refs:
+  - name: contract-indexing
+    materialized_path: skills/contract-indexing
+  - name: contract-review-coordinator
+    materialized_path: skills/contract-review-coordinator
+  - name: contract-risk-output
+    materialized_path: skills/contract-risk-output
+memory:
+  enabled: false
+  debounce_seconds: 30
+  max_facts: 100
+  fact_confidence_threshold: 0.7
+  injection_enabled: true
+  max_injection_tokens: 2000

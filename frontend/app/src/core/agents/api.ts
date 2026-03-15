@@ -1,17 +1,29 @@
 import { authFetch } from "@/core/auth/fetch";
 import { getBackendBaseURL } from "@/core/config";
 
-import type { Agent, CreateAgentRequest, UpdateAgentRequest } from "./types";
+import type {
+  Agent,
+  AgentStatus,
+  CreateAgentRequest,
+  UpdateAgentRequest,
+} from "./types";
 
-export async function listAgents(): Promise<Agent[]> {
-  const res = await authFetch(`${getBackendBaseURL()}/api/agents`);
+export async function listAgents(status?: AgentStatus): Promise<Agent[]> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  const res = await authFetch(`${getBackendBaseURL()}/api/agents${query}`);
   if (!res.ok) throw new Error(`Failed to load agents: ${res.statusText}`);
   const data = (await res.json()) as { agents: Agent[] };
   return data.agents;
 }
 
-export async function getAgent(name: string): Promise<Agent> {
-  const res = await authFetch(`${getBackendBaseURL()}/api/agents/${name}`);
+export async function getAgent(
+  name: string,
+  status?: AgentStatus,
+): Promise<Agent> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  const res = await authFetch(
+    `${getBackendBaseURL()}/api/agents/${name}${query}`,
+  );
   if (!res.ok) throw new Error(`Agent '${name}' not found`);
   return res.json() as Promise<Agent>;
 }

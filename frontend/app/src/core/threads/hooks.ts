@@ -52,6 +52,11 @@ function resolveThreadContext(context: ThreadContext): ThreadContext {
     reasoning_effort:
       context.reasoning_effort ?? storedContext.reasoning_effort,
     agent_name: context.agent_name ?? storedContext.agent_name,
+    agent_status: context.agent_status ?? storedContext.agent_status,
+    execution_backend:
+      context.execution_backend ?? storedContext.execution_backend,
+    remote_session_id:
+      context.remote_session_id ?? storedContext.remote_session_id,
   };
 }
 
@@ -591,8 +596,14 @@ export function useThreadStream({
     () =>
       cloneThreadStream(mergedThread, {
         values: mergedThreadValues,
+        ...(historyEnabled
+          ? {}
+          : {
+              history: [],
+              experimental_branchTree: undefined,
+            }),
       }),
-    [mergedThread, mergedThreadValues],
+    [mergedThread, mergedThreadValues, historyEnabled],
   );
 
   return [enrichedThread, sendMessage, resumeInterrupt] as const;

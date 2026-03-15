@@ -50,3 +50,25 @@ def test_ensure_builtin_agent_archive_rewrites_legacy_skills_mode(tmp_path, monk
         "source_path": "shared/bootstrap",
     }
     assert (paths.shared_skills_dir / "bootstrap" / "SKILL.md").read_text(encoding="utf-8").strip().endswith("bootstrap")
+
+
+def test_ensure_builtin_agent_archive_preserves_archived_agents_md(tmp_path, monkeypatch):
+    monkeypatch.setattr(builtin_agents, "_ENSURED_ARCHIVES", set())
+
+    base_dir = tmp_path / ".openagents"
+    shared_skill_dir = base_dir / "skills" / "shared" / "bootstrap"
+    shared_skill_dir.mkdir(parents=True, exist_ok=True)
+    (shared_skill_dir / "SKILL.md").write_text(
+        "---\nname: bootstrap\ndescription: bootstrap\n---\n\nbootstrap\n",
+        encoding="utf-8",
+    )
+
+    paths = Paths(base_dir=base_dir, skills_dir=base_dir / "skills")
+    agent_dir = paths.agent_dir("lead_agent", "dev")
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    customized_agents_md = "# Lead Agent\n\nCustom archived prompt.\n"
+    (agent_dir / "AGENTS.md").write_text(customized_agents_md, encoding="utf-8")
+
+    builtin_agents.ensure_builtin_agent_archive("lead_agent", status="dev", paths=paths)
+
+    assert (agent_dir / "AGENTS.md").read_text(encoding="utf-8") == customized_agents_md

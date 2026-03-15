@@ -3,6 +3,7 @@
 import {
   BotIcon,
   BrainIcon,
+  CopyIcon,
   MessageSquareIcon,
   RocketIcon,
   Trash2Icon,
@@ -30,6 +31,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useDeleteAgent, usePublishAgent } from "@/core/agents";
+import { buildWorkspaceAgentPath } from "@/core/agents";
 import type { Agent } from "@/core/agents";
 import { useI18n } from "@/core/i18n/hooks";
 
@@ -53,9 +55,23 @@ export function AgentCard({ agent }: AgentCardProps) {
   const isProd = agent.status === "prod";
   const memoryEnabled = agent.memory?.enabled ?? false;
   const memoryLabel = getAgentMemoryBadgeLabel(agent);
+  const isBuiltinLeadAgent = agent.name === "lead_agent";
+  const launchPath = buildWorkspaceAgentPath({
+    agentName: agent.name,
+    agentStatus: agent.status,
+  });
 
   function handleChat() {
-    router.push(`/workspace/agents/${agent.name}/chats/new`);
+    router.push(launchPath);
+  }
+
+  async function handleCopyLaunchURL() {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}${launchPath}`);
+      toast.success("Demo URL copied");
+    } catch {
+      toast.error("Failed to copy demo URL");
+    }
   }
 
   async function handlePublish() {
@@ -139,7 +155,11 @@ export function AgentCard({ agent }: AgentCardProps) {
         <CardFooter className="mt-auto flex items-center justify-between gap-2 pt-3">
           <Button size="sm" className="flex-1" onClick={handleChat}>
             <MessageSquareIcon className="mr-1.5 h-3.5 w-3.5" />
-            {t.agents.chat}
+            Open Demo
+          </Button>
+          <Button size="sm" variant="outline" onClick={handleCopyLaunchURL}>
+            <CopyIcon className="mr-1.5 h-3.5 w-3.5" />
+            Copy URL
           </Button>
           <div className="flex gap-1">
             {!isProd && (
@@ -154,15 +174,17 @@ export function AgentCard({ agent }: AgentCardProps) {
                 <RocketIcon className="h-3.5 w-3.5" />
               </Button>
             )}
-            <Button
-              size="icon"
-              variant="ghost"
-              className="text-destructive hover:text-destructive h-8 w-8 shrink-0"
-              onClick={() => setDeleteOpen(true)}
-              title={t.agents.delete}
-            >
-              <Trash2Icon className="h-3.5 w-3.5" />
-            </Button>
+            {!isBuiltinLeadAgent && (
+              <Button
+                size="icon"
+                variant="ghost"
+                className="text-destructive hover:text-destructive h-8 w-8 shrink-0"
+                onClick={() => setDeleteOpen(true)}
+                title={t.agents.delete}
+              >
+                <Trash2Icon className="h-3.5 w-3.5" />
+              </Button>
+            )}
           </div>
         </CardFooter>
       </Card>

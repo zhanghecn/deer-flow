@@ -152,12 +152,18 @@ class AioSandboxProvider(SandboxProvider):
         """Load sandbox configuration from app config."""
         config = get_app_config()
         sandbox_config = config.sandbox
+        runtime_base_url = str(os.getenv("OPENAGENTS_SANDBOX_BASE_URL", "")).strip()
+        runtime_shared_mount = str(os.getenv("OPENAGENTS_SANDBOX_SHARED_DATA_MOUNT_PATH", "")).strip()
 
         return {
             "image": sandbox_config.image or DEFAULT_IMAGE,
             "port": sandbox_config.port or DEFAULT_PORT,
-            "base_url": sandbox_config.base_url,
-            "shared_data_mount_path": getattr(sandbox_config, "shared_data_mount_path", None) or "",
+            # Runtime env must win here. This keeps Docker/server deployments
+            # predictable when the shared config file still carries host-view values.
+            "base_url": runtime_base_url or sandbox_config.base_url,
+            "shared_data_mount_path": runtime_shared_mount
+            or getattr(sandbox_config, "shared_data_mount_path", None)
+            or "",
             "auto_start": sandbox_config.auto_start if sandbox_config.auto_start is not None else True,
             "container_prefix": sandbox_config.container_prefix or DEFAULT_CONTAINER_PREFIX,
             "idle_timeout": getattr(sandbox_config, "idle_timeout", None) or DEFAULT_IDLE_TIMEOUT,

@@ -2,14 +2,19 @@
 
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   PromptInputProvider,
   type PromptInputMessage,
 } from "@/components/ai-elements/prompt-input";
+import { AgentRuntimeControls } from "@/components/workspace/agent-runtime-controls";
 import { InputBox } from "@/components/workspace/input-box";
 import { Welcome } from "@/components/workspace/welcome";
+import {
+  buildWorkspaceAgentPath,
+  readAgentRuntimeSelection,
+} from "@/core/agents";
 import { useI18n } from "@/core/i18n/hooks";
 import { useLocalSettings } from "@/core/settings";
 import { env } from "@/env";
@@ -32,6 +37,20 @@ export default function NewChatClient() {
     Record<string, unknown> | undefined
   >(undefined);
   const isMock = searchParams.get("mock") === "true";
+  const runtimeSelection = useMemo(
+    () => readAgentRuntimeSelection(searchParams),
+    [searchParams],
+  );
+  const runtimeContext = useMemo(
+    () => ({
+      ...settings.context,
+      agent_name: runtimeSelection.agentName,
+      agent_status: runtimeSelection.agentStatus,
+      execution_backend: runtimeSelection.executionBackend,
+      remote_session_id: runtimeSelection.remoteSessionId || undefined,
+    }),
+    [runtimeSelection, settings.context],
+  );
 
   const inputInitialValue = (() => {
     if (searchParams.get("mode") !== "skill") {
@@ -48,23 +67,82 @@ export default function NewChatClient() {
     [],
   );
 
+  useEffect(() => {
+    setSettings("context", {
+      agent_name: runtimeSelection.agentName,
+      agent_status: runtimeSelection.agentStatus,
+      execution_backend: runtimeSelection.executionBackend,
+      remote_session_id: runtimeSelection.remoteSessionId || undefined,
+    });
+  }, [
+    runtimeSelection.agentName,
+    runtimeSelection.agentStatus,
+    runtimeSelection.executionBackend,
+    runtimeSelection.remoteSessionId,
+    setSettings,
+  ]);
+
+  const handleRuntimeChange = useCallback(
+    (nextValue: {
+      agent_name?: string;
+      agent_status?: "dev" | "prod";
+      execution_backend?: "remote";
+      remote_session_id?: string;
+    }) => {
+      setSettings("context", nextValue);
+      router.replace(
+        buildWorkspaceAgentPath({
+          agentName: nextValue.agent_name,
+          agentStatus: nextValue.agent_status,
+          executionBackend: nextValue.execution_backend,
+          remoteSessionId: nextValue.remote_session_id,
+        }),
+      );
+    },
+    [router, setSettings],
+  );
+
+  const buildStartedThreadPath = useCallback(
+    (threadId: string) => {
+      const basePath = buildWorkspaceAgentPath(
+        {
+          agentName: runtimeSelection.agentName,
+          agentStatus: runtimeSelection.agentStatus,
+          executionBackend: runtimeSelection.executionBackend,
+          remoteSessionId: runtimeSelection.remoteSessionId,
+        },
+        threadId,
+      );
+
+      if (!isMock) {
+        return basePath;
+      }
+
+      const separator = basePath.includes("?") ? "&" : "?";
+      return `${basePath}${separator}mock=true`;
+    },
+    [
+      isMock,
+      runtimeSelection.agentName,
+      runtimeSelection.agentStatus,
+      runtimeSelection.executionBackend,
+      runtimeSelection.remoteSessionId,
+    ],
+  );
+
   if (pendingMessage) {
     return (
-        <NewChatSender
-          message={pendingMessage}
-          extraContext={pendingExtraContext}
-          context={settings.context}
-          isMock={isMock}
-          onError={() => {
-            setPendingMessage(null);
-            setPendingExtraContext(undefined);
-          }}
-          onStartedThread={(threadId) => {
-            router.replace(
-              isMock
-              ? `/workspace/chats/${threadId}?mock=true`
-              : `/workspace/chats/${threadId}`,
-          );
+      <NewChatSender
+        message={pendingMessage}
+        extraContext={pendingExtraContext}
+        context={runtimeContext}
+        isMock={isMock}
+        onError={() => {
+          setPendingMessage(null);
+          setPendingExtraContext(undefined);
+        }}
+        onStartedThread={(threadId) => {
+          router.replace(buildStartedThreadPath(threadId));
         }}
       />
     );
@@ -81,9 +159,24 @@ export default function NewChatClient() {
                 isNewThread
                 autoFocus
                 status="ready"
-                context={settings.context}
+                context={runtimeContext}
                 initialValue={inputInitialValue}
-                extraHeader={<Welcome mode={settings.context.mode} />}
+                extraHeader={
+                  <div className="mx-auto w-full max-w-(--container-width-md) space-y-2 px-2">
+                    <AgentRuntimeControls
+                      value={{
+                        agent_name: runtimeSelection.agentName,
+                        agent_status: runtimeSelection.agentStatus,
+                        execution_backend: runtimeSelection.executionBackend,
+                        remote_session_id:
+                          runtimeSelection.remoteSessionId || undefined,
+                      }}
+                      onValueChange={handleRuntimeChange}
+                      showLaunchActions
+                    />
+                    <Welcome mode={runtimeContext.mode} />
+                  </div>
+                }
                 disabled={env.NEXT_PUBLIC_STATIC_WEBSITE_ONLY === "true"}
                 onContextChange={(context) => setSettings("context", context)}
                 onSubmit={handleSubmit}

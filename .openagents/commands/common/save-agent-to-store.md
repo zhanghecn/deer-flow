@@ -6,6 +6,6 @@ authoring_actions:
   - save_agent_to_store
 ---
 
-用户已明确确认：现在允许把当前 agent 草稿或当前线程里的 dev 运行时修改版保存到 `.openagents/agents/dev`。
+用户已明确确认：现在允许把当前 agent 草稿或当前线程里的 dev 运行时修改版保存到当前项目的 dev agent 仓库。
 如果条件满足，请调用 `save_agent_to_store`。
 附加说明：{{user_text}}

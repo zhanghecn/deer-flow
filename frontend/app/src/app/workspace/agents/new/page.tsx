@@ -3,7 +3,7 @@
 import type { Command } from "@langchain/langgraph-sdk";
 import { ArrowLeftIcon, BotIcon, CheckCircleIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   PromptInput,
@@ -21,6 +21,7 @@ import type { Agent } from "@/core/agents";
 import { checkAgentName, getAgent } from "@/core/agents/api";
 import { resolveCommandIntent } from "@/core/commands/transform";
 import { useI18n } from "@/core/i18n/hooks";
+import { useModels } from "@/core/models/hooks";
 import { useLocalSettings } from "@/core/settings";
 import { useThreadStream } from "@/core/threads/hooks";
 import { uuid } from "@/core/utils/uuid";
@@ -33,7 +34,25 @@ const NAME_RE = /^[A-Za-z0-9-]+$/;
 export default function NewAgentPage() {
   const { t } = useI18n();
   const router = useRouter();
-  const [settings] = useLocalSettings();
+  const [settings, setSettings] = useLocalSettings();
+  const { models } = useModels();
+  const resolvedContext = useMemo(
+    () => ({
+      ...settings.context,
+      model_name: settings.context.model_name ?? models[0]?.name,
+    }),
+    [models, settings.context],
+  );
+
+  useEffect(() => {
+    if (settings.context.model_name || !models[0]?.name) {
+      return;
+    }
+    setSettings("context", {
+      ...settings.context,
+      model_name: models[0].name,
+    });
+  }, [models, setSettings, settings.context]);
 
   // ── Step 1: name form ──────────────────────────────────────────────────────
   const [step, setStep] = useState<Step>("name");
@@ -48,7 +67,7 @@ export default function NewAgentPage() {
   const threadId = useMemo(() => uuid(), []);
 
   const [thread, sendMessage, resumeInterrupt] = useThreadStream({
-    context: settings.context,
+    context: resolvedContext,
     onToolEnd({ name }) {
       if (!["setup_agent", "save_agent_to_store"].includes(name) || !agentName) {
         return;
@@ -86,17 +105,16 @@ export default function NewAgentPage() {
     }
     setAgentName(trimmed);
     setStep("chat");
+    const initialText = `/create-agent 请帮我创建一个名为 ${trimmed} 的智能体，并先从需求澄清开始。`;
     const createCommand =
-      resolveCommandIntent(
-        `/create-agent 请帮我创建一个名为 ${trimmed} 的智能体，并先从需求澄清开始。`,
-      ) ??
+      resolveCommandIntent(initialText) ??
       (() => {
         throw new Error("Missing create-agent command registry");
       })();
     await sendMessage(
       threadId,
       {
-        text: createCommand.promptText,
+        text: initialText,
         files: [],
       },
       {
@@ -128,7 +146,7 @@ export default function NewAgentPage() {
       await sendMessage(
         threadId,
         {
-          text: resolvedCommand?.promptText ?? trimmed,
+          text: trimmed,
           files: [],
         },
         {

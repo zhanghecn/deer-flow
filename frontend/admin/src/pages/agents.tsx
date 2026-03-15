@@ -26,6 +26,7 @@ export function AgentsPage() {
       <AgentDetail
         agent={detailAgent}
         open={!!detailAgent}
+        onSaved={refetch}
         onOpenChange={(open) => !open && setDetailAgent(null)}
       />
     </div>

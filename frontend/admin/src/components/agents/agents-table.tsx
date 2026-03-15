@@ -75,8 +75,23 @@ export function AgentsTable({
         </TableHeader>
         <TableBody>
           {agents.map((agent) => (
-            <TableRow key={`${agent.name}:${agent.status}`}>
-              <TableCell className="font-mono text-sm">{agent.name}</TableCell>
+            <TableRow
+              key={`${agent.name}:${agent.status}`}
+              className="cursor-pointer"
+              onClick={() => onViewDetail(agent)}
+            >
+              <TableCell className="font-mono text-sm">
+                <button
+                  type="button"
+                  className="text-left hover:underline"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onViewDetail(agent);
+                  }}
+                >
+                  {agent.name}
+                </button>
+              </TableCell>
               <TableCell className="text-muted-foreground text-sm">
                 {agent.model || "-"}
               </TableCell>
@@ -100,13 +115,16 @@ export function AgentsTable({
                 <div className="flex items-center justify-end gap-1">
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => onViewDetail(agent)}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onViewDetail(agent);
+                          }}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
                     </TooltipTrigger>
                     <TooltipContent>View Details</TooltipContent>
                   </Tooltip>
@@ -116,7 +134,10 @@ export function AgentsTable({
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => handlePublish(agent)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handlePublish(agent);
+                          }}
                         >
                           <Rocket className="h-4 w-4 text-emerald-600" />
                         </Button>

@@ -10,23 +10,30 @@ import {
   publishAgent,
   updateAgent,
 } from "./api";
-import type { CreateAgentRequest, UpdateAgentRequest } from "./types";
+import type {
+  AgentStatus,
+  CreateAgentRequest,
+  UpdateAgentRequest,
+} from "./types";
 
-export function useAgents() {
+export function useAgents(status?: AgentStatus) {
   const { authenticated } = useAuth();
   const { data, isLoading, error } = useQuery({
-    queryKey: ["agents"],
-    queryFn: () => listAgents(),
+    queryKey: ["agents", status ?? "all"],
+    queryFn: () => listAgents(status),
     enabled: authenticated,
   });
   return { agents: data ?? [], isLoading, error };
 }
 
-export function useAgent(name: string | null | undefined) {
+export function useAgent(
+  name: string | null | undefined,
+  status?: AgentStatus,
+) {
   const { authenticated } = useAuth();
   const { data, isLoading, error } = useQuery({
-    queryKey: ["agents", name],
-    queryFn: () => getAgent(name!),
+    queryKey: ["agents", name, status ?? "dev"],
+    queryFn: () => getAgent(name!, status),
     enabled: authenticated && !!name,
   });
   return { agent: data ?? null, isLoading, error };

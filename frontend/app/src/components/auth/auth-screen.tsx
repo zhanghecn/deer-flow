@@ -59,7 +59,7 @@ export function AuthScreen() {
     setIsLoginLoading(true);
     try {
       await login(loginAccount, loginPassword);
-      router.push("/workspace");
+      window.location.assign("/workspace");
     } catch (err) {
       setLoginError(err instanceof Error ? err.message : t.auth.loginFailed);
     } finally {
@@ -82,7 +82,7 @@ export function AuthScreen() {
     setIsRegisterLoading(true);
     try {
       await register(registerEmail, registerPassword, registerName);
-      router.push("/workspace");
+      window.location.assign("/workspace");
     } catch (err) {
       setRegisterError(
         err instanceof Error ? err.message : t.auth.registrationFailed,

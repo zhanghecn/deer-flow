@@ -8,6 +8,9 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
     model_name: undefined,
     mode: undefined,
     reasoning_effort: undefined,
+    agent_status: "dev",
+    execution_backend: undefined,
+    remote_session_id: undefined,
   },
   layout: {
     sidebar_collapsed: false,

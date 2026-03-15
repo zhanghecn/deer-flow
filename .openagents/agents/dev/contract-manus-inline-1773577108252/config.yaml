@@ -1,0 +1,16 @@
+name: contract-manus-inline-1773577108252
+description: 合同审查智能体，参考 Manus 多智能体协作模式设计。能够处理超长合同，通过切分、索引、并行审查的方式，全面识别付款、免责、赔偿、责任限制、终止、适用法律、争议解决、自动续期、单方变更、数据使用等风险维度。
+status: dev
+agents_md_path: AGENTS.md
+skill_refs:
+- name: contract-indexing
+  materialized_path: skills/contract-indexing
+- name: contract-review
+  materialized_path: skills/contract-review
+memory:
+  enabled: false
+  debounce_seconds: 30
+  max_facts: 100
+  fact_confidence_threshold: 0.7
+  injection_enabled: true
+  max_injection_tokens: 2000

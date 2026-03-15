@@ -45,13 +45,13 @@ type Agent struct {
 }
 
 type AgentMemoryConfig struct {
-	Enabled                 bool    `json:"enabled"`
-	ModelName               *string `json:"model_name,omitempty"`
-	DebounceSeconds         int     `json:"debounce_seconds"`
-	MaxFacts                int     `json:"max_facts"`
-	FactConfidenceThreshold float64 `json:"fact_confidence_threshold"`
-	InjectionEnabled        bool    `json:"injection_enabled"`
-	MaxInjectionTokens      int     `json:"max_injection_tokens"`
+	Enabled                 bool    `json:"enabled" yaml:"enabled"`
+	ModelName               *string `json:"model_name,omitempty" yaml:"model_name,omitempty"`
+	DebounceSeconds         int     `json:"debounce_seconds" yaml:"debounce_seconds"`
+	MaxFacts                int     `json:"max_facts" yaml:"max_facts"`
+	FactConfidenceThreshold float64 `json:"fact_confidence_threshold" yaml:"fact_confidence_threshold"`
+	InjectionEnabled        bool    `json:"injection_enabled" yaml:"injection_enabled"`
+	MaxInjectionTokens      int     `json:"max_injection_tokens" yaml:"max_injection_tokens"`
 }
 
 // Skill is a filesystem-backed skill definition stored under `.openagents/skills/`.

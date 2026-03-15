@@ -211,7 +211,7 @@ def test_make_lead_agent_reads_runtime_context_and_persists_thread_runtime(monke
     monkeypatch.setattr(
         lead_agent_module,
         "build_backend",
-        lambda thread_id, agent_name, status="dev", agent_config=None: None,
+        lambda thread_id, agent_name, status="dev", agent_config=None, **kwargs: None,
     )
     monkeypatch.setattr(
         lead_agent_module,
@@ -308,7 +308,7 @@ def test_make_lead_agent_reuses_cached_graph_for_identical_request(monkeypatch, 
     monkeypatch.setattr(
         lead_agent_module,
         "build_backend",
-        lambda thread_id, agent_name, status="dev", agent_config=None: {"thread_id": thread_id},
+        lambda thread_id, agent_name, status="dev", agent_config=None, **kwargs: {"thread_id": thread_id},
     )
     monkeypatch.setattr(
         lead_agent_module,
@@ -383,7 +383,7 @@ def test_make_lead_agent_accepts_header_injected_user_id(monkeypatch, tmp_path):
     monkeypatch.setattr(
         lead_agent_module,
         "build_backend",
-        lambda thread_id, agent_name, status="dev", agent_config=None: None,
+        lambda thread_id, agent_name, status="dev", agent_config=None, **kwargs: None,
     )
     monkeypatch.setattr(
         lead_agent_module,
@@ -479,17 +479,35 @@ def test_make_lead_agent_disables_skills_and_subagents_for_hard_authoring_comman
 
     import src.tools as tools_module
 
+    paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / "skills")
+    command_file = paths.common_command_file("save-skill-to-store")
+    command_file.parent.mkdir(parents=True, exist_ok=True)
+    command_file.write_text(
+        """---
+name: save-skill-to-store
+kind: hard
+description: 确认将当前 skill 草稿保存到 dev 仓库
+authoring_actions:
+  - save_skill_to_store
+---
+
+用户已明确确认：请保存当前 skill。
+附加说明：{{user_text}}
+""",
+        encoding="utf-8",
+    )
+
     monkeypatch.setattr(
         lead_agent_module,
         "get_paths",
-        lambda: Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / "skills"),
+        lambda: paths,
     )
     monkeypatch.setattr(lead_agent_module, "get_runtime_db_store", lambda: store)
     monkeypatch.setattr(tools_module, "get_available_tools", lambda **kwargs: [])
     monkeypatch.setattr(
         lead_agent_module,
         "build_backend",
-        lambda thread_id, agent_name, status="dev", agent_config=None: None,
+        lambda thread_id, agent_name, status="dev", agent_config=None, **kwargs: None,
     )
     monkeypatch.setattr(
         lead_agent_module,
@@ -515,10 +533,7 @@ def test_make_lead_agent_disables_skills_and_subagents_for_hard_authoring_comman
                     "user_id": "user-1",
                     "model_name": "safe-model",
                     "subagent_enabled": True,
-                    "command_name": "save_skill_to_store",
-                    "command_kind": "hard",
-                    "command_args": "nda-clause-checker",
-                    "authoring_actions": ["save_skill_to_store"],
+                    "original_user_input": "/save-skill-to-store nda-clause-checker",
                 }
             },
             runtime=None,
@@ -529,7 +544,8 @@ def test_make_lead_agent_disables_skills_and_subagents_for_hard_authoring_comman
     assert result["subagents"] is None
     assert result["context_schema"] is lead_agent_module.LeadAgentRuntimeContext
     assert result["interrupt_on"] == lead_agent_module.LEAD_AGENT_INTERRUPT_ON
-    assert captured_prompt_kwargs["command_name"] == "save_skill_to_store"
+    assert captured_prompt_kwargs["command_name"] == "save-skill-to-store"
     assert captured_prompt_kwargs["command_kind"] == "hard"
     assert captured_prompt_kwargs["command_args"] == "nda-clause-checker"
     assert captured_prompt_kwargs["authoring_actions"] == ("save_skill_to_store",)
+    assert "nda-clause-checker" in str(captured_prompt_kwargs["command_prompt"])

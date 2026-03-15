@@ -27,6 +27,7 @@ from src.config.builtin_agents import (
     ensure_builtin_agent_archive,
     normalize_effective_agent_name,
 )
+from src.config.commands_config import resolve_runtime_command
 from src.config.model_config import ModelConfig
 from src.config.paths import VIRTUAL_PATH_PREFIX, Paths, get_paths
 from src.config.runtime_db import RuntimeDBStore, get_runtime_db_store
@@ -111,7 +112,9 @@ class LeadAgentRequest:
     command_name: str | None
     command_kind: str | None
     command_args: str | None
+    command_prompt: str | None
     authoring_actions: tuple[str, ...]
+    target_agent_name: str | None
     agent_name: str
     agent_status: str
     thread_id: str | None
@@ -130,6 +133,9 @@ class LeadAgentRequest:
         """
 
         return self.command_kind == "hard" and len(self.authoring_actions) > 0
+
+    def allows_agent_setup(self) -> bool:
+        return self.command_name == "create-agent" and bool(self.target_agent_name)
 
 
 @dataclass(frozen=True)
@@ -576,6 +582,7 @@ def _load_agent_tools(
     model_supports_vision: bool,
     agent_status: str,
     authoring_actions: tuple[str, ...],
+    setup_agent_enabled: bool,
 ):
     from src.tools import get_available_tools
 
@@ -586,6 +593,7 @@ def _load_agent_tools(
         mcp_servers=agent_config.mcp_servers,
         agent_status=agent_status,
         authoring_actions=list(authoring_actions),
+        setup_agent_enabled=setup_agent_enabled,
     )
 
 
@@ -697,16 +705,27 @@ def _resolve_lead_agent_request(
     runtime: ServerRuntime | None,
 ) -> LeadAgentRequest:
     cfg = _load_configurable_payload(config, runtime)
+    command_resolution = resolve_runtime_command(
+        command_name=_coerce_optional_str(cfg.get("command_name")),
+        command_kind=_coerce_optional_str(cfg.get("command_kind")),
+        command_args=_coerce_optional_str(cfg.get("command_args")),
+        authoring_actions=_coerce_optional_str_list(cfg.get("authoring_actions")),
+        original_user_input=_coerce_optional_str(cfg.get("original_user_input")),
+        target_agent_name=_coerce_optional_str(cfg.get("target_agent_name")),
+        paths=get_paths(),
+    )
     return LeadAgentRequest(
         thinking_enabled=cfg.get("thinking_enabled", True),
         reasoning_effort=cfg.get("reasoning_effort"),
         requested_model_name=_coerce_optional_str(cfg.get("model_name") or cfg.get("model")),
         subagent_enabled=cfg.get("subagent_enabled", False),
         max_concurrent_subagents=cfg.get("max_concurrent_subagents", 3),
-        command_name=_coerce_optional_str(cfg.get("command_name")),
-        command_kind=_coerce_optional_str(cfg.get("command_kind")),
-        command_args=_coerce_optional_str(cfg.get("command_args")),
-        authoring_actions=_coerce_optional_str_list(cfg.get("authoring_actions")),
+        command_name=command_resolution.name,
+        command_kind=command_resolution.kind,
+        command_args=command_resolution.args,
+        command_prompt=command_resolution.prompt,
+        authoring_actions=command_resolution.authoring_actions,
+        target_agent_name=command_resolution.target_agent_name,
         agent_name=normalize_effective_agent_name(_coerce_optional_str(cfg.get("agent_name"))),
         agent_status=_resolve_agent_status(cfg.get("agent_status", "dev")),
         thread_id=_coerce_optional_str(cfg.get("thread_id") or cfg.get("x-thread-id")),
@@ -908,6 +927,7 @@ def _build_system_prompt(
         command_name=request.command_name,
         command_kind=request.command_kind,
         command_args=request.command_args,
+        command_prompt=request.command_prompt,
         authoring_actions=request.authoring_actions,
     )
 
@@ -931,6 +951,7 @@ def _build_graph_parts(
         model_supports_vision=resolution.model_config.supports_vision,
         agent_status=request.agent_status,
         authoring_actions=request.authoring_actions,
+        setup_agent_enabled=request.allows_agent_setup(),
     )
     return LeadAgentGraphParts(
         tools=tools,

@@ -12,8 +12,48 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 DOCKER_DIR="$PROJECT_ROOT/docker"
 
-# Docker Compose command with project name
-COMPOSE_CMD="docker compose -p openagents-dev -f docker-compose-dev.yaml"
+# Docker Compose arguments. Always load the shared root `.env` so compose
+# interpolation and service env_file use the same source of truth.
+COMPOSE_ARGS=(--env-file "$PROJECT_ROOT/.env" -p openagents-dev -f docker-compose-dev.yaml)
+
+dotenv_get() {
+    local key="$1"
+    local env_file="$PROJECT_ROOT/.env"
+
+    if [ ! -f "$env_file" ]; then
+        return 1
+    fi
+
+    awk -v key="$key" '
+        $0 ~ "^[[:space:]]*" key "=" {
+            line=$0
+            sub(/^[[:space:]]*[^=]+=/, "", line)
+            gsub(/\r$/, "", line)
+            print line
+            exit
+        }
+    ' "$env_file"
+}
+
+load_root_env_defaults() {
+    local key
+    local value
+
+    for key in \
+        OPENAGENTS_HOME \
+        OPENAGENTS_DOCKER_HOST_HOME \
+        OPENAGENTS_DOCKER_CONTAINER_HOME \
+        SANDBOX_AIO_IMAGE \
+        NGINX_CONF; do
+        if [ -n "${!key:-}" ]; then
+            continue
+        fi
+        value="$(dotenv_get "$key" || true)"
+        if [ -n "$value" ]; then
+            export "$key=$value"
+        fi
+    done
+}
 
 detect_sandbox_mode() {
     local config_file="$PROJECT_ROOT/config.yaml"
@@ -123,11 +163,11 @@ start() {
     sandbox_mode="$(detect_sandbox_mode)"
 
     if [ "$sandbox_mode" = "provisioner" ]; then
-        services="frontend gateway langgraph provisioner nginx"
+        services="frontend gateway langgraph onlyoffice provisioner nginx"
     elif [ "$sandbox_mode" = "aio" ]; then
-        services="sandbox-aio frontend gateway langgraph nginx"
+        services="sandbox-aio frontend gateway langgraph onlyoffice nginx"
     else
-        services="frontend gateway langgraph nginx"
+        services="frontend gateway langgraph onlyoffice nginx"
     fi
 
     echo -e "${BLUE}Detected sandbox mode: $sandbox_mode${NC}"
@@ -144,7 +184,7 @@ start() {
     echo ""
 
     echo "Building and starting containers..."
-    cd "$DOCKER_DIR" && $COMPOSE_CMD up --build -d --remove-orphans $services
+    cd "$DOCKER_DIR" && docker compose "${COMPOSE_ARGS[@]}" up --build -d --remove-orphans $services
     echo ""
     echo "=========================================="
     echo "  OpenAgents Docker is starting!"
@@ -194,13 +234,13 @@ logs() {
             ;;
     esac
     
-    cd "$DOCKER_DIR" && $COMPOSE_CMD logs -f $service
+    cd "$DOCKER_DIR" && docker compose "${COMPOSE_ARGS[@]}" logs -f $service
 }
 
 # Stop Docker development environment
 stop() {
     echo "Stopping Docker development services..."
-    cd "$DOCKER_DIR" && $COMPOSE_CMD down
+    cd "$DOCKER_DIR" && docker compose "${COMPOSE_ARGS[@]}" down
     echo -e "${GREEN}✓ Docker services stopped${NC}"
 }
 
@@ -211,7 +251,7 @@ restart() {
     echo "========================================"
     echo ""
     echo -e "${BLUE}Restarting containers...${NC}"
-    cd "$DOCKER_DIR" && $COMPOSE_CMD restart
+    cd "$DOCKER_DIR" && docker compose "${COMPOSE_ARGS[@]}" restart
     echo ""
     echo -e "${GREEN}✓ Docker services restarted${NC}"
     echo ""
@@ -242,6 +282,8 @@ help() {
 }
 
 main() {
+    load_root_env_defaults
+
     # Main command dispatcher
     case "$1" in
         init)

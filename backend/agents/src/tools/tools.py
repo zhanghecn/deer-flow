@@ -13,6 +13,7 @@ from src.tools.builtins import (
     push_skill_prod,
     save_agent_to_store,
     save_skill_to_store,
+    setup_agent,
     view_image_tool,
 )
 
@@ -39,6 +40,7 @@ def get_available_tools(
     model_supports_vision: bool | None = None,
     agent_status: str | None = None,
     authoring_actions: list[str] | None = None,
+    setup_agent_enabled: bool = False,
 ) -> list[BaseTool]:
     """Get all available tools from config.
 
@@ -88,6 +90,8 @@ def get_available_tools(
     # Conditionally add tools based on config
     builtin_tools = BUILTIN_TOOLS.copy()
     if agent_status == "dev":
+        if setup_agent_enabled and setup_agent not in builtin_tools:
+            builtin_tools.append(setup_agent)
         for action in authoring_actions or []:
             authoring_tool = AUTHORING_TOOL_REGISTRY.get(action)
             if authoring_tool is None or authoring_tool in builtin_tools:

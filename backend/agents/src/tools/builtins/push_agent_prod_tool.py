@@ -7,6 +7,7 @@ from langgraph.types import Command
 
 from src.config.paths import get_paths
 from src.tools.builtins.authoring_persistence import push_agent_directory_to_prod
+from src.tools.builtins.runtime_context import runtime_context_value
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ def push_agent_prod(
         agent_name: Optional target agent name. Defaults to runtime `agent_name`.
     """
 
-    resolved_agent_name = str(agent_name or runtime.context.get("agent_name") or "").strip()
+    resolved_agent_name = str(agent_name or runtime_context_value(runtime.context, "agent_name") or "").strip()
     try:
         target_dir, backup_dir = push_agent_directory_to_prod(resolved_agent_name, paths=get_paths())
         parts = [f"Agent '{resolved_agent_name}' pushed to {target_dir}."]
