@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from threading import Lock
 from typing import Any, Literal
@@ -22,7 +22,6 @@ from src.agents.middlewares.uploads_middleware import UploadsMiddleware
 from src.agents.middlewares.view_image_middleware import ViewImageMiddleware
 from src.config.agent_runtime_seed import runtime_seed_targets
 from src.config.agents_config import AgentConfig, load_agent_config
-from src.config.app_config import AppConfig
 from src.config.builtin_agents import (
     ensure_builtin_agent_archive,
     normalize_effective_agent_name,
@@ -30,19 +29,25 @@ from src.config.builtin_agents import (
 from src.config.commands_config import resolve_runtime_command
 from src.config.model_config import ModelConfig
 from src.config.paths import VIRTUAL_PATH_PREFIX, Paths, get_paths
-from src.config.runtime_db import RuntimeDBStore, get_runtime_db_store
+from src.config.runtime_db import RuntimeDBStore, ThreadBinding, get_runtime_db_store
 from src.models import create_chat_model
 from src.observability import create_agent_trace_callback
 from src.runtime_backends import (
-    LOCAL_SANDBOX_PROVIDER,
     build_local_workspace_backend as build_local_runtime_backend,
+)
+from src.runtime_backends import (
     build_runtime_workspace_backend,
-    build_sandbox_workspace_backend as build_sandbox_runtime_backend,
-    get_sandbox_provider as get_runtime_sandbox_provider,
-    normalize_route_prefix,
     resolve_default_execution_backend,
-    resolve_sandbox_provider as resolve_runtime_sandbox_provider,
     resolve_shared_skills_mount,
+)
+from src.runtime_backends import (
+    build_sandbox_workspace_backend as build_sandbox_runtime_backend,
+)
+from src.runtime_backends import (
+    get_sandbox_provider as get_runtime_sandbox_provider,
+)
+from src.runtime_backends import (
+    resolve_sandbox_provider as resolve_runtime_sandbox_provider,
 )
 
 logger = logging.getLogger(__name__)
@@ -306,6 +311,18 @@ def _build_read_context_backend(thread_id: str | None) -> BackendProtocol:
     )
 
 
+def _build_shared_read_context_backend() -> BackendProtocol:
+    """Build a backend for history/state graph loads.
+
+    Read-only LangGraph access (`/history`, `/state`) never invokes tools or the
+    filesystem data plane. A stable synthetic workspace keeps the compiled graph
+    reusable across threads and users instead of tying cache entries to one
+    thread-local path.
+    """
+
+    return _build_read_context_backend(DEFAULT_THREAD_ID)
+
+
 def build_backend(
     thread_id: str | None,
     agent_name: str | None,
@@ -396,8 +413,19 @@ def _lead_agent_graph_cache_key(
     prepare_runtime_resources: bool,
 ) -> tuple[object, ...]:
     paths = get_paths()
+    normalized_request = request
+    if not prepare_runtime_resources:
+        normalized_request = replace(
+            request,
+            requested_model_name=None,
+            runtime_model_name=None,
+            thread_id=None,
+            user_id=None,
+            execution_backend=None,
+            remote_session_id=None,
+        )
     return (
-        request,
+        normalized_request,
         resolution.model_name,
         prepare_runtime_resources,
         _path_mtime_ns(paths.agent_config_file(request.agent_name, request.agent_status)),
@@ -532,18 +560,23 @@ def _resolve_request_user_id(cfg: dict, runtime: ServerRuntime | None) -> str | 
     return _coerce_optional_str(cfg.get("user_id") or cfg.get("x-user-id") or cfg.get("langgraph_auth_user_id") or runtime_user_id)
 
 
-def _assert_thread_access(
+def _load_thread_binding(
     *,
     db_store: RuntimeDBStore,
     thread_id: str | None,
     user_id: str | None,
-) -> None:
+) -> ThreadBinding | None:
     if thread_id and not user_id:
         raise ValueError("Thread-scoped requests require user identity. Provide `context.user_id`/`configurable.user_id`, forward `x-user-id` through LangGraph configurable headers, or configure LangGraph custom auth.")
 
-    if thread_id:
-        assert user_id is not None
-        db_store.assert_thread_access(thread_id=thread_id, user_id=user_id)
+    if not thread_id:
+        return None
+
+    assert user_id is not None
+    binding = db_store.get_thread_binding(thread_id)
+    if binding is not None and binding.user_id != user_id:
+        raise ValueError(f"Thread access denied for thread '{thread_id}': owned by another user ({binding.user_id}).")
+    return binding
 
 
 def _persist_thread_runtime(
@@ -558,7 +591,7 @@ def _persist_thread_runtime(
         return
 
     assert user_id is not None
-    db_store.save_thread_runtime(
+    db_store.save_thread_runtime_if_needed(
         thread_id=thread_id,
         user_id=user_id,
         model_name=model_name,
@@ -602,8 +635,8 @@ def _resolve_run_model(
     requested_model_name: str | None,
     runtime_model_name: str | None,
     agent_config: AgentConfig | None,
+    thread_binding: ThreadBinding | None,
     thread_id: str | None,
-    user_id: str | None,
     db_store: RuntimeDBStore,
 ) -> tuple[str, ModelConfig]:
     """Resolve the run model with strict precedence and limited legacy-thread fallback."""
@@ -618,9 +651,7 @@ def _resolve_run_model(
     if requested_model_name and runtime_model_name and requested_model_name != runtime_model_name:
         raise ValueError("Model conflict: `configurable.model_name` and `configurable.model_config.name` must match.")
 
-    persisted_thread_model_name: str | None = None
-    if thread_id and user_id:
-        persisted_thread_model_name = db_store.get_thread_runtime_model(thread_id=thread_id, user_id=user_id)
+    persisted_thread_model_name = thread_binding.model_name if thread_binding is not None else None
 
     model_name = requested_model_name or runtime_model_name or agent_model_name or persisted_thread_model_name
     if not model_name:
@@ -740,8 +771,9 @@ def _resolve_lead_agent_runtime(
     *,
     request: LeadAgentRequest,
     db_store: RuntimeDBStore,
+    persist_thread_runtime: bool,
 ) -> LeadAgentResolution:
-    _assert_thread_access(
+    thread_binding = _load_thread_binding(
         db_store=db_store,
         thread_id=request.thread_id,
         user_id=request.user_id,
@@ -755,17 +787,18 @@ def _resolve_lead_agent_runtime(
         requested_model_name=request.requested_model_name,
         runtime_model_name=request.runtime_model_name,
         agent_config=agent_config,
+        thread_binding=thread_binding,
         thread_id=request.thread_id,
-        user_id=request.user_id,
         db_store=db_store,
     )
-    _persist_thread_runtime(
-        db_store=db_store,
-        thread_id=request.thread_id,
-        user_id=request.user_id,
-        model_name=model_name,
-        agent_name=request.agent_name,
-    )
+    if persist_thread_runtime:
+        _persist_thread_runtime(
+            db_store=db_store,
+            thread_id=request.thread_id,
+            user_id=request.user_id,
+            model_name=model_name,
+            agent_name=request.agent_name,
+        )
     return LeadAgentResolution(
         agent_config=agent_config,
         model_name=model_name,
@@ -842,7 +875,7 @@ def _resolve_agent_backend(
     prepare_runtime_resources: bool,
 ) -> BackendProtocol:
     if not prepare_runtime_resources:
-        return _build_read_context_backend(request.thread_id)
+        return _build_shared_read_context_backend()
     return build_backend(
         request.thread_id,
         request.agent_name,
@@ -973,20 +1006,11 @@ def _create_lead_agent(
     resolution = _resolve_lead_agent_runtime(
         request=request,
         db_store=db_store,
+        persist_thread_runtime=prepare_runtime_resources,
     )
     _assert_requested_model_capabilities(
         request=request,
         resolution=resolution,
-    )
-
-    logger.info(
-        "Create Agent(%s) -> thinking_enabled: %s, reasoning_effort: %s, model_name: %s, subagent_enabled: %s, agent_status: %s",
-        request.agent_name,
-        request.thinking_enabled,
-        request.reasoning_effort,
-        resolution.model_name,
-        request.subagent_enabled,
-        request.agent_status,
     )
 
     _update_request_runtime_context(runtime, request)
@@ -1004,6 +1028,16 @@ def _create_lead_agent(
             tool_names=list(cached_entry.tool_names),
         )
         return cached_entry.graph
+
+    logger.info(
+        "Create Agent(%s) -> thinking_enabled: %s, reasoning_effort: %s, model_name: %s, subagent_enabled: %s, agent_status: %s",
+        request.agent_name,
+        request.thinking_enabled,
+        request.reasoning_effort,
+        resolution.model_name,
+        request.subagent_enabled,
+        request.agent_status,
+    )
 
     backend = _resolve_agent_backend(
         request=request,
@@ -1044,6 +1078,46 @@ def _create_lead_agent(
         graph=graph,
         tool_names=tool_names,
     ).graph
+
+
+def prime_lead_agent_read_graph_cache(
+    *,
+    agent_statuses: tuple[str, ...] = ("dev", "prod"),
+) -> None:
+    """Preload shared read-only graphs for common lead-agent page loads.
+
+    Thread history/state endpoints are the main source of UI latency. Prime the
+    read-only cache once per enabled model so the first thread page load can
+    reuse a compiled graph instead of paying the cold compile cost inline.
+    """
+
+    db_store = get_runtime_db_store()
+    try:
+        model_names = db_store.list_enabled_model_names()
+    except Exception:
+        logger.warning("Skipping lead-agent read graph warmup: failed to load enabled models.", exc_info=True)
+        return
+
+    for agent_status in agent_statuses:
+        for model_name in model_names:
+            try:
+                _create_lead_agent(
+                    {
+                        "configurable": {
+                            "agent_status": agent_status,
+                            "model_name": model_name,
+                        }
+                    },
+                    None,
+                    prepare_runtime_resources=False,
+                )
+            except Exception:
+                logger.warning(
+                    "Skipping lead-agent read graph warmup for status=%s model=%s.",
+                    agent_status,
+                    model_name,
+                    exc_info=True,
+                )
 
 
 async def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None):

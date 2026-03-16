@@ -1,6 +1,8 @@
 import json
 import logging
 import os
+from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
 
@@ -9,6 +11,16 @@ from dotenv import dotenv_values
 from src.config.model_config import ModelConfig
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ThreadBinding:
+    thread_id: str
+    user_id: str
+    agent_name: str | None
+    assistant_id: str | None
+    model_name: str | None
+    title: str | None
 
 
 def _root_env_path() -> Path:
@@ -33,6 +45,8 @@ def _database_uri_from_root_env() -> str | None:
 class RuntimeDBStore:
     def __init__(self, dsn: str):
         self._dsn = dsn
+        self._pool = None
+        self._pool_lock = Lock()
 
     def _connect(self):
         try:
@@ -41,6 +55,41 @@ class RuntimeDBStore:
             raise RuntimeError("psycopg is required for runtime database access. Install `psycopg[binary]`.") from e
         return psycopg.connect(self._dsn)
 
+    def _get_pool(self):
+        if self._pool is not None:
+            return self._pool
+
+        with self._pool_lock:
+            if self._pool is not None:
+                return self._pool
+
+            try:
+                from psycopg_pool import ConnectionPool
+            except ImportError:
+                return None
+
+            self._pool = ConnectionPool(
+                conninfo=self._dsn,
+                kwargs={"autocommit": True},
+                min_size=1,
+                max_size=8,
+                open=True,
+                name="runtime-db",
+            )
+            return self._pool
+
+    @contextmanager
+    def _connection(self):
+        pool = self._get_pool()
+        if pool is not None:
+            with pool.connection() as conn:
+                yield conn
+            return
+
+        with self._connect() as conn:
+            conn.autocommit = True
+            yield conn
+
     def get_model(self, name: str) -> ModelConfig | None:
         query = """
             SELECT name, display_name, config_json
@@ -48,7 +97,7 @@ class RuntimeDBStore:
             WHERE name = %s AND enabled = TRUE
             LIMIT 1
         """
-        with self._connect() as conn, conn.cursor() as cur:
+        with self._connection() as conn, conn.cursor() as cur:
             cur.execute(query, (name,))
             row = cur.fetchone()
             if row is None:
@@ -69,7 +118,7 @@ class RuntimeDBStore:
             ORDER BY created_at ASC, name ASC
             LIMIT 1
         """
-        with self._connect() as conn, conn.cursor() as cur:
+        with self._connection() as conn, conn.cursor() as cur:
             cur.execute(query)
             row = cur.fetchone()
             if row is None:
@@ -82,6 +131,23 @@ class RuntimeDBStore:
                 payload.setdefault("display_name", display_name)
             return ModelConfig.model_validate(payload)
 
+    def list_enabled_model_names(self) -> list[str]:
+        query = """
+            SELECT name
+            FROM models
+            WHERE enabled = TRUE
+            ORDER BY created_at ASC, name ASC
+        """
+        with self._connection() as conn, conn.cursor() as cur:
+            cur.execute(query)
+            rows = cur.fetchall()
+
+        return [
+            str(row[0]).strip()
+            for row in rows
+            if row and row[0] is not None and str(row[0]).strip()
+        ]
+
     def get_user_id_by_name(self, name: str) -> str | None:
         normalized_name = str(name).strip()
         if not normalized_name:
@@ -93,7 +159,7 @@ class RuntimeDBStore:
             WHERE LOWER(name) = LOWER(%s)
             LIMIT 1
         """
-        with self._connect() as conn, conn.cursor() as cur:
+        with self._connection() as conn, conn.cursor() as cur:
             cur.execute(query, (normalized_name,))
             row = cur.fetchone()
             if row is None:
@@ -111,7 +177,7 @@ class RuntimeDBStore:
             ORDER BY created_at ASC
             LIMIT 1
         """
-        with self._connect() as conn, conn.cursor() as cur:
+        with self._connection() as conn, conn.cursor() as cur:
             cur.execute(query)
             row = cur.fetchone()
             if row is None:
@@ -123,40 +189,53 @@ class RuntimeDBStore:
             return user_id or None
 
     def get_thread_runtime_model(self, thread_id: str, user_id: str) -> str | None:
-        query = """
-            SELECT model_name
-            FROM thread_bindings
-            WHERE thread_id = %s AND user_id::text = %s
-            LIMIT 1
-        """
-        with self._connect() as conn, conn.cursor() as cur:
-            cur.execute(query, (thread_id, user_id))
-            row = cur.fetchone()
-            if row is None:
-                return None
-            model_name = row[0]
-            if model_name is None:
-                return None
-            model_name = str(model_name).strip()
-            return model_name or None
+        binding = self.get_thread_binding(thread_id)
+        if binding is None or binding.user_id != user_id:
+            return None
+        return binding.model_name
 
     def get_thread_owner(self, thread_id: str) -> str | None:
+        binding = self.get_thread_binding(thread_id)
+        if binding is None:
+            return None
+        return binding.user_id
+
+    def get_thread_binding(self, thread_id: str) -> ThreadBinding | None:
         query = """
-            SELECT user_id::text
+            SELECT thread_id, user_id::text, agent_name, assistant_id, model_name, title
             FROM thread_bindings
             WHERE thread_id = %s
             LIMIT 1
         """
-        with self._connect() as conn, conn.cursor() as cur:
+        with self._connection() as conn, conn.cursor() as cur:
             cur.execute(query, (thread_id,))
             row = cur.fetchone()
             if row is None:
                 return None
-            owner = row[0]
-            if owner is None:
+
+            (
+                bound_thread_id,
+                bound_user_id,
+                agent_name,
+                assistant_id,
+                model_name,
+                title,
+            ) = row
+            if bound_user_id is None:
                 return None
-            owner = str(owner).strip()
-            return owner or None
+
+            user_id = str(bound_user_id).strip()
+            if not user_id:
+                return None
+
+            return ThreadBinding(
+                thread_id=str(bound_thread_id).strip() or thread_id,
+                user_id=user_id,
+                agent_name=self._normalize_optional_text(agent_name),
+                assistant_id=self._normalize_optional_text(assistant_id),
+                model_name=self._normalize_optional_text(model_name),
+                title=self._normalize_optional_text(title),
+            )
 
     def claim_thread_ownership(
         self,
@@ -175,7 +254,7 @@ class RuntimeDBStore:
             WHERE thread_bindings.user_id = EXCLUDED.user_id
             RETURNING user_id::text
         """
-        with self._connect() as conn, conn.cursor() as cur:
+        with self._connection() as conn, conn.cursor() as cur:
             cur.execute(upsert_query, (thread_id, user_id, assistant_id))
             row = cur.fetchone()
             if row is not None:
@@ -196,7 +275,6 @@ class RuntimeDBStore:
         model_name: str,
         agent_name: str | None,
     ) -> None:
-        self.claim_thread_ownership(thread_id=thread_id, user_id=user_id, assistant_id=agent_name)
         query = """
             INSERT INTO thread_bindings (
                 thread_id,
@@ -217,12 +295,41 @@ class RuntimeDBStore:
             WHERE thread_bindings.user_id = EXCLUDED.user_id
             RETURNING user_id::text
         """
-        with self._connect() as conn, conn.cursor() as cur:
+        with self._connection() as conn, conn.cursor() as cur:
             cur.execute(query, (thread_id, user_id, agent_name, agent_name, model_name))
             row = cur.fetchone()
             if row is None:
                 owner = self.get_thread_owner(thread_id)
                 raise ValueError(f"Thread access denied for thread '{thread_id}': owned by another user ({owner}).")
+
+    def save_thread_runtime_if_needed(
+        self,
+        *,
+        thread_id: str,
+        user_id: str,
+        model_name: str,
+        agent_name: str | None,
+    ) -> bool:
+        binding = self.get_thread_binding(thread_id)
+        if binding is not None:
+            if binding.user_id != user_id:
+                raise ValueError(f"Thread access denied for thread '{thread_id}': owned by another user ({binding.user_id}).")
+
+            expected_assistant_id = agent_name or binding.assistant_id
+            if (
+                binding.model_name == model_name
+                and binding.agent_name == agent_name
+                and binding.assistant_id == expected_assistant_id
+            ):
+                return False
+
+        self.save_thread_runtime(
+            thread_id=thread_id,
+            user_id=user_id,
+            model_name=model_name,
+            agent_name=agent_name,
+        )
+        return True
 
     def save_thread_title(
         self,
@@ -240,7 +347,7 @@ class RuntimeDBStore:
             SET title = %s, updated_at = NOW()
             WHERE thread_id = %s AND user_id = %s::uuid
         """
-        with self._connect() as conn, conn.cursor() as cur:
+        with self._connection() as conn, conn.cursor() as cur:
             cur.execute(query, (normalized_title, thread_id, user_id))
             if cur.rowcount and cur.rowcount > 0:
                 return
@@ -263,6 +370,13 @@ class RuntimeDBStore:
         if isinstance(obj, dict):
             return dict(obj)
         raise ValueError(f"Unsupported models.config_json type: {type(value).__name__}")
+
+    @staticmethod
+    def _normalize_optional_text(value: object) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
 
 
 def _build_runtime_db_dsn() -> str:

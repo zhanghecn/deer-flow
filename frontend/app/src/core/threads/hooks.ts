@@ -329,9 +329,6 @@ export function useThreadStream({
   const { authenticated } = useAuth();
   const apiClient = getAPIClient(isMock);
   const [streamThreadId, setStreamThreadId] = useState<string | null>(null);
-  const [historyContextWindow, setHistoryContextWindow] = useState<
-    AgentThreadState["context_window"] | null
-  >(null);
   const [historyEnabled, setHistoryEnabled] = useState(() => !!threadId);
   const hasStartedStreamRef = useRef(false);
   const previousThreadIdRef = useRef<string | null | undefined>(threadId);
@@ -341,23 +338,6 @@ export function useThreadStream({
   );
   const streamThrottle = resolveStreamThrottle(resolvedContext);
 
-  const refreshHistoryContextWindow = useCallback(
-    async (targetThreadId: string) => {
-      try {
-        const history = await apiClient.threads.getHistory(targetThreadId, {
-          limit: HISTORY_PAGE_SIZE,
-        });
-        setHistoryContextWindow(extractLatestContextWindow(history) ?? null);
-      } catch (error) {
-        console.warn(
-          `Failed to refresh context window history for thread ${targetThreadId}:`,
-          error,
-        );
-      }
-    },
-    [apiClient],
-  );
-
   useEffect(() => {
     let cancelled = false;
     const previousThreadId = previousThreadIdRef.current;
@@ -366,7 +346,6 @@ export function useThreadStream({
 
     hasStartedStreamRef.current = false;
     previousThreadIdRef.current = threadId;
-    setHistoryContextWindow(null);
     setHistoryEnabled(
       threadId ? !createdThreadDuringCurrentSession : false,
     );
@@ -401,13 +380,6 @@ export function useThreadStream({
       cancelled = true;
     };
   }, [threadId, authenticated, apiClient]);
-
-  useEffect(() => {
-    if (!streamThreadId || !authenticated || !historyEnabled) {
-      return;
-    }
-    void refreshHistoryContextWindow(streamThreadId);
-  }, [streamThreadId, authenticated, historyEnabled, refreshHistoryContextWindow]);
 
   const queryClient = useQueryClient();
   const updateSubtask = useUpdateSubtask();
@@ -456,7 +428,6 @@ export function useThreadStream({
     onFinish(state) {
       if (streamThreadId) {
         setHistoryEnabled(true);
-        void refreshHistoryContextWindow(streamThreadId);
       }
       onFinish?.(state.values);
       void queryClient.invalidateQueries({
@@ -547,6 +518,15 @@ export function useThreadStream({
       resolvedContext,
     ],
   );
+
+  const historyContextWindow = useMemo(() => {
+    const historySnapshot = historyEnabled ? thread.history : null;
+    if (!historySnapshot) {
+      return null;
+    }
+
+    return extractLatestContextWindow(historySnapshot) ?? null;
+  }, [historyEnabled, thread]);
 
   const resumeInterrupt = useCallback(
     async (

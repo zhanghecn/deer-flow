@@ -33,6 +33,9 @@ class _FakeDBStore:
             return self.models[name]
         return None
 
+    def list_enabled_model_names(self) -> list[str]:
+        return sorted(self.models)
+
     def get_thread_runtime_model(self, *, thread_id: str, user_id: str) -> str | None:
         return self.thread_models.get((thread_id, user_id))
 
@@ -44,6 +47,34 @@ class _FakeDBStore:
 
     def get_thread_owner(self, thread_id: str) -> str | None:
         return self.thread_owners.get(thread_id)
+
+    def get_thread_binding(self, thread_id: str):
+        owner = self.thread_owners.get(thread_id)
+        if owner is None:
+            owner = self.get_thread_runtime_owner(thread_id)
+        if owner is None:
+            return None
+
+        model_name = None
+        for (tid, uid), bound_model in self.thread_models.items():
+            if tid == thread_id and uid == owner:
+                model_name = bound_model
+                break
+
+        agent_name = None
+        for saved_thread_id, saved_user_id, _saved_model_name, saved_agent_name in reversed(self.saved):
+            if saved_thread_id == thread_id and saved_user_id == owner:
+                agent_name = saved_agent_name
+                break
+
+        return lead_agent_module.ThreadBinding(
+            thread_id=thread_id,
+            user_id=owner,
+            agent_name=agent_name,
+            assistant_id=agent_name,
+            model_name=model_name,
+            title=None,
+        )
 
     def claim_thread_ownership(self, *, thread_id: str, user_id: str, assistant_id: str | None) -> None:
         existing = self.thread_owners.get(thread_id)
@@ -75,6 +106,33 @@ class _FakeDBStore:
                 raise ValueError(f"Thread access denied for thread '{thread_id}': owned by another user ({uid}).")
         self.saved.append((thread_id, user_id, model_name, agent_name))
         self.thread_models[(thread_id, user_id)] = model_name
+
+    def save_thread_runtime_if_needed(
+        self,
+        *,
+        thread_id: str,
+        user_id: str,
+        model_name: str,
+        agent_name: str | None,
+    ) -> bool:
+        binding = self.get_thread_binding(thread_id)
+        if binding is not None and binding.user_id != user_id:
+            raise ValueError(f"Thread access denied for thread '{thread_id}': owned by another user ({binding.user_id}).")
+        if (
+            binding is not None
+            and binding.user_id == user_id
+            and binding.model_name == model_name
+            and binding.agent_name == agent_name
+        ):
+            return False
+
+        self.save_thread_runtime(
+            thread_id=thread_id,
+            user_id=user_id,
+            model_name=model_name,
+            agent_name=agent_name,
+        )
+        return True
 
 
 def _make_model(name: str, *, supports_thinking: bool, supports_vision: bool = False) -> ModelConfig:
@@ -115,8 +173,8 @@ def test_resolve_run_model_uses_requested_model_name():
         requested_model_name="safe-model",
         runtime_model_name=None,
         agent_config=None,
+        thread_binding=None,
         thread_id=None,
-        user_id=None,
         db_store=store,
     )
 
@@ -134,8 +192,8 @@ def test_resolve_run_model_uses_persisted_thread_runtime_model():
         requested_model_name=None,
         runtime_model_name=None,
         agent_config=None,
+        thread_binding=store.get_thread_binding("thread-1"),
         thread_id="thread-1",
-        user_id="user-1",
         db_store=store,
     )
 
@@ -153,8 +211,8 @@ def test_resolve_run_model_falls_back_when_persisted_thread_model_is_unavailable
         requested_model_name=None,
         runtime_model_name=None,
         agent_config=None,
+        thread_binding=store.get_thread_binding("thread-1"),
         thread_id="thread-1",
-        user_id="user-1",
         db_store=store,
     )
 
@@ -176,8 +234,8 @@ def test_resolve_run_model_raises_for_conflicting_requested_and_agent_model():
                 tool_groups=[],
                 mcp_servers=[],
             ),
+            thread_binding=None,
             thread_id=None,
-            user_id=None,
             db_store=store,
         )
 
@@ -190,8 +248,8 @@ def test_resolve_run_model_raises_when_model_unavailable():
             requested_model_name=None,
             runtime_model_name=None,
             agent_config=None,
+            thread_binding=None,
             thread_id=None,
-            user_id=None,
             db_store=store,
         )
 
@@ -341,6 +399,73 @@ def test_make_lead_agent_reuses_cached_graph_for_identical_request(monkeypatch, 
 
     assert first is second
     assert len(create_calls) == 1
+    assert store.saved == [("thread-1", "user-1", "safe-model", LEAD_AGENT_NAME)]
+
+
+def test_make_lead_agent_reuses_read_only_graph_across_threads(monkeypatch, tmp_path):
+    lead_agent_module._clear_lead_agent_graph_cache()
+    store = _FakeDBStore(models={"safe-model": _make_model("safe-model", supports_thinking=True)})
+
+    import src.tools as tools_module
+
+    monkeypatch.setattr(
+        lead_agent_module,
+        "get_paths",
+        lambda: Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / "skills"),
+    )
+    monkeypatch.setattr(lead_agent_module, "get_runtime_db_store", lambda: store)
+    monkeypatch.setattr(tools_module, "get_available_tools", lambda **kwargs: [])
+    monkeypatch.setattr(
+        lead_agent_module,
+        "_build_local_workspace_backend",
+        lambda user_data_dir, shared_skills_mount=None: {"user_data_dir": user_data_dir},
+    )
+    monkeypatch.setattr(
+        lead_agent_module,
+        "_load_agent_runtime_config",
+        lambda **kwargs: _make_agent_config(),
+    )
+    monkeypatch.setattr(lead_agent_module, "apply_prompt_template", lambda **kwargs: "prompt")
+    monkeypatch.setattr(lead_agent_module, "create_chat_model", lambda **kwargs: object())
+
+    create_calls: list[dict[str, object]] = []
+
+    def _fake_create_deep_agent(**kwargs):
+        create_calls.append(kwargs)
+        return {"graph_id": len(create_calls)}
+
+    monkeypatch.setattr(lead_agent_module, "create_deep_agent", _fake_create_deep_agent)
+
+    class _Runtime:
+        execution_runtime = None
+
+    first = asyncio.run(
+        lead_agent_module.make_lead_agent(
+            {
+                "configurable": {
+                    "thread_id": "thread-1",
+                    "user_id": "user-1",
+                    "model_name": "safe-model",
+                }
+            },
+            runtime=_Runtime(),
+        )
+    )
+    second = asyncio.run(
+        lead_agent_module.make_lead_agent(
+            {
+                "configurable": {
+                    "thread_id": "thread-2",
+                    "user_id": "user-2",
+                    "model_name": "safe-model",
+                }
+            },
+            runtime=_Runtime(),
+        )
+    )
+
+    assert first is second
+    assert len(create_calls) == 1
 
 
 def test_make_lead_agent_rejects_cross_user_thread_access(monkeypatch):
@@ -431,6 +556,7 @@ def test_make_lead_agent_requires_user_for_thread_scoped_requests(monkeypatch):
 
 
 def test_make_lead_agent_skips_runtime_seeding_for_read_context(monkeypatch, tmp_path):
+    lead_agent_module._clear_lead_agent_graph_cache()
     store = _FakeDBStore(models={"safe-model": _make_model("safe-model", supports_thinking=True)})
 
     import src.tools as tools_module
@@ -472,6 +598,53 @@ def test_make_lead_agent_skips_runtime_seeding_for_read_context(monkeypatch, tmp
     )
 
     assert result["backend"] is not None
+
+
+def test_make_lead_agent_skips_thread_runtime_persistence_for_read_context(monkeypatch, tmp_path):
+    lead_agent_module._clear_lead_agent_graph_cache()
+    store = _FakeDBStore(models={"safe-model": _make_model("safe-model", supports_thinking=True)})
+
+    import src.tools as tools_module
+
+    monkeypatch.setattr(
+        lead_agent_module,
+        "get_paths",
+        lambda: Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / "skills"),
+    )
+    monkeypatch.setattr(lead_agent_module, "get_runtime_db_store", lambda: store)
+    monkeypatch.setattr(tools_module, "get_available_tools", lambda **kwargs: [])
+    monkeypatch.setattr(
+        lead_agent_module,
+        "build_backend",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("build_backend should not run in read context")),
+    )
+    monkeypatch.setattr(
+        lead_agent_module,
+        "_load_agent_runtime_config",
+        lambda **kwargs: _make_agent_config(),
+    )
+    monkeypatch.setattr(lead_agent_module, "apply_prompt_template", lambda **kwargs: "prompt")
+    monkeypatch.setattr(lead_agent_module, "create_deep_agent", lambda **kwargs: kwargs)
+    monkeypatch.setattr(lead_agent_module, "create_chat_model", lambda **kwargs: object())
+
+    class _Runtime:
+        execution_runtime = None
+        user = None
+
+    asyncio.run(
+        lead_agent_module.make_lead_agent(
+            {
+                "configurable": {
+                    "thread_id": "thread-1",
+                    "user_id": "user-1",
+                    "model_name": "safe-model",
+                }
+            },
+            runtime=_Runtime(),
+        )
+    )
+
+    assert store.saved == []
 
 
 def test_make_lead_agent_disables_skills_and_subagents_for_hard_authoring_commands(monkeypatch, tmp_path):

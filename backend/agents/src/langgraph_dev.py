@@ -9,6 +9,7 @@ from typing import Any
 from dotenv import dotenv_values
 from langgraph_api.cli import run_server
 
+from src.agents.lead_agent.agent import prime_lead_agent_read_graph_cache
 from src.config.builtin_agents import ensure_builtin_agent_archive
 from src.remote.server import start_remote_relay_sidecar
 
@@ -135,6 +136,7 @@ def main() -> None:
     # Ensure built-in archived agent files exist before serving requests.
     ensure_builtin_agent_archive("lead_agent", status="dev")
     ensure_builtin_agent_archive("lead_agent", status="prod")
+    prime_lead_agent_read_graph_cache()
     start_remote_relay_sidecar()
 
     run_server(
