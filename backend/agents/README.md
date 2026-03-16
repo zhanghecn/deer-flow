@@ -228,13 +228,10 @@ Set your API keys:
 export OPENAI_API_KEY="your-api-key-here"
 ```
 
-For host-run development, configure project root `.env`:
+For host-run development, create project root `.env` manually and keep only
+secrets in it, such as database DSNs and API keys.
 
-```bash
-cp ../../.env.example ../../.env
-```
-
-`backend/agents/langgraph.json` reads `../../.env` for host-run LangGraph.
+`backend/agents/langgraph.json` reads `../../.env` for secrets.
 
 Docker development uses the same root `.env`.
 Containerized LangGraph still uses `backend/agents/langgraph.json`; Docker-only
@@ -246,11 +243,10 @@ Important variables:
   shared PostgreSQL DSN for Python runtime DB queries (`models`, `thread_bindings`)
   and LangGraph checkpointer persistence backend
 - `REDIS_URI`:
-  optional; only needed if explicitly using `LANGGRAPH_RUNTIME_EDITION=postgres`
-- `LANGGRAPH_RUNTIME_EDITION`:
-  runtime backend selection (default `inmem` for OSS/dev)
-- `LANGGRAPH_URL`:
-  gateway upstream target for LangGraph server
+  optional secret; only needed when `config.yaml` sets `runtime.edition=postgres`
+- `config.yaml`:
+  non-secret runtime config such as `runtime.edition`, `sandbox`, `storage`,
+  shared skills path, and tool registration
 - Header pass-through (`x-user-id`, `x-thread-id`) is configured in
   `backend/agents/langgraph.json`:
   `http.configurable_headers.includes`

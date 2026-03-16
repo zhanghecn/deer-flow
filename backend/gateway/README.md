@@ -57,34 +57,30 @@ make migrate
 
 ### 2. 配置
 
-**方式一：使用环境变量（推荐）**
+**方式一：准备密钥文件**
 
-在项目根目录复制 `.env.example` 为 `.env` 并配置：
-
-```bash
-cp .env.example .env
-# 编辑 .env 填写实际值
-```
+在项目根目录手动创建 `.env`，只放密钥/凭证：
 
 所需环境变量：
 - `DATABASE_URI` — PostgreSQL 连接串
 - `JWT_SECRET` — JWT 签名密钥（生成：`openssl rand -base64 32`）
-- `OPENAGENTS_HOME` — Agent/线程运行时目录（可选，默认 `.openagents`）
-- `LANGGRAPH_URL` — LangGraph 上游地址（用于 `/api/langgraph/*` 代理和 OpenAPI 调用）
+- `ONLYOFFICE_JWT_SECRET` — 可选；未设置时复用 `JWT_SECRET`
+- 其他第三方 API key / token
 
 说明：
-- 共享技能库位于 `OPENAGENTS_HOME/skills/`，默认即 `.openagents/skills/`
+- 非密钥配置放在 `gateway.yaml` 与项目根 `config.yaml`
+- 共享技能库位于 `storage.base_dir/skills/`，默认即 `.openagents/skills/`
 - 当 `OPENAGENTS_HOME` 或 `storage.base_dir` 使用相对路径时，网关会按项目根目录解析，和 Python runtime 保持一致
 - 若通过 `docker/docker-compose-dev.yaml` 启动容器化开发环境：
-  - 根 `.env` 仍是唯一共享应用配置
+  - 根 `.env` 仍是唯一共享 secrets 文件
   - 容器化 Gateway 通过进程环境运行，不再直接读取根 `.env` 文件
   - Compose 直接负责容器内固定 URL，例如 `http://langgraph:2024`
   - Compose 负责固定容器内的运行时根路径 `/openagents-home`
-  - `OPENAGENTS_DOCKER_HOST_HOME` / `NODE_HOST` 这类值只是可选的 compose/provisioner 设置
+  - `OPENAGENTS_DOCKER_HOST_HOME` / `NODE_HOST` 这类值只是可选的 shell/compose 设置
 
 **方式二：使用配置文件**
 
-编辑 `gateway.yaml`（支持环境变量占位符 `$VAR`）：
+编辑 `gateway.yaml`：
 
 ```yaml
 server:
@@ -109,12 +105,16 @@ logging:
 # Note: upstream 4xx/5xx will still emit [proxy][upstream-reject] with response detail summary.
 
 upstream:
-  langgraph_url: $LANGGRAPH_URL
+  langgraph_url: http://localhost:2024
+
+onlyoffice:
+  server_url: http://localhost:8082
+  public_app_url: http://openagents-host:8001
 
 proxy:
   routes:
     - prefix: /api/langgraph
-      upstream: $LANGGRAPH_URL
+      upstream: http://localhost:2024
       strip_prefix: true
       auth: jwt
 ```

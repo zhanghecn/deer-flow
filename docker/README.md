@@ -1,18 +1,15 @@
 # Docker Config Layout
 
-This repo now uses one shared `.env`.
+This repo now uses:
 
-That `.env` is used by:
-
-- host-run development (`make dev`)
-- host-run development infra (`make docker-infra-start`)
-- Docker development (`make docker-start`)
-- gateway / LangGraph / migrate
+- one shared root `.env` for secrets only
+- `config.yaml` for LangGraph/runtime non-secret config
+- `backend/gateway/gateway.yaml` for gateway non-secret config
 
 Docker-specific differences are handled in two places only:
 
 - fixed container URLs are written directly in `docker/docker-compose-dev.yaml`
-- optional compose-only knobs stay as commented optional vars in root `.env`
+- optional compose/provisioner overrides are passed as shell env when needed
 
 Removed on purpose to keep the config surface small:
 
@@ -22,14 +19,19 @@ Removed on purpose to keep the config surface small:
 
 ## Recommended Mental Model
 
-Put canonical app values in root `.env`:
+Put secrets in root `.env`:
 
 - `DATABASE_URI`
 - `JWT_SECRET`
 - API keys
-- `OPENAGENTS_HOME`
-- host-run `LANGGRAPH_URL`
-- host-run `OPENAGENTS_SANDBOX_BASE_URL`
+
+Put non-secret runtime config in `config.yaml` / `gateway.yaml`:
+
+- `storage.base_dir`
+- `sandbox.use`
+- host-run `sandbox.base_url`
+- host-run `runtime.edition`
+- gateway host-run upstream URLs
 
 Do not try to store both host-view and container-view URLs in `.env`.
 For container-only fixed values, compose already owns them:
@@ -74,17 +76,14 @@ make docker-infra-start
 ```
 
 That starts only `sandbox-aio` and `onlyoffice`.
-The root `.env` keeps the host-run sandbox URL (`http://127.0.0.1:8083`), and compose overrides the in-container LangGraph URL to `http://sandbox-aio:8080`.
+`config.yaml` keeps the host-run sandbox URL (`http://127.0.0.1:8083`), and compose overrides the in-container LangGraph URL to `http://sandbox-aio:8080`.
 
-## Optional Compose-Only Vars
+## Optional Compose/Shell Vars
 
-These can stay commented in root `.env` unless you actually need them:
+Export these in the shell only when you actually need them:
 
 - `OPENAGENTS_DOCKER_HOST_HOME`
-- `SANDBOX_AIO_PORT`
-- `SANDBOX_AIO_IMAGE`
 - `ONLYOFFICE_PORT`
-- `NGINX_CONF`
 - `NODE_HOST`
 - `K8S_API_SERVER`
 

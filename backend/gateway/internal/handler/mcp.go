@@ -4,22 +4,21 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
-	"path/filepath"
 
-	"github.com/openagents/gateway/internal/model"
 	"github.com/gin-gonic/gin"
+	"github.com/openagents/gateway/internal/model"
 )
 
 type MCPHandler struct {
-	configDir string
+	extensionsConfigPath string
 }
 
-func NewMCPHandler(configDir string) *MCPHandler {
-	return &MCPHandler{configDir: configDir}
+func NewMCPHandler(configPath string) *MCPHandler {
+	return &MCPHandler{extensionsConfigPath: configPath}
 }
 
 func (h *MCPHandler) configPath() string {
-	return filepath.Join(h.configDir, "extensions_config.json")
+	return h.extensionsConfigPath
 }
 
 func (h *MCPHandler) Get(c *gin.Context) {

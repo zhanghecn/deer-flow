@@ -42,9 +42,35 @@ func GatewayConfigPath() string {
 	return filepath.Join(GatewayDir(), "gateway.yaml")
 }
 
+func resolveExplicitPath(envVarName string) string {
+	raw := filepath.Clean(os.Getenv(envVarName))
+	if raw == "" || raw == "." {
+		return ""
+	}
+	if filepath.IsAbs(raw) {
+		return raw
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return raw
+	}
+	return filepath.Join(cwd, raw)
+}
+
 // MainConfigPath returns the repository-wide config.yaml path.
 func MainConfigPath() string {
+	if path := resolveExplicitPath("OPENAGENTS_CONFIG_PATH"); path != "" {
+		return path
+	}
 	return filepath.Join(RepoRootDir(), "config.yaml")
+}
+
+// ExtensionsConfigPath returns the unified extensions config path.
+func ExtensionsConfigPath() string {
+	if path := resolveExplicitPath("OPENAGENTS_EXTENSIONS_CONFIG_PATH"); path != "" {
+		return path
+	}
+	return filepath.Join(RepoRootDir(), "extensions_config.json")
 }
 
 // MigrationsDir returns the repository migrations directory.

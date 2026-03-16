@@ -35,8 +35,7 @@ type extensionsConfigJSON struct {
 	Skills     map[string]skillStateJSON `json:"skills"`
 }
 
-func readExtensionsConfig(configDir string) (extensionsConfigJSON, error) {
-	configPath := filepath.Join(configDir, "extensions_config.json")
+func readExtensionsConfig(configPath string) (extensionsConfigJSON, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -61,7 +60,7 @@ func readExtensionsConfig(configDir string) (extensionsConfigJSON, error) {
 	return cfg, nil
 }
 
-func writeExtensionsConfig(configDir string, cfg extensionsConfigJSON) error {
+func writeExtensionsConfig(configPath string, cfg extensionsConfigJSON) error {
 	if cfg.MCPServers == nil {
 		cfg.MCPServers = map[string]any{}
 	}
@@ -73,7 +72,7 @@ func writeExtensionsConfig(configDir string, cfg extensionsConfigJSON) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(configDir, "extensions_config.json"), data, 0644)
+	return os.WriteFile(configPath, data, 0644)
 }
 
 func skillScopeRoots(fsStore *storage.FS, status string) map[string]string {
@@ -93,8 +92,8 @@ func skillScopeRoots(fsStore *storage.FS, status string) map[string]string {
 	}
 }
 
-func listFilesystemSkills(fsStore *storage.FS, configDir string, status string) ([]skillListItem, error) {
-	extensionsCfg, err := readExtensionsConfig(configDir)
+func listFilesystemSkills(fsStore *storage.FS, extensionsConfigPath string, status string) ([]skillListItem, error) {
+	extensionsCfg, err := readExtensionsConfig(extensionsConfigPath)
 	if err != nil {
 		return nil, err
 	}
@@ -145,8 +144,8 @@ func listFilesystemSkills(fsStore *storage.FS, configDir string, status string) 
 	return skills, nil
 }
 
-func loadFilesystemSkillByName(fsStore *storage.FS, configDir string, name string) (*skillListItem, error) {
-	skills, err := listFilesystemSkills(fsStore, configDir, "")
+func loadFilesystemSkillByName(fsStore *storage.FS, extensionsConfigPath string, name string) (*skillListItem, error) {
+	skills, err := listFilesystemSkills(fsStore, extensionsConfigPath, "")
 	if err != nil {
 		return nil, err
 	}

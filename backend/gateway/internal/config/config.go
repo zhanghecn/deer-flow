@@ -9,13 +9,14 @@ import (
 )
 
 type Config struct {
-	Server   ServerConfig   `yaml:"server"`
-	Database DatabaseConfig `yaml:"database"`
-	JWT      JWTConfig      `yaml:"jwt"`
-	Storage  StorageConfig  `yaml:"storage"`
-	Logging  LoggingConfig  `yaml:"logging"`
-	Upstream UpstreamConfig `yaml:"upstream"`
-	Proxy    ProxyConfig    `yaml:"proxy"`
+	Server     ServerConfig     `yaml:"server"`
+	Database   DatabaseConfig   `yaml:"database"`
+	JWT        JWTConfig        `yaml:"jwt"`
+	Storage    StorageConfig    `yaml:"storage"`
+	Logging    LoggingConfig    `yaml:"logging"`
+	Upstream   UpstreamConfig   `yaml:"upstream"`
+	OnlyOffice OnlyOfficeConfig `yaml:"onlyoffice"`
+	Proxy      ProxyConfig      `yaml:"proxy"`
 }
 
 type ProxyConfig struct {
@@ -64,6 +65,11 @@ type UpstreamConfig struct {
 	LangGraphURL string `yaml:"langgraph_url"`
 }
 
+type OnlyOfficeConfig struct {
+	ServerURL    string `yaml:"server_url"`
+	PublicAppURL string `yaml:"public_app_url"`
+}
+
 func Load(path string) (*Config, error) {
 	cfg := &Config{
 		Server: ServerConfig{
@@ -88,6 +94,10 @@ func Load(path string) (*Config, error) {
 		Upstream: UpstreamConfig{
 			LangGraphURL: "http://localhost:2024",
 		},
+		OnlyOffice: OnlyOfficeConfig{
+			ServerURL:    "http://localhost:8082",
+			PublicAppURL: "http://openagents-host:8001",
+		},
 	}
 
 	data, err := os.ReadFile(path)
@@ -103,6 +113,8 @@ func Load(path string) (*Config, error) {
 	}
 
 	cfg.resolveEnvVars()
+	cfg.applyEnvOverrides()
+	cfg.normalizeDerivedConfig()
 	if cfg.Database.DSN() == "" {
 		return nil, fmt.Errorf("database.uri is required (set DATABASE_URI)")
 	}
@@ -126,11 +138,33 @@ func (c *Config) resolveEnvVars() {
 	c.Database.URI = resolve(c.Database.URI)
 	c.JWT.Secret = resolve(c.JWT.Secret)
 	c.Upstream.LangGraphURL = resolve(c.Upstream.LangGraphURL)
+	c.OnlyOffice.ServerURL = resolve(c.OnlyOffice.ServerURL)
+	c.OnlyOffice.PublicAppURL = resolve(c.OnlyOffice.PublicAppURL)
 	for i := range c.Proxy.Routes {
 		c.Proxy.Routes[i].Upstream = resolve(c.Proxy.Routes[i].Upstream)
 	}
 
 	if c.Logging.Level == "" {
 		c.Logging.Level = "info"
+	}
+}
+
+func (c *Config) applyEnvOverrides() {
+	override := func(envVar string, target *string) {
+		if value := strings.TrimSpace(os.Getenv(envVar)); value != "" {
+			*target = value
+		}
+	}
+
+	override("LANGGRAPH_URL", &c.Upstream.LangGraphURL)
+	override("ONLYOFFICE_SERVER_URL", &c.OnlyOffice.ServerURL)
+	override("ONLYOFFICE_PUBLIC_APP_URL", &c.OnlyOffice.PublicAppURL)
+}
+
+func (c *Config) normalizeDerivedConfig() {
+	for i := range c.Proxy.Routes {
+		if strings.TrimSpace(c.Proxy.Routes[i].Prefix) == "/api/langgraph" {
+			c.Proxy.Routes[i].Upstream = c.Upstream.LangGraphURL
+		}
 	}
 }

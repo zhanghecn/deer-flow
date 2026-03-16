@@ -160,8 +160,9 @@ Concrete host/container contract:
 - App-container runtime path: fixed `/openagents-home`
 - Shared sandbox mount inside `sandbox-aio`: `/openagents`
 - Fixed compose project name: `openagents-dev`
-- Shared app runtime config: repo `.env`
+- Shared app secrets file: repo `.env`
 - `gateway` and `langgraph` both mount the same root `.env` as `/app/.env`
+- Non-secret runtime config stays in `config.yaml` / `gateway.yaml`
 - Compose injects the few container-only fixed URLs inline
 - Browser-facing URLs such as `ONLYOFFICE_SERVER_URL` stay host-view because the browser, not the container, dereferences them
 
@@ -177,8 +178,12 @@ Recommended config rule:
 
 ```text
 repo .env
-  shared app runtime vars: DATABASE_URI, JWT_SECRET, API keys, ...
-  host-run values such as LANGGRAPH_URL, OPENAGENTS_HOME, ...
+  secrets only:
+    DATABASE_URI, JWT_SECRET, API keys, REDIS_URI, ...
+
+config.yaml / gateway.yaml
+  host-run non-secret runtime config:
+    storage paths, sandbox provider/base_url, runtime edition, gateway upstream defaults
 
 docker-compose
   owns fixed in-network service URLs and service-only env

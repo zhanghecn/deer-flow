@@ -11,18 +11,22 @@ import (
 )
 
 type SkillHandler struct {
-	svc       *service.SkillService
-	fs        *storage.FS
-	configDir string
+	svc                  *service.SkillService
+	fs                   *storage.FS
+	extensionsConfigPath string
 }
 
-func NewSkillHandler(svc *service.SkillService, fs *storage.FS, configDir string) *SkillHandler {
-	return &SkillHandler{svc: svc, fs: fs, configDir: configDir}
+func NewSkillHandler(svc *service.SkillService, fs *storage.FS, extensionsConfigPath string) *SkillHandler {
+	return &SkillHandler{
+		svc:                  svc,
+		fs:                   fs,
+		extensionsConfigPath: extensionsConfigPath,
+	}
 }
 
 func (h *SkillHandler) List(c *gin.Context) {
 	status := c.Query("status")
-	skills, err := listFilesystemSkills(h.fs, h.configDir, status)
+	skills, err := listFilesystemSkills(h.fs, h.extensionsConfigPath, status)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
 		return
@@ -62,7 +66,7 @@ func (h *SkillHandler) Update(c *gin.Context) {
 	}
 
 	if req.Enabled != nil {
-		skill, err := loadFilesystemSkillByName(h.fs, h.configDir, name)
+		skill, err := loadFilesystemSkillByName(h.fs, h.extensionsConfigPath, name)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
 			return
@@ -72,13 +76,13 @@ func (h *SkillHandler) Update(c *gin.Context) {
 			return
 		}
 
-		cfg, err := readExtensionsConfig(h.configDir)
+		cfg, err := readExtensionsConfig(h.extensionsConfigPath)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to read extensions config"})
 			return
 		}
 		cfg.Skills[name] = skillStateJSON{Enabled: *req.Enabled}
-		if err := writeExtensionsConfig(h.configDir, cfg); err != nil {
+		if err := writeExtensionsConfig(h.extensionsConfigPath, cfg); err != nil {
 			c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to write extensions config"})
 			return
 		}

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/openagents/gateway/internal/bootstrap"
@@ -46,7 +45,7 @@ func main() {
 	// from the project root, while shared skills live in a sibling skills/ dir.
 	baseDir := storage.ResolveBaseDir(cfg.Storage.BaseDir)
 
-	mainConfigPath := bootstrap.MainConfigPath()
+	extensionsConfigPath := bootstrap.ExtensionsConfigPath()
 
 	// Initialize database
 	pool, err := repository.NewPool(cfg.Database.DSN())
@@ -73,16 +72,16 @@ func main() {
 	// Handlers
 	authH := handler.NewAuthHandler(userRepo, tokenRepo, jwtMgr, fs)
 	agentH := handler.NewAgentHandler(agentSvc, fs)
-	skillH := handler.NewSkillHandler(skillSvc, fs, filepath.Dir(mainConfigPath))
+	skillH := handler.NewSkillHandler(skillSvc, fs, extensionsConfigPath)
 	modelH := handler.NewModelHandler(modelRepo)
 	memoryH := handler.NewMemoryHandler(fs)
-	mcpH := handler.NewMCPHandler(filepath.Dir(mainConfigPath))
+	mcpH := handler.NewMCPHandler(extensionsConfigPath)
 	threadsH := handler.NewThreadsHandler(threadRepo)
 	uploadsH := handler.NewUploadsHandler(fs)
 	artifactsH := handler.NewArtifactsHandler(fs)
 	onlyOfficeH := handler.NewOnlyOfficeHandler(fs, handler.OnlyOfficeConfig{
-		ServerURL:    os.Getenv("ONLYOFFICE_SERVER_URL"),
-		PublicAppURL: os.Getenv("ONLYOFFICE_PUBLIC_APP_URL"),
+		ServerURL:    cfg.OnlyOffice.ServerURL,
+		PublicAppURL: cfg.OnlyOffice.PublicAppURL,
 		JWTSecret:    resolveOnlyOfficeJWTSecret(),
 	})
 	openAPIH := handler.NewOpenAPIHandler(modelRepo, cfg.Upstream.LangGraphURL, fs)

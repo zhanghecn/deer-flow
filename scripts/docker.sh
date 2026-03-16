@@ -12,28 +12,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 DOCKER_DIR="$PROJECT_ROOT/docker"
 ROOT_ENV_FILE="$PROJECT_ROOT/.env"
+DEFAULT_SANDBOX_AIO_IMAGE="enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest"
+DEFAULT_SANDBOX_AIO_PORT="8083"
 
 # Docker Compose arguments. Use the shared root `.env` as the single app config.
 COMPOSE_ARGS=(--env-file "$ROOT_ENV_FILE" -p openagents-dev -f docker-compose-dev.yaml)
-
-dotenv_get() {
-    local key="$1"
-    local env_file="$ROOT_ENV_FILE"
-
-    if [ ! -f "$env_file" ]; then
-        return 1
-    fi
-
-    awk -v key="$key" '
-        $0 ~ "^[[:space:]]*" key "=" {
-            line=$0
-            sub(/^[[:space:]]*[^=]+=/, "", line)
-            gsub(/\r$/, "", line)
-            print line
-            exit
-        }
-    ' "$env_file"
-}
 
 ensure_root_env_file() {
     if [ -f "$ROOT_ENV_FILE" ]; then
@@ -41,39 +24,24 @@ ensure_root_env_file() {
     fi
 
     echo -e "${YELLOW}Missing root env file: $ROOT_ENV_FILE${NC}"
-    echo -e "${YELLOW}Create it from .env.example before starting services.${NC}"
+    echo -e "${YELLOW}Create it manually with required secrets before starting services.${NC}"
     exit 1
 }
 
-load_root_env_defaults() {
-    local key
-    local value
-
-    for key in \
-        OPENAGENTS_DOCKER_HOST_HOME \
-        SANDBOX_AIO_IMAGE \
-        NGINX_CONF; do
-        if [ -n "${!key:-}" ]; then
-            continue
-        fi
-        value="$(dotenv_get "$key" || true)"
-        if [ -n "$value" ]; then
-            export "$key=$value"
-        fi
-    done
-}
-
-detect_sandbox_mode() {
+detect_sandbox_provider() {
+    local provider="${OPENAGENTS_SANDBOX_PROVIDER:-}"
     local config_file="$PROJECT_ROOT/config.yaml"
-    local sandbox_use=""
-    local provisioner_url=""
 
-    if [ ! -f "$config_file" ]; then
-        echo "local"
+    if [ -n "$provider" ]; then
+        echo "$provider"
         return
     fi
 
-    sandbox_use=$(awk '
+    if [ ! -f "$config_file" ]; then
+        return
+    fi
+
+    awk '
         /^[[:space:]]*sandbox:[[:space:]]*$/ { in_sandbox=1; next }
         in_sandbox && /^[^[:space:]#]/ { in_sandbox=0 }
         in_sandbox && /^[[:space:]]*use:[[:space:]]*/ {
@@ -82,20 +50,30 @@ detect_sandbox_mode() {
             print line
             exit
         }
-    ' "$config_file")
+    ' "$config_file"
+}
 
-    provisioner_url=$(awk '
-        /^[[:space:]]*sandbox:[[:space:]]*$/ { in_sandbox=1; next }
-        in_sandbox && /^[^[:space:]#]/ { in_sandbox=0 }
-        in_sandbox && /^[[:space:]]*provisioner_url:[[:space:]]*/ {
-            line=$0
-            sub(/^[[:space:]]*provisioner_url:[[:space:]]*/, "", line)
-            print line
-            exit
-        }
-    ' "$config_file")
+detect_sandbox_mode() {
+    local config_file="$PROJECT_ROOT/config.yaml"
+    local sandbox_use=""
+    local provisioner_url=""
 
-    if [[ "$sandbox_use" == *"src.sandbox.local:LocalSandboxProvider"* ]]; then
+    sandbox_use="$(detect_sandbox_provider)"
+
+    if [ -f "$config_file" ]; then
+        provisioner_url=$(awk '
+            /^[[:space:]]*sandbox:[[:space:]]*$/ { in_sandbox=1; next }
+            in_sandbox && /^[^[:space:]#]/ { in_sandbox=0 }
+            in_sandbox && /^[[:space:]]*provisioner_url:[[:space:]]*/ {
+                line=$0
+                sub(/^[[:space:]]*provisioner_url:[[:space:]]*/, "", line)
+                print line
+                exit
+            }
+        ' "$config_file")
+    fi
+
+    if [[ -z "$sandbox_use" || "$sandbox_use" == *"src.sandbox.local:LocalSandboxProvider"* ]]; then
         echo "local"
     elif [[ "$sandbox_use" == *"src.community.aio_sandbox:AioSandboxProvider"* ]]; then
         if [ -n "$provisioner_url" ]; then
@@ -112,11 +90,7 @@ require_provisioner_env() {
     local node_host="${NODE_HOST:-}"
 
     if [ -z "$node_host" ]; then
-        node_host="$(dotenv_get NODE_HOST || true)"
-    fi
-
-    if [ -z "$node_host" ]; then
-        echo -e "${YELLOW}Provisioner mode requires NODE_HOST in .env (or exported in the shell).${NC}"
+        echo -e "${YELLOW}Provisioner mode requires NODE_HOST exported in the shell.${NC}"
         echo -e "${YELLOW}Set it to a real host/IP/DNS name reachable from gateway/langgraph containers.${NC}"
         exit 1
     fi
@@ -187,9 +161,8 @@ init() {
     echo ""
 
     ensure_root_env_file
-    load_root_env_defaults
 
-    SANDBOX_IMAGE="${SANDBOX_AIO_IMAGE:-enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest}"
+    SANDBOX_IMAGE="$DEFAULT_SANDBOX_AIO_IMAGE"
 
     if ! docker images --format '{{.Repository}}:{{.Tag}}' | grep -q "^${SANDBOX_IMAGE}$"; then
         echo -e "${BLUE}Pulling sandbox image: $SANDBOX_IMAGE ...${NC}"
@@ -215,7 +188,6 @@ start() {
     echo ""
 
     ensure_root_env_file
-    load_root_env_defaults
 
     sandbox_mode="$(detect_sandbox_mode)"
 
@@ -265,7 +237,6 @@ infra_start() {
     echo ""
 
     ensure_root_env_file
-    load_root_env_defaults
     resolve_openagents_home
 
     echo -e "${BLUE}Using OPENAGENTS_DOCKER_HOST_HOME=$OPENAGENTS_DOCKER_HOST_HOME${NC}"
@@ -277,7 +248,7 @@ infra_start() {
 
     echo ""
     echo -e "${GREEN}✓ Local debug infra is starting${NC}"
-    echo "  Sandbox AIO: http://127.0.0.1:${SANDBOX_AIO_PORT:-8083}"
+    echo "  Sandbox AIO: http://127.0.0.1:${DEFAULT_SANDBOX_AIO_PORT}"
     echo "  ONLYOFFICE:  http://127.0.0.1:${ONLYOFFICE_PORT:-8082}"
     echo "  Host app:    run 'make dev' separately"
     echo ""
@@ -363,7 +334,7 @@ help() {
     echo ""
     echo "Commands:"
     echo "  init          - Pull the sandbox image (speeds up first Pod startup)"
-    echo "  start         - Start Docker services (auto-detects sandbox mode from config.yaml)"
+    echo "  start         - Start Docker services (auto-detects sandbox mode from startup config)"
     echo "  infra-start   - Start local debug infra only (sandbox-aio + onlyoffice)"
     echo "  restart       - Restart all running Docker services"
     echo "  logs [option] - View Docker development logs"
@@ -388,7 +359,6 @@ main() {
     esac
 
     ensure_root_env_file
-    load_root_env_defaults
 
     # Main command dispatcher
     case "$1" in

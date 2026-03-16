@@ -40,6 +40,41 @@ func TestMainConfigPathPointsToRepoConfig(t *testing.T) {
 	}
 }
 
+func TestMainConfigPathRespectsEnvOverride(t *testing.T) {
+	overridePath := filepath.Join(t.TempDir(), "runtime-config.yaml")
+	if err := os.WriteFile(overridePath, []byte("models: []\n"), 0644); err != nil {
+		t.Fatalf("write override config: %v", err)
+	}
+
+	t.Setenv("OPENAGENTS_CONFIG_PATH", overridePath)
+
+	if got := MainConfigPath(); got != overridePath {
+		t.Fatalf("unexpected main config override: got %s want %s", got, overridePath)
+	}
+}
+
+func TestExtensionsConfigPathDefaultsToRepoRoot(t *testing.T) {
+	t.Parallel()
+
+	path := ExtensionsConfigPath()
+	if filepath.Base(path) != "extensions_config.json" {
+		t.Fatalf("unexpected extensions config path: %s", path)
+	}
+}
+
+func TestExtensionsConfigPathRespectsEnvOverride(t *testing.T) {
+	overridePath := filepath.Join(t.TempDir(), "extensions.json")
+	if err := os.WriteFile(overridePath, []byte("{}\n"), 0644); err != nil {
+		t.Fatalf("write override extensions config: %v", err)
+	}
+
+	t.Setenv("OPENAGENTS_EXTENSIONS_CONFIG_PATH", overridePath)
+
+	if got := ExtensionsConfigPath(); got != overridePath {
+		t.Fatalf("unexpected extensions config override: got %s want %s", got, overridePath)
+	}
+}
+
 func TestMigrationsDirExists(t *testing.T) {
 	t.Parallel()
 

@@ -20,11 +20,16 @@ models: []
 #     supports_thinking: false
 #     supports_vision: true
 
+runtime:
+  edition: inmem
+
 sandbox:
   use: src.community.aio_sandbox:AioSandboxProvider
-  base_url: $OPENAGENTS_SANDBOX_BASE_URL
+  base_url: http://127.0.0.1:8083
   shared_data_mount_path: /openagents
   auto_start: false
+  # Add `provisioner_url` only for provisioner/Kubernetes-backed sandboxes.
+  # provisioner_url: http://provisioner:8002
 
 storage:
   base_dir: .openagents

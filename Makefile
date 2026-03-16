@@ -32,7 +32,7 @@ config:
 		exit 1; \
 	fi
 	@cp config.example.yaml config.yaml
-	@test -f .env || cp .env.example .env
+	@test -f .env || printf "# Secrets only.\nDATABASE_URI=\nJWT_SECRET=\n" > .env
 
 # Check required tools
 check:

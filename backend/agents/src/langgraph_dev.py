@@ -8,9 +8,11 @@ from typing import Any
 
 from dotenv import dotenv_values
 from langgraph_api.cli import run_server
+import yaml
 
 from src.agents.lead_agent.agent import prime_lead_agent_read_graph_cache
 from src.config.builtin_agents import ensure_builtin_agent_archive
+from src.config.config_files import resolve_config_file
 from src.remote.server import start_remote_relay_sidecar
 
 ALLOWED_RUNTIME_EDITIONS = {"inmem", "postgres", "community"}
@@ -90,14 +92,47 @@ def _has_postgres_runtime_backend() -> bool:
     return importlib.util.find_spec("langgraph_runtime_postgres") is not None
 
 
+def _load_project_runtime_config() -> dict[str, Any]:
+    config_path = resolve_config_file(
+        config_path=None,
+        env_var_name="OPENAGENTS_CONFIG_PATH",
+        default_filenames=("config.yaml",),
+    )
+    if config_path is None or not config_path.exists():
+        return {}
+
+    with config_path.open(encoding="utf-8") as file:
+        config_data = yaml.safe_load(file) or {}
+    if not isinstance(config_data, dict):
+        return {}
+    return config_data
+
+
+def _resolve_runtime_edition() -> str:
+    env_value = os.getenv("LANGGRAPH_RUNTIME_EDITION", "").strip()
+    if env_value:
+        return env_value
+
+    config_data = _load_project_runtime_config()
+    runtime_config = config_data.get("runtime")
+    if isinstance(runtime_config, dict):
+        configured = str(runtime_config.get("edition", "")).strip()
+        if configured:
+            return configured
+
+    legacy_value = str(config_data.get("langgraph_runtime_edition", "")).strip()
+    if legacy_value:
+        return legacy_value
+
+    return "inmem"
+
+
 def main() -> None:
     config_path = _resolve_config_path()
     config_data = _load_config(config_path)
     runtime_env = _load_env_from_config(config_path, config_data)
 
-    runtime_edition = (
-        os.getenv("LANGGRAPH_RUNTIME_EDITION", "inmem").strip() or "inmem"
-    )
+    runtime_edition = _resolve_runtime_edition()
     if runtime_edition not in ALLOWED_RUNTIME_EDITIONS:
         allowed = "|".join(sorted(ALLOWED_RUNTIME_EDITIONS))
         raise RuntimeError(

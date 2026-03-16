@@ -23,7 +23,11 @@ logging:
   proxy_log_headers: false
 
 upstream:
-  langgraph_url: $LANGGRAPH_URL
+  langgraph_url: http://localhost:2024
+
+onlyoffice:
+  server_url: http://localhost:8082
+  public_app_url: http://openagents-host:8001
 
 # Declarative proxy routes
 # Add new upstream services here — no code changes needed.
@@ -31,7 +35,7 @@ upstream:
 proxy:
   routes:
     - prefix: /api/langgraph
-      upstream: $LANGGRAPH_URL
+      upstream: http://localhost:2024
       strip_prefix: true
       auth: jwt
 

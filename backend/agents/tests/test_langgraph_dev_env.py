@@ -54,3 +54,13 @@ def test_main_passes_merged_runtime_env_to_run_server(tmp_path, monkeypatch):
         "OPENAGENTS_SANDBOX_SHARED_DATA_MOUNT_PATH": "/openagents",
         "DATABASE_URI": "postgresql://from-container-env",
     }
+
+
+def test_runtime_edition_can_be_loaded_from_project_config(tmp_path, monkeypatch):
+    project_config = tmp_path / "config.yaml"
+    project_config.write_text("runtime:\n  edition: postgres\n", encoding="utf-8")
+
+    monkeypatch.setenv("OPENAGENTS_CONFIG_PATH", str(project_config))
+    monkeypatch.delenv("LANGGRAPH_RUNTIME_EDITION", raising=False)
+
+    assert langgraph_dev._resolve_runtime_edition() == "postgres"

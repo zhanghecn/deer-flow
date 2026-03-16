@@ -103,7 +103,13 @@ class ExtensionsConfig(BaseModel):
         Returns:
             ExtensionsConfig: The loaded config, or empty config if file not found.
         """
-        resolved_path = cls.resolve_config_path(config_path)
+        try:
+            resolved_path = cls.resolve_config_path(config_path)
+        except FileNotFoundError:
+            # Extensions are optional. Allow startup to proceed when the
+            # configured path is intended to be created lazily by another
+            # component, such as the gateway in Docker dev.
+            return cls(mcp_servers={}, skills={})
         if resolved_path is None:
             # Return empty config if extensions config file is not found
             return cls(mcp_servers={}, skills={})

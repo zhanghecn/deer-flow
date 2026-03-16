@@ -17,7 +17,8 @@ name: openagents-dev
 # Access: http://localhost:2026
 #
 # Configuration layering:
-# - root `../.env` is the single shared app config for host-run and Docker dev.
+# - root `../.env` is the shared secrets file for host-run and Docker dev.
+# - `config.yaml` and `backend/gateway/gateway.yaml` keep non-secret runtime config.
 # - compose owns fixed in-container URLs and compose-only wiring.
 # - `gateway` and `langgraph` mount the same root `.env` as `/app/.env`.
 
@@ -32,12 +33,12 @@ services:
   # LangGraph connects through `OPENAGENTS_SANDBOX_BASE_URL` instead of
   # dynamically creating containers itself.
   sandbox-aio:
-    image: ${SANDBOX_AIO_IMAGE:-enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest}
+    image: enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest
     # Keep this name outside the `openagents-sandbox-*` prefix used by
     # auto-started per-thread sandboxes so `make stop` cleanup does not touch it.
     container_name: openagents-aio-sandbox
     ports:
-      - "${SANDBOX_AIO_PORT:-8083}:8080"
+      - "8083:8080"
     volumes:
       - ${OPENAGENTS_DOCKER_HOST_HOME:-../.openagents}:/openagents
     environment:
@@ -45,7 +46,7 @@ services:
       # Python when they call image/video generation providers from inside AIO.
       ARK_API_KEY: ${ARK_API_KEY:-}
       VOLCENGINE_API_KEY: ${VOLCENGINE_API_KEY:-}
-      VOLCENGINE_IMAGE_MODEL: ${VOLCENGINE_IMAGE_MODEL:-}
+      VOLCENGINE_IMAGE_MODEL: doubao-seedream-5.0-lite
       ARK_IMAGE_MODEL: ${ARK_IMAGE_MODEL:-}
       ARK_API_BASE_URL: ${ARK_API_BASE_URL:-}
       VOLCENGINE_API_BASE_URL: ${VOLCENGINE_API_BASE_URL:-}
@@ -79,7 +80,7 @@ services:
       - ~/.kube/config:/root/.kube/config:ro
     environment:
       K8S_NAMESPACE: ${K8S_NAMESPACE:-openagents}
-      SANDBOX_IMAGE: ${SANDBOX_IMAGE:-enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest}
+      SANDBOX_IMAGE: enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest
       KUBECONFIG_PATH: ${KUBECONFIG_PATH:-/root/.kube/config}
       NODE_HOST: ${NODE_HOST:-}
       K8S_API_SERVER: ${K8S_API_SERVER:-}
@@ -100,16 +101,13 @@ services:
 
   # ── Reverse Proxy ──────────────────────────────────────────────────────
   # Routes API traffic to gateway/langgraph and (optionally) provisioner.
-  # Select nginx config via NGINX_CONF:
-  # - nginx.conf (compose default): container-to-container upstreams
-  # - nginx.local.conf: host-run `make dev`
   nginx:
     image: nginx:alpine
     container_name: openagents-nginx
     ports:
       - "2026:2026"
     volumes:
-      - ./nginx/${NGINX_CONF:-nginx.conf}:/etc/nginx/nginx.conf:ro
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - frontend
       - gateway
@@ -156,6 +154,7 @@ services:
     volumes:
       - ../backend/gateway:/app/backend/gateway
       - ../.env:/app/.env:ro
+      - ../config.yaml:/app/config.yaml:ro
       - ../logs:/app/logs
       - ${OPENAGENTS_DOCKER_HOST_HOME:-../.openagents}:/openagents-home
       # Mount Go cache for faster dependency installation
@@ -163,6 +162,8 @@ services:
     working_dir: /app
     environment:
       OPENAGENTS_HOME: /openagents-home
+      OPENAGENTS_CONFIG_PATH: /app/config.yaml
+      OPENAGENTS_EXTENSIONS_CONFIG_PATH: /openagents-home/extensions_config.json
       LANGGRAPH_URL: http://langgraph:2024
       ONLYOFFICE_PUBLIC_APP_URL: http://gateway:8001
     networks:
@@ -221,6 +222,8 @@ services:
     working_dir: /app
     environment:
       OPENAGENTS_HOME: /openagents-home
+      OPENAGENTS_CONFIG_PATH: /app/config.yaml
+      OPENAGENTS_EXTENSIONS_CONFIG_PATH: /openagents-home/extensions_config.json
       OPENAGENTS_SANDBOX_BASE_URL: http://sandbox-aio:8080
     networks:
       - openagents-dev

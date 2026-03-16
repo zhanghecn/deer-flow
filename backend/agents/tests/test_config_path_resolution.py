@@ -48,6 +48,16 @@ def test_extensions_config_resolve_path_finds_project_root_from_working_director
     assert resolved == project_extensions
 
 
+def test_extensions_config_from_file_tolerates_missing_env_override(monkeypatch, tmp_path: Path):
+    missing_path = tmp_path / "missing-extensions.json"
+    monkeypatch.setenv("OPENAGENTS_EXTENSIONS_CONFIG_PATH", str(missing_path))
+
+    config = ExtensionsConfig.from_file()
+
+    assert config.mcp_servers == {}
+    assert config.skills == {}
+
+
 def test_get_paths_resolves_storage_and_skills_relative_to_config_file(monkeypatch, tmp_path: Path):
     project_root = tmp_path / "repo"
     working_dir = project_root / "backend" / "agents"
