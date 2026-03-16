@@ -85,8 +85,15 @@ LangGraph 需要允许把网关附加头透传到 `configurable`：
 LANGGRAPH_HTTP='{"configurable_headers":{"includes":["x-user-id","x-thread-id"]}}'
 ```
 
-统一放在项目根目录 `.env`（单一真源）。`backend/agents/langgraph.json` 读取 `../../.env`，
-`backend/gateway` 启动/迁移优先读取 `../../.env`，其次读取本目录 `.env`（仅本地覆盖）。
+宿主机运行统一使用项目根目录 `.env`。`backend/agents/langgraph.json` 读取 `../../.env`，
+`backend/gateway` 启动/迁移也会优先读取根 `.env`。
+
+Docker 开发栈也使用同一个根 `.env`：
+
+- compose 插值读取根 `.env`
+- gateway / LangGraph 容器都挂载同一个 `/app/.env`
+- 容器内固定地址差异直接在 compose 里内联覆盖
+- LangGraph 仍使用同一个 `backend/agents/langgraph.json`
 
 ## 6) 维护检查清单
 

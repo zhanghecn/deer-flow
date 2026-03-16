@@ -150,12 +150,19 @@ If you prefer running services locally:
    make setup-sandbox
    ```
 
-4. **Start services**:
+4. **Start local debug infra when you need sandbox / ONLYOFFICE**:
+   ```bash
+   make docker-infra-start
+   ```
+
+   This starts only `sandbox-aio` and `onlyoffice` for host-run development.
+
+5. **Start services**:
    ```bash
    make dev
    ```
 
-5. **Access**: http://localhost:2026
+6. **Access**: http://localhost:2026
 
 ### Advanced
 #### Sandbox Mode

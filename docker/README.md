@@ -1,112 +1,96 @@
 # Docker Config Layout
 
-Docker Compose in this repo follows one rule:
+This repo now uses one shared `.env`.
 
-- repo root `.env` is the single source of truth
-- `docker/docker-compose-dev.yaml` pins `name: openagents-dev` so every
-  `docker compose` invocation joins the same project/network regardless of cwd
+That `.env` is used by:
 
-The same file contains two views of a few runtime addresses:
+- host-run development (`make dev`)
+- host-run development infra (`make docker-infra-start`)
+- Docker development (`make docker-start`)
+- gateway / LangGraph / migrate
 
-- host view: used by host-run services and local development
-- container view: `*_DOCKER` variables used only when a service runs inside Docker
-- optional compose path view: `OPENAGENTS_DOCKER_HOST_HOME` and `OPENAGENTS_DOCKER_CONTAINER_HOME`
+Docker-specific differences are handled in two places only:
 
-Example:
+- fixed container URLs are written directly in `docker/docker-compose-dev.yaml`
+- optional compose-only knobs stay as commented optional vars in root `.env`
 
-```env
-LANGGRAPH_URL=http://localhost:2024
-LANGGRAPH_URL_DOCKER=http://langgraph:2024
-```
+Removed on purpose to keep the config surface small:
 
-Why this exists:
+- a separate Docker-only env file
+- a separate Docker-only LangGraph config file
+- an ONLYOFFICE compose profile
 
-- `localhost` on the host means "this machine"
-- `localhost` inside a container means "this container"
+## Recommended Mental Model
 
-So Docker services must not read host-view URLs directly.
-
-One important exception:
-
-- `ONLYOFFICE_SERVER_URL` is browser-facing, not container-facing, so it usually stays as the host-view URL such as `http://localhost:8082`
-
-## Loading Order
-
-```text
-root .env
-   ├─ compose interpolation: docker compose --env-file ../.env ...
-   ├─ mounted file: /app/.env (gateway / langgraph read this directly)
-   └─ env_file: ../.env (only for services that do not read /app/.env themselves)
-
-compose environment overrides
-   DATABASE_URI        <- DATABASE_URI_DOCKER
-   LANGGRAPH_URL       <- LANGGRAPH_URL_DOCKER
-   OPENAGENTS_HOME     <- OPENAGENTS_HOME_DOCKER
-   ...
-```
-
-For filesystem mounts, compose uses:
-
-```text
-OPENAGENTS_DOCKER_HOST_HOME      -> bind-mount source on the repo machine
-OPENAGENTS_DOCKER_CONTAINER_HOME -> runtime path exposed in gateway/langgraph
-```
-
-The applications still read the canonical runtime names:
+Put canonical app values in root `.env`:
 
 - `DATABASE_URI`
-- `LANGGRAPH_URL`
+- `JWT_SECRET`
+- API keys
 - `OPENAGENTS_HOME`
-- `OPENAGENTS_SANDBOX_BASE_URL`
-- `ONLYOFFICE_PUBLIC_APP_URL`
+- host-run `LANGGRAPH_URL`
+- host-run `OPENAGENTS_SANDBOX_BASE_URL`
 
-Compose is only responsible for mapping the docker-view values into those names.
-The helper script additionally normalizes `OPENAGENTS_DOCKER_HOST_HOME` to an
-absolute path before startup so provisioner mode can safely use hostPath mounts.
+Do not try to store both host-view and container-view URLs in `.env`.
+For container-only fixed values, compose already owns them:
 
-In practice:
+- gateway sees `LANGGRAPH_URL=http://langgraph:2024`
+- langgraph sees `OPENAGENTS_SANDBOX_BASE_URL=http://sandbox-aio:8080`
+- gateway sees `ONLYOFFICE_PUBLIC_APP_URL=http://gateway:8001`
+- gateway/langgraph see `OPENAGENTS_HOME=/openagents-home`
 
-- `gateway` and `langgraph` read the mounted root `.env` file themselves
-- Compose only overrides the few vars whose value must change inside Docker
-- `onlyoffice` and `provisioner` still use `env_file` because they do not load `/app/.env` on their own
+## Important Constraint
+
+With one `.env`, `DATABASE_URI` should ideally be reachable from both:
+
+- host-run processes
+- Docker containers
+
+That is usually fine when PostgreSQL is on another server or a stable LAN host.
+
+If your DB is bound only to host-local `127.0.0.1`, one `.env` cannot express
+two different addresses cleanly. This repo now optimizes for the simple case:
+one shared DB address.
 
 ## Manual Usage
-
-Run compose with the shared root `.env` explicitly:
 
 ```bash
 cd docker
 docker compose --env-file ../.env -f docker-compose-dev.yaml up --build
 ```
 
-Or use:
+or:
 
 ```bash
 make docker-start
 ```
 
-The helper script already injects `--env-file /path/to/repo/.env`.
+`ONLYOFFICE` is part of the default Docker dev stack.
+`SANDBOX_AIO` is also part of the default stack when `config.yaml` uses the AIO sandbox provider.
+For host-run local development, start just the shared infra with:
 
-## Why The Fixed Compose Name Matters
-
-Without a fixed compose project name, starting services from different working
-directories can silently create different bridge networks, for example:
-
-```text
-docker_openagents-dev
-openagents-dev_openagents-dev
+```bash
+make docker-infra-start
 ```
 
-That breaks container DNS between services even when the container names look
-correct. The most obvious symptom is:
+That starts only `sandbox-aio` and `onlyoffice`.
+The root `.env` keeps the host-run sandbox URL (`http://127.0.0.1:8083`), and compose overrides the in-container LangGraph URL to `http://sandbox-aio:8080`.
 
-```text
-gateway -> http://langgraph:2024
-lookup langgraph: i/o timeout
-```
+## Optional Compose-Only Vars
 
-Keep the compose file's top-level `name: openagents-dev` intact so:
+These can stay commented in root `.env` unless you actually need them:
 
-- `gateway`, `langgraph`, `sandbox-aio`, `onlyoffice` stay on one network
-- service DNS names such as `langgraph`, `gateway`, `sandbox-aio` keep working
-- rebuilding a single container does not split the stack into multiple projects
+- `OPENAGENTS_DOCKER_HOST_HOME`
+- `SANDBOX_AIO_PORT`
+- `SANDBOX_AIO_IMAGE`
+- `ONLYOFFICE_PORT`
+- `NGINX_CONF`
+- `NODE_HOST`
+- `K8S_API_SERVER`
+
+## Fixed Compose Name
+
+Keep the top-level `name: openagents-dev`.
+
+Without that, different `docker compose` invocations can create different
+bridge networks and break service DNS such as `http://langgraph:2024`.

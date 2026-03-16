@@ -22,13 +22,18 @@ function getGatewayBaseURL() {
 }
 
 export function getBackendBaseURL() {
+  // Honor an explicit gateway base URL in the browser. This keeps host-run
+  // `pnpm dev` on :3000 from depending on Next dev rewrites for API traffic.
+  if (env.NEXT_PUBLIC_BACKEND_BASE_URL) {
+    return getGatewayBaseURL();
+  }
+
   return getBrowserBaseURL() ?? getGatewayBaseURL();
 }
 
 export function getLangGraphBaseURL(isMock?: boolean) {
-  const browserBaseURL = getBrowserBaseURL();
-
   if (isMock) {
+    const browserBaseURL = getBrowserBaseURL();
     if (browserBaseURL) {
       return `${browserBaseURL}/mock/api`;
     }
@@ -36,5 +41,5 @@ export function getLangGraphBaseURL(isMock?: boolean) {
     return `${DEFAULT_APP_BASE_URL}/mock/api`;
   }
 
-  return `${browserBaseURL ?? getGatewayBaseURL()}/api/langgraph`;
+  return `${getBackendBaseURL()}/api/langgraph`;
 }

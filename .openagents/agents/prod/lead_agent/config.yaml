@@ -1,76 +1,44 @@
 agents_md_path: AGENTS.md
 description: Default system lead agent.
 memory:
-    debounce_seconds: 30
-    enabled: false
-    fact_confidence_threshold: 0.7
-    injection_enabled: true
-    max_facts: 100
-    max_injection_tokens: 2000
+  debounce_seconds: 30
+  enabled: false
+  fact_confidence_threshold: 0.7
+  injection_enabled: true
+  max_facts: 100
+  max_injection_tokens: 2000
 name: lead_agent
 skill_refs:
-    - name: bootstrap
-      category: shared
-      source_path: shared/bootstrap
-      materialized_path: skills/bootstrap
-    - name: chart-visualization
-      category: shared
-      source_path: shared/chart-visualization
-      materialized_path: skills/chart-visualization
-    - name: consulting-analysis
-      category: shared
-      source_path: shared/consulting-analysis
-      materialized_path: skills/consulting-analysis
-    - name: data-analysis
-      category: shared
-      source_path: shared/data-analysis
-      materialized_path: skills/data-analysis
-    - name: deep-research
-      category: shared
-      source_path: shared/deep-research
-      materialized_path: skills/deep-research
-    - name: find-skills
-      category: shared
-      source_path: shared/find-skills
-      materialized_path: skills/find-skills
-    - name: frontend-design
-      category: shared
-      source_path: shared/frontend-design
-      materialized_path: skills/frontend-design
-    - name: github-deep-research
-      category: shared
-      source_path: shared/github-deep-research
-      materialized_path: skills/github-deep-research
-    - name: image-generation
-      category: shared
-      source_path: shared/image-generation
-      materialized_path: skills/image-generation
-    - name: podcast-generation
-      category: shared
-      source_path: shared/podcast-generation
-      materialized_path: skills/podcast-generation
-    - name: ppt-generation
-      category: shared
-      source_path: shared/ppt-generation
-      materialized_path: skills/ppt-generation
-    - name: skill-creator
-      category: shared
-      source_path: shared/skill-creator
-      materialized_path: skills/skill-creator
-    - name: surprise-me
-      category: shared
-      source_path: shared/surprise-me
-      materialized_path: skills/surprise-me
-    - name: vercel-deploy
-      category: shared
-      source_path: shared/vercel-deploy-claimable
-      materialized_path: skills/vercel-deploy
-    - name: video-generation
-      category: shared
-      source_path: shared/video-generation
-      materialized_path: skills/video-generation
-    - name: web-design-guidelines
-      category: shared
-      source_path: shared/web-design-guidelines
-      materialized_path: skills/web-design-guidelines
+- name: bootstrap
+  source_path: shared/bootstrap
+- name: chart-visualization
+  source_path: shared/chart-visualization
+- name: consulting-analysis
+  source_path: shared/consulting-analysis
+- name: data-analysis
+  source_path: shared/data-analysis
+- name: deep-research
+  source_path: shared/deep-research
+- name: find-skills
+  source_path: shared/find-skills
+- name: frontend-design
+  source_path: shared/frontend-design
+- name: github-deep-research
+  source_path: shared/github-deep-research
+- name: image-generation
+  source_path: shared/image-generation
+- name: podcast-generation
+  source_path: shared/podcast-generation
+- name: ppt-generation
+  source_path: shared/ppt-generation
+- name: skill-creator
+  source_path: shared/skill-creator
+- name: surprise-me
+  source_path: shared/surprise-me
+- name: vercel-deploy
+  source_path: shared/vercel-deploy-claimable
+- name: video-generation
+  source_path: shared/video-generation
+- name: web-design-guidelines
+  source_path: shared/web-design-guidelines
 status: prod

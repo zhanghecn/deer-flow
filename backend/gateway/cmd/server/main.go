@@ -83,7 +83,7 @@ func main() {
 	onlyOfficeH := handler.NewOnlyOfficeHandler(fs, handler.OnlyOfficeConfig{
 		ServerURL:    os.Getenv("ONLYOFFICE_SERVER_URL"),
 		PublicAppURL: os.Getenv("ONLYOFFICE_PUBLIC_APP_URL"),
-		JWTSecret:    os.Getenv("ONLYOFFICE_JWT_SECRET"),
+		JWTSecret:    resolveOnlyOfficeJWTSecret(),
 	})
 	openAPIH := handler.NewOpenAPIHandler(modelRepo, cfg.Upstream.LangGraphURL, fs)
 	langGraphRuntimeH := handler.NewLangGraphRuntimeHandler()
@@ -271,4 +271,12 @@ func main() {
 	if err := r.Run(addr); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
+}
+
+func resolveOnlyOfficeJWTSecret() string {
+	secret := strings.TrimSpace(os.Getenv("ONLYOFFICE_JWT_SECRET"))
+	if secret != "" {
+		return secret
+	}
+	return strings.TrimSpace(os.Getenv("JWT_SECRET"))
 }

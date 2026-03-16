@@ -156,12 +156,13 @@ For local development we now separate Docker lifecycle from Python runtime:
 
 Concrete host/container contract:
 
-- Compose host mount: `OPENAGENTS_DOCKER_HOST_HOME` (default `../.openagents`)
-- App-container runtime path: `OPENAGENTS_DOCKER_CONTAINER_HOME` (default `/openagents-home`)
+- Compose host mount override: `OPENAGENTS_DOCKER_HOST_HOME` (default `../.openagents`)
+- App-container runtime path: fixed `/openagents-home`
 - Shared sandbox mount inside `sandbox-aio`: `/openagents`
 - Fixed compose project name: `openagents-dev`
-- Shared root config: repo `.env`
-- Container-view overrides: `*_DOCKER` variables in repo `.env`
+- Shared app runtime config: repo `.env`
+- `gateway` and `langgraph` both mount the same root `.env` as `/app/.env`
+- Compose injects the few container-only fixed URLs inline
 - Browser-facing URLs such as `ONLYOFFICE_SERVER_URL` stay host-view because the browser, not the container, dereferences them
 
 This keeps `docker compose` usable directly from the `docker/` directory without
@@ -176,14 +177,17 @@ Recommended config rule:
 
 ```text
 repo .env
-  host-view runtime vars: DATABASE_URI, LANGGRAPH_URL, OPENAGENTS_HOME, ...
-  container-view overrides: DATABASE_URI_DOCKER, LANGGRAPH_URL_DOCKER, ...
+  shared app runtime vars: DATABASE_URI, JWT_SECRET, API keys, ...
+  host-run values such as LANGGRAPH_URL, OPENAGENTS_HOME, ...
 
 docker-compose
-  maps *_DOCKER -> service runtime env names
+  owns fixed in-network service URLs and service-only env
+  mounts ../.env into app containers
+  injects fixed container-only values inline
 
 gateway/langgraph config files
-  continue to read the canonical runtime names only
+  continue to read canonical runtime names only
+  without extra docker-specific config files
 ```
 
 ## Runtime Path Contract

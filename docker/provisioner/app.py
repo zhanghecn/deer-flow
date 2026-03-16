@@ -1,12 +1,12 @@
 """OpenAgents Sandbox Provisioner Service.
 
 Dynamically creates and manages per-sandbox Pods in Kubernetes.
-Each ``sandbox_id`` gets its own Pod + NodePort Service.  The backend
-accesses sandboxes directly via ``{NODE_HOST}:{NodePort}``.
+Each ``sandbox_id`` gets its own Pod + NodePort Service. The backend
+accesses sandboxes directly via ``http://{NODE_HOST}:{NodePort}``.
 
 The provisioner connects to the host machine's Kubernetes cluster via a
-mounted kubeconfig (``~/.kube/config``).  Sandbox Pods run on the host
-K8s and are accessed by the backend via ``{NODE_HOST}:{NodePort}``.
+mounted kubeconfig (``~/.kube/config``). Sandbox Pods run on the host
+K8s and are accessed by the backend via ``http://{NODE_HOST}:{NodePort}``.
 
 Endpoints:
     POST   /api/sandboxes              — Create a sandbox Pod + Service
@@ -66,10 +66,9 @@ THREADS_HOST_PATH = os.environ.get("THREADS_HOST_PATH", f"{_DEFAULT_OPENAGENTS_H
 # Typically the host's ~/.kube/config is mounted here.
 KUBECONFIG_PATH = os.environ.get("KUBECONFIG_PATH", "/root/.kube/config")
 
-# The hostname / IP that the *backend container* uses to reach NodePort
-# services on the host Kubernetes node.  On Docker Desktop for macOS this
-# is ``host.docker.internal``; on Linux it may be the host's LAN IP.
-NODE_HOST = os.environ.get("NODE_HOST", "host.docker.internal")
+# The hostname / IP that backend containers use to reach NodePort services
+# on the Kubernetes node. Provisioner mode must set this explicitly.
+NODE_HOST = os.environ.get("NODE_HOST", "").strip()
 
 # ── K8s client setup ────────────────────────────────────────────────────
 
@@ -173,6 +172,11 @@ def _ensure_namespace() -> None:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     global core_v1
+    if not NODE_HOST:
+        raise RuntimeError(
+            "NODE_HOST must be set to a host/IP/DNS name reachable from "
+            "gateway/langgraph containers when provisioner mode is enabled."
+        )
     _wait_for_kubeconfig()
     core_v1 = _init_k8s_client()
     _ensure_namespace()
@@ -194,7 +198,7 @@ class CreateSandboxRequest(BaseModel):
 
 class SandboxResponse(BaseModel):
     sandbox_id: str
-    sandbox_url: str  # Direct access URL, e.g. http://host.docker.internal:{NodePort}
+    sandbox_url: str  # Direct access URL, e.g. http://192.168.1.10:{NodePort}
     status: str
 
 

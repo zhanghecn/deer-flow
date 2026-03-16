@@ -32,7 +32,7 @@ The **Sandbox Provisioner** is a FastAPI service that dynamically manages sandbo
 
 3. **Service Creation**: A NodePort Service is created to expose the Pod, with Kubernetes auto-allocating a port from the NodePort range (typically 30000-32767).
 
-4. **Access URL**: The provisioner returns `http://host.docker.internal:{NodePort}` to the backend, which the backend containers can reach directly.
+4. **Access URL**: The provisioner returns `http://{NODE_HOST}:{NodePort}` to the backend. `NODE_HOST` must be a real host/IP/DNS name that backend containers can reach directly.
 
 5. **Cleanup**: When the session ends, `DELETE /api/sandboxes/{sandbox_id}` removes both the Pod and Service.
 
@@ -78,7 +78,7 @@ Create a new sandbox Pod + Service.
 ```json
 {
   "sandbox_id": "abc-123",
-  "sandbox_url": "http://host.docker.internal:32123",
+  "sandbox_url": "http://192.168.1.10:32123",
   "status": "Pending"
 }
 ```
@@ -92,7 +92,7 @@ Get status and URL of a specific sandbox.
 ```json
 {
   "sandbox_id": "abc-123",
-  "sandbox_url": "http://host.docker.internal:32123",
+  "sandbox_url": "http://192.168.1.10:32123",
   "status": "Running"
 }
 ```
@@ -119,7 +119,7 @@ List all sandboxes currently managed.
   "sandboxes": [
     {
       "sandbox_id": "abc-123",
-      "sandbox_url": "http://host.docker.internal:32123",
+      "sandbox_url": "http://192.168.1.10:32123",
       "status": "Running"
     }
   ],
@@ -139,20 +139,20 @@ The provisioner is configured via environment variables (set in [docker-compose-
 | `SKILLS_HOST_PATH` | `${OPENAGENTS_HOME}/skills` | **Host machine** path to shared skills archive (must be absolute) |
 | `THREADS_HOST_PATH` | `${OPENAGENTS_HOME}/threads` | **Host machine** path to thread runtime data (must be absolute) |
 | `KUBECONFIG_PATH` | `/root/.kube/config` | Path to kubeconfig **inside** the provisioner container |
-| `NODE_HOST` | `host.docker.internal` | Hostname that backend containers use to reach host NodePorts |
-| `K8S_API_SERVER` | (from kubeconfig) | Override K8s API server URL (e.g., `https://host.docker.internal:26443`) |
+| `NODE_HOST` | required | Host/IP/DNS name that backend containers use to reach host NodePorts |
+| `K8S_API_SERVER` | (from kubeconfig) | Optional override for the K8s API server URL (e.g., `https://192.168.1.10:26443`) |
 
 ### Important: K8S_API_SERVER Override
 
 If your kubeconfig uses `localhost`, `127.0.0.1`, or `0.0.0.0` as the API server address (common with OrbStack, minikube, kind), the provisioner **cannot** reach it from inside the Docker container. 
 
-**Solution**: Set `K8S_API_SERVER` to use `host.docker.internal`:
+**Solution**: Set `K8S_API_SERVER` to a real host/IP/DNS name reachable from the provisioner container:
 
 ```yaml
 # docker-compose-dev.yaml
 provisioner:
   environment:
-    - K8S_API_SERVER=https://host.docker.internal:26443  # Replace 26443 with your API port
+    - K8S_API_SERVER=https://192.168.1.10:26443  # Replace with your reachable API endpoint
 ```
 
 Check your kubeconfig API server:
@@ -199,8 +199,8 @@ docker compose -p openagents-dev -f docker/docker-compose-dev.yaml up -d provisi
 
 The compose file:
 - Mounts your host's `~/.kube/config` into the container
-- Adds `extra_hosts` entry for `host.docker.internal` (required on Linux)
 - Configures environment variables for K8s access
+- Requires `NODE_HOST` in root `.env` when provisioner mode is enabled
 
 ## Testing
 
@@ -275,7 +275,7 @@ docker exec openagents-gateway curl -s $SANDBOX_URL/v1/sandbox
 2. If it's `localhost` or `127.0.0.1`, set `K8S_API_SERVER`:
    ```yaml
    environment:
-     - K8S_API_SERVER=https://host.docker.internal:PORT
+     - K8S_API_SERVER=https://192.168.1.10:PORT
    ```
 
 ### Issue: "Unprocessable Entity" when creating Pod
@@ -306,8 +306,9 @@ docker exec openagents-gateway curl -s $SANDBOX_URL/v1/sandbox
 **Solution**:
 - Verify the Service exists: `kubectl get svc -n openagents`
 - Test from host: `curl http://localhost:NODE_PORT/v1/sandbox`
-- Ensure `extra_hosts` is set in docker-compose (Linux)
-- Check `NODE_HOST` env var matches how backend reaches host
+- Test from a backend container using the configured address:
+  `docker exec openagents-gateway curl -s http://$NODE_HOST:NODE_PORT/v1/sandbox`
+- Check `NODE_HOST` matches a real address reachable from backend containers
 
 ## Security Considerations
 

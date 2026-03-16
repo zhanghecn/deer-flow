@@ -57,5 +57,7 @@ sandbox_image_cache.tar
 web/
 .deer-flow
 .playwright-cli
-server
+/server
 test-results
+output
+host-logs

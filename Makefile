@@ -1,6 +1,9 @@
 # OpenAgents - Unified Development Environment
 
-.PHONY: help config check install dev stop clean docker-init docker-start docker-stop docker-logs docker-logs-frontend docker-logs-gateway gateway-build
+.PHONY: help config check install dev stop clean docker-init docker-start docker-infra-start docker-stop docker-infra-stop docker-logs docker-logs-frontend docker-logs-gateway gateway-build
+
+GO_TOOLCHAIN ?= auto
+HOST_LOG_DIR := $(CURDIR)/.openagents/host-logs
 
 help:
 	@echo "OpenAgents Development Commands:"
@@ -16,7 +19,9 @@ help:
 	@echo "Docker Development Commands:"
 	@echo "  make docker-init     - Build the custom k3s image (with pre-cached sandbox image)"
 	@echo "  make docker-start    - Start Docker services (mode-aware from config.yaml, localhost:2026)"
+	@echo "  make docker-infra-start - Start local debug infra only (sandbox-aio + onlyoffice)"
 	@echo "  make docker-stop     - Stop Docker development services"
+	@echo "  make docker-infra-stop - Stop local debug infra only"
 	@echo "  make docker-logs     - View Docker development logs"
 	@echo "  make docker-logs-frontend - View Docker frontend logs"
 	@echo "  make docker-logs-gateway - View Docker gateway logs"
@@ -28,7 +33,6 @@ config:
 	fi
 	@cp config.example.yaml config.yaml
 	@test -f .env || cp .env.example .env
-	@test -f frontend/app/.env || cp frontend/app/.env.example frontend/app/.env
 
 # Check required tools
 check:
@@ -118,7 +122,7 @@ check:
 # Build Go gateway
 gateway-build:
 	@echo "Building Go gateway..."
-	@cd backend/gateway && GOTOOLCHAIN=local go build -o bin/gateway ./cmd/server
+	@cd backend/gateway && GOTOOLCHAIN=$(GO_TOOLCHAIN) go build -o bin/gateway ./cmd/server
 	@echo "✓ Go gateway built"
 
 # Install all dependencies
@@ -212,34 +216,34 @@ dev:
 		exit 0; \
 	}; \
 	trap cleanup INT TERM; \
-	mkdir -p logs; \
+	mkdir -p $(HOST_LOG_DIR); \
 	echo "Starting LangGraph server..."; \
-	cd $(PWD)/backend/agents && NO_COLOR=1 uv run python -m src.langgraph_dev > ../../logs/langgraph.log 2>&1 & \
+	cd $(PWD)/backend/agents && NO_COLOR=1 uv run python -m src.langgraph_dev > $(HOST_LOG_DIR)/langgraph.log 2>&1 & \
 	sleep 3; \
 	echo "✓ LangGraph server started on localhost:2024"; \
 	echo "Building Go Gateway..."; \
-	cd $(PWD)/backend/gateway && GOTOOLCHAIN=local go build -o bin/gateway ./cmd/server 2> ../../logs/gateway-build.log; \
+	cd $(PWD)/backend/gateway && GOTOOLCHAIN=$(GO_TOOLCHAIN) go build -o bin/gateway ./cmd/server 2> $(HOST_LOG_DIR)/gateway-build.log; \
 	if [ $$? -ne 0 ]; then \
-		echo "✗ Go Gateway build failed. See logs/gateway-build.log"; \
-		tail -30 logs/gateway-build.log; \
+		echo "✗ Go Gateway build failed. See $(HOST_LOG_DIR)/gateway-build.log"; \
+		tail -30 $(HOST_LOG_DIR)/gateway-build.log; \
 		cleanup; \
 	fi; \
 	echo "Starting Go Gateway..."; \
-	cd $(PWD)/backend/gateway && GATEWAY_CONFIG_PATH=gateway.yaml ./bin/gateway > ../../logs/gateway.log 2>&1 & \
+	cd $(PWD)/backend/gateway && GATEWAY_CONFIG_PATH=gateway.yaml ./bin/gateway > $(HOST_LOG_DIR)/gateway.log 2>&1 & \
 	sleep 2; \
 	if ! lsof -i :8001 -sTCP:LISTEN -t >/dev/null 2>&1; then \
 		echo "✗ Go Gateway failed to start. Last log output:"; \
-		tail -30 logs/gateway.log; \
+		tail -30 $(HOST_LOG_DIR)/gateway.log; \
 		cleanup; \
 	fi; \
 	echo "✓ Go Gateway started on localhost:8001"; \
 	echo "Starting Frontend..."; \
-	cd $(PWD)/frontend/app && pnpm run dev > ../../logs/frontend.log 2>&1 & \
+	cd $(PWD)/frontend/app && pnpm run dev > $(HOST_LOG_DIR)/frontend.log 2>&1 & \
 	sleep 3; \
 	echo "✓ Frontend started on localhost:3000"; \
 	if command -v nginx >/dev/null 2>&1; then \
 		echo "Starting Nginx reverse proxy..."; \
-		mkdir -p logs && nginx -g 'daemon off;' -c $(PWD)/docker/nginx/nginx.local.conf -p $(PWD) > logs/nginx.log 2>&1 & \
+		mkdir -p $(HOST_LOG_DIR) && nginx -g 'daemon off;' -c $(PWD)/docker/nginx/nginx.local.conf -p $(PWD) > $(HOST_LOG_DIR)/nginx.log 2>&1 & \
 		sleep 2; \
 		echo "✓ Nginx started on localhost:2026"; \
 	else \
@@ -261,11 +265,11 @@ dev:
 	fi; \
 	echo ""; \
 	echo "  📋 Logs:"; \
-	echo "     - LangGraph: logs/langgraph.log"; \
-	echo "     - Gateway:   logs/gateway.log"; \
-	echo "     - Frontend:  logs/frontend.log"; \
+	echo "     - LangGraph: $(HOST_LOG_DIR)/langgraph.log"; \
+	echo "     - Gateway:   $(HOST_LOG_DIR)/gateway.log"; \
+	echo "     - Frontend:  $(HOST_LOG_DIR)/frontend.log"; \
 	if command -v nginx >/dev/null 2>&1; then \
-		echo "     - Nginx:     logs/nginx.log"; \
+		echo "     - Nginx:     $(HOST_LOG_DIR)/nginx.log"; \
 	fi; \
 	echo ""; \
 	echo "Press Ctrl+C to stop all services"; \
@@ -289,6 +293,7 @@ stop:
 # Clean up
 clean: stop
 	@echo "Cleaning up..."
+	@-rm -rf $(HOST_LOG_DIR)/*.log 2>/dev/null || true
 	@-rm -rf logs/*.log 2>/dev/null || true
 	@echo "✓ Cleanup complete"
 
@@ -304,9 +309,17 @@ docker-init:
 docker-start:
 	@./scripts/docker.sh start
 
+# Start Docker local debug infrastructure only
+docker-infra-start:
+	@./scripts/docker.sh infra-start
+
 # Stop Docker development environment
 docker-stop:
 	@./scripts/docker.sh stop
+
+# Stop Docker local debug infrastructure only
+docker-infra-stop:
+	@./scripts/docker.sh infra-stop
 
 # View Docker development logs
 docker-logs:

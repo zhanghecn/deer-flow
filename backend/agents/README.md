@@ -228,13 +228,17 @@ Set your API keys:
 export OPENAI_API_KEY="your-api-key-here"
 ```
 
-Configure project root `.env` (shared by agents + gateway):
+For host-run development, configure project root `.env`:
 
 ```bash
 cp ../../.env.example ../../.env
 ```
 
-`backend/agents/langgraph.json` is configured to read `../../.env`, so agents and gateway share one env source.
+`backend/agents/langgraph.json` reads `../../.env` for host-run LangGraph.
+
+Docker development uses the same root `.env`.
+Containerized LangGraph still uses `backend/agents/langgraph.json`; Docker-only
+URL differences are injected inline by `docker/docker-compose-dev.yaml`.
 
 Important variables:
 
@@ -247,7 +251,8 @@ Important variables:
   runtime backend selection (default `inmem` for OSS/dev)
 - `LANGGRAPH_URL`:
   gateway upstream target for LangGraph server
-- Header pass-through (`x-user-id`, `x-thread-id`) is configured in `backend/agents/langgraph.json`:
+- Header pass-through (`x-user-id`, `x-thread-id`) is configured in
+  `backend/agents/langgraph.json`:
   `http.configurable_headers.includes`
 
 Note:
@@ -261,6 +266,13 @@ Note:
 
 ```bash
 make dev  # Starts LangGraph + Gateway + Frontend + Nginx
+```
+
+If your host-run flow needs the shared AIO sandbox or ONLYOFFICE preview, start
+them separately first from the project root:
+
+```bash
+make docker-infra-start
 ```
 
 Access at: http://localhost:2026

@@ -75,13 +75,12 @@ cp .env.example .env
 说明：
 - 共享技能库位于 `OPENAGENTS_HOME/skills/`，默认即 `.openagents/skills/`
 - 当 `OPENAGENTS_HOME` 或 `storage.base_dir` 使用相对路径时，网关会按项目根目录解析，和 Python runtime 保持一致
-- 若通过 `docker/docker-compose-dev.yaml` 启动容器化开发环境，根 `.env` 仍是唯一配置源；其中：
-  - 不带后缀的变量是宿主机视角（例如 `LANGGRAPH_URL=http://localhost:2024`）
-  - `*_DOCKER` 变量是容器视角覆盖值（例如 `LANGGRAPH_URL_DOCKER=http://langgraph:2024`）
-  - Compose 只负责把 `*_DOCKER` 映射回服务内部真正读取的运行时变量名
-  - 路径仍通过下列变量区分 host/container：
-  - `OPENAGENTS_DOCKER_HOST_HOME`：宿主机上的 `.openagents` 挂载路径
-  - `OPENAGENTS_DOCKER_CONTAINER_HOME`：Gateway/LangGraph 容器内看到的运行时根路径
+- 若通过 `docker/docker-compose-dev.yaml` 启动容器化开发环境：
+  - 根 `.env` 仍是唯一共享应用配置
+  - 容器化 Gateway 通过进程环境运行，不再直接读取根 `.env` 文件
+  - Compose 直接负责容器内固定 URL，例如 `http://langgraph:2024`
+  - Compose 负责固定容器内的运行时根路径 `/openagents-home`
+  - `OPENAGENTS_DOCKER_HOST_HOME` / `NODE_HOST` 这类值只是可选的 compose/provisioner 设置
 
 **方式二：使用配置文件**
 

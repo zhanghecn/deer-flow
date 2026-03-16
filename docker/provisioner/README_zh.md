@@ -32,7 +32,7 @@
 
 3. **服务创建**：创建一个 NodePort 服务来暴露 Pod，Kubernetes 从 NodePort 范围（通常为 30000-32767）自动分配端口。
 
-4. **访问 URL**：供应器将 `http://host.docker.internal:{NodePort}` 返回给后端，后端容器可以直接访问该地址。
+4. **访问 URL**：供应器将 `http://{NODE_HOST}:{NodePort}` 返回给后端。`NODE_HOST` 必须是后端容器可直接访问的真实主机名、IP 或 DNS 名称。
 
 5. **清理**：会话结束时，`DELETE /api/sandboxes/{sandbox_id}` 会删除 Pod 和服务。
 
@@ -78,7 +78,7 @@
 ```json
 {
   "sandbox_id": "abc-123",
-  "sandbox_url": "http://host.docker.internal:32123",
+  "sandbox_url": "http://192.168.1.10:32123",
   "status": "Pending"
 }
 ```
@@ -92,7 +92,7 @@
 ```json
 {
   "sandbox_id": "abc-123",
-  "sandbox_url": "http://host.docker.internal:32123",
+  "sandbox_url": "http://192.168.1.10:32123",
   "status": "Running"
 }
 ```
@@ -119,7 +119,7 @@
   "sandboxes": [
     {
       "sandbox_id": "abc-123",
-      "sandbox_url": "http://host.docker.internal:32123",
+      "sandbox_url": "http://192.168.1.10:32123",
       "status": "Running"
     }
   ],
@@ -138,20 +138,20 @@
 | `SKILLS_HOST_PATH` | - | **主机**上的技能目录路径（必须是绝对路径） |
 | `THREADS_HOST_PATH` | - | **主机**上的线程数据目录路径（必须是绝对路径） |
 | `KUBECONFIG_PATH` | `/root/.kube/config` | **供应器容器内**的 kubeconfig 路径 |
-| `NODE_HOST` | `host.docker.internal` | 后端容器用于访问主机 NodePort 的主机名 |
-| `K8S_API_SERVER` | （来自 kubeconfig） | 覆盖 K8s API 服务器 URL（例如 `https://host.docker.internal:26443`） |
+| `NODE_HOST` | 必填 | 后端容器用于访问主机 NodePort 的真实主机名、IP 或 DNS 名称 |
+| `K8S_API_SERVER` | （来自 kubeconfig） | 可选的 K8s API 服务器覆盖地址（例如 `https://192.168.1.10:26443`） |
 
 ### 重要：K8S_API_SERVER 覆盖
 
 如果您的 kubeconfig 使用 `localhost`、`127.0.0.1` 或 `0.0.0.0` 作为 API 服务器地址（在 OrbStack、minikube、kind 中很常见），供应器**无法**从 Docker 容器内部访问它。
 
-**解决方案**：将 `K8S_API_SERVER` 设置为使用 `host.docker.internal`：
+**解决方案**：将 `K8S_API_SERVER` 设置为供应器容器可访问的真实主机名、IP 或 DNS 名称：
 
 ```yaml
 # docker-compose-dev.yaml
 provisioner:
   environment:
-    - K8S_API_SERVER=https://host.docker.internal:26443  # 替换为您的 API 端口
+    - K8S_API_SERVER=https://192.168.1.10:26443  # 替换为真实可达的 API 地址
 ```
 
 检查您的 kubeconfig API 服务器：
@@ -197,8 +197,8 @@ docker compose -p openagents-dev -f docker/docker-compose-dev.yaml up -d provisi
 
 Compose 文件：
 - 将您主机的 `~/.kube/config` 挂载到容器中
-- 为 `host.docker.internal` 添加 `extra_hosts` 条目（在 Linux 上必需）
 - 配置 K8s 访问的环境变量
+- 在启用 provisioner 模式时要求在根 `.env` 中显式提供 `NODE_HOST`
 
 ## 测试
 
@@ -273,7 +273,7 @@ docker exec openagents-gateway curl -s $SANDBOX_URL/v1/sandbox
 2. 如果是 `localhost` 或 `127.0.0.1`，请设置 `K8S_API_SERVER`：
    ```yaml
    environment:
-     - K8S_API_SERVER=https://host.docker.internal:PORT
+     - K8S_API_SERVER=https://192.168.1.10:PORT
    ```
 
 ### 问题：创建 Pod 时 "Unprocessable Entity"（无法处理的实体）
@@ -304,8 +304,9 @@ docker exec openagents-gateway curl -s $SANDBOX_URL/v1/sandbox
 **解决方案**：
 - 验证服务是否存在：`kubectl get svc -n openagents`
 - 从主机测试：`curl http://localhost:NODE_PORT/v1/sandbox`
-- 确保在 docker-compose 中设置了 `extra_hosts`（Linux）
-- 检查 `NODE_HOST` 环境变量是否与后端访问主机的方式匹配
+- 从后端容器测试配置的地址：
+  `docker exec openagents-gateway curl -s http://$NODE_HOST:NODE_PORT/v1/sandbox`
+- 检查 `NODE_HOST` 是否是后端容器可达的真实地址
 
 ## 安全注意事项
 

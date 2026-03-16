@@ -21,9 +21,8 @@ Like the original OpenAgents 1.0, we would love to give the community a minimali
 # Install dependencies
 pnpm install
 
-# Copy environment variables
-cp .env.example .env
-# Edit .env with your configuration
+# Optional: copy `.env.example` only if you need to override the default gateway URL
+# cp .env.example .env
 ```
 
 ### Development
@@ -64,10 +63,12 @@ pnpm start
 
 ### Environment Variables
 
-Key environment variables (see `.env.example` for full list):
+Optional environment variables (see `.env.example` for overrides):
 
 ```bash
-# Gateway upstream for Next.js rewrites
+# Browser API calls and Next.js rewrites both use this gateway when set.
+# For host-run local development on http://localhost:3000, keeping this at
+# http://localhost:8001 avoids relying on Next dev proxy behavior for auth/API.
 NEXT_PUBLIC_BACKEND_BASE_URL="http://localhost:8001"
 ```
 
@@ -121,7 +122,9 @@ src/
 - Uses pnpm workspaces (see `packageManager` in package.json)
 - Turbopack enabled by default in development for faster builds
 - Environment validation can be skipped with `SKIP_ENV_VALIDATION=1` (useful for Docker)
-- Backend access goes through Next.js rewrites to the gateway by default
+- If `NEXT_PUBLIC_BACKEND_BASE_URL` is set, browser API calls use it directly
+- If it is unset, browser API calls fall back to same-origin `/api/*`
+- `frontend/app/.env` keeps host-run local development on `http://localhost:3000` pointed at `http://localhost:8001`
 
 ## License
 

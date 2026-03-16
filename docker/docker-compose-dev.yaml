@@ -17,29 +17,39 @@ name: openagents-dev
 # Access: http://localhost:2026
 #
 # Configuration layering:
-# - `../.env` is the single source of truth.
-# - `env_file` loads the shared host-view config into containers.
-# - `environment` is used only for the few values whose container-view differs
-#   from the host-view, such as `localhost`-based URLs and mounted runtime paths.
+# - root `../.env` is the single shared app config for host-run and Docker dev.
+# - compose owns fixed in-container URLs and compose-only wiring.
+# - `gateway` and `langgraph` mount the same root `.env` as `/app/.env`.
 
 services:
-  # Host/container path split for compose-managed services:
-  # - OPENAGENTS_DOCKER_HOST_HOME: host path mounted from the repo machine
-  # - OPENAGENTS_DOCKER_CONTAINER_HOME: path exposed inside app containers
+  # Host path override for compose-managed services:
+  # - OPENAGENTS_DOCKER_HOST_HOME: optional host path mounted from the repo machine
   #
-  # Keeping them separate makes `docker compose` usable from `docker/`
-  # without requiring a pre-exported absolute OPENAGENTS_HOME.
+  # The app-container runtime path stays fixed at `/openagents-home` to keep
+  # the config surface smaller while still allowing a host-side override.
   # ── Shared AIO Sandbox ────────────────────────────────────────────────
   # Single-machine sandbox service managed by Docker Compose.
   # LangGraph connects through `OPENAGENTS_SANDBOX_BASE_URL` instead of
   # dynamically creating containers itself.
   sandbox-aio:
     image: ${SANDBOX_AIO_IMAGE:-enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest}
-    container_name: openagents-sandbox-aio
+    # Keep this name outside the `openagents-sandbox-*` prefix used by
+    # auto-started per-thread sandboxes so `make stop` cleanup does not touch it.
+    container_name: openagents-aio-sandbox
     ports:
-      - "127.0.0.1:${SANDBOX_AIO_PORT:-8083}:8080"
+      - "${SANDBOX_AIO_PORT:-8083}:8080"
     volumes:
       - ${OPENAGENTS_DOCKER_HOST_HOME:-../.openagents}:/openagents
+    environment:
+      # Sandbox-executed skills need the same runtime API credentials as host-run
+      # Python when they call image/video generation providers from inside AIO.
+      ARK_API_KEY: ${ARK_API_KEY:-}
+      VOLCENGINE_API_KEY: ${VOLCENGINE_API_KEY:-}
+      VOLCENGINE_IMAGE_MODEL: ${VOLCENGINE_IMAGE_MODEL:-}
+      ARK_IMAGE_MODEL: ${ARK_IMAGE_MODEL:-}
+      ARK_API_BASE_URL: ${ARK_API_BASE_URL:-}
+      VOLCENGINE_API_BASE_URL: ${VOLCENGINE_API_BASE_URL:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     security_opt:
       - seccomp=unconfined
     networks:
@@ -55,7 +65,9 @@ services:
   # ── Sandbox Provisioner ────────────────────────────────────────────────
   # Manages per-sandbox Pod + Service lifecycle in the host Kubernetes
   # cluster via the K8s API.
-  # Backend accesses sandboxes directly via host.docker.internal:{NodePort}.
+  # Default compose development does not use any host alias.
+  # Provisioner mode must be given an explicit host/IP/DNS name that gateway
+  # and langgraph can use to reach provisioned sandbox NodePorts.
   provisioner:
     profiles:
       - provisioner
@@ -65,21 +77,17 @@ services:
     container_name: openagents-provisioner
     volumes:
       - ~/.kube/config:/root/.kube/config:ro
-    env_file:
-      - ../.env
     environment:
-      K8S_NAMESPACE: ${K8S_NAMESPACE_DOCKER:-openagents}
-      SANDBOX_IMAGE: ${SANDBOX_IMAGE_DOCKER}
-      KUBECONFIG_PATH: ${KUBECONFIG_PATH_DOCKER:-/root/.kube/config}
-      NODE_HOST: ${NODE_HOST_DOCKER:-host.docker.internal}
-      K8S_API_SERVER: ${K8S_API_SERVER_DOCKER:-https://host.docker.internal:26443}
+      K8S_NAMESPACE: ${K8S_NAMESPACE:-openagents}
+      SANDBOX_IMAGE: ${SANDBOX_IMAGE:-enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest}
+      KUBECONFIG_PATH: ${KUBECONFIG_PATH:-/root/.kube/config}
+      NODE_HOST: ${NODE_HOST:-}
+      K8S_API_SERVER: ${K8S_API_SERVER:-}
       # Host paths for K8s HostPath volumes (must be absolute paths accessible by the K8s node).
       # `scripts/docker.sh` resolves OPENAGENTS_DOCKER_HOST_HOME to an absolute path before compose startup.
       OPENAGENTS_HOME: ${OPENAGENTS_DOCKER_HOST_HOME:-../.openagents}
       SKILLS_HOST_PATH: ${OPENAGENTS_DOCKER_HOST_HOME:-../.openagents}/skills
       THREADS_HOST_PATH: ${OPENAGENTS_DOCKER_HOST_HOME:-../.openagents}/threads
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     networks:
       - openagents-dev
     restart: unless-stopped
@@ -93,8 +101,8 @@ services:
   # ── Reverse Proxy ──────────────────────────────────────────────────────
   # Routes API traffic to gateway/langgraph and (optionally) provisioner.
   # Select nginx config via NGINX_CONF:
-  # - nginx.local.conf (default): no provisioner route (local/aio modes)
-  # - nginx.conf: includes provisioner route (provisioner mode)
+  # - nginx.conf (compose default): container-to-container upstreams
+  # - nginx.local.conf: host-run `make dev`
   nginx:
     image: nginx:alpine
     container_name: openagents-nginx
@@ -131,8 +139,6 @@ services:
       - NODE_ENV=development
       - WATCHPACK_POLLING=true
       - CI=true
-    env_file:
-      - ../frontend/app/.env
     networks:
       - openagents-dev
     restart: unless-stopped
@@ -146,24 +152,19 @@ services:
         - type=local,src=/tmp/docker-cache-gateway
     container_name: openagents-gateway
     ports:
-      - "127.0.0.1:8001:8001"
+      - "8001:8001"
     volumes:
       - ../backend/gateway:/app/backend/gateway
       - ../.env:/app/.env:ro
       - ../logs:/app/logs
-      - ${OPENAGENTS_DOCKER_HOST_HOME:-../.openagents}:${OPENAGENTS_DOCKER_CONTAINER_HOME:-/openagents-home}
+      - ${OPENAGENTS_DOCKER_HOST_HOME:-../.openagents}:/openagents-home
       # Mount Go cache for faster dependency installation
       - ~/.cache/go-build:/root/.cache/go-build
     working_dir: /app
     environment:
-      # Gateway loads `/app/.env` itself; only override container-view values here.
-      DATABASE_URI: ${DATABASE_URI_DOCKER}
-      OPENAGENTS_HOME: ${OPENAGENTS_HOME_DOCKER:-/openagents-home}
-      LANGGRAPH_URL: ${LANGGRAPH_URL_DOCKER}
-      ONLYOFFICE_PUBLIC_APP_URL: ${ONLYOFFICE_PUBLIC_APP_URL_DOCKER}
-    extra_hosts:
-      # For Linux: map host.docker.internal to host gateway
-      - "host.docker.internal:host-gateway"
+      OPENAGENTS_HOME: /openagents-home
+      LANGGRAPH_URL: http://langgraph:2024
+      ONLYOFFICE_PUBLIC_APP_URL: http://gateway:8001
     networks:
       - openagents-dev
     restart: unless-stopped
@@ -176,17 +177,20 @@ services:
     image: openagents-onlyoffice:9.3.1-cjk
     container_name: openagents-onlyoffice
     ports:
-      - "127.0.0.1:${ONLYOFFICE_PORT:-8082}:80"
-    env_file:
-      - ../.env
+      - "${ONLYOFFICE_PORT:-8082}:80"
     environment:
-      - JWT_ENABLED=true
+      JWT_ENABLED: "true"
+      ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-}
+      JWT_SECRET: ${JWT_SECRET:-}
+    extra_hosts:
+      # Required only when gateway runs on the host during local debug.
+      # Bridge networking covers container-to-container traffic, but not
+      # callbacks from ONLYOFFICE back into a host-run gateway.
+      - "openagents-host:host-gateway"
     entrypoint:
       - /bin/bash
       - -lc
-      - export JWT_SECRET="$${ONLYOFFICE_JWT_SECRET}"; exec /app/ds/run-document-server.sh
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - export JWT_SECRET="$${ONLYOFFICE_JWT_SECRET:-$${JWT_SECRET}}"; exec /app/ds/run-document-server.sh
     networks:
       - openagents-dev
     healthcheck:
@@ -211,19 +215,13 @@ services:
       - ../.env:/app/.env:ro
       - ../config.yaml:/app/config.yaml
       - ../logs:/app/logs
-      - ${OPENAGENTS_DOCKER_HOST_HOME:-../.openagents}:${OPENAGENTS_DOCKER_CONTAINER_HOME:-/openagents-home}
+      - ${OPENAGENTS_DOCKER_HOST_HOME:-../.openagents}:/openagents-home
       # Mount uv cache for faster dependency installation
       - ~/.cache/uv:/root/.cache/uv
     working_dir: /app
     environment:
-      # LangGraph loads `/app/.env` through `langgraph.json`; only override
-      # values that must differ inside Docker.
-      DATABASE_URI: ${DATABASE_URI_DOCKER}
-      OPENAGENTS_HOME: ${OPENAGENTS_HOME_DOCKER:-/openagents-home}
-      OPENAGENTS_SANDBOX_BASE_URL: ${OPENAGENTS_SANDBOX_BASE_URL_DOCKER:-http://sandbox-aio:8080}
-      OPENAGENTS_SANDBOX_SHARED_DATA_MOUNT_PATH: ${OPENAGENTS_SANDBOX_SHARED_DATA_MOUNT_PATH_DOCKER:-/openagents}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      OPENAGENTS_HOME: /openagents-home
+      OPENAGENTS_SANDBOX_BASE_URL: http://sandbox-aio:8080
     networks:
       - openagents-dev
     restart: unless-stopped
