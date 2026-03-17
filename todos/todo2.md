@@ -34,3 +34,22 @@ https://www.volcengine.com/docs/82379/1541523?lang=zh
 
 由于目前用的是 /home/zhangxuan/project/ai/deer-flow/.openagents/skills/shared/image-generation/scripts/generate.py 但是我没有 GEMINI_API_KEY 。 帮我自主测试 并维护到里面 以及 对应的环境key。
 
+
+
+
+现在需要你进行详细测试 skill-creator find-skills
+
+你需要作为用户 打开浏览器 访问 http://localhost:3000 
+账号密码 admin admin123 
+
+
+现在skill 储存有3个渠道  shared dev/prod 
+以及每个 agent 运行时 skill。
+
+shared 是所有agent 都可以使用的。
+
+dev/prod 分为开发/生成 agent 使用的。
+
+每个agent 都可以独立配置拥有的 skill 。
+
+https://www.volcengine.com/docs/82379/1520757?lang=zh
