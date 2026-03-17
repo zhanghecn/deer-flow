@@ -251,6 +251,7 @@ export interface Translations {
     title: string;
     description: string;
     sections: {
+      agents: string;
       appearance: string;
       tools: string;
       skills: string;

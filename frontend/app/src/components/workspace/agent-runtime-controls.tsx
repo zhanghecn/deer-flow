@@ -1,6 +1,11 @@
 "use client";
 
-import { CopyIcon, ExternalLinkIcon, LaptopIcon, PlugZapIcon } from "lucide-react";
+import {
+  CopyIcon,
+  ExternalLinkIcon,
+  LaptopIcon,
+  PlugZapIcon,
+} from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo } from "react";
 import { toast } from "sonner";
@@ -17,8 +22,8 @@ import {
 } from "@/components/ui/select";
 import {
   buildWorkspaceAgentPath,
+  groupAgentsByName,
   isLeadAgent,
-  type Agent,
   type AgentStatus,
   useAgents,
 } from "@/core/agents";
@@ -38,37 +43,6 @@ interface AgentRuntimeControlsProps {
   showLaunchActions?: boolean;
 }
 
-function uniqueAgentsByName(agents: Agent[]) {
-  const seen = new Set<string>();
-  const result: { name: string; statuses: AgentStatus[] }[] = [];
-
-  for (const agent of agents) {
-    if (seen.has(agent.name)) {
-      continue;
-    }
-    const statuses = agents
-      .filter((item) => item.name === agent.name)
-      .map((item) => item.status);
-    seen.add(agent.name);
-    result.push({
-      name: agent.name,
-      statuses: Array.from(new Set(statuses)),
-    });
-  }
-
-  if (!seen.has("lead_agent")) {
-    result.unshift({ name: "lead_agent", statuses: ["dev"] });
-  }
-
-  result.sort((a, b) => {
-    if (a.name === "lead_agent") return -1;
-    if (b.name === "lead_agent") return 1;
-    return a.name.localeCompare(b.name);
-  });
-
-  return result;
-}
-
 export function AgentRuntimeControls({
   value,
   onValueChange,
@@ -77,7 +51,14 @@ export function AgentRuntimeControls({
 }: AgentRuntimeControlsProps) {
   const { agents } = useAgents();
 
-  const agentOptions = useMemo(() => uniqueAgentsByName(agents), [agents]);
+  const agentOptions = useMemo(
+    () =>
+      groupAgentsByName(agents).map((agent) => ({
+        name: agent.name,
+        statuses: agent.statuses,
+      })),
+    [agents],
+  );
   const normalizedAgentName = value.agent_name?.trim();
   const effectiveAgentName =
     normalizedAgentName && normalizedAgentName.length > 0
@@ -101,7 +82,8 @@ export function AgentRuntimeControls({
       ? requestedStatus
       : matchedAgent.statuses[0]!
     : requestedStatus;
-  const runtimeMode = value.execution_backend === "remote" ? "remote" : "default";
+  const runtimeMode =
+    value.execution_backend === "remote" ? "remote" : "default";
   const launchPath = buildWorkspaceAgentPath({
     agentName: effectiveAgentName,
     agentStatus: effectiveStatus,
@@ -110,7 +92,10 @@ export function AgentRuntimeControls({
   });
 
   useEffect(() => {
-    if (!matchedAgent?.statuses.length || effectiveStatus === value.agent_status) {
+    if (
+      !matchedAgent?.statuses.length ||
+      effectiveStatus === value.agent_status
+    ) {
       return;
     }
     onValueChange({
@@ -156,8 +141,8 @@ export function AgentRuntimeControls({
               ...value,
               agent_name,
               agent_status:
-                agentOptions.find((item) => item.name === agent_name)?.statuses[0] ??
-                "dev",
+                agentOptions.find((item) => item.name === agent_name)
+                  ?.statuses[0] ?? "dev",
             })
           }
         >

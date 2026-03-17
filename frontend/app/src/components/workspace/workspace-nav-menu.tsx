@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BotIcon,
   BugIcon,
   ChevronsUpDown,
   GlobeIcon,
@@ -69,7 +70,7 @@ function NavMenuButtonContent({
   initials: string;
 }) {
   return isSidebarOpen ? (
-    <div className="flex w-full items-center gap-2 rounded-lg border border-sidebar-border/60 bg-sidebar-accent/35 p-1.5 text-left">
+    <div className="border-sidebar-border/60 bg-sidebar-accent/35 flex w-full items-center gap-2 rounded-lg border p-1.5 text-left">
       <Avatar className="size-8 rounded-lg">
         <AvatarImage src={avatarURL ?? undefined} alt={displayName} />
         <AvatarFallback className="rounded-lg bg-cyan-200/85 text-xs font-semibold text-cyan-950">
@@ -77,10 +78,12 @@ function NavMenuButtonContent({
         </AvatarFallback>
       </Avatar>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-sidebar-foreground">
+        <p className="text-sidebar-foreground truncate text-sm font-medium">
           {displayName}
         </p>
-        <p className="text-muted-foreground truncate text-xs">{secondaryLine}</p>
+        <p className="text-muted-foreground truncate text-xs">
+          {secondaryLine}
+        </p>
       </div>
       <ChevronsUpDown className="text-muted-foreground ml-auto size-4" />
     </div>
@@ -99,7 +102,7 @@ function NavMenuButtonContent({
 export function WorkspaceNavMenu() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsDefaultSection, setSettingsDefaultSection] = useState<
-    "appearance" | "tools" | "skills" | "notification" | "about"
+    "agents" | "appearance" | "tools" | "skills" | "notification" | "about"
   >("appearance");
   const [mounted, setMounted] = useState(false);
   const router = useRouter();
@@ -160,12 +163,23 @@ export function WorkspaceNavMenu() {
               >
                 <DropdownMenuGroup>
                   <div className="space-y-0.5 rounded-md px-2 py-1.5">
-                    <p className="truncate text-sm font-medium">{displayName}</p>
+                    <p className="truncate text-sm font-medium">
+                      {displayName}
+                    </p>
                     <p className="text-muted-foreground truncate text-xs">
                       {secondaryLine}
                     </p>
                   </div>
                   <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setSettingsDefaultSection("agents");
+                      setSettingsOpen(true);
+                    }}
+                  >
+                    <BotIcon />
+                    {t.settings.sections.agents}
+                  </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() => {
                       setSettingsDefaultSection("appearance");

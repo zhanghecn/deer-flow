@@ -228,7 +228,8 @@ export const enUS: Translations = {
     heroDescription:
       "Sign in to continue your threads, tools, skills, and sandboxes. If you are new, create an account and start from the same workspace immediately.",
     heroFeatureThreads: "Thread history and context stay synced.",
-    heroFeatureSkills: "Agent skills and tool settings are ready out of the box.",
+    heroFeatureSkills:
+      "Agent skills and tool settings are ready out of the box.",
     heroFeatureJwt: "JWT-based auth for workspace and API features.",
     panelSubtitle: "Access your workspace in seconds.",
     badge: "v2.0 Auth",
@@ -315,6 +316,7 @@ export const enUS: Translations = {
     title: "Settings",
     description: "Adjust how OpenAgents looks and behaves for you.",
     sections: {
+      agents: "Agent Workspace",
       appearance: "Appearance",
       tools: "Tools",
       skills: "Skills",

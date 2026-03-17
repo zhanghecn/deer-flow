@@ -303,6 +303,7 @@ export const zhCN: Translations = {
     title: "设置",
     description: "根据你的偏好调整 OpenAgents 的界面和行为。",
     sections: {
+      agents: "Agent 工作区",
       appearance: "外观",
       tools: "工具",
       skills: "技能",

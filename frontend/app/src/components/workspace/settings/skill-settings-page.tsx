@@ -2,7 +2,7 @@
 
 import { SparklesIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -24,6 +24,12 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useI18n } from "@/core/i18n/hooks";
 import { useEnableSkill, useSkills } from "@/core/skills/hooks";
+import {
+  filterSkillsByScope,
+  formatSkillScopeLabel,
+  getSkillScopes,
+  type SkillScope,
+} from "@/core/skills/scope";
 import type { Skill } from "@/core/skills/type";
 import { env } from "@/env";
 
@@ -57,15 +63,11 @@ function SkillSettingsList({
 }) {
   const { t } = useI18n();
   const router = useRouter();
-  const categories = useMemo(
-    () =>
-      Array.from(new Set(skills.map((skill) => skill.category))).filter(Boolean),
-    [skills],
-  );
-  const [filter, setFilter] = useState<string>("shared");
+  const categories = useMemo(() => getSkillScopes(skills), [skills]);
+  const [filter, setFilter] = useState<SkillScope>("shared");
   const { mutate: enableSkill } = useEnableSkill();
   const filteredSkills = useMemo(
-    () => skills.filter((skill) => skill.category === filter),
+    () => filterSkillsByScope(skills, filter),
     [skills, filter],
   );
   const handleCreateSkill = () => {
@@ -74,14 +76,15 @@ function SkillSettingsList({
   };
 
   const categoryLabel = useCallback(
-    (category: string) => {
-      if (category === "shared") return "Shared";
-      if (category === "store/dev") return "Store Dev";
-      if (category === "store/prod") return "Store Prod";
-      return category;
-    },
+    (category: SkillScope) => formatSkillScopeLabel(category),
     [],
   );
+
+  useEffect(() => {
+    if (categories.length > 0 && !categories.includes(filter)) {
+      setFilter(categories[0]!);
+    }
+  }, [categories, filter]);
   return (
     <div className="flex w-full flex-col gap-4">
       <header className="flex justify-between">
@@ -89,7 +92,7 @@ function SkillSettingsList({
           <Tabs
             defaultValue={categories[0] ?? "shared"}
             value={filter}
-            onValueChange={setFilter}
+            onValueChange={(value) => setFilter(value as SkillScope)}
           >
             <TabsList variant="line">
               {categories.map((category) => (

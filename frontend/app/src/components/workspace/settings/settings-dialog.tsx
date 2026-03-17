@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BotIcon,
   BellIcon,
   InfoIcon,
   PaletteIcon,
@@ -24,6 +25,13 @@ const AppearanceSettingsPage = dynamic(
   () =>
     import("@/components/workspace/settings/appearance-settings-page").then(
       (m) => m.AppearanceSettingsPage,
+    ),
+  { ssr: false },
+);
+const AgentWorkspaceSettingsPage = dynamic(
+  () =>
+    import("@/components/workspace/settings/agent-workspace-settings-page").then(
+      (m) => m.AgentWorkspaceSettingsPage,
     ),
   { ssr: false },
 );
@@ -57,6 +65,7 @@ const AboutSettingsPage = dynamic(
 );
 
 type SettingsSection =
+  | "agents"
   | "appearance"
   | "tools"
   | "skills"
@@ -84,6 +93,11 @@ export function SettingsDialog(props: SettingsDialogProps) {
   const sections = useMemo(
     () => [
       {
+        id: "agents",
+        label: t.settings.sections.agents,
+        icon: BotIcon,
+      },
+      {
         id: "appearance",
         label: t.settings.sections.appearance,
         icon: PaletteIcon,
@@ -98,6 +112,7 @@ export function SettingsDialog(props: SettingsDialogProps) {
       { id: "about", label: t.settings.sections.about, icon: InfoIcon },
     ],
     [
+      t.settings.sections.agents,
       t.settings.sections.appearance,
       t.settings.sections.tools,
       t.settings.sections.skills,
@@ -147,6 +162,11 @@ export function SettingsDialog(props: SettingsDialogProps) {
           </nav>
           <ScrollArea className="h-full min-h-0 rounded-lg border">
             <div className="space-y-8 p-6">
+              {activeSection === "agents" && (
+                <AgentWorkspaceSettingsPage
+                  onClose={() => props.onOpenChange?.(false)}
+                />
+              )}
               {activeSection === "appearance" && <AppearanceSettingsPage />}
               {activeSection === "tools" && <ToolSettingsPage />}
               {activeSection === "skills" && (

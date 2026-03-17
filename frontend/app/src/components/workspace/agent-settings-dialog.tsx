@@ -41,6 +41,13 @@ import {
 } from "@/core/agents";
 import type { AgentSkillRef } from "@/core/agents";
 import { useSkills } from "@/core/skills/hooks";
+import {
+  filterSkillsByScope,
+  formatSkillScopeLabel,
+  getSkillScopes,
+  normalizeSkillScope,
+  type SkillScope,
+} from "@/core/skills/scope";
 import type { Skill } from "@/core/skills/type";
 import { cn } from "@/lib/utils";
 
@@ -106,13 +113,15 @@ function skillRefKey(skillRef: AgentSkillRef) {
 }
 
 function buildSkillSourcePath(skill: Skill) {
-  return `${skill.category}/${skill.name}`;
+  const scope = normalizeSkillScope(skill.category) ?? "shared";
+  return `${scope}/${skill.name}`;
 }
 
 function createSkillRef(skill: Skill): AgentSkillRef {
+  const category = normalizeSkillScope(skill.category) ?? "shared";
   return {
     name: skill.name,
-    category: skill.category,
+    category,
     source_path: buildSkillSourcePath(skill),
     materialized_path: `skills/${skill.name}`,
   };
@@ -205,7 +214,7 @@ export function AgentSettingsDialog({
   const [savedForm, setSavedForm] = useState<AgentSettingsFormState | null>(
     null,
   );
-  const [skillsCategory, setSkillsCategory] = useState<string>("shared");
+  const [skillsCategory, setSkillsCategory] = useState<SkillScope>("shared");
 
   const launchPath = useMemo(
     () =>
@@ -233,14 +242,11 @@ export function AgentSettingsDialog({
     [agent?.skills, form?.skillRefs],
   );
   const availableSkillCategories = useMemo(
-    () =>
-      Array.from(
-        new Set(availableSkills.map((skill) => skill.category)),
-      ).filter(Boolean),
+    () => getSkillScopes(availableSkills),
     [availableSkills],
   );
   const filteredSkills = useMemo(
-    () => availableSkills.filter((skill) => skill.category === skillsCategory),
+    () => filterSkillsByScope(availableSkills, skillsCategory),
     [availableSkills, skillsCategory],
   );
 
@@ -677,7 +683,7 @@ export function AgentSettingsDialog({
                                   className="rounded-full"
                                   onClick={() => setSkillsCategory(category)}
                                 >
-                                  {category}
+                                  {formatSkillScopeLabel(category)}
                                 </Button>
                               );
                             })}
@@ -795,8 +801,12 @@ export function AgentSettingsDialog({
                                     className="rounded-full px-2.5 py-1 text-xs"
                                   >
                                     {skillRef.name}
-                                    {skillRef.category
-                                      ? ` · ${skillRef.category}`
+                                    {normalizeSkillScope(skillRef.category)
+                                      ? ` · ${formatSkillScopeLabel(
+                                          normalizeSkillScope(
+                                            skillRef.category,
+                                          )!,
+                                        )}`
                                       : ""}
                                   </Badge>
                                 ))
