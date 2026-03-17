@@ -14,6 +14,24 @@ from src.config.paths import Paths, get_paths
 
 logger = logging.getLogger(__name__)
 
+MARKDOWN_COMPANION_EXTENSIONS = (
+    ".pdf",
+    ".ppt",
+    ".pptx",
+    ".xls",
+    ".xlsx",
+    ".doc",
+    ".docx",
+)
+
+
+def _is_safe_upload_filename(filename: str) -> bool:
+    return bool(filename) and Path(filename).name == filename
+
+
+def _virtual_upload_path(filename: str) -> str:
+    return f"/mnt/user-data/uploads/{filename}"
+
 
 class UploadsMiddlewareState(AgentState):
     """State schema for uploads middleware."""
@@ -40,6 +58,89 @@ class UploadsMiddleware(AgentMiddleware[UploadsMiddlewareState]):
         super().__init__()
         self._paths = Paths(base_dir) if base_dir else get_paths()
 
+    def _resolve_markdown_filename(
+        self,
+        *,
+        filename: str,
+        uploads_dir: Path | None = None,
+        candidate_markdown_filename: str | None = None,
+    ) -> str | None:
+        """Resolve the generated Markdown companion filename for a convertible upload."""
+        if Path(filename).suffix.lower() not in MARKDOWN_COMPANION_EXTENSIONS:
+            return None
+
+        if candidate_markdown_filename and _is_safe_upload_filename(candidate_markdown_filename):
+            if uploads_dir is None or (uploads_dir / candidate_markdown_filename).is_file():
+                return candidate_markdown_filename
+
+        if uploads_dir is None:
+            return None
+
+        markdown_filename = Path(filename).with_suffix(".md").name
+        if (uploads_dir / markdown_filename).is_file():
+            return markdown_filename
+
+        return None
+
+    def _build_file_record(
+        self,
+        *,
+        filename: str,
+        size: int,
+        uploads_dir: Path | None = None,
+        candidate_markdown_filename: str | None = None,
+    ) -> dict | None:
+        """Build the normalized uploaded-file metadata exposed to the model."""
+        if not _is_safe_upload_filename(filename):
+            return None
+
+        file_record = {
+            "filename": filename,
+            "size": size,
+            "path": _virtual_upload_path(filename),
+            "extension": Path(filename).suffix.lower(),
+        }
+
+        markdown_filename = self._resolve_markdown_filename(
+            filename=filename,
+            uploads_dir=uploads_dir,
+            candidate_markdown_filename=candidate_markdown_filename,
+        )
+        if markdown_filename:
+            file_record["markdown_file"] = markdown_filename
+            file_record["markdown_path"] = _virtual_upload_path(markdown_filename)
+
+        return file_record
+
+    def _find_original_for_markdown(
+        self,
+        markdown_filename: str,
+        available_filenames: set[str],
+    ) -> str | None:
+        """Return the original convertible filename for a generated markdown companion."""
+        stem = Path(markdown_filename).stem
+        for extension in MARKDOWN_COMPANION_EXTENSIONS:
+            candidate = f"{stem}{extension}"
+            if candidate in available_filenames:
+                return candidate
+        return None
+
+    def _append_file_lines(self, lines: list[str], file: dict) -> None:
+        """Append one uploaded file entry to the injected context block."""
+        size_kb = file["size"] / 1024
+        size_str = f"{size_kb:.1f} KB" if size_kb < 1024 else f"{size_kb / 1024:.1f} MB"
+        preferred_path = file.get("markdown_path") or file["path"]
+
+        lines.append(f"- {file['filename']} ({size_str})")
+        lines.append(f"  Path: {preferred_path}")
+
+        original_path = file["path"]
+        if preferred_path != original_path:
+            lines.append(f"  Original Path: {original_path}")
+            lines.append("  Note: `Path` is the converted Markdown companion. Read it first.")
+
+        lines.append("")
+
     def _create_files_message(self, new_files: list[dict], historical_files: list[dict]) -> str:
         """Create a formatted message listing uploaded files.
 
@@ -56,11 +157,7 @@ class UploadsMiddleware(AgentMiddleware[UploadsMiddlewareState]):
         lines.append("")
         if new_files:
             for file in new_files:
-                size_kb = file["size"] / 1024
-                size_str = f"{size_kb:.1f} KB" if size_kb < 1024 else f"{size_kb / 1024:.1f} MB"
-                lines.append(f"- {file['filename']} ({size_str})")
-                lines.append(f"  Path: {file['path']}")
-                lines.append("")
+                self._append_file_lines(lines, file)
         else:
             lines.append("(empty)")
 
@@ -68,13 +165,11 @@ class UploadsMiddleware(AgentMiddleware[UploadsMiddlewareState]):
             lines.append("The following files were uploaded in previous messages and are still available:")
             lines.append("")
             for file in historical_files:
-                size_kb = file["size"] / 1024
-                size_str = f"{size_kb:.1f} KB" if size_kb < 1024 else f"{size_kb / 1024:.1f} MB"
-                lines.append(f"- {file['filename']} ({size_str})")
-                lines.append(f"  Path: {file['path']}")
-                lines.append("")
+                self._append_file_lines(lines, file)
 
-        lines.append("You can read these files using the `read_file` tool with the paths shown above.")
+        lines.append(
+            "Use the `read_file` tool with the `Path` shown above. When `Original Path` is also present, `Path` is the generated Markdown companion and should be read first."
+        )
         lines.append("</uploaded_files>")
 
         return "\n".join(lines)
@@ -103,18 +198,25 @@ class UploadsMiddleware(AgentMiddleware[UploadsMiddlewareState]):
             if not isinstance(f, dict):
                 continue
             filename = f.get("filename") or ""
-            if not filename or Path(filename).name != filename:
+            if not _is_safe_upload_filename(filename):
                 continue
             if uploads_dir is not None and not (uploads_dir / filename).is_file():
                 continue
-            files.append(
-                {
-                    "filename": filename,
-                    "size": int(f.get("size") or 0),
-                    "path": f"/mnt/user-data/uploads/{filename}",
-                    "extension": Path(filename).suffix,
-                }
+            markdown_filename = f.get("markdown_file")
+            if not isinstance(markdown_filename, str):
+                markdown_virtual_path = f.get("markdown_virtual_path")
+                if isinstance(markdown_virtual_path, str):
+                    markdown_filename = Path(markdown_virtual_path).name
+
+            file_record = self._build_file_record(
+                filename=filename,
+                size=int(f.get("size") or 0),
+                uploads_dir=uploads_dir,
+                candidate_markdown_filename=markdown_filename,
             )
+            if file_record is None:
+                continue
+            files.append(file_record)
         return files if files else None
 
     def _resolve_thread_id(
@@ -178,20 +280,36 @@ class UploadsMiddleware(AgentMiddleware[UploadsMiddlewareState]):
         new_files = self._files_from_kwargs(last_message, uploads_dir) or []
 
         # Collect historical files from the uploads directory (all except the new ones)
-        new_filenames = {f["filename"] for f in new_files}
+        excluded_filenames = {f["filename"] for f in new_files}
+        excluded_filenames.update(
+            str(f["markdown_file"])
+            for f in new_files
+            if isinstance(f.get("markdown_file"), str)
+        )
         historical_files: list[dict] = []
         if uploads_dir and uploads_dir.exists():
-            for file_path in sorted(uploads_dir.iterdir()):
-                if file_path.is_file() and file_path.name not in new_filenames:
-                    stat = file_path.stat()
-                    historical_files.append(
-                        {
-                            "filename": file_path.name,
-                            "size": stat.st_size,
-                            "path": f"/mnt/user-data/uploads/{file_path.name}",
-                            "extension": file_path.suffix,
-                        }
-                    )
+            file_paths = {
+                file_path.name: file_path
+                for file_path in sorted(uploads_dir.iterdir())
+                if file_path.is_file()
+            }
+            available_filenames = set(file_paths)
+
+            for filename, file_path in file_paths.items():
+                if filename in excluded_filenames:
+                    continue
+                if file_path.suffix.lower() == ".md":
+                    original_filename = self._find_original_for_markdown(filename, available_filenames)
+                    if original_filename is not None:
+                        continue
+
+                file_record = self._build_file_record(
+                    filename=filename,
+                    size=file_path.stat().st_size,
+                    uploads_dir=uploads_dir,
+                )
+                if file_record is not None:
+                    historical_files.append(file_record)
 
         if not new_files and not historical_files:
             return None

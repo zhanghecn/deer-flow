@@ -40,6 +40,7 @@ type CreateAgentRequest struct {
 	McpServers  []string           `json:"mcp_servers"`
 	Memory      *AgentMemoryConfig `json:"memory"`
 	Skills      []string           `json:"skills"`
+	SkillRefs   []SkillRef         `json:"skill_refs"`
 	AgentsMD    string             `json:"agents_md"`
 }
 
@@ -50,6 +51,7 @@ type UpdateAgentRequest struct {
 	McpServers  []string           `json:"mcp_servers"`
 	Memory      *AgentMemoryConfig `json:"memory"`
 	Skills      []string           `json:"skills"`
+	SkillRefs   []SkillRef         `json:"skill_refs"`
 	AgentsMD    *string            `json:"agents_md"`
 }
 

@@ -52,22 +52,80 @@ DeepAgent execution + checkpoints
 ## 3) History/Checkpoint链路
 
 ```text
-Frontend
+Frontend / SDK
   |
-  | POST /api/langgraph/threads/{thread_id}/history
+  | thread page load / reconnect / branching / interrupt restore
+  | GET/POST /api/langgraph/threads/{thread_id}/history
+  | GET      /api/langgraph/threads/{thread_id}/state
   v
-Gateway
+Gateway (Go)
   |
-  | JWT + x-user-id/x-thread-id headers
-  | proxy
+  | JWT authenticate
+  | inject x-user-id / x-thread-id headers
+  | proxy request as-is
   v
-LangGraph threads.read context
+LangGraph API
+  |
+  | get_thread_history() -> Threads.State.list(...)
+  | get_thread_state()   -> Threads.State.get(...)
+  v
+LangGraph graph loader
+  |
+  | get_graph(graph_id, config, access_context="threads.read")
+  | build_server_runtime("threads.read") -> _ReadRuntime
+  | invoke graph factory: make_lead_agent(config, runtime)
+  v
+Python make_lead_agent(config, runtime)
   |
   | runtime.execution_runtime is None
-  | make_lead_agent 通过 configurable 中的 x-user-id/x-thread-id 做校验与模型解析
+  | prepare_runtime_resources = False
+  | still resolve user_id / thread_id / model / agent ownership
+  | but skip thread-scoped runtime seeding and skip runtime persistence
   v
-Return thread states/checkpoints
+Compiled graph (shared read context)
+  |
+  | history -> graph.aget_state_history(...)
+  | state   -> graph.aget_state(...)
+  v
+Return prepared state snapshots / checkpoints
 ```
+
+### 3.1) `threads.create_run` 与 `threads.read` 的分叉点
+
+```text
+LangGraph get_graph(...)
+  |
+  +--> access_context="threads.create_run"
+  |      |
+  |      | build_server_runtime(...) -> _ExecutionRuntime
+  |      | runtime.execution_runtime is available
+  |      | make_lead_agent(...):
+  |      |   prepare_runtime_resources = True
+  |      |   build thread-scoped backend under /mnt/user-data/...
+  |      |   persist thread runtime(model/agent)
+  |      v
+  |      run graph / tools / checkpoints
+  |
+  +--> access_context="threads.read"
+         |
+         | build_server_runtime(...) -> _ReadRuntime
+         | runtime.execution_runtime is None
+         | make_lead_agent(...):
+         |   prepare_runtime_resources = False
+         |   reuse shared read backend
+         |   no tool execution, no thread runtime persistence
+         v
+         read checkpoint-backed state/history only
+```
+
+### 3.2) 为什么 `history/state` 也要重新 load graph
+
+LangGraph 读线程状态时不是简单地“直接查一张消息表”。它仍然需要 graph，原因是：
+
+- `history` 需要通过 `graph.aget_state_history(...)` 把 checkpoint 历史转成可返回的状态快照。
+- `state` 需要通过 `graph.aget_state(...)` 生成当前线程的准备态视图。
+- graph topology 会影响 pending tasks、subgraphs、interrupts 等状态解释；因此读接口也必须拿到同一张 graph。
+- 但这属于只读访问，不应该为每次页面加载都准备真实的线程执行资源。
 
 ## 4) 线程表收敛（现状）
 

@@ -45,6 +45,7 @@ def test_setup_agent_accepts_typed_runtime_context(monkeypatch):
             agent_name="lead_agent",
             target_agent_name="contract-agent",
             agent_status="dev",
+            model_name="glm-5",
         ),
         tool_call_id="tc-1",
     )
@@ -65,6 +66,7 @@ def test_setup_agent_accepts_typed_runtime_context(monkeypatch):
     assert calls["name"] == "contract-agent"
     assert calls["status"] == "dev"
     assert calls["description"] == "Reviews contracts"
+    assert calls["model"] == "glm-5"
     assert calls["skill_names"] == ["bootstrap"]
     assert calls["inline_skills"] == [
         {

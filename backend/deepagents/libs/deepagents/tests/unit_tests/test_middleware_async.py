@@ -9,7 +9,7 @@ from langgraph.types import Command
 
 import deepagents.middleware.filesystem as filesystem_middleware
 from deepagents.backends import CompositeBackend, StateBackend
-from deepagents.backends.protocol import ExecuteResponse, SandboxBackendProtocol
+from deepagents.backends.protocol import ExecuteResponse, FileDownloadResponse, SandboxBackendProtocol
 from deepagents.middleware.filesystem import FileData, FilesystemMiddleware, FilesystemState
 
 
@@ -22,6 +22,33 @@ def build_composite_state_backend(runtime: ToolRuntime, *, routes):
             built_routes[prefix] = backend_or_factory
     default_state = StateBackend(runtime)
     return CompositeBackend(default=default_state, routes=built_routes)
+
+
+def _build_test_pdf_bytes(text: str = "Hello PDF") -> bytes:
+    objects: list[bytes] = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+    ]
+    stream = f"BT\n/F1 24 Tf\n100 700 Td\n({text}) Tj\nET\n".encode()
+    objects.append(b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"endstream")
+    objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+
+    chunks = [b"%PDF-1.4\n"]
+    offsets = [0]
+    for index, obj in enumerate(objects, start=1):
+        offsets.append(sum(len(chunk) for chunk in chunks))
+        chunks.append(f"{index} 0 obj\n".encode())
+        chunks.append(obj)
+        chunks.append(b"\nendobj\n")
+
+    xref_offset = sum(len(chunk) for chunk in chunks)
+    chunks.append(f"xref\n0 {len(objects) + 1}\n".encode())
+    chunks.append(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        chunks.append(f"{offset:010d} 00000 n \n".encode())
+    chunks.append(f"trailer\n<< /Root 1 0 R /Size {len(objects) + 1} >>\nstartxref\n{xref_offset}\n%%EOF\n".encode())
+    return b"".join(chunks)
 
 
 class TestFilesystemMiddlewareAsync:
@@ -590,6 +617,32 @@ class TestFilesystemMiddlewareAsync:
         assert "Line 3" in result
         assert "Line 1" not in result
         assert "Line 4" not in result
+
+    async def test_aread_file_pdf_extracts_text_with_page_markers(self):
+        """Async PDF reads should extract text instead of returning raw binary bytes."""
+
+        class PdfBackend(StateBackend):
+            async def adownload_files(self, paths: list[str]) -> list[FileDownloadResponse]:
+                return [
+                    FileDownloadResponse(
+                        path=paths[0],
+                        content=_build_test_pdf_bytes("Hello PDF"),
+                        error=None,
+                    )
+                ]
+
+        middleware = FilesystemMiddleware(backend=lambda rt: PdfBackend(rt))  # noqa: PLW0108
+        read_file_tool = next(tool for tool in middleware.tools if tool.name == "read_file")
+        result = await read_file_tool.ainvoke(
+            {
+                "file_path": "/docs/sample.pdf",
+                "runtime": ToolRuntime(state=FilesystemState(messages=[], files={}), context=None, tool_call_id="", store=None, stream_writer=lambda _: None, config={}),
+            }
+        )
+
+        assert "=== Page 1 ===" in result
+        assert "Hello PDF" in result
+        assert "(End of file - total" in result
 
     async def test_awrite_file(self):
         """Test async write_file tool."""

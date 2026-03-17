@@ -160,15 +160,16 @@ go run ./cmd/server
 | GET | `/api/models` | 模型列表（读取 PostgreSQL `models` 表） |
 | GET/POST | `/api/memory?agent_name=:name&agent_status=dev|prod` | 读取/写入当前用户在指定 Agent 下的记忆 |
 | GET/PUT | `/api/mcp` | MCP 配置 |
-| POST | `/api/threads/:id/uploads` | 文件上传 |
-| GET | `/api/threads/:id/uploads` | 上传文件列表 |
-| DELETE | `/api/threads/:id/uploads` | 删除上传文件 |
+| POST | `/api/threads/:id/uploads` | 文件上传；对 PDF/PPT/Excel/Word 生成 Markdown companion |
+| GET | `/api/threads/:id/uploads/list` | 上传文件列表（折叠自动生成的 Markdown companion） |
+| DELETE | `/api/threads/:id/uploads/:filename` | 删除上传文件；原文件的 Markdown companion 会一并删除 |
 | GET | `/api/threads/:id/artifacts/*path` | 制品访问 |
 | ALL | `/api/langgraph/*` | 反向代理到 LangGraph |
 
 说明：
 - `/api/memory` 必须显式传 `agent_name`；`agent_status` 省略时默认为 `dev`
 - 记忆文件固定存储在 `{OPENAGENTS_HOME}/users/{user_id}/agents/{status}/{agent_name}/memory.json`
+- 文档上传转换依赖运行 Gateway 的环境里可执行的 `markitdown`；可用 `OPENAGENTS_MARKITDOWN_BIN` 显式指定二进制路径。
 - Office 文件的 `?preview=pdf` 转换依赖运行 Gateway 的环境内可执行的 `soffice`（LibreOffice）。
 - `docker/docker-compose-dev.yaml` 构建的 Gateway 镜像已内置 LibreOffice；若直接在宿主机运行 Gateway，需要自行安装 `soffice`。
 - 即使未安装 LibreOffice，工作区内联预览仍可通过 `/api/threads/:id/office-config/*path` 走 ONLYOFFICE 编辑器。

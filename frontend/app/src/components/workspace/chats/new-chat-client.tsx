@@ -1,18 +1,21 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   PromptInputProvider,
   type PromptInputMessage,
 } from "@/components/ai-elements/prompt-input";
+import { AgentWorkspaceDialog } from "@/components/workspace/agent-workspace-dialog";
 import { InputBox } from "@/components/workspace/input-box";
 import { Welcome } from "@/components/workspace/welcome";
 import {
   buildWorkspaceAgentPath,
+  isLeadAgent,
   readAgentRuntimeSelection,
+  useAgent,
 } from "@/core/agents";
 import { useI18n } from "@/core/i18n/hooks";
 import { useLocalSettings } from "@/core/settings";
@@ -28,17 +31,22 @@ export default function NewChatClient() {
   const { t } = useI18n();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const routeParams = useParams<{ agent_name?: string }>();
   const [settings, setSettings] = useLocalSettings();
-  const [pendingMessage, setPendingMessage] = useState<PromptInputMessage | null>(
-    null,
-  );
+  const [pendingMessage, setPendingMessage] =
+    useState<PromptInputMessage | null>(null);
   const [pendingExtraContext, setPendingExtraContext] = useState<
     Record<string, unknown> | undefined
   >(undefined);
   const isMock = searchParams.get("mock") === "true";
   const runtimeSelection = useMemo(
-    () => readAgentRuntimeSelection(searchParams),
-    [searchParams],
+    () => readAgentRuntimeSelection(searchParams, routeParams.agent_name),
+    [routeParams.agent_name, searchParams],
+  );
+  const isCustomAgent = !isLeadAgent(runtimeSelection.agentName);
+  const { agent } = useAgent(
+    isCustomAgent ? runtimeSelection.agentName : null,
+    runtimeSelection.agentStatus,
   );
   const runtimeContext = useMemo(
     () => ({
@@ -47,16 +55,26 @@ export default function NewChatClient() {
       agent_status: runtimeSelection.agentStatus,
       execution_backend: runtimeSelection.executionBackend,
       remote_session_id: runtimeSelection.remoteSessionId || undefined,
+      mode: "ultra" as const,
+      model_name: agent?.model?.trim() || settings.context.model_name,
     }),
-    [runtimeSelection, settings.context],
+    [agent?.model, runtimeSelection, settings.context],
   );
-
-  const inputInitialValue = (() => {
-    if (searchParams.get("mode") !== "skill") {
-      return undefined;
+  const selectedModelName =
+    typeof runtimeContext.model_name === "string"
+      ? runtimeContext.model_name.trim()
+      : "";
+  const autoSubmitHandledRef = useRef(false);
+  const inputInitialValue = useMemo(() => {
+    const prefill = searchParams.get("prefill")?.trim();
+    if (prefill) {
+      return prefill;
     }
-    return "/create-skill ";
-  })();
+    if (searchParams.get("mode") === "skill") {
+      return "/create-skill ";
+    }
+    return undefined;
+  }, [searchParams]);
 
   const handleSubmit = useCallback(
     (message: PromptInputMessage, extraContext?: Record<string, unknown>) => {
@@ -81,6 +99,26 @@ export default function NewChatClient() {
     setSettings,
   ]);
 
+  useEffect(() => {
+    if (
+      autoSubmitHandledRef.current ||
+      searchParams.get("autosend") !== "1" ||
+      !inputInitialValue?.trim() ||
+      !selectedModelName
+    ) {
+      return;
+    }
+
+    autoSubmitHandledRef.current = true;
+    handleSubmit(
+      {
+        text: inputInitialValue,
+        files: [],
+      },
+      undefined,
+    );
+  }, [handleSubmit, inputInitialValue, searchParams, selectedModelName]);
+
   const buildStartedThreadPath = useCallback(
     (threadId: string) => {
       const basePath = buildWorkspaceAgentPath(
@@ -92,13 +130,16 @@ export default function NewChatClient() {
         },
         threadId,
       );
+      const [pathname = basePath, search = ""] = basePath.split("?", 2);
+      const params = new URLSearchParams(search);
+      params.set("pending_run", "1");
+      const pendingPath = `${pathname}?${params.toString()}`;
 
       if (!isMock) {
-        return basePath;
+        return pendingPath;
       }
 
-      const separator = basePath.includes("?") ? "&" : "?";
-      return `${basePath}${separator}mock=true`;
+      return `${pendingPath}&mock=true`;
     },
     [
       isMock,
@@ -131,8 +172,11 @@ export default function NewChatClient() {
     <PromptInputProvider initialInput={inputInitialValue}>
       <div className="relative flex size-full min-h-0 justify-between">
         <main className="flex min-h-0 max-w-full grow flex-col">
+          <div className="absolute top-4 right-4 z-30">
+            <AgentWorkspaceDialog selection={runtimeSelection} compact />
+          </div>
           <div className="absolute right-0 bottom-0 left-0 z-30 flex justify-center px-4">
-            <div className="relative w-full -translate-y-[calc(50vh-96px)] max-w-(--container-width-sm)">
+            <div className="relative w-full max-w-(--container-width-sm) -translate-y-[calc(50vh-96px)]">
               <InputBox
                 className={cn("bg-background/5 w-full -translate-y-4")}
                 isNewThread

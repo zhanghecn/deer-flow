@@ -678,6 +678,19 @@ class TestUploads:
             for f in result["files"]:
                 assert "artifact_url" in f
 
+    def test_list_uploads_collapses_markdown_companion(self, client):
+        with tempfile.TemporaryDirectory() as tmp:
+            uploads_dir = Path(tmp)
+            (uploads_dir / "contract.pdf").write_bytes(b"%PDF-1.4")
+            (uploads_dir / "contract.md").write_text("# converted")
+
+            with patch.object(OpenAgentsClient, "_get_uploads_dir", return_value=uploads_dir):
+                result = client.list_uploads("thread-1")
+
+            assert result["count"] == 1
+            assert result["files"][0]["filename"] == "contract.pdf"
+            assert result["files"][0]["markdown_file"] == "contract.md"
+
     def test_delete_upload(self, client):
         with tempfile.TemporaryDirectory() as tmp:
             uploads_dir = Path(tmp)
@@ -689,6 +702,19 @@ class TestUploads:
             assert result["success"] is True
             assert "delete-me.txt" in result["message"]
             assert not (uploads_dir / "delete-me.txt").exists()
+
+    def test_delete_upload_removes_markdown_companion(self, client):
+        with tempfile.TemporaryDirectory() as tmp:
+            uploads_dir = Path(tmp)
+            (uploads_dir / "delete-me.pdf").write_bytes(b"%PDF-1.4")
+            (uploads_dir / "delete-me.md").write_text("# converted")
+
+            with patch.object(OpenAgentsClient, "_get_uploads_dir", return_value=uploads_dir):
+                result = client.delete_upload("thread-1", "delete-me.pdf")
+
+            assert result["success"] is True
+            assert not (uploads_dir / "delete-me.pdf").exists()
+            assert not (uploads_dir / "delete-me.md").exists()
 
     def test_delete_upload_not_found(self, client):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1462,8 +1488,8 @@ class TestScenarioEdgeCases:
 
             with (
                 patch.object(OpenAgentsClient, "_get_uploads_dir", return_value=uploads_dir),
-                patch("src.gateway.routers.uploads.CONVERTIBLE_EXTENSIONS", {".pdf"}),
-                patch("src.gateway.routers.uploads.convert_file_to_markdown", side_effect=Exception("conversion failed")),
+                patch("src.gateway.uploads_utils.CONVERTIBLE_EXTENSIONS", {".pdf"}),
+                patch("src.gateway.uploads_utils.convert_file_to_markdown", side_effect=Exception("conversion failed")),
             ):
                 result = client.upload_files("t-pdf-fail", [pdf_file])
 

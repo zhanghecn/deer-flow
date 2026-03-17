@@ -69,3 +69,31 @@ def test_upload_files_rejects_dotdot_and_dot_filenames(tmp_path):
 
     # Only the safely normalised file should exist
     assert [f.name for f in thread_uploads_dir.iterdir()] == ["passwd"]
+
+
+def test_list_uploaded_files_collapses_markdown_companion(tmp_path):
+    thread_uploads_dir = tmp_path / "uploads"
+    thread_uploads_dir.mkdir(parents=True)
+    (thread_uploads_dir / "contract.pdf").write_bytes(b"%PDF-1.4")
+    (thread_uploads_dir / "contract.md").write_text("converted", encoding="utf-8")
+
+    with patch.object(uploads, "get_uploads_dir", return_value=thread_uploads_dir):
+        result = asyncio.run(uploads.list_uploaded_files("thread-list"))
+
+    assert result["count"] == 1
+    assert result["files"][0]["filename"] == "contract.pdf"
+    assert result["files"][0]["markdown_file"] == "contract.md"
+
+
+def test_delete_uploaded_file_removes_markdown_companion(tmp_path):
+    thread_uploads_dir = tmp_path / "uploads"
+    thread_uploads_dir.mkdir(parents=True)
+    (thread_uploads_dir / "contract.pdf").write_bytes(b"%PDF-1.4")
+    (thread_uploads_dir / "contract.md").write_text("converted", encoding="utf-8")
+
+    with patch.object(uploads, "get_uploads_dir", return_value=thread_uploads_dir):
+        result = asyncio.run(uploads.delete_uploaded_file("thread-delete", "contract.pdf"))
+
+    assert result["success"] is True
+    assert not (thread_uploads_dir / "contract.pdf").exists()
+    assert not (thread_uploads_dir / "contract.md").exists()

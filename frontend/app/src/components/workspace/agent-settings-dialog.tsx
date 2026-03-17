@@ -3,6 +3,7 @@
 import {
   BotIcon,
   BrainIcon,
+  CheckIcon,
   CopyIcon,
   ExternalLinkIcon,
   FileTextIcon,
@@ -38,15 +39,19 @@ import {
   useAgent,
   useUpdateAgent,
 } from "@/core/agents";
+import type { AgentSkillRef } from "@/core/agents";
+import { useSkills } from "@/core/skills/hooks";
+import type { Skill } from "@/core/skills/type";
 import { cn } from "@/lib/utils";
 
-type SettingsTab = "profile" | "prompt" | "config" | "access";
+type SettingsTab = "profile" | "skills" | "prompt" | "config" | "access";
 
 type AgentSettingsFormState = {
   description: string;
   model: string;
   toolGroups: string;
   mcpServers: string;
+  skillRefs: AgentSkillRef[];
   agentsMd: string;
   memoryEnabled: boolean;
   memoryModel: string;
@@ -84,6 +89,7 @@ function createFormState(agent: Agent): AgentSettingsFormState {
     model: agent.model ?? "",
     toolGroups: toCSV(agent.tool_groups),
     mcpServers: toCSV(agent.mcp_servers),
+    skillRefs: agent.skills ?? [],
     agentsMd: agent.agents_md ?? "",
     memoryEnabled: agent.memory?.enabled ?? false,
     memoryModel: agent.memory?.model_name ?? "",
@@ -92,6 +98,23 @@ function createFormState(agent: Agent): AgentSettingsFormState {
     confidenceThreshold: String(agent.memory?.fact_confidence_threshold ?? 0.7),
     injectionEnabled: agent.memory?.injection_enabled ?? true,
     maxInjectionTokens: String(agent.memory?.max_injection_tokens ?? 2000),
+  };
+}
+
+function skillRefKey(skillRef: AgentSkillRef) {
+  return `${skillRef.category ?? "uncategorized"}:${skillRef.name}`;
+}
+
+function buildSkillSourcePath(skill: Skill) {
+  return `${skill.category}/${skill.name}`;
+}
+
+function createSkillRef(skill: Skill): AgentSkillRef {
+  return {
+    name: skill.name,
+    category: skill.category,
+    source_path: buildSkillSourcePath(skill),
+    materialized_path: `skills/${skill.name}`,
   };
 }
 
@@ -121,7 +144,7 @@ function FieldLabel({
   return (
     <p
       className={cn(
-        "text-muted-foreground text-[11px] font-medium uppercase tracking-[0.18em]",
+        "text-muted-foreground text-[11px] font-medium tracking-[0.18em] uppercase",
         className,
       )}
     >
@@ -142,9 +165,9 @@ function SurfaceCard({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-3xl border border-border/70 bg-background/95 p-5 shadow-xs">
+    <section className="border-border/70 bg-background/95 rounded-3xl border p-5 shadow-xs">
       <div className="flex items-center gap-2">
-        <span className="text-muted-foreground flex size-8 items-center justify-center rounded-2xl border border-border/70 bg-muted/35">
+        <span className="text-muted-foreground border-border/70 bg-muted/35 flex size-8 items-center justify-center rounded-2xl border">
           {eyebrow}
         </span>
         <div>
@@ -167,11 +190,22 @@ export function AgentSettingsDialog({
   executionBackend,
   remoteSessionId,
 }: AgentSettingsDialogProps) {
-  const { agent, isLoading, error } = useAgent(open ? agentName : null, agentStatus);
+  const { agent, isLoading, error } = useAgent(
+    open ? agentName : null,
+    agentStatus,
+  );
+  const {
+    skills: availableSkills,
+    isLoading: skillsLoading,
+    error: skillsError,
+  } = useSkills();
   const updateAgentMutation = useUpdateAgent();
   const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
   const [form, setForm] = useState<AgentSettingsFormState | null>(null);
-  const [savedForm, setSavedForm] = useState<AgentSettingsFormState | null>(null);
+  const [savedForm, setSavedForm] = useState<AgentSettingsFormState | null>(
+    null,
+  );
+  const [skillsCategory, setSkillsCategory] = useState<string>("shared");
 
   const launchPath = useMemo(
     () =>
@@ -192,8 +226,22 @@ export function AgentSettingsDialog({
   }, [launchPath]);
 
   const skillNames = useMemo(
-    () => agent?.skills?.map((skill) => skill.name).filter(Boolean) ?? [],
-    [agent?.skills],
+    () =>
+      (form?.skillRefs ?? agent?.skills ?? [])
+        .map((skill) => skill.name)
+        .filter(Boolean),
+    [agent?.skills, form?.skillRefs],
+  );
+  const availableSkillCategories = useMemo(
+    () =>
+      Array.from(
+        new Set(availableSkills.map((skill) => skill.category)),
+      ).filter(Boolean),
+    [availableSkills],
+  );
+  const filteredSkills = useMemo(
+    () => availableSkills.filter((skill) => skill.category === skillsCategory),
+    [availableSkills, skillsCategory],
   );
 
   const isDirty = useMemo(() => {
@@ -208,7 +256,17 @@ export function AgentSettingsDialog({
       return;
     }
     setActiveTab("profile");
+    setSkillsCategory("shared");
   }, [agentName, agentStatus, open]);
+
+  useEffect(() => {
+    if (
+      availableSkillCategories.length > 0 &&
+      !availableSkillCategories.includes(skillsCategory)
+    ) {
+      setSkillsCategory(availableSkillCategories[0]!);
+    }
+  }, [availableSkillCategories, skillsCategory]);
 
   useEffect(() => {
     if (!open || !agent) {
@@ -246,6 +304,7 @@ export function AgentSettingsDialog({
           model: form.model.trim() ? form.model.trim() : null,
           tool_groups: parseCSV(form.toolGroups),
           mcp_servers: parseCSV(form.mcpServers),
+          skill_refs: form.skillRefs,
           agents_md: form.agentsMd,
           memory: {
             enabled: form.memoryEnabled,
@@ -301,6 +360,11 @@ export function AgentSettingsDialog({
       icon: <BotIcon className="size-4" />,
     },
     {
+      value: "skills",
+      label: "Skills",
+      icon: <SparklesIcon className="size-4" />,
+    },
+    {
       value: "prompt",
       label: "Prompt",
       icon: <FileTextIcon className="size-4" />,
@@ -320,14 +384,14 @@ export function AgentSettingsDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="flex h-[88vh] max-h-[calc(100vh-1.5rem)] flex-col overflow-hidden border-border/70 bg-background p-0 shadow-2xl sm:max-w-6xl"
+        className="border-border/70 bg-background flex h-[88vh] max-h-[calc(100vh-1.5rem)] flex-col overflow-hidden p-0 shadow-2xl sm:max-w-6xl"
         aria-describedby={undefined}
       >
-        <div className="border-b border-border/70 px-6 py-5">
+        <div className="border-border/70 border-b px-6 py-5">
           <DialogHeader className="text-left">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <div className="text-muted-foreground mb-3 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.22em]">
+                <div className="text-muted-foreground mb-3 flex items-center gap-2 text-[11px] font-medium tracking-[0.22em] uppercase">
                   <Settings2Icon className="size-3.5" />
                   Agent Settings
                 </div>
@@ -352,7 +416,11 @@ export function AgentSettingsDialog({
                     Open workspace
                   </Link>
                 </Button>
-                <Button size="sm" variant="outline" onClick={handleCopyLaunchURL}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleCopyLaunchURL}
+                >
                   <CopyIcon className="size-3.5" />
                   Copy URL
                 </Button>
@@ -367,7 +435,7 @@ export function AgentSettingsDialog({
           orientation="vertical"
           className="min-h-0 flex-1 gap-0"
         >
-          <div className="border-b border-border/70 px-4 py-3 md:hidden">
+          <div className="border-border/70 border-b px-4 py-3 md:hidden">
             <TabsList
               variant="line"
               className="w-full justify-start gap-1 overflow-x-auto bg-transparent p-0"
@@ -385,7 +453,7 @@ export function AgentSettingsDialog({
             </TabsList>
           </div>
 
-          <aside className="bg-sidebar/30 hidden w-[220px] shrink-0 border-r border-border/70 md:block">
+          <aside className="bg-sidebar/30 border-border/70 hidden w-[220px] shrink-0 border-r md:block">
             <div className="p-3">
               <TabsList
                 variant="line"
@@ -421,7 +489,9 @@ export function AgentSettingsDialog({
                       description="The selected archived agent could not be loaded from the gateway."
                     >
                       <p className="text-sm leading-6">
-                        {error instanceof Error ? error.message : "Unknown error"}
+                        {error instanceof Error
+                          ? error.message
+                          : "Unknown error"}
                       </p>
                     </SurfaceCard>
                   </div>
@@ -442,7 +512,7 @@ export function AgentSettingsDialog({
                             <div className="grid gap-4 md:grid-cols-2">
                               <div className="space-y-2">
                                 <FieldLabel>Agent name</FieldLabel>
-                                <div className="bg-muted/35 flex h-11 items-center rounded-2xl border border-border/70 px-3 text-sm font-medium">
+                                <div className="bg-muted/35 border-border/70 flex h-11 items-center rounded-2xl border px-3 text-sm font-medium">
                                   {agent.name}
                                 </div>
                               </div>
@@ -454,7 +524,10 @@ export function AgentSettingsDialog({
                                   onChange={(event) =>
                                     setForm((current) =>
                                       current
-                                        ? { ...current, model: event.target.value }
+                                        ? {
+                                            ...current,
+                                            model: event.target.value,
+                                          }
                                         : current,
                                     )
                                   }
@@ -507,8 +580,8 @@ export function AgentSettingsDialog({
                                   className="min-h-24 rounded-3xl px-4 py-3 text-sm leading-6"
                                 />
                                 <p className="text-muted-foreground text-xs leading-5">
-                                  Comma separated. Leave blank to keep the current
-                                  unrestricted default.
+                                  Comma separated. Leave blank to keep the
+                                  current unrestricted default.
                                 </p>
                               </div>
                               <div className="space-y-2">
@@ -529,8 +602,8 @@ export function AgentSettingsDialog({
                                   className="min-h-24 rounded-3xl px-4 py-3 text-sm leading-6"
                                 />
                                 <p className="text-muted-foreground text-xs leading-5">
-                                  Comma separated. These values are stored in the
-                                  archived manifest.
+                                  Comma separated. These values are stored in
+                                  the archived manifest.
                                 </p>
                               </div>
                             </div>
@@ -557,11 +630,11 @@ export function AgentSettingsDialog({
                             </div>
 
                             {isLeadAgent(agent.name) && (
-                              <p className="text-muted-foreground rounded-2xl border border-border/70 bg-muted/25 px-4 py-3 text-xs leading-6">
+                              <p className="text-muted-foreground border-border/70 bg-muted/25 rounded-2xl border px-4 py-3 text-xs leading-6">
                                 `lead_agent` stays the built-in orchestration
                                 entrypoint. The generic system prompt remains in
-                                backend code; this dialog edits only the archived
-                                lead-agent-owned prompt and config.
+                                backend code; this dialog edits only the
+                                archived lead-agent-owned prompt and config.
                               </p>
                             )}
 
@@ -582,6 +655,169 @@ export function AgentSettingsDialog({
                                 </p>
                               )}
                             </div>
+                          </SurfaceCard>
+                        </div>
+                      </div>
+                    </TabsContent>
+
+                    <TabsContent value="skills" className="m-0 space-y-6">
+                      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_320px]">
+                        <SurfaceCard
+                          eyebrow={<SparklesIcon className="size-4" />}
+                          title="Copied skills"
+                          description="Attach archived skills from shared, dev, or prod stores to this agent archive."
+                        >
+                          <div className="flex flex-wrap gap-2">
+                            {availableSkillCategories.map((category) => {
+                              const active = category === skillsCategory;
+                              return (
+                                <Button
+                                  key={category}
+                                  variant={active ? "secondary" : "outline"}
+                                  className="rounded-full"
+                                  onClick={() => setSkillsCategory(category)}
+                                >
+                                  {category}
+                                </Button>
+                              );
+                            })}
+                          </div>
+
+                          {skillsLoading ? (
+                            <div className="text-muted-foreground flex items-center gap-2 text-sm">
+                              <Loader2Icon className="size-4 animate-spin" />
+                              Loading skill catalog...
+                            </div>
+                          ) : skillsError ? (
+                            <div className="text-sm">
+                              {skillsError instanceof Error
+                                ? skillsError.message
+                                : "Failed to load skills"}
+                            </div>
+                          ) : filteredSkills.length === 0 ? (
+                            <div className="text-muted-foreground text-sm">
+                              No skills are available in this archive scope.
+                            </div>
+                          ) : (
+                            <div className="grid gap-3">
+                              {filteredSkills.map((skill) => {
+                                const nextRef = createSkillRef(skill);
+                                const selected = form.skillRefs.some(
+                                  (skillRef) =>
+                                    skillRefKey(skillRef) ===
+                                    skillRefKey(nextRef),
+                                );
+
+                                return (
+                                  <button
+                                    key={skillRefKey(nextRef)}
+                                    type="button"
+                                    onClick={() =>
+                                      setForm((current) => {
+                                        if (!current) {
+                                          return current;
+                                        }
+
+                                        const exists = current.skillRefs.some(
+                                          (skillRef) =>
+                                            skillRefKey(skillRef) ===
+                                            skillRefKey(nextRef),
+                                        );
+                                        if (exists) {
+                                          return {
+                                            ...current,
+                                            skillRefs: current.skillRefs.filter(
+                                              (skillRef) =>
+                                                skillRefKey(skillRef) !==
+                                                skillRefKey(nextRef),
+                                            ),
+                                          };
+                                        }
+
+                                        return {
+                                          ...current,
+                                          skillRefs: [
+                                            ...current.skillRefs,
+                                            nextRef,
+                                          ],
+                                        };
+                                      })
+                                    }
+                                    className={cn(
+                                      "rounded-3xl border p-4 text-left transition-colors",
+                                      selected
+                                        ? "border-primary/50 bg-primary/5"
+                                        : "border-border/70 bg-background/70 hover:bg-muted/30",
+                                    )}
+                                  >
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div className="min-w-0">
+                                        <p className="text-sm font-medium">
+                                          {skill.name}
+                                        </p>
+                                        <p className="text-muted-foreground mt-1 text-xs leading-5">
+                                          {skill.description}
+                                        </p>
+                                      </div>
+                                      <div className="flex shrink-0 items-center gap-2">
+                                        {!skill.enabled && (
+                                          <Badge variant="outline">
+                                            disabled
+                                          </Badge>
+                                        )}
+                                        {selected && (
+                                          <Badge variant="secondary">
+                                            <CheckIcon className="size-3.5" />
+                                            attached
+                                          </Badge>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </SurfaceCard>
+
+                        <div className="space-y-6">
+                          <SurfaceCard
+                            eyebrow={<Settings2Icon className="size-4" />}
+                            title="Selected archive skills"
+                            description="These copied skills are written into the archive's `skills/` directory on save."
+                          >
+                            <div className="flex flex-wrap gap-2">
+                              {form.skillRefs.length > 0 ? (
+                                form.skillRefs.map((skillRef) => (
+                                  <Badge
+                                    key={skillRefKey(skillRef)}
+                                    variant="secondary"
+                                    className="rounded-full px-2.5 py-1 text-xs"
+                                  >
+                                    {skillRef.name}
+                                    {skillRef.category
+                                      ? ` · ${skillRef.category}`
+                                      : ""}
+                                  </Badge>
+                                ))
+                              ) : (
+                                <p className="text-muted-foreground text-sm">
+                                  No copied skills selected for this archive.
+                                </p>
+                              )}
+                            </div>
+                          </SurfaceCard>
+
+                          <SurfaceCard
+                            eyebrow={<Link2Icon className="size-4" />}
+                            title="Selection rules"
+                            description="Skill sources stay in the shared archives; this dialog only decides what gets copied into this agent."
+                          >
+                            <p className="text-muted-foreground text-sm leading-6">
+                              Use `store/dev` for in-progress skills,
+                              `store/prod` for validated versions, and `shared`
+                              for stable cross-agent building blocks.
+                            </p>
                           </SurfaceCard>
                         </div>
                       </div>
@@ -609,27 +845,32 @@ export function AgentSettingsDialog({
                                     : current,
                                 )
                               }
-                              className="min-h-[440px] rounded-3xl border-border/70 bg-muted/10 px-4 py-4 font-mono text-[13px] leading-6"
+                              className="border-border/70 bg-muted/10 min-h-[440px] rounded-3xl px-4 py-4 font-mono text-[13px] leading-6"
                             />
                           </div>
 
                           <div className="space-y-4">
-                            <div className="rounded-3xl border border-border/70 bg-muted/20 p-4">
-                              <FieldLabel className="mb-2">Runtime contract</FieldLabel>
+                            <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
+                              <FieldLabel className="mb-2">
+                                Runtime contract
+                              </FieldLabel>
                               <p className="text-sm leading-6">
                                 The archived prompt is copied into:
                               </p>
-                              <code className="bg-background mt-3 block rounded-2xl border border-border/70 px-3 py-3 text-xs leading-6 break-all">
-                                /mnt/user-data/agents/{agent.status}/{agent.name}/AGENTS.md
+                              <code className="bg-background border-border/70 mt-3 block rounded-2xl border px-3 py-3 text-xs leading-6 break-all">
+                                /mnt/user-data/agents/{agent.status}/
+                                {agent.name}/AGENTS.md
                               </code>
                             </div>
-                            <div className="rounded-3xl border border-border/70 bg-muted/20 p-4">
-                              <FieldLabel className="mb-2">Editing scope</FieldLabel>
+                            <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
+                              <FieldLabel className="mb-2">
+                                Editing scope
+                              </FieldLabel>
                               <p className="text-muted-foreground text-sm leading-6">
                                 Keep the generic orchestrator rules in backend
                                 code. Put only agent-owned domain behavior,
-                                decomposition guidance, and skill usage policy in
-                                this file.
+                                decomposition guidance, and skill usage policy
+                                in this file.
                               </p>
                             </div>
                           </div>
@@ -644,9 +885,11 @@ export function AgentSettingsDialog({
                           title="Memory capture"
                           description="Structure the archived memory policy instead of editing raw YAML."
                         >
-                          <div className="bg-muted/20 flex items-center justify-between rounded-3xl border border-border/70 px-4 py-3">
+                          <div className="bg-muted/20 border-border/70 flex items-center justify-between rounded-3xl border px-4 py-3">
                             <div>
-                              <p className="text-sm font-medium">Enable memory</p>
+                              <p className="text-sm font-medium">
+                                Enable memory
+                              </p>
                               <p className="text-muted-foreground text-xs leading-5">
                                 User-scoped memory is stored per agent archive.
                               </p>
@@ -753,7 +996,7 @@ export function AgentSettingsDialog({
                           title="Prompt injection"
                           description="These controls map directly onto the archived config manifest."
                         >
-                          <div className="bg-muted/20 flex items-center justify-between rounded-3xl border border-border/70 px-4 py-3">
+                          <div className="bg-muted/20 border-border/70 flex items-center justify-between rounded-3xl border px-4 py-3">
                             <div>
                               <p className="text-sm font-medium">
                                 Enable memory injection
@@ -796,8 +1039,10 @@ export function AgentSettingsDialog({
                             />
                           </div>
 
-                          <div className="rounded-3xl border border-border/70 bg-muted/20 p-4">
-                            <FieldLabel className="mb-2">Why no raw YAML?</FieldLabel>
+                          <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
+                            <FieldLabel className="mb-2">
+                              Why no raw YAML?
+                            </FieldLabel>
                             <p className="text-muted-foreground text-sm leading-6">
                               `config.yaml` remains the archived manifest, but
                               this workspace uses structured controls so the
@@ -815,9 +1060,9 @@ export function AgentSettingsDialog({
                           title="Launch surface"
                           description="Use the exact current archive and runtime selection when sharing or testing."
                         >
-                          <div className="rounded-3xl border border-border/70 bg-muted/20 p-4">
+                          <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
                             <FieldLabel className="mb-2">Launch URL</FieldLabel>
-                            <code className="bg-background block rounded-2xl border border-border/70 px-3 py-3 text-xs leading-6 break-all">
+                            <code className="bg-background border-border/70 block rounded-2xl border px-3 py-3 text-xs leading-6 break-all">
                               {launchURL}
                             </code>
                           </div>
@@ -829,7 +1074,10 @@ export function AgentSettingsDialog({
                                 Open workspace
                               </Link>
                             </Button>
-                            <Button variant="outline" onClick={handleCopyLaunchURL}>
+                            <Button
+                              variant="outline"
+                              onClick={handleCopyLaunchURL}
+                            >
                               <CopyIcon className="size-3.5" />
                               Copy URL
                             </Button>
@@ -843,32 +1091,38 @@ export function AgentSettingsDialog({
                             description="A compact map of what this settings dialog can control today."
                           >
                             <div className="space-y-3">
-                              <div className="flex items-center justify-between gap-3 rounded-2xl border border-border/70 px-4 py-3">
+                              <div className="border-border/70 flex items-center justify-between gap-3 rounded-2xl border px-4 py-3">
                                 <div>
-                                  <p className="text-sm font-medium">AGENTS.md</p>
+                                  <p className="text-sm font-medium">
+                                    AGENTS.md
+                                  </p>
                                   <p className="text-muted-foreground text-xs leading-5">
                                     Editable from the Prompt tab.
                                   </p>
                                 </div>
                                 <Badge variant="secondary">editable</Badge>
                               </div>
-                              <div className="flex items-center justify-between gap-3 rounded-2xl border border-border/70 px-4 py-3">
+                              <div className="border-border/70 flex items-center justify-between gap-3 rounded-2xl border px-4 py-3">
                                 <div>
-                                  <p className="text-sm font-medium">config.yaml</p>
+                                  <p className="text-sm font-medium">
+                                    config.yaml
+                                  </p>
                                   <p className="text-muted-foreground text-xs leading-5">
                                     Managed from the Config tab.
                                   </p>
                                 </div>
                                 <Badge variant="outline">structured</Badge>
                               </div>
-                              <div className="flex items-center justify-between gap-3 rounded-2xl border border-border/70 px-4 py-3">
+                              <div className="border-border/70 flex items-center justify-between gap-3 rounded-2xl border px-4 py-3">
                                 <div>
                                   <p className="text-sm font-medium">skills/</p>
                                   <p className="text-muted-foreground text-xs leading-5">
                                     Current copied skills are shown in Profile.
                                   </p>
                                 </div>
-                                <Badge variant="outline">{skillNames.length}</Badge>
+                                <Badge variant="outline">
+                                  {skillNames.length}
+                                </Badge>
                               </div>
                             </div>
                           </SurfaceCard>
@@ -879,10 +1133,10 @@ export function AgentSettingsDialog({
                             description="Reserved for a future browser editor or code-server endpoint."
                           >
                             <p className="text-muted-foreground text-sm leading-6">
-                              This deployment does not expose a dedicated VS Code
-                              server or file browser endpoint yet. For now, use
-                              the Prompt and Config tabs to edit the agent-owned
-                              archive safely from the workspace.
+                              This deployment does not expose a dedicated VS
+                              Code server or file browser endpoint yet. For now,
+                              use the Prompt and Config tabs to edit the
+                              agent-owned archive safely from the workspace.
                             </p>
                           </SurfaceCard>
                         </div>
@@ -895,14 +1149,15 @@ export function AgentSettingsDialog({
           </div>
         </Tabs>
 
-        <div className="border-t border-border/70 bg-background/95 px-6 py-4">
+        <div className="border-border/70 bg-background/95 border-t px-6 py-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-medium">
                 {isDirty ? "Unsaved archive changes" : "Archive is up to date"}
               </p>
               <p className="text-muted-foreground text-xs leading-5">
-                Save applies to the currently selected {agentStatus} archive only.
+                Save applies to the currently selected {agentStatus} archive
+                only.
               </p>
             </div>
             <div className="flex items-center justify-end gap-2">

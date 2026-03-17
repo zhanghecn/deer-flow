@@ -14,6 +14,7 @@ import {
   hasContent,
   hasPresentFiles,
   hasReasoning,
+  stripNextStepsFromText,
   type MessageGroup as GroupedMessage,
 } from "@/core/messages/utils";
 import { workspaceMessageRehypePlugins } from "@/core/streamdown";
@@ -51,9 +52,9 @@ type TaskToolCallFallbackArgs = {
   subagent_type?: string;
 };
 
-function getTaskToolCallFallback(
-  toolCall: { args?: TaskToolCallFallbackArgs },
-): Pick<Subtask, "description" | "prompt" | "subagent_type"> {
+function getTaskToolCallFallback(toolCall: {
+  args?: TaskToolCallFallbackArgs;
+}): Pick<Subtask, "description" | "prompt" | "subagent_type"> {
   return {
     description: toolCall.args?.description ?? "Running subtask",
     prompt: toolCall.args?.prompt ?? "",
@@ -170,10 +171,7 @@ function collectPresentFilePaths(group: GroupedMessage) {
   return files;
 }
 
-function renderPrimaryMessage(
-  group: GroupedMessage,
-  isLoading: boolean,
-) {
+function renderPrimaryMessage(group: GroupedMessage, isLoading: boolean) {
   return (
     <MessageListItem
       key={group.id}
@@ -213,7 +211,9 @@ function renderPresentFilesMessage(
     <div className="w-full" key={group.id}>
       {leadMessage && hasContent(leadMessage) && (
         <MarkdownContent
-          content={extractContentFromMessage(leadMessage)}
+          content={stripNextStepsFromText(
+            extractContentFromMessage(leadMessage),
+          )}
           isLoading={renderer.isLoading}
           rehypePlugins={renderer.rehypePlugins}
           className="mb-4"
@@ -279,10 +279,7 @@ function renderSubagentMessage(
   );
 }
 
-function renderProcessingMessage(
-  group: GroupedMessage,
-  isLoading: boolean,
-) {
+function renderProcessingMessage(group: GroupedMessage, isLoading: boolean) {
   return (
     <MessageGroup
       key={"group-" + group.id}
@@ -371,11 +368,7 @@ const GroupedMessagesContent = memo(function GroupedMessagesContent({
     t,
   };
 
-  return (
-    <>
-      {groups.map((group) => renderGroupedMessage(group, renderer))}
-    </>
-  );
+  return <>{groups.map((group) => renderGroupedMessage(group, renderer))}</>;
 });
 
 export function MessageList({
@@ -392,10 +385,8 @@ export function MessageList({
   const updateSubtask = useUpdateSubtask();
   const messages = useDeferredValue(thread.messages);
   const isStreamingCurrentTurn = thread.isLoading && !thread.isThreadLoading;
-  const { historyMessages, currentTurnMessages } = useStreamingMessagePartitions(
-    messages,
-    isStreamingCurrentTurn,
-  );
+  const { historyMessages, currentTurnMessages } =
+    useStreamingMessagePartitions(messages, isStreamingCurrentTurn);
 
   const historyGroups = useMemo(
     () => groupMessages(historyMessages, (group) => group),
@@ -405,7 +396,10 @@ export function MessageList({
     () => groupMessages(currentTurnMessages, (group) => group),
     [currentTurnMessages],
   );
-  const subtaskUpdates = useMemo(() => collectSubtaskUpdates(messages), [messages]);
+  const subtaskUpdates = useMemo(
+    () => collectSubtaskUpdates(messages),
+    [messages],
+  );
 
   useEffect(() => {
     for (const update of subtaskUpdates) {

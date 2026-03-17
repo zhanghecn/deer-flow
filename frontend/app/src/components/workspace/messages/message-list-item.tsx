@@ -1,6 +1,6 @@
 import type { Message } from "@langchain/langgraph-sdk";
 import { FileIcon, Loader2Icon } from "lucide-react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { memo, useMemo, type ImgHTMLAttributes } from "react";
 
 import { Loader } from "@/components/ai-elements/loader";
@@ -15,14 +15,24 @@ import {
   ReasoningContent,
   ReasoningTrigger,
 } from "@/components/ai-elements/reasoning";
+import { Suggestion } from "@/components/ai-elements/suggestion";
 import { Task, TaskTrigger } from "@/components/ai-elements/task";
 import { Badge } from "@/components/ui/badge";
+import {
+  appendWorkspacePromptParams,
+  buildWorkspaceAgentPath,
+  readAgentRuntimeSelection,
+} from "@/core/agents";
 import { resolveArtifactURL } from "@/core/artifacts/utils";
 import { useI18n } from "@/core/i18n/hooks";
 import {
   extractContentFromMessage,
+  inferAgentNameFromNextStepPrompt,
+  extractNextStepsFromText,
   extractReasoningContentFromMessage,
   parseUploadedFiles,
+  shouldKeepNextStepInCurrentThread,
+  stripNextStepsFromText,
   stripUploadedFilesTag,
   type FileInMessage,
 } from "@/core/messages/utils";
@@ -34,6 +44,7 @@ import { cn } from "@/lib/utils";
 
 import { CopyButton } from "../copy-button";
 
+import { useThread } from "./context";
 import { MarkdownContent } from "./markdown-content";
 
 export function MessageListItem({
@@ -46,6 +57,10 @@ export function MessageListItem({
   isLoading?: boolean;
 }) {
   const isHuman = message.type === "human";
+  const rawContent = extractContentFromMessage(message);
+  const displayContent = isHuman
+    ? rawContent
+    : stripNextStepsFromText(rawContent);
   return (
     <AIElementMessage
       className={cn("group/conversation-message relative w-full", className)}
@@ -66,7 +81,7 @@ export function MessageListItem({
           <div className="flex gap-1">
             <CopyButton
               clipboardData={
-                extractContentFromMessage(message) ??
+                displayContent ??
                 extractReasoningContentFromMessage(message) ??
                 ""
               }
@@ -118,7 +133,11 @@ function MessageContent_({
   isLoading?: boolean;
 }) {
   const isHuman = message.type === "human";
-  const { thread_id } = useParams<{ thread_id: string }>();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const routeParams = useParams<{ thread_id: string; agent_name?: string }>();
+  const thread_id = routeParams.thread_id;
+  const { sendMessage, thread, isMock } = useThread();
   const components = useMemo(
     () => ({
       img: (props: ImgHTMLAttributes<HTMLImageElement>) => (
@@ -130,6 +149,10 @@ function MessageContent_({
 
   const rawContent = extractContentFromMessage(message);
   const reasoningContent = extractReasoningContentFromMessage(message);
+  const nextSteps = useMemo(
+    () => (isHuman ? [] : extractNextStepsFromText(rawContent)),
+    [isHuman, rawContent],
+  );
 
   const files = useMemo(() => {
     const files = message.additional_kwargs?.files;
@@ -147,8 +170,66 @@ function MessageContent_({
     if (isHuman) {
       return rawContent ? stripUploadedFilesTag(rawContent) : "";
     }
-    return rawContent ?? "";
+    return rawContent ? stripNextStepsFromText(rawContent) : "";
   }, [rawContent, isHuman]);
+
+  const currentRuntimeSelection = useMemo(
+    () => readAgentRuntimeSelection(searchParams, routeParams.agent_name),
+    [routeParams.agent_name, searchParams],
+  );
+
+  async function handleNextStepClick(step: {
+    label: string;
+    prompt: string;
+    agent_name?: string;
+    agent_status?: "dev" | "prod";
+    execution_backend?: "remote";
+    remote_session_id?: string;
+    new_chat?: boolean;
+  }) {
+    const inferredAgentName =
+      step.agent_name ?? inferAgentNameFromNextStepPrompt(step.prompt);
+    const targetSelection = {
+      agentName: inferredAgentName ?? currentRuntimeSelection.agentName,
+      agentStatus: step.agent_status ?? currentRuntimeSelection.agentStatus,
+      executionBackend:
+        step.execution_backend ?? currentRuntimeSelection.executionBackend,
+      remoteSessionId:
+        step.remote_session_id ?? currentRuntimeSelection.remoteSessionId,
+    };
+
+    const runtimeChanged =
+      targetSelection.agentName !== currentRuntimeSelection.agentName ||
+      targetSelection.agentStatus !== currentRuntimeSelection.agentStatus ||
+      targetSelection.executionBackend !==
+        currentRuntimeSelection.executionBackend ||
+      targetSelection.remoteSessionId !==
+        currentRuntimeSelection.remoteSessionId;
+    const keepInCurrentThread =
+      !runtimeChanged && shouldKeepNextStepInCurrentThread(rawContent, step);
+    const shouldStartNewChat =
+      !keepInCurrentThread && (step.new_chat === true || runtimeChanged);
+
+    if (!shouldStartNewChat && sendMessage) {
+      await sendMessage({
+        text: step.prompt,
+        files: [],
+      });
+      return;
+    }
+
+    let nextPath = appendWorkspacePromptParams(
+      buildWorkspaceAgentPath(targetSelection),
+      {
+        prompt: step.prompt,
+        autoSend: true,
+      },
+    );
+    if (isMock) {
+      nextPath += nextPath.includes("?") ? "&mock=true" : "?mock=true";
+    }
+    router.push(nextPath);
+  }
 
   const filesList =
     files && files.length > 0 && thread_id ? (
@@ -215,6 +296,20 @@ function MessageContent_({
         className="my-3"
         components={components}
       />
+      {nextSteps.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {nextSteps.map((step) => (
+            <Suggestion
+              key={`${message.id ?? "message"}-${step.label}-${step.prompt}`}
+              suggestion={step.label}
+              disabled={thread.isLoading}
+              onClick={() => {
+                void handleNextStepClick(step);
+              }}
+            />
+          ))}
+        </div>
+      )}
     </AIElementMessageContent>
   );
 }

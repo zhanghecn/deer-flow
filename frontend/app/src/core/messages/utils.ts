@@ -1,5 +1,6 @@
 import type { AIMessage, Message } from "@langchain/langgraph-sdk";
 
+import type { AgentStatus } from "@/core/agents/types";
 import { filterLegacyPptPreviewArtifacts } from "@/core/artifacts/utils";
 
 interface GenericMessageGroup<T = string> {
@@ -27,6 +28,22 @@ export type MessageGroup =
   | AssistantPresentFilesGroup
   | AssistantClarificationGroup
   | AssistantSubagentGroup;
+
+export interface AssistantNextStep {
+  label: string;
+  prompt: string;
+  agent_name?: string;
+  agent_status?: AgentStatus;
+  execution_backend?: "remote";
+  remote_session_id?: string;
+  new_chat?: boolean;
+}
+
+const NEXT_STEPS_BLOCK_RE = /<next_steps>\s*([\s\S]*?)\s*<\/next_steps>/i;
+const NEXT_STEP_AGENT_NAME_PATTERNS = [
+  /(?:切换到|切到|进入|使用)\s+([A-Za-z0-9-]+)\s*(?:智能体|agent)/i,
+  /(?:switch to|use|open|test)\s+([A-Za-z0-9-]+)\s+agent/i,
+];
 
 type MessageContentBlock = {
   type?: string;
@@ -209,6 +226,127 @@ export function extractContentFromMessage(message: Message) {
   return "";
 }
 
+export function stripNextStepsFromText(content: string) {
+  return content.replace(NEXT_STEPS_BLOCK_RE, "").trim();
+}
+
+export function extractNextStepsFromText(content: string): AssistantNextStep[] {
+  const matched = NEXT_STEPS_BLOCK_RE.exec(content);
+  if (!matched?.[1]) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(matched[1]);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map((item): AssistantNextStep | null => {
+        if (!item || typeof item !== "object") {
+          return null;
+        }
+
+        const record = item as Record<string, unknown>;
+        const label =
+          typeof record.label === "string" ? record.label.trim() : "";
+        const prompt =
+          typeof record.prompt === "string" ? record.prompt.trim() : "";
+        if (!label || !prompt) {
+          return null;
+        }
+
+        const agentStatus =
+          record.agent_status === "prod"
+            ? "prod"
+            : record.agent_status === "dev"
+              ? "dev"
+              : undefined;
+        const executionBackend =
+          record.execution_backend === "remote" ? "remote" : undefined;
+        const remoteSessionId =
+          typeof record.remote_session_id === "string"
+            ? record.remote_session_id.trim() || undefined
+            : undefined;
+        const agentName =
+          typeof record.agent_name === "string"
+            ? record.agent_name.trim() || undefined
+            : undefined;
+
+        return {
+          label,
+          prompt,
+          agent_name: agentName,
+          agent_status: agentStatus,
+          execution_backend: executionBackend,
+          remote_session_id: remoteSessionId,
+          new_chat: record.new_chat === true,
+        };
+      })
+      .filter((step): step is AssistantNextStep => step !== null);
+  } catch {
+    return [];
+  }
+}
+
+function extractDraftAuthoringNames(
+  content: string,
+  kind: "skills" | "agents",
+): string[] {
+  const names = new Set<string>();
+  const pattern = new RegExp(
+    `/mnt/user-data/authoring/${kind}/([A-Za-z0-9._-]+)`,
+    "g",
+  );
+
+  for (const match of content.matchAll(pattern)) {
+    const name = match[1]?.trim();
+    if (name) {
+      names.add(name.toLowerCase());
+    }
+  }
+
+  return Array.from(names);
+}
+
+export function shouldKeepNextStepInCurrentThread(
+  content: string,
+  step: AssistantNextStep,
+) {
+  const prompt = step.prompt.trim().toLowerCase();
+  if (!prompt) {
+    return false;
+  }
+
+  for (const kind of ["skills", "agents"] as const) {
+    const draftNames = extractDraftAuthoringNames(content, kind);
+    if (draftNames.some((name) => prompt.includes(name))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function inferAgentNameFromNextStepPrompt(
+  prompt: string,
+): string | undefined {
+  const normalizedPrompt = prompt.trim();
+  if (!normalizedPrompt) {
+    return undefined;
+  }
+
+  for (const pattern of NEXT_STEP_AGENT_NAME_PATTERNS) {
+    const matched = normalizedPrompt.match(pattern)?.[1]?.trim();
+    if (matched) {
+      return matched;
+    }
+  }
+
+  return undefined;
+}
+
 export function extractReasoningContentFromMessage(message: Message) {
   if (message.type !== "ai") {
     return null;
@@ -370,6 +508,9 @@ export interface FileInMessage {
   filename: string;
   size: number; // bytes
   path?: string; // virtual path, may not be set during upload
+  markdown_file?: string;
+  markdown_virtual_path?: string;
+  markdown_artifact_url?: string;
   status?: "uploading" | "uploaded";
 }
 

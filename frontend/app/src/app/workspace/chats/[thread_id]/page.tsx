@@ -1,13 +1,12 @@
 "use client";
 
 import type { Command } from "@langchain/langgraph-sdk";
-import { BotIcon } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo } from "react";
 
 import { type PromptInputMessage } from "@/components/ai-elements/prompt-input";
-import { Badge } from "@/components/ui/badge";
+import { AgentWorkspaceDialog } from "@/components/workspace/agent-workspace-dialog";
 import { ArtifactTrigger } from "@/components/workspace/artifacts/artifact-trigger";
 import { useSpecificChatMode } from "@/components/workspace/chats/use-chat-mode";
 import { useThreadChat } from "@/components/workspace/chats/use-thread-chat";
@@ -44,11 +43,11 @@ export default function ChatPage() {
   const { t } = useI18n();
   const [settings, setSettings] = useLocalSettings();
   const searchParams = useSearchParams();
+  const hasPendingRun = searchParams.get("pending_run") === "1";
   const runtimeSelection = useMemo(
     () => readAgentRuntimeSelection(searchParams),
     [searchParams],
   );
-  const displayAgentName = runtimeSelection.agentName || "lead_agent";
   const runtimeContext = useMemo(
     () => ({
       ...settings.context,
@@ -56,6 +55,7 @@ export default function ChatPage() {
       agent_status: runtimeSelection.agentStatus,
       execution_backend: runtimeSelection.executionBackend,
       remote_session_id: runtimeSelection.remoteSessionId || undefined,
+      mode: "ultra" as const,
     }),
     [runtimeSelection, settings.context],
   );
@@ -85,6 +85,7 @@ export default function ChatPage() {
     threadId: isNewThread ? undefined : threadId,
     context: runtimeContext,
     isMock,
+    skipInitialHistory: hasPendingRun,
     onStart: (createdThreadId) => {
       setThreadId(createdThreadId);
       setIsNewThread(false);
@@ -103,6 +104,21 @@ export default function ChatPage() {
       );
     },
     onFinish: (state) => {
+      if (hasPendingRun) {
+        let nextPath = buildWorkspaceAgentPath(
+          {
+            agentName: runtimeSelection.agentName,
+            agentStatus: runtimeSelection.agentStatus,
+            executionBackend: runtimeSelection.executionBackend,
+            remoteSessionId: runtimeSelection.remoteSessionId,
+          },
+          threadId,
+        );
+        if (isMock) {
+          nextPath += nextPath.includes("?") ? "&mock=true" : "?mock=true";
+        }
+        history.replaceState(null, "", nextPath);
+      }
       if (document.hidden || !document.hasFocus()) {
         let body = "Conversation finished";
         const lastMessage = state.messages.at(-1);
@@ -121,7 +137,10 @@ export default function ChatPage() {
   });
 
   const handleSendMessage = useCallback(
-    async (message: PromptInputMessage, extraContext?: Record<string, unknown>) => {
+    async (
+      message: PromptInputMessage,
+      extraContext?: Record<string, unknown>,
+    ) => {
       await sendMessage(threadId, message, extraContext);
     },
     [sendMessage, threadId],
@@ -160,18 +179,7 @@ export default function ChatPage() {
                 : "bg-background/80 shadow-xs backdrop-blur",
             )}
           >
-            <div className="flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1">
-              <BotIcon className="text-primary h-3.5 w-3.5" />
-              <span className="text-xs font-medium">{displayAgentName}</span>
-            </div>
-            <Badge variant="outline" className="shrink-0 text-[10px]">
-              {runtimeSelection.agentStatus}
-            </Badge>
-            {runtimeSelection.executionBackend === "remote" && (
-              <Badge variant="outline" className="shrink-0 text-[10px]">
-                remote cli
-              </Badge>
-            )}
+            <AgentWorkspaceDialog selection={runtimeSelection} compact />
             <div className="flex w-full items-center text-sm font-medium">
               <ThreadTitle threadId={threadId} thread={thread} />
             </div>

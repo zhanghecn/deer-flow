@@ -97,6 +97,33 @@ class TestAddMiddleware:
         assert "task" in agent_tools
 
 
+def _build_test_pdf_bytes(text: str = "Hello PDF") -> bytes:
+    objects: list[bytes] = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+    ]
+    stream = f"BT\n/F1 24 Tf\n100 700 Td\n({text}) Tj\nET\n".encode()
+    objects.append(b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"endstream")
+    objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+
+    chunks = [b"%PDF-1.4\n"]
+    offsets = [0]
+    for index, obj in enumerate(objects, start=1):
+        offsets.append(sum(len(chunk) for chunk in chunks))
+        chunks.append(f"{index} 0 obj\n".encode())
+        chunks.append(obj)
+        chunks.append(b"\nendobj\n")
+
+    xref_offset = sum(len(chunk) for chunk in chunks)
+    chunks.append(f"xref\n0 {len(objects) + 1}\n".encode())
+    chunks.append(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        chunks.append(f"{offset:010d} 00000 n \n".encode())
+    chunks.append(f"trailer\n<< /Root 1 0 R /Size {len(objects) + 1} >>\nstartxref\n{xref_offset}\n%%EOF\n".encode())
+    return b"".join(chunks)
+
+
 class TestFilesystemMiddleware:
     def test_init_default(self):
         middleware = FilesystemMiddleware()
@@ -895,7 +922,6 @@ class TestFilesystemMiddleware:
         file_data = create_file_data(content)
         result = format_read_response(file_data, offset=0, limit=100)
         lines = result.split("\n")
-        assert len(lines) == 5  # 1 first + 3 continuation (2, 2.1, 2.2) + 1 third
         assert "     1\tfirst line" in lines[0]
         assert "     2\t" in lines[1]
         assert lines[1].count("z") == 5000
@@ -904,6 +930,7 @@ class TestFilesystemMiddleware:
         assert "   2.2\t" in lines[3]
         assert lines[3].count("z") == 5000
         assert "     3\tthird line" in lines[4]
+        assert lines[-1] == "(End of file - total 3 lines)"
 
     def test_read_file_with_offset_and_long_lines(self):
         """Test that read_file with offset handles long lines correctly."""
@@ -912,7 +939,6 @@ class TestFilesystemMiddleware:
         file_data = create_file_data(content)
         result = format_read_response(file_data, offset=2, limit=10)
         lines = result.split("\n")
-        assert len(lines) == 4  # 3 continuation (3, 3.1, 3.2) + 1 line4
         assert "     3\t" in lines[0]
         assert lines[0].count("m") == 5000
         assert "   3.1\t" in lines[1]
@@ -920,6 +946,7 @@ class TestFilesystemMiddleware:
         assert "   3.2\t" in lines[2]
         assert lines[2].count("m") == 2000
         assert "     4\tline4" in lines[3]
+        assert lines[-1] == "(End of file - total 4 lines)"
 
     def test_intercept_short_toolmessage(self):
         """Test that small ToolMessages pass through unchanged."""
@@ -1240,6 +1267,38 @@ class TestFilesystemMiddleware:
 
         assert isinstance(result, str)
         assert result == "Error reading image: file_not_found"
+
+    def test_read_file_pdf_extracts_text_with_page_markers(self):
+        """PDF reads should extract text instead of returning raw binary bytes."""
+
+        class PdfBackend(StateBackend):
+            def download_files(self, paths: list[str]) -> list[FileDownloadResponse]:
+                return [
+                    FileDownloadResponse(
+                        path=paths[0],
+                        content=_build_test_pdf_bytes("Hello PDF"),
+                        error=None,
+                    )
+                ]
+
+        middleware = FilesystemMiddleware(backend=lambda rt: PdfBackend(rt))  # noqa: PLW0108
+        state = FilesystemState(messages=[], files={})
+        runtime = ToolRuntime(
+            state=state,
+            context=None,
+            tool_call_id="pdf-read-1",
+            store=None,
+            stream_writer=lambda _: None,
+            config={},
+        )
+
+        read_file_tool = next(tool for tool in middleware.tools if tool.name == "read_file")
+        result = read_file_tool.invoke({"file_path": "/docs/sample.pdf", "runtime": runtime})
+
+        assert isinstance(result, str)
+        assert "=== Page 1 ===" in result
+        assert "Hello PDF" in result
+        assert "(End of file - total" in result
 
     def test_execute_tool_returns_error_when_backend_doesnt_support(self):
         """Test that execute tool returns friendly error instead of raising exception."""

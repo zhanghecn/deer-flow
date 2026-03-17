@@ -13,9 +13,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from src.agents.lead_agent.prompt import apply_prompt_template
 from src.agents.lead_agent.subagents import load_subagent_specs
+from src.agents.middlewares.authoring_guard_middleware import AuthoringGuardMiddleware
 from src.agents.middlewares.artifacts_middleware import ArtifactsMiddleware
 from src.agents.middlewares.context_window_middleware import ContextWindowMiddleware
 from src.agents.middlewares.max_tokens_recovery_middleware import MaxTokensRecoveryMiddleware
+from src.agents.middlewares.runtime_command_middleware import RuntimeCommandMiddleware
 from src.agents.middlewares.thread_data_middleware import ThreadDataMiddleware
 from src.agents.middlewares.title_middleware import TitleMiddleware
 from src.agents.middlewares.uploads_middleware import UploadsMiddleware
@@ -94,6 +96,7 @@ class LeadAgentRuntimeContext(BaseModel):
     command_name: str | None = None
     command_kind: str | None = None
     command_args: str | None = None
+    command_prompt: str | None = None
     authoring_actions: list[str] = Field(default_factory=list)
     original_user_input: str | None = None
     mode: str | None = None
@@ -386,6 +389,8 @@ def _build_openagents_middlewares(model_config: ModelConfig):
     """
     middlewares = [
         ArtifactsMiddleware(),
+        AuthoringGuardMiddleware(),
+        RuntimeCommandMiddleware(),
         ThreadDataMiddleware(),
         UploadsMiddleware(),
         TitleMiddleware(),
@@ -809,6 +814,8 @@ def _resolve_lead_agent_runtime(
 def _update_request_runtime_context(
     runtime: ServerRuntime | None,
     request: LeadAgentRequest,
+    *,
+    resolved_model_name: str | None = None,
 ) -> None:
     _update_runtime_context(
         runtime,
@@ -818,7 +825,15 @@ def _update_request_runtime_context(
             "x-thread-id": request.thread_id,
             "x-user-id": request.user_id,
             "agent_name": request.agent_name,
+            "target_agent_name": request.target_agent_name,
             "agent_status": request.agent_status,
+            "model_name": resolved_model_name,
+            "model": resolved_model_name,
+            "command_name": request.command_name,
+            "command_kind": request.command_kind,
+            "command_args": request.command_args,
+            "command_prompt": request.command_prompt,
+            "authoring_actions": list(request.authoring_actions),
             "execution_backend": request.execution_backend,
             "remote_session_id": request.remote_session_id,
         },
@@ -903,6 +918,15 @@ def _build_agent_subagents(
 
 
 def _should_prepare_runtime_resources(runtime: ServerRuntime | None) -> bool:
+    """Return whether this request needs a real thread-scoped runtime backend.
+
+    Normal agent execution runs with an execution runtime context, so we prepare
+    per-thread workspace resources and persist thread runtime metadata. Read-only
+    graph loads such as history/state access may provide a runtime object without
+    `execution_runtime`; those requests should reuse the shared read context
+    instead of allocating thread-specific runtime resources.
+    """
+
     if runtime is None:
         return True
     return getattr(runtime, "execution_runtime", None) is not None
@@ -1013,7 +1037,11 @@ def _create_lead_agent(
         resolution=resolution,
     )
 
-    _update_request_runtime_context(runtime, request)
+    _update_request_runtime_context(
+        runtime,
+        request,
+        resolved_model_name=resolution.model_name,
+    )
     cache_key = _lead_agent_graph_cache_key(
         request=request,
         resolution=resolution,

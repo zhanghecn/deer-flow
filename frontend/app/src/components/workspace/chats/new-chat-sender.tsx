@@ -25,22 +25,34 @@ export default function NewChatSender({
   const threadId = useMemo(() => uuid(), []);
   const sentRef = useRef(false);
 
-  const [, sendMessage] = useThreadStream({
+  const [, sendMessage, , isThreadReady] = useThreadStream({
+    threadId,
     context,
     isMock,
-    onStart: onStartedThread,
   });
 
   useEffect(() => {
-    if (sentRef.current) {
+    if (sentRef.current || !isThreadReady) {
       return;
     }
     sentRef.current = true;
-    void sendMessage(threadId, message, extraContext).catch(() => {
-      sentRef.current = false;
-      onError();
-    });
-  }, [extraContext, message, onError, sendMessage, threadId]);
+    const sendPromise = sendMessage(threadId, message, extraContext).catch(
+      () => {
+        sentRef.current = false;
+        onError();
+      },
+    );
+    onStartedThread(threadId);
+    void sendPromise;
+  }, [
+    extraContext,
+    isThreadReady,
+    message,
+    onError,
+    onStartedThread,
+    sendMessage,
+    threadId,
+  ]);
 
   return (
     <div className="text-muted-foreground flex h-full items-center justify-center text-sm">

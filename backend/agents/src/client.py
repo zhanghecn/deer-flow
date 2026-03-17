@@ -832,7 +832,13 @@ class OpenAgentsClient:
         Raises:
             FileNotFoundError: If any file does not exist.
         """
-        from src.gateway.routers.uploads import CONVERTIBLE_EXTENSIONS, convert_file_to_markdown
+        from src.gateway.uploads_utils import (
+            attach_markdown_metadata,
+            convert_file_to_markdown,
+            is_convertible_upload,
+            upload_artifact_url,
+            upload_virtual_path,
+        )
 
         # Validate all files upfront to avoid partial uploads.
         resolved_files = []
@@ -854,11 +860,11 @@ class OpenAgentsClient:
                 "filename": src_path.name,
                 "size": str(dest.stat().st_size),
                 "path": str(dest),
-                "virtual_path": f"/mnt/user-data/uploads/{src_path.name}",
-                "artifact_url": f"/api/threads/{thread_id}/artifacts/mnt/user-data/uploads/{src_path.name}",
+                "virtual_path": upload_virtual_path(src_path.name),
+                "artifact_url": upload_artifact_url(thread_id, src_path.name),
             }
 
-            if src_path.suffix.lower() in CONVERTIBLE_EXTENSIONS:
+            if is_convertible_upload(src_path.name):
                 try:
                     try:
                         asyncio.get_running_loop()
@@ -872,9 +878,7 @@ class OpenAgentsClient:
                     md_path = None
 
                 if md_path is not None:
-                    info["markdown_file"] = md_path.name
-                    info["markdown_virtual_path"] = f"/mnt/user-data/uploads/{md_path.name}"
-                    info["markdown_artifact_url"] = f"/api/threads/{thread_id}/artifacts/mnt/user-data/uploads/{md_path.name}"
+                    attach_markdown_metadata(info, thread_id=thread_id, markdown_filename=md_path.name)
 
             uploaded_files.append(info)
 
@@ -898,19 +902,32 @@ class OpenAgentsClient:
         if not uploads_dir.exists():
             return {"files": [], "count": 0}
 
+        from src.gateway.uploads_utils import (
+            attach_markdown_metadata,
+            find_markdown_companion,
+            upload_artifact_url,
+            upload_virtual_path,
+            visible_upload_paths,
+        )
+
         files = []
-        for fp in sorted(uploads_dir.iterdir()):
-            if fp.is_file():
-                stat = fp.stat()
-                files.append({
-                    "filename": fp.name,
-                    "size": str(stat.st_size),
-                    "path": str(fp),
-                    "virtual_path": f"/mnt/user-data/uploads/{fp.name}",
-                    "artifact_url": f"/api/threads/{thread_id}/artifacts/mnt/user-data/uploads/{fp.name}",
-                    "extension": fp.suffix,
-                    "modified": stat.st_mtime,
-                })
+        visible_paths = visible_upload_paths(uploads_dir)
+        available_filenames = {fp.name for fp in uploads_dir.iterdir() if fp.is_file()}
+        for fp in visible_paths:
+            stat = fp.stat()
+            file_info = {
+                "filename": fp.name,
+                "size": stat.st_size,
+                "path": str(fp),
+                "virtual_path": upload_virtual_path(fp.name),
+                "artifact_url": upload_artifact_url(thread_id, fp.name),
+                "extension": fp.suffix,
+                "modified": stat.st_mtime,
+            }
+            markdown_filename = find_markdown_companion(fp.name, available_filenames)
+            if markdown_filename:
+                attach_markdown_metadata(file_info, thread_id=thread_id, markdown_filename=markdown_filename)
+            files.append(file_info)
         return {"files": files, "count": len(files)}
 
     def delete_upload(self, thread_id: str, filename: str) -> dict:
@@ -928,6 +945,8 @@ class OpenAgentsClient:
             FileNotFoundError: If the file does not exist.
             PermissionError: If path traversal is detected.
         """
+        from src.gateway.uploads_utils import is_convertible_upload, markdown_companion_name
+
         uploads_dir = self._get_uploads_dir(thread_id)
         file_path = (uploads_dir / filename).resolve()
 
@@ -940,6 +959,10 @@ class OpenAgentsClient:
             raise FileNotFoundError(f"File not found: {filename}")
 
         file_path.unlink()
+        if is_convertible_upload(filename):
+            companion_path = uploads_dir / markdown_companion_name(filename)
+            if companion_path.exists():
+                companion_path.unlink()
         return {"success": True, "message": f"Deleted {filename}"}
 
     # ------------------------------------------------------------------

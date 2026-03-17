@@ -83,6 +83,8 @@ When the frontend or lead agent creates a new domain agent, the runtime flow dep
 - Keep `/api/langgraph/*` policy minimal: pass payload through, inject authenticated identity, leave runtime resolution to Python.
 - Preserve the archive-definition-to-runtime-materialization contract.
 - When extending agent-owned assets, add them under `agents/{status}/{name}/...`, copy them during create and publish, and rely on Python startup to seed them into the runtime view.
+- Thread uploads live under `threads/{thread_id}/user-data/uploads/`. Go owns upload CRUD there, including auto-generating Markdown companions for convertible documents and keeping delete/list behavior consistent with those companions.
+- Upload conversion should stay best-effort: save the original file first, then attempt Markdown generation without failing the whole upload when conversion tooling is unavailable.
 
 ## Code Style
 

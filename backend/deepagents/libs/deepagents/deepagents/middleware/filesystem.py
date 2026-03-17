@@ -6,6 +6,7 @@ import base64
 import concurrent.futures
 import re
 from collections.abc import Awaitable, Callable
+from io import BytesIO
 from pathlib import Path
 from typing import Annotated, Any, Literal, NotRequired, cast
 
@@ -37,8 +38,10 @@ from deepagents.backends.protocol import (
     execute_accepts_timeout,
 )
 from deepagents.backends.utils import (
+    create_file_data,
     format_content_with_line_numbers,
     format_grep_matches,
+    format_read_response,
     sanitize_tool_call_id,
     truncate_if_too_long,
     validate_path,
@@ -51,6 +54,7 @@ LINE_NUMBER_WIDTH = 6
 DEFAULT_READ_OFFSET = 0
 DEFAULT_READ_LIMIT = 2000
 IMAGE_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
+PDF_EXTENSIONS = frozenset({".pdf"})
 IMAGE_MEDIA_TYPES = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
@@ -99,6 +103,29 @@ def _trim_read_output_by_display_lines(result: str, limit: int) -> str:
     # For continuation-heavy files, maintain strict display-line limit and
     # avoid appending extra footer lines.
     return "\n".join(content_lines[:limit])
+
+
+def _extract_pdf_text(content: bytes, file_path: str) -> str:
+    """Extract readable text from a PDF byte stream."""
+    try:
+        import pdfplumber
+    except ImportError:
+        return f"Error reading PDF '{file_path}': pdfplumber is not installed"
+
+    try:
+        with pdfplumber.open(BytesIO(content)) as pdf:
+            if getattr(pdf.doc, "is_extractable", True) is False:
+                return f"Error reading PDF '{file_path}': PDF text extraction is disabled or the document is encrypted"
+
+            pages: list[str] = []
+            for page_index, page in enumerate(pdf.pages, start=1):
+                page_text = (page.extract_text() or "").strip()
+                pages.append(f"=== Page {page_index} ===")
+                pages.append(page_text or "[No extractable text on this page]")
+
+        return "\n\n".join(pages)
+    except Exception as exc:  # noqa: BLE001
+        return f"Error reading PDF '{file_path}': {exc}"
 
 
 class FileData(TypedDict):
@@ -176,6 +203,7 @@ Usage:
 - Avoid tiny repeated slices unless you need a narrow precision edit. Use windows large enough to understand the surrounding structure.
 - Empty files return a system reminder.
 - Image files (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`) are returned as multimodal image blocks.
+- PDF files (`.pdf`) are text-extracted when possible and include page markers in the output.
 
 You should always read a file before editing it."""
 
@@ -601,6 +629,30 @@ class FilesystemMiddleware(AgentMiddleware[FilesystemState, ContextT, ResponseT]
                     return f"Error reading image: {responses[0].error}"
                 return "Error reading image: unknown error"
 
+            if ext in PDF_EXTENSIONS:
+                responses = resolved_backend.download_files([validated_path])
+                if responses and responses[0].content is not None:
+                    pdf_text = _extract_pdf_text(responses[0].content, validated_path)
+                    if pdf_text.startswith("Error reading PDF"):
+                        return pdf_text
+                    result = format_read_response(
+                        create_file_data(pdf_text),
+                        offset=offset,
+                        limit=max(limit, 0),
+                    )
+                    result = _trim_read_output_by_display_lines(result, limit)
+
+                    if token_limit and len(result) >= NUM_CHARS_PER_TOKEN * token_limit:
+                        truncation_msg = READ_FILE_TRUNCATION_MSG.format(file_path=validated_path)
+                        max_content_length = NUM_CHARS_PER_TOKEN * token_limit - len(truncation_msg)
+                        result = result[:max_content_length]
+                        result += truncation_msg
+
+                    return result
+                if responses and responses[0].error:
+                    return f"Error reading PDF: {responses[0].error}"
+                return "Error reading PDF: unknown error"
+
             result = resolved_backend.read(validated_path, offset=offset, limit=limit)
             result = _trim_read_output_by_display_lines(result, limit)
 
@@ -645,6 +697,30 @@ class FilesystemMiddleware(AgentMiddleware[FilesystemState, ContextT, ResponseT]
                 if responses and responses[0].error:
                     return f"Error reading image: {responses[0].error}"
                 return "Error reading image: unknown error"
+
+            if ext in PDF_EXTENSIONS:
+                responses = await resolved_backend.adownload_files([validated_path])
+                if responses and responses[0].content is not None:
+                    pdf_text = _extract_pdf_text(responses[0].content, validated_path)
+                    if pdf_text.startswith("Error reading PDF"):
+                        return pdf_text
+                    result = format_read_response(
+                        create_file_data(pdf_text),
+                        offset=offset,
+                        limit=max(limit, 0),
+                    )
+                    result = _trim_read_output_by_display_lines(result, limit)
+
+                    if token_limit and len(result) >= NUM_CHARS_PER_TOKEN * token_limit:
+                        truncation_msg = READ_FILE_TRUNCATION_MSG.format(file_path=validated_path)
+                        max_content_length = NUM_CHARS_PER_TOKEN * token_limit - len(truncation_msg)
+                        result = result[:max_content_length]
+                        result += truncation_msg
+
+                    return result
+                if responses and responses[0].error:
+                    return f"Error reading PDF: {responses[0].error}"
+                return "Error reading PDF: unknown error"
 
             result = await resolved_backend.aread(validated_path, offset=offset, limit=limit)
             result = _trim_read_output_by_display_lines(result, limit)

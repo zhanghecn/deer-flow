@@ -29,6 +29,7 @@ export type ThreadStreamOptions = {
   threadId?: string | null | undefined;
   context: ThreadContext;
   isMock?: boolean;
+  skipInitialHistory?: boolean;
   onStart?: (threadId: string) => void;
   onFinish?: (state: AgentThreadState) => void;
   onToolEnd?: (event: ToolEndEvent) => void;
@@ -106,8 +107,11 @@ function toUploadedFiles(files: UploadedFileInfo[]) {
   return files.map(
     (file): FileInMessage => ({
       filename: file.filename,
-      size: file.size,
+      size: Number(file.size),
       path: file.virtual_path,
+      markdown_file: file.markdown_file,
+      markdown_virtual_path: file.markdown_virtual_path,
+      markdown_artifact_url: file.markdown_artifact_url,
       status: "uploaded",
     }),
   );
@@ -321,6 +325,7 @@ export function useThreadStream({
   threadId,
   context,
   isMock,
+  skipInitialHistory = false,
   onStart,
   onFinish,
   onToolEnd,
@@ -329,7 +334,9 @@ export function useThreadStream({
   const { authenticated } = useAuth();
   const apiClient = getAPIClient(isMock);
   const [streamThreadId, setStreamThreadId] = useState<string | null>(null);
-  const [historyEnabled, setHistoryEnabled] = useState(() => !!threadId);
+  const [historyEnabled, setHistoryEnabled] = useState(
+    () => !!threadId && !skipInitialHistory,
+  );
   const hasStartedStreamRef = useRef(false);
   const previousThreadIdRef = useRef<string | null | undefined>(threadId);
   const resolvedContext = useMemo(
@@ -347,7 +354,9 @@ export function useThreadStream({
     hasStartedStreamRef.current = false;
     previousThreadIdRef.current = threadId;
     setHistoryEnabled(
-      threadId ? !createdThreadDuringCurrentSession : false,
+      threadId
+        ? !(createdThreadDuringCurrentSession || skipInitialHistory)
+        : false,
     );
 
     if (!threadId || !authenticated) {
@@ -379,7 +388,7 @@ export function useThreadStream({
     return () => {
       cancelled = true;
     };
-  }, [threadId, authenticated, apiClient]);
+  }, [threadId, authenticated, apiClient, skipInitialHistory]);
 
   const queryClient = useQueryClient();
   const updateSubtask = useUpdateSubtask();
@@ -438,6 +447,7 @@ export function useThreadStream({
 
   const [optimisticMessages, setOptimisticMessages] = useState<Message[]>([]);
   const previousMessageCountRef = useRef(thread.messages.length);
+  const isThreadReady = !threadId || streamThreadId === threadId;
 
   useEffect(() => {
     if (
@@ -586,5 +596,5 @@ export function useThreadStream({
     [mergedThread, mergedThreadValues, historyEnabled],
   );
 
-  return [enrichedThread, sendMessage, resumeInterrupt] as const;
+  return [enrichedThread, sendMessage, resumeInterrupt, isThreadReady] as const;
 }

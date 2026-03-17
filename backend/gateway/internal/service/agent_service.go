@@ -37,7 +37,13 @@ func (s *AgentService) Create(_ context.Context, req model.CreateAgentRequest, _
 		return nil, fmt.Errorf("agent %q already exists", name)
 	}
 
-	skillRefs, err := s.resolveSkillRefsByNames(req.Skills)
+	var skillRefs []model.SkillRef
+	var err error
+	if req.SkillRefs != nil {
+		skillRefs, err = s.normalizeSkillRefs(req.SkillRefs)
+	} else {
+		skillRefs, err = s.resolveSkillRefsByNames(req.Skills)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +101,12 @@ func (s *AgentService) Update(_ context.Context, name string, status string, req
 	if err != nil {
 		return nil, err
 	}
-	if req.Skills != nil {
+	if req.SkillRefs != nil {
+		skillRefs, err = s.normalizeSkillRefs(req.SkillRefs)
+		if err != nil {
+			return nil, err
+		}
+	} else if req.Skills != nil {
 		skillRefs, err = s.resolveSkillRefsByNames(req.Skills)
 		if err != nil {
 			return nil, err

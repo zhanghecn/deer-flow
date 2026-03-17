@@ -441,6 +441,7 @@ Multi-file upload with automatic document conversion:
 - Supports: PDF, PPT, Excel, Word documents (converted via `markitdown`)
 - Files stored in thread-isolated directories
 - Agent receives uploaded file list via `UploadsMiddleware`
+- When a converted Markdown companion exists, `UploadsMiddleware` exposes that `.md` path as the preferred `Path` and keeps the original document as `Original Path`
 
 See [docs/FILE_UPLOAD.md](docs/FILE_UPLOAD.md) for details.
 

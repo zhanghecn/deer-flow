@@ -106,6 +106,39 @@ class TestFilesFromKwargs:
         assert result[0]["filename"] == "data.csv"
         assert result[0]["path"] == "/mnt/user-data/uploads/data.csv"
 
+    def test_attaches_markdown_companion_when_converted_file_exists_on_disk(self, tmp_path):
+        mw = _middleware(tmp_path)
+        uploads_dir = _uploads_dir(tmp_path)
+        (uploads_dir / "report.pdf").write_bytes(b"pdf")
+        (uploads_dir / "report.md").write_text("# report")
+
+        msg = _human("hi", files=[{"filename": "report.pdf", "size": 3, "path": "/mnt/user-data/uploads/report.pdf"}])
+        result = mw._files_from_kwargs(msg, uploads_dir)
+
+        assert result is not None
+        assert result[0]["markdown_file"] == "report.md"
+        assert result[0]["markdown_path"] == "/mnt/user-data/uploads/report.md"
+
+    def test_preserves_markdown_companion_from_kwargs_without_disk_lookup(self, tmp_path):
+        mw = _middleware(tmp_path)
+        msg = _human(
+            "hi",
+            files=[
+                {
+                    "filename": "report.pdf",
+                    "size": 3,
+                    "path": "/mnt/user-data/uploads/report.pdf",
+                    "markdown_virtual_path": "/mnt/user-data/uploads/report.md",
+                }
+            ],
+        )
+
+        result = mw._files_from_kwargs(msg, uploads_dir=None)
+
+        assert result is not None
+        assert result[0]["markdown_file"] == "report.md"
+        assert result[0]["markdown_path"] == "/mnt/user-data/uploads/report.md"
+
     def test_skips_nonexistent_but_accepts_existing_in_mixed_list(self, tmp_path):
         mw = _middleware(tmp_path)
         uploads_dir = _uploads_dir(tmp_path)
@@ -187,6 +220,24 @@ class TestCreateFilesMessage:
         mw = _middleware(tmp_path)
         msg = mw._create_files_message([self._new_file()], [])
         assert "read_file" in msg
+
+    def test_prefers_markdown_path_when_companion_exists(self, tmp_path):
+        mw = _middleware(tmp_path)
+        msg = mw._create_files_message(
+            [
+                {
+                    "filename": "report.pdf",
+                    "size": 1024,
+                    "path": "/mnt/user-data/uploads/report.pdf",
+                    "markdown_path": "/mnt/user-data/uploads/report.md",
+                }
+            ],
+            [],
+        )
+
+        assert "Path: /mnt/user-data/uploads/report.md" in msg
+        assert "Original Path: /mnt/user-data/uploads/report.pdf" in msg
+        assert "Markdown companion" in msg
 
     def test_empty_new_files_produces_empty_marker(self, tmp_path):
         mw = _middleware(tmp_path)
@@ -292,6 +343,27 @@ class TestBeforeAgent:
             }
         ]
 
+    def test_uploaded_files_state_includes_markdown_companion_for_convertible_docs(self, tmp_path):
+        mw = _middleware(tmp_path)
+        uploads_dir = _uploads_dir(tmp_path)
+        (uploads_dir / "contract.pdf").write_bytes(b"pdf")
+        (uploads_dir / "contract.md").write_text("# contract")
+
+        msg = _human("review", files=[{"filename": "contract.pdf", "size": 3, "path": "/mnt/user-data/uploads/contract.pdf"}])
+        result = mw.before_agent(self._state(msg), _runtime())
+
+        assert result is not None
+        assert result["uploaded_files"] == [
+            {
+                "filename": "contract.pdf",
+                "size": 3,
+                "path": "/mnt/user-data/uploads/contract.pdf",
+                "extension": ".pdf",
+                "markdown_file": "contract.md",
+                "markdown_path": "/mnt/user-data/uploads/contract.md",
+            }
+        ]
+
     def test_historical_files_from_uploads_dir_excluding_new(self, tmp_path):
         mw = _middleware(tmp_path)
         uploads_dir = _uploads_dir(tmp_path)
@@ -307,6 +379,24 @@ class TestBeforeAgent:
         assert "new.txt" in content
         assert "previous messages" in content
         assert "old.txt" in content
+
+    def test_historical_markdown_companion_is_collapsed_under_original_file(self, tmp_path):
+        mw = _middleware(tmp_path)
+        uploads_dir = _uploads_dir(tmp_path)
+        (uploads_dir / "contract.pdf").write_bytes(b"pdf")
+        (uploads_dir / "contract.md").write_text("# contract")
+        (uploads_dir / "notes.txt").write_text("notes")
+        (uploads_dir / "new.txt").write_text("new")
+
+        msg = _human("go", files=[{"filename": "new.txt", "size": 3, "path": "/mnt/user-data/uploads/new.txt"}])
+        result = mw.before_agent(self._state(msg), _runtime())
+
+        assert result is not None
+        content = result["messages"][-1].content
+        assert "contract.pdf" in content
+        assert "Path: /mnt/user-data/uploads/contract.md" in content
+        assert "Original Path: /mnt/user-data/uploads/contract.pdf" in content
+        assert "- contract.md" not in content
 
     def test_no_historical_section_when_upload_dir_is_empty(self, tmp_path):
         mw = _middleware(tmp_path)

@@ -1,14 +1,14 @@
 "use client";
 
 import type { Command } from "@langchain/langgraph-sdk";
-import { BotIcon, PlusSquare } from "lucide-react";
+import { PlusSquare } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo } from "react";
 
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AgentWelcome } from "@/components/workspace/agent-welcome";
+import { AgentWorkspaceDialog } from "@/components/workspace/agent-workspace-dialog";
 import { ArtifactTrigger } from "@/components/workspace/artifacts/artifact-trigger";
 import { ChatBox } from "@/components/workspace/chats/chat-box";
 import { useThreadChat } from "@/components/workspace/chats/use-thread-chat";
@@ -36,6 +36,7 @@ export default function AgentChatPage() {
   const [settings, setSettings] = useLocalSettings();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const hasPendingRun = searchParams.get("pending_run") === "1";
 
   const { agent_name } = useParams<{
     agent_name: string;
@@ -44,6 +45,7 @@ export default function AgentChatPage() {
     () => readAgentRuntimeSelection(searchParams, agent_name),
     [agent_name, searchParams],
   );
+  const { agent } = useAgent(agent_name, runtimeSelection.agentStatus);
   const runtimeContext = useMemo(
     () => ({
       ...settings.context,
@@ -51,11 +53,11 @@ export default function AgentChatPage() {
       agent_status: runtimeSelection.agentStatus,
       execution_backend: runtimeSelection.executionBackend,
       remote_session_id: runtimeSelection.remoteSessionId || undefined,
+      mode: "ultra" as const,
+      model_name: agent?.model?.trim() || settings.context.model_name,
     }),
-    [runtimeSelection, settings.context],
+    [agent?.model, runtimeSelection, settings.context],
   );
-
-  const { agent } = useAgent(agent_name, runtimeSelection.agentStatus);
 
   const { threadId, setThreadId, isNewThread, setIsNewThread } =
     useThreadChat();
@@ -79,6 +81,7 @@ export default function AgentChatPage() {
   const [thread, sendMessage, resumeInterrupt] = useThreadStream({
     threadId: isNewThread ? undefined : threadId,
     context: runtimeContext,
+    skipInitialHistory: hasPendingRun,
     onStart: (createdThreadId) => {
       setThreadId(createdThreadId);
       setIsNewThread(false);
@@ -97,6 +100,21 @@ export default function AgentChatPage() {
       );
     },
     onFinish: (state) => {
+      if (hasPendingRun) {
+        history.replaceState(
+          null,
+          "",
+          buildWorkspaceAgentPath(
+            {
+              agentName: runtimeSelection.agentName,
+              agentStatus: runtimeSelection.agentStatus,
+              executionBackend: runtimeSelection.executionBackend,
+              remoteSessionId: runtimeSelection.remoteSessionId,
+            },
+            threadId,
+          ),
+        );
+      }
       if (document.hidden || !document.hasFocus()) {
         let body = "Conversation finished";
         const lastMessage = state.messages[state.messages.length - 1];
@@ -115,7 +133,10 @@ export default function AgentChatPage() {
   });
 
   const handleSendMessage = useCallback(
-    async (message: PromptInputMessage, extraContext?: Record<string, unknown>) => {
+    async (
+      message: PromptInputMessage,
+      extraContext?: Record<string, unknown>,
+    ) => {
       await sendMessage(threadId, message, {
         agent_name: runtimeSelection.agentName,
         agent_status: runtimeSelection.agentStatus,
@@ -180,21 +201,7 @@ export default function AgentChatPage() {
                 : "bg-background/80 shadow-xs backdrop-blur",
             )}
           >
-            {/* Agent badge */}
-            <div className="flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1">
-              <BotIcon className="text-primary h-3.5 w-3.5" />
-              <span className="text-xs font-medium">
-                {agent?.name ?? agent_name}
-              </span>
-            </div>
-            <Badge variant="outline" className="shrink-0 text-[10px]">
-              {runtimeSelection.agentStatus}
-            </Badge>
-            {runtimeSelection.executionBackend === "remote" && (
-              <Badge variant="outline" className="shrink-0 text-[10px]">
-                remote cli
-              </Badge>
-            )}
+            <AgentWorkspaceDialog selection={runtimeSelection} compact />
 
             <div className="flex w-full items-center text-sm font-medium">
               <ThreadTitle threadId={threadId} thread={thread} />

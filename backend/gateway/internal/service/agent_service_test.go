@@ -147,3 +147,59 @@ func TestAgentServiceUpdatePreservesAliasedSkillSourcePath(t *testing.T) {
 		t.Fatalf("expected copied aliased skill at %s: %v", copiedSkill, err)
 	}
 }
+
+func TestAgentServiceUpdateAcceptsScopedSkillRefs(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	for _, scope := range []string{"shared", filepath.Join("store", "dev")} {
+		skillDir := filepath.Join(baseDir, "skills", scope, "research")
+		if err := os.MkdirAll(skillDir, 0755); err != nil {
+			t.Fatalf("mkdir skill dir: %v", err)
+		}
+		skillMD := "---\nname: research\ndescription: duplicated skill\n---\n\nbody"
+		if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillMD), 0644); err != nil {
+			t.Fatalf("write skill file: %v", err)
+		}
+	}
+
+	fsStore := storage.NewFS(baseDir)
+	if err := fsStore.WriteAgentFiles("lead_agent", "dev", "# Lead Agent", map[string]interface{}{
+		"name":           "lead_agent",
+		"description":    "Default system lead agent.",
+		"status":         "dev",
+		"agents_md_path": "AGENTS.md",
+		"skill_refs":     []model.SkillRef{},
+		"memory": map[string]interface{}{
+			"enabled":                   false,
+			"debounce_seconds":          30,
+			"max_facts":                 100,
+			"fact_confidence_threshold": 0.7,
+			"injection_enabled":         true,
+			"max_injection_tokens":      2000,
+		},
+	}); err != nil {
+		t.Fatalf("seed lead agent files: %v", err)
+	}
+
+	svc := NewAgentService(fsStore)
+	agent, err := svc.Update(context.Background(), "lead_agent", "dev", model.UpdateAgentRequest{
+		SkillRefs: []model.SkillRef{
+			{
+				Name:       "research",
+				Category:   "store/dev",
+				SourcePath: "store/dev/research",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+
+	if len(agent.Skills) != 1 {
+		t.Fatalf("len(agent.Skills) = %d, want 1", len(agent.Skills))
+	}
+	if got := agent.Skills[0].SourcePath; got != "store/dev/research" {
+		t.Fatalf("agent.Skills[0].SourcePath = %q, want %q", got, "store/dev/research")
+	}
+}

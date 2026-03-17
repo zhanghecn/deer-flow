@@ -16,6 +16,7 @@
     "backend": "custom",
     "path": "src.checkpointer.checkpointer"
   },
+  "disable_persistence": true,
   "graphs": {
     "lead_agent": "src.agents:make_lead_agent"
   }

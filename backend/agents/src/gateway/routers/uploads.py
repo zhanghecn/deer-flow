@@ -6,22 +6,23 @@ from pathlib import Path
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from src.config.paths import VIRTUAL_PATH_PREFIX, get_paths
+from src.config.paths import get_paths
+from src.gateway.uploads_utils import (
+    CONVERTIBLE_EXTENSIONS as UPLOAD_CONVERTIBLE_EXTENSIONS,
+    attach_markdown_metadata,
+    convert_file_to_markdown,
+    find_markdown_companion,
+    is_convertible_upload,
+    markdown_companion_name,
+    upload_artifact_url,
+    upload_virtual_path,
+    visible_upload_paths,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/threads/{thread_id}/uploads", tags=["uploads"])
-
-# File extensions that should be converted to markdown
-CONVERTIBLE_EXTENSIONS = {
-    ".pdf",
-    ".ppt",
-    ".pptx",
-    ".xls",
-    ".xlsx",
-    ".doc",
-    ".docx",
-}
+CONVERTIBLE_EXTENSIONS = UPLOAD_CONVERTIBLE_EXTENSIONS
 
 
 class UploadResponse(BaseModel):
@@ -44,32 +45,6 @@ def get_uploads_dir(thread_id: str) -> Path:
     base_dir = get_paths().sandbox_uploads_dir(thread_id)
     base_dir.mkdir(parents=True, exist_ok=True)
     return base_dir
-
-
-async def convert_file_to_markdown(file_path: Path) -> Path | None:
-    """Convert a file to markdown using markitdown.
-
-    Args:
-        file_path: Path to the file to convert.
-
-    Returns:
-        Path to the markdown file if conversion was successful, None otherwise.
-    """
-    try:
-        from markitdown import MarkItDown
-
-        md = MarkItDown()
-        result = md.convert(str(file_path))
-
-        # Save as .md file with same name
-        md_path = file_path.with_suffix(".md")
-        md_path.write_text(result.text_content, encoding="utf-8")
-
-        logger.info(f"Converted {file_path.name} to markdown: {md_path.name}")
-        return md_path
-    except Exception as e:
-        logger.error(f"Failed to convert {file_path.name} to markdown: {e}")
-        return None
 
 
 @router.post("", response_model=UploadResponse)
@@ -113,35 +88,27 @@ async def upload_files(
 
             # Build relative path from backend root
             relative_path = str(paths.sandbox_uploads_dir(thread_id) / safe_filename)
-            virtual_path = f"{VIRTUAL_PATH_PREFIX}/uploads/{safe_filename}"
-
             file_info = {
                 "filename": safe_filename,
                 "size": str(len(content)),
                 "path": relative_path,  # Actual filesystem path (relative to backend/)
-                "virtual_path": virtual_path,  # Path for Agent in sandbox
-                "artifact_url": f"/api/threads/{thread_id}/artifacts/mnt/user-data/uploads/{safe_filename}",  # HTTP URL
+                "virtual_path": upload_virtual_path(safe_filename),  # Path for Agent in sandbox
+                "artifact_url": upload_artifact_url(thread_id, safe_filename),  # HTTP URL
             }
 
-            logger.info(f"Saved file: {safe_filename} ({len(content)} bytes) to {relative_path}")
+            logger.info("Saved file: %s (%d bytes) to %s", safe_filename, len(content), relative_path)
 
             # Check if file should be converted to markdown
-            file_ext = file_path.suffix.lower()
-            if file_ext in CONVERTIBLE_EXTENSIONS:
+            if is_convertible_upload(safe_filename):
                 md_path = await convert_file_to_markdown(file_path)
                 if md_path:
-                    md_relative_path = str(paths.sandbox_uploads_dir(thread_id) / md_path.name)
-                    md_virtual_path = f"{VIRTUAL_PATH_PREFIX}/uploads/{md_path.name}"
-
-                    file_info["markdown_file"] = md_path.name
-                    file_info["markdown_path"] = md_relative_path
-                    file_info["markdown_virtual_path"] = md_virtual_path
-                    file_info["markdown_artifact_url"] = f"/api/threads/{thread_id}/artifacts/mnt/user-data/uploads/{md_path.name}"
+                    file_info["markdown_path"] = str(paths.sandbox_uploads_dir(thread_id) / md_path.name)
+                    attach_markdown_metadata(file_info, thread_id=thread_id, markdown_filename=md_path.name)
 
             uploaded_files.append(file_info)
 
         except Exception as e:
-            logger.error(f"Failed to upload {file.filename}: {e}")
+            logger.error("Failed to upload %s: %s", file.filename, e)
             raise HTTPException(status_code=500, detail=f"Failed to upload {file.filename}: {str(e)}")
 
     return UploadResponse(
@@ -167,21 +134,25 @@ async def list_uploaded_files(thread_id: str) -> dict:
         return {"files": [], "count": 0}
 
     files = []
-    for file_path in sorted(uploads_dir.iterdir()):
-        if file_path.is_file():
-            stat = file_path.stat()
-            relative_path = str(get_paths().sandbox_uploads_dir(thread_id) / file_path.name)
-            files.append(
-                {
-                    "filename": file_path.name,
-                    "size": stat.st_size,
-                    "path": relative_path,  # Actual filesystem path
-                    "virtual_path": f"{VIRTUAL_PATH_PREFIX}/uploads/{file_path.name}",  # Path for Agent in sandbox
-                    "artifact_url": f"/api/threads/{thread_id}/artifacts/mnt/user-data/uploads/{file_path.name}",  # HTTP URL
-                    "extension": file_path.suffix,
-                    "modified": stat.st_mtime,
-                }
-            )
+    visible_paths = visible_upload_paths(uploads_dir)
+    available_filenames = {file_path.name for file_path in uploads_dir.iterdir() if file_path.is_file()}
+    for file_path in visible_paths:
+        stat = file_path.stat()
+        relative_path = str(get_paths().sandbox_uploads_dir(thread_id) / file_path.name)
+        file_info = {
+            "filename": file_path.name,
+            "size": stat.st_size,
+            "path": relative_path,  # Actual filesystem path
+            "virtual_path": upload_virtual_path(file_path.name),  # Path for Agent in sandbox
+            "artifact_url": upload_artifact_url(thread_id, file_path.name),  # HTTP URL
+            "extension": file_path.suffix,
+            "modified": stat.st_mtime,
+        }
+        markdown_filename = find_markdown_companion(file_path.name, available_filenames)
+        if markdown_filename:
+            file_info["markdown_path"] = str(get_paths().sandbox_uploads_dir(thread_id) / markdown_filename)
+            attach_markdown_metadata(file_info, thread_id=thread_id, markdown_filename=markdown_filename)
+        files.append(file_info)
 
     return {"files": files, "count": len(files)}
 
@@ -211,8 +182,12 @@ async def delete_uploaded_file(thread_id: str, filename: str) -> dict:
 
     try:
         file_path.unlink()
-        logger.info(f"Deleted file: {filename}")
+        if is_convertible_upload(filename):
+            companion_path = uploads_dir / markdown_companion_name(filename)
+            if companion_path.exists():
+                companion_path.unlink()
+        logger.info("Deleted file: %s", filename)
         return {"success": True, "message": f"Deleted {filename}"}
     except Exception as e:
-        logger.error(f"Failed to delete {filename}: {e}")
+        logger.error("Failed to delete %s: %s", filename, e)
         raise HTTPException(status_code=500, detail=f"Failed to delete {filename}: {str(e)}")

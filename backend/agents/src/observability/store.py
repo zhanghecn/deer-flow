@@ -63,7 +63,7 @@ class TraceStore:
             context.thread_id,
             context.agent_name,
             context.model_name,
-            json.dumps(context.metadata or {}, ensure_ascii=True),
+            _serialize_json_payload(context.metadata or {}),
         )
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(query, payload)
@@ -139,7 +139,7 @@ class TraceStore:
             total_tokens,
             status,
             error,
-            json.dumps(payload or {}, ensure_ascii=True),
+            _serialize_json_payload(payload or {}),
         )
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(query, args)
@@ -211,3 +211,33 @@ def _resolve_trace_dsn() -> str:
                 return env_database_uri
 
     return ""
+
+
+def _sanitize_json_value(value: Any) -> Any:
+    if value is None or isinstance(value, bool | int | float):
+        return value
+    if isinstance(value, str):
+        return value.replace("\x00", "")
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace").replace("\x00", "")
+    if isinstance(value, dict):
+        return {
+            str(key): _sanitize_json_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_sanitize_json_value(item) for item in value]
+    if hasattr(value, "model_dump"):
+        return _sanitize_json_value(value.model_dump())
+    if hasattr(value, "dict"):
+        return _sanitize_json_value(value.dict())
+    return str(value).replace("\x00", "")
+
+
+def _serialize_json_payload(value: Any) -> str:
+    text = json.dumps(
+        _sanitize_json_value(value),
+        ensure_ascii=True,
+        default=str,
+    )
+    return text.replace("\\u0000", "")

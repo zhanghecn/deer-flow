@@ -11,7 +11,6 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 
-import { WorkspaceAgentList } from "./workspace-agent-list";
 import { WorkspaceHeader } from "./workspace-header";
 import { WorkspaceNavChatList } from "./workspace-nav-chat-list";
 import { WorkspaceNavMenu } from "./workspace-nav-menu";
@@ -33,7 +32,6 @@ export function WorkspaceSidebar({
         </SidebarHeader>
         <SidebarContent className="overflow-hidden">
           <WorkspaceNavChatList />
-          <WorkspaceAgentList />
           {isSidebarOpen && <RecentChatList />}
         </SidebarContent>
         <SidebarFooter>

@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"encoding/json"
 	"net/http"
 	"os"
 
@@ -13,6 +12,14 @@ type MCPHandler struct {
 	extensionsConfigPath string
 }
 
+type mcpConfigResponse struct {
+	MCPServers map[string]any `json:"mcp_servers"`
+}
+
+type mcpConfigUpdateRequest struct {
+	MCPServers map[string]any `json:"mcp_servers"`
+}
+
 func NewMCPHandler(configPath string) *MCPHandler {
 	return &MCPHandler{extensionsConfigPath: configPath}
 }
@@ -22,41 +29,47 @@ func (h *MCPHandler) configPath() string {
 }
 
 func (h *MCPHandler) Get(c *gin.Context) {
-	data, err := os.ReadFile(h.configPath())
+	config, err := readExtensionsConfig(h.configPath())
 	if err != nil {
 		if os.IsNotExist(err) {
-			c.JSON(http.StatusOK, gin.H{})
+			c.JSON(http.StatusOK, mcpConfigResponse{MCPServers: map[string]any{}})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to read MCP config"})
 		return
 	}
 
-	var config interface{}
-	if err := json.Unmarshal(data, &config); err != nil {
-		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "invalid MCP config"})
-		return
-	}
-	c.JSON(http.StatusOK, config)
+	c.JSON(http.StatusOK, mcpConfigResponse{MCPServers: config.MCPServers})
 }
 
 func (h *MCPHandler) Update(c *gin.Context) {
-	var body interface{}
+	var body mcpConfigUpdateRequest
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return
 	}
 
-	data, err := json.MarshalIndent(body, "", "  ")
+	config, err := readExtensionsConfig(h.configPath())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to marshal config"})
-		return
+		if !os.IsNotExist(err) {
+			c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to read MCP config"})
+			return
+		}
+		config = extensionsConfigJSON{
+			MCPServers: map[string]any{},
+			Skills:     map[string]skillStateJSON{},
+		}
 	}
 
-	if err := os.WriteFile(h.configPath(), data, 0644); err != nil {
+	if body.MCPServers == nil {
+		body.MCPServers = map[string]any{}
+	}
+	config.MCPServers = body.MCPServers
+
+	if err := writeExtensionsConfig(h.configPath(), config); err != nil {
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to write config"})
 		return
 	}
 
-	c.JSON(http.StatusOK, model.SuccessResponse{Message: "MCP config updated"})
+	c.JSON(http.StatusOK, mcpConfigResponse{MCPServers: config.MCPServers})
 }

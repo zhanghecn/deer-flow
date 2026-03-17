@@ -18,6 +18,7 @@ import { SettingsSection } from "./settings-section";
 export function ToolSettingsPage() {
   const { t } = useI18n();
   const { config, isLoading, error } = useMCPConfig();
+  const servers = config?.mcp_servers ?? {};
   return (
     <SettingsSection
       title={t.settings.tools.title}
@@ -27,8 +28,12 @@ export function ToolSettingsPage() {
         <div className="text-muted-foreground text-sm">{t.common.loading}</div>
       ) : error ? (
         <div>Error: {error.message}</div>
+      ) : Object.keys(servers).length === 0 ? (
+        <div className="text-muted-foreground text-sm">
+          No MCP servers are configured yet.
+        </div>
       ) : (
-        config && <MCPServerList servers={config.mcp_servers} />
+        <MCPServerList servers={servers} />
       )}
     </SettingsSection>
   );

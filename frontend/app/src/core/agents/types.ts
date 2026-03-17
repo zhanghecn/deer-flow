@@ -37,6 +37,7 @@ export interface CreateAgentRequest {
   mcp_servers?: string[] | null;
   memory?: AgentMemoryConfig;
   skills?: string[];
+  skill_refs?: AgentSkillRef[];
   agents_md?: string;
 }
 
@@ -47,5 +48,6 @@ export interface UpdateAgentRequest {
   mcp_servers?: string[] | null;
   memory?: AgentMemoryConfig;
   skills?: string[];
+  skill_refs?: AgentSkillRef[];
   agents_md?: string | null;
 }

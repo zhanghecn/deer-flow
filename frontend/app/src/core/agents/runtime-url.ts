@@ -25,7 +25,7 @@ export function isLeadAgent(agentName: string | null | undefined) {
 export function buildWorkspaceAgentPath(
   selection: AgentRuntimeSelection,
   threadId = "new",
-) {
+): string {
   const params = new URLSearchParams();
   const normalizedAgentName = selection.agentName?.trim();
   const agentName =
@@ -51,6 +51,32 @@ export function buildWorkspaceAgentPath(
   return query ? `${pathname}?${query}` : pathname;
 }
 
+export function appendWorkspacePromptParams(
+  basePath: string,
+  {
+    prompt,
+    autoSend,
+  }: {
+    prompt?: string;
+    autoSend?: boolean;
+  },
+): string {
+  if (!prompt?.trim() && !autoSend) {
+    return basePath;
+  }
+
+  const [pathname = basePath, search = ""] = basePath.split("?", 2);
+  const params = new URLSearchParams(search);
+  if (prompt?.trim()) {
+    params.set("prefill", prompt.trim());
+  }
+  if (autoSend) {
+    params.set("autosend", "1");
+  }
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
+}
+
 export function readAgentRuntimeSelection(
   searchParams: SearchParamsLike,
   fallbackAgentName?: string,
@@ -61,7 +87,7 @@ export function readAgentRuntimeSelection(
   const agentName =
     normalizedFallbackAgentName && normalizedFallbackAgentName.length > 0
       ? normalizedFallbackAgentName
-      : requestedAgentName ?? "lead_agent";
+      : (requestedAgentName ?? "lead_agent");
 
   return {
     agentName,

@@ -2,15 +2,27 @@ package handler
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/gin-gonic/gin"
 	"github.com/openagents/gateway/internal/model"
 	"github.com/openagents/gateway/pkg/storage"
-	"github.com/gin-gonic/gin"
 )
+
+var markdownConvertibleExtensions = map[string]struct{}{
+	".pdf":  {},
+	".ppt":  {},
+	".pptx": {},
+	".xls":  {},
+	".xlsx": {},
+	".doc":  {},
+	".docx": {},
+}
 
 type UploadsHandler struct {
 	fs *storage.FS
@@ -18,6 +30,64 @@ type UploadsHandler struct {
 
 func NewUploadsHandler(fs *storage.FS) *UploadsHandler {
 	return &UploadsHandler{fs: fs}
+}
+
+func isMarkdownConvertible(filename string) bool {
+	_, ok := markdownConvertibleExtensions[strings.ToLower(filepath.Ext(filename))]
+	return ok
+}
+
+func markdownCompanionName(filename string) string {
+	return strings.TrimSuffix(filename, filepath.Ext(filename)) + ".md"
+}
+
+func originalConvertibleName(markdownFilename string, available map[string]os.DirEntry) string {
+	stem := strings.TrimSuffix(markdownFilename, filepath.Ext(markdownFilename))
+	for extension := range markdownConvertibleExtensions {
+		candidate := stem + extension
+		if _, ok := available[candidate]; ok {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func markitdownBinary() (string, error) {
+	if configured := strings.TrimSpace(os.Getenv("OPENAGENTS_MARKITDOWN_BIN")); configured != "" {
+		return configured, nil
+	}
+	return exec.LookPath("markitdown")
+}
+
+func convertFileToMarkdown(filePath string) (string, error) {
+	binary, err := markitdownBinary()
+	if err != nil {
+		return "", fmt.Errorf("resolve markitdown binary: %w", err)
+	}
+
+	markdownPath := strings.TrimSuffix(filePath, filepath.Ext(filePath)) + ".md"
+	command := exec.Command(binary, filePath, "-o", markdownPath)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("markitdown conversion failed: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+
+	return markdownPath, nil
+}
+
+func uploadResponseFile(threadID string, name string, size int64, markdownName string) gin.H {
+	file := gin.H{
+		"filename":     name,
+		"size":         size,
+		"virtual_path": fmt.Sprintf("/mnt/user-data/uploads/%s", name),
+		"artifact_url": fmt.Sprintf("/api/threads/%s/artifacts/mnt/user-data/uploads/%s", threadID, name),
+	}
+	if markdownName != "" {
+		file["markdown_file"] = markdownName
+		file["markdown_virtual_path"] = fmt.Sprintf("/mnt/user-data/uploads/%s", markdownName)
+		file["markdown_artifact_url"] = fmt.Sprintf("/api/threads/%s/artifacts/mnt/user-data/uploads/%s", threadID, markdownName)
+	}
+	return file
 }
 
 func (h *UploadsHandler) Upload(c *gin.Context) {
@@ -50,13 +120,18 @@ func (h *UploadsHandler) Upload(c *gin.Context) {
 			return
 		}
 		info, _ := os.Stat(dst)
-		virtualPath := fmt.Sprintf("/mnt/user-data/uploads/%s", name)
-		uploadedFiles = append(uploadedFiles, gin.H{
-			"filename":     name,
-			"size":         fmt.Sprintf("%d", info.Size()),
-			"virtual_path": virtualPath,
-			"artifact_url": fmt.Sprintf("/api/threads/%s/artifacts/mnt/user-data/uploads/%s", threadID, name),
-		})
+
+		markdownName := ""
+		if isMarkdownConvertible(name) {
+			markdownPath, convertErr := convertFileToMarkdown(dst)
+			if convertErr != nil {
+				log.Printf("uploads: failed to convert %s to markdown: %v", name, convertErr)
+			} else {
+				markdownName = filepath.Base(markdownPath)
+			}
+		}
+
+		uploadedFiles = append(uploadedFiles, uploadResponseFile(threadID, name, info.Size(), markdownName))
 	}
 	if uploadedFiles == nil {
 		uploadedFiles = []gin.H{}
@@ -84,20 +159,33 @@ func (h *UploadsHandler) List(c *gin.Context) {
 	}
 
 	var files []gin.H
+	fileIndex := make(map[string]os.DirEntry, len(entries))
+	for _, entry := range entries {
+		fileIndex[entry.Name()] = entry
+	}
+
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
 		}
 		info, _ := e.Info()
 		name := e.Name()
-		files = append(files, gin.H{
-			"filename":     name,
-			"size":         info.Size(),
-			"virtual_path": fmt.Sprintf("/mnt/user-data/uploads/%s", name),
-			"artifact_url": fmt.Sprintf("/api/threads/%s/artifacts/mnt/user-data/uploads/%s", threadID, name),
-			"extension":    filepath.Ext(name),
-			"modified":     info.ModTime().Unix(),
-		})
+		if strings.EqualFold(filepath.Ext(name), ".md") && originalConvertibleName(name, fileIndex) != "" {
+			continue
+		}
+
+		markdownName := ""
+		if isMarkdownConvertible(name) {
+			companion := markdownCompanionName(name)
+			if _, ok := fileIndex[companion]; ok {
+				markdownName = companion
+			}
+		}
+
+		file := uploadResponseFile(threadID, name, info.Size(), markdownName)
+		file["extension"] = filepath.Ext(name)
+		file["modified"] = info.ModTime().Unix()
+		files = append(files, file)
 	}
 	if files == nil {
 		files = []gin.H{}
@@ -123,6 +211,13 @@ func (h *UploadsHandler) Delete(c *gin.Context) {
 	if err := os.Remove(path); err != nil {
 		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "file not found"})
 		return
+	}
+
+	if isMarkdownConvertible(filename) {
+		companionPath := filepath.Join(h.fs.ThreadUserDataDir(threadID), "uploads", markdownCompanionName(filename))
+		if err := os.Remove(companionPath); err != nil && !os.IsNotExist(err) {
+			log.Printf("uploads: failed to remove markdown companion for %s: %v", filename, err)
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": fmt.Sprintf("Deleted %s", filename)})
 }

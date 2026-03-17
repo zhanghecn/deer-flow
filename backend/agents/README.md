@@ -100,7 +100,7 @@ OpenAgents-specific middlewares are combined with deepagents built-ins such as `
 |---|-----------|---------|
 | 1 | **ArtifactsMiddleware** | Tracks tool-produced artifacts for frontend presentation |
 | 2 | **ThreadDataMiddleware** | Creates per-thread isolated directories (workspace, uploads, outputs) |
-| 3 | **UploadsMiddleware** | Injects newly uploaded files into conversation context |
+| 3 | **UploadsMiddleware** | Injects uploaded files into conversation context and prefers generated Markdown companions when available |
 | 4 | **FilesystemMiddleware** | Exposes file and execution tools over the configured backend |
 | 5 | **SummarizationMiddleware** | Reduces context when approaching token limits (optional) |
 | 6 | **TodoListMiddleware** | Tracks multi-step tasks in plan mode (optional) |

@@ -91,6 +91,7 @@ def setup_agent(
         agents_md: Full AGENTS.md content defining the agent's personality and behavior.
         description: One-line description of what the agent does.
         model: Optional model override for the agent (e.g. "openai/gpt-4o").
+            When omitted, setup_agent persists the current runtime model selection.
         tool_groups: Optional list of tool groups the agent can use.
         skills: Optional list of skill entries.
             Use {"name": "..."} to copy an existing shared/store skill by name.
@@ -102,6 +103,15 @@ def setup_agent(
         "agent_name",
     )
     agent_name = str(target_agent_name).strip() if target_agent_name is not None else None
+    resolved_model = model
+    if resolved_model is None:
+        runtime_model = runtime_context_value(runtime.context, "model_name") or runtime_context_value(
+            runtime.context,
+            "model",
+        )
+        if runtime_model is not None:
+            normalized_model = str(runtime_model).strip()
+            resolved_model = normalized_model or None
 
     try:
         if not agent_name:
@@ -115,7 +125,7 @@ def setup_agent(
             status=agent_status,
             agents_md=agents_md,
             description=description,
-            model=model,
+            model=resolved_model,
             tool_groups=tool_groups,
             skill_names=copied_skill_names,
             inline_skills=inline_skills,
