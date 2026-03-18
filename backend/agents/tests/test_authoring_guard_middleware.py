@@ -5,8 +5,10 @@ from src.agents.middlewares.authoring_guard_middleware import (
     AuthoringGuardMiddleware,
     blocked_create_agent_tool_message,
     filter_create_agent_model_tools,
+    is_read_only_create_agent_shell_command,
     is_protected_create_agent_path,
     should_enforce_setup_agent_guard,
+    uses_forbidden_create_agent_host_path,
 )
 from src.agents.middlewares.runtime_command_middleware import RuntimeCommandMiddleware
 from src.config.model_config import ModelConfig
@@ -59,6 +61,32 @@ def test_is_protected_create_agent_path_matches_runtime_roots():
     assert not is_protected_create_agent_path("/mnt/user-data/workspace/demo.md")
 
 
+def test_uses_forbidden_create_agent_host_path_matches_host_roots():
+    assert uses_forbidden_create_agent_host_path("/app/skills/bootstrap")
+    assert uses_forbidden_create_agent_host_path("find /app -type d")
+    assert uses_forbidden_create_agent_host_path("/agents/dev/demo/AGENTS.md")
+    assert uses_forbidden_create_agent_host_path("find /mnt -name '*.md'")
+    assert uses_forbidden_create_agent_host_path("ls -la /mnt/user-data/agentz")
+    assert uses_forbidden_create_agent_host_path(".openagents/agents/dev/demo")
+    assert uses_forbidden_create_agent_host_path("~/.agents/skills/bootstrap")
+    assert not uses_forbidden_create_agent_host_path("/mnt/user-data/agents/dev/demo")
+    assert not uses_forbidden_create_agent_host_path("find /mnt/user-data -name '*.md' 2>/dev/null")
+
+
+def test_is_read_only_create_agent_shell_command_allows_inspection_pipelines():
+    assert is_read_only_create_agent_shell_command("ls -la /mnt/user-data/agents/dev/demo")
+    assert is_read_only_create_agent_shell_command(
+        "find /mnt/user-data/authoring/agents -type f 2>/dev/null | head -20"
+    )
+    assert is_read_only_create_agent_shell_command(
+        "sed -n '1,40p' /mnt/user-data/agents/dev/demo/AGENTS.md"
+    )
+    assert not is_read_only_create_agent_shell_command("mkdir -p /mnt/user-data/agents/dev/demo")
+    assert not is_read_only_create_agent_shell_command(
+        "cat /tmp/template > /mnt/user-data/agents/dev/demo/AGENTS.md"
+    )
+
+
 def test_blocked_create_agent_tool_message_blocks_direct_agent_file_writes():
     request = _tool_request(
         "write_file",
@@ -83,6 +111,95 @@ def test_blocked_create_agent_tool_message_blocks_shell_commands_touching_agent_
 
     assert blocked is not None
     assert "setup_agent" in blocked.content
+
+
+def test_blocked_create_agent_tool_message_allows_read_only_shell_inspection_on_agent_roots():
+    request = _tool_request(
+        "execute",
+        args={"command": "ls -la /mnt/user-data/agents/dev/demo"},
+        context={"command_name": "create-agent", "target_agent_name": "demo"},
+    )
+
+    blocked = blocked_create_agent_tool_message(request)
+
+    assert blocked is None
+
+
+def test_blocked_create_agent_tool_message_blocks_host_path_shell_discovery():
+    request = _tool_request(
+        "execute",
+        args={"command": "find /app -type d -name '*landing*'"},
+        context={"command_name": "create-agent", "target_agent_name": "demo"},
+    )
+
+    blocked = blocked_create_agent_tool_message(request)
+
+    assert blocked is not None
+    assert "/mnt/user-data" in blocked.content
+
+
+def test_blocked_create_agent_tool_message_blocks_host_path_glob_reads():
+    request = _tool_request(
+        "glob",
+        args={"path": "/app", "pattern": "/app/skills/*"},
+        context={"command_name": "create-agent", "target_agent_name": "demo"},
+    )
+
+    blocked = blocked_create_agent_tool_message(request)
+
+    assert blocked is not None
+    assert "/mnt/user-data" in blocked.content
+
+
+def test_blocked_create_agent_tool_message_allows_runtime_glob_brace_patterns():
+    request = _tool_request(
+        "glob",
+        args={"pattern": "/mnt/user-data/agents/{dev,prod}/**/landing-copy-agent-0318/**"},
+        context={"command_name": "create-agent", "target_agent_name": "landing-copy-agent-0318"},
+    )
+
+    blocked = blocked_create_agent_tool_message(request)
+
+    assert blocked is None
+
+
+def test_blocked_create_agent_tool_message_blocks_noncanonical_runtime_glob_prefix():
+    request = _tool_request(
+        "glob",
+        args={"pattern": "/mnt/user-data/agentz/{dev,prod}/**/landing-copy-agent-0318/**"},
+        context={"command_name": "create-agent", "target_agent_name": "landing-copy-agent-0318"},
+    )
+
+    blocked = blocked_create_agent_tool_message(request)
+
+    assert blocked is not None
+    assert "/mnt/user-data/agentz" in blocked.content
+
+
+def test_blocked_create_agent_tool_message_blocks_reads_outside_runtime_contract():
+    request = _tool_request(
+        "read_file",
+        args={"file_path": "/agents/dev/lead_agent/AGENTS.md"},
+        context={"command_name": "create-agent", "target_agent_name": "demo"},
+    )
+
+    blocked = blocked_create_agent_tool_message(request)
+
+    assert blocked is not None
+    assert "/mnt/user-data" in blocked.content
+
+
+def test_blocked_create_agent_tool_message_blocks_raw_mnt_shell_discovery():
+    request = _tool_request(
+        "execute",
+        args={"command": "find /mnt -name '*landing*' 2>/dev/null | head -20"},
+        context={"command_name": "create-agent", "target_agent_name": "demo"},
+    )
+
+    blocked = blocked_create_agent_tool_message(request)
+
+    assert blocked is not None
+    assert "/mnt/user-data" in blocked.content
 
 
 def test_filter_create_agent_model_tools_removes_direct_file_mutation_tools():

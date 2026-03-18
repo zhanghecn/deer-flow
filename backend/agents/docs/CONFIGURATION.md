@@ -10,6 +10,10 @@ single-machine sandboxing, k8s-backed sandboxing, and the remote backend.
 Minimal example:
 
 ```yaml
+runtime:
+  edition: inmem
+  jobs_per_worker: 4
+
 storage:
   base_dir: .openagents
 
@@ -23,6 +27,9 @@ sandbox:
 
 Notes:
 
+- `runtime.jobs_per_worker` controls LangGraph dev queue concurrency for local
+  and Docker dev runs. Increase it when long-running runs would otherwise block
+  newer threads behind a single worker.
 - `storage.base_dir` is where archived agents, users, threads, and remote relay
   session state live.
 - `skills.path` points at the shared skills archive root, not at per-agent skill
@@ -31,6 +38,22 @@ Notes:
   Active runtime skills are still read from `/mnt/user-data/agents/...`.
 
 ## Runtime Backend Modes
+
+## LangGraph Queue Concurrency
+
+`backend/agents/src/langgraph_dev.py` passes queue concurrency to LangGraph with
+the following precedence:
+
+1. `OPENAGENTS_LANGGRAPH_JOBS_PER_WORKER`
+2. `N_JOBS_PER_WORKER`
+3. `runtime.jobs_per_worker` in `config.yaml`
+4. built-in dev default: `4`
+
+Example override:
+
+```bash
+export OPENAGENTS_LANGGRAPH_JOBS_PER_WORKER=8
+```
 
 ### 1. Local Debug
 

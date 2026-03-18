@@ -1,3 +1,5 @@
+import { extractSkillReferences } from "../skills/references";
+
 import type { ResolvedCommandIntent } from "./types";
 
 import { findPromptCommand } from "./index";
@@ -54,6 +56,23 @@ export function resolveCommandIntent(
       original_user_input: rawInput,
     },
   };
+}
+
+export function buildPromptExtraContext(
+  input: string,
+): Record<string, unknown> | undefined {
+  const extraContext: Record<string, unknown> = {};
+  const resolvedCommand = resolveCommandIntent(input);
+  if (resolvedCommand) {
+    Object.assign(extraContext, resolvedCommand.extraContext);
+  }
+
+  const referencedSkillNames = extractSkillReferences(input);
+  if (referencedSkillNames.length > 0) {
+    extraContext.referenced_skill_names = referencedSkillNames;
+  }
+
+  return Object.keys(extraContext).length > 0 ? extraContext : undefined;
 }
 
 export function getSlashQuery(input: string): string | null {

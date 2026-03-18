@@ -29,6 +29,7 @@ export default function NewChatSender({
     threadId,
     context,
     isMock,
+    skipInitialHistory: true,
   });
 
   useEffect(() => {

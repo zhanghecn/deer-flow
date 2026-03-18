@@ -7,6 +7,7 @@ models: []
 
 runtime:
   edition: inmem
+  jobs_per_worker: 4
 
 sandbox:
   use: src.community.aio_sandbox:AioSandboxProvider

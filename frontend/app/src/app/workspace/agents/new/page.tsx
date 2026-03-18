@@ -19,7 +19,7 @@ import { ThreadContext } from "@/components/workspace/messages/context";
 import { MessageList } from "@/components/workspace/messages/message-list";
 import type { Agent } from "@/core/agents";
 import { checkAgentName, getAgent } from "@/core/agents/api";
-import { resolveCommandIntent } from "@/core/commands/transform";
+import { buildPromptExtraContext } from "@/core/commands/transform";
 import { useI18n } from "@/core/i18n/hooks";
 import { useModels } from "@/core/models/hooks";
 import { useLocalSettings } from "@/core/settings";
@@ -68,6 +68,7 @@ export default function NewAgentPage() {
 
   const [thread, sendMessage, resumeInterrupt] = useThreadStream({
     context: resolvedContext,
+    skipInitialHistory: true,
     onToolEnd({ name }) {
       if (!["setup_agent", "save_agent_to_store"].includes(name) || !agentName) {
         return;
@@ -107,9 +108,9 @@ export default function NewAgentPage() {
     setStep("chat");
     const initialText = `/create-agent 请帮我创建一个名为 ${trimmed} 的智能体，并先从需求澄清开始。`;
     const createCommand =
-      resolveCommandIntent(initialText) ??
+      buildPromptExtraContext(initialText) ??
       (() => {
-        throw new Error("Missing create-agent command registry");
+        throw new Error("Missing create-agent prompt context");
       })();
     await sendMessage(
       threadId,
@@ -119,7 +120,7 @@ export default function NewAgentPage() {
       },
       {
         target_agent_name: trimmed,
-        ...createCommand.extraContext,
+        ...createCommand,
       },
     );
   }, [
@@ -142,7 +143,7 @@ export default function NewAgentPage() {
     async (text: string) => {
       const trimmed = text.trim();
       if (!trimmed || thread.isLoading) return;
-      const resolvedCommand = resolveCommandIntent(trimmed);
+      const extraContext = buildPromptExtraContext(trimmed);
       await sendMessage(
         threadId,
         {
@@ -151,7 +152,7 @@ export default function NewAgentPage() {
         },
         {
           target_agent_name: agentName,
-          ...(resolvedCommand?.extraContext ?? {}),
+          ...(extraContext ?? {}),
         },
       );
     },

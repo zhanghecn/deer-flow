@@ -21,11 +21,12 @@ def test_prod_runs_do_not_receive_authoring_tools(monkeypatch):
     )
 
     names = _tool_names(tools)
+    assert "install_skill_from_registry" not in names
     assert "save_agent_to_store" not in names
     assert "push_agent_prod" not in names
 
 
-def test_dev_runs_without_authoring_actions_do_not_receive_authoring_tools(monkeypatch):
+def test_dev_runs_receive_dev_skill_install_tool_but_not_authoring_tools(monkeypatch):
     monkeypatch.setattr(tools_module, "load_tool_configs", lambda: ([], []))
 
     tools = tools_module.get_available_tools(
@@ -36,6 +37,7 @@ def test_dev_runs_without_authoring_actions_do_not_receive_authoring_tools(monke
     )
 
     names = _tool_names(tools)
+    assert "install_skill_from_registry" in names
     assert "save_agent_to_store" not in names
     assert "save_skill_to_store" not in names
     assert "push_agent_prod" not in names

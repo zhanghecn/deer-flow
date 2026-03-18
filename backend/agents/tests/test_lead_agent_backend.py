@@ -153,6 +153,57 @@ def test_build_backend_named_agent_seeds_agent_definition_into_thread_runtime(tm
     assert responses[2].content == b"Analyze data"
 
 
+def test_create_agent_request_seeds_existing_target_archive_into_thread_runtime(tmp_path):
+    base_dir = tmp_path / ".openagents"
+    _write_shared_skill(base_dir, "bootstrap", body="bootstrap")
+    target_agent_dir = base_dir / "agents" / "dev" / "landing-copy-agent-0318"
+    target_agent_dir.mkdir(parents=True, exist_ok=True)
+    (target_agent_dir / "AGENTS.md").write_text("You write landing page copy.", encoding="utf-8")
+    (target_agent_dir / "config.yaml").write_text(
+        "name: landing-copy-agent-0318\n"
+        "status: dev\n"
+        "description: Writes landing page copy\n"
+        "agents_md_path: AGENTS.md\n"
+        "skill_refs: []\n",
+        encoding="utf-8",
+    )
+    paths = _make_paths(base_dir)
+
+    request = lead_agent_module.LeadAgentRequest(
+        thinking_enabled=None,
+        reasoning_effort=None,
+        requested_model_name=None,
+        subagent_enabled=None,
+        max_concurrent_subagents=None,
+        command_name="create-agent",
+        command_kind="soft",
+        command_args="请更新 landing-copy-agent-0318",
+        command_prompt="先检查已有归档，再修复。",
+        authoring_actions=("setup_agent",),
+        referenced_skill_names=(),
+        target_agent_name="landing-copy-agent-0318",
+        agent_name=LEAD_AGENT_NAME,
+        agent_status="dev",
+        thread_id="thread-1",
+        user_id=None,
+        runtime_model_name=None,
+        execution_backend=None,
+        remote_session_id=None,
+    )
+
+    with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
+        backend = lead_agent_module.build_backend("thread-1", agent_name=None)
+        lead_agent_module._seed_create_agent_target_runtime_materials_if_available(
+            backend,
+            request=request,
+        )
+
+    runtime_agent_root = lead_agent_module._runtime_agent_root("landing-copy-agent-0318", "dev")
+    response = backend.download_files([f"{runtime_agent_root}/AGENTS.md"])[0]
+
+    assert response.content == b"You write landing page copy."
+
+
 def test_build_backend_supports_store_prod_skill_refs(tmp_path):
     base_dir = tmp_path / ".openagents"
     agent_dir = base_dir / "agents" / "prod" / "reviewer"
@@ -215,7 +266,7 @@ def test_runtime_seed_targets_reads_latest_archive_contents(tmp_path):
 
 def test_resolve_execution_backend_defaults_to_local(monkeypatch):
     monkeypatch.delenv("OPENAGENTS_SANDBOX_PROVIDER", raising=False)
-    monkeypatch.setattr(lead_agent_module.AppConfig, "resolve_config_path", classmethod(lambda cls, config_path=None: None))
+    monkeypatch.setattr("src.runtime_backends.sandbox.resolve_config_sandbox_provider", lambda: None)
 
     assert lead_agent_module._resolve_execution_backend() == "local"
 

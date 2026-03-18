@@ -44,7 +44,8 @@ import { useSkills } from "@/core/skills/hooks";
 import {
   filterSkillsByScope,
   formatSkillScopeLabel,
-  getSkillScopes,
+  getAllowedSkillScopesForAgent,
+  getDuplicateSkillNames,
   normalizeSkillScope,
   type SkillScope,
 } from "@/core/skills/scope";
@@ -215,6 +216,7 @@ export function AgentSettingsDialog({
     null,
   );
   const [skillsCategory, setSkillsCategory] = useState<SkillScope>("shared");
+  const allowSharedSkillSelection = isLeadAgent(agentName);
 
   const launchPath = useMemo(
     () =>
@@ -241,13 +243,51 @@ export function AgentSettingsDialog({
         .filter(Boolean),
     [agent?.skills, form?.skillRefs],
   );
+  const allowedSkillScopes = useMemo(
+    () =>
+      getAllowedSkillScopesForAgent(agentStatus, allowSharedSkillSelection),
+    [agentStatus, allowSharedSkillSelection],
+  );
+  const duplicateSkillNames = useMemo(
+    () => getDuplicateSkillNames(availableSkills, allowedSkillScopes),
+    [allowedSkillScopes, availableSkills],
+  );
+  const selectableSkills = useMemo(
+    () =>
+      availableSkills.filter((skill) => {
+        const scope = normalizeSkillScope(skill.category);
+        if (!scope || !allowedSkillScopes.includes(scope)) {
+          return false;
+        }
+        if (
+          !allowSharedSkillSelection &&
+          agentStatus === "dev" &&
+          duplicateSkillNames.has(skill.name)
+        ) {
+          return false;
+        }
+        return true;
+      }),
+    [
+      agentStatus,
+      allowSharedSkillSelection,
+      allowedSkillScopes,
+      availableSkills,
+      duplicateSkillNames,
+    ],
+  );
   const availableSkillCategories = useMemo(
-    () => getSkillScopes(availableSkills),
-    [availableSkills],
+    () =>
+      allowedSkillScopes.filter((scope) =>
+        selectableSkills.some(
+          (skill) => normalizeSkillScope(skill.category) === scope,
+        ),
+      ),
+    [allowedSkillScopes, selectableSkills],
   );
   const filteredSkills = useMemo(
-    () => filterSkillsByScope(availableSkills, skillsCategory),
-    [availableSkills, skillsCategory],
+    () => filterSkillsByScope(selectableSkills, skillsCategory),
+    [selectableSkills, skillsCategory],
   );
 
   const isDirty = useMemo(() => {
@@ -671,7 +711,13 @@ export function AgentSettingsDialog({
                         <SurfaceCard
                           eyebrow={<SparklesIcon className="size-4" />}
                           title="Copied skills"
-                          description="Attach archived skills from shared, dev, or prod stores to this agent archive."
+                          description={
+                            allowSharedSkillSelection
+                              ? "Attach archived skills from shared, dev, or prod stores to this agent archive."
+                              : agentStatus === "prod"
+                                ? "Prod archives can only attach skills from the prod store."
+                                : "Dev archives can attach skills from dev and prod stores, but duplicate names across both stores are blocked."
+                          }
                         >
                           <div className="flex flex-wrap gap-2">
                             {availableSkillCategories.map((category) => {
@@ -784,6 +830,15 @@ export function AgentSettingsDialog({
                               })}
                             </div>
                           )}
+                          {!allowSharedSkillSelection &&
+                            agentStatus === "dev" &&
+                            duplicateSkillNames.size > 0 && (
+                              <div className="text-muted-foreground border-border/70 bg-muted/25 rounded-2xl border px-4 py-3 text-xs leading-6">
+                                Hidden duplicate names across `store/dev` and
+                                `store/prod`:{" "}
+                                {[...duplicateSkillNames].sort().join(", ")}
+                              </div>
+                            )}
                         </SurfaceCard>
 
                         <div className="space-y-6">
@@ -795,10 +850,25 @@ export function AgentSettingsDialog({
                             <div className="flex flex-wrap gap-2">
                               {form.skillRefs.length > 0 ? (
                                 form.skillRefs.map((skillRef) => (
-                                  <Badge
+                                  <button
                                     key={skillRefKey(skillRef)}
-                                    variant="secondary"
-                                    className="rounded-full px-2.5 py-1 text-xs"
+                                    type="button"
+                                    className="bg-secondary text-secondary-foreground inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-xs"
+                                    onClick={() =>
+                                      setForm((current) =>
+                                        current
+                                          ? {
+                                              ...current,
+                                              skillRefs:
+                                                current.skillRefs.filter(
+                                                  (item) =>
+                                                    skillRefKey(item) !==
+                                                    skillRefKey(skillRef),
+                                                ),
+                                            }
+                                          : current,
+                                      )
+                                    }
                                   >
                                     {skillRef.name}
                                     {normalizeSkillScope(skillRef.category)
@@ -808,7 +878,10 @@ export function AgentSettingsDialog({
                                           )!,
                                         )}`
                                       : ""}
-                                  </Badge>
+                                    <span className="text-[10px] uppercase tracking-[0.12em]">
+                                      remove
+                                    </span>
+                                  </button>
                                 ))
                               ) : (
                                 <p className="text-muted-foreground text-sm">
@@ -823,11 +896,26 @@ export function AgentSettingsDialog({
                             title="Selection rules"
                             description="Skill sources stay in the shared archives; this dialog only decides what gets copied into this agent."
                           >
-                            <p className="text-muted-foreground text-sm leading-6">
-                              Use `store/dev` for in-progress skills,
-                              `store/prod` for validated versions, and `shared`
-                              for stable cross-agent building blocks.
-                            </p>
+                            {allowSharedSkillSelection ? (
+                              <p className="text-muted-foreground text-sm leading-6">
+                                `lead_agent` may still use `shared` building
+                                blocks. Other archived agents should prefer the
+                                dev/prod stores.
+                              </p>
+                            ) : agentStatus === "prod" ? (
+                              <p className="text-muted-foreground text-sm leading-6">
+                                Prod archives must use `store/prod` skills. If
+                                a dev-only skill is still attached, publish that
+                                skill to prod before publishing the agent.
+                              </p>
+                            ) : (
+                              <p className="text-muted-foreground text-sm leading-6">
+                                Dev archives may use both `store/dev` and
+                                `store/prod`, but names that exist in both
+                                stores are intentionally blocked to avoid
+                                ambiguous selection.
+                              </p>
+                            )}
                           </SurfaceCard>
                         </div>
                       </div>

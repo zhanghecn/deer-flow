@@ -3,6 +3,7 @@ package agentfs
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -141,11 +142,71 @@ func AgentExists(fsStore *storage.FS, name string) bool {
 	return false
 }
 
+func isAgentOwnedSkillRef(ref model.SkillRef) bool {
+	return strings.TrimSpace(ref.SourcePath) == "" &&
+		strings.TrimSpace(ref.Category) == "" &&
+		strings.TrimSpace(ref.MaterializedPath) != ""
+}
+
+func normalizeSkillRefScope(ref model.SkillRef) string {
+	if category := strings.Trim(strings.TrimSpace(ref.Category), "/"); category != "" {
+		return category
+	}
+	sourcePath := strings.Trim(strings.TrimSpace(ref.SourcePath), "/")
+	if sourcePath == "" {
+		return ""
+	}
+	scope := path.Dir(sourcePath)
+	if scope == "." || scope == "/" {
+		return strings.Trim(sourcePath, "/")
+	}
+	return scope
+}
+
+func validateProdSkillRefs(skillRefs []model.SkillRef) error {
+	for _, ref := range skillRefs {
+		if isAgentOwnedSkillRef(ref) {
+			continue
+		}
+		scope := normalizeSkillRefScope(ref)
+		if scope == "store/prod" {
+			continue
+		}
+
+		location := strings.TrimSpace(ref.SourcePath)
+		if location == "" {
+			location = strings.TrimSpace(ref.Category)
+		}
+		if location == "" {
+			location = "unknown source"
+		}
+		return fmt.Errorf(
+			"prod agents can only use store/prod skills; skill %q comes from %s",
+			ref.Name,
+			location,
+		)
+	}
+	return nil
+}
+
 func PublishAgent(fsStore *storage.FS, name string) (*model.Agent, error) {
 	sourceDir := fsStore.AgentDir(name, "dev")
 	info, err := os.Stat(sourceDir)
 	if err != nil || !info.IsDir() {
 		return nil, fmt.Errorf("agent %q not found", name)
+	}
+
+	if !isBuiltinLeadAgent(name) {
+		devAgent, err := LoadAgent(fsStore, name, "dev", false)
+		if err != nil {
+			return nil, err
+		}
+		if devAgent == nil {
+			return nil, fmt.Errorf("agent %q not found", name)
+		}
+		if err := validateProdSkillRefs(devAgent.Skills); err != nil {
+			return nil, err
+		}
 	}
 
 	targetDir := fsStore.AgentDir(name, "prod")

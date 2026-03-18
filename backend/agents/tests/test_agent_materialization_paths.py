@@ -35,16 +35,26 @@ def test_agent_skill_ref_derives_agent_materialized_path_from_store_prod_source(
     assert ref.materialized_path == "skills/contracts/review"
 
 
-def test_resolve_skill_refs_prefers_shared_over_store_dev_for_name_only_lookup(tmp_path: Path):
+def test_resolve_skill_refs_prefers_store_prod_when_dev_agent_only_has_prod_match(tmp_path: Path):
     base_dir = tmp_path / ".openagents"
     _write_skill(base_dir, "shared", "bootstrap", "bootstrap")
-    _write_skill(base_dir, "store/dev", "bootstrap", "bootstrap")
+    _write_skill(base_dir, "store/prod", "bootstrap", "bootstrap")
     paths = Paths(base_dir=base_dir, skills_dir=base_dir / "skills")
 
     skills = resolve_skill_refs(["bootstrap"], paths=paths)
 
     assert len(skills) == 1
-    assert skills[0].category == "shared"
+    assert skills[0].category == "store/prod"
+
+
+def test_resolve_skill_refs_rejects_duplicate_dev_and_prod_names_for_dev_agents(tmp_path: Path):
+    base_dir = tmp_path / ".openagents"
+    _write_skill(base_dir, "store/dev", "bootstrap", "bootstrap")
+    _write_skill(base_dir, "store/prod", "bootstrap", "bootstrap")
+    paths = Paths(base_dir=base_dir, skills_dir=base_dir / "skills")
+
+    with pytest.raises(ValueError, match="exists in both store/dev and store/prod"):
+        resolve_skill_refs(["bootstrap"], paths=paths)
 
 
 def test_materialize_agent_skills_copies_nested_store_prod_skill_into_agent_private_tree(tmp_path: Path):
@@ -72,7 +82,7 @@ def test_materialize_agent_skills_copies_nested_store_prod_skill_into_agent_priv
 
 def test_materialize_agent_definition_writes_inline_agent_skills_and_manifest(tmp_path: Path):
     base_dir = tmp_path / ".openagents"
-    _write_skill(base_dir, "shared", "bootstrap", "bootstrap")
+    _write_skill(base_dir, "store/dev", "bootstrap", "bootstrap")
     paths = Paths(base_dir=base_dir, skills_dir=base_dir / "skills")
 
     config = materialize_agent_definition(
@@ -98,8 +108,8 @@ def test_materialize_agent_definition_writes_inline_agent_skills_and_manifest(tm
     assert config.skill_refs == [
         AgentSkillRef(
             name="bootstrap",
-            category="shared",
-            source_path="shared/bootstrap",
+            category="store/dev",
+            source_path="store/dev/bootstrap",
             materialized_path="skills/bootstrap",
         ),
         AgentSkillRef(
@@ -111,6 +121,62 @@ def test_materialize_agent_definition_writes_inline_agent_skills_and_manifest(tm
     loaded = load_agent_config("contract-agent", "dev", paths=paths)
     assert loaded is not None
     assert loaded.skill_refs == config.skill_refs
+
+
+def test_materialize_agent_definition_rejects_store_dev_skills_for_prod_agents(tmp_path: Path):
+    base_dir = tmp_path / ".openagents"
+    _write_skill(base_dir, "store/dev", "bootstrap", "bootstrap")
+    paths = Paths(base_dir=base_dir, skills_dir=base_dir / "skills")
+
+    with pytest.raises(ValueError, match="allowed scopes: store/prod"):
+        materialize_agent_definition(
+            name="contract-agent",
+            status="prod",
+            agents_md="# Contract Agent",
+            description="Reviews contracts",
+            skill_names=["bootstrap"],
+            paths=paths,
+        )
+
+
+def test_materialize_agent_definition_does_not_mutate_existing_archive_when_resolution_fails(tmp_path: Path):
+    base_dir = tmp_path / ".openagents"
+    _write_skill(base_dir, "store/dev", "bootstrap", "bootstrap")
+    paths = Paths(base_dir=base_dir, skills_dir=base_dir / "skills")
+
+    existing_agent_dir = paths.agent_dir("contract-agent", "dev")
+    (existing_agent_dir / "skills" / "bootstrap").mkdir(parents=True, exist_ok=True)
+    (existing_agent_dir / "AGENTS.md").write_text("# Original Agent", encoding="utf-8")
+    (existing_agent_dir / "skills" / "bootstrap" / "SKILL.md").write_text(
+        "---\nname: bootstrap\ndescription: bootstrap\n---\n",
+        encoding="utf-8",
+    )
+    (existing_agent_dir / "config.yaml").write_text(
+        "name: contract-agent\n"
+        "status: dev\n"
+        "description: original\n"
+        "agents_md_path: AGENTS.md\n"
+        "skill_refs:\n"
+        "  - name: bootstrap\n"
+        "    source_path: store/dev/bootstrap\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="not found in allowed scopes"):
+        materialize_agent_definition(
+            name="contract-agent",
+            status="dev",
+            agents_md="# Broken Agent",
+            description="broken",
+            skill_names=["missing-skill"],
+            paths=paths,
+        )
+
+    assert (existing_agent_dir / "AGENTS.md").read_text(encoding="utf-8") == "# Original Agent"
+    assert (existing_agent_dir / "skills" / "bootstrap" / "SKILL.md").exists()
+    loaded = load_agent_config("contract-agent", "dev", paths=paths)
+    assert loaded is not None
+    assert loaded.description == "original"
 
 
 def test_agent_skill_ref_rejects_unsafe_source_path():

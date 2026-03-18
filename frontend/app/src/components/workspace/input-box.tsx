@@ -47,12 +47,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { PROMPT_COMMANDS } from "@/core/commands";
 import {
+  buildPromptExtraContext,
   getSlashQuery,
-  resolveCommandIntent,
 } from "@/core/commands/transform";
 import { useI18n } from "@/core/i18n/hooks";
 import { useModels } from "@/core/models/hooks";
 import type { Model } from "@/core/models/types";
+import { getSkillReferenceQuery } from "@/core/skills";
+import { useSkills } from "@/core/skills/hooks";
 import type { AgentThreadContext, ContextWindowState } from "@/core/threads";
 import { cn } from "@/lib/utils";
 
@@ -291,6 +293,7 @@ export function InputBox({
   const searchParams = useSearchParams();
   const [modelDialogOpen, setModelDialogOpen] = useState(false);
   const { models } = useModels();
+  const { skills } = useSkills();
   const promptInputController = usePromptInputController();
   const draftText = promptInputController.textInput.value;
 
@@ -456,13 +459,13 @@ export function InputBox({
       if (!message.text) {
         return;
       }
-      const resolvedCommand = resolveCommandIntent(message.text);
+      const extraContext = buildPromptExtraContext(message.text);
       onSubmit?.(
         {
           ...message,
           text: message.text,
         },
-        resolvedCommand?.extraContext,
+        extraContext,
       );
       promptInputController.textInput.clear();
     },
@@ -487,6 +490,14 @@ export function InputBox({
     slashQuery === null
       ? []
       : PROMPT_COMMANDS.filter((command) => command.name.startsWith(slashQuery));
+  const skillReferenceQuery = getSkillReferenceQuery(draftText);
+  const skillReferenceSuggestions =
+    skillReferenceQuery === null
+      ? []
+      : skills
+          .filter((skill) => skill.enabled)
+          .filter((skill) => skill.name.startsWith(skillReferenceQuery))
+          .slice(0, 8);
   return (
     <PromptInput
       className={cn(
@@ -645,11 +656,11 @@ export function InputBox({
           />
         </PromptInputTools>
       </PromptInputFooter>
-      {slashSuggestions.length > 0 && (
+      {(slashSuggestions.length > 0 || skillReferenceSuggestions.length > 0) && (
         <div className="absolute right-0 bottom-18 left-0 z-20 flex justify-center px-4">
           <div className="bg-background/95 w-full max-w-(--container-width-md) rounded-2xl border p-2 shadow-lg backdrop-blur">
             <div className="text-muted-foreground px-2 py-1 text-[11px] uppercase tracking-[0.18em]">
-              Commands
+              {slashSuggestions.length > 0 ? "Commands" : "Skills"}
             </div>
             <div className="flex flex-col gap-1">
               {slashSuggestions.map((command) => (
@@ -662,6 +673,19 @@ export function InputBox({
                   <span className="font-mono text-sm">/{command.name}</span>
                   <span className="text-muted-foreground ml-4 text-xs">
                     {command.description}
+                  </span>
+                </button>
+              ))}
+              {skillReferenceSuggestions.map((skill) => (
+                <button
+                  key={`${skill.category}:${skill.name}`}
+                  type="button"
+                  className="hover:bg-muted flex items-start justify-between rounded-xl px-3 py-2 text-left transition-colors"
+                  onClick={() => applyInputText(`$${skill.name} `)}
+                >
+                  <span className="font-mono text-sm">${skill.name}</span>
+                  <span className="text-muted-foreground ml-4 text-xs">
+                    {skill.description}
                   </span>
                 </button>
               ))}

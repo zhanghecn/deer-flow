@@ -1,0 +1,16 @@
+name: landing-copy-agent-0318
+description: Specialized SaaS landing page copywriter agent for high-converting marketing
+  copy
+status: dev
+agents_md_path: AGENTS.md
+skill_refs:
+- name: saas-landing-copywriter
+  materialized_path: skills/saas-landing-copywriter
+memory:
+  enabled: false
+  debounce_seconds: 30
+  max_facts: 100
+  fact_confidence_threshold: 0.7
+  injection_enabled: true
+  max_injection_tokens: 2000
+model: kimi-k2.5-1

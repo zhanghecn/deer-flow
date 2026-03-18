@@ -20,12 +20,59 @@ type AgentService struct {
 
 const builtinLeadAgentName = "lead_agent"
 
+var defaultRegularAgentSkillScopes = []string{"store/dev", "store/prod"}
+
 func NewAgentService(fs *storage.FS) *AgentService {
 	return &AgentService{fs: fs}
 }
 
 func isReservedAgentName(name string) bool {
 	return strings.EqualFold(strings.TrimSpace(name), builtinLeadAgentName)
+}
+
+func allowedArchiveSkillScopes(agentName string, agentStatus string) []string {
+	if isReservedAgentName(agentName) {
+		return []string{"shared", "store/dev", "store/prod"}
+	}
+	if strings.TrimSpace(agentStatus) == "prod" {
+		return []string{"store/prod"}
+	}
+	return append([]string(nil), defaultRegularAgentSkillScopes...)
+}
+
+func regularDevAgentRejectsDuplicateSkillNames(agentName string, agentStatus string) bool {
+	return !isReservedAgentName(agentName) && strings.TrimSpace(agentStatus) == "dev"
+}
+
+func isScopeAllowed(allowedScopes []string, scope string) bool {
+	for _, allowed := range allowedScopes {
+		if allowed == scope {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeMaterializedPath(materializedPath string) (string, error) {
+	cleaned := strings.Trim(strings.TrimSpace(materializedPath), "/")
+	if cleaned == "" {
+		return "", fmt.Errorf("agent-owned skill refs require materialized_path")
+	}
+
+	normalized := path.Clean(cleaned)
+	if normalized == "." || normalized == "" {
+		return "", fmt.Errorf("agent-owned skill refs require materialized_path")
+	}
+	if strings.HasPrefix(normalized, "../") || normalized == ".." {
+		return "", fmt.Errorf("agent-owned skill refs must stay under skills/")
+	}
+	if !strings.HasPrefix(normalized, "skills/") && normalized != "skills" {
+		return "", fmt.Errorf("agent-owned skill refs must stay under skills/")
+	}
+	if normalized == "skills" {
+		return "", fmt.Errorf("agent-owned skill refs must point to a concrete skills/ path")
+	}
+	return normalized, nil
 }
 
 func (s *AgentService) Create(_ context.Context, req model.CreateAgentRequest, _ uuid.UUID) (*model.Agent, error) {
@@ -40,9 +87,9 @@ func (s *AgentService) Create(_ context.Context, req model.CreateAgentRequest, _
 	var skillRefs []model.SkillRef
 	var err error
 	if req.SkillRefs != nil {
-		skillRefs, err = s.normalizeSkillRefs(req.SkillRefs)
+		skillRefs, err = s.normalizeSkillRefs(req.SkillRefs, name, "dev")
 	} else {
-		skillRefs, err = s.resolveSkillRefsByNames(req.Skills)
+		skillRefs, err = s.resolveSkillRefsByNames(req.Skills, name, "dev")
 	}
 	if err != nil {
 		return nil, err
@@ -97,17 +144,17 @@ func (s *AgentService) Update(_ context.Context, name string, status string, req
 		existing.Memory = &memoryConfig
 	}
 
-	skillRefs, err := s.normalizeSkillRefs(existing.Skills)
+	skillRefs, err := s.normalizeSkillRefs(existing.Skills, name, status)
 	if err != nil {
 		return nil, err
 	}
 	if req.SkillRefs != nil {
-		skillRefs, err = s.normalizeSkillRefs(req.SkillRefs)
+		skillRefs, err = s.normalizeSkillRefs(req.SkillRefs, name, status)
 		if err != nil {
 			return nil, err
 		}
 	} else if req.Skills != nil {
-		skillRefs, err = s.resolveSkillRefsByNames(req.Skills)
+		skillRefs, err = s.resolveSkillRefsByNames(req.Skills, name, status)
 		if err != nil {
 			return nil, err
 		}
@@ -124,7 +171,7 @@ func (s *AgentService) Update(_ context.Context, name string, status string, req
 	return s.hydrateFilesystemAgent(existing, agentsMDContent, skillRefs), nil
 }
 
-func (s *AgentService) resolveSkillRefsByNames(names []string) ([]model.SkillRef, error) {
+func (s *AgentService) resolveSkillRefsByNames(names []string, agentName string, agentStatus string) ([]model.SkillRef, error) {
 	resolved := make([]model.SkillRef, 0, len(names))
 	seen := make(map[string]struct{}, len(names))
 	for _, name := range names {
@@ -136,7 +183,7 @@ func (s *AgentService) resolveSkillRefsByNames(names []string) ([]model.SkillRef
 		if _, ok := seen[key]; ok {
 			continue
 		}
-		ref, err := s.resolveSkillRefByName(trimmed)
+		ref, err := s.resolveSkillRefByName(trimmed, agentName, agentStatus)
 		if err != nil {
 			return nil, err
 		}
@@ -146,9 +193,10 @@ func (s *AgentService) resolveSkillRefsByNames(names []string) ([]model.SkillRef
 	return resolved, nil
 }
 
-func (s *AgentService) resolveSkillRefByName(name string) (model.SkillRef, error) {
+func (s *AgentService) resolveSkillRefByName(name string, agentName string, agentStatus string) (model.SkillRef, error) {
+	allowedScopes := allowedArchiveSkillScopes(agentName, agentStatus)
 	matches := make([]model.SkillRef, 0, 3)
-	for _, scope := range []string{"shared", "store/dev", "store/prod"} {
+	for _, scope := range allowedScopes {
 		if ref, ok := s.skillRefFromScope(name, scope); ok {
 			matches = append(matches, ref)
 		}
@@ -156,10 +204,16 @@ func (s *AgentService) resolveSkillRefByName(name string) (model.SkillRef, error
 
 	switch len(matches) {
 	case 0:
-		return model.SkillRef{}, fmt.Errorf("skill %q not found", name)
+		return model.SkillRef{}, fmt.Errorf("skill %q not found in %s", name, strings.Join(allowedScopes, ", "))
 	case 1:
 		return matches[0], nil
 	default:
+		if regularDevAgentRejectsDuplicateSkillNames(agentName, agentStatus) {
+			return model.SkillRef{}, fmt.Errorf(
+				"skill %q exists in both store/dev and store/prod and cannot be attached to a dev agent",
+				name,
+			)
+		}
 		scopes := make([]string, 0, len(matches))
 		for _, match := range matches {
 			scopes = append(scopes, match.Category)
@@ -168,11 +222,11 @@ func (s *AgentService) resolveSkillRefByName(name string) (model.SkillRef, error
 	}
 }
 
-func (s *AgentService) normalizeSkillRefs(refs []model.SkillRef) ([]model.SkillRef, error) {
+func (s *AgentService) normalizeSkillRefs(refs []model.SkillRef, agentName string, agentStatus string) ([]model.SkillRef, error) {
 	normalized := make([]model.SkillRef, 0, len(refs))
 	seen := make(map[string]struct{}, len(refs))
 	for _, ref := range refs {
-		norm, err := s.normalizeSkillRef(ref)
+		norm, err := s.normalizeSkillRef(ref, agentName, agentStatus)
 		if err != nil {
 			return nil, err
 		}
@@ -186,7 +240,7 @@ func (s *AgentService) normalizeSkillRefs(refs []model.SkillRef) ([]model.SkillR
 	return normalized, nil
 }
 
-func (s *AgentService) normalizeSkillRef(ref model.SkillRef) (model.SkillRef, error) {
+func (s *AgentService) normalizeSkillRef(ref model.SkillRef, agentName string, agentStatus string) (model.SkillRef, error) {
 	name := strings.TrimSpace(ref.Name)
 	if name == "" {
 		return model.SkillRef{}, fmt.Errorf("skill ref name is required")
@@ -194,6 +248,18 @@ func (s *AgentService) normalizeSkillRef(ref model.SkillRef) (model.SkillRef, er
 
 	category := strings.Trim(strings.TrimSpace(ref.Category), "/")
 	sourcePath := strings.Trim(strings.TrimSpace(ref.SourcePath), "/")
+	materializedPath := strings.Trim(strings.TrimSpace(ref.MaterializedPath), "/")
+
+	if category == "" && sourcePath == "" && materializedPath != "" {
+		normalizedPath, err := normalizeMaterializedPath(materializedPath)
+		if err != nil {
+			return model.SkillRef{}, fmt.Errorf("skill %q: %w", name, err)
+		}
+		return model.SkillRef{
+			Name:             name,
+			MaterializedPath: normalizedPath,
+		}, nil
+	}
 
 	switch {
 	case category == "" && sourcePath != "":
@@ -208,7 +274,27 @@ func (s *AgentService) normalizeSkillRef(ref model.SkillRef) (model.SkillRef, er
 			category = "store/dev"
 		}
 	case category == "":
-		return s.resolveSkillRefByName(name)
+		return s.resolveSkillRefByName(name, agentName, agentStatus)
+	}
+
+	allowedScopes := allowedArchiveSkillScopes(agentName, agentStatus)
+	if !isScopeAllowed(allowedScopes, category) {
+		return model.SkillRef{}, fmt.Errorf(
+			"skill %q from %s is not allowed for %s agent archives",
+			name,
+			category,
+			strings.TrimSpace(agentStatus),
+		)
+	}
+	if regularDevAgentRejectsDuplicateSkillNames(agentName, agentStatus) {
+		_, hasDev := s.skillRefFromScope(name, "store/dev")
+		_, hasProd := s.skillRefFromScope(name, "store/prod")
+		if hasDev && hasProd {
+			return model.SkillRef{}, fmt.Errorf(
+				"skill %q exists in both store/dev and store/prod and cannot be attached to a dev agent",
+				name,
+			)
+		}
 	}
 
 	if sourcePath == "" {
@@ -220,10 +306,16 @@ func (s *AgentService) normalizeSkillRef(ref model.SkillRef) (model.SkillRef, er
 		Status:           ref.Status,
 		Category:         category,
 		SourcePath:       path.Clean(sourcePath),
-		MaterializedPath: ref.MaterializedPath,
+		MaterializedPath: materializedPath,
 	}
 	if normalized.MaterializedPath == "" {
 		normalized.MaterializedPath = path.Join("skills", name)
+	} else {
+		normalizedPath, err := normalizeMaterializedPath(normalized.MaterializedPath)
+		if err != nil {
+			return model.SkillRef{}, fmt.Errorf("skill %q: %w", name, err)
+		}
+		normalized.MaterializedPath = normalizedPath
 	}
 	if normalized.Status == "" {
 		switch category {
@@ -243,7 +335,7 @@ func (s *AgentService) normalizeSkillRef(ref model.SkillRef) (model.SkillRef, er
 		return normalized, nil
 	}
 
-	if _, ok := s.skillRefFromScope(name, category); !ok {
+	if _, ok := s.skillRefFromScope(name, category); !ok && strings.TrimSpace(ref.SourcePath) == "" {
 		return model.SkillRef{}, fmt.Errorf("skill %q not found in %s", name, category)
 	}
 	return normalized, nil
@@ -273,7 +365,56 @@ func (s *AgentService) skillRefFromScope(name string, scope string) (model.Skill
 	}, true
 }
 
-func (s *AgentService) resolveSkillSourceDir(ref model.SkillRef) string {
+func isAgentOwnedSkillRef(ref model.SkillRef) bool {
+	return strings.TrimSpace(ref.SourcePath) == "" &&
+		strings.TrimSpace(ref.Category) == "" &&
+		strings.TrimSpace(ref.MaterializedPath) != ""
+}
+
+func skillRefStageKey(ref model.SkillRef) string {
+	return strings.ToLower(strings.TrimSpace(ref.Name)) + "|" + strings.TrimSpace(ref.MaterializedPath)
+}
+
+func (s *AgentService) stageAgentOwnedSkillSources(agent *model.Agent, skillRefs []model.SkillRef) (map[string]string, []string, error) {
+	staged := make(map[string]string)
+	cleanupDirs := make([]string, 0)
+	for _, ref := range skillRefs {
+		if !isAgentOwnedSkillRef(ref) {
+			continue
+		}
+
+		sourceDir := filepath.Join(
+			s.fs.AgentDir(agent.Name, agent.Status),
+			filepath.FromSlash(strings.TrimSpace(ref.MaterializedPath)),
+		)
+		info, err := os.Stat(sourceDir)
+		if err != nil || !info.IsDir() {
+			return nil, cleanupDirs, fmt.Errorf(
+				"agent-owned skill %q is missing copied files: %s",
+				ref.Name,
+				ref.MaterializedPath,
+			)
+		}
+
+		stageRoot, err := os.MkdirTemp("", "openagents-agent-skill-*")
+		if err != nil {
+			return nil, cleanupDirs, err
+		}
+		stageDir := filepath.Join(stageRoot, "skill")
+		if err := s.fs.CopyDir(sourceDir, stageDir); err != nil {
+			_ = os.RemoveAll(stageRoot)
+			return nil, cleanupDirs, err
+		}
+		staged[skillRefStageKey(ref)] = stageDir
+		cleanupDirs = append(cleanupDirs, stageRoot)
+	}
+	return staged, cleanupDirs, nil
+}
+
+func (s *AgentService) resolveSkillSourceDir(agent *model.Agent, ref model.SkillRef, stagedAgentSkills map[string]string) string {
+	if isAgentOwnedSkillRef(ref) {
+		return stagedAgentSkills[skillRefStageKey(ref)]
+	}
 	sourcePath := strings.Trim(strings.TrimSpace(ref.SourcePath), "/")
 	if sourcePath != "" {
 		return filepath.Join(s.fs.SkillsDir(), filepath.FromSlash(sourcePath))
@@ -281,7 +422,25 @@ func (s *AgentService) resolveSkillSourceDir(ref model.SkillRef) string {
 	return s.fs.GlobalSkillDir(ref.Category, ref.Name)
 }
 
+func (s *AgentService) resolveSkillTargetDir(agent *model.Agent, ref model.SkillRef) string {
+	materializedPath := strings.TrimSpace(ref.MaterializedPath)
+	if materializedPath == "" {
+		materializedPath = path.Join("skills", ref.Name)
+	}
+	return filepath.Join(s.fs.AgentDir(agent.Name, agent.Status), filepath.FromSlash(materializedPath))
+}
+
 func (s *AgentService) syncAgentFilesystem(agent *model.Agent, agentsMD string, skillRefs []model.SkillRef) error {
+	stagedAgentSkills, cleanupDirs, err := s.stageAgentOwnedSkillSources(agent, skillRefs)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		for _, cleanupDir := range cleanupDirs {
+			_ = os.RemoveAll(cleanupDir)
+		}
+	}()
+
 	config := map[string]interface{}{
 		"name":           agent.Name,
 		"description":    agent.Description,
@@ -311,16 +470,18 @@ func (s *AgentService) syncAgentFilesystem(agent *model.Agent, agentsMD string, 
 	}
 
 	for _, ref := range skillRefs {
-		sourceDir := s.resolveSkillSourceDir(ref)
+		sourceDir := s.resolveSkillSourceDir(agent, ref, stagedAgentSkills)
 		info, err := os.Stat(sourceDir)
 		if err != nil || !info.IsDir() {
 			location := ref.Category
 			if strings.TrimSpace(ref.SourcePath) != "" {
 				location = ref.SourcePath
+			} else if strings.TrimSpace(ref.MaterializedPath) != "" {
+				location = ref.MaterializedPath
 			}
 			return fmt.Errorf("skill %q not found in %s", ref.Name, location)
 		}
-		targetDir := filepath.Join(s.fs.AgentSkillsDir(agent.Name, agent.Status), ref.Name)
+		targetDir := s.resolveSkillTargetDir(agent, ref)
 		if err := s.fs.CopyDir(sourceDir, targetDir); err != nil {
 			return err
 		}

@@ -25,11 +25,11 @@ func TestAgentServiceCreateCopiesResolvedSkillIntoAgentDir(t *testing.T) {
 	t.Parallel()
 
 	baseDir := filepath.Join(t.TempDir(), ".openagents")
-	if err := os.MkdirAll(filepath.Join(baseDir, "skills", "shared", "bootstrap"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(baseDir, "skills", "store", "dev", "bootstrap"), 0755); err != nil {
 		t.Fatalf("mkdir skill dir: %v", err)
 	}
-	skillMD := "---\nname: bootstrap\ndescription: shared bootstrap\n---\n\nbody"
-	if err := os.WriteFile(filepath.Join(baseDir, "skills", "shared", "bootstrap", "SKILL.md"), []byte(skillMD), 0644); err != nil {
+	skillMD := "---\nname: bootstrap\ndescription: dev bootstrap\n---\n\nbody"
+	if err := os.WriteFile(filepath.Join(baseDir, "skills", "store", "dev", "bootstrap", "SKILL.md"), []byte(skillMD), 0644); err != nil {
 		t.Fatalf("write skill file: %v", err)
 	}
 
@@ -46,8 +46,8 @@ func TestAgentServiceCreateCopiesResolvedSkillIntoAgentDir(t *testing.T) {
 	if len(agent.Skills) != 1 {
 		t.Fatalf("len(agent.Skills) = %d, want 1", len(agent.Skills))
 	}
-	if agent.Skills[0].Category != "shared" {
-		t.Fatalf("agent.Skills[0].Category = %q, want %q", agent.Skills[0].Category, "shared")
+	if agent.Skills[0].Category != "store/dev" {
+		t.Fatalf("agent.Skills[0].Category = %q, want %q", agent.Skills[0].Category, "store/dev")
 	}
 
 	copiedSkill := filepath.Join(baseDir, "agents", "dev", "contract-review", "skills", "bootstrap", "SKILL.md")
@@ -60,7 +60,7 @@ func TestAgentServiceCreateRejectsAmbiguousSkillNames(t *testing.T) {
 	t.Parallel()
 
 	baseDir := filepath.Join(t.TempDir(), ".openagents")
-	for _, scope := range []string{"shared", filepath.Join("store", "dev")} {
+	for _, scope := range []string{filepath.Join("store", "dev"), filepath.Join("store", "prod")} {
 		skillDir := filepath.Join(baseDir, "skills", scope, "research")
 		if err := os.MkdirAll(skillDir, 0755); err != nil {
 			t.Fatalf("mkdir skill dir: %v", err)
@@ -78,10 +78,10 @@ func TestAgentServiceCreateRejectsAmbiguousSkillNames(t *testing.T) {
 		AgentsMD: "# Agent",
 	}, uuid.Nil)
 	if err == nil {
-		t.Fatal("expected ambiguous skill error")
+		t.Fatal("expected duplicate-name skill error")
 	}
-	if !strings.Contains(err.Error(), "ambiguous") {
-		t.Fatalf("Create() error = %v, want ambiguous error", err)
+	if !strings.Contains(err.Error(), "cannot be attached to a dev agent") {
+		t.Fatalf("Create() error = %v, want duplicate-name rejection", err)
 	}
 }
 
@@ -201,5 +201,61 @@ func TestAgentServiceUpdateAcceptsScopedSkillRefs(t *testing.T) {
 	}
 	if got := agent.Skills[0].SourcePath; got != "store/dev/research" {
 		t.Fatalf("agent.Skills[0].SourcePath = %q, want %q", got, "store/dev/research")
+	}
+}
+
+func TestAgentServiceUpdatePreservesAgentOwnedSkillRefs(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	agentSkillsDir := filepath.Join(baseDir, "agents", "dev", "contract-agent", "skills", "contract-review")
+	if err := os.MkdirAll(agentSkillsDir, 0755); err != nil {
+		t.Fatalf("mkdir private skill dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(agentSkillsDir, "SKILL.md"), []byte("---\nname: contract-review\ndescription: private\n---\n"), 0644); err != nil {
+		t.Fatalf("write private skill file: %v", err)
+	}
+
+	fsStore := storage.NewFS(baseDir)
+	if err := fsStore.WriteAgentFiles("contract-agent", "dev", "# Contract Agent", map[string]interface{}{
+		"name":           "contract-agent",
+		"description":    "Private skill agent",
+		"status":         "dev",
+		"agents_md_path": "AGENTS.md",
+		"skill_refs": []model.SkillRef{
+			{
+				Name:             "contract-review",
+				MaterializedPath: "skills/contract-review",
+			},
+		},
+		"memory": map[string]interface{}{
+			"enabled":                   false,
+			"debounce_seconds":          30,
+			"max_facts":                 100,
+			"fact_confidence_threshold": 0.7,
+			"injection_enabled":         true,
+			"max_injection_tokens":      2000,
+		},
+	}); err != nil {
+		t.Fatalf("seed agent files: %v", err)
+	}
+
+	svc := NewAgentService(fsStore)
+	description := "Updated private skill agent"
+	agent, err := svc.Update(context.Background(), "contract-agent", "dev", model.UpdateAgentRequest{
+		Description: &description,
+	})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+
+	if len(agent.Skills) != 1 {
+		t.Fatalf("len(agent.Skills) = %d, want 1", len(agent.Skills))
+	}
+	if got := agent.Skills[0].MaterializedPath; got != "skills/contract-review" {
+		t.Fatalf("agent.Skills[0].MaterializedPath = %q, want %q", got, "skills/contract-review")
+	}
+	if _, err := os.Stat(filepath.Join(agentSkillsDir, "SKILL.md")); err != nil {
+		t.Fatalf("expected private skill to survive update: %v", err)
 	}
 }

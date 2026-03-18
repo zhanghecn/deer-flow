@@ -18,6 +18,7 @@ import {
   useAgent,
 } from "@/core/agents";
 import { useI18n } from "@/core/i18n/hooks";
+import { useModels } from "@/core/models/hooks";
 import { useLocalSettings } from "@/core/settings";
 import { env } from "@/env";
 import { cn } from "@/lib/utils";
@@ -33,6 +34,7 @@ export default function NewChatClient() {
   const searchParams = useSearchParams();
   const routeParams = useParams<{ agent_name?: string }>();
   const [settings, setSettings] = useLocalSettings();
+  const { models } = useModels();
   const [pendingMessage, setPendingMessage] =
     useState<PromptInputMessage | null>(null);
   const [pendingExtraContext, setPendingExtraContext] = useState<
@@ -48,17 +50,22 @@ export default function NewChatClient() {
     isCustomAgent ? runtimeSelection.agentName : null,
     runtimeSelection.agentStatus,
   );
+  const pinnedModelName = useMemo(() => {
+    const modelName = agent?.model?.trim();
+    return modelName === "" ? undefined : modelName;
+  }, [agent?.model]);
   const runtimeContext = useMemo(
     () => ({
       ...settings.context,
       agent_name: runtimeSelection.agentName,
       agent_status: runtimeSelection.agentStatus,
       execution_backend: runtimeSelection.executionBackend,
-      remote_session_id: runtimeSelection.remoteSessionId || undefined,
+      remote_session_id: runtimeSelection.remoteSessionId ?? undefined,
       mode: "ultra" as const,
-      model_name: agent?.model?.trim() || settings.context.model_name,
+      model_name:
+        pinnedModelName ?? settings.context.model_name ?? models[0]?.name,
     }),
-    [agent?.model, runtimeSelection, settings.context],
+    [models, pinnedModelName, runtimeSelection, settings.context],
   );
   const selectedModelName =
     typeof runtimeContext.model_name === "string"
@@ -83,6 +90,26 @@ export default function NewChatClient() {
     },
     [],
   );
+
+  useEffect(() => {
+    if (pinnedModelName) {
+      if (settings.context.model_name === pinnedModelName) {
+        return;
+      }
+      setSettings("context", {
+        model_name: pinnedModelName,
+      });
+      return;
+    }
+
+    if (settings.context.model_name || !models[0]?.name) {
+      return;
+    }
+
+    setSettings("context", {
+      model_name: models[0].name,
+    });
+  }, [models, pinnedModelName, setSettings, settings.context.model_name]);
 
   useEffect(() => {
     setSettings("context", {

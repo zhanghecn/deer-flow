@@ -33,7 +33,12 @@ services:
   # LangGraph connects through `OPENAGENTS_SANDBOX_BASE_URL` instead of
   # dynamically creating containers itself.
   sandbox-aio:
-    image: enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest
+    build:
+      context: .
+      dockerfile: sandbox-aio/Dockerfile
+      args:
+        BASE_IMAGE: enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest
+    image: openagents-sandbox-aio:dev
     # Keep this name outside the `openagents-sandbox-*` prefix used by
     # auto-started per-thread sandboxes so `make stop` cleanup does not touch it.
     container_name: openagents-aio-sandbox

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
+import shlex
 
 from agent_sandbox import Sandbox as AioSandboxClient
 from agent_sandbox.core.api_error import ApiError
@@ -20,6 +22,10 @@ from src.sandbox.sandbox import Sandbox
 
 logger = logging.getLogger(__name__)
 MAX_READ_LINE_LENGTH = 5000
+VIRTUAL_WORKSPACE = f"{VIRTUAL_PATH_PREFIX}/workspace"
+SHELL_PATH = "/usr/bin/bash"
+DEFAULT_EXEC_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+READ_ONLY_BIND_DIRS = ("/usr", "/etc", "/bin", "/lib", "/lib64", "/sbin", "/opt")
 
 
 class AioSandbox(Sandbox):
@@ -120,22 +126,102 @@ class AioSandbox(Sandbox):
             return f"{VIRTUAL_PATH_PREFIX}{normalized[len(runtime_root):]}"
         return normalized
 
-    def _rewrite_command_paths(self, command: str) -> str:
+    def _shell_visible_runtime_path(self, path: str) -> str:
+        normalized = self._normalize_runtime_path(path)
+        if self._exec_isolation_disabled():
+            return normalized
+        return self._to_virtual_runtime_path(normalized)
+
+    def _shell_visible_runtime_pattern(self, pattern: str) -> str:
+        normalized = self._normalize_runtime_pattern(pattern)
+        if self._exec_isolation_disabled():
+            return normalized
+        return self._to_virtual_runtime_path(normalized)
+
+    def _command_path_replacements(self, target_root: str) -> dict[str, str]:
         runtime_root = self.runtime_root
         replacements = {
-            VIRTUAL_PATH_PREFIX: runtime_root,
-            "/workspace": f"{runtime_root}/workspace",
-            "/uploads": f"{runtime_root}/uploads",
-            "/outputs": f"{runtime_root}/outputs",
-            "/agents": f"{runtime_root}/agents",
-            "/authoring": f"{runtime_root}/authoring",
+            VIRTUAL_PATH_PREFIX: target_root,
+            "/workspace": f"{target_root}/workspace",
+            "/uploads": f"{target_root}/uploads",
+            "/outputs": f"{target_root}/outputs",
+            "/agents": f"{target_root}/agents",
+            "/authoring": f"{target_root}/authoring",
         }
+        if runtime_root != target_root:
+            replacements[runtime_root] = target_root
+        return replacements
+
+    def _rewrite_command_paths(self, command: str, *, target_root: str | None = None) -> str:
+        replacements = self._command_path_replacements(target_root or self.runtime_root)
 
         rewritten = command
         for virtual_path, target in sorted(replacements.items(), key=lambda item: len(item[0]), reverse=True):
-            pattern = rf"(?<![A-Za-z0-9_./-]){re.escape(virtual_path)}(?=(/|\\b))"
+            pattern = rf"(?<![A-Za-z0-9_./-]){re.escape(virtual_path)}(?=(/|\b))"
             rewritten = re.sub(pattern, target, rewritten)
         return rewritten
+
+    @staticmethod
+    def _exec_isolation_disabled() -> bool:
+        value = str(os.getenv("OPENAGENTS_SANDBOX_EXEC_ISOLATION", "")).strip().lower()
+        return value in {"0", "false", "off", "disabled"}
+
+    @staticmethod
+    def _quote_command(argv: list[str]) -> str:
+        return " ".join(shlex.quote(part) for part in argv)
+
+    def _build_exec_jail_command(self, command: str) -> str:
+        runtime_command = self._rewrite_command_paths(command, target_root=VIRTUAL_PATH_PREFIX)
+
+        argv = [
+            "bwrap",
+            "--die-with-parent",
+            "--new-session",
+            "--unshare-user",
+            "--unshare-ipc",
+            "--unshare-pid",
+            "--unshare-uts",
+            "--proc",
+            "/proc",
+            "--dev",
+            "/dev",
+            "--tmpfs",
+            "/tmp",
+            "--bind",
+            self.runtime_root,
+            VIRTUAL_PATH_PREFIX,
+            "--setenv",
+            "HOME",
+            "/tmp",
+            "--setenv",
+            "TMPDIR",
+            "/tmp",
+            "--setenv",
+            "PATH",
+            DEFAULT_EXEC_PATH,
+            "--setenv",
+            "OPENAGENTS_RUNTIME_ROOT",
+            VIRTUAL_PATH_PREFIX,
+            "--setenv",
+            "OPENAGENTS_WORKSPACE",
+            VIRTUAL_WORKSPACE,
+            "--setenv",
+            "OPENAGENTS_UPLOADS",
+            f"{VIRTUAL_PATH_PREFIX}/uploads",
+            "--setenv",
+            "OPENAGENTS_OUTPUTS",
+            f"{VIRTUAL_PATH_PREFIX}/outputs",
+            "--setenv",
+            "OPENAGENTS_AGENTS",
+            f"{VIRTUAL_PATH_PREFIX}/agents",
+            "--chdir",
+            VIRTUAL_WORKSPACE,
+        ]
+        for directory in READ_ONLY_BIND_DIRS:
+            if os.path.exists(directory):
+                argv.extend(["--ro-bind", directory, directory])
+        argv.extend([SHELL_PATH, "-lc", runtime_command])
+        return self._quote_command(argv)
 
     def execute(
         self,
@@ -144,7 +230,11 @@ class AioSandbox(Sandbox):
         timeout: int | None = None,
     ) -> ExecuteResponse:
         effective_timeout = timeout if timeout is not None else self._default_timeout
-        rewritten_command = self._rewrite_command_paths(command)
+        rewritten_command = (
+            self._build_exec_jail_command(command)
+            if not self._exec_isolation_disabled()
+            else self._rewrite_command_paths(command)
+        )
 
         try:
             result = self._client.shell.exec_command(
@@ -171,8 +261,8 @@ class AioSandbox(Sandbox):
             )
 
     def ls_info(self, path: str) -> list[FileInfo]:
-        normalized_path = self._normalize_runtime_path(path)
-        infos = super().ls_info(normalized_path)
+        shell_path = self._shell_visible_runtime_path(path)
+        infos = super().ls_info(shell_path)
         return [
             {
                 **info,
@@ -200,9 +290,9 @@ class AioSandbox(Sandbox):
         ]
 
     def glob_info(self, pattern: str, path: str = "/") -> list[FileInfo]:
-        normalized_path = self._normalize_runtime_path(path)
-        normalized_pattern = self._normalize_runtime_pattern(pattern)
-        infos = super().glob_info(normalized_pattern, path=normalized_path)
+        shell_path = self._shell_visible_runtime_path(path)
+        shell_pattern = self._shell_visible_runtime_pattern(pattern)
+        infos = super().glob_info(shell_pattern, path=shell_path)
         return [
             {
                 **info,

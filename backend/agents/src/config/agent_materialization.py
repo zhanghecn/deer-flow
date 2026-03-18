@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import shutil
+import tempfile
 from pathlib import Path, PurePosixPath
+from uuid import uuid4
 
 import yaml
 
@@ -12,6 +14,7 @@ from src.config.agents_config import (
     AgentConfig,
     AgentMemoryConfig,
     AgentSkillRef,
+    _parse_skill_source_path,
     serialize_agent_skill_ref,
 )
 from src.config.paths import Paths, get_paths
@@ -23,6 +26,8 @@ _SKILL_SCOPE_PRIORITY: dict[str, int] = {
     "store/prod": 1,
     "store/dev": 2,
 }
+_DEV_AGENT_SKILL_SCOPES = ("store/dev", "store/prod")
+_PROD_AGENT_SKILL_SCOPES = ("store/prod",)
 
 
 def _dedupe_skill_names(skill_names: list[str] | None) -> list[str]:
@@ -37,34 +42,130 @@ def _dedupe_skill_names(skill_names: list[str] | None) -> list[str]:
     return ordered
 
 
-def _get_skill_catalog(paths: Paths) -> dict[str, Skill]:
-    catalog: dict[str, Skill] = {}
-    for skill in load_skills(skills_path=paths.skills_dir, use_config=False, enabled_only=False):
-        existing = catalog.get(skill.name)
-        if existing is None:
-            catalog[skill.name] = skill
-            continue
+def _allowed_skill_scopes_for_agent(
+    *,
+    target_status: str,
+    allow_shared: bool = False,
+) -> tuple[str, ...]:
+    if target_status == "prod":
+        scopes = list(_PROD_AGENT_SKILL_SCOPES)
+    else:
+        scopes = list(_DEV_AGENT_SKILL_SCOPES)
+    if allow_shared:
+        scopes.insert(0, "shared")
+    return tuple(scopes)
 
-        existing_priority = _SKILL_SCOPE_PRIORITY.get(existing.category, 999)
-        next_priority = _SKILL_SCOPE_PRIORITY.get(skill.category, 999)
-        if next_priority < existing_priority:
-            catalog[skill.name] = skill
+
+def _skills_by_name_for_scopes(
+    *,
+    paths: Paths,
+    allowed_scopes: tuple[str, ...],
+) -> dict[str, list[Skill]]:
+    catalog: dict[str, list[Skill]] = {}
+    for skill in load_skills(skills_path=paths.skills_dir, use_config=False, enabled_only=False):
+        if skill.category not in allowed_scopes:
+            continue
+        catalog.setdefault(skill.name, []).append(skill)
 
     return catalog
 
 
-def resolve_skill_refs(skill_names: list[str] | None, paths: Paths | None = None) -> list[Skill]:
+def _sort_skills_for_scope_priority(skills: list[Skill], *, allowed_scopes: tuple[str, ...]) -> list[Skill]:
+    scope_order = {scope: index for index, scope in enumerate(allowed_scopes)}
+    return sorted(
+        skills,
+        key=lambda skill: (
+            scope_order.get(skill.category, 999),
+            _SKILL_SCOPE_PRIORITY.get(skill.category, 999),
+            skill.skill_path,
+        ),
+    )
+
+
+def _resolve_requested_skill(
+    *,
+    skill_name: str,
+    catalog: dict[str, list[Skill]],
+    allowed_scopes: tuple[str, ...],
+    target_status: str,
+    allow_shared: bool,
+) -> Skill:
+    matches = _sort_skills_for_scope_priority(catalog.get(skill_name, []), allowed_scopes=allowed_scopes)
+    if not matches:
+        scopes = ", ".join(allowed_scopes)
+        raise ValueError(f"Skill '{skill_name}' not found in allowed scopes: {scopes}.")
+
+    scoped_matches = {skill.category for skill in matches}
+    if target_status == "dev" and not allow_shared and {"store/dev", "store/prod"} <= scoped_matches:
+        raise ValueError(
+            f"Skill '{skill_name}' exists in both store/dev and store/prod and cannot be attached to a dev agent."
+        )
+
+    if len(matches) > 1:
+        locations = ", ".join(f"{skill.category}:{skill.skill_path or skill.name}" for skill in matches)
+        raise ValueError(f"Skill '{skill_name}' is ambiguous across: {locations}.")
+
+    return matches[0]
+
+
+def validate_skill_refs_for_status(
+    skill_refs: list[AgentSkillRef],
+    *,
+    target_status: str,
+    paths: Paths | None = None,
+    allow_shared: bool = False,
+) -> None:
+    paths = paths or get_paths()
+    allowed_scopes = _allowed_skill_scopes_for_agent(
+        target_status=target_status,
+        allow_shared=allow_shared,
+    )
+    catalog = _skills_by_name_for_scopes(paths=paths, allowed_scopes=allowed_scopes)
+
+    for skill_ref in skill_refs:
+        if skill_ref.source_path is None:
+            continue
+        scope, _relative_path = _parse_skill_source_path(skill_ref.source_path)
+        if scope not in allowed_scopes:
+            scopes = ", ".join(allowed_scopes)
+            raise ValueError(
+                f"Skill '{skill_ref.name}' from {scope} is not allowed for {target_status} agent archives. Allowed scopes: {scopes}."
+            )
+        _resolve_requested_skill(
+            skill_name=skill_ref.name,
+            catalog=catalog,
+            allowed_scopes=allowed_scopes,
+            target_status=target_status,
+            allow_shared=allow_shared,
+        )
+
+
+def resolve_skill_refs(
+    skill_names: list[str] | None,
+    *,
+    target_status: str = "dev",
+    paths: Paths | None = None,
+    allow_shared: bool = False,
+) -> list[Skill]:
     paths = paths or get_paths()
     requested = _dedupe_skill_names(skill_names)
     if not requested:
         return []
 
-    catalog = _get_skill_catalog(paths)
+    allowed_scopes = _allowed_skill_scopes_for_agent(
+        target_status=target_status,
+        allow_shared=allow_shared,
+    )
+    catalog = _skills_by_name_for_scopes(paths=paths, allowed_scopes=allowed_scopes)
     resolved: list[Skill] = []
     for name in requested:
-        skill = catalog.get(name)
-        if skill is None:
-            raise ValueError(f"Skill '{name}' not found in OpenAgents skills library.")
+        skill = _resolve_requested_skill(
+            skill_name=name,
+            catalog=catalog,
+            allowed_scopes=allowed_scopes,
+            target_status=target_status,
+            allow_shared=allow_shared,
+        )
         resolved.append(skill)
     return resolved
 
@@ -86,7 +187,9 @@ def materialize_agent_skills(
     *,
     skills_dir: Path,
     skill_names: list[str] | None,
+    target_status: str = "dev",
     paths: Paths | None = None,
+    allow_shared: bool = False,
 ) -> list[AgentSkillRef]:
     """Copy selected shared skills into an agent-owned skills directory."""
 
@@ -95,7 +198,12 @@ def materialize_agent_skills(
         shutil.rmtree(skills_dir)
     skills_dir.mkdir(parents=True, exist_ok=True)
 
-    resolved_skills = resolve_skill_refs(skill_names, paths)
+    resolved_skills = resolve_skill_refs(
+        skill_names,
+        target_status=target_status,
+        paths=paths,
+        allow_shared=allow_shared,
+    )
     skill_refs: list[AgentSkillRef] = []
     for skill in resolved_skills:
         relative_path = _skill_relative_path(skill)
@@ -191,66 +299,86 @@ def materialize_agent_definition(
     inline_skills: list[dict[str, str]] | None = None,
     memory: AgentMemoryConfig | dict | None = None,
     paths: Paths | None = None,
+    allow_shared_skills: bool = False,
 ) -> AgentConfig:
     """Write an agent definition to disk and copy referenced skills locally."""
 
     paths = paths or get_paths()
     agent_dir = paths.agent_dir(name, status)
-    agent_dir.mkdir(parents=True, exist_ok=True)
+    agent_parent = agent_dir.parent
+    agent_parent.mkdir(parents=True, exist_ok=True)
+    staging_dir = Path(tempfile.mkdtemp(prefix=f".{agent_dir.name}.tmp-", dir=agent_parent))
+    backup_dir: Path | None = None
 
-    agents_md_path = agent_dir / AGENTS_MD_FILENAME
-    agents_md_path.write_text(agents_md, encoding="utf-8")
+    try:
+        agents_md_path = staging_dir / AGENTS_MD_FILENAME
+        agents_md_path.write_text(agents_md, encoding="utf-8")
 
-    skills_dir = paths.agent_skills_dir(name, status)
-    if skills_dir.exists():
-        shutil.rmtree(skills_dir)
-    skills_dir.mkdir(parents=True, exist_ok=True)
+        skills_dir = staging_dir / "skills"
+        skills_dir.mkdir(parents=True, exist_ok=True)
 
-    copied_skill_refs = materialize_agent_skills(
-        skills_dir=skills_dir,
-        skill_names=skill_names,
-        paths=paths,
-    )
-    inline_skill_refs = materialize_inline_agent_skills(
-        skills_dir=skills_dir,
-        inline_skills=inline_skills,
-    )
-    duplicate_names = {ref.name for ref in copied_skill_refs} & {
-        ref.name for ref in inline_skill_refs
-    }
-    if duplicate_names:
-        joined = ", ".join(sorted(duplicate_names))
-        raise ValueError(
-            f"Agent definition duplicates skill names across copied and inline skills: {joined}."
+        copied_skill_refs = materialize_agent_skills(
+            skills_dir=skills_dir,
+            skill_names=skill_names,
+            target_status=status,
+            paths=paths,
+            allow_shared=allow_shared_skills,
         )
-    skill_refs = copied_skill_refs + inline_skill_refs
+        inline_skill_refs = materialize_inline_agent_skills(
+            skills_dir=skills_dir,
+            inline_skills=inline_skills,
+        )
+        duplicate_names = {ref.name for ref in copied_skill_refs} & {
+            ref.name for ref in inline_skill_refs
+        }
+        if duplicate_names:
+            joined = ", ".join(sorted(duplicate_names))
+            raise ValueError(
+                f"Agent definition duplicates skill names across copied and inline skills: {joined}."
+            )
+        skill_refs = copied_skill_refs + inline_skill_refs
 
-    memory_config = memory if isinstance(memory, AgentMemoryConfig) else AgentMemoryConfig.model_validate(memory or {})
+        memory_config = memory if isinstance(memory, AgentMemoryConfig) else AgentMemoryConfig.model_validate(memory or {})
 
-    _write_agent_manifest(
-        agent_dir=agent_dir,
-        name=name,
-        status=status,
-        description=description,
-        model=model,
-        tool_groups=tool_groups,
-        mcp_servers=mcp_servers,
-        skill_refs=skill_refs,
-        memory=memory_config,
-    )
+        _write_agent_manifest(
+            agent_dir=staging_dir,
+            name=name,
+            status=status,
+            description=description,
+            model=model,
+            tool_groups=tool_groups,
+            mcp_servers=mcp_servers,
+            skill_refs=skill_refs,
+            memory=memory_config,
+        )
 
-    agent_config = AgentConfig(
-        name=name,
-        description=description,
-        model=model,
-        tool_groups=tool_groups,
-        mcp_servers=mcp_servers,
-        status=status,
-        agents_md_path=AGENTS_MD_FILENAME,
-        skill_refs=skill_refs,
-        memory=memory_config,
-    )
-    return agent_config
+        if agent_dir.exists():
+            backup_dir = agent_parent / f".{agent_dir.name}.bak-{uuid4().hex}"
+            agent_dir.rename(backup_dir)
+        try:
+            staging_dir.rename(agent_dir)
+        except Exception:
+            if backup_dir is not None and backup_dir.exists():
+                backup_dir.rename(agent_dir)
+            raise
+
+        if backup_dir is not None and backup_dir.exists():
+            shutil.rmtree(backup_dir)
+
+        return AgentConfig(
+            name=name,
+            description=description,
+            model=model,
+            tool_groups=tool_groups,
+            mcp_servers=mcp_servers,
+            status=status,
+            agents_md_path=AGENTS_MD_FILENAME,
+            skill_refs=skill_refs,
+            memory=memory_config,
+        )
+    finally:
+        if staging_dir.exists():
+            shutil.rmtree(staging_dir, ignore_errors=True)
 
 
 def publish_agent_definition(name: str, *, paths: Paths | None = None) -> AgentConfig:
@@ -263,18 +391,26 @@ def publish_agent_definition(name: str, *, paths: Paths | None = None) -> AgentC
     if not dev_dir.exists():
         raise FileNotFoundError(f"Dev agent directory not found: {dev_dir}")
 
+    dev_config_file = dev_dir / "config.yaml"
+    config_data = yaml.safe_load(dev_config_file.read_text(encoding="utf-8")) or {}
+    if not isinstance(config_data, dict):
+        raise ValueError(f"Agent config must be a mapping: {dev_config_file}")
+    config_data["status"] = "prod"
+    config_data.pop("runtime_backend", None)
+    config_data.setdefault("agents_md_path", AGENTS_MD_FILENAME)
+    agent_config = AgentConfig.model_validate(config_data)
+    validate_skill_refs_for_status(
+        agent_config.skill_refs,
+        target_status="prod",
+        paths=paths,
+    )
+
     if prod_dir.exists():
         shutil.rmtree(prod_dir)
     prod_dir.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(dev_dir, prod_dir)
 
     config_file = prod_dir / "config.yaml"
-    with open(config_file, encoding="utf-8") as f:
-        config_data: dict = yaml.safe_load(f) or {}
-    config_data["status"] = "prod"
-    config_data.pop("runtime_backend", None)
     with open(config_file, "w", encoding="utf-8") as f:
         yaml.dump(config_data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-
-    agent_config = AgentConfig.model_validate(config_data)
     return agent_config

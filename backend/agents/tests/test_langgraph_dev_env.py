@@ -33,8 +33,11 @@ def test_main_passes_merged_runtime_env_to_run_server(tmp_path, monkeypatch):
     )
     config_path = tmp_path / "langgraph.json"
     config_path.write_text(json.dumps({"env": str(env_path), "graphs": {}}), encoding="utf-8")
+    project_config = tmp_path / "config.yaml"
+    project_config.write_text("runtime:\n  jobs_per_worker: 3\n", encoding="utf-8")
 
     monkeypatch.setenv("LANGGRAPH_CONFIG", str(config_path))
+    monkeypatch.setenv("OPENAGENTS_CONFIG_PATH", str(project_config))
     monkeypatch.setenv("OPENAGENTS_SANDBOX_BASE_URL", "http://sandbox-aio:8080")
     monkeypatch.setenv("DATABASE_URI", "postgresql://from-container-env")
 
@@ -54,6 +57,7 @@ def test_main_passes_merged_runtime_env_to_run_server(tmp_path, monkeypatch):
         "OPENAGENTS_SANDBOX_SHARED_DATA_MOUNT_PATH": "/openagents",
         "DATABASE_URI": "postgresql://from-container-env",
     }
+    assert captured["n_jobs_per_worker"] == 3
 
 
 def test_runtime_edition_can_be_loaded_from_project_config(tmp_path, monkeypatch):
@@ -64,3 +68,25 @@ def test_runtime_edition_can_be_loaded_from_project_config(tmp_path, monkeypatch
     monkeypatch.delenv("LANGGRAPH_RUNTIME_EDITION", raising=False)
 
     assert langgraph_dev._resolve_runtime_edition() == "postgres"
+
+
+def test_jobs_per_worker_can_be_loaded_from_project_config(tmp_path, monkeypatch):
+    project_config = tmp_path / "config.yaml"
+    project_config.write_text("runtime:\n  jobs_per_worker: 6\n", encoding="utf-8")
+
+    monkeypatch.setenv("OPENAGENTS_CONFIG_PATH", str(project_config))
+    monkeypatch.delenv("OPENAGENTS_LANGGRAPH_JOBS_PER_WORKER", raising=False)
+    monkeypatch.delenv("N_JOBS_PER_WORKER", raising=False)
+
+    assert langgraph_dev._resolve_jobs_per_worker() == 6
+
+
+def test_jobs_per_worker_prefers_environment_override(tmp_path, monkeypatch):
+    project_config = tmp_path / "config.yaml"
+    project_config.write_text("runtime:\n  jobs_per_worker: 6\n", encoding="utf-8")
+
+    monkeypatch.setenv("OPENAGENTS_CONFIG_PATH", str(project_config))
+    monkeypatch.setenv("OPENAGENTS_LANGGRAPH_JOBS_PER_WORKER", "8")
+    monkeypatch.setenv("N_JOBS_PER_WORKER", "2")
+
+    assert langgraph_dev._resolve_jobs_per_worker() == 8

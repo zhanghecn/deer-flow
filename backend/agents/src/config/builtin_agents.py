@@ -80,7 +80,9 @@ def _copy_builtin_skills(*, paths: Paths, status: str, skill_names: list[str]) -
     skill_refs = materialize_agent_skills(
         skills_dir=paths.agent_skills_dir(LEAD_AGENT_NAME, status),
         skill_names=skill_names,
+        target_status=status,
         paths=paths,
+        allow_shared=True,
     )
     return [serialize_agent_skill_ref(skill_ref) for skill_ref in skill_refs]
 

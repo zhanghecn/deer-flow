@@ -1,4 +1,9 @@
-import type { AIMessage, Command, Message } from "@langchain/langgraph-sdk";
+import type {
+  AIMessage,
+  Command,
+  Message,
+  ThreadState,
+} from "@langchain/langgraph-sdk";
 import { useStream } from "@langchain/langgraph-sdk/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -321,6 +326,20 @@ function extractLatestContextWindow(
   return undefined;
 }
 
+function buildPassthroughThreadHistory<StateType extends Record<string, unknown>>(): {
+  data: ThreadState<StateType>[];
+  error: undefined;
+  isLoading: false;
+  mutate: () => Promise<ThreadState<StateType>[]>;
+} {
+  return {
+    data: [],
+    error: undefined,
+    isLoading: false,
+    mutate: async () => [],
+  };
+}
+
 export function useThreadStream({
   threadId,
   context,
@@ -344,6 +363,13 @@ export function useThreadStream({
     [context],
   );
   const streamThrottle = resolveStreamThrottle(resolvedContext);
+  const passthroughThreadHistory = useMemo(
+    () =>
+      historyEnabled || !threadId
+        ? undefined
+        : buildPassthroughThreadHistory<AgentThreadState>(),
+    [historyEnabled, threadId],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -401,6 +427,7 @@ export function useThreadStream({
     threadId: streamThreadId,
     throttle: streamThrottle,
     reconnectOnMount: true,
+    thread: passthroughThreadHistory,
     // Fresh threads can race with the first run before the runtime model is
     // persisted. Delay history reads until the first turn finishes.
     fetchStateHistory: historyEnabled ? { limit: HISTORY_PAGE_SIZE } : false,

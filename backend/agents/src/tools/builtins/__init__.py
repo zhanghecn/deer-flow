@@ -1,4 +1,5 @@
 from .clarification_tool import ask_clarification_tool
+from .install_skill_from_registry_tool import install_skill_from_registry
 from .promote_skill_shared_tool import promote_skill_shared
 from .push_agent_prod_tool import push_agent_prod
 from .push_skill_prod_tool import push_skill_prod
@@ -12,6 +13,7 @@ __all__ = [
     "setup_agent",
     "save_agent_to_store",
     "save_skill_to_store",
+    "install_skill_from_registry",
     "push_agent_prod",
     "push_skill_prod",
     "promote_skill_shared",

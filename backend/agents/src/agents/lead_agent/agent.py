@@ -98,6 +98,7 @@ class LeadAgentRuntimeContext(BaseModel):
     command_args: str | None = None
     command_prompt: str | None = None
     authoring_actions: list[str] = Field(default_factory=list)
+    referenced_skill_names: list[str] = Field(default_factory=list)
     original_user_input: str | None = None
     mode: str | None = None
     is_plan_mode: bool | None = None
@@ -122,6 +123,7 @@ class LeadAgentRequest:
     command_args: str | None
     command_prompt: str | None
     authoring_actions: tuple[str, ...]
+    referenced_skill_names: tuple[str, ...]
     target_agent_name: str | None
     agent_name: str
     agent_status: str
@@ -269,6 +271,46 @@ def _seed_runtime_materials(
     )
     missing_uploads = _collect_missing_runtime_uploads(backend, runtime_targets)
     _upload_runtime_files(backend, missing_uploads)
+
+
+def _seed_create_agent_target_runtime_materials_if_available(
+    backend: BackendProtocol,
+    *,
+    request: LeadAgentRequest,
+) -> None:
+    """Seed an existing target archive into the thread runtime for `/create-agent`.
+
+    The active runtime only seeds the executing agent by default (usually
+    `lead_agent`). During `/create-agent` updates, the model may need to inspect
+    the archived target agent's existing `AGENTS.md` and copied skills through
+    the virtual `/mnt/user-data/agents/...` contract. If the target archive
+    already exists, mirror it into the current thread runtime as an additional
+    read-only context source.
+    """
+
+    if request.command_name != "create-agent" or not request.target_agent_name:
+        return
+
+    target_agent_name = normalize_effective_agent_name(request.target_agent_name)
+    current_agent_name = normalize_effective_agent_name(request.agent_name)
+    if target_agent_name == current_agent_name:
+        return
+
+    paths = get_paths()
+    target_agent_config = load_agent_config(
+        target_agent_name,
+        status=request.agent_status,
+        paths=paths,
+    )
+    if target_agent_config is None:
+        return
+
+    _seed_runtime_materials(
+        backend,
+        agent_name=target_agent_name,
+        status=request.agent_status,
+        agent_config=target_agent_config,
+    )
 
 
 def _build_local_workspace_backend(
@@ -761,6 +803,7 @@ def _resolve_lead_agent_request(
         command_args=command_resolution.args,
         command_prompt=command_resolution.prompt,
         authoring_actions=command_resolution.authoring_actions,
+        referenced_skill_names=_coerce_optional_str_list(cfg.get("referenced_skill_names")),
         target_agent_name=command_resolution.target_agent_name,
         agent_name=normalize_effective_agent_name(_coerce_optional_str(cfg.get("agent_name"))),
         agent_status=_resolve_agent_status(cfg.get("agent_status", "dev")),
@@ -834,6 +877,7 @@ def _update_request_runtime_context(
             "command_args": request.command_args,
             "command_prompt": request.command_prompt,
             "authoring_actions": list(request.authoring_actions),
+            "referenced_skill_names": list(request.referenced_skill_names),
             "execution_backend": request.execution_backend,
             "remote_session_id": request.remote_session_id,
         },
@@ -891,7 +935,7 @@ def _resolve_agent_backend(
 ) -> BackendProtocol:
     if not prepare_runtime_resources:
         return _build_shared_read_context_backend()
-    return build_backend(
+    backend = build_backend(
         request.thread_id,
         request.agent_name,
         request.agent_status,
@@ -899,6 +943,11 @@ def _resolve_agent_backend(
         execution_backend=request.execution_backend,
         remote_session_id=request.remote_session_id,
     )
+    _seed_create_agent_target_runtime_materials_if_available(
+        backend,
+        request=request,
+    )
+    return backend
 
 
 def _build_agent_subagents(

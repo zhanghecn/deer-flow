@@ -70,15 +70,41 @@ dev agent 也能使用 prod skill
 设计 视频 写作 编程 等各个方面找出skill  
 1. 测试 skill 是否自动安装在 dev 中
 2. 接下来 通过 lead_agent 使用 /create-agent 创建相应的agent 看看是否会推荐使用一些 skill 自动配置
-3. 创建完后 应该会推荐进行测试,点击后提供数据/文件 进行测试
+3. 创建完后 应该会推荐进行测试创建的agent,跳转创建后的agent提供数据/文件 进行测试
 4. 测试完后 检查下 skill AGENTS.md 有没有问题
 5. 如果有问题,请不要自己改 skill 和 AGENTS.md 接下来就是进行更深层的测试 在 dev 模型下的 agent 可以自主修复 AGENTS.md 和 skill 你需要反复问 让其自主修改
 6. 如果无法自主修改正确 请检查原因
+
 
 内部审查是必须的,有些时候agent 表达行为不正确,你不能随意猜测
 
 
 你可以访问 http://localhost:5173  对于agent 内部检查内部执行状态 
 
-
+如果遇到生成/编辑视频skill需要使用的到gemini 
+你可以转换成 doubao-seedance-2-0-260128
+参考
 https://www.volcengine.com/docs/82379/1520757?lang=zh
+
+
+ 一律使用 kimi ultra 模式。用kimi 应该速度会更快点 ultra 功能更全 。
+
+# 功能修正
+1. 目前 模式有 闪速,思考,Pro,Ultra 太多了。 
+都允许自规划和subagent  只分 闪速(不思考)和Pro(就是Ultra) 
+2. 输入 $选出有哪些技能可用无法上下选择分页,目前选择页面直接铺面不美观
+3. 
+# 目前我测试发现的问题
+1. 我发现当模型出现错误不会重试 如Connection error 或者 429 速率问题,你去看看langchain deepagent 规范看看如何进行重试。
+2. 还有一点出错后 前端没有提示。
+3. 执行subagent 前端显示不美观,字迹不清晰。 并且一直提示 子任务运行中 哪怕已经完成
+4. 任务执行一半 点击取消,在重新规划
+是的 但还有一点你没考虑到。  
+我的项目做出的agent 发在prod 后可被任意地方调用。 
+比如业务部门当生成合同审查agent 发布在prod 那么不应该在我平台使用了。 
+而是可以导出成api 随意被使用。
+导出api 还应该提供 演示demo 直接在agent 点击下载demo 
+里面会有一个 react demo 项目 自动填写好 链接地址 以及 token 可脱离平台进行本地化测试
+
+你作为用户你会如何使用？
+你作为用户你会给这个项目提出什么建议？

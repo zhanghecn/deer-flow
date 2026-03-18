@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
 import shutil
+import subprocess
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
@@ -8,6 +11,7 @@ import yaml
 from langgraph.prebuilt import ToolRuntime
 
 from src.agents.thread_state import ThreadState
+from src.config.agent_materialization import validate_skill_refs_for_status
 from src.config.agents_config import AGENT_NAME_PATTERN, AGENTS_MD_FILENAME, AgentConfig
 from src.config.paths import Paths, VIRTUAL_PATH_PREFIX, get_paths
 from src.skills.parser import parse_skill_file
@@ -63,7 +67,12 @@ def _copy_directory(source_dir: Path, target_dir: Path) -> tuple[Path, Path | No
     return target_dir, backup_dir
 
 
-def _load_agent_payload(source_dir: Path, *, target_status: str) -> AgentConfig:
+def _load_agent_payload(
+    source_dir: Path,
+    *,
+    target_status: str,
+    paths: Paths | None = None,
+) -> AgentConfig:
     config_file = source_dir / "config.yaml"
     if not config_file.exists():
         raise ValueError(f"Agent config.yaml is required: {config_file}")
@@ -75,7 +84,13 @@ def _load_agent_payload(source_dir: Path, *, target_status: str) -> AgentConfig:
     payload.setdefault("name", source_dir.name)
     payload["status"] = target_status
     payload.setdefault("agents_md_path", AGENTS_MD_FILENAME)
-    return AgentConfig.model_validate(payload)
+    agent_config = AgentConfig.model_validate(payload)
+    validate_skill_refs_for_status(
+        agent_config.skill_refs,
+        target_status=target_status,
+        paths=paths,
+    )
+    return agent_config
 
 
 def validate_skill_directory(skill_dir: Path) -> None:
@@ -86,9 +101,110 @@ def validate_skill_directory(skill_dir: Path) -> None:
         raise ValueError(f"Valid SKILL.md is required: {skill_file}")
 
 
-def validate_agent_directory(source_dir: Path, *, target_status: str) -> AgentConfig:
+def _existing_skill_scopes(*, skill_name: PurePosixPath, paths: Paths) -> tuple[str, ...]:
+    relative_path = Path(skill_name.as_posix())
+    scopes: list[str] = []
+    if (paths.shared_skills_dir / relative_path).is_dir():
+        scopes.append("shared")
+    if (paths.store_dev_skills_dir / relative_path).is_dir():
+        scopes.append("store/dev")
+    if (paths.store_prod_skills_dir / relative_path).is_dir():
+        scopes.append("store/prod")
+    return tuple(scopes)
+
+
+def _registry_skill_name(skill_source: str, explicit_skill_name: str | None = None) -> PurePosixPath:
+    normalized_source = str(skill_source).strip()
+    if not normalized_source:
+        raise ValueError("source is required.")
+
+    if explicit_skill_name is not None and str(explicit_skill_name).strip():
+        return _normalize_skill_path(explicit_skill_name)
+
+    if "@" not in normalized_source:
+        raise ValueError("skill_name is required when source does not include '@skill-name'.")
+
+    return _normalize_skill_path(normalized_source.rsplit("@", 1)[-1])
+
+
+def _subprocess_failure_message(result: subprocess.CompletedProcess[str]) -> str:
+    for stream in (result.stderr, result.stdout):
+        text = str(stream or "").strip()
+        if text:
+            return text.splitlines()[-1]
+    return f"command exited with code {result.returncode}"
+
+
+def install_registry_skill_to_store(
+    *,
+    source: str,
+    skill_name: str | None = None,
+    paths: Paths | None = None,
+) -> tuple[str, Path]:
+    paths = paths or get_paths()
+    normalized_source = str(source).strip()
+    resolved_skill_name = _registry_skill_name(normalized_source, skill_name)
+
+    existing_scopes = _existing_skill_scopes(skill_name=resolved_skill_name, paths=paths)
+    if existing_scopes:
+        scopes = ", ".join(existing_scopes)
+        raise ValueError(f"Skill '{resolved_skill_name.as_posix()}' already exists in {scopes}.")
+
+    with tempfile.TemporaryDirectory(prefix="openagents-skill-install-") as temp_home:
+        temp_home_path = Path(temp_home)
+        env = os.environ.copy()
+        env["HOME"] = str(temp_home_path)
+        env.setdefault("XDG_CONFIG_HOME", str(temp_home_path / ".config"))
+        env.setdefault("XDG_CACHE_HOME", str(temp_home_path / ".cache"))
+        env.setdefault("XDG_DATA_HOME", str(temp_home_path / ".local" / "share"))
+
+        result = subprocess.run(
+            ["npx", "skills", "add", normalized_source, "--yes", "--global"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=300,
+            env=env,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"Failed to install registry skill '{normalized_source}': {_subprocess_failure_message(result)}"
+            )
+
+        downloaded_dir = temp_home_path / ".agents" / "skills" / Path(resolved_skill_name.as_posix())
+        validate_skill_directory(downloaded_dir)
+
+        parsed = parse_skill_file(
+            downloaded_dir / "SKILL.md",
+            category="store/dev",
+            relative_path=Path(resolved_skill_name.as_posix()),
+        )
+        if parsed is None:
+            raise ValueError(f"Valid SKILL.md is required: {downloaded_dir / 'SKILL.md'}")
+        if parsed.name != resolved_skill_name.name:
+            raise ValueError(
+                f"Installed skill name mismatch: expected '{resolved_skill_name.name}', got '{parsed.name}'."
+            )
+
+        target_dir, _backup_dir = _copy_directory(
+            downloaded_dir,
+            paths.store_dev_skills_dir / Path(resolved_skill_name.as_posix()),
+        )
+        return parsed.name, target_dir
+
+
+def validate_agent_directory(
+    source_dir: Path,
+    *,
+    target_status: str,
+    paths: Paths | None = None,
+) -> AgentConfig:
     _require_directory(source_dir, label="agent source")
-    agent_config = _load_agent_payload(source_dir, target_status=target_status)
+    agent_config = _load_agent_payload(
+        source_dir,
+        target_status=target_status,
+        paths=paths,
+    )
 
     agents_md_path = source_dir / agent_config.agents_md_path
     if not agents_md_path.exists():
@@ -139,7 +255,7 @@ def save_agent_directory_to_store(
 ) -> tuple[Path, Path | None]:
     paths = paths or get_paths()
     normalized_agent_name = _normalize_agent_name(agent_name)
-    validate_agent_directory(source_dir, target_status="dev")
+    validate_agent_directory(source_dir, target_status="dev", paths=paths)
     target_dir = paths.agent_dir(normalized_agent_name, "dev")
     saved_target_dir, backup_dir = _copy_directory(source_dir, target_dir)
     _rewrite_agent_status(saved_target_dir, status="dev")
@@ -180,7 +296,7 @@ def push_agent_directory_to_prod(
     paths = paths or get_paths()
     normalized_agent_name = _normalize_agent_name(agent_name)
     source_dir = paths.agent_dir(normalized_agent_name, "dev")
-    validate_agent_directory(source_dir, target_status="prod")
+    validate_agent_directory(source_dir, target_status="prod", paths=paths)
     target_dir = paths.agent_dir(normalized_agent_name, "prod")
     saved_target_dir, backup_dir = _copy_directory(source_dir, target_dir)
     _rewrite_agent_status(saved_target_dir, status="prod")

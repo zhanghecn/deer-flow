@@ -7,6 +7,7 @@ from src.config.runtime_db import get_runtime_db_store
 from src.reflection import resolve_variable
 from src.tools.builtins import (
     ask_clarification_tool,
+    install_skill_from_registry,
     present_file_tool,
     promote_skill_shared,
     push_agent_prod,
@@ -22,6 +23,9 @@ logger = logging.getLogger(__name__)
 BUILTIN_TOOLS = [
     present_file_tool,
     ask_clarification_tool,
+]
+DEV_BUILTIN_TOOLS = [
+    install_skill_from_registry,
 ]
 
 AUTHORING_TOOL_REGISTRY = {
@@ -90,6 +94,9 @@ def get_available_tools(
     # Conditionally add tools based on config
     builtin_tools = BUILTIN_TOOLS.copy()
     if agent_status == "dev":
+        for tool in DEV_BUILTIN_TOOLS:
+            if tool not in builtin_tools:
+                builtin_tools.append(tool)
         if setup_agent_enabled and setup_agent not in builtin_tools:
             builtin_tools.append(setup_agent)
         for action in authoring_actions or []:

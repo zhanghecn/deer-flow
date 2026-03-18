@@ -89,10 +89,11 @@ def test_aio_sandbox_execute_rewrites_runtime_alias_paths(monkeypatch):
 
     sandbox.execute("python /agents/dev/lead_agent/skills/image-generation/scripts/generate.py --output-file /outputs/demo.jpg")
 
-    assert sandbox._client.shell.last_call["command"].startswith(
-        "python /mnt/user-data/agents/dev/lead_agent/skills/image-generation/scripts/generate.py"
-    )
-    assert "/mnt/user-data/outputs/demo.jpg" in sandbox._client.shell.last_call["command"]
+    command = sandbox._client.shell.last_call["command"]
+    assert command.startswith("bwrap ")
+    assert "python /mnt/user-data/agents/dev/lead_agent/skills/image-generation/scripts/generate.py" in command
+    assert "/mnt/user-data/outputs/demo.jpg" in command
+    assert sandbox._client.shell.last_call["exec_dir"] == "/mnt/user-data"
 
 
 def test_aio_sandbox_execute_rewrites_virtual_paths_into_thread_mount(monkeypatch):
@@ -107,10 +108,28 @@ def test_aio_sandbox_execute_rewrites_virtual_paths_into_thread_mount(monkeypatc
     sandbox.execute("python /mnt/user-data/agents/dev/lead_agent/skills/image-generation/scripts/generate.py --output-file /mnt/user-data/outputs/demo.jpg")
 
     assert sandbox._client.shell.last_call["exec_dir"] == "/openagents/threads/thread-1/user-data"
-    assert sandbox._client.shell.last_call["command"].startswith(
-        "python /openagents/threads/thread-1/user-data/agents/dev/lead_agent/skills/image-generation/scripts/generate.py"
+    command = sandbox._client.shell.last_call["command"]
+    assert command.startswith("bwrap ")
+    assert "--bind /openagents/threads/thread-1/user-data /mnt/user-data" in command
+    assert "python /mnt/user-data/agents/dev/lead_agent/skills/image-generation/scripts/generate.py" in command
+    assert "/mnt/user-data/outputs/demo.jpg" in command
+
+
+def test_aio_sandbox_execute_can_disable_exec_isolation(monkeypatch):
+    monkeypatch.setattr(aio_sandbox_module, "AioSandboxClient", _DummyClient)
+    monkeypatch.setenv("OPENAGENTS_SANDBOX_EXEC_ISOLATION", "off")
+
+    sandbox = aio_sandbox_module.AioSandbox(
+        id="sb-disable",
+        base_url="http://sandbox.test",
+        runtime_root="/openagents/threads/thread-9/user-data",
     )
-    assert "/openagents/threads/thread-1/user-data/outputs/demo.jpg" in sandbox._client.shell.last_call["command"]
+
+    sandbox.execute("pwd && ls /workspace")
+
+    assert sandbox._client.shell.last_call["command"] == (
+        "pwd && ls /openagents/threads/thread-9/user-data/workspace"
+    )
 
 
 def test_aio_sandbox_file_api_rewrites_virtual_paths_into_thread_mount(monkeypatch):
@@ -155,13 +174,35 @@ def test_aio_sandbox_ls_info_virtualizes_runtime_root_paths(monkeypatch):
 
     result = sandbox.ls_info("/")
 
-    assert captured["path"] == "/openagents/threads/thread-3/user-data"
+    assert captured["path"] == "/mnt/user-data"
     assert result == [
         {
             "path": "/mnt/user-data/agents/dev/lead_agent",
             "is_dir": True,
         }
     ]
+
+
+def test_aio_sandbox_ls_info_uses_host_paths_when_exec_isolation_disabled(monkeypatch):
+    captured: dict[str, str] = {}
+
+    def fake_ls_info(self, path: str):
+        captured["path"] = path
+        return []
+
+    monkeypatch.setattr(BaseSandbox, "ls_info", fake_ls_info)
+    monkeypatch.setattr(aio_sandbox_module, "AioSandboxClient", _DummyClient)
+    monkeypatch.setenv("OPENAGENTS_SANDBOX_EXEC_ISOLATION", "off")
+
+    sandbox = aio_sandbox_module.AioSandbox(
+        id="sb-6b",
+        base_url="http://sandbox.test",
+        runtime_root="/openagents/threads/thread-3/user-data",
+    )
+
+    sandbox.ls_info("/")
+
+    assert captured["path"] == "/openagents/threads/thread-3/user-data"
 
 
 def test_aio_sandbox_glob_info_rewrites_virtual_patterns(monkeypatch):
@@ -188,17 +229,41 @@ def test_aio_sandbox_glob_info_rewrites_virtual_patterns(monkeypatch):
 
     result = sandbox.glob_info("/mnt/user-data/agents/dev/lead_agent/skills/**/*")
 
-    assert captured["path"] == "/openagents/threads/thread-4/user-data"
-    assert (
-        captured["pattern"]
-        == "/openagents/threads/thread-4/user-data/agents/dev/lead_agent/skills/**/*"
-    )
+    assert captured["path"] == "/mnt/user-data"
+    assert captured["pattern"] == "/mnt/user-data/agents/dev/lead_agent/skills/**/*"
     assert result == [
         {
             "path": "/mnt/user-data/agents/dev/lead_agent/skills/review/SKILL.md",
             "is_dir": False,
         }
     ]
+
+
+def test_aio_sandbox_glob_info_uses_host_paths_when_exec_isolation_disabled(monkeypatch):
+    captured: dict[str, str] = {}
+
+    def fake_glob_info(self, pattern: str, path: str = "/"):
+        captured["pattern"] = pattern
+        captured["path"] = path
+        return []
+
+    monkeypatch.setattr(BaseSandbox, "glob_info", fake_glob_info)
+    monkeypatch.setattr(aio_sandbox_module, "AioSandboxClient", _DummyClient)
+    monkeypatch.setenv("OPENAGENTS_SANDBOX_EXEC_ISOLATION", "off")
+
+    sandbox = aio_sandbox_module.AioSandbox(
+        id="sb-7b",
+        base_url="http://sandbox.test",
+        runtime_root="/openagents/threads/thread-4/user-data",
+    )
+
+    sandbox.glob_info("/mnt/user-data/agents/dev/lead_agent/skills/**/*")
+
+    assert captured["path"] == "/openagents/threads/thread-4/user-data"
+    assert (
+        captured["pattern"]
+        == "/openagents/threads/thread-4/user-data/agents/dev/lead_agent/skills/**/*"
+    )
 
 
 def test_aio_sandbox_grep_raw_virtualizes_result_paths(monkeypatch):

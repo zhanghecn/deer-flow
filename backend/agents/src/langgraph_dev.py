@@ -16,6 +16,7 @@ from src.config.config_files import resolve_config_file
 from src.remote.server import start_remote_relay_sidecar
 
 ALLOWED_RUNTIME_EDITIONS = {"inmem", "postgres", "community"}
+DEFAULT_LANGGRAPH_JOBS_PER_WORKER = 4
 
 
 def _load_config(config_path: Path) -> dict[str, Any]:
@@ -73,6 +74,16 @@ def _parse_int_env(var_name: str, default: int) -> int:
         raise RuntimeError(f"Invalid integer for {var_name}: {raw}") from exc
 
 
+def _parse_non_negative_int(raw: str, *, source_name: str) -> int:
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"Invalid integer for {source_name}: {raw}") from exc
+    if value < 0:
+        raise RuntimeError(f"{source_name} must be >= 0: {raw}")
+    return value
+
+
 def _required_env(var_name: str) -> str:
     value = os.getenv(var_name, "").strip()
     if value:
@@ -127,12 +138,39 @@ def _resolve_runtime_edition() -> str:
     return "inmem"
 
 
+def _resolve_jobs_per_worker() -> int:
+    for env_var in ("OPENAGENTS_LANGGRAPH_JOBS_PER_WORKER", "N_JOBS_PER_WORKER"):
+        env_value = os.getenv(env_var, "").strip()
+        if env_value:
+            return _parse_non_negative_int(env_value, source_name=env_var)
+
+    config_data = _load_project_runtime_config()
+    runtime_config = config_data.get("runtime")
+    if isinstance(runtime_config, dict):
+        configured = runtime_config.get("jobs_per_worker")
+        if configured is not None:
+            return _parse_non_negative_int(
+                str(configured).strip(),
+                source_name="runtime.jobs_per_worker",
+            )
+
+    legacy_value = config_data.get("langgraph_jobs_per_worker")
+    if legacy_value is not None:
+        return _parse_non_negative_int(
+            str(legacy_value).strip(),
+            source_name="langgraph_jobs_per_worker",
+        )
+
+    return DEFAULT_LANGGRAPH_JOBS_PER_WORKER
+
+
 def main() -> None:
     config_path = _resolve_config_path()
     config_data = _load_config(config_path)
     runtime_env = _load_env_from_config(config_path, config_data)
 
     runtime_edition = _resolve_runtime_edition()
+    jobs_per_worker = _resolve_jobs_per_worker()
     if runtime_edition not in ALLOWED_RUNTIME_EDITIONS:
         allowed = "|".join(sorted(ALLOWED_RUNTIME_EDITIONS))
         raise RuntimeError(
@@ -165,7 +203,7 @@ def main() -> None:
 
     print(
         f"Starting LangGraph with runtime edition: {runtime_edition} "
-        f"(host={host} port={port})"
+        f"(host={host} port={port} jobs_per_worker={jobs_per_worker})"
     )
 
     # Ensure built-in archived agent files exist before serving requests.
@@ -179,6 +217,7 @@ def main() -> None:
         port=port,
         reload=False,
         graphs=config_data.get("graphs", {}),
+        n_jobs_per_worker=jobs_per_worker,
         # Resolve env here so existing process/Docker env keeps priority over
         # host-view values from a shared `.env` file.
         env=runtime_env,

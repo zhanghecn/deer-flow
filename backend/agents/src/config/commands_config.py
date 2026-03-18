@@ -12,6 +12,11 @@ _TARGET_AGENT_PATTERNS = (
     re.compile(r"(?:名为|名字叫|叫做)\s+([A-Za-z0-9-]+)", re.IGNORECASE),
     re.compile(r"(?:named|called)\s+([A-Za-z0-9-]+)", re.IGNORECASE),
     re.compile(r"(?:agent[_\s-]*name|name)\s*[:=]\s*([A-Za-z0-9-]+)", re.IGNORECASE),
+    re.compile(
+        r"(?:^|[\s,.:;!?，。：；！？()（）])(?:已有|已存在|现有|修复|更新|测试|创建|这个|该)?\s*"
+        r"(?:(?:dev|prod)\s+)?(?:agent|智能体)\s*[`'\"]?([A-Za-z0-9-]+)[`'\"]?",
+        re.IGNORECASE,
+    ),
 )
 
 

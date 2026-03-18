@@ -1,6 +1,8 @@
 import type { Skill } from "./type";
 
 export const SKILL_SCOPE_ORDER = ["shared", "store/dev", "store/prod"] as const;
+export const DEV_AGENT_SKILL_SCOPE_ORDER = ["store/dev", "store/prod"] as const;
+export const PROD_AGENT_SKILL_SCOPE_ORDER = ["store/prod"] as const;
 
 export type SkillScope = (typeof SKILL_SCOPE_ORDER)[number];
 
@@ -29,11 +31,40 @@ export function getSkillScopes(skills: Pick<Skill, "category">[]) {
   );
 }
 
+export function getAllowedSkillScopesForAgent(
+  status: "dev" | "prod",
+  allowShared = false,
+) {
+  const baseScopes =
+    status === "prod" ? PROD_AGENT_SKILL_SCOPE_ORDER : DEV_AGENT_SKILL_SCOPE_ORDER;
+  return allowShared ? (["shared", ...baseScopes] as SkillScope[]) : [...baseScopes];
+}
+
 export function filterSkillsByScope<T extends Pick<Skill, "category">>(
   skills: T[],
   scope: SkillScope,
 ) {
   return skills.filter(
     (skill) => normalizeSkillScope(skill.category) === scope,
+  );
+}
+
+export function getDuplicateSkillNames(
+  skills: Pick<Skill, "name" | "category">[],
+  scopes: SkillScope[],
+) {
+  const counts = new Map<string, number>();
+  for (const skill of skills) {
+    const scope = normalizeSkillScope(skill.category);
+    if (!scope || !scopes.includes(scope)) {
+      continue;
+    }
+    counts.set(skill.name, (counts.get(skill.name) ?? 0) + 1);
+  }
+
+  return new Set(
+    [...counts.entries()]
+      .filter(([, count]) => count > 1)
+      .map(([name]) => name),
   );
 }

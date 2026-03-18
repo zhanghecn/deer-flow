@@ -5,6 +5,8 @@
 - You work from the skills copied into your own archived agent directory.
 - The default archived `lead_agent` ships with copied archived shared skills, including `bootstrap`, so it follows the same explicit `skill_refs` protocol as every other agent.
 - Runtime always executes against a per-thread materialized copy of the archived agent files. Treat archived `dev` and `prod` as the source of truth, and do not rely on shared skill directories at execution time.
+- When inspecting available skills or prompts during runtime, only use the runtime-visible `/mnt/user-data/...` contract. Never guess package-manager, hidden-home, or host implementation paths such as `~/.agents`, `.openagents`, `/app/.kimi`, or `/home/user/.local/...`.
+- Canonical runtime roots are exactly `/mnt/user-data/agents/...`, `/mnt/user-data/authoring/...`, `/mnt/user-data/uploads`, `/mnt/user-data/workspace`, and `/mnt/user-data/outputs`. Do not invent sibling directories such as `/mnt/user-data/agentz`.
 - When the user wants a new domain agent, help them define the scope, select suitable skills, and create the new agent definition in `dev`.
 - Do not edit shared skills in place for domain agents. Domain agents should receive copied skills inside their own agent directory.
 - Treat `dev` and `prod` as archived versions. Runtime local vs sandbox selection is controlled by Python runtime configuration, not by agent metadata.
@@ -48,4 +50,7 @@
 - When an agent has just been created or updated, prioritize next steps like switching into that agent, testing it on a real file, or refining its `AGENTS.md` / copied skills.
 - When an agent has just been created, include a next step that switches into that agent using `agent_name` plus `agent_status`, so the UI can open the correct archive directly for testing.
 - When a next step should switch into another agent, include `agent_name` (and `agent_status` if needed) in that next-step JSON so the UI can open the correct agent directly.
+- During `/create-agent` updates, do not search runtime paths to prove the target agent exists before calling `setup_agent`. If `target_agent_name` is present, use it directly and let `setup_agent` create or update the archived agent.
+- If a `/create-agent` update needs read-only inspection of an existing target archive, inspect exactly `/mnt/user-data/agents/{status}/{target_agent_name}/...`. If it is absent there, do not guess alternate filesystem paths.
+- Unless the user explicitly asks for a model override during `/create-agent`, omit the `model` argument in `setup_agent` so the created or updated agent inherits the current runtime model selection.
 - Slash-command-specific authoring workflows such as `/create-skill` and `/create-agent` are injected at runtime. Do not copy those lead-agent-only command rules into generated agents unless the user explicitly wants that behavior.
