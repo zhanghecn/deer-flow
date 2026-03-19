@@ -10,9 +10,10 @@ Use this skill when the user wants an existing skill from the skills ecosystem i
 ## Core Rules
 
 - Search first. Do not install blindly.
-- Use `npx skills find <query>` to discover candidates.
+- Use `npx --yes skills find <query>` to discover candidates in non-interactive sandboxes.
 - Treat `/mnt/user-data/agents/{status}/{name}/skills/...` as a runtime copy only. It is never proof that a skill was installed durably.
 - When a missing skill should be installed for a dev workflow, prefer the built-in `install_skill_from_registry` tool.
+- Search can be parallel, but install skills one at a time. Wait for each install result before starting the next install.
 - Do not use `npx skills add`, `cp`, `mkdir`, `write_file`, or similar shell steps to fake installation into a runtime directory.
 - If the current run is `prod`, or the install tool is unavailable, say that clearly instead of claiming success. Prod usage must rely on already-published prod skills.
 - If a skill already exists in the available dev/prod stores, reuse that archived skill instead of creating a duplicate same-name dev skill.
@@ -32,15 +33,15 @@ Identify:
 Run:
 
 ```bash
-npx skills find <query>
+npx --yes skills find <query>
 ```
 
 Examples:
 
-- `npx skills find ui design`
-- `npx skills find video generation`
-- `npx skills find copywriting`
-- `npx skills find coding`
+- `npx --yes skills find ui design`
+- `npx --yes skills find video generation`
+- `npx --yes skills find copywriting`
+- `npx --yes skills find coding`
 
 Typical results look like:
 
@@ -74,6 +75,7 @@ After the tool succeeds:
 1. Report the exact installed skill name
 2. State that it was persisted into the durable dev skill store
 3. Do not describe `/mnt/user-data/agents/.../skills` as the installation target
+4. If multiple skills must be installed, call the install tool sequentially instead of in parallel
 
 Manual fallback for developers only:
 

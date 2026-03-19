@@ -29,6 +29,30 @@ export interface Agent {
   agents_md?: string | null;
 }
 
+export interface AgentExportEndpoint {
+  method: string;
+  url: string;
+  headers?: Record<string, string>;
+  body?: Record<string, unknown>;
+}
+
+export interface AgentExportDoc {
+  agent: string;
+  status: AgentStatus;
+  api_base_url: string;
+  endpoints: {
+    stream: AgentExportEndpoint;
+    chat: AgentExportEndpoint;
+  };
+  demo: {
+    framework: string;
+    method: string;
+    url: string;
+    notes: string[];
+  };
+  documentation_url: string;
+}
+
 export interface CreateAgentRequest {
   name: string;
   description?: string;

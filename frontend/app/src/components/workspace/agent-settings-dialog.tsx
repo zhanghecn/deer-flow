@@ -5,6 +5,7 @@ import {
   BrainIcon,
   CheckIcon,
   CopyIcon,
+  DownloadIcon,
   ExternalLinkIcon,
   FileTextIcon,
   Link2Icon,
@@ -37,6 +38,8 @@ import {
   type Agent,
   type AgentStatus,
   useAgent,
+  useAgentExportDoc,
+  useDownloadAgentReactDemo,
   useUpdateAgent,
 } from "@/core/agents";
 import type { AgentSkillRef } from "@/core/agents";
@@ -209,6 +212,13 @@ export function AgentSettingsDialog({
     isLoading: skillsLoading,
     error: skillsError,
   } = useSkills();
+  const isProdArchive = agentStatus === "prod";
+  const {
+    exportDoc,
+    isLoading: exportDocLoading,
+    error: exportDocError,
+  } = useAgentExportDoc(open && isProdArchive ? agentName : null, open && isProdArchive);
+  const downloadDemoMutation = useDownloadAgentReactDemo();
   const updateAgentMutation = useUpdateAgent();
   const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
   const [form, setForm] = useState<AgentSettingsFormState | null>(null);
@@ -323,12 +333,29 @@ export function AgentSettingsDialog({
     setSavedForm(nextForm);
   }, [agent, open]);
 
-  async function handleCopyLaunchURL() {
+  async function handleCopyText(value: string, successMessage: string) {
     try {
-      await navigator.clipboard.writeText(launchURL);
-      toast.success("Agent launch URL copied");
+      await navigator.clipboard.writeText(value);
+      toast.success(successMessage);
     } catch {
-      toast.error("Failed to copy launch URL");
+      toast.error("Failed to copy text");
+    }
+  }
+
+  async function handleCopyLaunchURL() {
+    await handleCopyText(launchURL, "Agent launch URL copied");
+  }
+
+  async function handleDownloadReactDemo() {
+    try {
+      const filename = await downloadDemoMutation.mutateAsync(agentName);
+      toast.success(`${filename} downloaded`);
+    } catch (downloadError) {
+      toast.error(
+        downloadError instanceof Error
+          ? downloadError.message
+          : "Failed to download React demo",
+      );
     }
   }
 
@@ -1182,6 +1209,127 @@ export function AgentSettingsDialog({
                           </div>
                         </SurfaceCard>
 
+                        {isProdArchive ? (
+                          <SurfaceCard
+                            eyebrow={<DownloadIcon className="size-4" />}
+                            title="Open API export"
+                            description="Published prod agents can be invoked outside the platform and exported as a local React demo."
+                          >
+                            {exportDocLoading ? (
+                              <div className="text-muted-foreground flex items-center gap-2 text-sm">
+                                <Loader2Icon className="size-4 animate-spin" />
+                                Loading export document...
+                              </div>
+                            ) : exportDocError ? (
+                              <p className="text-sm leading-6">
+                                {exportDocError instanceof Error
+                                  ? exportDocError.message
+                                  : "Failed to load export document."}
+                              </p>
+                            ) : exportDoc ? (
+                              <div className="space-y-4">
+                                <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
+                                  <FieldLabel className="mb-2">
+                                    Gateway base
+                                  </FieldLabel>
+                                  <code className="bg-background border-border/70 block rounded-2xl border px-3 py-3 text-xs leading-6 break-all">
+                                    {exportDoc.api_base_url}
+                                  </code>
+                                </div>
+
+                                {(
+                                  [
+                                    ["chat", exportDoc.endpoints.chat],
+                                    ["stream", exportDoc.endpoints.stream],
+                                  ] as const
+                                ).map(([endpointName, endpoint]) => (
+                                  <div
+                                    key={endpointName}
+                                    className="border-border/70 rounded-3xl border p-4"
+                                  >
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <Badge variant="secondary">
+                                        {endpoint.method}
+                                      </Badge>
+                                      <p className="text-sm font-medium capitalize">
+                                        {endpointName}
+                                      </p>
+                                    </div>
+                                    <code className="bg-background border-border/70 mt-3 block rounded-2xl border px-3 py-3 text-xs leading-6 break-all">
+                                      {endpoint.url}
+                                    </code>
+                                  </div>
+                                ))}
+
+                                <div className="flex flex-wrap gap-2">
+                                  <Button
+                                    variant="outline"
+                                    onClick={() =>
+                                      handleCopyText(
+                                        exportDoc.endpoints.chat.url,
+                                        "Chat endpoint copied",
+                                      )
+                                    }
+                                  >
+                                    <CopyIcon className="size-3.5" />
+                                    Copy chat endpoint
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    onClick={() =>
+                                      handleCopyText(
+                                        exportDoc.endpoints.stream.url,
+                                        "Stream endpoint copied",
+                                      )
+                                    }
+                                  >
+                                    <CopyIcon className="size-3.5" />
+                                    Copy stream endpoint
+                                  </Button>
+                                  <Button
+                                    onClick={handleDownloadReactDemo}
+                                    disabled={downloadDemoMutation.isPending}
+                                  >
+                                    {downloadDemoMutation.isPending && (
+                                      <Loader2Icon className="size-3.5 animate-spin" />
+                                    )}
+                                    {!downloadDemoMutation.isPending && (
+                                      <DownloadIcon className="size-3.5" />
+                                    )}
+                                    Download React demo
+                                  </Button>
+                                </div>
+
+                                <div className="space-y-2">
+                                  <FieldLabel>Demo notes</FieldLabel>
+                                  <div className="space-y-2">
+                                    {exportDoc.demo.notes.map((note) => (
+                                      <p
+                                        key={note}
+                                        className="text-muted-foreground rounded-2xl border px-4 py-3 text-sm leading-6"
+                                      >
+                                        {note}
+                                      </p>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                            ) : null}
+                          </SurfaceCard>
+                        ) : (
+                          <SurfaceCard
+                            eyebrow={<Link2Icon className="size-4" />}
+                            title="Open API export"
+                            description="External invocation and demo download are only available after publishing this agent to prod."
+                          >
+                            <p className="text-muted-foreground text-sm leading-6">
+                              Publish this archive first if you want a stable
+                              `/open/v1/agents/{agentName}` endpoint or a
+                              downloadable React demo bundle for local testing.
+                            </p>
+                          </SurfaceCard>
+                        )}
+
                         <div className="space-y-6">
                           <SurfaceCard
                             eyebrow={<FileTextIcon className="size-4" />}
@@ -1227,14 +1375,15 @@ export function AgentSettingsDialog({
 
                           <SurfaceCard
                             eyebrow={<Settings2Icon className="size-4" />}
-                            title="Editor access"
-                            description="Reserved for a future browser editor or code-server endpoint."
+                            title="Export behavior"
+                            description="What the current export workflow does when you download the React demo."
                           >
                             <p className="text-muted-foreground text-sm leading-6">
-                              This deployment does not expose a dedicated VS
-                              Code server or file browser endpoint yet. For now,
-                              use the Prompt and Config tabs to edit the
-                              agent-owned archive safely from the workspace.
+                              The download action calls the protected gateway
+                              export endpoint, creates a short-lived API token,
+                              and writes the resolved base URL, agent name, and
+                              token into the generated Vite project so the demo
+                              can run outside this platform.
                             </p>
                           </SurfaceCard>
                         </div>

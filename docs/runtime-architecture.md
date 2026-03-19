@@ -49,6 +49,29 @@ The factory decides which runtime backend to use:
   - `configurable.execution_backend = "remote"`
   - `configurable.remote_session_id = "<session-id>"`
 
+## Thread Runtime Binding
+
+Runtime identity is thread-scoped, not process-scoped and not "current UI state".
+
+- `1 thread = 1 agent/runtime binding`
+- The binding is persisted in Gateway PostgreSQL `thread_bindings`
+- Current binding fields include:
+  - `thread_id`
+  - `user_id`
+  - `agent_name`
+  - `agent_status`
+  - `model_name`
+  - `execution_backend`
+  - `remote_session_id`
+
+Operational rules:
+
+- Opening an existing thread must restore that thread's persisted agent/runtime binding
+- Frontend thread URLs must be derived from the persisted binding, not from a global agent selector
+- Switching agent, archive (`dev` / `prod`), or execution backend creates a new thread instead of mutating an existing thread
+- Frontend "current agent" settings only provide defaults for a new conversation; they must not overwrite historical thread bindings
+- Open API always resolves `prod` agent archives, but regular workspace threads may bind either `dev` or `prod`
+
 ## Why The Provider Exists
 
 This is the part that usually causes confusion.

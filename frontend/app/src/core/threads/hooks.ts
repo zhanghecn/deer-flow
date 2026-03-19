@@ -19,6 +19,12 @@ import { getLocalSettings, type LocalSettings } from "../settings";
 import { useUpdateSubtask } from "../tasks/context";
 import type { UploadedFileInfo } from "../uploads";
 import { uploadFiles } from "../uploads";
+import { normalizeThreadError } from "./error";
+import {
+  getReasoningEffortForMode,
+  normalizeThreadMode,
+  resolveSubmitFlags,
+} from "./mode";
 
 import type { AgentInterruptValue, AgentThreadState } from "./types";
 
@@ -37,7 +43,9 @@ export type ThreadStreamOptions = {
   skipInitialHistory?: boolean;
   onStart?: (threadId: string) => void;
   onFinish?: (state: AgentThreadState) => void;
+  onStop?: (state: AgentThreadState | null) => void;
   onToolEnd?: (event: ToolEndEvent) => void;
+  onError?: (message: string) => void;
 };
 
 const LEAD_AGENT_ID = "lead_agent";
@@ -47,16 +55,25 @@ const HISTORY_PAGE_SIZE = 1;
 const STREAM_RECURSION_LIMIT = 1000;
 const THREAD_SEARCH_QUERY_KEY = ["threads", "search"] as const;
 const STREAM_MODES = ["values", "messages-tuple", "custom"] as const;
+type ThreadOverride = {
+  values: AgentThreadState;
+  messages: Message[];
+  history: ThreadState<AgentThreadState>[];
+  experimental_branchTree?: unknown;
+};
 
 function resolveThreadContext(context: ThreadContext): ThreadContext {
   const storedContext = getLocalSettings().context;
+  const mode = normalizeThreadMode(context.mode ?? storedContext.mode);
 
   return {
     ...context,
     model_name: context.model_name ?? storedContext.model_name,
-    mode: context.mode ?? storedContext.mode,
+    mode,
     reasoning_effort:
-      context.reasoning_effort ?? storedContext.reasoning_effort,
+      context.reasoning_effort ??
+      storedContext.reasoning_effort ??
+      (mode ? getReasoningEffortForMode(mode) : undefined),
     agent_name: context.agent_name ?? storedContext.agent_name,
     agent_status: context.agent_status ?? storedContext.agent_status,
     execution_backend:
@@ -84,7 +101,7 @@ function resolveAgentName(
 }
 
 function resolveStreamThrottle(context: ThreadContext) {
-  return context.mode === "flash"
+  return normalizeThreadMode(context.mode) === "flash"
     ? FLASH_STREAM_THROTTLE
     : DEFAULT_STREAM_THROTTLE;
 }
@@ -246,6 +263,7 @@ function buildSubmitOptions(
   command?: Command,
 ) {
   const agentName = resolveAgentName(context, extraContext);
+  const submitFlags = resolveSubmitFlags(context.mode);
 
   return {
     threadId,
@@ -259,14 +277,61 @@ function buildSubmitOptions(
         ...context,
         agent_name: agentName,
         model_name: modelName,
-        thinking_enabled: context.mode !== "flash",
-        is_plan_mode: context.mode === "pro" || context.mode === "ultra",
-        subagent_enabled: context.mode === "ultra",
+        mode: submitFlags.mode,
+        thinking_enabled: submitFlags.thinking_enabled,
+        is_plan_mode: submitFlags.is_plan_mode,
+        subagent_enabled: submitFlags.subagent_enabled,
+        reasoning_effort: submitFlags.reasoning_effort,
         thread_id: threadId,
       },
     },
     command,
   };
+}
+
+function buildThreadOverride(
+  values: AgentThreadState,
+  messages: Message[],
+  history: ThreadState<AgentThreadState>[],
+  experimental_branchTree?: unknown,
+): ThreadOverride {
+  return {
+    values,
+    messages,
+    history,
+    experimental_branchTree,
+  };
+}
+
+function extractThreadMessages(values: AgentThreadState): Message[] {
+  return Array.isArray(values.messages) ? values.messages : [];
+}
+
+function buildThreadOverrideFromState(
+  values: AgentThreadState,
+  history: ThreadState<AgentThreadState>[],
+  experimentalBranchTree?: unknown,
+): ThreadOverride | null {
+  const messages = extractThreadMessages(values);
+  if (messages.length === 0) {
+    return null;
+  }
+
+  return buildThreadOverride(
+    values,
+    messages,
+    history,
+    experimentalBranchTree,
+  );
+}
+
+function getExperimentalBranchTree(source: object) {
+  if (!("experimental_branchTree" in source)) {
+    return undefined;
+  }
+
+  return (source as { experimental_branchTree?: unknown })
+    .experimental_branchTree;
 }
 
 function mergeOptimisticMessages<T extends { messages: Message[] }>(
@@ -347,17 +412,28 @@ export function useThreadStream({
   skipInitialHistory = false,
   onStart,
   onFinish,
+  onStop,
   onToolEnd,
+  onError,
 }: ThreadStreamOptions) {
   const { t } = useI18n();
   const { authenticated } = useAuth();
-  const apiClient = getAPIClient(isMock);
-  const [streamThreadId, setStreamThreadId] = useState<string | null>(null);
+  const apiClient = getAPIClient(isMock, threadId ?? null);
+  const [streamThreadId, setStreamThreadId] = useState<string | null>(
+    () => threadId ?? null,
+  );
+  const [threadOverride, setThreadOverride] = useState<ThreadOverride | null>(
+    null,
+  );
   const [historyEnabled, setHistoryEnabled] = useState(
     () => !!threadId && !skipInitialHistory,
   );
   const hasStartedStreamRef = useRef(false);
   const previousThreadIdRef = useRef<string | null | undefined>(threadId);
+  const lastErrorMessageRef = useRef<string | null>(null);
+  const joinedRunIdRef = useRef<string | null>(null);
+  const stateHydrationInFlightRef = useRef(false);
+  const stopPromiseRef = useRef<Promise<void> | null>(null);
   const resolvedContext = useMemo(
     () => resolveThreadContext(context),
     [context],
@@ -372,7 +448,6 @@ export function useThreadStream({
   );
 
   useEffect(() => {
-    let cancelled = false;
     const previousThreadId = previousThreadIdRef.current;
     const createdThreadDuringCurrentSession =
       !previousThreadId && !!threadId && hasStartedStreamRef.current;
@@ -387,12 +462,10 @@ export function useThreadStream({
 
     if (!threadId || !authenticated) {
       setStreamThreadId(null);
-      return () => {
-        cancelled = true;
-      };
+      return;
     }
 
-    setStreamThreadId(null);
+    setStreamThreadId(threadId);
     void apiClient.threads
       .create({
         threadId,
@@ -404,20 +477,25 @@ export function useThreadStream({
           `Failed to ensure thread exists before loading history (${threadId}):`,
           error,
         );
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setStreamThreadId(threadId);
-        }
       });
-
-    return () => {
-      cancelled = true;
-    };
   }, [threadId, authenticated, apiClient, skipInitialHistory]);
 
   const queryClient = useQueryClient();
   const updateSubtask = useUpdateSubtask();
+  const notifyThreadError = useCallback(
+    (error: unknown) => {
+      const message = normalizeThreadError(error);
+      if (lastErrorMessageRef.current === message) {
+        return message;
+      }
+
+      lastErrorMessageRef.current = message;
+      toast.error(message);
+      onError?.(message);
+      return message;
+    },
+    [onError],
+  );
   const thread = useStream<
     AgentThreadState,
     { InterruptType: AgentInterruptValue }
@@ -465,16 +543,120 @@ export function useThreadStream({
       if (streamThreadId) {
         setHistoryEnabled(true);
       }
+      lastErrorMessageRef.current = null;
       onFinish?.(state.values);
       void queryClient.invalidateQueries({
         queryKey: THREAD_SEARCH_QUERY_KEY,
       });
+    },
+    onError(error) {
+      notifyThreadError(error);
     },
   });
 
   const [optimisticMessages, setOptimisticMessages] = useState<Message[]>([]);
   const previousMessageCountRef = useRef(thread.messages.length);
   const isThreadReady = !threadId || streamThreadId === threadId;
+
+  useEffect(() => {
+    setThreadOverride(null);
+    joinedRunIdRef.current = null;
+    stateHydrationInFlightRef.current = false;
+  }, [threadId]);
+
+  useEffect(() => {
+    if (!thread.error) {
+      lastErrorMessageRef.current = null;
+      return;
+    }
+
+    notifyThreadError(thread.error);
+  }, [notifyThreadError, thread.error]);
+
+  useEffect(() => {
+    const hasVisibleMessages =
+      thread.messages.length > 0 || (threadOverride?.messages.length ?? 0) > 0;
+
+    if (!threadId || !authenticated) {
+      return;
+    }
+
+    if (historyEnabled && hasVisibleMessages) {
+      return;
+    }
+
+    if (stateHydrationInFlightRef.current) {
+      return;
+    }
+
+    let cancelled = false;
+    stateHydrationInFlightRef.current = true;
+
+    void apiClient.threads
+      .getState<AgentThreadState>(threadId, undefined, {
+        subgraphs: true,
+      })
+      .then((state) => {
+        if (cancelled) {
+          return;
+        }
+
+        const nextThreadOverride = buildThreadOverrideFromState(
+          state.values,
+          [],
+        );
+        if (!nextThreadOverride) {
+          return;
+        }
+
+        setThreadOverride(nextThreadOverride);
+
+        const activeRunId =
+          typeof state.metadata?.run_id === "string"
+            ? state.metadata.run_id
+            : null;
+        const shouldJoinPendingRun =
+          skipInitialHistory &&
+          Array.isArray(state.next) &&
+          state.next.length > 0 &&
+          !!activeRunId;
+
+        if (
+          shouldJoinPendingRun &&
+          activeRunId &&
+          joinedRunIdRef.current !== activeRunId &&
+          typeof thread.joinStream === "function"
+        ) {
+          joinedRunIdRef.current = activeRunId;
+          void thread.joinStream(activeRunId).catch((error: unknown) => {
+            joinedRunIdRef.current = null;
+            notifyThreadError(error);
+          });
+        }
+      })
+      .catch(() => {
+        // Fresh threads often have no persisted state yet; ignore that case.
+      })
+      .finally(() => {
+        if (!cancelled) {
+          stateHydrationInFlightRef.current = false;
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      stateHydrationInFlightRef.current = false;
+    };
+  }, [
+    apiClient,
+    authenticated,
+    historyEnabled,
+    notifyThreadError,
+    skipInitialHistory,
+    thread,
+    threadOverride?.messages.length,
+    threadId,
+  ]);
 
   useEffect(() => {
     if (
@@ -499,6 +681,8 @@ export function useThreadStream({
       const text = message.text.trim();
       const files = message.files ?? [];
 
+      setThreadOverride(null);
+      lastErrorMessageRef.current = null;
       previousMessageCountRef.current = thread.messages.length;
       setOptimisticMessages(
         buildOptimisticMessages(text, files, t.uploads.uploadingFiles),
@@ -520,11 +704,7 @@ export function useThreadStream({
             }
           } catch (error) {
             console.error("Failed to upload files:", error);
-            const errorMessage =
-              error instanceof Error
-                ? error.message
-                : "Failed to upload files.";
-            toast.error(errorMessage);
+            notifyThreadError(error);
             setOptimisticMessages([]);
             throw error;
           }
@@ -544,6 +724,7 @@ export function useThreadStream({
         });
       } catch (error) {
         setOptimisticMessages([]);
+        notifyThreadError(error);
         throw error;
       }
     },
@@ -576,26 +757,33 @@ export function useThreadStream({
       }
 
       const selectedModelName = requireModelName(resolvedContext);
+      setThreadOverride(null);
+      lastErrorMessageRef.current = null;
 
-      await thread.submit(
-        null,
-        {
-          ...buildSubmitOptions(
-            runThreadId,
-            resolvedContext,
-            selectedModelName,
-            extraContext,
-            command,
-          ),
-          multitaskStrategy: "interrupt",
-        },
-      );
+      try {
+        await thread.submit(
+          null,
+          {
+            ...buildSubmitOptions(
+              runThreadId,
+              resolvedContext,
+              selectedModelName,
+              extraContext,
+              command,
+            ),
+            multitaskStrategy: "interrupt",
+          },
+        );
+      } catch (error) {
+        notifyThreadError(error);
+        throw error;
+      }
 
       void queryClient.invalidateQueries({
         queryKey: THREAD_SEARCH_QUERY_KEY,
       });
     },
-    [authenticated, queryClient, resolvedContext, thread],
+    [authenticated, notifyThreadError, queryClient, resolvedContext, thread],
   );
 
   const mergedThread = mergeOptimisticMessages(thread, optimisticMessages);
@@ -609,18 +797,117 @@ export function useThreadStream({
         : mergedThread.values,
     [mergedThread.values, historyContextWindow],
   );
+  const liveHistory = useMemo(() => {
+    if (!historyEnabled) {
+      return [];
+    }
+
+    return thread.history;
+  }, [historyEnabled, thread]);
+  const stopRun = useCallback(async () => {
+    if (stopPromiseRef.current) {
+      await stopPromiseRef.current;
+      return;
+    }
+
+    const activeThreadId = threadId ?? streamThreadId;
+    const snapshot = buildThreadOverride(
+      mergedThreadValues,
+      mergedThread.messages,
+      liveHistory,
+      getExperimentalBranchTree(thread),
+    );
+    setThreadOverride(snapshot);
+
+    const stopPromise = (async () => {
+      let latestState: AgentThreadState | null = snapshot.values;
+
+      try {
+        await thread.stop();
+      } catch (error) {
+        notifyThreadError(error);
+      }
+
+      setHistoryEnabled(true);
+
+      if (!activeThreadId || !authenticated) {
+        onStop?.(latestState);
+        return;
+      }
+
+      try {
+        const [state, history] = await Promise.all([
+          apiClient.threads.getState<AgentThreadState>(
+            activeThreadId,
+            undefined,
+            {
+              subgraphs: true,
+            },
+          ),
+          apiClient.threads
+            .getHistory<AgentThreadState>(activeThreadId, {
+              limit: HISTORY_PAGE_SIZE,
+            })
+            .catch(() => []),
+        ]);
+
+        latestState = state.values;
+        const nextThreadOverride = buildThreadOverrideFromState(
+          state.values,
+          history,
+          getExperimentalBranchTree(thread),
+        );
+        if (nextThreadOverride) {
+          setThreadOverride(nextThreadOverride);
+        }
+      } catch (error) {
+        notifyThreadError(error);
+      }
+
+      onStop?.(latestState);
+    })().finally(() => {
+      stopPromiseRef.current = null;
+    });
+
+    stopPromiseRef.current = stopPromise;
+    await stopPromise;
+  }, [
+    apiClient.threads,
+    authenticated,
+    liveHistory,
+    mergedThread.messages,
+    mergedThreadValues,
+    notifyThreadError,
+    onStop,
+    streamThreadId,
+    thread,
+    threadId,
+  ]);
+  const effectiveMessages = threadOverride?.messages ?? mergedThread.messages;
+  const effectiveValues = threadOverride?.values ?? mergedThreadValues;
+  const effectiveHistory = threadOverride?.history ?? liveHistory;
   const enrichedThread = useMemo(
     () =>
       cloneThreadStream(mergedThread, {
-        values: mergedThreadValues,
-        ...(historyEnabled
-          ? {}
-          : {
-              history: [],
-              experimental_branchTree: undefined,
-            }),
+        values: effectiveValues,
+        messages: effectiveMessages,
+        history: historyEnabled ? effectiveHistory : threadOverride?.history ?? [],
+        experimental_branchTree: historyEnabled
+          ? threadOverride?.experimental_branchTree ??
+            getExperimentalBranchTree(mergedThread)
+          : undefined,
+        stop: stopRun,
       }),
-    [mergedThread, mergedThreadValues, historyEnabled],
+    [
+      effectiveHistory,
+      effectiveMessages,
+      effectiveValues,
+      historyEnabled,
+      mergedThread,
+      stopRun,
+      threadOverride?.experimental_branchTree,
+      threadOverride?.history,
+    ],
   );
 
   return [enrichedThread, sendMessage, resumeInterrupt, isThreadReady] as const;

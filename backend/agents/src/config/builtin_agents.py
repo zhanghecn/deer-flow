@@ -2,11 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 from threading import Lock
+from typing import TYPE_CHECKING
 
 import yaml
 
 from src.config.paths import Paths, get_paths
 from src.skills import load_skills
+
+if TYPE_CHECKING:
+    from src.config.agents_config import AgentSkillRef
 
 LEAD_AGENT_NAME = "lead_agent"
 RESERVED_AGENT_NAMES = frozenset({LEAD_AGENT_NAME})
@@ -34,57 +38,61 @@ def _load_config_data(config_path: Path) -> dict[str, object]:
     return dict(loaded)
 
 
-def _default_lead_agent_skill_names(paths: Paths) -> list[str]:
+def _default_lead_agent_skill_refs(paths: Paths) -> list["AgentSkillRef"]:
+    from src.config.agents_config import AgentSkillRef
+
     return [
-        skill.name
+        AgentSkillRef(
+            name=skill.name,
+            source_path=Path(skill.category, skill.skill_path or skill.skill_dir.name).as_posix(),
+        )
         for skill in load_skills(skills_path=paths.skills_dir, use_config=False, enabled_only=False)
         if skill.category == "shared"
     ]
 
 
-def _selected_skill_names(
+def _selected_skill_refs(
     config_data: dict[str, object],
     *,
     paths: Paths,
     had_legacy_skills_mode: bool,
-) -> list[str]:
+) -> list[AgentSkillRef]:
+    from src.config.agents_config import AgentSkillRef
+
     if "skill_refs" not in config_data:
-        return _default_lead_agent_skill_names(paths)
+        return _default_lead_agent_skill_refs(paths)
 
     raw_refs = config_data.get("skill_refs")
     if not isinstance(raw_refs, list):
         raise ValueError("lead_agent config field 'skill_refs' must be a list.")
 
-    names: list[str] = []
+    selected_refs: list[AgentSkillRef] = []
     seen: set[str] = set()
     for raw_ref in raw_refs:
         if not isinstance(raw_ref, dict):
             raise ValueError("lead_agent config field 'skill_refs' must contain objects.")
-        raw_name = raw_ref.get("name")
-        if raw_name is None:
-            raise ValueError("lead_agent config field 'skill_refs' entries must include 'name'.")
-        name = str(raw_name).strip()
-        if not name or name in seen:
+        skill_ref = AgentSkillRef.model_validate(raw_ref)
+        if skill_ref.name in seen:
             continue
-        seen.add(name)
-        names.append(name)
-    if had_legacy_skills_mode and not names:
-        return _default_lead_agent_skill_names(paths)
-    return names
+        seen.add(skill_ref.name)
+        selected_refs.append(skill_ref)
+    if had_legacy_skills_mode and not selected_refs:
+        return _default_lead_agent_skill_refs(paths)
+    return selected_refs
 
 
-def _copy_builtin_skills(*, paths: Paths, status: str, skill_names: list[str]) -> list[dict[str, str]]:
-    from src.config.agent_materialization import materialize_agent_skills
+def _copy_builtin_skills(*, paths: Paths, status: str, skill_refs: list["AgentSkillRef"]) -> list[dict[str, str]]:
+    from src.config.agent_materialization import materialize_agent_skill_refs
     from src.config.agents_config import serialize_agent_skill_ref
 
-    skill_refs = materialize_agent_skills(
+    materialized_refs = materialize_agent_skill_refs(
         skills_dir=paths.agent_skills_dir(LEAD_AGENT_NAME, status),
-        skill_names=skill_names,
+        skill_refs=skill_refs,
         target_status=status,
         paths=paths,
         allow_shared=True,
     )
-    return [serialize_agent_skill_ref(skill_ref) for skill_ref in skill_refs]
+    return [serialize_agent_skill_ref(skill_ref) for skill_ref in materialized_refs]
 
 
 def _ensure_lead_agent_archive_for_status(*, status: str, paths: Paths) -> None:
@@ -121,7 +129,7 @@ def _ensure_lead_agent_archive_for_status(*, status: str, paths: Paths) -> None:
     skill_refs = _copy_builtin_skills(
         paths=paths,
         status=status,
-        skill_names=_selected_skill_names(
+        skill_refs=_selected_skill_refs(
             config_data,
             paths=paths,
             had_legacy_skills_mode=had_legacy_skills_mode,

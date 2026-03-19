@@ -287,7 +287,14 @@ Agent/Skill 定义已经完全脱离数据库：
 
 运行时职责分界：
 - Go gateway 只负责写归档文件
+- Go gateway 负责持久化 `thread_bindings`，作为 thread -> runtime identity 的真源
 - 是否启用 sandbox 由 Python runtime 启动时根据环境变量 / `config.yaml` 决定
+
+线程绑定规则：
+- `1 thread = 1 agent/runtime binding`
+- 打开历史 thread 必须恢复已持久化的 `agent_name` / `agent_status` / `model_name`
+- 如使用 remote，还要恢复 `execution_backend=remote` 与 `remote_session_id`
+- 切换 agent、archive 或 runtime 时必须创建新 thread，而不是覆写原 thread 绑定
 - 运行时无论是本地还是 sandbox，都读取同一套已归档的 `AGENTS.md` 和 agent-local `skills/`
 
 ### 文件系统（运行时物化）
@@ -368,7 +375,7 @@ Browser / Frontend
 [Python make_lead_agent]
 - read configurable + runtime.execution_runtime.context
 - resolve model via DB (models / thread_bindings)
-- persist thread_bindings(thread_id,user_id,model_name,agent_name,assistant_id)
+- persist thread_bindings(thread_id,user_id,agent_name,agent_status,model_name,execution_backend,remote_session_id)
         |
         v
 LangGraph run/history response

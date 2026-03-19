@@ -47,8 +47,11 @@ CREATE TABLE IF NOT EXISTS thread_bindings (
     thread_id VARCHAR(64) PRIMARY KEY,
     user_id UUID NOT NULL,
     agent_name VARCHAR(128),
+    agent_status VARCHAR(16) NOT NULL DEFAULT 'dev',
     assistant_id VARCHAR(128),
     model_name VARCHAR(128),
+    execution_backend VARCHAR(32) NOT NULL DEFAULT 'default',
+    remote_session_id TEXT,
     title TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()

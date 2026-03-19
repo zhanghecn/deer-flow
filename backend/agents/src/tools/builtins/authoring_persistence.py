@@ -4,7 +4,9 @@ import os
 import shutil
 import subprocess
 import tempfile
+from contextlib import contextmanager
 from datetime import UTC, datetime
+from fcntl import LOCK_EX, LOCK_UN, flock
 from pathlib import Path, PurePosixPath
 
 import yaml
@@ -65,6 +67,22 @@ def _copy_directory(source_dir: Path, target_dir: Path) -> tuple[Path, Path | No
     target_dir.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source_dir, target_dir)
     return target_dir, backup_dir
+
+
+def _skill_install_lock_path(paths: Paths) -> Path:
+    return paths.base_dir / ".locks" / "registry-skill-install.lock"
+
+
+@contextmanager
+def _acquire_skill_install_lock(paths: Paths):
+    lock_path = _skill_install_lock_path(paths)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+", encoding="utf-8") as lock_file:
+        flock(lock_file.fileno(), LOCK_EX)
+        try:
+            yield
+        finally:
+            flock(lock_file.fileno(), LOCK_UN)
 
 
 def _load_agent_payload(
@@ -146,51 +164,55 @@ def install_registry_skill_to_store(
     resolved_skill_name = _registry_skill_name(normalized_source, skill_name)
 
     existing_scopes = _existing_skill_scopes(skill_name=resolved_skill_name, paths=paths)
-    if existing_scopes:
-        scopes = ", ".join(existing_scopes)
+    runtime_scopes = tuple(
+        scope for scope in existing_scopes if scope in {"store/dev", "store/prod"}
+    )
+    if runtime_scopes:
+        scopes = ", ".join(runtime_scopes)
         raise ValueError(f"Skill '{resolved_skill_name.as_posix()}' already exists in {scopes}.")
 
-    with tempfile.TemporaryDirectory(prefix="openagents-skill-install-") as temp_home:
-        temp_home_path = Path(temp_home)
-        env = os.environ.copy()
-        env["HOME"] = str(temp_home_path)
-        env.setdefault("XDG_CONFIG_HOME", str(temp_home_path / ".config"))
-        env.setdefault("XDG_CACHE_HOME", str(temp_home_path / ".cache"))
-        env.setdefault("XDG_DATA_HOME", str(temp_home_path / ".local" / "share"))
+    with _acquire_skill_install_lock(paths):
+        with tempfile.TemporaryDirectory(prefix="openagents-skill-install-") as temp_home:
+            temp_home_path = Path(temp_home)
+            env = os.environ.copy()
+            env["HOME"] = str(temp_home_path)
+            env.setdefault("XDG_CONFIG_HOME", str(temp_home_path / ".config"))
+            env.setdefault("XDG_CACHE_HOME", str(temp_home_path / ".cache"))
+            env.setdefault("XDG_DATA_HOME", str(temp_home_path / ".local" / "share"))
 
-        result = subprocess.run(
-            ["npx", "skills", "add", normalized_source, "--yes", "--global"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=300,
-            env=env,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"Failed to install registry skill '{normalized_source}': {_subprocess_failure_message(result)}"
+            result = subprocess.run(
+                ["npx", "skills", "add", normalized_source, "--yes", "--global"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=300,
+                env=env,
             )
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"Failed to install registry skill '{normalized_source}': {_subprocess_failure_message(result)}"
+                )
 
-        downloaded_dir = temp_home_path / ".agents" / "skills" / Path(resolved_skill_name.as_posix())
-        validate_skill_directory(downloaded_dir)
+            downloaded_dir = temp_home_path / ".agents" / "skills" / Path(resolved_skill_name.as_posix())
+            validate_skill_directory(downloaded_dir)
 
-        parsed = parse_skill_file(
-            downloaded_dir / "SKILL.md",
-            category="store/dev",
-            relative_path=Path(resolved_skill_name.as_posix()),
-        )
-        if parsed is None:
-            raise ValueError(f"Valid SKILL.md is required: {downloaded_dir / 'SKILL.md'}")
-        if parsed.name != resolved_skill_name.name:
-            raise ValueError(
-                f"Installed skill name mismatch: expected '{resolved_skill_name.name}', got '{parsed.name}'."
+            parsed = parse_skill_file(
+                downloaded_dir / "SKILL.md",
+                category="store/dev",
+                relative_path=Path(resolved_skill_name.as_posix()),
             )
+            if parsed is None:
+                raise ValueError(f"Valid SKILL.md is required: {downloaded_dir / 'SKILL.md'}")
+            if parsed.name != resolved_skill_name.name:
+                raise ValueError(
+                    f"Installed skill name mismatch: expected '{resolved_skill_name.name}', got '{parsed.name}'."
+                )
 
-        target_dir, _backup_dir = _copy_directory(
-            downloaded_dir,
-            paths.store_dev_skills_dir / Path(resolved_skill_name.as_posix()),
-        )
-        return parsed.name, target_dir
+            target_dir, _backup_dir = _copy_directory(
+                downloaded_dir,
+                paths.store_dev_skills_dir / Path(resolved_skill_name.as_posix()),
+            )
+            return parsed.name, target_dir
 
 
 def validate_agent_directory(

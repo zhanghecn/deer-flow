@@ -1,4 +1,9 @@
 import type { AgentThreadContext } from "../threads";
+import {
+  normalizeThreadMode,
+  type ThreadMode,
+  type ThreadReasoningEffort,
+} from "../threads/mode";
 
 export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   notification: {
@@ -27,8 +32,8 @@ export interface LocalSettings {
     AgentThreadContext,
     "thread_id" | "is_plan_mode" | "thinking_enabled" | "subagent_enabled"
   > & {
-    mode: "flash" | "thinking" | "pro" | "ultra" | undefined;
-    reasoning_effort?: "minimal" | "low" | "medium" | "high";
+    mode: ThreadMode | undefined;
+    reasoning_effort?: ThreadReasoningEffort;
   };
   layout: {
     sidebar_collapsed: boolean;
@@ -48,6 +53,7 @@ export function getLocalSettings(): LocalSettings {
         context: {
           ...DEFAULT_LOCAL_SETTINGS.context,
           ...settings.context,
+          mode: normalizeThreadMode(settings.context?.mode),
         },
         layout: {
           ...DEFAULT_LOCAL_SETTINGS.layout,

@@ -7,6 +7,7 @@ from src.config import get_tracing_config, is_tracing_enabled
 from src.config.model_config import ModelConfig
 from src.config.runtime_db import get_runtime_db_store
 from src.reflection import resolve_class
+from src.agents.middlewares.retry_utils import DEFAULT_PROVIDER_MAX_RETRIES
 
 logger = logging.getLogger(__name__)
 DEFAULT_ANTHROPIC_THINKING_MAX_TOKENS = 16384
@@ -177,6 +178,54 @@ def _attach_explicit_profile_limits(
     model_instance.profile = profile
 
 
+def _apply_default_retry_budget(
+    model_settings: dict[str, Any],
+    runtime_kwargs: dict[str, Any],
+) -> bool:
+    if "max_retries" in model_settings or "max_retries" in runtime_kwargs:
+        return False
+
+    runtime_kwargs["max_retries"] = DEFAULT_PROVIDER_MAX_RETRIES
+    return True
+
+
+def _is_unsupported_kwarg_error(exc: TypeError, kwarg: str) -> bool:
+    message = str(exc)
+    patterns = (
+        f"unexpected keyword argument '{kwarg}'",
+        f"unexpected keyword argument \"{kwarg}\"",
+        f"got an unexpected keyword argument '{kwarg}'",
+        f"got an unexpected keyword argument \"{kwarg}\"",
+    )
+    return any(pattern in message for pattern in patterns)
+
+
+def _instantiate_model(
+    model_class: type[BaseChatModel],
+    *,
+    runtime_kwargs: dict[str, Any],
+    model_settings: dict[str, Any],
+    allow_retry_budget_fallback: bool,
+) -> BaseChatModel:
+    try:
+        return model_class(**runtime_kwargs, **model_settings)
+    except TypeError as exc:
+        if (
+            not allow_retry_budget_fallback
+            or "max_retries" not in runtime_kwargs
+            or not _is_unsupported_kwarg_error(exc, "max_retries")
+        ):
+            raise
+
+        fallback_runtime_kwargs = dict(runtime_kwargs)
+        fallback_runtime_kwargs.pop("max_retries", None)
+        logger.info(
+            "Model class '%s' does not accept max_retries; retry budget stays in middleware only.",
+            getattr(model_class, "__name__", repr(model_class)),
+        )
+        return model_class(**fallback_runtime_kwargs, **model_settings)
+
+
 def create_chat_model(
     name: str | None = None,
     thinking_enabled: bool = False,
@@ -203,7 +252,16 @@ def create_chat_model(
         model_settings=model_settings_from_config,
         runtime_kwargs=runtime_kwargs,
     )
-    model_instance = model_class(**runtime_kwargs, **model_settings_from_config)
+    injected_retry_budget = _apply_default_retry_budget(
+        model_settings_from_config,
+        runtime_kwargs,
+    )
+    model_instance = _instantiate_model(
+        model_class,
+        runtime_kwargs=runtime_kwargs,
+        model_settings=model_settings_from_config,
+        allow_retry_budget_fallback=injected_retry_budget,
+    )
 
     _attach_explicit_profile_limits(model_instance, model_config)
     _attach_langsmith_tracing(model_instance, name)

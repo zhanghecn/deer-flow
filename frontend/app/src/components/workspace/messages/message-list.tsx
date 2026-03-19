@@ -150,6 +150,50 @@ function collectSubtaskIds(group: GroupedMessage) {
   return [...ids];
 }
 
+export type SubtaskAggregateStatus = "running" | "completed" | "failed";
+
+export function getSubtaskAggregateStatus(
+  taskIds: string[],
+  tasks: Array<Pick<Subtask, "id"> & { status?: Subtask["status"] }>,
+): SubtaskAggregateStatus {
+  if (taskIds.length === 0) {
+    return "running";
+  }
+
+  const statuses = taskIds
+    .map((taskId) => tasks.find((task) => task.id === taskId)?.status)
+    .filter((status): status is Subtask["status"] => status !== undefined);
+
+  if (statuses.includes("failed")) {
+    return "failed";
+  }
+
+  if (statuses.length === taskIds.length && statuses.every((status) => status === "completed")) {
+    return "completed";
+  }
+
+  return "running";
+}
+
+export function getSubtaskAggregateLabel(
+  taskIds: string[],
+  tasks: Array<Pick<Subtask, "id"> & { status?: Subtask["status"] }>,
+  t: ReturnType<typeof useI18n>["t"],
+) {
+  const count = taskIds.length;
+  const aggregateStatus = getSubtaskAggregateStatus(taskIds, tasks);
+
+  if (aggregateStatus === "completed") {
+    return t.subtasks.completedGroup(count);
+  }
+
+  if (aggregateStatus === "failed") {
+    return t.subtasks.failedGroup(count);
+  }
+
+  return t.subtasks.executing(count);
+}
+
 function findCurrentTurnStartIndex(messages: AgentThreadState["messages"]) {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     if (messages[index]?.type === "human") {
@@ -229,10 +273,22 @@ function renderSubagentMessage(
   renderer: MessageRendererContext,
 ) {
   const taskIds = collectSubtaskIds(group);
+  const groupTaskUpdates = collectSubtaskUpdates(group.messages);
   const subagentMessages = group.messages.filter(
     (message) => message.type === "ai",
   );
   const content: React.ReactNode[] = [];
+
+  if (taskIds.length > 0) {
+    content.push(
+      <div
+        key={`subtask-summary-${group.id}`}
+        className="text-foreground/80 pt-2 text-sm font-medium"
+      >
+        {getSubtaskAggregateLabel(taskIds, groupTaskUpdates, renderer.t)}
+      </div>,
+    );
+  }
 
   for (const message of subagentMessages) {
     if (hasReasoning(message)) {
@@ -244,15 +300,6 @@ function renderSubagentMessage(
         />,
       );
     }
-
-    content.push(
-      <div
-        key={`subtask-count-${message.id}`}
-        className="text-muted-foreground font-norma pt-2 text-sm"
-      >
-        {renderer.t.subtasks.executing(taskIds.length)}
-      </div>,
-    );
 
     for (const toolCall of message.tool_calls ?? []) {
       if (toolCall.name !== "task" || !toolCall.id) {

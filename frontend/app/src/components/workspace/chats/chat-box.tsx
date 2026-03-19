@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/resizable";
 import { getOnlyOfficeDocumentDescriptor } from "@/core/artifacts/onlyoffice";
 import { filterLegacyPptPreviewArtifacts } from "@/core/artifacts/utils";
+import { getUserVisibleRuntimePath } from "@/core/utils/files";
 import { env } from "@/env";
 import { cn } from "@/lib/utils";
 
@@ -207,7 +208,7 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
             showCloseButton={false}
           >
             <DialogTitle className="sr-only">
-              {selectedOfficeArtifact}
+              {getUserVisibleRuntimePath(selectedOfficeArtifact)}
             </DialogTitle>
             <DialogDescription className="sr-only">
               Preview and edit the selected office document.

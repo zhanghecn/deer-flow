@@ -71,8 +71,11 @@ class _FakeDBStore:
             thread_id=thread_id,
             user_id=owner,
             agent_name=agent_name,
+            agent_status="dev",
             assistant_id=agent_name,
             model_name=model_name,
+            execution_backend=None,
+            remote_session_id=None,
             title=None,
         )
 
@@ -99,6 +102,9 @@ class _FakeDBStore:
         user_id: str,
         model_name: str,
         agent_name: str | None,
+        agent_status: str,
+        execution_backend: str | None,
+        remote_session_id: str | None,
     ) -> None:
         self.claim_thread_ownership(thread_id=thread_id, user_id=user_id, assistant_id=agent_name)
         for tid, uid in self.thread_models.keys():
@@ -114,6 +120,9 @@ class _FakeDBStore:
         user_id: str,
         model_name: str,
         agent_name: str | None,
+        agent_status: str,
+        execution_backend: str | None,
+        remote_session_id: str | None,
     ) -> bool:
         binding = self.get_thread_binding(thread_id)
         if binding is not None and binding.user_id != user_id:
@@ -131,6 +140,9 @@ class _FakeDBStore:
             user_id=user_id,
             model_name=model_name,
             agent_name=agent_name,
+            agent_status=agent_status,
+            execution_backend=execution_backend,
+            remote_session_id=remote_session_id,
         )
         return True
 
@@ -330,12 +342,83 @@ def test_make_lead_agent_reads_runtime_context_and_persists_thread_runtime(monke
     assert "x_user_id" not in runtime.execution_runtime.context
 
 
+def test_resolve_lead_agent_runtime_uses_persisted_thread_agent_runtime(monkeypatch):
+    store = _FakeDBStore(
+        models={"safe-model": _make_model("safe-model", supports_thinking=True)},
+    )
+
+    persisted_binding = lead_agent_module.ThreadBinding(
+        thread_id="thread-1",
+        user_id="user-1",
+        agent_name="reviewer",
+        agent_status="prod",
+        assistant_id="reviewer",
+        model_name="safe-model",
+        execution_backend="remote",
+        remote_session_id="remote-session-1",
+        title=None,
+    )
+    monkeypatch.setattr(store, "get_thread_binding", lambda _thread_id: persisted_binding)
+
+    captured_save: dict[str, object] = {}
+
+    def _fake_save_thread_runtime_if_needed(**kwargs):
+        captured_save.update(kwargs)
+        return False
+
+    monkeypatch.setattr(store, "save_thread_runtime_if_needed", _fake_save_thread_runtime_if_needed)
+    monkeypatch.setattr(
+        lead_agent_module,
+        "_load_agent_runtime_config",
+        lambda **kwargs: _make_agent_config(name=kwargs["agent_name"]),
+    )
+
+    effective_request, resolution = lead_agent_module._resolve_lead_agent_runtime(
+        request=lead_agent_module.LeadAgentRequest(
+            thinking_enabled=True,
+            reasoning_effort="high",
+            requested_model_name=None,
+            subagent_enabled=False,
+            max_concurrent_subagents=3,
+            command_name=None,
+            command_kind=None,
+            command_args=None,
+            command_prompt=None,
+            authoring_actions=(),
+            referenced_skill_names=(),
+            target_agent_name=None,
+            agent_name=LEAD_AGENT_NAME,
+            agent_status="dev",
+            thread_id="thread-1",
+            user_id="user-1",
+            runtime_model_name=None,
+            execution_backend=None,
+            remote_session_id=None,
+        ),
+        db_store=store,
+        persist_thread_runtime=True,
+    )
+
+    assert effective_request.agent_name == "reviewer"
+    assert effective_request.agent_status == "prod"
+    assert effective_request.execution_backend == "remote"
+    assert effective_request.remote_session_id == "remote-session-1"
+    assert resolution.agent_config.name == "reviewer"
+    assert captured_save["agent_name"] == "reviewer"
+    assert captured_save["agent_status"] == "prod"
+    assert captured_save["execution_backend"] == "remote"
+    assert captured_save["remote_session_id"] == "remote-session-1"
+
+
 def test_build_openagents_middlewares_includes_vision_middleware_for_vision_model():
     middlewares = lead_agent_module._build_openagents_middlewares(_make_model("vision-model", supports_thinking=False, supports_vision=True))
 
+    from langchain.agents.middleware import ModelRetryMiddleware, ToolRetryMiddleware
     from src.agents.middlewares.max_tokens_recovery_middleware import MaxTokensRecoveryMiddleware
     from src.agents.middlewares.view_image_middleware import ViewImageMiddleware
 
+    assert any(isinstance(m, ModelRetryMiddleware) for m in middlewares)
+    assert any(isinstance(m, ToolRetryMiddleware) for m in middlewares)
     assert any(isinstance(m, MaxTokensRecoveryMiddleware) for m in middlewares)
     assert any(isinstance(m, ViewImageMiddleware) for m in middlewares)
 
@@ -343,9 +426,12 @@ def test_build_openagents_middlewares_includes_vision_middleware_for_vision_mode
 def test_build_openagents_middlewares_excludes_vision_middleware_for_non_vision_model():
     middlewares = lead_agent_module._build_openagents_middlewares(_make_model("text-model", supports_thinking=False, supports_vision=False))
 
+    from langchain.agents.middleware import ModelRetryMiddleware, ToolRetryMiddleware
     from src.agents.middlewares.max_tokens_recovery_middleware import MaxTokensRecoveryMiddleware
     from src.agents.middlewares.view_image_middleware import ViewImageMiddleware
 
+    assert any(isinstance(m, ModelRetryMiddleware) for m in middlewares)
+    assert any(isinstance(m, ToolRetryMiddleware) for m in middlewares)
     assert any(isinstance(m, MaxTokensRecoveryMiddleware) for m in middlewares)
     assert not any(isinstance(m, ViewImageMiddleware) for m in middlewares)
 

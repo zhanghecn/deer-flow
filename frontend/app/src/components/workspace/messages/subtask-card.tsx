@@ -60,18 +60,37 @@ export function SubtaskCard({
     }),
     [fallbackTask, liveTask, t.subtasks.in_progress, taskId],
   );
-  const icon = useMemo(() => {
+  const statusMeta = useMemo(() => {
     if (task.status === "completed") {
-      return <CheckCircleIcon className="size-3" />;
-    } else if (task.status === "failed") {
-      return <XCircleIcon className="size-3 text-red-500" />;
-    } else if (task.status === "in_progress") {
-      return <Loader2Icon className="size-3 animate-spin" />;
+      return {
+        badgeClassName: "text-emerald-600",
+        icon: <CheckCircleIcon className="size-3 text-emerald-600" />,
+        label: t.subtasks.completed,
+      };
     }
-  }, [task.status]);
+
+    if (task.status === "failed") {
+      return {
+        badgeClassName: "text-red-500",
+        icon: <XCircleIcon className="size-3 text-red-500" />,
+        label: t.subtasks.failed,
+      };
+    }
+
+    return {
+      badgeClassName: "text-foreground/75",
+      icon: <Loader2Icon className="size-3 animate-spin" />,
+      label: t.subtasks.in_progress,
+    };
+  }, [task.status, t.subtasks.completed, t.subtasks.failed, t.subtasks.in_progress]);
   return (
     <ChainOfThought
-      className={cn("relative w-full gap-2 rounded-lg border py-0", className)}
+      className={cn(
+        "relative w-full gap-2 rounded-lg border py-0 shadow-sm",
+        task.status === "completed" && "border-emerald-500/25",
+        task.status === "failed" && "border-red-500/25",
+        className,
+      )}
       open={!collapsed}
     >
       <div
@@ -113,11 +132,11 @@ export function SubtaskCard({
                 {collapsed && (
                   <div
                     className={cn(
-                      "text-muted-foreground flex items-center gap-1 text-xs font-normal",
-                      task.status === "failed" ? "text-red-500 opacity-67" : "",
+                      "flex items-center gap-1 text-xs font-medium",
+                      statusMeta.badgeClassName,
                     )}
                   >
-                    {icon}
+                    {statusMeta.icon}
                     <FlipDisplay
                       className="max-w-[420px] truncate pb-1"
                       uniqueKey={task.latestMessage?.id ?? ""}
@@ -126,7 +145,7 @@ export function SubtaskCard({
                       task.latestMessage &&
                       hasToolCalls(task.latestMessage)
                         ? explainLastToolCall(task.latestMessage, t)
-                        : t.subtasks[task.status]}
+                        : statusMeta.label}
                     </FlipDisplay>
                   </div>
                 )}
@@ -157,7 +176,7 @@ export function SubtaskCard({
             task.latestMessage &&
             hasToolCalls(task.latestMessage) && (
               <ChainOfThoughtStep
-                label={t.subtasks.in_progress}
+                label={statusMeta.label}
                 icon={<Loader2Icon className="size-4 animate-spin" />}
               >
                 {explainLastToolCall(task.latestMessage, t)}
@@ -166,8 +185,8 @@ export function SubtaskCard({
           {task.status === "completed" && (
             <>
               <ChainOfThoughtStep
-                label={t.subtasks.completed}
-                icon={<CheckCircleIcon className="size-4" />}
+                label={statusMeta.label}
+                icon={<CheckCircleIcon className="size-4 text-emerald-600" />}
               ></ChainOfThoughtStep>
               <ChainOfThoughtStep
                 label={
@@ -184,7 +203,12 @@ export function SubtaskCard({
           )}
           {task.status === "failed" && (
             <ChainOfThoughtStep
-              label={<div className="text-red-500">{task.error}</div>}
+              label={
+                <div className="space-y-1">
+                  <div className="font-medium text-red-500">{statusMeta.label}</div>
+                  {task.error ? <div className="text-sm text-red-500">{task.error}</div> : null}
+                </div>
+              }
               icon={<XCircleIcon className="size-4 text-red-500" />}
             ></ChainOfThoughtStep>
           )}

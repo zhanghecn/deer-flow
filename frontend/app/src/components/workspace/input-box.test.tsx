@@ -1,0 +1,101 @@
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
+
+import { PromptInputProvider } from "@/components/ai-elements/prompt-input";
+
+import { InputBox } from "./input-box";
+
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => ({
+    get: () => null,
+  }),
+}));
+
+vi.mock("@/core/i18n/hooks", () => ({
+  useI18n: () => ({
+    t: {
+      common: {
+        create: "Create",
+      },
+      inputBox: {
+        placeholder: "Ask anything",
+        addAttachments: "Add attachments",
+        flashMode: "Flash",
+        flashModeDescription: "Fast",
+        proMode: "Pro",
+        proModeDescription: "Precise",
+        mode: "Mode",
+        searchModels: "Search models",
+        surpriseMe: "Surprise",
+        surpriseMePrompt: "Surprise me",
+        suggestions: [],
+        suggestionsCreate: [],
+      },
+    },
+  }),
+}));
+
+vi.mock("@/core/models/hooks", () => ({
+  useModels: () => ({
+    models: [
+      {
+        id: "model-1",
+        name: "kimi-k2.5",
+        display_name: "Kimi K2.5",
+      },
+    ],
+  }),
+}));
+
+vi.mock("@/core/skills/hooks", () => ({
+  useSkills: () => ({
+    skills: [
+      {
+        name: "framework-selection",
+        description: "Pick a framework",
+        category: "coding",
+        license: "MIT",
+        enabled: true,
+      },
+      {
+        name: "frontend-design",
+        description: "Build polished UI",
+        category: "design/ui",
+        license: "MIT",
+        enabled: true,
+      },
+    ],
+  }),
+}));
+
+describe("InputBox", () => {
+  it("supports keyboard selection for $skill references", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <PromptInputProvider>
+        <InputBox
+          context={{
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          }}
+          onContextChange={vi.fn()}
+          onSubmit={vi.fn()}
+        />
+      </PromptInputProvider>,
+    );
+
+    const textarea = screen.getByPlaceholderText("Ask anything");
+    await user.type(textarea, "$f");
+
+    expect(screen.getByRole("listbox")).toBeInTheDocument();
+
+    await user.keyboard("{ArrowDown}{Enter}");
+
+    await waitFor(() => {
+      expect(textarea).toHaveValue("$frontend-design ");
+    });
+  });
+});

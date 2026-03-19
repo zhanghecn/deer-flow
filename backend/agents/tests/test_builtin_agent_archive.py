@@ -72,3 +72,45 @@ def test_ensure_builtin_agent_archive_preserves_archived_agents_md(tmp_path, mon
     builtin_agents.ensure_builtin_agent_archive("lead_agent", status="dev", paths=paths)
 
     assert (agent_dir / "AGENTS.md").read_text(encoding="utf-8") == customized_agents_md
+
+
+def test_ensure_builtin_agent_archive_preserves_explicit_shared_skill_refs_when_names_conflict(tmp_path, monkeypatch):
+    monkeypatch.setattr(builtin_agents, "_ENSURED_ARCHIVES", set())
+
+    base_dir = tmp_path / ".openagents"
+    shared_skill_dir = base_dir / "skills" / "shared" / "frontend-design"
+    shared_skill_dir.mkdir(parents=True, exist_ok=True)
+    (shared_skill_dir / "SKILL.md").write_text(
+        "---\nname: frontend-design\ndescription: shared frontend design\n---\n\nshared\n",
+        encoding="utf-8",
+    )
+    dev_skill_dir = base_dir / "skills" / "store" / "dev" / "frontend-design"
+    dev_skill_dir.mkdir(parents=True, exist_ok=True)
+    (dev_skill_dir / "SKILL.md").write_text(
+        "---\nname: frontend-design\ndescription: dev frontend design\n---\n\ndev\n",
+        encoding="utf-8",
+    )
+
+    paths = Paths(base_dir=base_dir, skills_dir=base_dir / "skills")
+    agent_dir = paths.agent_dir("lead_agent", "dev")
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    (agent_dir / "config.yaml").write_text(
+        "name: lead_agent\n"
+        "status: dev\n"
+        "agents_md_path: AGENTS.md\n"
+        "skill_refs:\n"
+        "  - name: frontend-design\n"
+        "    source_path: shared/frontend-design\n",
+        encoding="utf-8",
+    )
+
+    builtin_agents.ensure_builtin_agent_archive("lead_agent", status="dev", paths=paths)
+
+    config_data = yaml.safe_load((agent_dir / "config.yaml").read_text(encoding="utf-8"))
+    assert config_data["skill_refs"] == [
+        {
+            "name": "frontend-design",
+            "source_path": "shared/frontend-design",
+        }
+    ]
+    assert (agent_dir / "skills" / "frontend-design" / "SKILL.md").read_text(encoding="utf-8").strip().endswith("shared")

@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from dataclasses import dataclass, replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from threading import Lock
 from typing import Any, Literal
 
@@ -17,14 +17,22 @@ from src.agents.middlewares.authoring_guard_middleware import AuthoringGuardMidd
 from src.agents.middlewares.artifacts_middleware import ArtifactsMiddleware
 from src.agents.middlewares.context_window_middleware import ContextWindowMiddleware
 from src.agents.middlewares.max_tokens_recovery_middleware import MaxTokensRecoveryMiddleware
+from src.agents.middlewares.retry_utils import (
+    build_model_retry_middleware,
+    build_tool_retry_middleware,
+)
 from src.agents.middlewares.runtime_command_middleware import RuntimeCommandMiddleware
 from src.agents.middlewares.thread_data_middleware import ThreadDataMiddleware
 from src.agents.middlewares.title_middleware import TitleMiddleware
 from src.agents.middlewares.uploads_middleware import UploadsMiddleware
+from src.agents.middlewares.user_visible_path_sanitizer_middleware import (
+    UserVisiblePathSanitizerMiddleware,
+)
 from src.agents.middlewares.view_image_middleware import ViewImageMiddleware
 from src.config.agent_runtime_seed import runtime_seed_targets
 from src.config.agents_config import AgentConfig, load_agent_config
 from src.config.builtin_agents import (
+    LEAD_AGENT_NAME,
     ensure_builtin_agent_archive,
     normalize_effective_agent_name,
 )
@@ -51,6 +59,8 @@ from src.runtime_backends import (
 from src.runtime_backends import (
     resolve_sandbox_provider as resolve_runtime_sandbox_provider,
 )
+from src.skills import load_skills
+from src.skills.types import Skill
 
 logger = logging.getLogger(__name__)
 DEFAULT_THREAD_ID = "_default"
@@ -206,6 +216,106 @@ def _runtime_skills_path(agent_name: str, status: str) -> str:
     return f"{_runtime_agent_root(agent_name, status)}/skills/"
 
 
+def _lead_agent_runtime_store_scopes(status: str) -> tuple[str, ...]:
+    return ("store/prod",) if status == "prod" else ("store/dev", "store/prod")
+
+
+def _runtime_skill_relative_path(skill: Skill) -> PurePosixPath:
+    return PurePosixPath(skill.skill_path or skill.skill_dir.name)
+
+
+def _iter_runtime_skill_targets(
+    *,
+    skill: Skill,
+    target_root: str,
+) -> list[tuple[str, bytes]]:
+    skill_dir = Path(skill.skill_dir)
+    relative_path = _runtime_skill_relative_path(skill)
+    normalized_target_root = target_root.rstrip("/")
+
+    targets: list[tuple[str, bytes]] = []
+    for nested_file in sorted(skill_dir.rglob("*")):
+        if not nested_file.is_file():
+            continue
+        nested_relative = PurePosixPath(nested_file.relative_to(skill_dir).as_posix())
+        runtime_relative = PurePosixPath("skills") / relative_path / nested_relative
+        targets.append(
+            (
+                f"{normalized_target_root}/{runtime_relative.as_posix()}",
+                nested_file.read_bytes(),
+            )
+        )
+    return targets
+
+
+def _is_runtime_store_skill_candidate(
+    *,
+    skill: Skill,
+    allowed_scopes: tuple[str, ...],
+    archived_skill_names: set[str],
+    duplicated_skill_names: set[str],
+) -> bool:
+    return (
+        skill.category in allowed_scopes
+        and skill.enabled
+        and bool(skill.name)
+        and skill.name not in archived_skill_names
+        and skill.name not in duplicated_skill_names
+    )
+
+
+def _collect_unique_runtime_store_skills(
+    *,
+    status: str,
+    agent_config: AgentConfig | None,
+    paths: Paths,
+) -> list[Skill]:
+    archived_skill_names = {
+        skill_ref.name for skill_ref in (agent_config.skill_refs if agent_config is not None else [])
+    }
+    allowed_scopes = _lead_agent_runtime_store_scopes(status)
+
+    unique_skills: dict[str, Skill] = {}
+    duplicated_skill_names: set[str] = set()
+    for skill in load_skills(skills_path=paths.skills_dir, use_config=False, enabled_only=False):
+        if not _is_runtime_store_skill_candidate(
+            skill=skill,
+            allowed_scopes=allowed_scopes,
+            archived_skill_names=archived_skill_names,
+            duplicated_skill_names=duplicated_skill_names,
+        ):
+            continue
+        if skill.name in unique_skills:
+            unique_skills.pop(skill.name, None)
+            duplicated_skill_names.add(skill.name)
+            continue
+        unique_skills[skill.name] = skill
+
+    return [unique_skills[skill_name] for skill_name in sorted(unique_skills)]
+
+
+def _build_lead_agent_runtime_store_skill_targets(
+    *,
+    status: str,
+    target_root: str,
+    agent_config: AgentConfig | None,
+    paths: Paths,
+) -> list[tuple[str, bytes]]:
+    targets: list[tuple[str, bytes]] = []
+    for skill in _collect_unique_runtime_store_skills(
+        status=status,
+        agent_config=agent_config,
+        paths=paths,
+    ):
+        targets.extend(
+            _iter_runtime_skill_targets(
+                skill=skill,
+                target_root=target_root,
+            )
+        )
+    return targets
+
+
 def _build_runtime_seed_targets(
     *,
     agent_name: str,
@@ -214,13 +324,28 @@ def _build_runtime_seed_targets(
     agent_config: AgentConfig | None,
     paths: Paths,
 ) -> list[tuple[str, bytes]]:
-    return runtime_seed_targets(
+    targets = runtime_seed_targets(
         agent_name,
         status=status,
         target_root=target_root,
         paths=paths,
         manifest=agent_config,
     )
+    if normalize_effective_agent_name(agent_name) != LEAD_AGENT_NAME:
+        return targets
+
+    existing_paths = {path for path, _content in targets}
+    for path, content in _build_lead_agent_runtime_store_skill_targets(
+        status=status,
+        target_root=target_root,
+        agent_config=agent_config,
+        paths=paths,
+    ):
+        if path in existing_paths:
+            continue
+        targets.append((path, content))
+        existing_paths.add(path)
+    return targets
 
 
 def _collect_missing_runtime_uploads(
@@ -297,11 +422,14 @@ def _seed_create_agent_target_runtime_materials_if_available(
         return
 
     paths = get_paths()
-    target_agent_config = load_agent_config(
-        target_agent_name,
-        status=request.agent_status,
-        paths=paths,
-    )
+    try:
+        target_agent_config = load_agent_config(
+            target_agent_name,
+            status=request.agent_status,
+            paths=paths,
+        )
+    except FileNotFoundError:
+        return
     if target_agent_config is None:
         return
 
@@ -436,6 +564,9 @@ def _build_openagents_middlewares(model_config: ModelConfig):
         ThreadDataMiddleware(),
         UploadsMiddleware(),
         TitleMiddleware(),
+        UserVisiblePathSanitizerMiddleware(),
+        build_model_retry_middleware(),
+        build_tool_retry_middleware(),
         MaxTokensRecoveryMiddleware(),
         ContextWindowMiddleware(),
     ]
@@ -549,8 +680,7 @@ def _update_runtime_context(runtime: ServerRuntime | None, **values: object) -> 
     if not isinstance(context, dict):
         return
     for key, value in values.items():
-        if value is not None:
-            context[key] = value
+        context[key] = value
 
 
 def _coerce_optional_str(value: object) -> str | None:
@@ -633,6 +763,9 @@ def _persist_thread_runtime(
     user_id: str | None,
     model_name: str,
     agent_name: str,
+    agent_status: str,
+    execution_backend: str | None,
+    remote_session_id: str | None,
 ) -> None:
     if not thread_id:
         return
@@ -643,6 +776,48 @@ def _persist_thread_runtime(
         user_id=user_id,
         model_name=model_name,
         agent_name=agent_name,
+        agent_status=agent_status,
+        execution_backend=execution_backend,
+        remote_session_id=remote_session_id,
+    )
+
+
+def _bind_request_to_thread_runtime(
+    *,
+    request: LeadAgentRequest,
+    thread_binding: ThreadBinding | None,
+) -> LeadAgentRequest:
+    if thread_binding is None:
+        return request
+
+    bound_agent_name = thread_binding.agent_name or request.agent_name
+    bound_agent_status = thread_binding.agent_status or request.agent_status
+    bound_execution_backend = thread_binding.execution_backend
+    bound_remote_session_id = (
+        thread_binding.remote_session_id if bound_execution_backend == "remote" else None
+    )
+
+    if (
+        bound_agent_name != request.agent_name
+        or bound_agent_status != request.agent_status
+        or bound_execution_backend != request.execution_backend
+        or bound_remote_session_id != request.remote_session_id
+    ):
+        logger.info(
+            "Thread '%s' is already bound to agent=%s status=%s backend=%s remote_session_id=%s; using persisted thread runtime.",
+            request.thread_id,
+            bound_agent_name,
+            bound_agent_status,
+            bound_execution_backend,
+            bound_remote_session_id,
+        )
+
+    return replace(
+        request,
+        agent_name=bound_agent_name,
+        agent_status=bound_agent_status,
+        execution_backend=bound_execution_backend,
+        remote_session_id=bound_remote_session_id,
     )
 
 
@@ -820,37 +995,50 @@ def _resolve_lead_agent_runtime(
     request: LeadAgentRequest,
     db_store: RuntimeDBStore,
     persist_thread_runtime: bool,
-) -> LeadAgentResolution:
+) -> tuple[LeadAgentRequest, LeadAgentResolution]:
     thread_binding = _load_thread_binding(
         db_store=db_store,
         thread_id=request.thread_id,
         user_id=request.user_id,
     )
-    agent_config = _load_agent_runtime_config(
-        agent_name=request.agent_name,
-        agent_status=request.agent_status,
+    effective_request = _bind_request_to_thread_runtime(
+        request=request,
+        thread_binding=thread_binding,
     )
-    _assert_agent_memory_access(agent_config=agent_config, user_id=request.user_id)
+    agent_config = _load_agent_runtime_config(
+        agent_name=effective_request.agent_name,
+        agent_status=effective_request.agent_status,
+    )
+    _assert_agent_memory_access(
+        agent_config=agent_config,
+        user_id=effective_request.user_id,
+    )
     model_name, model_config = _resolve_run_model(
-        requested_model_name=request.requested_model_name,
-        runtime_model_name=request.runtime_model_name,
+        requested_model_name=effective_request.requested_model_name,
+        runtime_model_name=effective_request.runtime_model_name,
         agent_config=agent_config,
         thread_binding=thread_binding,
-        thread_id=request.thread_id,
+        thread_id=effective_request.thread_id,
         db_store=db_store,
     )
     if persist_thread_runtime:
         _persist_thread_runtime(
             db_store=db_store,
-            thread_id=request.thread_id,
-            user_id=request.user_id,
+            thread_id=effective_request.thread_id,
+            user_id=effective_request.user_id,
             model_name=model_name,
-            agent_name=request.agent_name,
+            agent_name=effective_request.agent_name,
+            agent_status=effective_request.agent_status,
+            execution_backend=effective_request.execution_backend,
+            remote_session_id=effective_request.remote_session_id,
         )
-    return LeadAgentResolution(
-        agent_config=agent_config,
-        model_name=model_name,
-        model_config=model_config,
+    return (
+        effective_request,
+        LeadAgentResolution(
+            agent_config=agent_config,
+            model_name=model_name,
+            model_config=model_config,
+        ),
     )
 
 
@@ -1076,7 +1264,7 @@ def _create_lead_agent(
 ):
     request = _resolve_lead_agent_request(config, runtime)
     db_store = get_runtime_db_store()
-    resolution = _resolve_lead_agent_runtime(
+    request, resolution = _resolve_lead_agent_runtime(
         request=request,
         db_store=db_store,
         persist_thread_runtime=prepare_runtime_resources,

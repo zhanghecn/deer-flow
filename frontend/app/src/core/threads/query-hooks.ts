@@ -4,11 +4,12 @@ import { getAPIClient } from "../api";
 import { useAuth } from "../auth";
 
 import {
+  getThreadRuntime,
   searchThreads,
   type ThreadSearchParams,
   updateThreadTitle,
 } from "./api";
-import type { AgentThread } from "./types";
+import type { AgentThread, ThreadRuntimeBinding } from "./types";
 
 export function useThreads(
   params: ThreadSearchParams = {
@@ -28,11 +29,22 @@ export function useThreads(
   });
 }
 
+export function useThreadRuntime(threadId?: string | null) {
+  const { authenticated } = useAuth();
+  return useQuery<ThreadRuntimeBinding & { thread_id: string }>({
+    queryKey: ["threads", "runtime", threadId ?? null],
+    queryFn: () => getThreadRuntime(threadId!),
+    enabled: authenticated && !!threadId,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+}
+
 export function useDeleteThread() {
   const queryClient = useQueryClient();
-  const apiClient = getAPIClient();
   return useMutation({
     mutationFn: async ({ threadId }: { threadId: string }) => {
+      const apiClient = getAPIClient(false, threadId);
       await apiClient.threads.delete(threadId);
     },
     onSuccess(_, { threadId }) {
@@ -54,7 +66,6 @@ export function useDeleteThread() {
 
 export function useRenameThread() {
   const queryClient = useQueryClient();
-  const apiClient = getAPIClient();
   return useMutation({
     mutationFn: async ({
       threadId,
@@ -63,6 +74,7 @@ export function useRenameThread() {
       threadId: string;
       title: string;
     }) => {
+      const apiClient = getAPIClient(false, threadId);
       await apiClient.threads.updateState(threadId, {
         values: { title },
       });

@@ -30,6 +30,8 @@ const MARKDOWN_KEYS = [
   "description",
 ];
 
+const VIRTUAL_PATH_PATTERN = /\/mnt\/user-data\/[^\s'",)]+/g;
+
 export function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -237,6 +239,84 @@ export function normalizeReadableString(value: string): unknown {
   return decodeEscapedUnicode(value);
 }
 
+export function sanitizeVirtualPath(path: string): string {
+  const normalized = path.trim();
+  if (!normalized.startsWith("/mnt/user-data/")) {
+    return path;
+  }
+
+  const suffix = normalized.slice("/mnt/user-data/".length);
+  if (suffix.startsWith("outputs/")) {
+    return `output/${suffix.slice("outputs/".length)}`;
+  }
+  if (suffix.startsWith("uploads/")) {
+    return `upload/${suffix.slice("uploads/".length)}`;
+  }
+  if (suffix.startsWith("workspace/")) {
+    return `workspace/${suffix.slice("workspace/".length)}`;
+  }
+  if (suffix.startsWith("agents/")) {
+    return `agent/${suffix.slice("agents/".length)}`;
+  }
+  if (suffix.startsWith("authoring/")) {
+    return `authoring/${suffix.slice("authoring/".length)}`;
+  }
+  return `user-data/${suffix}`;
+}
+
+export function sanitizeVirtualPathsInText(value: string): string {
+  return value.replace(VIRTUAL_PATH_PATTERN, (match) => sanitizeVirtualPath(match));
+}
+
+function sanitizeReadableValue(
+  value: unknown,
+  depth = 0,
+  seen = new WeakSet<object>(),
+): unknown {
+  if (depth > 8 || value == null) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const sanitized = sanitizeVirtualPathsInText(value);
+    return sanitized === value ? value : sanitized;
+  }
+
+  if (Array.isArray(value)) {
+    if (seen.has(value)) {
+      return "[circular]";
+    }
+    seen.add(value);
+    let changed = false;
+    const nextValue = value.map((item) => {
+      const sanitizedItem = sanitizeReadableValue(item, depth + 1, seen);
+      if (sanitizedItem !== item) {
+        changed = true;
+      }
+      return sanitizedItem;
+    });
+    return changed ? nextValue : value;
+  }
+
+  if (isObject(value)) {
+    if (seen.has(value)) {
+      return "[circular]";
+    }
+    seen.add(value);
+    let changed = false;
+    const nextEntries = Object.entries(value).map(([key, item]) => {
+      const sanitizedItem = sanitizeReadableValue(item, depth + 1, seen);
+      if (sanitizedItem !== item) {
+        changed = true;
+      }
+      return [key, sanitizedItem];
+    });
+    return changed ? Object.fromEntries(nextEntries) : value;
+  }
+
+  return value;
+}
+
 function normalizeLegacyLeaf(value: unknown): unknown {
   if (typeof value !== "string") {
     return value;
@@ -273,9 +353,9 @@ export function unwrapLegacyValue(value: unknown): {
 export function normalizeReadableValue(value: unknown): unknown {
   const { value: unwrappedValue } = unwrapLegacyValue(value);
   if (typeof unwrappedValue === "string") {
-    return normalizeReadableString(unwrappedValue);
+    return sanitizeReadableValue(normalizeReadableString(unwrappedValue));
   }
-  return unwrappedValue;
+  return sanitizeReadableValue(unwrappedValue);
 }
 
 function toPreviewText(value: unknown): string {

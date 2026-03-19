@@ -44,8 +44,20 @@ export function useUpdateSubtask() {
   const updateSubtask = useCallback(
     (task: Partial<Subtask> & { id: string }) => {
       setTasks((prevTasks) => {
-        const nextTask = { ...prevTasks[task.id], ...task } as Subtask;
         const previousTask = prevTasks[task.id];
+        const nextTask = {
+          ...previousTask,
+          ...task,
+        } as Subtask;
+
+        if (
+          previousTask &&
+          task.status === "in_progress" &&
+          (previousTask.status === "completed" ||
+            previousTask.status === "failed")
+        ) {
+          nextTask.status = previousTask.status;
+        }
 
         if (
           previousTask?.status === nextTask.status &&

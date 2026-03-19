@@ -30,6 +30,7 @@ export default function NewChatSender({
     context,
     isMock,
     skipInitialHistory: true,
+    onStart: onStartedThread,
   });
 
   useEffect(() => {
@@ -43,14 +44,12 @@ export default function NewChatSender({
         onError();
       },
     );
-    onStartedThread(threadId);
     void sendPromise;
   }, [
     extraContext,
     isThreadReady,
     message,
     onError,
-    onStartedThread,
     sendMessage,
     threadId,
   ]);

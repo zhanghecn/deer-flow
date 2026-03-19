@@ -24,6 +24,8 @@ type OpenAPIHandler struct {
 	fs           *storage.FS
 }
 
+const openAPIAssistantID = "lead_agent"
+
 func NewOpenAPIHandler(modelRepo *repository.ModelRepo, langGraphURL string, fs *storage.FS) *OpenAPIHandler {
 	return &OpenAPIHandler{modelRepo: modelRepo, langGraphURL: langGraphURL, fs: fs}
 }
@@ -70,19 +72,13 @@ func (h *OpenAPIHandler) handleRequest(c *gin.Context, agentName string, stream 
 
 	// Ensure thread directories
 	_ = h.fs.EnsureThreadDirs(threadID)
-
-	// Build LangGraph request
-	lgBody := map[string]interface{}{
-		"input": []map[string]interface{}{
-			{"role": "user", "content": req.Message},
-		},
-		"configurable": map[string]interface{}{
-			"agent_name":   agentName,
-			"agent_status": "prod",
-			"thread_id":    threadID,
-			"model_name":   modelName,
-		},
+	if err := h.ensureLangGraphThread(c, userID, threadID); err != nil {
+		c.JSON(http.StatusBadGateway, model.ErrorResponse{Error: "failed to initialize agent thread"})
+		return
 	}
+
+	// Build LangGraph request using the same shape as the LangGraph SDK.
+	lgBody := buildLangGraphRunRequest(agentName, threadID, modelName, req.Message)
 
 	bodyBytes, _ := json.Marshal(lgBody)
 
@@ -141,6 +137,70 @@ func (h *OpenAPIHandler) handleRequest(c *gin.Context, agentName string, stream 
 		body, _ := io.ReadAll(resp.Body)
 		c.Header("X-Thread-ID", threadID)
 		c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), body)
+	}
+}
+
+func (h *OpenAPIHandler) ensureLangGraphThread(c *gin.Context, userID uuid.UUID, threadID string) error {
+	bodyBytes, err := json.Marshal(buildLangGraphThreadCreateRequest(threadID))
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(
+		c.Request.Context(),
+		http.MethodPost,
+		h.langGraphURL+"/threads",
+		bytes.NewReader(bodyBytes),
+	)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-ID", userID.String())
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+	return fmt.Errorf(
+		"langgraph thread create failed: status %d: %s",
+		resp.StatusCode,
+		strings.TrimSpace(string(body)),
+	)
+}
+
+func buildLangGraphThreadCreateRequest(threadID string) map[string]interface{} {
+	return map[string]interface{}{
+		"thread_id": threadID,
+		"if_exists": "do_nothing",
+		"metadata": map[string]interface{}{
+			"graph_id": openAPIAssistantID,
+		},
+	}
+}
+
+func buildLangGraphRunRequest(agentName string, threadID string, modelName string, message string) map[string]interface{} {
+	return map[string]interface{}{
+		"assistant_id": openAPIAssistantID,
+		"input": []map[string]interface{}{
+			{"role": "user", "content": message},
+		},
+		"config": map[string]interface{}{
+			"configurable": map[string]interface{}{
+				"agent_name":   agentName,
+				"agent_status": "prod",
+				"thread_id":    threadID,
+				"model_name":   modelName,
+			},
+		},
 	}
 }
 

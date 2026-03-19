@@ -823,6 +823,8 @@ export type PromptInputTextareaProps = ComponentProps<
 
 export const PromptInputTextarea = ({
   onChange,
+  onKeyDown: onKeyDownProp,
+  onPaste: onPasteProp,
   className,
   placeholder = "What would you like to know?",
   ...props
@@ -832,6 +834,11 @@ export const PromptInputTextarea = ({
   const [isComposing, setIsComposing] = useState(false);
 
   const handleKeyDown: KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
+    onKeyDownProp?.(e);
+    if (e.defaultPrevented) {
+      return;
+    }
+
     if (e.key === "Enter") {
       if (isComposing || e.nativeEvent.isComposing) {
         return;
@@ -868,6 +875,11 @@ export const PromptInputTextarea = ({
   };
 
   const handlePaste: ClipboardEventHandler<HTMLTextAreaElement> = (event) => {
+    onPasteProp?.(event);
+    if (event.defaultPrevented) {
+      return;
+    }
+
     const items = event.clipboardData?.items;
 
     if (!items) {

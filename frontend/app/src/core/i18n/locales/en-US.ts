@@ -77,26 +77,9 @@ export const enUS: Translations = {
     mode: "Mode",
     flashMode: "Flash",
     flashModeDescription: "Fast and efficient, but may not be accurate",
-    reasoningMode: "Reasoning",
-    reasoningModeDescription:
-      "Reasoning before action, balance between time and accuracy",
     proMode: "Pro",
     proModeDescription:
       "Reasoning, planning and executing, get more accurate results, may take more time",
-    ultraMode: "Ultra",
-    ultraModeDescription:
-      "Pro mode with subagents to divide work; best for complex multi-step tasks",
-    reasoningEffort: "Reasoning Effort",
-    reasoningEffortMinimal: "Minimal",
-    reasoningEffortMinimalDescription: "Retrieval + Direct Output",
-    reasoningEffortLow: "Low",
-    reasoningEffortLowDescription: "Simple Logic Check + Shallow Deduction",
-    reasoningEffortMedium: "Medium",
-    reasoningEffortMediumDescription:
-      "Multi-layer Logic Analysis + Basic Verification",
-    reasoningEffortHigh: "High",
-    reasoningEffortHighDescription:
-      "Full-dimensional Logic Deduction + Multi-path Verification + Backward Check",
     searchModels: "Search models...",
     surpriseMe: "Surprise",
     surpriseMePrompt: "Surprise me",
@@ -306,6 +289,10 @@ export const enUS: Translations = {
     subtask: "Subtask",
     executing: (count: number) =>
       `Executing ${count === 1 ? "" : count + " "}subtask${count === 1 ? "" : "s in parallel"}`,
+    completedGroup: (count: number) =>
+      `Completed ${count === 1 ? "1 subtask" : `${count} subtasks`}`,
+    failedGroup: (count: number) =>
+      `${count === 1 ? "1 subtask failed" : `${count} subtasks failed`}`,
     in_progress: "Running subtask",
     completed: "Subtask completed",
     failed: "Subtask failed",

@@ -71,7 +71,7 @@ func main() {
 
 	// Handlers
 	authH := handler.NewAuthHandler(userRepo, tokenRepo, jwtMgr, fs)
-	agentH := handler.NewAgentHandler(agentSvc, fs)
+	agentH := handler.NewAgentHandler(agentSvc, fs, tokenRepo)
 	skillH := handler.NewSkillHandler(skillSvc, fs, extensionsConfigPath)
 	modelH := handler.NewModelHandler(modelRepo)
 	memoryH := handler.NewMemoryHandler(fs)
@@ -179,6 +179,7 @@ func main() {
 		api.DELETE("/agents/:name", agentH.Delete)
 		api.POST("/agents/:name/publish", agentH.Publish)
 		api.GET("/agents/:name/export", agentH.Export)
+		api.POST("/agents/:name/export/demo", agentH.ExportDemo)
 
 		// Skills
 		api.GET("/skills", skillH.List)
@@ -201,6 +202,7 @@ func main() {
 
 		// Threads index (database-backed source of truth for sidebar/search)
 		api.POST("/threads/search", threadsH.Search)
+		api.GET("/threads/:id/runtime", threadsH.GetRuntime)
 		api.PATCH("/threads/:id/title", threadsH.UpdateTitle)
 
 		// Uploads

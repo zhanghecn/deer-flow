@@ -3,6 +3,7 @@ import type { AIMessage } from "@langchain/langgraph-sdk";
 
 import type { Translations } from "../i18n";
 import { hasToolCalls } from "../messages/utils";
+import { getUserVisibleRuntimePath } from "../utils/files";
 
 function getStringArg(args: unknown, ...keys: string[]) {
   if (!args || typeof args !== "object") {
@@ -36,14 +37,18 @@ export function explainToolCall(toolCall: ToolCall, t: Translations) {
     return command ? `${t.toolCalls.executeCommand}: ${command}` : t.toolCalls.executeCommand;
   } else if (toolCall.name === "read_file") {
     const path = getStringArg(toolCall.args, "path", "file_path");
-    return path ? `${t.toolCalls.readFile}: ${path}` : t.toolCalls.readFile;
+    return path
+      ? `${t.toolCalls.readFile}: ${getUserVisibleRuntimePath(path)}`
+      : t.toolCalls.readFile;
   } else if (
     toolCall.name === "write_file" ||
     toolCall.name === "edit_file" ||
     toolCall.name === "str_replace"
   ) {
     const path = getStringArg(toolCall.args, "path", "file_path");
-    return path ? `${t.toolCalls.writeFile}: ${path}` : t.toolCalls.writeFile;
+    return path
+      ? `${t.toolCalls.writeFile}: ${getUserVisibleRuntimePath(path)}`
+      : t.toolCalls.writeFile;
   } else if (toolCall.name === "grep") {
     const pattern = getStringArg(toolCall.args, "pattern");
     return pattern ? `${t.toolCalls.useTool("grep")}: ${pattern}` : t.toolCalls.useTool("grep");

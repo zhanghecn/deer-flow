@@ -50,7 +50,16 @@ export interface AgentThreadState extends Record<string, unknown> {
   context_window?: ContextWindowState;
 }
 
-export interface AgentThread extends Thread<AgentThreadState> {}
+export interface ThreadRuntimeBinding {
+  agent_name?: string;
+  agent_status?: "dev" | "prod";
+  execution_backend?: "remote";
+  remote_session_id?: string;
+  model_name?: string;
+}
+
+export interface AgentThread
+  extends Thread<AgentThreadState>, ThreadRuntimeBinding {}
 
 export type AgentInterruptActionRequest = {
   id?: string;

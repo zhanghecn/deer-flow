@@ -4,6 +4,8 @@ import {
   BotIcon,
   BrainIcon,
   CopyIcon,
+  DownloadIcon,
+  Loader2Icon,
   MessageSquareIcon,
   RocketIcon,
   Trash2Icon,
@@ -30,7 +32,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useDeleteAgent, usePublishAgent } from "@/core/agents";
+import {
+  useDeleteAgent,
+  useDownloadAgentReactDemo,
+  usePublishAgent,
+} from "@/core/agents";
 import { buildWorkspaceAgentPath } from "@/core/agents";
 import type { Agent } from "@/core/agents";
 import { useI18n } from "@/core/i18n/hooks";
@@ -50,6 +56,7 @@ export function AgentCard({ agent }: AgentCardProps) {
   const { t } = useI18n();
   const router = useRouter();
   const deleteAgent = useDeleteAgent();
+  const downloadDemoMutation = useDownloadAgentReactDemo();
   const publishAgentMutation = usePublishAgent();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const isProd = agent.status === "prod";
@@ -78,6 +85,15 @@ export function AgentCard({ agent }: AgentCardProps) {
     try {
       await publishAgentMutation.mutateAsync(agent.name);
       toast.success(`Agent '${agent.name}' published`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function handleDownloadReactDemo() {
+    try {
+      const filename = await downloadDemoMutation.mutateAsync(agent.name);
+      toast.success(`Downloaded ${filename}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err));
     }
@@ -152,8 +168,8 @@ export function AgentCard({ agent }: AgentCardProps) {
           )}
         </CardContent>
 
-        <CardFooter className="mt-auto flex items-center justify-between gap-2 pt-3">
-          <Button size="sm" className="flex-1" onClick={handleChat}>
+        <CardFooter className="mt-auto flex flex-wrap items-center gap-2 pt-3">
+          <Button size="sm" className="min-w-[120px] flex-1" onClick={handleChat}>
             <MessageSquareIcon className="mr-1.5 h-3.5 w-3.5" />
             Open Demo
           </Button>
@@ -161,7 +177,7 @@ export function AgentCard({ agent }: AgentCardProps) {
             <CopyIcon className="mr-1.5 h-3.5 w-3.5" />
             Copy URL
           </Button>
-          <div className="flex gap-1">
+          <div className="ml-auto flex gap-1">
             {!isProd && (
               <Button
                 size="icon"
@@ -172,6 +188,22 @@ export function AgentCard({ agent }: AgentCardProps) {
                 title="Publish"
               >
                 <RocketIcon className="h-3.5 w-3.5" />
+              </Button>
+            )}
+            {isProd && (
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8 shrink-0"
+                onClick={handleDownloadReactDemo}
+                disabled={downloadDemoMutation.isPending}
+                title="Download React Demo"
+              >
+                {downloadDemoMutation.isPending ? (
+                  <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <DownloadIcon className="h-3.5 w-3.5" />
+                )}
               </Button>
             )}
             {!isBuiltinLeadAgent && (

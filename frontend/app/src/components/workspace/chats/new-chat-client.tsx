@@ -61,7 +61,6 @@ export default function NewChatClient() {
       agent_status: runtimeSelection.agentStatus,
       execution_backend: runtimeSelection.executionBackend,
       remote_session_id: runtimeSelection.remoteSessionId ?? undefined,
-      mode: "ultra" as const,
       model_name:
         pinnedModelName ?? settings.context.model_name ?? models[0]?.name,
     }),

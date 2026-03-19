@@ -70,6 +70,20 @@ def _skills_by_name_for_scopes(
     return catalog
 
 
+def _skills_by_source_path_for_scopes(
+    *,
+    paths: Paths,
+    allowed_scopes: tuple[str, ...],
+) -> dict[str, Skill]:
+    catalog: dict[str, Skill] = {}
+    for skill in load_skills(skills_path=paths.skills_dir, use_config=False, enabled_only=False):
+        if skill.category not in allowed_scopes:
+            continue
+        catalog[Path(skill.category, skill.skill_path or skill.skill_dir.name).as_posix()] = skill
+
+    return catalog
+
+
 def _sort_skills_for_scope_priority(skills: list[Skill], *, allowed_scopes: tuple[str, ...]) -> list[Skill]:
     scope_order = {scope: index for index, scope in enumerate(allowed_scopes)}
     return sorted(
@@ -108,6 +122,37 @@ def _resolve_requested_skill(
     return matches[0]
 
 
+def _resolve_skill_ref(
+    *,
+    skill_ref: AgentSkillRef,
+    catalog: dict[str, list[Skill]],
+    skills_by_source_path: dict[str, Skill],
+    allowed_scopes: tuple[str, ...],
+    target_status: str,
+    allow_shared: bool,
+) -> Skill:
+    if skill_ref.source_path is None:
+        return _resolve_requested_skill(
+            skill_name=skill_ref.name,
+            catalog=catalog,
+            allowed_scopes=allowed_scopes,
+            target_status=target_status,
+            allow_shared=allow_shared,
+        )
+
+    skill = skills_by_source_path.get(skill_ref.source_path)
+    if skill is None:
+        scopes = ", ".join(allowed_scopes)
+        raise ValueError(
+            f"Skill '{skill_ref.name}' from {skill_ref.source_path} not found in allowed scopes: {scopes}."
+        )
+    if skill.name != skill_ref.name:
+        raise ValueError(
+            f"Skill ref name '{skill_ref.name}' does not match installed skill '{skill.name}' at {skill_ref.source_path}."
+        )
+    return skill
+
+
 def validate_skill_refs_for_status(
     skill_refs: list[AgentSkillRef],
     *,
@@ -121,6 +166,7 @@ def validate_skill_refs_for_status(
         allow_shared=allow_shared,
     )
     catalog = _skills_by_name_for_scopes(paths=paths, allowed_scopes=allowed_scopes)
+    skills_by_source_path = _skills_by_source_path_for_scopes(paths=paths, allowed_scopes=allowed_scopes)
 
     for skill_ref in skill_refs:
         if skill_ref.source_path is None:
@@ -131,9 +177,10 @@ def validate_skill_refs_for_status(
             raise ValueError(
                 f"Skill '{skill_ref.name}' from {scope} is not allowed for {target_status} agent archives. Allowed scopes: {scopes}."
             )
-        _resolve_requested_skill(
-            skill_name=skill_ref.name,
+        _resolve_skill_ref(
+            skill_ref=skill_ref,
             catalog=catalog,
+            skills_by_source_path=skills_by_source_path,
             allowed_scopes=allowed_scopes,
             target_status=target_status,
             allow_shared=allow_shared,
@@ -183,6 +230,17 @@ def _to_agent_skill_ref(skill: Skill) -> AgentSkillRef:
     )
 
 
+def _materialize_resolved_skills(*, skills_dir: Path, resolved_skills: list[Skill]) -> list[AgentSkillRef]:
+    skill_refs: list[AgentSkillRef] = []
+    for skill in resolved_skills:
+        relative_path = _skill_relative_path(skill)
+        materialized_dir = skills_dir / relative_path
+        materialized_dir.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(skill.skill_dir, materialized_dir, dirs_exist_ok=True)
+        skill_refs.append(_to_agent_skill_ref(skill))
+    return skill_refs
+
+
 def materialize_agent_skills(
     *,
     skills_dir: Path,
@@ -204,15 +262,40 @@ def materialize_agent_skills(
         paths=paths,
         allow_shared=allow_shared,
     )
-    skill_refs: list[AgentSkillRef] = []
-    for skill in resolved_skills:
-        relative_path = _skill_relative_path(skill)
-        materialized_dir = skills_dir / relative_path
-        materialized_dir.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(skill.skill_dir, materialized_dir, dirs_exist_ok=True)
-        skill_refs.append(_to_agent_skill_ref(skill))
+    return _materialize_resolved_skills(skills_dir=skills_dir, resolved_skills=resolved_skills)
 
-    return skill_refs
+
+def materialize_agent_skill_refs(
+    *,
+    skills_dir: Path,
+    skill_refs: list[AgentSkillRef],
+    target_status: str = "dev",
+    paths: Paths | None = None,
+    allow_shared: bool = False,
+) -> list[AgentSkillRef]:
+    paths = paths or get_paths()
+    if skills_dir.exists():
+        shutil.rmtree(skills_dir)
+    skills_dir.mkdir(parents=True, exist_ok=True)
+
+    allowed_scopes = _allowed_skill_scopes_for_agent(
+        target_status=target_status,
+        allow_shared=allow_shared,
+    )
+    catalog = _skills_by_name_for_scopes(paths=paths, allowed_scopes=allowed_scopes)
+    skills_by_source_path = _skills_by_source_path_for_scopes(paths=paths, allowed_scopes=allowed_scopes)
+    resolved_skills = [
+        _resolve_skill_ref(
+            skill_ref=skill_ref,
+            catalog=catalog,
+            skills_by_source_path=skills_by_source_path,
+            allowed_scopes=allowed_scopes,
+            target_status=target_status,
+            allow_shared=allow_shared,
+        )
+        for skill_ref in skill_refs
+    ]
+    return _materialize_resolved_skills(skills_dir=skills_dir, resolved_skills=resolved_skills)
 
 
 def materialize_inline_agent_skills(

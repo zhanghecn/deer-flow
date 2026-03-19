@@ -61,21 +61,8 @@ export interface Translations {
     mode: string;
     flashMode: string;
     flashModeDescription: string;
-    reasoningMode: string;
-    reasoningModeDescription: string;
     proMode: string;
     proModeDescription: string;
-    ultraMode: string;
-    ultraModeDescription: string;
-    reasoningEffort: string;
-    reasoningEffortMinimal: string;
-    reasoningEffortMinimalDescription: string;
-    reasoningEffortLow: string;
-    reasoningEffortLowDescription: string;
-    reasoningEffortMedium: string;
-    reasoningEffortMediumDescription: string;
-    reasoningEffortHigh: string;
-    reasoningEffortHighDescription: string;
     searchModels: string;
     surpriseMe: string;
     surpriseMePrompt: string;
@@ -241,6 +228,8 @@ export interface Translations {
   subtasks: {
     subtask: string;
     executing: (count: number) => string;
+    completedGroup: (count: number) => string;
+    failedGroup: (count: number) => string;
     in_progress: string;
     completed: string;
     failed: string;

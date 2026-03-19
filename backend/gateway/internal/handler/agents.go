@@ -1,24 +1,29 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/openagents/gateway/internal/agentfs"
 	"github.com/openagents/gateway/internal/middleware"
 	"github.com/openagents/gateway/internal/model"
+	"github.com/openagents/gateway/internal/repository"
 	"github.com/openagents/gateway/internal/service"
 	"github.com/openagents/gateway/pkg/storage"
 )
 
 type AgentHandler struct {
-	svc *service.AgentService
-	fs  *storage.FS
+	svc       *service.AgentService
+	fs        *storage.FS
+	tokenRepo *repository.APITokenRepo
 }
 
-func NewAgentHandler(svc *service.AgentService, fs *storage.FS) *AgentHandler {
-	return &AgentHandler{svc: svc, fs: fs}
+func NewAgentHandler(svc *service.AgentService, fs *storage.FS, tokenRepo *repository.APITokenRepo) *AgentHandler {
+	return &AgentHandler{svc: svc, fs: fs, tokenRepo: tokenRepo}
 }
 
 func (h *AgentHandler) List(c *gin.Context) {
@@ -128,12 +133,81 @@ func (h *AgentHandler) Export(c *gin.Context) {
 		return
 	}
 
-	doc := gin.H{
-		"agent": agent.Name,
+	doc := h.buildExportDocument(c, agent.Name)
+	c.JSON(http.StatusOK, doc)
+}
+
+func (h *AgentHandler) ExportDemo(c *gin.Context) {
+	name := c.Param("name")
+	agent, err := agentfs.LoadAgent(h.fs, name, "prod", true)
+	if err != nil || agent == nil {
+		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "agent not found"})
+		return
+	}
+	if h.tokenRepo == nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "api token repository is unavailable"})
+		return
+	}
+
+	userID := middleware.GetUserID(c)
+	plainToken, expiresAt, err := h.createDemoToken(c, userID, agent.Name)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to create demo api token"})
+		return
+	}
+
+	openAPIBaseURL := resolvePublicGatewayBaseURL(c)
+	exportDoc := h.buildExportDocument(c, agent.Name)
+	archiveBytes, err := buildReactDemoArchive(
+		agent.Name,
+		openAPIBaseURL,
+		plainToken,
+		expiresAt,
+		exportDoc,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to build demo archive"})
+		return
+	}
+
+	filename := fmt.Sprintf("%s-react-demo.zip", sanitizeDemoName(agent.Name))
+	c.Header("Content-Type", "application/zip")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	c.Header("Cache-Control", "no-store")
+	c.Data(http.StatusOK, "application/zip", archiveBytes)
+}
+
+func (h *AgentHandler) createDemoToken(c *gin.Context, userID uuid.UUID, agentName string) (string, time.Time, error) {
+	plainToken := generateRandomToken()
+	tokenHash := hashTokenStr(plainToken)
+	expiresAt := time.Now().UTC().Add(7 * 24 * time.Hour)
+
+	apiToken := &model.APIToken{
+		ID:        uuid.New(),
+		UserID:    userID,
+		TokenHash: tokenHash,
+		Name:      fmt.Sprintf("demo-%s-%s", sanitizeDemoName(agentName), time.Now().UTC().Format("20060102-150405")),
+		Scopes:    []string{"openapi:invoke"},
+		ExpiresAt: &expiresAt,
+	}
+	if err := h.tokenRepo.Create(c.Request.Context(), apiToken); err != nil {
+		return "", time.Time{}, err
+	}
+	return plainToken, expiresAt, nil
+}
+
+func (h *AgentHandler) buildExportDocument(c *gin.Context, agentName string) gin.H {
+	baseURL := resolvePublicGatewayBaseURL(c)
+	apiExportURL := fmt.Sprintf("%s/api/agents/%s/export", baseURL, agentName)
+	demoExportURL := fmt.Sprintf("%s/api/agents/%s/export/demo", baseURL, agentName)
+	return gin.H{
+		"agent":        agentName,
+		"status":       "prod",
+		"api_base_url": baseURL,
 		"endpoints": gin.H{
 			"stream": gin.H{
 				"method": "POST",
-				"url":    "/open/v1/agents/" + name + "/stream",
+				"url":    fmt.Sprintf("%s/open/v1/agents/%s/stream", baseURL, agentName),
 				"headers": gin.H{
 					"Authorization": "Bearer <api_token>",
 					"Content-Type":  "application/json",
@@ -145,7 +219,7 @@ func (h *AgentHandler) Export(c *gin.Context) {
 			},
 			"chat": gin.H{
 				"method": "POST",
-				"url":    "/open/v1/agents/" + name + "/chat",
+				"url":    fmt.Sprintf("%s/open/v1/agents/%s/chat", baseURL, agentName),
 				"headers": gin.H{
 					"Authorization": "Bearer <api_token>",
 					"Content-Type":  "application/json",
@@ -156,6 +230,15 @@ func (h *AgentHandler) Export(c *gin.Context) {
 				},
 			},
 		},
+		"demo": gin.H{
+			"framework": "react-vite",
+			"method":    "POST",
+			"url":       demoExportURL,
+			"notes": []string{
+				"Calling the demo export endpoint creates a new API token and embeds it into the downloaded React project.",
+				"The generated token expires after 7 days. Rotate or delete it from the API token page if you do not need it anymore.",
+			},
+		},
+		"documentation_url": apiExportURL,
 	}
-	c.JSON(http.StatusOK, doc)
 }

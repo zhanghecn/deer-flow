@@ -2,8 +2,8 @@
 
 import type { Command } from "@langchain/langgraph-sdk";
 import dynamic from "next/dynamic";
-import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { type PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { AgentWorkspaceDialog } from "@/components/workspace/agent-workspace-dialog";
@@ -18,12 +18,17 @@ import { Welcome } from "@/components/workspace/welcome";
 import {
   buildWorkspaceAgentPath,
   readAgentRuntimeSelection,
+  type ResolvedAgentRuntimeSelection,
 } from "@/core/agents";
 import { useI18n } from "@/core/i18n/hooks";
 import { useNotification } from "@/core/notification/hooks";
 import { useLocalSettings } from "@/core/settings";
 import { useThreadStream } from "@/core/threads/hooks";
-import { textOfMessage } from "@/core/threads/utils";
+import { useThreadRuntime } from "@/core/threads/query-hooks";
+import {
+  resolveThreadRuntimeBinding,
+  textOfMessage,
+} from "@/core/threads/utils";
 import { env } from "@/env";
 import { cn } from "@/lib/utils";
 
@@ -41,44 +46,105 @@ const MessageList = dynamic(
 
 export default function ChatPage() {
   const { t } = useI18n();
-  const [settings, setSettings] = useLocalSettings();
+  const pathname = usePathname();
+  const [settings] = useLocalSettings();
   const searchParams = useSearchParams();
   const hasPendingRun = searchParams.get("pending_run") === "1";
-  const runtimeSelection = useMemo(
+  const routeRuntimeSelection = useMemo(
     () => readAgentRuntimeSelection(searchParams),
     [searchParams],
   );
-  const runtimeContext = useMemo(
+
+  const { threadId, setThreadId, isNewThread, setIsNewThread, isMock } =
+    useThreadChat();
+  const { data: threadRuntime, isLoading: threadRuntimeLoading } =
+    useThreadRuntime(isMock || isNewThread ? null : threadId);
+  const boundThreadRuntime = useMemo(
+    () => resolveThreadRuntimeBinding(threadRuntime),
+    [threadRuntime],
+  );
+  const runtimeSelection = useMemo(
+    () =>
+      threadRuntime
+        ? {
+            agentName: boundThreadRuntime.agentName,
+            agentStatus: boundThreadRuntime.agentStatus,
+            executionBackend: boundThreadRuntime.executionBackend,
+            remoteSessionId: boundThreadRuntime.remoteSessionId ?? "",
+          }
+        : routeRuntimeSelection,
+    [boundThreadRuntime, routeRuntimeSelection, threadRuntime],
+  ) as ResolvedAgentRuntimeSelection;
+  const runtimeContextSeed = useMemo(
     () => ({
       ...settings.context,
       agent_name: runtimeSelection.agentName,
       agent_status: runtimeSelection.agentStatus,
       execution_backend: runtimeSelection.executionBackend,
       remote_session_id: runtimeSelection.remoteSessionId || undefined,
-      mode: "ultra" as const,
+      model_name: boundThreadRuntime.modelName ?? settings.context.model_name,
     }),
-    [runtimeSelection, settings.context],
+    [boundThreadRuntime.modelName, runtimeSelection, settings.context],
   );
+  const [runtimeContext, setRuntimeContext] =
+    useState<typeof settings.context>(runtimeContextSeed);
 
-  const { threadId, setThreadId, isNewThread, setIsNewThread, isMock } =
-    useThreadChat();
+  useEffect(() => {
+    setRuntimeContext(runtimeContextSeed);
+  }, [runtimeContextSeed]);
   useSpecificChatMode();
 
   const { showNotification } = useNotification();
 
   useEffect(() => {
-    setSettings("context", {
-      agent_name: runtimeSelection.agentName,
-      agent_status: runtimeSelection.agentStatus,
-      execution_backend: runtimeSelection.executionBackend,
-      remote_session_id: runtimeSelection.remoteSessionId || undefined,
-    });
+    if (!threadRuntime || isNewThread) {
+      return;
+    }
+
+    const runtimeChanged =
+      routeRuntimeSelection.agentName !== runtimeSelection.agentName ||
+      routeRuntimeSelection.agentStatus !== runtimeSelection.agentStatus ||
+      routeRuntimeSelection.executionBackend !==
+        runtimeSelection.executionBackend ||
+      routeRuntimeSelection.remoteSessionId !==
+        runtimeSelection.remoteSessionId;
+    if (!runtimeChanged) {
+      return;
+    }
+
+    const basePath = buildWorkspaceAgentPath(
+      {
+        agentName: runtimeSelection.agentName,
+        agentStatus: runtimeSelection.agentStatus,
+        executionBackend: runtimeSelection.executionBackend,
+        remoteSessionId: runtimeSelection.remoteSessionId,
+      },
+      threadId,
+    );
+    const [nextPathname = basePath, nextSearch = ""] = basePath.split("?", 2);
+    const params = new URLSearchParams(nextSearch);
+    if (hasPendingRun) {
+      params.set("pending_run", "1");
+    }
+    if (isMock) {
+      params.set("mock", "true");
+    }
+    const query = params.toString();
+    const nextPath = query ? `${nextPathname}?${query}` : nextPathname;
+    const currentPath = `${pathname}${searchParams.toString() ? `?${searchParams.toString()}` : ""}`;
+    if (nextPath !== currentPath) {
+      window.location.replace(nextPath);
+    }
   }, [
-    runtimeSelection.agentName,
-    runtimeSelection.agentStatus,
-    runtimeSelection.executionBackend,
-    runtimeSelection.remoteSessionId,
-    setSettings,
+    hasPendingRun,
+    isMock,
+    isNewThread,
+    pathname,
+    routeRuntimeSelection,
+    runtimeSelection,
+    searchParams,
+    threadId,
+    threadRuntime,
   ]);
 
   const [thread, sendMessage, resumeInterrupt] = useThreadStream({
@@ -160,6 +226,15 @@ export default function ChatPage() {
   const handleStop = useCallback(async () => {
     await thread.stop();
   }, [thread]);
+
+  if (!isNewThread && threadRuntimeLoading && !threadRuntime) {
+    return (
+      <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
+        Restoring conversation...
+      </div>
+    );
+  }
+
   return (
     <ThreadContext.Provider
       value={{
@@ -233,7 +308,7 @@ export default function ChatPage() {
                     )
                   }
                   disabled={env.NEXT_PUBLIC_STATIC_WEBSITE_ONLY === "true"}
-                  onContextChange={(context) => setSettings("context", context)}
+                  onContextChange={(context) => setRuntimeContext(context)}
                   onSubmit={handleSubmit}
                   onStop={handleStop}
                 />

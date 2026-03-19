@@ -15,17 +15,17 @@ export function Welcome({
   mode,
 }: {
   className?: string;
-  mode?: "ultra" | "pro" | "thinking" | "flash";
+  mode?: "pro" | "flash";
 }) {
   const { t } = useI18n();
   const searchParams = useSearchParams();
-  const isUltra = useMemo(() => mode === "ultra", [mode]);
+  const isPro = useMemo(() => mode === "pro", [mode]);
   const colors = useMemo(() => {
-    if (isUltra) {
+    if (isPro) {
       return ["#efefbb", "#e9c665", "#e3a812"];
     }
     return ["var(--color-foreground)"];
-  }, [isUltra]);
+  }, [isPro]);
   useEffect(() => {
     waved = true;
   }, []);
@@ -42,7 +42,7 @@ export function Welcome({
         ) : (
           <div className="flex items-center gap-2">
             <div className={cn("inline-block", !waved ? "animate-wave" : "")}>
-              {isUltra ? "🚀" : "👋"}
+              {isPro ? "🚀" : "👋"}
             </div>
             <AuroraText colors={colors}>{t.welcome.greeting}</AuroraText>
           </div>

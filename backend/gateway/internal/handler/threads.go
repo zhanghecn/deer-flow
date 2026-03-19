@@ -23,6 +23,11 @@ type threadSearchRepository interface {
 		userID uuid.UUID,
 		opts repository.ThreadSearchOptions,
 	) ([]repository.ThreadSearchRecord, error)
+	GetRuntimeByUser(
+		ctx context.Context,
+		userID uuid.UUID,
+		threadID string,
+	) (*repository.ThreadRuntimeRecord, error)
 	UpdateTitle(
 		ctx context.Context,
 		userID uuid.UUID,
@@ -117,4 +122,30 @@ func (h *ThreadsHandler) UpdateTitle(c *gin.Context) {
 		"thread_id": threadID,
 		"title":     req.Title,
 	})
+}
+
+func (h *ThreadsHandler) GetRuntime(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	if userID == uuid.Nil {
+		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "unauthorized"})
+		return
+	}
+
+	threadID := strings.TrimSpace(c.Param("id"))
+	if threadID == "" {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "thread id is required"})
+		return
+	}
+
+	record, err := h.repo.GetRuntimeByUser(c.Request.Context(), userID, threadID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "thread not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to load thread runtime"})
+		return
+	}
+
+	c.JSON(http.StatusOK, record)
 }

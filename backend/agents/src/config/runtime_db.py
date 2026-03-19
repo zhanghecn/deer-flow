@@ -18,8 +18,11 @@ class ThreadBinding:
     thread_id: str
     user_id: str
     agent_name: str | None
+    agent_status: str
     assistant_id: str | None
     model_name: str | None
+    execution_backend: str | None
+    remote_session_id: str | None
     title: str | None
 
 
@@ -202,7 +205,16 @@ class RuntimeDBStore:
 
     def get_thread_binding(self, thread_id: str) -> ThreadBinding | None:
         query = """
-            SELECT thread_id, user_id::text, agent_name, assistant_id, model_name, title
+            SELECT
+                thread_id,
+                user_id::text,
+                agent_name,
+                agent_status,
+                assistant_id,
+                model_name,
+                execution_backend,
+                remote_session_id,
+                title
             FROM thread_bindings
             WHERE thread_id = %s
             LIMIT 1
@@ -217,8 +229,11 @@ class RuntimeDBStore:
                 bound_thread_id,
                 bound_user_id,
                 agent_name,
+                agent_status,
                 assistant_id,
                 model_name,
+                execution_backend,
+                remote_session_id,
                 title,
             ) = row
             if bound_user_id is None:
@@ -232,8 +247,11 @@ class RuntimeDBStore:
                 thread_id=str(bound_thread_id).strip() or thread_id,
                 user_id=user_id,
                 agent_name=self._normalize_optional_text(agent_name),
+                agent_status=self._normalize_agent_status(agent_status),
                 assistant_id=self._normalize_optional_text(assistant_id),
                 model_name=self._normalize_optional_text(model_name),
+                execution_backend=self._normalize_execution_backend(execution_backend),
+                remote_session_id=self._normalize_optional_text(remote_session_id),
                 title=self._normalize_optional_text(title),
             )
 
@@ -274,29 +292,54 @@ class RuntimeDBStore:
         user_id: str,
         model_name: str,
         agent_name: str | None,
+        agent_status: str,
+        execution_backend: str | None,
+        remote_session_id: str | None,
     ) -> None:
+        normalized_agent_status = self._normalize_agent_status(agent_status)
+        normalized_execution_backend = self._normalize_execution_backend(
+            execution_backend,
+        )
         query = """
             INSERT INTO thread_bindings (
                 thread_id,
                 user_id,
                 agent_name,
+                agent_status,
                 assistant_id,
                 model_name,
+                execution_backend,
+                remote_session_id,
                 created_at,
                 updated_at
             )
-            VALUES (%s, %s::uuid, %s, %s, %s, NOW(), NOW())
+            VALUES (%s, %s::uuid, %s, %s, %s, %s, %s, %s, NOW(), NOW())
             ON CONFLICT (thread_id)
             DO UPDATE SET
                 agent_name = EXCLUDED.agent_name,
+                agent_status = EXCLUDED.agent_status,
                 assistant_id = COALESCE(EXCLUDED.assistant_id, thread_bindings.assistant_id),
                 model_name = EXCLUDED.model_name,
+                execution_backend = EXCLUDED.execution_backend,
+                remote_session_id = EXCLUDED.remote_session_id,
                 updated_at = NOW()
             WHERE thread_bindings.user_id = EXCLUDED.user_id
             RETURNING user_id::text
         """
         with self._connection() as conn, conn.cursor() as cur:
-            cur.execute(query, (thread_id, user_id, agent_name, agent_name, model_name))
+            cur.execute(
+                query,
+                (
+                    thread_id,
+                    user_id,
+                    agent_name,
+                    normalized_agent_status,
+                    agent_name,
+                    model_name,
+                    normalized_execution_backend or "default",
+                    self._normalize_optional_text(remote_session_id),
+                ),
+            )
             row = cur.fetchone()
             if row is None:
                 owner = self.get_thread_owner(thread_id)
@@ -309,6 +352,9 @@ class RuntimeDBStore:
         user_id: str,
         model_name: str,
         agent_name: str | None,
+        agent_status: str,
+        execution_backend: str | None,
+        remote_session_id: str | None,
     ) -> bool:
         binding = self.get_thread_binding(thread_id)
         if binding is not None:
@@ -319,6 +365,12 @@ class RuntimeDBStore:
             if (
                 binding.model_name == model_name
                 and binding.agent_name == agent_name
+                and binding.agent_status
+                == self._normalize_agent_status(agent_status)
+                and binding.execution_backend
+                == self._normalize_execution_backend(execution_backend)
+                and binding.remote_session_id
+                == self._normalize_optional_text(remote_session_id)
                 and binding.assistant_id == expected_assistant_id
             ):
                 return False
@@ -328,6 +380,9 @@ class RuntimeDBStore:
             user_id=user_id,
             model_name=model_name,
             agent_name=agent_name,
+            agent_status=agent_status,
+            execution_backend=execution_backend,
+            remote_session_id=remote_session_id,
         )
         return True
 
@@ -377,6 +432,16 @@ class RuntimeDBStore:
             return None
         text = str(value).strip()
         return text or None
+
+    @staticmethod
+    def _normalize_agent_status(value: object) -> str:
+        text = str(value or "").strip().lower()
+        return "prod" if text == "prod" else "dev"
+
+    @staticmethod
+    def _normalize_execution_backend(value: object) -> str | None:
+        text = str(value or "").strip().lower()
+        return "remote" if text == "remote" else None
 
 
 def _build_runtime_db_dsn() -> str:

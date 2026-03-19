@@ -143,8 +143,36 @@ const extensionMap: Record<string, string> = {
   v: "v",
 };
 
+const VIRTUAL_USER_DATA_PREFIX = "/mnt/user-data/";
+
+const runtimeRootLabelMap: Record<string, string> = {
+  outputs: "output",
+  uploads: "upload",
+  workspace: "workspace",
+  authoring: "draft",
+  agents: "agent runtime",
+};
+
 export function getFileName(filepath: string) {
   return filepath.split("/").pop()!;
+}
+
+export function getUserVisibleRuntimePath(filepath: string) {
+  if (!filepath.startsWith(VIRTUAL_USER_DATA_PREFIX)) {
+    return filepath;
+  }
+
+  const runtimeRelativePath = filepath.slice(VIRTUAL_USER_DATA_PREFIX.length);
+  const pathSegments = runtimeRelativePath.split("/").filter(Boolean);
+  if (pathSegments.length === 0) {
+    return filepath;
+  }
+
+  if (pathSegments.length > 1) {
+    return pathSegments[pathSegments.length - 1]!;
+  }
+
+  return runtimeRootLabelMap[pathSegments[0]!] ?? filepath;
 }
 
 export function getFileExtension(filepath: string) {

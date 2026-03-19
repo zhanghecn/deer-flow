@@ -39,6 +39,7 @@ import {
   useThreads,
 } from "@/core/threads/query-hooks";
 import { pathOfThread, titleOfThread } from "@/core/threads/utils";
+import type { AgentThread } from "@/core/threads/types";
 import { env } from "@/env";
 
 type RecentChatItemProps = {
@@ -52,7 +53,7 @@ type RecentChatItemProps = {
   deleteLabel: string;
   onPrefetch: (href: string) => void;
   onRenameClick: (threadId: string, currentTitle: string) => void;
-  onShare: (threadId: string) => void;
+  onShare: () => void;
   onDelete: (threadId: string) => void;
 };
 
@@ -104,7 +105,7 @@ const RecentChatItem = memo(function RecentChatItem({
               <Pencil className="text-muted-foreground" />
               <span>{renameLabel}</span>
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => onShare(threadId)}>
+            <DropdownMenuItem onSelect={onShare}>
               <Share2 className="text-muted-foreground" />
               <span>{shareLabel}</span>
             </DropdownMenuItem>
@@ -137,15 +138,18 @@ export function RecentChatList() {
   const threadItems = useMemo(
     () =>
       deferredThreads.map((thread) => {
-        const href = pathOfThread(thread.thread_id);
+        const href = pathOfThread(thread);
         return {
+          thread,
           threadId: thread.thread_id,
           title: titleOfThread(thread),
           href,
-          isActive: href === pathname,
+          isActive:
+            pathname === href.split("?", 1)[0] &&
+            thread.thread_id === threadIdFromPath,
         };
       }),
-    [deferredThreads, pathname],
+    [deferredThreads, pathname, threadIdFromPath],
   );
 
   const handleDelete = useCallback(
@@ -153,15 +157,15 @@ export function RecentChatList() {
       deleteThread({ threadId });
       if (threadId === threadIdFromPath) {
         const threadIndex = threads.findIndex((t) => t.thread_id === threadId);
-        let nextThreadId = "new";
+        let nextPath = "/workspace/chats/new";
         if (threadIndex > -1) {
           if (threads[threadIndex + 1]) {
-            nextThreadId = threads[threadIndex + 1]!.thread_id;
+            nextPath = pathOfThread(threads[threadIndex + 1]!);
           } else if (threads[threadIndex - 1]) {
-            nextThreadId = threads[threadIndex - 1]!.thread_id;
+            nextPath = pathOfThread(threads[threadIndex - 1]!);
           }
         }
-        void router.push(`/workspace/chats/${nextThreadId}`);
+        void router.push(nextPath);
       }
     },
     [deleteThread, router, threadIdFromPath, threads],
@@ -186,13 +190,13 @@ export function RecentChatList() {
   }, [renameThread, renameThreadId, renameValue]);
 
   const handleShare = useCallback(
-    async (threadId: string) => {
+    async (thread: AgentThread) => {
       const VERCEL_URL = "https://openagents-v2.vercel.app";
       const isLocalhost =
         window.location.hostname === "localhost" ||
         window.location.hostname === "127.0.0.1";
       const baseUrl = isLocalhost ? VERCEL_URL : window.location.origin;
-      const shareUrl = `${baseUrl}/workspace/chats/${threadId}`;
+      const shareUrl = `${baseUrl}${pathOfThread(thread)}`;
       try {
         await navigator.clipboard.writeText(shareUrl);
         toast.success(t.clipboard.linkCopied);
@@ -238,7 +242,7 @@ export function RecentChatList() {
                   deleteLabel={t.common.delete}
                   onPrefetch={handlePrefetch}
                   onRenameClick={handleRenameClick}
-                  onShare={handleShare}
+                  onShare={() => handleShare(thread.thread)}
                   onDelete={handleDelete}
                 />
               ))}

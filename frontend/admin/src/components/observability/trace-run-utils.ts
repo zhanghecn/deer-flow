@@ -1,5 +1,8 @@
 import type { TraceEvent } from "@/types";
-import { normalizeReadableValue } from "./json-inspector-utils";
+import {
+  normalizeReadableValue,
+  sanitizeVirtualPath,
+} from "./json-inspector-utils";
 
 export interface TraceRunSummary {
   runId: string;
@@ -187,7 +190,7 @@ export function summarizeValue(value: unknown, depth = 0): string {
 
     const toolNames = extractToolNames(payload.tool_calls);
     if (toolNames.length > 0) {
-      return `tool calls: ${toolNames.join(", ")}`;
+      return summarizeRequestedTools(toolNames);
     }
 
     const priorityText = extractPriorityText(payload, depth + 1);
@@ -226,6 +229,16 @@ function summarizeMessages(messages: unknown): string {
   }
 
   return summarizeValue(messages[messages.length - 1]);
+}
+
+function summarizeRequestedTools(toolNames: string[]): string {
+  if (toolNames.length === 0) {
+    return "";
+  }
+  if (toolNames.length === 1) {
+    return `requested tool: ${toolNames[0]}`;
+  }
+  return `requested tools: ${toolNames.join(", ")}`;
 }
 
 function extractToolNames(rawTools: unknown): string[] {
@@ -623,7 +636,7 @@ function extractPriorityText(value: unknown, depth = 0): string {
 
   const toolNames = extractToolNames(payload.tool_calls);
   if (toolNames.length > 0) {
-    return `tool calls: ${toolNames.join(", ")}`;
+    return summarizeRequestedTools(toolNames);
   }
 
   for (const key of PREVIEW_KEYS) {
@@ -688,7 +701,7 @@ function summarizeToolRun(run: TraceRunSummary): string {
       toolName,
     )
   ) {
-    return truncateText(path, 140);
+    return truncateText(sanitizeVirtualPath(path), 140);
   }
 
   const command =
@@ -721,7 +734,7 @@ function summarizeLLMRun(run: TraceRunSummary): string {
   const response = toRecord(normalizeTraceValue(endPayload?.model_response));
   const toolNames = extractToolNames(response?.tool_calls);
   if (toolNames.length > 0) {
-    return `tool calls: ${toolNames.join(", ")}`;
+    return summarizeRequestedTools(toolNames);
   }
 
   const responseSummary = summarizeMessages(response?.messages);
@@ -770,7 +783,7 @@ function summarizeSystemRun(run: TraceRunSummary): string {
 
 function resolveRunLabel(run: TraceRunSummary): string {
   if (run.runType === "tool") {
-    return run.toolName || "Tool";
+    return run.toolName ? `Tool · ${run.toolName}` : "Tool";
   }
   if (run.runType === "llm") {
     const modelName = extractModelName(run);
@@ -1120,11 +1133,18 @@ export function isMiddlewareRun(run: TraceRunSummary): boolean {
 }
 
 export function isCoreTraceRun(run: TraceRunSummary): boolean {
+  if (run.runType === "system") {
+    return false;
+  }
+
   if (isMiddlewareRun(run)) {
     return false;
   }
 
-  if (run.runType === "chain" && (run.nodeName === "tools" || run.nodeName === "model")) {
+  if (
+    run.runType === "chain" &&
+    (run.nodeName === "tools" || run.nodeName === "model")
+  ) {
     return false;
   }
 

@@ -141,14 +141,15 @@ export function TraceRunDialog({
             ) : (
               <div className="space-y-4">
                 {sections.map((section) => (
-                  <section
+                  <details
                     key={section.key}
+                    open={section.kind !== "metadata"}
                     className={cn(
-                      "space-y-3 rounded-xl border px-4 py-4",
+                      "rounded-xl border px-4 py-4",
                       sectionChrome(section.kind),
                     )}
                   >
-                    <div className="space-y-1">
+                    <summary className="cursor-pointer list-none space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <Badge variant="outline" className="text-[11px]">
                           {sectionKindLabel(section.kind)}
@@ -166,9 +167,11 @@ export function TraceRunDialog({
                       <p className="text-xs text-muted-foreground">
                         {section.description}
                       </p>
+                    </summary>
+                    <div className="space-y-3 pt-3">
+                      <JsonMarkdownInspector value={section.value} />
                     </div>
-                    <JsonMarkdownInspector value={section.value} />
-                  </section>
+                  </details>
                 ))}
               </div>
             )}

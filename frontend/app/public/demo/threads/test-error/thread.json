@@ -1,0 +1,18 @@
+{
+  "values": {
+    "title": "Error thread",
+    "messages": [],
+    "thread_data": {},
+    "uploaded_files": [],
+    "artifacts": []
+  },
+  "next": [],
+  "tasks": [],
+  "metadata": {},
+  "created_at": "2026-03-18T00:00:00Z",
+  "checkpoint": {},
+  "parent_checkpoint": null,
+  "interrupts": [],
+  "checkpoint_id": "checkpoint-error",
+  "parent_checkpoint_id": null
+}

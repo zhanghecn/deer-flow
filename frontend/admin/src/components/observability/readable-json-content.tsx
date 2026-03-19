@@ -130,7 +130,7 @@ function ToolCard({ tool }: { tool: Record<string, unknown> }) {
             Schema / Arguments
           </p>
           <pre className="max-h-64 overflow-auto rounded-md bg-muted p-2 text-[11px] whitespace-pre-wrap break-all">
-            {toRawText(schema)}
+            {toRawText(normalizeReadableValue(schema))}
           </pre>
         </div>
       )}

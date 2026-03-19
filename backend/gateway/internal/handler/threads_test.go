@@ -18,6 +18,8 @@ import (
 
 type fakeThreadRepo struct {
 	items            []repository.ThreadSearchRecord
+	runtimeRecord    *repository.ThreadRuntimeRecord
+	runtimeErr       error
 	err              error
 	updateTitleErr   error
 	updateTitleCalls []struct {
@@ -35,6 +37,17 @@ func (f *fakeThreadRepo) SearchByUser(
 		return nil, f.err
 	}
 	return f.items, nil
+}
+
+func (f *fakeThreadRepo) GetRuntimeByUser(
+	_ context.Context,
+	_ uuid.UUID,
+	_ string,
+) (*repository.ThreadRuntimeRecord, error) {
+	if f.runtimeErr != nil {
+		return nil, f.runtimeErr
+	}
+	return f.runtimeRecord, nil
 }
 
 func (f *fakeThreadRepo) UpdateTitle(
@@ -61,9 +74,14 @@ func TestThreadsHandlerSearchReturnsUserThreads(t *testing.T) {
 	repo := &fakeThreadRepo{
 		items: []repository.ThreadSearchRecord{
 			{
-				ThreadID:  "thread-1",
-				UpdatedAt: &now,
-				Values:    map[string]any{"title": "Greeting"},
+				ThreadID:         "thread-1",
+				UpdatedAt:        &now,
+				Values:           map[string]any{"title": "Greeting"},
+				AgentName:        ptrString("reviewer"),
+				AgentStatus:      "prod",
+				ExecutionBackend: ptrString("remote"),
+				RemoteSessionID:  ptrString("session-1"),
+				ModelName:        ptrString("kimi-k2.5"),
 			},
 		},
 	}
@@ -102,6 +120,12 @@ func TestThreadsHandlerSearchReturnsUserThreads(t *testing.T) {
 	}
 	if values["title"] != "Greeting" {
 		t.Fatalf("expected title Greeting, got %v", values["title"])
+	}
+	if payload[0]["agent_name"] != "reviewer" {
+		t.Fatalf("expected agent_name reviewer, got %v", payload[0]["agent_name"])
+	}
+	if payload[0]["agent_status"] != "prod" {
+		t.Fatalf("expected agent_status prod, got %v", payload[0]["agent_status"])
 	}
 }
 
@@ -187,4 +211,51 @@ func TestThreadsHandlerUpdateTitleNotFound(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected status 404, got %d, body=%s", rec.Code, rec.Body.String())
 	}
+}
+
+func TestThreadsHandlerGetRuntime(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	repo := &fakeThreadRepo{
+		runtimeRecord: &repository.ThreadRuntimeRecord{
+			ThreadID:         "thread-1",
+			AgentName:        ptrString("reviewer"),
+			AgentStatus:      "prod",
+			ExecutionBackend: ptrString("remote"),
+			RemoteSessionID:  ptrString("session-1"),
+			ModelName:        ptrString("kimi-k2.5"),
+		},
+	}
+	h := NewThreadsHandler(repo)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware.UserIDKey), uuid.MustParse("11111111-1111-1111-1111-111111111111"))
+		c.Next()
+	})
+	router.GET("/api/threads/:id/runtime", h.GetRuntime)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/threads/thread-1/runtime", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d, body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload["agent_name"] != "reviewer" {
+		t.Fatalf("expected agent_name reviewer, got %v", payload["agent_name"])
+	}
+	if payload["agent_status"] != "prod" {
+		t.Fatalf("expected agent_status prod, got %v", payload["agent_status"])
+	}
+}
+
+func ptrString(value string) *string {
+	return &value
 }

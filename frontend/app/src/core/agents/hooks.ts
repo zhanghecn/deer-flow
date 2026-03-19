@@ -5,12 +5,15 @@ import { useAuth } from "@/core/auth/hooks";
 import {
   createAgent,
   deleteAgent,
+  downloadAgentReactDemo,
   getAgent,
+  getAgentExportDoc,
   listAgents,
   publishAgent,
   updateAgent,
 } from "./api";
 import type {
+  AgentExportDoc,
   AgentStatus,
   CreateAgentRequest,
   UpdateAgentRequest,
@@ -37,6 +40,19 @@ export function useAgent(
     enabled: authenticated && !!name,
   });
   return { agent: data ?? null, isLoading, error };
+}
+
+export function useAgentExportDoc(
+  name: string | null | undefined,
+  enabled = true,
+) {
+  const { authenticated } = useAuth();
+  const { data, isLoading, error } = useQuery<AgentExportDoc>({
+    queryKey: ["agents", name, "export-doc"],
+    queryFn: () => getAgentExportDoc(name!),
+    enabled: authenticated && enabled && !!name,
+  });
+  return { exportDoc: data ?? null, isLoading, error };
 }
 
 export function useCreateAgent() {
@@ -85,5 +101,11 @@ export function useDeleteAgent() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["agents"] });
     },
+  });
+}
+
+export function useDownloadAgentReactDemo() {
+  return useMutation({
+    mutationFn: (name: string) => downloadAgentReactDemo(name),
   });
 }

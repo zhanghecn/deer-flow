@@ -1,0 +1,71 @@
+{
+  "values": {
+    "title": "Completed subtasks",
+    "messages": [
+      {
+        "type": "human",
+        "id": "human-subtasks-1",
+        "content": [
+          {
+            "type": "text",
+            "text": "Break this work into subtasks."
+          }
+        ],
+        "additional_kwargs": {}
+      },
+      {
+        "type": "ai",
+        "id": "ai-subtasks-1",
+        "content": "",
+        "additional_kwargs": {},
+        "response_metadata": {},
+        "tool_calls": [
+          {
+            "name": "task",
+            "id": "task-sub-1",
+            "args": {
+              "description": "Review source material",
+              "prompt": "Read the source material and summarize key points.",
+              "subagent_type": "research"
+            }
+          },
+          {
+            "name": "task",
+            "id": "task-sub-2",
+            "args": {
+              "description": "Draft final response",
+              "prompt": "Prepare the final answer from the gathered notes.",
+              "subagent_type": "writer"
+            }
+          }
+        ]
+      },
+      {
+        "type": "tool",
+        "id": "tool-sub-1",
+        "name": "task",
+        "tool_call_id": "task-sub-1",
+        "content": "Task Succeeded. Result: Reviewed the source material."
+      },
+      {
+        "type": "tool",
+        "id": "tool-sub-2",
+        "name": "task",
+        "tool_call_id": "task-sub-2",
+        "content": "Task Succeeded. Result: Drafted the final answer."
+      }
+    ],
+    "thread_data": {},
+    "uploaded_files": [],
+    "artifacts": []
+  },
+  "next": [],
+  "tasks": [],
+  "metadata": {},
+  "created_at": "2026-03-18T00:00:00Z",
+  "checkpoint": {},
+  "parent_checkpoint": null,
+  "interrupts": [],
+  "checkpoint_id": "checkpoint-subtasks",
+  "parent_checkpoint_id": null
+}

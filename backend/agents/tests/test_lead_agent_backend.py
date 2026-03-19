@@ -204,6 +204,97 @@ def test_create_agent_request_seeds_existing_target_archive_into_thread_runtime(
     assert response.content == b"You write landing page copy."
 
 
+def test_create_agent_request_ignores_missing_target_archive_for_new_agent(tmp_path):
+    base_dir = tmp_path / ".openagents"
+    _write_shared_skill(base_dir, "bootstrap", body="bootstrap")
+    paths = _make_paths(base_dir)
+
+    request = lead_agent_module.LeadAgentRequest(
+        thinking_enabled=None,
+        reasoning_effort=None,
+        requested_model_name=None,
+        subagent_enabled=None,
+        max_concurrent_subagents=None,
+        command_name="create-agent",
+        command_kind="soft",
+        command_args="请创建 pw-new-agent",
+        command_prompt="创建新 agent。",
+        authoring_actions=("setup_agent",),
+        referenced_skill_names=(),
+        target_agent_name="pw-new-agent",
+        agent_name=LEAD_AGENT_NAME,
+        agent_status="dev",
+        thread_id="thread-1",
+        user_id=None,
+        runtime_model_name=None,
+        execution_backend=None,
+        remote_session_id=None,
+    )
+
+    with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
+        backend = lead_agent_module.build_backend("thread-1", agent_name=None)
+        lead_agent_module._seed_create_agent_target_runtime_materials_if_available(
+            backend,
+            request=request,
+        )
+
+    runtime_agent_root = lead_agent_module._runtime_agent_root("pw-new-agent", "dev")
+    response = backend.download_files([f"{runtime_agent_root}/AGENTS.md"])[0]
+
+    assert response.error == "file_not_found"
+
+
+def test_build_backend_dev_lead_agent_seeds_store_skills_without_duplicate_names(tmp_path):
+    base_dir = tmp_path / ".openagents"
+    _write_shared_skill(base_dir, "bootstrap", body="bootstrap")
+    _write_shared_skill(base_dir, "copywriting", category="store/dev", body="copywriting")
+    _write_shared_skill(base_dir, "contract-review", category="store/prod", body="review")
+    _write_shared_skill(base_dir, "duplicate-skill", category="store/dev", body="dev duplicate")
+    _write_shared_skill(base_dir, "duplicate-skill", category="store/prod", body="prod duplicate")
+    paths = _make_paths(base_dir)
+
+    with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
+        backend = lead_agent_module.build_backend("thread-1", agent_name=None)
+
+    runtime_agent_root = lead_agent_module._runtime_agent_root(LEAD_AGENT_NAME, "dev")
+    responses = backend.download_files(
+        [
+            f"{runtime_agent_root}/skills/copywriting/SKILL.md",
+            f"{runtime_agent_root}/skills/contract-review/SKILL.md",
+            f"{runtime_agent_root}/skills/duplicate-skill/SKILL.md",
+        ]
+    )
+
+    assert responses[0].content is not None
+    assert b"copywriting" in responses[0].content
+    assert responses[1].content is not None
+    assert b"review" in responses[1].content
+    assert responses[2].error == "file_not_found"
+
+
+def test_build_backend_prod_lead_agent_seeds_only_store_prod_skills(tmp_path):
+    base_dir = tmp_path / ".openagents"
+    _write_shared_skill(base_dir, "bootstrap", body="bootstrap")
+    _write_shared_skill(base_dir, "copywriting", category="store/dev", body="copywriting")
+    _write_shared_skill(base_dir, "contract-review", category="store/prod", body="review")
+    paths = _make_paths(base_dir)
+
+    with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
+        backend = lead_agent_module.build_backend("thread-1", agent_name=None, status="prod")
+
+    runtime_agent_root = lead_agent_module._runtime_agent_root(LEAD_AGENT_NAME, "prod")
+    responses = backend.download_files(
+        [
+            f"{runtime_agent_root}/skills/copywriting/SKILL.md",
+            f"{runtime_agent_root}/skills/contract-review/SKILL.md",
+        ]
+    )
+
+    assert responses[0].error == "file_not_found"
+    assert responses[1].content is not None
+    assert b"review" in responses[1].content
+
+
 def test_build_backend_supports_store_prod_skill_refs(tmp_path):
     base_dir = tmp_path / ".openagents"
     agent_dir = base_dir / "agents" / "prod" / "reviewer"

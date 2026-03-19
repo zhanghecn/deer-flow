@@ -31,6 +31,7 @@ import {
 import { workspaceMessageRehypePlugins } from "@/core/streamdown";
 import { extractClarificationRequestFromArgs } from "@/core/threads/interrupts";
 import { extractTitleFromMarkdown } from "@/core/utils/markdown";
+import { getUserVisibleRuntimePath } from "@/core/utils/files";
 import { env } from "@/env";
 import { cn } from "@/lib/utils";
 
@@ -331,7 +332,7 @@ function ToolCall({
       <ChainOfThoughtStep key={id} label={description} icon={FolderOpenIcon}>
         {path && (
           <ChainOfThoughtSearchResult className="cursor-pointer">
-            {path}
+            {getUserVisibleRuntimePath(path)}
           </ChainOfThoughtSearchResult>
         )}
       </ChainOfThoughtStep>
@@ -349,7 +350,7 @@ function ToolCall({
       <ChainOfThoughtStep key={id} label={description} icon={BookOpenTextIcon}>
         {path && (
           <ChainOfThoughtSearchResult className="cursor-pointer">
-            {path}
+            {getUserVisibleRuntimePath(path)}
           </ChainOfThoughtSearchResult>
         )}
         {(offset !== undefined || limit !== undefined) && (
@@ -409,7 +410,7 @@ function ToolCall({
       >
         {path && (
           <ChainOfThoughtSearchResult className="cursor-pointer">
-            {path}
+            {getUserVisibleRuntimePath(path)}
           </ChainOfThoughtSearchResult>
         )}
       </ChainOfThoughtStep>
@@ -457,7 +458,7 @@ function ToolCall({
         )}
         {path && (
           <ChainOfThoughtSearchResult className="text-muted-foreground">
-            path: {path}
+            path: {getUserVisibleRuntimePath(path)}
           </ChainOfThoughtSearchResult>
         )}
         {glob && (
@@ -493,7 +494,7 @@ function ToolCall({
         )}
         {path && (
           <ChainOfThoughtSearchResult className="text-muted-foreground">
-            path: {path}
+            path: {getUserVisibleRuntimePath(path)}
           </ChainOfThoughtSearchResult>
         )}
       </ChainOfThoughtStep>

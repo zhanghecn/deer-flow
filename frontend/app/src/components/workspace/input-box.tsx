@@ -3,8 +3,6 @@
 import type { ChatStatus } from "ai";
 import {
   CheckIcon,
-  GraduationCapIcon,
-  LightbulbIcon,
   PaperclipIcon,
   PlusIcon,
   SparklesIcon,
@@ -18,6 +16,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  type KeyboardEvent,
   type ComponentProps,
 } from "react";
 
@@ -56,6 +55,12 @@ import type { Model } from "@/core/models/types";
 import { getSkillReferenceQuery } from "@/core/skills";
 import { useSkills } from "@/core/skills/hooks";
 import type { AgentThreadContext, ContextWindowState } from "@/core/threads";
+import {
+  getReasoningEffortForMode,
+  getResolvedThreadMode,
+  type ThreadMode,
+  type ThreadReasoningEffort,
+} from "@/core/threads/mode";
 import { cn } from "@/lib/utils";
 
 import {
@@ -77,10 +82,15 @@ import {
 
 import { ContextWindowCard } from "./context-window-card";
 import { ModeHoverGuide } from "./mode-hover-guide";
+import {
+  getNextPickerIndex,
+  SkillReferencePicker,
+  type QuickInsertSuggestion,
+} from "./skill-reference-picker";
 import { Tooltip } from "./tooltip";
 
-type InputMode = "flash" | "thinking" | "pro" | "ultra";
-type ReasoningEffort = "minimal" | "low" | "medium" | "high";
+type InputMode = ThreadMode;
+type ReasoningEffort = ThreadReasoningEffort;
 type InputBoxContext = Omit<
   AgentThreadContext,
   "thread_id" | "is_plan_mode" | "thinking_enabled" | "subagent_enabled"
@@ -88,11 +98,7 @@ type InputBoxContext = Omit<
   mode: InputMode | undefined;
   reasoning_effort?: ReasoningEffort;
 };
-type ModelCapabilities = {
-  modelName: string;
-  supportsThinking: boolean;
-  supportsReasoningEffort: boolean;
-};
+type ModelSelection = Pick<Model, "name">;
 type ModeOption = {
   mode: InputMode;
   label: string;
@@ -101,93 +107,20 @@ type ModeOption = {
   activeIconClassName?: string;
   activeLabelClassName?: string;
 };
-type ReasoningEffortOption = {
-  effort: ReasoningEffort;
-  label: string;
-  description: string;
-};
-
-function getResolvedMode(
-  mode: InputMode | undefined,
-  supportsThinking: boolean,
-  supportsReasoningEffort: boolean,
-): InputMode {
-  if (!supportsThinking && mode !== "flash") {
-    return "flash";
-  }
-
-  // Models without reasoning-effort controls still benefit from thinking mode,
-  // but "pro" should degrade to plain thinking instead of disabling thinking.
-  if (!supportsReasoningEffort) {
-    if (mode === "flash" || mode === "ultra") {
-      return mode;
-    }
-    return "thinking";
-  }
-
-  if (mode) {
-    return mode;
-  }
-  return "pro";
-}
-
-function getReasoningEffortForMode(
-  mode: InputMode,
-): ReasoningEffort {
-  if (mode === "flash") {
-    return "minimal";
-  }
-  return "high";
-}
-
-function getDisplayedMode(mode: InputMode | undefined): InputMode {
-  return mode ?? "flash";
-}
-
-function getModelCapabilities(model: Model): ModelCapabilities {
-  return {
-    modelName: model.name,
-    supportsThinking: model.supports_thinking ?? false,
-    supportsReasoningEffort: model.supports_reasoning_effort ?? false,
-  };
-}
 
 function resolveInputContext(
   context: InputBoxContext,
-  modelCapabilities: ModelCapabilities,
+  modelSelection: ModelSelection,
   requestedMode: InputMode | undefined = context.mode,
-  requestedReasoningEffort: ReasoningEffort | undefined = context.reasoning_effort,
 ): InputBoxContext {
-  const nextMode = getResolvedMode(
-    requestedMode,
-    modelCapabilities.supportsThinking,
-    modelCapabilities.supportsReasoningEffort,
-  );
+  const nextMode = getResolvedThreadMode(requestedMode);
 
   return {
     ...context,
-    model_name: modelCapabilities.modelName,
+    model_name: modelSelection.name,
     mode: nextMode,
-    reasoning_effort:
-      requestedReasoningEffort ?? getReasoningEffortForMode(nextMode),
+    reasoning_effort: getReasoningEffortForMode(nextMode),
   };
-}
-
-function getReasoningEffortLabel(
-  t: ReturnType<typeof useI18n>["t"],
-  effort: ReasoningEffort | undefined,
-) {
-  switch (effort) {
-    case "minimal":
-      return t.inputBox.reasoningEffortMinimal;
-    case "low":
-      return t.inputBox.reasoningEffortLow;
-    case "high":
-      return t.inputBox.reasoningEffortHigh;
-    case "medium":
-    default:
-      return t.inputBox.reasoningEffortMedium;
-  }
 }
 
 function ModeOptionItem({
@@ -220,35 +153,6 @@ function ModeOptionItem({
           </div>
         </div>
         <div className="pl-7 text-xs">{option.description}</div>
-      </div>
-      {selected ? (
-        <CheckIcon className="ml-auto size-4" />
-      ) : (
-        <div className="ml-auto size-4" />
-      )}
-    </PromptInputActionMenuItem>
-  );
-}
-
-function ReasoningEffortOptionItem({
-  option,
-  selected,
-  onSelect,
-}: {
-  option: ReasoningEffortOption;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <PromptInputActionMenuItem
-      className={cn(
-        selected ? "text-accent-foreground" : "text-muted-foreground/65",
-      )}
-      onSelect={onSelect}
-    >
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-1 font-bold">{option.label}</div>
-        <div className="pl-2 text-xs">{option.description}</div>
       </div>
       {selected ? (
         <CheckIcon className="ml-auto size-4" />
@@ -311,21 +215,12 @@ export function InputBox({
     return models.find((m) => m.name === context.model_name) ?? models[0];
   }, [context.model_name, models]);
 
-  const selectedModelCapabilities = useMemo(
-    () =>
-      selectedModel ? getModelCapabilities(selectedModel) : undefined,
-    [selectedModel],
-  );
-
   useEffect(() => {
-    if (!selectedModelCapabilities) {
+    if (!selectedModel) {
       return;
     }
 
-    const normalizedContext = resolveInputContext(
-      context,
-      selectedModelCapabilities,
-    );
+    const normalizedContext = resolveInputContext(context, selectedModel);
 
     if (
       context.model_name === normalizedContext.model_name &&
@@ -336,12 +231,9 @@ export function InputBox({
     }
 
     onContextChange?.(normalizedContext);
-  }, [context, onContextChange, selectedModelCapabilities]);
+  }, [context, onContextChange, selectedModel]);
 
-  const displayedMode = getDisplayedMode(context.mode);
-  const supportsThinking = selectedModelCapabilities?.supportsThinking ?? false;
-  const supportsReasoningEffort =
-    selectedModelCapabilities?.supportsReasoningEffort ?? false;
+  const displayedMode = getResolvedThreadMode(context.mode);
 
   const modeOptions = useMemo<ModeOption[]>(
     () => [
@@ -351,55 +243,13 @@ export function InputBox({
         description: t.inputBox.flashModeDescription,
         icon: ZapIcon,
       },
-      ...(supportsThinking
-        ? [
-            {
-              mode: "thinking" as const,
-              label: t.inputBox.reasoningMode,
-              description: t.inputBox.reasoningModeDescription,
-              icon: LightbulbIcon,
-            },
-          ]
-        : []),
       {
         mode: "pro",
         label: t.inputBox.proMode,
         description: t.inputBox.proModeDescription,
-        icon: GraduationCapIcon,
-      },
-      {
-        mode: "ultra",
-        label: t.inputBox.ultraMode,
-        description: t.inputBox.ultraModeDescription,
         icon: RocketIcon,
         activeIconClassName: "text-[#dabb5e]",
         activeLabelClassName: "golden-text",
-      },
-    ],
-    [supportsThinking, t],
-  );
-
-  const reasoningEffortOptions = useMemo<ReasoningEffortOption[]>(
-    () => [
-      {
-        effort: "minimal",
-        label: t.inputBox.reasoningEffortMinimal,
-        description: t.inputBox.reasoningEffortMinimalDescription,
-      },
-      {
-        effort: "low",
-        label: t.inputBox.reasoningEffortLow,
-        description: t.inputBox.reasoningEffortLowDescription,
-      },
-      {
-        effort: "medium",
-        label: t.inputBox.reasoningEffortMedium,
-        description: t.inputBox.reasoningEffortMediumDescription,
-      },
-      {
-        effort: "high",
-        label: t.inputBox.reasoningEffortHigh,
-        description: t.inputBox.reasoningEffortHighDescription,
       },
     ],
     [t],
@@ -414,14 +264,7 @@ export function InputBox({
       if (!model) {
         return;
       }
-      onContextChange?.(
-        resolveInputContext(
-          context,
-          getModelCapabilities(model),
-          context.mode,
-          undefined,
-        ),
-      );
+      onContextChange?.(resolveInputContext(context, model, context.mode));
       setModelDialogOpen(false);
     },
     [onContextChange, context, models],
@@ -429,25 +272,13 @@ export function InputBox({
 
   const handleModeSelect = useCallback(
     (mode: InputMode) => {
-      if (!selectedModelCapabilities) {
+      if (!selectedModel) {
         return;
       }
 
-      onContextChange?.(
-        resolveInputContext(context, selectedModelCapabilities, mode, undefined),
-      );
+      onContextChange?.(resolveInputContext(context, selectedModel, mode));
     },
-    [onContextChange, context, selectedModelCapabilities],
-  );
-
-  const handleReasoningEffortSelect = useCallback(
-    (effort: ReasoningEffort) => {
-      onContextChange?.({
-        ...context,
-        reasoning_effort: effort,
-      });
-    },
-    [onContextChange, context],
+    [onContextChange, context, selectedModel],
   );
 
   const handleSubmit = useCallback(
@@ -498,6 +329,137 @@ export function InputBox({
           .filter((skill) => skill.enabled)
           .filter((skill) => skill.name.startsWith(skillReferenceQuery))
           .slice(0, 8);
+
+  const quickInsertSuggestions = useMemo<QuickInsertSuggestion[]>(() => {
+    if (slashSuggestions.length > 0) {
+      return slashSuggestions.map((command) => ({
+        id: `command:${command.name}`,
+        title: `/${command.name}`,
+        description: command.description,
+        value: `/${command.name} `,
+        badge: "Command",
+      }));
+    }
+
+    return skillReferenceSuggestions.map((skill) => ({
+      id: `skill:${skill.category}:${skill.name}`,
+      title: `$${skill.name}`,
+      description: skill.description,
+      value: `$${skill.name} `,
+      badge: skill.category.replace("/", " "),
+    }));
+  }, [skillReferenceSuggestions, slashSuggestions]);
+  const quickInsertLabel = slashSuggestions.length > 0 ? "Commands" : "Skills";
+  const quickInsertQueryKey = slashQuery !== null
+    ? `command:${slashQuery}`
+    : skillReferenceQuery !== null
+      ? `skill:${skillReferenceQuery}`
+      : null;
+  const [dismissedQuickInsertKey, setDismissedQuickInsertKey] = useState<
+    string | null
+  >(null);
+  const [activeQuickInsertIndex, setActiveQuickInsertIndex] = useState(0);
+  const quickInsertOpen =
+    quickInsertSuggestions.length > 0 &&
+    quickInsertQueryKey !== null &&
+    dismissedQuickInsertKey !== quickInsertQueryKey;
+
+  useEffect(() => {
+    if (!quickInsertQueryKey) {
+      setDismissedQuickInsertKey(null);
+      setActiveQuickInsertIndex(0);
+      return;
+    }
+
+    setActiveQuickInsertIndex(0);
+    if (dismissedQuickInsertKey !== quickInsertQueryKey) {
+      setDismissedQuickInsertKey(null);
+    }
+  }, [dismissedQuickInsertKey, quickInsertQueryKey]);
+
+  const handleQuickInsertSelect = useCallback(
+    (suggestion: QuickInsertSuggestion) => {
+      applyInputText(suggestion.value);
+      setDismissedQuickInsertKey(null);
+      setActiveQuickInsertIndex(0);
+    },
+    [applyInputText],
+  );
+
+  const handleTextareaKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (!quickInsertOpen) {
+        return;
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setDismissedQuickInsertKey(quickInsertQueryKey);
+        return;
+      }
+
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setActiveQuickInsertIndex((currentIndex) =>
+          getNextPickerIndex(
+            currentIndex,
+            "down",
+            quickInsertSuggestions.length,
+          ),
+        );
+        return;
+      }
+
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setActiveQuickInsertIndex((currentIndex) =>
+          getNextPickerIndex(currentIndex, "up", quickInsertSuggestions.length),
+        );
+        return;
+      }
+
+      if (event.key === "PageDown") {
+        event.preventDefault();
+        setActiveQuickInsertIndex((currentIndex) =>
+          getNextPickerIndex(
+            currentIndex,
+            "page_down",
+            quickInsertSuggestions.length,
+          ),
+        );
+        return;
+      }
+
+      if (event.key === "PageUp") {
+        event.preventDefault();
+        setActiveQuickInsertIndex((currentIndex) =>
+          getNextPickerIndex(
+            currentIndex,
+            "page_up",
+            quickInsertSuggestions.length,
+          ),
+        );
+        return;
+      }
+
+      if (event.key === "Enter") {
+        const selectedSuggestion = quickInsertSuggestions[activeQuickInsertIndex];
+        if (!selectedSuggestion) {
+          return;
+        }
+
+        event.preventDefault();
+        handleQuickInsertSelect(selectedSuggestion);
+      }
+    },
+    [
+      activeQuickInsertIndex,
+      handleQuickInsertSelect,
+      quickInsertOpen,
+      quickInsertQueryKey,
+      quickInsertSuggestions,
+    ],
+  );
   return (
     <PromptInput
       className={cn(
@@ -526,6 +488,7 @@ export function InputBox({
           disabled={disabled}
           placeholder={t.inputBox.placeholder}
           autoFocus={autoFocus}
+          onKeyDown={handleTextareaKeyDown}
         />
       </PromptInputBody>
       <PromptInputFooter className="flex">
@@ -547,14 +510,14 @@ export function InputBox({
                   <selectedModeOption.icon
                     className={cn(
                       "size-3",
-                      displayedMode === "ultra" && "text-[#dabb5e]",
+                      displayedMode === "pro" && "text-[#dabb5e]",
                     )}
                   />
                 </div>
                 <div
                   className={cn(
                     "text-xs font-normal",
-                    displayedMode === "ultra" ? "golden-text" : "",
+                    displayedMode === "pro" ? "golden-text" : "",
                   )}
                 >
                   {selectedModeOption.label}
@@ -579,37 +542,6 @@ export function InputBox({
               </DropdownMenuGroup>
             </PromptInputActionMenuContent>
           </PromptInputActionMenu>
-          {supportsReasoningEffort && displayedMode !== "flash" && (
-            <PromptInputActionMenu>
-              <PromptInputActionMenuTrigger className="gap-1! px-2!">
-                <div className="text-xs font-normal">
-                  {t.inputBox.reasoningEffort}:{" "}
-                  {getReasoningEffortLabel(t, context.reasoning_effort)}
-                </div>
-              </PromptInputActionMenuTrigger>
-              <PromptInputActionMenuContent className="w-70">
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel className="text-muted-foreground text-xs">
-                    {t.inputBox.reasoningEffort}
-                  </DropdownMenuLabel>
-                  <PromptInputActionMenu>
-                    {reasoningEffortOptions.map((option) => (
-                      <ReasoningEffortOptionItem
-                        key={option.effort}
-                        option={option}
-                        selected={
-                          (context.reasoning_effort ?? "medium") === option.effort
-                        }
-                        onSelect={() =>
-                          handleReasoningEffortSelect(option.effort)
-                        }
-                      />
-                    ))}
-                  </PromptInputActionMenu>
-                </DropdownMenuGroup>
-              </PromptInputActionMenuContent>
-            </PromptInputActionMenu>
-          )}
         </PromptInputTools>
         {contextWindow && (
           <PromptInputTools className="min-w-0 flex-1 justify-center px-2">
@@ -656,41 +588,14 @@ export function InputBox({
           />
         </PromptInputTools>
       </PromptInputFooter>
-      {(slashSuggestions.length > 0 || skillReferenceSuggestions.length > 0) && (
+      {quickInsertOpen && (
         <div className="absolute right-0 bottom-18 left-0 z-20 flex justify-center px-4">
-          <div className="bg-background/95 w-full max-w-(--container-width-md) rounded-2xl border p-2 shadow-lg backdrop-blur">
-            <div className="text-muted-foreground px-2 py-1 text-[11px] uppercase tracking-[0.18em]">
-              {slashSuggestions.length > 0 ? "Commands" : "Skills"}
-            </div>
-            <div className="flex flex-col gap-1">
-              {slashSuggestions.map((command) => (
-                <button
-                  key={command.name}
-                  type="button"
-                  className="hover:bg-muted flex items-start justify-between rounded-xl px-3 py-2 text-left transition-colors"
-                  onClick={() => applyInputText(`/${command.name} `)}
-                >
-                  <span className="font-mono text-sm">/{command.name}</span>
-                  <span className="text-muted-foreground ml-4 text-xs">
-                    {command.description}
-                  </span>
-                </button>
-              ))}
-              {skillReferenceSuggestions.map((skill) => (
-                <button
-                  key={`${skill.category}:${skill.name}`}
-                  type="button"
-                  className="hover:bg-muted flex items-start justify-between rounded-xl px-3 py-2 text-left transition-colors"
-                  onClick={() => applyInputText(`$${skill.name} `)}
-                >
-                  <span className="font-mono text-sm">${skill.name}</span>
-                  <span className="text-muted-foreground ml-4 text-xs">
-                    {skill.description}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
+          <SkillReferencePicker
+            label={quickInsertLabel}
+            suggestions={quickInsertSuggestions}
+            selectedIndex={activeQuickInsertIndex}
+            onSelect={handleQuickInsertSelect}
+          />
         </div>
       )}
       {isNewThread && searchParams.get("mode") !== "skill" && (

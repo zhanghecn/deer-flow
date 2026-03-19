@@ -13,3 +13,4 @@ def test_apply_prompt_template_keeps_base_prompt_free_of_runtime_command_blocks(
 
     assert "<runtime_command>" not in rendered
     assert "<runtime_command_instruction>" not in rendered
+    assert "never expose internal runtime paths such as `/mnt/user-data/...`" in rendered

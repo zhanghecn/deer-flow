@@ -26,9 +26,23 @@ type ThreadSearchOptions struct {
 }
 
 type ThreadSearchRecord struct {
-	ThreadID  string     `json:"thread_id"`
-	UpdatedAt *time.Time `json:"updated_at"`
-	Values    any        `json:"values"`
+	ThreadID         string     `json:"thread_id"`
+	UpdatedAt        *time.Time `json:"updated_at"`
+	Values           any        `json:"values"`
+	AgentName        *string    `json:"agent_name,omitempty"`
+	AgentStatus      string     `json:"agent_status"`
+	ExecutionBackend *string    `json:"execution_backend,omitempty"`
+	RemoteSessionID  *string    `json:"remote_session_id,omitempty"`
+	ModelName        *string    `json:"model_name,omitempty"`
+}
+
+type ThreadRuntimeRecord struct {
+	ThreadID         string  `json:"thread_id"`
+	AgentName        *string `json:"agent_name,omitempty"`
+	AgentStatus      string  `json:"agent_status"`
+	ExecutionBackend *string `json:"execution_backend,omitempty"`
+	RemoteSessionID  *string `json:"remote_session_id,omitempty"`
+	ModelName        *string `json:"model_name,omitempty"`
 }
 
 func (r *ThreadRepo) SearchByUser(
@@ -55,7 +69,12 @@ func (r *ThreadRepo) SearchByUser(
 		SELECT
 			thread_id,
 			updated_at,
-			title
+			title,
+			agent_name,
+			agent_status,
+			execution_backend,
+			remote_session_id,
+			model_name
 		FROM thread_bindings
 		WHERE user_id = $1
 		ORDER BY ` + sortBy + ` ` + sortOrder + `
@@ -71,9 +90,28 @@ func (r *ThreadRepo) SearchByUser(
 	for rows.Next() {
 		var item ThreadSearchRecord
 		var title *string
-		if err := rows.Scan(&item.ThreadID, &item.UpdatedAt, &title); err != nil {
+		var agentName *string
+		var agentStatus *string
+		var executionBackend *string
+		var remoteSessionID *string
+		var modelName *string
+		if err := rows.Scan(
+			&item.ThreadID,
+			&item.UpdatedAt,
+			&title,
+			&agentName,
+			&agentStatus,
+			&executionBackend,
+			&remoteSessionID,
+			&modelName,
+		); err != nil {
 			return nil, err
 		}
+		item.AgentName = normalizeOptionalThreadText(agentName)
+		item.AgentStatus = normalizeThreadAgentStatus(agentStatus)
+		item.ExecutionBackend = normalizeThreadExecutionBackend(executionBackend)
+		item.RemoteSessionID = normalizeOptionalThreadText(remoteSessionID)
+		item.ModelName = normalizeOptionalThreadText(modelName)
 		if title != nil {
 			trimmedTitle := strings.TrimSpace(*title)
 			if trimmedTitle != "" {
@@ -86,6 +124,50 @@ func (r *ThreadRepo) SearchByUser(
 		return nil, err
 	}
 	return items, nil
+}
+
+func (r *ThreadRepo) GetRuntimeByUser(
+	ctx context.Context,
+	userID uuid.UUID,
+	threadID string,
+) (*ThreadRuntimeRecord, error) {
+	query := `
+		SELECT
+			thread_id,
+			agent_name,
+			agent_status,
+			execution_backend,
+			remote_session_id,
+			model_name
+		FROM thread_bindings
+		WHERE thread_id = $1 AND user_id = $2
+		LIMIT 1
+	`
+
+	row := r.pool.QueryRow(ctx, query, threadID, userID)
+	var record ThreadRuntimeRecord
+	var agentName *string
+	var agentStatus *string
+	var executionBackend *string
+	var remoteSessionID *string
+	var modelName *string
+	if err := row.Scan(
+		&record.ThreadID,
+		&agentName,
+		&agentStatus,
+		&executionBackend,
+		&remoteSessionID,
+		&modelName,
+	); err != nil {
+		return nil, err
+	}
+
+	record.AgentName = normalizeOptionalThreadText(agentName)
+	record.AgentStatus = normalizeThreadAgentStatus(agentStatus)
+	record.ExecutionBackend = normalizeThreadExecutionBackend(executionBackend)
+	record.RemoteSessionID = normalizeOptionalThreadText(remoteSessionID)
+	record.ModelName = normalizeOptionalThreadText(modelName)
+	return &record, nil
 }
 
 func (r *ThreadRepo) UpdateTitle(
@@ -133,4 +215,30 @@ func normalizeThreadSortOrder(raw string) string {
 		return "ASC"
 	}
 	return "DESC"
+}
+
+func normalizeOptionalThreadText(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
+}
+
+func normalizeThreadAgentStatus(value *string) string {
+	if value != nil && strings.EqualFold(strings.TrimSpace(*value), "prod") {
+		return "prod"
+	}
+	return "dev"
+}
+
+func normalizeThreadExecutionBackend(value *string) *string {
+	if value != nil && strings.EqualFold(strings.TrimSpace(*value), "remote") {
+		normalized := "remote"
+		return &normalized
+	}
+	return nil
 }

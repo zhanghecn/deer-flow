@@ -412,4 +412,4 @@ def test_install_skill_from_registry_tool_returns_success_message(monkeypatch):
         source="coreyhaines31/marketingskills@copywriting",
     )
 
-    assert "copywriting" in result.update["messages"][0].content
+    assert "copywriting" in result

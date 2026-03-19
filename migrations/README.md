@@ -14,7 +14,7 @@ Compatibility cleanup retained for older environments:
 - `users`
 - `api_tokens`
 - `models`
-- `thread_bindings` (includes `title`)
+- `thread_bindings` (includes `title` and persisted thread runtime binding fields)
 - `agent_traces`
 - `agent_trace_events`
 
