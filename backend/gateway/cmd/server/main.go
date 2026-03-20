@@ -76,7 +76,7 @@ func main() {
 	modelH := handler.NewModelHandler(modelRepo)
 	memoryH := handler.NewMemoryHandler(fs)
 	mcpH := handler.NewMCPHandler(extensionsConfigPath)
-	threadsH := handler.NewThreadsHandler(threadRepo)
+	threadsH := handler.NewThreadsHandler(threadRepo, cfg.Upstream.LangGraphURL, fs)
 	uploadsH := handler.NewUploadsHandler(fs)
 	artifactsH := handler.NewArtifactsHandler(fs)
 	onlyOfficeH := handler.NewOnlyOfficeHandler(fs, handler.OnlyOfficeConfig{
@@ -202,6 +202,8 @@ func main() {
 
 		// Threads index (database-backed source of truth for sidebar/search)
 		api.POST("/threads/search", threadsH.Search)
+		api.DELETE("/threads", threadsH.ClearAll)
+		api.DELETE("/threads/:id", threadsH.Delete)
 		api.GET("/threads/:id/runtime", threadsH.GetRuntime)
 		api.PATCH("/threads/:id/title", threadsH.UpdateTitle)
 

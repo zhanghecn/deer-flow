@@ -2,8 +2,13 @@ package handler
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"log"
 	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -14,7 +19,10 @@ import (
 )
 
 type ThreadsHandler struct {
-	repo threadSearchRepository
+	repo         threadSearchRepository
+	langGraphURL string
+	httpClient   *http.Client
+	fs           threadFilesystem
 }
 
 type threadSearchRepository interface {
@@ -34,10 +42,32 @@ type threadSearchRepository interface {
 		threadID string,
 		title string,
 	) error
+	ListIDsByUser(
+		ctx context.Context,
+		userID uuid.UUID,
+	) ([]string, error)
+	DeleteByUser(
+		ctx context.Context,
+		userID uuid.UUID,
+		threadID string,
+	) error
 }
 
-func NewThreadsHandler(repo threadSearchRepository) *ThreadsHandler {
-	return &ThreadsHandler{repo: repo}
+type threadFilesystem interface {
+	DeleteThreadDir(threadID string) error
+}
+
+func NewThreadsHandler(
+	repo threadSearchRepository,
+	langGraphURL string,
+	fs threadFilesystem,
+) *ThreadsHandler {
+	return &ThreadsHandler{
+		repo:         repo,
+		langGraphURL: strings.TrimRight(langGraphURL, "/"),
+		httpClient:   &http.Client{Timeout: 30 * time.Second},
+		fs:           fs,
+	}
 }
 
 type threadSearchRequest struct {
@@ -50,6 +80,10 @@ type threadSearchRequest struct {
 
 type updateThreadTitleRequest struct {
 	Title string `json:"title"`
+}
+
+type clearThreadsResponse struct {
+	DeletedCount int `json:"deleted_count"`
 }
 
 func (h *ThreadsHandler) Search(c *gin.Context) {
@@ -124,6 +158,68 @@ func (h *ThreadsHandler) UpdateTitle(c *gin.Context) {
 	})
 }
 
+func (h *ThreadsHandler) Delete(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	if userID == uuid.Nil {
+		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "unauthorized"})
+		return
+	}
+
+	threadID := strings.TrimSpace(c.Param("id"))
+	if threadID == "" {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "thread id is required"})
+		return
+	}
+
+	if _, err := h.repo.GetRuntimeByUser(c.Request.Context(), userID, threadID); err != nil {
+		if err == pgx.ErrNoRows {
+			c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "thread not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to load thread runtime"})
+		return
+	}
+
+	if err := h.deleteThreadResources(c.Request.Context(), userID, threadID); err != nil {
+		c.JSON(http.StatusBadGateway, model.ErrorResponse{Error: "failed to delete thread"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"thread_id": threadID,
+		"deleted":   true,
+	})
+}
+
+func (h *ThreadsHandler) ClearAll(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	if userID == uuid.Nil {
+		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "unauthorized"})
+		return
+	}
+
+	threadIDs, err := h.repo.ListIDsByUser(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to load threads"})
+		return
+	}
+
+	deletedCount := 0
+	for _, threadID := range threadIDs {
+		if err := h.deleteThreadResources(c.Request.Context(), userID, threadID); err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{
+				"error":         "failed to clear all threads",
+				"deleted_count": deletedCount,
+				"failed_thread": threadID,
+			})
+			return
+		}
+		deletedCount++
+	}
+
+	c.JSON(http.StatusOK, clearThreadsResponse{DeletedCount: deletedCount})
+}
+
 func (h *ThreadsHandler) GetRuntime(c *gin.Context) {
 	userID := middleware.GetUserID(c)
 	if userID == uuid.Nil {
@@ -148,4 +244,71 @@ func (h *ThreadsHandler) GetRuntime(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, record)
+}
+
+func (h *ThreadsHandler) deleteThreadResources(
+	ctx context.Context,
+	userID uuid.UUID,
+	threadID string,
+) error {
+	if err := h.deleteRuntimeThread(ctx, userID, threadID); err != nil {
+		return err
+	}
+	if err := h.repo.DeleteByUser(ctx, userID, threadID); err != nil {
+		return err
+	}
+	h.deleteThreadDirBestEffort(threadID)
+	return nil
+}
+
+func (h *ThreadsHandler) deleteRuntimeThread(
+	ctx context.Context,
+	userID uuid.UUID,
+	threadID string,
+) error {
+	if _, err := uuid.Parse(threadID); err != nil {
+		log.Printf("threads: skipping runtime delete for legacy non-uuid thread id %q", threadID)
+		return nil
+	}
+
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodDelete,
+		h.langGraphURL+"/threads/"+url.PathEscape(threadID),
+		nil,
+	)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-User-ID", userID.String())
+
+	resp, err := h.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
+		return nil
+	}
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+	return fmt.Errorf(
+		"langgraph delete thread %s failed with status %d: %s",
+		threadID,
+		resp.StatusCode,
+		strings.TrimSpace(string(body)),
+	)
+}
+
+func (h *ThreadsHandler) deleteThreadDirBestEffort(threadID string) {
+	if h.fs == nil {
+		return
+	}
+	if err := h.fs.DeleteThreadDir(threadID); err != nil {
+		log.Printf("threads: failed to delete thread directory for %s: %v", threadID, err)
+	}
 }

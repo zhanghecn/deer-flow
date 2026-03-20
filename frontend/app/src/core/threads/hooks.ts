@@ -5,7 +5,7 @@ import type {
   ThreadState,
 } from "@langchain/langgraph-sdk";
 import { useStream } from "@langchain/langgraph-sdk/react";
-import { useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -25,8 +25,18 @@ import {
   normalizeThreadMode,
   resolveSubmitFlags,
 } from "./mode";
+import {
+  buildThreadRuntimeQueryKey,
+  buildThreadSearchQueryKey,
+  DEFAULT_THREAD_SEARCH_PARAMS,
+  THREAD_SEARCH_QUERY_KEY,
+} from "./search";
 
-import type { AgentInterruptValue, AgentThreadState } from "./types";
+import type {
+  AgentInterruptValue,
+  AgentThread,
+  AgentThreadState,
+} from "./types";
 
 export type ToolEndEvent = {
   name: string;
@@ -53,7 +63,6 @@ const FLASH_STREAM_THROTTLE = 96;
 const DEFAULT_STREAM_THROTTLE = 192;
 const HISTORY_PAGE_SIZE = 1;
 const STREAM_RECURSION_LIMIT = 1000;
-const THREAD_SEARCH_QUERY_KEY = ["threads", "search"] as const;
 const STREAM_MODES = ["values", "messages-tuple", "custom"] as const;
 type ThreadOverride = {
   values: AgentThreadState;
@@ -166,6 +175,109 @@ function buildOptimisticMessages(
   }
 
   return optimisticMessages;
+}
+
+function buildProvisionalThreadTitle(text: string) {
+  const normalized = text.trim().replace(/\s+/g, " ");
+  if (!normalized) {
+    return "Untitled";
+  }
+
+  return normalized.slice(0, 80);
+}
+
+function buildPendingThreadRecord(
+  threadId: string,
+  context: ThreadContext,
+  extraContext: Record<string, unknown> | undefined,
+  text: string,
+): AgentThread {
+  const normalizedRemoteSessionId =
+    typeof context.remote_session_id === "string"
+      ? context.remote_session_id.trim()
+      : "";
+  const normalizedModelName =
+    typeof context.model_name === "string" ? context.model_name.trim() : "";
+
+  return {
+    thread_id: threadId,
+    updated_at: new Date().toISOString(),
+    values: {
+      title: buildProvisionalThreadTitle(text),
+    },
+    agent_name: resolveAgentName(context, extraContext),
+    agent_status: context.agent_status === "prod" ? "prod" : "dev",
+    execution_backend:
+      context.execution_backend === "remote" ? "remote" : undefined,
+    remote_session_id: normalizedRemoteSessionId || undefined,
+    model_name: normalizedModelName || undefined,
+  } as AgentThread;
+}
+
+function upsertPendingThreadRecord(
+  oldData: AgentThread[] | undefined,
+  pendingRecord: AgentThread,
+) {
+  if (!oldData || oldData.length === 0) {
+    return [pendingRecord];
+  }
+
+  const existingRecord = oldData.find(
+    (thread) => thread.thread_id === pendingRecord.thread_id,
+  );
+  const mergedRecord = existingRecord
+    ? {
+        ...existingRecord,
+        ...pendingRecord,
+        values: {
+          ...(existingRecord.values ?? {}),
+          ...(pendingRecord.values ?? {}),
+        },
+      }
+    : pendingRecord;
+
+  return [
+    mergedRecord,
+    ...oldData.filter((thread) => thread.thread_id !== pendingRecord.thread_id),
+  ];
+}
+
+function primePendingThreadCaches(
+  queryClient: QueryClient,
+  threadId: string,
+  context: ThreadContext,
+  extraContext: Record<string, unknown> | undefined,
+  text: string,
+) {
+  const pendingRecord = buildPendingThreadRecord(
+    threadId,
+    context,
+    extraContext,
+    text,
+  );
+
+  queryClient.setQueryData(
+    buildThreadSearchQueryKey(DEFAULT_THREAD_SEARCH_PARAMS),
+    (oldData: AgentThread[] | undefined) =>
+      upsertPendingThreadRecord(oldData, pendingRecord),
+  );
+  queryClient.setQueriesData(
+    {
+      queryKey: THREAD_SEARCH_QUERY_KEY,
+      exact: false,
+    },
+    (oldData: AgentThread[] | undefined) =>
+      upsertPendingThreadRecord(oldData, pendingRecord),
+  );
+
+  queryClient.setQueryData(buildThreadRuntimeQueryKey(threadId), {
+    thread_id: threadId,
+    agent_name: pendingRecord.agent_name,
+    agent_status: pendingRecord.agent_status,
+    execution_backend: pendingRecord.execution_backend,
+    remote_session_id: pendingRecord.remote_session_id,
+    model_name: pendingRecord.model_name,
+  });
 }
 
 function replaceOptimisticHumanFiles(
@@ -710,6 +822,13 @@ export function useThreadStream({
           }
         }
 
+        primePendingThreadCaches(
+          queryClient,
+          runThreadId,
+          resolvedContext,
+          extraContext,
+          text,
+        );
         await thread.submit(
           buildSubmissionPayload(text, uploadedFiles),
           buildSubmitOptions(

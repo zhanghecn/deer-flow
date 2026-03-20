@@ -3,7 +3,7 @@
 import { MoreHorizontal, Pencil, Share2, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter } from "next/navigation";
-import { memo, useCallback, useDeferredValue, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -38,7 +38,11 @@ import {
   useRenameThread,
   useThreads,
 } from "@/core/threads/query-hooks";
-import { pathOfThread, titleOfThread } from "@/core/threads/utils";
+import {
+  pathAfterThreadDeletion,
+  pathOfThread,
+  titleOfThread,
+} from "@/core/threads/utils";
 import type { AgentThread } from "@/core/threads/types";
 import { env } from "@/env";
 
@@ -54,7 +58,7 @@ type RecentChatItemProps = {
   onPrefetch: (href: string) => void;
   onRenameClick: (threadId: string, currentTitle: string) => void;
   onShare: () => void;
-  onDelete: (threadId: string) => void;
+  onDelete: (threadId: string) => Promise<void>;
 };
 
 const RecentChatItem = memo(function RecentChatItem({
@@ -110,7 +114,7 @@ const RecentChatItem = memo(function RecentChatItem({
               <span>{shareLabel}</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => onDelete(threadId)}>
+            <DropdownMenuItem onSelect={() => void onDelete(threadId)}>
               <Trash2 className="text-muted-foreground" />
               <span>{deleteLabel}</span>
             </DropdownMenuItem>
@@ -127,8 +131,7 @@ export function RecentChatList() {
   const pathname = usePathname();
   const { thread_id: threadIdFromPath } = useParams<{ thread_id: string }>();
   const { data: threads = [] } = useThreads();
-  const deferredThreads = useDeferredValue(threads);
-  const { mutate: deleteThread } = useDeleteThread();
+  const { mutateAsync: deleteThread } = useDeleteThread();
   const { mutate: renameThread } = useRenameThread();
 
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
@@ -137,7 +140,7 @@ export function RecentChatList() {
 
   const threadItems = useMemo(
     () =>
-      deferredThreads.map((thread) => {
+      threads.map((thread) => {
         const href = pathOfThread(thread);
         return {
           thread,
@@ -149,23 +152,18 @@ export function RecentChatList() {
             thread.thread_id === threadIdFromPath,
         };
       }),
-    [deferredThreads, pathname, threadIdFromPath],
+    [pathname, threadIdFromPath, threads],
   );
 
   const handleDelete = useCallback(
-    (threadId: string) => {
-      deleteThread({ threadId });
-      if (threadId === threadIdFromPath) {
-        const threadIndex = threads.findIndex((t) => t.thread_id === threadId);
-        let nextPath = "/workspace/chats/new";
-        if (threadIndex > -1) {
-          if (threads[threadIndex + 1]) {
-            nextPath = pathOfThread(threads[threadIndex + 1]!);
-          } else if (threads[threadIndex - 1]) {
-            nextPath = pathOfThread(threads[threadIndex - 1]!);
-          }
+    async (threadId: string) => {
+      try {
+        await deleteThread({ threadId });
+        if (threadId === threadIdFromPath) {
+          void router.push(pathAfterThreadDeletion(threads, threadId));
         }
-        void router.push(nextPath);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : String(error));
       }
     },
     [deleteThread, router, threadIdFromPath, threads],
@@ -279,6 +277,7 @@ export function RecentChatList() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
     </>
   );
 }

@@ -7,7 +7,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 
 import { useThreadStream } from "./hooks";
-import type { AgentThreadState } from "./types";
+import {
+  buildThreadRuntimeQueryKey,
+  buildThreadSearchQueryKey,
+  DEFAULT_THREAD_SEARCH_PARAMS,
+} from "./search";
+import type { AgentThread, AgentThreadState } from "./types";
 
 type MockThreadState = {
   values: AgentThreadState;
@@ -140,11 +145,13 @@ function createWrapper() {
     },
   });
 
-  return function Wrapper({ children }: { children: React.ReactNode }) {
+  function Wrapper({ children }: { children: React.ReactNode }) {
     return (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     );
-  };
+  }
+
+  return Object.assign(Wrapper, { queryClient });
 }
 
 describe("useThreadStream", () => {
@@ -226,6 +233,60 @@ describe("useThreadStream", () => {
     });
 
     expect(toastError).toHaveBeenCalledWith("429 Too Many Requests");
+  });
+
+  it("adds a pending thread to the sidebar cache before a run finishes", async () => {
+    const wrapper = createWrapper();
+    wrapper.queryClient.setQueryData(
+      buildThreadSearchQueryKey(DEFAULT_THREAD_SEARCH_PARAMS),
+      [],
+    );
+    streamState.submit.mockImplementation(() => new Promise(() => {}));
+
+    const { result } = renderHook(
+      () =>
+        useThreadStream({
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      void result.current[1]("thread-pending", {
+        text: "Draft the launch checklist",
+        files: [],
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      const cachedThreads = wrapper.queryClient.getQueryData<AgentThread[]>(
+        buildThreadSearchQueryKey(DEFAULT_THREAD_SEARCH_PARAMS),
+      );
+      expect(cachedThreads).toMatchObject([
+        {
+          thread_id: "thread-pending",
+          agent_name: "lead_agent",
+          agent_status: "dev",
+          values: {
+            title: "Draft the launch checklist",
+          },
+        },
+      ]);
+      expect(
+        wrapper.queryClient.getQueryData(
+          buildThreadRuntimeQueryKey("thread-pending"),
+        ),
+      ).toMatchObject({
+        thread_id: "thread-pending",
+        agent_name: "lead_agent",
+        agent_status: "dev",
+      });
+    });
   });
 
   it("refetches persisted state after stop and preserves visible messages", async () => {

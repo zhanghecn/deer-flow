@@ -169,6 +169,11 @@ func (f *FS) DeleteAgentSkillsDir(name, status string) error {
 	return os.RemoveAll(f.AgentSkillsDir(name, status))
 }
 
+// DeleteThreadDir removes all persisted files for a thread.
+func (f *FS) DeleteThreadDir(threadID string) error {
+	return os.RemoveAll(f.ThreadDir(threadID))
+}
+
 // CopyDir copies src directory to dst recursively.
 func (f *FS) CopyDir(src, dst string) error {
 	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { pathOfThread, resolveThreadRuntimeBinding } from "./utils";
+import type { AgentThread } from "./types";
+import {
+  pathAfterThreadDeletion,
+  pathOfThread,
+  resolveThreadRuntimeBinding,
+} from "./utils";
 
 describe("thread runtime utils", () => {
   it("normalizes persisted thread runtime bindings", () => {
@@ -36,6 +41,45 @@ describe("thread runtime utils", () => {
 
     expect(pathOfThread("thread-2")).toBe(
       "/workspace/chats/thread-2?agent_status=dev",
+    );
+  });
+
+  it("picks the next visible thread after a deletion", () => {
+    expect(
+      pathAfterThreadDeletion(
+        [
+          {
+            thread_id: "thread-1",
+            agent_name: "lead_agent",
+            agent_status: "dev",
+          } as AgentThread,
+          {
+            thread_id: "thread-2",
+            agent_name: "reviewer",
+            agent_status: "prod",
+          } as AgentThread,
+        ],
+        "thread-1",
+      ),
+    ).toBe("/workspace/agents/reviewer/chats/thread-2?agent_status=prod");
+  });
+
+  it("falls back to a new chat in the deleted thread runtime when no siblings remain", () => {
+    expect(
+      pathAfterThreadDeletion(
+        [
+          {
+            thread_id: "thread-1",
+            agent_name: "reviewer",
+            agent_status: "prod",
+            execution_backend: "remote",
+            remote_session_id: "remote-1",
+          } as AgentThread,
+        ],
+        "thread-1",
+      ),
+    ).toBe(
+      "/workspace/agents/reviewer/chats/new?agent_status=prod&execution_backend=remote&remote_session_id=remote-1",
     );
   });
 });

@@ -47,6 +47,7 @@ export const zhCN: Translations = {
     save: "保存",
     install: "安装",
     create: "创建",
+    clearAll: "清空全部",
   },
 
   // Welcome
@@ -196,6 +197,9 @@ export const zhCN: Translations = {
   // Chats
   chats: {
     searchChats: "搜索对话",
+    clearAll: "清空全部对话",
+    clearAllConfirm: "确定要删除当前账号下的全部对话吗？此操作不可撤销。",
+    clearAllSuccess: "已清空全部对话",
   },
 
   // Auth

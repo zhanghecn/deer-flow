@@ -2,36 +2,26 @@ import { authFetch } from "@/core/auth/fetch";
 import { getBackendBaseURL } from "@/core/config";
 
 import type { AgentThread, ThreadRuntimeBinding } from "./types";
-
-export type ThreadSearchParams = {
-  limit?: number;
-  offset?: number;
-  sortBy?: string;
-  sortOrder?: string;
-  select?: string[];
-};
+import {
+  resolveThreadSearchParams,
+  type ThreadSearchParams,
+} from "./search";
 
 export async function searchThreads(
-  params: ThreadSearchParams = {
-    limit: 50,
-    offset: 0,
-    sortBy: "updated_at",
-    sortOrder: "desc",
-    select: ["thread_id", "updated_at", "values"],
-  },
+  params: ThreadSearchParams = {},
 ): Promise<AgentThread[]> {
-  const body = {
-    limit: params.limit ?? 50,
-    offset: params.offset ?? 0,
-    sort_by: params.sortBy ?? "updated_at",
-    sort_order: params.sortOrder ?? "desc",
-    select: params.select ?? ["thread_id", "updated_at", "values"],
-  };
+  const body = resolveThreadSearchParams(params);
 
   const res = await authFetch(`${getBackendBaseURL()}/api/threads/search`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      limit: body.limit,
+      offset: body.offset,
+      sort_by: body.sortBy,
+      sort_order: body.sortOrder,
+      select: body.select,
+    }),
   });
   if (!res.ok) {
     const err = (await res.json().catch(() => ({}))) as { error?: string };
@@ -59,6 +49,35 @@ export async function updateThreadTitle(
     );
   }
   return (await res.json()) as { thread_id: string; title: string };
+}
+
+export async function deleteThread(
+  threadId: string,
+): Promise<{ thread_id: string; deleted: boolean }> {
+  const res = await authFetch(
+    `${getBackendBaseURL()}/api/threads/${threadId}`,
+    {
+      method: "DELETE",
+    },
+  );
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(err.error ?? `Failed to delete thread: ${res.statusText}`);
+  }
+  return (await res.json()) as { thread_id: string; deleted: boolean };
+}
+
+export async function clearThreads(): Promise<{ deleted_count: number }> {
+  const res = await authFetch(`${getBackendBaseURL()}/api/threads`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(
+      err.error ?? `Failed to clear all threads: ${res.statusText}`,
+    );
+  }
+  return (await res.json()) as { deleted_count: number };
 }
 
 export async function getThreadRuntime(

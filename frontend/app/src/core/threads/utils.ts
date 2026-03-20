@@ -49,6 +49,28 @@ export function pathOfThread(
   );
 }
 
+export function pathAfterThreadDeletion(
+  threads: AgentThread[],
+  deletedThreadId: string,
+) {
+  const deletedThreadIndex = threads.findIndex(
+    (thread) => thread.thread_id === deletedThreadId,
+  );
+  if (deletedThreadIndex < 0) {
+    return "/workspace/chats/new";
+  }
+
+  const adjacentThread =
+    threads[deletedThreadIndex + 1] ?? threads[deletedThreadIndex - 1];
+  if (adjacentThread) {
+    return pathOfThread(adjacentThread);
+  }
+
+  return buildWorkspaceAgentPath(
+    resolveThreadRuntimeBinding(threads[deletedThreadIndex]),
+  );
+}
+
 export function textOfMessage(message: Message) {
   if (typeof message.content === "string") {
     return message.content;

@@ -170,6 +170,34 @@ func (r *ThreadRepo) GetRuntimeByUser(
 	return &record, nil
 }
 
+func (r *ThreadRepo) ListIDsByUser(
+	ctx context.Context,
+	userID uuid.UUID,
+) ([]string, error) {
+	rows, err := r.pool.Query(
+		ctx,
+		`SELECT thread_id FROM thread_bindings WHERE user_id = $1 ORDER BY updated_at DESC, thread_id DESC`,
+		userID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	threadIDs := make([]string, 0)
+	for rows.Next() {
+		var threadID string
+		if err := rows.Scan(&threadID); err != nil {
+			return nil, err
+		}
+		threadIDs = append(threadIDs, threadID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return threadIDs, nil
+}
+
 func (r *ThreadRepo) UpdateTitle(
 	ctx context.Context,
 	userID uuid.UUID,
@@ -185,6 +213,26 @@ func (r *ThreadRepo) UpdateTitle(
 		ctx,
 		`UPDATE thread_bindings SET title = $1, updated_at = NOW() WHERE thread_id = $2 AND user_id = $3`,
 		trimmedTitle,
+		threadID,
+		userID,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
+func (r *ThreadRepo) DeleteByUser(
+	ctx context.Context,
+	userID uuid.UUID,
+	threadID string,
+) error {
+	tag, err := r.pool.Exec(
+		ctx,
+		`DELETE FROM thread_bindings WHERE thread_id = $1 AND user_id = $2`,
 		threadID,
 		userID,
 	)

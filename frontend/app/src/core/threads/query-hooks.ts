@@ -4,25 +4,28 @@ import { getAPIClient } from "../api";
 import { useAuth } from "../auth";
 
 import {
+  clearThreads,
+  deleteThread,
   getThreadRuntime,
   searchThreads,
-  type ThreadSearchParams,
   updateThreadTitle,
 } from "./api";
+import {
+  buildThreadRuntimeQueryKey,
+  buildThreadSearchQueryKey,
+  DEFAULT_THREAD_SEARCH_PARAMS,
+  THREAD_RUNTIME_QUERY_KEY,
+  THREAD_SEARCH_QUERY_KEY,
+  type ThreadSearchParams,
+} from "./search";
 import type { AgentThread, ThreadRuntimeBinding } from "./types";
 
 export function useThreads(
-  params: ThreadSearchParams = {
-    limit: 50,
-    offset: 0,
-    sortBy: "updated_at",
-    sortOrder: "desc",
-    select: ["thread_id", "updated_at", "values"],
-  },
+  params: ThreadSearchParams = DEFAULT_THREAD_SEARCH_PARAMS,
 ) {
   const { authenticated } = useAuth();
   return useQuery<AgentThread[]>({
-    queryKey: ["threads", "search", params],
+    queryKey: buildThreadSearchQueryKey(params),
     queryFn: () => searchThreads(params),
     enabled: authenticated,
     refetchOnWindowFocus: false,
@@ -32,7 +35,7 @@ export function useThreads(
 export function useThreadRuntime(threadId?: string | null) {
   const { authenticated } = useAuth();
   return useQuery<ThreadRuntimeBinding & { thread_id: string }>({
-    queryKey: ["threads", "runtime", threadId ?? null],
+    queryKey: buildThreadRuntimeQueryKey(threadId),
     queryFn: () => getThreadRuntime(threadId!),
     enabled: authenticated && !!threadId,
     retry: false,
@@ -44,13 +47,12 @@ export function useDeleteThread() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ threadId }: { threadId: string }) => {
-      const apiClient = getAPIClient(false, threadId);
-      await apiClient.threads.delete(threadId);
+      await deleteThread(threadId);
     },
     onSuccess(_, { threadId }) {
       queryClient.setQueriesData(
         {
-          queryKey: ["threads", "search"],
+          queryKey: THREAD_SEARCH_QUERY_KEY,
           exact: false,
         },
         (oldData: AgentThread[] | undefined) => {
@@ -60,6 +62,29 @@ export function useDeleteThread() {
           return oldData.filter((t) => t.thread_id !== threadId);
         },
       );
+      void queryClient.removeQueries({
+        queryKey: buildThreadRuntimeQueryKey(threadId),
+      });
+    },
+  });
+}
+
+export function useClearThreads() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => clearThreads(),
+    onSuccess() {
+      queryClient.setQueriesData(
+        {
+          queryKey: THREAD_SEARCH_QUERY_KEY,
+          exact: false,
+        },
+        () => [],
+      );
+      void queryClient.removeQueries({
+        queryKey: THREAD_RUNTIME_QUERY_KEY,
+        exact: false,
+      });
     },
   });
 }
@@ -83,7 +108,7 @@ export function useRenameThread() {
     onSuccess(_, { threadId, title }) {
       queryClient.setQueriesData(
         {
-          queryKey: ["threads", "search"],
+          queryKey: THREAD_SEARCH_QUERY_KEY,
           exact: false,
         },
         (oldData: AgentThread[] | undefined) => {

@@ -47,6 +47,7 @@ export const enUS: Translations = {
     save: "Save",
     install: "Install",
     create: "Create",
+    clearAll: "Clear all",
   },
 
   // Welcome
@@ -203,6 +204,10 @@ export const enUS: Translations = {
   // Chats
   chats: {
     searchChats: "Search chats",
+    clearAll: "Clear all chats",
+    clearAllConfirm:
+      "Are you sure you want to delete all of your chats? This action cannot be undone.",
+    clearAllSuccess: "All chats deleted",
   },
 
   // Auth

@@ -35,6 +35,7 @@ export interface Translations {
     save: string;
     install: string;
     create: string;
+    clearAll: string;
   };
 
   // Welcome
@@ -145,6 +146,9 @@ export interface Translations {
   // Chats
   chats: {
     searchChats: string;
+    clearAll: string;
+    clearAllConfirm: string;
+    clearAllSuccess: string;
   };
 
   // Auth
