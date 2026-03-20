@@ -7,13 +7,13 @@ description: Use this skill when the user requests to generate, create, or imagi
 
 ## Overview
 
-This skill generates high-quality videos using structured prompts and a Python script. The workflow includes creating JSON-formatted prompts and executing video generation with optional reference image.
+This skill generates videos with Volcengine Ark using structured prompts and a Python script. The workflow includes creating JSON-formatted prompts and executing video generation with optional reference images.
 
 ## Core Capabilities
 
 - Create structured JSON prompts for AIGC video generation
-- Support reference image as guidance or the first/last frame of the video
-- Generate videos through automated Python script execution
+- Support reference image guidance and first/last frame control
+- Generate videos through an automated Python script
 
 ## Workflow
 
@@ -35,16 +35,17 @@ Generate a structured JSON file in `/mnt/user-data/workspace/` with naming patte
 
 Generate reference image for the video generation.
 
-- If only 1 image is provided, use it as the guided frame of the video
+- If 1 image is provided, it is sent as a `reference_image`
+- If 2 images are provided, they are sent as the first and last frame
 
-### Step 3: Execute Generation
+### Step 4: Execute Generation
 
 After reading this `SKILL.md`, treat its parent directory as `<current-skill-dir>`.
 Resolve the generator script relative to this skill directory:
 ```bash
 python <current-skill-dir>/scripts/generate.py \
   --prompt-file /mnt/user-data/workspace/prompt-file.json \
-  --reference-images /path/to/ref1.jpg \
+  --reference-images /mnt/user-data/outputs/ref1.jpg \
   --output-file /mnt/user-data/outputs/generated-video.mp4 \
   --aspect-ratio 16:9
 ```
@@ -52,9 +53,9 @@ python <current-skill-dir>/scripts/generate.py \
 Parameters:
 
 - `--prompt-file`: Absolute path to JSON prompt file (required)
-- `--reference-images`: Absolute paths to reference image (optional)
-- `--output-file`: Absolute path to output image file (required)
-- `--aspect-ratio`: Aspect ratio of the generated image (optional, default: 16:9)
+- `--reference-images`: Absolute paths to reference images (optional)
+- `--output-file`: Absolute path to output video file (required)
+- `--aspect-ratio`: Aspect ratio of the generated video (optional, default: 16:9)
 
 [!NOTE]
 Do NOT read the python file, instead just call it with the parameters.
@@ -136,5 +137,8 @@ After generation:
 
 - Always use English for prompts regardless of user's language
 - JSON format ensures structured, parsable prompts
-- Reference image enhance generation quality significantly
+- Reference images enhance generation quality significantly
+- Runtime requires `ARK_API_KEY`
+- Default model is `doubao-seedance-1-5-pro-251215`
+- `--aspect-ratio` maps to Ark `ratio`
 - Iterative refinement is normal for optimal results
