@@ -7,12 +7,11 @@ import {
   UserRoundPlusIcon,
 } from "lucide-react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { type FormEvent, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { FlickeringGrid } from "@/components/ui/flickering-grid";
-import Galaxy from "@/components/ui/galaxy";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { login, register } from "@/core/auth/api";
@@ -21,13 +20,24 @@ import { cn } from "@/lib/utils";
 
 type AuthTab = "login" | "register";
 
+const FlickeringGrid = dynamic(
+  () => import("@/components/ui/flickering-grid").then((m) => m.FlickeringGrid),
+  { ssr: false },
+);
+const Galaxy = dynamic(() => import("@/components/ui/galaxy"), {
+  ssr: false,
+});
+
 export function AuthScreen() {
   const router = useRouter();
   const { t } = useI18n();
   const searchParams = useSearchParams();
-  const queryMode = searchParams.get("mode") === "register" ? "register" : "login";
+  const queryMode =
+    searchParams.get("mode") === "register" ? "register" : "login";
 
   const [activeTab, setActiveTab] = useState<AuthTab>(queryMode);
+  const [authControlsReady, setAuthControlsReady] = useState(false);
+  const [showVisualEffects, setShowVisualEffects] = useState(false);
 
   const [loginAccount, setLoginAccount] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
@@ -44,6 +54,19 @@ export function AuthScreen() {
   useEffect(() => {
     setActiveTab(queryMode);
   }, [queryMode]);
+
+  useEffect(() => {
+    setAuthControlsReady(true);
+  }, []);
+
+  useEffect(() => {
+    // Defer heavy canvas/WebGL effects so the auth form hydrates and becomes
+    // interactive before decorative visuals start consuming the main thread.
+    const timer = window.setTimeout(() => {
+      setShowVisualEffects(true);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   function updateTab(value: string) {
     const nextTab: AuthTab = value === "register" ? "register" : "login";
@@ -94,24 +117,28 @@ export function AuthScreen() {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#04060b] text-white">
-      <div className="absolute inset-0 z-0 bg-black/30">
-        <Galaxy
-          mouseRepulsion={false}
-          starSpeed={0.15}
-          density={0.45}
-          glowIntensity={0.25}
-          twinkleIntensity={0.28}
-          speed={0.45}
-        />
-      </div>
-      <FlickeringGrid
-        className="absolute inset-0 z-0 opacity-30"
-        squareSize={4}
-        gridGap={5}
-        color="#8cc6ff"
-        maxOpacity={0.22}
-        flickerChance={0.22}
-      />
+      {showVisualEffects ? (
+        <>
+          <div className="pointer-events-none absolute inset-0 z-0 bg-black/30">
+            <Galaxy
+              mouseRepulsion={false}
+              starSpeed={0.15}
+              density={0.45}
+              glowIntensity={0.25}
+              twinkleIntensity={0.28}
+              speed={0.45}
+            />
+          </div>
+          <FlickeringGrid
+            className="pointer-events-none absolute inset-0 z-0 opacity-30"
+            squareSize={4}
+            gridGap={5}
+            color="#8cc6ff"
+            maxOpacity={0.22}
+            flickerChance={0.22}
+          />
+        </>
+      ) : null}
       <div className="absolute inset-0 z-0 bg-[radial-gradient(120%_120%_at_80%_0%,rgba(109,141,255,0.24)_0%,rgba(4,6,11,0)_55%),radial-gradient(120%_120%_at_0%_100%,rgba(25,211,178,0.2)_0%,rgba(4,6,11,0)_48%)]" />
 
       <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-6xl items-center px-4 py-10 sm:px-6 lg:px-8">
@@ -146,7 +173,10 @@ export function AuthScreen() {
           <section className="rounded-3xl border border-white/15 bg-[#0d1322]/82 p-6 shadow-[0_24px_80px_rgba(3,8,18,0.65)] backdrop-blur-md sm:p-8">
             <div className="mb-8 flex items-start justify-between gap-4">
               <div>
-                <Link href="/" className="text-3xl font-semibold tracking-tight">
+                <Link
+                  href="/"
+                  className="text-3xl font-semibold tracking-tight"
+                >
                   OpenAgents
                 </Link>
                 <p className="mt-2 text-sm text-white/60">
@@ -162,6 +192,7 @@ export function AuthScreen() {
               <TabsList className="grid h-11 w-full grid-cols-2 rounded-xl bg-white/5 p-1">
                 <TabsTrigger
                   value="login"
+                  disabled={!authControlsReady}
                   className={cn(
                     "h-9 rounded-lg text-white/70",
                     "data-[state=active]:border-white/20 data-[state=active]:bg-white/10 data-[state=active]:text-white",
@@ -172,6 +203,7 @@ export function AuthScreen() {
                 </TabsTrigger>
                 <TabsTrigger
                   value="register"
+                  disabled={!authControlsReady}
                   className={cn(
                     "h-9 rounded-lg text-white/70",
                     "data-[state=active]:border-white/20 data-[state=active]:bg-white/10 data-[state=active]:text-white",
@@ -191,7 +223,10 @@ export function AuthScreen() {
                   )}
 
                   <div>
-                    <label htmlFor="login-account" className="mb-2 block text-sm text-white/75">
+                    <label
+                      htmlFor="login-account"
+                      className="mb-2 block text-sm text-white/75"
+                    >
                       Account
                     </label>
                     <Input
@@ -199,6 +234,7 @@ export function AuthScreen() {
                       type="text"
                       autoComplete="username"
                       required
+                      disabled={!authControlsReady}
                       value={loginAccount}
                       onChange={(e) => setLoginAccount(e.target.value)}
                       placeholder="admin"
@@ -218,6 +254,7 @@ export function AuthScreen() {
                       type="password"
                       autoComplete="current-password"
                       required
+                      disabled={!authControlsReady}
                       value={loginPassword}
                       onChange={(e) => setLoginPassword(e.target.value)}
                       placeholder={t.auth.loginPasswordPlaceholder}
@@ -227,7 +264,7 @@ export function AuthScreen() {
 
                   <Button
                     type="submit"
-                    disabled={isLoginLoading}
+                    disabled={!authControlsReady || isLoginLoading}
                     className="mt-2 h-11 w-full rounded-lg bg-white text-black hover:bg-white/90"
                   >
                     {isLoginLoading ? t.auth.signingIn : t.auth.signInAction}
@@ -239,8 +276,9 @@ export function AuthScreen() {
                   {t.auth.newHere}{" "}
                   <button
                     type="button"
+                    disabled={!authControlsReady}
                     onClick={() => updateTab("register")}
-                    className="cursor-pointer font-medium text-cyan-200 hover:text-cyan-100"
+                    className="cursor-pointer font-medium text-cyan-200 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {t.auth.createAccountLink}
                   </button>
@@ -267,6 +305,7 @@ export function AuthScreen() {
                       type="text"
                       autoComplete="name"
                       required
+                      disabled={!authControlsReady}
                       value={registerName}
                       onChange={(e) => setRegisterName(e.target.value)}
                       placeholder={t.auth.registerNamePlaceholder}
@@ -286,6 +325,7 @@ export function AuthScreen() {
                       type="email"
                       autoComplete="email"
                       required
+                      disabled={!authControlsReady}
                       value={registerEmail}
                       onChange={(e) => setRegisterEmail(e.target.value)}
                       placeholder={t.auth.registerEmailPlaceholder}
@@ -305,6 +345,7 @@ export function AuthScreen() {
                       type="password"
                       autoComplete="new-password"
                       required
+                      disabled={!authControlsReady}
                       value={registerPassword}
                       onChange={(e) => setRegisterPassword(e.target.value)}
                       placeholder={t.auth.registerPasswordPlaceholder}
@@ -324,6 +365,7 @@ export function AuthScreen() {
                       type="password"
                       autoComplete="new-password"
                       required
+                      disabled={!authControlsReady}
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
                       placeholder={t.auth.confirmPasswordPlaceholder}
@@ -333,7 +375,7 @@ export function AuthScreen() {
 
                   <Button
                     type="submit"
-                    disabled={isRegisterLoading}
+                    disabled={!authControlsReady || isRegisterLoading}
                     className="mt-2 h-11 w-full rounded-lg bg-cyan-300 text-[#041422] hover:bg-cyan-200"
                   >
                     {isRegisterLoading
@@ -347,8 +389,9 @@ export function AuthScreen() {
                   {t.auth.alreadyHaveAccount}{" "}
                   <button
                     type="button"
+                    disabled={!authControlsReady}
                     onClick={() => updateTab("login")}
-                    className="cursor-pointer font-medium text-cyan-200 hover:text-cyan-100"
+                    className="cursor-pointer font-medium text-cyan-200 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {t.auth.signInLink}
                   </button>

@@ -95,6 +95,7 @@ test("thread lists build links from each thread runtime binding", async ({
 
   const reviewerThreadLink = page.getByRole("link", {
     name: "Reviewer thread",
+    exact: true,
   });
   await expect(reviewerThreadLink).toHaveAttribute(
     "href",
@@ -109,6 +110,51 @@ test("thread lists build links from each thread runtime binding", async ({
     "href",
     "/workspace/chats/thread-lead?agent_status=dev",
   );
+});
+
+test("pending runs defer runtime lookup until the run settles", async ({
+  page,
+}) => {
+  await bootstrapThreadRuntimeFixtures(page);
+
+  let runtimeRequested = false;
+  await page.route("**/api/threads/thread-pending/runtime", async (route) => {
+    runtimeRequested = true;
+    await fulfillJson(route, {
+      thread_id: "thread-pending",
+      agent_name: "lead_agent",
+      agent_status: "dev",
+      model_name: "kimi-k2.5",
+    });
+  });
+  await page.route("**/api/langgraph/threads/thread-pending/state**", (route) =>
+    fulfillJson(route, {
+      values: {
+        title: "Pending thread",
+        messages: [],
+        artifacts: [],
+      },
+      next: [],
+      metadata: {},
+    }),
+  );
+  await page.route(
+    "**/api/langgraph/threads/thread-pending/history**",
+    (route) => fulfillJson(route, []),
+  );
+  await page.route("**/api/langgraph/threads", (route) =>
+    fulfillJson(route, { thread_id: "thread-pending" }),
+  );
+
+  await page.goto(
+    "/workspace/chats/thread-pending?agent_status=dev&pending_run=1",
+    {
+      waitUntil: "domcontentloaded",
+    },
+  );
+
+  await page.waitForTimeout(1_000);
+  expect(runtimeRequested).toBeFalsy();
 });
 
 test("switching agents from an existing thread opens a new conversation", async ({
@@ -184,7 +230,10 @@ test("switching agents from an existing thread opens a new conversation", async 
   await page.getByRole("button", { name: /reviewer\s+prod/i }).click();
   await expect(page.getByText("Agent Workspace")).toBeVisible();
   await page.getByPlaceholder("Search agents").fill("lead_agent");
-  await page.getByRole("button", { name: /lead_agent/i }).last().click();
+  await page
+    .getByRole("button", { name: /lead_agent/i })
+    .last()
+    .click();
 
   await expect(page).toHaveURL(/\/workspace\/chats\/new\?agent_status=dev$/);
 });

@@ -24,13 +24,22 @@ export default function NewChatSender({
 }) {
   const threadId = useMemo(() => uuid(), []);
   const sentRef = useRef(false);
+  const startedRef = useRef(false);
+
+  const notifyStartedThread = (resolvedThreadId: string) => {
+    if (startedRef.current) {
+      return;
+    }
+    startedRef.current = true;
+    onStartedThread(resolvedThreadId);
+  };
 
   const [, sendMessage, , isThreadReady] = useThreadStream({
     threadId,
     context,
     isMock,
     skipInitialHistory: true,
-    onStart: onStartedThread,
+    onStart: notifyStartedThread,
   });
 
   useEffect(() => {
@@ -38,6 +47,9 @@ export default function NewChatSender({
       return;
     }
     sentRef.current = true;
+    // This sender always pre-allocates the thread id locally, so do not let
+    // UI navigation depend on a later stream lifecycle callback.
+    notifyStartedThread(threadId);
     const sendPromise = sendMessage(threadId, message, extraContext).catch(
       () => {
         sentRef.current = false;
@@ -45,14 +57,7 @@ export default function NewChatSender({
       },
     );
     void sendPromise;
-  }, [
-    extraContext,
-    isThreadReady,
-    message,
-    onError,
-    sendMessage,
-    threadId,
-  ]);
+  }, [extraContext, isThreadReady, message, onError, sendMessage, threadId]);
 
   return (
     <div className="text-muted-foreground flex h-full items-center justify-center text-sm">

@@ -24,7 +24,6 @@ import { ThreadTitle } from "@/components/workspace/thread-title";
 import { TodoList } from "@/components/workspace/todo-list";
 import { Tooltip } from "@/components/workspace/tooltip";
 import {
-  buildWorkspaceAgentPath,
   readAgentRuntimeSelection,
   type ResolvedAgentRuntimeSelection,
   useAgent,
@@ -35,8 +34,12 @@ import { useLocalSettings } from "@/core/settings";
 import { useThreadStream } from "@/core/threads/hooks";
 import { useThreadRuntime } from "@/core/threads/query-hooks";
 import {
+  buildCurrentPath,
+  buildThreadCompletionNotificationBody,
+  buildThreadPath,
+  buildThreadRuntimeContext,
+  didThreadRuntimeSelectionChange,
   resolveThreadRuntimeBinding,
-  textOfMessage,
 } from "@/core/threads/utils";
 import { env } from "@/env";
 import { cn } from "@/lib/utils";
@@ -47,7 +50,12 @@ export default function AgentChatPage() {
   const [settings] = useLocalSettings();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const hasPendingRun = searchParams.get("pending_run") === "1";
+  const routeHasPendingRun = searchParams.get("pending_run") === "1";
+  const [isPendingRun, setIsPendingRun] = useState(routeHasPendingRun);
+
+  useEffect(() => {
+    setIsPendingRun(routeHasPendingRun);
+  }, [routeHasPendingRun]);
 
   const { agent_name } = useParams<{
     agent_name: string;
@@ -59,7 +67,7 @@ export default function AgentChatPage() {
   const { threadId, setThreadId, isNewThread, setIsNewThread, isMock } =
     useThreadChat();
   const { data: threadRuntime, isLoading: threadRuntimeLoading } =
-    useThreadRuntime(isMock || isNewThread ? null : threadId);
+    useThreadRuntime(isMock || isNewThread || isPendingRun ? null : threadId);
   const boundThreadRuntime = useMemo(
     () => resolveThreadRuntimeBinding(threadRuntime),
     [threadRuntime],
@@ -76,6 +84,10 @@ export default function AgentChatPage() {
         : routeRuntimeSelection,
     [boundThreadRuntime, routeRuntimeSelection, threadRuntime],
   ) as ResolvedAgentRuntimeSelection;
+  const runtimeMessageContext = useMemo(
+    () => buildThreadRuntimeContext(runtimeSelection),
+    [runtimeSelection],
+  );
   const selectedAgentName =
     runtimeSelection.agentName === "lead_agent"
       ? null
@@ -84,10 +96,7 @@ export default function AgentChatPage() {
   const runtimeContextSeed = useMemo(
     () => ({
       ...settings.context,
-      agent_name: runtimeSelection.agentName,
-      agent_status: runtimeSelection.agentStatus,
-      execution_backend: runtimeSelection.executionBackend,
-      remote_session_id: runtimeSelection.remoteSessionId || undefined,
+      ...runtimeMessageContext,
       model_name:
         agent?.model?.trim() ||
         boundThreadRuntime.modelName ||
@@ -96,7 +105,7 @@ export default function AgentChatPage() {
     [
       agent?.model,
       boundThreadRuntime.modelName,
-      runtimeSelection,
+      runtimeMessageContext,
       settings.context,
     ],
   );
@@ -113,42 +122,22 @@ export default function AgentChatPage() {
       return;
     }
 
-    const runtimeChanged =
-      routeRuntimeSelection.agentName !== runtimeSelection.agentName ||
-      routeRuntimeSelection.agentStatus !== runtimeSelection.agentStatus ||
-      routeRuntimeSelection.executionBackend !==
-        runtimeSelection.executionBackend ||
-      routeRuntimeSelection.remoteSessionId !==
-        runtimeSelection.remoteSessionId;
-    if (!runtimeChanged) {
+    if (
+      !didThreadRuntimeSelectionChange(routeRuntimeSelection, runtimeSelection)
+    ) {
       return;
     }
 
-    const basePath = buildWorkspaceAgentPath(
-      {
-        agentName: runtimeSelection.agentName,
-        agentStatus: runtimeSelection.agentStatus,
-        executionBackend: runtimeSelection.executionBackend,
-        remoteSessionId: runtimeSelection.remoteSessionId,
-      },
-      threadId,
-    );
-    const [nextPathname = basePath, nextSearch = ""] = basePath.split("?", 2);
-    const params = new URLSearchParams(nextSearch);
-    if (hasPendingRun) {
-      params.set("pending_run", "1");
-    }
-    if (isMock) {
-      params.set("mock", "true");
-    }
-    const query = params.toString();
-    const nextPath = query ? `${nextPathname}?${query}` : nextPathname;
-    const currentPath = `${pathname}${searchParams.toString() ? `?${searchParams.toString()}` : ""}`;
+    const nextPath = buildThreadPath(runtimeSelection, threadId, {
+      isMock,
+      isPendingRun,
+    });
+    const currentPath = buildCurrentPath(pathname, searchParams);
     if (nextPath !== currentPath) {
       window.location.replace(nextPath);
     }
   }, [
-    hasPendingRun,
+    isPendingRun,
     isMock,
     isNewThread,
     pathname,
@@ -162,53 +151,31 @@ export default function AgentChatPage() {
   const [thread, sendMessage, resumeInterrupt] = useThreadStream({
     threadId: isNewThread ? undefined : threadId,
     context: runtimeContext,
-    skipInitialHistory: hasPendingRun,
+    skipInitialHistory: isPendingRun,
     onStart: (createdThreadId) => {
+      setIsPendingRun(true);
       setThreadId(createdThreadId);
       setIsNewThread(false);
       history.replaceState(
         null,
         "",
-        buildWorkspaceAgentPath(
-          {
-            agentName: runtimeSelection.agentName,
-            agentStatus: runtimeSelection.agentStatus,
-            executionBackend: runtimeSelection.executionBackend,
-            remoteSessionId: runtimeSelection.remoteSessionId,
-          },
-          createdThreadId,
-        ),
+        buildThreadPath(runtimeSelection, createdThreadId, {
+          isMock,
+          isPendingRun: true,
+        }),
       );
     },
     onFinish: (state) => {
-      if (hasPendingRun) {
-        let nextPath = buildWorkspaceAgentPath(
-          {
-            agentName: runtimeSelection.agentName,
-            agentStatus: runtimeSelection.agentStatus,
-            executionBackend: runtimeSelection.executionBackend,
-            remoteSessionId: runtimeSelection.remoteSessionId,
-          },
-          threadId,
-        );
-        if (isMock) {
-          nextPath += nextPath.includes("?") ? "&mock=true" : "?mock=true";
-        }
-        history.replaceState(null, "", nextPath);
-      }
+      setIsPendingRun(false);
+      history.replaceState(
+        null,
+        "",
+        buildThreadPath(runtimeSelection, threadId, { isMock }),
+      );
       if (document.hidden || !document.hasFocus()) {
-        let body = "Conversation finished";
-        const lastMessage = state.messages[state.messages.length - 1];
-        if (lastMessage) {
-          const textContent = textOfMessage(lastMessage);
-          if (textContent) {
-            body =
-              textContent.length > 200
-                ? textContent.substring(0, 200) + "..."
-                : textContent;
-          }
-        }
-        showNotification(state.title, { body });
+        showNotification(state.title, {
+          body: buildThreadCompletionNotificationBody(state),
+        });
       }
     },
   });
@@ -219,21 +186,11 @@ export default function AgentChatPage() {
       extraContext?: Record<string, unknown>,
     ) => {
       await sendMessage(threadId, message, {
-        agent_name: runtimeSelection.agentName,
-        agent_status: runtimeSelection.agentStatus,
-        execution_backend: runtimeSelection.executionBackend,
-        remote_session_id: runtimeSelection.remoteSessionId || undefined,
+        ...runtimeMessageContext,
         ...extraContext,
       });
     },
-    [
-      sendMessage,
-      threadId,
-      runtimeSelection.agentName,
-      runtimeSelection.agentStatus,
-      runtimeSelection.executionBackend,
-      runtimeSelection.remoteSessionId,
-    ],
+    [runtimeMessageContext, sendMessage, threadId],
   );
   const handleSubmit = useCallback(
     (message: PromptInputMessage, extraContext?: Record<string, unknown>) => {
@@ -244,21 +201,11 @@ export default function AgentChatPage() {
   const handleResumeInterrupt = useCallback(
     async (command: Command, extraContext?: Record<string, unknown>) => {
       await resumeInterrupt(threadId, command, {
-        agent_name: runtimeSelection.agentName,
-        agent_status: runtimeSelection.agentStatus,
-        execution_backend: runtimeSelection.executionBackend,
-        remote_session_id: runtimeSelection.remoteSessionId || undefined,
+        ...runtimeMessageContext,
         ...extraContext,
       });
     },
-    [
-      resumeInterrupt,
-      threadId,
-      runtimeSelection.agentName,
-      runtimeSelection.agentStatus,
-      runtimeSelection.executionBackend,
-      runtimeSelection.remoteSessionId,
-    ],
+    [runtimeMessageContext, resumeInterrupt, threadId],
   );
 
   const handleStop = useCallback(async () => {
@@ -303,14 +250,7 @@ export default function AgentChatPage() {
                   size="sm"
                   variant="secondary"
                   onClick={() => {
-                    router.push(
-                      buildWorkspaceAgentPath({
-                        agentName: runtimeSelection.agentName,
-                        agentStatus: runtimeSelection.agentStatus,
-                        executionBackend: runtimeSelection.executionBackend,
-                        remoteSessionId: runtimeSelection.remoteSessionId,
-                      }),
-                    );
+                    router.push(buildThreadPath(runtimeSelection));
                   }}
                 >
                   <PlusSquare /> {t.agents.newChat}

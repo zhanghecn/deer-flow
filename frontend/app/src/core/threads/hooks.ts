@@ -63,12 +63,18 @@ const FLASH_STREAM_THROTTLE = 96;
 const DEFAULT_STREAM_THROTTLE = 192;
 const HISTORY_PAGE_SIZE = 1;
 const STREAM_RECURSION_LIMIT = 1000;
+const STATE_HYDRATION_DELAY_MS = process.env.NODE_ENV === "test" ? 0 : 1500;
 const STREAM_MODES = ["values", "messages-tuple", "custom"] as const;
 type ThreadOverride = {
   values: AgentThreadState;
   messages: Message[];
   history: ThreadState<AgentThreadState>[];
   experimental_branchTree?: unknown;
+};
+
+type WindowActivity = {
+  isActive: boolean;
+  activationId: number;
 };
 
 function resolveThreadContext(context: ThreadContext): ThreadContext {
@@ -90,6 +96,59 @@ function resolveThreadContext(context: ThreadContext): ThreadContext {
     remote_session_id:
       context.remote_session_id ?? storedContext.remote_session_id,
   };
+}
+
+function readWindowActivity(): boolean {
+  if (typeof document === "undefined") {
+    return true;
+  }
+
+  return !document.hidden && document.hasFocus();
+}
+
+function useWindowActivity(): WindowActivity {
+  const [activity, setActivity] = useState<WindowActivity>(() => {
+    const isActive = readWindowActivity();
+    return {
+      isActive,
+      activationId: isActive ? 0 : -1,
+    };
+  });
+
+  useEffect(() => {
+    if (typeof document === "undefined" || typeof window === "undefined") {
+      return;
+    }
+
+    const syncActivity = () => {
+      const nextIsActive = readWindowActivity();
+      setActivity((current) => {
+        if (current.isActive === nextIsActive) {
+          return current;
+        }
+
+        return {
+          isActive: nextIsActive,
+          activationId: nextIsActive
+            ? current.activationId + 1
+            : current.activationId,
+        };
+      });
+    };
+
+    syncActivity();
+    document.addEventListener("visibilitychange", syncActivity);
+    window.addEventListener("focus", syncActivity);
+    window.addEventListener("blur", syncActivity);
+
+    return () => {
+      document.removeEventListener("visibilitychange", syncActivity);
+      window.removeEventListener("focus", syncActivity);
+      window.removeEventListener("blur", syncActivity);
+    };
+  }, []);
+
+  return activity;
 }
 
 function resolveAgentName(
@@ -429,12 +488,7 @@ function buildThreadOverrideFromState(
     return null;
   }
 
-  return buildThreadOverride(
-    values,
-    messages,
-    history,
-    experimentalBranchTree,
-  );
+  return buildThreadOverride(values, messages, history, experimentalBranchTree);
 }
 
 function getExperimentalBranchTree(source: object) {
@@ -503,7 +557,9 @@ function extractLatestContextWindow(
   return undefined;
 }
 
-function buildPassthroughThreadHistory<StateType extends Record<string, unknown>>(): {
+function buildPassthroughThreadHistory<
+  StateType extends Record<string, unknown>,
+>(): {
   data: ThreadState<StateType>[];
   error: undefined;
   isLoading: false;
@@ -531,6 +587,8 @@ export function useThreadStream({
   const { t } = useI18n();
   const { authenticated } = useAuth();
   const apiClient = getAPIClient(isMock, threadId ?? null);
+  const { isActive: isWindowActive, activationId: windowActivationId } =
+    useWindowActivity();
   const [streamThreadId, setStreamThreadId] = useState<string | null>(
     () => threadId ?? null,
   );
@@ -544,7 +602,9 @@ export function useThreadStream({
   const previousThreadIdRef = useRef<string | null | undefined>(threadId);
   const lastErrorMessageRef = useRef<string | null>(null);
   const joinedRunIdRef = useRef<string | null>(null);
+  const lastHydrationActivationRef = useRef<number | null>(null);
   const stateHydrationInFlightRef = useRef(false);
+  const deferStateHydrationRef = useRef(false);
   const stopPromiseRef = useRef<Promise<void> | null>(null);
   const resolvedContext = useMemo(
     () => resolveThreadContext(context),
@@ -553,10 +613,10 @@ export function useThreadStream({
   const streamThrottle = resolveStreamThrottle(resolvedContext);
   const passthroughThreadHistory = useMemo(
     () =>
-      historyEnabled || !threadId
+      historyEnabled || !(threadId ?? streamThreadId)
         ? undefined
         : buildPassthroughThreadHistory<AgentThreadState>(),
-    [historyEnabled, threadId],
+    [historyEnabled, streamThreadId, threadId],
   );
 
   useEffect(() => {
@@ -564,6 +624,7 @@ export function useThreadStream({
     const createdThreadDuringCurrentSession =
       !previousThreadId && !!threadId && hasStartedStreamRef.current;
 
+    deferStateHydrationRef.current = createdThreadDuringCurrentSession;
     hasStartedStreamRef.current = false;
     previousThreadIdRef.current = threadId;
     setHistoryEnabled(
@@ -578,6 +639,10 @@ export function useThreadStream({
     }
 
     setStreamThreadId(threadId);
+    if (createdThreadDuringCurrentSession) {
+      return;
+    }
+
     void apiClient.threads
       .create({
         threadId,
@@ -616,7 +681,7 @@ export function useThreadStream({
     assistantId: LEAD_AGENT_ID,
     threadId: streamThreadId,
     throttle: streamThrottle,
-    reconnectOnMount: true,
+    reconnectOnMount: isWindowActive,
     thread: passthroughThreadHistory,
     // Fresh threads can race with the first run before the runtime model is
     // persisted. Delay history reads until the first turn finishes.
@@ -653,6 +718,8 @@ export function useThreadStream({
     },
     onFinish(state) {
       if (streamThreadId) {
+        deferStateHydrationRef.current = false;
+        lastHydrationActivationRef.current = null;
         setHistoryEnabled(true);
       }
       lastErrorMessageRef.current = null;
@@ -667,12 +734,19 @@ export function useThreadStream({
   });
 
   const [optimisticMessages, setOptimisticMessages] = useState<Message[]>([]);
+  const threadMessageCount = thread.messages.length;
   const previousMessageCountRef = useRef(thread.messages.length);
+  const joinStreamRef = useRef(thread.joinStream);
+  const threadLoadingRef = useRef(thread.isLoading);
   const isThreadReady = !threadId || streamThreadId === threadId;
+
+  joinStreamRef.current = thread.joinStream;
+  threadLoadingRef.current = thread.isLoading;
 
   useEffect(() => {
     setThreadOverride(null);
     joinedRunIdRef.current = null;
+    lastHydrationActivationRef.current = null;
     stateHydrationInFlightRef.current = false;
   }, [threadId]);
 
@@ -686,14 +760,20 @@ export function useThreadStream({
   }, [notifyThreadError, thread.error]);
 
   useEffect(() => {
-    const hasVisibleMessages =
-      thread.messages.length > 0 || (threadOverride?.messages.length ?? 0) > 0;
+    const shouldRefreshFromActivation =
+      lastHydrationActivationRef.current !== windowActivationId;
+    const shouldDeferStateHydration =
+      deferStateHydrationRef.current && !historyEnabled;
 
-    if (!threadId || !authenticated) {
+    if (!threadId || !authenticated || !isWindowActive) {
       return;
     }
 
-    if (historyEnabled && hasVisibleMessages) {
+    if (shouldDeferStateHydration) {
+      return;
+    }
+
+    if (!shouldRefreshFromActivation) {
       return;
     }
 
@@ -703,81 +783,95 @@ export function useThreadStream({
 
     let cancelled = false;
     stateHydrationInFlightRef.current = true;
+    const hydrateState = () => {
+      void apiClient.threads
+        .getState<AgentThreadState>(threadId, undefined, {
+          subgraphs: true,
+        })
+        .then((state) => {
+          if (cancelled) {
+            return;
+          }
 
-    void apiClient.threads
-      .getState<AgentThreadState>(threadId, undefined, {
-        subgraphs: true,
-      })
-      .then((state) => {
-        if (cancelled) {
-          return;
-        }
+          const nextThreadOverride = buildThreadOverrideFromState(
+            state.values,
+            [],
+          );
+          if (!nextThreadOverride) {
+            return;
+          }
 
-        const nextThreadOverride = buildThreadOverrideFromState(
-          state.values,
-          [],
-        );
-        if (!nextThreadOverride) {
-          return;
-        }
+          setThreadOverride(nextThreadOverride);
 
-        setThreadOverride(nextThreadOverride);
+          const activeRunId =
+            typeof state.metadata?.run_id === "string"
+              ? state.metadata.run_id
+              : null;
+          const shouldJoinPendingRun =
+            !threadLoadingRef.current &&
+            Array.isArray(state.next) &&
+            state.next.length > 0 &&
+            !!activeRunId;
+          const joinStream = joinStreamRef.current;
 
-        const activeRunId =
-          typeof state.metadata?.run_id === "string"
-            ? state.metadata.run_id
-            : null;
-        const shouldJoinPendingRun =
-          skipInitialHistory &&
-          Array.isArray(state.next) &&
-          state.next.length > 0 &&
-          !!activeRunId;
+          if (
+            shouldJoinPendingRun &&
+            activeRunId &&
+            joinedRunIdRef.current !== activeRunId &&
+            typeof joinStream === "function"
+          ) {
+            joinedRunIdRef.current = activeRunId;
+            void joinStream(activeRunId).catch((error: unknown) => {
+              joinedRunIdRef.current = null;
+              notifyThreadError(error);
+            });
+          }
+        })
+        .catch(() => {
+          // Fresh threads often have no persisted state yet; ignore that case.
+        })
+        .finally(() => {
+          if (!cancelled) {
+            stateHydrationInFlightRef.current = false;
+            lastHydrationActivationRef.current = windowActivationId;
+          }
+        });
+    };
 
-        if (
-          shouldJoinPendingRun &&
-          activeRunId &&
-          joinedRunIdRef.current !== activeRunId &&
-          typeof thread.joinStream === "function"
-        ) {
-          joinedRunIdRef.current = activeRunId;
-          void thread.joinStream(activeRunId).catch((error: unknown) => {
-            joinedRunIdRef.current = null;
-            notifyThreadError(error);
-          });
-        }
-      })
-      .catch(() => {
-        // Fresh threads often have no persisted state yet; ignore that case.
-      })
-      .finally(() => {
-        if (!cancelled) {
-          stateHydrationInFlightRef.current = false;
-        }
-      });
+    const timeoutId =
+      historyEnabled || STATE_HYDRATION_DELAY_MS === 0
+        ? null
+        : window.setTimeout(hydrateState, STATE_HYDRATION_DELAY_MS);
+
+    if (timeoutId == null) {
+      hydrateState();
+    }
 
     return () => {
       cancelled = true;
+      if (timeoutId != null) {
+        window.clearTimeout(timeoutId);
+      }
       stateHydrationInFlightRef.current = false;
     };
   }, [
     apiClient,
     authenticated,
     historyEnabled,
+    isWindowActive,
     notifyThreadError,
-    skipInitialHistory,
-    thread,
-    threadOverride?.messages.length,
     threadId,
+    windowActivationId,
   ]);
 
   useEffect(() => {
     if (
       optimisticMessages.length > 0 &&
-      thread.messages.length > previousMessageCountRef.current
+      threadMessageCount > previousMessageCountRef.current
     ) {
       setOptimisticMessages([]);
     }
-  }, [thread.messages.length, optimisticMessages.length]);
+  }, [threadMessageCount, optimisticMessages.length]);
 
   const sendMessage = useCallback(
     async (
@@ -880,19 +974,16 @@ export function useThreadStream({
       lastErrorMessageRef.current = null;
 
       try {
-        await thread.submit(
-          null,
-          {
-            ...buildSubmitOptions(
-              runThreadId,
-              resolvedContext,
-              selectedModelName,
-              extraContext,
-              command,
-            ),
-            multitaskStrategy: "interrupt",
-          },
-        );
+        await thread.submit(null, {
+          ...buildSubmitOptions(
+            runThreadId,
+            resolvedContext,
+            selectedModelName,
+            extraContext,
+            command,
+          ),
+          multitaskStrategy: "interrupt",
+        });
       } catch (error) {
         notifyThreadError(error);
         throw error;
@@ -1010,10 +1101,12 @@ export function useThreadStream({
       cloneThreadStream(mergedThread, {
         values: effectiveValues,
         messages: effectiveMessages,
-        history: historyEnabled ? effectiveHistory : threadOverride?.history ?? [],
+        history: historyEnabled
+          ? effectiveHistory
+          : (threadOverride?.history ?? []),
         experimental_branchTree: historyEnabled
-          ? threadOverride?.experimental_branchTree ??
-            getExperimentalBranchTree(mergedThread)
+          ? (threadOverride?.experimental_branchTree ??
+            getExperimentalBranchTree(mergedThread))
           : undefined,
         stop: stopRun,
       }),

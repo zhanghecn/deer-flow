@@ -41,7 +41,9 @@ const apiClient = {
 let streamState: MockThreadState;
 let latestUseStreamOptions: Record<string, unknown> | null;
 
-function makeThreadState(overrides: Partial<MockThreadState> = {}): MockThreadState {
+function makeThreadState(
+  overrides: Partial<MockThreadState> = {},
+): MockThreadState {
   const values: AgentThreadState = {
     title: "Thread",
     messages: [],
@@ -156,10 +158,16 @@ function createWrapper() {
 
 describe("useThreadStream", () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     subscribers.clear();
     latestUseStreamOptions = null;
     toastError.mockReset();
     updateSubtask.mockReset();
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      value: false,
+    });
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
     apiClient.threads.create.mockReset().mockResolvedValue(undefined);
     apiClient.threads.getState.mockReset().mockResolvedValue({
       values: {
@@ -206,7 +214,9 @@ describe("useThreadStream", () => {
   });
 
   it("surfaces submit failures to the user", async () => {
-    streamState.submit.mockRejectedValueOnce(new Error("429 Too Many Requests"));
+    streamState.submit.mockRejectedValueOnce(
+      new Error("429 Too Many Requests"),
+    );
 
     const { result } = renderHook(
       () =>
@@ -227,9 +237,9 @@ describe("useThreadStream", () => {
     };
 
     await act(async () => {
-      await expect(
-        result.current[1]("thread-1", message),
-      ).rejects.toThrow("429 Too Many Requests");
+      await expect(result.current[1]("thread-1", message)).rejects.toThrow(
+        "429 Too Many Requests",
+      );
     });
 
     expect(toastError).toHaveBeenCalledWith("429 Too Many Requests");
@@ -402,6 +412,110 @@ describe("useThreadStream", () => {
         { subgraphs: true },
       );
     });
+  });
+
+  it("defers state hydration for threads created during the current session until the first run finishes", async () => {
+    type ThreadStreamProps = {
+      threadId?: string;
+    };
+
+    const { rerender } = renderHook(
+      ({ threadId }: ThreadStreamProps) =>
+        useThreadStream({
+          threadId,
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      {
+        initialProps: { threadId: undefined as string | undefined },
+        wrapper: createWrapper(),
+      },
+    );
+
+    const onCreated = latestUseStreamOptions?.onCreated;
+    expect(typeof onCreated).toBe("function");
+    if (typeof onCreated !== "function") {
+      throw new Error("Expected onCreated callback to be registered.");
+    }
+
+    act(() => {
+      onCreated({ thread_id: "thread-new" });
+    });
+
+    await waitFor(() => {
+      expect(latestUseStreamOptions?.threadId).toBe("thread-new");
+      expect(latestUseStreamOptions?.thread).toEqual({
+        data: [],
+        error: undefined,
+        isLoading: false,
+        mutate: expect.any(Function),
+      });
+    });
+
+    await act(async () => {
+      rerender({ threadId: "thread-new" });
+    });
+
+    expect(latestUseStreamOptions?.threadId).toBe("thread-new");
+    expect(apiClient.threads.create).not.toHaveBeenCalled();
+    expect(apiClient.threads.getState).not.toHaveBeenCalled();
+
+    const onFinish = latestUseStreamOptions?.onFinish;
+    expect(typeof onFinish).toBe("function");
+    if (typeof onFinish !== "function") {
+      throw new Error("Expected onFinish callback to be registered.");
+    }
+
+    act(() => {
+      onFinish({
+        values: {
+          title: "Thread",
+          messages: [],
+          artifacts: [],
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(apiClient.threads.getState).toHaveBeenCalledWith(
+        "thread-new",
+        undefined,
+        { subgraphs: true },
+      );
+    });
+  });
+
+  it("does not re-fetch thread state on unrelated stream rerenders", async () => {
+    apiClient.threads.create.mockImplementation(() => new Promise(() => {}));
+
+    renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          skipInitialHistory: true,
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    await waitFor(() => {
+      expect(apiClient.threads.getState).toHaveBeenCalledTimes(1);
+    });
+
+    act(() => {
+      emitStream({
+        error: new Error("stream tick"),
+      });
+    });
+
+    expect(apiClient.threads.getState).toHaveBeenCalledTimes(1);
   });
 
   it("hydrates current thread messages when history loading is enabled", async () => {

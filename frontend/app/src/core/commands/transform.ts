@@ -21,6 +21,25 @@ function inferTargetAgentName(argsText: string): string | undefined {
   return undefined;
 }
 
+function inferTargetSkillName(argsText: string): string | undefined {
+  const patterns = [
+    /(?:名为|名字叫|叫做)\s+([A-Za-z0-9][A-Za-z0-9/_-]*)/i,
+    /(?:skill[_\s-]*name|name)\s*[:=]\s*([A-Za-z0-9][A-Za-z0-9/_-]*)/i,
+    /source_path\s*[:=]\s*(?:shared|store\/(?:dev|prod))\/([A-Za-z0-9][A-Za-z0-9/_-]*)/i,
+    /(?:shared|store\/(?:dev|prod))\/([A-Za-z0-9][A-Za-z0-9/_-]*)/i,
+    /(?:^|[\s,.:;!?，。：；！？()（）])(?:已有|已存在|现有|保存|发布|推送|创建|这个|该)?\s*(?:(?:dev|prod)\s+)?(?:skill|技能)\s*[`'"]?([A-Za-z0-9][A-Za-z0-9/_-]*)[`'"]?/i,
+  ];
+
+  for (const pattern of patterns) {
+    const matched = argsText.match(pattern)?.[1]?.trim();
+    if (matched) {
+      return matched;
+    }
+  }
+
+  return undefined;
+}
+
 export function resolveCommandIntent(
   input: string,
 ): ResolvedCommandIntent | null {
@@ -43,6 +62,9 @@ export function resolveCommandIntent(
     command.name === "create-agent"
       ? inferTargetAgentName(argsText)
       : undefined;
+  const targetSkillName = command.name.includes("skill")
+    ? inferTargetSkillName(argsText)
+    : undefined;
 
   return {
     command,
@@ -53,6 +75,7 @@ export function resolveCommandIntent(
       command_name: command.name,
       command_args: argsText,
       target_agent_name: targetAgentName,
+      target_skill_name: targetSkillName,
       original_user_input: rawInput,
     },
   };
@@ -73,6 +96,31 @@ export function buildPromptExtraContext(
   }
 
   return Object.keys(extraContext).length > 0 ? extraContext : undefined;
+}
+
+export function buildCreateAgentFlowExtraContext(
+  input: string,
+  targetAgentName: string,
+): Record<string, unknown> | undefined {
+  const trimmed = input.trim();
+  const baseContext = buildPromptExtraContext(input) ?? {};
+
+  if (trimmed && !("command_name" in baseContext)) {
+    baseContext.command_name = "create-agent";
+    baseContext.command_args = trimmed;
+    baseContext.original_user_input = trimmed;
+  }
+
+  if (
+    targetAgentName.trim() &&
+    (!("target_agent_name" in baseContext) ||
+      baseContext.target_agent_name == null ||
+      baseContext.target_agent_name === "")
+  ) {
+    baseContext.target_agent_name = targetAgentName.trim();
+  }
+
+  return Object.keys(baseContext).length > 0 ? baseContext : undefined;
 }
 
 export function getSlashQuery(input: string): string | null {
