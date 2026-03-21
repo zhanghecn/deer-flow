@@ -106,8 +106,45 @@ authoring_actions: []
     assert command.target_agent_name == "landing-copy-agent-0318"
 
 
+def test_resolve_runtime_command_infers_target_skill_name_for_publish_command(tmp_path):
+    paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / "skills")
+    command_file = paths.common_command_file("push-skill-prod")
+    command_file.parent.mkdir(parents=True, exist_ok=True)
+    command_file.write_text(
+        """---
+name: push-skill-prod
+kind: hard
+description: 发布技能
+authoring_actions:
+  - push_skill_prod
+---
+
+请发布 skill。
+用户需求：
+{{user_text}}
+""",
+        encoding="utf-8",
+    )
+
+    command = resolve_runtime_command(
+        command_name=None,
+        command_kind=None,
+        command_args=None,
+        authoring_actions=(),
+        original_user_input='/push-skill-prod 请把 dev skill oa-test-se-code-20260320 推送到 prod，必要时直接调用 push_skill_prod(skill_name="oa-test-se-code-20260320")。',
+        target_agent_name=None,
+        paths=paths,
+    )
+
+    assert command.name == "push-skill-prod"
+    assert command.kind == "hard"
+    assert command.authoring_actions == ("push_skill_prod",)
+    assert command.target_skill_name == "oa-test-se-code-20260320"
+
+
 def test_create_agent_command_prompt_documents_runtime_update_constraints():
-    command_text = Path(".openagents/commands/common/create-agent.md").read_text(encoding="utf-8")
+    repo_root = Path(__file__).resolve().parents[3]
+    command_text = (repo_root / ".openagents/commands/common/create-agent.md").read_text(encoding="utf-8")
 
     assert "/mnt/user-data/agents/{status}/lead_agent/skills/" in command_text
     assert "不要传 `model` 字段" in command_text

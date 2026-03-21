@@ -33,6 +33,14 @@ class SetupAgentSkillInput(BaseModel):
             "When creating a brand-new agent-owned skill, use the target local skill name."
         )
     )
+    source_path: str | None = Field(
+        default=None,
+        description=(
+            "Optional explicit shared skill source path such as 'store/prod/my-skill' or "
+            "'store/dev/team/my-skill'. Use this when the same skill name exists in multiple scopes "
+            "and the source must be explicit."
+        ),
+    )
     content: str | None = Field(
         default=None,
         description=(
@@ -57,12 +65,13 @@ def _split_skill_inputs(
     agent_status: str = "dev",
     thread_id: str | None = None,
     paths: Any = None,
-) -> tuple[list[str], list[dict[str, str]]]:
-    copied_skill_names: list[str] = []
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    copied_skill_refs: list[dict[str, str]] = []
     inline_skills: list[dict[str, str]] = []
 
     for skill_entry in skills or []:
         raw_name = _skill_entry_field(skill_entry, "name")
+        raw_source_path = _skill_entry_field(skill_entry, "source_path")
         raw_content = _skill_entry_field(skill_entry, "content")
 
         if raw_name is None:
@@ -76,18 +85,31 @@ def _split_skill_inputs(
                 continue
             raise ValueError("setup_agent skill entries require a non-empty `name`.")
 
-        if raw_content is None:
-            existing_content = _load_existing_agent_owned_skill_content(
-                skill_name=name,
-                agent_name=agent_name,
-                agent_status=agent_status,
-                thread_id=thread_id,
-                paths=paths,
+        source_path = str(raw_source_path).strip() if raw_source_path is not None else None
+        if source_path == "":
+            source_path = None
+
+        if source_path is not None and raw_content is not None:
+            raise ValueError(
+                f"setup_agent skill '{name}' cannot provide both `source_path` and `content`."
             )
-            if existing_content is not None:
-                inline_skills.append({"name": name, "content": existing_content})
-                continue
-            copied_skill_names.append(name)
+
+        if raw_content is None:
+            if source_path is None:
+                existing_content = _load_existing_agent_owned_skill_content(
+                    skill_name=name,
+                    agent_name=agent_name,
+                    agent_status=agent_status,
+                    thread_id=thread_id,
+                    paths=paths,
+                )
+                if existing_content is not None:
+                    inline_skills.append({"name": name, "content": existing_content})
+                    continue
+            copied_ref = {"name": name}
+            if source_path is not None:
+                copied_ref["source_path"] = source_path
+            copied_skill_refs.append(copied_ref)
             continue
 
         content = str(raw_content)
@@ -98,7 +120,7 @@ def _split_skill_inputs(
             )
         inline_skills.append({"name": name, "content": content})
 
-    return copied_skill_names, inline_skills
+    return copied_skill_refs, inline_skills
 
 
 def _name_only_skill_names(
@@ -109,8 +131,11 @@ def _name_only_skill_names(
 
     for skill_entry in skills or []:
         raw_name = _skill_entry_field(skill_entry, "name")
+        raw_source_path = _skill_entry_field(skill_entry, "source_path")
         raw_content = _skill_entry_field(skill_entry, "content")
         if raw_name is None or raw_content is not None:
+            continue
+        if str(raw_source_path or "").strip():
             continue
 
         name = str(raw_name).strip()
@@ -358,7 +383,7 @@ def setup_agent(
         execution_backend = str(runtime_context_value(runtime.context, "execution_backend") or "").strip() or None
         remote_session_id = str(runtime_context_value(runtime.context, "remote_session_id") or "").strip() or None
         if skills is None:
-            copied_skill_names = []
+            copied_skill_refs = []
             inline_skills = _load_existing_agent_skill_inputs(
                 agent_name=agent_name,
                 agent_status=agent_status,
@@ -366,7 +391,7 @@ def setup_agent(
                 paths=paths,
             )
         else:
-            copied_skill_names, inline_skills = _split_skill_inputs(
+            copied_skill_refs, inline_skills = _split_skill_inputs(
                 skills,
                 agent_name=agent_name,
                 agent_status=agent_status,
@@ -380,7 +405,7 @@ def setup_agent(
             description=description,
             model=resolved_model,
             tool_groups=tool_groups,
-            skill_names=copied_skill_names,
+            skill_refs=copied_skill_refs,
             inline_skills=inline_skills,
             paths=paths,
         )

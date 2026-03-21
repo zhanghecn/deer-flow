@@ -82,6 +82,8 @@ def test_install_registry_skill_to_store_downloads_into_dev_store(tmp_path: Path
     def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         home = str((kwargs.get("env") or {}).get("HOME"))
         state["home"] = home
+        state["npm_config_yes"] = str((kwargs.get("env") or {}).get("npm_config_yes"))
+        state["args"] = " ".join(args)
         _write_skill(Path(home) / ".agents" / "skills" / "copywriting", "copywriting", "Marketing copywriting")
         return subprocess.CompletedProcess(args=args, returncode=0, stdout="ok", stderr="")
 
@@ -96,6 +98,8 @@ def test_install_registry_skill_to_store_downloads_into_dev_store(tmp_path: Path
     assert target_dir == paths.store_dev_skills_dir / "copywriting"
     assert (target_dir / "SKILL.md").exists()
     assert state["home"]
+    assert state["npm_config_yes"] == "true"
+    assert state["args"].startswith("npx --yes skills add ")
     assert not Path(state["home"]).exists()
 
 
@@ -132,6 +136,37 @@ def test_install_registry_skill_to_store_allows_shared_name_when_dev_store_is_mi
     assert installed_name == "copywriting"
     assert target_dir == paths.store_dev_skills_dir / "copywriting"
     assert (target_dir / "SKILL.md").exists()
+
+
+def test_install_registry_skill_to_store_reports_meaningful_cli_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
+
+    cli_output = """
+\x1b[38;5;250m███████╗██╗  ██╗██╗██╗     ██╗     ███████╗\x1b[0m
+│
+■  No matching skills found for: playwright-best-practices
+npm notice
+npm notice New major version of npm available!
+"""
+
+    def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=1,
+            stdout=cli_output,
+            stderr="",
+        )
+
+    monkeypatch.setattr("src.tools.builtins.authoring_persistence.subprocess.run", fake_run)
+
+    with pytest.raises(RuntimeError, match="No matching skills found for: playwright-best-practices"):
+        install_registry_skill_to_store(
+            source="vercel-labs/agent-skills@playwright-best-practices",
+            paths=paths,
+        )
 
 
 def test_save_agent_directory_to_store_accepts_runtime_agent_copy(tmp_path: Path):

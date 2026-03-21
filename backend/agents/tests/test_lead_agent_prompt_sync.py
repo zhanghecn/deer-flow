@@ -10,6 +10,10 @@ def test_archived_lead_agent_prompts_include_runtime_path_guardrails():
     required_snippets = [
         "only use the runtime-visible `/mnt/user-data/...` contract",
         "Do not invent sibling directories such as `/mnt/user-data/agentz`",
+        "verify them against the user's explicit checklist",
+        "aim close to that target instead of overshooting it by a large margin",
+        "required keywords, and requested scope",
+        "put each choice into the structured `options` array",
         "do not search runtime paths to prove the target agent exists before calling `setup_agent`",
         "inspect exactly `/mnt/user-data/agents/{status}/{target_agent_name}/...`",
         "omit the `model` argument in `setup_agent`",

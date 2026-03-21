@@ -14,3 +14,7 @@ def test_apply_prompt_template_keeps_base_prompt_free_of_runtime_command_blocks(
     assert "<runtime_command>" not in rendered
     assert "<runtime_command_instruction>" not in rendered
     assert "never expose internal runtime paths such as `/mnt/user-data/...`" in rendered
+    assert "verify every explicit user constraint" in rendered
+    assert 'approximate length such as "500字左右"' in rendered
+    assert "required keywords, and requested scope" in rendered
+    assert "put concrete choices in the structured `options` array" in rendered

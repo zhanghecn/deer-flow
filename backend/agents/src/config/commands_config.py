@@ -18,6 +18,17 @@ _TARGET_AGENT_PATTERNS = (
         re.IGNORECASE,
     ),
 )
+_TARGET_SKILL_PATTERNS = (
+    re.compile(r"(?:名为|名字叫|叫做)\s+([A-Za-z0-9][A-Za-z0-9/_-]*)", re.IGNORECASE),
+    re.compile(r"(?:skill[_\s-]*name|name)\s*[:=]\s*([A-Za-z0-9][A-Za-z0-9/_-]*)", re.IGNORECASE),
+    re.compile(r"source_path\s*[:=]\s*(?:shared|store/(?:dev|prod))/([A-Za-z0-9][A-Za-z0-9/_-]*)", re.IGNORECASE),
+    re.compile(r"(?:shared|store/(?:dev|prod))/([A-Za-z0-9][A-Za-z0-9/_-]*)", re.IGNORECASE),
+    re.compile(
+        r"(?:^|[\s,.:;!?，。：；！？()（）])(?:已有|已存在|现有|保存|发布|推送|创建|这个|该)?\s*"
+        r"(?:(?:dev|prod)\s+)?(?:skill|技能)\s*[`'\"]?([A-Za-z0-9][A-Za-z0-9/_-]*)[`'\"]?",
+        re.IGNORECASE,
+    ),
+)
 
 
 @dataclass(frozen=True)
@@ -36,6 +47,7 @@ class RuntimeCommandResolution:
     args: str | None
     authoring_actions: tuple[str, ...]
     target_agent_name: str | None
+    target_skill_name: str | None
     prompt: str | None
 
 
@@ -118,6 +130,19 @@ def infer_target_agent_name(args_text: str | None) -> str | None:
     return None
 
 
+def infer_target_skill_name(args_text: str | None) -> str | None:
+    if args_text is None:
+        return None
+    for pattern in _TARGET_SKILL_PATTERNS:
+        matched = pattern.search(args_text)
+        if matched is None:
+            continue
+        skill_name = matched.group(1).strip().strip("`'\"")
+        if skill_name:
+            return skill_name
+    return None
+
+
 def load_common_command_definition(
     command_name: str | None,
     *,
@@ -185,6 +210,7 @@ def resolve_runtime_command(
     authoring_actions: tuple[str, ...] | list[str],
     original_user_input: str | None,
     target_agent_name: str | None,
+    target_skill_name: str | None = None,
     paths: Paths | None = None,
 ) -> RuntimeCommandResolution:
     resolved_name = _normalize_command_name(command_name)
@@ -201,6 +227,9 @@ def resolve_runtime_command(
     resolved_target_agent_name = _normalize_optional_text(target_agent_name)
     if resolved_target_agent_name is None and resolved_name == "create-agent":
         resolved_target_agent_name = infer_target_agent_name(resolved_args)
+    resolved_target_skill_name = _normalize_optional_text(target_skill_name)
+    if resolved_target_skill_name is None and resolved_name is not None and "skill" in resolved_name:
+        resolved_target_skill_name = infer_target_skill_name(resolved_args)
 
     return RuntimeCommandResolution(
         name=resolved_name,
@@ -212,6 +241,7 @@ def resolve_runtime_command(
             else _normalize_authoring_actions(authoring_actions)
         ),
         target_agent_name=resolved_target_agent_name,
+        target_skill_name=resolved_target_skill_name,
         prompt=(
             render_command_prompt(definition, user_text=resolved_args)
             if definition is not None

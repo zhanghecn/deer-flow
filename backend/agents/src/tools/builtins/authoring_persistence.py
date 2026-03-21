@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from fcntl import LOCK_EX, LOCK_UN, flock
 from pathlib import Path, PurePosixPath
+import re
 
 import yaml
 from langgraph.prebuilt import ToolRuntime
@@ -17,6 +18,7 @@ from src.config.agent_materialization import validate_skill_refs_for_status
 from src.config.agents_config import AGENT_NAME_PATTERN, AGENTS_MD_FILENAME, AgentConfig
 from src.config.paths import Paths, VIRTUAL_PATH_PREFIX, get_paths
 from src.skills.parser import parse_skill_file
+from src.tools.builtins.runtime_context import runtime_context_value
 
 
 def _timestamp() -> str:
@@ -145,11 +147,41 @@ def _registry_skill_name(skill_source: str, explicit_skill_name: str | None = No
     return _normalize_skill_path(normalized_source.rsplit("@", 1)[-1])
 
 
+_ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
+_CLI_NOISE_LINE_RE = re.compile(r"^[\s│┌└■●◇◒◐◓◑]+")
+_FAILURE_MESSAGE_HINTS = (
+    "error",
+    "failed",
+    "invalid",
+    "not found",
+    "no matching skills found",
+    "unable",
+    "cannot",
+)
+
+
+def _normalize_subprocess_output_line(line: str) -> str:
+    cleaned = _ANSI_ESCAPE_RE.sub("", line).strip()
+    cleaned = _CLI_NOISE_LINE_RE.sub("", cleaned).strip()
+    return cleaned
+
+
 def _subprocess_failure_message(result: subprocess.CompletedProcess[str]) -> str:
+    meaningful_lines: list[str] = []
     for stream in (result.stderr, result.stdout):
-        text = str(stream or "").strip()
-        if text:
-            return text.splitlines()[-1]
+        for raw_line in str(stream or "").splitlines():
+            line = _normalize_subprocess_output_line(raw_line)
+            if not line or line.lower().startswith("npm notice"):
+                continue
+            meaningful_lines.append(line)
+
+    for line in meaningful_lines:
+        lowered = line.lower()
+        if any(hint in lowered for hint in _FAILURE_MESSAGE_HINTS):
+            return line
+
+    if meaningful_lines:
+        return meaningful_lines[-1]
     return f"command exited with code {result.returncode}"
 
 
@@ -179,9 +211,10 @@ def install_registry_skill_to_store(
             env.setdefault("XDG_CONFIG_HOME", str(temp_home_path / ".config"))
             env.setdefault("XDG_CACHE_HOME", str(temp_home_path / ".cache"))
             env.setdefault("XDG_DATA_HOME", str(temp_home_path / ".local" / "share"))
+            env["npm_config_yes"] = "true"
 
             result = subprocess.run(
-                ["npx", "skills", "add", normalized_source, "--yes", "--global"],
+                ["npx", "--yes", "skills", "add", normalized_source, "--yes", "--global"],
                 capture_output=True,
                 text=True,
                 check=False,
@@ -326,8 +359,8 @@ def push_agent_directory_to_prod(
 
 
 def _runtime_thread_id(runtime: ToolRuntime | None) -> str:
-    context = getattr(runtime, "context", None) or {}
-    thread_id = context.get("thread_id") or context.get("x-thread-id")
+    context = getattr(runtime, "context", None)
+    thread_id = runtime_context_value(context, "thread_id") or runtime_context_value(context, "x-thread-id")
     if not thread_id:
         raise ValueError("thread_id is required in runtime context.")
     return str(thread_id)

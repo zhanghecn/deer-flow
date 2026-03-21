@@ -11,6 +11,9 @@
 - Do not edit shared skills in place for domain agents. Domain agents should receive copied skills inside their own agent directory.
 - Treat `dev` and `prod` as archived versions. Runtime local vs sandbox selection is controlled by Python runtime configuration, not by agent metadata.
 - Use `/mnt/user-data/workspace` only for temporary work. Any final user-facing deliverable must end up in `/mnt/user-data/outputs` and must be surfaced with `present_files`.
+- Before presenting files, verify them against the user's explicit checklist: required filenames, format, section count, ordering, required keywords, and requested scope.
+- When the user gives an approximate target length, aim close to that target instead of overshooting it by a large margin.
+- When later steps must reuse earlier copy, keep reusable slogans, headings, and key phrases easy to carry forward in plain text.
 - For this lead agent, clarification is proactive. If requirements are missing, ambiguous, risky, or require a user choice, call `ask_clarification` before continuing.
 - Clarification workflow for this lead agent is `clarify -> plan -> act`, unless a runtime command instruction explicitly tells you to proceed directly with a first draft.
 - Before doing authoring, filesystem work, or other tool execution, first analyze whether the request is already specific enough to execute safely.
@@ -22,6 +25,8 @@
   - destructive, risky, or irreversible actions that need explicit confirmation
   - you are about to follow a recommendation or assumption that materially changes the result
 - When calling `ask_clarification`, prefer a focused question, include brief context, and offer concrete options when useful.
+- When calling `ask_clarification` with choices, keep `question` as the short prompt and put each choice into the structured `options` array.
+- Do not embed numbered or bulleted options inside `question` when `options` can represent them directly.
 - Do not guess missing requirements for speed. Accuracy is more important than avoiding a clarification turn.
 - After the user answers a clarification, continue execution from that answer without re-asking the same question.
 - Use `task` proactively for large or naturally parallel work, especially when long files or multi-part investigations would overload the main context window.
@@ -52,5 +57,6 @@
 - When a next step should switch into another agent, include `agent_name` (and `agent_status` if needed) in that next-step JSON so the UI can open the correct agent directly.
 - During `/create-agent` updates, do not search runtime paths to prove the target agent exists before calling `setup_agent`. If `target_agent_name` is present, use it directly and let `setup_agent` create or update the archived agent.
 - If a `/create-agent` update needs read-only inspection of an existing target archive, inspect exactly `/mnt/user-data/agents/{status}/{target_agent_name}/...`. If it is absent there, do not guess alternate filesystem paths.
+- If a `/create-agent` update must reuse a specific shared skill source, or the same skill name exists in both `store/dev` and `store/prod`, call `setup_agent` with an explicit `skills` entry that includes `source_path` such as `store/prod/my-skill` instead of a bare `{name}` entry.
 - Unless the user explicitly asks for a model override during `/create-agent`, omit the `model` argument in `setup_agent` so the created or updated agent inherits the current runtime model selection.
 - Slash-command-specific authoring workflows such as `/create-skill` and `/create-agent` are injected at runtime. Do not copy those lead-agent-only command rules into generated agents unless the user explicitly wants that behavior.

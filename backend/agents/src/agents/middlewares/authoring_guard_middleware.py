@@ -1,4 +1,4 @@
-"""Guard create-agent flows from bypassing setup_agent via raw filesystem writes."""
+"""Guard authoring flows from bypassing the canonical persistence tools."""
 
 from __future__ import annotations
 
@@ -64,6 +64,23 @@ _CREATE_AGENT_GUARD_ERROR = (
     "Do not invent alternate paths such as `/mnt/user-data/agentz`, and do not read or write "
     "host/package paths like `/agents`, `/app`, raw `/mnt`, `.openagents`, or `~/.agents` with filesystem tools."
 )
+_DIRECT_AUTHORING_HELPER_TOOLS = frozenset({"ask_clarification", "present_files", "view_image"})
+
+
+def _runtime_authoring_actions(runtime_context: object) -> tuple[str, ...]:
+    raw_actions = runtime_context_value(runtime_context, "authoring_actions")
+    if not isinstance(raw_actions, list):
+        return ()
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for action in raw_actions:
+        text = _normalize_text(action)
+        if not text or text in seen:
+            continue
+        normalized.append(text)
+        seen.add(text)
+    return tuple(normalized)
 
 
 def should_enforce_setup_agent_guard(runtime_context: object) -> bool:
@@ -73,6 +90,25 @@ def should_enforce_setup_agent_guard(runtime_context: object) -> bool:
 
     target_agent_name = runtime_context_value(runtime_context, "target_agent_name")
     return bool(str(target_agent_name or "").strip())
+
+
+def should_enforce_direct_authoring_guard(runtime_context: object) -> bool:
+    command_kind = _normalize_text(runtime_context_value(runtime_context, "command_kind"))
+    return command_kind == "hard" and len(_runtime_authoring_actions(runtime_context)) > 0
+
+
+def _direct_authoring_allowed_tool_names(runtime_context: object) -> frozenset[str]:
+    return frozenset(_runtime_authoring_actions(runtime_context)) | _DIRECT_AUTHORING_HELPER_TOOLS
+
+
+def _direct_authoring_guard_error(runtime_context: object) -> str:
+    command_name = _normalize_text(runtime_context_value(runtime_context, "command_name")) or "this command"
+    allowed_actions = ", ".join(_runtime_authoring_actions(runtime_context)) or "the matching authoring tool"
+    return (
+        f"Error: `/{command_name}` is an explicit persistence/publish confirmation. "
+        f"Use only {allowed_actions} for this turn, or briefly explain the blocker. "
+        "Do not use filesystem, shell, registry-install, or host-path workaround tools."
+    )
 
 
 def _normalize_text(value: object) -> str:
@@ -221,6 +257,21 @@ def blocked_create_agent_tool_message(request: ToolCallRequest) -> ToolMessage |
     return None
 
 
+def blocked_direct_authoring_tool_message(request: ToolCallRequest) -> ToolMessage | None:
+    runtime_context = getattr(request.runtime, "context", None)
+    if not should_enforce_direct_authoring_guard(runtime_context):
+        return None
+
+    tool_name = _normalize_text(request.tool_call.get("name") if isinstance(request.tool_call, dict) else None)
+    if tool_name in _direct_authoring_allowed_tool_names(runtime_context):
+        return None
+
+    return ToolMessage(
+        content=_direct_authoring_guard_error(runtime_context),
+        tool_call_id=request.tool_call["id"],
+    )
+
+
 def filter_create_agent_model_tools(tools: Sequence[BaseTool | dict[str, Any]]) -> list[BaseTool | dict[str, Any]]:
     filtered: list[BaseTool | dict[str, Any]] = []
     for tool in tools:
@@ -231,8 +282,22 @@ def filter_create_agent_model_tools(tools: Sequence[BaseTool | dict[str, Any]]) 
     return filtered
 
 
+def filter_direct_authoring_model_tools(
+    tools: Sequence[BaseTool | dict[str, Any]],
+    *,
+    runtime_context: object,
+) -> list[BaseTool | dict[str, Any]]:
+    allowed_names = _direct_authoring_allowed_tool_names(runtime_context)
+    filtered: list[BaseTool | dict[str, Any]] = []
+    for tool in tools:
+        name = _normalize_text(getattr(tool, "name", None) if not isinstance(tool, dict) else tool.get("name"))
+        if name in allowed_names:
+            filtered.append(tool)
+    return filtered
+
+
 class AuthoringGuardMiddleware(AgentMiddleware):
-    """Block raw filesystem authoring when setup_agent is available."""
+    """Keep authoring turns on the supported persistence path."""
 
     @override
     def wrap_model_call(
@@ -240,6 +305,15 @@ class AuthoringGuardMiddleware(AgentMiddleware):
         request: ModelRequest[Any],
         handler: Callable[[ModelRequest[Any]], ModelResponse[Any]],
     ) -> ModelResponse[Any]:
+        if should_enforce_direct_authoring_guard(request.runtime.context):
+            filtered_tools = filter_direct_authoring_model_tools(
+                request.tools,
+                runtime_context=request.runtime.context,
+            )
+            if len(filtered_tools) == len(request.tools):
+                return handler(request)
+            return handler(request.override(tools=filtered_tools))
+
         if not should_enforce_setup_agent_guard(request.runtime.context):
             return handler(request)
 
@@ -254,6 +328,15 @@ class AuthoringGuardMiddleware(AgentMiddleware):
         request: ModelRequest[Any],
         handler: Callable[[ModelRequest[Any]], Awaitable[ModelResponse[Any]]],
     ) -> ModelResponse[Any]:
+        if should_enforce_direct_authoring_guard(request.runtime.context):
+            filtered_tools = filter_direct_authoring_model_tools(
+                request.tools,
+                runtime_context=request.runtime.context,
+            )
+            if len(filtered_tools) == len(request.tools):
+                return await handler(request)
+            return await handler(request.override(tools=filtered_tools))
+
         if not should_enforce_setup_agent_guard(request.runtime.context):
             return await handler(request)
 
@@ -268,6 +351,9 @@ class AuthoringGuardMiddleware(AgentMiddleware):
         request: ToolCallRequest,
         handler: Callable[[ToolCallRequest], ToolMessage | Command],
     ) -> ToolMessage | Command:
+        blocked = blocked_direct_authoring_tool_message(request)
+        if blocked is not None:
+            return blocked
         blocked = blocked_create_agent_tool_message(request)
         if blocked is not None:
             return blocked
@@ -279,6 +365,9 @@ class AuthoringGuardMiddleware(AgentMiddleware):
         request: ToolCallRequest,
         handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]],
     ) -> ToolMessage | Command:
+        blocked = blocked_direct_authoring_tool_message(request)
+        if blocked is not None:
+            return blocked
         blocked = blocked_create_agent_tool_message(request)
         if blocked is not None:
             return blocked

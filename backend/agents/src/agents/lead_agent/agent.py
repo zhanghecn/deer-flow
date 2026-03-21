@@ -2,7 +2,7 @@ import asyncio
 import logging
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
-from threading import Lock
+from threading import Event, Lock
 from typing import Any, Literal
 
 from deepagents import create_deep_agent
@@ -13,8 +13,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from src.agents.lead_agent.prompt import apply_prompt_template
 from src.agents.lead_agent.subagents import load_subagent_specs
-from src.agents.middlewares.authoring_guard_middleware import AuthoringGuardMiddleware
 from src.agents.middlewares.artifacts_middleware import ArtifactsMiddleware
+from src.agents.middlewares.authoring_guard_middleware import AuthoringGuardMiddleware
+from src.agents.middlewares.clarification_tool_formatting_middleware import (
+    ClarificationToolFormattingMiddleware,
+)
 from src.agents.middlewares.context_window_middleware import ContextWindowMiddleware
 from src.agents.middlewares.max_tokens_recovery_middleware import MaxTokensRecoveryMiddleware
 from src.agents.middlewares.retry_utils import (
@@ -22,13 +25,22 @@ from src.agents.middlewares.retry_utils import (
     build_tool_retry_middleware,
 )
 from src.agents.middlewares.runtime_command_middleware import RuntimeCommandMiddleware
+from src.agents.middlewares.target_length_retry_middleware import (
+    TargetLengthRetryMiddleware,
+)
 from src.agents.middlewares.thread_data_middleware import ThreadDataMiddleware
 from src.agents.middlewares.title_middleware import TitleMiddleware
+from src.agents.middlewares.tool_batch_sequencing_middleware import (
+    ToolBatchSequencingMiddleware,
+)
 from src.agents.middlewares.uploads_middleware import UploadsMiddleware
 from src.agents.middlewares.user_visible_path_sanitizer_middleware import (
     UserVisiblePathSanitizerMiddleware,
 )
 from src.agents.middlewares.view_image_middleware import ViewImageMiddleware
+from src.agents.middlewares.visible_response_recovery_middleware import (
+    VisibleResponseRecoveryMiddleware,
+)
 from src.config.agent_runtime_seed import runtime_seed_targets
 from src.config.agents_config import AgentConfig, load_agent_config
 from src.config.builtin_agents import (
@@ -69,6 +81,7 @@ LEAD_AGENT_INTERRUPT_ON = {"ask_clarification": True}
 _LEAD_AGENT_GRAPH_CACHE_MAX = 16
 _lead_agent_graph_cache: dict[tuple[object, ...], "LeadAgentGraphCacheEntry"] = {}
 _lead_agent_graph_cache_order: list[tuple[object, ...]] = []
+_lead_agent_graph_builds: dict[tuple[object, ...], "LeadAgentGraphBuildState"] = {}
 _lead_agent_graph_cache_lock = Lock()
 
 
@@ -92,6 +105,7 @@ class LeadAgentRuntimeContext(BaseModel):
 
     agent_name: str | None = None
     target_agent_name: str | None = None
+    target_skill_name: str | None = None
     agent_status: str | None = None
     model_name: str | None = None
     model: str | None = None
@@ -135,6 +149,7 @@ class LeadAgentRequest:
     authoring_actions: tuple[str, ...]
     referenced_skill_names: tuple[str, ...]
     target_agent_name: str | None
+    target_skill_name: str | None
     agent_name: str
     agent_status: str
     thread_id: str | None
@@ -186,10 +201,27 @@ class LeadAgentGraphCacheEntry:
     tool_names: tuple[str, ...]
 
 
+@dataclass
+class LeadAgentGraphBuildState:
+    """Track an in-flight graph compilation for a cache key.
+
+    Multiple UI requests can ask for the same lead-agent graph at the same
+    time, especially when several tabs open the same thread and immediately
+    query `/history` plus `/state`. Without an in-flight registry every caller
+    pays the full compile cost, which amplifies latency and CPU usage. This
+    state lets one builder compile while followers block and then reuse the
+    cached graph.
+    """
+
+    event: Event
+    error: BaseException | None = None
+
+
 def _clear_lead_agent_graph_cache() -> None:
     with _lead_agent_graph_cache_lock:
         _lead_agent_graph_cache.clear()
         _lead_agent_graph_cache_order.clear()
+        _lead_agent_graph_builds.clear()
 
 
 def _resolve_sandbox_provider() -> str:
@@ -216,8 +248,10 @@ def _runtime_skills_path(agent_name: str, status: str) -> str:
     return f"{_runtime_agent_root(agent_name, status)}/skills/"
 
 
-def _lead_agent_runtime_store_scopes(status: str) -> tuple[str, ...]:
-    return ("store/prod",) if status == "prod" else ("store/dev", "store/prod")
+def _lead_agent_runtime_reference_scopes(status: str) -> tuple[str, ...]:
+    if status == "prod":
+        return ("shared", "store/prod")
+    return ("shared", "store/dev", "store/prod")
 
 
 def _runtime_skill_relative_path(skill: Skill) -> PurePosixPath:
@@ -248,7 +282,7 @@ def _iter_runtime_skill_targets(
     return targets
 
 
-def _is_runtime_store_skill_candidate(
+def _is_runtime_referenced_skill_candidate(
     *,
     skill: Skill,
     allowed_scopes: tuple[str, ...],
@@ -264,21 +298,45 @@ def _is_runtime_store_skill_candidate(
     )
 
 
-def _collect_unique_runtime_store_skills(
+def _requested_runtime_skill_names(
+    request: LeadAgentRequest | None,
+) -> tuple[str, ...]:
+    """Return the referenced skills that should be materialized for this turn.
+
+    Lead-agent runtime copies should stay small because the thread-local seed is
+    paid on every execution run. Shared lead-agent skills remain archived in the
+    agent definition. Additional shared/store skills are only copied when the current turn
+    explicitly references them via `$skill-name`, which the frontend forwards as
+    `referenced_skill_names`.
+    """
+
+    if request is None or request.requires_direct_authoring_tool():
+        return ()
+    return request.referenced_skill_names
+
+
+def _collect_unique_runtime_referenced_skills(
     *,
     status: str,
     agent_config: AgentConfig | None,
     paths: Paths,
+    requested_skill_names: tuple[str, ...],
 ) -> list[Skill]:
+    if not requested_skill_names:
+        return []
+
     archived_skill_names = {
         skill_ref.name for skill_ref in (agent_config.skill_refs if agent_config is not None else [])
     }
-    allowed_scopes = _lead_agent_runtime_store_scopes(status)
+    allowed_scopes = _lead_agent_runtime_reference_scopes(status)
+    requested_skill_name_set = set(requested_skill_names)
 
     unique_skills: dict[str, Skill] = {}
     duplicated_skill_names: set[str] = set()
     for skill in load_skills(skills_path=paths.skills_dir, use_config=False, enabled_only=False):
-        if not _is_runtime_store_skill_candidate(
+        if skill.name not in requested_skill_name_set:
+            continue
+        if not _is_runtime_referenced_skill_candidate(
             skill=skill,
             allowed_scopes=allowed_scopes,
             archived_skill_names=archived_skill_names,
@@ -294,18 +352,20 @@ def _collect_unique_runtime_store_skills(
     return [unique_skills[skill_name] for skill_name in sorted(unique_skills)]
 
 
-def _build_lead_agent_runtime_store_skill_targets(
+def _build_lead_agent_runtime_referenced_skill_targets(
     *,
     status: str,
     target_root: str,
     agent_config: AgentConfig | None,
     paths: Paths,
+    requested_skill_names: tuple[str, ...],
 ) -> list[tuple[str, bytes]]:
     targets: list[tuple[str, bytes]] = []
-    for skill in _collect_unique_runtime_store_skills(
+    for skill in _collect_unique_runtime_referenced_skills(
         status=status,
         agent_config=agent_config,
         paths=paths,
+        requested_skill_names=requested_skill_names,
     ):
         targets.extend(
             _iter_runtime_skill_targets(
@@ -323,6 +383,7 @@ def _build_runtime_seed_targets(
     target_root: str,
     agent_config: AgentConfig | None,
     paths: Paths,
+    request: LeadAgentRequest | None = None,
 ) -> list[tuple[str, bytes]]:
     targets = runtime_seed_targets(
         agent_name,
@@ -335,11 +396,12 @@ def _build_runtime_seed_targets(
         return targets
 
     existing_paths = {path for path, _content in targets}
-    for path, content in _build_lead_agent_runtime_store_skill_targets(
+    for path, content in _build_lead_agent_runtime_referenced_skill_targets(
         status=status,
         target_root=target_root,
         agent_config=agent_config,
         paths=paths,
+        requested_skill_names=_requested_runtime_skill_names(request),
     ):
         if path in existing_paths:
             continue
@@ -384,6 +446,7 @@ def _seed_runtime_materials(
     agent_name: str,
     status: str,
     agent_config: AgentConfig | None,
+    request: LeadAgentRequest | None = None,
 ) -> None:
     paths = get_paths()
     ensure_builtin_agent_archive(agent_name, status=status, paths=paths)
@@ -393,6 +456,7 @@ def _seed_runtime_materials(
         target_root=_runtime_agent_root(agent_name, status),
         agent_config=agent_config,
         paths=paths,
+        request=request,
     )
     missing_uploads = _collect_missing_runtime_uploads(backend, runtime_targets)
     _upload_runtime_files(backend, missing_uploads)
@@ -502,6 +566,7 @@ def build_backend(
     status: str = "dev",
     agent_config: AgentConfig | None = None,
     *,
+    request: LeadAgentRequest | None = None,
     execution_backend: str | None = None,
     remote_session_id: str | None = None,
 ):
@@ -534,6 +599,7 @@ def build_backend(
         agent_name=effective_agent_name,
         status=status,
         agent_config=agent_config,
+        request=request,
     )
 
     return workspace_backend
@@ -567,7 +633,11 @@ def _build_openagents_middlewares(model_config: ModelConfig):
         UserVisiblePathSanitizerMiddleware(),
         build_model_retry_middleware(),
         build_tool_retry_middleware(),
+        ToolBatchSequencingMiddleware(),
+        TargetLengthRetryMiddleware(),
         MaxTokensRecoveryMiddleware(),
+        VisibleResponseRecoveryMiddleware(),
+        ClarificationToolFormattingMiddleware(),
         ContextWindowMiddleware(),
     ]
 
@@ -640,6 +710,59 @@ def _store_cached_lead_agent_graph(
             evicted_key = _lead_agent_graph_cache_order.pop(0)
             _lead_agent_graph_cache.pop(evicted_key, None)
     return entry
+
+
+def _claim_lead_agent_graph_build(
+    cache_key: tuple[object, ...],
+) -> tuple[LeadAgentGraphCacheEntry | None, LeadAgentGraphBuildState | None, bool]:
+    """Return a cached graph or claim the right to build it.
+
+    The boolean result is `True` only for the single thread that should compile
+    the graph. Followers receive the shared build state and wait for the event.
+    """
+
+    with _lead_agent_graph_cache_lock:
+        cached_entry = _lead_agent_graph_cache.get(cache_key)
+        if cached_entry is not None:
+            if cache_key in _lead_agent_graph_cache_order:
+                _lead_agent_graph_cache_order.remove(cache_key)
+            _lead_agent_graph_cache_order.append(cache_key)
+            return cached_entry, None, False
+
+        build_state = _lead_agent_graph_builds.get(cache_key)
+        if build_state is not None:
+            return None, build_state, False
+
+        build_state = LeadAgentGraphBuildState(event=Event())
+        _lead_agent_graph_builds[cache_key] = build_state
+        return None, build_state, True
+
+
+def _finish_lead_agent_graph_build(
+    cache_key: tuple[object, ...],
+    *,
+    error: BaseException | None = None,
+) -> None:
+    with _lead_agent_graph_cache_lock:
+        build_state = _lead_agent_graph_builds.pop(cache_key, None)
+        if build_state is None:
+            return
+        build_state.error = error
+        build_state.event.set()
+
+
+def _wait_for_lead_agent_graph_build(
+    cache_key: tuple[object, ...],
+    build_state: LeadAgentGraphBuildState,
+) -> LeadAgentGraphCacheEntry:
+    build_state.event.wait()
+    if build_state.error is not None:
+        raise build_state.error
+
+    cached_entry = _get_cached_lead_agent_graph(cache_key)
+    if cached_entry is None:
+        raise RuntimeError("Lead-agent graph build completed without a cached graph entry.")
+    return cached_entry
 
 
 def _parse_runtime_model_config(payload: object) -> str | None:
@@ -861,7 +984,7 @@ def _resolve_run_model(
     thread_id: str | None,
     db_store: RuntimeDBStore,
 ) -> tuple[str, ModelConfig]:
-    """Resolve the run model with strict precedence and limited legacy-thread fallback."""
+    """Resolve the run model with strict precedence and safe enabled-model fallback."""
     # Precedence is intentionally strict: explicit per-request selection beats runtime
     # defaults, which beat the agent archive, which finally beats thread stickiness.
     # The conflict checks below keep those sources from silently drifting apart.
@@ -877,6 +1000,14 @@ def _resolve_run_model(
 
     model_name = requested_model_name or runtime_model_name or agent_model_name or persisted_thread_model_name
     if not model_name:
+        fallback_model = db_store.get_any_enabled_model()
+        if fallback_model is not None:
+            logger.warning(
+                "No explicit model resolved for thread '%s'; falling back to enabled model '%s'.",
+                thread_id,
+                fallback_model.name,
+            )
+            return fallback_model.name, fallback_model
         raise ValueError("No model resolved for this run. Provide `configurable.model_name`/`model` or `configurable.model_config.name`, set `agent.model`, or ensure this thread has a persisted runtime model.")
 
     model_config = db_store.get_model(model_name)
@@ -965,6 +1096,7 @@ def _resolve_lead_agent_request(
         authoring_actions=_coerce_optional_str_list(cfg.get("authoring_actions")),
         original_user_input=_coerce_optional_str(cfg.get("original_user_input")),
         target_agent_name=_coerce_optional_str(cfg.get("target_agent_name")),
+        target_skill_name=_coerce_optional_str(cfg.get("target_skill_name")),
         paths=get_paths(),
     )
     return LeadAgentRequest(
@@ -980,6 +1112,7 @@ def _resolve_lead_agent_request(
         authoring_actions=command_resolution.authoring_actions,
         referenced_skill_names=_coerce_optional_str_list(cfg.get("referenced_skill_names")),
         target_agent_name=command_resolution.target_agent_name,
+        target_skill_name=command_resolution.target_skill_name,
         agent_name=normalize_effective_agent_name(_coerce_optional_str(cfg.get("agent_name"))),
         agent_status=_resolve_agent_status(cfg.get("agent_status", "dev")),
         thread_id=_coerce_optional_str(cfg.get("thread_id") or cfg.get("x-thread-id")),
@@ -1057,6 +1190,7 @@ def _update_request_runtime_context(
             "x-user-id": request.user_id,
             "agent_name": request.agent_name,
             "target_agent_name": request.target_agent_name,
+            "target_skill_name": request.target_skill_name,
             "agent_status": request.agent_status,
             "model_name": resolved_model_name,
             "model": resolved_model_name,
@@ -1128,6 +1262,7 @@ def _resolve_agent_backend(
         request.agent_name,
         request.agent_status,
         agent_config,
+        request=request,
         execution_backend=request.execution_backend,
         remote_session_id=request.remote_session_id,
     )
@@ -1284,8 +1419,18 @@ def _create_lead_agent(
         resolution=resolution,
         prepare_runtime_resources=prepare_runtime_resources,
     )
-    cached_entry = _get_cached_lead_agent_graph(cache_key)
+    cached_entry, build_state, should_build = _claim_lead_agent_graph_build(cache_key)
     if cached_entry is not None:
+        _attach_trace_metadata(
+            config,
+            request=request,
+            model_name=resolution.model_name,
+            tool_names=list(cached_entry.tool_names),
+        )
+        return cached_entry.graph
+    if not should_build:
+        assert build_state is not None
+        cached_entry = _wait_for_lead_agent_graph_build(cache_key, build_state)
         _attach_trace_metadata(
             config,
             request=request,
@@ -1304,45 +1449,52 @@ def _create_lead_agent(
         request.agent_status,
     )
 
-    backend = _resolve_agent_backend(
-        request=request,
-        agent_config=resolution.agent_config,
-        prepare_runtime_resources=prepare_runtime_resources,
-    )
-    graph_parts = _build_graph_parts(
-        request=request,
-        resolution=resolution,
-    )
-    tool_names = _extract_tool_names(graph_parts.tools)
-    _attach_trace_metadata(
-        config,
-        request=request,
-        model_name=resolution.model_name,
-        tool_names=tool_names,
-    )
+    try:
+        backend = _resolve_agent_backend(
+            request=request,
+            agent_config=resolution.agent_config,
+            prepare_runtime_resources=prepare_runtime_resources,
+        )
+        graph_parts = _build_graph_parts(
+            request=request,
+            resolution=resolution,
+        )
+        tool_names = _extract_tool_names(graph_parts.tools)
+        _attach_trace_metadata(
+            config,
+            request=request,
+            model_name=resolution.model_name,
+            tool_names=tool_names,
+        )
 
-    graph = create_deep_agent(
-        model=create_chat_model(
-            name=resolution.model_name,
-            thinking_enabled=bool(request.thinking_enabled),
-            reasoning_effort=request.reasoning_effort,
-            runtime_model_config=resolution.model_config,
-        ),
-        tools=graph_parts.tools,
-        system_prompt=graph_parts.system_prompt,
-        middleware=graph_parts.middleware,
-        subagents=graph_parts.subagents,
-        skills=graph_parts.skill_sources,
-        backend=backend,
-        context_schema=LeadAgentRuntimeContext,
-        interrupt_on=LEAD_AGENT_INTERRUPT_ON,
-        name=request.agent_name,
-    )
-    return _store_cached_lead_agent_graph(
-        cache_key,
-        graph=graph,
-        tool_names=tool_names,
-    ).graph
+        graph = create_deep_agent(
+            model=create_chat_model(
+                name=resolution.model_name,
+                thinking_enabled=bool(request.thinking_enabled),
+                reasoning_effort=request.reasoning_effort,
+                runtime_model_config=resolution.model_config,
+            ),
+            tools=graph_parts.tools,
+            system_prompt=graph_parts.system_prompt,
+            middleware=graph_parts.middleware,
+            subagents=graph_parts.subagents,
+            skills=graph_parts.skill_sources,
+            backend=backend,
+            context_schema=LeadAgentRuntimeContext,
+            interrupt_on=LEAD_AGENT_INTERRUPT_ON,
+            name=request.agent_name,
+        )
+        cached_entry = _store_cached_lead_agent_graph(
+            cache_key,
+            graph=graph,
+            tool_names=tool_names,
+        )
+    except BaseException as exc:
+        _finish_lead_agent_graph_build(cache_key, error=exc)
+        raise
+
+    _finish_lead_agent_graph_build(cache_key)
+    return cached_entry.graph
 
 
 def prime_lead_agent_read_graph_cache(

@@ -80,6 +80,33 @@ def test_materialize_agent_skills_copies_nested_store_prod_skill_into_agent_priv
     assert (materialized_root / "contracts" / "review" / "SKILL.md").exists()
 
 
+def test_materialize_agent_definition_allows_explicit_prod_source_path_for_dev_agents(tmp_path: Path):
+    base_dir = tmp_path / ".openagents"
+    _write_skill(base_dir, "store/dev", "bootstrap", "bootstrap")
+    _write_skill(base_dir, "store/prod", "bootstrap", "bootstrap")
+    paths = Paths(base_dir=base_dir, skills_dir=base_dir / "skills")
+
+    config = materialize_agent_definition(
+        name="contract-agent",
+        status="dev",
+        agents_md="# Contract Agent",
+        description="Reviews contracts",
+        skill_refs=[{"name": "bootstrap", "source_path": "store/prod/bootstrap"}],
+        paths=paths,
+    )
+
+    agent_skills_dir = base_dir / "agents" / "dev" / "contract-agent" / "skills"
+    assert (agent_skills_dir / "bootstrap" / "SKILL.md").exists()
+    assert config.skill_refs == [
+        AgentSkillRef(
+            name="bootstrap",
+            category="store/prod",
+            source_path="store/prod/bootstrap",
+            materialized_path="skills/bootstrap",
+        )
+    ]
+
+
 def test_materialize_agent_definition_writes_inline_agent_skills_and_manifest(tmp_path: Path):
     base_dir = tmp_path / ".openagents"
     _write_skill(base_dir, "store/dev", "bootstrap", "bootstrap")

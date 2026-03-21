@@ -1,4 +1,4 @@
-"""Recover from model responses that stop at max_tokens before taking action."""
+"""Recover when the model finishes without any visible answer or tool call."""
 
 from __future__ import annotations
 
@@ -14,60 +14,51 @@ from src.agents.middlewares.model_response_utils import (
     has_visible_response,
     last_ai_message,
     message_stop_reason,
+    system_message_text,
 )
 
 logger = logging.getLogger(__name__)
 
-RECOVERY_SYSTEM_PROMPT = """
-<max_tokens_recovery>
-- The previous model attempt hit the output token limit before it produced a visible answer or tool call.
-- Resume the same task immediately from the existing conversation state.
-- Do not repeat prior analysis.
+_RETRY_TAG = "<visible_response_recovery>"
+_RECOVERY_SYSTEM_PROMPT = """
+<visible_response_recovery>
+- Your previous attempt ended without any user-visible text or tool call.
+- Produce a visible next action now.
+- If the request is ambiguous, contradictory, or underspecified, call `ask_clarification` immediately.
+- Keep `ask_clarification.question` short and focused.
+- Put concrete choices in `ask_clarification.options` instead of embedding the option list inside `question`.
 - Do not emit more internal thinking.
-- Either call the next tool right away or answer the user directly.
-</max_tokens_recovery>
+</visible_response_recovery>
 """.strip()
 
 
-class MaxTokensRecoveryMiddleware(AgentMiddleware):
-    """Retry once when the model only emits thinking and stops at max_tokens.
+class VisibleResponseRecoveryMiddleware(AgentMiddleware):
+    """Retry once when the model ends with invisible reasoning-only output."""
 
-    Some Anthropic-compatible reasoning models spend their entire output budget on
-    thinking blocks and return no user-visible text or tool call. In that case the
-    agent appears stuck on "Thinking" even though the run has already ended.
-    """
+    def _should_retry(self, request: ModelRequest[Any], response: ModelResponse[Any]) -> bool:
+        if _RETRY_TAG in system_message_text(request.system_message):
+            return False
 
-    def __init__(self, *, retry_max_tokens: int = 16384) -> None:
-        self._retry_max_tokens = retry_max_tokens
-
-    def _should_retry(self, response: ModelResponse[Any]) -> bool:
         message = last_ai_message(response.result)
         if message is None:
             return False
+
         stop_reason = message_stop_reason(message)
-        if stop_reason not in {"max_tokens", "length"}:
+        if stop_reason in {"max_tokens", "length"}:
             return False
+
         return not has_visible_response(message)
 
     def _retry_request(self, request: ModelRequest[Any]) -> ModelRequest[Any]:
         model_settings = dict(request.model_settings)
-        current_max_tokens = model_settings.get("max_tokens", getattr(request.model, "max_tokens", None))
-        if isinstance(current_max_tokens, str) and current_max_tokens.isdigit():
-            current_max_tokens = int(current_max_tokens)
-        if not isinstance(current_max_tokens, int):
-            current_max_tokens = 0
-
-        model_settings["max_tokens"] = max(current_max_tokens, self._retry_max_tokens)
-
         if getattr(request.model, "thinking", None) is not None:
             model_settings["thinking"] = {"type": "disabled"}
 
-        new_system_message = append_to_system_message(
-            request.system_message,
-            RECOVERY_SYSTEM_PROMPT,
-        )
         return request.override(
-            system_message=new_system_message,
+            system_message=append_to_system_message(
+                request.system_message,
+                _RECOVERY_SYSTEM_PROMPT,
+            ),
             model_settings=model_settings,
         )
 
@@ -77,15 +68,14 @@ class MaxTokensRecoveryMiddleware(AgentMiddleware):
         response: ModelResponse[Any],
         handler: Callable[[ModelRequest[Any]], ModelResponse[Any]],
     ) -> ModelResponse[Any]:
-        if not self._should_retry(response):
+        if not self._should_retry(request, response):
             return response
 
         logger.info(
-            "Retrying model call after max_tokens with no visible response",
+            "Retrying model call after invisible response with no user-visible output",
             extra={"model": getattr(request.model, "model", None)},
         )
-        retry_request = self._retry_request(request)
-        return handler(retry_request)
+        return handler(self._retry_request(request))
 
     @override
     def wrap_model_call(
@@ -103,12 +93,11 @@ class MaxTokensRecoveryMiddleware(AgentMiddleware):
         handler: Callable[[ModelRequest[Any]], Awaitable[ModelResponse[Any]]],
     ) -> ModelResponse[Any]:
         response = await handler(request)
-        if not self._should_retry(response):
+        if not self._should_retry(request, response):
             return response
 
         logger.info(
-            "Retrying async model call after max_tokens with no visible response",
+            "Retrying async model call after invisible response with no user-visible output",
             extra={"model": getattr(request.model, "model", None)},
         )
-        retry_request = self._retry_request(request)
-        return await handler(retry_request)
+        return await handler(self._retry_request(request))

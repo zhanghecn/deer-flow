@@ -23,7 +23,12 @@ def push_agent_prod(
         agent_name: Optional target agent name. Defaults to runtime `agent_name`.
     """
 
-    resolved_agent_name = str(agent_name or runtime_context_value(runtime.context, "agent_name") or "").strip()
+    resolved_agent_name = str(
+        agent_name
+        or runtime_context_value(runtime.context, "target_agent_name")
+        or runtime_context_value(runtime.context, "agent_name")
+        or ""
+    ).strip()
     try:
         target_dir, backup_dir = push_agent_directory_to_prod(resolved_agent_name, paths=get_paths())
         parts = [f"Agent '{resolved_agent_name}' pushed to {target_dir}."]

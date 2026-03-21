@@ -3,10 +3,13 @@ from types import SimpleNamespace
 from src.agents.lead_agent import agent as lead_agent_module
 from src.agents.middlewares.authoring_guard_middleware import (
     AuthoringGuardMiddleware,
+    blocked_direct_authoring_tool_message,
     blocked_create_agent_tool_message,
+    filter_direct_authoring_model_tools,
     filter_create_agent_model_tools,
     is_read_only_create_agent_shell_command,
     is_protected_create_agent_path,
+    should_enforce_direct_authoring_guard,
     should_enforce_setup_agent_guard,
     uses_forbidden_create_agent_host_path,
 )
@@ -51,6 +54,14 @@ def test_should_enforce_setup_agent_guard_only_for_create_agent_with_target():
     assert not should_enforce_setup_agent_guard({"command_name": "create-skill", "target_agent_name": "demo"})
     assert should_enforce_setup_agent_guard(
         {"command_name": "create-agent", "target_agent_name": "demo-agent"}
+    )
+
+
+def test_should_enforce_direct_authoring_guard_only_for_hard_authoring_turns():
+    assert not should_enforce_direct_authoring_guard({"command_kind": "soft", "authoring_actions": ["push_skill_prod"]})
+    assert not should_enforce_direct_authoring_guard({"command_kind": "hard", "authoring_actions": []})
+    assert should_enforce_direct_authoring_guard(
+        {"command_kind": "hard", "authoring_actions": ["push_skill_prod"]}
     )
 
 
@@ -208,6 +219,58 @@ def test_filter_create_agent_model_tools_removes_direct_file_mutation_tools():
     )
 
     assert [tool.name for tool in filtered] == ["read_file", "setup_agent"]
+
+
+def test_filter_direct_authoring_model_tools_keeps_only_authoring_and_helper_tools():
+    filtered = filter_direct_authoring_model_tools(
+        [
+            _tool("push_skill_prod"),
+            _tool("execute"),
+            _tool("read_file"),
+            _tool("ask_clarification"),
+            _tool("present_files"),
+        ],
+        runtime_context={"command_kind": "hard", "authoring_actions": ["push_skill_prod"]},
+    )
+
+    assert [tool.name for tool in filtered] == [
+        "push_skill_prod",
+        "ask_clarification",
+        "present_files",
+    ]
+
+
+def test_blocked_direct_authoring_tool_message_blocks_shell_workarounds():
+    request = _tool_request(
+        "execute",
+        args={"command": "cp -r /mnt/user-data/.openagents/skills/store/dev/demo /mnt/user-data/.openagents/skills/store/prod/demo"},
+        context={
+            "command_name": "push-skill-prod",
+            "command_kind": "hard",
+            "authoring_actions": ["push_skill_prod"],
+        },
+    )
+
+    blocked = blocked_direct_authoring_tool_message(request)
+
+    assert blocked is not None
+    assert "push_skill_prod" in blocked.content
+
+
+def test_blocked_direct_authoring_tool_message_allows_matching_authoring_tool():
+    request = _tool_request(
+        "push_skill_prod",
+        args={"skill_name": "demo"},
+        context={
+            "command_name": "push-skill-prod",
+            "command_kind": "hard",
+            "authoring_actions": ["push_skill_prod"],
+        },
+    )
+
+    blocked = blocked_direct_authoring_tool_message(request)
+
+    assert blocked is None
 
 
 def test_build_openagents_middlewares_includes_authoring_guard():

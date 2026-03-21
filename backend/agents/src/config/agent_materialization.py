@@ -42,6 +42,34 @@ def _dedupe_skill_names(skill_names: list[str] | None) -> list[str]:
     return ordered
 
 
+def _normalize_copied_skill_refs(
+    *,
+    skill_names: list[str] | None,
+    skill_refs: list[AgentSkillRef | dict[str, str]] | None,
+) -> list[AgentSkillRef]:
+    normalized: list[AgentSkillRef] = []
+    seen: dict[str, AgentSkillRef] = {}
+
+    for name in _dedupe_skill_names(skill_names):
+        ref = AgentSkillRef(name=name)
+        normalized.append(ref)
+        seen[ref.name] = ref
+
+    for raw_ref in skill_refs or []:
+        ref = raw_ref if isinstance(raw_ref, AgentSkillRef) else AgentSkillRef.model_validate(raw_ref)
+        existing = seen.get(ref.name)
+        if existing is None:
+            normalized.append(ref)
+            seen[ref.name] = ref
+            continue
+        if existing.model_dump(exclude_none=True) != ref.model_dump(exclude_none=True):
+            raise ValueError(
+                f"Agent definition duplicates copied skill '{ref.name}' with conflicting sources."
+            )
+
+    return normalized
+
+
 def _allowed_skill_scopes_for_agent(
     *,
     target_status: str,
@@ -379,6 +407,7 @@ def materialize_agent_definition(
     tool_groups: list[str] | None = None,
     mcp_servers: list[str] | None = None,
     skill_names: list[str] | None = None,
+    skill_refs: list[AgentSkillRef | dict[str, str]] | None = None,
     inline_skills: list[dict[str, str]] | None = None,
     memory: AgentMemoryConfig | dict | None = None,
     paths: Paths | None = None,
@@ -400,9 +429,13 @@ def materialize_agent_definition(
         skills_dir = staging_dir / "skills"
         skills_dir.mkdir(parents=True, exist_ok=True)
 
-        copied_skill_refs = materialize_agent_skills(
-            skills_dir=skills_dir,
+        copied_skill_ref_inputs = _normalize_copied_skill_refs(
             skill_names=skill_names,
+            skill_refs=skill_refs,
+        )
+        copied_skill_refs = materialize_agent_skill_refs(
+            skills_dir=skills_dir,
+            skill_refs=copied_skill_ref_inputs,
             target_status=status,
             paths=paths,
             allow_shared=allow_shared_skills,

@@ -232,6 +232,22 @@ def test_resolve_run_model_falls_back_when_persisted_thread_model_is_unavailable
     assert model_config.name == "safe-model"
 
 
+def test_resolve_run_model_falls_back_to_enabled_model_when_no_model_is_bound():
+    store = _FakeDBStore(models={"safe-model": _make_model("safe-model", supports_thinking=True)})
+
+    model_name, model_config = lead_agent_module._resolve_run_model(
+        requested_model_name=None,
+        runtime_model_name=None,
+        agent_config=None,
+        thread_binding=None,
+        thread_id="thread-new",
+        db_store=store,
+    )
+
+    assert model_name == "safe-model"
+    assert model_config.name == "safe-model"
+
+
 def test_resolve_run_model_raises_for_conflicting_requested_and_agent_model():
     store = _FakeDBStore(models={"agent-model": _make_model("agent-model", supports_thinking=True)})
 
@@ -387,6 +403,7 @@ def test_resolve_lead_agent_runtime_uses_persisted_thread_agent_runtime(monkeypa
             authoring_actions=(),
             referenced_skill_names=(),
             target_agent_name=None,
+            target_skill_name=None,
             agent_name=LEAD_AGENT_NAME,
             agent_status="dev",
             thread_id="thread-1",
@@ -414,12 +431,17 @@ def test_build_openagents_middlewares_includes_vision_middleware_for_vision_mode
     middlewares = lead_agent_module._build_openagents_middlewares(_make_model("vision-model", supports_thinking=False, supports_vision=True))
 
     from langchain.agents.middleware import ModelRetryMiddleware, ToolRetryMiddleware
+
+    from src.agents.middlewares.clarification_tool_formatting_middleware import ClarificationToolFormattingMiddleware
     from src.agents.middlewares.max_tokens_recovery_middleware import MaxTokensRecoveryMiddleware
     from src.agents.middlewares.view_image_middleware import ViewImageMiddleware
+    from src.agents.middlewares.visible_response_recovery_middleware import VisibleResponseRecoveryMiddleware
 
     assert any(isinstance(m, ModelRetryMiddleware) for m in middlewares)
     assert any(isinstance(m, ToolRetryMiddleware) for m in middlewares)
     assert any(isinstance(m, MaxTokensRecoveryMiddleware) for m in middlewares)
+    assert any(isinstance(m, VisibleResponseRecoveryMiddleware) for m in middlewares)
+    assert any(isinstance(m, ClarificationToolFormattingMiddleware) for m in middlewares)
     assert any(isinstance(m, ViewImageMiddleware) for m in middlewares)
 
 
@@ -427,12 +449,17 @@ def test_build_openagents_middlewares_excludes_vision_middleware_for_non_vision_
     middlewares = lead_agent_module._build_openagents_middlewares(_make_model("text-model", supports_thinking=False, supports_vision=False))
 
     from langchain.agents.middleware import ModelRetryMiddleware, ToolRetryMiddleware
+
+    from src.agents.middlewares.clarification_tool_formatting_middleware import ClarificationToolFormattingMiddleware
     from src.agents.middlewares.max_tokens_recovery_middleware import MaxTokensRecoveryMiddleware
     from src.agents.middlewares.view_image_middleware import ViewImageMiddleware
+    from src.agents.middlewares.visible_response_recovery_middleware import VisibleResponseRecoveryMiddleware
 
     assert any(isinstance(m, ModelRetryMiddleware) for m in middlewares)
     assert any(isinstance(m, ToolRetryMiddleware) for m in middlewares)
     assert any(isinstance(m, MaxTokensRecoveryMiddleware) for m in middlewares)
+    assert any(isinstance(m, VisibleResponseRecoveryMiddleware) for m in middlewares)
+    assert any(isinstance(m, ClarificationToolFormattingMiddleware) for m in middlewares)
     assert not any(isinstance(m, ViewImageMiddleware) for m in middlewares)
 
 

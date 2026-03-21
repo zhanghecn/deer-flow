@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 LEAD_AGENT_NAME = "lead_agent"
 RESERVED_AGENT_NAMES = frozenset({LEAD_AGENT_NAME})
+_DEFAULT_LEAD_AGENT_SHARED_SKILL_NAMES = ("bootstrap",)
 
 _BUILTIN_LEAD_AGENT_AGENTS_MD = Path(__file__).resolve().parents[1] / "agents" / "lead_agent" / "AGENTS.md"
 _ENSURED_ARCHIVES: set[tuple[str, str]] = set()
@@ -41,13 +42,20 @@ def _load_config_data(config_path: Path) -> dict[str, object]:
 def _default_lead_agent_skill_refs(paths: Paths) -> list["AgentSkillRef"]:
     from src.config.agents_config import AgentSkillRef
 
+    shared_skills_by_name = {
+        skill.name: skill
+        for skill in load_skills(skills_path=paths.skills_dir, use_config=False, enabled_only=False)
+        if skill.category == "shared" and skill.name in _DEFAULT_LEAD_AGENT_SHARED_SKILL_NAMES
+    }
+
     return [
         AgentSkillRef(
             name=skill.name,
             source_path=Path(skill.category, skill.skill_path or skill.skill_dir.name).as_posix(),
         )
-        for skill in load_skills(skills_path=paths.skills_dir, use_config=False, enabled_only=False)
-        if skill.category == "shared"
+        for skill_name in _DEFAULT_LEAD_AGENT_SHARED_SKILL_NAMES
+        for skill in [shared_skills_by_name.get(skill_name)]
+        if skill is not None
     ]
 
 

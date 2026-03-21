@@ -29,7 +29,12 @@ def save_agent_to_store(
         source_path: Optional explicit runtime or absolute source directory path.
     """
 
-    resolved_agent_name = str(agent_name or runtime_context_value(runtime.context, "agent_name") or "").strip()
+    resolved_agent_name = str(
+        agent_name
+        or runtime_context_value(runtime.context, "target_agent_name")
+        or runtime_context_value(runtime.context, "agent_name")
+        or ""
+    ).strip()
     try:
         paths = get_paths()
         resolved_source = (

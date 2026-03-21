@@ -7,8 +7,10 @@ from src.agents.lead_agent.agent import LeadAgentRuntimeContext
 from src.config.paths import Paths
 from src.tools.builtins.install_skill_from_registry_tool import install_skill_from_registry
 from src.tools.builtins.push_agent_prod_tool import push_agent_prod
+from src.tools.builtins.push_skill_prod_tool import push_skill_prod
 from src.tools.builtins.runtime_context import runtime_context_value
 from src.tools.builtins.save_agent_to_store_tool import save_agent_to_store
+from src.tools.builtins.save_skill_to_store_tool import save_skill_to_store
 from src.tools.builtins.setup_agent_tool import setup_agent
 
 
@@ -16,15 +18,117 @@ def test_runtime_context_value_supports_typed_context():
     context = LeadAgentRuntimeContext(
         agent_name="lead_agent",
         target_agent_name="contract-agent",
+        target_skill_name="contract-skill",
         agent_status="dev",
         runtime_thread_id="thread-1",
     )
 
     assert runtime_context_value(context, "agent_name") == "lead_agent"
     assert runtime_context_value(context, "target_agent_name") == "contract-agent"
+    assert runtime_context_value(context, "target_skill_name") == "contract-skill"
     assert runtime_context_value(context, "agent_status") == "dev"
     assert runtime_context_value(context, "x-thread-id") == "thread-1"
     assert runtime_context_value(context, "missing", "fallback") == "fallback"
+
+
+def test_save_skill_to_store_uses_runtime_target_skill_name(monkeypatch):
+    calls: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "src.tools.builtins.save_skill_to_store_tool.get_paths",
+        lambda: SimpleNamespace(),
+    )
+    monkeypatch.setattr(
+        "src.tools.builtins.save_skill_to_store_tool.resolve_default_skill_source_dir",
+        lambda **kwargs: Path("/tmp/source-skill"),
+    )
+
+    def fake_save_skill_directory_to_store(**kwargs):
+        calls.update(kwargs)
+        return Path("/tmp/store/dev/contract-skill"), None
+
+    monkeypatch.setattr(
+        "src.tools.builtins.save_skill_to_store_tool.save_skill_directory_to_store",
+        fake_save_skill_directory_to_store,
+    )
+
+    runtime = SimpleNamespace(
+        context=LeadAgentRuntimeContext(
+            target_skill_name="contract-skill",
+            runtime_thread_id="thread-1",
+        ),
+        tool_call_id="tc-skill-save",
+    )
+
+    command = save_skill_to_store.func(runtime=runtime)
+
+    assert calls["skill_name"] == "contract-skill"
+    assert command.update["messages"][0].content.startswith("Skill 'contract-skill' saved")
+
+
+def test_save_skill_to_store_resolves_thread_id_from_typed_runtime_context(monkeypatch, tmp_path: Path):
+    paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
+    calls: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "src.tools.builtins.save_skill_to_store_tool.get_paths",
+        lambda: paths,
+    )
+
+    def fake_save_skill_directory_to_store(**kwargs):
+        calls.update(kwargs)
+        return paths.store_dev_skills_dir / "contract-skill", None
+
+    monkeypatch.setattr(
+        "src.tools.builtins.save_skill_to_store_tool.save_skill_directory_to_store",
+        fake_save_skill_directory_to_store,
+    )
+
+    runtime = SimpleNamespace(
+        context=LeadAgentRuntimeContext(
+            target_skill_name="contract-skill",
+            runtime_thread_id="thread-typed",
+        ),
+        state={},
+        tool_call_id="tc-skill-save-thread",
+    )
+
+    save_skill_to_store.func(runtime=runtime)
+
+    assert calls["skill_name"] == "contract-skill"
+    assert calls["source_dir"] == paths.sandbox_authoring_skills_dir("thread-typed") / "contract-skill"
+
+
+def test_push_skill_prod_uses_runtime_target_skill_name(monkeypatch):
+    calls: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "src.tools.builtins.push_skill_prod_tool.get_paths",
+        lambda: SimpleNamespace(),
+    )
+
+    def fake_push_skill_directory_to_prod(skill_name: str, *, paths: object):
+        calls["skill_name"] = skill_name
+        calls["paths"] = paths
+        return Path("/tmp/store/prod/contract-skill"), None
+
+    monkeypatch.setattr(
+        "src.tools.builtins.push_skill_prod_tool.push_skill_directory_to_prod",
+        fake_push_skill_directory_to_prod,
+    )
+
+    runtime = SimpleNamespace(
+        context=LeadAgentRuntimeContext(
+            target_skill_name="contract-skill",
+            runtime_thread_id="thread-1",
+        ),
+        tool_call_id="tc-skill-push",
+    )
+
+    command = push_skill_prod.func(runtime=runtime)
+
+    assert calls["skill_name"] == "contract-skill"
+    assert command.update["messages"][0].content.startswith("Skill 'contract-skill' pushed")
 
 
 def test_setup_agent_accepts_typed_runtime_context(monkeypatch):
@@ -72,7 +176,7 @@ def test_setup_agent_accepts_typed_runtime_context(monkeypatch):
     assert calls["status"] == "dev"
     assert calls["description"] == "Reviews contracts"
     assert calls["model"] == "glm-5"
-    assert calls["skill_names"] == ["bootstrap"]
+    assert calls["skill_refs"] == [{"name": "bootstrap"}]
     assert calls["inline_skills"] == [
         {
             "name": "contract-review",
@@ -145,7 +249,7 @@ def test_setup_agent_preserves_existing_agent_owned_skill_from_thread_runtime(mo
         skills=[{"name": "saas-landing-copywriter"}],
     )
 
-    assert calls["skill_names"] == []
+    assert calls["skill_refs"] == []
     assert calls["inline_skills"] == [
         {
             "name": "saas-landing-copywriter",
@@ -319,13 +423,61 @@ def test_setup_agent_omitted_skills_preserves_existing_archive_skills(monkeypatc
         runtime=runtime,
     )
 
-    assert calls["skill_names"] == []
+    assert calls["skill_refs"] == []
     assert calls["inline_skills"] == [
         {
             "name": "saas-landing-copywriter",
             "content": "---\nname: saas-landing-copywriter\ndescription: Preserved archive copy.\n---\n\n# preserved-skill\n",
         }
     ]
+
+
+def test_setup_agent_forwards_explicit_skill_source_path(monkeypatch):
+    calls: dict[str, object] = {}
+
+    def fake_materialize_agent_definition(**kwargs):
+        calls.update(kwargs)
+        return SimpleNamespace(skill_refs=[])
+
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.materialize_agent_definition",
+        fake_materialize_agent_definition,
+    )
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.get_paths",
+        lambda: SimpleNamespace(
+            agent_dir=lambda name, status: f"/tmp/{status}/{name}",
+        ),
+    )
+
+    runtime = SimpleNamespace(
+        context=LeadAgentRuntimeContext(
+            target_agent_name="contract-agent",
+            agent_status="dev",
+            model_name="glm-5",
+        ),
+        tool_call_id="tc-source-path",
+    )
+
+    setup_agent.func(
+        agents_md="# Contract Agent",
+        description="Reviews contracts",
+        runtime=runtime,
+        skills=[
+            {
+                "name": "contract-review",
+                "source_path": "store/prod/contracts/review",
+            }
+        ],
+    )
+
+    assert calls["skill_refs"] == [
+        {
+            "name": "contract-review",
+            "source_path": "store/prod/contracts/review",
+        }
+    ]
+    assert calls["inline_skills"] == []
 
 
 def test_setup_agent_missing_name_only_skill_returns_inline_content_hint(monkeypatch, tmp_path: Path):
@@ -381,7 +533,7 @@ def test_save_and_push_agent_tools_accept_typed_runtime_context(monkeypatch):
     )
 
     runtime = SimpleNamespace(
-        context=LeadAgentRuntimeContext(agent_name="contract-agent"),
+        context=LeadAgentRuntimeContext(target_agent_name="contract-agent"),
         tool_call_id="tc-2",
     )
 
