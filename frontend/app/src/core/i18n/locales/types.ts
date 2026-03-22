@@ -101,9 +101,19 @@ export interface Translations {
     emptyTitle: string;
     emptyDescription: string;
     chat: string;
+    copyUrl: string;
     delete: string;
     deleteConfirm: string;
     deleteSuccess: string;
+    publish: string;
+    publishSuccess: (agentName: string) => string;
+    downloadDemo: string;
+    downloadSuccess: (filename: string) => string;
+    memoryOff: string;
+    memoryOn: string;
+    memoryWithModel: (modelName: string) => string;
+    coreBadge: string;
+    currentBadge: string;
     newChat: string;
     createPageTitle: string;
     createPageSubtitle: string;
@@ -118,6 +128,26 @@ export interface Translations {
     agentCreated: string;
     startChatting: string;
     backToGallery: string;
+    switcher: {
+      title: string;
+      description: string;
+      currentAgent: string;
+      currentAgentDescription: string;
+      builtinDescription: string;
+      execution: string;
+      remoteSession: string;
+      defaultRuntime: string;
+      remoteRuntime: string;
+      remoteSessionPlaceholder: string;
+      chooseAnotherTitle: string;
+      chooseAnotherDescription: string;
+      total: (count: number) => string;
+      searchPlaceholder: string;
+      loading: string;
+      loadError: string;
+      empty: string;
+      availableIn: (statuses: string) => string;
+    };
   };
 
   // Breadcrumb
@@ -244,7 +274,6 @@ export interface Translations {
     title: string;
     description: string;
     sections: {
-      agents: string;
       appearance: string;
       tools: string;
       skills: string;

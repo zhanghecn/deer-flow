@@ -7,7 +7,7 @@ import type { StreamdownProps } from "streamdown";
 export const streamdownPlugins = {
   remarkPlugins: [
     remarkGfm,
-    [remarkMath, { singleDollarTextMath: true }],
+    [remarkMath, { singleDollarTextMath: false }],
   ] as StreamdownProps["remarkPlugins"],
   rehypePlugins: [
     rehypeRaw,
@@ -29,7 +29,7 @@ export const humanMessagePlugins = {
   remarkPlugins: [
     // Use remark-gfm without autolink literals by not including it
     // Only include math support for human messages
-    [remarkMath, { singleDollarTextMath: true }],
+    [remarkMath, { singleDollarTextMath: false }],
   ] as StreamdownProps["remarkPlugins"],
   rehypePlugins: [
     [rehypeKatex, { output: "html" }],

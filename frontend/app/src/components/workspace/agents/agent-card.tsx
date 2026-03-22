@@ -8,6 +8,7 @@ import {
   Loader2Icon,
   MessageSquareIcon,
   RocketIcon,
+  Settings2Icon,
   Trash2Icon,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -41,15 +42,22 @@ import { buildWorkspaceAgentPath } from "@/core/agents";
 import type { Agent } from "@/core/agents";
 import { useI18n } from "@/core/i18n/hooks";
 
+import { AgentSettingsDialog } from "../agent-settings-dialog";
+
 interface AgentCardProps {
   agent: Agent;
 }
 
-function getAgentMemoryBadgeLabel(agent: Agent): string {
+function getAgentMemoryBadgeLabel(
+  agent: Agent,
+  t: ReturnType<typeof useI18n>["t"],
+): string {
   if (!agent.memory?.enabled) {
-    return "Memory off";
+    return t.agents.memoryOff;
   }
-  return `Memory · ${agent.memory.model_name ?? "configured"}`;
+  return agent.memory.model_name
+    ? t.agents.memoryWithModel(agent.memory.model_name)
+    : t.agents.memoryOn;
 }
 
 export function AgentCard({ agent }: AgentCardProps) {
@@ -59,9 +67,10 @@ export function AgentCard({ agent }: AgentCardProps) {
   const downloadDemoMutation = useDownloadAgentReactDemo();
   const publishAgentMutation = usePublishAgent();
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [manageOpen, setManageOpen] = useState(false);
   const isProd = agent.status === "prod";
   const memoryEnabled = agent.memory?.enabled ?? false;
-  const memoryLabel = getAgentMemoryBadgeLabel(agent);
+  const memoryLabel = getAgentMemoryBadgeLabel(agent, t);
   const isBuiltinLeadAgent = agent.name === "lead_agent";
   const launchPath = buildWorkspaceAgentPath({
     agentName: agent.name,
@@ -75,16 +84,16 @@ export function AgentCard({ agent }: AgentCardProps) {
   async function handleCopyLaunchURL() {
     try {
       await navigator.clipboard.writeText(`${window.location.origin}${launchPath}`);
-      toast.success("Demo URL copied");
+      toast.success(t.clipboard.linkCopied);
     } catch {
-      toast.error("Failed to copy demo URL");
+      toast.error(t.clipboard.failedToCopyToClipboard);
     }
   }
 
   async function handlePublish() {
     try {
       await publishAgentMutation.mutateAsync(agent.name);
-      toast.success(`Agent '${agent.name}' published`);
+      toast.success(t.agents.publishSuccess(agent.name));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err));
     }
@@ -93,7 +102,7 @@ export function AgentCard({ agent }: AgentCardProps) {
   async function handleDownloadReactDemo() {
     try {
       const filename = await downloadDemoMutation.mutateAsync(agent.name);
-      toast.success(`Downloaded ${filename}`);
+      toast.success(t.agents.downloadSuccess(filename));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err));
     }
@@ -171,13 +180,22 @@ export function AgentCard({ agent }: AgentCardProps) {
         <CardFooter className="mt-auto flex flex-wrap items-center gap-2 pt-3">
           <Button size="sm" className="min-w-[120px] flex-1" onClick={handleChat}>
             <MessageSquareIcon className="mr-1.5 h-3.5 w-3.5" />
-            Open Demo
+            {t.agents.chat}
           </Button>
-          <Button size="sm" variant="outline" onClick={handleCopyLaunchURL}>
-            <CopyIcon className="mr-1.5 h-3.5 w-3.5" />
-            Copy URL
+          <Button size="sm" variant="outline" onClick={() => setManageOpen(true)}>
+            <Settings2Icon className="mr-1.5 h-3.5 w-3.5" />
+            {t.common.settings}
           </Button>
           <div className="ml-auto flex gap-1">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8 shrink-0"
+              onClick={handleCopyLaunchURL}
+              title={t.agents.copyUrl}
+            >
+              <CopyIcon className="h-3.5 w-3.5" />
+            </Button>
             {!isProd && (
               <Button
                 size="icon"
@@ -185,7 +203,7 @@ export function AgentCard({ agent }: AgentCardProps) {
                 className="h-8 w-8 shrink-0"
                 onClick={handlePublish}
                 disabled={publishAgentMutation.isPending}
-                title="Publish"
+                title={t.agents.publish}
               >
                 <RocketIcon className="h-3.5 w-3.5" />
               </Button>
@@ -197,7 +215,7 @@ export function AgentCard({ agent }: AgentCardProps) {
                 className="h-8 w-8 shrink-0"
                 onClick={handleDownloadReactDemo}
                 disabled={downloadDemoMutation.isPending}
-                title="Download React Demo"
+                title={t.agents.downloadDemo}
               >
                 {downloadDemoMutation.isPending ? (
                   <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
@@ -246,6 +264,13 @@ export function AgentCard({ agent }: AgentCardProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AgentSettingsDialog
+        open={manageOpen}
+        onOpenChange={setManageOpen}
+        agentName={agent.name}
+        agentStatus={agent.status}
+      />
     </>
   );
 }

@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  BotIcon,
   BugIcon,
   ChevronsUpDown,
   GlobeIcon,
@@ -102,7 +101,7 @@ function NavMenuButtonContent({
 export function WorkspaceNavMenu() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsDefaultSection, setSettingsDefaultSection] = useState<
-    "agents" | "appearance" | "tools" | "skills" | "notification" | "about"
+    "appearance" | "tools" | "skills" | "notification" | "about"
   >("appearance");
   const [mounted, setMounted] = useState(false);
   const router = useRouter();
@@ -171,15 +170,6 @@ export function WorkspaceNavMenu() {
                     </p>
                   </div>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => {
-                      setSettingsDefaultSection("agents");
-                      setSettingsOpen(true);
-                    }}
-                  >
-                    <BotIcon />
-                    {t.settings.sections.agents}
-                  </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() => {
                       setSettingsDefaultSection("appearance");

@@ -154,10 +154,20 @@ export const enUS: Translations = {
     emptyDescription:
       "Create your first custom agent with a specialized system prompt.",
     chat: "Chat",
+    copyUrl: "Copy URL",
     delete: "Delete",
     deleteConfirm:
       "Are you sure you want to delete this agent? This action cannot be undone.",
     deleteSuccess: "Agent deleted",
+    publish: "Publish",
+    publishSuccess: (agentName: string) => `Agent "${agentName}" published`,
+    downloadDemo: "Download demo",
+    downloadSuccess: (filename: string) => `Downloaded ${filename}`,
+    memoryOff: "Memory off",
+    memoryOn: "Memory on",
+    memoryWithModel: (modelName: string) => `Memory · ${modelName}`,
+    coreBadge: "core",
+    currentBadge: "current",
     newChat: "New chat",
     createPageTitle: "Design your Agent",
     createPageSubtitle:
@@ -176,6 +186,29 @@ export const enUS: Translations = {
     agentCreated: "Agent created!",
     startChatting: "Start chatting",
     backToGallery: "Back to Gallery",
+    switcher: {
+      title: "Switch agent",
+      description:
+        "Change the agent behind this conversation. Use Agent Center for deeper management, publishing, and exports.",
+      currentAgent: "Current agent",
+      currentAgentDescription:
+        "Pick the agent and version that should handle this conversation.",
+      builtinDescription: "Built-in orchestration agent",
+      execution: "Execution",
+      remoteSession: "Remote session",
+      defaultRuntime: "Default",
+      remoteRuntime: "Remote",
+      remoteSessionPlaceholder: "Enter remote session ID",
+      chooseAnotherTitle: "Choose another agent",
+      chooseAnotherDescription:
+        "Search by name or description, then switch this conversation in one click.",
+      total: (count: number) => `${count} total`,
+      searchPlaceholder: "Search agents",
+      loading: "Loading agents...",
+      loadError: "Failed to load agents",
+      empty: "No agents match this search.",
+      availableIn: (statuses: string) => `Available in ${statuses}`,
+    },
   },
 
   // Breadcrumb
@@ -308,7 +341,6 @@ export const enUS: Translations = {
     title: "Settings",
     description: "Adjust how OpenAgents looks and behaves for you.",
     sections: {
-      agents: "Agent Workspace",
       appearance: "Appearance",
       tools: "Tools",
       skills: "Skills",

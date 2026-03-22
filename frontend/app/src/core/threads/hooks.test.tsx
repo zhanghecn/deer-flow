@@ -1,6 +1,6 @@
+import type { Message } from "@langchain/langgraph-sdk";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import type { Message } from "@langchain/langgraph-sdk";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -40,6 +40,10 @@ const apiClient = {
 
 let streamState: MockThreadState;
 let latestUseStreamOptions: Record<string, unknown> | null;
+
+function createPendingPromise<T>() {
+  return new Promise<T>(() => undefined);
+}
 
 function makeThreadState(
   overrides: Partial<MockThreadState> = {},
@@ -163,6 +167,7 @@ describe("useThreadStream", () => {
     latestUseStreamOptions = null;
     toastError.mockReset();
     updateSubtask.mockReset();
+    window.sessionStorage.clear();
     Object.defineProperty(document, "hidden", {
       configurable: true,
       value: false,
@@ -251,7 +256,7 @@ describe("useThreadStream", () => {
       buildThreadSearchQueryKey(DEFAULT_THREAD_SEARCH_PARAMS),
       [],
     );
-    streamState.submit.mockImplementation(() => new Promise(() => {}));
+    streamState.submit.mockImplementation(() => createPendingPromise<void>());
 
     const { result } = renderHook(
       () =>
@@ -369,7 +374,7 @@ describe("useThreadStream", () => {
       },
     });
     streamState = throwingThreadState;
-    apiClient.threads.create.mockImplementation(() => new Promise(() => {}));
+    apiClient.threads.create.mockImplementation(() => createPendingPromise());
 
     const { result } = renderHook(
       () =>
@@ -389,7 +394,7 @@ describe("useThreadStream", () => {
   });
 
   it("fetches current thread state while initial history loading is disabled", async () => {
-    apiClient.threads.create.mockImplementation(() => new Promise(() => {}));
+    apiClient.threads.create.mockImplementation(() => createPendingPromise());
 
     renderHook(
       () =>
@@ -489,7 +494,7 @@ describe("useThreadStream", () => {
   });
 
   it("does not re-fetch thread state on unrelated stream rerenders", async () => {
-    apiClient.threads.create.mockImplementation(() => new Promise(() => {}));
+    apiClient.threads.create.mockImplementation(() => createPendingPromise());
 
     renderHook(
       () =>
@@ -565,7 +570,48 @@ describe("useThreadStream", () => {
   });
 
   it("joins an active run from current thread state while initial history loading is disabled", async () => {
-    apiClient.threads.create.mockImplementation(() => new Promise(() => {}));
+    apiClient.threads.create.mockImplementation(() => createPendingPromise());
+    apiClient.threads.getState.mockResolvedValueOnce({
+      values: {
+        title: "Thread",
+        messages: [
+          {
+            id: "human-1",
+            type: "human",
+            content: [{ type: "text", text: "hello" }],
+            additional_kwargs: {},
+          },
+        ],
+        artifacts: [],
+      },
+      next: ["tools"],
+      metadata: {
+        run_id: "run-active-1",
+      },
+    });
+    window.sessionStorage.setItem("openagents:stream-owner:thread-1", "1");
+
+    renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          skipInitialHistory: true,
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    await waitFor(() => {
+      expect(streamState.joinStream).toHaveBeenCalledWith("run-active-1");
+    });
+  });
+
+  it("does not join an active run from another tab without local ownership", async () => {
+    apiClient.threads.create.mockImplementation(() => createPendingPromise());
     apiClient.threads.getState.mockResolvedValueOnce({
       values: {
         title: "Thread",
@@ -600,12 +646,17 @@ describe("useThreadStream", () => {
     );
 
     await waitFor(() => {
-      expect(streamState.joinStream).toHaveBeenCalledWith("run-active-1");
+      expect(apiClient.threads.getState).toHaveBeenCalledWith(
+        "thread-1",
+        undefined,
+        { subgraphs: true },
+      );
     });
+    expect(streamState.joinStream).not.toHaveBeenCalled();
   });
 
   it("connects to an existing thread immediately while create runs in the background", () => {
-    apiClient.threads.create.mockImplementation(() => new Promise(() => {}));
+    apiClient.threads.create.mockImplementation(() => createPendingPromise());
 
     renderHook(
       () =>
@@ -627,5 +678,52 @@ describe("useThreadStream", () => {
       ifExists: "do_nothing",
       graphId: "lead_agent",
     });
+  });
+
+  it("waits for thread creation before submitting the first run on a preallocated thread", async () => {
+    let resolveCreate: (() => void) | undefined;
+    apiClient.threads.create.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+
+    const { result } = renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-new",
+          skipInitialHistory: true,
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    const message: PromptInputMessage = {
+      text: "hello",
+      files: [],
+    };
+
+    let submitPromise: Promise<void> | undefined;
+    await act(async () => {
+      submitPromise = result.current[1]("thread-new", message);
+      await Promise.resolve();
+    });
+
+    expect(streamState.submit).not.toHaveBeenCalled();
+
+    act(() => {
+      resolveCreate?.();
+    });
+
+    await act(async () => {
+      await submitPromise;
+    });
+
+    expect(streamState.submit).toHaveBeenCalledTimes(1);
   });
 });

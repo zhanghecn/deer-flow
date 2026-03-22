@@ -1,9 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useThread } from "@/components/workspace/messages/context";
 
-import { loadArtifactContent, loadArtifactContentFromToolCall } from "./loader";
+import {
+  loadArtifactBlob,
+  loadArtifactContent,
+  loadArtifactContentFromToolCall,
+} from "./loader";
 
 export function useArtifactContent({
   filepath,
@@ -35,4 +39,53 @@ export function useArtifactContent({
     staleTime: 5 * 60 * 1000,
   });
   return { content: isWriteFile ? content : data, isLoading, error };
+}
+
+export function useArtifactObjectUrl({
+  filepath,
+  threadId,
+  enabled,
+  preview,
+  isMock,
+}: {
+  filepath: string;
+  threadId: string;
+  enabled?: boolean;
+  preview?: "pdf";
+  isMock?: boolean;
+}) {
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["artifact-blob", filepath, threadId, preview, isMock],
+    queryFn: () =>
+      loadArtifactBlob({
+        filepath,
+        threadId,
+        preview,
+        isMock,
+      }),
+    enabled,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  useEffect(() => {
+    if (!data) {
+      setObjectUrl(null);
+      return;
+    }
+
+    const nextObjectUrl = URL.createObjectURL(data);
+    setObjectUrl(nextObjectUrl);
+
+    return () => {
+      URL.revokeObjectURL(nextObjectUrl);
+    };
+  }, [data]);
+
+  return {
+    objectUrl,
+    blobType: data?.type ?? null,
+    isLoading,
+    error,
+  };
 }

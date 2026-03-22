@@ -191,6 +191,32 @@ func TestThreadsHandlerSearchRejectsMissingUser(t *testing.T) {
 	}
 }
 
+func TestThreadsHandlerSearchTreatsCanceledRequestAsClientClosed(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	repo := &fakeThreadRepo{err: context.Canceled}
+	h, _ := newTestThreadsHandler(t, repo, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware.UserIDKey), uuid.MustParse("11111111-1111-1111-1111-111111111111"))
+		c.Next()
+	})
+	router.POST("/api/threads/search", h.Search)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/threads/search", bytes.NewBufferString(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+	if rec.Code != 499 {
+		t.Fatalf("expected status 499, got %d, body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestThreadsHandlerUpdateTitle(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)

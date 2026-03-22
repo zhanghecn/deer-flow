@@ -109,7 +109,7 @@ upstream:
 
 onlyoffice:
   server_url: http://localhost:8082
-  public_app_url: http://openagents-host:8001
+  public_app_url: http://host.docker.internal:8001
 
 proxy:
   routes:

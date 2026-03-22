@@ -8,7 +8,7 @@ import {
   PromptInputProvider,
   type PromptInputMessage,
 } from "@/components/ai-elements/prompt-input";
-import { AgentWorkspaceDialog } from "@/components/workspace/agent-workspace-dialog";
+import { AgentSwitcherDialog } from "@/components/workspace/agent-switcher-dialog";
 import { InputBox } from "@/components/workspace/input-box";
 import { Welcome } from "@/components/workspace/welcome";
 import {
@@ -199,7 +199,7 @@ export default function NewChatClient() {
       <div className="relative flex size-full min-h-0 justify-between">
         <main className="flex min-h-0 max-w-full grow flex-col">
           <div className="absolute top-4 right-4 z-30">
-            <AgentWorkspaceDialog selection={runtimeSelection} compact />
+            <AgentSwitcherDialog selection={runtimeSelection} compact />
           </div>
           <div className="absolute right-0 bottom-0 left-0 z-30 flex justify-center px-4">
             <div className="relative w-full max-w-(--container-width-sm) -translate-y-[calc(50vh-96px)]">

@@ -77,7 +77,7 @@ func (h *OpenAPIHandler) handleRequest(c *gin.Context, agentName string, stream 
 		return
 	}
 
-	// Build LangGraph request using the same shape as the LangGraph SDK.
+	// Build LangGraph request using the same stateful payload shape as the SDK.
 	lgBody := buildLangGraphRunRequest(agentName, threadID, modelName, req.Message)
 
 	bodyBytes, _ := json.Marshal(lgBody)
@@ -86,6 +86,8 @@ func (h *OpenAPIHandler) handleRequest(c *gin.Context, agentName string, stream 
 	endpoint := "/threads/" + threadID + "/runs"
 	if stream {
 		endpoint += "/stream"
+	} else {
+		endpoint += "/wait"
 	}
 
 	lgReq, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost,
@@ -190,8 +192,18 @@ func buildLangGraphThreadCreateRequest(threadID string) map[string]interface{} {
 func buildLangGraphRunRequest(agentName string, threadID string, modelName string, message string) map[string]interface{} {
 	return map[string]interface{}{
 		"assistant_id": openAPIAssistantID,
-		"input": []map[string]interface{}{
-			{"role": "user", "content": message},
+		"input": map[string]interface{}{
+			"messages": []map[string]interface{}{
+				{
+					"type": "human",
+					"content": []map[string]interface{}{
+						{
+							"type": "text",
+							"text": message,
+						},
+					},
+				},
+			},
 		},
 		"config": map[string]interface{}{
 			"configurable": map[string]interface{}{

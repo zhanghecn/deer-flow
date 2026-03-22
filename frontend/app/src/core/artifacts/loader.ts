@@ -5,6 +5,42 @@ import type { AgentThreadState } from "../threads";
 
 import { urlOfArtifact } from "./utils";
 
+function resolveArtifactErrorMessage(
+  payload: { error?: string },
+  fallback: string,
+) {
+  return payload.error ?? fallback;
+}
+
+async function fetchArtifactResponse({
+  filepath,
+  threadId,
+  isMock,
+  download,
+  preview,
+}: {
+  filepath: string;
+  threadId: string;
+  isMock?: boolean;
+  download?: boolean;
+  preview?: "pdf";
+}) {
+  const url = urlOfArtifact({ filepath, threadId, isMock, download, preview });
+  const response = await authFetch(url);
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({}))) as {
+      error?: string;
+    };
+    throw new Error(
+      resolveArtifactErrorMessage(
+        payload,
+        `Failed to load artifact: ${response.statusText}`,
+      ),
+    );
+  }
+  return response;
+}
+
 export async function loadArtifactContent({
   filepath,
   threadId,
@@ -18,10 +54,36 @@ export async function loadArtifactContent({
   if (filepath.endsWith(".skill")) {
     enhancedFilepath = filepath + "/SKILL.md";
   }
-  const url = urlOfArtifact({ filepath: enhancedFilepath, threadId, isMock });
-  const response = await authFetch(url);
+  const response = await fetchArtifactResponse({
+    filepath: enhancedFilepath,
+    threadId,
+    isMock,
+  });
   const text = await response.text();
   return text;
+}
+
+export async function loadArtifactBlob({
+  filepath,
+  threadId,
+  isMock,
+  download,
+  preview,
+}: {
+  filepath: string;
+  threadId: string;
+  isMock?: boolean;
+  download?: boolean;
+  preview?: "pdf";
+}) {
+  const response = await fetchArtifactResponse({
+    filepath,
+    threadId,
+    isMock,
+    download,
+    preview,
+  });
+  return response.blob();
 }
 
 export function loadArtifactContentFromToolCall({

@@ -41,7 +41,10 @@ func CORS() gin.HandlerFunc {
 		} else {
 			c.Header("Access-Control-Allow-Headers", "*")
 		}
-		c.Header("Access-Control-Expose-Headers", "x-pagination-total, x-pagination-next, content-location")
+		c.Header(
+			"Access-Control-Expose-Headers",
+			"x-pagination-total, x-pagination-next, content-location, x-thread-id",
+		)
 		c.Header("Access-Control-Max-Age", "86400")
 
 		if c.Request.Method == http.MethodOptions {

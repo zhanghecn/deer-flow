@@ -16,6 +16,13 @@ interface OnlyOfficeRegistry {
   instances?: Record<string, OnlyOfficeEditorInstance | undefined>;
 }
 
+interface OnlyOfficeEditorEvent {
+  data?: {
+    errorCode?: number;
+    errorDescription?: string;
+  };
+}
+
 declare global {
   interface Window {
     DocsAPI?: OnlyOfficeDocsAPI;
@@ -155,11 +162,13 @@ export function OnlyOfficeDocumentEditor({
   documentServerUrl,
   config,
   onLoadComponentError,
+  onEditorError,
 }: {
   id: string;
   documentServerUrl: string;
   config: OnlyOfficeConfig;
   onLoadComponentError?: (code: number, description: string) => void;
+  onEditorError?: (code: number, description: string) => void;
 }) {
   const normalizedDocumentServerUrl = useMemo(
     () => normalizeDocumentServerUrl(documentServerUrl),
@@ -207,6 +216,27 @@ export function OnlyOfficeDocumentEditor({
         destroyOnlyOfficeInstance(id);
         const instances = getOnlyOfficeRegistry();
         const editorConfig = JSON.parse(configSignature) as OnlyOfficeConfig;
+        const editorEvents =
+          editorConfig.events && typeof editorConfig.events === "object"
+            ? (editorConfig.events as Record<string, unknown>)
+            : {};
+        editorConfig.events = {
+          ...editorEvents,
+          onError: (event: OnlyOfficeEditorEvent) => {
+            const errorCode =
+              typeof event?.data?.errorCode === "number" ? event.data.errorCode : -1;
+            const errorDescription =
+              typeof event?.data?.errorDescription === "string" &&
+              event.data.errorDescription.trim()
+                ? event.data.errorDescription
+                : "ONLYOFFICE editor reported an unknown error";
+            onEditorError?.(errorCode, errorDescription);
+            const existingOnError = editorEvents.onError;
+            if (typeof existingOnError === "function") {
+              existingOnError(event);
+            }
+          },
+        };
         instances[id] = new window.DocsAPI.DocEditor(id, editorConfig);
       } catch (error) {
         emitLoadError(
@@ -226,7 +256,14 @@ export function OnlyOfficeDocumentEditor({
       destroyOnlyOfficeInstance(id);
       document.getElementById(id)?.replaceChildren();
     };
-  }, [configSignature, id, normalizedDocumentServerUrl, onLoadComponentError, scriptUrl]);
+  }, [
+    configSignature,
+    id,
+    normalizedDocumentServerUrl,
+    onEditorError,
+    onLoadComponentError,
+    scriptUrl,
+  ]);
 
   return <div id={id} />;
 }

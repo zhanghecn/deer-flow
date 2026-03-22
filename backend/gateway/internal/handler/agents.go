@@ -229,6 +229,17 @@ func (h *AgentHandler) buildExportDocument(c *gin.Context, agentName string) gin
 					"thread_id": "optional",
 				},
 			},
+			"artifact": gin.H{
+				"method": "GET",
+				"url":    fmt.Sprintf("%s/open/v1/agents/%s/threads/{thread_id}/artifacts/mnt/user-data/outputs/{filename}", baseURL, agentName),
+				"headers": gin.H{
+					"Authorization": "Bearer <api_token>",
+				},
+				"notes": []string{
+					"Use the thread id returned by the chat or stream call.",
+					"Append ?preview=pdf for office previews when supported by the gateway.",
+				},
+			},
 		},
 		"demo": gin.H{
 			"framework": "react-vite",

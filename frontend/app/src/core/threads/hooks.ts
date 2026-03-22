@@ -19,6 +19,7 @@ import { getLocalSettings, type LocalSettings } from "../settings";
 import { useUpdateSubtask } from "../tasks/context";
 import type { UploadedFileInfo } from "../uploads";
 import { uploadFiles } from "../uploads";
+
 import { normalizeThreadError } from "./error";
 import {
   getReasoningEffortForMode,
@@ -31,7 +32,6 @@ import {
   DEFAULT_THREAD_SEARCH_PARAMS,
   THREAD_SEARCH_QUERY_KEY,
 } from "./search";
-
 import type {
   AgentInterruptValue,
   AgentThread,
@@ -65,6 +65,7 @@ const HISTORY_PAGE_SIZE = 1;
 const STREAM_RECURSION_LIMIT = 1000;
 const STATE_HYDRATION_DELAY_MS = process.env.NODE_ENV === "test" ? 0 : 1500;
 const STREAM_MODES = ["values", "messages-tuple", "custom"] as const;
+const ACTIVE_RUN_OWNER_STORAGE_PREFIX = "openagents:stream-owner:";
 type ThreadOverride = {
   values: AgentThreadState;
   messages: Message[];
@@ -149,6 +150,49 @@ function useWindowActivity(): WindowActivity {
   }, []);
 
   return activity;
+}
+
+function getActiveRunOwnerStorageKey(threadId: string) {
+  return `${ACTIVE_RUN_OWNER_STORAGE_PREFIX}${threadId}`;
+}
+
+function hasLocalActiveRunOwnership(threadId?: string | null): boolean {
+  if (typeof window === "undefined" || !threadId) {
+    return false;
+  }
+
+  try {
+    return (
+      window.sessionStorage.getItem(getActiveRunOwnerStorageKey(threadId)) ===
+      "1"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function markLocalActiveRunOwnership(threadId?: string | null) {
+  if (typeof window === "undefined" || !threadId) {
+    return;
+  }
+
+  try {
+    window.sessionStorage.setItem(getActiveRunOwnerStorageKey(threadId), "1");
+  } catch {
+    // Ignore storage failures and fall back to non-resumable behavior.
+  }
+}
+
+function clearLocalActiveRunOwnership(threadId?: string | null) {
+  if (typeof window === "undefined" || !threadId) {
+    return;
+  }
+
+  try {
+    window.sessionStorage.removeItem(getActiveRunOwnerStorageKey(threadId));
+  } catch {
+    // Ignore storage failures during cleanup.
+  }
 }
 
 function resolveAgentName(
@@ -606,6 +650,9 @@ export function useThreadStream({
   const stateHydrationInFlightRef = useRef(false);
   const deferStateHydrationRef = useRef(false);
   const stopPromiseRef = useRef<Promise<void> | null>(null);
+  const ensureThreadPromiseRef = useRef<Promise<void> | null>(null);
+  const ensureRequestedThreadIdRef = useRef<string | null>(null);
+  const ensuredThreadIdRef = useRef<string | null>(null);
   const resolvedContext = useMemo(
     () => resolveThreadContext(context),
     [context],
@@ -634,6 +681,9 @@ export function useThreadStream({
     );
 
     if (!threadId || !authenticated) {
+      ensureThreadPromiseRef.current = null;
+      ensureRequestedThreadIdRef.current = null;
+      ensuredThreadIdRef.current = null;
       setStreamThreadId(null);
       return;
     }
@@ -643,18 +693,26 @@ export function useThreadStream({
       return;
     }
 
-    void apiClient.threads
+    ensureRequestedThreadIdRef.current = threadId;
+    ensuredThreadIdRef.current = null;
+    const ensurePromise = apiClient.threads
       .create({
         threadId,
         ifExists: "do_nothing",
         graphId: LEAD_AGENT_ID,
       })
-      .catch((error) => {
-        console.warn(
-          `Failed to ensure thread exists before loading history (${threadId}):`,
-          error,
-        );
+      .then(() => {
+        if (ensureRequestedThreadIdRef.current === threadId) {
+          ensuredThreadIdRef.current = threadId;
+        }
       });
+    ensureThreadPromiseRef.current = ensurePromise;
+    void ensurePromise.catch((error) => {
+      console.warn(
+        `Failed to ensure thread exists before loading history (${threadId}):`,
+        error,
+      );
+    });
   }, [threadId, authenticated, apiClient, skipInitialHistory]);
 
   const queryClient = useQueryClient();
@@ -717,6 +775,7 @@ export function useThreadStream({
       }
     },
     onFinish(state) {
+      clearLocalActiveRunOwnership(streamThreadId ?? threadId ?? null);
       if (streamThreadId) {
         deferStateHydrationRef.current = false;
         lastHydrationActivationRef.current = null;
@@ -807,7 +866,9 @@ export function useThreadStream({
             typeof state.metadata?.run_id === "string"
               ? state.metadata.run_id
               : null;
+          const allowLocalRunResume = hasLocalActiveRunOwnership(threadId);
           const shouldJoinPendingRun =
+            allowLocalRunResume &&
             !threadLoadingRef.current &&
             Array.isArray(state.next) &&
             state.next.length > 0 &&
@@ -890,6 +951,7 @@ export function useThreadStream({
       setThreadOverride(null);
       lastErrorMessageRef.current = null;
       previousMessageCountRef.current = thread.messages.length;
+      markLocalActiveRunOwnership(runThreadId);
       setOptimisticMessages(
         buildOptimisticMessages(text, files, t.uploads.uploadingFiles),
       );
@@ -912,6 +974,7 @@ export function useThreadStream({
             console.error("Failed to upload files:", error);
             notifyThreadError(error);
             setOptimisticMessages([]);
+            clearLocalActiveRunOwnership(runThreadId);
             throw error;
           }
         }
@@ -923,6 +986,13 @@ export function useThreadStream({
           extraContext,
           text,
         );
+        if (
+          ensureRequestedThreadIdRef.current === runThreadId &&
+          ensuredThreadIdRef.current !== runThreadId &&
+          ensureThreadPromiseRef.current
+        ) {
+          await ensureThreadPromiseRef.current;
+        }
         await thread.submit(
           buildSubmissionPayload(text, uploadedFiles),
           buildSubmitOptions(
@@ -937,6 +1007,7 @@ export function useThreadStream({
         });
       } catch (error) {
         setOptimisticMessages([]);
+        clearLocalActiveRunOwnership(runThreadId);
         notifyThreadError(error);
         throw error;
       }
@@ -945,6 +1016,7 @@ export function useThreadStream({
       thread,
       t.uploads.uploadingFiles,
       authenticated,
+      notifyThreadError,
       queryClient,
       resolvedContext,
     ],
@@ -972,6 +1044,7 @@ export function useThreadStream({
       const selectedModelName = requireModelName(resolvedContext);
       setThreadOverride(null);
       lastErrorMessageRef.current = null;
+      markLocalActiveRunOwnership(runThreadId);
 
       try {
         await thread.submit(null, {
@@ -985,6 +1058,7 @@ export function useThreadStream({
           multitaskStrategy: "interrupt",
         });
       } catch (error) {
+        clearLocalActiveRunOwnership(runThreadId);
         notifyThreadError(error);
         throw error;
       }
@@ -1036,6 +1110,8 @@ export function useThreadStream({
         await thread.stop();
       } catch (error) {
         notifyThreadError(error);
+      } finally {
+        clearLocalActiveRunOwnership(activeThreadId);
       }
 
       setHistoryEnabled(true);

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -110,6 +111,10 @@ func (h *ThreadsHandler) Search(c *gin.Context) {
 		},
 	)
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(c.Request.Context().Err(), context.Canceled) {
+			c.Status(499)
+			return
+		}
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to search threads"})
 		return
 	}

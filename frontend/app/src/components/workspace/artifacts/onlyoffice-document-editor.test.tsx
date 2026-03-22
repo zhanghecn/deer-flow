@@ -91,4 +91,56 @@ describe("OnlyOfficeDocumentEditor", () => {
     expect(createdDestroy).toHaveBeenCalledTimes(1);
     expect(onlyOfficeWindow.DocEditor?.instances?.["office-editor"]).toBeUndefined();
   });
+
+  it("forwards ONLYOFFICE runtime errors through onEditorError", async () => {
+    const onEditorError = vi.fn();
+    let capturedConfig: Record<string, unknown> | undefined;
+    const ctor = vi.fn(function (
+      this: { destroyEditor?: () => void },
+      _id: string,
+      config: Record<string, unknown>,
+    ) {
+      capturedConfig = config;
+      this.destroyEditor = vi.fn();
+      return this;
+    });
+    const onlyOfficeWindow = window as OnlyOfficeWindow;
+
+    onlyOfficeWindow.DocsAPI = {
+      DocEditor: ctor as unknown as OnlyOfficeDocEditorConstructor,
+    };
+
+    renderWithProviders(
+      <OnlyOfficeDocumentEditor
+        id="office-editor"
+        documentServerUrl="http://localhost:8082"
+        config={{
+          document: { key: "deck-key" },
+          documentType: "slide",
+        }}
+        onEditorError={onEditorError}
+      />,
+    );
+
+    await waitFor(() => expect(ctor).toHaveBeenCalledTimes(1));
+
+    const events = capturedConfig?.events as {
+      onError?: (event: {
+        data?: { errorCode?: number; errorDescription?: string };
+      }) => void;
+    };
+    expect(events?.onError).toBeTypeOf("function");
+
+    events?.onError?.({
+      data: {
+        errorCode: 7,
+        errorDescription: "The document security token is not correctly formed.",
+      },
+    });
+
+    expect(onEditorError).toHaveBeenCalledWith(
+      7,
+      "The document security token is not correctly formed.",
+    );
+  });
 });

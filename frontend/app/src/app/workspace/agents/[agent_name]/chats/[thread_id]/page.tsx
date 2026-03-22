@@ -12,8 +12,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { Button } from "@/components/ui/button";
+import { AgentSwitcherDialog } from "@/components/workspace/agent-switcher-dialog";
 import { AgentWelcome } from "@/components/workspace/agent-welcome";
-import { AgentWorkspaceDialog } from "@/components/workspace/agent-workspace-dialog";
 import { ArtifactTrigger } from "@/components/workspace/artifacts/artifact-trigger";
 import { ChatBox } from "@/components/workspace/chats/chat-box";
 import { useThreadChat } from "@/components/workspace/chats/use-thread-chat";
@@ -72,7 +72,7 @@ export default function AgentChatPage() {
     () => resolveThreadRuntimeBinding(threadRuntime),
     [threadRuntime],
   );
-  const runtimeSelection = useMemo(
+  const runtimeSelection = useMemo<ResolvedAgentRuntimeSelection>(
     () =>
       threadRuntime
         ? {
@@ -83,7 +83,7 @@ export default function AgentChatPage() {
           }
         : routeRuntimeSelection,
     [boundThreadRuntime, routeRuntimeSelection, threadRuntime],
-  ) as ResolvedAgentRuntimeSelection;
+  );
   const runtimeMessageContext = useMemo(
     () => buildThreadRuntimeContext(runtimeSelection),
     [runtimeSelection],
@@ -93,20 +93,22 @@ export default function AgentChatPage() {
       ? null
       : runtimeSelection.agentName;
   const { agent } = useAgent(selectedAgentName, runtimeSelection.agentStatus);
+  const trimmedAgentModelName = agent?.model?.trim();
   const runtimeContextSeed = useMemo(
     () => ({
       ...settings.context,
       ...runtimeMessageContext,
       model_name:
-        agent?.model?.trim() ||
-        boundThreadRuntime.modelName ||
+        trimmedAgentModelName && trimmedAgentModelName.length > 0
+          ? trimmedAgentModelName
+          : boundThreadRuntime.modelName ??
         settings.context.model_name,
     }),
     [
-      agent?.model,
       boundThreadRuntime.modelName,
       runtimeMessageContext,
       settings.context,
+      trimmedAgentModelName,
     ],
   );
   const [runtimeContext, setRuntimeContext] =
@@ -239,7 +241,7 @@ export default function AgentChatPage() {
                 : "bg-background/80 shadow-xs backdrop-blur",
             )}
           >
-            <AgentWorkspaceDialog selection={runtimeSelection} compact />
+            <AgentSwitcherDialog selection={runtimeSelection} compact />
 
             <div className="flex w-full items-center text-sm font-medium">
               <ThreadTitle threadId={threadId} thread={thread} />

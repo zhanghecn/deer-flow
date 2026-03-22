@@ -6,7 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { type PromptInputMessage } from "@/components/ai-elements/prompt-input";
-import { AgentWorkspaceDialog } from "@/components/workspace/agent-workspace-dialog";
+import { AgentSwitcherDialog } from "@/components/workspace/agent-switcher-dialog";
 import { ArtifactTrigger } from "@/components/workspace/artifacts/artifact-trigger";
 import { useSpecificChatMode } from "@/components/workspace/chats/use-chat-mode";
 import { useThreadChat } from "@/components/workspace/chats/use-thread-chat";
@@ -71,7 +71,7 @@ export default function ChatPage() {
     () => resolveThreadRuntimeBinding(threadRuntime),
     [threadRuntime],
   );
-  const runtimeSelection = useMemo(
+  const runtimeSelection = useMemo<ResolvedAgentRuntimeSelection>(
     () =>
       threadRuntime
         ? {
@@ -82,7 +82,7 @@ export default function ChatPage() {
           }
         : routeRuntimeSelection,
     [boundThreadRuntime, routeRuntimeSelection, threadRuntime],
-  ) as ResolvedAgentRuntimeSelection;
+  );
   const runtimeMessageContext = useMemo(
     () => buildThreadRuntimeContext(runtimeSelection),
     [runtimeSelection],
@@ -221,7 +221,7 @@ export default function ChatPage() {
                 : "bg-background/80 shadow-xs backdrop-blur",
             )}
           >
-            <AgentWorkspaceDialog selection={runtimeSelection} compact />
+            <AgentSwitcherDialog selection={runtimeSelection} compact />
             <div className="flex w-full items-center text-sm font-medium">
               <ThreadTitle threadId={threadId} thread={thread} />
             </div>

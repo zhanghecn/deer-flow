@@ -23,7 +23,7 @@ import {
   buildWorkspaceAgentPath,
   readAgentRuntimeSelection,
 } from "@/core/agents";
-import { resolveArtifactURL } from "@/core/artifacts/utils";
+import { useArtifactObjectUrl } from "@/core/artifacts/hooks";
 import { useI18n } from "@/core/i18n/hooks";
 import {
   extractContentFromMessage,
@@ -106,19 +106,40 @@ function MessageImage({
   threadId: string;
   maxWidth?: string;
 }) {
-  if (!src) return null;
-
   const imgClassName = cn("overflow-hidden rounded-lg", `max-w-[${maxWidth}]`);
+  const artifactPath =
+    typeof src === "string" && src.startsWith("/mnt/") ? src : null;
+  const { objectUrl, isLoading } = useArtifactObjectUrl({
+    filepath: artifactPath ?? "",
+    threadId,
+    enabled: Boolean(artifactPath),
+  });
+
+  if (!src) return null;
 
   if (typeof src !== "string") {
     return <img className={imgClassName} src={src} alt={alt} {...props} />;
   }
 
-  const url = src.startsWith("/mnt/") ? resolveArtifactURL(src, threadId) : src;
+  if (!artifactPath) {
+    return (
+      <a href={src} target="_blank" rel="noopener noreferrer">
+        <img className={imgClassName} src={src} alt={alt} {...props} />
+      </a>
+    );
+  }
+
+  if (isLoading || !objectUrl) {
+    return (
+      <div className={cn(imgClassName, "bg-muted/20 flex min-h-24 items-center justify-center")}>
+        <Loader2Icon className="text-muted-foreground size-4 animate-spin" />
+      </div>
+    );
+  }
 
   return (
-    <a href={url} target="_blank" rel="noopener noreferrer">
-      <img className={imgClassName} src={url} alt={alt} {...props} />
+    <a href={objectUrl} target="_blank" rel="noopener noreferrer">
+      <img className={imgClassName} src={objectUrl} alt={alt} {...props} />
     </a>
   );
 }
@@ -404,6 +425,11 @@ function RichFileCard({
   const { t } = useI18n();
   const isUploading = file.status === "uploading";
   const isImage = isImageFile(file.filename);
+  const { objectUrl, isLoading } = useArtifactObjectUrl({
+    filepath: file.path ?? "",
+    threadId,
+    enabled: !isUploading && Boolean(file.path) && isImage,
+  });
 
   if (isUploading) {
     return (
@@ -434,22 +460,23 @@ function RichFileCard({
 
   if (!file.path) return null;
 
-  const fileUrl = resolveArtifactURL(file.path, threadId);
-
   if (isImage) {
     return (
-      <a
-        href={fileUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="group border-border/40 relative block overflow-hidden rounded-lg border"
-      >
-        <img
-          src={fileUrl}
-          alt={file.filename}
-          className="h-32 w-auto max-w-60 object-cover transition-transform group-hover:scale-105"
-        />
-      </a>
+      <div className="group border-border/40 relative block overflow-hidden rounded-lg border">
+        {isLoading || !objectUrl ? (
+          <div className="bg-muted/20 flex h-32 w-40 items-center justify-center">
+            <Loader2Icon className="text-muted-foreground size-4 animate-spin" />
+          </div>
+        ) : (
+          <a href={objectUrl} target="_blank" rel="noopener noreferrer">
+            <img
+              src={objectUrl}
+              alt={file.filename}
+              className="h-32 w-auto max-w-60 object-cover transition-transform group-hover:scale-105"
+            />
+          </a>
+        )}
+      </div>
     );
   }
 

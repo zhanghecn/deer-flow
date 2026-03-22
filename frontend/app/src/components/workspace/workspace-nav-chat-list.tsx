@@ -1,6 +1,6 @@
 "use client";
 
-import { MessagesSquare, Trash2 } from "lucide-react";
+import { BotIcon, MessagesSquare, Trash2 } from "lucide-react";
 import Link from "next/link";
 import {
   useParams,
@@ -39,7 +39,9 @@ export function WorkspaceNavChatList() {
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
 
   const hasChats = useMemo(
-    () => (threadIdFromPath && threadIdFromPath !== "new") || threads.length > 0,
+    () =>
+      (threadIdFromPath != null && threadIdFromPath !== "new") ||
+      threads.length > 0,
     [threadIdFromPath, threads.length],
   );
 
@@ -54,6 +56,12 @@ export function WorkspaceNavChatList() {
 
     return "/workspace/chats/new";
   }, [pathname, searchParams, threadIdFromPath]);
+  const isChatsPage =
+    pathname === "/workspace/chats" ||
+    pathname.startsWith("/workspace/chats/") ||
+    pathname.includes("/chats/");
+  const isAgentsPage =
+    pathname === "/workspace/agents" || pathname === "/workspace/agents/new";
 
   const handleClearAll = useCallback(async () => {
     try {
@@ -79,7 +87,7 @@ export function WorkspaceNavChatList() {
       <SidebarGroup className="pt-1">
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton isActive={pathname === "/workspace/chats"} asChild>
+            <SidebarMenuButton isActive={isChatsPage} asChild>
               <Link
                 className="text-muted-foreground"
                 href="/workspace/chats"
@@ -87,6 +95,18 @@ export function WorkspaceNavChatList() {
               >
                 <MessagesSquare />
                 <span>{t.sidebar.chats}</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton isActive={isAgentsPage} asChild>
+              <Link
+                className="text-muted-foreground"
+                href="/workspace/agents"
+                prefetch={false}
+              >
+                <BotIcon />
+                <span>{t.sidebar.agents}</span>
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>

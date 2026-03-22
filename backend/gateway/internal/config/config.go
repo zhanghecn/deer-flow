@@ -96,7 +96,7 @@ func Load(path string) (*Config, error) {
 		},
 		OnlyOffice: OnlyOfficeConfig{
 			ServerURL:    "http://localhost:8082",
-			PublicAppURL: "http://openagents-host:8001",
+			PublicAppURL: "http://host.docker.internal:8001",
 		},
 	}
 

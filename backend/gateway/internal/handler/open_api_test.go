@@ -16,15 +16,27 @@ func TestBuildLangGraphRunRequestUsesSDKShape(t *testing.T) {
 		t.Fatalf("expected assistant_id %q, got %#v", openAPIAssistantID, got)
 	}
 
-	input, ok := payload["input"].([]map[string]interface{})
-	if !ok || len(input) != 1 {
+	input, ok := payload["input"].(map[string]interface{})
+	if !ok {
 		t.Fatalf("expected one input message, got %#v", payload["input"])
 	}
-	if got := input[0]["role"]; got != "user" {
-		t.Fatalf("expected user role, got %#v", got)
+	messages, ok := input["messages"].([]map[string]interface{})
+	if !ok || len(messages) != 1 {
+		t.Fatalf("expected one SDK message, got %#v", input["messages"])
 	}
-	if got := input[0]["content"]; got != "hello" {
-		t.Fatalf("expected content hello, got %#v", got)
+	if got := messages[0]["type"]; got != "human" {
+		t.Fatalf("expected human message, got %#v", got)
+	}
+
+	content, ok := messages[0]["content"].([]map[string]interface{})
+	if !ok || len(content) != 1 {
+		t.Fatalf("expected one text content block, got %#v", messages[0]["content"])
+	}
+	if got := content[0]["type"]; got != "text" {
+		t.Fatalf("expected text content type, got %#v", got)
+	}
+	if got := content[0]["text"]; got != "hello" {
+		t.Fatalf("expected text hello, got %#v", got)
 	}
 
 	config, ok := payload["config"].(map[string]interface{})

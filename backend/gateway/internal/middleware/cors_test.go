@@ -42,4 +42,16 @@ func TestCORSPreflightAllowsRequestedHeaders(t *testing.T) {
 			t.Fatalf("expected Access-Control-Allow-Headers to include %q, got %q", want, allowHeaders)
 		}
 	}
+
+	exposeHeaders := strings.ToLower(rec.Header().Get("Access-Control-Expose-Headers"))
+	for _, want := range []string{
+		"x-pagination-total",
+		"x-pagination-next",
+		"content-location",
+		"x-thread-id",
+	} {
+		if !strings.Contains(exposeHeaders, want) {
+			t.Fatalf("expected Access-Control-Expose-Headers to include %q, got %q", want, exposeHeaders)
+		}
+	}
 }

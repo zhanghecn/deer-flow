@@ -30,7 +30,14 @@ import {
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { CodeEditor } from "@/components/workspace/code-editor";
-import { useArtifactContent } from "@/core/artifacts/hooks";
+import {
+  downloadArtifactFile,
+  openArtifactInNewWindow,
+} from "@/core/artifacts/actions";
+import {
+  useArtifactContent,
+  useArtifactObjectUrl,
+} from "@/core/artifacts/hooks";
 import {
   getOnlyOfficeDocumentDescriptor,
   loadOnlyOfficeConfig,
@@ -118,7 +125,7 @@ export function ArtifactFileDetail({
     );
   }, [isWriteFile, officePreviewUrl, previewLanguage]);
   const showPreviewToggle = isSupportPreview && isCodeFile;
-  const canRenderInlineFrame = !isCodeFile && !isOfficeFile;
+  const isBinaryPreview = !isCodeFile && !isOfficeFile;
   const { content } = useArtifactContent({
     threadId,
     filepath: filepathFromProps,
@@ -129,6 +136,8 @@ export function ArtifactFileDetail({
 
   const [viewMode, setViewMode] = useState<ArtifactViewMode>("code");
   const [isInstalling, setIsInstalling] = useState(false);
+  const [isOpeningArtifact, setIsOpeningArtifact] = useState(false);
+  const [isDownloadingArtifact, setIsDownloadingArtifact] = useState(false);
   useEffect(() => {
     if (isOfficeFile) {
       setViewMode("preview");
@@ -160,6 +169,65 @@ export function ArtifactFileDetail({
       setIsInstalling(false);
     }
   }, [threadId, filepath, isInstalling]);
+
+  const handleOpenArtifact = useCallback(async () => {
+    if (isOpeningArtifact || isWriteFile) {
+      return;
+    }
+
+    setIsOpeningArtifact(true);
+    try {
+      try {
+        await openArtifactInNewWindow({
+          filepath,
+          threadId,
+          isMock,
+          preview: officePreviewUrl ? "pdf" : undefined,
+        });
+      } catch (error) {
+        if (!officePreviewUrl) {
+          throw error;
+        }
+        await openArtifactInNewWindow({
+          filepath,
+          threadId,
+          isMock,
+        });
+      }
+    } catch (error) {
+      console.error("Failed to open artifact:", error);
+      toast.error("Failed to open artifact");
+    } finally {
+      setIsOpeningArtifact(false);
+    }
+  }, [
+    filepath,
+    isMock,
+    isOpeningArtifact,
+    isWriteFile,
+    officePreviewUrl,
+    threadId,
+  ]);
+
+  const handleDownloadArtifact = useCallback(async () => {
+    if (isDownloadingArtifact || isWriteFile) {
+      return;
+    }
+
+    setIsDownloadingArtifact(true);
+    try {
+      await downloadArtifactFile({
+        filepath,
+        threadId,
+        isMock,
+      });
+    } catch (error) {
+      console.error("Failed to download artifact:", error);
+      toast.error("Failed to download artifact");
+    } finally {
+      setIsDownloadingArtifact(false);
+    }
+  }, [filepath, isDownloadingArtifact, isMock, isWriteFile, threadId]);
   return (
     <Artifact className={cn(className)}>
       <ArtifactHeader className="px-2">
@@ -230,19 +298,15 @@ export function ArtifactFileDetail({
               </Tooltip>
             )}
             {!isWriteFile && (
-              <a
-                href={
-                  officePreviewUrl ??
-                  urlOfArtifact({ filepath, threadId, isMock })
-                }
-                target="_blank"
-              >
-                <ArtifactAction
-                  icon={SquareArrowOutUpRightIcon}
-                  label={t.common.openInNewWindow}
-                  tooltip={t.common.openInNewWindow}
-                />
-              </a>
+              <ArtifactAction
+                icon={isOpeningArtifact ? LoaderIcon : SquareArrowOutUpRightIcon}
+                label={t.common.openInNewWindow}
+                tooltip={t.common.openInNewWindow}
+                disabled={isOpeningArtifact}
+                onClick={() => {
+                  void handleOpenArtifact();
+                }}
+              />
             )}
             {isCodeFile && (
               <ArtifactAction
@@ -262,16 +326,15 @@ export function ArtifactFileDetail({
               />
             )}
             {!isWriteFile && (
-              <a
-                href={urlOfArtifact({ filepath, threadId, download: true })}
-                target="_blank"
-              >
-                <ArtifactAction
-                  icon={DownloadIcon}
-                  label={t.common.download}
-                  tooltip={t.common.download}
-                />
-              </a>
+              <ArtifactAction
+                icon={isDownloadingArtifact ? LoaderIcon : DownloadIcon}
+                label={t.common.download}
+                tooltip={t.common.download}
+                disabled={isDownloadingArtifact}
+                onClick={() => {
+                  void handleDownloadArtifact();
+                }}
+              />
             )}
             <ArtifactAction
               icon={XIcon}
@@ -309,10 +372,11 @@ export function ArtifactFileDetail({
             isMock={Boolean(isMock)}
           />
         )}
-        {canRenderInlineFrame && (
-          <iframe
-            className="size-full"
-            src={urlOfArtifact({ filepath, threadId, isMock })}
+        {isBinaryPreview && (
+          <ArtifactBinaryPreview
+            filepath={filepath}
+            threadId={threadId}
+            isMock={Boolean(isMock)}
           />
         )}
       </ArtifactContent>
@@ -332,6 +396,13 @@ export function ArtifactFilePreview({
   language: string;
 }) {
   const { isMock } = useThread();
+  const { objectUrl, isLoading, error } = useArtifactObjectUrl({
+    filepath,
+    threadId,
+    enabled: language === "html",
+    isMock,
+  });
+
   if (language === "markdown") {
     return (
       <div className="size-full px-4">
@@ -346,14 +417,146 @@ export function ArtifactFilePreview({
     );
   }
   if (language === "html") {
+    if (error instanceof Error) {
+      return (
+        <ArtifactUnavailableCard
+          filepath={filepath}
+          label="Preview unavailable"
+          description={error.message}
+        />
+      );
+    }
+    if (isLoading || !objectUrl) {
+      return (
+        <div className="flex size-full items-center justify-center">
+          <LoaderIcon className="text-muted-foreground size-5 animate-spin" />
+        </div>
+      );
+    }
     return (
-      <iframe
-        className="size-full"
-        src={urlOfArtifact({ filepath, threadId, isMock })}
-      />
+      <iframe className="size-full" src={objectUrl} />
     );
   }
   return null;
+}
+
+function ArtifactBinaryPreview({
+  filepath,
+  threadId,
+  isMock,
+}: {
+  filepath: string;
+  threadId: string;
+  isMock: boolean;
+}) {
+  const { objectUrl, blobType, isLoading, error } = useArtifactObjectUrl({
+    filepath,
+    threadId,
+    enabled: true,
+    isMock,
+  });
+  const mediaType = useMemo(
+    () => getArtifactBinaryMediaType(filepath, blobType),
+    [blobType, filepath],
+  );
+
+  if (error instanceof Error) {
+    return (
+      <ArtifactUnavailableCard
+        filepath={filepath}
+        label="Preview unavailable"
+        description={error.message}
+      />
+    );
+  }
+
+  if (isLoading || !objectUrl) {
+    return (
+      <div className="flex size-full items-center justify-center">
+        <LoaderIcon className="text-muted-foreground size-5 animate-spin" />
+      </div>
+    );
+  }
+
+  if (mediaType === "image") {
+    return (
+      <div className="bg-muted/10 flex size-full items-center justify-center overflow-auto p-4">
+        <img
+          className="max-h-full max-w-full rounded-lg object-contain shadow-sm"
+          src={objectUrl}
+          alt={getFileName(filepath)}
+        />
+      </div>
+    );
+  }
+
+  if (mediaType === "video") {
+    return (
+      <div className="bg-black flex size-full items-center justify-center">
+        <video className="size-full" controls src={objectUrl} />
+      </div>
+    );
+  }
+
+  if (mediaType === "audio") {
+    return (
+      <div className="flex size-full items-center justify-center p-6">
+        <audio className="w-full max-w-lg" controls src={objectUrl} />
+      </div>
+    );
+  }
+
+  if (mediaType === "pdf") {
+    return <iframe className="size-full" src={objectUrl} />;
+  }
+
+  return (
+    <ArtifactUnavailableCard
+      filepath={filepath}
+      label="Preview unavailable"
+      description="This file type cannot be previewed inline yet. Use open or download."
+    />
+  );
+}
+
+function getArtifactBinaryMediaType(filepath: string, blobType: string | null) {
+  const normalizedMimeType = blobType?.toLowerCase() ?? "";
+  if (normalizedMimeType.startsWith("image/")) {
+    return "image";
+  }
+  if (normalizedMimeType.startsWith("video/")) {
+    return "video";
+  }
+  if (normalizedMimeType.startsWith("audio/")) {
+    return "audio";
+  }
+  if (normalizedMimeType === "application/pdf") {
+    return "pdf";
+  }
+
+  const extension = filepath.split(".").pop()?.toLowerCase() ?? "";
+  if (
+    ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "ico", "webp", "svg", "heic"].includes(
+      extension,
+    )
+  ) {
+    return "image";
+  }
+  if (["mp4", "webm", "mov", "m4v", "ogv"].includes(extension)) {
+    return "video";
+  }
+  if (
+    ["mp3", "wav", "ogg", "aac", "m4a", "flac", "wma", "aiff", "ape"].includes(
+      extension,
+    )
+  ) {
+    return "audio";
+  }
+  if (extension === "pdf") {
+    return "pdf";
+  }
+
+  return "unsupported";
 }
 
 function OfficeArtifactView({
@@ -373,6 +576,9 @@ function OfficeArtifactView({
   const [OnlyOfficeDocumentEditor, setOnlyOfficeDocumentEditor] =
     useState<OnlyOfficeDocumentEditorComponent | null>(null);
   const [editorLoadError, setEditorLoadError] = useState<string | null>(null);
+  const [editorRuntimeError, setEditorRuntimeError] = useState<string | null>(
+    null,
+  );
   const { data, error, isLoading } = useQuery({
     queryKey: ["onlyoffice-config", threadId, filepath, onlyOfficeMode],
     queryFn: () =>
@@ -394,6 +600,7 @@ function OfficeArtifactView({
 
     let cancelled = false;
     setEditorLoadError(null);
+    setEditorRuntimeError(null);
     setOnlyOfficeDocumentEditor(null);
 
     void import("./onlyoffice-document-editor")
@@ -460,6 +667,17 @@ function OfficeArtifactView({
     );
   }
 
+  if (editorRuntimeError) {
+    return (
+      <ArtifactUnavailableCard
+        filepath={filepath}
+        label="Editor unavailable"
+        description={editorRuntimeError}
+        previewUrl={officePreviewUrl}
+      />
+    );
+  }
+
   return (
     <div className="size-full overflow-hidden bg-white">
       <OnlyOfficeDocumentEditor
@@ -470,9 +688,29 @@ function OfficeArtifactView({
         onLoadComponentError={(_code: number, errorDescription: string) => {
           toast.error(errorDescription || "Failed to load ONLYOFFICE editor");
         }}
+        onEditorError={(_code: number, errorDescription: string) => {
+          setEditorRuntimeError(formatOnlyOfficeEditorError(errorDescription));
+        }}
       />
     </div>
   );
+}
+
+function formatOnlyOfficeEditorError(errorDescription: string) {
+  const normalized = errorDescription.trim();
+  if (!normalized) {
+    return "ONLYOFFICE editor is unavailable for this document.";
+  }
+
+  if (
+    normalized
+      .toLowerCase()
+      .includes("document security token is not correctly formed")
+  ) {
+    return "ONLYOFFICE rejected the document token. Check that gateway ONLYOFFICE_JWT_SECRET matches the ONLYOFFICE server secret.";
+  }
+
+  return normalized;
 }
 
 function ArtifactUnavailableCard({

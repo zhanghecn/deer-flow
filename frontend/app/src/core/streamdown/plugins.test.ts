@@ -1,0 +1,37 @@
+import { describe, expect, it } from "vitest";
+
+import { humanMessagePlugins, streamdownPlugins } from "./plugins";
+
+function extractRemarkMathOptions(
+  plugins: unknown,
+): Record<string, unknown> | null {
+  if (!Array.isArray(plugins)) {
+    return null;
+  }
+
+  for (const plugin of plugins) {
+    if (!Array.isArray(plugin) || plugin.length < 2) {
+      continue;
+    }
+    const options = plugin[1];
+    if (options && typeof options === "object") {
+      return options as Record<string, unknown>;
+    }
+  }
+
+  return null;
+}
+
+describe("streamdown math options", () => {
+  it("disables single-dollar math parsing for assistant messages", () => {
+    const options = extractRemarkMathOptions(streamdownPlugins.remarkPlugins);
+
+    expect(options?.singleDollarTextMath).toBe(false);
+  });
+
+  it("disables single-dollar math parsing for human messages", () => {
+    const options = extractRemarkMathOptions(humanMessagePlugins.remarkPlugins);
+
+    expect(options?.singleDollarTextMath).toBe(false);
+  });
+});

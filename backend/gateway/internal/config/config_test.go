@@ -25,7 +25,7 @@ func TestLoadUsesGatewayDefaultsForNonSecretURLs(t *testing.T) {
 	if cfg.OnlyOffice.ServerURL != "http://localhost:8082" {
 		t.Fatalf("unexpected default onlyoffice server url: %s", cfg.OnlyOffice.ServerURL)
 	}
-	if cfg.OnlyOffice.PublicAppURL != "http://openagents-host:8001" {
+	if cfg.OnlyOffice.PublicAppURL != "http://host.docker.internal:8001" {
 		t.Fatalf("unexpected default onlyoffice public url: %s", cfg.OnlyOffice.PublicAppURL)
 	}
 }
@@ -35,7 +35,7 @@ func TestLoadAllowsExplicitEnvOverridesForContainerWiring(t *testing.T) {
 	if err := os.WriteFile(
 		configPath,
 		[]byte(
-			"database:\n  uri: postgres://db\njwt:\n  secret: secret\nupstream:\n  langgraph_url: http://localhost:2024\nonlyoffice:\n  server_url: http://localhost:8082\n  public_app_url: http://openagents-host:8001\nproxy:\n  routes:\n    - prefix: /api/langgraph\n      upstream: http://localhost:2024\n      strip_prefix: true\n      auth: jwt\n",
+			"database:\n  uri: postgres://db\njwt:\n  secret: secret\nupstream:\n  langgraph_url: http://localhost:2024\nonlyoffice:\n  server_url: http://localhost:8082\n  public_app_url: http://host.docker.internal:8001\nproxy:\n  routes:\n    - prefix: /api/langgraph\n      upstream: http://localhost:2024\n      strip_prefix: true\n      auth: jwt\n",
 		),
 		0644,
 	); err != nil {
