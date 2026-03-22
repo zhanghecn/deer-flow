@@ -1,5 +1,3 @@
-"use client";
-
 import { Streamdown } from "streamdown";
 
 import { aboutMarkdown } from "./about-content";

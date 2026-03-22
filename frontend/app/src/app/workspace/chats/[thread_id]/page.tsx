@@ -1,9 +1,7 @@
-"use client";
-
 import type { Command } from "@langchain/langgraph-sdk";
-import dynamic from "next/dynamic";
-import { usePathname, useSearchParams } from "next/navigation";
+import { lazy } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
 import { type PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { AgentSwitcherDialog } from "@/components/workspace/agent-switcher-dialog";
@@ -35,23 +33,23 @@ import {
 import { env } from "@/env";
 import { cn } from "@/lib/utils";
 
-const ChatBox = dynamic(
-  () => import("@/components/workspace/chats/chat-box").then((m) => m.ChatBox),
-  { ssr: false },
+const ChatBox = lazy(
+  () => import("@/components/workspace/chats/chat-box").then((m) => ({ default: m.ChatBox })),
 );
-const MessageList = dynamic(
+const MessageList = lazy(
   () =>
     import("@/components/workspace/messages/message-list").then(
-      (m) => m.MessageList,
+      (m) => ({ default: m.MessageList }),
     ),
-  { ssr: false },
 );
 
 export default function ChatPage() {
   const { t } = useI18n();
-  const pathname = usePathname();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const pathname = location.pathname;
   const [settings] = useLocalSettings();
-  const searchParams = useSearchParams();
+  const [searchParams] = useSearchParams();
   const routeHasPendingRun = searchParams.get("pending_run") === "1";
   const routeRuntimeSelection = useMemo(
     () => readAgentRuntimeSelection(searchParams),
@@ -122,7 +120,7 @@ export default function ChatPage() {
     });
     const currentPath = buildCurrentPath(pathname, searchParams);
     if (nextPath !== currentPath) {
-      window.location.replace(nextPath);
+      void navigate(nextPath, { replace: true });
     }
   }, [
     isPendingRun,
@@ -274,12 +272,12 @@ export default function ChatPage() {
                       </div>
                     )
                   }
-                  disabled={env.NEXT_PUBLIC_STATIC_WEBSITE_ONLY === "true"}
+                  disabled={env.VITE_STATIC_WEBSITE_ONLY === "true"}
                   onContextChange={(context) => setRuntimeContext(context)}
                   onSubmit={handleSubmit}
                   onStop={handleStop}
                 />
-                {env.NEXT_PUBLIC_STATIC_WEBSITE_ONLY === "true" && (
+                {env.VITE_STATIC_WEBSITE_ONLY === "true" && (
                   <div className="text-muted-foreground/67 w-full translate-y-12 text-center text-xs">
                     {t.common.notAvailableInDemoMode}
                   </div>

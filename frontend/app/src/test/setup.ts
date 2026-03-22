@@ -5,9 +5,17 @@ import type { ReactNode } from "react";
 import { afterEach, vi } from "vitest";
 
 class ResizeObserverMock {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
+  observe() {
+    return undefined;
+  }
+
+  unobserve() {
+    return undefined;
+  }
+
+  disconnect() {
+    return undefined;
+  }
 }
 
 if (!("ResizeObserver" in globalThis)) {

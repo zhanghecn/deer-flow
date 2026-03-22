@@ -1,8 +1,5 @@
-"use client";
-
-import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { useMemo } from "react";
+import { Link, useLocation } from "react-router-dom";
 
 import {
   Breadcrumb,
@@ -12,6 +9,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
+import { GITHUB_REPO_URL } from "@/core/config/site";
 import { useI18n } from "@/core/i18n/hooks";
 import { cn } from "@/lib/utils";
 
@@ -36,7 +34,7 @@ export function WorkspaceHeader({
   ...props
 }: React.ComponentProps<"header">) {
   const { t } = useI18n();
-  const pathname = usePathname();
+  const pathname = useLocation().pathname;
   const segments = useMemo(() => {
     const parts = pathname?.split("/") || [];
     if (parts.length > 0) {
@@ -46,7 +44,7 @@ export function WorkspaceHeader({
   return (
     <header
       className={cn(
-        "top-0 right-0 left-0 z-20 flex h-16 shrink-0 items-center justify-between gap-2 border-b backdrop-blur-sm transition-[width,height] ease-out group-has-data-[collapsible=icon]/sidebar-wrapper:h-12",
+        "top-0 right-0 left-0 z-20 flex h-16 shrink-0 items-center justify-between gap-2 border-b backdrop-blur-sm transition-[width,height] ease-out group-has-data-[collapsible=icon]/sidebar-wrapper:h-12 dark:border-b-primary/15",
         className,
       )}
       {...props}
@@ -57,7 +55,7 @@ export function WorkspaceHeader({
             {segments?.[0] && (
               <BreadcrumbItem className="hidden md:block">
                 <BreadcrumbLink asChild>
-                  <Link href={`/${segments[0]}`}>
+                  <Link to={`/${segments[0]}`}>
                     {nameOfSegment(segments[0], t)}
                   </Link>
                 </BreadcrumbLink>
@@ -69,7 +67,7 @@ export function WorkspaceHeader({
                 <BreadcrumbItem>
                   {segments.length >= 2 ? (
                     <BreadcrumbLink asChild>
-                      <Link href={`/${segments[0]}/${segments[1]}`}>
+                      <Link to={`/${segments[0]}/${segments[1]}`}>
                         {nameOfSegment(segments[1], t)}
                       </Link>
                     </BreadcrumbLink>
@@ -93,7 +91,7 @@ export function WorkspaceHeader({
       <div className="pr-4">
         <Tooltip content={t.workspace.githubTooltip}>
           <a
-            href="https://github.com/bytedance/openagents"
+            href={GITHUB_REPO_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="opacity-75 transition hover:opacity-100"

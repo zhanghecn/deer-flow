@@ -1,5 +1,3 @@
-"use client";
-
 import type { ContextWindowState } from "@/core/threads";
 import { cn } from "@/lib/utils";
 

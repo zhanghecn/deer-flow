@@ -1,5 +1,3 @@
-"use client";
-
 import {
   BotIcon,
   BrainIcon,
@@ -14,8 +12,8 @@ import {
   SlidersHorizontalIcon,
   SparklesIcon,
 } from "lucide-react";
-import Link from "next/link";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -484,7 +482,7 @@ export function AgentSettingsDialog({
               </div>
               <div className="hidden shrink-0 items-center gap-2 sm:flex">
                 <Button size="sm" variant="outline" asChild>
-                  <Link href={launchPath}>
+                  <Link to={launchPath}>
                     <ExternalLinkIcon className="size-3.5" />
                     Open workspace
                   </Link>
@@ -1194,7 +1192,7 @@ export function AgentSettingsDialog({
 
                           <div className="flex flex-wrap gap-2">
                             <Button asChild>
-                              <Link href={launchPath}>
+                              <Link to={launchPath}>
                                 <ExternalLinkIcon className="size-3.5" />
                                 Open workspace
                               </Link>

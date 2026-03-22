@@ -1,5 +1,3 @@
-"use client";
-
 import type { ChatStatus } from "ai";
 import {
   CheckIcon,
@@ -10,7 +8,6 @@ import {
   ZapIcon,
   type LucideIcon,
 } from "lucide-react";
-import { useSearchParams } from "next/navigation";
 import {
   useCallback,
   useEffect,
@@ -19,6 +16,7 @@ import {
   type KeyboardEvent,
   type ComponentProps,
 } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import {
   PromptInput,
@@ -194,7 +192,7 @@ export function InputBox({
   onStop?: () => void;
 }) {
   const { t } = useI18n();
-  const searchParams = useSearchParams();
+  const [searchParams] = useSearchParams();
   const [modelDialogOpen, setModelDialogOpen] = useState(false);
   const { models } = useModels();
   const { skills } = useSkills();
@@ -463,7 +461,7 @@ export function InputBox({
   return (
     <PromptInput
       className={cn(
-        "bg-background/85 rounded-2xl backdrop-blur-sm transition-all duration-300 ease-out *:data-[slot='input-group']:rounded-2xl",
+        "rounded-2xl border border-border bg-background transition-all duration-300 ease-out *:data-[slot='input-group']:rounded-2xl dark:glass dark:border-primary/20 dark:bg-background/85 dark:backdrop-blur-sm",
         className,
       )}
       disabled={disabled}
@@ -484,7 +482,7 @@ export function InputBox({
       </PromptInputAttachments>
       <PromptInputBody className="absolute top-0 right-0 left-0 z-3">
         <PromptInputTextarea
-          className={cn("size-full")}
+          className={cn("size-full dark:placeholder:text-primary/30")}
           disabled={disabled}
           placeholder={t.inputBox.placeholder}
           autoFocus={autoFocus}

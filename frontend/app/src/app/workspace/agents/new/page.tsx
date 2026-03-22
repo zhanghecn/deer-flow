@@ -1,9 +1,7 @@
-"use client";
-
 import type { Command } from "@langchain/langgraph-sdk";
 import { ArrowLeftIcon, BotIcon, CheckCircleIcon } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import {
   PromptInput,
@@ -63,7 +61,7 @@ function writeAgentNameDraft(value: string) {
 
 export default function NewAgentPage() {
   const { t } = useI18n();
-  const router = useRouter();
+  const navigate = useNavigate();
   const [settings, setSettings] = useLocalSettings();
   const { models } = useModels();
   const resolvedContext = useMemo(
@@ -233,7 +231,7 @@ export default function NewAgentPage() {
       <Button
         variant="ghost"
         size="icon-sm"
-        onClick={() => router.push("/workspace/agents")}
+        onClick={() => navigate("/workspace/agents")}
       >
         <ArrowLeftIcon className="h-4 w-4" />
       </Button>
@@ -329,7 +327,7 @@ export default function NewAgentPage() {
                     <div className="flex gap-2">
                       <Button
                         onClick={() =>
-                          router.push(
+                          navigate(
                             `/workspace/agents/${agentName}/chats/new`,
                           )
                         }
@@ -338,7 +336,7 @@ export default function NewAgentPage() {
                       </Button>
                       <Button
                         variant="outline"
-                        onClick={() => router.push("/workspace/agents")}
+                        onClick={() => navigate("/workspace/agents")}
                       >
                         {t.agents.backToGallery}
                       </Button>

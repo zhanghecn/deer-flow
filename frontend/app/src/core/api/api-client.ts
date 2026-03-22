@@ -1,5 +1,3 @@
-"use client";
-
 import { Client as LangGraphClient } from "@langchain/langgraph-sdk/client";
 
 import { getAuthToken, getAuthUser } from "@/core/auth/store";
@@ -10,7 +8,8 @@ const CLIENT_CACHE_LIMIT = 32;
 const clientCache = new Map<string, LangGraphClient>();
 
 function normalizeClientCacheValue(value: string | null | undefined) {
-  return value?.trim() || "-";
+  const normalized = value?.trim();
+  return normalized && normalized.length > 0 ? normalized : "-";
 }
 
 function buildClientCacheKey(
@@ -58,7 +57,9 @@ export function getAPIClient(
 ): LangGraphClient {
   const token = getAuthToken();
   const userId = getAuthUser()?.id ?? null;
-  const normalizedThreadId = threadId?.trim() || null;
+  const trimmedThreadId = threadId?.trim();
+  const normalizedThreadId =
+    trimmedThreadId && trimmedThreadId.length > 0 ? trimmedThreadId : null;
   const cacheKey = buildClientCacheKey(
     isMock === true,
     token,

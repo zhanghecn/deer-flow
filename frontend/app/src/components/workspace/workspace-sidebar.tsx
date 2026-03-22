@@ -1,5 +1,3 @@
-"use client";
-
 import {
   Sidebar,
   SidebarHeader,
@@ -8,10 +6,10 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar";
 
+import { RecentChatList } from "./recent-chat-list";
 import { WorkspaceHeader } from "./workspace-header";
 import { WorkspaceNavChatList } from "./workspace-nav-chat-list";
 import { WorkspaceNavMenu } from "./workspace-nav-menu";
-import { RecentChatList } from "./recent-chat-list";
 
 export function WorkspaceSidebar({
   ...props

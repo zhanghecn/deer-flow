@@ -27,12 +27,12 @@ function extractFilenameFromDisposition(headerValue: string | null): string | nu
     return null;
   }
 
-  const utf8Match = headerValue.match(/filename\*=UTF-8''([^;]+)/i);
+  const utf8Match = /filename\*=UTF-8''([^;]+)/i.exec(headerValue);
   if (utf8Match?.[1]) {
     return decodeURIComponent(utf8Match[1]);
   }
 
-  const plainMatch = headerValue.match(/filename="?([^";]+)"?/i);
+  const plainMatch = /filename="?([^";]+)"?/i.exec(headerValue);
   return plainMatch?.[1] ?? null;
 }
 

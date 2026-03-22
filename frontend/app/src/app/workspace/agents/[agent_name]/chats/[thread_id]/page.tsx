@@ -1,14 +1,12 @@
-"use client";
-
 import type { Command } from "@langchain/langgraph-sdk";
 import { PlusSquare } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   useParams,
-  usePathname,
-  useRouter,
+  useLocation,
+  useNavigate,
   useSearchParams,
-} from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+} from "react-router-dom";
 
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { Button } from "@/components/ui/button";
@@ -46,10 +44,10 @@ import { cn } from "@/lib/utils";
 
 export default function AgentChatPage() {
   const { t } = useI18n();
-  const pathname = usePathname();
+  const pathname = useLocation().pathname;
   const [settings] = useLocalSettings();
-  const router = useRouter();
-  const searchParams = useSearchParams();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const routeHasPendingRun = searchParams.get("pending_run") === "1";
   const [isPendingRun, setIsPendingRun] = useState(routeHasPendingRun);
 
@@ -57,9 +55,7 @@ export default function AgentChatPage() {
     setIsPendingRun(routeHasPendingRun);
   }, [routeHasPendingRun]);
 
-  const { agent_name } = useParams<{
-    agent_name: string;
-  }>();
+  const { agent_name } = useParams();
   const routeRuntimeSelection = useMemo(
     () => readAgentRuntimeSelection(searchParams, agent_name),
     [agent_name, searchParams],
@@ -136,7 +132,7 @@ export default function AgentChatPage() {
     });
     const currentPath = buildCurrentPath(pathname, searchParams);
     if (nextPath !== currentPath) {
-      window.location.replace(nextPath);
+      void navigate(nextPath, { replace: true });
     }
   }, [
     isPendingRun,
@@ -252,7 +248,7 @@ export default function AgentChatPage() {
                   size="sm"
                   variant="secondary"
                   onClick={() => {
-                    router.push(buildThreadPath(runtimeSelection));
+                    void navigate(buildThreadPath(runtimeSelection));
                   }}
                 >
                   <PlusSquare /> {t.agents.newChat}
@@ -312,12 +308,12 @@ export default function AgentChatPage() {
                       </div>
                     )
                   }
-                  disabled={env.NEXT_PUBLIC_STATIC_WEBSITE_ONLY === "true"}
+                  disabled={env.VITE_STATIC_WEBSITE_ONLY === "true"}
                   onContextChange={(context) => setRuntimeContext(context)}
                   onSubmit={handleSubmit}
                   onStop={handleStop}
                 />
-                {env.NEXT_PUBLIC_STATIC_WEBSITE_ONLY === "true" && (
+                {env.VITE_STATIC_WEBSITE_ONLY === "true" && (
                   <div className="text-muted-foreground/67 w-full translate-y-12 text-center text-xs">
                     {t.common.notAvailableInDemoMode}
                   </div>

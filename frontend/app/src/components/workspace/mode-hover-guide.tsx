@@ -1,5 +1,3 @@
-"use client";
-
 import { useI18n } from "@/core/i18n/hooks";
 import type { Translations } from "@/core/i18n/locales/types";
 import type { ThreadMode } from "@/core/threads/mode";

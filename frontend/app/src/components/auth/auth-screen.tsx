@@ -1,15 +1,11 @@
-"use client";
-
 import {
   ArrowRightIcon,
   CheckCircle2Icon,
   LockKeyholeIcon,
   UserRoundPlusIcon,
 } from "lucide-react";
-import Link from "next/link";
-import dynamic from "next/dynamic";
-import { useRouter, useSearchParams } from "next/navigation";
-import { type FormEvent, useEffect, useState } from "react";
+import { lazy, type FormEvent, useEffect, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,18 +16,15 @@ import { cn } from "@/lib/utils";
 
 type AuthTab = "login" | "register";
 
-const FlickeringGrid = dynamic(
-  () => import("@/components/ui/flickering-grid").then((m) => m.FlickeringGrid),
-  { ssr: false },
+const FlickeringGrid = lazy(
+  () => import("@/components/ui/flickering-grid").then((m) => ({ default: m.FlickeringGrid })),
 );
-const Galaxy = dynamic(() => import("@/components/ui/galaxy"), {
-  ssr: false,
-});
+const Galaxy = lazy(() => import("@/components/ui/galaxy"));
 
 export function AuthScreen() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const { t } = useI18n();
-  const searchParams = useSearchParams();
+  const [searchParams] = useSearchParams();
   const queryMode =
     searchParams.get("mode") === "register" ? "register" : "login";
 
@@ -73,7 +66,9 @@ export function AuthScreen() {
     setActiveTab(nextTab);
     setLoginError(null);
     setRegisterError(null);
-    router.replace(nextTab === "register" ? "/login?mode=register" : "/login");
+    void navigate(nextTab === "register" ? "/login?mode=register" : "/login", {
+      replace: true,
+    });
   }
 
   async function handleLoginSubmit(e: FormEvent<HTMLFormElement>) {
@@ -133,7 +128,7 @@ export function AuthScreen() {
             className="pointer-events-none absolute inset-0 z-0 opacity-30"
             squareSize={4}
             gridGap={5}
-            color="#8cc6ff"
+            color="#00D1FF"
             maxOpacity={0.22}
             flickerChance={0.22}
           />
@@ -146,7 +141,7 @@ export function AuthScreen() {
           <section className="hidden rounded-3xl border border-white/15 bg-black/35 p-8 backdrop-blur-md lg:flex lg:flex-col lg:justify-between">
             <div>
               <p className="inline-flex items-center gap-2 rounded-full border border-cyan-300/30 bg-cyan-300/10 px-3 py-1 text-xs font-medium tracking-[0.18em] text-cyan-100 uppercase">
-                OpenAgents
+                DeerFlow
               </p>
               <h1 className="mt-6 text-4xl leading-tight font-semibold text-white">
                 {t.auth.heroTitle}
@@ -170,14 +165,14 @@ export function AuthScreen() {
             </ul>
           </section>
 
-          <section className="rounded-3xl border border-white/15 bg-[#0d1322]/82 p-6 shadow-[0_24px_80px_rgba(3,8,18,0.65)] backdrop-blur-md sm:p-8">
+          <section className="rounded-3xl border border-white/15 bg-[#0d1322]/82 p-6 shadow-[0_24px_80px_rgba(3,8,18,0.65)] backdrop-blur-md sm:p-8 dark:glass dark:glow-cyan">
             <div className="mb-8 flex items-start justify-between gap-4">
               <div>
                 <Link
-                  href="/"
+                  to="/"
                   className="text-3xl font-semibold tracking-tight"
                 >
-                  OpenAgents
+                  DeerFlow
                 </Link>
                 <p className="mt-2 text-sm text-white/60">
                   {t.auth.panelSubtitle}

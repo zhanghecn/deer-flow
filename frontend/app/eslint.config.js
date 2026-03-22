@@ -1,29 +1,27 @@
-import { FlatCompat } from "@eslint/eslintrc";
+import importPlugin from "eslint-plugin-import";
 import tseslint from "typescript-eslint";
-
-const compat = new FlatCompat({
-  baseDirectory: import.meta.dirname,
-});
 
 export default tseslint.config(
   {
     ignores: [
       ".next",
+      "dist",
       "src/components/ui/**",
       "src/components/ai-elements/**",
       "*.js",
     ],
   },
-  ...compat.extends("next/core-web-vitals"),
   {
     files: ["**/*.ts", "**/*.tsx"],
+    plugins: {
+      import: importPlugin,
+    },
     extends: [
       ...tseslint.configs.recommended,
       ...tseslint.configs.recommendedTypeChecked,
       ...tseslint.configs.stylisticTypeChecked,
     ],
     rules: {
-      "@next/next/no-img-element": "off",
       "@typescript-eslint/array-type": "off",
       "@typescript-eslint/consistent-type-definitions": "off",
       "@typescript-eslint/consistent-type-imports": [

@@ -1,13 +1,26 @@
-"use client";
-
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import type { LocalSettings } from "@/core/settings";
 import { useThreadStream } from "@/core/threads/hooks";
-import { uuid } from "@/core/utils/uuid";
+
+const activeThreadSubmissions = new Set<string>();
+
+function claimThreadSubmission(threadId: string) {
+  if (activeThreadSubmissions.has(threadId)) {
+    return false;
+  }
+
+  activeThreadSubmissions.add(threadId);
+  return true;
+}
+
+function releaseThreadSubmission(threadId: string) {
+  activeThreadSubmissions.delete(threadId);
+}
 
 export default function NewChatSender({
+  threadId,
   message,
   extraContext,
   context,
@@ -15,6 +28,7 @@ export default function NewChatSender({
   onStartedThread,
   onError,
 }: {
+  threadId: string;
   message: PromptInputMessage;
   extraContext?: Record<string, unknown>;
   context: LocalSettings["context"];
@@ -22,8 +36,6 @@ export default function NewChatSender({
   onStartedThread: (threadId: string) => void;
   onError: () => void;
 }) {
-  const threadId = useMemo(() => uuid(), []);
-  const sentRef = useRef(false);
   const startedRef = useRef(false);
 
   const notifyStartedThread = (resolvedThreadId: string) => {
@@ -43,17 +55,20 @@ export default function NewChatSender({
   });
 
   useEffect(() => {
-    if (sentRef.current || !isThreadReady) {
+    if (!isThreadReady) {
       return;
     }
-    sentRef.current = true;
-    // This sender always pre-allocates the thread id locally, so do not let
-    // UI navigation depend on a later stream lifecycle callback.
+
     notifyStartedThread(threadId);
+
+    if (!claimThreadSubmission(threadId)) {
+      return;
+    }
+
     const sendPromise = sendMessage(threadId, message, extraContext).catch(
       () => {
-        sentRef.current = false;
         onError();
+        releaseThreadSubmission(threadId);
       },
     );
     void sendPromise;

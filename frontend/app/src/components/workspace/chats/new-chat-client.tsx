@@ -1,8 +1,6 @@
-"use client";
-
-import dynamic from "next/dynamic";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { lazy } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import {
   PromptInputProvider,
@@ -20,23 +18,24 @@ import {
 import { useI18n } from "@/core/i18n/hooks";
 import { useModels } from "@/core/models/hooks";
 import { useLocalSettings } from "@/core/settings";
+import { uuid } from "@/core/utils/uuid";
 import { env } from "@/env";
 import { cn } from "@/lib/utils";
 
-const NewChatSender = dynamic(
+const NewChatSender = lazy(
   () => import("@/components/workspace/chats/new-chat-sender"),
-  { ssr: false },
 );
 
 export default function NewChatClient() {
   const { t } = useI18n();
-  const router = useRouter();
-  const searchParams = useSearchParams();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const routeParams = useParams<{ agent_name?: string }>();
   const [settings, setSettings] = useLocalSettings();
   const { models } = useModels();
   const [pendingMessage, setPendingMessage] =
     useState<PromptInputMessage | null>(null);
+  const [pendingThreadId, setPendingThreadId] = useState<string | null>(null);
   const [pendingExtraContext, setPendingExtraContext] = useState<
     Record<string, unknown> | undefined
   >(undefined);
@@ -84,6 +83,7 @@ export default function NewChatClient() {
 
   const handleSubmit = useCallback(
     (message: PromptInputMessage, extraContext?: Record<string, unknown>) => {
+      setPendingThreadId(uuid());
       setPendingMessage(message);
       setPendingExtraContext(extraContext);
     },
@@ -176,19 +176,21 @@ export default function NewChatClient() {
     ],
   );
 
-  if (pendingMessage) {
+  if (pendingMessage && pendingThreadId) {
     return (
       <NewChatSender
+        threadId={pendingThreadId}
         message={pendingMessage}
         extraContext={pendingExtraContext}
         context={runtimeContext}
         isMock={isMock}
         onError={() => {
+          setPendingThreadId(null);
           setPendingMessage(null);
           setPendingExtraContext(undefined);
         }}
         onStartedThread={(threadId) => {
-          router.replace(buildStartedThreadPath(threadId));
+          void navigate(buildStartedThreadPath(threadId), { replace: true });
         }}
       />
     );
@@ -215,11 +217,11 @@ export default function NewChatClient() {
                     <Welcome mode={runtimeContext.mode} />
                   </div>
                 }
-                disabled={env.NEXT_PUBLIC_STATIC_WEBSITE_ONLY === "true"}
+                disabled={env.VITE_STATIC_WEBSITE_ONLY === "true"}
                 onContextChange={(context) => setSettings("context", context)}
                 onSubmit={handleSubmit}
               />
-              {env.NEXT_PUBLIC_STATIC_WEBSITE_ONLY === "true" && (
+              {env.VITE_STATIC_WEBSITE_ONLY === "true" && (
                 <div className="text-muted-foreground/67 w-full translate-y-12 text-center text-xs">
                   {t.common.notAvailableInDemoMode}
                 </div>

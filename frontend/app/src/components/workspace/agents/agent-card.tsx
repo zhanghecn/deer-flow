@@ -1,5 +1,3 @@
-"use client";
-
 import {
   BotIcon,
   BrainIcon,
@@ -11,8 +9,8 @@ import {
   Settings2Icon,
   Trash2Icon,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -62,7 +60,7 @@ function getAgentMemoryBadgeLabel(
 
 export function AgentCard({ agent }: AgentCardProps) {
   const { t } = useI18n();
-  const router = useRouter();
+  const navigate = useNavigate();
   const deleteAgent = useDeleteAgent();
   const downloadDemoMutation = useDownloadAgentReactDemo();
   const publishAgentMutation = usePublishAgent();
@@ -78,7 +76,7 @@ export function AgentCard({ agent }: AgentCardProps) {
   });
 
   function handleChat() {
-    router.push(launchPath);
+    void navigate(launchPath);
   }
 
   async function handleCopyLaunchURL() {
@@ -120,7 +118,7 @@ export function AgentCard({ agent }: AgentCardProps) {
 
   return (
     <>
-      <Card className="group flex flex-col transition-shadow hover:shadow-md">
+      <Card className="group flex flex-col bg-background transition-shadow hover:shadow-md dark:glass dark:hover:glow-cyan">
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-2">
             <div className="flex items-center gap-2">

@@ -1,7 +1,5 @@
-"use client";
-
 import { ChevronRightIcon } from "lucide-react";
-import Link from "next/link";
+import { Link } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { FlickeringGrid } from "@/components/ui/flickering-grid";
@@ -28,7 +26,7 @@ export function Hero({ className }: { className?: string }) {
         />
       </div>
       <FlickeringGrid
-        className="absolute inset-0 z-0 translate-y-8 mask-[url(/images/deer.svg)] mask-size-[100vw] mask-center mask-no-repeat md:mask-size-[72vh]"
+        className="absolute inset-0 z-0 translate-y-8 mask-[url(/images/openagents-logo.svg)] mask-size-[100vw] mask-center mask-no-repeat md:mask-size-[72vh]"
         squareSize={4}
         gridGap={4}
         color={"white"}
@@ -54,7 +52,7 @@ export function Hero({ className }: { className?: string }) {
               "Learn Anything",
             ]}
           />{" "}
-          <div>with OpenAgents</div>
+          <div>with DeerFlow</div>
         </h1>
         <p
           className="mt-8 scale-105 text-center text-2xl text-shadow-sm"
@@ -68,7 +66,7 @@ export function Hero({ className }: { className?: string }) {
           <br />
           different levels of tasks that could take minutes to hours.
         </p>
-        <Link href="/workspace">
+        <Link to="/workspace">
           <Button className="size-lg mt-8 scale-108" size="lg">
             <span className="text-md">Get Started with 2.0</span>
             <ChevronRightIcon className="size-4" />

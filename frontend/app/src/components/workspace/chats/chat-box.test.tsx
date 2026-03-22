@@ -4,15 +4,15 @@ import { describe, expect, it, vi } from "vitest";
 
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { ArtifactsProvider, useArtifacts } from "@/components/workspace/artifacts";
+import type * as WorkspaceArtifacts from "@/components/workspace/artifacts";
 import { ThreadContext } from "@/components/workspace/messages/context";
 import type { AgentThreadState } from "@/core/threads";
 
 import { ChatBox } from "./chat-box";
 
 vi.mock("@/components/workspace/artifacts", async () => {
-  const actual = await vi.importActual<typeof import("@/components/workspace/artifacts")>(
-    "@/components/workspace/artifacts",
-  );
+  const actual: typeof WorkspaceArtifacts =
+    await vi.importActual("@/components/workspace/artifacts");
 
   return {
     ...actual,

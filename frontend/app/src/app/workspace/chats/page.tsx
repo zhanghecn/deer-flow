@@ -1,7 +1,5 @@
-"use client";
-
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -50,8 +48,7 @@ export default function ChatsPage() {
                 {filteredThreads?.map((thread) => (
                   <Link
                     key={thread.thread_id}
-                    href={pathOfThread(thread)}
-                    prefetch={false}
+                    to={pathOfThread(thread)}
                   >
                     <div className="flex flex-col gap-2 border-b p-4">
                       <div>

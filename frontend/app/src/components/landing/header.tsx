@@ -1,15 +1,56 @@
-import { StarFilledIcon, GitHubLogoIcon } from "@radix-ui/react-icons";
+import { GitHubLogoIcon, StarFilledIcon } from "@radix-ui/react-icons";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { NumberTicker } from "@/components/ui/number-ticker";
-import { env } from "@/env";
+import {
+  APP_NAME,
+  GITHUB_REPO_API_URL,
+  GITHUB_REPO_URL,
+} from "@/core/config/site";
+
+let githubStarCount: number | null = null;
+let githubStarCountPromise: Promise<number | null> | null = null;
+
+async function loadGitHubStarCount() {
+  if (githubStarCount !== null) {
+    return githubStarCount;
+  }
+
+  githubStarCountPromise ??= fetch(GITHUB_REPO_API_URL)
+      .then(async (response) => {
+        if (!response.ok) {
+          return null;
+        }
+
+        const data = (await response.json()) as {
+          stargazers_count?: number;
+        };
+        const stars =
+          typeof data.stargazers_count === "number"
+            ? data.stargazers_count
+            : null;
+        githubStarCount = stars;
+        return stars;
+      })
+      .catch(() => null)
+      .finally(() => {
+        githubStarCountPromise = null;
+      });
+
+  return githubStarCountPromise;
+}
 
 export function Header() {
   return (
     <header className="container-md fixed top-0 right-0 left-0 z-20 mx-auto flex h-16 items-center justify-between backdrop-blur-xs">
       <div className="flex items-center gap-2">
-        <a href="https://github.com/bytedance/openagents" target="_blank">
-          <h1 className="font-serif text-xl">OpenAgents</h1>
+        <a
+          href={GITHUB_REPO_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <h1 className="font-serif text-xl">{APP_NAME}</h1>
         </a>
       </div>
       <div className="relative">
@@ -26,11 +67,14 @@ export function Header() {
           asChild
           className="group relative z-10"
         >
-          <a href="https://github.com/bytedance/openagents" target="_blank">
+          <a
+            href={GITHUB_REPO_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
             <GitHubLogoIcon className="size-4" />
             Star on GitHub
-            {env.NEXT_PUBLIC_STATIC_WEBSITE_ONLY === "true" &&
-              env.GITHUB_OAUTH_TOKEN && <StarCounter />}
+            <GitHubStarCounter />
           </a>
         </Button>
       </div>
@@ -39,38 +83,26 @@ export function Header() {
   );
 }
 
-async function StarCounter() {
-  let stars = 10000; // Default value
+function GitHubStarCounter() {
+  const [stars, setStars] = useState(10000);
 
-  try {
-    const response = await fetch(
-      "https://api.github.com/repos/bytedance/openagents",
-      {
-        headers: env.GITHUB_OAUTH_TOKEN
-          ? {
-              Authorization: `Bearer ${env.GITHUB_OAUTH_TOKEN}`,
-              "Content-Type": "application/json",
-            }
-          : {},
-        next: {
-          revalidate: 3600,
-        },
-      },
-    );
+  useEffect(() => {
+    let active = true;
 
-    if (response.ok) {
-      const data = await response.json();
-      stars = data.stargazers_count ?? stars; // Update stars if API response is valid
-    }
-  } catch (error) {
-    console.error("Error fetching GitHub stars:", error);
-  }
+    void loadGitHubStarCount().then((nextStars) => {
+      if (active && typeof nextStars === "number") {
+        setStars(nextStars);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   return (
     <>
       <StarFilledIcon className="size-4 transition-colors duration-300 group-hover:text-yellow-500" />
-      {stars && (
-        <NumberTicker className="font-mono tabular-nums" value={stars} />
-      )}
+      <NumberTicker className="font-mono tabular-nums" value={stars} />
     </>
   );
 }

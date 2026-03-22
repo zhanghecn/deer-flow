@@ -1,7 +1,5 @@
-"use client";
-
-import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { useI18n } from "@/core/i18n/hooks";
 import { cn } from "@/lib/utils";
@@ -18,7 +16,7 @@ export function Welcome({
   mode?: "pro" | "flash";
 }) {
   const { t } = useI18n();
-  const searchParams = useSearchParams();
+  const [searchParams] = useSearchParams();
   const isPro = useMemo(() => mode === "pro", [mode]);
   const colors = useMemo(() => {
     if (isPro) {
@@ -36,7 +34,7 @@ export function Welcome({
         className,
       )}
     >
-      <div className="text-2xl font-bold">
+      <div className="text-2xl font-bold text-foreground dark:text-primary dark:text-glow">
         {searchParams.get("mode") === "skill" ? (
           `✨ ${t.welcome.createYourOwnSkill} ✨`
         ) : (
@@ -59,7 +57,7 @@ export function Welcome({
           )}
         </div>
       ) : (
-        <div className="text-muted-foreground text-sm">
+        <div className="text-muted-foreground text-sm dark:text-muted-foreground/80">
           {t.welcome.description.includes("\n") ? (
             <pre className="whitespace-pre">{t.welcome.description}</pre>
           ) : (

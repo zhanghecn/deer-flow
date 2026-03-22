@@ -1,14 +1,6 @@
-"use client";
-
 import { BotIcon, MessagesSquare, Trash2 } from "lucide-react";
-import Link from "next/link";
-import {
-  useParams,
-  usePathname,
-  useRouter,
-  useSearchParams,
-} from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -30,9 +22,9 @@ import { useClearThreads, useThreads } from "@/core/threads/query-hooks";
 
 export function WorkspaceNavChatList() {
   const { t } = useI18n();
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const navigate = useNavigate();
+  const pathname = useLocation().pathname;
+  const [searchParams] = useSearchParams();
   const { thread_id: threadIdFromPath } = useParams<{ thread_id?: string }>();
   const { data: threads = [] } = useThreads();
   const clearThreads = useClearThreads();
@@ -69,7 +61,7 @@ export function WorkspaceNavChatList() {
       setClearDialogOpen(false);
       toast.success(t.chats.clearAllSuccess);
       if (threadIdFromPath && threadIdFromPath !== "new") {
-        void router.push(nextPath);
+        void navigate(nextPath);
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
@@ -77,7 +69,7 @@ export function WorkspaceNavChatList() {
   }, [
     clearThreads,
     nextPath,
-    router,
+    navigate,
     t.chats.clearAllSuccess,
     threadIdFromPath,
   ]);
@@ -90,8 +82,7 @@ export function WorkspaceNavChatList() {
             <SidebarMenuButton isActive={isChatsPage} asChild>
               <Link
                 className="text-muted-foreground"
-                href="/workspace/chats"
-                prefetch={false}
+                to="/workspace/chats"
               >
                 <MessagesSquare />
                 <span>{t.sidebar.chats}</span>
@@ -102,8 +93,7 @@ export function WorkspaceNavChatList() {
             <SidebarMenuButton isActive={isAgentsPage} asChild>
               <Link
                 className="text-muted-foreground"
-                href="/workspace/agents"
-                prefetch={false}
+                to="/workspace/agents"
               >
                 <BotIcon />
                 <span>{t.sidebar.agents}</span>

@@ -17,7 +17,7 @@ function getDateFnsLocale(locale: Locale) {
 export function formatTimeAgo(date: Date | string | number, locale?: Locale) {
   const effectiveLocale =
     locale ??
-    (getLocaleFromCookie() as Locale | null) ??
+    getLocaleFromCookie() ??
     // Fallback when cookie is missing (or on first render)
     detectLocale();
   return formatDistanceToNow(date, {

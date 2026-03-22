@@ -1,5 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000";
+const { port } = new URL(baseURL);
+const webServerPort = Number(port || "3000");
+
 export default defineConfig({
   testDir: "./e2e",
   timeout: 30_000,
@@ -8,9 +12,10 @@ export default defineConfig({
     timeout: 10_000,
   },
   use: {
-    baseURL: "http://127.0.0.1:3100",
+    baseURL,
     trace: "retain-on-failure",
     video: "retain-on-failure",
+    launchOptions: process.platform === "linux" ? { args: ["--no-sandbox"] } : undefined,
   },
   projects: [
     {
@@ -21,9 +26,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "pnpm build && pnpm start --hostname 127.0.0.1 --port 3100",
-    port: 3100,
-    reuseExistingServer: false,
+    command: `pnpm dev -- --host localhost --port ${webServerPort} --strictPort`,
+    port: webServerPort,
+    reuseExistingServer: !process.env.CI,
     timeout: 240_000,
   },
 });

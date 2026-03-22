@@ -1,5 +1,3 @@
-"use client";
-
 import {
   BugIcon,
   ChevronsUpDown,
@@ -10,9 +8,8 @@ import {
   Settings2Icon,
   ShieldIcon,
 } from "lucide-react";
-import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { lazy, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -30,19 +27,23 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/core/auth/hooks";
+import {
+  GITHUB_ISSUES_URL,
+  GITHUB_REPO_URL,
+  OFFICIAL_WEBSITE_URL,
+} from "@/core/config/site";
 import { useI18n } from "@/core/i18n/hooks";
 
 import { GithubIcon } from "./github-icon";
 
-const SettingsDialog = dynamic(
-  () => import("./settings/settings-dialog").then((m) => m.SettingsDialog),
-  { ssr: false },
+const SettingsDialog = lazy(
+  () => import("./settings/settings-dialog").then((m) => ({ default: m.SettingsDialog })),
 );
 
 function initialsOf(label: string): string {
   const cleaned = label.trim();
   if (!cleaned) {
-    return "OA";
+    return "DF";
   }
   const segments = cleaned
     .split(/\s+/)
@@ -104,7 +105,7 @@ export function WorkspaceNavMenu() {
     "appearance" | "tools" | "skills" | "notification" | "about"
   >("appearance");
   const [mounted, setMounted] = useState(false);
-  const router = useRouter();
+  const navigate = useNavigate();
   const { open: isSidebarOpen } = useSidebar();
   const { t } = useI18n();
   const { user, logout } = useAuth();
@@ -125,7 +126,7 @@ export function WorkspaceNavMenu() {
 
   const handleLogout = () => {
     logout();
-    router.push("/login");
+    void navigate("/login");
   };
 
   return (
@@ -180,58 +181,62 @@ export function WorkspaceNavMenu() {
                     {t.common.settings}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <a
-                    href="https://openagents.tech/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <a
+                      href={OFFICIAL_WEBSITE_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
                       <GlobeIcon />
                       {t.workspace.officialWebsite}
-                    </DropdownMenuItem>
-                  </a>
-                  <a
-                    href="https://github.com/bytedance/openagents"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <DropdownMenuItem>
+                    </a>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <a
+                      href={GITHUB_REPO_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
                       <GithubIcon />
                       {t.workspace.visitGithub}
-                    </DropdownMenuItem>
-                  </a>
+                    </a>
+                  </DropdownMenuItem>
                   {isAdmin && (
                     <>
                       <DropdownMenuSeparator />
-                      <a
-                        href="/admin/"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <DropdownMenuItem>
+                      <DropdownMenuItem asChild>
+                        <a
+                          href="/admin/"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
                           <ShieldIcon />
                           Admin Console
-                        </DropdownMenuItem>
-                      </a>
+                        </a>
+                      </DropdownMenuItem>
                     </>
                   )}
                   <DropdownMenuSeparator />
-                  <a
-                    href="https://github.com/bytedance/openagents/issues"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <a
+                      href={GITHUB_ISSUES_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
                       <BugIcon />
                       {t.workspace.reportIssue}
-                    </DropdownMenuItem>
-                  </a>
-                  <a href="mailto:support@openagents.tech">
-                    <DropdownMenuItem>
+                    </a>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <a
+                      href={GITHUB_ISSUES_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
                       <MailIcon />
                       {t.workspace.contactUs}
-                    </DropdownMenuItem>
-                  </a>
+                    </a>
+                  </DropdownMenuItem>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem

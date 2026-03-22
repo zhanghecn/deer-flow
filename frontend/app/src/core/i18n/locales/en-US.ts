@@ -54,11 +54,11 @@ export const enUS: Translations = {
   welcome: {
     greeting: "Hello, again!",
     description:
-      "Welcome to 🦌 OpenAgents, an open source super agent. With built-in and custom skills, OpenAgents helps you search on the web, analyze data, and generate artifacts like slides, web pages and do almost anything.",
+      "Welcome to 🦌 DeerFlow, an open source super agent. With built-in and custom skills, DeerFlow helps you search on the web, analyze data, and generate artifacts like slides, web pages and do almost anything.",
 
     createYourOwnSkill: "Create Your Own Skill",
     createYourOwnSkillDescription:
-      "Create your own skill to release the power of OpenAgents. With customized skills,\nOpenAgents can help you search on the web, analyze data, and generate\n artifacts like slides, web pages and do almost anything.",
+      "Create your own skill to release the power of DeerFlow. With customized skills,\nDeerFlow can help you search on the web, analyze data, and generate\n artifacts like slides, web pages and do almost anything.",
   },
 
   // Clipboard
@@ -219,13 +219,13 @@ export const enUS: Translations = {
 
   // Workspace
   workspace: {
-    officialWebsite: "OpenAgents's official website",
-    githubTooltip: "OpenAgents on Github",
+    officialWebsite: "DeerFlow's official website",
+    githubTooltip: "DeerFlow on Github",
     settingsAndMore: "Settings and more",
-    visitGithub: "OpenAgents on GitHub",
+    visitGithub: "DeerFlow on GitHub",
     reportIssue: "Report a issue",
     contactUs: "Contact us",
-    about: "About OpenAgents",
+    about: "About DeerFlow",
   },
 
   // Conversation
@@ -282,7 +282,7 @@ export const enUS: Translations = {
 
   // Page titles (document title)
   pages: {
-    appName: "OpenAgents",
+    appName: "DeerFlow",
     chats: "Chats",
     newChat: "New chat",
     untitled: "Untitled",
@@ -314,7 +314,7 @@ export const enUS: Translations = {
     writeFile: "Write file",
     clickToViewContent: "Click to view file content",
     writeTodos: "Update to-do list",
-    skillInstallTooltip: "Install skill and make it available to OpenAgents",
+    skillInstallTooltip: "Install skill and make it available to DeerFlow",
   },
 
   // Subtasks
@@ -339,7 +339,7 @@ export const enUS: Translations = {
   // Settings
   settings: {
     title: "Settings",
-    description: "Adjust how OpenAgents looks and behaves for you.",
+    description: "Adjust how DeerFlow looks and behaves for you.",
     sections: {
       appearance: "Appearance",
       tools: "Tools",
@@ -377,12 +377,12 @@ export const enUS: Translations = {
     notification: {
       title: "Notification",
       description:
-        "OpenAgents only sends a completion notification when the window is not active. This is especially useful for long-running tasks so you can switch to other work and get notified when done.",
+        "DeerFlow only sends a completion notification when the window is not active. This is especially useful for long-running tasks so you can switch to other work and get notified when done.",
       requestPermission: "Request notification permission",
       deniedHint:
         "Notification permission was denied. You can enable it in your browser's site settings to receive completion alerts.",
       testButton: "Send test notification",
-      testTitle: "OpenAgents",
+      testTitle: "DeerFlow",
       testBody: "This is a test notification.",
       notSupported: "Your browser does not support notifications.",
       disableNotification: "Disable notification",

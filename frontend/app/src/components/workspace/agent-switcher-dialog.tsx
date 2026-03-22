@@ -1,8 +1,5 @@
-"use client";
-
 import { BotIcon, ChevronDownIcon } from "lucide-react";
-import dynamic from "next/dynamic";
-import { useState } from "react";
+import { lazy, useState } from "react";
 
 import {
   Dialog,
@@ -16,9 +13,8 @@ import { isLeadAgent, type ResolvedAgentRuntimeSelection } from "@/core/agents";
 import { useI18n } from "@/core/i18n/hooks";
 import { cn } from "@/lib/utils";
 
-const AgentSwitcherPanel = dynamic(
-  () => import("./agent-switcher-panel").then((m) => m.AgentSwitcherPanel),
-  { ssr: false },
+const AgentSwitcherPanel = lazy(
+  () => import("./agent-switcher-panel").then((m) => ({ default: m.AgentSwitcherPanel })),
 );
 
 export function AgentSwitcherDialog({

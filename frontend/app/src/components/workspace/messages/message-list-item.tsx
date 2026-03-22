@@ -1,7 +1,7 @@
 import type { Message } from "@langchain/langgraph-sdk";
 import { FileIcon, Loader2Icon } from "lucide-react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { memo, useMemo, type ImgHTMLAttributes } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { Loader } from "@/components/ai-elements/loader";
 import {
@@ -154,18 +154,18 @@ function MessageContent_({
   isLoading?: boolean;
 }) {
   const isHuman = message.type === "human";
-  const router = useRouter();
-  const searchParams = useSearchParams();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const routeParams = useParams<{ thread_id: string; agent_name?: string }>();
-  const thread_id = routeParams.thread_id;
+  const threadId = routeParams.thread_id ?? "";
   const { sendMessage, thread, isMock } = useThread();
   const components = useMemo(
     () => ({
       img: (props: ImgHTMLAttributes<HTMLImageElement>) => (
-        <MessageImage {...props} threadId={thread_id} maxWidth="90%" />
+        <MessageImage {...props} threadId={threadId} maxWidth="90%" />
       ),
     }),
-    [thread_id],
+    [threadId],
   );
 
   const rawContent = extractContentFromMessage(message);
@@ -249,12 +249,12 @@ function MessageContent_({
     if (isMock) {
       nextPath += nextPath.includes("?") ? "&mock=true" : "?mock=true";
     }
-    router.push(nextPath);
+    void navigate(nextPath);
   }
 
   const filesList =
-    files && files.length > 0 && thread_id ? (
-      <RichFilesList files={files} threadId={thread_id} />
+    files && files.length > 0 && threadId ? (
+      <RichFilesList files={files} threadId={threadId} />
     ) : null;
 
   // Uploading state: mock AI message shown while files upload

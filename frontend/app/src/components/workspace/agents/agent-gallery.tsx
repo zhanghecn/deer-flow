@@ -1,7 +1,5 @@
-"use client";
-
 import { BotIcon, PlusIcon } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import { useAgents } from "@/core/agents";
@@ -12,7 +10,7 @@ import { AgentCard } from "./agent-card";
 export function AgentGallery() {
   const { t } = useI18n();
   const { agents, isLoading } = useAgents();
-  const router = useRouter();
+  const navigate = useNavigate();
   const sortedAgents = [...agents].sort((a, b) => {
     if (a.name === "lead_agent") return -1;
     if (b.name === "lead_agent") return 1;
@@ -21,7 +19,7 @@ export function AgentGallery() {
   });
 
   const handleNewAgent = () => {
-    router.push("/workspace/agents/new");
+    void navigate("/workspace/agents/new");
   };
 
   return (

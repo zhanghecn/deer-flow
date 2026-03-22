@@ -77,7 +77,7 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
       deselect();
     }
     if (
-      env.NEXT_PUBLIC_STATIC_WEBSITE_ONLY === "true" &&
+      env.VITE_STATIC_WEBSITE_ONLY === "true" &&
       autoSelectFirstArtifact
     ) {
       if (visibleArtifacts.length > 0) {
@@ -104,7 +104,7 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
     if (officeDialogOpen) {
       return false;
     }
-    if (env.NEXT_PUBLIC_STATIC_WEBSITE_ONLY === "true") {
+    if (env.VITE_STATIC_WEBSITE_ONLY === "true") {
       return artifactsOpen && artifacts?.length > 0;
     }
     return artifactsOpen;

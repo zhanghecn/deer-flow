@@ -653,6 +653,7 @@ export function useThreadStream({
   const ensureThreadPromiseRef = useRef<Promise<void> | null>(null);
   const ensureRequestedThreadIdRef = useRef<string | null>(null);
   const ensuredThreadIdRef = useRef<string | null>(null);
+  const skipHydrationJoinRef = useRef(false);
   const resolvedContext = useMemo(
     () => resolveThreadContext(context),
     [context],
@@ -679,6 +680,9 @@ export function useThreadStream({
         ? !(createdThreadDuringCurrentSession || skipInitialHistory)
         : false,
     );
+    skipHydrationJoinRef.current = Boolean(
+      threadId && skipInitialHistory && hasLocalActiveRunOwnership(threadId),
+    );
 
     if (!threadId || !authenticated) {
       ensureThreadPromiseRef.current = null;
@@ -689,7 +693,10 @@ export function useThreadStream({
     }
 
     setStreamThreadId(threadId);
-    if (createdThreadDuringCurrentSession) {
+    if (
+      createdThreadDuringCurrentSession ||
+      (skipInitialHistory && hasLocalActiveRunOwnership(threadId))
+    ) {
       return;
     }
 
@@ -867,13 +874,19 @@ export function useThreadStream({
               ? state.metadata.run_id
               : null;
           const allowLocalRunResume = hasLocalActiveRunOwnership(threadId);
+          const shouldSkipHydrationJoin = skipHydrationJoinRef.current;
           const shouldJoinPendingRun =
             allowLocalRunResume &&
+            !shouldSkipHydrationJoin &&
             !threadLoadingRef.current &&
             Array.isArray(state.next) &&
             state.next.length > 0 &&
             !!activeRunId;
           const joinStream = joinStreamRef.current;
+
+          if (shouldSkipHydrationJoin) {
+            skipHydrationJoinRef.current = false;
+          }
 
           if (
             shouldJoinPendingRun &&

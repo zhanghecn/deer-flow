@@ -1,5 +1,3 @@
-"use client";
-
 import React, { type MouseEventHandler } from "react";
 import confetti from "canvas-confetti";
 

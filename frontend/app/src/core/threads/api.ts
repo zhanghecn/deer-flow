@@ -1,11 +1,11 @@
 import { authFetch } from "@/core/auth/fetch";
 import { getBackendBaseURL } from "@/core/config";
 
-import type { AgentThread, ThreadRuntimeBinding } from "./types";
 import {
   resolveThreadSearchParams,
   type ThreadSearchParams,
 } from "./search";
+import type { AgentThread, ThreadRuntimeBinding } from "./types";
 
 export async function searchThreads(
   params: ThreadSearchParams = {},

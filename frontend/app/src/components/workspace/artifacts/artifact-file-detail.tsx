@@ -291,7 +291,7 @@ export function ArtifactFileDetail({
                   tooltip={t.common.install}
                   disabled={
                     isInstalling ||
-                    env.NEXT_PUBLIC_STATIC_WEBSITE_ONLY === "true"
+                    env.VITE_STATIC_WEBSITE_ONLY === "true"
                   }
                   onClick={handleInstallSkill}
                 />

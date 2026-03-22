@@ -1,14 +1,15 @@
 /**
- * Cookie utilities for locale management
- * Works on both client and server side
+ * Cookie utilities for locale management (client-side only)
  */
+
+import { type Locale, normalizeLocale } from "@/core/i18n";
 
 const LOCALE_COOKIE_NAME = "locale";
 
 /**
  * Get locale from cookie (client-side)
  */
-export function getLocaleFromCookie(): string | null {
+export function getLocaleFromCookie(): Locale | null {
   if (typeof document === "undefined") {
     return null;
   }
@@ -17,7 +18,7 @@ export function getLocaleFromCookie(): string | null {
   for (const cookie of cookies) {
     const [name, value] = cookie.trim().split("=");
     if (name === LOCALE_COOKIE_NAME) {
-      return decodeURIComponent(value ?? "");
+      return normalizeLocale(decodeURIComponent(value ?? ""));
     }
   }
   return null;
@@ -26,7 +27,7 @@ export function getLocaleFromCookie(): string | null {
 /**
  * Set locale in cookie (client-side)
  */
-export function setLocaleInCookie(locale: string): void {
+export function setLocaleInCookie(locale: Locale): void {
   if (typeof document === "undefined") {
     return;
   }
@@ -34,19 +35,4 @@ export function setLocaleInCookie(locale: string): void {
   // Set cookie with 1 year expiration
   const maxAge = 365 * 24 * 60 * 60; // 1 year in seconds
   document.cookie = `${LOCALE_COOKIE_NAME}=${encodeURIComponent(locale)}; max-age=${maxAge}; path=/; SameSite=Lax`;
-}
-
-/**
- * Get locale from cookie (server-side)
- * Use this in server components or API routes
- */
-export async function getLocaleFromCookieServer(): Promise<string | null> {
-  try {
-    const { cookies } = await import("next/headers");
-    const cookieStore = await cookies();
-    return cookieStore.get(LOCALE_COOKIE_NAME)?.value ?? null;
-  } catch {
-    // Fallback if cookies() is not available (e.g., in middleware)
-    return null;
-  }
 }

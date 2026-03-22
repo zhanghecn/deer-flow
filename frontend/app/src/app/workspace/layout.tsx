@@ -1,8 +1,6 @@
-"use client";
-
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import { useNavigate, Outlet } from "react-router-dom";
 import { Toaster } from "sonner";
 
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
@@ -12,10 +10,8 @@ import { getLocalSettings, useLocalSettings } from "@/core/settings";
 
 const queryClient = new QueryClient();
 
-export default function WorkspaceLayout({
-  children,
-}: Readonly<{ children: React.ReactNode }>) {
-  const router = useRouter();
+export default function WorkspaceLayout() {
+  const navigate = useNavigate();
   const { authenticated } = useAuth();
   const [settings, setSettings] = useLocalSettings();
   const [open, setOpen] = useState(false); // SSR default: open (matches server render)
@@ -38,8 +34,8 @@ export default function WorkspaceLayout({
     if (!authChecked || authenticated) {
       return;
     }
-    router.replace("/login");
-  }, [authChecked, authenticated, router]);
+    void navigate("/login", { replace: true });
+  }, [authChecked, authenticated, navigate]);
 
   const handleOpenChange = useCallback(
     (open: boolean) => {
@@ -57,7 +53,7 @@ export default function WorkspaceLayout({
       >
         <WorkspaceSidebar />
         <SidebarInset className="min-w-0">
-          {authenticated || !authChecked ? children : null}
+          {authenticated || !authChecked ? <Outlet /> : null}
         </SidebarInset>
       </SidebarProvider>
       <Toaster position="top-center" />

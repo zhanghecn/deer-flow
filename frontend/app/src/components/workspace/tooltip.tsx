@@ -1,5 +1,3 @@
-"use client";
-
 import {
   Tooltip as TooltipPrimitive,
   TooltipContent,

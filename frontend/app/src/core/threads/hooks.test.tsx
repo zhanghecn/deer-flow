@@ -569,7 +569,7 @@ describe("useThreadStream", () => {
     });
   });
 
-  it("joins an active run from current thread state while initial history loading is disabled", async () => {
+  it("does not manually rejoin an active run during initial pending-run hydration", async () => {
     apiClient.threads.create.mockImplementation(() => createPendingPromise());
     apiClient.threads.getState.mockResolvedValueOnce({
       values: {
@@ -606,8 +606,13 @@ describe("useThreadStream", () => {
     );
 
     await waitFor(() => {
-      expect(streamState.joinStream).toHaveBeenCalledWith("run-active-1");
+      expect(apiClient.threads.getState).toHaveBeenCalledWith(
+        "thread-1",
+        undefined,
+        { subgraphs: true },
+      );
     });
+    expect(streamState.joinStream).not.toHaveBeenCalled();
   });
 
   it("does not join an active run from another tab without local ownership", async () => {

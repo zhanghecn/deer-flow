@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect } from "react";
 
 import { useI18nContext } from "./context";
@@ -10,7 +8,6 @@ import { zhCN } from "./locales/zh-CN";
 import {
   DEFAULT_LOCALE,
   detectLocale,
-  normalizeLocale,
   type Locale,
   type Translations,
 } from "./index";
@@ -34,11 +31,7 @@ export function useI18n() {
   useEffect(() => {
     const saved = getLocaleFromCookie();
     if (saved) {
-      const normalizedSaved = normalizeLocale(saved);
-      setLocale(normalizedSaved);
-      if (saved !== normalizedSaved) {
-        setLocaleInCookie(normalizedSaved);
-      }
+      setLocale(saved);
       return;
     }
 

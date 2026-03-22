@@ -1,8 +1,6 @@
-"use client";
-
 import { MessageCircleQuestionMarkIcon } from "lucide-react";
-import { useParams } from "next/navigation";
 import { useState } from "react";
+import { useParams } from "react-router-dom";
 import { toast } from "sonner";
 
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";

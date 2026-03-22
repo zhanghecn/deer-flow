@@ -20,14 +20,18 @@ type ThreadPathOptions = {
 export function resolveThreadRuntimeBinding(
   binding: ThreadRuntimeBinding | null | undefined,
 ): ResolvedThreadRuntimeBinding {
+  const agentName = binding?.agent_name?.trim();
+  const remoteSessionId = binding?.remote_session_id?.trim();
+  const modelName = binding?.model_name?.trim();
   const executionBackend: AgentExecutionBackend =
     binding?.execution_backend === "remote" ? "remote" : undefined;
   return {
-    agentName: binding?.agent_name?.trim() || "lead_agent",
+    agentName: agentName && agentName.length > 0 ? agentName : "lead_agent",
     agentStatus: binding?.agent_status === "prod" ? "prod" : "dev",
     executionBackend,
-    remoteSessionId: binding?.remote_session_id?.trim() || "",
-    modelName: binding?.model_name?.trim() || undefined,
+    remoteSessionId:
+      remoteSessionId && remoteSessionId.length > 0 ? remoteSessionId : "",
+    modelName: modelName && modelName.length > 0 ? modelName : undefined,
   };
 }
 
@@ -38,7 +42,10 @@ export function buildThreadRuntimeContext(
     agent_name: selection.agentName,
     agent_status: selection.agentStatus,
     execution_backend: selection.executionBackend,
-    remote_session_id: selection.remoteSessionId || undefined,
+    remote_session_id:
+      selection.remoteSessionId.length > 0
+        ? selection.remoteSessionId
+        : undefined,
   };
 }
 

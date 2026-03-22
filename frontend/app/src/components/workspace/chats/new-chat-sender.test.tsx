@@ -1,4 +1,5 @@
 import { waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_LOCAL_SETTINGS } from "@/core/settings";
@@ -12,10 +13,6 @@ vi.mock("@/core/threads/hooks", () => ({
   useThreadStream: (...args: unknown[]) => useThreadStreamMock(...args),
 }));
 
-vi.mock("@/core/utils/uuid", () => ({
-  uuid: () => "thread-123",
-}));
-
 describe("NewChatSender", () => {
   it("navigates with the preallocated thread id once the sender is ready", async () => {
     const sendMessage = vi.fn().mockResolvedValue(undefined);
@@ -26,6 +23,7 @@ describe("NewChatSender", () => {
 
     renderWithProviders(
       <NewChatSender
+        threadId="thread-123"
         message={{ text: "hello", files: [] }}
         extraContext={{ command_name: "create-skill" }}
         context={DEFAULT_LOCAL_SETTINGS.context}
@@ -46,5 +44,32 @@ describe("NewChatSender", () => {
       );
     });
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("submits only once when StrictMode remounts the sender", async () => {
+    const sendMessage = vi.fn().mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          setTimeout(resolve, 0);
+        }),
+    );
+    useThreadStreamMock.mockReturnValue([null, sendMessage, null, true]);
+
+    renderWithProviders(
+      <StrictMode>
+        <NewChatSender
+          threadId="thread-strict"
+          message={{ text: "hello", files: [] }}
+          context={DEFAULT_LOCAL_SETTINGS.context}
+          isMock={false}
+          onStartedThread={vi.fn()}
+          onError={vi.fn()}
+        />
+      </StrictMode>,
+    );
+
+    await waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+    });
   });
 });

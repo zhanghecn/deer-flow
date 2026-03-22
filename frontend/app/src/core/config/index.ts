@@ -17,14 +17,14 @@ function getBrowserBaseURL() {
 
 function getGatewayBaseURL() {
   return trimTrailingSlash(
-    env.NEXT_PUBLIC_BACKEND_BASE_URL ?? DEFAULT_GATEWAY_BASE_URL,
+    env.VITE_BACKEND_BASE_URL ?? DEFAULT_GATEWAY_BASE_URL,
   );
 }
 
 export function getBackendBaseURL() {
   // Honor an explicit gateway base URL in the browser. This keeps host-run
   // `pnpm dev` on :3000 from depending on Next dev rewrites for API traffic.
-  if (env.NEXT_PUBLIC_BACKEND_BASE_URL) {
+  if (env.VITE_BACKEND_BASE_URL) {
     return getGatewayBaseURL();
   }
 

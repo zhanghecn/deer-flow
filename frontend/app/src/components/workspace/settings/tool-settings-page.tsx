@@ -1,5 +1,3 @@
-"use client";
-
 import {
   Item,
   ItemActions,
@@ -62,7 +60,7 @@ function MCPServerList({
           <ItemActions>
             <Switch
               checked={config.enabled}
-              disabled={env.NEXT_PUBLIC_STATIC_WEBSITE_ONLY === "true"}
+              disabled={env.VITE_STATIC_WEBSITE_ONLY === "true"}
               onCheckedChange={(checked) =>
                 enableMCPServer({ serverName: name, enabled: checked })
               }

@@ -1,16 +1,11 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import { PromptInputProvider } from "@/components/ai-elements/prompt-input";
 
 import { InputBox } from "./input-box";
-
-vi.mock("next/navigation", () => ({
-  useSearchParams: () => ({
-    get: () => null,
-  }),
-}));
 
 vi.mock("@/core/i18n/hooks", () => ({
   useI18n: () => ({
@@ -74,17 +69,19 @@ describe("InputBox", () => {
     const user = userEvent.setup();
 
     render(
-      <PromptInputProvider>
-        <InputBox
-          context={{
-            model_name: "kimi-k2.5",
-            mode: "pro",
-            agent_status: "dev",
-          }}
-          onContextChange={vi.fn()}
-          onSubmit={vi.fn()}
-        />
-      </PromptInputProvider>,
+      <MemoryRouter>
+        <PromptInputProvider>
+          <InputBox
+            context={{
+              model_name: "kimi-k2.5",
+              mode: "pro",
+              agent_status: "dev",
+            }}
+            onContextChange={vi.fn()}
+            onSubmit={vi.fn()}
+          />
+        </PromptInputProvider>
+      </MemoryRouter>,
     );
 
     const textarea = screen.getByPlaceholderText("Ask anything");

@@ -1,5 +1,3 @@
-"use client";
-
 import MagicBento, { type BentoCardProps } from "@/components/ui/magic-bento";
 import { cn } from "@/lib/utils";
 
@@ -52,8 +50,8 @@ export function WhatsNewSection({ className }: { className?: string }) {
   return (
     <Section
       className={cn("", className)}
-      title="Whats New in OpenAgents 2.0"
-      subtitle="OpenAgents is now evolving from a Deep Research agent into a full-stack Super Agent"
+      title="What&apos;s New in DeerFlow"
+      subtitle="DeerFlow is evolving from a deep research agent into a full-stack super agent platform"
     >
       <div className="flex w-full items-center justify-center">
         <MagicBento data={features} />

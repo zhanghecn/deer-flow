@@ -1,9 +1,6 @@
-"use client";
-
 import { MoreHorizontal, Pencil, Share2, Trash2 } from "lucide-react";
-import Link from "next/link";
-import { useParams, usePathname, useRouter } from "next/navigation";
 import { memo, useCallback, useMemo, useState } from "react";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -32,18 +29,19 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
+import { DEMO_SHARE_BASE_URL } from "@/core/config/site";
 import { useI18n } from "@/core/i18n/hooks";
 import {
   useDeleteThread,
   useRenameThread,
   useThreads,
 } from "@/core/threads/query-hooks";
+import type { AgentThread } from "@/core/threads/types";
 import {
   pathAfterThreadDeletion,
   pathOfThread,
   titleOfThread,
 } from "@/core/threads/utils";
-import type { AgentThread } from "@/core/threads/types";
 import { env } from "@/env";
 
 type RecentChatItemProps = {
@@ -80,8 +78,7 @@ const RecentChatItem = memo(function RecentChatItem({
       <SidebarMenuButton isActive={isActive} asChild className="min-w-0">
         <Link
           className="text-muted-foreground block w-full truncate"
-          href={href}
-          prefetch={false}
+          to={href}
           onMouseEnter={() => onPrefetch(href)}
           onFocus={() => onPrefetch(href)}
         >
@@ -89,7 +86,7 @@ const RecentChatItem = memo(function RecentChatItem({
         </Link>
       </SidebarMenuButton>
 
-      {env.NEXT_PUBLIC_STATIC_WEBSITE_ONLY !== "true" && (
+      {env.VITE_STATIC_WEBSITE_ONLY !== "true" && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <SidebarMenuAction
@@ -127,8 +124,8 @@ const RecentChatItem = memo(function RecentChatItem({
 
 export function RecentChatList() {
   const { t } = useI18n();
-  const router = useRouter();
-  const pathname = usePathname();
+  const navigate = useNavigate();
+  const pathname = useLocation().pathname;
   const { thread_id: threadIdFromPath } = useParams<{ thread_id: string }>();
   const { data: threads = [] } = useThreads();
   const { mutateAsync: deleteThread } = useDeleteThread();
@@ -160,13 +157,13 @@ export function RecentChatList() {
       try {
         await deleteThread({ threadId });
         if (threadId === threadIdFromPath) {
-          void router.push(pathAfterThreadDeletion(threads, threadId));
+          void navigate(pathAfterThreadDeletion(threads, threadId));
         }
       } catch (error) {
         toast.error(error instanceof Error ? error.message : String(error));
       }
     },
-    [deleteThread, router, threadIdFromPath, threads],
+    [deleteThread, navigate, threadIdFromPath, threads],
   );
 
   const handleRenameClick = useCallback(
@@ -189,11 +186,10 @@ export function RecentChatList() {
 
   const handleShare = useCallback(
     async (thread: AgentThread) => {
-      const VERCEL_URL = "https://openagents-v2.vercel.app";
       const isLocalhost =
         window.location.hostname === "localhost" ||
         window.location.hostname === "127.0.0.1";
-      const baseUrl = isLocalhost ? VERCEL_URL : window.location.origin;
+      const baseUrl = isLocalhost ? DEMO_SHARE_BASE_URL : window.location.origin;
       const shareUrl = `${baseUrl}${pathOfThread(thread)}`;
       try {
         await navigator.clipboard.writeText(shareUrl);
@@ -206,10 +202,10 @@ export function RecentChatList() {
   );
 
   const handlePrefetch = useCallback(
-    (href: string) => {
-      void router.prefetch(href);
+    (_href: string) => {
+      // No-op: react-router-dom does not support programmatic prefetch
     },
-    [router],
+    [],
   );
 
   if (threadItems.length === 0) {
@@ -220,7 +216,7 @@ export function RecentChatList() {
     <>
       <SidebarGroup className="flex min-h-0 flex-1 flex-col pt-0">
         <SidebarGroupLabel>
-          {env.NEXT_PUBLIC_STATIC_WEBSITE_ONLY !== "true"
+          {env.VITE_STATIC_WEBSITE_ONLY !== "true"
             ? t.sidebar.recentChats
             : t.sidebar.demoChats}
         </SidebarGroupLabel>

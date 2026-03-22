@@ -1,12 +1,13 @@
-"use client";
+import { Suspense, lazy } from "react";
 
-import dynamic from "next/dynamic";
-
-const NewChatClient = dynamic(
+const NewChatClient = lazy(
   () => import("@/components/workspace/chats/new-chat-client"),
-  { ssr: false },
 );
 
 export default function NewChatPage() {
-  return <NewChatClient />;
+  return (
+    <Suspense fallback={null}>
+      <NewChatClient />
+    </Suspense>
+  );
 }

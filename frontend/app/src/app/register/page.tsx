@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import { Navigate } from "react-router-dom";
 
 export default function RegisterPage() {
-  redirect("/login?mode=register");
+  return <Navigate to="/login?mode=register" replace />;
 }

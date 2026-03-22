@@ -1,5 +1,3 @@
-"use client";
-
 import {
   BellIcon,
   InfoIcon,
@@ -7,8 +5,7 @@ import {
   SparklesIcon,
   WrenchIcon,
 } from "lucide-react";
-import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState } from "react";
+import { lazy, useEffect, useMemo, useState } from "react";
 
 import {
   Dialog,
@@ -21,40 +18,35 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useI18n } from "@/core/i18n/hooks";
 import { cn } from "@/lib/utils";
 
-const AppearanceSettingsPage = dynamic(
+const AppearanceSettingsPage = lazy(
   () =>
     import("@/components/workspace/settings/appearance-settings-page").then(
-      (m) => m.AppearanceSettingsPage,
+      (m) => ({ default: m.AppearanceSettingsPage }),
     ),
-  { ssr: false },
 );
-const ToolSettingsPage = dynamic(
+const ToolSettingsPage = lazy(
   () =>
     import("@/components/workspace/settings/tool-settings-page").then(
-      (m) => m.ToolSettingsPage,
+      (m) => ({ default: m.ToolSettingsPage }),
     ),
-  { ssr: false },
 );
-const SkillSettingsPage = dynamic(
+const SkillSettingsPage = lazy(
   () =>
     import("@/components/workspace/settings/skill-settings-page").then(
-      (m) => m.SkillSettingsPage,
+      (m) => ({ default: m.SkillSettingsPage }),
     ),
-  { ssr: false },
 );
-const NotificationSettingsPage = dynamic(
+const NotificationSettingsPage = lazy(
   () =>
     import("@/components/workspace/settings/notification-settings-page").then(
-      (m) => m.NotificationSettingsPage,
+      (m) => ({ default: m.NotificationSettingsPage }),
     ),
-  { ssr: false },
 );
-const AboutSettingsPage = dynamic(
+const AboutSettingsPage = lazy(
   () =>
     import("@/components/workspace/settings/about-settings-page").then(
-      (m) => m.AboutSettingsPage,
+      (m) => ({ default: m.AboutSettingsPage }),
     ),
-  { ssr: false },
 );
 
 type SettingsSection =

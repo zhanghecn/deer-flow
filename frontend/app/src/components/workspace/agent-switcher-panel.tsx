@@ -1,5 +1,3 @@
-"use client";
-
 import {
   BotIcon,
   CheckIcon,
@@ -9,7 +7,6 @@ import {
   SearchIcon,
   Settings2Icon,
 } from "lucide-react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   useCallback,
   useDeferredValue,
@@ -17,6 +14,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -51,8 +49,8 @@ export function AgentSwitcherPanel({
   onClose?: () => void;
 }) {
   const { t } = useI18n();
-  const router = useRouter();
-  const searchParams = useSearchParams();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const routeParams = useParams<{ agent_name?: string }>();
   const { agents, isLoading, error } = useAgents();
   const [remoteDraft, setRemoteDraft] = useState("");
@@ -116,7 +114,7 @@ export function AgentSwitcherPanel({
   const navigateToSelection = useCallback(
     (selection: AgentSelection) => {
       onClose?.();
-      router.push(
+      void navigate(
         buildWorkspaceAgentPath(
           {
             agentName: selection.agentName,
@@ -128,7 +126,7 @@ export function AgentSwitcherPanel({
         ),
       );
     },
-    [onClose, router],
+    [onClose, navigate],
   );
 
   const handleStatusSelect = useCallback(
@@ -194,8 +192,8 @@ export function AgentSwitcherPanel({
 
   const handleOpenAgentCenter = useCallback(() => {
     onClose?.();
-    router.push("/workspace/agents");
-  }, [onClose, router]);
+    void navigate("/workspace/agents");
+  }, [navigate, onClose]);
 
   return (
     <>
