@@ -11,34 +11,4 @@ name: lead_agent
 skill_refs:
 - name: bootstrap
   source_path: shared/bootstrap
-- name: chart-visualization
-  source_path: shared/chart-visualization
-- name: consulting-analysis
-  source_path: shared/consulting-analysis
-- name: data-analysis
-  source_path: shared/data-analysis
-- name: deep-research
-  source_path: shared/deep-research
-- name: find-skills
-  source_path: shared/find-skills
-- name: frontend-design
-  source_path: shared/frontend-design
-- name: github-deep-research
-  source_path: shared/github-deep-research
-- name: image-generation
-  source_path: shared/image-generation
-- name: podcast-generation
-  source_path: shared/podcast-generation
-- name: ppt-generation
-  source_path: shared/ppt-generation
-- name: skill-creator
-  source_path: shared/skill-creator
-- name: surprise-me
-  source_path: shared/surprise-me
-- name: vercel-deploy
-  source_path: shared/vercel-deploy-claimable
-- name: video-generation
-  source_path: shared/video-generation
-- name: web-design-guidelines
-  source_path: shared/web-design-guidelines
 status: prod

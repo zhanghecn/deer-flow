@@ -52,6 +52,8 @@ vercel-labs/agent-skills@vercel-react-best-practices
 └ https://skills.sh/vercel-labs/agent-skills/vercel-react-best-practices
 ```
 
+That install hint comes from the registry output. In sandboxed manual workflows, prepend `--yes` to `npx` or use the helper script below so the install stays non-interactive.
+
 ### Step 3: Present the Best Match
 
 When you find relevant skills, present:

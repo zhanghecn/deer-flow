@@ -29,12 +29,20 @@ if [[ ! -d "$TARGET_ROOT" ]]; then
 fi
 
 TMP_HOME="$(mktemp -d)"
-trap 'rm -rf "$TMP_HOME"' EXIT
-
 SKILL_SOURCE="$TMP_HOME/.agents/skills/$SKILL_NAME"
 SKILL_TARGET="$TARGET_ROOT/$SKILL_NAME"
+INSTALL_LOG="$(mktemp)"
+trap 'rm -rf "$TMP_HOME" "$INSTALL_LOG"' EXIT
 
-HOME="$TMP_HOME" npx skills add "$FULL_SKILL_NAME" --yes --global > /dev/null 2>&1
+if ! HOME="$TMP_HOME" \
+XDG_CONFIG_HOME="$TMP_HOME/.config" \
+XDG_CACHE_HOME="$TMP_HOME/.cache" \
+XDG_DATA_HOME="$TMP_HOME/.local/share" \
+npm_config_yes=true \
+npx --yes skills add "$FULL_SKILL_NAME" --yes --global >"$INSTALL_LOG" 2>&1; then
+  cat "$INSTALL_LOG" >&2
+  exit 1
+fi
 
 if [[ ! -d "$SKILL_SOURCE" ]]; then
   echo "Skill '$SKILL_NAME' installation failed"
@@ -47,5 +55,6 @@ if [[ -e "$SKILL_TARGET" ]]; then
 fi
 
 cp -R "$SKILL_SOURCE" "$SKILL_TARGET"
+rm -f "$INSTALL_LOG"
 
 echo "Skill '$SKILL_NAME' installed successfully to $SKILL_TARGET"
