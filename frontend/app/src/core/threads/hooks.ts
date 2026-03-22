@@ -64,9 +64,13 @@ const DEFAULT_STREAM_THROTTLE = 192;
 const HISTORY_PAGE_SIZE = 1;
 const STREAM_RECURSION_LIMIT = 1000;
 const STATE_HYDRATION_DELAY_MS = process.env.NODE_ENV === "test" ? 0 : 1500;
+const PENDING_RUN_RECOVERY_POLL_MS =
+  process.env.NODE_ENV === "test" ? 25 : 2000;
 const STREAM_MODES = ["values", "messages-tuple", "custom"] as const;
 const ACTIVE_RUN_OWNER_STORAGE_PREFIX = "openagents:stream-owner:";
+const ACTIVE_RUN_METADATA_STORAGE_PREFIX = "lg:stream:";
 type ThreadOverride = {
+  source: "hydration" | "snapshot";
   values: AgentThreadState;
   messages: Message[];
   history: ThreadState<AgentThreadState>[];
@@ -156,6 +160,10 @@ function getActiveRunOwnerStorageKey(threadId: string) {
   return `${ACTIVE_RUN_OWNER_STORAGE_PREFIX}${threadId}`;
 }
 
+function getActiveRunMetadataStorageKey(threadId: string) {
+  return `${ACTIVE_RUN_METADATA_STORAGE_PREFIX}${threadId}`;
+}
+
 function hasLocalActiveRunOwnership(threadId?: string | null): boolean {
   if (typeof window === "undefined" || !threadId) {
     return false;
@@ -168,6 +176,36 @@ function hasLocalActiveRunOwnership(threadId?: string | null): boolean {
     );
   } catch {
     return false;
+  }
+}
+
+function readStoredActiveRunId(threadId?: string | null): string | null {
+  if (typeof window === "undefined" || !threadId) {
+    return null;
+  }
+
+  try {
+    return (
+      window.sessionStorage.getItem(getActiveRunMetadataStorageKey(threadId)) ??
+      null
+    );
+  } catch {
+    return null;
+  }
+}
+
+function storeActiveRunId(threadId?: string | null, runId?: string | null) {
+  if (typeof window === "undefined" || !threadId || !runId) {
+    return;
+  }
+
+  try {
+    window.sessionStorage.setItem(
+      getActiveRunMetadataStorageKey(threadId),
+      runId,
+    );
+  } catch {
+    // Ignore storage failures and fall back to state hydration recovery.
   }
 }
 
@@ -190,6 +228,18 @@ function clearLocalActiveRunOwnership(threadId?: string | null) {
 
   try {
     window.sessionStorage.removeItem(getActiveRunOwnerStorageKey(threadId));
+  } catch {
+    // Ignore storage failures during cleanup.
+  }
+}
+
+function clearStoredActiveRunId(threadId?: string | null) {
+  if (typeof window === "undefined" || !threadId) {
+    return;
+  }
+
+  try {
+    window.sessionStorage.removeItem(getActiveRunMetadataStorageKey(threadId));
   } catch {
     // Ignore storage failures during cleanup.
   }
@@ -511,12 +561,14 @@ function buildSubmitOptions(
 }
 
 function buildThreadOverride(
+  source: ThreadOverride["source"],
   values: AgentThreadState,
   messages: Message[],
   history: ThreadState<AgentThreadState>[],
   experimental_branchTree?: unknown,
 ): ThreadOverride {
   return {
+    source,
     values,
     messages,
     history,
@@ -529,6 +581,7 @@ function extractThreadMessages(values: AgentThreadState): Message[] {
 }
 
 function buildThreadOverrideFromState(
+  source: ThreadOverride["source"],
   values: AgentThreadState,
   history: ThreadState<AgentThreadState>[],
   experimentalBranchTree?: unknown,
@@ -538,7 +591,17 @@ function buildThreadOverrideFromState(
     return null;
   }
 
-  return buildThreadOverride(values, messages, history, experimentalBranchTree);
+  return buildThreadOverride(
+    source,
+    values,
+    messages,
+    history,
+    experimentalBranchTree,
+  );
+}
+
+function hasRenderableAssistantMessage(messages: Message[]) {
+  return messages.some((message) => message.type === "ai");
 }
 
 function getExperimentalBranchTree(source: object) {
@@ -623,6 +686,41 @@ function buildPassthroughThreadHistory<
   };
 }
 
+function serializeMessageForComparison(message: Message) {
+  return JSON.stringify({
+    id: message.id,
+    type: message.type,
+    name: "name" in message ? message.name : undefined,
+    content: message.content,
+    tool_calls: "tool_calls" in message ? message.tool_calls : undefined,
+    tool_call_id:
+      "tool_call_id" in message ? message.tool_call_id : undefined,
+    additional_kwargs: message.additional_kwargs,
+    status: "status" in message ? message.status : undefined,
+  });
+}
+
+function areEquivalentMessageLists(
+  left: Message[],
+  right: Message[],
+): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((message, index) => {
+    const otherMessage = right[index];
+    if (!otherMessage) {
+      return false;
+    }
+
+    return (
+      serializeMessageForComparison(message) ===
+      serializeMessageForComparison(otherMessage)
+    );
+  });
+}
+
 export function useThreadStream({
   threadId,
   context,
@@ -655,11 +753,11 @@ export function useThreadStream({
   const lastHydrationActivationRef = useRef<number | null>(null);
   const stateHydrationInFlightRef = useRef(false);
   const deferStateHydrationRef = useRef(false);
+  const terminalStateNotifiedRef = useRef(false);
   const stopPromiseRef = useRef<Promise<void> | null>(null);
   const ensureThreadPromiseRef = useRef<Promise<void> | null>(null);
   const ensureRequestedThreadIdRef = useRef<string | null>(null);
   const ensuredThreadIdRef = useRef<string | null>(null);
-  const skipHydrationJoinRef = useRef(false);
   const resolvedContext = useMemo(
     () => resolveThreadContext(context),
     [context],
@@ -685,9 +783,6 @@ export function useThreadStream({
       threadId
         ? !(createdThreadDuringCurrentSession || skipInitialHistory)
         : false,
-    );
-    skipHydrationJoinRef.current = Boolean(
-      threadId && skipInitialHistory && hasLocalActiveRunOwnership(threadId),
     );
 
     if (!threadId || !authenticated) {
@@ -744,6 +839,27 @@ export function useThreadStream({
     },
     [onError],
   );
+  const finalizeRecoveredRun = useCallback(
+    (state: AgentThreadState, resolvedThreadId?: string | null) => {
+      if (terminalStateNotifiedRef.current) {
+        return;
+      }
+
+      terminalStateNotifiedRef.current = true;
+      const activeThreadId = resolvedThreadId ?? streamThreadId ?? threadId;
+      clearLocalActiveRunOwnership(activeThreadId);
+      clearStoredActiveRunId(activeThreadId);
+      if (activeThreadId) {
+        deferStateHydrationRef.current = false;
+        lastHydrationActivationRef.current = null;
+        setHistoryEnabled(true);
+      }
+      lastErrorMessageRef.current = null;
+      onFinish?.(state);
+      void invalidateThreadSearchCaches(queryClient);
+    },
+    [onFinish, queryClient, streamThreadId, threadId],
+  );
   const thread = useStream<
     AgentThreadState,
     { InterruptType: AgentInterruptValue }
@@ -752,13 +868,19 @@ export function useThreadStream({
     assistantId: LEAD_AGENT_ID,
     threadId: streamThreadId,
     throttle: streamThrottle,
-    reconnectOnMount: isWindowActive,
+    reconnectOnMount: false,
     thread: passthroughThreadHistory,
     // Fresh threads can race with the first run before the runtime model is
     // persisted. Delay history reads until the first turn finishes.
     fetchStateHistory: historyEnabled ? { limit: HISTORY_PAGE_SIZE } : false,
     onCreated(meta) {
       setStreamThreadId(meta.thread_id);
+      storeActiveRunId(
+        meta.thread_id,
+        "run_id" in meta && typeof meta.run_id === "string"
+          ? meta.run_id
+          : null,
+      );
       if (!hasStartedStreamRef.current) {
         onStart?.(meta.thread_id);
         hasStartedStreamRef.current = true;
@@ -788,15 +910,7 @@ export function useThreadStream({
       }
     },
     onFinish(state) {
-      clearLocalActiveRunOwnership(streamThreadId ?? threadId ?? null);
-      if (streamThreadId) {
-        deferStateHydrationRef.current = false;
-        lastHydrationActivationRef.current = null;
-        setHistoryEnabled(true);
-      }
-      lastErrorMessageRef.current = null;
-      onFinish?.(state.values);
-      void invalidateThreadSearchCaches(queryClient);
+      finalizeRecoveredRun(state.values, streamThreadId ?? threadId ?? null);
     },
     onError(error) {
       notifyThreadError(error);
@@ -818,6 +932,7 @@ export function useThreadStream({
     joinedRunIdRef.current = null;
     lastHydrationActivationRef.current = null;
     stateHydrationInFlightRef.current = false;
+    terminalStateNotifiedRef.current = false;
   }, [threadId]);
 
   useEffect(() => {
@@ -828,6 +943,34 @@ export function useThreadStream({
 
     notifyThreadError(thread.error);
   }, [notifyThreadError, thread.error]);
+
+  useEffect(() => {
+    if (!threadId || !authenticated || thread.isLoading) {
+      return;
+    }
+
+    if (!hasLocalActiveRunOwnership(threadId)) {
+      return;
+    }
+
+    const activeRunId = readStoredActiveRunId(threadId);
+    if (!activeRunId || joinedRunIdRef.current === activeRunId) {
+      return;
+    }
+
+    const joinStream = joinStreamRef.current;
+    if (typeof joinStream !== "function") {
+      return;
+    }
+
+    joinedRunIdRef.current = activeRunId;
+    void joinStream(activeRunId, undefined, {
+      streamMode: [...STREAM_MODES],
+    }).catch((error: unknown) => {
+      joinedRunIdRef.current = null;
+      notifyThreadError(error);
+    });
+  }, [authenticated, notifyThreadError, thread.isLoading, threadId]);
 
   useEffect(() => {
     const shouldRefreshFromActivation =
@@ -864,6 +1007,7 @@ export function useThreadStream({
           }
 
           const nextThreadOverride = buildThreadOverrideFromState(
+            "hydration",
             state.values,
             [],
           );
@@ -878,19 +1022,13 @@ export function useThreadStream({
               ? state.metadata.run_id
               : null;
           const allowLocalRunResume = hasLocalActiveRunOwnership(threadId);
-          const shouldSkipHydrationJoin = skipHydrationJoinRef.current;
           const shouldJoinPendingRun =
             allowLocalRunResume &&
-            !shouldSkipHydrationJoin &&
             !threadLoadingRef.current &&
             Array.isArray(state.next) &&
             state.next.length > 0 &&
             !!activeRunId;
           const joinStream = joinStreamRef.current;
-
-          if (shouldSkipHydrationJoin) {
-            skipHydrationJoinRef.current = false;
-          }
 
           if (
             shouldJoinPendingRun &&
@@ -899,7 +1037,9 @@ export function useThreadStream({
             typeof joinStream === "function"
           ) {
             joinedRunIdRef.current = activeRunId;
-            void joinStream(activeRunId).catch((error: unknown) => {
+            void joinStream(activeRunId, undefined, {
+              streamMode: [...STREAM_MODES],
+            }).catch((error: unknown) => {
               joinedRunIdRef.current = null;
               notifyThreadError(error);
             });
@@ -943,6 +1083,72 @@ export function useThreadStream({
   ]);
 
   useEffect(() => {
+    if (!threadId || !authenticated || historyEnabled || !isWindowActive) {
+      return;
+    }
+
+    if (!hasLocalActiveRunOwnership(threadId)) {
+      return;
+    }
+
+    let cancelled = false;
+    const pollState = () => {
+      void apiClient.threads
+        .getState<AgentThreadState>(threadId, undefined, {
+          subgraphs: true,
+        })
+        .then((state) => {
+          if (cancelled) {
+            return;
+          }
+
+          const stateMessages = extractThreadMessages(state.values);
+          if (stateMessages.length === 0) {
+            return;
+          }
+
+          const nextThreadOverride = buildThreadOverrideFromState(
+            "hydration",
+            state.values,
+            [],
+            getExperimentalBranchTree(thread),
+          );
+          if (nextThreadOverride) {
+            setThreadOverride(nextThreadOverride);
+          }
+
+          const isTerminalRun =
+            Array.isArray(state.next) && state.next.length === 0;
+          if (isTerminalRun && hasRenderableAssistantMessage(stateMessages)) {
+            finalizeRecoveredRun(state.values, threadId);
+          }
+        })
+        .catch(() => {
+          // Ignore transient recovery fetch failures; the live stream may still win.
+        });
+    };
+
+    pollState();
+    const intervalId = window.setInterval(
+      pollState,
+      PENDING_RUN_RECOVERY_POLL_MS,
+    );
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [
+    apiClient,
+    authenticated,
+    finalizeRecoveredRun,
+    historyEnabled,
+    isWindowActive,
+    thread,
+    threadId,
+  ]);
+
+  useEffect(() => {
     if (
       optimisticMessages.length > 0 &&
       threadMessageCount > previousMessageCountRef.current
@@ -950,6 +1156,26 @@ export function useThreadStream({
       setOptimisticMessages([]);
     }
   }, [threadMessageCount, optimisticMessages.length]);
+
+  useEffect(() => {
+    if (threadOverride?.source !== "hydration") {
+      return;
+    }
+
+    if (thread.messages.length === 0) {
+      return;
+    }
+
+    if (thread.messages.length < threadOverride.messages.length) {
+      return;
+    }
+
+    if (areEquivalentMessageLists(thread.messages, threadOverride.messages)) {
+      return;
+    }
+
+    setThreadOverride(null);
+  }, [thread.messages, threadOverride]);
 
   const sendMessage = useCallback(
     async (
@@ -965,6 +1191,7 @@ export function useThreadStream({
       const text = message.text.trim();
       const files = message.files ?? [];
 
+      terminalStateNotifiedRef.current = false;
       setThreadOverride(null);
       lastErrorMessageRef.current = null;
       previousMessageCountRef.current = thread.messages.length;
@@ -992,6 +1219,7 @@ export function useThreadStream({
             notifyThreadError(error);
             setOptimisticMessages([]);
             clearLocalActiveRunOwnership(runThreadId);
+            clearStoredActiveRunId(runThreadId);
             throw error;
           }
         }
@@ -1022,6 +1250,7 @@ export function useThreadStream({
       } catch (error) {
         setOptimisticMessages([]);
         clearLocalActiveRunOwnership(runThreadId);
+        clearStoredActiveRunId(runThreadId);
         notifyThreadError(error);
         throw error;
       }
@@ -1056,6 +1285,7 @@ export function useThreadStream({
       }
 
       const selectedModelName = requireModelName(resolvedContext);
+      terminalStateNotifiedRef.current = false;
       setThreadOverride(null);
       lastErrorMessageRef.current = null;
       markLocalActiveRunOwnership(runThreadId);
@@ -1073,6 +1303,7 @@ export function useThreadStream({
         });
       } catch (error) {
         clearLocalActiveRunOwnership(runThreadId);
+        clearStoredActiveRunId(runThreadId);
         notifyThreadError(error);
         throw error;
       }
@@ -1106,6 +1337,7 @@ export function useThreadStream({
 
     const activeThreadId = threadId ?? streamThreadId;
     const snapshot = buildThreadOverride(
+      "snapshot",
       mergedThreadValues,
       mergedThread.messages,
       liveHistory,
@@ -1122,6 +1354,7 @@ export function useThreadStream({
         notifyThreadError(error);
       } finally {
         clearLocalActiveRunOwnership(activeThreadId);
+        clearStoredActiveRunId(activeThreadId);
       }
 
       setHistoryEnabled(true);
@@ -1149,6 +1382,7 @@ export function useThreadStream({
 
         latestState = state.values;
         const nextThreadOverride = buildThreadOverrideFromState(
+          "snapshot",
           state.values,
           history,
           getExperimentalBranchTree(thread),

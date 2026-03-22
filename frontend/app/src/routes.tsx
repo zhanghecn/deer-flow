@@ -11,13 +11,9 @@ const LoginPage = lazy(() => import("@/app/login/page"));
 const RegisterPage = lazy(() => import("@/app/register/page"));
 const WorkspaceLayout = lazy(() => import("@/app/workspace/layout"));
 const ChatsPage = lazy(() => import("@/app/workspace/chats/page"));
-const NewChatPage = lazy(() => import("@/app/workspace/chats/new/page"));
 const ChatPage = lazy(() => import("@/app/workspace/chats/[thread_id]/page"));
 const AgentsPage = lazy(() => import("@/app/workspace/agents/page"));
 const NewAgentPage = lazy(() => import("@/app/workspace/agents/new/page"));
-const AgentNewChatPage = lazy(
-  () => import("@/app/workspace/agents/[agent_name]/chats/new/page"),
-);
 const AgentChatPage = lazy(
   () =>
     import(
@@ -96,14 +92,16 @@ export function AppRoutes() {
               </PageSuspense>
             }
           />
-          <Route
-            path="chats/new"
-            element={
-              <PageSuspense>
-                <NewChatPage />
-              </PageSuspense>
-            }
-          />
+          <Route path="chats/new" element={<ChatLayout />}>
+            <Route
+              index
+              element={
+                <PageSuspense>
+                  <ChatPage />
+                </PageSuspense>
+              }
+            />
+          </Route>
           <Route path="chats/:thread_id" element={<ChatLayout />}>
             <Route
               index
@@ -130,14 +128,16 @@ export function AppRoutes() {
               </PageSuspense>
             }
           />
-          <Route
-            path="agents/:agent_name/chats/new"
-            element={
-              <PageSuspense>
-                <AgentNewChatPage />
-              </PageSuspense>
-            }
-          />
+          <Route path="agents/:agent_name/chats/new" element={<ChatLayout />}>
+            <Route
+              index
+              element={
+                <PageSuspense>
+                  <AgentChatPage />
+                </PageSuspense>
+              }
+            />
+          </Route>
           <Route
             path="agents/:agent_name/chats/:thread_id"
             element={<ChatLayout />}

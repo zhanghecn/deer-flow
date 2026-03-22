@@ -14,9 +14,13 @@ vi.mock("@/core/threads/hooks", () => ({
 }));
 
 describe("NewChatSender", () => {
-  it("navigates with the preallocated thread id once the sender is ready", async () => {
+  it("waits for stream start before navigating with the preallocated thread id", async () => {
     const sendMessage = vi.fn().mockResolvedValue(undefined);
-    useThreadStreamMock.mockReturnValue([null, sendMessage, null, true]);
+    let streamOptions: Record<string, unknown> | undefined;
+    useThreadStreamMock.mockImplementation((options: Record<string, unknown>) => {
+      streamOptions = options;
+      return [null, sendMessage, null, true];
+    });
 
     const onStartedThread = vi.fn();
     const onError = vi.fn();
@@ -34,14 +38,24 @@ describe("NewChatSender", () => {
     );
 
     await waitFor(() => {
-      expect(onStartedThread).toHaveBeenCalledWith("thread-123");
-    });
-    await waitFor(() => {
       expect(sendMessage).toHaveBeenCalledWith(
         "thread-123",
         { text: "hello", files: [] },
         { command_name: "create-skill" },
       );
+    });
+    expect(onStartedThread).not.toHaveBeenCalled();
+
+    const onStart = streamOptions?.onStart;
+    expect(typeof onStart).toBe("function");
+    if (typeof onStart !== "function") {
+      throw new Error("Expected onStart callback to be registered.");
+    }
+
+    onStart("thread-123");
+
+    await waitFor(() => {
+      expect(onStartedThread).toHaveBeenCalledWith("thread-123");
     });
     expect(onError).not.toHaveBeenCalled();
   });

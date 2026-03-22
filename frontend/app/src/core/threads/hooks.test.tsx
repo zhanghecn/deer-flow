@@ -646,7 +646,154 @@ describe("useThreadStream", () => {
     });
   });
 
-  it("does not manually rejoin an active run during initial pending-run hydration", async () => {
+  it("drops hydration overrides once live stream messages advance past the hydrated state", async () => {
+    const hydratedMessages: Message[] = [
+      {
+        id: "human-1",
+        type: "human",
+        content: [{ type: "text", text: "hello" }],
+        additional_kwargs: {},
+      },
+    ];
+    const streamedMessages: Message[] = [
+      ...hydratedMessages,
+      {
+        id: "ai-1",
+        type: "ai",
+        content: [{ type: "text", text: "streamed reply" }],
+        additional_kwargs: {},
+      },
+    ];
+
+    apiClient.threads.create.mockImplementation(() => createPendingPromise());
+    apiClient.threads.getState.mockResolvedValueOnce({
+      values: {
+        title: "Thread",
+        messages: hydratedMessages,
+        artifacts: [],
+      },
+      next: ["model"],
+      metadata: {
+        run_id: "run-active-1",
+      },
+    });
+    window.sessionStorage.setItem("openagents:stream-owner:thread-1", "1");
+
+    const { result } = renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          skipInitialHistory: true,
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    await waitFor(() => {
+      expect(result.current[0].messages).toEqual(hydratedMessages);
+    });
+
+    act(() => {
+      emitStream({
+        messages: streamedMessages,
+        values: {
+          title: "Thread",
+          messages: streamedMessages,
+          artifacts: [],
+        },
+        isLoading: true,
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current[0].messages).toEqual(streamedMessages);
+    });
+  });
+
+  it("drops hydration overrides when a streamed message chunk updates in place", async () => {
+    const hydratedMessages: Message[] = [
+      {
+        id: "human-1",
+        type: "human",
+        content: [{ type: "text", text: "hello" }],
+        additional_kwargs: {},
+      },
+      {
+        id: "ai-1",
+        type: "ai",
+        content: [{ type: "text", text: "partial" }],
+        additional_kwargs: {},
+      },
+    ];
+    const streamedMessages: Message[] = [
+      {
+        id: "human-1",
+        type: "human",
+        content: [{ type: "text", text: "hello" }],
+        additional_kwargs: {},
+      },
+      {
+        id: "ai-1",
+        type: "ai",
+        content: [{ type: "text", text: "partial reply expanded" }],
+        additional_kwargs: {},
+      },
+    ];
+
+    apiClient.threads.create.mockImplementation(() => createPendingPromise());
+    apiClient.threads.getState.mockResolvedValueOnce({
+      values: {
+        title: "Thread",
+        messages: hydratedMessages,
+        artifacts: [],
+      },
+      next: ["model"],
+      metadata: {
+        run_id: "run-active-1",
+      },
+    });
+    window.sessionStorage.setItem("openagents:stream-owner:thread-1", "1");
+
+    const { result } = renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          skipInitialHistory: true,
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    await waitFor(() => {
+      expect(result.current[0].messages).toEqual(hydratedMessages);
+    });
+
+    act(() => {
+      emitStream({
+        messages: streamedMessages,
+        values: {
+          title: "Thread",
+          messages: streamedMessages,
+          artifacts: [],
+        },
+        isLoading: true,
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current[0].messages).toEqual(streamedMessages);
+    });
+  });
+
+  it("rejoins an owned active run during initial pending-run hydration with full stream modes", async () => {
     apiClient.threads.create.mockImplementation(() => createPendingPromise());
     apiClient.threads.getState.mockResolvedValueOnce({
       values: {
@@ -689,7 +836,124 @@ describe("useThreadStream", () => {
         { subgraphs: true },
       );
     });
-    expect(streamState.joinStream).not.toHaveBeenCalled();
+    expect(streamState.joinStream).toHaveBeenCalledWith(
+      "run-active-1",
+      undefined,
+      {
+        streamMode: ["values", "messages-tuple", "custom"],
+      },
+    );
+  });
+
+  it("rejoins immediately from stored run metadata before thread state hydration catches up", async () => {
+    apiClient.threads.create.mockImplementation(() => createPendingPromise());
+    apiClient.threads.getState.mockResolvedValueOnce({
+      values: {
+        title: "Thread",
+        messages: [],
+        artifacts: [],
+      },
+    });
+    window.sessionStorage.setItem("openagents:stream-owner:thread-1", "1");
+    window.sessionStorage.setItem("lg:stream:thread-1", "run-resume-1");
+
+    renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          skipInitialHistory: true,
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    await waitFor(() => {
+      expect(streamState.joinStream).toHaveBeenCalledWith(
+        "run-resume-1",
+        undefined,
+        {
+          streamMode: ["values", "messages-tuple", "custom"],
+        },
+      );
+    });
+  });
+
+  it("recovers the final assistant state when the live finish event is missed", async () => {
+    apiClient.threads.create.mockImplementation(() => createPendingPromise());
+    const humanMessage: Message = {
+      id: "human-1",
+      type: "human",
+      content: [{ type: "text", text: "hello" }],
+      additional_kwargs: {},
+    };
+    const aiMessage: Message = {
+      id: "ai-1",
+      type: "ai",
+      content: [{ type: "text", text: "world" }],
+      additional_kwargs: {},
+    };
+    const completedState = {
+      title: "Thread",
+      messages: [humanMessage, aiMessage],
+      artifacts: [],
+    };
+    streamState = makeThreadState({
+      messages: [humanMessage],
+      values: {
+        title: "Thread",
+        messages: [humanMessage],
+        artifacts: [],
+      },
+    });
+
+    apiClient.threads.getState
+      .mockResolvedValueOnce({
+        values: {
+          title: "Thread",
+          messages: [humanMessage],
+          artifacts: [],
+        },
+        next: ["tools"],
+        metadata: {
+          run_id: "run-active-1",
+        },
+      })
+      .mockResolvedValue({
+        values: completedState,
+        next: [],
+        metadata: {
+          run_id: "run-active-1",
+        },
+      });
+    window.sessionStorage.setItem("openagents:stream-owner:thread-1", "1");
+
+    const onFinish = vi.fn();
+    const { result } = renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          skipInitialHistory: true,
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+          onFinish,
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    await waitFor(() => {
+      expect(result.current[0].messages).toEqual([humanMessage, aiMessage]);
+    });
+    expect(onFinish).toHaveBeenCalledWith(completedState);
+    expect(
+      window.sessionStorage.getItem("openagents:stream-owner:thread-1"),
+    ).toBeNull();
   });
 
   it("does not join an active run from another tab without local ownership", async () => {

@@ -1,6 +1,6 @@
 import type { Command } from "@langchain/langgraph-sdk";
 import { lazy } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
 import { type PromptInputMessage } from "@/components/ai-elements/prompt-input";
@@ -95,6 +95,23 @@ export default function ChatPage() {
   );
   const [runtimeContext, setRuntimeContext] =
     useState<typeof settings.context>(runtimeContextSeed);
+  const autoSubmitHandledRef = useRef(false);
+  const inputInitialValue = useMemo(() => {
+    const prefill = searchParams.get("prefill")?.trim();
+    if (prefill) {
+      return prefill;
+    }
+
+    if (searchParams.get("mode") === "skill") {
+      return t.inputBox.createSkillPrompt;
+    }
+
+    return undefined;
+  }, [searchParams, t.inputBox.createSkillPrompt]);
+  const selectedModelName =
+    typeof runtimeContext.model_name === "string"
+      ? runtimeContext.model_name.trim()
+      : "";
 
   useEffect(() => {
     setRuntimeContext(runtimeContextSeed);
@@ -135,30 +152,26 @@ export default function ChatPage() {
   ]);
 
   const [thread, sendMessage, resumeInterrupt] = useThreadStream({
-    threadId: isNewThread ? undefined : threadId,
+    threadId,
     context: runtimeContext,
     isMock,
-    skipInitialHistory: isPendingRun,
+    skipInitialHistory: isNewThread || isPendingRun,
     onStart: (createdThreadId) => {
       setIsPendingRun(true);
       setThreadId(createdThreadId);
-      setIsNewThread(false);
-      history.replaceState(
-        null,
-        "",
+      void navigate(
         buildThreadPath(runtimeSelection, createdThreadId, {
           isMock,
           isPendingRun: true,
         }),
+        { replace: true },
       );
     },
     onFinish: (state) => {
       setIsPendingRun(false);
-      history.replaceState(
-        null,
-        "",
-        buildThreadPath(runtimeSelection, threadId, { isMock }),
-      );
+      void navigate(buildThreadPath(runtimeSelection, threadId, { isMock }), {
+        replace: true,
+      });
       if (document.hidden || !document.hasFocus()) {
         showNotification(state.title, {
           body: buildThreadCompletionNotificationBody(state),
@@ -182,6 +195,33 @@ export default function ChatPage() {
     },
     [handleSendMessage],
   );
+
+  useEffect(() => {
+    if (
+      !isNewThread ||
+      autoSubmitHandledRef.current ||
+      searchParams.get("autosend") !== "1" ||
+      !inputInitialValue?.trim() ||
+      !selectedModelName
+    ) {
+      return;
+    }
+
+    autoSubmitHandledRef.current = true;
+    handleSubmit(
+      {
+        text: inputInitialValue,
+        files: [],
+      },
+      undefined,
+    );
+  }, [
+    handleSubmit,
+    inputInitialValue,
+    isNewThread,
+    searchParams,
+    selectedModelName,
+  ]);
   const handleResumeInterrupt = useCallback(
     async (command: Command, extraContext?: Record<string, unknown>) => {
       await resumeInterrupt(threadId, command, extraContext);
@@ -191,6 +231,35 @@ export default function ChatPage() {
   const handleStop = useCallback(async () => {
     await thread.stop();
   }, [thread]);
+
+  useEffect(() => {
+    if (thread.isLoading || !isPendingRun) {
+      return;
+    }
+
+    const hasAssistantReply = thread.messages.some(
+      (message) => message.type === "ai",
+    );
+    if (!hasAssistantReply) {
+      return;
+    }
+
+    setIsPendingRun(false);
+    const nextPath = buildThreadPath(runtimeSelection, threadId, { isMock });
+    const currentPath = buildCurrentPath(pathname, searchParams);
+    if (nextPath !== currentPath) {
+      void navigate(nextPath, { replace: true });
+    }
+  }, [
+    isMock,
+    isPendingRun,
+    navigate,
+    pathname,
+    runtimeSelection,
+    searchParams,
+    thread,
+    threadId,
+  ]);
 
   if (!isNewThread && threadRuntimeLoading && !threadRuntime) {
     return (
@@ -262,6 +331,7 @@ export default function ChatPage() {
                   autoFocus={isNewThread}
                   status={thread.isLoading ? "streaming" : "ready"}
                   context={runtimeContext}
+                  initialValue={inputInitialValue}
                   contextWindow={
                     isNewThread ? undefined : thread.values.context_window
                   }
