@@ -84,11 +84,58 @@ export async function login(
   page,
   { baseUrl, account, password, timeoutMs = 60000 },
 ) {
-  await page.goto(`${baseUrl}/login`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${baseUrl}/login`, {
+    waitUntil: "commit",
+    timeout: timeoutMs,
+  });
+  await page.locator("#login-account").waitFor({
+    state: "visible",
+    timeout: timeoutMs,
+  });
+  await page.waitForFunction(
+    () => {
+      const accountInput = document.querySelector("#login-account");
+      const passwordInput = document.querySelector("#login-password");
+
+      return Boolean(
+        accountInput &&
+          passwordInput &&
+          !accountInput.hasAttribute("disabled") &&
+          !passwordInput.hasAttribute("disabled"),
+      );
+    },
+    undefined,
+    { timeout: timeoutMs },
+  );
   await page.locator("#login-account").fill(account);
   await page.locator("#login-password").fill(password);
   await page.getByRole("button", { name: /sign in|登录/i }).click();
-  await page.waitForURL(/\/workspace(\/|$)/, { timeout: timeoutMs });
+
+  await waitForCondition(
+    "login completion",
+    async () => {
+      if (/\/workspace(\/|$)/.test(page.url())) {
+        return true;
+      }
+
+      try {
+        return await page.evaluate(() =>
+          Boolean(window.localStorage.getItem("openagents-auth")),
+        );
+      } catch {
+        return false;
+      }
+    },
+    timeoutMs,
+    500,
+  );
+
+  if (!/\/workspace(\/|$)/.test(page.url())) {
+    await page.goto(`${baseUrl}/workspace`, {
+      waitUntil: "commit",
+      timeout: timeoutMs,
+    });
+  }
 }
 
 export async function readAuthState(page) {

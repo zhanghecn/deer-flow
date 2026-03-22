@@ -561,11 +561,18 @@ function evaluateTCA(result) {
 }
 
 function evaluateTCB(result) {
-  const text = result.firstAssistantText;
+  const text = [
+    result.firstAssistantText,
+    result.firstClarificationQuestion,
+    ...(result.firstClarificationOptions ?? []),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
   const identifiesConflict = containsConflictRecognition(text);
   const mentionsReasons = /100\s*字|80\s*字|320|四个章节|四章节/.test(text);
   const asksPriority = containsPriorityQuestion(text);
-  const hasOptions = containsOptionList(text);
+  const hasOptions =
+    containsOptionList(text) || (result.firstClarificationOptions?.length ?? 0) >= 2;
   result.notes = [`首轮回复长度: ${text.length}`];
 
   if (identifiesConflict && mentionsReasons && asksPriority && hasOptions) {

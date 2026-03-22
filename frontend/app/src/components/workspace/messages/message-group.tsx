@@ -30,8 +30,8 @@ import {
 } from "@/core/messages/utils";
 import { workspaceMessageRehypePlugins } from "@/core/streamdown";
 import { extractClarificationRequestFromArgs } from "@/core/threads/interrupts";
-import { extractTitleFromMarkdown } from "@/core/utils/markdown";
 import { getUserVisibleRuntimePath } from "@/core/utils/files";
+import { extractTitleFromMarkdown } from "@/core/utils/markdown";
 import { env } from "@/env";
 import { cn } from "@/lib/utils";
 
@@ -512,8 +512,8 @@ function ToolCall({
             {clarification.context}
           </ChainOfThoughtSearchResult>
         )}
-        {clarification?.options.map((option) => (
-          <ChainOfThoughtSearchResult key={option}>
+        {clarification?.options.map((option, index) => (
+          <ChainOfThoughtSearchResult key={`${option}-${index}`}>
             {option}
           </ChainOfThoughtSearchResult>
         ))}

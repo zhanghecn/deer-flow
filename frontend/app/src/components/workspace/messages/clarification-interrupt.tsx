@@ -163,9 +163,9 @@ export function ClarificationInterrupt({
               {t.toolCalls.clarificationOptions}
             </div>
             <div className="flex flex-wrap gap-2">
-              {clarification.options.map((option) => (
+              {clarification.options.map((option, index) => (
                 <Button
-                  key={option}
+                  key={`${option}-${index}`}
                   variant="outline"
                   size="sm"
                   disabled={isDisabled}

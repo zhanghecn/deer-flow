@@ -19,6 +19,7 @@
 - 浏览器内核从 `frontend/app` 的 Playwright 依赖加载
 - 运行结果统一写入：
   `todos/multi_agent_test_suite_complete/agent_test_package/runtime_results/`
+- 如果目标是本地 Next dev server，请优先使用 `http://localhost:3000`，不要用 `http://127.0.0.1:3000`，否则 Next dev 的 `/_next/*` 资源可能触发跨源告警并让登录页 hydration 失效。
 
 ## 常用环境变量
 
@@ -28,6 +29,7 @@
   控制 Playwright 操作节奏，便于人工观察。
 - `RUN_TIMEOUT_MS=600000`
   控制单轮等待超时时间。
+  对 `TC-01`、`TC-02` 这类完整执行与产物生成场景，建议保持默认值；如果人为压到 240000，可能把长任务误判为失败。
 - `OPENAGENTS_TEST_RUN_ID=<token>`
   给 `headed_full_flow_probe.mjs` 生成唯一 skill/agent 名，避免与历史测试残留冲突。
 - `ONLY_SUITE=<key>`
