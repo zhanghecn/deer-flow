@@ -383,6 +383,12 @@ function primePendingThreadCaches(
   });
 }
 
+function invalidateThreadSearchCaches(queryClient: QueryClient) {
+  return queryClient.invalidateQueries({
+    queryKey: THREAD_SEARCH_QUERY_KEY,
+  });
+}
+
 function replaceOptimisticHumanFiles(
   messages: Message[],
   uploadedFiles: FileInMessage[],
@@ -790,9 +796,7 @@ export function useThreadStream({
       }
       lastErrorMessageRef.current = null;
       onFinish?.(state.values);
-      void queryClient.invalidateQueries({
-        queryKey: THREAD_SEARCH_QUERY_KEY,
-      });
+      void invalidateThreadSearchCaches(queryClient);
     },
     onError(error) {
       notifyThreadError(error);
@@ -1015,9 +1019,6 @@ export function useThreadStream({
             extraContext,
           ),
         );
-        void queryClient.invalidateQueries({
-          queryKey: THREAD_SEARCH_QUERY_KEY,
-        });
       } catch (error) {
         setOptimisticMessages([]);
         clearLocalActiveRunOwnership(runThreadId);
@@ -1075,10 +1076,6 @@ export function useThreadStream({
         notifyThreadError(error);
         throw error;
       }
-
-      void queryClient.invalidateQueries({
-        queryKey: THREAD_SEARCH_QUERY_KEY,
-      });
     },
     [authenticated, notifyThreadError, queryClient, resolvedContext, thread],
   );
@@ -1164,6 +1161,7 @@ export function useThreadStream({
       }
 
       onStop?.(latestState);
+      void invalidateThreadSearchCaches(queryClient);
     })().finally(() => {
       stopPromiseRef.current = null;
     });
@@ -1178,6 +1176,7 @@ export function useThreadStream({
     mergedThreadValues,
     notifyThreadError,
     onStop,
+    queryClient,
     streamThreadId,
     thread,
     threadId,

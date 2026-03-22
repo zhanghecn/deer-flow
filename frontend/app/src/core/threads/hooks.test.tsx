@@ -11,6 +11,7 @@ import {
   buildThreadRuntimeQueryKey,
   buildThreadSearchQueryKey,
   DEFAULT_THREAD_SEARCH_PARAMS,
+  THREAD_SEARCH_QUERY_KEY,
 } from "./search";
 import type { AgentThread, AgentThreadState } from "./types";
 
@@ -300,6 +301,82 @@ describe("useThreadStream", () => {
         thread_id: "thread-pending",
         agent_name: "lead_agent",
         agent_status: "dev",
+      });
+    });
+  });
+
+  it("does not invalidate sidebar search while a new run is still in flight", async () => {
+    const wrapper = createWrapper();
+    const invalidateQueriesSpy = vi.spyOn(
+      wrapper.queryClient,
+      "invalidateQueries",
+    );
+    streamState.submit.mockImplementation(() => createPendingPromise<void>());
+
+    const { result } = renderHook(
+      () =>
+        useThreadStream({
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      void result.current[1]("thread-pending", {
+        text: "Keep this draft visible",
+        files: [],
+      });
+      await Promise.resolve();
+    });
+
+    expect(invalidateQueriesSpy).not.toHaveBeenCalledWith({
+      queryKey: THREAD_SEARCH_QUERY_KEY,
+    });
+  });
+
+  it("refreshes sidebar search when a run finishes", async () => {
+    const wrapper = createWrapper();
+    const invalidateQueriesSpy = vi.spyOn(
+      wrapper.queryClient,
+      "invalidateQueries",
+    );
+
+    renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper },
+    );
+
+    const onFinish = latestUseStreamOptions?.onFinish;
+    expect(typeof onFinish).toBe("function");
+    if (typeof onFinish !== "function") {
+      throw new Error("Expected onFinish callback to be registered.");
+    }
+
+    act(() => {
+      onFinish({
+        values: {
+          title: "Thread",
+          messages: [],
+          artifacts: [],
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(invalidateQueriesSpy).toHaveBeenCalledWith({
+        queryKey: THREAD_SEARCH_QUERY_KEY,
       });
     });
   });

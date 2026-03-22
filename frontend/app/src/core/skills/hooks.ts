@@ -6,12 +6,16 @@ import { enableSkill } from "./api";
 
 import { loadSkills } from ".";
 
+const SKILLS_QUERY_STALE_TIME_MS = 60 * 1000;
+
 export function useSkills() {
   const { authenticated } = useAuth();
   const { data, isLoading, error } = useQuery({
     queryKey: ["skills"],
     queryFn: () => loadSkills(),
     enabled: authenticated,
+    staleTime: SKILLS_QUERY_STALE_TIME_MS,
+    refetchOnWindowFocus: false,
   });
   return { skills: data ?? [], isLoading, error };
 }

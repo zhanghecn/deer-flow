@@ -1,5 +1,5 @@
 import type { BaseStream } from "@langchain/langgraph-sdk/react";
-import { memo, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 
 import {
   Conversation,
@@ -430,7 +430,7 @@ export function MessageList({
   paddingBottom?: number;
 }) {
   const updateSubtask = useUpdateSubtask();
-  const messages = useDeferredValue(thread.messages);
+  const messages = thread.messages;
   const isStreamingCurrentTurn = thread.isLoading && !thread.isThreadLoading;
   const { historyMessages, currentTurnMessages } =
     useStreamingMessagePartitions(messages, isStreamingCurrentTurn);
