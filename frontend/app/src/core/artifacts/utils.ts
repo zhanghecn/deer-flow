@@ -43,6 +43,22 @@ export function filterLegacyPptPreviewArtifacts(filepaths: string[]) {
   });
 }
 
+export function mergeVisibleArtifacts(
+  prioritized: string[],
+  discovered: string[],
+) {
+  return filterLegacyPptPreviewArtifacts(
+    Array.from(
+      new Set(
+        [...prioritized, ...discovered].filter(
+          (filepath): filepath is string =>
+            typeof filepath === "string" && filepath.trim().length > 0,
+        ),
+      ),
+    ),
+  );
+}
+
 export function urlOfArtifact({
   filepath,
   threadId,

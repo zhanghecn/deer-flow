@@ -15,6 +15,10 @@ function getBrowserBaseURL() {
   return window.location.origin;
 }
 
+function shouldUseDevProxy() {
+  return typeof window !== "undefined" && import.meta.env.DEV;
+}
+
 function getGatewayBaseURL() {
   return trimTrailingSlash(
     env.VITE_BACKEND_BASE_URL ?? DEFAULT_GATEWAY_BASE_URL,
@@ -22,13 +26,22 @@ function getGatewayBaseURL() {
 }
 
 export function getBackendBaseURL() {
-  // Honor an explicit gateway base URL in the browser. This keeps host-run
-  // `pnpm dev` on :3000 from depending on Next dev rewrites for API traffic.
+  const browserBaseURL = getBrowserBaseURL();
+
+  // In Vite dev we intentionally prefer the app origin so `/api` goes through
+  // the dev server proxy. This avoids host-mismatch issues like
+  // `localhost` vs `127.0.0.1` and keeps auth/CORS behavior aligned with the
+  // workspace app.
+  if (shouldUseDevProxy() && browserBaseURL) {
+    return browserBaseURL;
+  }
+
+  // Outside Vite dev, honor an explicit gateway base URL in the browser.
   if (env.VITE_BACKEND_BASE_URL) {
     return getGatewayBaseURL();
   }
 
-  return getBrowserBaseURL() ?? getGatewayBaseURL();
+  return browserBaseURL ?? getGatewayBaseURL();
 }
 
 export function getLangGraphBaseURL(isMock?: boolean) {

@@ -213,6 +213,7 @@ func main() {
 		api.DELETE("/threads/:id/uploads/:filename", uploadsH.Delete)
 
 		// Artifacts
+		api.GET("/threads/:id/artifacts/list", artifactsH.List)
 		api.GET("/threads/:id/artifacts/:head/*tail", artifactsH.Serve)
 		api.GET("/threads/:id/office-config/:head/*tail", onlyOfficeH.Config)
 

@@ -1,6 +1,5 @@
 import { FilesIcon, XIcon } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { GroupImperativeHandle } from "react-resizable-panels";
+import { useEffect, useMemo, useState } from "react";
 
 import { ConversationEmptyState } from "@/components/ai-elements/conversation";
 import { Button } from "@/components/ui/button";
@@ -15,8 +14,12 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
+import { useThreadOutputArtifacts } from "@/core/artifacts/hooks";
 import { getOnlyOfficeDocumentDescriptor } from "@/core/artifacts/onlyoffice";
-import { filterLegacyPptPreviewArtifacts } from "@/core/artifacts/utils";
+import {
+  filterLegacyPptPreviewArtifacts,
+  mergeVisibleArtifacts,
+} from "@/core/artifacts/utils";
 import { getUserVisibleRuntimePath } from "@/core/utils/files";
 import { env } from "@/env";
 import { cn } from "@/lib/utils";
@@ -31,12 +34,18 @@ import { useThread } from "../messages/context";
 const CLOSE_MODE = { chat: 100, artifacts: 0 };
 const OPEN_MODE = { chat: 60, artifacts: 40 };
 
+function hasSameArtifacts(left: string[], right: string[]) {
+  return (
+    left.length === right.length &&
+    left.every((filepath, index) => filepath === right[index])
+  );
+}
+
 const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
   children,
   threadId,
 }) => {
-  const { thread } = useThread();
-  const layoutRef = useRef<GroupImperativeHandle>(null);
+  const { thread, isMock } = useThread();
   const {
     artifacts,
     open: artifactsOpen,
@@ -48,9 +57,18 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
   } = useArtifacts();
 
   const [autoSelectFirstArtifact, setAutoSelectFirstArtifact] = useState(true);
-  const visibleArtifacts = useMemo(
+  const stateArtifacts = useMemo(
     () => filterLegacyPptPreviewArtifacts(thread.values.artifacts ?? []),
     [thread.values.artifacts],
+  );
+  const { artifacts: discoveredOutputArtifacts } = useThreadOutputArtifacts({
+    threadId,
+    enabled: !isMock,
+    refreshKey: `${thread.values.messages?.length ?? 0}:${stateArtifacts.length}`,
+  });
+  const visibleArtifacts = useMemo(
+    () => mergeVisibleArtifacts(stateArtifacts, discoveredOutputArtifacts),
+    [discoveredOutputArtifacts, stateArtifacts],
   );
   const selectedOfficeArtifact = useMemo(() => {
     if (!selectedArtifact) {
@@ -69,17 +87,16 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
   const officeDialogOpen = artifactsOpen && selectedOfficeArtifact !== null;
 
   useEffect(() => {
-    setArtifacts(visibleArtifacts);
+    if (!hasSameArtifacts(artifacts, visibleArtifacts)) {
+      setArtifacts(visibleArtifacts);
+    }
     if (
       visibleArtifacts.length === 0 ||
       (selectedArtifact && !visibleArtifacts.includes(selectedArtifact))
     ) {
       deselect();
     }
-    if (
-      env.VITE_STATIC_WEBSITE_ONLY === "true" &&
-      autoSelectFirstArtifact
-    ) {
+    if (env.VITE_STATIC_WEBSITE_ONLY === "true" && autoSelectFirstArtifact) {
       if (visibleArtifacts.length > 0) {
         setAutoSelectFirstArtifact(false);
         selectArtifact(visibleArtifacts[0]!);
@@ -87,6 +104,7 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
     }
   }, [
     autoSelectFirstArtifact,
+    artifacts,
     deselect,
     visibleArtifacts,
     selectArtifact,
@@ -110,24 +128,14 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
     return artifactsOpen;
   }, [artifacts, artifactsOpen, officeDialogOpen]);
 
-  useEffect(() => {
-    if (layoutRef.current) {
-      if (artifactPanelOpen) {
-        layoutRef.current.setLayout(OPEN_MODE);
-      } else {
-        layoutRef.current.setLayout(CLOSE_MODE);
-      }
-    }
-  }, [artifactPanelOpen]);
-
   return (
     <>
       <ResizablePanelGroup
+        key={artifactPanelOpen ? "artifacts-open" : "artifacts-closed"}
         orientation="horizontal"
-        defaultLayout={{ chat: 100, artifacts: 0 }}
-        groupRef={layoutRef}
+        defaultLayout={artifactPanelOpen ? OPEN_MODE : CLOSE_MODE}
       >
-        <ResizablePanel className="relative" defaultSize={100} id="chat">
+        <ResizablePanel className="relative overflow-hidden" id="chat">
           {children}
         </ResizablePanel>
         <ResizableHandle
@@ -138,8 +146,8 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
         />
         <ResizablePanel
           className={cn(
-            "transition-all duration-300 ease-in-out",
-            !artifactPanelOpen && "opacity-0",
+            "overflow-hidden transition-[opacity] duration-300 ease-in-out",
+            !artifactPanelOpen && "pointer-events-none opacity-0",
           )}
           id="artifacts"
         >

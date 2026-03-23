@@ -10,6 +10,7 @@ import {
   XIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ComponentProps } from "react";
 import { toast } from "sonner";
 import { Streamdown } from "streamdown";
 
@@ -34,6 +35,8 @@ import {
   downloadArtifactFile,
   openArtifactInNewWindow,
 } from "@/core/artifacts/actions";
+import { loadHtmlPreviewDocument } from "@/core/artifacts/html-preview";
+import { resolveThreadScopedPath } from "@/core/artifacts/preview-resolver";
 import {
   useArtifactContent,
   useArtifactObjectUrl,
@@ -66,6 +69,16 @@ import type { OnlyOfficeDocumentEditor as OnlyOfficeDocumentEditorValue } from "
 
 type OnlyOfficeDocumentEditorComponent = typeof OnlyOfficeDocumentEditorValue;
 type ArtifactViewMode = "code" | "preview";
+
+function getArtifactPreviewErrorMessage(error: unknown, previewError: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (previewError instanceof Error) {
+    return previewError.message;
+  }
+  return "Failed to render artifact preview";
+}
 
 export function ArtifactFileDetail({
   className,
@@ -126,7 +139,11 @@ export function ArtifactFileDetail({
   }, [isWriteFile, officePreviewUrl, previewLanguage]);
   const showPreviewToggle = isSupportPreview && isCodeFile;
   const isBinaryPreview = !isCodeFile && !isOfficeFile;
-  const { content } = useArtifactContent({
+  const {
+    content,
+    isLoading: isContentLoading,
+    error: contentError,
+  } = useArtifactContent({
     threadId,
     filepath: filepathFromProps,
     enabled: isCodeFile && !isWriteFile,
@@ -290,8 +307,7 @@ export function ArtifactFileDetail({
                   label={t.common.install}
                   tooltip={t.common.install}
                   disabled={
-                    isInstalling ||
-                    env.VITE_STATIC_WEBSITE_ONLY === "true"
+                    isInstalling || env.VITE_STATIC_WEBSITE_ONLY === "true"
                   }
                   onClick={handleInstallSkill}
                 />
@@ -299,7 +315,9 @@ export function ArtifactFileDetail({
             )}
             {!isWriteFile && (
               <ArtifactAction
-                icon={isOpeningArtifact ? LoaderIcon : SquareArrowOutUpRightIcon}
+                icon={
+                  isOpeningArtifact ? LoaderIcon : SquareArrowOutUpRightIcon
+                }
                 label={t.common.openInNewWindow}
                 tooltip={t.common.openInNewWindow}
                 disabled={isOpeningArtifact}
@@ -353,6 +371,8 @@ export function ArtifactFileDetail({
               filepath={previewFilepath}
               threadId={threadId}
               content={displayContent}
+              isLoading={isContentLoading}
+              error={contentError}
               language={previewLanguage ?? "text"}
             />
           )}
@@ -388,56 +408,259 @@ export function ArtifactFilePreview({
   filepath,
   threadId,
   content,
+  isLoading,
+  error,
   language,
 }: {
   filepath: string;
   threadId: string;
   content: string;
+  isLoading: boolean;
+  error: unknown;
   language: string;
 }) {
   const { isMock } = useThread();
-  const { objectUrl, isLoading, error } = useArtifactObjectUrl({
-    filepath,
-    threadId,
-    enabled: language === "html",
-    isMock,
-  });
+  const [previewDocument, setPreviewDocument] = useState("");
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<unknown>(null);
+
+  useEffect(() => {
+    if (language !== "html" || isLoading) {
+      setPreviewDocument("");
+      setPreviewLoading(false);
+      setPreviewError(null);
+      return;
+    }
+
+    let cancelled = false;
+    let objectUrls: string[] = [];
+    setPreviewLoading(true);
+    setPreviewError(null);
+
+    void loadHtmlPreviewDocument({
+      html: content,
+      filepath,
+      threadId,
+      isMock,
+    })
+      .then((result) => {
+        if (cancelled) {
+          result.objectUrls.forEach((url) => URL.revokeObjectURL(url));
+          return;
+        }
+
+        objectUrls = result.objectUrls;
+        setPreviewDocument(result.html);
+      })
+      .catch((loadError: unknown) => {
+        if (cancelled) {
+          return;
+        }
+        setPreviewError(loadError);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setPreviewLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      objectUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [content, filepath, isLoading, isMock, language, threadId]);
 
   if (language === "markdown") {
     return (
-      <div className="size-full px-4">
-        <Streamdown
-          className="size-full"
-          {...streamdownPlugins}
-          components={{ a: CitationLink }}
-        >
-          {content ?? ""}
-        </Streamdown>
-      </div>
+      <ArtifactMarkdownPreview
+        filepath={filepath}
+        threadId={threadId}
+        content={content}
+        isMock={Boolean(isMock)}
+      />
     );
   }
   if (language === "html") {
-    if (error instanceof Error) {
+    if (error instanceof Error || previewError instanceof Error) {
       return (
         <ArtifactUnavailableCard
           filepath={filepath}
           label="Preview unavailable"
-          description={error.message}
+          description={getArtifactPreviewErrorMessage(error, previewError)}
         />
       );
     }
-    if (isLoading || !objectUrl) {
+    if (isLoading || previewLoading || !previewDocument) {
       return (
         <div className="flex size-full items-center justify-center">
           <LoaderIcon className="text-muted-foreground size-5 animate-spin" />
         </div>
       );
     }
-    return (
-      <iframe className="size-full" src={objectUrl} />
-    );
+    return <iframe className="size-full" srcDoc={previewDocument} />;
   }
   return null;
+}
+
+function ArtifactMarkdownPreview({
+  filepath,
+  threadId,
+  content,
+  isMock,
+}: {
+  filepath: string;
+  threadId: string;
+  content: string;
+  isMock: boolean;
+}) {
+  const components = useMemo(() => {
+    return {
+      a: (props: ComponentProps<"a">) => (
+        <ArtifactMarkdownLink
+          {...props}
+          filepath={filepath}
+          threadId={threadId}
+          isMock={isMock}
+        />
+      ),
+      img: (props: ComponentProps<"img">) => (
+        <ArtifactMarkdownImage
+          {...props}
+          filepath={filepath}
+          threadId={threadId}
+          isMock={isMock}
+        />
+      ),
+    };
+  }, [filepath, isMock, threadId]);
+
+  return (
+    <div className="size-full px-4">
+      <Streamdown
+        className="size-full"
+        {...streamdownPlugins}
+        components={components}
+      >
+        {content ?? ""}
+      </Streamdown>
+    </div>
+  );
+}
+
+function ArtifactMarkdownLink({
+  filepath,
+  threadId,
+  isMock,
+  children,
+  href,
+  onClick,
+  rel,
+  target,
+  ...props
+}: ComponentProps<"a"> & {
+  filepath: string;
+  threadId: string;
+  isMock: boolean;
+}) {
+  const internalFilepath = useMemo(() => {
+    if (typeof href !== "string") {
+      return null;
+    }
+    return resolveThreadScopedPath(href, filepath);
+  }, [filepath, href]);
+
+  if (typeof children === "string") {
+    const match = /^citation:(.+)$/.exec(children);
+    if (match) {
+      const [, text] = match;
+      return (
+        <CitationLink
+          href={href}
+          onClick={onClick}
+          rel={rel}
+          target={target}
+          {...props}
+        >
+          {text}
+        </CitationLink>
+      );
+    }
+  }
+
+  return (
+    <a
+      {...props}
+      href={href}
+      rel={internalFilepath ? rel : (rel ?? "noreferrer")}
+      target={internalFilepath ? target : (target ?? "_blank")}
+      onClick={(event) => {
+        onClick?.(event);
+        if (event.defaultPrevented || !internalFilepath) {
+          return;
+        }
+
+        event.preventDefault();
+        void openArtifactInNewWindow({
+          filepath: internalFilepath,
+          threadId,
+          isMock,
+        }).catch((error) => {
+          console.error("Failed to open linked artifact:", error);
+          toast.error("Failed to open artifact");
+        });
+      }}
+    >
+      {children}
+    </a>
+  );
+}
+
+function ArtifactMarkdownImage({
+  filepath,
+  threadId,
+  isMock,
+  src,
+  alt,
+  ...props
+}: ComponentProps<"img"> & {
+  filepath: string;
+  threadId: string;
+  isMock: boolean;
+}) {
+  const internalFilepath = useMemo(() => {
+    if (typeof src !== "string") {
+      return null;
+    }
+    return resolveThreadScopedPath(src, filepath);
+  }, [filepath, src]);
+  const { objectUrl, isLoading, error } = useArtifactObjectUrl({
+    filepath: internalFilepath ?? "",
+    threadId,
+    enabled: Boolean(internalFilepath),
+    isMock,
+  });
+
+  if (!internalFilepath) {
+    return <img {...props} src={src} alt={alt} />;
+  }
+
+  if (error instanceof Error) {
+    return (
+      <span className="text-muted-foreground inline-flex min-h-20 items-center text-xs">
+        {`Image unavailable: ${alt ?? getFileName(internalFilepath)}`}
+      </span>
+    );
+  }
+
+  if (isLoading || !objectUrl) {
+    return (
+      <span className="text-muted-foreground inline-flex min-h-20 items-center text-xs">
+        {`Loading image: ${alt ?? getFileName(internalFilepath)}`}
+      </span>
+    );
+  }
+
+  return <img {...props} src={objectUrl} alt={alt} />;
 }
 
 function ArtifactBinaryPreview({
@@ -492,7 +715,7 @@ function ArtifactBinaryPreview({
 
   if (mediaType === "video") {
     return (
-      <div className="bg-black flex size-full items-center justify-center">
+      <div className="flex size-full items-center justify-center bg-black">
         <video className="size-full" controls src={objectUrl} />
       </div>
     );
@@ -536,9 +759,18 @@ function getArtifactBinaryMediaType(filepath: string, blobType: string | null) {
 
   const extension = filepath.split(".").pop()?.toLowerCase() ?? "";
   if (
-    ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "ico", "webp", "svg", "heic"].includes(
-      extension,
-    )
+    [
+      "jpg",
+      "jpeg",
+      "png",
+      "gif",
+      "bmp",
+      "tiff",
+      "ico",
+      "webp",
+      "svg",
+      "heic",
+    ].includes(extension)
   ) {
     return "image";
   }

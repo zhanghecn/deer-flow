@@ -144,6 +144,55 @@ func TestArtifactsHandlerServesOfficePreviewPDF(t *testing.T) {
 	}
 }
 
+func TestArtifactsHandlerListReturnsThreadOutputFiles(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	baseDir := t.TempDir()
+	threadID := "thread-list"
+	userDataDir := filepath.Join(baseDir, "threads", threadID, "user-data")
+	outputsDir := filepath.Join(userDataDir, "outputs")
+
+	files := map[string]string{
+		"bundle/index.html":               "<html></html>",
+		"bundle/dragon-constellation.jpg": "jpg",
+		"bundle/notes.md":                 "# Notes",
+		"bundle/deck.docx.preview.pdf":    "%PDF",
+		".hidden/secret.txt":              "skip",
+	}
+	for relativePath, content := range files {
+		fullPath := filepath.Join(outputsDir, relativePath)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+			t.Fatalf("mkdir output file dir: %v", err)
+		}
+		if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
+			t.Fatalf("write output file: %v", err)
+		}
+	}
+
+	handler := NewArtifactsHandler(storage.NewFS(baseDir))
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(
+		http.MethodGet,
+		"/api/threads/thread-list/artifacts/list",
+		nil,
+	)
+	c.Params = gin.Params{{Key: "id", Value: threadID}}
+
+	handler.List(c)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	expected := `{"artifacts":["/mnt/user-data/outputs/bundle/dragon-constellation.jpg","/mnt/user-data/outputs/bundle/index.html","/mnt/user-data/outputs/bundle/notes.md"]}`
+	if strings.TrimSpace(rec.Body.String()) != expected {
+		t.Fatalf("unexpected body: %s", rec.Body.String())
+	}
+}
+
 func TestNormalizeArtifactPath(t *testing.T) {
 	t.Parallel()
 

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { useThread } from "@/components/workspace/messages/context";
 
+import { listThreadOutputArtifacts } from "./api";
 import {
   loadArtifactBlob,
   loadArtifactContent,
@@ -85,6 +86,30 @@ export function useArtifactObjectUrl({
   return {
     objectUrl,
     blobType: data?.type ?? null,
+    isLoading,
+    error,
+  };
+}
+
+export function useThreadOutputArtifacts({
+  threadId,
+  enabled,
+  refreshKey,
+}: {
+  threadId: string;
+  enabled?: boolean;
+  refreshKey?: string | number;
+}) {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["thread-output-artifacts", threadId, refreshKey],
+    queryFn: () => listThreadOutputArtifacts(threadId),
+    enabled: Boolean(threadId) && enabled,
+    staleTime: 0,
+    refetchOnWindowFocus: false,
+  });
+
+  return {
+    artifacts: data ?? [],
     isLoading,
     error,
   };
