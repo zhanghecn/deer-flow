@@ -33,8 +33,14 @@ extensions_config.json
 # Coverage report
 coverage.xml
 coverage/
-# Track archived agent definitions in .openagents/agents/{dev,prod},
-# but keep runtime thread/user data out of git.
+# Keep only built-in lead_agent archived in git.
+# Other archived agents are local/test data and should stay ignored.
+.openagents/agents/dev/*
+!.openagents/agents/dev/lead_agent/
+!.openagents/agents/dev/lead_agent/**
+.openagents/agents/prod/*
+!.openagents/agents/prod/lead_agent/
+!.openagents/agents/prod/lead_agent/**
 .openagents/threads/
 .openagents/users/
 .claude/

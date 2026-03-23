@@ -1,7 +1,0 @@
-name: save-agent-e2e
-status: dev
-agents_md_path: AGENTS.md
-description: 专业合同审查智能体，支持中英双语合同分析、风险评级和修改建议生成。
-skill_refs:
-- name: chinese-contract-review
-  source_path: store/dev/chinese-contract-review
