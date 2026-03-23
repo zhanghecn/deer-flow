@@ -40,6 +40,8 @@ export interface AssistantNextStep {
 }
 
 const NEXT_STEPS_BLOCK_RE = /<next_steps>\s*([\s\S]*?)\s*<\/next_steps>/i;
+const CLARIFICATION_CANCELLATION_SUFFIX =
+  "was cancelled - another message came in before it could be completed.";
 const NEXT_STEP_AGENT_NAME_PATTERNS = [
   /(?:切换到|切到|进入|使用)\s+([A-Za-z0-9-]+)\s*(?:智能体|agent)/i,
   /(?:switch to|use|open|test)\s+([A-Za-z0-9-]+)\s+agent/i,
@@ -119,6 +121,9 @@ export function groupMessages<T>(
 
       // Check if this is a clarification tool message
       if (isClarificationToolMessage(message)) {
+        if (isClarificationCancellationMessage(message)) {
+          continue;
+        }
         // Add to processing group if available (to maintain tool call association)
         if (matchedGroup) {
           matchedGroup.messages.push(message);
@@ -461,6 +466,14 @@ export function hasPresentFiles(message: Message) {
 
 export function isClarificationToolMessage(message: Message) {
   return message.type === "tool" && message.name === "ask_clarification";
+}
+
+export function isClarificationCancellationMessage(message: Message) {
+  if (!isClarificationToolMessage(message)) {
+    return false;
+  }
+
+  return extractTextFromMessage(message).includes(CLARIFICATION_CANCELLATION_SUFFIX);
 }
 
 export function extractPresentFilesFromMessage(message: Message) {
