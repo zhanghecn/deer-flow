@@ -4,7 +4,8 @@ Like the original OpenAgents 1.0, we would love to give the community a minimali
 
 ## Tech Stack
 
-- **Framework**: [Next.js 16](https://nextjs.org/) with [App Router](https://nextjs.org/docs/app)
+- **Bundler / Dev Server**: [Vite 6](https://vite.dev/)
+- **Routing**: [React Router 7](https://reactrouter.com/)
 - **UI**: [React 19](https://react.dev/), [Tailwind CSS 4](https://tailwindcss.com/), [Shadcn UI](https://ui.shadcn.com/), [MagicUI](https://magicui.design/) and [React Bits](https://reactbits.dev/)
 - **AI Integration**: [LangGraph SDK](https://www.npmjs.com/package/@langchain/langgraph-sdk) and [Vercel AI Elements](https://vercel.com/ai-sdk/ai-elements)
 
@@ -32,6 +33,7 @@ pnpm install
 pnpm dev
 
 # The app will be available at http://localhost:3000
+# In browser-side Vite dev, API calls stay same-origin and go through the Vite proxy.
 ```
 
 ### Build
@@ -46,17 +48,25 @@ pnpm lint
 # Build for production
 pnpm build
 
-# Start production server
-pnpm start
+# Preview the production build
+pnpm preview
+
+# `pnpm start` is an alias for `pnpm preview`
 ```
 
 ## Site Map
 
 ```
-├── /                    # Landing page
-├── /chats               # Chat list
-├── /chats/new           # New chat page
-└── /chats/[thread_id]   # A specific chat page
+├── /                                  # Redirects to /workspace or /login
+├── /login                             # Login page
+├── /register                          # Register page
+├── /workspace                         # Workspace shell
+├── /workspace/chats/new               # New lead-agent chat
+├── /workspace/chats/:thread_id        # Existing lead-agent chat
+├── /workspace/agents                  # Agent list
+├── /workspace/agents/new              # New agent page
+├── /workspace/agents/:agent_name/chats/new
+└── /workspace/agents/:agent_name/chats/:thread_id
 ```
 
 ## Configuration
@@ -66,20 +76,22 @@ pnpm start
 Optional environment variables (see `.env.example` for overrides):
 
 ```bash
-# Browser API calls and Next.js rewrites both use this gateway when set.
-# For host-run local development on http://localhost:3000, keeping this at
-# http://localhost:8001 avoids relying on Next dev proxy behavior for auth/API.
-NEXT_PUBLIC_BACKEND_BASE_URL="http://localhost:8001"
+# Controls the Vite dev proxy target and non-dev direct API base URL.
+# In browser-side Vite dev, requests still go to same-origin /api and are
+# forwarded by the dev server proxy.
+VITE_BACKEND_BASE_URL="http://localhost:8001"
 ```
 
 ## Project Structure
 
 ```
 src/
-├── app/                    # Next.js App Router pages
-│   ├── api/                # API routes
+├── main.tsx                # Vite entrypoint
+├── App.tsx                 # Top-level providers
+├── routes.tsx              # React Router route table
+├── app/                    # Route components organized by path
 │   ├── workspace/          # Main workspace pages
-│   └── mock/               # Mock/demo pages
+│   └── mock/               # Mock/demo route components
 ├── components/             # React components
 │   ├── ui/                 # Reusable UI components
 │   ├── workspace/          # Workspace-specific components
@@ -100,31 +112,33 @@ src/
 │   └── utils/              # Utility functions
 ├── hooks/                  # Custom React hooks
 ├── lib/                    # Shared libraries & utilities
-├── server/                 # Server-side code (Not available yet)
-│   └── better-auth/        # Authentication setup (Not available yet)
-└── styles/                 # Global styles
+├── mock-server/            # Vite mock/demo API plugin
+├── styles/                 # Global styles
+└── typings/                # Frontend-only type declarations
 ```
 
 ## Scripts
 
 | Command | Description |
 |---------|-------------|
-| `pnpm dev` | Start development server with Turbopack |
+| `pnpm dev` | Start the Vite dev server on `http://localhost:3000` |
 | `pnpm build` | Build for production |
-| `pnpm start` | Start production server |
+| `pnpm preview` | Preview the production bundle on `http://localhost:3000` |
+| `pnpm start` | Alias for `pnpm preview` |
 | `pnpm lint` | Run ESLint |
 | `pnpm lint:fix` | Fix ESLint issues |
 | `pnpm typecheck` | Run TypeScript type checking |
 | `pnpm check` | Run both lint and typecheck |
+| `pnpm test:unit` | Run Vitest unit tests |
+| `pnpm test:e2e` | Run Playwright end-to-end tests |
 
 ## Development Notes
 
 - Uses pnpm workspaces (see `packageManager` in package.json)
-- Turbopack enabled by default in development for faster builds
-- Environment validation can be skipped with `SKIP_ENV_VALIDATION=1` (useful for Docker)
-- If `NEXT_PUBLIC_BACKEND_BASE_URL` is set, browser API calls use it directly
-- If it is unset, browser API calls fall back to same-origin `/api/*`
-- `frontend/app/.env` keeps host-run local development on `http://localhost:3000` pointed at `http://localhost:8001`
+- Host-run development uses the Vite dev proxy for `/api`, `/open`, and `/health`
+- `VITE_BACKEND_BASE_URL` controls the proxy target in dev and the direct backend base URL outside Vite dev
+- `src/mock-server/plugin.ts` serves mock/demo data under `/mock/api/*`
+- The route components still live under `src/app/`, but routing is driven by `src/routes.tsx`, not Next.js App Router
 
 ## License
 

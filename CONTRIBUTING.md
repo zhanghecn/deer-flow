@@ -77,7 +77,7 @@ Host Machine
   ↓
 Docker Compose (openagents-dev)
   ├→ nginx (port 2026) ← Reverse proxy
-  ├→ frontend (port 3000) ← Next.js with hot-reload
+  ├→ frontend (port 3000) ← Vite app with hot-reload
   ├→ gateway (port 8001) ← Go Gateway (JWT auth, Agent/Skill CRUD, LangGraph proxy)
   ├→ langgraph (port 2024) ← LangGraph server (deepagents engine)
   └→ provisioner (optional, port 8002) ← Started only in provisioner/K8s sandbox mode
@@ -201,7 +201,7 @@ openagents/
 │       └── gateway.yaml          # Gateway configuration
 ├── migrations/                   # PostgreSQL schema + seed SQL
 ├── frontend/
-│   ├── app/                      # Next.js user frontend
+│   ├── app/                      # Vite user frontend
 │   └── admin/                    # Vite admin console
 └── skills/                       # Agent skills
     ├── public/                   # Public skills

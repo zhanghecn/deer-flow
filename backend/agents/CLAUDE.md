@@ -10,7 +10,7 @@ OpenAgents is a LangGraph-based AI super agent system with a full-stack architec
 - **LangGraph Server** (port 2024): Agent runtime and workflow execution (deepagents engine)
 - **Go Gateway** (port 8001): JWT/API Token auth, Agent/Skill CRUD, LangGraph reverse proxy with user_id injection
 - **Python Gateway** (port 8001, legacy): FastAPI REST API, being replaced by Go Gateway
-- **Frontend** (port 3000): Next.js web interface with JWT authentication
+- **Frontend** (port 3000): Vite + React Router web interface with JWT authentication
 - **Nginx** (port 2026): Unified reverse proxy entry point
 - **Provisioner** (port 8002, optional in Docker dev): Started only when sandbox is configured for provisioner/Kubernetes mode
 
@@ -62,7 +62,7 @@ openagents/
 │   ├── pkg/                   # JWT, filesystem storage
 │   └── gateway.yaml           # Gateway configuration
 ├── migrations/                 # PostgreSQL schema + seed SQL
-├── frontend/                   # Next.js frontend application
+├── frontend/                   # Frontend applications
 └── .openagents/skills/         # Shared skill archive and store lifecycle
     ├── shared/                # Canonical shared skills source
     └── store/                 # Dev/prod promoted skills
@@ -427,8 +427,7 @@ Direct access (without nginx):
 ### Frontend Configuration
 
 The frontend uses environment variables to connect to backend services:
-- `NEXT_PUBLIC_LANGGRAPH_BASE_URL` - Defaults to `/api/langgraph` (through nginx)
-- `NEXT_PUBLIC_BACKEND_BASE_URL` - Defaults to empty string (through nginx)
+- `VITE_BACKEND_BASE_URL` - Optional gateway base URL override outside Vite dev; Vite dev itself keeps browser requests on same-origin `/api/*` and proxies them to the gateway
 
 When using `make dev` from root, the frontend automatically connects through nginx.
 

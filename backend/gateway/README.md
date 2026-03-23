@@ -5,7 +5,7 @@ Go(Gin) 网关服务，替代原有的 Python FastAPI Gateway，为 OpenAgents �
 ## 架构概览
 
 ```
-Frontend (Next.js :3000)
+Frontend (Vite :3000)
      │
      ▼
 Nginx (:2026)
@@ -163,7 +163,9 @@ go run ./cmd/server
 | POST | `/api/threads/:id/uploads` | 文件上传；对 PDF/PPT/Excel/Word 生成 Markdown companion |
 | GET | `/api/threads/:id/uploads/list` | 上传文件列表（折叠自动生成的 Markdown companion） |
 | DELETE | `/api/threads/:id/uploads/:filename` | 删除上传文件；原文件的 Markdown companion 会一并删除 |
+| GET | `/api/threads/:id/artifacts/list` | 扫描 thread outputs 并返回可展示的制品路径 |
 | GET | `/api/threads/:id/artifacts/*path` | 制品访问 |
+| GET | `/api/threads/:id/office-config/*path` | ONLYOFFICE 文档配置 |
 | ALL | `/api/langgraph/*` | 反向代理到 LangGraph |
 
 说明：

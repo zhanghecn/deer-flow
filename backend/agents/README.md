@@ -40,7 +40,7 @@ conversations while preserving one runtime contract under `/mnt/user-data/...`.
 **Request Routing** (via Nginx):
 - `/api/langgraph/*` → LangGraph Server - agent interactions, threads, streaming
 - `/api/*` (other) → Go Gateway API - auth, models, agents, skills, uploads, artifacts
-- `/` (non-API) → Frontend - Next.js web interface
+- `/` (non-API) → Frontend - Vite/React web interface
 
 ---
 

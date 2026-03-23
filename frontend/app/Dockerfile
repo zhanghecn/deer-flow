@@ -18,5 +18,5 @@ COPY frontend/app ./frontend/app
 # Install dependencies
 RUN sh -c "cd /app/frontend/app && pnpm install --frozen-lockfile"
 
-# Expose Next.js dev server port
+# Expose Vite dev server port
 EXPOSE 3000

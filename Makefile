@@ -181,7 +181,7 @@ dev:
 	@-pkill -f "langgraph_api.cli" 2>/dev/null || true
 	@-pkill -f "backend/gateway/bin/gateway" 2>/dev/null || true
 	@-pkill -f "uvicorn src.gateway.app:app" 2>/dev/null || true
-	@-pkill -f "next dev" 2>/dev/null || true
+	@-sh -c 'frontend_pids=$$(lsof -ti :3000 2>/dev/null); [ -z "$$frontend_pids" ] || kill $$frontend_pids 2>/dev/null || true'
 	@-nginx -c $(PWD)/docker/nginx/nginx.local.conf -p $(PWD) -s quit 2>/dev/null || true
 	@sleep 1
 	@-pkill -9 nginx 2>/dev/null || true
@@ -195,7 +195,7 @@ dev:
 	@echo "Services starting up..."
 	@echo "  → Backend: LangGraph Server"
 	@echo "  → Gateway: Go Gateway"
-	@echo "  → Frontend: Next.js"
+	@echo "  → Frontend: Vite"
 	@echo "  → Nginx: Reverse Proxy"
 	@echo ""
 	@cleanup() { \
@@ -206,7 +206,7 @@ dev:
 		pkill -f "langgraph_api.cli" 2>/dev/null || true; \
 		pkill -f "backend/gateway/bin/gateway" 2>/dev/null || true; \
 		pkill -f "uvicorn src.gateway.app:app" 2>/dev/null || true; \
-		pkill -f "next dev" 2>/dev/null || true; \
+		frontend_pids=$$(lsof -ti :3000 2>/dev/null); [ -z "$$frontend_pids" ] || kill $$frontend_pids 2>/dev/null || true; \
 		nginx -c $(PWD)/docker/nginx/nginx.local.conf -p $(PWD) -s quit 2>/dev/null || true; \
 		sleep 1; \
 		pkill -9 nginx 2>/dev/null || true; \
@@ -282,7 +282,7 @@ stop:
 	@-pkill -f "langgraph dev" 2>/dev/null || true
 	@-pkill -f "backend/gateway/bin/gateway" 2>/dev/null || true
 	@-pkill -f "uvicorn src.gateway.app:app" 2>/dev/null || true
-	@-pkill -f "next dev" 2>/dev/null || true
+	@-sh -c 'frontend_pids=$$(lsof -ti :3000 2>/dev/null); [ -z "$$frontend_pids" ] || kill $$frontend_pids 2>/dev/null || true'
 	@-nginx -c $(PWD)/docker/nginx/nginx.local.conf -p $(PWD) -s quit 2>/dev/null || true
 	@sleep 1
 	@-pkill -9 nginx 2>/dev/null || true

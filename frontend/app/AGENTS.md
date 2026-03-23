@@ -4,35 +4,39 @@ Shared development guide for coding agents working in `frontend/app`.
 
 ## Overview
 
-OpenAgents Frontend is a Next.js 16 web interface for the OpenAgents system. It talks to the Go Gateway for auth and CRUD APIs, and to LangGraph for thread streaming, artifacts, and agent execution.
+OpenAgents Frontend is a Vite-powered React web interface for the OpenAgents system. It talks to the Go Gateway for auth and CRUD APIs, and to LangGraph for thread streaming, artifacts, and agent execution.
 
-Stack: Next.js 16, React 19, TypeScript 5.8, Tailwind CSS 4, pnpm 10.26.2.
+Stack: Vite 6, React 19, React Router 7, TypeScript 5.8, Tailwind CSS 4, pnpm 10.26.2.
 
 ## Commands
 
 | Command | Purpose |
 |---------|---------|
-| `pnpm dev` | Start the dev server on `http://localhost:3000` (current script uses `next dev --webpack --disable-source-maps`) |
+| `pnpm dev` | Start the Vite dev server on `http://localhost:3000` |
 | `pnpm build` | Build the production bundle |
 | `pnpm check` | Run lint and type-check together |
 | `pnpm lint` | Run ESLint |
 | `pnpm lint:fix` | Run ESLint with autofix |
 | `pnpm typecheck` | Run `tsc --noEmit` |
-| `pnpm start` | Start the production server |
+| `pnpm preview` | Preview the production bundle on `http://localhost:3000` |
+| `pnpm start` | Alias for `pnpm preview` |
+| `pnpm test:unit` | Run Vitest unit tests |
+| `pnpm test:e2e` | Run Playwright end-to-end tests |
 
-No test framework is configured in this app. Use `pnpm check` before handing changes off.
+Use at least `pnpm typecheck` before handing changes off. Prefer `pnpm test:unit` when touching routing, state management, or artifact rendering.
 
 ## Runtime Shape
 
 ```txt
-Frontend (Next.js) -> Go Gateway (:8001) -> LangGraph Server (:2024)
-      |                     |
-      |                     |- JWT auth
-      |                     |- Agent/Skill CRUD + publish
-      |                     |- /api/langgraph/* reverse proxy
-      |                     `- Open API
-      |
-      `- authFetch() injects JWT and handles 401s
+Frontend (Vite + React Router) -> Go Gateway (:8001) -> LangGraph Server (:2024)
+            |                            |
+            |                            |- JWT auth
+            |                            |- Agent/Skill CRUD + publish
+            |                            |- /api/langgraph/* reverse proxy
+            |                            `- Open API
+            |
+            |- Vite dev proxy forwards /api, /open, /health in local dev
+            `- authFetch() injects JWT and handles 401s
 ```
 
 The frontend is a stateful chat application. Users authenticate, create threads, send messages, and receive streamed assistant output plus artifacts and todos.
@@ -41,22 +45,28 @@ The frontend is a stateful chat application. Users authenticate, create threads,
 
 ```txt
 src/
-├── app/            # App Router pages and route handlers
+├── main.tsx        # Vite bootstrap entry
+├── App.tsx         # Root providers
+├── routes.tsx      # React Router route definitions
+├── app/            # Route components organized by URL shape
 ├── components/     # UI components
 ├── core/           # Business logic and API integration
 ├── hooks/          # Shared React hooks
 ├── lib/            # Utilities
-├── server/         # Reserved for server-only code
+├── mock-server/    # Vite mock/demo API plugin
 └── styles/         # Global styles
 ```
 
 Important directories:
 
 - `src/app/`
-  - `/` landing
+  - page-style route components used by `src/routes.tsx`
   - `/login`, `/register`
   - `/workspace/chats/[thread_id]`
   - `/workspace/agents/[agent_name]/chats/new`
+- `src/routes.tsx`
+  - owns actual route binding and redirects
+  - `/` currently redirects to `/workspace` or `/login`
 - `src/components/`
   - `ui/` and `ai-elements/` are generated; avoid manual edits unless regeneration is part of the task
   - `workspace/` contains chat workspace UI
@@ -66,6 +76,8 @@ Important directories:
   - `api/` owns the LangGraph client singleton
   - `threads/` owns thread creation, streaming, and thread state
   - `agents/`, `skills/`, `memory/`, `mcp/`, `artifacts/` own domain APIs and types
+- `src/mock-server/`
+  - serves `/mock/api/*` in local/demo mode through a Vite plugin
 
 ## Key Flows
 
@@ -85,7 +97,8 @@ Important directories:
 
 ## Working Conventions
 
-- Prefer Server Components by default. Add `"use client"` only when interactivity requires it.
+- Keep route composition in `src/routes.tsx` and page modules in `src/app/`.
+- Do not re-introduce Next.js-only concepts such as Server Components, App Router route handlers, or `next.config.js`.
 - Treat thread hooks such as `useThreadStream`, `useSubmitThread`, and `useThreads` as the primary integration layer.
 - Use `authFetch()` for non-LangGraph APIs and `getAPIClient()` for LangGraph APIs.
 - Agent payloads use `agents_md` only.
@@ -106,7 +119,7 @@ Important directories:
 Optional override:
 
 ```bash
-NEXT_PUBLIC_BACKEND_BASE_URL=http://localhost:8001
+VITE_BACKEND_BASE_URL=http://localhost:8001
 ```
 
 Requires Node.js 22+ and pnpm 10.26.2+.

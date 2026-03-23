@@ -5,7 +5,7 @@ name: openagents-dev
 #
 # Services:
 #   - nginx: Reverse proxy (port 2026)
-#   - frontend: Frontend Next.js dev server (port 3000)
+#   - frontend: Frontend Vite dev server (port 3000)
 #   - gateway: Backend Gateway API (port 8001)
 #   - onlyoffice: ONLYOFFICE Docs server (port 8082)
 #   - langgraph: LangGraph server (port 2024)
@@ -121,7 +121,7 @@ services:
       - openagents-dev
     restart: unless-stopped
 
-  # Frontend - Next.js Development Server
+  # Frontend - Vite Development Server
   frontend:
     build:
       context: ../
@@ -129,18 +129,19 @@ services:
       args:
         PNPM_STORE_PATH: ${PNPM_STORE_PATH:-/root/.local/share/pnpm/store}
     container_name: openagents-frontend
-    command: sh -c "cd frontend/app && pnpm run dev > /app/logs/frontend.log 2>&1"
+    command: sh -c "cd frontend/app && pnpm run dev -- --host 0.0.0.0 --port 3000 --strictPort > /app/logs/frontend.log 2>&1"
     volumes:
       - ../frontend/app/src:/app/frontend/app/src
       - ../frontend/app/public:/app/frontend/app/public
-      - ../frontend/app/next.config.js:/app/frontend/app/next.config.js:ro
+      - ../frontend/app/index.html:/app/frontend/app/index.html:ro
+      - ../frontend/app/vite.config.ts:/app/frontend/app/vite.config.ts:ro
       - ../logs:/app/logs
       # Mount pnpm store for caching
       - ${PNPM_STORE_PATH:-~/.local/share/pnpm/store}:/root/.local/share/pnpm/store
     working_dir: /app
     environment:
       - NODE_ENV=development
-      - WATCHPACK_POLLING=true
+      - CHOKIDAR_USEPOLLING=true
       - CI=true
     networks:
       - openagents-dev
