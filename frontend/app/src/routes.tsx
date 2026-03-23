@@ -3,10 +3,10 @@ import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 
 import { PromptInputProvider } from "@/components/ai-elements/prompt-input";
 import { ArtifactsProvider } from "@/components/workspace/artifacts/context";
+import { useAuth } from "@/core/auth/hooks";
 import { SubtasksProvider } from "@/core/tasks/context";
 
 // Lazy-load heavy page components
-const HomePage = lazy(() => import("@/app/page"));
 const LoginPage = lazy(() => import("@/app/login/page"));
 const RegisterPage = lazy(() => import("@/app/register/page"));
 const WorkspaceLayout = lazy(() => import("@/app/workspace/layout"));
@@ -47,18 +47,17 @@ function PageSuspense({ children }: { children: React.ReactNode }) {
   );
 }
 
+function RootEntryRoute() {
+  const { authenticated } = useAuth();
+
+  return <Navigate to={authenticated ? "/workspace" : "/login"} replace />;
+}
+
 export function AppRoutes() {
   return (
     <PageSuspense>
       <Routes>
-        <Route
-          path="/"
-          element={
-            <PageSuspense>
-              <HomePage />
-            </PageSuspense>
-          }
-        />
+        <Route path="/" element={<RootEntryRoute />} />
         <Route
           path="/login"
           element={
