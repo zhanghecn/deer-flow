@@ -17,6 +17,13 @@ export interface AgentSkillRef {
   materialized_path: string | null;
 }
 
+export interface AgentSkillRefInput {
+  name: string;
+  category?: string | null;
+  source_path?: string | null;
+  materialized_path?: string | null;
+}
+
 export interface Agent {
   name: string;
   description: string;
@@ -61,7 +68,7 @@ export interface CreateAgentRequest {
   mcp_servers?: string[] | null;
   memory?: AgentMemoryConfig;
   skills?: string[];
-  skill_refs?: AgentSkillRef[];
+  skill_refs?: AgentSkillRefInput[];
   agents_md?: string;
 }
 
@@ -72,6 +79,6 @@ export interface UpdateAgentRequest {
   mcp_servers?: string[] | null;
   memory?: AgentMemoryConfig;
   skills?: string[];
-  skill_refs?: AgentSkillRef[];
+  skill_refs?: AgentSkillRefInput[];
   agents_md?: string | null;
 }

@@ -107,3 +107,39 @@ memory:
 		t.Fatalf("agent.Memory.MaxInjectionTokens = %d, want 4096", agent.Memory.MaxInjectionTokens)
 	}
 }
+
+func TestListFilesystemSkillsPreservesAliasedSourcePath(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	skillDir := filepath.Join(baseDir, "skills", "shared", "vercel-deploy-claimable")
+	if err := os.MkdirAll(skillDir, 0755); err != nil {
+		t.Fatalf("mkdir skill dir: %v", err)
+	}
+
+	skillMD := "---\nname: vercel-deploy\ndescription: aliased skill\n---\n\nbody"
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillMD), 0644); err != nil {
+		t.Fatalf("write skill file: %v", err)
+	}
+
+	skills, err := listFilesystemSkills(
+		storage.NewFS(baseDir),
+		filepath.Join(baseDir, "extensions_config.json"),
+		"",
+	)
+	if err != nil {
+		t.Fatalf("listFilesystemSkills() error = %v", err)
+	}
+	if len(skills) != 1 {
+		t.Fatalf("len(skills) = %d, want 1", len(skills))
+	}
+	if got := skills[0].Name; got != "vercel-deploy" {
+		t.Fatalf("skills[0].Name = %q, want %q", got, "vercel-deploy")
+	}
+	if got := skills[0].Category; got != "shared" {
+		t.Fatalf("skills[0].Category = %q, want %q", got, "shared")
+	}
+	if got := skills[0].SourcePath; got != "shared/vercel-deploy-claimable" {
+		t.Fatalf("skills[0].SourcePath = %q, want %q", got, "shared/vercel-deploy-claimable")
+	}
+}

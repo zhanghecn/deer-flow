@@ -75,6 +75,39 @@ func normalizeMaterializedPath(materializedPath string) (string, error) {
 	return normalized, nil
 }
 
+func parseSkillSourcePath(sourcePath string) (string, string, error) {
+	cleaned := strings.Trim(strings.TrimSpace(sourcePath), "/")
+	if cleaned == "" {
+		return "", "", fmt.Errorf("skill source_path is required")
+	}
+
+	normalized := path.Clean(cleaned)
+	if normalized == "." || normalized == "" || strings.HasPrefix(normalized, "../") || normalized == ".." {
+		return "", "", fmt.Errorf("skill source_path must be a safe relative path")
+	}
+
+	for _, prefix := range []string{"store/prod/", "store/dev/", "shared/"} {
+		if !strings.HasPrefix(normalized, prefix) {
+			continue
+		}
+		relativePath := strings.TrimPrefix(normalized, prefix)
+		if relativePath == "" || relativePath == "." {
+			return "", "", fmt.Errorf("skill source_path must point to a concrete skill directory")
+		}
+		return strings.TrimSuffix(prefix, "/"), relativePath, nil
+	}
+
+	return "", "", fmt.Errorf("skill source_path must start with shared/, store/dev/, or store/prod/")
+}
+
+func deriveMaterializedPathFromSourcePath(sourcePath string) (string, error) {
+	_, relativePath, err := parseSkillSourcePath(sourcePath)
+	if err != nil {
+		return "", err
+	}
+	return normalizeMaterializedPath(path.Join("skills", relativePath))
+}
+
 func (s *AgentService) Create(_ context.Context, req model.CreateAgentRequest, _ uuid.UUID) (*model.Agent, error) {
 	name := strings.TrimSpace(req.Name)
 	if isReservedAgentName(name) {
@@ -261,12 +294,16 @@ func (s *AgentService) normalizeSkillRef(ref model.SkillRef, agentName string, a
 		}, nil
 	}
 
-	switch {
-	case category == "" && sourcePath != "":
-		category = path.Dir(sourcePath)
-		if category == "." || category == "/" {
-			category = strings.Trim(sourcePath, "/")
+	if sourcePath != "" {
+		derivedCategory, derivedRelativePath, err := parseSkillSourcePath(sourcePath)
+		if err != nil {
+			return model.SkillRef{}, fmt.Errorf("skill %q: %w", name, err)
 		}
+		category = derivedCategory
+		materializedPath = path.Join("skills", derivedRelativePath)
+	}
+
+	switch {
 	case category == "" && ref.Status != "":
 		if ref.Status == "prod" {
 			category = "store/prod"
@@ -309,7 +346,15 @@ func (s *AgentService) normalizeSkillRef(ref model.SkillRef, agentName string, a
 		MaterializedPath: materializedPath,
 	}
 	if normalized.MaterializedPath == "" {
-		normalized.MaterializedPath = path.Join("skills", name)
+		if normalized.SourcePath != "" {
+			derivedPath, err := deriveMaterializedPathFromSourcePath(normalized.SourcePath)
+			if err != nil {
+				return model.SkillRef{}, fmt.Errorf("skill %q: %w", name, err)
+			}
+			normalized.MaterializedPath = derivedPath
+		} else {
+			normalized.MaterializedPath = path.Join("skills", name)
+		}
 	} else {
 		normalizedPath, err := normalizeMaterializedPath(normalized.MaterializedPath)
 		if err != nil {

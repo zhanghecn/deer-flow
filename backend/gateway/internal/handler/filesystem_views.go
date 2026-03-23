@@ -23,6 +23,7 @@ type skillListItem struct {
 	Description string `json:"description"`
 	License     string `json:"license,omitempty"`
 	Category    string `json:"category"`
+	SourcePath  string `json:"source_path"`
 	Enabled     bool   `json:"enabled"`
 }
 
@@ -123,12 +124,21 @@ func listFilesystemSkills(fsStore *storage.FS, extensionsConfigPath string, stat
 			if err != nil {
 				return nil
 			}
+			relativeDir, err := filepath.Rel(root, filepath.Dir(path))
+			if err != nil {
+				return nil
+			}
+			sourcePath := category
+			if relativeDir != "." {
+				sourcePath += "/" + filepath.ToSlash(relativeDir)
+			}
 			state, ok := extensionsCfg.Skills[meta.Name]
 			skills = append(skills, skillListItem{
 				Name:        meta.Name,
 				Description: meta.Description,
 				License:     meta.License,
 				Category:    category,
+				SourcePath:  sourcePath,
 				Enabled:     !ok || state.Enabled,
 			})
 			return nil
@@ -139,7 +149,10 @@ func listFilesystemSkills(fsStore *storage.FS, extensionsConfigPath string, stat
 	}
 
 	slices.SortFunc(skills, func(a, b skillListItem) int {
-		return strings.Compare(a.Name, b.Name)
+		if byName := strings.Compare(a.Name, b.Name); byName != 0 {
+			return byName
+		}
+		return strings.Compare(a.SourcePath, b.SourcePath)
 	})
 	return skills, nil
 }

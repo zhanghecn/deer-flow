@@ -50,8 +50,13 @@ import {
   normalizeSkillScope,
   type SkillScope,
 } from "@/core/skills/scope";
-import type { Skill } from "@/core/skills/type";
 import { cn } from "@/lib/utils";
+
+import {
+  createSkillRef,
+  serializeSkillRefForRequest,
+  skillRefKey,
+} from "./agent-skill-refs";
 
 type SettingsTab = "profile" | "skills" | "prompt" | "config" | "access";
 
@@ -107,25 +112,6 @@ function createFormState(agent: Agent): AgentSettingsFormState {
     confidenceThreshold: String(agent.memory?.fact_confidence_threshold ?? 0.7),
     injectionEnabled: agent.memory?.injection_enabled ?? true,
     maxInjectionTokens: String(agent.memory?.max_injection_tokens ?? 2000),
-  };
-}
-
-function skillRefKey(skillRef: AgentSkillRef) {
-  return `${skillRef.category ?? "uncategorized"}:${skillRef.name}`;
-}
-
-function buildSkillSourcePath(skill: Skill) {
-  const scope = normalizeSkillScope(skill.category) ?? "shared";
-  return `${scope}/${skill.name}`;
-}
-
-function createSkillRef(skill: Skill): AgentSkillRef {
-  const category = normalizeSkillScope(skill.category) ?? "shared";
-  return {
-    name: skill.name,
-    category,
-    source_path: buildSkillSourcePath(skill),
-    materialized_path: `skills/${skill.name}`,
   };
 }
 
@@ -215,7 +201,10 @@ export function AgentSettingsDialog({
     exportDoc,
     isLoading: exportDocLoading,
     error: exportDocError,
-  } = useAgentExportDoc(open && isProdArchive ? agentName : null, open && isProdArchive);
+  } = useAgentExportDoc(
+    open && isProdArchive ? agentName : null,
+    open && isProdArchive,
+  );
   const downloadDemoMutation = useDownloadAgentReactDemo();
   const updateAgentMutation = useUpdateAgent();
   const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
@@ -252,8 +241,7 @@ export function AgentSettingsDialog({
     [agent?.skills, form?.skillRefs],
   );
   const allowedSkillScopes = useMemo(
-    () =>
-      getAllowedSkillScopesForAgent(agentStatus, allowSharedSkillSelection),
+    () => getAllowedSkillScopesForAgent(agentStatus, allowSharedSkillSelection),
     [agentStatus, allowSharedSkillSelection],
   );
   const duplicateSkillNames = useMemo(
@@ -375,7 +363,7 @@ export function AgentSettingsDialog({
           model: form.model.trim() ? form.model.trim() : null,
           tool_groups: parseCSV(form.toolGroups),
           mcp_servers: parseCSV(form.mcpServers),
-          skill_refs: form.skillRefs,
+          skill_refs: form.skillRefs.map(serializeSkillRefForRequest),
           agents_md: form.agentsMd,
           memory: {
             enabled: form.memoryEnabled,
@@ -903,7 +891,7 @@ export function AgentSettingsDialog({
                                           )!,
                                         )}`
                                       : ""}
-                                    <span className="text-[10px] uppercase tracking-[0.12em]">
+                                    <span className="text-[10px] tracking-[0.12em] uppercase">
                                       remove
                                     </span>
                                   </button>
@@ -929,8 +917,8 @@ export function AgentSettingsDialog({
                               </p>
                             ) : agentStatus === "prod" ? (
                               <p className="text-muted-foreground text-sm leading-6">
-                                Prod archives must use `store/prod` skills. If
-                                a dev-only skill is still attached, publish that
+                                Prod archives must use `store/prod` skills. If a
+                                dev-only skill is still attached, publish that
                                 skill to prod before publishing the agent.
                               </p>
                             ) : (
