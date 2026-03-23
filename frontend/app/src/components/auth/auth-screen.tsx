@@ -223,7 +223,7 @@ export function AuthScreen() {
                       htmlFor="login-account"
                       className="mb-2 block text-sm text-white/75"
                     >
-                      Account
+                      {t.auth.accountLabel}
                     </label>
                     <Input
                       id="login-account"

@@ -50,6 +50,18 @@ export const enUS: Translations = {
     clearAll: "Clear all",
   },
 
+  // Commands
+  commands: {
+    createAgent: "Create a new agent in the current workspace",
+    createSkill: "Create a new skill in the current workspace",
+    saveAgentToStore: "Save the current draft agent to the dev store",
+    saveSkillToStore: "Save the current draft skill to the dev store",
+    pushAgentProd: "Publish the current dev agent to prod",
+    pushSkillProd: "Publish the current dev skill to prod",
+    promoteSkillShared:
+      "Promote the current skill into the shared skill archive",
+  },
+
   // Welcome
   welcome: {
     greeting: "Hello, again!",
@@ -84,6 +96,16 @@ export const enUS: Translations = {
     searchModels: "Search models...",
     surpriseMe: "Surprise",
     surpriseMePrompt: "Surprise me",
+    quickInsertCommandBadge: "Command",
+    quickInsertCommandsLabel: "Commands",
+    quickInsertSkillsLabel: "Skills",
+    retryingModel: (current, max, time) =>
+      `Retrying model ${current}/${max} at ${time}`,
+    retryingTool: (toolName, current, max, time) =>
+      `Retrying ${toolName} ${current}/${max} at ${time}`,
+    retryingToolGeneric: (current, max, time) =>
+      `Retrying tool ${current}/${max} at ${time}`,
+    retryDelay: (seconds) => `Next retry in ${seconds}s`,
     suggestions: [
       {
         suggestion: "Write",
@@ -222,10 +244,19 @@ export const enUS: Translations = {
     officialWebsite: "OpenAgents official website",
     githubTooltip: "OpenAgents on GitHub",
     settingsAndMore: "Settings and more",
+    userRoleFallback: "User",
     visitGithub: "OpenAgents on GitHub",
     reportIssue: "Report a issue",
     contactUs: "Contact us",
     about: "About OpenAgents",
+    adminConsole: "Admin Console",
+    toggleSidebar: "Toggle Sidebar",
+    artifactsPanelTitle: "Artifacts",
+    noArtifactSelectedTitle: "No artifact selected",
+    noArtifactSelectedDescription: "Select an artifact to view its details",
+    officePreviewDialogDescription:
+      "Preview and edit the selected office document.",
+    todoListTitle: "To-dos",
   },
 
   // Conversation
@@ -256,6 +287,7 @@ export const enUS: Translations = {
     badge: "v2.0 Auth",
     signInTab: "Sign in",
     registerTab: "Register",
+    accountLabel: "Account",
     emailLabel: "Email",
     passwordLabel: "Password",
     nameLabel: "Name",
@@ -363,11 +395,16 @@ export const enUS: Translations = {
     tools: {
       title: "Tools",
       description: "Manage the configuration and enabled status of MCP tools.",
+      loadError: (message: string) =>
+        message ? `Failed to load tools: ${message}` : "Failed to load tools",
+      emptyState: "No MCP tools are configured yet.",
     },
     skills: {
       title: "Agent Skills",
       description:
         "Manage the configuration and enabled status of the agent skills.",
+      loadError: (message: string) =>
+        message ? `Failed to load skills: ${message}` : "Failed to load skills",
       createSkill: "Create skill",
       emptyTitle: "No agent skill yet",
       emptyDescription:

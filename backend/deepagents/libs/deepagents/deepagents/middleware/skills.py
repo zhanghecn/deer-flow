@@ -90,6 +90,7 @@ middleware = SkillsMiddleware(
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from pathlib import PurePosixPath
@@ -129,6 +130,8 @@ MAX_SKILL_FILE_SIZE = 10 * 1024 * 1024
 MAX_SKILL_NAME_LENGTH = 64
 MAX_SKILL_DESCRIPTION_LENGTH = 1024
 MAX_SKILL_COMPATIBILITY_LENGTH = 500
+SUPPORTED_SKILL_I18N_LOCALES = ("en-US", "zh-CN")
+SKILL_I18N_FILE_NAME = "skill.i18n.json"
 
 
 class SkillMetadata(TypedDict):
@@ -250,6 +253,8 @@ def _parse_skill_metadata(  # noqa: C901
     content: str,
     skill_path: str,
     directory_name: str,
+    i18n_content: str | None = None,
+    preferred_locale: str | None = None,
 ) -> SkillMetadata | None:
     """Parse YAML frontmatter from `SKILL.md` content.
 
@@ -306,7 +311,12 @@ def _parse_skill_metadata(  # noqa: C901
             error,
         )
 
-    description_str = description
+    description_str = _select_skill_description(
+        fallback_description=description,
+        i18n_content=i18n_content,
+        preferred_locale=preferred_locale,
+        skill_path=skill_path,
+    )
     if len(description_str) > MAX_SKILL_DESCRIPTION_LENGTH:
         logger.warning(
             "Description exceeds %d characters in %s, truncating",
@@ -349,6 +359,112 @@ def _parse_skill_metadata(  # noqa: C901
         compatibility=compatibility_str,
         allowed_tools=allowed_tools,
     )
+
+
+def _normalize_skill_i18n_description_map(
+    raw: object,
+    *,
+    skill_path: str,
+) -> dict[str, str]:
+    if not isinstance(raw, dict):
+        if raw:
+            logger.warning(
+                "Ignoring non-dict skill description i18n in %s (got %s)",
+                skill_path,
+                type(raw).__name__,
+            )
+        return {}
+
+    normalized: dict[str, str] = {}
+    for locale in SUPPORTED_SKILL_I18N_LOCALES:
+        text = raw.get(locale)
+        if not isinstance(text, str):
+            continue
+        normalized_text = text.strip()
+        if not normalized_text:
+            continue
+        normalized[locale] = normalized_text
+    return normalized
+
+
+def _load_skill_i18n_description_map(
+    *,
+    i18n_content: str | None,
+    skill_path: str,
+) -> dict[str, str]:
+    if not i18n_content:
+        return {}
+
+    try:
+        payload = json.loads(i18n_content)
+    except json.JSONDecodeError as exc:
+        logger.warning("Invalid skill i18n JSON in %s: %s", skill_path, exc)
+        return {}
+
+    if not isinstance(payload, dict):
+        logger.warning("Ignoring non-object skill i18n payload in %s", skill_path)
+        return {}
+
+    return _normalize_skill_i18n_description_map(
+        payload.get("description"),
+        skill_path=skill_path,
+    )
+
+
+def _normalize_preferred_skill_locale(value: object) -> str | None:
+    text = str(value or "").strip()
+    if text in SUPPORTED_SKILL_I18N_LOCALES:
+        return text
+    return None
+
+
+def _preferred_skill_locale(state: object, config: RunnableConfig | None) -> str | None:
+    configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
+    if isinstance(configurable, dict):
+        preferred_locale = _normalize_preferred_skill_locale(configurable.get("locale"))
+        if preferred_locale is not None:
+            return preferred_locale
+
+    if not isinstance(state, dict):
+        return None
+
+    messages = state.get("messages")
+    if not isinstance(messages, list):
+        return None
+
+    for message in reversed(messages):
+        if not isinstance(message, dict):
+            continue
+        if message.get("type") not in {"human", "user"}:
+            continue
+        content = str(message.get("content") or "")
+        if re.search(r"[\u4e00-\u9fff]", content):
+            return "zh-CN"
+        if content.strip():
+            return "en-US"
+    return None
+
+
+def _select_skill_description(
+    *,
+    fallback_description: str,
+    i18n_content: str | None,
+    preferred_locale: str | None,
+    skill_path: str,
+) -> str:
+    description_i18n = _load_skill_i18n_description_map(
+        i18n_content=i18n_content,
+        skill_path=skill_path,
+    )
+    if not description_i18n:
+        return fallback_description
+
+    if preferred_locale:
+        localized = description_i18n.get(preferred_locale, "").strip()
+        if localized:
+            return localized
+
+    return fallback_description
 
 
 def _validate_metadata(
@@ -400,7 +516,12 @@ def _format_skill_annotations(skill: SkillMetadata) -> str:
     return ", ".join(parts)
 
 
-def _list_skills(backend: BackendProtocol, source_path: str) -> list[SkillMetadata]:
+def _list_skills(
+    backend: BackendProtocol,
+    source_path: str,
+    *,
+    preferred_locale: str | None = None,
+) -> list[SkillMetadata]:
     """List all skills from a backend source.
 
     Scans backend for subdirectories containing `SKILL.md` files, downloads
@@ -436,31 +557,44 @@ def _list_skills(backend: BackendProtocol, source_path: str) -> list[SkillMetada
         return []
 
     # For each skill directory, check if SKILL.md exists and download it
-    skill_md_paths = []
+    skill_file_pairs = []
     for skill_dir_path in skill_dirs:
         # Construct SKILL.md path using PurePosixPath for safe, standardized path operations
         skill_dir = PurePosixPath(skill_dir_path)
         skill_md_path = str(skill_dir / "SKILL.md")
-        skill_md_paths.append((skill_dir_path, skill_md_path))
+        skill_i18n_path = str(skill_dir / SKILL_I18N_FILE_NAME)
+        skill_file_pairs.append((skill_dir_path, skill_md_path, skill_i18n_path))
 
-    paths_to_download = [skill_md_path for _, skill_md_path in skill_md_paths]
+    paths_to_download: list[str] = []
+    for _, skill_md_path, skill_i18n_path in skill_file_pairs:
+        paths_to_download.extend([skill_md_path, skill_i18n_path])
     responses = backend.download_files(paths_to_download)
 
     # Parse each downloaded SKILL.md
-    for (skill_dir_path, skill_md_path), response in zip(skill_md_paths, responses, strict=True):
-        if response.error:
+    for index, (skill_dir_path, skill_md_path, skill_i18n_path) in enumerate(skill_file_pairs):
+        skill_md_response = responses[index * 2]
+        skill_i18n_response = responses[index * 2 + 1]
+        if skill_md_response.error:
             # Skill doesn't have a SKILL.md, skip it
             continue
 
-        if response.content is None:
+        if skill_md_response.content is None:
             logger.warning("Downloaded skill file %s has no content", skill_md_path)
             continue
 
         try:
-            content = response.content.decode("utf-8")
+            content = skill_md_response.content.decode("utf-8")
         except UnicodeDecodeError as e:
             logger.warning("Error decoding %s: %s", skill_md_path, e)
             continue
+
+        i18n_content: str | None = None
+        if skill_i18n_response.error is None and skill_i18n_response.content is not None:
+            try:
+                i18n_content = skill_i18n_response.content.decode("utf-8")
+            except UnicodeDecodeError as e:
+                logger.warning("Error decoding %s: %s", skill_i18n_path, e)
+                i18n_content = None
 
         # Extract directory name from path using PurePosixPath
         directory_name = PurePosixPath(skill_dir_path).name
@@ -470,6 +604,8 @@ def _list_skills(backend: BackendProtocol, source_path: str) -> list[SkillMetada
             content=content,
             skill_path=skill_md_path,
             directory_name=directory_name,
+            i18n_content=i18n_content,
+            preferred_locale=preferred_locale,
         )
         if skill_metadata:
             skills.append(skill_metadata)
@@ -477,7 +613,12 @@ def _list_skills(backend: BackendProtocol, source_path: str) -> list[SkillMetada
     return skills
 
 
-async def _alist_skills(backend: BackendProtocol, source_path: str) -> list[SkillMetadata]:
+async def _alist_skills(
+    backend: BackendProtocol,
+    source_path: str,
+    *,
+    preferred_locale: str | None = None,
+) -> list[SkillMetadata]:
     """List all skills from a backend source (async version).
 
     Scans backend for subdirectories containing `SKILL.md` files, downloads
@@ -513,31 +654,44 @@ async def _alist_skills(backend: BackendProtocol, source_path: str) -> list[Skil
         return []
 
     # For each skill directory, check if SKILL.md exists and download it
-    skill_md_paths = []
+    skill_file_pairs = []
     for skill_dir_path in skill_dirs:
         # Construct SKILL.md path using PurePosixPath for safe, standardized path operations
         skill_dir = PurePosixPath(skill_dir_path)
         skill_md_path = str(skill_dir / "SKILL.md")
-        skill_md_paths.append((skill_dir_path, skill_md_path))
+        skill_i18n_path = str(skill_dir / SKILL_I18N_FILE_NAME)
+        skill_file_pairs.append((skill_dir_path, skill_md_path, skill_i18n_path))
 
-    paths_to_download = [skill_md_path for _, skill_md_path in skill_md_paths]
+    paths_to_download: list[str] = []
+    for _, skill_md_path, skill_i18n_path in skill_file_pairs:
+        paths_to_download.extend([skill_md_path, skill_i18n_path])
     responses = await backend.adownload_files(paths_to_download)
 
     # Parse each downloaded SKILL.md
-    for (skill_dir_path, skill_md_path), response in zip(skill_md_paths, responses, strict=True):
-        if response.error:
+    for index, (skill_dir_path, skill_md_path, skill_i18n_path) in enumerate(skill_file_pairs):
+        skill_md_response = responses[index * 2]
+        skill_i18n_response = responses[index * 2 + 1]
+        if skill_md_response.error:
             # Skill doesn't have a SKILL.md, skip it
             continue
 
-        if response.content is None:
+        if skill_md_response.content is None:
             logger.warning("Downloaded skill file %s has no content", skill_md_path)
             continue
 
         try:
-            content = response.content.decode("utf-8")
+            content = skill_md_response.content.decode("utf-8")
         except UnicodeDecodeError as e:
             logger.warning("Error decoding %s: %s", skill_md_path, e)
             continue
+
+        i18n_content: str | None = None
+        if skill_i18n_response.error is None and skill_i18n_response.content is not None:
+            try:
+                i18n_content = skill_i18n_response.content.decode("utf-8")
+            except UnicodeDecodeError as e:
+                logger.warning("Error decoding %s: %s", skill_i18n_path, e)
+                i18n_content = None
 
         # Extract directory name from path using PurePosixPath
         directory_name = PurePosixPath(skill_dir_path).name
@@ -547,6 +701,8 @@ async def _alist_skills(backend: BackendProtocol, source_path: str) -> list[Skil
             content=content,
             skill_path=skill_md_path,
             directory_name=directory_name,
+            i18n_content=i18n_content,
+            preferred_locale=preferred_locale,
         )
         if skill_metadata:
             skills.append(skill_metadata)
@@ -755,11 +911,16 @@ class SkillsMiddleware(AgentMiddleware[SkillsState, ContextT, ResponseT]):
         # Resolve backend (supports both direct instances and factory functions)
         backend = self._get_backend(state, runtime, config)
         all_skills: dict[str, SkillMetadata] = {}
+        preferred_locale = _preferred_skill_locale(state, config)
 
         # Load skills from each source in order
         # Later sources override earlier ones (last one wins)
         for source_path in self.sources:
-            source_skills = _list_skills(backend, source_path)
+            source_skills = _list_skills(
+                backend,
+                source_path,
+                preferred_locale=preferred_locale,
+            )
             for skill in source_skills:
                 all_skills[skill["name"]] = skill
 
@@ -791,11 +952,16 @@ class SkillsMiddleware(AgentMiddleware[SkillsState, ContextT, ResponseT]):
         # Resolve backend (supports both direct instances and factory functions)
         backend = self._get_backend(state, runtime, config)
         all_skills: dict[str, SkillMetadata] = {}
+        preferred_locale = _preferred_skill_locale(state, config)
 
         # Load skills from each source in order
         # Later sources override earlier ones (last one wins)
         for source_path in self.sources:
-            source_skills = await _alist_skills(backend, source_path)
+            source_skills = await _alist_skills(
+                backend,
+                source_path,
+                preferred_locale=preferred_locale,
+            )
             for skill in source_skills:
                 all_skills[skill["name"]] = skill
 

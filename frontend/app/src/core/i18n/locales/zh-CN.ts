@@ -50,6 +50,17 @@ export const zhCN: Translations = {
     clearAll: "清空全部",
   },
 
+  // Commands
+  commands: {
+    createAgent: "在当前工作区中新建一个智能体",
+    createSkill: "在当前工作区中新建一个技能",
+    saveAgentToStore: "将当前草稿智能体保存到开发仓库",
+    saveSkillToStore: "将当前草稿技能保存到开发仓库",
+    pushAgentProd: "将当前开发智能体发布到生产环境",
+    pushSkillProd: "将当前开发技能发布到生产环境",
+    promoteSkillShared: "将当前技能推广到共享技能归档",
+  },
+
   // Welcome
   welcome: {
     greeting: "你好，欢迎回来！",
@@ -83,6 +94,16 @@ export const zhCN: Translations = {
     searchModels: "搜索模型...",
     surpriseMe: "小惊喜",
     surpriseMePrompt: "给我一个小惊喜吧",
+    quickInsertCommandBadge: "命令",
+    quickInsertCommandsLabel: "命令",
+    quickInsertSkillsLabel: "技能",
+    retryingModel: (current, max, time) =>
+      `模型重试 ${current}/${max} · ${time}`,
+    retryingTool: (toolName, current, max, time) =>
+      `工具 ${toolName} 重试 ${current}/${max} · ${time}`,
+    retryingToolGeneric: (current, max, time) =>
+      `工具重试 ${current}/${max} · ${time}`,
+    retryDelay: (seconds) => `${seconds} 秒后再次尝试`,
     suggestions: [
       {
         suggestion: "写作",
@@ -213,10 +234,18 @@ export const zhCN: Translations = {
     officialWebsite: "访问 OpenAgents 官方网站",
     githubTooltip: "访问 OpenAgents 的 Github 仓库",
     settingsAndMore: "设置和更多",
+    userRoleFallback: "用户",
     visitGithub: "在 Github 上查看 OpenAgents",
     reportIssue: "报告问题",
     contactUs: "联系我们",
     about: "关于 OpenAgents",
+    adminConsole: "管理控制台",
+    toggleSidebar: "切换侧边栏",
+    artifactsPanelTitle: "文件",
+    noArtifactSelectedTitle: "尚未选择文件",
+    noArtifactSelectedDescription: "请选择一个文件以查看详情",
+    officePreviewDialogDescription: "预览并编辑当前选中的 Office 文档。",
+    todoListTitle: "待办事项",
   },
 
   // Conversation
@@ -245,6 +274,7 @@ export const zhCN: Translations = {
     badge: "v2.0 认证",
     signInTab: "登录",
     registerTab: "注册",
+    accountLabel: "账号",
     emailLabel: "邮箱",
     passwordLabel: "密码",
     nameLabel: "名称",
@@ -347,10 +377,15 @@ export const zhCN: Translations = {
     tools: {
       title: "工具",
       description: "管理 MCP 工具的配置和启用状态。",
+      loadError: (message: string) =>
+        message ? `加载工具失败：${message}` : "加载工具失败",
+      emptyState: "当前还没有配置 MCP 工具。",
     },
     skills: {
       title: "技能",
       description: "管理 Agent Skill 配置和启用状态。",
+      loadError: (message: string) =>
+        message ? `加载技能失败：${message}` : "加载技能失败",
       createSkill: "新建技能",
       emptyTitle: "还没有技能",
       emptyDescription:

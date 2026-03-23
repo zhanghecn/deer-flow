@@ -42,7 +42,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { PROMPT_COMMANDS } from "@/core/commands";
+import { getPromptCommands } from "@/core/commands";
 import {
   buildPromptExtraContext,
   getSlashQuery,
@@ -50,8 +50,15 @@ import {
 import { useI18n } from "@/core/i18n/hooks";
 import { useModels } from "@/core/models/hooks";
 import type { Model } from "@/core/models/types";
-import { getSkillReferenceQuery } from "@/core/skills";
+import {
+  getLocalizedSkillDescription,
+  getSkillReferenceQuery,
+} from "@/core/skills";
 import { useSkills } from "@/core/skills/hooks";
+import {
+  formatSkillScopeLabel,
+  normalizeSkillScope,
+} from "@/core/skills/scope";
 import type { AgentThreadContext, ContextWindowState } from "@/core/threads";
 import {
   getReasoningEffortForMode,
@@ -191,7 +198,7 @@ export function InputBox({
   ) => void;
   onStop?: () => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [searchParams] = useSearchParams();
   const [modelDialogOpen, setModelDialogOpen] = useState(false);
   const { models } = useModels();
@@ -315,10 +322,11 @@ export function InputBox({
   }, [promptInputController]);
 
   const slashQuery = getSlashQuery(draftText);
+  const promptCommands = useMemo(() => getPromptCommands(t), [t]);
   const slashSuggestions =
     slashQuery === null
       ? []
-      : PROMPT_COMMANDS.filter((command) => command.name.startsWith(slashQuery));
+      : promptCommands.filter((command) => command.name.startsWith(slashQuery));
   const skillReferenceQuery = getSkillReferenceQuery(draftText);
   const skillReferenceSuggestions =
     skillReferenceQuery === null
@@ -335,19 +343,25 @@ export function InputBox({
         title: `/${command.name}`,
         description: command.description,
         value: `/${command.name} `,
-        badge: "Command",
+        badge: t.inputBox.quickInsertCommandBadge,
       }));
     }
 
     return skillReferenceSuggestions.map((skill) => ({
       id: `skill:${skill.category}:${skill.name}`,
       title: `$${skill.name}`,
-      description: skill.description,
+      description: getLocalizedSkillDescription(skill, locale),
       value: `$${skill.name} `,
-      badge: skill.category.replace("/", " "),
+      badge:
+        normalizeSkillScope(skill.category) != null
+          ? formatSkillScopeLabel(normalizeSkillScope(skill.category)!, locale)
+          : skill.category.replace("/", " "),
     }));
-  }, [skillReferenceSuggestions, slashSuggestions]);
-  const quickInsertLabel = slashSuggestions.length > 0 ? "Commands" : "Skills";
+  }, [locale, skillReferenceSuggestions, slashSuggestions, t]);
+  const quickInsertLabel =
+    slashSuggestions.length > 0
+      ? t.inputBox.quickInsertCommandsLabel
+      : t.inputBox.quickInsertSkillsLabel;
   const quickInsertQueryKey = slashQuery !== null
     ? `command:${slashQuery}`
     : skillReferenceQuery !== null

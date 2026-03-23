@@ -4,6 +4,7 @@ This module tests the skills middleware and helper functions using temporary
 directories and the FilesystemBackend in normal (non-virtual) mode.
 """
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -238,6 +239,69 @@ Content
     result = _parse_skill_metadata(content, "/skills/test/SKILL.md", "test-skill")
     assert result is not None
     assert len(result["description"]) == MAX_SKILL_DESCRIPTION_LENGTH
+
+
+def test_parse_skill_metadata_prefers_localized_description() -> None:
+    """Test _parse_skill_metadata uses localized description when available."""
+    content = """---
+name: test-skill
+description: Original fallback description
+---
+
+Content
+"""
+    i18n_content = json.dumps(
+        {
+            "version": 1,
+            "default_locale": "en-US",
+            "description": {
+                "en-US": "English description",
+                "zh-CN": "中文描述",
+            },
+        }
+    )
+
+    result = _parse_skill_metadata(
+        content,
+        "/skills/test-skill/SKILL.md",
+        "test-skill",
+        i18n_content=i18n_content,
+        preferred_locale="zh-CN",
+    )
+
+    assert result is not None
+    assert result["description"] == "中文描述"
+
+
+def test_parse_skill_metadata_falls_back_to_original_description() -> None:
+    """Test _parse_skill_metadata falls back when the preferred locale is missing."""
+    content = """---
+name: test-skill
+description: Original fallback description
+---
+
+Content
+"""
+    i18n_content = json.dumps(
+        {
+            "version": 1,
+            "default_locale": "en-US",
+            "description": {
+                "en-US": "English description",
+            },
+        }
+    )
+
+    result = _parse_skill_metadata(
+        content,
+        "/skills/test-skill/SKILL.md",
+        "test-skill",
+        i18n_content=i18n_content,
+        preferred_locale="zh-CN",
+    )
+
+    assert result is not None
+    assert result["description"] == "Original fallback description"
 
 
 def test_parse_skill_metadata_too_large() -> None:

@@ -21,6 +21,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useI18n } from "@/core/i18n/hooks";
+import { getLocalizedSkillDescription } from "@/core/skills";
 import { useEnableSkill, useSkills } from "@/core/skills/hooks";
 import {
   filterSkillsByScope,
@@ -44,7 +45,7 @@ export function SkillSettingsPage({ onClose }: { onClose?: () => void } = {}) {
       {isLoading ? (
         <div className="text-muted-foreground text-sm">{t.common.loading}</div>
       ) : error ? (
-        <div>Error: {error.message}</div>
+        <div>{t.settings.skills.loadError(error.message)}</div>
       ) : (
         <SkillSettingsList skills={skills} onClose={onClose} />
       )}
@@ -59,7 +60,7 @@ function SkillSettingsList({
   skills: Skill[];
   onClose?: () => void;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const navigate = useNavigate();
   const categories = useMemo(() => getSkillScopes(skills), [skills]);
   const [filter, setFilter] = useState<SkillScope>("shared");
@@ -74,8 +75,8 @@ function SkillSettingsList({
   };
 
   const categoryLabel = useCallback(
-    (category: SkillScope) => formatSkillScopeLabel(category),
-    [],
+    (category: SkillScope) => formatSkillScopeLabel(category, locale),
+    [locale],
   );
 
   useEffect(() => {
@@ -119,7 +120,7 @@ function SkillSettingsList({
                 <div className="flex items-center gap-2">{skill.name}</div>
               </ItemTitle>
               <ItemDescription className="line-clamp-4">
-                {skill.description}
+                {getLocalizedSkillDescription(skill, locale)}
               </ItemDescription>
             </ItemContent>
             <ItemActions>

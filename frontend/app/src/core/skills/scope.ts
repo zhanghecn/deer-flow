@@ -1,3 +1,5 @@
+import type { Locale } from "@/core/i18n";
+
 import type { Skill } from "./type";
 
 export const SKILL_SCOPE_ORDER = ["shared", "store/dev", "store/prod"] as const;
@@ -15,7 +17,20 @@ export function normalizeSkillScope(
   return null;
 }
 
-export function formatSkillScopeLabel(scope: SkillScope) {
+export function formatSkillScopeLabel(
+  scope: SkillScope,
+  locale: Locale = "en-US",
+) {
+  if (locale === "zh-CN") {
+    if (scope === "shared") {
+      return "共享";
+    }
+    if (scope === "store/dev") {
+      return "开发仓库";
+    }
+    return "生产仓库";
+  }
+
   if (scope === "shared") {
     return "Shared";
   }

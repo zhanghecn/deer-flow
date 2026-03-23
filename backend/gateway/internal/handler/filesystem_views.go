@@ -19,12 +19,13 @@ import (
 const threadVirtualPathPrefix = "/mnt/user-data"
 
 type skillListItem struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	License     string `json:"license,omitempty"`
-	Category    string `json:"category"`
-	SourcePath  string `json:"source_path"`
-	Enabled     bool   `json:"enabled"`
+	Name            string            `json:"name"`
+	Description     string            `json:"description"`
+	DescriptionI18n map[string]string `json:"description_i18n,omitempty"`
+	License         string            `json:"license,omitempty"`
+	Category        string            `json:"category"`
+	SourcePath      string            `json:"source_path"`
+	Enabled         bool              `json:"enabled"`
 }
 
 type skillStateJSON struct {
@@ -124,6 +125,10 @@ func listFilesystemSkills(fsStore *storage.FS, extensionsConfigPath string, stat
 			if err != nil {
 				return nil
 			}
+			descriptionI18n, err := skillfs.LoadDescriptionI18nFile(filepath.Dir(path))
+			if err != nil {
+				descriptionI18n = nil
+			}
 			relativeDir, err := filepath.Rel(root, filepath.Dir(path))
 			if err != nil {
 				return nil
@@ -134,12 +139,13 @@ func listFilesystemSkills(fsStore *storage.FS, extensionsConfigPath string, stat
 			}
 			state, ok := extensionsCfg.Skills[meta.Name]
 			skills = append(skills, skillListItem{
-				Name:        meta.Name,
-				Description: meta.Description,
-				License:     meta.License,
-				Category:    category,
-				SourcePath:  sourcePath,
-				Enabled:     !ok || state.Enabled,
+				Name:            meta.Name,
+				Description:     meta.Description,
+				DescriptionI18n: descriptionI18n,
+				License:         meta.License,
+				Category:        category,
+				SourcePath:      sourcePath,
+				Enabled:         !ok || state.Enabled,
 			})
 			return nil
 		})

@@ -25,10 +25,10 @@ export function ToolSettingsPage() {
       {isLoading ? (
         <div className="text-muted-foreground text-sm">{t.common.loading}</div>
       ) : error ? (
-        <div>Error: {error.message}</div>
+        <div>{t.settings.tools.loadError(error.message)}</div>
       ) : Object.keys(servers).length === 0 ? (
         <div className="text-muted-foreground text-sm">
-          No MCP servers are configured yet.
+          {t.settings.tools.emptyState}
         </div>
       ) : (
         <MCPServerList servers={servers} />

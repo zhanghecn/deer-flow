@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "default_locale": "en-US",
+  "description": {
+    "en-US": "Guide for creating effective skills. Use when users want to create or update a skill that extends the agent with specialized knowledge, workflows, or tool integrations.",
+    "zh-CN": "指导创建高质量 skill。适用于用户想新建或更新一个 skill，让 agent 获得特定领域知识、工作流或工具集成能力的场景。"
+  }
+}

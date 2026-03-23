@@ -5,6 +5,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { DEFAULT_LOCALE } from "@/core/i18n";
+import { getLocaleFromCookie } from "@/core/i18n/cookies";
 import { cn } from "@/lib/utils";
 import { type LucideIcon, XIcon } from "lucide-react";
 import type { ComponentProps, HTMLAttributes } from "react";
@@ -44,21 +46,26 @@ export const ArtifactClose = ({
   size = "sm",
   variant = "ghost",
   ...props
-}: ArtifactCloseProps) => (
-  <Button
-    className={cn(
-      "text-muted-foreground hover:text-foreground size-8 p-0",
-      className,
-    )}
-    size={size}
-    type="button"
-    variant={variant}
-    {...props}
-  >
-    {children ?? <XIcon className="size-4" />}
-    <span className="sr-only">Close</span>
-  </Button>
-);
+}: ArtifactCloseProps) => {
+  const locale = getLocaleFromCookie() ?? DEFAULT_LOCALE;
+  const closeLabel = locale === "zh-CN" ? "关闭" : "Close";
+
+  return (
+    <Button
+      className={cn(
+        "text-muted-foreground hover:text-foreground size-8 p-0",
+        className,
+      )}
+      size={size}
+      type="button"
+      variant={variant}
+      {...props}
+    >
+      {children ?? <XIcon className="size-4" />}
+      <span className="sr-only">{closeLabel}</span>
+    </Button>
+  );
+};
 
 export type ArtifactTitleProps = HTMLAttributes<HTMLParagraphElement>;
 

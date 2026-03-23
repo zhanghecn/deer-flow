@@ -1,7 +1,10 @@
 import { Streamdown } from "streamdown";
 
-import { aboutMarkdown } from "./about-content";
+import { useI18n } from "@/core/i18n/hooks";
+
+import { getAboutMarkdown } from "./about-content";
 
 export function AboutSettingsPage() {
-  return <Streamdown>{aboutMarkdown}</Streamdown>;
+  const { locale } = useI18n();
+  return <Streamdown>{getAboutMarkdown(locale)}</Streamdown>;
 }

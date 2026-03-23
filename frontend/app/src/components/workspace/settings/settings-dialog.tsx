@@ -5,7 +5,7 @@ import {
   SparklesIcon,
   WrenchIcon,
 } from "lucide-react";
-import { lazy, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   Dialog,
@@ -17,37 +17,11 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useI18n } from "@/core/i18n/hooks";
 import { cn } from "@/lib/utils";
-
-const AppearanceSettingsPage = lazy(
-  () =>
-    import("@/components/workspace/settings/appearance-settings-page").then(
-      (m) => ({ default: m.AppearanceSettingsPage }),
-    ),
-);
-const ToolSettingsPage = lazy(
-  () =>
-    import("@/components/workspace/settings/tool-settings-page").then(
-      (m) => ({ default: m.ToolSettingsPage }),
-    ),
-);
-const SkillSettingsPage = lazy(
-  () =>
-    import("@/components/workspace/settings/skill-settings-page").then(
-      (m) => ({ default: m.SkillSettingsPage }),
-    ),
-);
-const NotificationSettingsPage = lazy(
-  () =>
-    import("@/components/workspace/settings/notification-settings-page").then(
-      (m) => ({ default: m.NotificationSettingsPage }),
-    ),
-);
-const AboutSettingsPage = lazy(
-  () =>
-    import("@/components/workspace/settings/about-settings-page").then(
-      (m) => ({ default: m.AboutSettingsPage }),
-    ),
-);
+import { AboutSettingsPage } from "@/components/workspace/settings/about-settings-page";
+import { AppearanceSettingsPage } from "@/components/workspace/settings/appearance-settings-page";
+import { NotificationSettingsPage } from "@/components/workspace/settings/notification-settings-page";
+import { SkillSettingsPage } from "@/components/workspace/settings/skill-settings-page";
+import { ToolSettingsPage } from "@/components/workspace/settings/tool-settings-page";
 
 type SettingsSection =
   | "appearance"

@@ -67,14 +67,16 @@ type SkillRef struct {
 // Skill DTOs
 
 type CreateSkillRequest struct {
-	Name        string `json:"name" binding:"required,min=1,max=64"`
-	Description string `json:"description"`
-	SkillMD     string `json:"skill_md" binding:"required"`
+	Name            string            `json:"name" binding:"required,min=1,max=64"`
+	Description     string            `json:"description"`
+	DescriptionI18n map[string]string `json:"description_i18n"`
+	SkillMD         string            `json:"skill_md" binding:"required"`
 }
 
 type UpdateSkillRequest struct {
-	Description *string `json:"description"`
-	SkillMD     *string `json:"skill_md"`
+	Description     *string            `json:"description"`
+	DescriptionI18n *map[string]string `json:"description_i18n"`
+	SkillMD         *string            `json:"skill_md"`
 }
 
 // Open API DTOs

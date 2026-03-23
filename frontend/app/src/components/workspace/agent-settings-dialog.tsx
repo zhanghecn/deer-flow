@@ -41,6 +41,8 @@ import {
   useUpdateAgent,
 } from "@/core/agents";
 import type { AgentSkillRef } from "@/core/agents";
+import { useI18n } from "@/core/i18n/hooks";
+import { getLocalizedSkillDescription } from "@/core/skills";
 import { useSkills } from "@/core/skills/hooks";
 import {
   filterSkillsByScope,
@@ -57,6 +59,7 @@ import {
   serializeSkillRefForRequest,
   skillRefKey,
 } from "./agent-skill-refs";
+import { getAgentSettingsDialogText } from "./agent-settings-dialog.i18n";
 
 type SettingsTab = "profile" | "skills" | "prompt" | "config" | "access";
 
@@ -115,18 +118,26 @@ function createFormState(agent: Agent): AgentSettingsFormState {
   };
 }
 
-function parseIntegerInput(value: string, label: string) {
+function parseIntegerInput(
+  value: string,
+  label: string,
+  formatError: (label: string) => string,
+) {
   const parsed = Number(value.trim());
   if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
-    throw new Error(`${label} must be an integer.`);
+    throw new Error(formatError(label));
   }
   return parsed;
 }
 
-function parseFloatInput(value: string, label: string) {
+function parseFloatInput(
+  value: string,
+  label: string,
+  formatError: (label: string) => string,
+) {
   const parsed = Number(value.trim());
   if (!Number.isFinite(parsed)) {
-    throw new Error(`${label} must be a number.`);
+    throw new Error(formatError(label));
   }
   return parsed;
 }
@@ -187,6 +198,8 @@ export function AgentSettingsDialog({
   executionBackend,
   remoteSessionId,
 }: AgentSettingsDialogProps) {
+  const { locale } = useI18n();
+  const text = getAgentSettingsDialogText(locale);
   const { agent, isLoading, error } = useAgent(
     open ? agentName : null,
     agentStatus,
@@ -324,23 +337,23 @@ export function AgentSettingsDialog({
       await navigator.clipboard.writeText(value);
       toast.success(successMessage);
     } catch {
-      toast.error("Failed to copy text");
+      toast.error(text.copyFailed);
     }
   }
 
   async function handleCopyLaunchURL() {
-    await handleCopyText(launchURL, "Agent launch URL copied");
+    await handleCopyText(launchURL, text.launchUrlCopied);
   }
 
   async function handleDownloadReactDemo() {
     try {
       const filename = await downloadDemoMutation.mutateAsync(agentName);
-      toast.success(`${filename} downloaded`);
+      toast.success(text.downloadSuccess(filename));
     } catch (downloadError) {
       toast.error(
         downloadError instanceof Error
           ? downloadError.message
-          : "Failed to download React demo",
+          : text.downloadFailed,
       );
     }
   }
@@ -352,7 +365,7 @@ export function AgentSettingsDialog({
 
     try {
       if (form.memoryEnabled && !form.memoryModel.trim()) {
-        throw new Error("Memory model is required when memory is enabled.");
+        throw new Error(text.memoryModelRequired);
       }
 
       const updated = await updateAgentMutation.mutateAsync({
@@ -372,17 +385,24 @@ export function AgentSettingsDialog({
               : null,
             debounce_seconds: parseIntegerInput(
               form.debounceSeconds,
-              "Debounce seconds",
+              text.debounceSeconds,
+              text.mustBeInteger,
             ),
-            max_facts: parseIntegerInput(form.maxFacts, "Max facts"),
+            max_facts: parseIntegerInput(
+              form.maxFacts,
+              text.maxFacts,
+              text.mustBeInteger,
+            ),
             fact_confidence_threshold: parseFloatInput(
               form.confidenceThreshold,
-              "Confidence threshold",
+              text.confidenceThreshold,
+              text.mustBeNumber,
             ),
             injection_enabled: form.injectionEnabled,
             max_injection_tokens: parseIntegerInput(
               form.maxInjectionTokens,
-              "Max injection tokens",
+              text.maxInjectionTokens,
+              text.mustBeInteger,
             ),
           },
         },
@@ -391,12 +411,12 @@ export function AgentSettingsDialog({
       const nextForm = createFormState(updated);
       setForm(nextForm);
       setSavedForm(nextForm);
-      toast.success(`${updated.name} (${updated.status}) saved`);
+      toast.success(text.saveSuccess(updated.name, updated.status));
     } catch (saveError) {
       toast.error(
         saveError instanceof Error
           ? saveError.message
-          : "Failed to save agent settings",
+          : text.saveFailed,
       );
     }
   }
@@ -415,27 +435,27 @@ export function AgentSettingsDialog({
   }> = [
     {
       value: "profile",
-      label: "Profile",
+      label: text.tabs.profile,
       icon: <BotIcon className="size-4" />,
     },
     {
       value: "skills",
-      label: "Skills",
+      label: text.tabs.skills,
       icon: <SparklesIcon className="size-4" />,
     },
     {
       value: "prompt",
-      label: "Prompt",
+      label: text.tabs.prompt,
       icon: <FileTextIcon className="size-4" />,
     },
     {
       value: "config",
-      label: "Config",
+      label: text.tabs.config,
       icon: <SlidersHorizontalIcon className="size-4" />,
     },
     {
       value: "access",
-      label: "Access",
+      label: text.tabs.access,
       icon: <Link2Icon className="size-4" />,
     },
   ];
@@ -452,7 +472,7 @@ export function AgentSettingsDialog({
               <div className="min-w-0">
                 <div className="text-muted-foreground mb-3 flex items-center gap-2 text-[11px] font-medium tracking-[0.22em] uppercase">
                   <Settings2Icon className="size-3.5" />
-                  Agent Settings
+                  {text.headerEyebrow}
                 </div>
                 <DialogTitle className="flex flex-wrap items-center gap-2 text-xl">
                   <span className="truncate">{agentName}</span>
@@ -460,19 +480,18 @@ export function AgentSettingsDialog({
                     {agentStatus}
                   </Badge>
                   {executionBackend === "remote" && (
-                    <Badge variant="secondary">remote cli</Badge>
+                    <Badge variant="secondary">{text.remoteCliBadge}</Badge>
                   )}
                 </DialogTitle>
                 <DialogDescription className="mt-2 max-w-3xl text-sm leading-6">
-                  Edit the archived agent profile, its private `AGENTS.md`, and
-                  the structured config that becomes `config.yaml`.
+                  {text.headerDescription}
                 </DialogDescription>
               </div>
               <div className="hidden shrink-0 items-center gap-2 sm:flex">
                 <Button size="sm" variant="outline" asChild>
                   <Link to={launchPath}>
                     <ExternalLinkIcon className="size-3.5" />
-                    Open workspace
+                    {text.openWorkspace}
                   </Link>
                 </Button>
                 <Button
@@ -481,7 +500,7 @@ export function AgentSettingsDialog({
                   onClick={handleCopyLaunchURL}
                 >
                   <CopyIcon className="size-3.5" />
-                  Copy URL
+                  {text.copyUrl}
                 </Button>
               </div>
             </div>
@@ -538,25 +557,25 @@ export function AgentSettingsDialog({
                 {isLoading ? (
                   <div className="text-muted-foreground flex min-h-[420px] items-center justify-center gap-2 text-sm">
                     <Loader2Icon className="size-4 animate-spin" />
-                    Loading archived agent settings...
+                    {text.loading}
                   </div>
                 ) : error ? (
                   <div className="flex min-h-[420px] items-center justify-center">
                     <SurfaceCard
                       eyebrow={<BotIcon className="size-4" />}
-                      title="Archive unavailable"
-                      description="The selected archived agent could not be loaded from the gateway."
+                      title={text.loadErrorTitle}
+                      description={text.loadErrorDescription}
                     >
                       <p className="text-sm leading-6">
                         {error instanceof Error
                           ? error.message
-                          : "Unknown error"}
+                          : text.unknownError}
                       </p>
                     </SurfaceCard>
                   </div>
                 ) : !agent || !form ? (
                   <div className="text-muted-foreground flex min-h-[420px] items-center justify-center text-sm">
-                    Select an agent archive to configure.
+                    {text.selectArchive}
                   </div>
                 ) : (
                   <>
@@ -565,21 +584,21 @@ export function AgentSettingsDialog({
                         <div className="space-y-6">
                           <SurfaceCard
                             eyebrow={<BotIcon className="size-4" />}
-                            title="Identity"
-                            description="Define how this archived agent should be described and targeted."
+                            title={text.identityTitle}
+                            description={text.identityDescription}
                           >
                             <div className="grid gap-4 md:grid-cols-2">
                               <div className="space-y-2">
-                                <FieldLabel>Agent name</FieldLabel>
+                                <FieldLabel>{text.agentName}</FieldLabel>
                                 <div className="bg-muted/35 border-border/70 flex h-11 items-center rounded-2xl border px-3 text-sm font-medium">
                                   {agent.name}
                                 </div>
                               </div>
                               <div className="space-y-2">
-                                <FieldLabel>Model override</FieldLabel>
+                                <FieldLabel>{text.modelOverride}</FieldLabel>
                                 <Input
                                   value={form.model}
-                                  placeholder="Optional model id"
+                                  placeholder={text.optionalModelId}
                                   onChange={(event) =>
                                     setForm((current) =>
                                       current
@@ -596,10 +615,10 @@ export function AgentSettingsDialog({
                             </div>
 
                             <div className="space-y-2">
-                              <FieldLabel>Description</FieldLabel>
+                              <FieldLabel>{text.description}</FieldLabel>
                               <Textarea
                                 value={form.description}
-                                placeholder="Summarize what this agent owns and what it should optimize for."
+                                placeholder={text.descriptionPlaceholder}
                                 onChange={(event) =>
                                   setForm((current) =>
                                     current
@@ -617,15 +636,15 @@ export function AgentSettingsDialog({
 
                           <SurfaceCard
                             eyebrow={<SparklesIcon className="size-4" />}
-                            title="Capabilities"
-                            description="Keep the fast controls here; skill authoring still belongs to the create-agent flow."
+                            title={text.capabilitiesTitle}
+                            description={text.capabilitiesDescription}
                           >
                             <div className="grid gap-4 lg:grid-cols-2">
                               <div className="space-y-2">
-                                <FieldLabel>Tool groups</FieldLabel>
+                                <FieldLabel>{text.toolGroups}</FieldLabel>
                                 <Textarea
                                   value={form.toolGroups}
-                                  placeholder="browser, filesystem, office"
+                                  placeholder={text.toolGroupsPlaceholder}
                                   onChange={(event) =>
                                     setForm((current) =>
                                       current
@@ -639,15 +658,14 @@ export function AgentSettingsDialog({
                                   className="min-h-24 rounded-3xl px-4 py-3 text-sm leading-6"
                                 />
                                 <p className="text-muted-foreground text-xs leading-5">
-                                  Comma separated. Leave blank to keep the
-                                  current unrestricted default.
+                                  {text.toolGroupsHint}
                                 </p>
                               </div>
                               <div className="space-y-2">
-                                <FieldLabel>MCP servers</FieldLabel>
+                                <FieldLabel>{text.mcpServers}</FieldLabel>
                                 <Textarea
                                   value={form.mcpServers}
-                                  placeholder="notion, github, slack"
+                                  placeholder={text.mcpServersPlaceholder}
                                   onChange={(event) =>
                                     setForm((current) =>
                                       current
@@ -661,8 +679,7 @@ export function AgentSettingsDialog({
                                   className="min-h-24 rounded-3xl px-4 py-3 text-sm leading-6"
                                 />
                                 <p className="text-muted-foreground text-xs leading-5">
-                                  Comma separated. These values are stored in
-                                  the archived manifest.
+                                  {text.mcpServersHint}
                                 </p>
                               </div>
                             </div>
@@ -672,8 +689,8 @@ export function AgentSettingsDialog({
                         <div className="space-y-6">
                           <SurfaceCard
                             eyebrow={<SparklesIcon className="size-4" />}
-                            title="Archive context"
-                            description="A quick read on the currently loaded agent archive."
+                            title={text.archiveContextTitle}
+                            description={text.archiveContextDescription}
                           >
                             <div className="flex flex-wrap gap-2">
                               <Badge variant="outline" className="capitalize">
@@ -683,17 +700,13 @@ export function AgentSettingsDialog({
                                 <Badge variant="secondary">{agent.model}</Badge>
                               )}
                               <Badge variant="outline">
-                                {skillNames.length} copied skill
-                                {skillNames.length === 1 ? "" : "s"}
+                                {text.copiedSkillsCount(skillNames.length)}
                               </Badge>
                             </div>
 
                             {isLeadAgent(agent.name) && (
                               <p className="text-muted-foreground border-border/70 bg-muted/25 rounded-2xl border px-4 py-3 text-xs leading-6">
-                                `lead_agent` stays the built-in orchestration
-                                entrypoint. The generic system prompt remains in
-                                backend code; this dialog edits only the
-                                archived lead-agent-owned prompt and config.
+                                {text.leadAgentArchiveNote}
                               </p>
                             )}
 
@@ -710,7 +723,7 @@ export function AgentSettingsDialog({
                                 ))
                               ) : (
                                 <p className="text-muted-foreground text-sm">
-                                  No copied skills are attached to this archive.
+                                  {text.noCopiedSkillsAttached}
                                 </p>
                               )}
                             </div>
@@ -723,13 +736,13 @@ export function AgentSettingsDialog({
                       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_320px]">
                         <SurfaceCard
                           eyebrow={<SparklesIcon className="size-4" />}
-                          title="Copied skills"
+                          title={text.copiedSkillsTitle}
                           description={
                             allowSharedSkillSelection
-                              ? "Attach archived skills from shared, dev, or prod stores to this agent archive."
+                              ? text.copiedSkillsDescriptionShared
                               : agentStatus === "prod"
-                                ? "Prod archives can only attach skills from the prod store."
-                                : "Dev archives can attach skills from dev and prod stores, but duplicate names across both stores are blocked."
+                                ? text.copiedSkillsDescriptionProd
+                                : text.copiedSkillsDescriptionDev
                           }
                         >
                           <div className="flex flex-wrap gap-2">
@@ -742,7 +755,7 @@ export function AgentSettingsDialog({
                                   className="rounded-full"
                                   onClick={() => setSkillsCategory(category)}
                                 >
-                                  {formatSkillScopeLabel(category)}
+                                  {formatSkillScopeLabel(category, locale)}
                                 </Button>
                               );
                             })}
@@ -751,17 +764,17 @@ export function AgentSettingsDialog({
                           {skillsLoading ? (
                             <div className="text-muted-foreground flex items-center gap-2 text-sm">
                               <Loader2Icon className="size-4 animate-spin" />
-                              Loading skill catalog...
+                              {text.loadingSkills}
                             </div>
                           ) : skillsError ? (
                             <div className="text-sm">
                               {skillsError instanceof Error
                                 ? skillsError.message
-                                : "Failed to load skills"}
+                                : text.loadSkillsFailed}
                             </div>
                           ) : filteredSkills.length === 0 ? (
                             <div className="text-muted-foreground text-sm">
-                              No skills are available in this archive scope.
+                              {text.noSkillsInScope}
                             </div>
                           ) : (
                             <div className="grid gap-3">
@@ -821,19 +834,22 @@ export function AgentSettingsDialog({
                                           {skill.name}
                                         </p>
                                         <p className="text-muted-foreground mt-1 text-xs leading-5">
-                                          {skill.description}
+                                          {getLocalizedSkillDescription(
+                                            skill,
+                                            locale,
+                                          )}
                                         </p>
                                       </div>
                                       <div className="flex shrink-0 items-center gap-2">
                                         {!skill.enabled && (
                                           <Badge variant="outline">
-                                            disabled
+                                            {text.disabledBadge}
                                           </Badge>
                                         )}
                                         {selected && (
                                           <Badge variant="secondary">
                                             <CheckIcon className="size-3.5" />
-                                            attached
+                                            {text.attachedBadge}
                                           </Badge>
                                         )}
                                       </div>
@@ -847,9 +863,9 @@ export function AgentSettingsDialog({
                             agentStatus === "dev" &&
                             duplicateSkillNames.size > 0 && (
                               <div className="text-muted-foreground border-border/70 bg-muted/25 rounded-2xl border px-4 py-3 text-xs leading-6">
-                                Hidden duplicate names across `store/dev` and
-                                `store/prod`:{" "}
-                                {[...duplicateSkillNames].sort().join(", ")}
+                                {text.hiddenDuplicateNames(
+                                  [...duplicateSkillNames].sort().join(", "),
+                                )}
                               </div>
                             )}
                         </SurfaceCard>
@@ -857,8 +873,8 @@ export function AgentSettingsDialog({
                         <div className="space-y-6">
                           <SurfaceCard
                             eyebrow={<Settings2Icon className="size-4" />}
-                            title="Selected archive skills"
-                            description="These copied skills are written into the archive's `skills/` directory on save."
+                            title={text.selectedSkillsTitle}
+                            description={text.selectedSkillsDescription}
                           >
                             <div className="flex flex-wrap gap-2">
                               {form.skillRefs.length > 0 ? (
@@ -889,16 +905,17 @@ export function AgentSettingsDialog({
                                           normalizeSkillScope(
                                             skillRef.category,
                                           )!,
+                                          locale,
                                         )}`
                                       : ""}
                                     <span className="text-[10px] tracking-[0.12em] uppercase">
-                                      remove
+                                      {text.remove}
                                     </span>
                                   </button>
                                 ))
                               ) : (
                                 <p className="text-muted-foreground text-sm">
-                                  No copied skills selected for this archive.
+                                  {text.noSelectedSkills}
                                 </p>
                               )}
                             </div>
@@ -906,27 +923,20 @@ export function AgentSettingsDialog({
 
                           <SurfaceCard
                             eyebrow={<Link2Icon className="size-4" />}
-                            title="Selection rules"
-                            description="Skill sources stay in the shared archives; this dialog only decides what gets copied into this agent."
+                            title={text.selectionRulesTitle}
+                            description={text.selectionRulesDescription}
                           >
                             {allowSharedSkillSelection ? (
                               <p className="text-muted-foreground text-sm leading-6">
-                                `lead_agent` may still use `shared` building
-                                blocks. Other archived agents should prefer the
-                                dev/prod stores.
+                                {text.selectionRulesLeadAgent}
                               </p>
                             ) : agentStatus === "prod" ? (
                               <p className="text-muted-foreground text-sm leading-6">
-                                Prod archives must use `store/prod` skills. If a
-                                dev-only skill is still attached, publish that
-                                skill to prod before publishing the agent.
+                                {text.selectionRulesProd}
                               </p>
                             ) : (
                               <p className="text-muted-foreground text-sm leading-6">
-                                Dev archives may use both `store/dev` and
-                                `store/prod`, but names that exist in both
-                                stores are intentionally blocked to avoid
-                                ambiguous selection.
+                                {text.selectionRulesDev}
                               </p>
                             )}
                           </SurfaceCard>
@@ -937,15 +947,15 @@ export function AgentSettingsDialog({
                     <TabsContent value="prompt" className="m-0 space-y-6">
                       <SurfaceCard
                         eyebrow={<FileTextIcon className="size-4" />}
-                        title="Archived AGENTS.md"
-                        description="This prompt lives with the agent archive and is materialized into the runtime copy for each thread."
+                        title={text.promptTitle}
+                        description={text.promptDescription}
                       >
                         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
                           <div className="space-y-2">
-                            <FieldLabel>Prompt body</FieldLabel>
+                            <FieldLabel>{text.promptBody}</FieldLabel>
                             <Textarea
                               value={form.agentsMd}
-                              placeholder="Write the agent-owned instructions here."
+                              placeholder={text.promptPlaceholder}
                               onChange={(event) =>
                                 setForm((current) =>
                                   current
@@ -963,11 +973,9 @@ export function AgentSettingsDialog({
                           <div className="space-y-4">
                             <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
                               <FieldLabel className="mb-2">
-                                Runtime contract
+                                {text.runtimeContract}
                               </FieldLabel>
-                              <p className="text-sm leading-6">
-                                The archived prompt is copied into:
-                              </p>
+                              <p className="text-sm leading-6">{text.runtimeContractIntro}</p>
                               <code className="bg-background border-border/70 mt-3 block rounded-2xl border px-3 py-3 text-xs leading-6 break-all">
                                 /mnt/user-data/agents/{agent.status}/
                                 {agent.name}/AGENTS.md
@@ -975,13 +983,10 @@ export function AgentSettingsDialog({
                             </div>
                             <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
                               <FieldLabel className="mb-2">
-                                Editing scope
+                                {text.editingScope}
                               </FieldLabel>
                               <p className="text-muted-foreground text-sm leading-6">
-                                Keep the generic orchestrator rules in backend
-                                code. Put only agent-owned domain behavior,
-                                decomposition guidance, and skill usage policy
-                                in this file.
+                                {text.editingScopeDescription}
                               </p>
                             </div>
                           </div>
@@ -993,16 +998,14 @@ export function AgentSettingsDialog({
                       <div className="grid gap-6 xl:grid-cols-2">
                         <SurfaceCard
                           eyebrow={<BrainIcon className="size-4" />}
-                          title="Memory capture"
-                          description="Structure the archived memory policy instead of editing raw YAML."
+                          title={text.memoryTitle}
+                          description={text.memoryDescription}
                         >
                           <div className="bg-muted/20 border-border/70 flex items-center justify-between rounded-3xl border px-4 py-3">
                             <div>
-                              <p className="text-sm font-medium">
-                                Enable memory
-                              </p>
+                              <p className="text-sm font-medium">{text.enableMemory}</p>
                               <p className="text-muted-foreground text-xs leading-5">
-                                User-scoped memory is stored per agent archive.
+                                {text.enableMemoryDescription}
                               </p>
                             </div>
                             <Switch
@@ -1019,10 +1022,10 @@ export function AgentSettingsDialog({
 
                           <div className="grid gap-4 md:grid-cols-2">
                             <div className="space-y-2 md:col-span-2">
-                              <FieldLabel>Memory model</FieldLabel>
+                              <FieldLabel>{text.memoryModel}</FieldLabel>
                               <Input
                                 value={form.memoryModel}
-                                placeholder="Required when memory is enabled"
+                                placeholder={text.memoryModelPlaceholder}
                                 disabled={!form.memoryEnabled}
                                 onChange={(event) =>
                                   setForm((current) =>
@@ -1038,7 +1041,7 @@ export function AgentSettingsDialog({
                               />
                             </div>
                             <div className="space-y-2">
-                              <FieldLabel>Debounce seconds</FieldLabel>
+                              <FieldLabel>{text.debounceSeconds}</FieldLabel>
                               <Input
                                 type="number"
                                 min={1}
@@ -1058,7 +1061,7 @@ export function AgentSettingsDialog({
                               />
                             </div>
                             <div className="space-y-2">
-                              <FieldLabel>Max facts</FieldLabel>
+                              <FieldLabel>{text.maxFacts}</FieldLabel>
                               <Input
                                 type="number"
                                 min={10}
@@ -1078,7 +1081,7 @@ export function AgentSettingsDialog({
                               />
                             </div>
                             <div className="space-y-2">
-                              <FieldLabel>Confidence threshold</FieldLabel>
+                              <FieldLabel>{text.confidenceThreshold}</FieldLabel>
                               <Input
                                 type="number"
                                 min={0}
@@ -1104,17 +1107,16 @@ export function AgentSettingsDialog({
 
                         <SurfaceCard
                           eyebrow={<SlidersHorizontalIcon className="size-4" />}
-                          title="Prompt injection"
-                          description="These controls map directly onto the archived config manifest."
+                          title={text.promptInjectionTitle}
+                          description={text.promptInjectionDescription}
                         >
                           <div className="bg-muted/20 border-border/70 flex items-center justify-between rounded-3xl border px-4 py-3">
                             <div>
                               <p className="text-sm font-medium">
-                                Enable memory injection
+                                {text.enableMemoryInjection}
                               </p>
                               <p className="text-muted-foreground text-xs leading-5">
-                                Inject retrieved memory back into the runtime
-                                prompt.
+                                {text.enableMemoryInjectionDescription}
                               </p>
                             </div>
                             <Switch
@@ -1130,7 +1132,7 @@ export function AgentSettingsDialog({
                           </div>
 
                           <div className="space-y-2">
-                            <FieldLabel>Max injection tokens</FieldLabel>
+                            <FieldLabel>{text.maxInjectionTokens}</FieldLabel>
                             <Input
                               type="number"
                               min={100}
@@ -1152,12 +1154,10 @@ export function AgentSettingsDialog({
 
                           <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
                             <FieldLabel className="mb-2">
-                              Why no raw YAML?
+                              {text.whyNoRawYaml}
                             </FieldLabel>
                             <p className="text-muted-foreground text-sm leading-6">
-                              `config.yaml` remains the archived manifest, but
-                              this workspace uses structured controls so the
-                              common settings stay legible and harder to break.
+                              {text.whyNoRawYamlDescription}
                             </p>
                           </div>
                         </SurfaceCard>
@@ -1168,11 +1168,11 @@ export function AgentSettingsDialog({
                       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_360px]">
                         <SurfaceCard
                           eyebrow={<Link2Icon className="size-4" />}
-                          title="Launch surface"
-                          description="Use the exact current archive and runtime selection when sharing or testing."
+                          title={text.launchSurfaceTitle}
+                          description={text.launchSurfaceDescription}
                         >
                           <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
-                            <FieldLabel className="mb-2">Launch URL</FieldLabel>
+                            <FieldLabel className="mb-2">{text.launchUrl}</FieldLabel>
                             <code className="bg-background border-border/70 block rounded-2xl border px-3 py-3 text-xs leading-6 break-all">
                               {launchURL}
                             </code>
@@ -1182,7 +1182,7 @@ export function AgentSettingsDialog({
                             <Button asChild>
                               <Link to={launchPath}>
                                 <ExternalLinkIcon className="size-3.5" />
-                                Open workspace
+                                {text.openWorkspace}
                               </Link>
                             </Button>
                             <Button
@@ -1190,7 +1190,7 @@ export function AgentSettingsDialog({
                               onClick={handleCopyLaunchURL}
                             >
                               <CopyIcon className="size-3.5" />
-                              Copy URL
+                              {text.copyUrl}
                             </Button>
                           </div>
                         </SurfaceCard>
@@ -1198,25 +1198,25 @@ export function AgentSettingsDialog({
                         {isProdArchive ? (
                           <SurfaceCard
                             eyebrow={<DownloadIcon className="size-4" />}
-                            title="Open API export"
-                            description="Published prod agents can be invoked outside the platform and exported as a local React demo."
+                            title={text.openApiExportTitle}
+                            description={text.openApiExportDescription}
                           >
                             {exportDocLoading ? (
                               <div className="text-muted-foreground flex items-center gap-2 text-sm">
                                 <Loader2Icon className="size-4 animate-spin" />
-                                Loading export document...
+                                {text.loadingExportDocument}
                               </div>
                             ) : exportDocError ? (
                               <p className="text-sm leading-6">
                                 {exportDocError instanceof Error
                                   ? exportDocError.message
-                                  : "Failed to load export document."}
+                                  : text.loadExportDocumentFailed}
                               </p>
                             ) : exportDoc ? (
                               <div className="space-y-4">
                                 <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
                                   <FieldLabel className="mb-2">
-                                    Gateway base
+                                    {text.gatewayBase}
                                   </FieldLabel>
                                   <code className="bg-background border-border/70 block rounded-2xl border px-3 py-3 text-xs leading-6 break-all">
                                     {exportDoc.api_base_url}
@@ -1253,24 +1253,24 @@ export function AgentSettingsDialog({
                                     onClick={() =>
                                       handleCopyText(
                                         exportDoc.endpoints.chat.url,
-                                        "Chat endpoint copied",
+                                        text.chatEndpointCopied,
                                       )
                                     }
                                   >
                                     <CopyIcon className="size-3.5" />
-                                    Copy chat endpoint
+                                    {text.copyChatEndpoint}
                                   </Button>
                                   <Button
                                     variant="outline"
                                     onClick={() =>
                                       handleCopyText(
                                         exportDoc.endpoints.stream.url,
-                                        "Stream endpoint copied",
+                                        text.streamEndpointCopied,
                                       )
                                     }
                                   >
                                     <CopyIcon className="size-3.5" />
-                                    Copy stream endpoint
+                                    {text.copyStreamEndpoint}
                                   </Button>
                                   <Button
                                     onClick={handleDownloadReactDemo}
@@ -1282,12 +1282,12 @@ export function AgentSettingsDialog({
                                     {!downloadDemoMutation.isPending && (
                                       <DownloadIcon className="size-3.5" />
                                     )}
-                                    Download React demo
+                                    {text.downloadReactDemo}
                                   </Button>
                                 </div>
 
                                 <div className="space-y-2">
-                                  <FieldLabel>Demo notes</FieldLabel>
+                                  <FieldLabel>{text.demoNotes}</FieldLabel>
                                   <div className="space-y-2">
                                     {exportDoc.demo.notes.map((note) => (
                                       <p
@@ -1305,13 +1305,13 @@ export function AgentSettingsDialog({
                         ) : (
                           <SurfaceCard
                             eyebrow={<Link2Icon className="size-4" />}
-                            title="Open API export"
-                            description="External invocation and demo download are only available after publishing this agent to prod."
+                            title={text.openApiExportTitle}
+                            description={
+                              text.openApiExportUnavailableDescription
+                            }
                           >
                             <p className="text-muted-foreground text-sm leading-6">
-                              Publish this archive first if you want a stable
-                              `/open/v1/agents/{agentName}` endpoint or a
-                              downloadable React demo bundle for local testing.
+                              {text.publishArchiveFirst}
                             </p>
                           </SurfaceCard>
                         )}
@@ -1319,37 +1319,41 @@ export function AgentSettingsDialog({
                         <div className="space-y-6">
                           <SurfaceCard
                             eyebrow={<FileTextIcon className="size-4" />}
-                            title="Archive assets"
-                            description="A compact map of what this settings dialog can control today."
+                            title={text.archiveAssetsTitle}
+                            description={text.archiveAssetsDescription}
                           >
                             <div className="space-y-3">
                               <div className="border-border/70 flex items-center justify-between gap-3 rounded-2xl border px-4 py-3">
                                 <div>
                                   <p className="text-sm font-medium">
-                                    AGENTS.md
+                                    {text.agentsMd}
                                   </p>
                                   <p className="text-muted-foreground text-xs leading-5">
-                                    Editable from the Prompt tab.
+                                    {text.agentsMdDescription}
                                   </p>
                                 </div>
-                                <Badge variant="secondary">editable</Badge>
+                                <Badge variant="secondary">{text.editableBadge}</Badge>
                               </div>
                               <div className="border-border/70 flex items-center justify-between gap-3 rounded-2xl border px-4 py-3">
                                 <div>
                                   <p className="text-sm font-medium">
-                                    config.yaml
+                                    {text.configYaml}
                                   </p>
                                   <p className="text-muted-foreground text-xs leading-5">
-                                    Managed from the Config tab.
+                                    {text.configYamlDescription}
                                   </p>
                                 </div>
-                                <Badge variant="outline">structured</Badge>
+                                <Badge variant="outline">
+                                  {text.structuredBadge}
+                                </Badge>
                               </div>
                               <div className="border-border/70 flex items-center justify-between gap-3 rounded-2xl border px-4 py-3">
                                 <div>
-                                  <p className="text-sm font-medium">skills/</p>
+                                  <p className="text-sm font-medium">
+                                    {text.skillsDirectory}
+                                  </p>
                                   <p className="text-muted-foreground text-xs leading-5">
-                                    Current copied skills are shown in Profile.
+                                    {text.skillsDirectoryDescription}
                                   </p>
                                 </div>
                                 <Badge variant="outline">
@@ -1361,15 +1365,11 @@ export function AgentSettingsDialog({
 
                           <SurfaceCard
                             eyebrow={<Settings2Icon className="size-4" />}
-                            title="Export behavior"
-                            description="What the current export workflow does when you download the React demo."
+                            title={text.exportBehaviorTitle}
+                            description={text.exportBehaviorDescription}
                           >
                             <p className="text-muted-foreground text-sm leading-6">
-                              The download action calls the protected gateway
-                              export endpoint, creates a short-lived API token,
-                              and writes the resolved base URL, agent name, and
-                              token into the generated Vite project so the demo
-                              can run outside this platform.
+                              {text.exportBehaviorBody}
                             </p>
                           </SurfaceCard>
                         </div>
@@ -1386,11 +1386,10 @@ export function AgentSettingsDialog({
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-medium">
-                {isDirty ? "Unsaved archive changes" : "Archive is up to date"}
+                {isDirty ? text.dirtyState : text.cleanState}
               </p>
               <p className="text-muted-foreground text-xs leading-5">
-                Save applies to the currently selected {agentStatus} archive
-                only.
+                {text.saveAppliesTo(agentStatus)}
               </p>
             </div>
             <div className="flex items-center justify-end gap-2">
@@ -1399,7 +1398,7 @@ export function AgentSettingsDialog({
                 disabled={!isDirty || !form || updateAgentMutation.isPending}
                 onClick={handleReset}
               >
-                Reset
+                {text.reset}
               </Button>
               <Button
                 disabled={!isDirty || !form || updateAgentMutation.isPending}
@@ -1408,7 +1407,7 @@ export function AgentSettingsDialog({
                 {updateAgentMutation.isPending && (
                   <Loader2Icon className="size-4 animate-spin" />
                 )}
-                Save changes
+                {text.saveChanges}
               </Button>
             </div>
           </div>

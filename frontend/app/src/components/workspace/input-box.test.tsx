@@ -9,7 +9,12 @@ import { InputBox } from "./input-box";
 
 vi.mock("@/core/i18n/hooks", () => ({
   useI18n: () => ({
+    locale: "en-US",
     t: {
+      commands: {
+        createAgent: "Create agent",
+        createSkill: "Create skill",
+      },
       common: {
         create: "Create",
       },
@@ -24,6 +29,13 @@ vi.mock("@/core/i18n/hooks", () => ({
         searchModels: "Search models",
         surpriseMe: "Surprise",
         surpriseMePrompt: "Surprise me",
+        quickInsertCommandBadge: "Command",
+        quickInsertCommandsLabel: "Commands",
+        quickInsertSkillsLabel: "Skills",
+        retryingModel: () => "Retrying model",
+        retryingTool: () => "Retrying tool",
+        retryingToolGeneric: () => "Retrying tool",
+        retryDelay: () => "Retrying soon",
         suggestions: [],
         suggestionsCreate: [],
       },

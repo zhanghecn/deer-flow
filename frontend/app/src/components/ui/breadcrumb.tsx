@@ -2,6 +2,8 @@ import * as React from "react"
 import { Slot } from "@radix-ui/react-slot"
 import { ChevronRight, MoreHorizontal } from "lucide-react"
 
+import { DEFAULT_LOCALE } from "@/core/i18n"
+import { getLocaleFromCookie } from "@/core/i18n/cookies"
 import { cn } from "@/lib/utils"
 
 function Breadcrumb({ ...props }: React.ComponentProps<"nav">) {
@@ -84,6 +86,9 @@ function BreadcrumbEllipsis({
   className,
   ...props
 }: React.ComponentProps<"span">) {
+  const locale = getLocaleFromCookie() ?? DEFAULT_LOCALE
+  const moreLabel = locale === "zh-CN" ? "更多" : "More"
+
   return (
     <span
       data-slot="breadcrumb-ellipsis"
@@ -93,7 +98,7 @@ function BreadcrumbEllipsis({
       {...props}
     >
       <MoreHorizontal className="size-4" />
-      <span className="sr-only">More</span>
+      <span className="sr-only">{moreLabel}</span>
     </span>
   )
 }

@@ -11,6 +11,7 @@ Examples:
     init_skill.py custom-skill --path /custom/location
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -185,6 +186,15 @@ Example asset files from other skills:
 Note: This is a text placeholder. Actual assets can be any file type.
 """
 
+SKILL_I18N_TEMPLATE = {
+    "version": 1,
+    "default_locale": "en-US",
+    "description": {
+        "en-US": "",
+        "zh-CN": "",
+    },
+}
+
 
 def title_case_skill_name(skill_name):
     """Convert hyphenated skill name to Title Case for display."""
@@ -193,7 +203,7 @@ def title_case_skill_name(skill_name):
 
 def init_skill(skill_name, path):
     """
-    Initialize a new skill directory with template SKILL.md.
+    Initialize a new skill directory with template SKILL.md and skill.i18n.json.
 
     Args:
         skill_name: Name of the skill
@@ -233,6 +243,16 @@ def init_skill(skill_name, path):
         print(f"❌ Error creating SKILL.md: {e}")
         return None
 
+    skill_i18n_path = skill_dir / 'skill.i18n.json'
+    try:
+        skill_i18n_path.write_text(
+            json.dumps(SKILL_I18N_TEMPLATE, indent=2) + "\n"
+        )
+        print("✅ Created skill.i18n.json")
+    except Exception as e:
+        print(f"❌ Error creating skill.i18n.json: {e}")
+        return None
+
     # Create resource directories with example files
     try:
         # Create scripts/ directory with example script
@@ -263,9 +283,10 @@ def init_skill(skill_name, path):
     # Print next steps
     print(f"\n✅ Skill '{skill_name}' initialized successfully at {skill_dir}")
     print("\nNext steps:")
-    print("1. Edit SKILL.md to complete the TODO items and update the description")
-    print("2. Customize or delete the example files in scripts/, references/, and assets/")
-    print("3. Run the validator when ready to check the skill structure")
+    print("1. Edit SKILL.md to complete the TODO items and keep the original fallback description")
+    print("2. Fill skill.i18n.json only for locales you can translate reliably; missing locales fall back to SKILL.md")
+    print("3. Customize or delete the example files in scripts/, references/, and assets/")
+    print("4. Run the validator when ready to check the skill structure")
 
     return skill_dir
 

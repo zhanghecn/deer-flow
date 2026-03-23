@@ -20,6 +20,7 @@ import {
   filterLegacyPptPreviewArtifacts,
   mergeVisibleArtifacts,
 } from "@/core/artifacts/utils";
+import { useI18n } from "@/core/i18n/hooks";
 import { getUserVisibleRuntimePath } from "@/core/utils/files";
 import { env } from "@/env";
 import { cn } from "@/lib/utils";
@@ -45,6 +46,7 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
   children,
   threadId,
 }) => {
+  const { t } = useI18n();
   const { thread, isMock } = useThread();
   const {
     artifacts,
@@ -179,13 +181,15 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
                 {visibleArtifacts.length === 0 ? (
                   <ConversationEmptyState
                     icon={<FilesIcon />}
-                    title="No artifact selected"
-                    description="Select an artifact to view its details"
+                    title={t.workspace.noArtifactSelectedTitle}
+                    description={t.workspace.noArtifactSelectedDescription}
                   />
                 ) : (
                   <div className="flex size-full max-w-(--container-width-sm) flex-col justify-center p-4 pt-8">
                     <header className="shrink-0">
-                      <h2 className="text-lg font-medium">Artifacts</h2>
+                      <h2 className="text-lg font-medium">
+                        {t.workspace.artifactsPanelTitle}
+                      </h2>
                     </header>
                     <main className="min-h-0 grow">
                       <ArtifactFileList
@@ -219,7 +223,7 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
               {getUserVisibleRuntimePath(selectedOfficeArtifact)}
             </DialogTitle>
             <DialogDescription className="sr-only">
-              Preview and edit the selected office document.
+              {t.workspace.officePreviewDialogDescription}
             </DialogDescription>
             <ArtifactFileDetail
               className="size-full rounded-none border-0 shadow-none"

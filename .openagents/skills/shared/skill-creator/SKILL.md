@@ -55,6 +55,8 @@ skill-name/
 │   │   ├── name: (required)
 │   │   └── description: (required)
 │   └── Markdown instructions (required)
+├── skill.i18n.json (optional)
+│   └── Localized description metadata for `en-US` / `zh-CN`
 └── Bundled Resources (optional)
     ├── scripts/          - Executable code (Python/Bash/etc.)
     ├── references/       - Documentation intended to be loaded into context as needed
@@ -67,6 +69,15 @@ Every SKILL.md consists of:
 
 - **Frontmatter** (YAML): Contains `name` and `description` fields. These are the only fields that Claude reads to determine when the skill gets used, thus it is very important to be clear and comprehensive in describing what the skill is, and when it should be used.
 - **Body** (Markdown): Instructions and guidance for using the skill. Only loaded AFTER the skill triggers (if at all).
+
+#### skill.i18n.json (optional)
+
+Use this sidecar file only when the skill description itself needs localized metadata.
+
+- Support only `en-US` and `zh-CN`
+- Keep `SKILL.md` frontmatter `description` as the required original fallback text
+- If a locale is missing or blank, runtime falls back to the original `description`
+- Do not move prompts, workflows, or other instructions into this file
 
 #### Bundled Resources (optional)
 
@@ -271,6 +282,7 @@ The script:
 
 - Creates the skill directory at the specified path
 - Generates a SKILL.md template with proper frontmatter and TODO placeholders
+- Generates a `skill.i18n.json` template for localized description metadata
 - Creates example resource directories: `scripts/`, `references/`, and `assets/`
 - Adds example files in each directory that can be customized or deleted
 
@@ -312,6 +324,12 @@ Write the YAML frontmatter with `name` and `description`:
   - Example description for a `docx` skill: "Comprehensive document creation, editing, and analysis with support for tracked changes, comments, formatting preservation, and text extraction. Use when Claude needs to work with professional documents (.docx files) for: (1) Creating new documents, (2) Modifying or editing content, (3) Working with tracked changes, (4) Adding comments, or any other document tasks"
 
 Do not include any other fields in YAML frontmatter.
+
+If localized description metadata is needed, create or update `skill.i18n.json`:
+
+- Only fill locales you can translate reliably
+- Keep locale keys limited to `en-US` and `zh-CN`
+- Missing locales should be left blank or omitted so runtime can fall back to the original `description`
 
 ##### Body
 

@@ -121,6 +121,17 @@ func TestListFilesystemSkillsPreservesAliasedSourcePath(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillMD), 0644); err != nil {
 		t.Fatalf("write skill file: %v", err)
 	}
+	skillI18n := `{
+  "version": 1,
+  "default_locale": "en-US",
+  "description": {
+    "en-US": "Aliased skill",
+    "zh-CN": "别名技能"
+  }
+}`
+	if err := os.WriteFile(filepath.Join(skillDir, "skill.i18n.json"), []byte(skillI18n), 0644); err != nil {
+		t.Fatalf("write skill i18n file: %v", err)
+	}
 
 	skills, err := listFilesystemSkills(
 		storage.NewFS(baseDir),
@@ -141,5 +152,11 @@ func TestListFilesystemSkillsPreservesAliasedSourcePath(t *testing.T) {
 	}
 	if got := skills[0].SourcePath; got != "shared/vercel-deploy-claimable" {
 		t.Fatalf("skills[0].SourcePath = %q, want %q", got, "shared/vercel-deploy-claimable")
+	}
+	if got := skills[0].DescriptionI18n["en-US"]; got != "Aliased skill" {
+		t.Fatalf("skills[0].DescriptionI18n[en-US] = %q, want %q", got, "Aliased skill")
+	}
+	if got := skills[0].DescriptionI18n["zh-CN"]; got != "别名技能" {
+		t.Fatalf("skills[0].DescriptionI18n[zh-CN] = %q, want %q", got, "别名技能")
 	}
 }

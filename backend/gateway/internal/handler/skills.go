@@ -56,9 +56,10 @@ func (h *SkillHandler) Create(c *gin.Context) {
 func (h *SkillHandler) Update(c *gin.Context) {
 	name := c.Param("name")
 	var req struct {
-		Enabled     *bool   `json:"enabled"`
-		Description *string `json:"description"`
-		SkillMD     *string `json:"skill_md"`
+		Enabled         *bool              `json:"enabled"`
+		Description     *string            `json:"description"`
+		DescriptionI18n *map[string]string `json:"description_i18n"`
+		SkillMD         *string            `json:"skill_md"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
@@ -93,8 +94,9 @@ func (h *SkillHandler) Update(c *gin.Context) {
 	}
 
 	skill, err := h.svc.Update(c.Request.Context(), name, model.UpdateSkillRequest{
-		Description: req.Description,
-		SkillMD:     req.SkillMD,
+		Description:     req.Description,
+		DescriptionI18n: req.DescriptionI18n,
+		SkillMD:         req.SkillMD,
 	})
 	if err != nil {
 		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: err.Error()})

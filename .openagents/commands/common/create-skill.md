@@ -16,7 +16,10 @@ authoring_actions: []
 - 默认不要先调用 `find-skills`；只有当用户更像是在找现成 skill，而不是要求你新建 skill 时才考虑。
 - 默认不要先完整走 `skill-creator` 的扩展工作流；如果只是常见领域 skill，请直接起草。只有在你确实需要模板或校验帮助时，才最小化使用其中的脚本或参考。
 - 先在 `/mnt/user-data/authoring/skills` 下起草，再等待用户明确保存。
-- 首轮草稿默认只创建 `SKILL.md`，以及最多 1-2 个被 `SKILL.md` 直接引用的小型 reference 文件。
+- 首轮草稿默认创建 `SKILL.md`、`skill.i18n.json`，以及最多 1-2 个被 `SKILL.md` 直接引用的小型 reference 文件。
+- `skill.i18n.json` 只用于 skill 描述的中英文元数据，locale 只允许 `en-US` 和 `zh-CN`。
+- `SKILL.md` frontmatter 里的 `description` 仍然必须保留，作为原始描述和默认回退值；不要把 i18n 字段塞进 frontmatter。
+- 如果当前只确定一种语言，就只填写已确认的 locale；不要为了凑齐中英文而臆造翻译。任何未填写或取不到的 locale，后续运行时都会回退到 `SKILL.md` 的原始 `description`。
 - 不要生成示例 assets、占位 scripts、冗长参考手册、演示文件，除非用户明确要求。
 - 对文件输入类 skill，不要默认假设 `.pdf` / `.docx` 会自动生成同名 `.md` 转换文件；应优先指导智能体直接对用户上传的原始文件路径调用 `read_file`，只有在用户明确提供额外提取产物时才读取这些派生文件。
 - 不要在草稿已可用后继续做额外美化、扩展、清理或多轮验证；完成可测试草稿后就结束当前回合。

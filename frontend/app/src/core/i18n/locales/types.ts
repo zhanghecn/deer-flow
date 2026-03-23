@@ -38,6 +38,17 @@ export interface Translations {
     clearAll: string;
   };
 
+  // Commands
+  commands: {
+    createAgent: string;
+    createSkill: string;
+    saveAgentToStore: string;
+    saveSkillToStore: string;
+    pushAgentProd: string;
+    pushSkillProd: string;
+    promoteSkillShared: string;
+  };
+
   // Welcome
   welcome: {
     greeting: string;
@@ -67,6 +78,18 @@ export interface Translations {
     searchModels: string;
     surpriseMe: string;
     surpriseMePrompt: string;
+    quickInsertCommandBadge: string;
+    quickInsertCommandsLabel: string;
+    quickInsertSkillsLabel: string;
+    retryingModel: (current: number, max: number, time: string) => string;
+    retryingTool: (
+      toolName: string,
+      current: number,
+      max: number,
+      time: string,
+    ) => string;
+    retryingToolGeneric: (current: number, max: number, time: string) => string;
+    retryDelay: (seconds: string) => string;
     suggestions: {
       suggestion: string;
       prompt: string;
@@ -161,10 +184,18 @@ export interface Translations {
     officialWebsite: string;
     githubTooltip: string;
     settingsAndMore: string;
+    userRoleFallback: string;
     visitGithub: string;
     reportIssue: string;
     contactUs: string;
     about: string;
+    adminConsole: string;
+    toggleSidebar: string;
+    artifactsPanelTitle: string;
+    noArtifactSelectedTitle: string;
+    noArtifactSelectedDescription: string;
+    officePreviewDialogDescription: string;
+    todoListTitle: string;
   };
 
   // Conversation
@@ -192,6 +223,7 @@ export interface Translations {
     badge: string;
     signInTab: string;
     registerTab: string;
+    accountLabel: string;
     emailLabel: string;
     passwordLabel: string;
     nameLabel: string;
@@ -295,10 +327,13 @@ export interface Translations {
     tools: {
       title: string;
       description: string;
+      loadError: (message: string) => string;
+      emptyState: string;
     };
     skills: {
       title: string;
       description: string;
+      loadError: (message: string) => string;
       createSkill: string;
       emptyTitle: string;
       emptyDescription: string;

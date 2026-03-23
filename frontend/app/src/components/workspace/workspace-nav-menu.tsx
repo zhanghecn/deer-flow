@@ -122,7 +122,9 @@ export function WorkspaceNavMenu() {
     hydratedUser?.email?.trim() ??
     t.workspace.settingsAndMore;
   const secondaryLine =
-    hydratedUser?.email?.trim() ?? hydratedUser?.role?.toUpperCase() ?? "USER";
+    hydratedUser?.email?.trim() ??
+    hydratedUser?.role?.toUpperCase() ??
+    t.workspace.userRoleFallback;
   const userInitials = initialsOf(displayName);
   const isAdmin = hydratedUser?.role === "admin";
 
@@ -215,7 +217,7 @@ export function WorkspaceNavMenu() {
                           rel="noopener noreferrer"
                         >
                           <ShieldIcon />
-                          Admin Console
+                          {t.workspace.adminConsole}
                         </a>
                       </DropdownMenuItem>
                     </>

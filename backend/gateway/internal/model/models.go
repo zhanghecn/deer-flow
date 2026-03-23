@@ -56,8 +56,9 @@ type AgentMemoryConfig struct {
 
 // Skill is a filesystem-backed skill definition stored under `.openagents/skills/`.
 type Skill struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Status      string `json:"status"`
-	SkillMD     string `json:"skill_md"`
+	Name            string            `json:"name"`
+	Description     string            `json:"description"`
+	DescriptionI18n map[string]string `json:"description_i18n,omitempty"`
+	Status          string            `json:"status"`
+	SkillMD         string            `json:"skill_md"`
 }

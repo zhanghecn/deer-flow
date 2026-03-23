@@ -530,6 +530,7 @@ function buildSubmitOptions(
   threadId: string,
   context: ThreadContext,
   modelName: string,
+  locale: string,
   extraContext?: Record<string, unknown>,
   command?: Command,
 ) {
@@ -548,6 +549,7 @@ function buildSubmitOptions(
         ...context,
         agent_name: agentName,
         model_name: modelName,
+        locale,
         mode: submitFlags.mode,
         thinking_enabled: submitFlags.thinking_enabled,
         is_plan_mode: submitFlags.is_plan_mode,
@@ -732,7 +734,7 @@ export function useThreadStream({
   onToolEnd,
   onError,
 }: ThreadStreamOptions) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { authenticated } = useAuth();
   const apiClient = getAPIClient(isMock, threadId ?? null);
   const { isActive: isWindowActive, activationId: windowActivationId } =
@@ -1244,6 +1246,7 @@ export function useThreadStream({
             runThreadId,
             resolvedContext,
             selectedModelName,
+            locale,
             extraContext,
           ),
         );
@@ -1257,6 +1260,7 @@ export function useThreadStream({
     },
     [
       thread,
+      locale,
       t.uploads.uploadingFiles,
       authenticated,
       notifyThreadError,
@@ -1296,6 +1300,7 @@ export function useThreadStream({
             runThreadId,
             resolvedContext,
             selectedModelName,
+            locale,
             extraContext,
             command,
           ),
@@ -1308,7 +1313,14 @@ export function useThreadStream({
         throw error;
       }
     },
-    [authenticated, notifyThreadError, queryClient, resolvedContext, thread],
+    [
+      authenticated,
+      locale,
+      notifyThreadError,
+      queryClient,
+      resolvedContext,
+      thread,
+    ],
   );
 
   const mergedThread = mergeOptimisticMessages(thread, optimisticMessages);

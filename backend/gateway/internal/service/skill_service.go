@@ -35,6 +35,12 @@ func (s *SkillService) Create(_ context.Context, req model.CreateSkillRequest, _
 	if err := s.fs.WriteGlobalSkillFile("store/dev", name, skillMD); err != nil {
 		return nil, fmt.Errorf("write skill file: %w", err)
 	}
+	if err := skillfs.WriteDescriptionI18nFile(
+		s.fs.GlobalSkillDir("store/dev", name),
+		req.DescriptionI18n,
+	); err != nil {
+		return nil, fmt.Errorf("write skill i18n file: %w", err)
+	}
 
 	return s.loadSkillFromScope(name, "store/dev")
 }
@@ -54,6 +60,10 @@ func (s *SkillService) Update(_ context.Context, name string, req model.UpdateSk
 	if req.Description != nil {
 		description = *req.Description
 	}
+	descriptionI18n := existing.DescriptionI18n
+	if req.DescriptionI18n != nil {
+		descriptionI18n = *req.DescriptionI18n
+	}
 
 	skillMD := existing.SkillMD
 	if req.SkillMD != nil {
@@ -65,6 +75,12 @@ func (s *SkillService) Update(_ context.Context, name string, req model.UpdateSk
 	}
 	if err := s.fs.WriteGlobalSkillFile(scope, name, skillMD); err != nil {
 		return nil, fmt.Errorf("write skill file: %w", err)
+	}
+	if err := skillfs.WriteDescriptionI18nFile(
+		s.fs.GlobalSkillDir(scope, name),
+		descriptionI18n,
+	); err != nil {
+		return nil, fmt.Errorf("write skill i18n file: %w", err)
 	}
 
 	return s.loadSkillFromScope(name, scope)
@@ -140,6 +156,10 @@ func (s *SkillService) loadSkillFromScope(name string, scope string) (*model.Ski
 	if err != nil {
 		return nil, err
 	}
+	descriptionI18n, err := skillfs.LoadDescriptionI18nFile(filepath.Dir(skillPath))
+	if err != nil {
+		descriptionI18n = nil
+	}
 
 	status := "shared"
 	switch scope {
@@ -150,10 +170,11 @@ func (s *SkillService) loadSkillFromScope(name string, scope string) (*model.Ski
 	}
 
 	return &model.Skill{
-		Name:        name,
-		Description: meta.Description,
-		Status:      status,
-		SkillMD:     string(data),
+		Name:            name,
+		Description:     meta.Description,
+		DescriptionI18n: descriptionI18n,
+		Status:          status,
+		SkillMD:         string(data),
 	}, nil
 }
 
