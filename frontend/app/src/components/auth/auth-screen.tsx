@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { login, register } from "@/core/auth/api";
+import { APP_NAME } from "@/core/config/site";
 import { useI18n } from "@/core/i18n/hooks";
 import { cn } from "@/lib/utils";
 
@@ -141,7 +142,7 @@ export function AuthScreen() {
           <section className="hidden rounded-3xl border border-white/15 bg-black/35 p-8 backdrop-blur-md lg:flex lg:flex-col lg:justify-between">
             <div>
               <p className="inline-flex items-center gap-2 rounded-full border border-cyan-300/30 bg-cyan-300/10 px-3 py-1 text-xs font-medium tracking-[0.18em] text-cyan-100 uppercase">
-                DeerFlow
+                {APP_NAME}
               </p>
               <h1 className="mt-6 text-4xl leading-tight font-semibold text-white">
                 {t.auth.heroTitle}
@@ -172,7 +173,7 @@ export function AuthScreen() {
                   to="/"
                   className="text-3xl font-semibold tracking-tight"
                 >
-                  DeerFlow
+                  {APP_NAME}
                 </Link>
                 <p className="mt-2 text-sm text-white/60">
                   {t.auth.panelSubtitle}

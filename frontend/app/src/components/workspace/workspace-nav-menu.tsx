@@ -28,9 +28,11 @@ import {
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/core/auth/hooks";
 import {
+  APP_INITIALS,
   GITHUB_ISSUES_URL,
   GITHUB_REPO_URL,
   OFFICIAL_WEBSITE_URL,
+  PUBLIC_GITHUB_REPO_AVAILABLE,
 } from "@/core/config/site";
 import { useI18n } from "@/core/i18n/hooks";
 
@@ -43,7 +45,7 @@ const SettingsDialog = lazy(
 function initialsOf(label: string): string {
   const cleaned = label.trim();
   if (!cleaned) {
-    return "DF";
+    return APP_INITIALS;
   }
   const segments = cleaned
     .split(/\s+/)
@@ -191,16 +193,18 @@ export function WorkspaceNavMenu() {
                       {t.workspace.officialWebsite}
                     </a>
                   </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <a
-                      href={GITHUB_REPO_URL}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      <GithubIcon />
-                      {t.workspace.visitGithub}
-                    </a>
-                  </DropdownMenuItem>
+                  {PUBLIC_GITHUB_REPO_AVAILABLE && (
+                    <DropdownMenuItem asChild>
+                      <a
+                        href={GITHUB_REPO_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <GithubIcon />
+                        {t.workspace.visitGithub}
+                      </a>
+                    </DropdownMenuItem>
+                  )}
                   {isAdmin && (
                     <>
                       <DropdownMenuSeparator />
@@ -216,27 +220,31 @@ export function WorkspaceNavMenu() {
                       </DropdownMenuItem>
                     </>
                   )}
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem asChild>
-                    <a
-                      href={GITHUB_ISSUES_URL}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      <BugIcon />
-                      {t.workspace.reportIssue}
-                    </a>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <a
-                      href={GITHUB_ISSUES_URL}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      <MailIcon />
-                      {t.workspace.contactUs}
-                    </a>
-                  </DropdownMenuItem>
+                  {PUBLIC_GITHUB_REPO_AVAILABLE && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem asChild>
+                        <a
+                          href={GITHUB_ISSUES_URL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          <BugIcon />
+                          {t.workspace.reportIssue}
+                        </a>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem asChild>
+                        <a
+                          href={GITHUB_ISSUES_URL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          <MailIcon />
+                          {t.workspace.contactUs}
+                        </a>
+                      </DropdownMenuItem>
+                    </>
+                  )}
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem

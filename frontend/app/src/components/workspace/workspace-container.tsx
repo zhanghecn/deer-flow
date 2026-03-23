@@ -9,7 +9,10 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { GITHUB_REPO_URL } from "@/core/config/site";
+import {
+  GITHUB_REPO_URL,
+  PUBLIC_GITHUB_REPO_AVAILABLE,
+} from "@/core/config/site";
 import { useI18n } from "@/core/i18n/hooks";
 import { cn } from "@/lib/utils";
 
@@ -88,18 +91,20 @@ export function WorkspaceHeader({
           </BreadcrumbList>
         </Breadcrumb>
       </div>
-      <div className="pr-4">
-        <Tooltip content={t.workspace.githubTooltip}>
-          <a
-            href={GITHUB_REPO_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="opacity-75 transition hover:opacity-100"
-          >
-            <GithubIcon className="size-6" />
-          </a>
-        </Tooltip>
-      </div>
+      {PUBLIC_GITHUB_REPO_AVAILABLE && (
+        <div className="pr-4">
+          <Tooltip content={t.workspace.githubTooltip}>
+            <a
+              href={GITHUB_REPO_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="opacity-75 transition hover:opacity-100"
+            >
+              <GithubIcon className="size-6" />
+            </a>
+          </Tooltip>
+        </div>
+      )}
     </header>
   );
 }
