@@ -181,10 +181,8 @@ export interface Translations {
 
   // Workspace
   workspace: {
-    officialWebsite: string;
     settingsAndMore: string;
     userRoleFallback: string;
-    about: string;
     toggleSidebar: string;
     artifactsPanelTitle: string;
     noArtifactSelectedTitle: string;

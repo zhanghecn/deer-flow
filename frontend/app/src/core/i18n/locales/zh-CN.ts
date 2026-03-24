@@ -231,10 +231,8 @@ export const zhCN: Translations = {
 
   // Workspace
   workspace: {
-    officialWebsite: "访问 OpenAgents 官方网站",
     settingsAndMore: "设置和更多",
     userRoleFallback: "用户",
-    about: "关于 OpenAgents",
     toggleSidebar: "切换侧边栏",
     artifactsPanelTitle: "文件",
     noArtifactSelectedTitle: "尚未选择文件",

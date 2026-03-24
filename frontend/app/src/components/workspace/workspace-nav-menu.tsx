@@ -1,7 +1,5 @@
 import {
   ChevronsUpDown,
-  GlobeIcon,
-  InfoIcon,
   LogOutIcon,
   Settings2Icon,
 } from "lucide-react";
@@ -24,10 +22,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/core/auth/hooks";
-import {
-  APP_INITIALS,
-  OFFICIAL_WEBSITE_URL,
-} from "@/core/config/site";
+import { APP_INITIALS } from "@/core/config/site";
 import { useI18n } from "@/core/i18n/hooks";
 
 const SettingsDialog = lazy(
@@ -175,28 +170,7 @@ export function WorkspaceNavMenu() {
                     <Settings2Icon />
                     {t.common.settings}
                   </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem asChild>
-                    <a
-                      href={OFFICIAL_WEBSITE_URL}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                  >
-                    <GlobeIcon />
-                    {t.workspace.officialWebsite}
-                  </a>
-                  </DropdownMenuItem>
                 </DropdownMenuGroup>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => {
-                    setSettingsDefaultSection("about");
-                    setSettingsOpen(true);
-                  }}
-                >
-                  <InfoIcon />
-                  {t.workspace.about}
-                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   className="text-destructive focus:text-destructive"
