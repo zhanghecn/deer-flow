@@ -242,14 +242,9 @@ export const enUS: Translations = {
   // Workspace
   workspace: {
     officialWebsite: "OpenAgents official website",
-    githubTooltip: "OpenAgents on GitHub",
     settingsAndMore: "Settings and more",
     userRoleFallback: "User",
-    visitGithub: "OpenAgents on GitHub",
-    reportIssue: "Report a issue",
-    contactUs: "Contact us",
     about: "About OpenAgents",
-    adminConsole: "Admin Console",
     toggleSidebar: "Toggle Sidebar",
     artifactsPanelTitle: "Artifacts",
     noArtifactSelectedTitle: "No artifact selected",

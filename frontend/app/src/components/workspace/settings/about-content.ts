@@ -1,36 +1,11 @@
-import {
-  GITHUB_REPO_URL,
-  OFFICIAL_WEBSITE_URL,
-  PUBLIC_GITHUB_REPO_AVAILABLE,
-} from "@/core/config/site";
-
+import { OFFICIAL_WEBSITE_URL } from "@/core/config/site";
 import type { Locale } from "@/core/i18n";
 
 const projectLinksSection = {
-  "en-US": PUBLIC_GITHUB_REPO_AVAILABLE
-    ? `## GitHub Repository
-
-![Star History Chart](https://api.star-history.com/svg?repos=bytedance/openagents&type=Date)
-
-Explore OpenAgents on GitHub: [github.com/bytedance/openagents](${GITHUB_REPO_URL})
-
-## Official Website
-
-Visit the official website of OpenAgents: [openagents.dev](${OFFICIAL_WEBSITE_URL})`
-    : `## Official Website
+  "en-US": `## Official Website
 
 Visit the official website of OpenAgents: [openagents.dev](${OFFICIAL_WEBSITE_URL})`,
-  "zh-CN": PUBLIC_GITHUB_REPO_AVAILABLE
-    ? `## GitHub 仓库
-
-![Star History Chart](https://api.star-history.com/svg?repos=bytedance/openagents&type=Date)
-
-在 GitHub 上查看 OpenAgents：[github.com/bytedance/openagents](${GITHUB_REPO_URL})
-
-## 官方网站
-
-访问 OpenAgents 官方网站：[openagents.dev](${OFFICIAL_WEBSITE_URL})`
-    : `## 官方网站
+  "zh-CN": `## 官方网站
 
 访问 OpenAgents 官方网站：[openagents.dev](${OFFICIAL_WEBSITE_URL})`,
 } as const;

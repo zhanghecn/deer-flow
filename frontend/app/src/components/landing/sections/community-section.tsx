@@ -1,13 +1,8 @@
-import { GitHubLogoIcon } from "@radix-ui/react-icons";
 import { Globe2Icon } from "lucide-react";
 
 import { AuroraText } from "@/components/ui/aurora-text";
 import { Button } from "@/components/ui/button";
-import {
-  GITHUB_REPO_URL,
-  OFFICIAL_WEBSITE_URL,
-  PUBLIC_GITHUB_REPO_AVAILABLE,
-} from "@/core/config/site";
+import { OFFICIAL_WEBSITE_URL } from "@/core/config/site";
 
 import { Section } from "../section";
 
@@ -24,14 +19,12 @@ export function CommunitySection() {
       <div className="flex justify-center">
         <Button className="text-xl" size="lg" asChild>
           <a
-            href={
-              PUBLIC_GITHUB_REPO_AVAILABLE ? GITHUB_REPO_URL : OFFICIAL_WEBSITE_URL
-            }
+            href={OFFICIAL_WEBSITE_URL}
             target="_blank"
             rel="noopener noreferrer"
           >
-            {PUBLIC_GITHUB_REPO_AVAILABLE ? <GitHubLogoIcon /> : <Globe2Icon />}
-            {PUBLIC_GITHUB_REPO_AVAILABLE ? "Contribute Now" : "Visit Website"}
+            <Globe2Icon />
+            Visit Website
           </a>
         </Button>
       </div>

@@ -1,12 +1,9 @@
 import {
-  BugIcon,
   ChevronsUpDown,
   GlobeIcon,
   InfoIcon,
   LogOutIcon,
-  MailIcon,
   Settings2Icon,
-  ShieldIcon,
 } from "lucide-react";
 import { lazy, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -29,14 +26,9 @@ import {
 import { useAuth } from "@/core/auth/hooks";
 import {
   APP_INITIALS,
-  GITHUB_ISSUES_URL,
-  GITHUB_REPO_URL,
   OFFICIAL_WEBSITE_URL,
-  PUBLIC_GITHUB_REPO_AVAILABLE,
 } from "@/core/config/site";
 import { useI18n } from "@/core/i18n/hooks";
-
-import { GithubIcon } from "./github-icon";
 
 const SettingsDialog = lazy(
   () => import("./settings/settings-dialog").then((m) => ({ default: m.SettingsDialog })),
@@ -126,7 +118,6 @@ export function WorkspaceNavMenu() {
     hydratedUser?.role?.toUpperCase() ??
     t.workspace.userRoleFallback;
   const userInitials = initialsOf(displayName);
-  const isAdmin = hydratedUser?.role === "admin";
 
   const handleLogout = () => {
     logout();
@@ -190,63 +181,11 @@ export function WorkspaceNavMenu() {
                       href={OFFICIAL_WEBSITE_URL}
                       target="_blank"
                       rel="noopener noreferrer"
-                    >
-                      <GlobeIcon />
-                      {t.workspace.officialWebsite}
-                    </a>
+                  >
+                    <GlobeIcon />
+                    {t.workspace.officialWebsite}
+                  </a>
                   </DropdownMenuItem>
-                  {PUBLIC_GITHUB_REPO_AVAILABLE && (
-                    <DropdownMenuItem asChild>
-                      <a
-                        href={GITHUB_REPO_URL}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <GithubIcon />
-                        {t.workspace.visitGithub}
-                      </a>
-                    </DropdownMenuItem>
-                  )}
-                  {isAdmin && (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem asChild>
-                        <a
-                          href="/admin/"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          <ShieldIcon />
-                          {t.workspace.adminConsole}
-                        </a>
-                      </DropdownMenuItem>
-                    </>
-                  )}
-                  {PUBLIC_GITHUB_REPO_AVAILABLE && (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem asChild>
-                        <a
-                          href={GITHUB_ISSUES_URL}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          <BugIcon />
-                          {t.workspace.reportIssue}
-                        </a>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem asChild>
-                        <a
-                          href={GITHUB_ISSUES_URL}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          <MailIcon />
-                          {t.workspace.contactUs}
-                        </a>
-                      </DropdownMenuItem>
-                    </>
-                  )}
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem

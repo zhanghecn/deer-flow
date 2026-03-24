@@ -232,14 +232,9 @@ export const zhCN: Translations = {
   // Workspace
   workspace: {
     officialWebsite: "访问 OpenAgents 官方网站",
-    githubTooltip: "访问 OpenAgents 的 Github 仓库",
     settingsAndMore: "设置和更多",
     userRoleFallback: "用户",
-    visitGithub: "在 Github 上查看 OpenAgents",
-    reportIssue: "报告问题",
-    contactUs: "联系我们",
     about: "关于 OpenAgents",
-    adminConsole: "管理控制台",
     toggleSidebar: "切换侧边栏",
     artifactsPanelTitle: "文件",
     noArtifactSelectedTitle: "尚未选择文件",

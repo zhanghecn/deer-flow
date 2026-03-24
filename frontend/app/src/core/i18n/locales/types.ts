@@ -182,14 +182,9 @@ export interface Translations {
   // Workspace
   workspace: {
     officialWebsite: string;
-    githubTooltip: string;
     settingsAndMore: string;
     userRoleFallback: string;
-    visitGithub: string;
-    reportIssue: string;
-    contactUs: string;
     about: string;
-    adminConsole: string;
     toggleSidebar: string;
     artifactsPanelTitle: string;
     noArtifactSelectedTitle: string;
