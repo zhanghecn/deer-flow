@@ -1,4 +1,6 @@
 import asyncio
+import hashlib
+import json
 import logging
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
@@ -28,15 +30,11 @@ from src.agents.middlewares.runtime_command_middleware import RuntimeCommandMidd
 from src.agents.middlewares.target_length_retry_middleware import (
     TargetLengthRetryMiddleware,
 )
-from src.agents.middlewares.thread_data_middleware import ThreadDataMiddleware
 from src.agents.middlewares.title_middleware import TitleMiddleware
 from src.agents.middlewares.tool_batch_sequencing_middleware import (
     ToolBatchSequencingMiddleware,
 )
 from src.agents.middlewares.uploads_middleware import UploadsMiddleware
-from src.agents.middlewares.user_visible_path_sanitizer_middleware import (
-    UserVisiblePathSanitizerMiddleware,
-)
 from src.agents.middlewares.view_image_middleware import ViewImageMiddleware
 from src.agents.middlewares.visible_response_recovery_middleware import (
     VisibleResponseRecoveryMiddleware,
@@ -617,20 +615,22 @@ def _build_openagents_middlewares(model_config: ModelConfig):
     - SkillsMiddleware (replaces SkillsLoader)
     - FilesystemMiddleware (replaces sandbox tools: execute, ls, read_file, write_file, str_replace, edit_file, glob, grep)
 
-    We only keep openagents specific middlewares:
-    - ThreadDataMiddleware: Creates per-thread workspace directories
-    - UploadsMiddleware: Tracks and injects newly uploaded files
-    - TitleMiddleware: Auto-generates thread title
-    - ViewImageMiddleware: Injects base64 image data (conditional on vision support)
+    We only keep OpenAgents-specific middleware where Deep Agents does not
+    already provide the behavior:
+    - ArtifactsMiddleware: persists presented files in graph state
+    - AuthoringGuardMiddleware + RuntimeCommandMiddleware: constrain direct authoring turns
+    - UploadsMiddleware: injects uploaded file context into the current user turn
+    - TitleMiddleware: persists a local first-turn title without another model call
+    - Clarification / recovery middlewares: normalize or recover provider-specific outputs
+    - ContextWindowMiddleware: emit telemetry for the admin console
+    - ViewImageMiddleware: injects image content after successful `view_image` tool calls
     """
     middlewares = [
         ArtifactsMiddleware(),
         AuthoringGuardMiddleware(),
         RuntimeCommandMiddleware(),
-        ThreadDataMiddleware(),
         UploadsMiddleware(),
         TitleMiddleware(),
-        UserVisiblePathSanitizerMiddleware(),
         build_model_retry_middleware(),
         build_tool_retry_middleware(),
         ToolBatchSequencingMiddleware(),
@@ -654,6 +654,18 @@ def _path_mtime_ns(path: Path) -> int:
         return 0
 
 
+def _model_config_cache_token(model_config: ModelConfig) -> str:
+    payload = model_config.model_dump(exclude_none=True)
+    serialized = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
 def _lead_agent_graph_cache_key(
     *,
     request: LeadAgentRequest,
@@ -675,6 +687,7 @@ def _lead_agent_graph_cache_key(
     return (
         normalized_request,
         resolution.model_name,
+        _model_config_cache_token(resolution.model_config),
         prepare_runtime_resources,
         _path_mtime_ns(paths.agent_config_file(request.agent_name, request.agent_status)),
         _path_mtime_ns(paths.agent_agents_md_file(request.agent_name, request.agent_status)),

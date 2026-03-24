@@ -73,16 +73,13 @@ class TestTitleMiddlewareCoreLogic:
 
         assert middleware._should_generate_title(state) is False
 
-    def test_generate_title_trims_quotes_and_respects_max_chars(self, monkeypatch):
-        _set_test_title_config(max_chars=12, model_name="title-model")
+    def test_generate_title_trims_quotes_and_respects_limits(self):
+        _set_test_title_config(max_chars=12, max_words=3, model_name="title-model")
         middleware = TitleMiddleware()
-        fake_model = MagicMock()
-        fake_model.invoke.return_value = MagicMock(content='"A very long generated title"')
-        monkeypatch.setattr("src.agents.middlewares.title_middleware.create_chat_model", lambda **kwargs: fake_model)
 
         state = {
             "messages": [
-                HumanMessage(content="请帮我写一个脚本"),
+                HumanMessage(content='"A very long generated title for testing"'),
                 AIMessage(content="好的，先确认需求"),
             ]
         }
@@ -90,14 +87,11 @@ class TestTitleMiddlewareCoreLogic:
 
         assert '"' not in title
         assert "'" not in title
-        assert len(title) == 12
+        assert title == "A very long"
 
-    def test_generate_title_fallback_when_model_fails(self, monkeypatch):
+    def test_generate_title_fallback_when_text_is_long(self):
         _set_test_title_config(max_chars=20)
         middleware = TitleMiddleware()
-        fake_model = MagicMock()
-        fake_model.invoke.side_effect = RuntimeError("LLM unavailable")
-        monkeypatch.setattr("src.agents.middlewares.title_middleware.create_chat_model", lambda **kwargs: fake_model)
 
         state = {
             "messages": [
@@ -124,6 +118,27 @@ class TestTitleMiddlewareCoreLogic:
         title = middleware._generate_title(state)
 
         assert title == "Surprise me"
+
+    def test_generate_title_ignores_uploaded_files_context(self):
+        _set_test_title_config(max_chars=40)
+        middleware = TitleMiddleware()
+        state = {
+            "messages": [
+                HumanMessage(
+                    content=(
+                        "<uploaded_files>\n"
+                        "- design.pdf\n"
+                        "</uploaded_files>\n\n"
+                        "帮我总结这份设计文档"
+                    )
+                ),
+                AIMessage(content="好的"),
+            ]
+        }
+
+        title = middleware._generate_title(state)
+
+        assert title == "帮我总结这份设计文档"
 
     def test_after_agent_returns_title_only_when_needed(self, monkeypatch):
         middleware = TitleMiddleware()

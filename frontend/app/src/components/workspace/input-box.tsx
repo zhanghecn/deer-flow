@@ -59,7 +59,11 @@ import {
   formatSkillScopeLabel,
   normalizeSkillScope,
 } from "@/core/skills/scope";
-import type { AgentThreadContext, ContextWindowState } from "@/core/threads";
+import type {
+  AgentThreadContext,
+  ContextWindowState,
+  RetryStatus,
+} from "@/core/threads";
 import {
   getReasoningEffortForMode,
   getResolvedThreadMode,
@@ -112,6 +116,73 @@ type ModeOption = {
   activeIconClassName?: string;
   activeLabelClassName?: string;
 };
+
+function formatRetryTime(value: string, locale: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  return parsed.toLocaleTimeString(locale, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function formatRetryDelay(seconds: number, locale: string) {
+  return new Intl.NumberFormat(locale, {
+    maximumFractionDigits: seconds < 1 ? 2 : 1,
+  }).format(seconds);
+}
+
+function RetryStatusBadge({
+  retryStatus,
+  locale,
+}: {
+  retryStatus: RetryStatus;
+  locale: string;
+}) {
+  const { t } = useI18n();
+  const timeLabel = formatRetryTime(retryStatus.occurred_at, locale);
+  const retryLabel =
+    retryStatus.scope === "tool"
+      ? retryStatus.tool_name
+        ? t.inputBox.retryingTool(
+            retryStatus.tool_name,
+            retryStatus.retry_count,
+            retryStatus.max_retries,
+            timeLabel,
+          )
+        : t.inputBox.retryingToolGeneric(
+            retryStatus.retry_count,
+            retryStatus.max_retries,
+            timeLabel,
+          )
+      : t.inputBox.retryingModel(
+          retryStatus.retry_count,
+          retryStatus.max_retries,
+          timeLabel,
+        );
+  const delayLabel =
+    typeof retryStatus.delay_seconds === "number"
+      ? t.inputBox.retryDelay(
+          formatRetryDelay(retryStatus.delay_seconds, locale),
+        )
+      : null;
+
+  return (
+    <div className="text-muted-foreground flex min-w-0 items-center gap-2 overflow-hidden rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-xs">
+      <div className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-amber-500" />
+      <span className="truncate">{retryLabel}</span>
+      {delayLabel ? (
+        <span className="truncate text-[11px] text-amber-700 dark:text-amber-300">
+          {delayLabel}
+        </span>
+      ) : null}
+    </div>
+  );
+}
 
 function resolveInputContext(
   context: InputBoxContext,
@@ -174,6 +245,7 @@ export function InputBox({
   autoFocus,
   status = "ready",
   context,
+  retryStatus,
   extraHeader,
   contextWindow,
   isNewThread,
@@ -187,6 +259,7 @@ export function InputBox({
   status?: ChatStatus;
   disabled?: boolean;
   context: InputBoxContext;
+  retryStatus?: RetryStatus | null;
   extraHeader?: React.ReactNode;
   contextWindow?: ContextWindowState;
   isNewThread?: boolean;
@@ -261,7 +334,8 @@ export function InputBox({
   );
 
   const selectedModeOption =
-    modeOptions.find((option) => option.mode === displayedMode) ?? modeOptions[0]!;
+    modeOptions.find((option) => option.mode === displayedMode) ??
+    modeOptions[0]!;
 
   const handleModelSelect = useCallback(
     (model_name: string) => {
@@ -286,40 +360,62 @@ export function InputBox({
     [onContextChange, context, selectedModel],
   );
 
-  const handleSubmit = useCallback(
-    async (message: PromptInputMessage) => {
+  const submitMessage = useCallback(
+    (message: PromptInputMessage) => {
       if (status === "streaming") {
         onStop?.();
         return;
       }
-      if (!message.text) {
+
+      const normalizedText = message.text.trim();
+      if (!normalizedText) {
         return;
       }
-      const extraContext = buildPromptExtraContext(message.text);
+
       onSubmit?.(
         {
           ...message,
-          text: message.text,
+          text: normalizedText,
         },
-        extraContext,
+        buildPromptExtraContext(normalizedText),
       );
       promptInputController.textInput.clear();
     },
     [onSubmit, onStop, promptInputController, status],
   );
 
-  const applyInputText = useCallback((nextValue: string) => {
-    promptInputController.textInput.setInput(nextValue);
-    const textarea = document.querySelector<HTMLTextAreaElement>(
-      "textarea[name='message']",
-    );
-    if (!textarea) {
-      return;
-    }
-    textarea.value = nextValue;
-    textarea.dispatchEvent(new Event("input", { bubbles: true }));
-    textarea.focus();
-  }, [promptInputController]);
+  const handleSubmit = useCallback(
+    async (message: PromptInputMessage) => {
+      submitMessage(message);
+    },
+    [submitMessage],
+  );
+
+  const submitPromptText = useCallback(
+    (text: string) => {
+      submitMessage({
+        text,
+        files: [],
+      });
+    },
+    [submitMessage],
+  );
+
+  const applyInputText = useCallback(
+    (nextValue: string) => {
+      promptInputController.textInput.setInput(nextValue);
+      const textarea = document.querySelector<HTMLTextAreaElement>(
+        "textarea[name='message']",
+      );
+      if (!textarea) {
+        return;
+      }
+      textarea.value = nextValue;
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      textarea.focus();
+    },
+    [promptInputController],
+  );
 
   const slashQuery = getSlashQuery(draftText);
   const promptCommands = useMemo(() => getPromptCommands(t), [t]);
@@ -362,11 +458,12 @@ export function InputBox({
     slashSuggestions.length > 0
       ? t.inputBox.quickInsertCommandsLabel
       : t.inputBox.quickInsertSkillsLabel;
-  const quickInsertQueryKey = slashQuery !== null
-    ? `command:${slashQuery}`
-    : skillReferenceQuery !== null
-      ? `skill:${skillReferenceQuery}`
-      : null;
+  const quickInsertQueryKey =
+    slashQuery !== null
+      ? `command:${slashQuery}`
+      : skillReferenceQuery !== null
+        ? `skill:${skillReferenceQuery}`
+        : null;
   const [dismissedQuickInsertKey, setDismissedQuickInsertKey] = useState<
     string | null
   >(null);
@@ -455,7 +552,8 @@ export function InputBox({
       }
 
       if (event.key === "Enter") {
-        const selectedSuggestion = quickInsertSuggestions[activeQuickInsertIndex];
+        const selectedSuggestion =
+          quickInsertSuggestions[activeQuickInsertIndex];
         if (!selectedSuggestion) {
           return;
         }
@@ -475,7 +573,7 @@ export function InputBox({
   return (
     <PromptInput
       className={cn(
-        "rounded-2xl border border-border bg-background transition-all duration-300 ease-out *:data-[slot='input-group']:rounded-2xl dark:glass dark:border-primary/20 dark:bg-background/85 dark:backdrop-blur-sm",
+        "border-border bg-background dark:glass dark:border-primary/20 dark:bg-background/85 rounded-2xl border transition-all duration-300 ease-out *:data-[slot='input-group']:rounded-2xl dark:backdrop-blur-sm",
         className,
       )}
       disabled={disabled}
@@ -496,7 +594,7 @@ export function InputBox({
       </PromptInputAttachments>
       <PromptInputBody className="absolute top-0 right-0 left-0 z-3">
         <PromptInputTextarea
-          className={cn("size-full dark:placeholder:text-primary/30")}
+          className={cn("dark:placeholder:text-primary/30 size-full")}
           disabled={disabled}
           placeholder={t.inputBox.placeholder}
           autoFocus={autoFocus}
@@ -555,9 +653,16 @@ export function InputBox({
             </PromptInputActionMenuContent>
           </PromptInputActionMenu>
         </PromptInputTools>
-        {contextWindow && (
+        {(contextWindow || retryStatus) && (
           <PromptInputTools className="min-w-0 flex-1 justify-center px-2">
-            <ContextWindowCard contextWindow={contextWindow} />
+            <div className="flex min-w-0 items-center justify-center gap-2">
+              {retryStatus && status === "streaming" ? (
+                <RetryStatusBadge retryStatus={retryStatus} locale={locale} />
+              ) : null}
+              {contextWindow ? (
+                <ContextWindowCard contextWindow={contextWindow} />
+              ) : null}
+            </div>
           </PromptInputTools>
         )}
         <PromptInputTools>
@@ -612,7 +717,10 @@ export function InputBox({
       )}
       {isNewThread && searchParams.get("mode") !== "skill" && (
         <div className="absolute right-0 -bottom-20 left-0 z-0 flex items-center justify-center">
-          <SuggestionList onInsertPrompt={applyInputText} />
+          <SuggestionList
+            onInsertPrompt={applyInputText}
+            onSubmitPrompt={submitPromptText}
+          />
         </div>
       )}
       {!isNewThread && (
@@ -624,13 +732,19 @@ export function InputBox({
 
 function SuggestionList({
   onInsertPrompt,
+  onSubmitPrompt,
 }: {
   onInsertPrompt: (prompt: string) => void;
+  onSubmitPrompt?: (prompt: string) => void;
 }) {
   const { t } = useI18n();
   const handleSuggestionClick = useCallback(
-    (prompt: string | undefined) => {
+    (prompt: string | undefined, options?: { submit?: boolean }) => {
       if (!prompt) return;
+      if (options?.submit) {
+        onSubmitPrompt?.(prompt);
+        return;
+      }
       onInsertPrompt(prompt);
       setTimeout(() => {
         const textarea = document.querySelector<HTMLTextAreaElement>(
@@ -646,7 +760,7 @@ function SuggestionList({
         }
       }, 0);
     },
-    [onInsertPrompt],
+    [onInsertPrompt, onSubmitPrompt],
   );
   return (
     <Suggestions className="min-h-16 w-fit items-start">
@@ -654,7 +768,9 @@ function SuggestionList({
         className="text-muted-foreground cursor-pointer rounded-full px-4 text-xs font-normal"
         variant="outline"
         size="sm"
-        onClick={() => handleSuggestionClick(t.inputBox.surpriseMePrompt)}
+        onClick={() =>
+          handleSuggestionClick(t.inputBox.surpriseMePrompt, { submit: true })
+        }
       >
         <SparklesIcon className="size-4" /> {t.inputBox.surpriseMe}
       </ConfettiButton>

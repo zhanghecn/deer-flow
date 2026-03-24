@@ -1,6 +1,7 @@
 """Middleware for automatic thread title generation."""
 
 import logging
+import re
 from collections.abc import Mapping
 from typing import NotRequired, override
 
@@ -11,9 +12,11 @@ from langgraph.runtime import Runtime
 
 from src.config.runtime_db import get_runtime_db_store
 from src.config.title_config import get_title_config
-from src.models import create_chat_model
 
 logger = logging.getLogger(__name__)
+
+_UPLOADED_FILES_BLOCK_RE = re.compile(r"<uploaded_files>[\s\S]*?</uploaded_files>\s*", re.IGNORECASE)
+_WHITESPACE_RE = re.compile(r"\s+")
 
 
 class TitleMiddlewareState(AgentState):
@@ -23,7 +26,12 @@ class TitleMiddlewareState(AgentState):
 
 
 class TitleMiddleware(AgentMiddleware[TitleMiddlewareState]):
-    """Automatically generate a title for the thread after the first user message."""
+    """Persist a compact title after the first complete exchange.
+
+    Deep Agents already spends model budget on the actual user task. Title
+    generation stays local and deterministic so opening a new thread does not
+    trigger an extra model call with its own latency, retries, and failures.
+    """
 
     state_schema = TitleMiddlewareState
 
@@ -77,6 +85,38 @@ class TitleMiddleware(AgentMiddleware[TitleMiddlewareState]):
         if len(user_message) > fallback_limit:
             return user_message[:fallback_limit].rstrip() + "..."
         return user_message or "New Conversation"
+
+    @staticmethod
+    def _clean_user_message_for_title(user_message: str) -> str:
+        cleaned = _UPLOADED_FILES_BLOCK_RE.sub("", user_message)
+        cleaned = cleaned.strip().strip('"').strip("'")
+        if not cleaned:
+            return ""
+
+        lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
+        if not lines:
+            return ""
+
+        first_line = lines[0]
+        if first_line.startswith("#"):
+            first_line = first_line.lstrip("#").strip()
+
+        return _WHITESPACE_RE.sub(" ", first_line).strip()
+
+    @classmethod
+    def _truncate_title(cls, title: str, *, max_words: int, max_chars: int) -> str:
+        normalized = cls._clean_user_message_for_title(title)
+        if not normalized:
+            return "New Conversation"
+
+        words = normalized.split()
+        if len(words) > max_words:
+            normalized = " ".join(words[:max_words]).strip()
+
+        normalized = normalized.strip().strip('"').strip("'")
+        if len(normalized) > max_chars:
+            return normalized[: max_chars - 3].rstrip() + "..."
+        return normalized
 
     def _persist_title(self, runtime: Runtime, title: str) -> None:
         thread_id = self._runtime_context_value(runtime, "thread_id", "x-thread-id")
@@ -134,41 +174,23 @@ class TitleMiddleware(AgentMiddleware[TitleMiddlewareState]):
         return str(content) if content else ""
 
     def _generate_title(self, state: TitleMiddlewareState) -> str:
-        """Generate a concise title based on the conversation."""
+        """Generate a concise title from the user's first message."""
         config = get_title_config()
         messages = state.get("messages", [])
 
-        # Get first user message and first assistant response
+        # Get first user message.
         user_msg_content = next((m.content for m in messages if m.type == "human"), "")
-        assistant_msg_content = next((m.content for m in messages if m.type == "ai"), "")
 
-        # Ensure content is string (LangChain messages can have list content)
         user_msg = self._stringify_message_content(user_msg_content)
-        assistant_msg = self._stringify_message_content(assistant_msg_content)
+        if not user_msg.strip():
+            return "New Conversation"
 
-        if not config.model_name:
-            return self._fallback_title(user_msg, config.max_chars)
-
-        # Use explicitly configured title model; no implicit default model fallback.
-        model = create_chat_model(name=config.model_name, thinking_enabled=False)
-
-        prompt = config.prompt_template.format(
+        generated = self._truncate_title(
+            user_msg,
             max_words=config.max_words,
             max_chars=config.max_chars,
-            user_msg=user_msg[:500],
-            assistant_msg=assistant_msg[:500],
         )
-
-        try:
-            response = model.invoke(prompt)
-            # Ensure response content is string
-            title_content = str(response.content) if response.content else ""
-            title = title_content.strip().strip('"').strip("'")
-            # Limit to max characters
-            return title[: config.max_chars] if len(title) > config.max_chars else title
-        except Exception:
-            logger.warning("Failed to generate thread title with model", exc_info=True)
-            return self._fallback_title(user_msg, config.max_chars)
+        return generated or self._fallback_title(user_msg, config.max_chars)
 
     @override
     def after_agent(self, state: TitleMiddlewareState, runtime: Runtime) -> dict | None:

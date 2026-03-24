@@ -24,7 +24,7 @@ class TitleConfig(BaseModel):
     )
     model_name: str | None = Field(
         default=None,
-        description="Model name to use for title generation. If None, middleware falls back to user-message-based title.",
+        description="Reserved for backward compatibility. Title generation is now local and message-based.",
     )
     prompt_template: str = Field(
         default=(
@@ -72,7 +72,7 @@ class TitleConfig(BaseModel):
             "Assistant: {assistant_msg}\n\n"
             "Title:"
         ),
-        description="Prompt template for title generation",
+        description="Legacy prompt template retained for backward compatibility.",
     )
 
 

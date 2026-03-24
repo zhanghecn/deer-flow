@@ -251,6 +251,66 @@ describe("useThreadStream", () => {
     expect(toastError).toHaveBeenCalledWith("429 Too Many Requests");
   });
 
+  it("tracks retry progress from custom stream events and clears it when completed", async () => {
+    const { result } = renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    const onCustomEvent = latestUseStreamOptions?.onCustomEvent;
+    expect(typeof onCustomEvent).toBe("function");
+    if (typeof onCustomEvent !== "function") {
+      throw new Error("Expected onCustomEvent callback to be registered.");
+    }
+
+    act(() => {
+      onCustomEvent({
+        type: "retry_status",
+        scope: "model",
+        status: "retrying",
+        retry_count: 2,
+        max_retries: 5,
+        occurred_at: "2026-03-23T12:00:00Z",
+        next_retry_at: "2026-03-23T12:00:01Z",
+        delay_seconds: 1,
+        error: "429 Too Many Requests",
+      });
+    });
+
+    expect(result.current[4]).toEqual({
+      scope: "model",
+      retry_count: 2,
+      max_retries: 5,
+      occurred_at: "2026-03-23T12:00:00Z",
+      next_retry_at: "2026-03-23T12:00:01Z",
+      delay_seconds: 1,
+      error: "429 Too Many Requests",
+      error_type: undefined,
+      tool_name: undefined,
+    });
+
+    act(() => {
+      onCustomEvent({
+        type: "retry_status",
+        scope: "model",
+        status: "completed",
+        retry_count: 2,
+        max_retries: 5,
+        occurred_at: "2026-03-23T12:00:02Z",
+      });
+    });
+
+    expect(result.current[4]).toBeNull();
+  });
+
   it("adds a pending thread to the sidebar cache before a run finishes", async () => {
     const wrapper = createWrapper();
     wrapper.queryClient.setQueryData(

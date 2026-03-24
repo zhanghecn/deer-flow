@@ -183,20 +183,23 @@ Architecture intent:
 
 Key runtime middlewares:
 
-- `ThreadDataMiddleware`
-  - creates thread-local runtime directories
 - `UploadsMiddleware`
   - injects uploaded file context
 - `FilesystemMiddleware`
   - exposes file and shell tools over the selected runtime backend
 - `ArtifactsMiddleware`
   - records generated files for preview/download
+- `TitleMiddleware`
+  - derives a lightweight first-turn title without an extra model call
 - `ContextWindowMiddleware`
   - persists prompt occupancy for monitoring
 - `MemoryMiddleware`
   - queues long-term memory extraction
 - `ClarificationMiddleware`
   - interrupts for explicit clarification turns
+
+Thread runtime paths are now resolved from `thread_id` inside tool/backend helpers
+instead of being precomputed into graph state by a dedicated middleware.
 
 ## Observability
 

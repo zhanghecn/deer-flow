@@ -36,6 +36,8 @@ import type {
   AgentInterruptValue,
   AgentThread,
   AgentThreadState,
+  RetryStatus,
+  RetryStatusEvent,
 } from "./types";
 
 export type ToolEndEvent = {
@@ -695,17 +697,13 @@ function serializeMessageForComparison(message: Message) {
     name: "name" in message ? message.name : undefined,
     content: message.content,
     tool_calls: "tool_calls" in message ? message.tool_calls : undefined,
-    tool_call_id:
-      "tool_call_id" in message ? message.tool_call_id : undefined,
+    tool_call_id: "tool_call_id" in message ? message.tool_call_id : undefined,
     additional_kwargs: message.additional_kwargs,
     status: "status" in message ? message.status : undefined,
   });
 }
 
-function areEquivalentMessageLists(
-  left: Message[],
-  right: Message[],
-): boolean {
+function areEquivalentMessageLists(left: Message[], right: Message[]): boolean {
   if (left.length !== right.length) {
     return false;
   }
@@ -721,6 +719,43 @@ function areEquivalentMessageLists(
       serializeMessageForComparison(otherMessage)
     );
   });
+}
+
+function isRetryStatusEvent(event: unknown): event is RetryStatusEvent {
+  if (!event || typeof event !== "object") {
+    return false;
+  }
+
+  return (
+    "type" in event &&
+    event.type === "retry_status" &&
+    "scope" in event &&
+    (event.scope === "model" || event.scope === "tool") &&
+    "status" in event &&
+    (event.status === "retrying" ||
+      event.status === "completed" ||
+      event.status === "failed") &&
+    "retry_count" in event &&
+    typeof event.retry_count === "number" &&
+    "max_retries" in event &&
+    typeof event.max_retries === "number" &&
+    "occurred_at" in event &&
+    typeof event.occurred_at === "string"
+  );
+}
+
+function toRetryStatus(event: RetryStatusEvent): RetryStatus {
+  return {
+    scope: event.scope,
+    retry_count: event.retry_count,
+    max_retries: event.max_retries,
+    occurred_at: event.occurred_at,
+    next_retry_at: event.next_retry_at,
+    delay_seconds: event.delay_seconds,
+    tool_name: event.tool_name,
+    error: event.error,
+    error_type: event.error_type,
+  };
 }
 
 export function useThreadStream({
@@ -745,6 +780,7 @@ export function useThreadStream({
   const [threadOverride, setThreadOverride] = useState<ThreadOverride | null>(
     null,
   );
+  const [retryStatus, setRetryStatus] = useState<RetryStatus | null>(null);
   const [historyEnabled, setHistoryEnabled] = useState(
     () => !!threadId && !skipInitialHistory,
   );
@@ -830,6 +866,7 @@ export function useThreadStream({
   const notifyThreadError = useCallback(
     (error: unknown) => {
       const message = normalizeThreadError(error);
+      setRetryStatus(null);
       if (lastErrorMessageRef.current === message) {
         return message;
       }
@@ -848,6 +885,7 @@ export function useThreadStream({
       }
 
       terminalStateNotifiedRef.current = true;
+      setRetryStatus(null);
       const activeThreadId = resolvedThreadId ?? streamThreadId ?? threadId;
       clearLocalActiveRunOwnership(activeThreadId);
       clearStoredActiveRunId(activeThreadId);
@@ -897,6 +935,15 @@ export function useThreadStream({
       }
     },
     onCustomEvent(event: unknown) {
+      if (isRetryStatusEvent(event)) {
+        if (event.status === "retrying") {
+          setRetryStatus(toRetryStatus(event));
+        } else {
+          setRetryStatus(null);
+        }
+        return;
+      }
+
       if (
         typeof event === "object" &&
         event !== null &&
@@ -931,6 +978,7 @@ export function useThreadStream({
 
   useEffect(() => {
     setThreadOverride(null);
+    setRetryStatus(null);
     joinedRunIdRef.current = null;
     lastHydrationActivationRef.current = null;
     stateHydrationInFlightRef.current = false;
@@ -945,6 +993,12 @@ export function useThreadStream({
 
     notifyThreadError(thread.error);
   }, [notifyThreadError, thread.error]);
+
+  useEffect(() => {
+    if (!thread.isLoading) {
+      setRetryStatus(null);
+    }
+  }, [thread.isLoading]);
 
   useEffect(() => {
     if (!threadId || !authenticated || thread.isLoading) {
@@ -1195,6 +1249,7 @@ export function useThreadStream({
 
       terminalStateNotifiedRef.current = false;
       setThreadOverride(null);
+      setRetryStatus(null);
       lastErrorMessageRef.current = null;
       previousMessageCountRef.current = thread.messages.length;
       markLocalActiveRunOwnership(runThreadId);
@@ -1291,6 +1346,7 @@ export function useThreadStream({
       const selectedModelName = requireModelName(resolvedContext);
       terminalStateNotifiedRef.current = false;
       setThreadOverride(null);
+      setRetryStatus(null);
       lastErrorMessageRef.current = null;
       markLocalActiveRunOwnership(runThreadId);
 
@@ -1348,6 +1404,7 @@ export function useThreadStream({
     }
 
     const activeThreadId = threadId ?? streamThreadId;
+    setRetryStatus(null);
     const snapshot = buildThreadOverride(
       "snapshot",
       mergedThreadValues,
@@ -1456,5 +1513,11 @@ export function useThreadStream({
     ],
   );
 
-  return [enrichedThread, sendMessage, resumeInterrupt, isThreadReady] as const;
+  return [
+    enrichedThread,
+    sendMessage,
+    resumeInterrupt,
+    isThreadReady,
+    retryStatus,
+  ] as const;
 }

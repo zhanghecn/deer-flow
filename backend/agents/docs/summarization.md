@@ -275,13 +275,22 @@ The middleware intelligently preserves message context:
 
 ### Middleware Order
 
-Summarization runs after ThreadData and Sandbox initialization but before Title and Clarification:
+Summarization is now provided by Deep Agents' built-in
+`SummarizationMiddleware`.
 
-1. ThreadDataMiddleware
-2. SandboxMiddleware
-3. **SummarizationMiddleware** ← Runs here
-4. TitleMiddleware
-5. ClarificationMiddleware
+OpenAgents no longer runs a dedicated `ThreadDataMiddleware` or
+`SandboxMiddleware` ahead of it. Runtime backend selection happens before graph
+creation, and thread runtime paths are resolved inside backend/tool helpers from
+`thread_id`.
+
+At a high level, the order is:
+
+1. Deep Agents built-ins such as `TodoListMiddleware`, `FilesystemMiddleware`,
+   and `SummarizationMiddleware`
+2. OpenAgents-specific runtime middlewares such as `UploadsMiddleware` and
+   `TitleMiddleware`
+3. OpenAgents response-normalization and recovery middlewares
+4. `ContextWindowMiddleware` telemetry updates
 
 ### State Management
 

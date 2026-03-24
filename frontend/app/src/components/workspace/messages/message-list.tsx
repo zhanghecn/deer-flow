@@ -29,7 +29,10 @@ import { StreamingIndicator } from "../streaming-indicator";
 
 import { ClarificationInterrupt } from "./clarification-interrupt";
 import { MarkdownContent } from "./markdown-content";
-import { MessageGroup } from "./message-group";
+import {
+  MessageGroup,
+  shouldShowTrailingReasoning,
+} from "./message-group";
 import { MessageListItem } from "./message-list-item";
 import { MessageListSkeleton } from "./skeleton";
 import { SubtaskCard } from "./subtask-card";
@@ -326,12 +329,20 @@ function renderSubagentMessage(
   );
 }
 
-function renderProcessingMessage(group: GroupedMessage, isLoading: boolean) {
+function renderProcessingMessage(
+  group: GroupedMessage,
+  isLoading: boolean,
+  nextGroupType?: GroupedMessage["type"],
+) {
   return (
     <MessageGroup
       key={"group-" + group.id}
       messages={group.messages}
       isLoading={isLoading}
+      showTrailingReasoning={shouldShowTrailingReasoning(
+        nextGroupType,
+        isLoading,
+      )}
     />
   );
 }
@@ -339,6 +350,7 @@ function renderProcessingMessage(group: GroupedMessage, isLoading: boolean) {
 function renderGroupedMessage(
   group: GroupedMessage,
   renderer: MessageRendererContext,
+  nextGroupType?: GroupedMessage["type"],
 ) {
   switch (group.type) {
     case "human":
@@ -351,7 +363,7 @@ function renderGroupedMessage(
     case "assistant:subagent":
       return renderSubagentMessage(group, renderer);
     default:
-      return renderProcessingMessage(group, renderer.isLoading);
+      return renderProcessingMessage(group, renderer.isLoading, nextGroupType);
   }
 }
 
@@ -415,7 +427,13 @@ const GroupedMessagesContent = memo(function GroupedMessagesContent({
     t,
   };
 
-  return <>{groups.map((group) => renderGroupedMessage(group, renderer))}</>;
+  return (
+    <>
+      {groups.map((group, index) =>
+        renderGroupedMessage(group, renderer, groups[index + 1]?.type),
+      )}
+    </>
+  );
 });
 
 export function MessageList({

@@ -33,14 +33,15 @@ import {
 import { env } from "@/env";
 import { cn } from "@/lib/utils";
 
-const ChatBox = lazy(
-  () => import("@/components/workspace/chats/chat-box").then((m) => ({ default: m.ChatBox })),
+const ChatBox = lazy(() =>
+  import("@/components/workspace/chats/chat-box").then((m) => ({
+    default: m.ChatBox,
+  })),
 );
-const MessageList = lazy(
-  () =>
-    import("@/components/workspace/messages/message-list").then(
-      (m) => ({ default: m.MessageList }),
-    ),
+const MessageList = lazy(() =>
+  import("@/components/workspace/messages/message-list").then((m) => ({
+    default: m.MessageList,
+  })),
 );
 
 export default function ChatPage() {
@@ -151,34 +152,36 @@ export default function ChatPage() {
     threadRuntime,
   ]);
 
-  const [thread, sendMessage, resumeInterrupt] = useThreadStream({
-    threadId,
-    context: runtimeContext,
-    isMock,
-    skipInitialHistory: isNewThread || isPendingRun,
-    onStart: (createdThreadId) => {
-      setIsPendingRun(true);
-      setThreadId(createdThreadId);
-      void navigate(
-        buildThreadPath(runtimeSelection, createdThreadId, {
-          isMock,
-          isPendingRun: true,
-        }),
-        { replace: true },
-      );
-    },
-    onFinish: (state) => {
-      setIsPendingRun(false);
-      void navigate(buildThreadPath(runtimeSelection, threadId, { isMock }), {
-        replace: true,
-      });
-      if (document.hidden || !document.hasFocus()) {
-        showNotification(state.title, {
-          body: buildThreadCompletionNotificationBody(state),
+  const [thread, sendMessage, resumeInterrupt, , retryStatus] = useThreadStream(
+    {
+      threadId,
+      context: runtimeContext,
+      isMock,
+      skipInitialHistory: isNewThread || isPendingRun,
+      onStart: (createdThreadId) => {
+        setIsPendingRun(true);
+        setThreadId(createdThreadId);
+        void navigate(
+          buildThreadPath(runtimeSelection, createdThreadId, {
+            isMock,
+            isPendingRun: true,
+          }),
+          { replace: true },
+        );
+      },
+      onFinish: (state) => {
+        setIsPendingRun(false);
+        void navigate(buildThreadPath(runtimeSelection, threadId, { isMock }), {
+          replace: true,
         });
-      }
+        if (document.hidden || !document.hasFocus()) {
+          showNotification(state.title, {
+            body: buildThreadCompletionNotificationBody(state),
+          });
+        }
+      },
     },
-  });
+  );
 
   const handleSendMessage = useCallback(
     async (
@@ -331,6 +334,7 @@ export default function ChatPage() {
                   autoFocus={isNewThread}
                   status={thread.isLoading ? "streaming" : "ready"}
                   context={runtimeContext}
+                  retryStatus={retryStatus}
                   initialValue={inputInitialValue}
                   contextWindow={
                     isNewThread ? undefined : thread.values.context_window

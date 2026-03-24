@@ -515,6 +515,86 @@ def test_make_lead_agent_reuses_cached_graph_for_identical_request(monkeypatch, 
     assert store.saved == [("thread-1", "user-1", "safe-model", LEAD_AGENT_NAME)]
 
 
+def test_make_lead_agent_rebuilds_cached_graph_when_model_config_changes(monkeypatch, tmp_path):
+    lead_agent_module._clear_lead_agent_graph_cache()
+    store = _FakeDBStore(
+        models={
+            "safe-model": ModelConfig.model_validate(
+                {
+                    "name": "safe-model",
+                    "display_name": "safe-model",
+                    "description": None,
+                    "use": "langchain_anthropic:ChatAnthropic",
+                    "model": "safe-model",
+                    "api_key": "token-a",
+                    "base_url": "http://gateway-a.invalid",
+                    "supports_thinking": True,
+                }
+            )
+        }
+    )
+
+    import src.tools as tools_module
+
+    monkeypatch.setattr(
+        lead_agent_module,
+        "get_paths",
+        lambda: Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / "skills"),
+    )
+    monkeypatch.setattr(lead_agent_module, "get_runtime_db_store", lambda: store)
+    monkeypatch.setattr(tools_module, "get_available_tools", lambda **kwargs: [])
+    monkeypatch.setattr(
+        lead_agent_module,
+        "build_backend",
+        lambda thread_id, agent_name, status="dev", agent_config=None, **kwargs: {"thread_id": thread_id},
+    )
+    monkeypatch.setattr(
+        lead_agent_module,
+        "_load_agent_runtime_config",
+        lambda **kwargs: _make_agent_config(),
+    )
+    monkeypatch.setattr(lead_agent_module, "apply_prompt_template", lambda **kwargs: "prompt")
+    monkeypatch.setattr(lead_agent_module, "create_chat_model", lambda **kwargs: object())
+
+    create_calls: list[dict[str, object]] = []
+
+    def _fake_create_deep_agent(**kwargs):
+        create_calls.append(kwargs)
+        return {"graph_id": len(create_calls)}
+
+    monkeypatch.setattr(lead_agent_module, "create_deep_agent", _fake_create_deep_agent)
+
+    config = {
+        "configurable": {
+            "thread_id": "thread-1",
+            "user_id": "user-1",
+            "model_name": "safe-model",
+            "thinking_enabled": True,
+            "subagent_enabled": False,
+        }
+    }
+
+    first = asyncio.run(lead_agent_module.make_lead_agent(config, runtime=None))
+
+    store.models["safe-model"] = ModelConfig.model_validate(
+        {
+            "name": "safe-model",
+            "display_name": "safe-model",
+            "description": None,
+            "use": "langchain_anthropic:ChatAnthropic",
+            "model": "safe-model",
+            "api_key": "token-b",
+            "base_url": "http://gateway-b.invalid",
+            "supports_thinking": True,
+        }
+    )
+
+    second = asyncio.run(lead_agent_module.make_lead_agent(config, runtime=None))
+
+    assert first is not second
+    assert len(create_calls) == 2
+
+
 def test_make_lead_agent_reuses_read_only_graph_across_threads(monkeypatch, tmp_path):
     lead_agent_module._clear_lead_agent_graph_cache()
     store = _FakeDBStore(models={"safe-model": _make_model("safe-model", supports_thinking=True)})

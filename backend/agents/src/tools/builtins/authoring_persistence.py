@@ -366,15 +366,6 @@ def _runtime_thread_id(runtime: ToolRuntime | None) -> str:
     return str(thread_id)
 
 
-def _thread_data(runtime: ToolRuntime[dict, ThreadState] | None) -> dict:
-    if runtime is None or runtime.state is None:
-        return {}
-    thread_data = runtime.state.get("thread_data")
-    if isinstance(thread_data, dict):
-        return thread_data
-    return {}
-
-
 def resolve_runtime_source_path(
     *,
     runtime: ToolRuntime[dict, ThreadState] | None,
@@ -399,10 +390,9 @@ def resolve_default_agent_source_dir(
     paths = paths or get_paths()
     thread_id = _runtime_thread_id(runtime)
     normalized_agent_name = _normalize_agent_name(agent_name)
-    thread_data = _thread_data(runtime)
 
-    authoring_base = Path(thread_data.get("authoring_agents_path") or paths.sandbox_authoring_agents_dir(thread_id))
-    runtime_agents_base = Path(thread_data.get("agents_path") or paths.sandbox_agents_dir(thread_id))
+    authoring_base = paths.sandbox_authoring_agents_dir(thread_id)
+    runtime_agents_base = paths.sandbox_agents_dir(thread_id)
     candidates = (
         authoring_base / normalized_agent_name,
         runtime_agents_base / "dev" / normalized_agent_name,
@@ -422,6 +412,5 @@ def resolve_default_skill_source_dir(
     paths = paths or get_paths()
     thread_id = _runtime_thread_id(runtime)
     skill_path = _normalize_skill_path(skill_name)
-    thread_data = _thread_data(runtime)
-    authoring_base = Path(thread_data.get("authoring_skills_path") or paths.sandbox_authoring_skills_dir(thread_id))
+    authoring_base = paths.sandbox_authoring_skills_dir(thread_id)
     return authoring_base / Path(skill_path.as_posix())

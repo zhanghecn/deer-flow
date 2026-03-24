@@ -69,10 +69,12 @@ export function MessageGroup({
   className,
   messages,
   isLoading = false,
+  showTrailingReasoning = true,
 }: {
   className?: string;
   messages: Message[];
   isLoading?: boolean;
+  showTrailingReasoning?: boolean;
 }) {
   const { t } = useI18n();
   const [showAbove, setShowAbove] = useState(
@@ -102,6 +104,19 @@ export function MessageGroup({
       return filteredSteps[filteredSteps.length - 1];
     }
   }, [lastToolCallStep, steps]);
+
+  const visibleLastReasoningStep = showTrailingReasoning
+    ? lastReasoningStep
+    : undefined;
+
+  if (
+    aboveLastToolCallSteps.length === 0 &&
+    !lastToolCallStep &&
+    !visibleLastReasoningStep
+  ) {
+    return null;
+  }
+
   return (
     <ChainOfThought
       className={cn("w-full gap-2 rounded-lg border p-0.5", className)}
@@ -164,10 +179,10 @@ export function MessageGroup({
           )}
         </ChainOfThoughtContent>
       )}
-      {lastReasoningStep && (
+      {visibleLastReasoningStep && (
         <>
           <Button
-            key={lastReasoningStep.id}
+            key={visibleLastReasoningStep.id}
             className="w-full items-start justify-start text-left"
             variant="ghost"
             onClick={() => setShowLastThinking(!showLastThinking)}
@@ -191,10 +206,10 @@ export function MessageGroup({
           {showLastThinking && (
             <ChainOfThoughtContent className="px-4 pb-2">
               <ChainOfThoughtStep
-                key={lastReasoningStep.id}
+                key={visibleLastReasoningStep.id}
                 label={
                   <MarkdownContent
-                    content={lastReasoningStep.reasoning ?? ""}
+                    content={visibleLastReasoningStep.reasoning ?? ""}
                     isLoading={isLoading}
                     rehypePlugins={workspaceMessageRehypePlugins}
                   />
@@ -557,6 +572,22 @@ interface CoTToolCallStep extends GenericCoTStep<"toolCall"> {
 }
 
 type CoTStep = CoTReasoningStep | CoTToolCallStep;
+
+export function shouldShowTrailingReasoning(
+  nextGroupType: string | undefined,
+  isLoading: boolean,
+) {
+  if (isLoading) {
+    return true;
+  }
+
+  if (!nextGroupType) {
+    return true;
+  }
+
+  return !nextGroupType.startsWith("assistant") ||
+    nextGroupType === "assistant:processing";
+}
 
 function convertToSteps(messages: Message[]): CoTStep[] {
   const steps: CoTStep[] = [];

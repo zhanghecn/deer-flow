@@ -55,8 +55,8 @@ GET /api/langgraph/threads/{thread_id}/state
     "messages": [...],
     "sandbox": {...},
     "artifacts": [...],
-    "thread_data": {...},
-    "title": "Conversation Title"
+    "title": "Conversation Title",
+    "context_window": {...}
   },
   "next": [],
   "config": {...}
@@ -99,7 +99,8 @@ Content-Type: application/json
 **Configurable Options:**
 - `model_name` (string): Override the default model
 - `thinking_enabled` (boolean): Enable extended thinking for supported models
-- `is_plan_mode` (boolean): Enable TodoList middleware for task tracking
+- `is_plan_mode` (boolean): Legacy compatibility flag. The current Deep Agents
+  stack already includes todo support via `TodoListMiddleware`.
 
 **Response:** Server-Sent Events (SSE) stream
 

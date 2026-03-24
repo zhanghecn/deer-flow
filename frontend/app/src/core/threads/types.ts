@@ -50,6 +50,25 @@ export interface AgentThreadState extends Record<string, unknown> {
   context_window?: ContextWindowState;
 }
 
+export type RetryStatusScope = "model" | "tool";
+export type RetryStatusEventState = "retrying" | "completed" | "failed";
+
+export interface RetryStatusEvent {
+  type: "retry_status";
+  scope: RetryStatusScope;
+  status: RetryStatusEventState;
+  retry_count: number;
+  max_retries: number;
+  occurred_at: string;
+  next_retry_at?: string;
+  delay_seconds?: number;
+  tool_name?: string;
+  error?: string;
+  error_type?: string;
+}
+
+export type RetryStatus = Omit<RetryStatusEvent, "type" | "status">;
+
 export interface ThreadRuntimeBinding {
   agent_name?: string;
   agent_status?: "dev" | "prod";
