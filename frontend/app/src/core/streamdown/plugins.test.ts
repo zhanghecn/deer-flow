@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { humanMessagePlugins, streamdownPlugins } from "./plugins";
+import {
+  humanMessagePlugins,
+  streamdownPlugins,
+  streamdownUrlTransform,
+} from "./plugins";
 
 function extractRemarkMathOptions(
   plugins: unknown,
@@ -33,5 +37,20 @@ describe("streamdown math options", () => {
     const options = extractRemarkMathOptions(humanMessagePlugins.remarkPlugins);
 
     expect(options?.singleDollarTextMath).toBe(false);
+  });
+});
+
+describe("streamdown url transform", () => {
+  it("preserves knowledge citation links", () => {
+    expect(
+      streamdownUrlTransform("kb://citation?artifact_path=/mnt/user-data/outputs/doc.pdf"),
+    ).toBe("kb://citation?artifact_path=/mnt/user-data/outputs/doc.pdf");
+  });
+
+  it("keeps safe web links and strips unsafe protocols", () => {
+    expect(streamdownUrlTransform("https://example.com")).toBe(
+      "https://example.com",
+    );
+    expect(streamdownUrlTransform("javascript:alert(1)")).toBe("");
   });
 });

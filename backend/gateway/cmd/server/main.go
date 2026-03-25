@@ -63,6 +63,7 @@ func main() {
 	tokenRepo := repository.NewAPITokenRepo(pool)
 	modelRepo := repository.NewModelRepo(pool)
 	threadRepo := repository.NewThreadRepo(pool)
+	knowledgeRepo := repository.NewKnowledgeRepo(pool)
 	adminObservabilityRepo := repository.NewAdminObservabilityRepo(pool)
 
 	// Services
@@ -79,6 +80,7 @@ func main() {
 	threadsH := handler.NewThreadsHandler(threadRepo, cfg.Upstream.LangGraphURL, fs)
 	uploadsH := handler.NewUploadsHandler(fs)
 	artifactsH := handler.NewArtifactsHandler(fs)
+	knowledgeH := handler.NewKnowledgeHandler(knowledgeRepo, fs)
 	onlyOfficeH := handler.NewOnlyOfficeHandler(fs, handler.OnlyOfficeConfig{
 		ServerURL:    cfg.OnlyOffice.ServerURL,
 		PublicAppURL: cfg.OnlyOffice.PublicAppURL,
@@ -211,6 +213,21 @@ func main() {
 		api.POST("/threads/:id/uploads", uploadsH.Upload)
 		api.GET("/threads/:id/uploads/list", uploadsH.List)
 		api.DELETE("/threads/:id/uploads/:filename", uploadsH.Delete)
+
+		// Knowledge bases
+		api.GET("/knowledge/bases", knowledgeH.ListLibrary)
+		api.PATCH("/knowledge/bases/:knowledge_base_id/settings", knowledgeH.UpdateBaseSettings)
+		api.GET("/knowledge/documents/:document_id/file", knowledgeH.VisibleDocumentFile)
+		api.GET("/knowledge/documents/:document_id/tree", knowledgeH.VisibleDocumentTree)
+		api.GET("/knowledge/documents/:document_id/build-events", knowledgeH.VisibleDocumentBuildEvents)
+		api.GET("/knowledge/documents/:document_id/debug", knowledgeH.DocumentDebug)
+		api.GET("/threads/:id/knowledge/bases", knowledgeH.List)
+		api.POST("/threads/:id/knowledge/bases", knowledgeH.Create)
+		api.POST("/threads/:id/knowledge/bases/:knowledge_base_id/attach", knowledgeH.AttachBase)
+		api.DELETE("/threads/:id/knowledge/bases/:knowledge_base_id/attach", knowledgeH.DetachBase)
+		api.POST("/threads/:id/knowledge/index-uploaded", knowledgeH.IndexUploaded)
+		api.GET("/threads/:id/knowledge/documents/:document_id/tree", knowledgeH.DocumentTree)
+		api.GET("/threads/:id/knowledge/documents/:document_id/build-events", knowledgeH.DocumentBuildEvents)
 
 		// Artifacts
 		api.GET("/threads/:id/artifacts/list", artifactsH.List)

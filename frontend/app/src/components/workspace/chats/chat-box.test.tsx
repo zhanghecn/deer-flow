@@ -9,6 +9,7 @@ import {
   useArtifacts,
 } from "@/components/workspace/artifacts";
 import type * as WorkspaceArtifacts from "@/components/workspace/artifacts";
+import { I18nProvider } from "@/core/i18n/context";
 import { ThreadContext } from "@/components/workspace/messages/context";
 import type { AgentThreadState } from "@/core/threads";
 
@@ -79,18 +80,20 @@ describe("ChatBox", () => {
 
     render(
       <QueryClientProvider client={queryClient}>
-        <SidebarProvider>
-          <ThreadContext.Provider
-            value={{ thread: thread as never, isMock: true }}
-          >
-            <ArtifactsProvider>
-              <OpenOfficeArtifact path={artifactPath} />
-              <ChatBox threadId="thread-1">
-                <div>Chat content</div>
-              </ChatBox>
-            </ArtifactsProvider>
-          </ThreadContext.Provider>
-        </SidebarProvider>
+        <I18nProvider initialLocale="en-US">
+          <SidebarProvider>
+            <ThreadContext.Provider
+              value={{ thread: thread as never, isMock: true }}
+            >
+              <ArtifactsProvider>
+                <OpenOfficeArtifact path={artifactPath} />
+                <ChatBox threadId="thread-1">
+                  <div>Chat content</div>
+                </ChatBox>
+              </ArtifactsProvider>
+            </ThreadContext.Provider>
+          </SidebarProvider>
+        </I18nProvider>
       </QueryClientProvider>,
     );
 

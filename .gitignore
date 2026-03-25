@@ -81,3 +81,4 @@ todos/multi_agent_test_suite_complete/agent_test_package/runtime_results/**/scre
 todos/multi_agent_test_suite_complete/agent_test_package/runtime_results/**/files/
 todos/multi_agent_test_suite_complete/agent_test_package/runtime_results/**/prepared_uploads/
 dist
+.openagents/knowledge/

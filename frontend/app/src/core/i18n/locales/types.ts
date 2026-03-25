@@ -40,6 +40,7 @@ export interface Translations {
 
   // Commands
   commands: {
+    knowledgeAdd: string;
     createAgent: string;
     createSkill: string;
     saveAgentToStore: string;
@@ -189,6 +190,98 @@ export interface Translations {
     noArtifactSelectedDescription: string;
     officePreviewDialogDescription: string;
     todoListTitle: string;
+  };
+
+  knowledge: {
+    sectionTitle: string;
+    manageButton: string;
+    loadingAttached: string;
+    emptyAttached: string;
+    chooseAtLeastOneFile: string;
+    defaultBaseName: string;
+    indexQueued: string;
+    createError: string;
+    newTitle: string;
+    newDescription: string;
+    namePlaceholder: string;
+    descriptionPlaceholder: string;
+    managerTitle: string;
+    managerDescription: string;
+    managerTitleGlobal: string;
+    managerDescriptionGlobal: string;
+    libraryTitle: string;
+    libraryDescription: string;
+    libraryDescriptionGlobal: string;
+    searchPlaceholder: string;
+    loadingLibrary: string;
+    emptyLibrary: string;
+    noDocumentSelectedTitle: string;
+    noDocumentSelectedDescription: string;
+    baseCount: (count: number) => string;
+    documentCount: (count: number) => string;
+    readyCount: (count: number) => string;
+    activeCount: (count: number) => string;
+    attachedBaseCount: (count: number) => string;
+    backToChat: string;
+    backToAgents: string;
+    visibilityShared: string;
+    visibilityPrivate: string;
+    previewEnabled: string;
+    previewDisabled: string;
+    previewSetting: string;
+    previewSettingHint: string;
+    previewUpdateEnabled: (name: string) => string;
+    previewUpdateDisabled: (name: string) => string;
+    previewUpdateError: string;
+    attach: string;
+    detach: string;
+    attached: string;
+    attachedSuccess: (name: string) => string;
+    detachedSuccess: (name: string) => string;
+    bindingError: string;
+    buildProgressTitle: string;
+    buildProgressDescription: string;
+    stageLabel: string;
+    progressLabel: string;
+    elapsedLabel: string;
+    updatedAtLabel: string;
+    messageLabel: string;
+    noBuildMessage: string;
+    notAvailable: string;
+    treeTab: string;
+    eventsTab: string;
+    indexTab: string;
+    canonicalTab: string;
+    treePending: string;
+    loadingTree: string;
+    emptyTree: string;
+    loadingEvents: string;
+    emptyEvents: string;
+    loadingDebug: string;
+    emptyCanonical: string;
+    pageLabel: string;
+    lineLabel: string;
+    pageCount: (count: number) => string;
+    nodeCount: (count: number) => string;
+    childCount: (count: number) => string;
+    status: {
+      queued: string;
+      ready: string;
+      processing: string;
+      error: string;
+    };
+    selector: {
+      button: string;
+      title: string;
+      description: string;
+      searchPlaceholder: string;
+      results: string;
+      empty: string;
+      apply: string;
+      applied: string;
+      attachError: string;
+      selectedCount: (count: number) => string;
+    };
   };
 
   // Conversation

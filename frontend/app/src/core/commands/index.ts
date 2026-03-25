@@ -3,6 +3,7 @@ import type { Translations } from "@/core/i18n";
 import type { PromptCommand } from "./types";
 
 const PROMPT_COMMAND_NAMES = [
+  "knowledge-add",
   "create-agent",
   "create-skill",
   "save-agent-to-store",
@@ -14,6 +15,10 @@ const PROMPT_COMMAND_NAMES = [
 
 export function getPromptCommands(t: Translations): PromptCommand[] {
   return [
+    {
+      name: "knowledge-add",
+      description: t.commands.knowledgeAdd,
+    },
     {
       name: "create-agent",
       description: t.commands.createAgent,

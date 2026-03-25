@@ -24,6 +24,34 @@ describe("buildPromptExtraContext", () => {
       target_skill_name: "oa-test-se-code-20260320",
     });
   });
+
+  it("extracts knowledge document mentions from inline @ references", () => {
+    expect(
+      buildPromptExtraContext("请优先查看 @annual-report.pdf 总结收入"),
+    ).toMatchObject({
+      knowledge_document_mentions: ["annual-report.pdf"],
+      original_user_input: "请优先查看 @annual-report.pdf 总结收入",
+    });
+  });
+
+  it("extracts knowledge document mentions from bracket and quoted references", () => {
+    expect(
+      buildPromptExtraContext(
+        '对比 @knowledge[2023 Annual Report.pdf] 和 @"Board Deck Q4.md"',
+      ),
+    ).toMatchObject({
+      knowledge_document_mentions: [
+        "2023 Annual Report.pdf",
+        "Board Deck Q4.md",
+      ],
+    });
+  });
+
+  it("does not treat email addresses as knowledge document mentions", () => {
+    expect(
+      buildPromptExtraContext("请联系 foo@example.com 获取最新版本"),
+    ).toBeUndefined();
+  });
 });
 
 describe("buildCreateAgentFlowExtraContext", () => {

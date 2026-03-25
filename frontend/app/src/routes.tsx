@@ -12,6 +12,10 @@ const RegisterPage = lazy(() => import("@/app/register/page"));
 const WorkspaceLayout = lazy(() => import("@/app/workspace/layout"));
 const ChatsPage = lazy(() => import("@/app/workspace/chats/page"));
 const ChatPage = lazy(() => import("@/app/workspace/chats/[thread_id]/page"));
+const KnowledgeLibraryPage = lazy(() => import("@/app/workspace/knowledge/page"));
+const ThreadKnowledgePage = lazy(
+  () => import("@/app/workspace/chats/[thread_id]/knowledge/page"),
+);
 const AgentsPage = lazy(() => import("@/app/workspace/agents/page"));
 const NewAgentPage = lazy(() => import("@/app/workspace/agents/new/page"));
 const AgentChatPage = lazy(
@@ -110,6 +114,14 @@ export function AppRoutes() {
                 </PageSuspense>
               }
             />
+            <Route
+              path="knowledge"
+              element={
+                <PageSuspense>
+                  <ThreadKnowledgePage />
+                </PageSuspense>
+              }
+            />
           </Route>
           <Route
             path="agents"
@@ -149,7 +161,23 @@ export function AppRoutes() {
                 </PageSuspense>
               }
             />
+            <Route
+              path="knowledge"
+              element={
+                <PageSuspense>
+                  <ThreadKnowledgePage />
+                </PageSuspense>
+              }
+            />
           </Route>
+          <Route
+            path="knowledge"
+            element={
+              <PageSuspense>
+                <KnowledgeLibraryPage />
+              </PageSuspense>
+            }
+          />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

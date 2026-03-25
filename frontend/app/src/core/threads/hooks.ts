@@ -14,6 +14,7 @@ import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { getAPIClient } from "../api";
 import { useAuth } from "../auth/hooks";
 import { useI18n } from "../i18n/hooks";
+import { createThreadKnowledgeBase } from "../knowledge/api";
 import type { FileInMessage } from "../messages/utils";
 import { getLocalSettings, type LocalSettings } from "../settings";
 import { useUpdateSubtask } from "../tasks/context";
@@ -303,6 +304,16 @@ function toUploadedFiles(files: UploadedFileInfo[]) {
   );
 }
 
+function toIndexedKnowledgeFiles(files: File[]) {
+  return files.map(
+    (file): FileInMessage => ({
+      filename: file.name,
+      size: file.size,
+      status: "uploaded",
+    }),
+  );
+}
+
 function buildOptimisticMessages(
   text: string,
   files: PromptInputFile[],
@@ -562,6 +573,10 @@ function buildSubmitOptions(
     },
     command,
   };
+}
+
+function isKnowledgeAddCommand(extraContext?: Record<string, unknown>) {
+  return extraContext?.command_name === "knowledge-add";
 }
 
 function buildThreadOverride(
@@ -1259,17 +1274,44 @@ export function useThreadStream({
 
       try {
         let uploadedFiles: UploadedFileInfo[] = [];
+        const knowledgeAddCommand = isKnowledgeAddCommand(extraContext);
 
         if (files.length > 0) {
           try {
-            uploadedFiles = await uploadPromptFiles(runThreadId, files);
-            if (uploadedFiles.length > 0) {
+            if (knowledgeAddCommand) {
+              const knowledgeFiles = await prepareFilesForUpload(files);
+              if (knowledgeFiles.length === 0) {
+                throw new Error(
+                  "The /knowledge-add command requires at least one uploaded file.",
+                );
+              }
+              await createThreadKnowledgeBase(runThreadId, {
+                name:
+                  typeof extraContext?.command_args === "string"
+                    ? extraContext.command_args
+                    : "",
+                modelName: selectedModelName,
+                files: knowledgeFiles,
+              });
               setOptimisticMessages((messages) =>
                 replaceOptimisticHumanFiles(
                   messages,
-                  toUploadedFiles(uploadedFiles),
+                  toIndexedKnowledgeFiles(knowledgeFiles),
                 ),
               );
+              await queryClient.invalidateQueries({
+                queryKey: ["thread-knowledge-bases", runThreadId],
+              });
+            } else {
+              uploadedFiles = await uploadPromptFiles(runThreadId, files);
+              if (uploadedFiles.length > 0) {
+                setOptimisticMessages((messages) =>
+                  replaceOptimisticHumanFiles(
+                    messages,
+                    toUploadedFiles(uploadedFiles),
+                  ),
+                );
+              }
             }
           } catch (error) {
             console.error("Failed to upload files:", error);
@@ -1279,6 +1321,12 @@ export function useThreadStream({
             clearStoredActiveRunId(runThreadId);
             throw error;
           }
+        }
+
+        if (knowledgeAddCommand && files.length === 0) {
+          throw new Error(
+            "The /knowledge-add command requires at least one uploaded file.",
+          );
         }
 
         primePendingThreadCaches(

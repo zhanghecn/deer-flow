@@ -9,10 +9,13 @@ import { PromptInputProvider } from "@/components/ai-elements/prompt-input";
 import { InputBox } from "./input-box";
 
 vi.mock("@/components/ui/confetti-button", () => ({
-  ConfettiButton: ({
-    children,
-    ...props
-  }: ComponentProps<"button">) => <button {...props}>{children}</button>,
+  ConfettiButton: ({ children, ...props }: ComponentProps<"button">) => (
+    <button {...props}>{children}</button>
+  ),
+}));
+
+vi.mock("./knowledge/knowledge-selector-dialog", () => ({
+  KnowledgeSelectorDialog: () => <button type="button">Knowledge</button>,
 }));
 
 vi.mock("@/core/i18n/hooks", () => ({
@@ -25,6 +28,12 @@ vi.mock("@/core/i18n/hooks", () => ({
       },
       common: {
         create: "Create",
+        cancel: "Cancel",
+      },
+      knowledge: {
+        selector: {
+          button: "Knowledge",
+        },
       },
       inputBox: {
         placeholder: "Ask anything",
@@ -92,6 +101,7 @@ describe("InputBox", () => {
       <MemoryRouter>
         <PromptInputProvider>
           <InputBox
+            threadId="thread-test"
             context={{
               model_name: "kimi-k2.5",
               mode: "pro",
@@ -125,6 +135,7 @@ describe("InputBox", () => {
         <PromptInputProvider>
           <InputBox
             isNewThread
+            threadId="thread-new"
             context={{
               model_name: "kimi-k2.5",
               mode: "pro",

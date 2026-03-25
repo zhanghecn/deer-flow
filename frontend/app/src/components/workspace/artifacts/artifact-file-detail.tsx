@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Children, isValidElement } from "react";
 import {
   Code2Icon,
   CopyIcon,
@@ -9,7 +10,7 @@ import {
   SquareArrowOutUpRightIcon,
   XIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentProps } from "react";
 import { toast } from "sonner";
 import { Streamdown } from "streamdown";
@@ -36,6 +37,7 @@ import {
   openArtifactInNewWindow,
 } from "@/core/artifacts/actions";
 import { loadHtmlPreviewDocument } from "@/core/artifacts/html-preview";
+import { setPdfPreviewPage } from "@/core/artifacts/pdf";
 import { resolveThreadScopedPath } from "@/core/artifacts/preview-resolver";
 import {
   useArtifactContent,
@@ -90,7 +92,7 @@ export function ArtifactFileDetail({
   threadId: string;
 }) {
   const { t } = useI18n();
-  const { artifacts, setOpen, select } = useArtifacts();
+  const { artifacts, setOpen, select, previewTarget } = useArtifacts();
   const isWriteFile = useMemo(() => {
     return filepathFromProps.startsWith("write-file:");
   }, [filepathFromProps]);
@@ -139,6 +141,12 @@ export function ArtifactFileDetail({
   }, [isWriteFile, officePreviewUrl, previewLanguage]);
   const showPreviewToggle = isSupportPreview && isCodeFile;
   const isBinaryPreview = !isCodeFile && !isOfficeFile;
+  const activePreviewTarget = useMemo(() => {
+    if (!previewTarget || previewTarget.filepath !== filepath) {
+      return null;
+    }
+    return previewTarget;
+  }, [filepath, previewTarget]);
   const {
     content,
     isLoading: isContentLoading,
@@ -374,6 +382,9 @@ export function ArtifactFileDetail({
               isLoading={isContentLoading}
               error={contentError}
               language={previewLanguage ?? "text"}
+              activeHeading={activePreviewTarget?.heading ?? null}
+              activeLine={activePreviewTarget?.line ?? null}
+              revealSequence={activePreviewTarget?.revealSequence ?? null}
             />
           )}
         {isCodeFile && viewMode === "code" && (
@@ -390,6 +401,8 @@ export function ArtifactFileDetail({
             threadId={threadId}
             officePreviewUrl={officePreviewUrl}
             isMock={Boolean(isMock)}
+            focusPage={activePreviewTarget?.page}
+            revealSequence={activePreviewTarget?.revealSequence}
           />
         )}
         {isBinaryPreview && (
@@ -397,6 +410,8 @@ export function ArtifactFileDetail({
             filepath={filepath}
             threadId={threadId}
             isMock={Boolean(isMock)}
+            pageNumber={activePreviewTarget?.page}
+            revealSequence={activePreviewTarget?.revealSequence}
           />
         )}
       </ArtifactContent>
@@ -411,6 +426,9 @@ export function ArtifactFilePreview({
   isLoading,
   error,
   language,
+  activeHeading = null,
+  activeLine = null,
+  revealSequence = null,
 }: {
   filepath: string;
   threadId: string;
@@ -418,6 +436,9 @@ export function ArtifactFilePreview({
   isLoading: boolean;
   error: unknown;
   language: string;
+  activeHeading?: string | null;
+  activeLine?: number | null;
+  revealSequence?: number | null;
 }) {
   const { isMock } = useThread();
   const [previewDocument, setPreviewDocument] = useState("");
@@ -472,13 +493,16 @@ export function ArtifactFilePreview({
 
   if (language === "markdown") {
     return (
-      <ArtifactMarkdownPreview
-        filepath={filepath}
-        threadId={threadId}
-        content={content}
-        isMock={Boolean(isMock)}
-      />
-    );
+        <ArtifactMarkdownPreview
+          filepath={filepath}
+          threadId={threadId}
+          content={content}
+          isMock={Boolean(isMock)}
+          activeHeading={activeHeading}
+          activeLine={activeLine}
+          revealSequence={revealSequence}
+        />
+      );
   }
   if (language === "html") {
     if (error instanceof Error || previewError instanceof Error) {
@@ -507,13 +531,32 @@ function ArtifactMarkdownPreview({
   threadId,
   content,
   isMock,
+  activeHeading,
+  activeLine,
+  revealSequence,
 }: {
   filepath: string;
   threadId: string;
   content: string;
   isMock: boolean;
+  activeHeading: string | null;
+  activeLine: number | null;
+  revealSequence: number | null;
 }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const components = useMemo(() => {
+    const createHeadingComponent =
+      (tagName: "h1" | "h2" | "h3" | "h4" | "h5" | "h6") =>
+      ({ children, ...props }: ComponentProps<"h1">) => {
+        const headingText = extractText(children);
+        const headingSlug = slugifyHeading(headingText);
+        const Tag = tagName;
+        return (
+          <Tag {...props} data-heading-slug={headingSlug}>
+            {children}
+          </Tag>
+        );
+      };
     return {
       a: (props: ComponentProps<"a">) => (
         <ArtifactMarkdownLink
@@ -531,11 +574,27 @@ function ArtifactMarkdownPreview({
           isMock={isMock}
         />
       ),
+      h1: createHeadingComponent("h1"),
+      h2: createHeadingComponent("h2"),
+      h3: createHeadingComponent("h3"),
+      h4: createHeadingComponent("h4"),
+      h5: createHeadingComponent("h5"),
+      h6: createHeadingComponent("h6"),
     };
   }, [filepath, isMock, threadId]);
 
+  useEffect(() => {
+    if (!containerRef.current || !activeHeading) {
+      return;
+    }
+    const target = containerRef.current.querySelector<HTMLElement>(
+      `[data-heading-slug="${activeHeading}"]`,
+    );
+    target?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [activeHeading, activeLine, revealSequence]);
+
   return (
-    <div className="size-full px-4">
+    <div ref={containerRef} className="size-full overflow-auto px-4">
       <Streamdown
         className="size-full"
         {...streamdownPlugins}
@@ -667,10 +726,14 @@ function ArtifactBinaryPreview({
   filepath,
   threadId,
   isMock,
+  pageNumber,
+  revealSequence,
 }: {
   filepath: string;
   threadId: string;
   isMock: boolean;
+  pageNumber?: number;
+  revealSequence?: number;
 }) {
   const { objectUrl, blobType, isLoading, error } = useArtifactObjectUrl({
     filepath,
@@ -730,7 +793,15 @@ function ArtifactBinaryPreview({
   }
 
   if (mediaType === "pdf") {
-    return <iframe className="size-full" src={objectUrl} />;
+    const previewSrc = setPdfPreviewPage(objectUrl, pageNumber);
+    return (
+      <iframe
+        key={`${objectUrl}:${pageNumber ?? 0}:${revealSequence ?? 0}`}
+        className="size-full"
+        src={previewSrc}
+        title={getFileName(filepath)}
+      />
+    );
   }
 
   return (
@@ -797,12 +868,16 @@ function OfficeArtifactView({
   threadId,
   officePreviewUrl,
   isMock,
+  focusPage,
+  revealSequence,
 }: {
   descriptor: OnlyOfficeDocumentDescriptor;
   filepath: string;
   threadId: string;
   officePreviewUrl: string | null;
   isMock: boolean;
+  focusPage?: number;
+  revealSequence?: number;
 }) {
   const onlyOfficeMode: OnlyOfficeMode = descriptor.defaultMode;
   const [OnlyOfficeDocumentEditor, setOnlyOfficeDocumentEditor] =
@@ -880,6 +955,18 @@ function OfficeArtifactView({
     );
   }
 
+  if (focusPage && officePreviewUrl) {
+    const previewSrc = setPdfPreviewPage(officePreviewUrl, focusPage);
+    return (
+      <iframe
+        key={`${officePreviewUrl}:${focusPage}:${revealSequence ?? 0}`}
+        className="size-full"
+        src={previewSrc}
+        title={`${getFileName(filepath)} preview`}
+      />
+    );
+  }
+
   if (!OnlyOfficeDocumentEditor) {
     if (editorLoadError) {
       return (
@@ -926,6 +1013,33 @@ function OfficeArtifactView({
       />
     </div>
   );
+}
+
+function extractText(children: ComponentProps<"h1">["children"]): string {
+  return Children.toArray(children)
+    .map((child) => {
+      if (typeof child === "string") {
+        return child;
+      }
+      if (typeof child === "number") {
+        return String(child);
+      }
+      if (
+        isValidElement<{ children?: ComponentProps<"h1">["children"] }>(child)
+      ) {
+        return extractText(child.props.children);
+      }
+      return "";
+    })
+    .join(" ")
+    .trim();
+}
+
+function slugifyHeading(text: string) {
+  return text
+    .toLowerCase()
+    .replace(/[^0-9a-z\u4e00-\u9fff]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 function formatOnlyOfficeEditorError(errorDescription: string) {

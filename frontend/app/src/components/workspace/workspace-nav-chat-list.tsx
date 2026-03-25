@@ -1,4 +1,4 @@
-import { BotIcon, MessagesSquare, Trash2 } from "lucide-react";
+import { BookOpenTextIcon, BotIcon, MessagesSquare, Trash2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -54,6 +54,8 @@ export function WorkspaceNavChatList() {
     pathname.includes("/chats/");
   const isAgentsPage =
     pathname === "/workspace/agents" || pathname === "/workspace/agents/new";
+  const isKnowledgePage = pathname.includes("/knowledge");
+  const knowledgeManagePath = "/workspace/knowledge";
 
   const handleClearAll = useCallback(async () => {
     try {
@@ -97,6 +99,17 @@ export function WorkspaceNavChatList() {
               >
                 <BotIcon />
                 <span>{t.sidebar.agents}</span>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton isActive={isKnowledgePage} asChild>
+              <Link
+                className="text-muted-foreground"
+                to={knowledgeManagePath}
+              >
+                <BookOpenTextIcon />
+                <span>{t.knowledge.manageButton}</span>
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>

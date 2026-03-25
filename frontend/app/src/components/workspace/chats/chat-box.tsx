@@ -69,8 +69,12 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
     refreshKey: `${thread.values.messages?.length ?? 0}:${stateArtifacts.length}`,
   });
   const visibleArtifacts = useMemo(
-    () => mergeVisibleArtifacts(stateArtifacts, discoveredOutputArtifacts),
-    [discoveredOutputArtifacts, stateArtifacts],
+    () =>
+      mergeVisibleArtifacts(
+        artifacts,
+        mergeVisibleArtifacts(stateArtifacts, discoveredOutputArtifacts),
+      ),
+    [artifacts, discoveredOutputArtifacts, stateArtifacts],
   );
   const selectedOfficeArtifact = useMemo(() => {
     if (!selectedArtifact) {

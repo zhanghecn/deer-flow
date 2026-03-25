@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/sidebar";
 
 import { RecentChatList } from "./recent-chat-list";
+import { ThreadKnowledgeSidebarSection } from "./knowledge/thread-knowledge-sidebar-section";
 import { WorkspaceHeader } from "./workspace-header";
 import { WorkspaceNavChatList } from "./workspace-nav-chat-list";
 import { WorkspaceNavMenu } from "./workspace-nav-menu";
@@ -22,6 +23,7 @@ export function WorkspaceSidebar({
       <SidebarContent className="overflow-hidden">
         <WorkspaceNavChatList />
         <RecentChatList />
+        <ThreadKnowledgeSidebarSection />
       </SidebarContent>
       <SidebarFooter>
         <WorkspaceNavMenu />

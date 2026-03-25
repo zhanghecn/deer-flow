@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -9,13 +10,24 @@ import {
 import { useSidebar } from "@/components/ui/sidebar";
 import { env } from "@/env";
 
+export interface ArtifactPreviewTarget {
+  filepath: string;
+  page?: number;
+  heading?: string;
+  line?: number;
+  locatorLabel?: string;
+  revealSequence?: number;
+}
+
 export interface ArtifactsContextType {
   artifacts: string[];
   setArtifacts: (artifacts: string[]) => void;
 
   selectedArtifact: string | null;
+  previewTarget: ArtifactPreviewTarget | null;
   autoSelect: boolean;
   select: (artifact: string, autoSelect?: boolean) => void;
+  reveal: (target: ArtifactPreviewTarget) => void;
   deselect: () => void;
 
   open: boolean;
@@ -34,6 +46,8 @@ interface ArtifactsProviderProps {
 export function ArtifactsProvider({ children }: ArtifactsProviderProps) {
   const [artifacts, setArtifacts] = useState<string[]>([]);
   const [selectedArtifact, setSelectedArtifact] = useState<string | null>(null);
+  const [previewTarget, setPreviewTarget] = useState<ArtifactPreviewTarget | null>(null);
+  const revealSequenceRef = useRef(0);
   const [autoSelect, setAutoSelect] = useState(true);
   const [open, setOpen] = useState(
     env.VITE_STATIC_WEBSITE_ONLY === "true",
@@ -44,6 +58,9 @@ export function ArtifactsProvider({ children }: ArtifactsProviderProps) {
   const select = useCallback(
     (artifact: string, autoSelect = false) => {
       setSelectedArtifact(artifact);
+      setPreviewTarget((current) =>
+        current?.filepath === artifact ? current : null,
+      );
       if (env.VITE_STATIC_WEBSITE_ONLY !== "true") {
         setSidebarOpen(false);
       }
@@ -54,8 +71,32 @@ export function ArtifactsProvider({ children }: ArtifactsProviderProps) {
     [setSidebarOpen, setSelectedArtifact, setAutoSelect],
   );
 
+  const reveal = useCallback(
+    (target: ArtifactPreviewTarget) => {
+      revealSequenceRef.current += 1;
+      setArtifacts((current) =>
+        current.includes(target.filepath)
+          ? current
+          : [...current, target.filepath],
+      );
+      setSelectedArtifact(target.filepath);
+      setPreviewTarget({
+        ...target,
+        revealSequence: revealSequenceRef.current,
+      });
+      setOpen(true);
+      if (env.VITE_STATIC_WEBSITE_ONLY !== "true") {
+        setSidebarOpen(false);
+      }
+      setAutoOpen(false);
+      setAutoSelect(false);
+    },
+    [setSidebarOpen],
+  );
+
   const deselect = useCallback(() => {
     setSelectedArtifact(null);
+    setPreviewTarget(null);
     setAutoSelect(true);
   }, []);
 
@@ -75,7 +116,9 @@ export function ArtifactsProvider({ children }: ArtifactsProviderProps) {
     },
 
     selectedArtifact,
+    previewTarget,
     select,
+    reveal,
     deselect,
   };
 

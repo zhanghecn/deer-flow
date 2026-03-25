@@ -70,6 +70,7 @@ export default function NewChatClient() {
       ? runtimeContext.model_name.trim()
       : "";
   const autoSubmitHandledRef = useRef(false);
+  const draftThreadIdRef = useRef(uuid());
   const inputInitialValue = useMemo(() => {
     const prefill = searchParams.get("prefill")?.trim();
     if (prefill) {
@@ -83,7 +84,7 @@ export default function NewChatClient() {
 
   const handleSubmit = useCallback(
     (message: PromptInputMessage, extraContext?: Record<string, unknown>) => {
-      setPendingThreadId(uuid());
+      setPendingThreadId(draftThreadIdRef.current);
       setPendingMessage(message);
       setPendingExtraContext(extraContext);
     },
@@ -207,6 +208,7 @@ export default function NewChatClient() {
             <div className="relative w-full max-w-(--container-width-sm) -translate-y-[calc(50vh-96px)]">
               <InputBox
                 className={cn("bg-background/5 w-full -translate-y-4")}
+                threadId={draftThreadIdRef.current}
                 isNewThread
                 autoFocus
                 status="ready"

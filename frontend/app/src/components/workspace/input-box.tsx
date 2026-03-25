@@ -5,6 +5,7 @@ import {
   PlusIcon,
   SparklesIcon,
   RocketIcon,
+  XIcon,
   ZapIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -70,6 +71,7 @@ import {
   type ThreadMode,
   type ThreadReasoningEffort,
 } from "@/core/threads/mode";
+import type { KnowledgeSelection } from "@/core/knowledge/types";
 import { cn } from "@/lib/utils";
 
 import {
@@ -90,6 +92,7 @@ import {
 } from "../ui/dropdown-menu";
 
 import { ContextWindowCard } from "./context-window-card";
+import { KnowledgeSelectorDialog } from "./knowledge/knowledge-selector-dialog";
 import { ModeHoverGuide } from "./mode-hover-guide";
 import {
   getNextPickerIndex,
@@ -244,6 +247,7 @@ export function InputBox({
   disabled,
   autoFocus,
   status = "ready",
+  threadId,
   context,
   retryStatus,
   extraHeader,
@@ -258,6 +262,7 @@ export function InputBox({
   assistantId?: string | null;
   status?: ChatStatus;
   disabled?: boolean;
+  threadId: string;
   context: InputBoxContext;
   retryStatus?: RetryStatus | null;
   extraHeader?: React.ReactNode;
@@ -278,6 +283,13 @@ export function InputBox({
   const { skills } = useSkills();
   const promptInputController = usePromptInputController();
   const draftText = promptInputController.textInput.value;
+  const [selectedKnowledgeDocuments, setSelectedKnowledgeDocuments] = useState<
+    KnowledgeSelection[]
+  >([]);
+
+  useEffect(() => {
+    setSelectedKnowledgeDocuments([]);
+  }, [threadId]);
 
   useEffect(() => {
     if (typeof initialValue !== "string") {
@@ -372,16 +384,50 @@ export function InputBox({
         return;
       }
 
+      const mergedExtraContext = {
+        ...(buildPromptExtraContext(normalizedText) ?? {}),
+      } as Record<string, unknown>;
+      if (selectedKnowledgeDocuments.length > 0) {
+        const existingMentions = Array.isArray(
+          mergedExtraContext.knowledge_document_mentions,
+        )
+          ? mergedExtraContext.knowledge_document_mentions
+              .map((item) => String(item).trim())
+              .filter(Boolean)
+          : [];
+        const nextMentions = Array.from(
+          new Set(
+            existingMentions.concat(
+              selectedKnowledgeDocuments.map((item) => item.documentName),
+            ),
+          ),
+        );
+        if (nextMentions.length > 0) {
+          mergedExtraContext.knowledge_document_mentions = nextMentions;
+          if (typeof mergedExtraContext.original_user_input !== "string") {
+            mergedExtraContext.original_user_input = normalizedText;
+          }
+        }
+      }
+
       onSubmit?.(
         {
           ...message,
           text: normalizedText,
         },
-        buildPromptExtraContext(normalizedText),
+        Object.keys(mergedExtraContext).length > 0
+          ? mergedExtraContext
+          : undefined,
       );
       promptInputController.textInput.clear();
     },
-    [onSubmit, onStop, promptInputController, status],
+    [
+      onSubmit,
+      onStop,
+      promptInputController,
+      selectedKnowledgeDocuments,
+      status,
+    ],
   );
 
   const handleSubmit = useCallback(
@@ -613,6 +659,12 @@ export function InputBox({
             </PromptInputActionMenuContent>
           </PromptInputActionMenu> */}
           <AddAttachmentsButton className="px-2!" />
+          <KnowledgeSelectorDialog
+            threadId={threadId}
+            value={selectedKnowledgeDocuments}
+            disabled={disabled}
+            onChange={setSelectedKnowledgeDocuments}
+          />
           <PromptInputActionMenu>
             <ModeHoverGuide mode={displayedMode}>
               <PromptInputActionMenuTrigger className="gap-1! px-2!">
@@ -705,6 +757,29 @@ export function InputBox({
           />
         </PromptInputTools>
       </PromptInputFooter>
+      {selectedKnowledgeDocuments.length > 0 && (
+        <div className="border-border/60 flex flex-wrap gap-2 border-t px-3 py-2">
+          {selectedKnowledgeDocuments.map((selection) => (
+            <button
+              key={selection.documentId}
+              type="button"
+              className="bg-muted text-foreground hover:bg-muted/80 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs"
+              onClick={() =>
+                setSelectedKnowledgeDocuments((current) =>
+                  current.filter(
+                    (item) => item.documentId !== selection.documentId,
+                  ),
+                )
+              }
+            >
+              <span className="max-w-48 truncate">
+                {selection.documentName}
+              </span>
+              <XIcon className="size-3" />
+            </button>
+          ))}
+        </div>
+      )}
       {quickInsertOpen && (
         <div className="absolute right-0 bottom-18 left-0 z-20 flex justify-center px-4">
           <SkillReferencePicker

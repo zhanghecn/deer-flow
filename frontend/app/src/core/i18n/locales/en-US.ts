@@ -52,6 +52,8 @@ export const enUS: Translations = {
 
   // Commands
   commands: {
+    knowledgeAdd:
+      "Index the uploaded files into the current thread knowledge base",
     createAgent: "Create a new agent in the current workspace",
     createSkill: "Create a new skill in the current workspace",
     saveAgentToStore: "Save the current draft agent to the dev store",
@@ -250,6 +252,112 @@ export const enUS: Translations = {
     officePreviewDialogDescription:
       "Preview and edit the selected office document.",
     todoListTitle: "To-dos",
+  },
+
+  knowledge: {
+    sectionTitle: "Knowledge",
+    manageButton: "Manage library",
+    loadingAttached: "Loading attached knowledge...",
+    emptyAttached: "No knowledge base is attached to this thread yet.",
+    chooseAtLeastOneFile: "Choose at least one file.",
+    defaultBaseName: "Knowledge Base",
+    indexQueued: "Knowledge indexing has been queued.",
+    createError: "Failed to create knowledge base.",
+    newTitle: "New Knowledge Base",
+    newDescription:
+      "Upload PDF, Word, or Markdown files and build a persistent document tree index for this thread.",
+    namePlaceholder: "Knowledge base name",
+    descriptionPlaceholder: "Optional description for the agent",
+    managerTitle: "Knowledge Library",
+    managerDescription:
+      "Browse shared knowledge by owner, inspect build progress, and review the stored PageTree index and canonical text.",
+    managerTitleGlobal: "Shared Knowledge Library",
+    managerDescriptionGlobal:
+      "Browse owner folders, inspect indexing progress, and compare stored PageTree data with the canonical source text.",
+    libraryTitle: "Shared Library",
+    libraryDescription:
+      "Knowledge bases are grouped by owner. Attach a base to the current thread to make it available to the agent tools.",
+    libraryDescriptionGlobal:
+      "Knowledge bases are grouped by owner so you can inspect shared documents, preview source files, and audit stored index data.",
+    searchPlaceholder: "Search owners, bases, or documents",
+    loadingLibrary: "Loading knowledge library...",
+    emptyLibrary: "No shared knowledge matches the current search.",
+    noDocumentSelectedTitle: "No Document Selected",
+    noDocumentSelectedDescription:
+      "Choose a document on the left to inspect its build status, tree, and stored debug payload.",
+    baseCount: (count: number) =>
+      `${count} base${count === 1 ? "" : "s"}`,
+    documentCount: (count: number) =>
+      `${count} document${count === 1 ? "" : "s"}`,
+    readyCount: (count: number) => `${count} ready`,
+    activeCount: (count: number) => `${count} active`,
+    attachedBaseCount: (count: number) =>
+      `${count} attached base${count === 1 ? "" : "s"}`,
+    backToChat: "Back to chat",
+    backToAgents: "Back to agents",
+    visibilityShared: "Shared",
+    visibilityPrivate: "Private",
+    previewEnabled: "Preview enabled",
+    previewDisabled: "Preview disabled",
+    previewSetting: "Preview access",
+    previewSettingHint: "Allow other users to open tree/debug/source previews.",
+    previewUpdateEnabled: (name: string) =>
+      `Enabled preview access for "${name}".`,
+    previewUpdateDisabled: (name: string) =>
+      `Disabled preview access for "${name}".`,
+    previewUpdateError: "Failed to update preview access.",
+    attach: "Attach",
+    detach: "Detach",
+    attached: "Attached",
+    attachedSuccess: (name: string) => `Attached "${name}" to this thread.`,
+    detachedSuccess: (name: string) => `Detached "${name}" from this thread.`,
+    bindingError: "Failed to update knowledge binding.",
+    buildProgressTitle: "Build Progress",
+    buildProgressDescription:
+      "Latest indexing stage, timing, and job status for the selected document.",
+    stageLabel: "Stage",
+    progressLabel: "Progress",
+    elapsedLabel: "Elapsed",
+    updatedAtLabel: "Updated",
+    messageLabel: "Message",
+    noBuildMessage: "No build message yet.",
+    notAvailable: "N/A",
+    treeTab: "Tree",
+    eventsTab: "Events",
+    indexTab: "Index JSON",
+    canonicalTab: "Canonical Text",
+    treePending: "The document tree will appear after indexing finishes.",
+    loadingTree: "Loading document tree...",
+    emptyTree: "No tree nodes were returned for this document.",
+    loadingEvents: "Loading build events...",
+    emptyEvents: "No build events recorded yet.",
+    loadingDebug: "Loading debug payload...",
+    emptyCanonical: "No canonical text stored for this document.",
+    pageLabel: "Page",
+    lineLabel: "Line",
+    pageCount: (count: number) => `${count} page${count === 1 ? "" : "s"}`,
+    nodeCount: (count: number) => `${count} node${count === 1 ? "" : "s"}`,
+    childCount: (count: number) => `${count} child${count === 1 ? "" : "ren"}`,
+    status: {
+      queued: "Queued",
+      ready: "Ready",
+      processing: "Indexing",
+      error: "Error",
+    },
+    selector: {
+      button: "Knowledge",
+      title: "Select Knowledge Documents",
+      description:
+        "Search shared documents, attach their bases to this thread, and prioritize them for the next turn.",
+      searchPlaceholder: "Search documents, bases, or owners",
+      results: "Documents",
+      empty: "No documents match this search.",
+      apply: "Apply",
+      applied: "Knowledge selection updated.",
+      attachError: "Failed to attach selected knowledge bases.",
+      selectedCount: (count: number) =>
+        `${count} knowledge doc${count === 1 ? "" : "s"}`,
+    },
   },
 
   // Conversation
