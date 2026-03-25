@@ -1,6 +1,7 @@
 Read these docs before changing runtime/backend/sandbox/remote architecture:
 @./docs/runtime-architecture.md
 @./docs/remote-backend.md
+@./docs/KNOWLEDGE_BASE_ARCHITECTURE.md
 @./backend/agents/AGENTS.md
 
 Repository-wide runtime architecture rules:

@@ -2,6 +2,9 @@
 
 Shared development guide for coding agents working in `frontend/app`.
 
+Read this doc before changing knowledge-base UI, citation preview behavior, or shared-library routes:
+@../../docs/KNOWLEDGE_BASE_ARCHITECTURE.md
+
 ## Overview
 
 OpenAgents Frontend is a Vite-powered React web interface for the OpenAgents system. It talks to the Go Gateway for auth and CRUD APIs, and to LangGraph for thread streaming, artifacts, and agent execution.

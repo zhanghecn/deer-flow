@@ -1,5 +1,6 @@
 Read these docs before changing agent/runtime/backend/skills behavior:
 @../../docs/runtime-architecture.md
+@../../docs/KNOWLEDGE_BASE_ARCHITECTURE.md
 @./docs/AGENT_PROTOCOL.md
 @./docs/ARCHITECTURE.md
 @./docs/CONFIGURATION.md

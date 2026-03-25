@@ -2,6 +2,9 @@
 
 Shared development guide for coding agents working in `backend/gateway`.
 
+Read this doc before changing knowledge-base APIs, shared preview visibility, or thread/library bindings:
+@../../docs/KNOWLEDGE_BASE_ARCHITECTURE.md
+
 ## Overview
 
 OpenAgents Go Gateway is a Gin-based HTTP gateway on port `8001`. It owns JWT and API-token authentication, Agent and Skill CRUD, PostgreSQL persistence, filesystem sync, LangGraph reverse proxying, and the external Open API.
