@@ -2,6 +2,7 @@ import { CheckCircle, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { t } from "@/i18n";
 import type { CheckpointStatus } from "@/types";
 
 interface CheckpointCardProps {
@@ -13,13 +14,13 @@ export function CheckpointCard({ status, isLoading }: CheckpointCardProps) {
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base">Checkpoint Status</CardTitle>
+        <CardTitle className="text-base">{t("Checkpoint Status")}</CardTitle>
       </CardHeader>
       <CardContent>
         {isLoading ? (
           <Skeleton className="h-8 w-full" />
         ) : !status ? (
-          <p className="text-sm text-muted-foreground">Unable to load</p>
+          <p className="text-sm text-muted-foreground">{t("Unable to load")}</p>
         ) : (
           <div className="space-y-3">
             <div className="flex items-center gap-2">
@@ -29,7 +30,7 @@ export function CheckpointCard({ status, isLoading }: CheckpointCardProps) {
                 <XCircle className="h-5 w-5 text-red-500" />
               )}
               <span className="text-sm font-medium">
-                {status.enabled ? "Enabled" : "Not Configured"}
+                {status.enabled ? t("Enabled") : t("Not Configured")}
               </span>
             </div>
             {status.tables.length > 0 && (

@@ -1,5 +1,6 @@
 import { ModelsTable } from "@/components/models/models-table";
 import { useFetch } from "@/hooks/use-fetch";
+import { t } from "@/i18n";
 import type { AdminModel } from "@/types";
 
 export function ModelsPage() {
@@ -9,14 +10,14 @@ export function ModelsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold tracking-tight">Models</h2>
+        <h2 className="text-2xl font-bold tracking-tight">{t("Models")}</h2>
         <p className="text-muted-foreground">
-          Maintain runtime model definitions from the `models` table
+          {t("Maintain runtime model definitions from the `models` table")}
         </p>
       </div>
       {error ? (
         <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          Failed to load models: {error}
+          {t("Failed to load models: {error}", { error })}
         </div>
       ) : null}
       <ModelsTable

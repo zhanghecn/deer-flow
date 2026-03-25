@@ -9,6 +9,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { t } from "@/i18n";
 import { formatAgo, maskString } from "@/lib/format";
 import type { TraceItem } from "@/types";
 
@@ -34,7 +35,7 @@ export function RecentTraces({ traces, isLoading }: RecentTracesProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Recent Traces</CardTitle>
+        <CardTitle>{t("Recent Traces")}</CardTitle>
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -45,16 +46,16 @@ export function RecentTraces({ traces, isLoading }: RecentTracesProps) {
           </div>
         ) : items.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4 text-center">
-            No traces yet
+            {t("No traces yet")}
           </p>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Agent</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Tokens</TableHead>
-                <TableHead>Time</TableHead>
+                <TableHead>{t("Agent")}</TableHead>
+                <TableHead>{t("Status")}</TableHead>
+                <TableHead>{t("Tokens")}</TableHead>
+                <TableHead>{t("Time")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -65,7 +66,7 @@ export function RecentTraces({ traces, isLoading }: RecentTracesProps) {
                   </TableCell>
                   <TableCell>
                     <Badge variant={statusVariant(trace.status)}>
-                      {trace.status}
+                      {t(trace.status)}
                     </Badge>
                   </TableCell>
                   <TableCell className="tabular-nums">

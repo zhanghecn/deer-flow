@@ -33,6 +33,7 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
+import { t } from "@/i18n";
 
 const NAV_ITEMS = [
   {
@@ -81,9 +82,9 @@ export function AppSidebar() {
                   <Shield className="size-4" />
                 </div>
                 <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-semibold">Admin Console</span>
+                  <span className="truncate font-semibold">{t("Admin Console")}</span>
                   <span className="truncate text-xs text-muted-foreground">
-                    Management Portal
+                    {t("Management Portal")}
                   </span>
                 </div>
               </a>
@@ -95,12 +96,12 @@ export function AppSidebar() {
       <SidebarContent>
         {NAV_ITEMS.map((group) => (
           <SidebarGroup key={group.label}>
-            <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+            <SidebarGroupLabel>{t(group.label)}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {group.items.map((item) => (
                   <SidebarMenuItem key={item.href}>
-                    <SidebarMenuButton asChild tooltip={item.title}>
+                    <SidebarMenuButton asChild tooltip={t(item.title)}>
                       <NavLink
                         to={item.href}
                         className={({ isActive }) =>
@@ -110,7 +111,7 @@ export function AppSidebar() {
                         }
                       >
                         <item.icon className="size-4" />
-                        <span>{item.title}</span>
+                        <span>{t(item.title)}</span>
                       </NavLink>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -133,7 +134,7 @@ export function AppSidebar() {
                   <Avatar className="h-8 w-8 rounded-lg">
                     <AvatarImage
                       src={user?.avatar_url}
-                      alt={user?.name ?? "User"}
+                      alt={user?.name ?? t("User")}
                     />
                     <AvatarFallback className="rounded-lg">
                       {user?.name ? getInitials(user.name) : "AD"}
@@ -141,7 +142,7 @@ export function AppSidebar() {
                   </Avatar>
                   <div className="grid flex-1 text-left text-sm leading-tight">
                     <span className="truncate font-semibold">
-                      {user?.name ?? "Admin"}
+                      {user?.name ?? t("Admin")}
                     </span>
                     <span className="truncate text-xs text-muted-foreground">
                       {user?.email ?? ""}
@@ -161,7 +162,7 @@ export function AppSidebar() {
                     <Avatar className="h-8 w-8 rounded-lg">
                       <AvatarImage
                         src={user?.avatar_url}
-                        alt={user?.name ?? "User"}
+                        alt={user?.name ?? t("User")}
                       />
                       <AvatarFallback className="rounded-lg">
                         {user?.name ? getInitials(user.name) : "AD"}
@@ -169,7 +170,7 @@ export function AppSidebar() {
                     </Avatar>
                     <div className="grid flex-1 text-left text-sm leading-tight">
                       <span className="truncate font-semibold">
-                        {user?.name ?? "Admin"}
+                        {user?.name ?? t("Admin")}
                       </span>
                       <span className="truncate text-xs text-muted-foreground">
                         {user?.email ?? ""}
@@ -180,7 +181,7 @@ export function AppSidebar() {
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={logout}>
                   <LogOut className="mr-2 size-4" />
-                  Log out
+                  {t("Log out")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

@@ -1,4 +1,5 @@
 import type { TraceEvent } from "@/types";
+import { t } from "@/i18n";
 import {
   normalizeReadableValue,
   sanitizeVirtualPath,
@@ -178,7 +179,9 @@ export function summarizeValue(value: unknown, depth = 0): string {
   if (Array.isArray(value)) {
     if (value.length === 0) return "[]";
     const head = summarizeValue(value[0], depth + 1);
-    if (!head) return `array(${value.length})`;
+    if (!head) {
+      return t("array({count})", { count: value.length });
+    }
     return value.length > 1 ? `[${head}, ...]` : `[${head}]`;
   }
   if (typeof value === "object") {
@@ -236,9 +239,9 @@ function summarizeRequestedTools(toolNames: string[]): string {
     return "";
   }
   if (toolNames.length === 1) {
-    return `requested tool: ${toolNames[0]}`;
+    return t("requested tool: {name}", { name: toolNames[0] });
   }
-  return `requested tools: ${toolNames.join(", ")}`;
+  return t("requested tools: {names}", { names: toolNames.join(", ") });
 }
 
 function extractToolNames(rawTools: unknown): string[] {
@@ -337,7 +340,7 @@ function extractReasoningSectionValue(messages: unknown): string | null {
     const reasoningFromContent = extractReasoningText(message.content);
     const reasoning = reasoningFromKwargs || reasoningFromContent;
     if (!reasoning) continue;
-    chunks.push(`### ${role}\n\n${reasoning}`);
+    chunks.push(`### ${t(role)}\n\n${reasoning}`);
   }
 
   if (chunks.length === 0) {
@@ -359,7 +362,7 @@ function normalizeReasoningPreview(reasoning: string): string {
 
 function splitChainStateSections(
   prefix: "chain-inputs" | "chain-outputs",
-  title: "Input Snapshot" | "Output Snapshot",
+  title: string,
   value: unknown,
 ): TracePayloadSection[] {
   const payload = toRecord(normalizeTraceValue(value));
@@ -369,7 +372,7 @@ function splitChainStateSections(
           makeSection(
             prefix,
             title,
-            "Captured LangGraph state for this chain run.",
+            t("Captured LangGraph state for this chain run."),
             "state",
             value,
           ),
@@ -383,8 +386,10 @@ function splitChainStateSections(
     sections.push(
       makeSection(
         `${prefix}-messages`,
-        "Recent Messages",
-        "Latest non-system messages carried by this chain state. Older conversation history is intentionally hidden here to reduce duplication with LLM runs.",
+        t("Recent Messages"),
+        t(
+          "Latest non-system messages carried by this chain state. Older conversation history is intentionally hidden here to reduce duplication with LLM runs.",
+        ),
         "messages",
         recentMessages,
       ),
@@ -395,8 +400,8 @@ function splitChainStateSections(
     sections.push(
       makeSection(
         `${prefix}-todos`,
-        "Todo State",
-        "Task-planning state tracked for this run.",
+        t("Todo State"),
+        t("Task-planning state tracked for this run."),
         "state",
         payload.todos,
       ),
@@ -407,8 +412,8 @@ function splitChainStateSections(
     sections.push(
       makeSection(
         `${prefix}-artifacts`,
-        "Artifacts",
-        "Artifacts attached to the conversation state at this step.",
+        t("Artifacts"),
+        t("Artifacts attached to the conversation state at this step."),
         "state",
         payload.artifacts,
       ),
@@ -419,8 +424,8 @@ function splitChainStateSections(
     sections.push(
       makeSection(
         `${prefix}-files`,
-        "Files",
-        "Workspace file state referenced by this run.",
+        t("Files"),
+        t("Workspace file state referenced by this run."),
         "state",
         payload.files,
       ),
@@ -431,8 +436,8 @@ function splitChainStateSections(
     sections.push(
       makeSection(
         `${prefix}-skills`,
-        "Skill Injection",
-        "Skills injected into the prompt/runtime for this step.",
+        t("Skill Injection"),
+        t("Skills injected into the prompt/runtime for this step."),
         "state",
         payload.skills_metadata,
       ),
@@ -443,8 +448,8 @@ function splitChainStateSections(
     sections.push(
       makeSection(
         `${prefix}-thread-data`,
-        "Thread Data",
-        "Resolved workspace, uploads, and output paths for this thread.",
+        t("Thread Data"),
+        t("Resolved workspace, uploads, and output paths for this thread."),
         "state",
         payload.thread_data,
       ),
@@ -459,7 +464,9 @@ function splitChainStateSections(
       makeSection(
         prefix,
         title,
-        "Remaining LangGraph state after separating messages, todos, files, and artifacts into dedicated sections.",
+        t(
+          "Remaining LangGraph state after separating messages, todos, files, and artifacts into dedicated sections.",
+        ),
         "state",
         remaining,
       ),
@@ -470,8 +477,8 @@ function splitChainStateSections(
 }
 
 function humanizeNodeName(nodeName?: string): string {
-  if (!nodeName) return "Chain";
-  if (nodeName === "model") return "Model";
+  if (!nodeName) return t("Chain");
+  if (nodeName === "model") return t("Model");
   const middlewareMatch = nodeName.match(
     /^([^.]+)\.(before|after)_(agent|model)$/,
   );
@@ -659,13 +666,17 @@ function summarizeChainRun(run: TraceRunSummary): string {
 
   const outputs = toRecord(normalizeTraceValue(endPayload?.outputs));
   if (outputs?.thread_data && toRecord(outputs.thread_data)) {
-    return "prepared workspace, uploads, outputs";
+    return t("prepared workspace, uploads, outputs");
   }
   if (Array.isArray(outputs?.skills_metadata)) {
-    return `${outputs.skills_metadata.length} skills injected`;
+    return t("{count} skills injected", {
+      count: outputs.skills_metadata.length,
+    });
   }
   if (typeof outputs?.title === "string") {
-    return `title: ${truncateText(outputs.title, 90)}`;
+    return t("title: {title}", {
+      title: truncateText(outputs.title, 90),
+    });
   }
 
   const text =
@@ -675,10 +686,10 @@ function summarizeChainRun(run: TraceRunSummary): string {
   if (text) return text;
 
   if (nodeName?.includes("Middleware")) {
-    return "middleware hook";
+    return t("middleware hook");
   }
 
-  return "execution step";
+  return t("execution step");
 }
 
 function summarizeToolRun(run: TraceRunSummary): string {
@@ -724,7 +735,7 @@ function summarizeToolRun(run: TraceRunSummary): string {
   const responseSummary = summarizeValue(toolResponse);
   if (responseSummary) return responseSummary;
 
-  return "tool execution";
+  return t("tool execution");
 }
 
 function summarizeLLMRun(run: TraceRunSummary): string {
@@ -743,13 +754,13 @@ function summarizeLLMRun(run: TraceRunSummary): string {
   const requestSummary = summarizeMessages(request?.messages);
   if (requestSummary) return requestSummary;
 
-  return "model exchange";
+  return t("model exchange");
 }
 
 function summarizeSystemRun(run: TraceRunSummary): string {
   const contextWindow = extractContextWindowPayload(run);
   if (!contextWindow) {
-    return "system event";
+    return t("system event");
   }
 
   const usageRatio =
@@ -767,30 +778,39 @@ function summarizeSystemRun(run: TraceRunSummary): string {
   const summaryApplied = contextWindow.summary_applied === true;
 
   if (usageRatio != null && usageAfter != null && summaryApplied) {
-    return `${Math.round(usageRatio * 100)}% -> ${Math.round(usageAfter * 100)}% after compaction`;
+    return t("{ratio}% -> {after}% after compaction", {
+      ratio: Math.round(usageRatio * 100),
+      after: Math.round(usageAfter * 100),
+    });
   }
 
   if (usageRatio != null) {
-    return `${Math.round(usageRatio * 100)}% of prompt window in use`;
+    return t("{ratio}% of prompt window in use", {
+      ratio: Math.round(usageRatio * 100),
+    });
   }
 
   if (approxTokens != null) {
-    return `${approxTokens} approx prompt tokens`;
+    return t("{count} approx prompt tokens", {
+      count: approxTokens,
+    });
   }
 
-  return "context-window snapshot";
+  return t("context-window snapshot");
 }
 
 function resolveRunLabel(run: TraceRunSummary): string {
   if (run.runType === "tool") {
-    return run.toolName ? `Tool · ${run.toolName}` : "Tool";
+    return run.toolName
+      ? t("Tool · {name}", { name: run.toolName })
+      : t("Tool");
   }
   if (run.runType === "llm") {
     const modelName = extractModelName(run);
-    return modelName ? `LLM · ${modelName}` : "LLM";
+    return modelName ? t("LLM · {model}", { model: modelName }) : "LLM";
   }
   if (run.runType === "system") {
-    return humanizeNodeName(run.nodeName) || "System";
+    return humanizeNodeName(run.nodeName) || t("System");
   }
   return humanizeNodeName(run.nodeName);
 }
@@ -962,8 +982,10 @@ export function extractRunSections(
       sections.push(
         makeSection(
           "response-reasoning",
-          "Model Reasoning / Thinking",
-          "Internal reasoning blocks emitted by the model and captured by the trace backend.",
+          t("Model Reasoning / Thinking"),
+          t(
+            "Internal reasoning blocks emitted by the model and captured by the trace backend.",
+          ),
           "reasoning",
           reasoning,
         ),
@@ -975,8 +997,8 @@ export function extractRunSections(
       sections.push(
         makeSection(
           "request-messages",
-          "Model Request Messages",
-          "Messages sent to the model after middleware and prompt assembly.",
+          t("Model Request Messages"),
+          t("Messages sent to the model after middleware and prompt assembly."),
           "messages",
           requestMessages,
         ),
@@ -987,8 +1009,8 @@ export function extractRunSections(
       sections.push(
         makeSection(
           "request-tools",
-          "Registered Tools",
-          "Tool schemas exposed to the model for this invocation.",
+          t("Registered Tools"),
+          t("Tool schemas exposed to the model for this invocation."),
           "tools",
           modelRequest?.tools,
         ),
@@ -1012,8 +1034,8 @@ export function extractRunSections(
       sections.push(
         makeSection(
           "request-config",
-          "Request Config",
-          "Resolved model, tool-choice, and inference settings for this call.",
+          t("Request Config"),
+          t("Resolved model, tool-choice, and inference settings for this call."),
           "config",
           filteredRequestConfig,
         ),
@@ -1025,8 +1047,10 @@ export function extractRunSections(
       sections.push(
         makeSection(
           "response-messages",
-          "Model Response Messages",
-          "Assistant messages returned by the model, including tool calls and visible text.",
+          t("Model Response Messages"),
+          t(
+            "Assistant messages returned by the model, including tool calls and visible text.",
+          ),
           "messages",
           responseMessages,
         ),
@@ -1038,8 +1062,8 @@ export function extractRunSections(
       sections.push(
         makeSection(
           "response-tool-calls",
-          "Model Tool Calls",
-          "Normalized tool call payloads emitted by the model.",
+          t("Model Tool Calls"),
+          t("Normalized tool call payloads emitted by the model."),
           "tools",
           responseToolCalls,
         ),
@@ -1050,8 +1074,10 @@ export function extractRunSections(
       sections.push(
         makeSection(
           "llm-output",
-          "LLM Output Metadata",
-          "Provider-specific token usage and stop metadata captured from the SDK response.",
+          t("LLM Output Metadata"),
+          t(
+            "Provider-specific token usage and stop metadata captured from the SDK response.",
+          ),
           "metadata",
           endPayload?.llm_output,
         ),
@@ -1062,8 +1088,8 @@ export function extractRunSections(
       sections.push(
         makeSection(
           "tool-call",
-          "Tool Call",
-          "Arguments passed into the tool at invocation time.",
+          t("Tool Call"),
+          t("Arguments passed into the tool at invocation time."),
           "tools",
           startPayload?.tool_call,
         ),
@@ -1074,8 +1100,10 @@ export function extractRunSections(
       sections.push(
         makeSection(
           "tool-response",
-          "Tool Response",
-          "Result returned by the tool. If marked as truncated, the backend capture was shortened before the payload was stored.",
+          t("Tool Response"),
+          t(
+            "Result returned by the tool. If marked as truncated, the backend capture was shortened before the payload was stored.",
+          ),
           "tools",
           endPayload?.tool_response,
         ),
@@ -1087,8 +1115,10 @@ export function extractRunSections(
       sections.push(
         makeSection(
           "context-window",
-          "Context Window Snapshot",
-          "Approximate prompt occupancy captured by the summarization middleware before the model call.",
+          t("Context Window Snapshot"),
+          t(
+            "Approximate prompt occupancy captured by the summarization middleware before the model call.",
+          ),
           "state",
           contextWindow,
         ),
@@ -1098,14 +1128,14 @@ export function extractRunSections(
     sections.push(
       ...splitChainStateSections(
         "chain-inputs",
-        "Input Snapshot",
+        t("Input Snapshot"),
         startPayload?.inputs,
       ),
     );
     sections.push(
       ...splitChainStateSections(
         "chain-outputs",
-        "Output Snapshot",
+        t("Output Snapshot"),
         endPayload?.outputs,
       ),
     );
@@ -1115,8 +1145,10 @@ export function extractRunSections(
     sections.push(
       makeSection(
         "run-metadata",
-        "Run Metadata",
-        "LangGraph/OpenAgents metadata captured for this run, including node placement, trace IDs, and runtime config.",
+        t("Run Metadata"),
+        t(
+          "LangGraph/OpenAgents metadata captured for this run, including node placement, trace IDs, and runtime config.",
+        ),
         "metadata",
         startPayload?.metadata,
       ),

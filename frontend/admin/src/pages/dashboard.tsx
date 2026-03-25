@@ -1,6 +1,7 @@
 import { StatsCards } from "@/components/dashboard/stats-cards";
 import { RecentTraces } from "@/components/dashboard/recent-traces";
 import { useFetch } from "@/hooks/use-fetch";
+import { t } from "@/i18n";
 import type { AdminStats, TraceItem } from "@/types";
 
 export function DashboardPage() {
@@ -12,9 +13,9 @@ export function DashboardPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold tracking-tight">Dashboard</h2>
+        <h2 className="text-2xl font-bold tracking-tight">{t("Dashboard")}</h2>
         <p className="text-muted-foreground">
-          Overview of your platform metrics
+          {t("Overview of your platform metrics")}
         </p>
       </div>
       <StatsCards stats={stats} isLoading={statsLoading} />

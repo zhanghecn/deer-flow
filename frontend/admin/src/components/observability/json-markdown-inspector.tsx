@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { t } from "@/i18n";
 import {
   buildFieldPath,
   describeType,
@@ -126,12 +127,12 @@ function FieldExplorer({
   return (
     <details className="rounded-md border bg-background/40">
       <summary className="cursor-pointer px-3 py-2 text-xs text-muted-foreground">
-        Inspect JSON Fields
+        {t("Inspect JSON Fields")}
       </summary>
       <div className="grid gap-3 p-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
         <div className="space-y-2 rounded-md border bg-background/70 p-2">
           <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-            JSON Fields
+            {t("JSON Fields")}
           </p>
           <JsonNode
             label="$"
@@ -145,11 +146,11 @@ function FieldExplorer({
 
         <div className="space-y-2 rounded-md border bg-background/70 p-2">
           <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-            Selected Field
+            {t("Selected Field")}
           </p>
           {!selected ? (
             <p className="text-xs text-muted-foreground">
-              Click any field to inspect it.
+              {t("Click any field to inspect it.")}
             </p>
           ) : (
             <div className="space-y-2">
@@ -157,7 +158,7 @@ function FieldExplorer({
                 {selected.path}
               </p>
               <ReadableJsonContent value={selected.value} />
-              <RawJsonDetails value={selected.value} title="Raw JSON" />
+              <RawJsonDetails value={selected.value} title={t("Raw JSON")} />
             </div>
           )}
         </div>

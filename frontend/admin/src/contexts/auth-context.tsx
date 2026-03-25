@@ -5,6 +5,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { t } from "@/i18n";
 import { login as apiLogin } from "@/lib/api";
 import type { AuthUser } from "@/types";
 
@@ -52,7 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (account: string, password: string) => {
     const res = await apiLogin(account, password);
     if (res.user.role !== "admin") {
-      throw new Error("Admin access required");
+      throw new Error(t("Admin access required"));
     }
     const payload = { token: res.token, user: res.user };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));

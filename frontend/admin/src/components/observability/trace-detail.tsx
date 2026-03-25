@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
+import { getCurrentLocale, t } from "@/i18n";
 import { formatDate, maskString } from "@/lib/format";
 import { EventTree } from "./event-tree";
 import { TokenSummary } from "./token-summary";
@@ -69,14 +70,14 @@ function formatCount(value?: number | null) {
   if (typeof value !== "number" || Number.isNaN(value)) {
     return "—";
   }
-  return new Intl.NumberFormat("en-US").format(Math.round(value));
+  return new Intl.NumberFormat(getCurrentLocale()).format(Math.round(value));
 }
 
 export function TraceDetail({ trace, expanded = false }: TraceDetailProps) {
   if (!trace) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground">
-        Select a trace to view details
+        {t("Select a trace to view details")}
       </div>
     );
   }
@@ -148,21 +149,21 @@ function TraceDetailContent({
                     : "secondary"
               }
             >
-              {trace.status}
+              {t(trace.status)}
             </Badge>
             <span className="text-sm font-medium">
-              {trace.agent_name || "Unknown Agent"}
+              {trace.agent_name || t("Unknown Agent")}
             </span>
           </div>
           <div className="grid grid-cols-2 gap-2 text-sm">
             <div>
-              <span className="text-muted-foreground">Trace ID:</span>{" "}
+              <span className="text-muted-foreground">{t("Trace ID:")}</span>{" "}
               <span className="font-mono text-xs">
                 {maskString(trace.trace_id, 8, 4)}
               </span>
             </div>
             <div>
-              <span className="text-muted-foreground">Thread:</span>{" "}
+              <span className="text-muted-foreground">{t("Thread:")}</span>{" "}
               <span className="font-mono text-xs">
                 {trace.thread_id
                   ? maskString(trace.thread_id, 8, 4)
@@ -170,23 +171,23 @@ function TraceDetailContent({
               </span>
             </div>
             <div>
-              <span className="text-muted-foreground">Started:</span>{" "}
+              <span className="text-muted-foreground">{t("Started:")}</span>{" "}
               {formatDate(trace.started_at)}
             </div>
             <div>
-              <span className="text-muted-foreground">Finished:</span>{" "}
+              <span className="text-muted-foreground">{t("Finished:")}</span>{" "}
               {formatDate(trace.finished_at)}
             </div>
             <div>
-              <span className="text-muted-foreground">Runs:</span> {runs.length}
+              <span className="text-muted-foreground">{t("Runs:")}</span> {runs.length}
             </div>
             <div>
-              <span className="text-muted-foreground">Raw Events:</span> {events.length}
+              <span className="text-muted-foreground">{t("Raw Events:")}</span> {events.length}
             </div>
           </div>
           {toolNames.length > 0 && (
             <div className="space-y-1">
-              <p className="text-xs text-muted-foreground">Registered Tools</p>
+              <p className="text-xs text-muted-foreground">{t("Registered Tools")}</p>
               <div className="flex flex-wrap gap-1.5">
                 {toolNames.map((toolName) => (
                   <Badge key={toolName} variant="outline" className="text-xs">
@@ -213,9 +214,9 @@ function TraceDetailContent({
         {latestContextWindow && (
           <div className="rounded-md border p-3 space-y-2">
             <div className="flex items-center justify-between gap-2 text-sm font-medium">
-              <span>Context Window</span>
+              <span>{t("Context Window")}</span>
               {latestContextWindow.summary_applied && (
-                <Badge variant="outline">Compacted</Badge>
+                <Badge variant="outline">{t("Compacted")}</Badge>
               )}
             </div>
             {typeof latestContextWindow.usage_ratio === "number" && (
@@ -233,22 +234,35 @@ function TraceDetailContent({
             )}
             <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
               <span>
-                Active: {formatCount(latestContextWindow.approx_input_tokens)}
                 {latestContextWindow.max_input_tokens
-                  ? ` / ${formatCount(latestContextWindow.max_input_tokens)}`
-                  : ""}
+                  ? t("Active: {used} / {max}", {
+                      used: formatCount(latestContextWindow.approx_input_tokens),
+                      max: formatCount(latestContextWindow.max_input_tokens),
+                    })
+                  : t("Active: {used}", {
+                      used: formatCount(latestContextWindow.approx_input_tokens),
+                    })}
               </span>
               {formatPercent(latestContextWindow.usage_ratio) && (
-                <span>{formatPercent(latestContextWindow.usage_ratio)} used</span>
+                <span>
+                  {t("{ratio} used", {
+                    ratio: formatPercent(latestContextWindow.usage_ratio),
+                  })}
+                </span>
               )}
               {formatPercent(latestContextWindow.usage_ratio_after_summary) && (
                 <span>
-                  After compaction:{" "}
-                  {formatPercent(latestContextWindow.usage_ratio_after_summary)}
+                  {t("After compaction: {ratio}", {
+                    ratio: formatPercent(latestContextWindow.usage_ratio_after_summary),
+                  })}
                 </span>
               )}
               {typeof latestContextWindow.summary_count === "number" && (
-                <span>{latestContextWindow.summary_count} summaries</span>
+                <span>
+                  {t("{count} summaries", {
+                    count: latestContextWindow.summary_count,
+                  })}
+                </span>
               )}
             </div>
             {latestContextWindow.last_summary?.summary_preview && (
@@ -264,42 +278,44 @@ function TraceDetailContent({
         {/* Event tree */}
         <div>
           <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-            <h4 className="text-sm font-medium">Events</h4>
+            <h4 className="text-sm font-medium">{t("Events")}</h4>
             <div className="flex items-center gap-2">
               <Button
                 variant={runFilter === "core" ? "default" : "outline"}
                 size="sm"
                 onClick={() => setRunFilter("core")}
               >
-                Core
+                {t("Core")}
               </Button>
               <Button
                 variant={runFilter === "all" ? "default" : "outline"}
                 size="sm"
                 onClick={() => setRunFilter("all")}
               >
-                All
+                {t("All")}
               </Button>
               <Button
                 variant={viewMode === "timeline" ? "default" : "outline"}
                 size="sm"
                 onClick={() => setViewMode("timeline")}
               >
-                Timeline
+                {t("Timeline")}
               </Button>
               <Button
                 variant={viewMode === "galaxy" ? "default" : "outline"}
                 size="sm"
                 onClick={() => setViewMode("galaxy")}
               >
-                Galaxy 3D
+                {t("Galaxy 3D")}
               </Button>
             </div>
           </div>
           {runFilter === "core" && hiddenRunCount > 0 && (
             <p className="mb-3 text-xs text-muted-foreground">
-              Hidden {hiddenRunCount} noisy wrapper runs. Switch to `All` if you
-              need the full raw chain.
+              {t(
+                "Hidden {count} noisy wrapper runs. Switch to `All` if you need the full raw chain.",
+                { count: hiddenRunCount },
+              )}
             </p>
           )}
           {(reasoningRunCount > 0 || truncatedRunCount > 0) && (
@@ -309,7 +325,12 @@ function TraceDetailContent({
                   variant="outline"
                   className="border-amber-300 text-xs text-amber-700 dark:border-amber-800 dark:text-amber-300"
                 >
-                  {reasoningRunCount} run{reasoningRunCount > 1 ? "s" : ""} with reasoning
+                  {t(
+                    reasoningRunCount > 1
+                      ? "{count} runs with reasoning"
+                      : "{count} run with reasoning",
+                    { count: reasoningRunCount },
+                  )}
                 </Badge>
               )}
               {truncatedRunCount > 0 && (
@@ -317,8 +338,12 @@ function TraceDetailContent({
                   variant="outline"
                   className="border-amber-300 text-xs text-amber-700 dark:border-amber-800 dark:text-amber-300"
                 >
-                  {truncatedRunCount} backend-truncated run
-                  {truncatedRunCount > 1 ? "s" : ""}
+                  {t(
+                    truncatedRunCount > 1
+                      ? "{count} backend-truncated runs"
+                      : "{count} backend-truncated run",
+                    { count: truncatedRunCount },
+                  )}
                 </Badge>
               )}
             </div>

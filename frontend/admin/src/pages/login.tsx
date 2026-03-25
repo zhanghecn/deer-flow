@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { t } from "@/i18n";
 
 export function LoginPage() {
   const { user, isLoading: authLoading, login } = useAuth();
@@ -44,7 +45,7 @@ export function LoginPage() {
       navigate("/dashboard", { replace: true });
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Login failed. Please try again.",
+        err instanceof Error ? err.message : t("Login failed. Please try again."),
       );
     } finally {
       setIsSubmitting(false);
@@ -58,15 +59,15 @@ export function LoginPage() {
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <Shield className="h-6 w-6" />
           </div>
-          <CardTitle className="text-2xl font-bold">Admin Console</CardTitle>
+          <CardTitle className="text-2xl font-bold">{t("Admin Console")}</CardTitle>
           <CardDescription>
-            Sign in with your admin credentials
+            {t("Sign in with your admin credentials")}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="account">Account</Label>
+              <Label htmlFor="account">{t("Account")}</Label>
               <Input
                 id="account"
                 type="text"
@@ -79,11 +80,11 @@ export function LoginPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">{t("Password")}</Label>
               <Input
                 id="password"
                 type="password"
-                placeholder="Enter your password"
+                placeholder={t("Enter your password")}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
@@ -104,7 +105,7 @@ export function LoginPage() {
               {isSubmitting && (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               )}
-              Sign in
+              {t("Sign in")}
             </Button>
           </form>
         </CardContent>

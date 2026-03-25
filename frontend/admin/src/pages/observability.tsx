@@ -4,6 +4,7 @@ import { TraceList } from "@/components/observability/trace-list";
 import { TraceDetail } from "@/components/observability/trace-detail";
 import { Button } from "@/components/ui/button";
 import { useFetch } from "@/hooks/use-fetch";
+import { t } from "@/i18n";
 import { maskString } from "@/lib/format";
 import type { PaginatedResponse, TraceItem } from "@/types";
 
@@ -54,9 +55,9 @@ export function ObservabilityPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-2xl font-bold tracking-tight">Observability</h2>
+        <h2 className="text-2xl font-bold tracking-tight">{t("Observability")}</h2>
         <p className="text-muted-foreground">
-          Monitor agent execution traces
+          {t("Monitor agent execution traces")}
         </p>
       </div>
 
@@ -72,9 +73,9 @@ export function ObservabilityPage() {
       {!selectedTrace ? (
         <div className="border rounded-md min-h-[520px] flex flex-col">
           <div className="border-b p-3 flex items-center justify-between gap-2">
-            <p className="text-sm font-medium">Trace List</p>
+            <p className="text-sm font-medium">{t("Trace List")}</p>
             <span className="text-xs text-muted-foreground">
-              Click one trace to view full chain details
+              {t("Click one trace to view full chain details")}
             </span>
           </div>
           <div className="flex-1 min-h-0">
@@ -87,7 +88,13 @@ export function ObservabilityPage() {
           </div>
           <div className="border-t p-2 flex items-center justify-between gap-2">
             <span className="text-xs text-muted-foreground">
-              {total === 0 ? "0 traces" : `${startRow}-${endRow} of ${total}`}
+              {total === 0
+                ? t("0 traces")
+                : t("{start}-{end} of {total}", {
+                    start: startRow,
+                    end: endRow,
+                    total,
+                  })}
             </span>
             <div className="flex items-center gap-2">
               <Button
@@ -96,7 +103,7 @@ export function ObservabilityPage() {
                 disabled={!hasPrevPage || isLoading}
                 onClick={() => setPage((v) => Math.max(1, v - 1))}
               >
-                Prev
+                {t("Prev")}
               </Button>
               <span className="text-xs text-muted-foreground tabular-nums">
                 {page}/{totalPages}
@@ -107,7 +114,7 @@ export function ObservabilityPage() {
                 disabled={!hasNextPage || isLoading}
                 onClick={() => setPage((v) => v + 1)}
               >
-                Next
+                {t("Next")}
               </Button>
             </div>
           </div>
@@ -121,17 +128,17 @@ export function ObservabilityPage() {
                 size="sm"
                 onClick={() => setSelectedTrace(null)}
               >
-                Back to List
+                {t("Back to List")}
               </Button>
               <span className="text-sm font-medium">
-                {selectedTrace.agent_name || "Unknown Agent"}
+                {selectedTrace.agent_name || t("Unknown Agent")}
               </span>
               <span className="text-xs text-muted-foreground font-mono">
                 {maskString(selectedTrace.trace_id, 8, 6)}
               </span>
             </div>
             <span className="text-xs text-muted-foreground">
-              Full Trace View
+              {t("Full Trace View")}
             </span>
           </div>
           <TraceDetail trace={selectedTrace} expanded />

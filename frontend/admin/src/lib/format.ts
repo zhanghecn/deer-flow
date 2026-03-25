@@ -1,7 +1,9 @@
+import { getCurrentLocale } from "@/i18n";
+
 export function formatDate(ts: string | null | undefined): string {
   if (!ts) return "-";
   const d = new Date(ts);
-  return d.toLocaleString("en-US", {
+  return d.toLocaleString(getCurrentLocale(), {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -12,7 +14,7 @@ export function formatDate(ts: string | null | undefined): string {
 export function formatDateTime(ts: string | null | undefined): string {
   if (!ts) return "-";
   const d = new Date(ts);
-  return d.toLocaleString("sv-SE", {
+  return d.toLocaleString(getCurrentLocale(), {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -27,13 +29,16 @@ export function formatAgo(ts: string | null | undefined): string {
   if (!ts) return "-";
   const diff = Date.now() - new Date(ts).getTime();
   const sec = Math.floor(diff / 1000);
-  if (sec < 60) return `${sec}s ago`;
+  const relativeTime = new Intl.RelativeTimeFormat(getCurrentLocale(), {
+    numeric: "auto",
+  });
+  if (sec < 60) return relativeTime.format(-sec, "second");
   const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
+  if (min < 60) return relativeTime.format(-min, "minute");
   const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
+  if (hr < 24) return relativeTime.format(-hr, "hour");
   const day = Math.floor(hr / 24);
-  return `${day}d ago`;
+  return relativeTime.format(-day, "day");
 }
 
 export function maskString(

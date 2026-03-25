@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Bot, ChevronRight, Gauge, Hammer, Link2, Workflow } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { formatAgo, formatDateTime } from "@/lib/format";
 import { TraceRunDialog } from "./trace-run-dialog";
@@ -42,7 +43,7 @@ export function EventTree({ runs }: EventTreeProps) {
   if (!runs.length) {
     return (
       <p className="text-sm text-muted-foreground py-4 text-center">
-        No runs
+        {t("No runs")}
       </p>
     );
   }
@@ -75,19 +76,19 @@ export function EventTree({ runs }: EventTreeProps) {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">
                     <Badge variant="outline" className="text-xs px-1.5 py-0">
-                      {run.runType}
+                      {t(run.runType)}
                     </Badge>
                     <Badge variant={statusVariant(run.status)} className="text-xs px-1.5 py-0">
-                      {run.status}
+                      {t(run.status)}
                     </Badge>
                     {isMiddlewareRun(run) && (
                       <Badge variant="secondary" className="text-xs px-1.5 py-0">
-                        middleware
+                        {t("middleware")}
                       </Badge>
                     )}
                     {run.taskRunId && (
                       <Badge variant="outline" className="text-xs px-1.5 py-0">
-                        sub-agent
+                        {t("sub-agent")}
                       </Badge>
                     )}
                     {run.hasReasoning && (
@@ -95,7 +96,7 @@ export function EventTree({ runs }: EventTreeProps) {
                         variant="outline"
                         className="border-amber-300 px-1.5 py-0 text-xs text-amber-700 dark:border-amber-800 dark:text-amber-300"
                       >
-                        reasoning
+                        {t("reasoning")}
                       </Badge>
                     )}
                     {run.hasTruncatedPayload && (
@@ -103,18 +104,18 @@ export function EventTree({ runs }: EventTreeProps) {
                         variant="outline"
                         className="border-amber-300 px-1.5 py-0 text-xs text-amber-700 dark:border-amber-800 dark:text-amber-300"
                       >
-                        trace truncated
+                        {t("trace truncated")}
                       </Badge>
                     )}
                     <span className="text-sm font-medium">{run.label}</span>
                   </div>
 
                   <p className="mt-1 text-sm text-foreground/90 break-words">
-                    {run.summary || "Run details"}
+                    {run.summary || t("Run details")}
                   </p>
                   {run.reasoningPreview && (
                     <p className="mt-1 break-words text-xs text-amber-700 dark:text-amber-300">
-                      Reasoning: {run.reasoningPreview}
+                      {t("Reasoning: {preview}", { preview: run.reasoningPreview })}
                     </p>
                   )}
 
@@ -123,13 +124,16 @@ export function EventTree({ runs }: EventTreeProps) {
                     {run.startedAt && <span>{formatAgo(run.startedAt)}</span>}
                     {(run.totalTokens != null && run.totalTokens > 0) && (
                       <span className="tabular-nums">
-                        {run.inputTokens ?? 0}↓ {run.outputTokens ?? 0}↑
+                        {t("{input}↓ {output}↑", {
+                          input: run.inputTokens ?? 0,
+                          output: run.outputTokens ?? 0,
+                        })}
                       </span>
                     )}
                     {run.durationMs != null && (
                       <span className="tabular-nums">{run.durationMs}ms</span>
                     )}
-                    <span>{run.eventCount} evt</span>
+                    <span>{t("{count} evt", { count: run.eventCount })}</span>
                   </div>
 
                   {runError && (

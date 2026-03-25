@@ -15,6 +15,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { t } from "@/i18n";
 import { api } from "@/lib/api";
 import type { Agent } from "@/types";
 import { toast } from "sonner";
@@ -35,10 +36,10 @@ export function AgentsTable({
   async function handlePublish(agent: Agent) {
     try {
       await api(`/api/agents/${agent.name}/publish`, { method: "POST" });
-      toast.success(`${agent.name} published`);
+      toast.success(t("{name} published", { name: agent.name }));
       onRefetch();
     } catch {
-      toast.error("Failed to publish agent");
+      toast.error(t("Failed to publish agent"));
     }
   }
 
@@ -56,7 +57,7 @@ export function AgentsTable({
     return (
       <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
         <Bot className="h-12 w-12 mb-2 opacity-40" />
-        <p>No agents found</p>
+        <p>{t("No agents found")}</p>
       </div>
     );
   }
@@ -66,11 +67,11 @@ export function AgentsTable({
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>Model</TableHead>
-            <TableHead>Memory</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
+            <TableHead>{t("Name")}</TableHead>
+            <TableHead>{t("Model")}</TableHead>
+            <TableHead>{t("Memory")}</TableHead>
+            <TableHead>{t("Status")}</TableHead>
+            <TableHead className="text-right">{t("Actions")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -98,17 +99,17 @@ export function AgentsTable({
               <TableCell className="text-sm">
                 {agent.memory?.enabled ? (
                   <Badge variant="outline">
-                    {agent.memory.model_name || "Enabled"}
+                    {agent.memory.model_name || t("Enabled")}
                   </Badge>
                 ) : (
-                  <span className="text-muted-foreground">Off</span>
+                  <span className="text-muted-foreground">{t("Off")}</span>
                 )}
               </TableCell>
               <TableCell>
                 <Badge
                   variant={agent.status === "prod" ? "default" : "secondary"}
                 >
-                  {agent.status}
+                  {t(agent.status)}
                 </Badge>
               </TableCell>
               <TableCell className="text-right">
@@ -126,7 +127,7 @@ export function AgentsTable({
                           <Eye className="h-4 w-4" />
                         </Button>
                     </TooltipTrigger>
-                    <TooltipContent>View Details</TooltipContent>
+                    <TooltipContent>{t("View Details")}</TooltipContent>
                   </Tooltip>
                   {agent.status === "dev" && (
                     <Tooltip>
@@ -142,7 +143,7 @@ export function AgentsTable({
                           <Rocket className="h-4 w-4 text-emerald-600" />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>Publish</TooltipContent>
+                      <TooltipContent>{t("Publish")}</TooltipContent>
                     </Tooltip>
                   )}
                 </div>

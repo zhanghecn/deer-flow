@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { t } from "@/i18n";
 
 const ROUTE_LABELS: Record<string, string> = {
   dashboard: "Dashboard",
@@ -76,10 +77,10 @@ export function Topbar() {
                 <BreadcrumbItem key={crumb.href}>
                   {index > 0 && <BreadcrumbSeparator />}
                   {isLast ? (
-                    <BreadcrumbPage>{crumb.label}</BreadcrumbPage>
+                    <BreadcrumbPage>{t(crumb.label)}</BreadcrumbPage>
                   ) : (
                     <BreadcrumbLink href={crumb.href}>
-                      {crumb.label}
+                      {t(crumb.label)}
                     </BreadcrumbLink>
                   )}
                 </BreadcrumbItem>
@@ -94,7 +95,7 @@ export function Topbar() {
           variant="ghost"
           size="icon"
           onClick={cycleTheme}
-          aria-label="Toggle theme"
+          aria-label={t("Toggle theme")}
         >
           <ThemeIcon className="size-4" />
         </Button>
@@ -105,7 +106,7 @@ export function Topbar() {
               <Avatar className="h-8 w-8">
                 <AvatarImage
                   src={user?.avatar_url}
-                  alt={user?.name ?? "User"}
+                  alt={user?.name ?? t("User")}
                 />
                 <AvatarFallback>
                   {user?.name ? getInitials(user.name) : "AD"}
@@ -117,7 +118,7 @@ export function Topbar() {
             <DropdownMenuLabel className="font-normal">
               <div className="flex flex-col space-y-1">
                 <p className="text-sm font-medium leading-none">
-                  {user?.name ?? "Admin"}
+                  {user?.name ?? t("Admin")}
                 </p>
                 <p className="text-xs leading-none text-muted-foreground">
                   {user?.email ?? ""}
@@ -127,13 +128,13 @@ export function Topbar() {
             <DropdownMenuSeparator />
             <DropdownMenuItem disabled>
               <Badge variant="secondary" className="text-xs">
-                {user?.role ?? "admin"}
+                {t(user?.role ?? "admin")}
               </Badge>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={logout}>
               <LogOut className="mr-2 size-4" />
-              Log out
+              {t("Log out")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

@@ -1,6 +1,7 @@
 import { CheckpointCard } from "@/components/threads/checkpoint-card";
 import { ThreadsTable } from "@/components/threads/threads-table";
 import { useFetch } from "@/hooks/use-fetch";
+import { t } from "@/i18n";
 import type { CheckpointStatus, RuntimeThread } from "@/types";
 
 export function ThreadsPage() {
@@ -12,9 +13,9 @@ export function ThreadsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold tracking-tight">Threads</h2>
+        <h2 className="text-2xl font-bold tracking-tight">{t("Threads")}</h2>
         <p className="text-muted-foreground">
-          Runtime threads and checkpoint status
+          {t("Runtime threads and checkpoint status")}
         </p>
       </div>
 

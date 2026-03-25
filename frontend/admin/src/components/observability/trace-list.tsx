@@ -2,6 +2,7 @@ import { Activity } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
+import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { formatAgo, formatDateTime, maskString } from "@/lib/format";
 import type { TraceItem } from "@/types";
@@ -44,7 +45,7 @@ export function TraceList({
     return (
       <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
         <Activity className="h-12 w-12 mb-2 opacity-40" />
-        <p>No traces found</p>
+        <p>{t("No traces found")}</p>
       </div>
     );
   }
@@ -67,27 +68,27 @@ export function TraceList({
                   className={cn("h-2 w-2 rounded-full", statusColor(trace.status))}
                 />
                 <span className="font-medium text-sm truncate max-w-[140px]">
-                  {trace.agent_name || "Unknown Agent"}
+                  {trace.agent_name || t("Unknown Agent")}
                 </span>
               </div>
               <Badge variant="outline" className="text-xs">
-                {trace.total_tokens} tok
+                {t("{count} tok", { count: trace.total_tokens })}
               </Badge>
             </div>
             <p className="text-sm text-foreground/85 line-clamp-2">
-              {trace.initial_user_message || "No user message preview"}
+              {trace.initial_user_message || t("No user message preview")}
             </p>
             <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
               <span className="truncate max-w-[120px]">
                 {trace.thread_id
                   ? maskString(trace.thread_id, 6, 4)
-                  : "no thread"}
+                  : t("no thread")}
               </span>
               <span className="truncate">{formatDateTime(trace.started_at)}</span>
             </div>
             <div className="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
               <span className="truncate">
-                {trace.model_name || "unknown model"}
+                {trace.model_name || t("unknown model")}
               </span>
               <span>{formatAgo(trace.started_at)}</span>
             </div>

@@ -9,6 +9,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { t } from "@/i18n";
 import { formatAgo, maskString } from "@/lib/format";
 import type { RuntimeThread } from "@/types";
 
@@ -32,7 +33,7 @@ export function ThreadsTable({ threads, isLoading }: ThreadsTableProps) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
         <MessagesSquare className="h-12 w-12 mb-2 opacity-40" />
-        <p>No threads found</p>
+        <p>{t("No threads found")}</p>
       </div>
     );
   }
@@ -42,13 +43,13 @@ export function ThreadsTable({ threads, isLoading }: ThreadsTableProps) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Thread ID</TableHead>
-            <TableHead>User</TableHead>
-            <TableHead>Agent</TableHead>
-            <TableHead>Model</TableHead>
-            <TableHead>Assistant</TableHead>
-            <TableHead>Created</TableHead>
-            <TableHead>Updated</TableHead>
+            <TableHead>{t("Thread ID")}</TableHead>
+            <TableHead>{t("User")}</TableHead>
+            <TableHead>{t("Agent")}</TableHead>
+            <TableHead>{t("Model")}</TableHead>
+            <TableHead>{t("Assistant")}</TableHead>
+            <TableHead>{t("Created")}</TableHead>
+            <TableHead>{t("Updated")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

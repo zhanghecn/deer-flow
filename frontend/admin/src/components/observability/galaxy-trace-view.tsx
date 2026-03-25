@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Html, OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
+import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { TraceRunDialog } from "./trace-run-dialog";
 import { type TraceRunSummary } from "./trace-run-utils";
@@ -174,7 +175,7 @@ function NodeStars({
       {nodes.map((node) => {
         const selected = node.runId === selectedRunId;
         const displayName = truncateText(node.label, 22);
-        const displaySummary = truncateText(node.summary || "Run details", 52);
+        const displaySummary = truncateText(node.summary || t("Run details"), 52);
         return (
           <group key={node.runId} position={node.position}>
             <mesh
@@ -272,7 +273,7 @@ export function GalaxyTraceView({ runs, rootRunId }: GalaxyTraceViewProps) {
   if (!graph.nodes.length) {
     return (
       <p className="text-sm text-muted-foreground py-4 text-center">
-        No run graph data
+        {t("No run graph data")}
       </p>
     );
   }
@@ -326,10 +327,10 @@ export function GalaxyTraceView({ runs, rootRunId }: GalaxyTraceViewProps) {
         </div>
 
         <div className="rounded-md border bg-background/70 px-3 py-2 text-xs text-muted-foreground">
-          Click any node to open the full run payload. Hold <span className="font-mono">Alt</span> to pan.
+          {t("Click any node to open the full run payload. Hold Alt to pan.")}
           {selectedRun && (
             <span className="ml-2 text-foreground/80">
-              Selected: <span className="font-medium">{selectedRun.label}</span>
+              {t("Selected: {label}", { label: selectedRun.label })}
             </span>
           )}
         </div>

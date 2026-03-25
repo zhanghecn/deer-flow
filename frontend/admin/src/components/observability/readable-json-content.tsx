@@ -1,5 +1,6 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
 import {
   allItemsMatch,
@@ -51,7 +52,7 @@ function renderMarkdown(text: string) {
 function TruncationNotice() {
   return (
     <p className="text-xs text-amber-600 dark:text-amber-400">
-      This field is truncated in the stored trace payload.
+      {t("This field is truncated in the stored trace payload.")}
     </p>
   );
 }
@@ -76,7 +77,7 @@ function ScalarTable({ value }: { value: Record<string, unknown> }) {
 
 function MarkdownBlock({
   value,
-  emptyLabel = "No markdown-like content.",
+  emptyLabel = t("No markdown-like content."),
 }: {
   value: unknown;
   emptyLabel?: string;
@@ -95,7 +96,7 @@ function MarkdownBlock({
     <div className="space-y-2">
       {hasTruncationMarker(markdownSource) && (
         <p className="text-xs text-amber-600 dark:text-amber-400">
-          This field is truncated in stored trace payload.
+          {t("This field is truncated in the stored trace payload.")}
         </p>
       )}
       <div className="rounded-md border bg-background/60 px-3 py-3">
@@ -106,7 +107,7 @@ function MarkdownBlock({
 }
 
 function ToolCard({ tool }: { tool: Record<string, unknown> }) {
-  const title = typeof tool.name === "string" ? tool.name : "tool";
+  const title = typeof tool.name === "string" ? tool.name : t("tool");
   const subtitle = typeof tool.type === "string" ? tool.type : null;
   const description = tool.description;
   const schema = tool.parameters ?? tool.arguments;
@@ -127,7 +128,7 @@ function ToolCard({ tool }: { tool: Record<string, unknown> }) {
       {schema != null && (
         <div className="space-y-1">
           <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-            Schema / Arguments
+            {t("Schema / Arguments")}
           </p>
           <pre className="max-h-64 overflow-auto rounded-md bg-muted p-2 text-[11px] whitespace-pre-wrap break-all">
             {toRawText(normalizeReadableValue(schema))}
@@ -197,7 +198,7 @@ function MessageCard({ message }: { message: Record<string, unknown> }) {
     <div className="rounded-md border bg-background/60 px-3 py-3 space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className="rounded-full border px-2 py-0.5 text-[11px] font-medium">
-          {role}
+          {t(role)}
         </span>
         {typeof message.name === "string" && (
           <span className="text-xs text-muted-foreground">{message.name}</span>
@@ -212,7 +213,7 @@ function MessageCard({ message }: { message: Record<string, unknown> }) {
       {reasoningContent && (
         <div className="space-y-1">
           <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-            Reasoning
+            {t("Reasoning")}
           </p>
           <div className="rounded-md border border-dashed bg-background/50 px-3 py-3">
             {renderMarkdown(reasoningContent)}
@@ -220,12 +221,12 @@ function MessageCard({ message }: { message: Record<string, unknown> }) {
         </div>
       )}
 
-      <MarkdownBlock value={message.content} emptyLabel="No text content." />
+      <MarkdownBlock value={message.content} emptyLabel={t("No text content.")} />
 
       {toolCalls.length > 0 && (
         <div className="space-y-2">
           <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-            Tool Calls
+            {t("Tool Calls")}
           </p>
           <div className="space-y-2">
             {toolCalls.map((tool, index) => (
@@ -241,7 +242,7 @@ function MessageCard({ message }: { message: Record<string, unknown> }) {
       {responseMetadata && (
         <div className="space-y-2">
           <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-            Response Metadata
+            {t("Response Metadata")}
           </p>
           <ScalarTable value={responseMetadata} />
         </div>
@@ -252,7 +253,7 @@ function MessageCard({ message }: { message: Record<string, unknown> }) {
 
 export function RawJsonDetails({
   value,
-  title = "Advanced JSON",
+  title = t("Advanced JSON"),
 }: {
   value: unknown;
   title?: string;
@@ -331,7 +332,7 @@ export function ReadableJsonContent({
     if (normalizedItems.length === 0) {
       return (
         <div className="rounded-md border bg-background/60 px-3 py-3 text-sm text-muted-foreground">
-          Empty array
+          {t("Empty array")}
         </div>
       );
     }
@@ -344,7 +345,7 @@ export function ReadableJsonContent({
             className="rounded-md border bg-background/60 px-3 py-3"
           >
             <p className="mb-2 text-[11px] uppercase tracking-wide text-muted-foreground">
-              Item {index + 1}
+              {t("Item {index}", { index: index + 1 })}
             </p>
             <ReadableJsonContent value={item} depth={depth + 1} />
           </div>
@@ -379,7 +380,7 @@ export function ReadableJsonContent({
         {markdownSource && markdownSource.trim().length > 0 && (
           <div className="space-y-1">
             <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-              Content
+              {t("Content")}
             </p>
             <MarkdownBlock value={markdownSource} />
           </div>
@@ -407,7 +408,7 @@ export function ReadableJsonContent({
           Object.keys(scalarEntries).length === 0 &&
           nestedEntries.length === 0 && (
             <div className="rounded-md border bg-background/60 px-3 py-3 text-sm text-muted-foreground">
-              Empty object
+              {t("Empty object")}
             </div>
           )}
       </div>

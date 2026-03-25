@@ -1,4 +1,5 @@
 import { Zap } from "lucide-react";
+import { t } from "@/i18n";
 import { formatTokens } from "@/lib/format";
 import type { TraceItem } from "@/types";
 
@@ -14,7 +15,7 @@ export function TokenSummary({ trace }: TokenSummaryProps) {
     <div className="rounded-md border p-3 space-y-2">
       <div className="flex items-center gap-2 text-sm font-medium">
         <Zap className="h-4 w-4 text-amber-500" />
-        Token Usage
+        {t("Token Usage")}
       </div>
       <div className="flex h-2 rounded-full overflow-hidden bg-muted">
         <div
@@ -27,10 +28,10 @@ export function TokenSummary({ trace }: TokenSummaryProps) {
         />
       </div>
       <div className="flex justify-between text-xs text-muted-foreground">
-        <span>Input: {formatTokens(trace.input_tokens)}</span>
-        <span>Output: {formatTokens(trace.output_tokens)}</span>
+        <span>{t("Input: {input}", { input: formatTokens(trace.input_tokens) })}</span>
+        <span>{t("Output: {output}", { output: formatTokens(trace.output_tokens) })}</span>
         <span className="font-medium text-foreground">
-          Total: {formatTokens(trace.total_tokens)}
+          {t("Total: {total}", { total: formatTokens(trace.total_tokens) })}
         </span>
       </div>
     </div>

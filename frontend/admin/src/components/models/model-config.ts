@@ -1,4 +1,5 @@
 import type { AdminModel } from "@/types";
+import { t } from "@/i18n";
 
 export const DEFAULT_MODEL_PROVIDER = "anthropic";
 
@@ -67,11 +68,11 @@ function parseJsonObject(source: string, label: string): Record<string, unknown>
   try {
     parsed = JSON.parse(normalized);
   } catch {
-    throw new Error(`${label} must be valid JSON`);
+    throw new Error(t("{label} must be valid JSON", { label }));
   }
 
   if (!isRecord(parsed)) {
-    throw new Error(`${label} must be a JSON object`);
+    throw new Error(t("{label} must be a JSON object", { label }));
   }
 
   return parsed;
@@ -140,7 +141,7 @@ export function buildModelPayload(values: ModelFormValues): ModelMutationPayload
   if (maxInputTokens) {
     const parsed = Number.parseInt(maxInputTokens, 10);
     if (!Number.isInteger(parsed) || parsed <= 0) {
-      throw new Error("Max input tokens must be a positive integer");
+      throw new Error(t("Max input tokens must be a positive integer"));
     }
     configJson.max_input_tokens = parsed;
   } else {
@@ -218,19 +219,19 @@ export function getModelCapabilityBadges(model: AdminModel): string[] {
   const config = getModelConfig(model);
   const badges: string[] = [];
   if (config.supports_thinking === true) {
-    badges.push("Thinking");
+    badges.push(t("Thinking"));
   }
   if (config.supports_vision === true) {
-    badges.push("Vision");
+    badges.push(t("Vision"));
   }
   if (config.supports_reasoning_effort === true) {
-    badges.push("Effort");
+    badges.push(t("Effort"));
   }
   if (
     isRecord(config.when_thinking_enabled) &&
     Object.keys(config.when_thinking_enabled).length > 0
   ) {
-    badges.push("Thinking Config");
+    badges.push(t("Thinking Config"));
   }
   const maxInputTokens = config.max_input_tokens;
   if (
@@ -238,7 +239,11 @@ export function getModelCapabilityBadges(model: AdminModel): string[] {
     Number.isInteger(maxInputTokens) &&
     maxInputTokens > 0
   ) {
-    badges.push(`${Math.round(maxInputTokens / 1000)}K ctx`);
+    badges.push(
+      t("{count}K ctx", {
+        count: Math.round(maxInputTokens / 1000),
+      }),
+    );
   }
   return badges;
 }

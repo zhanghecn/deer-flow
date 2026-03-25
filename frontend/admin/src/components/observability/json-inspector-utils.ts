@@ -1,3 +1,5 @@
+import { t } from "@/i18n";
+
 export type SelectedField = {
   path: string;
   value: unknown;
@@ -72,10 +74,14 @@ export function buildFieldPath(parent: string, label: string): string {
 }
 
 export function describeType(value: unknown): string {
-  if (Array.isArray(value)) return `array(${value.length})`;
-  if (isObject(value)) return `object(${Object.keys(value).length})`;
-  if (value === null) return "null";
-  return typeof value;
+  if (Array.isArray(value)) {
+    return t("array({count})", { count: value.length });
+  }
+  if (isObject(value)) {
+    return t("object({count})", { count: Object.keys(value).length });
+  }
+  if (value === null) return t("null");
+  return t(typeof value);
 }
 
 export function toRawText(value: unknown): string {
@@ -284,7 +290,7 @@ function sanitizeReadableValue(
 
   if (Array.isArray(value)) {
     if (seen.has(value)) {
-      return "[circular]";
+      return t("[circular]");
     }
     seen.add(value);
     let changed = false;
@@ -300,7 +306,7 @@ function sanitizeReadableValue(
 
   if (isObject(value)) {
     if (seen.has(value)) {
-      return "[circular]";
+      return t("[circular]");
     }
     seen.add(value);
     let changed = false;

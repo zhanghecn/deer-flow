@@ -28,6 +28,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { t } from "@/i18n";
 import { api } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import type { AdminUser } from "@/types";
@@ -56,10 +57,10 @@ export function UsersTable({ users, isLoading, onRefetch }: UsersTableProps) {
         method: "PATCH",
         body: { role: newRole },
       });
-      toast.success(`Role updated to ${newRole}`);
+      toast.success(t("Role updated to {role}", { role: t(newRole) }));
       onRefetch();
     } catch {
-      toast.error("Failed to update role");
+      toast.error(t("Failed to update role"));
     }
   }
 
@@ -67,18 +68,18 @@ export function UsersTable({ users, isLoading, onRefetch }: UsersTableProps) {
     if (!deleteTarget) return;
     try {
       await api(`/api/admin/users/${deleteTarget.id}`, { method: "DELETE" });
-      toast.success("User deleted");
+      toast.success(t("User deleted"));
       setDeleteTarget(null);
       onRefetch();
     } catch {
-      toast.error("Failed to delete user");
+      toast.error(t("Failed to delete user"));
     }
   }
 
   return (
     <div className="space-y-4">
       <Input
-        placeholder="Search by name or email..."
+        placeholder={t("Search by name or email...")}
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         className="max-w-sm"
@@ -93,7 +94,7 @@ export function UsersTable({ users, isLoading, onRefetch }: UsersTableProps) {
       ) : !filtered?.length ? (
         <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
           <User className="h-12 w-12 mb-2 opacity-40" />
-          <p>No users found</p>
+          <p>{t("No users found")}</p>
         </div>
       ) : (
         <div className="rounded-md border">
@@ -101,11 +102,11 @@ export function UsersTable({ users, isLoading, onRefetch }: UsersTableProps) {
             <TableHeader>
               <TableRow>
                 <TableHead className="w-12" />
-                <TableHead>Name</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Created</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                <TableHead>{t("Name")}</TableHead>
+                <TableHead>{t("Email")}</TableHead>
+                <TableHead>{t("Role")}</TableHead>
+                <TableHead>{t("Created")}</TableHead>
+                <TableHead className="text-right">{t("Actions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -132,7 +133,7 @@ export function UsersTable({ users, isLoading, onRefetch }: UsersTableProps) {
                       {user.role === "admin" && (
                         <Shield className="mr-1 h-3 w-3" />
                       )}
-                      {user.role}
+                      {t(user.role)}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-muted-foreground">
@@ -152,8 +153,8 @@ export function UsersTable({ users, isLoading, onRefetch }: UsersTableProps) {
                         </TooltipTrigger>
                         <TooltipContent>
                           {user.role === "admin"
-                            ? "Demote to user"
-                            : "Promote to admin"}
+                            ? t("Demote to user")
+                            : t("Promote to admin")}
                         </TooltipContent>
                       </Tooltip>
                       <Tooltip>
@@ -166,7 +167,7 @@ export function UsersTable({ users, isLoading, onRefetch }: UsersTableProps) {
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>Delete user</TooltipContent>
+                        <TooltipContent>{t("Delete user")}</TooltipContent>
                       </Tooltip>
                     </div>
                   </TableCell>
@@ -183,20 +184,24 @@ export function UsersTable({ users, isLoading, onRefetch }: UsersTableProps) {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete User</AlertDialogTitle>
+            <AlertDialogTitle>{t("Delete User")}</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete{" "}
-              <strong>{deleteTarget?.name}</strong> ({deleteTarget?.email})? This
-              action cannot be undone.
+              {t(
+                "Are you sure you want to delete {name} ({email})? This action cannot be undone.",
+                {
+                  name: deleteTarget?.name ?? "",
+                  email: deleteTarget?.email ?? "",
+                },
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Delete
+              {t("Delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

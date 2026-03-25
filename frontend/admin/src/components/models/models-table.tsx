@@ -29,6 +29,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { t } from "@/i18n";
 import { api } from "@/lib/api";
 import { formatDate, maskString } from "@/lib/format";
 import type { AdminModel } from "@/types";
@@ -87,12 +88,12 @@ export function ModelsTable({
       await api(`/api/admin/models/${encodeURIComponent(deleteTarget.name)}`, {
         method: "DELETE",
       });
-      toast.success("Model deleted");
+      toast.success(t("Model deleted"));
       setDeleteTarget(null);
       onRefetch();
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Failed to delete model",
+        error instanceof Error ? error.message : t("Failed to delete model"),
       );
     }
   }
@@ -103,11 +104,13 @@ export function ModelsTable({
         method: "PUT",
         body: buildExistingModelPayload(model, { enabled: !model.enabled }),
       });
-      toast.success(`Model ${!model.enabled ? "enabled" : "disabled"}`);
+      toast.success(
+        !model.enabled ? t("Model enabled") : t("Model disabled"),
+      );
       onRefetch();
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Failed to update model",
+        error instanceof Error ? error.message : t("Failed to update model"),
       );
     }
   }
@@ -117,23 +120,26 @@ export function ModelsTable({
       <div className="rounded-xl border bg-card/70 p-4 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div className="space-y-1">
-            <p className="text-sm font-medium text-foreground">Runtime inventory</p>
+            <p className="text-sm font-medium text-foreground">{t("Runtime inventory")}</p>
             <p className="text-sm text-muted-foreground">
               {search.trim()
-                ? `Showing ${visibleModels} of ${totalModels} models`
-                : `${totalModels} models available`}
+                ? t("Showing {visible} of {total} models", {
+                    visible: visibleModels,
+                    total: totalModels,
+                  })
+                : t("{total} models available", { total: totalModels })}
             </p>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <Input
               className="w-full sm:w-[26rem]"
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search by name, provider, or runtime model..."
+              placeholder={t("Search by name, provider, or runtime model...")}
               value={search}
             />
             <Button className="shrink-0" onClick={openCreateForm}>
               <Plus className="mr-2 h-4 w-4" />
-              Add Model
+              {t("Add Model")}
             </Button>
           </div>
         </div>
@@ -148,7 +154,7 @@ export function ModelsTable({
       ) : !filteredModels?.length ? (
         <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
           <Cpu className="mb-2 h-12 w-12 opacity-40" />
-          <p>No models found</p>
+          <p>{t("No models found")}</p>
         </div>
       ) : (
         <div className="rounded-xl border bg-card/70 shadow-sm">
@@ -158,14 +164,14 @@ export function ModelsTable({
           <Table className="table-fixed min-w-[980px]">
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[13rem]">Name</TableHead>
-                <TableHead className="w-[6rem]">Provider</TableHead>
-                <TableHead className="w-[9rem]">Runtime Model</TableHead>
-                <TableHead className="w-[14rem]">Capabilities</TableHead>
-                <TableHead className="w-[7rem]">API Key</TableHead>
-                <TableHead className="w-[8rem]">Status</TableHead>
-                <TableHead className="w-[8rem]">Created</TableHead>
-                <TableHead className="w-[4rem] text-right">Actions</TableHead>
+                <TableHead className="w-[13rem]">{t("Name")}</TableHead>
+                <TableHead className="w-[6rem]">{t("Provider")}</TableHead>
+                <TableHead className="w-[9rem]">{t("Runtime Model")}</TableHead>
+                <TableHead className="w-[14rem]">{t("Capabilities")}</TableHead>
+                <TableHead className="w-[7rem]">{t("API Key")}</TableHead>
+                <TableHead className="w-[8rem]">{t("Status")}</TableHead>
+                <TableHead className="w-[8rem]">{t("Created")}</TableHead>
+                <TableHead className="w-[4rem] text-right">{t("Actions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -196,20 +202,23 @@ export function ModelsTable({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Model</AlertDialogTitle>
+            <AlertDialogTitle>{t("Delete Model")}</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete{" "}
-              <strong>{deleteTarget?.display_name || deleteTarget?.name}</strong>
-              ? This will remove it from runtime selection immediately.
+              {t(
+                "Are you sure you want to delete {name}? This will remove it from runtime selection immediately.",
+                {
+                  name: deleteTarget?.display_name || deleteTarget?.name || "",
+                },
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={handleDelete}
             >
-              Delete
+              {t("Delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -256,7 +265,7 @@ function ModelRow({
               </Badge>
             ))
           ) : (
-            <span className="text-sm text-muted-foreground">Basic</span>
+            <span className="text-sm text-muted-foreground">{t("Basic")}</span>
           )}
         </div>
       </TableCell>
@@ -270,7 +279,7 @@ function ModelRow({
             onCheckedChange={() => onToggleEnabled(model)}
           />
           <span className="text-sm text-muted-foreground">
-            {model.enabled ? "Enabled" : "Disabled"}
+            {model.enabled ? t("Enabled") : t("Disabled")}
           </span>
         </div>
       </TableCell>
@@ -285,7 +294,7 @@ function ModelRow({
                 <Pencil className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Edit model</TooltipContent>
+            <TooltipContent>{t("Edit model")}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -297,7 +306,7 @@ function ModelRow({
                 <Trash2 className="h-4 w-4 text-destructive" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Delete model</TooltipContent>
+            <TooltipContent>{t("Delete model")}</TooltipContent>
           </Tooltip>
         </div>
       </TableCell>

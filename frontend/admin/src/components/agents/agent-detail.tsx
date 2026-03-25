@@ -18,6 +18,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { t } from "@/i18n";
 import { api } from "@/lib/api";
 import type { Agent } from "@/types";
 
@@ -137,7 +138,7 @@ export function AgentDetail({
       })
       .catch((error) => {
         toast.error(
-          error instanceof Error ? error.message : "Failed to load agent detail",
+          error instanceof Error ? error.message : t("Failed to load agent detail"),
         );
       })
       .finally(() => {
@@ -194,10 +195,10 @@ export function AgentDetail({
       });
       setDetail(updated);
       setForm(createFormState(updated));
-      toast.success(`${updated.name} saved`);
+      toast.success(t("{name} saved", { name: updated.name }));
       onSaved?.();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to save agent");
+      toast.error(error instanceof Error ? error.message : t("Failed to save agent"));
     } finally {
       setIsSaving(false);
     }
@@ -215,11 +216,11 @@ export function AgentDetail({
       setDetail((current) =>
         current ? { ...current, status: current.status } : current,
       );
-      toast.success(`${published.name} published`);
+      toast.success(t("{name} published", { name: published.name }));
       onSaved?.();
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Failed to publish agent",
+        error instanceof Error ? error.message : t("Failed to publish agent"),
       );
     } finally {
       setIsPublishing(false);
@@ -229,9 +230,9 @@ export function AgentDetail({
   async function handleCopyDemoURL() {
     try {
       await navigator.clipboard.writeText(demoURL);
-      toast.success("Demo URL copied");
+      toast.success(t("Demo URL copied"));
     } catch {
-      toast.error("Failed to copy demo URL");
+      toast.error(t("Failed to copy demo URL"));
     }
   }
 
@@ -242,11 +243,11 @@ export function AgentDetail({
           <DialogTitle className="flex items-center gap-2">
             {agent.name}
             <Badge variant={agent.status === "prod" ? "default" : "secondary"}>
-              {agent.status}
+              {t(agent.status)}
             </Badge>
           </DialogTitle>
           <DialogDescription>
-            Edit archived agent metadata, prompt, and launch parameters.
+            {t("Edit archived agent metadata, prompt, and launch parameters.")}
           </DialogDescription>
         </DialogHeader>
 
@@ -254,21 +255,21 @@ export function AgentDetail({
           {isLoading || !detail || !form ? (
             <div className="flex items-center justify-center py-12 text-muted-foreground">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Loading agent detail...
+              {t("Loading agent detail...")}
             </div>
           ) : (
             <div className="space-y-6">
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>Name</Label>
+                  <Label>{t("Name")}</Label>
                   <Input value={detail.name} disabled />
                 </div>
                 <div className="space-y-2">
-                  <Label>Status</Label>
-                  <Input value={detail.status} disabled />
+                  <Label>{t("Status")}</Label>
+                  <Input value={t(detail.status)} disabled />
                 </div>
                 <div className="space-y-2 md:col-span-2">
-                  <Label>Description</Label>
+                  <Label>{t("Description")}</Label>
                   <Textarea
                     value={form.description}
                     onChange={(event) =>
@@ -278,7 +279,7 @@ export function AgentDetail({
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Model</Label>
+                  <Label>{t("Model")}</Label>
                   <Input
                     value={form.model}
                     onChange={(event) =>
@@ -288,7 +289,7 @@ export function AgentDetail({
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Tool Groups</Label>
+                  <Label>{t("Tool Groups")}</Label>
                   <Input
                     value={form.toolGroups}
                     onChange={(event) =>
@@ -298,7 +299,7 @@ export function AgentDetail({
                   />
                 </div>
                 <div className="space-y-2 md:col-span-2">
-                  <Label>MCP Servers</Label>
+                  <Label>{t("MCP Servers")}</Label>
                   <Input
                     value={form.mcpServers}
                     onChange={(event) =>
@@ -314,9 +315,9 @@ export function AgentDetail({
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h4 className="text-sm font-medium">Memory Policy</h4>
+                    <h4 className="text-sm font-medium">{t("Memory Policy")}</h4>
                     <p className="text-muted-foreground text-xs">
-                      Stored per `user_id + agent_name + status`.
+                      {t("Stored per `user_id + agent_name + status`.")}
                     </p>
                   </div>
                   <Switch
@@ -329,17 +330,17 @@ export function AgentDetail({
 
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
-                    <Label>Memory Model</Label>
+                    <Label>{t("Memory Model")}</Label>
                     <Input
                       value={form.memoryModel}
                       onChange={(event) =>
                         setForm({ ...form, memoryModel: event.target.value })
                       }
-                      placeholder="Required when memory is enabled"
+                      placeholder={t("Required when memory is enabled")}
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Debounce Seconds</Label>
+                    <Label>{t("Debounce Seconds")}</Label>
                     <Input
                       type="number"
                       value={form.debounceSeconds}
@@ -349,7 +350,7 @@ export function AgentDetail({
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Max Facts</Label>
+                    <Label>{t("Max Facts")}</Label>
                     <Input
                       type="number"
                       value={form.maxFacts}
@@ -359,7 +360,7 @@ export function AgentDetail({
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Confidence Threshold</Label>
+                    <Label>{t("Confidence Threshold")}</Label>
                     <Input
                       type="number"
                       step="0.1"
@@ -373,7 +374,7 @@ export function AgentDetail({
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Max Injection Tokens</Label>
+                    <Label>{t("Max Injection Tokens")}</Label>
                     <Input
                       type="number"
                       value={form.maxInjectionTokens}
@@ -387,9 +388,9 @@ export function AgentDetail({
                   </div>
                   <div className="flex items-center justify-between rounded-md border px-3 py-2">
                     <div>
-                      <div className="text-sm font-medium">Inject Memory</div>
+                      <div className="text-sm font-medium">{t("Inject Memory")}</div>
                       <div className="text-muted-foreground text-xs">
-                        Include memory in prompt context
+                        {t("Include memory in prompt context")}
                       </div>
                     </div>
                     <Switch
@@ -406,7 +407,7 @@ export function AgentDetail({
                 <>
                   <Separator />
                   <div className="space-y-2">
-                    <h4 className="text-sm font-medium">Materialized Skills</h4>
+                    <h4 className="text-sm font-medium">{t("Materialized Skills")}</h4>
                     <div className="flex flex-wrap gap-1.5">
                       {detail.skills.map((skill) => (
                         <Badge key={`${skill.name}:${skill.source_path ?? skill.materialized_path}`}>
@@ -421,7 +422,7 @@ export function AgentDetail({
               <Separator />
 
               <div className="space-y-2">
-                <Label>AGENTS.md</Label>
+                <Label>{t("AGENTS.md")}</Label>
                 <Textarea
                   value={form.agentsMD}
                   onChange={(event) =>
@@ -436,14 +437,14 @@ export function AgentDetail({
 
               <div className="space-y-3">
                 <div>
-                  <h4 className="text-sm font-medium">Demo URL</h4>
+                  <h4 className="text-sm font-medium">{t("Demo URL")}</h4>
                   <p className="text-muted-foreground text-xs">
-                    Launch the frontend workspace directly into this agent.
+                    {t("Launch the frontend workspace directly into this agent.")}
                   </p>
                 </div>
                 <div className="grid gap-4 md:grid-cols-[180px_1fr]">
                   <div className="space-y-2">
-                    <Label>Runtime</Label>
+                    <Label>{t("Runtime")}</Label>
                     <select
                       value={launchMode}
                       onChange={(event) =>
@@ -451,17 +452,17 @@ export function AgentDetail({
                       }
                       className="border-input bg-background h-9 rounded-md border px-3 text-sm"
                     >
-                      <option value="default">default runtime</option>
-                      <option value="remote">remote cli</option>
+                      <option value="default">{t("default runtime")}</option>
+                      <option value="remote">{t("remote cli")}</option>
                     </select>
                   </div>
                   <div className="space-y-2">
-                    <Label>Remote Session ID</Label>
+                    <Label>{t("Remote Session ID")}</Label>
                     <Input
                       value={remoteSessionID}
                       onChange={(event) => setRemoteSessionID(event.target.value)}
                       disabled={launchMode !== "remote"}
-                      placeholder="optional when runtime=remote"
+                      placeholder={t("optional when runtime=remote")}
                     />
                   </div>
                 </div>
@@ -469,12 +470,12 @@ export function AgentDetail({
                 <div className="flex flex-wrap gap-2">
                   <Button variant="outline" onClick={handleCopyDemoURL}>
                     <CopyIcon className="h-4 w-4" />
-                    Copy URL
+                    {t("Copy URL")}
                   </Button>
                   <Button variant="outline" asChild>
                     <a href={demoURL} target="_blank" rel="noreferrer">
                       <ExternalLinkIcon className="h-4 w-4" />
-                      Open Demo
+                      {t("Open Demo")}
                     </a>
                   </Button>
                 </div>
@@ -495,7 +496,7 @@ export function AgentDetail({
               ) : (
                 <RocketIcon className="h-4 w-4" />
               )}
-              Publish
+              {t("Publish")}
             </Button>
           )}
           <Button onClick={() => void handleSave()} disabled={isSaving || isLoading}>
@@ -504,7 +505,7 @@ export function AgentDetail({
             ) : (
               <SaveIcon className="h-4 w-4" />
             )}
-            Save
+            {t("Save")}
           </Button>
         </DialogFooter>
       </DialogContent>

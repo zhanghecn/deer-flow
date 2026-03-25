@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { t } from "@/i18n";
 import { api } from "@/lib/api";
 import type { AdminModel } from "@/types";
 import { toast } from "sonner";
@@ -157,9 +158,9 @@ export function ModelForm({
   function formatExtraConfig() {
     try {
       updateField("extraConfig", formatJsonObject(values.extraConfig));
-      toast.success("Extra config formatted");
+      toast.success(t("Extra config formatted"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Invalid JSON");
+      toast.error(error instanceof Error ? error.message : t("Invalid JSON"));
     }
   }
 
@@ -181,7 +182,7 @@ export function ModelForm({
         <Input
           autoComplete="off"
           name={`${fieldNamePrefix}-${field.key}`}
-          placeholder={field.placeholder}
+          placeholder={t(field.placeholder)}
           required={field.required}
           value={values[field.key]}
           onChange={(event) => updateField(field.key, event.target.value)}
@@ -197,7 +198,7 @@ export function ModelForm({
     try {
       body = buildModelPayload(values);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Invalid form");
+      toast.error(error instanceof Error ? error.message : t("Invalid form"));
       return;
     }
 
@@ -208,19 +209,19 @@ export function ModelForm({
           method: "PUT",
           body,
         });
-        toast.success("Model updated");
+        toast.success(t("Model updated"));
       } else {
         await api("/api/admin/models", {
           method: "POST",
           body,
         });
-        toast.success("Model created");
+        toast.success(t("Model created"));
       }
       onOpenChange(false);
       onSuccess();
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Failed to save model",
+        error instanceof Error ? error.message : t("Failed to save model"),
       );
     } finally {
       setIsSubmitting(false);
@@ -231,11 +232,11 @@ export function ModelForm({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[82vh] w-[95vw] max-w-[980px] gap-0 overflow-hidden p-0 sm:w-[92vw]">
         <DialogHeader className="border-b bg-muted/30 px-5 py-4">
-          <DialogTitle>{isEdit ? "Edit Model" : "Add Model"}</DialogTitle>
+          <DialogTitle>{isEdit ? t("Edit Model") : t("Add Model")}</DialogTitle>
           <DialogDescription>
-            Edit the runtime `models` table directly. Common fields are exposed
-            as form controls, and JSON is reserved for provider-specific
-            details.
+            {t(
+              "Edit the runtime `models` table directly. Common fields are exposed as form controls, and JSON is reserved for provider-specific details.",
+            )}
           </DialogDescription>
         </DialogHeader>
 
@@ -255,21 +256,21 @@ export function ModelForm({
                 active={activePanel === "essentials"}
                 onClick={() => setActivePanel("essentials")}
               >
-                Essentials
+                {t("Essentials")}
               </PanelToggle>
               <PanelToggle
                 active={activePanel === "advanced"}
                 onClick={() => setActivePanel("advanced")}
               >
-                Advanced JSON
+                {t("Advanced JSON")}
               </PanelToggle>
             </div>
 
             {activePanel === "essentials" ? (
               <div className="grid gap-5 lg:grid-cols-[minmax(0,1.6fr)_minmax(300px,0.95fr)]">
                 <Section
-                  title="Basics"
-                  description="These fields identify the model and map it to the runtime class."
+                  title={t("Basics")}
+                  description={t("These fields identify the model and map it to the runtime class.")}
                 >
                   <div className="grid gap-4 md:grid-cols-2">
                     {IDENTITY_FIELDS.map(renderTextField)}
@@ -278,19 +279,19 @@ export function ModelForm({
 
                 <div className="space-y-6">
                   <Section
-                    title="Access"
-                    description="Provider connection details stay separate from the identity fields."
+                    title={t("Access")}
+                    description={t("Provider connection details stay separate from the identity fields.")}
                   >
                     <div className="space-y-4">
                       {CONNECTION_FIELDS.map(renderTextField)}
                       <Field
-                        label="API Key"
-                        description="Stored in models.config_json.api_key and used directly by the runtime."
+                        label={t("API Key")}
+                        description={t("Stored in models.config_json.api_key and used directly by the runtime.")}
                       >
                         <Input
                           autoComplete="new-password"
                           name={`${fieldNamePrefix}-api-key`}
-                          placeholder="Provider key or $ENV_VAR"
+                          placeholder={t("Provider key or $ENV_VAR")}
                           required
                           value={values.apiKey}
                           onChange={(event) =>
@@ -299,15 +300,15 @@ export function ModelForm({
                         />
                       </Field>
                       <Field
-                        label="Max Input Tokens"
-                        description="Required if you want fraction-based summarization and context-window percentages to work for this model."
+                        label={t("Max Input Tokens")}
+                        description={t("Required if you want fraction-based summarization and context-window percentages to work for this model.")}
                       >
                         <Input
                           autoComplete="off"
                           inputMode="numeric"
                           min={1}
                           name={`${fieldNamePrefix}-max-input-tokens`}
-                          placeholder="For example 200000"
+                          placeholder={t("For example 200000")}
                           type="number"
                           value={values.maxInputTokens}
                           onChange={(event) =>
@@ -319,8 +320,8 @@ export function ModelForm({
                   </Section>
 
                   <Section
-                    title="Capabilities"
-                    description="Toggle the common runtime abilities without editing JSON by hand."
+                    title={t("Capabilities")}
+                    description={t("Toggle the common runtime abilities without editing JSON by hand.")}
                   >
                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1">
                       {CAPABILITY_FIELDS.map((field) => (
@@ -340,10 +341,13 @@ export function ModelForm({
             ) : (
               <div className="grid gap-5 sm:grid-cols-2">
                 <Section
-                  title="Thinking Config"
-                  description="Only applied when the model is invoked with thinking enabled."
+                  title={t("Thinking Config")}
+                  description={t("Only applied when the model is invoked with thinking enabled.")}
                 >
-                  <Field label="JSON" description="Starts empty unless you choose a preset below.">
+                  <Field
+                    label={t("JSON")}
+                    description={t("Starts empty unless you choose a preset below.")}
+                  >
                     <EditorToolbar>
                       <Button
                         size="sm"
@@ -351,7 +355,7 @@ export function ModelForm({
                         variant="outline"
                         onClick={applyThinkingPreset}
                       >
-                        Use Enabled Preset
+                        {t("Use Enabled Preset")}
                       </Button>
                       <Button
                         size="sm"
@@ -359,7 +363,7 @@ export function ModelForm({
                         variant="ghost"
                         onClick={clearThinkingConfig}
                       >
-                        Clear
+                        {t("Clear")}
                       </Button>
                     </EditorToolbar>
                     <Textarea
@@ -377,12 +381,12 @@ export function ModelForm({
                 </Section>
 
                 <Section
-                  title="Extra Config"
-                  description="Use this for provider-specific keys such as timeout, output limits, or headers."
+                  title={t("Extra Config")}
+                  description={t("Use this for provider-specific keys such as timeout, output limits, or headers.")}
                 >
                   <Field
-                    label="JSON"
-                    description="Fields already exposed above should stay out of this object."
+                    label={t("JSON")}
+                    description={t("Fields already exposed above should stay out of this object.")}
                   >
                     <EditorToolbar>
                       <Button
@@ -391,7 +395,7 @@ export function ModelForm({
                         variant="outline"
                         onClick={formatExtraConfig}
                       >
-                        Format JSON
+                        {t("Format JSON")}
                       </Button>
                       <Button
                         size="sm"
@@ -399,7 +403,7 @@ export function ModelForm({
                         variant="ghost"
                         onClick={clearExtraConfig}
                       >
-                        Clear
+                        {t("Clear")}
                       </Button>
                     </EditorToolbar>
                     <Textarea
@@ -425,14 +429,14 @@ export function ModelForm({
               variant="outline"
               onClick={() => onOpenChange(false)}
             >
-              Cancel
+              {t("Cancel")}
             </Button>
             <Button disabled={isSubmitting} type="submit">
               {isSubmitting
-                ? "Saving..."
+                ? t("Saving...")
                 : isEdit
-                  ? "Save Changes"
-                  : "Create Model"}
+                  ? t("Save Changes")
+                  : t("Create Model")}
             </Button>
           </DialogFooter>
         </form>
@@ -451,11 +455,15 @@ function formatJsonObject(source: string): string {
   try {
     parsed = JSON.parse(normalized);
   } catch {
-    throw new Error("Extra config must be valid JSON");
+    throw new Error(
+      t("{label} must be valid JSON", { label: t("Extra Config") }),
+    );
   }
 
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new Error("Extra config must be a JSON object");
+    throw new Error(
+      t("{label} must be a JSON object", { label: t("Extra Config") }),
+    );
   }
 
   return JSON.stringify(parsed, null, 2);
@@ -472,10 +480,10 @@ function Field({
 }) {
   return (
     <div className="space-y-2">
-      <Label>{label}</Label>
+      <Label>{t(label)}</Label>
       {children}
       {description ? (
-        <p className="text-xs text-muted-foreground">{description}</p>
+        <p className="text-xs text-muted-foreground">{t(description)}</p>
       ) : null}
     </div>
   );
@@ -493,8 +501,8 @@ function Section({
   return (
     <section className="space-y-4 rounded-xl border bg-muted/15 p-4">
       <div className="space-y-1">
-        <h3 className="text-sm font-semibold">{title}</h3>
-        <p className="text-sm text-muted-foreground">{description}</p>
+        <h3 className="text-sm font-semibold">{t(title)}</h3>
+        <p className="text-sm text-muted-foreground">{t(description)}</p>
       </div>
       {children}
     </section>
@@ -541,7 +549,7 @@ function SwitchField({
 }) {
   return (
     <div className="flex items-center justify-between rounded-md border bg-background px-3 py-2">
-      <Label>{label}</Label>
+      <Label>{t(label)}</Label>
       <Switch checked={checked} onCheckedChange={onCheckedChange} />
     </div>
   );
