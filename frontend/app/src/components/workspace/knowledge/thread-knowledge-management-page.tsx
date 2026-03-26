@@ -751,7 +751,9 @@ function KnowledgePreviewPanel({
   const [opening, setOpening] = useState(false);
   const binaryPath = documentBinaryPreviewPath(document);
   const textPath = documentTextPreviewPath(document);
-  const hasBinaryPreview = Boolean(document && isPdfPreviewDocument(document));
+  const hasBinaryPreview =
+    document.file_kind.toLowerCase() === "pdf" &&
+    (threadId == null || isPdfPreviewDocument(document));
   const canCompareCanonical = Boolean(canonicalMarkdown?.trim().length);
   const effectiveMode =
     mode === "preview" && hasBinaryPreview
