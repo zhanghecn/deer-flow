@@ -11,6 +11,7 @@ import pymupdf
 
 from src.config.paths import VIRTUAL_PATH_PREFIX, get_paths
 from src.config.runtime_db import get_runtime_db_store
+from src.knowledge import formatters as knowledge_formatters
 from src.knowledge.models import (
     CanonicalSourceMapEntry,
     DocumentImageResult,
@@ -418,9 +419,7 @@ class KnowledgeRepository:
             storage_ref=str(primary_storage_ref),
             indexed_document=indexed_document,
         )
-        source_map_payload = [
-            entry.model_dump(mode="json") for entry in indexed_document.source_map
-        ]
+        source_map_payload = [entry.model_dump(mode="json") for entry in indexed_document.source_map]
         document_index_payload = {
             "document_id": document_id,
             "display_name": indexed_document.display_name,
@@ -435,10 +434,7 @@ class KnowledgeRepository:
             "canonical_storage_path": canonical_storage_path,
             "source_map_storage_path": source_map_storage_path,
             "structure": indexed_document.structure,
-            "nodes": [
-                node.model_dump(mode="json")
-                for node in indexed_document.nodes
-            ],
+            "nodes": [node.model_dump(mode="json") for node in indexed_document.nodes],
         }
         with self.connection() as conn, conn.cursor() as cur:
             cur.execute(
@@ -601,15 +597,18 @@ class KnowledgeRepository:
         structure = document_row[6] if isinstance(document_row[6], list) else []
         canonical_markdown = document_row[7]
         if not canonical_markdown:
-            canonical_markdown = self._read_storage_text(
-                first_non_empty(
-                    (
-                        document_row[12],
-                        document_row[10],
-                        document_row[9],
+            canonical_markdown = (
+                self._read_storage_text(
+                    first_non_empty(
+                        (
+                            document_row[12],
+                            document_row[10],
+                            document_row[9],
+                        )
                     )
                 )
-            ) or ""
+                or ""
+            )
         source_map_payload = document_row[8] if isinstance(document_row[8], list) else None
         if source_map_payload is None:
             source_map_payload = self._read_storage_json(document_row[13]) or []
@@ -647,10 +646,7 @@ class KnowledgeRepository:
                 for row in node_rows
             ],
             canonical_markdown=canonical_markdown,
-            source_map=[
-                CanonicalSourceMapEntry.model_validate(entry)
-                for entry in source_map_payload
-            ],
+            source_map=[CanonicalSourceMapEntry.model_validate(entry) for entry in source_map_payload],
         )
 
     def export_document_index_snapshot(self, *, document_id: str) -> Path | None:
@@ -720,9 +716,7 @@ class KnowledgeRepository:
         source_map_storage_path = document_row[10]
         structure = document_row[11] or []
 
-        storage_ref = first_non_empty(
-            (source_storage_path, markdown_storage_path, preview_storage_path)
-        )
+        storage_ref = first_non_empty((source_storage_path, markdown_storage_path, preview_storage_path))
         if storage_ref is None:
             return None
 
@@ -1073,10 +1067,7 @@ class KnowledgeRepository:
             total_chars += len(item.text or "")
             total_chars += sum(len(chunk.text) for chunk in item.page_chunks)
             if total_chars > _DETAIL_MAX_TOTAL_CHARS:
-                raise ValueError(
-                    "Requested node detail is too large. Inspect a narrower subtree with "
-                    "get_document_tree(document_name_or_id=..., node_id=...) and then fetch fewer nodes."
-                )
+                raise ValueError("Requested node detail is too large. Inspect a narrower subtree with get_document_tree(document_name_or_id=..., node_id=...) and then fetch fewer nodes.")
             items.append(item)
 
         requested_pages = _page_range_label_from_nodes(nodes)
@@ -1128,11 +1119,7 @@ class KnowledgeRepository:
         document: KnowledgeDocumentRecord,
     ) -> str:
         if document.locator_type == "page":
-            source_ref = (
-                document.preview_storage_path
-                or document.source_storage_path
-                or document.markdown_storage_path
-            )
+            source_ref = document.preview_storage_path or document.source_storage_path or document.markdown_storage_path
         else:
             source_ref = document.markdown_storage_path or document.source_storage_path
         source_path = self._storage_ref_to_path(source_ref)
@@ -1152,9 +1139,7 @@ class KnowledgeRepository:
         page_number: int,
     ) -> tuple[str, int]:
         if document.locator_type != "page":
-            raise ValueError(
-                f"Document '{document.display_name}' does not support page images."
-            )
+            raise ValueError(f"Document '{document.display_name}' does not support page images.")
         pdf_ref = document.preview_storage_path or document.source_storage_path
         if not pdf_ref:
             raise ValueError(f"Document '{document.display_name}' has no previewable PDF source.")
@@ -1162,9 +1147,7 @@ class KnowledgeRepository:
         doc = pymupdf.open(pdf_path)
         try:
             if page_number < 1 or page_number > doc.page_count:
-                raise ValueError(
-                    f"Page {page_number} is out of range for '{document.display_name}' (1-{doc.page_count})."
-                )
+                raise ValueError(f"Page {page_number} is out of range for '{document.display_name}' (1-{doc.page_count}).")
             page = doc.load_page(page_number - 1)
             embedded_image_count = len(page.get_images(full=True))
             target_dir = self._paths.sandbox_outputs_dir(thread_id) / ".knowledge" / document.id / "pages"
@@ -1210,11 +1193,7 @@ class KnowledgeRepository:
                 document=document,
                 node=node,
             )
-            text = "\n\n".join(
-                f"[Page {chunk.page_number}]\n{chunk.text}".strip()
-                for chunk in page_chunks
-                if chunk.text.strip()
-            ).strip()
+            text = "\n\n".join(f"[Page {chunk.page_number}]\n{chunk.text}".strip() for chunk in page_chunks if chunk.text.strip()).strip()
             citation_markdown = page_chunks[0].citation_markdown if len(page_chunks) == 1 else None
             image_paths = [path for chunk in page_chunks for path in chunk.image_paths]
 
@@ -1246,36 +1225,19 @@ class KnowledgeRepository:
             raise ValueError("At least one valid node_id is required.")
 
         if len(nodes) == 1 and nodes[0].parent_node_id is None and nodes[0].child_count > 0:
-            raise ValueError(
-                "The requested node is a root branch with many descendants. "
-                "Use get_document_tree(document_name_or_id=..., node_id=...) to inspect a narrower subtree first."
-            )
+            raise ValueError("The requested node is a root branch with many descendants. Use get_document_tree(document_name_or_id=..., node_id=...) to inspect a narrower subtree first.")
 
         if document.locator_type == "page":
             total_pages = sum(_page_span(node) for node in nodes)
-            limit = (
-                _DETAIL_SINGLE_NODE_PAGE_LIMIT
-                if len(nodes) == 1 and nodes[0].parent_node_id is not None
-                else _DETAIL_MULTI_NODE_PAGE_LIMIT
-            )
+            limit = _DETAIL_SINGLE_NODE_PAGE_LIMIT if len(nodes) == 1 and nodes[0].parent_node_id is not None else _DETAIL_MULTI_NODE_PAGE_LIMIT
             if total_pages > limit:
-                raise ValueError(
-                    f"Requested node detail spans {total_pages} pages, which exceeds the limit of {limit}. "
-                    "Inspect a narrower subtree or request fewer nodes."
-                )
+                raise ValueError(f"Requested node detail spans {total_pages} pages, which exceeds the limit of {limit}. Inspect a narrower subtree or request fewer nodes.")
             return
 
         total_lines = sum(_line_span(node) for node in nodes)
-        limit = (
-            _DETAIL_SINGLE_NODE_LINE_LIMIT
-            if len(nodes) == 1 and nodes[0].parent_node_id is not None
-            else _DETAIL_MULTI_NODE_LINE_LIMIT
-        )
+        limit = _DETAIL_SINGLE_NODE_LINE_LIMIT if len(nodes) == 1 and nodes[0].parent_node_id is not None else _DETAIL_MULTI_NODE_LINE_LIMIT
         if total_lines > limit:
-            raise ValueError(
-                f"Requested node detail spans {total_lines} lines, which exceeds the limit of {limit}. "
-                "Inspect a narrower subtree or request fewer nodes."
-            )
+            raise ValueError(f"Requested node detail spans {total_lines} lines, which exceeds the limit of {limit}. Inspect a narrower subtree or request fewer nodes.")
 
     def _extract_heading_node_text(
         self,
@@ -1285,11 +1247,7 @@ class KnowledgeRepository:
     ) -> str:
         if node.node_text:
             return node.node_text
-        markdown_path = self._storage_ref_to_path(
-            document.canonical_storage_path
-            or document.markdown_storage_path
-            or document.source_storage_path
-        )
+        markdown_path = self._storage_ref_to_path(document.canonical_storage_path or document.markdown_storage_path or document.source_storage_path)
         lines = markdown_path.read_text(encoding="utf-8").splitlines()
         bounded_line_start = node.line_start or 1
         bounded_line_end = node.line_end or len(lines)
@@ -1438,12 +1396,7 @@ class KnowledgeRepository:
         return f"{VIRTUAL_PATH_PREFIX}/outputs/{relative.as_posix()}"
 
     def _document_text_base_path(self, document: KnowledgeDocumentRecord) -> Path:
-        base_ref = (
-            document.canonical_storage_path
-            or document.markdown_storage_path
-            or document.preview_storage_path
-            or document.source_storage_path
-        )
+        base_ref = document.canonical_storage_path or document.markdown_storage_path or document.preview_storage_path or document.source_storage_path
         return self._storage_ref_to_path(base_ref).parent
 
     def _locator_label(
@@ -1509,29 +1462,16 @@ class KnowledgeRepository:
         items: list[NodeDetailItem],
     ) -> KnowledgeToolNextSteps:
         total_pages = sum(len(item.page_chunks) for item in items)
-        image_pages = sum(
-            1
-            for item in items
-            for chunk in item.page_chunks
-            if chunk.embedded_image_count > 0
-        )
-        summary = (
-            f"Successfully retrieved content for {len(items)} nodes covering {total_pages} pages."
-            if document.locator_type == "page"
-            else f"Successfully retrieved content for {len(items)} nodes."
-        )
+        image_pages = sum(1 for item in items for chunk in item.page_chunks if chunk.embedded_image_count > 0)
+        summary = f"Successfully retrieved content for {len(items)} nodes covering {total_pages} pages." if document.locator_type == "page" else f"Successfully retrieved content for {len(items)} nodes."
         options = [
             "Use get_document_tree(document_name_or_id=..., node_id=...) to inspect child branches when a node still covers too much content.",
             "Quote the smallest matching node or page chunk, then copy its citation_markdown exactly.",
         ]
         if document.locator_type == "page":
-            options.append(
-                "For page-based PDFs, prefer a single page chunk citation when the answer comes from one page."
-            )
+            options.append("For page-based PDFs, prefer a single page chunk citation when the answer comes from one page.")
         if image_pages > 0:
-            options.append(
-                "If returned text includes image_paths, use view_image(image_path=...) to inspect the exact figure. Use get_document_image(document_name_or_id=..., page_number=...) when you need the full page visual context."
-            )
+            options.append("If returned text includes image_paths, use view_image(image_path=...) to inspect the exact figure. Use get_document_image(document_name_or_id=..., page_number=...) when you need the full page visual context.")
         return KnowledgeToolNextSteps(summary=summary, options=options)
 
     def _storage_ref_to_path(self, storage_ref: str) -> Path:
@@ -1599,11 +1539,7 @@ def _limit_tree_depth(structure: list[dict], *, depth: int) -> list[dict]:
         return []
     result: list[dict] = []
     for item in structure:
-        payload = {
-            key: value
-            for key, value in item.items()
-            if key != "nodes"
-        }
+        payload = {key: value for key, value in item.items() if key != "nodes"}
         children = item.get("nodes")
         child_count = len(children) if isinstance(children, list) else 0
         payload["child_count"] = child_count
@@ -1619,131 +1555,19 @@ def _limit_tree_depth(structure: list[dict], *, depth: int) -> list[dict]:
 
 
 def format_tree_listing_payload(listing: DocumentTreeListing) -> str:
-    payload = {
-        "document": {
-            "id": listing.document.id,
-            "knowledge_base": listing.document.knowledge_base_name,
-            "name": listing.document.display_name,
-            "description": listing.document.doc_description,
-            "file_kind": listing.document.file_kind,
-            "locator_type": listing.document.locator_type,
-            "node_id": listing.node_id,
-            "max_depth": listing.max_depth,
-        },
-        "tree": listing.tree,
-        "next_steps": {
-            "summary": f"Returned a tree window for {listing.document.display_name}.",
-            "options": [
-                "If a branch has has_more_children=true, call get_document_tree(document_name_or_id=..., node_id=...) to inspect that subtree.",
-                "Once you identify the relevant nodes, call get_document_tree_node_detail(document_name_or_id=..., node_ids=...) to read grounded source text.",
-            ],
-        },
-    }
-    return json.dumps(payload, ensure_ascii=False, indent=2)
+    return knowledge_formatters.format_tree_listing_payload(listing)
 
 
 def format_documents_payload(documents: list[KnowledgeDocumentRecord]) -> str:
-    available = []
-    processing = []
-    for document in documents:
-        entry = {
-            "document_id": document.id,
-            "knowledge_base": document.knowledge_base_name,
-            "document_name": document.display_name,
-            "description": document.doc_description,
-            "file_kind": document.file_kind,
-            "locator_type": document.locator_type,
-            "status": document.status,
-            "node_count": document.node_count,
-        }
-        if document.latest_build_job is not None:
-            entry["build_job"] = document.latest_build_job.model_dump(mode="json")
-        if document.status == "ready":
-            available.append(entry)
-        else:
-            entry["error"] = document.error
-            processing.append(entry)
-    payload = {
-        "available_documents": available,
-        "unavailable_documents": processing,
-        "tool_protocol": [
-            "1. Use get_document_tree(document_name_or_id=...) to inspect the nested tree.",
-            "2. Use get_document_tree(document_name_or_id=..., node_id=...) to inspect a subtree when needed.",
-            "3. Use get_document_tree_node_detail(document_name_or_id=..., node_ids=...) to read source text for one or more nodes and copy the returned citation_markdown exactly.",
-            "4. If a PDF page contains a relevant figure, use get_document_image(document_name_or_id=..., page_number=...) and then view_image(image_path=...) when vision is available.",
-        ],
-    }
-    return json.dumps(payload, ensure_ascii=False, indent=2)
+    return knowledge_formatters.format_documents_payload(documents)
 
 
 def format_node_detail_payload(result: NodeDetailResult) -> str:
-    payload = {
-        "document": {
-            "document_id": result.document.id,
-            "knowledge_base": result.document.knowledge_base_name,
-            "document_name": result.document.display_name,
-            "locator_type": result.document.locator_type,
-            "total_pages": result.total_pages,
-        },
-        "requested_node_ids": result.requested_node_ids,
-        "requested_pages": result.requested_pages,
-        "returned_pages": result.returned_pages,
-        "returned_lines": result.returned_lines,
-        "items": [
-            {
-                "node_id": item.node_id,
-                "parent_node_id": item.parent_node_id,
-                "title": item.title,
-                "child_count": item.child_count,
-                "page_start": item.page_start,
-                "page_end": item.page_end,
-                "line_start": item.line_start,
-                "line_end": item.line_end,
-                "heading_slug": item.heading_slug,
-                "summary": item.summary,
-                "prefix_summary": item.prefix_summary,
-                "citation_markdown": item.citation_markdown,
-                "text": item.text,
-                "image_paths": item.image_paths,
-                "page_chunks": [
-                    {
-                        "page_number": chunk.page_number,
-                        "text": chunk.text,
-                        "citation_markdown": chunk.citation_markdown,
-                        "embedded_image_count": chunk.embedded_image_count,
-                        "image_paths": chunk.image_paths,
-                    }
-                    for chunk in item.page_chunks
-                ],
-            }
-            for item in result.items
-        ],
-        "next_steps": {
-            "summary": result.next_steps.summary,
-            "options": result.next_steps.options,
-        },
-    }
-    return json.dumps(payload, ensure_ascii=False, indent=2)
+    return knowledge_formatters.format_node_detail_payload(result)
 
 
 def format_document_image_payload(result: DocumentImageResult) -> str:
-    payload = {
-        "document": {
-            "document_id": result.document.id,
-            "knowledge_base": result.document.knowledge_base_name,
-            "document_name": result.document.display_name,
-            "locator_type": result.document.locator_type,
-            "total_pages": result.document.page_count,
-        },
-        "page_number": result.page_number,
-        "image_path": result.image_path,
-        "embedded_image_count": result.embedded_image_count,
-        "next_steps": {
-            "summary": result.next_steps.summary,
-            "options": result.next_steps.options,
-        },
-    }
-    return json.dumps(payload, ensure_ascii=False, indent=2)
+    return knowledge_formatters.format_document_image_payload(result)
 
 
 def _page_span(node: KnowledgeNodeRecord) -> int:

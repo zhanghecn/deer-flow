@@ -10,21 +10,51 @@ import type {
   KnowledgeTreeNode,
 } from "./types";
 
+type KnowledgeErrorPayload = {
+  error?: string;
+};
+
+async function readKnowledgeErrorMessage(
+  response: Response,
+  fallbackMessage: string,
+): Promise<string> {
+  const payload = (await response
+    .json()
+    .catch(() => ({}))) as KnowledgeErrorPayload;
+  return payload.error ?? `${fallbackMessage}: ${response.statusText}`;
+}
+
+async function fetchKnowledgeJson<T>(
+  input: RequestInfo | URL,
+  fallbackMessage: string,
+  init?: RequestInit,
+): Promise<T> {
+  const response = await authFetch(input, init);
+  if (!response.ok) {
+    throw new Error(await readKnowledgeErrorMessage(response, fallbackMessage));
+  }
+  return (await response.json()) as T;
+}
+
+async function fetchKnowledgeBlob(
+  input: RequestInfo | URL,
+  fallbackMessage: string,
+  init?: RequestInit,
+): Promise<Blob> {
+  const response = await authFetch(input, init);
+  if (!response.ok) {
+    throw new Error(await readKnowledgeErrorMessage(response, fallbackMessage));
+  }
+  return await response.blob();
+}
+
 export async function listThreadKnowledgeBases(
   threadId: string,
 ): Promise<KnowledgeBaseListResponse> {
-  const response = await authFetch(
+  return fetchKnowledgeJson<KnowledgeBaseListResponse>(
     `${getBackendBaseURL()}/api/threads/${threadId}/knowledge/bases`,
+    "Failed to load knowledge bases",
   );
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => ({}))) as {
-      error?: string;
-    };
-    throw new Error(
-      payload.error ?? `Failed to load knowledge bases: ${response.statusText}`,
-    );
-  }
-  return (await response.json()) as KnowledgeBaseListResponse;
 }
 
 export async function createThreadKnowledgeBase(
@@ -48,23 +78,14 @@ export async function createThreadKnowledgeBase(
     formData.append("files", file);
   });
 
-  const response = await authFetch(
+  return fetchKnowledgeJson<KnowledgeAcceptedResponse>(
     `${getBackendBaseURL()}/api/threads/${threadId}/knowledge/bases`,
+    "Failed to create knowledge base",
     {
       method: "POST",
       body: formData,
     },
   );
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => ({}))) as {
-      error?: string;
-    };
-    throw new Error(
-      payload.error ??
-        `Failed to create knowledge base: ${response.statusText}`,
-    );
-  }
-  return (await response.json()) as KnowledgeAcceptedResponse;
 }
 
 export async function listKnowledgeLibrary(
@@ -74,17 +95,10 @@ export async function listKnowledgeLibrary(
   if (threadId) {
     url.searchParams.set("thread_id", threadId);
   }
-  const response = await authFetch(url.toString());
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => ({}))) as {
-      error?: string;
-    };
-    throw new Error(
-      payload.error ??
-        `Failed to load knowledge library: ${response.statusText}`,
-    );
-  }
-  return (await response.json()) as KnowledgeBaseListResponse;
+  return fetchKnowledgeJson<KnowledgeBaseListResponse>(
+    url,
+    "Failed to load knowledge library",
+  );
 }
 
 export async function indexUploadedKnowledgeFiles(
@@ -96,8 +110,9 @@ export async function indexUploadedKnowledgeFiles(
     modelName?: string;
   },
 ): Promise<KnowledgeAcceptedResponse> {
-  const response = await authFetch(
+  return fetchKnowledgeJson<KnowledgeAcceptedResponse>(
     `${getBackendBaseURL()}/api/threads/${threadId}/knowledge/index-uploaded`,
+    "Failed to index uploaded knowledge files",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -109,68 +124,41 @@ export async function indexUploadedKnowledgeFiles(
       }),
     },
   );
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => ({}))) as {
-      error?: string;
-    };
-    throw new Error(
-      payload.error ??
-        `Failed to index uploaded knowledge files: ${response.statusText}`,
-    );
-  }
-  return (await response.json()) as KnowledgeAcceptedResponse;
 }
 
 export async function attachKnowledgeBaseToThread(
   threadId: string,
   knowledgeBaseId: string,
 ): Promise<KnowledgeBaseListResponse> {
-  const response = await authFetch(
+  return fetchKnowledgeJson<KnowledgeBaseListResponse>(
     `${getBackendBaseURL()}/api/threads/${threadId}/knowledge/bases/${knowledgeBaseId}/attach`,
+    "Failed to attach knowledge base",
     {
       method: "POST",
     },
   );
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => ({}))) as {
-      error?: string;
-    };
-    throw new Error(
-      payload.error ??
-        `Failed to attach knowledge base: ${response.statusText}`,
-    );
-  }
-  return (await response.json()) as KnowledgeBaseListResponse;
 }
 
 export async function detachKnowledgeBaseFromThread(
   threadId: string,
   knowledgeBaseId: string,
 ): Promise<KnowledgeBaseListResponse> {
-  const response = await authFetch(
+  return fetchKnowledgeJson<KnowledgeBaseListResponse>(
     `${getBackendBaseURL()}/api/threads/${threadId}/knowledge/bases/${knowledgeBaseId}/attach`,
+    "Failed to detach knowledge base",
     {
       method: "DELETE",
     },
   );
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => ({}))) as {
-      error?: string;
-    };
-    throw new Error(
-      payload.error ??
-        `Failed to detach knowledge base: ${response.statusText}`,
-    );
-  }
-  return (await response.json()) as KnowledgeBaseListResponse;
 }
 
 export async function updateKnowledgeBaseSettings(
   knowledgeBaseId: string,
   params: { previewEnabled: boolean },
 ): Promise<KnowledgeBaseSettingsResponse> {
-  const response = await authFetch(
+  return fetchKnowledgeJson<KnowledgeBaseSettingsResponse>(
     `${getBackendBaseURL()}/api/knowledge/bases/${knowledgeBaseId}/settings`,
+    "Failed to update knowledge base settings",
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -179,106 +167,53 @@ export async function updateKnowledgeBaseSettings(
       }),
     },
   );
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => ({}))) as {
-      error?: string;
-    };
-    throw new Error(
-      payload.error ??
-        `Failed to update knowledge base settings: ${response.statusText}`,
-    );
-  }
-  return (await response.json()) as KnowledgeBaseSettingsResponse;
 }
 
 export async function getKnowledgeDocumentTree(
   threadId: string,
   documentId: string,
 ): Promise<KnowledgeTreeNode[]> {
-  const response = await authFetch(
+  return fetchKnowledgeJson<KnowledgeTreeNode[]>(
     `${getBackendBaseURL()}/api/threads/${threadId}/knowledge/documents/${documentId}/tree`,
+    "Failed to load document tree",
   );
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => ({}))) as {
-      error?: string;
-    };
-    throw new Error(
-      payload.error ?? `Failed to load document tree: ${response.statusText}`,
-    );
-  }
-  return (await response.json()) as KnowledgeTreeNode[];
 }
 
 export async function getVisibleKnowledgeDocumentTree(
   documentId: string,
 ): Promise<KnowledgeTreeNode[]> {
-  const response = await authFetch(
+  return fetchKnowledgeJson<KnowledgeTreeNode[]>(
     `${getBackendBaseURL()}/api/knowledge/documents/${documentId}/tree`,
+    "Failed to load document tree",
   );
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => ({}))) as {
-      error?: string;
-    };
-    throw new Error(
-      payload.error ?? `Failed to load document tree: ${response.statusText}`,
-    );
-  }
-  return (await response.json()) as KnowledgeTreeNode[];
 }
 
 export async function listKnowledgeDocumentBuildEvents(
   threadId: string,
   documentId: string,
 ): Promise<KnowledgeDocumentBuildEventsResponse> {
-  const response = await authFetch(
+  return fetchKnowledgeJson<KnowledgeDocumentBuildEventsResponse>(
     `${getBackendBaseURL()}/api/threads/${threadId}/knowledge/documents/${documentId}/build-events`,
+    "Failed to load knowledge build events",
   );
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => ({}))) as {
-      error?: string;
-    };
-    throw new Error(
-      payload.error ??
-        `Failed to load knowledge build events: ${response.statusText}`,
-    );
-  }
-  return (await response.json()) as KnowledgeDocumentBuildEventsResponse;
 }
 
 export async function listVisibleKnowledgeDocumentBuildEvents(
   documentId: string,
 ): Promise<KnowledgeDocumentBuildEventsResponse> {
-  const response = await authFetch(
+  return fetchKnowledgeJson<KnowledgeDocumentBuildEventsResponse>(
     `${getBackendBaseURL()}/api/knowledge/documents/${documentId}/build-events`,
+    "Failed to load knowledge build events",
   );
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => ({}))) as {
-      error?: string;
-    };
-    throw new Error(
-      payload.error ??
-        `Failed to load knowledge build events: ${response.statusText}`,
-    );
-  }
-  return (await response.json()) as KnowledgeDocumentBuildEventsResponse;
 }
 
 export async function getKnowledgeDocumentDebugPayload(
   documentId: string,
 ): Promise<KnowledgeDocumentDebugPayload> {
-  const response = await authFetch(
+  return fetchKnowledgeJson<KnowledgeDocumentDebugPayload>(
     `${getBackendBaseURL()}/api/knowledge/documents/${documentId}/debug`,
+    "Failed to load knowledge debug payload",
   );
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => ({}))) as {
-      error?: string;
-    };
-    throw new Error(
-      payload.error ??
-        `Failed to load knowledge debug payload: ${response.statusText}`,
-    );
-  }
-  return (await response.json()) as KnowledgeDocumentDebugPayload;
 }
 
 export async function loadVisibleKnowledgeDocumentBlob(
@@ -289,15 +224,5 @@ export async function loadVisibleKnowledgeDocumentBlob(
     `${getBackendBaseURL()}/api/knowledge/documents/${documentId}/file`,
   );
   url.searchParams.set("variant", variant);
-  const response = await authFetch(url.toString());
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => ({}))) as {
-      error?: string;
-    };
-    throw new Error(
-      payload.error ??
-        `Failed to load knowledge document file: ${response.statusText}`,
-    );
-  }
-  return await response.blob();
+  return fetchKnowledgeBlob(url, "Failed to load knowledge document file");
 }

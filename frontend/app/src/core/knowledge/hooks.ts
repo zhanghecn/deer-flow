@@ -11,18 +11,11 @@ import {
   loadVisibleKnowledgeDocumentBlob,
   listThreadKnowledgeBases,
 } from "./api";
+import {
+  hasActiveKnowledgeBuild,
+  isKnowledgeDocumentBuildActive,
+} from "./documents";
 import type { KnowledgeBaseListResponse, KnowledgeDocument } from "./types";
-
-function hasActiveKnowledgeBuild(data: KnowledgeBaseListResponse | undefined) {
-  return Boolean(
-    data?.knowledge_bases.some((knowledgeBase) =>
-      knowledgeBase.documents.some((document) => {
-        const status = document.latest_build_job?.status ?? document.status;
-        return status === "queued" || status === "processing";
-      }),
-    ),
-  );
-}
 
 export function useThreadKnowledgeBases(threadId: string | undefined) {
   const { data, isLoading, error } = useQuery({
@@ -102,8 +95,7 @@ export function useKnowledgeDocumentBuildEvents(
     staleTime: 0,
     refetchOnWindowFocus: false,
     refetchInterval: () => {
-      const status = document?.latest_build_job?.status ?? document?.status;
-      if (status === "queued" || status === "processing") {
+      if (document && isKnowledgeDocumentBuildActive(document)) {
         return 2000;
       }
       return false;
@@ -121,8 +113,7 @@ export function useVisibleKnowledgeDocumentBuildEvents(
     staleTime: 0,
     refetchOnWindowFocus: false,
     refetchInterval: () => {
-      const status = document?.latest_build_job?.status ?? document?.status;
-      if (status === "queued" || status === "processing") {
+      if (document && isKnowledgeDocumentBuildActive(document)) {
         return 2000;
       }
       return false;

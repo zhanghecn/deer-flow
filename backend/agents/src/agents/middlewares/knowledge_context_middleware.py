@@ -9,13 +9,13 @@ from langchain.agents.middleware.types import ModelRequest, ModelResponse
 
 from src.config.agents_config import load_agents_md
 from src.knowledge import KnowledgeService
+from src.knowledge.formatters import format_documents_payload
 from src.knowledge.models import KnowledgeDocumentRecord
 from src.knowledge.references import (
     ResolvedKnowledgeReferences,
     extract_knowledge_document_mentions,
     resolve_knowledge_document_mentions,
 )
-from src.knowledge.repository import format_documents_payload
 from src.knowledge.runtime import resolve_knowledge_runtime_identity
 from src.utils.runtime_context import runtime_context_value
 
@@ -70,14 +70,10 @@ def _ready_documents(runtime_context: object) -> list[KnowledgeDocumentRecord]:
 
 
 def _explicit_document_mentions(runtime_context: object) -> tuple[str, ...]:
-    explicit_mentions = _normalize_mentions(
-        runtime_context_value(runtime_context, "knowledge_document_mentions")
-    )
+    explicit_mentions = _normalize_mentions(runtime_context_value(runtime_context, "knowledge_document_mentions"))
     if explicit_mentions:
         return explicit_mentions
-    return extract_knowledge_document_mentions(
-        str(runtime_context_value(runtime_context, "original_user_input") or "")
-    )
+    return extract_knowledge_document_mentions(str(runtime_context_value(runtime_context, "original_user_input") or ""))
 
 
 def _knowledge_target_resolution(
@@ -119,11 +115,7 @@ def _build_document_selection_prompt(
         documents,
     )
 
-    if (
-        not explicit_resolution.matched
-        and not explicit_resolution.unresolved
-        and not agent_resolution.matched
-    ):
+    if not explicit_resolution.matched and not explicit_resolution.unresolved and not agent_resolution.matched:
         return ""
 
     lines = [
@@ -134,17 +126,11 @@ def _build_document_selection_prompt(
     if explicit_resolution.matched:
         lines.append("- User-explicit document targets for this turn:")
         lines.extend(_document_prompt_line(document) for document in explicit_resolution.matched)
-        lines.append(
-            "- Treat these explicit targets as a hard retrieval preference. Inspect their indexed knowledge tree before falling back to generic file, shell, or subagent tools."
-        )
+        lines.append("- Treat these explicit targets as a hard retrieval preference. Inspect their indexed knowledge tree before falling back to generic file, shell, or subagent tools.")
 
     if explicit_resolution.unresolved:
-        lines.append(
-            f"- Unresolved user document references: {', '.join(explicit_resolution.unresolved)}"
-        )
-        lines.append(
-            "- Do not guess unresolved references. Use list_knowledge_documents to verify available names before inspecting another document."
-        )
+        lines.append(f"- Unresolved user document references: {', '.join(explicit_resolution.unresolved)}")
+        lines.append("- Do not guess unresolved references. Use list_knowledge_documents to verify available names before inspecting another document.")
 
     if agent_resolution.matched:
         lines.append("- AGENTS.md default document targets when relevant:")
@@ -179,9 +165,7 @@ def _build_knowledge_protocol_prompt(
         "- If attached knowledge documents are relevant, avoid bypassing the knowledge index because that usually weakens page localization and citation fidelity.",
     ]
     if should_enforce_knowledge_tool_priority(runtime_context, documents):
-        lines.append(
-            "- Because this turn includes explicit `@document` targets, stay with the knowledge tools first and only debug raw parsing when the user explicitly asks for that."
-        )
+        lines.append("- Because this turn includes explicit `@document` targets, stay with the knowledge tools first and only debug raw parsing when the user explicitly asks for that.")
     lines.append("</knowledge_tool_protocol>")
     return "\n".join(lines)
 

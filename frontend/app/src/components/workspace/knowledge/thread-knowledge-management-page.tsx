@@ -28,6 +28,11 @@ import {
   updateKnowledgeBaseSettings,
 } from "@/core/knowledge/api";
 import {
+  getKnowledgeDocumentProgress,
+  getKnowledgeDocumentStatus,
+  isKnowledgeDocumentBuildActive,
+} from "@/core/knowledge/documents";
+import {
   useKnowledgeDocumentDebug,
   useKnowledgeLibrary,
   useVisibleKnowledgeDocumentObjectUrl,
@@ -85,18 +90,6 @@ type KnowledgePreviewFocus = {
 
 const panelLabelClassName =
   "text-muted-foreground text-[11px] font-medium uppercase tracking-[0.22em]";
-
-function documentStatus(document: KnowledgeDocument) {
-  return document.latest_build_job?.status ?? document.status;
-}
-
-function documentProgress(document: KnowledgeDocument) {
-  const status = documentStatus(document);
-  if (status === "ready") {
-    return 100;
-  }
-  return document.latest_build_job?.progress_percent ?? 0;
-}
 
 function statusTone(status: string): "default" | "secondary" | "destructive" {
   switch (status) {
@@ -208,7 +201,9 @@ function toLibraryDocumentView(
 }
 
 function numberOrUndefined(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 }
 
 function slugifyHeading(text: string) {
@@ -269,12 +264,7 @@ function documentTextPreviewPath(document: KnowledgeDocument | null) {
     document.canonical_storage_path ??
     document.source_storage_path ??
     null;
-  return (
-    (isRuntimeArtifactPath(candidate)
-      ? candidate
-      : null) ??
-    null
-  );
+  return (isRuntimeArtifactPath(candidate) ? candidate : null) ?? null;
 }
 
 function isPdfPreviewDocument(document: KnowledgeDocument | null) {
@@ -334,11 +324,8 @@ function normalizeOutlineNode(value: unknown): KnowledgeTreeNode | null {
     line_start: numberOrUndefined(record.line_start),
     line_end: numberOrUndefined(record.line_end),
     heading_slug:
-      typeof record.heading_slug === "string"
-        ? record.heading_slug
-        : undefined,
-    summary:
-      typeof record.summary === "string" ? record.summary : undefined,
+      typeof record.heading_slug === "string" ? record.heading_slug : undefined,
+    summary: typeof record.summary === "string" ? record.summary : undefined,
     prefix_summary:
       typeof record.prefix_summary === "string"
         ? record.prefix_summary
@@ -364,7 +351,10 @@ function extractIndexOutlineNodes(payload: unknown) {
   return normalizeOutlineNodes(record.structure ?? record.nodes);
 }
 
-function findFocusLineIndex(lines: string[], focus: KnowledgePreviewFocus | null) {
+function findFocusLineIndex(
+  lines: string[],
+  focus: KnowledgePreviewFocus | null,
+) {
   if (lines.length === 0) {
     return 0;
   }
@@ -405,7 +395,7 @@ function ExplorerPanel({
   return (
     <section
       className={cn(
-        "relative overflow-hidden rounded-[28px] border border-border/70 bg-background/85 shadow-[0_28px_90px_-52px_rgba(15,23,42,0.5)] backdrop-blur",
+        "border-border/70 bg-background/85 relative overflow-hidden rounded-[28px] border shadow-[0_28px_90px_-52px_rgba(15,23,42,0.5)] backdrop-blur",
         className,
       )}
     >
@@ -430,10 +420,10 @@ function ExplorerEmptyState({
     <div className="relative flex h-full flex-col items-center justify-center overflow-hidden px-8 py-16 text-center">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.08),transparent_34%),radial-gradient(circle_at_bottom,rgba(16,185,129,0.07),transparent_28%)]" />
       <div className="relative">
-        <div className="absolute -top-4 -left-10 rounded-full border border-border/60 bg-background/75 px-4 py-2 text-xs text-muted-foreground shadow-sm backdrop-blur">
+        <div className="border-border/60 bg-background/75 text-muted-foreground absolute -top-4 -left-10 rounded-full border px-4 py-2 text-xs shadow-sm backdrop-blur">
           {t.knowledge.treeTab}
         </div>
-        <div className="absolute -right-12 -bottom-5 rounded-full border border-border/60 bg-background/75 px-4 py-2 text-xs text-muted-foreground shadow-sm backdrop-blur">
+        <div className="border-border/60 bg-background/75 text-muted-foreground absolute -right-12 -bottom-5 rounded-full border px-4 py-2 text-xs shadow-sm backdrop-blur">
           {t.common.preview}
         </div>
         <div className="bg-primary/10 text-primary flex size-16 items-center justify-center rounded-[22px] shadow-[0_18px_48px_-28px_rgba(59,130,246,0.7)]">
@@ -456,7 +446,7 @@ function LibraryStat({
   label: string;
 }) {
   return (
-    <div className="border-border/70 bg-background/70 flex items-center gap-3 rounded-[20px] border px-4 py-3 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-[0_20px_45px_-35px_rgba(59,130,246,0.8)]">
+    <div className="border-border/70 bg-background/70 hover:border-primary/25 flex items-center gap-3 rounded-[20px] border px-4 py-3 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_20px_45px_-35px_rgba(59,130,246,0.8)]">
       <div className="bg-primary/10 text-primary flex size-10 shrink-0 items-center justify-center rounded-2xl transition-transform duration-200 hover:scale-105">
         <Icon className="size-4" />
       </div>
@@ -465,17 +455,11 @@ function LibraryStat({
   );
 }
 
-function DetailMetric({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
+function DetailMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="border-border/60 bg-background/65 rounded-[20px] border px-4 py-3">
       <div className={panelLabelClassName}>{label}</div>
-      <div className="mt-2 text-sm font-medium leading-6">{value}</div>
+      <div className="mt-2 text-sm leading-6 font-medium">{value}</div>
     </div>
   );
 }
@@ -501,7 +485,7 @@ function TreeNodeView({
           "w-full rounded-[22px] border p-4 text-left shadow-sm transition-all duration-200",
           active
             ? "border-primary/40 bg-primary/8 shadow-[0_18px_48px_-34px_rgba(59,130,246,0.7)]"
-            : "border-border/60 bg-background/70 hover:-translate-y-0.5 hover:bg-background/85",
+            : "border-border/60 bg-background/70 hover:bg-background/85 hover:-translate-y-0.5",
         )}
         onClick={() => onSelectNode?.(node)}
       >
@@ -575,7 +559,7 @@ function KnowledgeCanonicalPreview({
           <Badge variant="secondary">{focus.locatorLabel}</Badge>
         ) : null}
       </div>
-      <div className="rounded-[22px] border border-border/60 bg-muted/25 p-3 font-mono text-xs leading-6 shadow-inner">
+      <div className="border-border/60 bg-muted/25 rounded-[22px] border p-3 font-mono text-xs leading-6 shadow-inner">
         {lines.slice(start, end).map((line, index) => {
           const lineNumber = start + index + 1;
           const active =
@@ -592,10 +576,10 @@ function KnowledgeCanonicalPreview({
                 active && "bg-primary/10 text-foreground",
               )}
             >
-              <div className="text-right text-[11px] text-muted-foreground">
+              <div className="text-muted-foreground text-right text-[11px]">
                 {lineNumber}
               </div>
-              <pre className="overflow-x-auto whitespace-pre-wrap break-words text-xs leading-6">
+              <pre className="overflow-x-auto text-xs leading-6 break-words whitespace-pre-wrap">
                 {line || " "}
               </pre>
             </div>
@@ -653,7 +637,9 @@ function KnowledgePreviewPanel({
     variant: "preview",
   });
   const activePreviewObjectUrl = threadId ? objectUrl : visibleObjectUrl;
-  const activePreviewLoading = threadId ? previewLoading : visiblePreviewLoading;
+  const activePreviewLoading = threadId
+    ? previewLoading
+    : visiblePreviewLoading;
   const activePreviewError = threadId ? previewError : visiblePreviewError;
 
   const compareContent = canonicalMarkdown ?? "";
@@ -669,7 +655,11 @@ function KnowledgePreviewPanel({
         );
         return;
       }
-      if (!threadId && effectiveMode === "canonical" && compareContent.trim().length > 0) {
+      if (
+        !threadId &&
+        effectiveMode === "canonical" &&
+        compareContent.trim().length > 0
+      ) {
         const textObjectUrl = URL.createObjectURL(
           new Blob([compareContent], { type: "text/markdown;charset=utf-8" }),
         );
@@ -690,8 +680,8 @@ function KnowledgePreviewPanel({
       }
       const filepath =
         effectiveMode === "canonical"
-          ? textPath ?? binaryPath
-          : binaryPath ?? textPath;
+          ? (textPath ?? binaryPath)
+          : (binaryPath ?? textPath);
       if (!filepath) {
         return;
       }
@@ -700,7 +690,9 @@ function KnowledgePreviewPanel({
         threadId,
       });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t.common.previewUnavailable);
+      toast.error(
+        error instanceof Error ? error.message : t.common.previewUnavailable,
+      );
     } finally {
       setOpening(false);
     }
@@ -749,7 +741,7 @@ function KnowledgePreviewPanel({
               (effectiveMode === "preview"
                 ? !activePreviewObjectUrl
                 : threadId
-                  ? (!textPath && !binaryPath)
+                  ? !textPath && !binaryPath
                   : compareContent.trim().length === 0)
             }
             onClick={() => void handleOpen()}
@@ -774,7 +766,7 @@ function KnowledgePreviewPanel({
             />
           ) : activePreviewLoading || !activePreviewObjectUrl ? (
             <div className="flex h-full items-center justify-center">
-              <LoaderIcon className="size-5 animate-spin text-muted-foreground" />
+              <LoaderIcon className="text-muted-foreground size-5 animate-spin" />
             </div>
           ) : (
             <iframe
@@ -825,9 +817,8 @@ export function ThreadKnowledgeManagementPage() {
   );
   const [previewMode, setPreviewMode] =
     useState<KnowledgePreviewMode>("preview");
-  const [previewFocus, setPreviewFocus] = useState<KnowledgePreviewFocus | null>(
-    null,
-  );
+  const [previewFocus, setPreviewFocus] =
+    useState<KnowledgePreviewFocus | null>(null);
 
   const filteredKnowledgeBases = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -929,10 +920,12 @@ export function ThreadKnowledgeManagementPage() {
   );
 
   const selectedDocument =
-    selectedBaseDocuments.find((document) => document.id === selectedDocumentId) ??
-    null;
+    selectedBaseDocuments.find(
+      (document) => document.id === selectedDocumentId,
+    ) ?? null;
   const selectedDocumentReady =
-    selectedDocument != null && documentStatus(selectedDocument) === "ready";
+    selectedDocument != null &&
+    getKnowledgeDocumentStatus(selectedDocument) === "ready";
 
   useEffect(() => {
     if (!selectedDocument) {
@@ -991,12 +984,11 @@ export function ThreadKnowledgeManagementPage() {
 
   const totalDocumentCount = documents.length;
   const readyCount = documents.filter(
-    (document) => documentStatus(document) === "ready",
+    (document) => getKnowledgeDocumentStatus(document) === "ready",
   ).length;
-  const activeCount = documents.filter((document) => {
-    const status = documentStatus(document);
-    return status === "queued" || status === "processing";
-  }).length;
+  const activeCount = documents.filter((document) =>
+    isKnowledgeDocumentBuildActive(document),
+  ).length;
   const attachedBaseCount = filteredKnowledgeBases.filter(
     (knowledgeBase) => knowledgeBase.attached_to_thread,
   ).length;
@@ -1171,7 +1163,7 @@ export function ThreadKnowledgeManagementPage() {
                       value={search}
                       onChange={(event) => setSearch(event.target.value)}
                       placeholder={t.knowledge.searchPlaceholder}
-                      className="h-11 rounded-full border-border/70 bg-background/80 pl-10"
+                      className="border-border/70 bg-background/80 h-11 rounded-full pl-10"
                     />
                   </div>
                 </div>
@@ -1192,11 +1184,11 @@ export function ThreadKnowledgeManagementPage() {
                       groupedBases.map((group) => (
                         <section key={group.ownerName} className="space-y-3">
                           <div className="border-border/50 bg-muted/25 flex items-center gap-3 rounded-[18px] border px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]">
-                            <div className="bg-background/85 text-primary flex size-8 items-center justify-center rounded-xl border border-border/60 shadow-sm">
+                            <div className="bg-background/85 text-primary border-border/60 flex size-8 items-center justify-center rounded-xl border shadow-sm">
                               <FolderIcon className="size-4" />
                             </div>
-                              <div className="min-w-0">
-                              <div className="font-mono text-[12px] font-semibold tracking-[0.2em] text-foreground/85">
+                            <div className="min-w-0">
+                              <div className="text-foreground/85 font-mono text-[12px] font-semibold tracking-[0.2em]">
                                 {group.ownerName}/
                               </div>
                               <div className="text-muted-foreground text-[11px]">
@@ -1209,28 +1201,25 @@ export function ThreadKnowledgeManagementPage() {
                             {group.bases.map((knowledgeBase) => {
                               const isSelected =
                                 knowledgeBase.id === selectedBase?.id;
-                              const readyDocuments = knowledgeBase.documents.filter(
-                                (document) =>
-                                  documentStatus(document) === "ready",
-                              ).length;
-                              const activeDocuments = knowledgeBase.documents.filter(
-                                (document) => {
-                                  const status = documentStatus(document);
-                                  return (
-                                    status === "queued" ||
-                                    status === "processing"
-                                  );
-                                },
-                              ).length;
+                              const readyDocuments =
+                                knowledgeBase.documents.filter(
+                                  (document) =>
+                                    getKnowledgeDocumentStatus(document) ===
+                                    "ready",
+                                ).length;
+                              const activeDocuments =
+                                knowledgeBase.documents.filter((document) =>
+                                  isKnowledgeDocumentBuildActive(document),
+                                ).length;
 
                               return (
                                 <div
                                   key={knowledgeBase.id}
                                   className={cn(
-                                    "relative rounded-[22px] border p-3 transition-all duration-200 before:absolute before:-left-[1.05rem] before:top-8 before:size-2.5 before:rounded-full before:border before:border-border/70 before:bg-background before:shadow-sm",
+                                    "before:border-border/70 before:bg-background relative rounded-[22px] border p-3 transition-all duration-200 before:absolute before:top-8 before:-left-[1.05rem] before:size-2.5 before:rounded-full before:border before:shadow-sm",
                                     isSelected
-                                      ? "border-primary/40 bg-primary/6 shadow-[0_18px_48px_-34px_rgba(59,130,246,0.7)] before:border-primary/40 before:bg-primary/15"
-                                      : "border-border/60 bg-background/60 hover:-translate-y-0.5 hover:border-primary/20 hover:bg-background/85",
+                                      ? "border-primary/40 bg-primary/6 before:border-primary/40 before:bg-primary/15 shadow-[0_18px_48px_-34px_rgba(59,130,246,0.7)]"
+                                      : "border-border/60 bg-background/60 hover:border-primary/20 hover:bg-background/85 hover:-translate-y-0.5",
                                   )}
                                 >
                                   <button
@@ -1246,7 +1235,7 @@ export function ThreadKnowledgeManagementPage() {
                                     <div className="flex items-start justify-between gap-3">
                                       <div className="min-w-0 flex-1">
                                         <div className="flex items-center gap-3">
-                                          <div className="bg-amber-500/10 text-amber-600 dark:text-amber-400 flex size-9 shrink-0 items-center justify-center rounded-2xl border border-amber-500/15">
+                                          <div className="flex size-9 shrink-0 items-center justify-center rounded-2xl border border-amber-500/15 bg-amber-500/10 text-amber-600 dark:text-amber-400">
                                             <FolderIcon className="size-4" />
                                           </div>
                                           <div className="min-w-0">
@@ -1254,7 +1243,8 @@ export function ThreadKnowledgeManagementPage() {
                                               {knowledgeBase.name}
                                             </div>
                                             <div className="text-muted-foreground mt-1 font-mono text-[11px] tracking-[0.14em]">
-                                              {group.ownerName}/{knowledgeBase.name}
+                                              {group.ownerName}/
+                                              {knowledgeBase.name}
                                             </div>
                                           </div>
                                         </div>
@@ -1287,7 +1277,8 @@ export function ThreadKnowledgeManagementPage() {
                                       <ChevronRightIcon
                                         className={cn(
                                           "text-muted-foreground mt-1 size-4 shrink-0 transition-transform",
-                                          isSelected && "text-primary translate-x-0.5",
+                                          isSelected &&
+                                            "text-primary translate-x-0.5",
                                         )}
                                       />
                                     </div>
@@ -1312,17 +1303,19 @@ export function ThreadKnowledgeManagementPage() {
                                   </div>
 
                                   <div className="border-border/40 mt-4 space-y-2 border-l border-dashed pl-3">
-                                    {knowledgeBase.documents.slice(0, 3).map((document) => (
-                                      <div
-                                        key={document.id}
-                                        className="bg-background/65 flex items-center gap-2 rounded-xl border border-border/50 px-2.5 py-2 text-xs text-muted-foreground"
-                                      >
-                                        <FileTextIcon className="size-3.5 shrink-0" />
-                                        <span className="truncate font-mono text-[11px]">
-                                          {document.display_name}
-                                        </span>
-                                      </div>
-                                    ))}
+                                    {knowledgeBase.documents
+                                      .slice(0, 3)
+                                      .map((document) => (
+                                        <div
+                                          key={document.id}
+                                          className="bg-background/65 border-border/50 text-muted-foreground flex items-center gap-2 rounded-xl border px-2.5 py-2 text-xs"
+                                        >
+                                          <FileTextIcon className="size-3.5 shrink-0" />
+                                          <span className="truncate font-mono text-[11px]">
+                                            {document.display_name}
+                                          </span>
+                                        </div>
+                                      ))}
                                   </div>
 
                                   {threadId ? (
@@ -1391,8 +1384,7 @@ export function ThreadKnowledgeManagementPage() {
                           {selectedBase.name}
                         </h2>
                         <p className="text-muted-foreground text-sm leading-6">
-                          {selectedBase.description ||
-                            activeLibraryDescription}
+                          {selectedBase.description || activeLibraryDescription}
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-2">
@@ -1425,7 +1417,7 @@ export function ThreadKnowledgeManagementPage() {
                     ) : (
                       selectedBaseDocuments.map((document) => {
                         const active = document.id === selectedDocumentId;
-                        const status = documentStatus(document);
+                        const status = getKnowledgeDocumentStatus(document);
 
                         return (
                           <button
@@ -1435,14 +1427,14 @@ export function ThreadKnowledgeManagementPage() {
                               "group w-full rounded-[24px] border p-4 text-left transition-all duration-200",
                               active
                                 ? "border-primary/40 bg-primary/6 shadow-[0_20px_56px_-36px_rgba(59,130,246,0.7)]"
-                                : "border-border/60 bg-background/60 hover:-translate-y-0.5 hover:border-primary/20 hover:bg-background/85",
+                                : "border-border/60 bg-background/60 hover:border-primary/20 hover:bg-background/85 hover:-translate-y-0.5",
                             )}
                             onClick={() => setSelectedDocumentId(document.id)}
                           >
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0 flex-1">
                                 <div className="flex items-center gap-2">
-                                  <div className="bg-primary/10 text-primary flex size-9 shrink-0 items-center justify-center rounded-2xl border border-primary/10 transition-transform duration-200 group-hover:scale-105">
+                                  <div className="bg-primary/10 text-primary border-primary/10 flex size-9 shrink-0 items-center justify-center rounded-2xl border transition-transform duration-200 group-hover:scale-105">
                                     <FileTextIcon className="size-4" />
                                   </div>
                                   <div className="min-w-0">
@@ -1450,7 +1442,9 @@ export function ThreadKnowledgeManagementPage() {
                                       {document.display_name}
                                     </div>
                                     <div className="text-muted-foreground mt-1 font-mono text-[11px] tracking-[0.14em]">
-                                      {document.owner_name}/{document.knowledge_base_name}/{document.display_name}
+                                      {document.owner_name}/
+                                      {document.knowledge_base_name}/
+                                      {document.display_name}
                                     </div>
                                   </div>
                                 </div>
@@ -1491,7 +1485,9 @@ export function ThreadKnowledgeManagementPage() {
 
                             {status !== "ready" ? (
                               <div className="mt-4 space-y-2">
-                                <Progress value={documentProgress(document)} />
+                                <Progress
+                                  value={getKnowledgeDocumentProgress(document)}
+                                />
                                 <div className="text-muted-foreground text-xs">
                                   {document.latest_build_job?.stage ?? status}
                                 </div>
@@ -1535,7 +1531,10 @@ export function ThreadKnowledgeManagementPage() {
                               <p className="text-muted-foreground text-sm leading-6">
                                 {selectedDocument.owner_name} /{" "}
                                 {selectedDocument.knowledge_base_name} /{" "}
-                                {visibilityLabel(selectedDocument.visibility, t)}
+                                {visibilityLabel(
+                                  selectedDocument.visibility,
+                                  t,
+                                )}
                                 {selectedDocument.doc_description
                                   ? ` / ${selectedDocument.doc_description}`
                                   : ""}
@@ -1544,10 +1543,13 @@ export function ThreadKnowledgeManagementPage() {
                             <div className="flex flex-wrap gap-2">
                               <Badge
                                 variant={statusTone(
-                                  documentStatus(selectedDocument),
+                                  getKnowledgeDocumentStatus(selectedDocument),
                                 )}
                               >
-                                {statusLabel(documentStatus(selectedDocument), t)}
+                                {statusLabel(
+                                  getKnowledgeDocumentStatus(selectedDocument),
+                                  t,
+                                )}
                               </Badge>
                               <Badge variant="outline">
                                 {selectedDocument.file_kind}
@@ -1615,7 +1617,9 @@ export function ThreadKnowledgeManagementPage() {
                                 </div>
                                 <Switch
                                   checked={selectedBase.preview_enabled}
-                                  disabled={settingsBusyBaseId === selectedBase.id}
+                                  disabled={
+                                    settingsBusyBaseId === selectedBase.id
+                                  }
                                   onCheckedChange={(checked) =>
                                     void handlePreviewSetting(
                                       selectedBase,
@@ -1629,7 +1633,11 @@ export function ThreadKnowledgeManagementPage() {
                         </div>
 
                         <div className="space-y-3">
-                          <Progress value={documentProgress(selectedDocument)} />
+                          <Progress
+                            value={getKnowledgeDocumentProgress(
+                              selectedDocument,
+                            )}
+                          />
                           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                             <DetailMetric
                               label={t.knowledge.stageLabel}
@@ -1640,14 +1648,15 @@ export function ThreadKnowledgeManagementPage() {
                             />
                             <DetailMetric
                               label={t.knowledge.progressLabel}
-                              value={`${documentProgress(selectedDocument)}%`}
+                              value={`${getKnowledgeDocumentProgress(selectedDocument)}%`}
                             />
                             <DetailMetric
                               label={t.knowledge.elapsedLabel}
                               value={
                                 formatElapsed(
                                   selectedDocument.latest_build_job?.started_at,
-                                  selectedDocument.latest_build_job?.finished_at,
+                                  selectedDocument.latest_build_job
+                                    ?.finished_at,
                                 ) || t.knowledge.notAvailable
                               }
                             />
@@ -1680,7 +1689,7 @@ export function ThreadKnowledgeManagementPage() {
                           defaultValue="tree"
                           className="flex h-full min-h-0 flex-col"
                         >
-                          <TabsList className="grid h-auto grid-cols-4 rounded-[20px] bg-muted/70 p-1">
+                          <TabsList className="bg-muted/70 grid h-auto grid-cols-4 rounded-[20px] p-1">
                             <TabsTrigger
                               value="tree"
                               className="rounded-2xl data-[state=active]:shadow-sm"
@@ -1707,11 +1716,16 @@ export function ThreadKnowledgeManagementPage() {
                             </TabsTrigger>
                           </TabsList>
 
-                          <TabsContent value="tree" className="mt-4 min-h-0 flex-1">
+                          <TabsContent
+                            value="tree"
+                            className="mt-4 min-h-0 flex-1"
+                          >
                             <div className="border-border/60 bg-background/55 h-full overflow-hidden rounded-[24px] border">
                               <ScrollArea className="h-[calc(100vh-36rem)]">
                                 <div className="space-y-4 p-4">
-                                  {documentStatus(selectedDocument) !== "ready" ? (
+                                  {getKnowledgeDocumentStatus(
+                                    selectedDocument,
+                                  ) !== "ready" ? (
                                     <div className="text-muted-foreground text-sm">
                                       {t.knowledge.treePending}
                                     </div>
@@ -1732,7 +1746,9 @@ export function ThreadKnowledgeManagementPage() {
                                       <TreeNodeView
                                         key={node.node_id}
                                         node={node}
-                                        activeNodeId={effectivePreviewFocus?.nodeId}
+                                        activeNodeId={
+                                          effectivePreviewFocus?.nodeId
+                                        }
                                         onSelectNode={handleNodeFocus}
                                       />
                                     ))
@@ -1794,10 +1810,14 @@ export function ThreadKnowledgeManagementPage() {
                                             <span>in {event.input_tokens}</span>
                                           ) : null}
                                           {event.output_tokens != null ? (
-                                            <span>out {event.output_tokens}</span>
+                                            <span>
+                                              out {event.output_tokens}
+                                            </span>
                                           ) : null}
                                           {event.retry_count != null ? (
-                                            <span>retry {event.retry_count}</span>
+                                            <span>
+                                              retry {event.retry_count}
+                                            </span>
                                           ) : null}
                                         </div>
                                         {event.created_at ? (
@@ -1813,7 +1833,10 @@ export function ThreadKnowledgeManagementPage() {
                             </div>
                           </TabsContent>
 
-                          <TabsContent value="index" className="mt-4 min-h-0 flex-1">
+                          <TabsContent
+                            value="index"
+                            className="mt-4 min-h-0 flex-1"
+                          >
                             <div className="border-border/60 bg-muted/30 h-full overflow-hidden rounded-[24px] border">
                               <ScrollArea className="h-[calc(100vh-36rem)]">
                                 <div className="space-y-4 p-4">
@@ -1823,20 +1846,22 @@ export function ThreadKnowledgeManagementPage() {
                                         <TreeNodeView
                                           key={node.node_id}
                                           node={node}
-                                          activeNodeId={effectivePreviewFocus?.nodeId}
+                                          activeNodeId={
+                                            effectivePreviewFocus?.nodeId
+                                          }
                                           onSelectNode={handleNodeFocus}
                                         />
                                       ))}
                                     </div>
                                   ) : null}
-                                  <pre className="overflow-x-auto rounded-[20px] border border-border/60 bg-background/65 p-4 text-xs leading-6 whitespace-pre-wrap">
+                                  <pre className="border-border/60 bg-background/65 overflow-x-auto rounded-[20px] border p-4 text-xs leading-6 whitespace-pre-wrap">
                                     {debugQuery.isLoading
                                       ? t.knowledge.loadingDebug
                                       : debugQuery.error instanceof Error
                                         ? debugQuery.error.message
                                         : JSON.stringify(
-                                            debugQuery.data?.document_index_json ??
-                                              {},
+                                            debugQuery.data
+                                              ?.document_index_json ?? {},
                                             null,
                                             2,
                                           )}
@@ -1868,7 +1893,9 @@ export function ThreadKnowledgeManagementPage() {
                         <KnowledgePreviewPanel
                           document={selectedDocument}
                           threadId={threadId}
-                          canonicalMarkdown={debugQuery.data?.canonical_markdown}
+                          canonicalMarkdown={
+                            debugQuery.data?.canonical_markdown
+                          }
                           focus={effectivePreviewFocus}
                           mode={previewMode}
                           onModeChange={setPreviewMode}
