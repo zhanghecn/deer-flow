@@ -1148,8 +1148,8 @@ export function ThreadKnowledgeManagementPage() {
               </div>
             </ExplorerPanel>
 
-            <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[300px_360px_minmax(0,1fr)]">
-              <ExplorerPanel className="min-h-0">
+            <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+              <ExplorerPanel className="flex min-h-0 flex-col overflow-hidden">
                 <div className="border-border/60 border-b px-5 py-5">
                   <div className={panelLabelClassName}>
                     {t.knowledge.libraryTitle}
@@ -1168,7 +1168,7 @@ export function ThreadKnowledgeManagementPage() {
                   </div>
                 </div>
 
-                <ScrollArea className="h-[calc(100vh-21rem)]">
+                <ScrollArea className="min-h-0 flex-1">
                   <div className="space-y-5 p-4">
                     {isLoading ? (
                       <div className="text-muted-foreground text-sm">
@@ -1360,7 +1360,7 @@ export function ThreadKnowledgeManagementPage() {
                 </ScrollArea>
               </ExplorerPanel>
 
-              <ExplorerPanel className="min-h-0">
+              <ExplorerPanel className="hidden min-h-0">
                 <div className="border-border/60 border-b px-5 py-5">
                   <div className={panelLabelClassName}>
                     {t.knowledge.manageButton}
@@ -1633,6 +1633,82 @@ export function ThreadKnowledgeManagementPage() {
                         </div>
 
                         <div className="space-y-3">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <div className={panelLabelClassName}>
+                                {selectedBase.name}
+                              </div>
+                              <p className="text-muted-foreground mt-2 text-sm leading-6">
+                                {selectedBase.description ||
+                                  activeLibraryDescription}
+                              </p>
+                            </div>
+                            <Badge variant="outline">
+                              {t.knowledge.documentCount(
+                                selectedBaseDocuments.length,
+                              )}
+                            </Badge>
+                          </div>
+
+                          <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-1">
+                            {selectedBaseDocuments.map((document) => {
+                              const active = document.id === selectedDocumentId;
+                              const status =
+                                getKnowledgeDocumentStatus(document);
+
+                              return (
+                                <button
+                                  key={document.id}
+                                  type="button"
+                                  className={cn(
+                                    "group border-border/60 bg-background/70 hover:border-primary/25 hover:bg-background/90 max-w-[260px] min-w-[220px] rounded-[20px] border p-4 text-left transition-all duration-200",
+                                    active &&
+                                      "border-primary/40 bg-primary/6 shadow-[0_18px_48px_-34px_rgba(59,130,246,0.7)]",
+                                  )}
+                                  onClick={() =>
+                                    setSelectedDocumentId(document.id)
+                                  }
+                                >
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0 flex-1">
+                                      <div className="truncate text-sm font-semibold">
+                                        {document.display_name}
+                                      </div>
+                                      <div className="text-muted-foreground mt-1 truncate text-[11px]">
+                                        {document.file_kind} ·{" "}
+                                        {document.locator_type}
+                                      </div>
+                                    </div>
+                                    <Badge variant={statusTone(status)}>
+                                      {statusLabel(status, t)}
+                                    </Badge>
+                                  </div>
+                                  {document.doc_description ? (
+                                    <p className="text-muted-foreground mt-3 line-clamp-2 text-xs leading-5">
+                                      {document.doc_description}
+                                    </p>
+                                  ) : null}
+                                  <div className="mt-3 flex flex-wrap gap-2">
+                                    {document.page_count ? (
+                                      <Badge variant="outline">
+                                        {t.knowledge.pageCount(
+                                          document.page_count,
+                                        )}
+                                      </Badge>
+                                    ) : null}
+                                    <Badge variant="outline">
+                                      {t.knowledge.nodeCount(
+                                        document.node_count,
+                                      )}
+                                    </Badge>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        <div className="space-y-3">
                           <Progress
                             value={getKnowledgeDocumentProgress(
                               selectedDocument,
@@ -1683,13 +1759,13 @@ export function ThreadKnowledgeManagementPage() {
                     </ExplorerPanel>
 
                     <ExplorerPanel className="min-h-0 flex-1 overflow-hidden">
-                      <div className="grid h-full min-h-0 gap-4 px-4 py-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(340px,0.92fr)]">
+                      <div className="grid h-full min-h-0 gap-4 px-4 py-4 xl:grid-cols-[minmax(0,0.96fr)_minmax(360px,1.04fr)]">
                         <Tabs
                           key={selectedDocument.id}
                           defaultValue="tree"
                           className="flex h-full min-h-0 flex-col"
                         >
-                          <TabsList className="bg-muted/70 grid h-auto grid-cols-4 rounded-[20px] p-1">
+                          <TabsList className="bg-muted/70 grid h-auto grid-cols-2 rounded-[20px] p-1 sm:grid-cols-4">
                             <TabsTrigger
                               value="tree"
                               className="rounded-2xl data-[state=active]:shadow-sm"
@@ -1721,7 +1797,7 @@ export function ThreadKnowledgeManagementPage() {
                             className="mt-4 min-h-0 flex-1"
                           >
                             <div className="border-border/60 bg-background/55 h-full overflow-hidden rounded-[24px] border">
-                              <ScrollArea className="h-[calc(100vh-36rem)]">
+                              <ScrollArea className="h-full">
                                 <div className="space-y-4 p-4">
                                   {getKnowledgeDocumentStatus(
                                     selectedDocument,
@@ -1763,7 +1839,7 @@ export function ThreadKnowledgeManagementPage() {
                             className="mt-4 min-h-0 flex-1"
                           >
                             <div className="border-border/60 bg-background/55 h-full overflow-hidden rounded-[24px] border">
-                              <ScrollArea className="h-[calc(100vh-36rem)]">
+                              <ScrollArea className="h-full">
                                 <div className="space-y-4 p-4">
                                   {eventsQuery.isLoading ? (
                                     <div className="text-muted-foreground text-sm">
@@ -1838,7 +1914,7 @@ export function ThreadKnowledgeManagementPage() {
                             className="mt-4 min-h-0 flex-1"
                           >
                             <div className="border-border/60 bg-muted/30 h-full overflow-hidden rounded-[24px] border">
-                              <ScrollArea className="h-[calc(100vh-36rem)]">
+                              <ScrollArea className="h-full">
                                 <div className="space-y-4 p-4">
                                   {indexOutlineNodes.length > 0 ? (
                                     <div className="space-y-4">
@@ -1876,7 +1952,7 @@ export function ThreadKnowledgeManagementPage() {
                             className="mt-4 min-h-0 flex-1"
                           >
                             <div className="border-border/60 bg-muted/30 h-full overflow-hidden rounded-[24px] border">
-                              <ScrollArea className="h-[calc(100vh-36rem)]">
+                              <ScrollArea className="h-full">
                                 <pre className="overflow-x-auto p-4 text-xs leading-6 whitespace-pre-wrap">
                                   {debugQuery.isLoading
                                     ? t.knowledge.loadingDebug
