@@ -7,11 +7,9 @@ import {
   EyeIcon,
   ExternalLinkIcon,
   FileTextIcon,
-  FilesIcon,
   FolderIcon,
   LoaderIcon,
   SearchIcon,
-  SparklesIcon,
 } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -395,11 +393,11 @@ function ExplorerPanel({
   return (
     <section
       className={cn(
-        "border-border/70 bg-background/85 relative overflow-hidden rounded-[28px] border shadow-[0_28px_90px_-52px_rgba(15,23,42,0.5)] backdrop-blur",
+        "border-border/70 bg-background relative overflow-hidden rounded-[24px] border shadow-sm",
         className,
       )}
     >
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.18),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(59,130,246,0.1),transparent_36%)]" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/70" />
       <div className="relative">{children}</div>
     </section>
   );
@@ -417,49 +415,14 @@ function ExplorerEmptyState({
   const { t } = useI18n();
 
   return (
-    <div className="relative flex h-full flex-col items-center justify-center overflow-hidden px-8 py-16 text-center">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.08),transparent_34%),radial-gradient(circle_at_bottom,rgba(16,185,129,0.07),transparent_28%)]" />
-      <div className="relative">
-        <div className="border-border/60 bg-background/75 text-muted-foreground absolute -top-4 -left-10 rounded-full border px-4 py-2 text-xs shadow-sm backdrop-blur">
-          {t.knowledge.treeTab}
-        </div>
-        <div className="border-border/60 bg-background/75 text-muted-foreground absolute -right-12 -bottom-5 rounded-full border px-4 py-2 text-xs shadow-sm backdrop-blur">
-          {t.common.preview}
-        </div>
-        <div className="bg-primary/10 text-primary flex size-16 items-center justify-center rounded-[22px] shadow-[0_18px_48px_-28px_rgba(59,130,246,0.7)]">
-          <Icon className="size-7" />
-        </div>
+    <div className="flex h-full flex-col items-center justify-center px-8 py-16 text-center">
+      <div className="border-border/60 bg-muted/35 text-primary flex size-14 items-center justify-center rounded-[20px] border">
+        <Icon className="size-7" />
       </div>
       <h2 className="mt-6 text-xl font-semibold">{title}</h2>
-      <p className="text-muted-foreground mt-3 max-w-md text-sm leading-7">
+      <p className="text-muted-foreground mt-3 max-w-md text-sm leading-6">
         {description}
       </p>
-    </div>
-  );
-}
-
-function LibraryStat({
-  icon: Icon,
-  label,
-}: {
-  icon: LucideIcon;
-  label: string;
-}) {
-  return (
-    <div className="border-border/70 bg-background/70 hover:border-primary/25 flex items-center gap-3 rounded-[20px] border px-4 py-3 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_20px_45px_-35px_rgba(59,130,246,0.8)]">
-      <div className="bg-primary/10 text-primary flex size-10 shrink-0 items-center justify-center rounded-2xl transition-transform duration-200 hover:scale-105">
-        <Icon className="size-4" />
-      </div>
-      <span className="text-sm font-medium">{label}</span>
-    </div>
-  );
-}
-
-function DetailMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="border-border/60 bg-background/65 rounded-[20px] border px-4 py-3">
-      <div className={panelLabelClassName}>{label}</div>
-      <div className="mt-2 text-sm leading-6 font-medium">{value}</div>
     </div>
   );
 }
@@ -1092,65 +1055,50 @@ export function ThreadKnowledgeManagementPage() {
         <div className="relative flex size-full flex-col overflow-hidden p-4 md:p-6">
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.08),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.08),transparent_30%)]" />
 
-          <div className="relative flex min-h-0 flex-1 flex-col gap-4">
-            <ExplorerPanel>
-              <div className="flex flex-col gap-6 px-6 py-6 md:px-8">
-                <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-                  <div className="max-w-3xl space-y-3">
-                    <div className={panelLabelClassName}>
-                      {t.knowledge.sectionTitle}
-                    </div>
-                    <div className="space-y-2">
-                      <h1 className="font-serif text-3xl font-semibold tracking-tight md:text-4xl">
-                        {managerTitle}
-                      </h1>
-                      <p className="text-muted-foreground max-w-2xl text-sm leading-7 md:text-base">
-                        {managerDescription}
-                      </p>
-                    </div>
-                  </div>
-                  <Button
-                    asChild
-                    variant="outline"
-                    className="rounded-full px-5"
-                  >
-                    <Link to={chatPath}>
-                      {isThreadScoped
-                        ? t.knowledge.backToChat
-                        : t.knowledge.backToAgents}
-                      <ArrowRightIcon className="size-4" />
-                    </Link>
-                  </Button>
+          <div className="relative flex min-h-0 flex-1 flex-col gap-3">
+            <div className="flex flex-col gap-3 px-1 xl:flex-row xl:items-end xl:justify-between">
+              <div className="min-w-0">
+                <div className={panelLabelClassName}>
+                  {t.knowledge.sectionTitle}
                 </div>
-
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                  <LibraryStat
-                    icon={FilesIcon}
-                    label={t.knowledge.documentCount(totalDocumentCount)}
-                  />
-                  <LibraryStat
-                    icon={SparklesIcon}
-                    label={t.knowledge.readyCount(readyCount)}
-                  />
-                  <LibraryStat
-                    icon={LoaderIcon}
-                    label={t.knowledge.activeCount(activeCount)}
-                  />
-                  <LibraryStat
-                    icon={BookOpenTextIcon}
-                    label={
-                      isThreadScoped
-                        ? t.knowledge.attachedBaseCount(attachedBaseCount)
-                        : t.knowledge.baseCount(filteredKnowledgeBases.length)
-                    }
-                  />
+                <div className="mt-1 flex flex-wrap items-center gap-2.5">
+                  <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">
+                    {managerTitle}
+                  </h1>
+                  <Badge variant="outline">
+                    {t.knowledge.documentCount(totalDocumentCount)}
+                  </Badge>
+                  <Badge variant="outline">
+                    {t.knowledge.readyCount(readyCount)}
+                  </Badge>
+                  {activeCount > 0 ? (
+                    <Badge variant="secondary">
+                      {t.knowledge.activeCount(activeCount)}
+                    </Badge>
+                  ) : null}
+                  <Badge variant="outline">
+                    {isThreadScoped
+                      ? t.knowledge.attachedBaseCount(attachedBaseCount)
+                      : t.knowledge.baseCount(filteredKnowledgeBases.length)}
+                  </Badge>
                 </div>
+                <p className="text-muted-foreground mt-2 max-w-3xl text-sm leading-6">
+                  {managerDescription}
+                </p>
               </div>
-            </ExplorerPanel>
+              <Button asChild variant="outline" className="rounded-full px-5">
+                <Link to={chatPath}>
+                  {isThreadScoped
+                    ? t.knowledge.backToChat
+                    : t.knowledge.backToAgents}
+                  <ArrowRightIcon className="size-4" />
+                </Link>
+              </Button>
+            </div>
 
-            <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+            <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[296px_minmax(0,1fr)]">
               <ExplorerPanel className="flex min-h-0 flex-col overflow-hidden">
-                <div className="border-border/60 border-b px-5 py-5">
+                <div className="border-border/60 border-b px-4 py-4">
                   <div className={panelLabelClassName}>
                     {t.knowledge.libraryTitle}
                   </div>
@@ -1163,7 +1111,7 @@ export function ThreadKnowledgeManagementPage() {
                       value={search}
                       onChange={(event) => setSearch(event.target.value)}
                       placeholder={t.knowledge.searchPlaceholder}
-                      className="border-border/70 bg-background/80 h-11 rounded-full pl-10"
+                      className="border-border/70 bg-background h-10 rounded-full pl-10"
                     />
                   </div>
                 </div>
@@ -1183,21 +1131,17 @@ export function ThreadKnowledgeManagementPage() {
                     ) : (
                       groupedBases.map((group) => (
                         <section key={group.ownerName} className="space-y-3">
-                          <div className="border-border/50 bg-muted/25 flex items-center gap-3 rounded-[18px] border px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]">
-                            <div className="bg-background/85 text-primary border-border/60 flex size-8 items-center justify-center rounded-xl border shadow-sm">
-                              <FolderIcon className="size-4" />
+                          <div className="flex items-center gap-2 px-1">
+                            <FolderIcon className="text-muted-foreground size-4" />
+                            <div className="font-mono text-[12px] font-semibold tracking-[0.18em]">
+                              {group.ownerName}/
                             </div>
-                            <div className="min-w-0">
-                              <div className="text-foreground/85 font-mono text-[12px] font-semibold tracking-[0.2em]">
-                                {group.ownerName}/
-                              </div>
-                              <div className="text-muted-foreground text-[11px]">
-                                {t.knowledge.baseCount(group.bases.length)}
-                              </div>
+                            <div className="text-muted-foreground text-[11px]">
+                              {t.knowledge.baseCount(group.bases.length)}
                             </div>
                           </div>
 
-                          <div className="border-border/40 ml-5 space-y-2 border-l border-dashed pl-4">
+                          <div className="border-border/40 ml-3 space-y-2 border-l pl-3">
                             {group.bases.map((knowledgeBase) => {
                               const isSelected =
                                 knowledgeBase.id === selectedBase?.id;
@@ -1216,15 +1160,15 @@ export function ThreadKnowledgeManagementPage() {
                                 <div
                                   key={knowledgeBase.id}
                                   className={cn(
-                                    "before:border-border/70 before:bg-background relative rounded-[22px] border p-3 transition-all duration-200 before:absolute before:top-8 before:-left-[1.05rem] before:size-2.5 before:rounded-full before:border before:shadow-sm",
+                                    "rounded-[18px] border transition-all duration-200",
                                     isSelected
-                                      ? "border-primary/40 bg-primary/6 before:border-primary/40 before:bg-primary/15 shadow-[0_18px_48px_-34px_rgba(59,130,246,0.7)]"
-                                      : "border-border/60 bg-background/60 hover:border-primary/20 hover:bg-background/85 hover:-translate-y-0.5",
+                                      ? "border-primary/35 bg-primary/6"
+                                      : "hover:border-border/70 hover:bg-muted/20 border-transparent bg-transparent",
                                   )}
                                 >
                                   <button
                                     type="button"
-                                    className="w-full text-left"
+                                    className="w-full px-3 py-3 text-left"
                                     onClick={() => {
                                       setSelectedBaseId(knowledgeBase.id);
                                       setSelectedDocumentId(
@@ -1234,92 +1178,73 @@ export function ThreadKnowledgeManagementPage() {
                                   >
                                     <div className="flex items-start justify-between gap-3">
                                       <div className="min-w-0 flex-1">
-                                        <div className="flex items-center gap-3">
-                                          <div className="flex size-9 shrink-0 items-center justify-center rounded-2xl border border-amber-500/15 bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                                        <div className="flex items-center gap-2.5">
+                                          <div className="bg-muted/50 text-primary flex size-8 shrink-0 items-center justify-center rounded-xl border border-transparent">
                                             <FolderIcon className="size-4" />
                                           </div>
                                           <div className="min-w-0">
                                             <div className="truncate text-sm font-semibold">
                                               {knowledgeBase.name}
                                             </div>
-                                            <div className="text-muted-foreground mt-1 font-mono text-[11px] tracking-[0.14em]">
-                                              {group.ownerName}/
-                                              {knowledgeBase.name}
+                                            <div className="text-muted-foreground mt-1 text-[11px]">
+                                              {visibilityLabel(
+                                                knowledgeBase.visibility,
+                                                t,
+                                              )}{" "}
+                                              ·{" "}
+                                              {knowledgeBase.preview_enabled
+                                                ? t.knowledge.previewEnabled
+                                                : t.knowledge.previewDisabled}
                                             </div>
                                           </div>
-                                        </div>
-                                        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-                                          <span
-                                            className={cn(
-                                              "size-2 rounded-full",
-                                              knowledgeBase.attached_to_thread
-                                                ? "bg-emerald-500"
-                                                : "bg-muted-foreground/30",
-                                            )}
-                                          />
-                                          <span className="text-muted-foreground">
-                                            {visibilityLabel(
-                                              knowledgeBase.visibility,
-                                              t,
-                                            )}{" "}
-                                            ·{" "}
-                                            {knowledgeBase.preview_enabled
-                                              ? t.knowledge.previewEnabled
-                                              : t.knowledge.previewDisabled}
-                                          </span>
                                         </div>
                                         {knowledgeBase.description ? (
                                           <p className="text-muted-foreground mt-3 line-clamp-2 text-xs leading-5">
                                             {knowledgeBase.description}
                                           </p>
                                         ) : null}
+                                        <div className="mt-3 flex flex-wrap gap-2">
+                                          <Badge variant="outline">
+                                            {t.knowledge.documentCount(
+                                              knowledgeBase.documents.length,
+                                            )}
+                                          </Badge>
+                                          <Badge variant="outline">
+                                            {t.knowledge.readyCount(
+                                              readyDocuments,
+                                            )}
+                                          </Badge>
+                                          {activeDocuments > 0 ? (
+                                            <Badge variant="secondary">
+                                              {t.knowledge.activeCount(
+                                                activeDocuments,
+                                              )}
+                                            </Badge>
+                                          ) : null}
+                                        </div>
                                       </div>
-                                      <ChevronRightIcon
-                                        className={cn(
-                                          "text-muted-foreground mt-1 size-4 shrink-0 transition-transform",
-                                          isSelected &&
-                                            "text-primary translate-x-0.5",
-                                        )}
-                                      />
+                                      <div className="flex shrink-0 items-center gap-2">
+                                        <span
+                                          className={cn(
+                                            "size-2 rounded-full",
+                                            knowledgeBase.attached_to_thread
+                                              ? "bg-emerald-500"
+                                              : "bg-muted-foreground/30",
+                                          )}
+                                        />
+                                        <ChevronRightIcon
+                                          className={cn(
+                                            "text-muted-foreground size-4 transition-transform",
+                                            isSelected &&
+                                              "text-primary translate-x-0.5",
+                                          )}
+                                        />
+                                      </div>
                                     </div>
                                   </button>
 
-                                  <div className="mt-4 flex flex-wrap gap-2">
-                                    <Badge variant="outline">
-                                      {t.knowledge.documentCount(
-                                        knowledgeBase.documents.length,
-                                      )}
-                                    </Badge>
-                                    <Badge variant="outline">
-                                      {t.knowledge.readyCount(readyDocuments)}
-                                    </Badge>
-                                    {activeDocuments > 0 ? (
-                                      <Badge variant="secondary">
-                                        {t.knowledge.activeCount(
-                                          activeDocuments,
-                                        )}
-                                      </Badge>
-                                    ) : null}
-                                  </div>
-
-                                  <div className="border-border/40 mt-4 space-y-2 border-l border-dashed pl-3">
-                                    {knowledgeBase.documents
-                                      .slice(0, 3)
-                                      .map((document) => (
-                                        <div
-                                          key={document.id}
-                                          className="bg-background/65 border-border/50 text-muted-foreground flex items-center gap-2 rounded-xl border px-2.5 py-2 text-xs"
-                                        >
-                                          <FileTextIcon className="size-3.5 shrink-0" />
-                                          <span className="truncate font-mono text-[11px]">
-                                            {document.display_name}
-                                          </span>
-                                        </div>
-                                      ))}
-                                  </div>
-
                                   {threadId ? (
-                                    <div className="mt-4 flex items-center justify-end gap-3">
+                                    <div className="px-3 pb-3">
                                       <Button
                                         size="sm"
                                         variant={
@@ -1330,7 +1255,7 @@ export function ThreadKnowledgeManagementPage() {
                                         disabled={
                                           bindingBusyBaseId === knowledgeBase.id
                                         }
-                                        className="rounded-full"
+                                        className="h-8 rounded-full px-3"
                                         onClick={() =>
                                           void handleBinding(
                                             knowledgeBase,
@@ -1360,297 +1285,143 @@ export function ThreadKnowledgeManagementPage() {
                 </ScrollArea>
               </ExplorerPanel>
 
-              <ExplorerPanel className="hidden min-h-0">
-                <div className="border-border/60 border-b px-5 py-5">
-                  <div className={panelLabelClassName}>
-                    {t.knowledge.manageButton}
-                  </div>
-                  {selectedBase == null ? (
-                    <div className="mt-3 space-y-2">
-                      <div className="text-lg font-semibold">
-                        {t.knowledge.noDocumentSelectedTitle}
-                      </div>
-                      <p className="text-muted-foreground text-sm leading-6">
-                        {t.knowledge.noDocumentSelectedDescription}
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="mt-3 space-y-4">
-                      <div className="space-y-2">
-                        <div className="text-muted-foreground font-mono text-[11px] tracking-[0.2em]">
-                          {selectedBase.owner_name}/{selectedBase.name}
-                        </div>
-                        <h2 className="font-serif text-2xl font-semibold tracking-tight">
-                          {selectedBase.name}
-                        </h2>
-                        <p className="text-muted-foreground text-sm leading-6">
-                          {selectedBase.description || activeLibraryDescription}
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <Badge variant="outline">
-                          {visibilityLabel(selectedBase.visibility, t)}
-                        </Badge>
-                        <Badge variant="outline">
-                          {selectedBase.preview_enabled
-                            ? t.knowledge.previewEnabled
-                            : t.knowledge.previewDisabled}
-                        </Badge>
-                        <Badge variant="outline">
-                          {t.knowledge.documentCount(
-                            selectedBase.documents.length,
-                          )}
-                        </Badge>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <ScrollArea className="h-[calc(100vh-21rem)]">
-                  <div className="space-y-3 p-4">
-                    {selectedBaseDocuments.length === 0 ? (
-                      <ExplorerEmptyState
-                        icon={FileTextIcon}
-                        title={t.knowledge.noDocumentSelectedTitle}
-                        description={t.knowledge.noDocumentSelectedDescription}
-                      />
-                    ) : (
-                      selectedBaseDocuments.map((document) => {
-                        const active = document.id === selectedDocumentId;
-                        const status = getKnowledgeDocumentStatus(document);
-
-                        return (
-                          <button
-                            key={document.id}
-                            type="button"
-                            className={cn(
-                              "group w-full rounded-[24px] border p-4 text-left transition-all duration-200",
-                              active
-                                ? "border-primary/40 bg-primary/6 shadow-[0_20px_56px_-36px_rgba(59,130,246,0.7)]"
-                                : "border-border/60 bg-background/60 hover:border-primary/20 hover:bg-background/85 hover:-translate-y-0.5",
-                            )}
-                            onClick={() => setSelectedDocumentId(document.id)}
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-2">
-                                  <div className="bg-primary/10 text-primary border-primary/10 flex size-9 shrink-0 items-center justify-center rounded-2xl border transition-transform duration-200 group-hover:scale-105">
-                                    <FileTextIcon className="size-4" />
-                                  </div>
-                                  <div className="min-w-0">
-                                    <div className="truncate text-sm font-semibold md:text-base">
-                                      {document.display_name}
-                                    </div>
-                                    <div className="text-muted-foreground mt-1 font-mono text-[11px] tracking-[0.14em]">
-                                      {document.owner_name}/
-                                      {document.knowledge_base_name}/
-                                      {document.display_name}
-                                    </div>
-                                  </div>
-                                </div>
-                                <div className="mt-3 flex flex-wrap gap-2">
-                                  <Badge variant="outline">
-                                    {document.file_kind}
-                                  </Badge>
-                                  <Badge variant="outline">
-                                    {document.locator_type}
-                                  </Badge>
-                                </div>
-                                {document.doc_description ? (
-                                  <p className="text-muted-foreground mt-3 line-clamp-2 text-sm leading-6">
-                                    {document.doc_description}
-                                  </p>
-                                ) : null}
-                              </div>
-                              <Badge variant={statusTone(status)}>
-                                {statusLabel(status, t)}
-                              </Badge>
-                            </div>
-
-                            <div className="mt-4 flex flex-wrap gap-2">
-                              {document.page_count ? (
-                                <Badge variant="outline">
-                                  {t.knowledge.pageCount(document.page_count)}
-                                </Badge>
-                              ) : null}
-                              <Badge variant="outline">
-                                {t.knowledge.nodeCount(document.node_count)}
-                              </Badge>
-                              {document.attached_to_thread ? (
-                                <Badge variant="secondary">
-                                  {t.knowledge.attached}
-                                </Badge>
-                              ) : null}
-                            </div>
-
-                            {status !== "ready" ? (
-                              <div className="mt-4 space-y-2">
-                                <Progress
-                                  value={getKnowledgeDocumentProgress(document)}
-                                />
-                                <div className="text-muted-foreground text-xs">
-                                  {document.latest_build_job?.stage ?? status}
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="text-muted-foreground mt-4 text-xs">
-                                {formatTimestamp(document.updated_at) ||
-                                  t.knowledge.notAvailable}
-                              </div>
-                            )}
-                          </button>
-                        );
-                      })
-                    )}
-                  </div>
-                </ScrollArea>
-              </ExplorerPanel>
-
-              <div className="flex min-h-0 flex-col gap-4">
+              <ExplorerPanel className="flex min-h-0 flex-col overflow-hidden">
                 {selectedDocument == null || selectedBase == null ? (
-                  <ExplorerPanel className="flex-1">
-                    <ExplorerEmptyState
-                      icon={BookOpenTextIcon}
-                      title={t.knowledge.noDocumentSelectedTitle}
-                      description={t.knowledge.noDocumentSelectedDescription}
-                    />
-                  </ExplorerPanel>
+                  <ExplorerEmptyState
+                    icon={BookOpenTextIcon}
+                    title={t.knowledge.noDocumentSelectedTitle}
+                    description={t.knowledge.noDocumentSelectedDescription}
+                  />
                 ) : (
                   <>
-                    <ExplorerPanel>
-                      <div className="space-y-5 px-5 py-5">
-                        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-                          <div className="space-y-3">
-                            <div className={panelLabelClassName}>
-                              {t.knowledge.buildProgressTitle}
-                            </div>
-                            <div className="space-y-2">
-                              <h2 className="font-serif text-2xl font-semibold tracking-tight md:text-3xl">
-                                {selectedDocument.display_name}
-                              </h2>
-                              <p className="text-muted-foreground text-sm leading-6">
-                                {selectedDocument.owner_name} /{" "}
-                                {selectedDocument.knowledge_base_name} /{" "}
-                                {visibilityLabel(
-                                  selectedDocument.visibility,
-                                  t,
-                                )}
-                                {selectedDocument.doc_description
-                                  ? ` / ${selectedDocument.doc_description}`
-                                  : ""}
-                              </p>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                              <Badge
-                                variant={statusTone(
-                                  getKnowledgeDocumentStatus(selectedDocument),
-                                )}
-                              >
-                                {statusLabel(
-                                  getKnowledgeDocumentStatus(selectedDocument),
-                                  t,
-                                )}
-                              </Badge>
-                              <Badge variant="outline">
-                                {selectedDocument.file_kind}
-                              </Badge>
-                              {selectedDocument.page_count ? (
-                                <Badge variant="outline">
-                                  {t.knowledge.pageCount(
-                                    selectedDocument.page_count,
-                                  )}
-                                </Badge>
-                              ) : null}
-                              <Badge variant="outline">
-                                {t.knowledge.nodeCount(
-                                  selectedDocument.node_count,
-                                )}
-                              </Badge>
-                              {effectivePreviewFocus?.locatorLabel ? (
-                                <Badge variant="secondary">
-                                  {effectivePreviewFocus.locatorLabel}
-                                </Badge>
-                              ) : null}
-                            </div>
+                    <div className="border-border/60 border-b px-5 py-4">
+                      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                        <div className="min-w-0">
+                          <div className={panelLabelClassName}>
+                            {selectedBase.owner_name}/{selectedBase.name}
                           </div>
-
-                          <div className="flex flex-col gap-3 lg:items-end">
-                            {threadId ? (
-                              <Button
-                                size="sm"
-                                variant={
-                                  selectedBase.attached_to_thread
-                                    ? "secondary"
-                                    : "outline"
-                                }
-                                disabled={bindingBusyBaseId === selectedBase.id}
-                                className="rounded-full"
-                                onClick={() =>
-                                  void handleBinding(
-                                    selectedBase,
-                                    !selectedBase.attached_to_thread,
-                                  )
-                                }
-                              >
-                                {bindingBusyBaseId === selectedBase.id ? (
-                                  <LoaderIcon className="size-4 animate-spin" />
-                                ) : selectedBase.attached_to_thread ? (
-                                  t.knowledge.detach
-                                ) : (
-                                  t.knowledge.attach
-                                )}
-                              </Button>
-                            ) : null}
-
-                            {selectedBase.owner_id === user?.id ? (
-                              <div className="border-border/60 bg-background/65 flex items-center gap-3 rounded-[18px] border px-3 py-2">
-                                <div className="bg-primary/10 text-primary flex size-9 items-center justify-center rounded-2xl">
-                                  <EyeIcon className="size-4" />
-                                </div>
-                                <div className="min-w-0">
-                                  <div className="text-sm font-medium">
-                                    {t.knowledge.previewSetting}
-                                  </div>
-                                  <div className="text-muted-foreground max-w-64 text-xs leading-5">
-                                    {t.knowledge.previewSettingHint}
-                                  </div>
-                                </div>
-                                <Switch
-                                  checked={selectedBase.preview_enabled}
-                                  disabled={
-                                    settingsBusyBaseId === selectedBase.id
-                                  }
-                                  onCheckedChange={(checked) =>
-                                    void handlePreviewSetting(
-                                      selectedBase,
-                                      checked,
-                                    )
-                                  }
-                                />
-                              </div>
-                            ) : null}
-                          </div>
-                        </div>
-
-                        <div className="space-y-3">
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div>
-                              <div className={panelLabelClassName}>
-                                {selectedBase.name}
-                              </div>
-                              <p className="text-muted-foreground mt-2 text-sm leading-6">
-                                {selectedBase.description ||
-                                  activeLibraryDescription}
-                              </p>
-                            </div>
+                          <div className="mt-1 flex flex-wrap items-center gap-2.5">
+                            <h2 className="text-xl font-semibold tracking-tight md:text-2xl">
+                              {selectedDocument.display_name}
+                            </h2>
+                            <Badge
+                              variant={statusTone(
+                                getKnowledgeDocumentStatus(selectedDocument),
+                              )}
+                            >
+                              {statusLabel(
+                                getKnowledgeDocumentStatus(selectedDocument),
+                                t,
+                              )}
+                            </Badge>
                             <Badge variant="outline">
-                              {t.knowledge.documentCount(
-                                selectedBaseDocuments.length,
+                              {selectedDocument.file_kind}
+                            </Badge>
+                            {selectedDocument.page_count ? (
+                              <Badge variant="outline">
+                                {t.knowledge.pageCount(
+                                  selectedDocument.page_count,
+                                )}
+                              </Badge>
+                            ) : null}
+                            <Badge variant="outline">
+                              {t.knowledge.nodeCount(
+                                selectedDocument.node_count,
                               )}
                             </Badge>
                           </div>
+                          <p className="text-muted-foreground mt-2 max-w-3xl text-sm leading-6">
+                            {selectedDocument.doc_description ||
+                              selectedBase.description ||
+                              activeLibraryDescription}
+                          </p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <Badge variant="outline">
+                              {visibilityLabel(selectedDocument.visibility, t)}
+                            </Badge>
+                            {effectivePreviewFocus?.locatorLabel ? (
+                              <Badge variant="secondary">
+                                {effectivePreviewFocus.locatorLabel}
+                              </Badge>
+                            ) : null}
+                          </div>
+                        </div>
 
-                          <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-1">
+                        <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+                          {threadId ? (
+                            <Button
+                              size="sm"
+                              variant={
+                                selectedBase.attached_to_thread
+                                  ? "secondary"
+                                  : "outline"
+                              }
+                              disabled={bindingBusyBaseId === selectedBase.id}
+                              className="rounded-full"
+                              onClick={() =>
+                                void handleBinding(
+                                  selectedBase,
+                                  !selectedBase.attached_to_thread,
+                                )
+                              }
+                            >
+                              {bindingBusyBaseId === selectedBase.id ? (
+                                <LoaderIcon className="size-4 animate-spin" />
+                              ) : selectedBase.attached_to_thread ? (
+                                t.knowledge.detach
+                              ) : (
+                                t.knowledge.attach
+                              )}
+                            </Button>
+                          ) : null}
+
+                          {selectedBase.owner_id === user?.id ? (
+                            <div className="border-border/60 bg-muted/20 flex items-center gap-3 rounded-full border px-3 py-2">
+                              <EyeIcon className="text-muted-foreground size-4" />
+                              <div className="min-w-0">
+                                <div className="text-sm font-medium">
+                                  {t.knowledge.previewSetting}
+                                </div>
+                              </div>
+                              <Switch
+                                checked={selectedBase.preview_enabled}
+                                disabled={
+                                  settingsBusyBaseId === selectedBase.id
+                                }
+                                onCheckedChange={(checked) =>
+                                  void handlePreviewSetting(
+                                    selectedBase,
+                                    checked,
+                                  )
+                                }
+                              />
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border-border/60 border-b px-5 py-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className={panelLabelClassName}>
+                            {selectedBase.name}
+                          </div>
+                          <p className="text-muted-foreground mt-2 text-sm leading-6">
+                            {selectedBase.description ||
+                              activeLibraryDescription}
+                          </p>
+                        </div>
+                        <Badge variant="outline">
+                          {t.knowledge.documentCount(
+                            selectedBaseDocuments.length,
+                          )}
+                        </Badge>
+                      </div>
+
+                      <div className="border-border/60 bg-muted/20 mt-4 overflow-hidden rounded-[18px] border">
+                        <ScrollArea className="max-h-52">
+                          <div className="divide-border/50 divide-y">
                             {selectedBaseDocuments.map((document) => {
                               const active = document.id === selectedDocumentId;
                               const status =
@@ -1661,132 +1432,122 @@ export function ThreadKnowledgeManagementPage() {
                                   key={document.id}
                                   type="button"
                                   className={cn(
-                                    "group border-border/60 bg-background/70 hover:border-primary/25 hover:bg-background/90 max-w-[260px] min-w-[220px] rounded-[20px] border p-4 text-left transition-all duration-200",
-                                    active &&
-                                      "border-primary/40 bg-primary/6 shadow-[0_18px_48px_-34px_rgba(59,130,246,0.7)]",
+                                    "hover:bg-background/70 w-full px-4 py-3 text-left transition-colors",
+                                    active && "bg-primary/6",
                                   )}
                                   onClick={() =>
                                     setSelectedDocumentId(document.id)
                                   }
                                 >
-                                  <div className="flex items-start justify-between gap-3">
+                                  <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                                     <div className="min-w-0 flex-1">
-                                      <div className="truncate text-sm font-semibold">
-                                        {document.display_name}
+                                      <div className="flex items-center gap-2">
+                                        <FileTextIcon className="text-muted-foreground size-4 shrink-0" />
+                                        <div className="truncate text-sm font-semibold">
+                                          {document.display_name}
+                                        </div>
                                       </div>
-                                      <div className="text-muted-foreground mt-1 truncate text-[11px]">
-                                        {document.file_kind} ·{" "}
-                                        {document.locator_type}
-                                      </div>
+                                      {document.doc_description ? (
+                                        <p className="text-muted-foreground mt-1 line-clamp-2 text-xs leading-5">
+                                          {document.doc_description}
+                                        </p>
+                                      ) : null}
                                     </div>
-                                    <Badge variant={statusTone(status)}>
-                                      {statusLabel(status, t)}
-                                    </Badge>
-                                  </div>
-                                  {document.doc_description ? (
-                                    <p className="text-muted-foreground mt-3 line-clamp-2 text-xs leading-5">
-                                      {document.doc_description}
-                                    </p>
-                                  ) : null}
-                                  <div className="mt-3 flex flex-wrap gap-2">
-                                    {document.page_count ? (
+                                    <div className="flex shrink-0 flex-wrap items-center gap-2">
+                                      {document.page_count ? (
+                                        <Badge variant="outline">
+                                          {t.knowledge.pageCount(
+                                            document.page_count,
+                                          )}
+                                        </Badge>
+                                      ) : null}
                                       <Badge variant="outline">
-                                        {t.knowledge.pageCount(
-                                          document.page_count,
-                                        )}
+                                        {document.file_kind}
                                       </Badge>
-                                    ) : null}
-                                    <Badge variant="outline">
-                                      {t.knowledge.nodeCount(
-                                        document.node_count,
-                                      )}
-                                    </Badge>
+                                      <Badge variant={statusTone(status)}>
+                                        {statusLabel(status, t)}
+                                      </Badge>
+                                    </div>
                                   </div>
                                 </button>
                               );
                             })}
                           </div>
-                        </div>
+                        </ScrollArea>
+                      </div>
+                    </div>
 
-                        <div className="space-y-3">
-                          <Progress
-                            value={getKnowledgeDocumentProgress(
-                              selectedDocument,
-                            )}
-                          />
-                          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                            <DetailMetric
-                              label={t.knowledge.stageLabel}
-                              value={
-                                selectedDocument.latest_build_job?.stage ??
-                                selectedDocument.status
-                              }
-                            />
-                            <DetailMetric
-                              label={t.knowledge.progressLabel}
-                              value={`${getKnowledgeDocumentProgress(selectedDocument)}%`}
-                            />
-                            <DetailMetric
-                              label={t.knowledge.elapsedLabel}
-                              value={
-                                formatElapsed(
-                                  selectedDocument.latest_build_job?.started_at,
-                                  selectedDocument.latest_build_job
-                                    ?.finished_at,
-                                ) || t.knowledge.notAvailable
-                              }
-                            />
-                            <DetailMetric
-                              label={t.knowledge.updatedAtLabel}
-                              value={
-                                formatTimestamp(
-                                  selectedDocument.latest_build_job
-                                    ?.updated_at ?? selectedDocument.updated_at,
-                                ) || t.knowledge.notAvailable
-                              }
-                            />
-                          </div>
-                          <DetailMetric
-                            label={t.knowledge.messageLabel}
-                            value={
-                              selectedDocument.latest_build_job?.message ??
-                              selectedDocument.error ??
-                              t.knowledge.noBuildMessage
-                            }
-                          />
+                    <div className="border-border/60 border-b px-5 py-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="outline">
+                          {t.knowledge.stageLabel}:{" "}
+                          {selectedDocument.latest_build_job?.stage ??
+                            selectedDocument.status}
+                        </Badge>
+                        <Badge variant="outline">
+                          {t.knowledge.progressLabel}:{" "}
+                          {getKnowledgeDocumentProgress(selectedDocument)}%
+                        </Badge>
+                        <Badge variant="outline">
+                          {t.knowledge.elapsedLabel}:{" "}
+                          {formatElapsed(
+                            selectedDocument.latest_build_job?.started_at,
+                            selectedDocument.latest_build_job?.finished_at,
+                          ) || t.knowledge.notAvailable}
+                        </Badge>
+                        <Badge variant="outline">
+                          {t.knowledge.updatedAtLabel}:{" "}
+                          {formatTimestamp(
+                            selectedDocument.latest_build_job?.updated_at ??
+                              selectedDocument.updated_at,
+                          ) || t.knowledge.notAvailable}
+                        </Badge>
+                      </div>
+                      <div className="mt-3 flex items-center gap-3">
+                        <Progress
+                          className="flex-1"
+                          value={getKnowledgeDocumentProgress(selectedDocument)}
+                        />
+                        <div className="text-sm font-medium">
+                          {getKnowledgeDocumentProgress(selectedDocument)}%
                         </div>
                       </div>
-                    </ExplorerPanel>
+                      <p className="text-muted-foreground mt-3 text-sm leading-6">
+                        {selectedDocument.latest_build_job?.message ??
+                          selectedDocument.error ??
+                          t.knowledge.noBuildMessage}
+                      </p>
+                    </div>
 
-                    <ExplorerPanel className="min-h-0 flex-1 overflow-hidden">
-                      <div className="grid h-full min-h-0 gap-4 px-4 py-4 xl:grid-cols-[minmax(0,0.96fr)_minmax(360px,1.04fr)]">
+                    <div className="min-h-0 flex-1 overflow-hidden p-4">
+                      <div className="grid h-full min-h-0 gap-4 xl:grid-cols-[minmax(0,0.92fr)_minmax(360px,1.08fr)]">
                         <Tabs
                           key={selectedDocument.id}
                           defaultValue="tree"
                           className="flex h-full min-h-0 flex-col"
                         >
-                          <TabsList className="bg-muted/70 grid h-auto grid-cols-2 rounded-[20px] p-1 sm:grid-cols-4">
+                          <TabsList className="bg-muted/60 grid h-auto grid-cols-2 rounded-[16px] p-1 sm:grid-cols-4">
                             <TabsTrigger
                               value="tree"
-                              className="rounded-2xl data-[state=active]:shadow-sm"
+                              className="rounded-xl data-[state=active]:shadow-sm"
                             >
                               {t.knowledge.treeTab}
                             </TabsTrigger>
                             <TabsTrigger
                               value="events"
-                              className="rounded-2xl data-[state=active]:shadow-sm"
+                              className="rounded-xl data-[state=active]:shadow-sm"
                             >
                               {t.knowledge.eventsTab}
                             </TabsTrigger>
                             <TabsTrigger
                               value="index"
-                              className="rounded-2xl data-[state=active]:shadow-sm"
+                              className="rounded-xl data-[state=active]:shadow-sm"
                             >
                               {t.knowledge.indexTab}
                             </TabsTrigger>
                             <TabsTrigger
                               value="canonical"
-                              className="rounded-2xl data-[state=active]:shadow-sm"
+                              className="rounded-xl data-[state=active]:shadow-sm"
                             >
                               {t.knowledge.canonicalTab}
                             </TabsTrigger>
@@ -1796,7 +1557,7 @@ export function ThreadKnowledgeManagementPage() {
                             value="tree"
                             className="mt-4 min-h-0 flex-1"
                           >
-                            <div className="border-border/60 bg-background/55 h-full overflow-hidden rounded-[24px] border">
+                            <div className="border-border/60 bg-muted/20 h-full overflow-hidden rounded-[20px] border">
                               <ScrollArea className="h-full">
                                 <div className="space-y-4 p-4">
                                   {getKnowledgeDocumentStatus(
@@ -1838,7 +1599,7 @@ export function ThreadKnowledgeManagementPage() {
                             value="events"
                             className="mt-4 min-h-0 flex-1"
                           >
-                            <div className="border-border/60 bg-background/55 h-full overflow-hidden rounded-[24px] border">
+                            <div className="border-border/60 bg-muted/20 h-full overflow-hidden rounded-[20px] border">
                               <ScrollArea className="h-full">
                                 <div className="space-y-4 p-4">
                                   {eventsQuery.isLoading ? (
@@ -1858,7 +1619,7 @@ export function ThreadKnowledgeManagementPage() {
                                     eventsQuery.data?.events.map((event) => (
                                       <div
                                         key={event.id}
-                                        className="border-border/60 bg-background/75 rounded-[22px] border p-4 shadow-sm"
+                                        className="border-border/60 bg-background rounded-[18px] border p-4"
                                       >
                                         <div className="flex flex-wrap items-center gap-2">
                                           <Badge variant="outline">
@@ -1913,7 +1674,7 @@ export function ThreadKnowledgeManagementPage() {
                             value="index"
                             className="mt-4 min-h-0 flex-1"
                           >
-                            <div className="border-border/60 bg-muted/30 h-full overflow-hidden rounded-[24px] border">
+                            <div className="border-border/60 bg-muted/20 h-full overflow-hidden rounded-[20px] border">
                               <ScrollArea className="h-full">
                                 <div className="space-y-4 p-4">
                                   {indexOutlineNodes.length > 0 ? (
@@ -1930,7 +1691,7 @@ export function ThreadKnowledgeManagementPage() {
                                       ))}
                                     </div>
                                   ) : null}
-                                  <pre className="border-border/60 bg-background/65 overflow-x-auto rounded-[20px] border p-4 text-xs leading-6 whitespace-pre-wrap">
+                                  <pre className="border-border/60 bg-background overflow-x-auto rounded-[18px] border p-4 text-xs leading-6 whitespace-pre-wrap">
                                     {debugQuery.isLoading
                                       ? t.knowledge.loadingDebug
                                       : debugQuery.error instanceof Error
@@ -1951,7 +1712,7 @@ export function ThreadKnowledgeManagementPage() {
                             value="canonical"
                             className="mt-4 min-h-0 flex-1"
                           >
-                            <div className="border-border/60 bg-muted/30 h-full overflow-hidden rounded-[24px] border">
+                            <div className="border-border/60 bg-muted/20 h-full overflow-hidden rounded-[20px] border">
                               <ScrollArea className="h-full">
                                 <pre className="overflow-x-auto p-4 text-xs leading-6 whitespace-pre-wrap">
                                   {debugQuery.isLoading
@@ -1977,10 +1738,10 @@ export function ThreadKnowledgeManagementPage() {
                           onModeChange={setPreviewMode}
                         />
                       </div>
-                    </ExplorerPanel>
+                    </div>
                   </>
                 )}
-              </div>
+              </ExplorerPanel>
             </div>
           </div>
         </div>
