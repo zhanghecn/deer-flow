@@ -248,6 +248,7 @@ export interface Translations {
     messageLabel: string;
     noBuildMessage: string;
     notAvailable: string;
+    overviewTab: string;
     treeTab: string;
     eventsTab: string;
     indexTab: string;

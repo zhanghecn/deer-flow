@@ -304,6 +304,7 @@ export const zhCN: Translations = {
     messageLabel: "消息",
     noBuildMessage: "暂时没有构建消息。",
     notAvailable: "暂无",
+    overviewTab: "概览",
     treeTab: "树结构",
     eventsTab: "构建事件",
     indexTab: "索引 JSON",

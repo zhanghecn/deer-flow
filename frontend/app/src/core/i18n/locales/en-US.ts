@@ -285,8 +285,7 @@ export const enUS: Translations = {
     noDocumentSelectedTitle: "No Document Selected",
     noDocumentSelectedDescription:
       "Choose a document on the left to inspect its build status, tree, and stored debug payload.",
-    baseCount: (count: number) =>
-      `${count} base${count === 1 ? "" : "s"}`,
+    baseCount: (count: number) => `${count} base${count === 1 ? "" : "s"}`,
     documentCount: (count: number) =>
       `${count} document${count === 1 ? "" : "s"}`,
     readyCount: (count: number) => `${count} ready`,
@@ -322,6 +321,7 @@ export const enUS: Translations = {
     messageLabel: "Message",
     noBuildMessage: "No build message yet.",
     notAvailable: "N/A",
+    overviewTab: "Overview",
     treeTab: "Tree",
     eventsTab: "Events",
     indexTab: "Index JSON",
