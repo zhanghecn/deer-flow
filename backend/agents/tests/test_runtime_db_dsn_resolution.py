@@ -24,3 +24,21 @@ def test_build_runtime_db_dsn_rejects_memory_uri_without_root_env(monkeypatch, t
 
     with pytest.raises(RuntimeError, match=":memory:"):
         runtime_db._build_runtime_db_dsn()
+
+
+def test_runtime_db_store_exposes_public_connection_helper(monkeypatch):
+    store = runtime_db.RuntimeDBStore("postgresql://user:pass@127.0.0.1:5432/app")
+    calls: list[str] = []
+
+    @runtime_db.contextmanager
+    def fake_connection():
+        calls.append("enter")
+        yield "conn"
+        calls.append("exit")
+
+    monkeypatch.setattr(store, "_connection", fake_connection)
+
+    with store.connection() as conn:
+        assert conn == "conn"
+
+    assert calls == ["enter", "exit"]

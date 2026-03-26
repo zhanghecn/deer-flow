@@ -37,3 +37,31 @@ tool_groups:
     )
 
     assert {"use": "tests.fake_tools:fake_tool"} in tools
+
+
+def test_get_available_tools_includes_knowledge_tools(monkeypatch, tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+models: []
+sandbox:
+  use: src.sandbox.local:LocalSandboxProvider
+tools: []
+tool_groups: []
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("OPENAGENTS_CONFIG_PATH", str(config_path))
+
+    tools = get_available_tools(
+        include_mcp=False,
+        model_supports_vision=False,
+    )
+
+    tool_names = {tool.name for tool in tools if hasattr(tool, "name")}
+
+    assert "list_knowledge_documents" in tool_names
+    assert "get_document_tree" in tool_names
+    assert "get_document_tree_node_detail" in tool_names
+    assert "get_document_image" in tool_names

@@ -93,6 +93,12 @@ class RuntimeDBStore:
             conn.autocommit = True
             yield conn
 
+    @contextmanager
+    def connection(self):
+        """Public connection helper for application-domain repositories."""
+        with self._connection() as conn:
+            yield conn
+
     def get_model(self, name: str) -> ModelConfig | None:
         query = """
             SELECT name, display_name, config_json

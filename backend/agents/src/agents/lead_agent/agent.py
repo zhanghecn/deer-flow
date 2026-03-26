@@ -21,6 +21,7 @@ from src.agents.middlewares.clarification_tool_formatting_middleware import (
     ClarificationToolFormattingMiddleware,
 )
 from src.agents.middlewares.context_window_middleware import ContextWindowMiddleware
+from src.agents.middlewares.knowledge_context_middleware import KnowledgeContextMiddleware
 from src.agents.middlewares.max_tokens_recovery_middleware import MaxTokensRecoveryMiddleware
 from src.agents.middlewares.retry_utils import (
     build_model_retry_middleware,
@@ -121,6 +122,7 @@ class LeadAgentRuntimeContext(BaseModel):
     command_prompt: str | None = None
     authoring_actions: list[str] = Field(default_factory=list)
     referenced_skill_names: list[str] = Field(default_factory=list)
+    knowledge_document_mentions: list[str] = Field(default_factory=list)
     original_user_input: str | None = None
     mode: str | None = None
     is_plan_mode: bool | None = None
@@ -630,6 +632,7 @@ def _build_openagents_middlewares(model_config: ModelConfig):
         AuthoringGuardMiddleware(),
         RuntimeCommandMiddleware(),
         UploadsMiddleware(),
+        KnowledgeContextMiddleware(),
         TitleMiddleware(),
         build_model_retry_middleware(),
         build_tool_retry_middleware(),

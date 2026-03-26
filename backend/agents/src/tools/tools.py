@@ -7,7 +7,11 @@ from src.config.runtime_db import get_runtime_db_store
 from src.reflection import resolve_variable
 from src.tools.builtins import (
     ask_clarification_tool,
+    get_document_image,
+    get_document_tree,
+    get_document_tree_node_detail,
     install_skill_from_registry,
+    list_knowledge_documents,
     present_file_tool,
     promote_skill_shared,
     push_agent_prod,
@@ -23,6 +27,10 @@ logger = logging.getLogger(__name__)
 BUILTIN_TOOLS = [
     present_file_tool,
     ask_clarification_tool,
+    list_knowledge_documents,
+    get_document_tree,
+    get_document_tree_node_detail,
+    get_document_image,
 ]
 DEV_BUILTIN_TOOLS = [
     install_skill_from_registry,
