@@ -398,7 +398,7 @@ function ExplorerPanel({
       )}
     >
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-white/70" />
-      <div className="relative">{children}</div>
+      <div className="relative flex h-full min-h-0 flex-col">{children}</div>
     </section>
   );
 }
@@ -1096,8 +1096,8 @@ export function ThreadKnowledgeManagementPage() {
               </Button>
             </div>
 
-            <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[296px_minmax(0,1fr)]">
-              <ExplorerPanel className="flex min-h-0 flex-col overflow-hidden">
+            <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[296px_minmax(0,1fr)] xl:grid-rows-[minmax(0,1fr)]">
+              <ExplorerPanel className="flex min-h-0 min-w-0 flex-col overflow-hidden">
                 <div className="border-border/60 border-b px-4 py-4">
                   <div className={panelLabelClassName}>
                     {t.knowledge.libraryTitle}
@@ -1285,7 +1285,7 @@ export function ThreadKnowledgeManagementPage() {
                 </ScrollArea>
               </ExplorerPanel>
 
-              <ExplorerPanel className="flex min-h-0 flex-col overflow-hidden">
+              <ExplorerPanel className="flex min-h-0 min-w-0 flex-col overflow-hidden">
                 {selectedDocument == null || selectedBase == null ? (
                   <ExplorerEmptyState
                     icon={BookOpenTextIcon}
@@ -1520,7 +1520,7 @@ export function ThreadKnowledgeManagementPage() {
                     </div>
 
                     <div className="min-h-0 flex-1 overflow-hidden p-4">
-                      <div className="grid h-full min-h-0 gap-4 xl:grid-cols-[minmax(0,0.92fr)_minmax(360px,1.08fr)]">
+                      <div className="grid h-full min-h-0 gap-4 xl:grid-cols-[minmax(0,0.92fr)_minmax(360px,1.08fr)] xl:grid-rows-[minmax(0,1fr)]">
                         <Tabs
                           key={selectedDocument.id}
                           defaultValue="tree"
