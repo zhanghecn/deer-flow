@@ -1,24 +1,13 @@
 import {
   ArrowUpRightIcon,
   BrainCircuitIcon,
-  LoaderIcon,
   PlusIcon,
+  UploadIcon,
 } from "lucide-react";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import {
   SidebarGroup,
@@ -26,11 +15,10 @@ import {
   SidebarGroupContent,
   SidebarGroupLabel,
 } from "@/components/ui/sidebar";
-import { Textarea } from "@/components/ui/textarea";
-import { createThreadKnowledgeBase } from "@/core/knowledge/api";
 import { useThreadKnowledgeBases } from "@/core/knowledge/hooks";
 import { useI18n } from "@/core/i18n/hooks";
-import { getLocalSettings } from "@/core/settings";
+
+import { KnowledgeBaseUploadDialog } from "./knowledge-base-upload-dialog";
 
 function statusLabel(status: string, labels: Record<string, string>) {
   switch (status) {
@@ -67,16 +55,11 @@ function documentProgress(document: {
 
 export function ThreadKnowledgeSidebarSection() {
   const { thread_id: threadId, agent_name: agentName } = useParams();
-  const queryClient = useQueryClient();
   const { knowledgeBases, isLoading } = useThreadKnowledgeBases(threadId);
   const { t } = useI18n();
   const statusLabels = t.knowledge.status;
 
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [files, setFiles] = useState<File[]>([]);
-  const [submitting, setSubmitting] = useState(false);
 
   if (!threadId) {
     return null;
@@ -86,96 +69,13 @@ export function ThreadKnowledgeSidebarSection() {
     ? `/workspace/agents/${agentName}/chats/${threadId}/knowledge`
     : `/workspace/chats/${threadId}/knowledge`;
 
-  const handleCreate = async () => {
-    if (files.length === 0) {
-      toast.error(t.knowledge.chooseAtLeastOneFile);
-      return;
-    }
-    setSubmitting(true);
-    try {
-      const configuredModelName = getLocalSettings().context.model_name;
-      const selectedModelName =
-        typeof configuredModelName === "string"
-          ? configuredModelName
-          : undefined;
-      await createThreadKnowledgeBase(threadId, {
-        name: name.trim() || t.knowledge.defaultBaseName,
-        description: description.trim(),
-        modelName: selectedModelName,
-        files,
-      });
-      await queryClient.invalidateQueries({
-        queryKey: ["thread-knowledge-bases", threadId],
-      });
-      setDialogOpen(false);
-      setName("");
-      setDescription("");
-      setFiles([]);
-      toast.success(t.knowledge.indexQueued);
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : t.knowledge.createError,
-      );
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   return (
     <>
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t.knowledge.newTitle}</DialogTitle>
-            <DialogDescription>{t.knowledge.newDescription}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <Input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder={t.knowledge.namePlaceholder}
-            />
-            <Textarea
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              placeholder={t.knowledge.descriptionPlaceholder}
-              rows={4}
-            />
-            <Input
-              type="file"
-              multiple
-              accept=".pdf,.doc,.docx,.md,.markdown"
-              onChange={(event) => {
-                const nextFiles = Array.from(event.target.files ?? []);
-                setFiles(nextFiles);
-              }}
-            />
-            {files.length > 0 && (
-              <div className="space-y-1 text-xs">
-                {files.map((file) => (
-                  <div
-                    key={`${file.name}:${file.size}`}
-                    className="text-muted-foreground truncate"
-                  >
-                    {file.name}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
-              {t.common.cancel}
-            </Button>
-            <Button onClick={handleCreate} disabled={submitting}>
-              {submitting ? (
-                <LoaderIcon className="mr-2 size-4 animate-spin" />
-              ) : null}
-              {t.common.create}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <KnowledgeBaseUploadDialog
+        threadId={threadId}
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+      />
       <SidebarGroup>
         <SidebarGroupLabel>
           <BrainCircuitIcon className="mr-2" />
@@ -186,6 +86,14 @@ export function ThreadKnowledgeSidebarSection() {
         </SidebarGroupAction>
         <SidebarGroupContent>
           <div className="space-y-2 px-2 pb-2 text-xs">
+            <Button
+              variant="default"
+              className="w-full justify-between"
+              onClick={() => setDialogOpen(true)}
+            >
+              {t.knowledge.uploadButton}
+              <UploadIcon className="size-4" />
+            </Button>
             <Button
               asChild
               variant="outline"

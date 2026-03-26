@@ -116,12 +116,13 @@ def _resolve_model_name(manifest: KnowledgeManifest) -> str | None:
         return manifest.model_name
 
     db_store = get_runtime_db_store()
-    thread_model = db_store.get_thread_runtime_model(
-        thread_id=manifest.thread_id,
-        user_id=manifest.user_id,
-    )
-    if thread_model:
-        return thread_model
+    if manifest.thread_id.strip():
+        thread_model = db_store.get_thread_runtime_model(
+            thread_id=manifest.thread_id,
+            user_id=manifest.user_id,
+        )
+        if thread_model:
+            return thread_model
 
     enabled_model = db_store.get_any_enabled_model()
     return enabled_model.name if enabled_model is not None else None
@@ -142,11 +143,12 @@ def ingest_manifest(manifest_path: Path) -> None:
         source_type=manifest.source_type,
         command_name=manifest.command_name,
     )
-    repository.attach_base_to_thread(
-        thread_id=manifest.thread_id,
-        knowledge_base_id=manifest.knowledge_base_id,
-        user_id=manifest.user_id,
-    )
+    if manifest.thread_id.strip():
+        repository.attach_base_to_thread(
+            thread_id=manifest.thread_id,
+            knowledge_base_id=manifest.knowledge_base_id,
+            user_id=manifest.user_id,
+        )
 
     for document in manifest.documents:
         build_started_at = time.perf_counter()

@@ -11,6 +11,8 @@ import {
   HouseIcon,
   LoaderIcon,
   SearchIcon,
+  Trash2Icon,
+  UploadIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -23,6 +25,7 @@ import { setPdfPreviewPage } from "@/core/artifacts/pdf";
 import { useAuth } from "@/core/auth/hooks";
 import {
   attachKnowledgeBaseToThread,
+  deleteKnowledgeBase,
   detachKnowledgeBaseFromThread,
   updateKnowledgeBaseSettings,
 } from "@/core/knowledge/api";
@@ -47,6 +50,14 @@ import { useI18n } from "@/core/i18n/hooks";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -64,6 +75,8 @@ import {
   WorkspaceHeader,
 } from "@/components/workspace/workspace-container";
 import { cn } from "@/lib/utils";
+
+import { KnowledgeBaseUploadDialog } from "./knowledge-base-upload-dialog";
 
 type LibraryDocumentView = KnowledgeDocument & {
   owner_name: string;
@@ -968,6 +981,10 @@ export function ThreadKnowledgeManagementPage() {
     useState<KnowledgePreviewFocus | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailTab, setDetailTab] = useState("overview");
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [deleteBaseTarget, setDeleteBaseTarget] =
+    useState<KnowledgeBase | null>(null);
+  const [deletingBaseId, setDeletingBaseId] = useState<string | null>(null);
 
   const filteredKnowledgeBases = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -1042,6 +1059,9 @@ export function ThreadKnowledgeManagementPage() {
     filteredKnowledgeBases.find(
       (knowledgeBase) => knowledgeBase.id === selectedBaseId,
     ) ?? null;
+  const canDeleteSelectedBase =
+    selectedBase != null &&
+    (selectedBase.owner_id === user?.id || user?.role === "admin");
 
   const selectedOwnerGroup =
     selectedOwnerName == null
@@ -1297,8 +1317,52 @@ export function ThreadKnowledgeManagementPage() {
     setDetailOpen(true);
   };
 
+  const handleDeleteBase = async () => {
+    if (!deleteBaseTarget) {
+      return;
+    }
+
+    setDeletingBaseId(deleteBaseTarget.id);
+    try {
+      await deleteKnowledgeBase(deleteBaseTarget.id);
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["knowledge-library"],
+        }),
+        ...(threadId
+          ? [
+              queryClient.invalidateQueries({
+                queryKey: ["thread-knowledge-bases", threadId],
+              }),
+            ]
+          : []),
+      ]);
+
+      if (selectedBaseId === deleteBaseTarget.id) {
+        setSelectedBaseId(null);
+        setSelectedDocumentId(null);
+        setDetailOpen(false);
+        setSelectedOwnerName(deleteBaseTarget.owner_name);
+      }
+
+      toast.success(t.knowledge.deleteSuccess(deleteBaseTarget.name));
+      setDeleteBaseTarget(null);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : t.knowledge.deleteError,
+      );
+    } finally {
+      setDeletingBaseId(null);
+    }
+  };
+
   return (
     <WorkspaceContainer>
+      <KnowledgeBaseUploadDialog
+        threadId={threadId}
+        open={uploadDialogOpen}
+        onOpenChange={setUploadDialogOpen}
+      />
       <WorkspaceHeader />
       <WorkspaceBody>
         <div className="bg-muted/30 flex size-full min-h-0 gap-4 overflow-hidden p-4 md:p-6">
@@ -1496,18 +1560,44 @@ export function ThreadKnowledgeManagementPage() {
                       className="h-11 w-full min-w-[260px] rounded-2xl pl-10 sm:w-[320px]"
                     />
                   </div>
-                  <Button
-                    asChild
-                    variant="outline"
-                    className="rounded-2xl px-4"
-                  >
-                    <Link to={chatPath}>
-                      {isThreadScoped
-                        ? t.knowledge.backToChat
-                        : t.knowledge.backToAgents}
-                      <ArrowRightIcon className="size-4" />
-                    </Link>
-                  </Button>
+                  <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+                    <Button
+                      type="button"
+                      className="rounded-2xl px-4"
+                      onClick={() => setUploadDialogOpen(true)}
+                    >
+                      <UploadIcon className="size-4" />
+                      {t.knowledge.uploadButton}
+                    </Button>
+                    {selectedBase && canDeleteSelectedBase ? (
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        className="rounded-2xl px-4"
+                        disabled={deletingBaseId === selectedBase.id}
+                        onClick={() => setDeleteBaseTarget(selectedBase)}
+                      >
+                        {deletingBaseId === selectedBase.id ? (
+                          <LoaderIcon className="size-4 animate-spin" />
+                        ) : (
+                          <Trash2Icon className="size-4" />
+                        )}
+                        {t.common.delete}
+                      </Button>
+                    ) : null}
+                    <Button
+                      asChild
+                      variant="outline"
+                      className="rounded-2xl px-4"
+                    >
+                      <Link to={chatPath}>
+                        {isThreadScoped
+                          ? t.knowledge.backToChat
+                          : t.knowledge.backToAgents}
+                        <ArrowRightIcon className="size-4" />
+                      </Link>
+                    </Button>
+                  </div>
                 </div>
               </div>
 
@@ -2086,6 +2176,46 @@ export function ThreadKnowledgeManagementPage() {
           </Sheet>
         </div>
       </WorkspaceBody>
+      <Dialog
+        open={deleteBaseTarget != null}
+        onOpenChange={(open) => {
+          if (!open && deletingBaseId == null) {
+            setDeleteBaseTarget(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t.knowledge.deleteTitle}</DialogTitle>
+            <DialogDescription>
+              {deleteBaseTarget
+                ? t.knowledge.deleteDescription(deleteBaseTarget.name)
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteBaseTarget(null)}
+              disabled={deletingBaseId != null}
+            >
+              {t.common.cancel}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => void handleDeleteBase()}
+              disabled={deletingBaseId != null}
+            >
+              {deletingBaseId != null ? (
+                <LoaderIcon className="mr-2 size-4 animate-spin" />
+              ) : (
+                <Trash2Icon className="mr-2 size-4" />
+              )}
+              {t.common.delete}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </WorkspaceContainer>
   );
 }

@@ -201,8 +201,10 @@ export interface Translations {
     defaultBaseName: string;
     indexQueued: string;
     createError: string;
+    uploadButton: string;
     newTitle: string;
     newDescription: string;
+    newDescriptionGlobal: string;
     namePlaceholder: string;
     descriptionPlaceholder: string;
     managerTitle: string;
@@ -239,6 +241,10 @@ export interface Translations {
     attachedSuccess: (name: string) => string;
     detachedSuccess: (name: string) => string;
     bindingError: string;
+    deleteTitle: string;
+    deleteDescription: (name: string) => string;
+    deleteSuccess: (name: string) => string;
+    deleteError: string;
     buildProgressTitle: string;
     buildProgressDescription: string;
     stageLabel: string;
@@ -280,7 +286,9 @@ export interface Translations {
       empty: string;
       apply: string;
       applied: string;
+      appliedCount: (count: number) => string;
       attachError: string;
+      readyLabel: string;
       selectedCount: (count: number) => string;
     };
   };

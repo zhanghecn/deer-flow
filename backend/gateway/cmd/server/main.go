@@ -216,6 +216,8 @@ func main() {
 
 		// Knowledge bases
 		api.GET("/knowledge/bases", knowledgeH.ListLibrary)
+		api.POST("/knowledge/bases", knowledgeH.CreateLibraryBase)
+		api.DELETE("/knowledge/bases/:knowledge_base_id", knowledgeH.DeleteBase)
 		api.PATCH("/knowledge/bases/:knowledge_base_id/settings", knowledgeH.UpdateBaseSettings)
 		api.GET("/knowledge/documents/:document_id/file", knowledgeH.VisibleDocumentFile)
 		api.GET("/knowledge/documents/:document_id/tree", knowledgeH.VisibleDocumentTree)

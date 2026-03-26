@@ -263,9 +263,12 @@ export const enUS: Translations = {
     defaultBaseName: "Knowledge Base",
     indexQueued: "Knowledge indexing has been queued.",
     createError: "Failed to create knowledge base.",
+    uploadButton: "Upload knowledge",
     newTitle: "New Knowledge Base",
     newDescription:
       "Upload PDF, Word, or Markdown files and build a persistent document tree index for this thread.",
+    newDescriptionGlobal:
+      "Upload PDF, Word, or Markdown files and build a shared persistent document tree index for the library.",
     namePlaceholder: "Knowledge base name",
     descriptionPlaceholder: "Optional description for the agent",
     managerTitle: "Knowledge Library",
@@ -311,6 +314,11 @@ export const enUS: Translations = {
     attachedSuccess: (name: string) => `Attached "${name}" to this thread.`,
     detachedSuccess: (name: string) => `Detached "${name}" from this thread.`,
     bindingError: "Failed to update knowledge binding.",
+    deleteTitle: "Delete Knowledge Base",
+    deleteDescription: (name: string) =>
+      `Delete "${name}" and all of its indexed documents? This action cannot be undone.`,
+    deleteSuccess: (name: string) => `Deleted "${name}".`,
+    deleteError: "Failed to delete knowledge base.",
     buildProgressTitle: "Build Progress",
     buildProgressDescription:
       "Latest indexing stage, timing, and job status for the selected document.",
@@ -352,9 +360,12 @@ export const enUS: Translations = {
       searchPlaceholder: "Search documents, bases, or owners",
       results: "Documents",
       empty: "No documents match this search.",
-      apply: "Apply",
+      apply: "Load into chat",
       applied: "Knowledge selection updated.",
+      appliedCount: (count: number) =>
+        `Loaded ${count} knowledge doc${count === 1 ? "" : "s"} for this turn.`,
       attachError: "Failed to attach selected knowledge bases.",
+      readyLabel: "Knowledge ready for this turn",
       selectedCount: (count: number) =>
         `${count} knowledge doc${count === 1 ? "" : "s"}`,
     },

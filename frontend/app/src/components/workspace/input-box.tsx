@@ -3,8 +3,9 @@ import {
   CheckIcon,
   PaperclipIcon,
   PlusIcon,
-  SparklesIcon,
   RocketIcon,
+  SparklesIcon,
+  UploadIcon,
   XIcon,
   ZapIcon,
   type LucideIcon,
@@ -92,6 +93,7 @@ import {
 } from "../ui/dropdown-menu";
 
 import { ContextWindowCard } from "./context-window-card";
+import { KnowledgeBaseUploadDialog } from "./knowledge/knowledge-base-upload-dialog";
 import { KnowledgeSelectorDialog } from "./knowledge/knowledge-selector-dialog";
 import { ModeHoverGuide } from "./mode-hover-guide";
 import {
@@ -286,6 +288,7 @@ export function InputBox({
   const [selectedKnowledgeDocuments, setSelectedKnowledgeDocuments] = useState<
     KnowledgeSelection[]
   >([]);
+  const [knowledgeUploadOpen, setKnowledgeUploadOpen] = useState(false);
 
   useEffect(() => {
     setSelectedKnowledgeDocuments([]);
@@ -628,6 +631,11 @@ export function InputBox({
       onSubmit={handleSubmit}
       {...props}
     >
+      <KnowledgeBaseUploadDialog
+        threadId={threadId}
+        open={knowledgeUploadOpen}
+        onOpenChange={setKnowledgeUploadOpen}
+      />
       {extraHeader && (
         <div className="absolute top-0 right-0 left-0 z-10">
           <div className="absolute right-0 bottom-0 left-0 flex items-center justify-center">
@@ -659,6 +667,15 @@ export function InputBox({
             </PromptInputActionMenuContent>
           </PromptInputActionMenu> */}
           <AddAttachmentsButton className="px-2!" />
+          <Tooltip content={t.knowledge.uploadButton}>
+            <PromptInputButton
+              className="px-2!"
+              disabled={disabled}
+              onClick={() => setKnowledgeUploadOpen(true)}
+            >
+              <UploadIcon className="size-3" />
+            </PromptInputButton>
+          </Tooltip>
           <KnowledgeSelectorDialog
             threadId={threadId}
             value={selectedKnowledgeDocuments}
@@ -758,26 +775,37 @@ export function InputBox({
         </PromptInputTools>
       </PromptInputFooter>
       {selectedKnowledgeDocuments.length > 0 && (
-        <div className="border-border/60 flex flex-wrap gap-2 border-t px-3 py-2">
-          {selectedKnowledgeDocuments.map((selection) => (
-            <button
-              key={selection.documentId}
-              type="button"
-              className="bg-muted text-foreground hover:bg-muted/80 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs"
-              onClick={() =>
-                setSelectedKnowledgeDocuments((current) =>
-                  current.filter(
-                    (item) => item.documentId !== selection.documentId,
-                  ),
-                )
-              }
-            >
-              <span className="max-w-48 truncate">
-                {selection.documentName}
-              </span>
-              <XIcon className="size-3" />
-            </button>
-          ))}
+        <div className="border-border/60 border-t px-3 py-2">
+          <div className="text-muted-foreground mb-2 flex flex-wrap items-center gap-2 text-xs">
+            <span>{t.knowledge.selector.readyLabel}</span>
+            <span>·</span>
+            <span>
+              {t.knowledge.selector.selectedCount(
+                selectedKnowledgeDocuments.length,
+              )}
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {selectedKnowledgeDocuments.map((selection) => (
+              <button
+                key={selection.documentId}
+                type="button"
+                className="bg-muted text-foreground hover:bg-muted/80 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs"
+                onClick={() =>
+                  setSelectedKnowledgeDocuments((current) =>
+                    current.filter(
+                      (item) => item.documentId !== selection.documentId,
+                    ),
+                  )
+                }
+              >
+                <span className="max-w-48 truncate">
+                  {selection.documentName}
+                </span>
+                <XIcon className="size-3" />
+              </button>
+            ))}
+          </div>
         </div>
       )}
       {quickInsertOpen && (

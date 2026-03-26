@@ -154,7 +154,11 @@ export function KnowledgeSelectorDialog({
         })),
       );
       setOpen(false);
-      toast.success(t.knowledge.selector.applied);
+      toast.success(
+        nextSelections.length > 0
+          ? t.knowledge.selector.appliedCount(nextSelections.length)
+          : t.knowledge.selector.applied,
+      );
     } catch (error) {
       toast.error(
         error instanceof Error

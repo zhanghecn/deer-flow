@@ -366,6 +366,26 @@ func (h *KnowledgeHandler) Create(c *gin.Context) {
 		return
 	}
 
+	h.queueKnowledgeBaseCreate(c, userID, threadID, "sidebar", "")
+}
+
+func (h *KnowledgeHandler) CreateLibraryBase(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	if userID == uuid.Nil {
+		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "unauthorized"})
+		return
+	}
+
+	h.queueKnowledgeBaseCreate(c, userID, "", "library", "")
+}
+
+func (h *KnowledgeHandler) queueKnowledgeBaseCreate(
+	c *gin.Context,
+	userID uuid.UUID,
+	threadID string,
+	sourceType string,
+	commandName string,
+) {
 	form, err := c.MultipartForm()
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "invalid multipart form"})
@@ -405,7 +425,8 @@ func (h *KnowledgeHandler) Create(c *gin.Context) {
 		KnowledgeBaseID:          baseID,
 		KnowledgeBaseName:        baseName,
 		KnowledgeBaseDescription: description,
-		SourceType:               "sidebar",
+		SourceType:               sourceType,
+		CommandName:              commandName,
 		ModelName:                modelName,
 		Documents:                manifestDocuments(pendingDocuments),
 	}); err != nil {
@@ -505,6 +526,41 @@ func (h *KnowledgeHandler) UpdateBaseSettings(c *gin.Context) {
 	c.JSON(http.StatusOK, knowledgeUpdateSettingsResponse{
 		KnowledgeBaseID: knowledgeBaseID,
 		PreviewEnabled:  *req.PreviewEnabled,
+	})
+}
+
+func (h *KnowledgeHandler) DeleteBase(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	if userID == uuid.Nil {
+		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "unauthorized"})
+		return
+	}
+
+	knowledgeBaseID := strings.TrimSpace(c.Param("knowledge_base_id"))
+	if knowledgeBaseID == "" {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "knowledge base id is required"})
+		return
+	}
+
+	isAdmin := strings.EqualFold(strings.TrimSpace(middleware.GetRole(c)), "admin")
+	record, err := h.repo.DeleteBase(c.Request.Context(), userID, isAdmin, knowledgeBaseID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "knowledge base not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to delete knowledge base"})
+		return
+	}
+
+	basePath := knowledgeBaseDir(h.fs.BaseDir(), record.OwnerID, record.ID)
+	if removeErr := os.RemoveAll(basePath); removeErr != nil {
+		log.Printf("knowledge base file cleanup failed for %s: %v", record.ID, removeErr)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"knowledge_base_id": record.ID,
+		"status":            "deleted",
 	})
 }
 
@@ -713,7 +769,11 @@ func shouldBuildKnowledgeMarkdown(fileName string) bool {
 }
 
 func knowledgeDocumentDir(baseDir string, userID string, baseID string, documentID string) string {
-	return filepath.Join(baseDir, "knowledge", "users", userID, "bases", baseID, "documents", documentID)
+	return filepath.Join(knowledgeBaseDir(baseDir, userID, baseID), "documents", documentID)
+}
+
+func knowledgeBaseDir(baseDir string, userID string, baseID string) string {
+	return filepath.Join(baseDir, "knowledge", "users", userID, "bases", baseID)
 }
 
 func storageRef(baseDir string, absolutePath string) string {

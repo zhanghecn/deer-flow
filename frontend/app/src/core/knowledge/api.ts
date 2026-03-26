@@ -3,6 +3,7 @@ import { getBackendBaseURL } from "@/core/config";
 
 import type {
   KnowledgeAcceptedResponse,
+  KnowledgeBaseDeletedResponse,
   KnowledgeBaseListResponse,
   KnowledgeBaseSettingsResponse,
   KnowledgeDocumentDebugPayload,
@@ -101,6 +102,34 @@ export async function listKnowledgeLibrary(
   );
 }
 
+export async function createKnowledgeBase(params: {
+  name: string;
+  description?: string;
+  modelName?: string;
+  files: File[];
+}): Promise<KnowledgeAcceptedResponse> {
+  const formData = new FormData();
+  formData.set("name", params.name);
+  if (params.description) {
+    formData.set("description", params.description);
+  }
+  if (params.modelName) {
+    formData.set("model_name", params.modelName);
+  }
+  params.files.forEach((file) => {
+    formData.append("files", file);
+  });
+
+  return fetchKnowledgeJson<KnowledgeAcceptedResponse>(
+    `${getBackendBaseURL()}/api/knowledge/bases`,
+    "Failed to create knowledge base",
+    {
+      method: "POST",
+      body: formData,
+    },
+  );
+}
+
 export async function indexUploadedKnowledgeFiles(
   threadId: string,
   params: {
@@ -165,6 +194,18 @@ export async function updateKnowledgeBaseSettings(
       body: JSON.stringify({
         preview_enabled: params.previewEnabled,
       }),
+    },
+  );
+}
+
+export async function deleteKnowledgeBase(
+  knowledgeBaseId: string,
+): Promise<KnowledgeBaseDeletedResponse> {
+  return fetchKnowledgeJson<KnowledgeBaseDeletedResponse>(
+    `${getBackendBaseURL()}/api/knowledge/bases/${knowledgeBaseId}`,
+    "Failed to delete knowledge base",
+    {
+      method: "DELETE",
     },
   );
 }

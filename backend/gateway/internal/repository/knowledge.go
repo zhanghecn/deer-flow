@@ -85,6 +85,12 @@ type KnowledgeBaseRecord struct {
 	Documents        []KnowledgeDocumentRecord `json:"documents"`
 }
 
+type KnowledgeBaseDeleteRecord struct {
+	ID      string `json:"id"`
+	OwnerID string `json:"owner_id"`
+	Name    string `json:"name"`
+}
+
 type KnowledgeDocumentDebugRecord struct {
 	Document          KnowledgeDocumentRecord `json:"document"`
 	KnowledgeBaseID   string                  `json:"knowledge_base_id"`
@@ -348,6 +354,31 @@ func (r *KnowledgeRepo) UpdateBasePreviewEnabled(
 		return pgx.ErrNoRows
 	}
 	return nil
+}
+
+func (r *KnowledgeRepo) DeleteBase(
+	ctx context.Context,
+	actorUserID uuid.UUID,
+	isAdmin bool,
+	knowledgeBaseID string,
+) (*KnowledgeBaseDeleteRecord, error) {
+	query := `
+		DELETE FROM knowledge_bases
+		WHERE id = $2::uuid
+		  AND ($1::boolean OR user_id = $3)
+		RETURNING id::text, user_id::text, name
+	`
+	var record KnowledgeBaseDeleteRecord
+	if err := r.pool.QueryRow(
+		ctx,
+		query,
+		isAdmin,
+		knowledgeBaseID,
+		actorUserID,
+	).Scan(&record.ID, &record.OwnerID, &record.Name); err != nil {
+		return nil, err
+	}
+	return &record, nil
 }
 
 func (r *KnowledgeRepo) GetDocumentTreeByThread(

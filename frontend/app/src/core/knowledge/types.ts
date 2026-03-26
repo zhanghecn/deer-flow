@@ -93,6 +93,11 @@ export interface KnowledgeBaseSettingsResponse {
   preview_enabled: boolean;
 }
 
+export interface KnowledgeBaseDeletedResponse {
+  knowledge_base_id: string;
+  status: string;
+}
+
 export interface KnowledgeDocumentBuildEventsResponse {
   events: KnowledgeBuildEvent[];
 }
