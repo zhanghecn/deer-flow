@@ -50,7 +50,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -200,12 +205,6 @@ function toLibraryDocumentView(
   };
 }
 
-function numberOrUndefined(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value)
-    ? value
-    : undefined;
-}
-
 function slugifyHeading(text: string) {
   return text
     .toLowerCase()
@@ -291,66 +290,6 @@ function buildPreviewFocusFromNode(
   };
 }
 
-function normalizeOutlineNode(value: unknown): KnowledgeTreeNode | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-  const record = value as Record<string, unknown>;
-  const title =
-    typeof record.title === "string" && record.title.trim().length > 0
-      ? record.title
-      : null;
-  if (!title) {
-    return null;
-  }
-  const nestedNodes = normalizeOutlineNodes(record.nodes);
-  const childCount =
-    numberOrUndefined(record.child_count) ??
-    (nestedNodes.length > 0 ? nestedNodes.length : undefined);
-  return {
-    node_id:
-      typeof record.node_id === "string" && record.node_id.trim().length > 0
-        ? record.node_id
-        : `${title}-${numberOrUndefined(record.page_start) ?? numberOrUndefined(record.line_start) ?? 0}`,
-    title,
-    depth: numberOrUndefined(record.depth),
-    child_count: childCount,
-    locator_type:
-      record.locator_type === "heading" || record.heading_slug != null
-        ? "heading"
-        : "page",
-    page_start: numberOrUndefined(record.page_start),
-    page_end: numberOrUndefined(record.page_end),
-    line_start: numberOrUndefined(record.line_start),
-    line_end: numberOrUndefined(record.line_end),
-    heading_slug:
-      typeof record.heading_slug === "string" ? record.heading_slug : undefined,
-    summary: typeof record.summary === "string" ? record.summary : undefined,
-    prefix_summary:
-      typeof record.prefix_summary === "string"
-        ? record.prefix_summary
-        : undefined,
-    nodes: nestedNodes.length > 0 ? nestedNodes : undefined,
-  };
-}
-
-function normalizeOutlineNodes(value: unknown): KnowledgeTreeNode[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value
-    .map((item) => normalizeOutlineNode(item))
-    .filter((item): item is KnowledgeTreeNode => item !== null);
-}
-
-function extractIndexOutlineNodes(payload: unknown) {
-  if (!payload || typeof payload !== "object") {
-    return [];
-  }
-  const record = payload as Record<string, unknown>;
-  return normalizeOutlineNodes(record.structure ?? record.nodes);
-}
-
 function findFocusLineIndex(
   lines: string[],
   focus: KnowledgePreviewFocus | null,
@@ -383,6 +322,264 @@ function findFocusLineIndex(
     }
   }
   return 0;
+}
+
+function isJsonArray(value: unknown): value is unknown[] {
+  return Array.isArray(value);
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === "object" && !Array.isArray(value);
+}
+
+function escapeJsonPathSegment(segment: string) {
+  return segment.replaceAll("~", "~0").replaceAll("/", "~1");
+}
+
+function buildJsonPath(parentPath: string, segment: string) {
+  return `${parentPath}/${escapeJsonPathSegment(segment)}`;
+}
+
+function buildDefaultJsonExpandedPaths(
+  value: unknown,
+  maxDepth: number,
+  path = "$",
+  depth = 0,
+  expanded = new Set<string>(),
+): Set<string> {
+  if (!isJsonObject(value) && !isJsonArray(value)) {
+    return expanded;
+  }
+
+  if (depth >= maxDepth) {
+    return expanded;
+  }
+
+  expanded.add(path);
+
+  const entries = isJsonArray(value)
+    ? value.map((item, index) => [String(index), item] as const)
+    : Object.entries(value);
+
+  entries.forEach(([key, child]) => {
+    if (isJsonObject(child) || isJsonArray(child)) {
+      buildDefaultJsonExpandedPaths(
+        child,
+        maxDepth,
+        buildJsonPath(path, key),
+        depth + 1,
+        expanded,
+      );
+    }
+  });
+
+  return expanded;
+}
+
+function JsonPrimitiveValue({ value }: { value: unknown }) {
+  if (typeof value === "string") {
+    return (
+      <span className="break-all text-emerald-700 dark:text-emerald-300">
+        "{value}"
+      </span>
+    );
+  }
+  if (typeof value === "number") {
+    return <span className="text-sky-700 dark:text-sky-300">{value}</span>;
+  }
+  if (typeof value === "boolean") {
+    return (
+      <span className="text-violet-700 dark:text-violet-300">{`${value}`}</span>
+    );
+  }
+  if (value === null) {
+    return <span className="text-muted-foreground">null</span>;
+  }
+  return <span className="text-muted-foreground">{String(value)}</span>;
+}
+
+function JsonContainerMeta({ value }: { value: unknown }) {
+  if (isJsonArray(value)) {
+    return (
+      <span className="text-muted-foreground font-mono text-xs">
+        [{value.length}]
+      </span>
+    );
+  }
+  if (isJsonObject(value)) {
+    return (
+      <span className="text-muted-foreground font-mono text-xs">
+        {`{${Object.keys(value).length}}`}
+      </span>
+    );
+  }
+  return null;
+}
+
+function JsonInspectorNode({
+  path,
+  label,
+  value,
+  depth,
+  expandedPaths,
+  onToggle,
+}: {
+  path: string;
+  label: string;
+  value: unknown;
+  depth: number;
+  expandedPaths: Set<string>;
+  onToggle: (path: string) => void;
+}) {
+  const isContainer = isJsonArray(value) || isJsonObject(value);
+  const isExpanded = expandedPaths.has(path);
+  const entries = isJsonArray(value)
+    ? value.map((item, index) => [String(index), item] as const)
+    : isJsonObject(value)
+      ? Object.entries(value)
+      : [];
+
+  const rowClassName =
+    "flex w-full items-start gap-2 rounded-xl px-3 py-2 text-left transition-colors";
+
+  const content = (
+    <>
+      <div
+        className="flex h-5 w-5 shrink-0 items-center justify-center"
+        style={{ marginLeft: depth * 14 }}
+      >
+        {isContainer ? (
+          <ChevronRightIcon
+            className={cn(
+              "text-muted-foreground size-4 transition-transform",
+              isExpanded && "rotate-90",
+            )}
+          />
+        ) : (
+          <span className="bg-border size-1.5 rounded-full" />
+        )}
+      </div>
+      <div className="min-w-0 flex-1 space-y-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="font-mono text-xs font-semibold text-slate-700 dark:text-slate-200">
+            {label}
+          </span>
+          {isContainer ? (
+            <JsonContainerMeta value={value} />
+          ) : (
+            <span className="font-mono text-xs">
+              <JsonPrimitiveValue value={value} />
+            </span>
+          )}
+        </div>
+      </div>
+    </>
+  );
+
+  return (
+    <div className="space-y-1">
+      {isContainer ? (
+        <button
+          type="button"
+          data-json-row=""
+          data-json-toggle=""
+          data-json-path={path}
+          className={cn(
+            rowClassName,
+            "hover:bg-accent/60",
+            isExpanded && "bg-accent/35",
+          )}
+          onClick={() => onToggle(path)}
+        >
+          {content}
+        </button>
+      ) : (
+        <div
+          data-json-row=""
+          data-json-path={path}
+          className={cn(rowClassName, "hover:bg-transparent")}
+        >
+          {content}
+        </div>
+      )}
+
+      {isContainer && isExpanded ? (
+        <div className="space-y-1">
+          {entries.map(([childLabel, childValue]) => (
+            <JsonInspectorNode
+              key={buildJsonPath(path, childLabel)}
+              path={buildJsonPath(path, childLabel)}
+              label={childLabel}
+              value={childValue}
+              depth={depth + 1}
+              expandedPaths={expandedPaths}
+              onToggle={onToggle}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function JsonInspector({ value }: { value: unknown }) {
+  const initialExpandedPaths = useMemo(
+    () => buildDefaultJsonExpandedPaths(value, 2),
+    [value],
+  );
+  const [expandedPaths, setExpandedPaths] = useState(initialExpandedPaths);
+
+  useEffect(() => {
+    setExpandedPaths(initialExpandedPaths);
+  }, [initialExpandedPaths]);
+
+  const togglePath = (path: string) => {
+    setExpandedPaths((current) => {
+      const next = new Set(current);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
+  };
+
+  if (!isJsonObject(value) && !isJsonArray(value)) {
+    return (
+      <div className="rounded-[20px] border p-4 font-mono text-xs">
+        <JsonPrimitiveValue value={value} />
+      </div>
+    );
+  }
+
+  const entries = isJsonArray(value)
+    ? value.map((item, index) => [String(index), item] as const)
+    : Object.entries(value);
+
+  return (
+    <div className="border-border/60 bg-background overflow-hidden rounded-[20px] border">
+      <div className="border-border/60 bg-muted/20 flex items-center justify-between border-b px-4 py-3">
+        <div className="font-mono text-xs font-semibold text-slate-700 dark:text-slate-200">
+          document_index_json
+        </div>
+        <JsonContainerMeta value={value} />
+      </div>
+      <div className="space-y-1 p-3 font-mono text-xs">
+        {entries.map(([label, childValue]) => (
+          <JsonInspectorNode
+            key={buildJsonPath("$", label)}
+            path={buildJsonPath("$", label)}
+            label={label}
+            value={childValue}
+            depth={0}
+            expandedPaths={expandedPaths}
+            onToggle={togglePath}
+          />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function ExplorerEmptyState({
@@ -953,11 +1150,6 @@ export function ThreadKnowledgeManagementPage() {
     return null;
   }, [previewFocus, selectedDocument, t, treeQuery.data]);
 
-  const indexOutlineNodes = useMemo(
-    () => extractIndexOutlineNodes(debugQuery.data?.document_index_json),
-    [debugQuery.data?.document_index_json],
-  );
-
   const totalDocumentCount = documents.length;
   const readyCount = documents.filter(
     (document) => getKnowledgeDocumentStatus(document) === "ready",
@@ -1236,7 +1428,7 @@ export function ThreadKnowledgeManagementPage() {
 
           <section className="border-border/70 bg-background flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[28px] border">
             <div className="border-border/60 border-b px-6 py-5">
-              <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+              <div className="flex flex-col gap-4">
                 <div className="min-w-0">
                   <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-sm">
                     <button
@@ -1563,6 +1755,15 @@ export function ThreadKnowledgeManagementPage() {
                 side="right"
                 className="w-[min(94vw,1320px)] gap-0 p-0 sm:max-w-none"
               >
+                <SheetTitle className="sr-only">
+                  {selectedDocument.display_name}
+                </SheetTitle>
+                <SheetDescription className="sr-only">
+                  {selectedBase
+                    ? `${selectedBase.owner_name}/${selectedBase.name}`
+                    : (selectedDocument.doc_description ??
+                      selectedDocument.display_name)}
+                </SheetDescription>
                 <div className="grid h-full min-h-0 md:grid-cols-[minmax(0,1fr)_360px]">
                   <div className="bg-muted/30 min-h-0 border-r p-4">
                     <KnowledgePreviewPanel
@@ -1855,33 +2056,22 @@ export function ThreadKnowledgeManagementPage() {
                       >
                         <div className="border-border/60 bg-muted/20 h-full overflow-hidden rounded-[24px] border">
                           <ScrollArea className="h-full">
-                            <div className="space-y-4 p-4">
-                              {indexOutlineNodes.length > 0 ? (
-                                <div className="space-y-4">
-                                  {indexOutlineNodes.map((node) => (
-                                    <TreeNodeView
-                                      key={node.node_id}
-                                      node={node}
-                                      activeNodeId={
-                                        effectivePreviewFocus?.nodeId
-                                      }
-                                      onSelectNode={handleNodeFocus}
-                                    />
-                                  ))}
+                            <div className="p-4">
+                              {debugQuery.isLoading ? (
+                                <div className="text-muted-foreground text-sm">
+                                  {t.knowledge.loadingDebug}
                                 </div>
-                              ) : null}
-                              <pre className="border-border/60 bg-background overflow-x-auto rounded-[18px] border p-4 text-xs leading-6 whitespace-pre-wrap">
-                                {debugQuery.isLoading
-                                  ? t.knowledge.loadingDebug
-                                  : debugQuery.error instanceof Error
-                                    ? debugQuery.error.message
-                                    : JSON.stringify(
-                                        debugQuery.data?.document_index_json ??
-                                          {},
-                                        null,
-                                        2,
-                                      )}
-                              </pre>
+                              ) : debugQuery.error instanceof Error ? (
+                                <div className="text-sm text-red-500">
+                                  {debugQuery.error.message}
+                                </div>
+                              ) : (
+                                <JsonInspector
+                                  value={
+                                    debugQuery.data?.document_index_json ?? {}
+                                  }
+                                />
+                              )}
                             </div>
                           </ScrollArea>
                         </div>
