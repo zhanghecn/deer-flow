@@ -8,14 +8,19 @@ from pydantic import BaseModel, Field
 
 
 LocatorType = Literal["page", "heading"]
+SummaryQuality = Literal["llm", "extractive", "fallback"]
+EvidenceKind = Literal["text", "image", "caption", "page_image"]
 
 
 class DocumentDescriptionOutput(BaseModel):
     description: str = Field(min_length=1, max_length=280)
+    keywords: list[str] = Field(default_factory=list)
 
 
 class NodeSummaryOutput(BaseModel):
-    summary: str = Field(min_length=1, max_length=1200)
+    summary: str = Field(min_length=1)
+    visual_summary: str | None = None
+    distinctive_terms: list[str] = Field(default_factory=list)
 
 
 class HeadingPagePrediction(BaseModel):
@@ -57,6 +62,18 @@ class CanonicalSourceMapEntry(BaseModel):
     marker: str | None = None
 
 
+class KnowledgeEvidenceRef(BaseModel):
+    evidence_id: str
+    kind: EvidenceKind
+    locator_type: LocatorType
+    page_number: int | None = Field(default=None, ge=1)
+    line_number: int | None = Field(default=None, ge=1)
+    heading_slug: str | None = None
+    caption_text: str | None = None
+    alt_text: str | None = None
+    asset_rel_path: str | None = None
+
+
 class DocumentTreeNode(BaseModel):
     node_id: str
     parent_node_id: str | None = None
@@ -71,9 +88,11 @@ class DocumentTreeNode(BaseModel):
     line_end: int | None = None
     heading_slug: str | None = None
     summary: str | None = None
+    visual_summary: str | None = None
+    summary_quality: SummaryQuality = "fallback"
+    evidence_refs: list[KnowledgeEvidenceRef] = Field(default_factory=list)
     prefix_summary: str | None = None
     node_text: str | None = None
-    excerpt: str | None = None
 
 
 class IndexedDocument(BaseModel):
@@ -87,6 +106,8 @@ class IndexedDocument(BaseModel):
     nodes: list[DocumentTreeNode]
     canonical_markdown: str
     source_map: list[CanonicalSourceMapEntry]
+    build_quality: str = "ready"
+    quality_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class KnowledgeBuildJobSummary(BaseModel):
@@ -138,6 +159,8 @@ class KnowledgeDocumentRecord(BaseModel):
     preview_storage_path: str | None = None
     canonical_storage_path: str | None = None
     source_map_storage_path: str | None = None
+    build_quality: str = "ready"
+    quality_metadata: dict[str, Any] = Field(default_factory=dict)
     latest_build_job: KnowledgeBuildJobSummary | None = None
 
 
@@ -156,15 +179,23 @@ class KnowledgeNodeRecord(BaseModel):
     line_end: int | None = None
     heading_slug: str | None = None
     summary: str | None = None
+    visual_summary: str | None = None
+    summary_quality: SummaryQuality = "fallback"
+    evidence_refs: list[KnowledgeEvidenceRef] = Field(default_factory=list)
     prefix_summary: str | None = None
     node_text: str | None = None
-    excerpt: str | None = None
 
 
 class DocumentTreeListing(BaseModel):
     document: KnowledgeDocumentRecord
     node_id: str | None = None
-    max_depth: int = 2
+    requested_max_depth: int = 2
+    effective_max_depth: int = 2
+    window_mode: Literal["root_overview", "subtree"] = "subtree"
+    root_cursor: int = 0
+    total_root_nodes: int | None = None
+    previous_root_cursor: int | None = None
+    next_root_cursor: int | None = None
     tree: list[dict]
 
 
@@ -190,6 +221,31 @@ class NodePageChunk(BaseModel):
     image_paths: list[str] = Field(default_factory=list)
 
 
+class EvidencePreviewTarget(BaseModel):
+    artifact_path: str
+    page: int | None = Field(default=None, ge=1)
+    heading: str | None = None
+    line: int | None = Field(default=None, ge=1)
+    locator_label: str | None = None
+
+
+class EvidenceBlock(BaseModel):
+    evidence_id: str
+    kind: EvidenceKind
+    locator_type: LocatorType
+    locator_label: str | None = None
+    page_number: int | None = Field(default=None, ge=1)
+    line_number: int | None = Field(default=None, ge=1)
+    heading_slug: str | None = None
+    text: str | None = None
+    caption_text: str | None = None
+    image_path: str | None = None
+    image_markdown: str | None = None
+    display_markdown: str | None = None
+    citation_markdown: str | None = None
+    preview_target: EvidencePreviewTarget | None = None
+
+
 class NodeDetailItem(BaseModel):
     node_id: str
     parent_node_id: str | None = None
@@ -201,11 +257,14 @@ class NodeDetailItem(BaseModel):
     line_end: int | None = None
     heading_slug: str | None = None
     summary: str | None = None
+    visual_summary: str | None = None
+    summary_quality: SummaryQuality = "fallback"
     prefix_summary: str | None = None
     citation_markdown: str | None = None
     text: str | None = None
     image_paths: list[str] = Field(default_factory=list)
     page_chunks: list[NodePageChunk] = Field(default_factory=list)
+    evidence_blocks: list[EvidenceBlock] = Field(default_factory=list)
 
 
 class NodeDetailResult(BaseModel):
@@ -214,6 +273,16 @@ class NodeDetailResult(BaseModel):
     items: list[NodeDetailItem]
     total_pages: int | None = None
     requested_pages: str | None = None
+    returned_pages: str | None = None
+    returned_lines: str | None = None
+    next_steps: KnowledgeToolNextSteps
+
+
+class DocumentEvidenceResult(BaseModel):
+    document: KnowledgeDocumentRecord
+    requested_node_ids: list[str]
+    items: list[NodeDetailItem]
+    total_pages: int | None = None
     returned_pages: str | None = None
     returned_lines: str | None = None
     next_steps: KnowledgeToolNextSteps

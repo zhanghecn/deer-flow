@@ -19,7 +19,7 @@ from src.runtime_backends import (
     build_runtime_workspace_backend,
     resolve_runtime_backend_kind,
 )
-from src.tools.builtins.runtime_context import runtime_context_value
+from src.utils.runtime_context import runtime_context_value
 
 logger = logging.getLogger(__name__)
 

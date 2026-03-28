@@ -29,10 +29,7 @@ import { StreamingIndicator } from "../streaming-indicator";
 
 import { ClarificationInterrupt } from "./clarification-interrupt";
 import { MarkdownContent } from "./markdown-content";
-import {
-  MessageGroup,
-  shouldShowTrailingReasoning,
-} from "./message-group";
+import { MessageGroup, shouldShowTrailingReasoning } from "./message-group";
 import { MessageListItem } from "./message-list-item";
 import { MessageListSkeleton } from "./skeleton";
 import { SubtaskCard } from "./subtask-card";
@@ -171,7 +168,10 @@ export function getSubtaskAggregateStatus(
     return "failed";
   }
 
-  if (statuses.length === taskIds.length && statuses.every((status) => status === "completed")) {
+  if (
+    statuses.length === taskIds.length &&
+    statuses.every((status) => status === "completed")
+  ) {
     return "completed";
   }
 
@@ -440,7 +440,7 @@ export function MessageList({
   className,
   threadId,
   thread,
-  paddingBottom = 160,
+  paddingBottom = 240,
 }: {
   className?: string;
   threadId: string;

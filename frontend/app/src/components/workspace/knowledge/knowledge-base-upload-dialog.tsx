@@ -21,6 +21,33 @@ import {
 import { useI18n } from "@/core/i18n/hooks";
 import { getLocalSettings } from "@/core/settings";
 
+function stripFileExtension(filename: string) {
+  return filename.replace(/\.[^.]+$/, "").trim();
+}
+
+function resolveKnowledgeBaseName(
+  rawName: string,
+  files: File[],
+  fallbackName: string,
+) {
+  const trimmedName = rawName.trim();
+  if (trimmedName) {
+    return trimmedName;
+  }
+
+  const primaryFile = files[0]?.name?.trim();
+  if (!primaryFile) {
+    return fallbackName;
+  }
+
+  const primaryLabel = stripFileExtension(primaryFile) || fallbackName;
+  if (files.length === 1) {
+    return primaryLabel;
+  }
+
+  return `${primaryLabel} +${files.length - 1}`;
+}
+
 export function KnowledgeBaseUploadDialog({
   threadId,
   open,
@@ -62,7 +89,11 @@ export function KnowledgeBaseUploadDialog({
     const configuredModelName = getLocalSettings().context.model_name;
     const selectedModelName =
       typeof configuredModelName === "string" ? configuredModelName : undefined;
-    const resolvedName = name.trim() || t.knowledge.defaultBaseName;
+    const resolvedName = resolveKnowledgeBaseName(
+      name,
+      files,
+      t.knowledge.defaultBaseName,
+    );
 
     try {
       const response = threadId

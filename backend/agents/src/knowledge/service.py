@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from src.knowledge.formatters import (
+    format_document_evidence_payload,
     format_document_image_payload,
     format_documents_payload,
     format_node_detail_payload,
@@ -12,6 +14,9 @@ from src.knowledge.models import KnowledgeDocumentRecord
 
 if TYPE_CHECKING:
     from src.knowledge.repository import KnowledgeRepository
+
+
+TREE_WINDOW_MAX_DEPTH = 2
 
 
 class KnowledgeService:
@@ -30,13 +35,21 @@ class KnowledgeService:
         *,
         user_id: str,
         thread_id: str,
+        selected_document_ids: Sequence[str] | None = None,
         ready_only: bool = False,
     ) -> list[KnowledgeDocumentRecord]:
-        return self._repository_instance().list_thread_documents(
+        repository = self._repository_instance()
+        attached_documents = repository.list_thread_documents(
             user_id=user_id,
             thread_id=thread_id,
             ready_only=ready_only,
         )
+        selected_documents = repository.list_documents_by_ids(
+            user_id=user_id,
+            document_ids=_normalize_document_ids(selected_document_ids),
+            ready_only=ready_only,
+        )
+        return _merge_document_records(attached_documents, selected_documents)
 
     def _resolve_thread_document(
         self,
@@ -44,11 +57,16 @@ class KnowledgeService:
         user_id: str,
         thread_id: str,
         document_name_or_id: str,
+        selected_document_ids: Sequence[str] | None = None,
     ) -> tuple[KnowledgeDocumentRecord | None, str | None]:
-        document = self._repository_instance().resolve_thread_document(
-            user_id=user_id,
-            thread_id=thread_id,
-            document_name_or_id=document_name_or_id,
+        document = _match_document_record(
+            self.get_thread_document_records(
+                user_id=user_id,
+                thread_id=thread_id,
+                selected_document_ids=selected_document_ids,
+                ready_only=True,
+            ),
+            document_name_or_id,
         )
         if document is not None:
             return document, None
@@ -57,10 +75,17 @@ class KnowledgeService:
             f"Error: knowledge document not found or not ready: {document_name_or_id}. Use list_knowledge_documents first.",
         )
 
-    def list_thread_documents(self, *, user_id: str, thread_id: str) -> str:
+    def list_thread_documents(
+        self,
+        *,
+        user_id: str,
+        thread_id: str,
+        selected_document_ids: Sequence[str] | None = None,
+    ) -> str:
         documents = self.get_thread_document_records(
             user_id=user_id,
             thread_id=thread_id,
+            selected_document_ids=selected_document_ids,
         )
         return format_documents_payload(documents)
 
@@ -72,18 +97,23 @@ class KnowledgeService:
         document_name_or_id: str,
         node_id: str | None,
         max_depth: int,
+        root_cursor: int = 0,
+        selected_document_ids: Sequence[str] | None = None,
     ) -> str:
         document, error = self._resolve_thread_document(
             user_id=user_id,
             thread_id=thread_id,
             document_name_or_id=document_name_or_id,
+            selected_document_ids=selected_document_ids,
         )
         if error is not None:
             return error
+        effective_max_depth = max(1, min(max_depth, TREE_WINDOW_MAX_DEPTH))
         listing = self._repository_instance().get_document_tree(
             document=document,
             node_id=node_id,
-            max_depth=max_depth,
+            max_depth=effective_max_depth,
+            root_cursor=max(int(root_cursor or 0), 0),
         )
         return format_tree_listing_payload(listing)
 
@@ -94,11 +124,13 @@ class KnowledgeService:
         thread_id: str,
         document_name_or_id: str,
         node_ids: str,
+        selected_document_ids: Sequence[str] | None = None,
     ) -> str:
         document, error = self._resolve_thread_document(
             user_id=user_id,
             thread_id=thread_id,
             document_name_or_id=document_name_or_id,
+            selected_document_ids=selected_document_ids,
         )
         if error is not None:
             return error
@@ -124,6 +156,45 @@ class KnowledgeService:
             return f"Error: {exc}"
         return format_node_detail_payload(result)
 
+    def get_document_evidence(
+        self,
+        *,
+        user_id: str,
+        thread_id: str,
+        document_name_or_id: str,
+        node_ids: str,
+        selected_document_ids: Sequence[str] | None = None,
+    ) -> str:
+        document, error = self._resolve_thread_document(
+            user_id=user_id,
+            thread_id=thread_id,
+            document_name_or_id=document_name_or_id,
+            selected_document_ids=selected_document_ids,
+        )
+        if error is not None:
+            return error
+        requested_node_ids = _parse_node_ids(node_ids)
+        if not requested_node_ids:
+            return "Error: at least one node_id is required."
+        nodes = self._repository_instance().get_node_details(
+            document=document,
+            node_ids=requested_node_ids,
+        )
+        found_ids = {node.node_id for node in nodes}
+        missing_ids = [node_id for node_id in requested_node_ids if node_id not in found_ids]
+        if missing_ids:
+            return f"Error: node_id(s) {', '.join(missing_ids)} were not found in document '{document.display_name}'."
+        try:
+            result = self._repository_instance().build_document_evidence_result(
+                thread_id=thread_id,
+                document=document,
+                nodes=nodes,
+                requested_node_ids=requested_node_ids,
+            )
+        except ValueError as exc:
+            return f"Error: {exc}"
+        return format_document_evidence_payload(result)
+
     def get_document_image(
         self,
         *,
@@ -131,11 +202,13 @@ class KnowledgeService:
         thread_id: str,
         document_name_or_id: str,
         page_number: int,
+        selected_document_ids: Sequence[str] | None = None,
     ) -> str:
         document, error = self._resolve_thread_document(
             user_id=user_id,
             thread_id=thread_id,
             document_name_or_id=document_name_or_id,
+            selected_document_ids=selected_document_ids,
         )
         if error is not None:
             return error
@@ -161,3 +234,57 @@ def _parse_node_ids(raw_value: str) -> list[str]:
         seen.add(node_id)
         normalized.append(node_id)
     return normalized
+
+
+def _normalize_document_ids(raw_ids: Sequence[str] | None) -> list[str]:
+    if not raw_ids:
+        return []
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in raw_ids:
+        value = str(item or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        normalized.append(value)
+    return normalized
+
+
+def _merge_document_records(
+    attached_documents: Sequence[KnowledgeDocumentRecord],
+    selected_documents: Sequence[KnowledgeDocumentRecord],
+) -> list[KnowledgeDocumentRecord]:
+    merged: list[KnowledgeDocumentRecord] = []
+    seen: set[str] = set()
+
+    for document in [*attached_documents, *selected_documents]:
+        if document.id in seen:
+            continue
+        seen.add(document.id)
+        merged.append(document)
+
+    return merged
+
+
+def _match_document_record(
+    documents: Sequence[KnowledgeDocumentRecord],
+    document_name_or_id: str,
+) -> KnowledgeDocumentRecord | None:
+    candidate = str(document_name_or_id or "").strip()
+    if not candidate:
+        return None
+
+    candidate_lower = candidate.casefold()
+    candidate_stem = candidate_lower.rsplit(".", 1)[0] if "." in candidate_lower else candidate_lower
+    for document in documents:
+        display_name = str(document.display_name or "").strip()
+        display_name_lower = display_name.casefold()
+        display_name_stem = display_name_lower.rsplit(".", 1)[0] if "." in display_name_lower else display_name_lower
+        if candidate == document.id:
+            return document
+        if candidate_lower == display_name_lower:
+            return document
+        if candidate_stem and candidate_stem == display_name_stem:
+            return document
+    return None

@@ -48,6 +48,16 @@ function OpenOfficeArtifact({ path }: { path: string }) {
   return null;
 }
 
+function RevealArtifact({ path }: { path: string }) {
+  const { reveal } = useArtifacts();
+
+  useEffect(() => {
+    reveal({ filepath: path, page: 12 });
+  }, [path, reveal]);
+
+  return null;
+}
+
 describe("ChatBox", () => {
   it("hides virtual runtime paths in the office dialog title", async () => {
     vi.stubGlobal(
@@ -104,5 +114,88 @@ describe("ChatBox", () => {
     expect(document.body.textContent).not.toContain(
       "/mnt/user-data/outputs/deck.pptx",
     );
+  });
+
+  it("resets the preview panel when switching threads", async () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockImplementation(() => ({
+        matches: false,
+        media: "",
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    );
+
+    const artifactPath = "/mnt/user-data/outputs/knowledge-preview.pdf";
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+
+    const firstThread = {
+      values: {
+        artifacts: [],
+      },
+    } as unknown as { values: AgentThreadState };
+    const secondThread = {
+      values: {
+        artifacts: [],
+      },
+    } as unknown as { values: AgentThreadState };
+
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <I18nProvider initialLocale="en-US">
+          <SidebarProvider>
+            <ThreadContext.Provider
+              value={{ thread: firstThread as never, isMock: true }}
+            >
+              <ArtifactsProvider>
+                <RevealArtifact path={artifactPath} />
+                <ChatBox threadId="thread-1">
+                  <div>Chat content</div>
+                </ChatBox>
+              </ArtifactsProvider>
+            </ThreadContext.Provider>
+          </SidebarProvider>
+        </I18nProvider>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("artifact-detail")).toHaveTextContent(
+        "knowledge-preview.pdf",
+      );
+    });
+
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <I18nProvider initialLocale="en-US">
+          <SidebarProvider>
+            <ThreadContext.Provider
+              value={{ thread: secondThread as never, isMock: true }}
+            >
+              <ArtifactsProvider>
+                <ChatBox threadId="thread-2">
+                  <div>Chat content</div>
+                </ChatBox>
+              </ArtifactsProvider>
+            </ThreadContext.Provider>
+          </SidebarProvider>
+        </I18nProvider>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("artifact-detail")).not.toBeInTheDocument();
+    });
   });
 });

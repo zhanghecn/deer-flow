@@ -80,6 +80,8 @@ def test_build_backend_sets_thread_user_data_as_shell_cwd(tmp_path):
     assert isinstance(backend, CompositeBackend)
     assert backend.default.cwd == user_data_dir.resolve()
     assert "/mnt/skills/" in backend.routes
+    assert "/large_tool_results/" in backend.routes
+    assert "/conversation_history/" in backend.routes
 
 
 def test_build_backend_sets_default_user_data_as_shell_cwd_when_thread_missing(tmp_path):
@@ -496,8 +498,29 @@ def test_build_workspace_backend_uses_configured_sandbox_provider(monkeypatch):
         thread_id="thread-1",
     )
 
-    assert backend is provider.sandbox
+    assert isinstance(backend, CompositeBackend)
+    assert backend.default is provider.sandbox
     assert provider.thread_id == "thread-1"
+    assert backend.routes["/large_tool_results/"].cwd == Path("/tmp/runtime/outputs/.large_tool_results").resolve()
+    assert backend.routes["/conversation_history/"].cwd == Path("/tmp/runtime/outputs/.conversation_history").resolve()
+
+
+def test_build_backend_routes_internal_agent_spill_files_into_thread_outputs(tmp_path):
+    base_dir = tmp_path / ".openagents"
+    _write_shared_skill(base_dir, "bootstrap", body="bootstrap")
+    paths = _make_paths(base_dir)
+
+    with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
+        backend = lead_agent_module.build_backend("thread-1", agent_name=None)
+
+    large_result = backend.write("/large_tool_results/tool-1", "large result payload")
+    history_result = backend.write("/conversation_history/thread-1.md", "history payload")
+
+    user_data_dir = paths.sandbox_user_data_dir("thread-1")
+    assert large_result.error is None
+    assert history_result.error is None
+    assert (user_data_dir / "outputs" / ".large_tool_results" / "tool-1").read_text(encoding="utf-8") == "large result payload"
+    assert (user_data_dir / "outputs" / ".conversation_history" / "thread-1.md").read_text(encoding="utf-8") == "history payload"
 
 
 def test_build_backend_uses_remote_backend_when_requested(monkeypatch, tmp_path):

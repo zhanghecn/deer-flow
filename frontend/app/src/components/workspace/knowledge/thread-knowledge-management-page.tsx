@@ -25,6 +25,7 @@ import { setPdfPreviewPage } from "@/core/artifacts/pdf";
 import { useAuth } from "@/core/auth/hooks";
 import {
   attachKnowledgeBaseToThread,
+  clearKnowledgeBases,
   deleteKnowledgeBase,
   detachKnowledgeBaseFromThread,
   updateKnowledgeBaseSettings,
@@ -79,6 +80,7 @@ import { cn } from "@/lib/utils";
 import { KnowledgeBaseUploadDialog } from "./knowledge-base-upload-dialog";
 
 type LibraryDocumentView = KnowledgeDocument & {
+  owner_id: string;
   owner_name: string;
   knowledge_base_id: string;
   knowledge_base_name: string;
@@ -89,8 +91,15 @@ type LibraryDocumentView = KnowledgeDocument & {
 };
 
 type KnowledgeOwnerGroup = {
+  ownerId: string;
   ownerName: string;
   bases: KnowledgeBase[];
+};
+
+type KnowledgeClearTarget = {
+  ownerId: string;
+  ownerName: string;
+  baseCount: number;
 };
 
 type KnowledgePreviewMode = "preview" | "canonical";
@@ -147,6 +156,19 @@ function visibilityLabel(
     default:
       return visibility;
   }
+}
+
+function knowledgeBaseContextLabel(knowledgeBase: KnowledgeBase) {
+  const primaryDocument = knowledgeBase.documents[0]?.display_name;
+  if (!primaryDocument) {
+    return null;
+  }
+
+  if (knowledgeBase.documents.length === 1) {
+    return primaryDocument;
+  }
+
+  return `${primaryDocument} +${knowledgeBase.documents.length - 1}`;
 }
 
 function formatTimestamp(value: string | undefined) {
@@ -208,6 +230,7 @@ function toLibraryDocumentView(
 ): LibraryDocumentView {
   return {
     ...document,
+    owner_id: knowledgeBase.owner_id,
     owner_name: knowledgeBase.owner_name,
     knowledge_base_id: knowledgeBase.id,
     knowledge_base_name: knowledgeBase.name,
@@ -629,7 +652,7 @@ function TreeNodeView({
   onSelectNode?: (node: KnowledgeTreeNode) => void;
 }) {
   const { t } = useI18n();
-  const summary = node.prefix_summary ?? node.summary;
+  const summary = node.summary ?? node.visual_summary;
   const active = activeNodeId === node.node_id;
 
   return (
@@ -962,9 +985,7 @@ export function ThreadKnowledgeManagementPage() {
   const queryClient = useQueryClient();
   const { knowledgeBases, isLoading } = useKnowledgeLibrary(threadId);
   const [search, setSearch] = useState("");
-  const [selectedOwnerName, setSelectedOwnerName] = useState<string | null>(
-    null,
-  );
+  const [selectedOwnerId, setSelectedOwnerId] = useState<string | null>(null);
   const [selectedBaseId, setSelectedBaseId] = useState<string | null>(null);
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(
     null,
@@ -985,6 +1006,9 @@ export function ThreadKnowledgeManagementPage() {
   const [deleteBaseTarget, setDeleteBaseTarget] =
     useState<KnowledgeBase | null>(null);
   const [deletingBaseId, setDeletingBaseId] = useState<string | null>(null);
+  const [clearAllTarget, setClearAllTarget] =
+    useState<KnowledgeClearTarget | null>(null);
+  const [clearingOwnerId, setClearingOwnerId] = useState<string | null>(null);
 
   const filteredKnowledgeBases = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -1014,31 +1038,40 @@ export function ThreadKnowledgeManagementPage() {
   }, [knowledgeBases, search]);
 
   const groupedBases = useMemo<KnowledgeOwnerGroup[]>(() => {
-    const groups = new Map<string, KnowledgeBase[]>();
+    const groups = new Map<string, KnowledgeOwnerGroup>();
     filteredKnowledgeBases.forEach((knowledgeBase) => {
-      const existing = groups.get(knowledgeBase.owner_name) ?? [];
-      existing.push(knowledgeBase);
-      groups.set(knowledgeBase.owner_name, existing);
+      const existing = groups.get(knowledgeBase.owner_id);
+      if (existing) {
+        existing.bases.push(knowledgeBase);
+        return;
+      }
+      groups.set(knowledgeBase.owner_id, {
+        ownerId: knowledgeBase.owner_id,
+        ownerName: knowledgeBase.owner_name,
+        bases: [knowledgeBase],
+      });
     });
-    return Array.from(groups.entries())
-      .sort(([leftName], [rightName]) => leftName.localeCompare(rightName))
-      .map(([ownerName, bases]) => ({
-        ownerName,
-        bases: [...bases].sort((leftBase, rightBase) =>
+    return Array.from(groups.values())
+      .sort((leftGroup, rightGroup) =>
+        leftGroup.ownerName.localeCompare(rightGroup.ownerName),
+      )
+      .map((group) => ({
+        ...group,
+        bases: [...group.bases].sort((leftBase, rightBase) =>
           leftBase.name.localeCompare(rightBase.name),
         ),
       }));
   }, [filteredKnowledgeBases]);
 
   useEffect(() => {
-    if (selectedOwnerName == null) {
+    if (selectedOwnerId == null) {
       return;
     }
-    if (!groupedBases.some((group) => group.ownerName === selectedOwnerName)) {
-      setSelectedOwnerName(null);
+    if (!groupedBases.some((group) => group.ownerId === selectedOwnerId)) {
+      setSelectedOwnerId(null);
       setSelectedBaseId(null);
     }
-  }, [groupedBases, selectedOwnerName]);
+  }, [groupedBases, selectedOwnerId]);
 
   useEffect(() => {
     if (selectedBaseId == null) {
@@ -1064,12 +1097,16 @@ export function ThreadKnowledgeManagementPage() {
     (selectedBase.owner_id === user?.id || user?.role === "admin");
 
   const selectedOwnerGroup =
-    selectedOwnerName == null
+    selectedOwnerId == null
       ? null
-      : (groupedBases.find((group) => group.ownerName === selectedOwnerName) ??
+      : (groupedBases.find((group) => group.ownerId === selectedOwnerId) ??
         null);
 
   const selectedOwnerBases = selectedOwnerGroup?.bases ?? [];
+  const ownOwnerGroup =
+    user?.id == null
+      ? null
+      : (groupedBases.find((group) => group.ownerId === user.id) ?? null);
 
   const selectedBaseDocuments = useMemo<LibraryDocumentView[]>(
     () =>
@@ -1201,6 +1238,7 @@ export function ThreadKnowledgeManagementPage() {
         : `/workspace/chats/${threadId}`;
 
   const ownerRows = groupedBases.map((group) => ({
+    ownerId: group.ownerId,
     ownerName: group.ownerName,
     baseCount: group.bases.length,
     documentCount: group.bases.reduce(
@@ -1222,6 +1260,47 @@ export function ThreadKnowledgeManagementPage() {
     : selectedOwnerGroup
       ? "bases"
       : "owners";
+
+  const derivedClearAllTarget = useMemo<KnowledgeClearTarget | null>(() => {
+    const canManageOwner = (ownerId: string) =>
+      ownerId === user?.id || user?.role === "admin";
+
+    if (selectedBase && canManageOwner(selectedBase.owner_id)) {
+      const ownerGroup =
+        groupedBases.find((group) => group.ownerId === selectedBase.owner_id) ??
+        null;
+      return {
+        ownerId: selectedBase.owner_id,
+        ownerName: selectedBase.owner_name,
+        baseCount: ownerGroup?.bases.length ?? 1,
+      };
+    }
+    if (selectedOwnerGroup && canManageOwner(selectedOwnerGroup.ownerId)) {
+      return {
+        ownerId: selectedOwnerGroup.ownerId,
+        ownerName: selectedOwnerGroup.ownerName,
+        baseCount: selectedOwnerGroup.bases.length,
+      };
+    }
+    if (user?.role === "admin") {
+      return null;
+    }
+    if (ownOwnerGroup && canManageOwner(ownOwnerGroup.ownerId)) {
+      return {
+        ownerId: ownOwnerGroup.ownerId,
+        ownerName: ownOwnerGroup.ownerName,
+        baseCount: ownOwnerGroup.bases.length,
+      };
+    }
+    return null;
+  }, [
+    groupedBases,
+    ownOwnerGroup,
+    selectedBase,
+    selectedOwnerGroup,
+    user?.id,
+    user?.role,
+  ]);
 
   const handleBinding = async (
     knowledgeBase: KnowledgeBase,
@@ -1298,20 +1377,20 @@ export function ThreadKnowledgeManagementPage() {
     }
   };
 
-  const openOwner = (ownerName: string) => {
-    setSelectedOwnerName(ownerName);
+  const openOwner = (owner: KnowledgeOwnerGroup) => {
+    setSelectedOwnerId(owner.ownerId);
     setSelectedBaseId(null);
     setSelectedDocumentId(null);
   };
 
   const openBase = (knowledgeBase: KnowledgeBase) => {
-    setSelectedOwnerName(knowledgeBase.owner_name);
+    setSelectedOwnerId(knowledgeBase.owner_id);
     setSelectedBaseId(knowledgeBase.id);
     setSelectedDocumentId(knowledgeBase.documents[0]?.id ?? null);
   };
 
   const openDocument = (document: LibraryDocumentView) => {
-    setSelectedOwnerName(document.owner_name);
+    setSelectedOwnerId(document.owner_id);
     setSelectedBaseId(document.knowledge_base_id);
     setSelectedDocumentId(document.id);
     setDetailOpen(true);
@@ -1342,7 +1421,7 @@ export function ThreadKnowledgeManagementPage() {
         setSelectedBaseId(null);
         setSelectedDocumentId(null);
         setDetailOpen(false);
-        setSelectedOwnerName(deleteBaseTarget.owner_name);
+        setSelectedOwnerId(deleteBaseTarget.owner_id);
       }
 
       toast.success(t.knowledge.deleteSuccess(deleteBaseTarget.name));
@@ -1353,6 +1432,59 @@ export function ThreadKnowledgeManagementPage() {
       );
     } finally {
       setDeletingBaseId(null);
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (!clearAllTarget) {
+      return;
+    }
+
+    setClearingOwnerId(clearAllTarget.ownerId);
+    try {
+      const response = await clearKnowledgeBases({
+        ownerId: clearAllTarget.ownerId,
+      });
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["knowledge-library"],
+        }),
+        ...(threadId
+          ? [
+              queryClient.invalidateQueries({
+                queryKey: ["thread-knowledge-bases", threadId],
+              }),
+            ]
+          : []),
+      ]);
+
+      if (
+        selectedBase?.owner_id === clearAllTarget.ownerId ||
+        selectedOwnerGroup?.ownerId === clearAllTarget.ownerId
+      ) {
+        setSelectedOwnerId(null);
+        setSelectedBaseId(null);
+        setSelectedDocumentId(null);
+        setDetailOpen(false);
+      }
+
+      if (clearAllTarget.ownerId === user?.id) {
+        toast.success(t.knowledge.clearAllSuccess(response.deleted_count));
+      } else {
+        toast.success(
+          t.knowledge.clearAllOwnerSuccess(
+            clearAllTarget.ownerName,
+            response.deleted_count,
+          ),
+        );
+      }
+      setClearAllTarget(null);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : t.knowledge.clearAllError,
+      );
+    } finally {
+      setClearingOwnerId(null);
     }
   };
 
@@ -1390,7 +1522,7 @@ export function ThreadKnowledgeManagementPage() {
                       : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
                   )}
                   onClick={() => {
-                    setSelectedOwnerName(null);
+                    setSelectedOwnerId(null);
                     setSelectedBaseId(null);
                     setSelectedDocumentId(null);
                   }}
@@ -1425,12 +1557,12 @@ export function ThreadKnowledgeManagementPage() {
                         type="button"
                         className={cn(
                           "flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition-colors",
-                          selectedOwnerName === group.ownerName &&
+                          selectedOwnerId === group.ownerId &&
                             selectedBase == null
                             ? "bg-accent text-foreground"
                             : "hover:bg-accent/60",
                         )}
-                        onClick={() => openOwner(group.ownerName)}
+                        onClick={() => openOwner(group)}
                       >
                         <div className="bg-muted text-foreground flex size-8 items-center justify-center rounded-xl">
                           <FolderIcon className="size-4" />
@@ -1446,7 +1578,7 @@ export function ThreadKnowledgeManagementPage() {
                         <ChevronRightIcon className="text-muted-foreground size-4" />
                       </button>
 
-                      {selectedOwnerName === group.ownerName ? (
+                      {selectedOwnerId === group.ownerId ? (
                         <div className="border-border/40 ml-4 space-y-1 border-l pl-3">
                           {group.bases.map((knowledgeBase) => {
                             const readyDocuments =
@@ -1473,10 +1605,11 @@ export function ThreadKnowledgeManagementPage() {
                                   <div className="truncate text-sm font-medium">
                                     {knowledgeBase.name}
                                   </div>
-                                  <div className="text-muted-foreground text-[11px]">
-                                    {t.knowledge.documentCount(
-                                      knowledgeBase.documents.length,
-                                    )}{" "}
+                                  <div className="text-muted-foreground truncate text-[11px]">
+                                    {knowledgeBaseContextLabel(knowledgeBase) ??
+                                      t.knowledge.documentCount(
+                                        knowledgeBase.documents.length,
+                                      )}{" "}
                                     · {t.knowledge.readyCount(readyDocuments)}
                                   </div>
                                 </div>
@@ -1501,7 +1634,7 @@ export function ThreadKnowledgeManagementPage() {
                       type="button"
                       className="hover:text-foreground inline-flex items-center gap-1 transition-colors"
                       onClick={() => {
-                        setSelectedOwnerName(null);
+                        setSelectedOwnerId(null);
                         setSelectedBaseId(null);
                         setSelectedDocumentId(null);
                       }}
@@ -1569,6 +1702,25 @@ export function ThreadKnowledgeManagementPage() {
                       <UploadIcon className="size-4" />
                       {t.knowledge.uploadButton}
                     </Button>
+                    {derivedClearAllTarget &&
+                    derivedClearAllTarget.baseCount > 0 ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="rounded-2xl px-4 text-red-600 hover:text-red-700"
+                        disabled={
+                          clearingOwnerId === derivedClearAllTarget.ownerId
+                        }
+                        onClick={() => setClearAllTarget(derivedClearAllTarget)}
+                      >
+                        {clearingOwnerId === derivedClearAllTarget.ownerId ? (
+                          <LoaderIcon className="size-4 animate-spin" />
+                        ) : (
+                          <Trash2Icon className="size-4" />
+                        )}
+                        {t.common.clearAll}
+                      </Button>
+                    ) : null}
                     {selectedBase && canDeleteSelectedBase ? (
                       <Button
                         type="button"
@@ -1688,13 +1840,21 @@ export function ThreadKnowledgeManagementPage() {
                 ) : listMode === "owners" ? (
                   ownerRows.map((owner) => (
                     <div
-                      key={owner.ownerName}
+                      key={owner.ownerId}
                       className="hover:bg-muted/20 flex items-center gap-4 px-6 py-5 transition-colors"
                     >
                       <button
                         type="button"
                         className="flex min-w-0 flex-1 items-center gap-4 text-left"
-                        onClick={() => openOwner(owner.ownerName)}
+                        onClick={() => {
+                          const ownerGroup =
+                            groupedBases.find(
+                              (group) => group.ownerId === owner.ownerId,
+                            ) ?? null;
+                          if (ownerGroup) {
+                            openOwner(ownerGroup);
+                          }
+                        }}
                       >
                         <div className="bg-muted flex size-10 items-center justify-center rounded-2xl">
                           <FolderIcon className="size-5" />
@@ -1744,6 +1904,7 @@ export function ThreadKnowledgeManagementPage() {
                             </div>
                             <div className="text-muted-foreground mt-1 text-sm">
                               {knowledgeBase.description ??
+                                knowledgeBaseContextLabel(knowledgeBase) ??
                                 `${visibilityLabel(knowledgeBase.visibility, t)} · ${knowledgeBase.preview_enabled ? t.knowledge.previewEnabled : t.knowledge.previewDisabled}`}
                             </div>
                           </div>
@@ -1845,7 +2006,7 @@ export function ThreadKnowledgeManagementPage() {
             {selectedDocument ? (
               <SheetContent
                 side="right"
-                className="w-[min(94vw,1320px)] gap-0 p-0 sm:max-w-none"
+                className="w-[min(97vw,1480px)] gap-0 p-0 sm:max-w-none"
               >
                 <SheetTitle className="sr-only">
                   {selectedDocument.display_name}
@@ -1856,8 +2017,8 @@ export function ThreadKnowledgeManagementPage() {
                     : (selectedDocument.doc_description ??
                       selectedDocument.display_name)}
                 </SheetDescription>
-                <div className="grid h-full min-h-0 md:grid-cols-[minmax(0,1fr)_360px]">
-                  <div className="bg-muted/30 min-h-0 border-r p-4">
+                <div className="grid h-full min-h-0 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_420px] 2xl:grid-cols-[minmax(0,1.08fr)_480px]">
+                  <div className="bg-muted/30 min-h-0 border-b p-4 lg:border-r lg:border-b-0">
                     <KnowledgePreviewPanel
                       document={selectedDocument}
                       threadId={threadId}
@@ -2212,6 +2373,53 @@ export function ThreadKnowledgeManagementPage() {
                 <Trash2Icon className="mr-2 size-4" />
               )}
               {t.common.delete}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={clearAllTarget != null}
+        onOpenChange={(open) => {
+          if (!open && clearingOwnerId == null) {
+            setClearAllTarget(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t.knowledge.clearAllTitle}</DialogTitle>
+            <DialogDescription>
+              {clearAllTarget
+                ? clearAllTarget.ownerId === user?.id
+                  ? t.knowledge.clearAllSelfDescription(
+                      clearAllTarget.baseCount,
+                    )
+                  : t.knowledge.clearAllOwnerDescription(
+                      clearAllTarget.ownerName,
+                      clearAllTarget.baseCount,
+                    )
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setClearAllTarget(null)}
+              disabled={clearingOwnerId != null}
+            >
+              {t.common.cancel}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => void handleClearAll()}
+              disabled={clearingOwnerId != null}
+            >
+              {clearingOwnerId != null ? (
+                <LoaderIcon className="mr-2 size-4 animate-spin" />
+              ) : (
+                <Trash2Icon className="mr-2 size-4" />
+              )}
+              {t.common.clearAll}
             </Button>
           </DialogFooter>
         </DialogContent>

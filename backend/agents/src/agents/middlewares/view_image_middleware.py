@@ -1,23 +1,27 @@
 """Middleware for injecting image details into conversation before LLM call."""
 
+import json
 import logging
 
-from typing import NotRequired, override
+from typing import Annotated, override
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.runtime import Runtime
 
-from src.agents.thread_state import ViewedImageData
+from src.agents.thread_state import ViewedImageData, merge_viewed_images
 
 logger = logging.getLogger(__name__)
+_KNOWLEDGE_IMAGE_PREFIX = "/mnt/user-data/outputs/.knowledge/"
+_MAX_EVIDENCE_CITATIONS = 6
+_MAX_EVIDENCE_IMAGES = 4
 
 
 class ViewImageMiddlewareState(AgentState):
     """Compatible with the `ThreadState` schema."""
 
-    viewed_images: NotRequired[dict[str, ViewedImageData] | None]
+    viewed_images: Annotated[dict[str, ViewedImageData], merge_viewed_images]
 
 
 class ViewImageMiddleware(AgentMiddleware[ViewImageMiddlewareState]):
@@ -110,13 +114,35 @@ class ViewImageMiddleware(AgentMiddleware[ViewImageMiddlewareState]):
 
         # Build the message with image information
         content_blocks: list[str | dict] = [{"type": "text", "text": "Here are the images you've viewed:"}]
+        if any(str(image_path).startswith(_KNOWLEDGE_IMAGE_PREFIX) for image_path in viewed_images):
+            content_blocks.append(
+                {
+                    "type": "text",
+                    "text": (
+                        "These images came from the knowledge-base retrieval flow. "
+                        "Use the matching current-turn knowledge evidence as the source of truth, "
+                        "copy its exact citation_markdown, include image_markdown in the final answer when the image materially helps, "
+                        "and do not expose raw /mnt/user-data image paths in the visible answer."
+                    ),
+                }
+            )
+            evidence_reminder = self._knowledge_evidence_reminder_text(state.get("messages", []))
+            if evidence_reminder:
+                content_blocks.append({"type": "text", "text": evidence_reminder})
 
+        knowledge_image_index = 0
         for image_path, image_data in viewed_images.items():
             mime_type = image_data.get("mime_type", "unknown")
             base64_data = image_data.get("base64", "")
+            is_knowledge_image = str(image_path).startswith(_KNOWLEDGE_IMAGE_PREFIX)
 
             # Add text description
-            content_blocks.append({"type": "text", "text": f"\n- **{image_path}** ({mime_type})"})
+            if is_knowledge_image:
+                knowledge_image_index += 1
+                label = f"Knowledge image {knowledge_image_index}"
+            else:
+                label = str(image_path)
+            content_blocks.append({"type": "text", "text": f"\n- **{label}** ({mime_type})"})
 
             # Add the actual image data so LLM can "see" it
             if base64_data:
@@ -128,6 +154,68 @@ class ViewImageMiddleware(AgentMiddleware[ViewImageMiddlewareState]):
                 )
 
         return content_blocks
+
+    def _knowledge_evidence_reminder_text(self, messages: list) -> str | None:
+        payload = self._latest_knowledge_evidence_payload(messages)
+        if payload is None:
+            return None
+
+        citations: list[str] = []
+        images: list[str] = []
+        seen_citations: set[str] = set()
+        seen_images: set[str] = set()
+
+        for item in payload.get("items", []):
+            if not isinstance(item, dict):
+                continue
+            citation = str(item.get("citation_markdown") or "").strip()
+            if citation and citation not in seen_citations and len(citations) < _MAX_EVIDENCE_CITATIONS:
+                seen_citations.add(citation)
+                citations.append(citation)
+
+            for block in item.get("evidence_blocks", []):
+                if not isinstance(block, dict):
+                    continue
+                citation = str(block.get("citation_markdown") or "").strip()
+                if citation and citation not in seen_citations and len(citations) < _MAX_EVIDENCE_CITATIONS:
+                    seen_citations.add(citation)
+                    citations.append(citation)
+                image_markdown = str(block.get("image_markdown") or "").strip()
+                if image_markdown and image_markdown not in seen_images and len(images) < _MAX_EVIDENCE_IMAGES:
+                    seen_images.add(image_markdown)
+                    images.append(image_markdown)
+
+        if not citations and not images:
+            return None
+
+        lines = ["Current-turn knowledge evidence to reuse exactly:"]
+        lines.append("Your next visible answer must include at least one exact citation_markdown from this list.")
+        if citations:
+            lines.append("Citations:")
+            lines.extend(f"- {citation}" for citation in citations)
+        if images:
+            lines.append("Inline images:")
+            lines.extend(f"- {image_markdown}" for image_markdown in images)
+        lines.append("Do not emit raw /mnt/user-data image paths. Reuse exact image_markdown when the image is relevant.")
+        return "\n".join(lines)
+
+    def _latest_knowledge_evidence_payload(self, messages: list) -> dict | None:
+        for message in reversed(messages):
+            if not isinstance(message, ToolMessage) or message.name != "get_document_evidence":
+                continue
+            content = message.content
+            if not isinstance(content, str):
+                continue
+            text = content.strip()
+            if not text or text.startswith("Error:"):
+                continue
+            try:
+                payload = json.loads(text)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict) and isinstance(payload.get("items"), list):
+                return payload
+        return None
 
     def _should_inject_image_message(self, state: ViewImageMiddlewareState) -> bool:
         """Determine if we should inject an image details message.

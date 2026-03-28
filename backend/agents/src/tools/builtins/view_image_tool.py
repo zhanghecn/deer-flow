@@ -10,7 +10,7 @@ from langgraph.typing import ContextT
 from src.agents.thread_state import ThreadState
 from src.config.paths import get_paths
 from src.runtime_backends import build_runtime_workspace_backend
-from src.tools.builtins.runtime_context import runtime_context_value
+from src.utils.runtime_context import runtime_context_value
 
 
 def _runtime_thread_id(runtime: ToolRuntime[ContextT, ThreadState] | None) -> str:

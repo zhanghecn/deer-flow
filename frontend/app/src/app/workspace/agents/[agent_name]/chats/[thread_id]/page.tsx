@@ -26,6 +26,7 @@ import {
   type ResolvedAgentRuntimeSelection,
   useAgent,
 } from "@/core/agents";
+import { shouldShowCenteredComposer } from "@/components/workspace/chats/layout-state";
 import { useI18n } from "@/core/i18n/hooks";
 import { useNotification } from "@/core/notification/hooks";
 import { useLocalSettings } from "@/core/settings";
@@ -283,6 +284,17 @@ export default function AgentChatPage() {
     threadId,
   ]);
 
+  const showCenteredComposer = useMemo(
+    () =>
+      shouldShowCenteredComposer({
+        isNewThread,
+        isPendingRun,
+        isThreadLoading: thread.isLoading,
+        messages: thread.messages,
+      }),
+    [isNewThread, isPendingRun, thread.isLoading, thread.messages],
+  );
+
   if (!isNewThread && threadRuntimeLoading && !threadRuntime) {
     return (
       <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
@@ -305,7 +317,7 @@ export default function AgentChatPage() {
           <header
             className={cn(
               "absolute top-0 right-0 left-0 z-30 flex h-12 shrink-0 items-center gap-2 px-4",
-              isNewThread
+              showCenteredComposer
                 ? "bg-background/0 backdrop-blur-none"
                 : "bg-background/80 shadow-xs backdrop-blur",
             )}
@@ -334,7 +346,7 @@ export default function AgentChatPage() {
           <main className="flex min-h-0 max-w-full grow flex-col">
             <div className="flex size-full justify-center">
               <MessageList
-                className={cn("size-full", !isNewThread && "pt-10")}
+                className={cn("size-full", !showCenteredComposer && "pt-10")}
                 threadId={threadId}
                 thread={thread}
               />
@@ -344,8 +356,8 @@ export default function AgentChatPage() {
               <div
                 className={cn(
                   "relative w-full",
-                  isNewThread && "-translate-y-[calc(50vh-96px)]",
-                  isNewThread
+                  showCenteredComposer && "-translate-y-[calc(50vh-96px)]",
+                  showCenteredComposer
                     ? "max-w-(--container-width-sm)"
                     : "max-w-(--container-width-md)",
                 )}
@@ -364,17 +376,19 @@ export default function AgentChatPage() {
                 <InputBox
                   className={cn("bg-background/5 w-full -translate-y-4")}
                   threadId={threadId}
-                  isNewThread={isNewThread}
-                  autoFocus={isNewThread}
+                  isNewThread={showCenteredComposer}
+                  autoFocus={showCenteredComposer}
                   status={thread.isLoading ? "streaming" : "ready"}
                   context={runtimeContext}
                   retryStatus={retryStatus}
                   initialValue={inputInitialValue}
                   contextWindow={
-                    isNewThread ? undefined : thread.values.context_window
+                    showCenteredComposer
+                      ? undefined
+                      : thread.values.context_window
                   }
                   extraHeader={
-                    isNewThread && (
+                    showCenteredComposer && (
                       <div className="mx-auto w-full max-w-(--container-width-md) px-2">
                         <AgentWelcome
                           agent={agent}

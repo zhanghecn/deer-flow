@@ -9,6 +9,8 @@ from deepagents.backends.protocol import BackendProtocol
 from src.config.app_config import get_app_config
 from src.config.paths import Paths
 
+from .internal_routes import build_internal_runtime_routes
+
 logger = logging.getLogger(__name__)
 
 
@@ -60,7 +62,7 @@ def build_local_workspace_backend(
     shared_skills_mount: tuple[str, str] | None = None,
 ) -> BackendProtocol:
     execute_path_mappings = build_runtime_execute_aliases(user_data_dir)
-    routes: dict[str, BackendProtocol] = {}
+    routes = build_internal_runtime_routes(user_data_dir)
 
     if shared_skills_mount is not None:
         shared_skills_dir, route_prefix = shared_skills_mount
@@ -78,6 +80,4 @@ def build_local_workspace_backend(
         execute_path_mappings=execute_path_mappings,
     )
 
-    if routes:
-        return CompositeBackend(default=workspace_backend, routes=routes)
-    return workspace_backend
+    return CompositeBackend(default=workspace_backend, routes=routes)

@@ -18,7 +18,7 @@ from src.config.agent_materialization import validate_skill_refs_for_status
 from src.config.agents_config import AGENT_NAME_PATTERN, AGENTS_MD_FILENAME, AgentConfig
 from src.config.paths import Paths, VIRTUAL_PATH_PREFIX, get_paths
 from src.skills.parser import parse_skill_file
-from src.tools.builtins.runtime_context import runtime_context_value
+from src.utils.runtime_context import runtime_context_value
 
 
 def _timestamp() -> str:

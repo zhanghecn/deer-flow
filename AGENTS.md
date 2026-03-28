@@ -2,6 +2,9 @@ Read these docs before changing runtime/backend/sandbox/remote architecture:
 @./docs/runtime-architecture.md
 @./docs/remote-backend.md
 @./docs/KNOWLEDGE_BASE_ARCHITECTURE.md
+@./docs/testing/README.md
+@./docs/testing/knowledge-base/TEST_SPEC.md
+@./docs/testing/knowledge-base/PITFALLS.md
 @./backend/agents/AGENTS.md
 
 Repository-wide runtime architecture rules:
@@ -23,3 +26,12 @@ Repository-wide runtime architecture rules:
   - what is control plane
   - how thread/session identity is bound
   - how the `/mnt/user-data/...` contract is preserved
+
+Repository-wide testing index:
+
+- Read `./docs/testing/README.md` before closing any knowledge-base, agent UX, runtime integration, or preview/citation task.
+- Knowledge-base changes are not considered tested by API/unit tests alone.
+- Required knowledge-base test phases are:
+  - headed browser user-flow test on `http://localhost:3000`
+  - agent internal audit on `http://localhost:5173`
+  - current-code stack verification when long-running dev processes may still be serving old code

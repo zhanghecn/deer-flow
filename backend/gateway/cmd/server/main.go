@@ -10,6 +10,7 @@ import (
 	"github.com/openagents/gateway/internal/bootstrap"
 	"github.com/openagents/gateway/internal/config"
 	"github.com/openagents/gateway/internal/handler"
+	"github.com/openagents/gateway/internal/knowledgeasset"
 	"github.com/openagents/gateway/internal/middleware"
 	"github.com/openagents/gateway/internal/proxy"
 	"github.com/openagents/gateway/internal/repository"
@@ -57,6 +58,10 @@ func main() {
 	// Initialize components
 	jwtMgr := jwt.NewManager(cfg.JWT.Secret, cfg.JWT.ExpireHour)
 	fs := storage.NewFS(baseDir)
+	knowledgeAssetStore, err := knowledgeasset.New(baseDir)
+	if err != nil {
+		log.Fatalf("Failed to initialize knowledge asset store: %v", err)
+	}
 
 	// Repositories
 	userRepo := repository.NewUserRepo(pool)
@@ -80,7 +85,7 @@ func main() {
 	threadsH := handler.NewThreadsHandler(threadRepo, cfg.Upstream.LangGraphURL, fs)
 	uploadsH := handler.NewUploadsHandler(fs)
 	artifactsH := handler.NewArtifactsHandler(fs)
-	knowledgeH := handler.NewKnowledgeHandler(knowledgeRepo, fs)
+	knowledgeH := handler.NewKnowledgeHandler(knowledgeRepo, fs, knowledgeAssetStore)
 	onlyOfficeH := handler.NewOnlyOfficeHandler(fs, handler.OnlyOfficeConfig{
 		ServerURL:    cfg.OnlyOffice.ServerURL,
 		PublicAppURL: cfg.OnlyOffice.PublicAppURL,
@@ -217,9 +222,11 @@ func main() {
 		// Knowledge bases
 		api.GET("/knowledge/bases", knowledgeH.ListLibrary)
 		api.POST("/knowledge/bases", knowledgeH.CreateLibraryBase)
+		api.DELETE("/knowledge/bases", knowledgeH.DeleteAllBases)
 		api.DELETE("/knowledge/bases/:knowledge_base_id", knowledgeH.DeleteBase)
 		api.PATCH("/knowledge/bases/:knowledge_base_id/settings", knowledgeH.UpdateBaseSettings)
 		api.GET("/knowledge/documents/:document_id/file", knowledgeH.VisibleDocumentFile)
+		api.GET("/knowledge/documents/:document_id/asset", knowledgeH.VisibleDocumentAsset)
 		api.GET("/knowledge/documents/:document_id/tree", knowledgeH.VisibleDocumentTree)
 		api.GET("/knowledge/documents/:document_id/build-events", knowledgeH.VisibleDocumentBuildEvents)
 		api.GET("/knowledge/documents/:document_id/debug", knowledgeH.DocumentDebug)

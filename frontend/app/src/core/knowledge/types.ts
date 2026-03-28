@@ -34,6 +34,9 @@ export interface KnowledgeTreeNode {
   title: string;
   depth?: number;
   child_count?: number;
+  returned_child_count?: number;
+  remaining_child_count?: number;
+  has_more_children?: boolean;
   locator_type: "page" | "heading";
   page_start?: number;
   page_end?: number;
@@ -41,7 +44,10 @@ export interface KnowledgeTreeNode {
   line_end?: number;
   heading_slug?: string;
   summary?: string;
-  prefix_summary?: string;
+  visual_summary?: string;
+  summary_quality?: "llm" | "extractive" | "fallback";
+  has_visual_evidence?: boolean;
+  evidence_ref_count?: number;
   nodes?: KnowledgeTreeNode[];
 }
 
@@ -52,6 +58,8 @@ export interface KnowledgeDocument {
   locator_type: "page" | "heading";
   status: string;
   doc_description?: string;
+  build_quality?: string;
+  quality_metadata?: Record<string, unknown>;
   error?: string;
   page_count?: number;
   node_count: number;
@@ -95,6 +103,12 @@ export interface KnowledgeBaseSettingsResponse {
 
 export interface KnowledgeBaseDeletedResponse {
   knowledge_base_id: string;
+  status: string;
+}
+
+export interface KnowledgeBasesClearedResponse {
+  owner_id: string;
+  deleted_count: number;
   status: string;
 }
 

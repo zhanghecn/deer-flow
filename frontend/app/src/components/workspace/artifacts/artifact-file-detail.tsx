@@ -61,6 +61,7 @@ import {
 } from "@/core/utils/files";
 import { env } from "@/env";
 import { cn } from "@/lib/utils";
+import { parseKnowledgeCitationHref } from "@/core/knowledge/citations";
 
 import { CitationLink } from "../citations/citation-link";
 import { useThread } from "../messages/context";
@@ -493,16 +494,16 @@ export function ArtifactFilePreview({
 
   if (language === "markdown") {
     return (
-        <ArtifactMarkdownPreview
-          filepath={filepath}
-          threadId={threadId}
-          content={content}
-          isMock={Boolean(isMock)}
-          activeHeading={activeHeading}
-          activeLine={activeLine}
-          revealSequence={revealSequence}
-        />
-      );
+      <ArtifactMarkdownPreview
+        filepath={filepath}
+        threadId={threadId}
+        content={content}
+        isMock={Boolean(isMock)}
+        activeHeading={activeHeading}
+        activeLine={activeLine}
+        revealSequence={revealSequence}
+      />
+    );
   }
   if (language === "html") {
     if (error instanceof Error || previewError instanceof Error) {
@@ -544,6 +545,10 @@ function ArtifactMarkdownPreview({
   revealSequence: number | null;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const totalLines = useMemo(
+    () => Math.max(content.split(/\r?\n/).length, 1),
+    [content],
+  );
   const components = useMemo(() => {
     const createHeadingComponent =
       (tagName: "h1" | "h2" | "h3" | "h4" | "h5" | "h6") =>
@@ -584,14 +589,43 @@ function ArtifactMarkdownPreview({
   }, [filepath, isMock, threadId]);
 
   useEffect(() => {
-    if (!containerRef.current || !activeHeading) {
+    if (!containerRef.current) {
       return;
     }
-    const target = containerRef.current.querySelector<HTMLElement>(
-      `[data-heading-slug="${activeHeading}"]`,
-    );
-    target?.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [activeHeading, activeLine, revealSequence]);
+    let cancelled = false;
+    let timeoutId: number | null = null;
+    let attempts = 0;
+
+    const tryReveal = () => {
+      if (cancelled || !containerRef.current) {
+        return;
+      }
+
+      attempts += 1;
+      const shouldAllowLineFallback = !activeHeading || attempts >= 4;
+      const didReveal = scrollArtifactMarkdownPreview(containerRef.current, {
+        activeHeading,
+        activeLine,
+        totalLines,
+        allowLineFallback: shouldAllowLineFallback,
+      });
+
+      if (didReveal || attempts >= 6) {
+        return;
+      }
+
+      timeoutId = window.setTimeout(tryReveal, 60);
+    };
+
+    timeoutId = window.setTimeout(tryReveal, 0);
+
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [activeHeading, activeLine, content, revealSequence, totalLines]);
 
   return (
     <div ref={containerRef} className="size-full overflow-auto px-4">
@@ -686,27 +720,36 @@ function ArtifactMarkdownImage({
   threadId: string;
   isMock: boolean;
 }) {
+  const { reveal } = useArtifacts();
+  const knowledgeTarget = useMemo(
+    () => (typeof src === "string" ? parseKnowledgeCitationHref(src) : null),
+    [src],
+  );
   const internalFilepath = useMemo(() => {
-    if (typeof src !== "string") {
+    if (typeof src !== "string" || knowledgeTarget?.kind === "asset") {
       return null;
     }
     return resolveThreadScopedPath(src, filepath);
-  }, [filepath, src]);
+  }, [filepath, knowledgeTarget?.kind, src]);
+  const imageFilepath =
+    knowledgeTarget?.kind === "asset"
+      ? (knowledgeTarget.assetPath ?? null)
+      : internalFilepath;
   const { objectUrl, isLoading, error } = useArtifactObjectUrl({
-    filepath: internalFilepath ?? "",
+    filepath: imageFilepath ?? "",
     threadId,
-    enabled: Boolean(internalFilepath),
+    enabled: Boolean(imageFilepath),
     isMock,
   });
 
-  if (!internalFilepath) {
+  if (!imageFilepath) {
     return <img {...props} src={src} alt={alt} />;
   }
 
   if (error instanceof Error) {
     return (
       <span className="text-muted-foreground inline-flex min-h-20 items-center text-xs">
-        {`Image unavailable: ${alt ?? getFileName(internalFilepath)}`}
+        {`Image unavailable: ${alt ?? getFileName(imageFilepath)}`}
       </span>
     );
   }
@@ -714,8 +757,28 @@ function ArtifactMarkdownImage({
   if (isLoading || !objectUrl) {
     return (
       <span className="text-muted-foreground inline-flex min-h-20 items-center text-xs">
-        {`Loading image: ${alt ?? getFileName(internalFilepath)}`}
+        {`Loading image: ${alt ?? getFileName(imageFilepath)}`}
       </span>
+    );
+  }
+
+  if (knowledgeTarget?.kind === "asset") {
+    return (
+      <button
+        type="button"
+        className="inline-flex cursor-pointer"
+        onClick={() => {
+          reveal({
+            filepath: knowledgeTarget.artifactPath,
+            page: knowledgeTarget.page,
+            heading: knowledgeTarget.heading,
+            line: knowledgeTarget.line,
+            locatorLabel: knowledgeTarget.locatorLabel,
+          });
+        }}
+      >
+        <img {...props} src={objectUrl} alt={alt} />
+      </button>
     );
   }
 
@@ -1040,6 +1103,55 @@ function slugifyHeading(text: string) {
     .toLowerCase()
     .replace(/[^0-9a-z\u4e00-\u9fff]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+export function scrollArtifactMarkdownPreview(
+  container: HTMLElement,
+  {
+    activeHeading,
+    activeLine,
+    totalLines,
+    allowLineFallback = true,
+  }: {
+    activeHeading: string | null;
+    activeLine: number | null;
+    totalLines: number;
+    allowLineFallback?: boolean;
+  },
+) {
+  if (activeHeading) {
+    const matchingTargets = container.querySelectorAll<HTMLElement>(
+      `[data-heading-slug="${activeHeading}"]`,
+    );
+    if (
+      matchingTargets.length === 1 ||
+      (matchingTargets.length > 0 && activeLine == null)
+    ) {
+      matchingTargets[0]?.scrollIntoView({ block: "center", behavior: "auto" });
+      return true;
+    }
+    if (!allowLineFallback) {
+      return false;
+    }
+  }
+
+  if (activeLine != null) {
+    const maxScrollTop = Math.max(
+      0,
+      container.scrollHeight - container.clientHeight,
+    );
+    const ratio =
+      totalLines <= 1
+        ? 0
+        : Math.min(1, Math.max(0, (activeLine - 1) / (totalLines - 1)));
+    container.scrollTo({
+      top: maxScrollTop * ratio,
+      behavior: "auto",
+    });
+    return true;
+  }
+
+  return false;
 }
 
 function formatOnlyOfficeEditorError(errorDescription: string) {

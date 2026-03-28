@@ -25,6 +25,7 @@ import {
 } from "@/core/agents";
 import { useArtifactObjectUrl } from "@/core/artifacts/hooks";
 import { useI18n } from "@/core/i18n/hooks";
+import { parseKnowledgeCitationHref } from "@/core/knowledge/citations";
 import {
   extractContentFromMessage,
   inferAgentNameFromNextStepPrompt,
@@ -43,6 +44,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { CopyButton } from "../copy-button";
+import { useArtifacts } from "../artifacts";
 
 import { useThread } from "./context";
 import { MarkdownContent } from "./markdown-content";
@@ -107,8 +109,18 @@ function MessageImage({
   maxWidth?: string;
 }) {
   const imgClassName = cn("overflow-hidden rounded-lg", `max-w-[${maxWidth}]`);
+  const { reveal } = useArtifacts();
+  const knowledgeTarget = useMemo(
+    () => (typeof src === "string" ? parseKnowledgeCitationHref(src) : null),
+    [src],
+  );
+  const knowledgeAssetPath =
+    knowledgeTarget?.kind === "asset"
+      ? (knowledgeTarget.assetPath ?? null)
+      : null;
   const artifactPath =
-    typeof src === "string" && src.startsWith("/mnt/") ? src : null;
+    knowledgeAssetPath ??
+    (typeof src === "string" && src.startsWith("/mnt/") ? src : null);
   const { objectUrl, isLoading } = useArtifactObjectUrl({
     filepath: artifactPath ?? "",
     threadId,
@@ -131,9 +143,34 @@ function MessageImage({
 
   if (isLoading || !objectUrl) {
     return (
-      <div className={cn(imgClassName, "bg-muted/20 flex min-h-24 items-center justify-center")}>
+      <div
+        className={cn(
+          imgClassName,
+          "bg-muted/20 flex min-h-24 items-center justify-center",
+        )}
+      >
         <Loader2Icon className="text-muted-foreground size-4 animate-spin" />
       </div>
+    );
+  }
+
+  if (knowledgeTarget?.kind === "asset") {
+    return (
+      <button
+        type="button"
+        className="inline-flex cursor-pointer"
+        onClick={() => {
+          reveal({
+            filepath: knowledgeTarget.artifactPath,
+            page: knowledgeTarget.page,
+            heading: knowledgeTarget.heading,
+            line: knowledgeTarget.line,
+            locatorLabel: knowledgeTarget.locatorLabel,
+          });
+        }}
+      >
+        <img className={imgClassName} src={objectUrl} alt={alt} {...props} />
+      </button>
     );
   }
 

@@ -9,7 +9,7 @@ from deepagents.middleware._utils import append_to_system_message
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
 
-from src.tools.builtins.runtime_context import runtime_context_value
+from src.utils.runtime_context import runtime_context_value
 
 
 def _normalize_text(value: object) -> str | None:

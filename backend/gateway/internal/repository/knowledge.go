@@ -48,6 +48,8 @@ type KnowledgeDocumentRecord struct {
 	LocatorType          string                   `json:"locator_type"`
 	Status               string                   `json:"status"`
 	DocDescription       *string                  `json:"doc_description,omitempty"`
+	BuildQuality         string                   `json:"build_quality"`
+	QualityMetadata      map[string]any           `json:"quality_metadata,omitempty"`
 	Error                *string                  `json:"error,omitempty"`
 	PageCount            *int                     `json:"page_count,omitempty"`
 	NodeCount            int                      `json:"node_count"`
@@ -138,6 +140,8 @@ func (r *KnowledgeRepo) ListByThread(
 			d.locator_type,
 			d.status,
 			d.doc_description,
+			d.build_quality,
+			d.quality_metadata,
 			d.error,
 			d.page_count,
 			d.node_count,
@@ -208,6 +212,8 @@ func (r *KnowledgeRepo) ListVisible(
 			d.locator_type,
 			d.status,
 			d.doc_description,
+			d.build_quality,
+			d.quality_metadata,
 			d.error,
 			d.page_count,
 			d.node_count,
@@ -381,6 +387,38 @@ func (r *KnowledgeRepo) DeleteBase(
 	return &record, nil
 }
 
+func (r *KnowledgeRepo) DeleteBasesByOwner(
+	ctx context.Context,
+	ownerUserID uuid.UUID,
+) ([]KnowledgeBaseDeleteRecord, error) {
+	rows, err := r.pool.Query(
+		ctx,
+		`
+			DELETE FROM knowledge_bases
+			WHERE user_id = $1
+			RETURNING id::text, user_id::text, name
+		`,
+		ownerUserID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	records := make([]KnowledgeBaseDeleteRecord, 0)
+	for rows.Next() {
+		var record KnowledgeBaseDeleteRecord
+		if err := rows.Scan(&record.ID, &record.OwnerID, &record.Name); err != nil {
+			return nil, err
+		}
+		records = append(records, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return records, nil
+}
+
 func (r *KnowledgeRepo) GetDocumentTreeByThread(
 	ctx context.Context,
 	userID uuid.UUID,
@@ -536,6 +574,8 @@ func (r *KnowledgeRepo) GetVisibleDocumentDebug(
 			d.locator_type,
 			d.status,
 			d.doc_description,
+			d.build_quality,
+			d.quality_metadata,
 			d.error,
 			d.page_count,
 			d.node_count,
@@ -609,6 +649,8 @@ func (r *KnowledgeRepo) GetVisibleDocumentDebug(
 		&record.Document.LocatorType,
 		&record.Document.Status,
 		&record.Document.DocDescription,
+		&record.Document.BuildQuality,
+		&record.Document.QualityMetadata,
 		&record.Document.Error,
 		&record.Document.PageCount,
 		&record.Document.NodeCount,
@@ -723,6 +765,8 @@ func scanKnowledgeBaseRows(rows pgx.Rows) ([]KnowledgeBaseRecord, error) {
 			locatorType          *string
 			status               *string
 			docDescription       *string
+			buildQuality         *string
+			qualityMetadata      map[string]any
 			documentError        *string
 			pageCount            *int
 			nodeCount            *int
@@ -764,6 +808,8 @@ func scanKnowledgeBaseRows(rows pgx.Rows) ([]KnowledgeBaseRecord, error) {
 			&locatorType,
 			&status,
 			&docDescription,
+			&buildQuality,
+			&qualityMetadata,
 			&documentError,
 			&pageCount,
 			&nodeCount,
@@ -825,6 +871,8 @@ func scanKnowledgeBaseRows(rows pgx.Rows) ([]KnowledgeBaseRecord, error) {
 			LocatorType:          *locatorType,
 			Status:               *status,
 			DocDescription:       docDescription,
+			BuildQuality:         derefString(buildQuality, "ready"),
+			QualityMetadata:      qualityMetadata,
 			Error:                documentError,
 			PageCount:            pageCount,
 			NodeCount:            docNodeCount,
@@ -930,6 +978,13 @@ func scanBuildEventRows(rows pgx.Rows) ([]KnowledgeBuildEventRecord, error) {
 func derefInt(value *int) int {
 	if value == nil {
 		return 0
+	}
+	return *value
+}
+
+func derefString(value *string, fallback string) string {
+	if value == nil || *value == "" {
+		return fallback
 	}
 	return *value
 }

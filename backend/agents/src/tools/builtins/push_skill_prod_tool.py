@@ -7,7 +7,7 @@ from langgraph.types import Command
 
 from src.config.paths import get_paths
 from src.tools.builtins.authoring_persistence import push_skill_directory_to_prod
-from src.tools.builtins.runtime_context import runtime_context_value
+from src.utils.runtime_context import runtime_context_value
 
 logger = logging.getLogger(__name__)
 

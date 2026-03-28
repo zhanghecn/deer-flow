@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 from xml.etree import ElementTree as ET
 import zipfile
 
@@ -44,10 +45,24 @@ def build_canonical_document(
     page_source_path = _page_source_path(source_path=source_path, preview_path=preview_path)
     page_count = _page_count(page_source_path)
     pages = _extract_pdf_pages(page_source_path) if page_source_path is not None else []
+    extracted_docx_markdown = (
+        _extract_docx_markdown(source_path) if normalized_kind == "docx" else ""
+    )
 
     if companion_path is not None:
         content = companion_path.read_text(encoding="utf-8")
         if content.strip():
+            if normalized_kind == "docx":
+                preferred_markdown, used_markdown_companion = _select_docx_markdown(
+                    companion_markdown=content,
+                    extracted_markdown=extracted_docx_markdown,
+                )
+                return CanonicalDocument(
+                    markdown=preferred_markdown,
+                    page_count=page_count,
+                    used_markdown_companion=used_markdown_companion,
+                    pages=pages,
+                )
             return CanonicalDocument(
                 markdown=content,
                 page_count=page_count,
@@ -56,10 +71,9 @@ def build_canonical_document(
             )
 
     if normalized_kind == "docx":
-        extracted_markdown = _extract_docx_markdown(source_path)
-        if extracted_markdown.strip():
+        if extracted_docx_markdown.strip():
             return CanonicalDocument(
-                markdown=extracted_markdown,
+                markdown=extracted_docx_markdown,
                 page_count=None,
                 used_markdown_companion=False,
                 pages=[],
@@ -79,6 +93,26 @@ def build_canonical_document(
         used_markdown_companion=False,
         pages=pages,
     )
+
+
+def _select_docx_markdown(
+    *,
+    companion_markdown: str,
+    extracted_markdown: str,
+) -> tuple[str, bool]:
+    companion_text = companion_markdown.strip()
+    extracted_text = extracted_markdown.strip()
+    if not companion_text:
+        return extracted_markdown, False
+    if not extracted_text:
+        return companion_markdown, True
+    if _markdown_heading_count(extracted_markdown) > _markdown_heading_count(companion_markdown):
+        return extracted_markdown, False
+    return companion_markdown, True
+
+
+def _markdown_heading_count(markdown: str) -> int:
+    return sum(1 for line in markdown.splitlines() if re.match(r"^\s{0,3}#{1,6}\s+\S", line))
 
 
 def _page_source_path(*, source_path: Path, preview_path: Path | None) -> Path | None:
@@ -180,6 +214,19 @@ def _extract_page_images(
 
 
 _WORD_NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+_DOCX_SECTION_RE = re.compile(
+    r"^(?:第[0-9一二三四五六七八九十百千万]+[章节篇部分卷]|[一二三四五六七八九十百千万]+[、.．])"
+)
+_DOCX_SUBSECTION_RE = re.compile(r"^(?:\d+[、.．)]|[（(]?[0-9一二三四五六七八九十百千万]+[)）])")
+_DOCX_TRAILING_COLON_HEADING_RE = re.compile(r"^[^。！？；]{2,24}[：:]$")
+_DOCX_STEM_BRANCH_CHARS = set("甲乙丙丁戊己庚辛壬癸子丑寅卯辰巳午未申酉戌亥")
+
+
+@dataclass
+class _DocxParagraphInfo:
+    text: str
+    explicit_heading_level: int | None
+    max_font_size: int | None
 
 
 def _extract_docx_markdown(source_path: Path) -> str:
@@ -192,30 +239,59 @@ def _extract_docx_markdown(source_path: Path) -> str:
     except Exception:
         return ""
 
-    parts: list[str] = []
     body = root.find("w:body", _WORD_NS)
     if body is None:
         return ""
 
+    paragraph_infos: list[_DocxParagraphInfo] = []
+    blocks: list[tuple[str, _DocxParagraphInfo | ET.Element]] = []
     for child in list(body):
         tag_name = _local_name(child.tag)
         if tag_name == "p":
             paragraph_text = _paragraph_text(child)
             if not paragraph_text:
                 continue
-            heading_level = _paragraph_heading_level(child)
-            if heading_level is not None:
-                parts.append(f"{'#' * heading_level} {paragraph_text}")
-            else:
-                parts.append(paragraph_text)
-            parts.append("")
+            paragraph_info = _DocxParagraphInfo(
+                text=paragraph_text,
+                explicit_heading_level=_paragraph_heading_level(child),
+                max_font_size=_paragraph_max_font_size(child),
+            )
+            paragraph_infos.append(paragraph_info)
+            blocks.append(("p", paragraph_info))
             continue
         if tag_name == "tbl":
-            table_lines = _table_markdown(child)
-            if table_lines:
-                parts.extend(table_lines)
-                parts.append("")
+            blocks.append(("tbl", child))
 
+    inferred_levels = _infer_docx_heading_levels(paragraph_infos)
+    parts: list[str] = []
+    previous_paragraph_text = ""
+    paragraph_index = 0
+    for block_kind, payload in blocks:
+        if block_kind == "p":
+            paragraph_info = payload
+            assert isinstance(paragraph_info, _DocxParagraphInfo)
+            text = paragraph_info.text.strip()
+            heading_level = inferred_levels[paragraph_index]
+            paragraph_index += 1
+            if (
+                text == previous_paragraph_text
+                and len(text) <= 40
+                and paragraph_index > 1
+                and inferred_levels[paragraph_index - 2] == 1
+            ):
+                continue
+            if heading_level is not None:
+                parts.append(f"{'#' * heading_level} {text}")
+            else:
+                parts.append(text)
+            parts.append("")
+            previous_paragraph_text = text
+            continue
+
+        table_lines = _table_markdown(payload)
+        if table_lines:
+            parts.extend(table_lines)
+            parts.append("")
     return "\n".join(parts).strip() + ("\n" if parts else "")
 
 
@@ -256,6 +332,125 @@ def _paragraph_heading_level(paragraph: ET.Element) -> int | None:
     if normalized in {"subtitle", "副标题"}:
         return 2
     return None
+
+
+def _paragraph_max_font_size(paragraph: ET.Element) -> int | None:
+    max_size: int | None = None
+    for size in paragraph.findall(".//w:rPr/w:sz", _WORD_NS):
+        for key, value in size.attrib.items():
+            if not (key.endswith("}val") or key == "val"):
+                continue
+            try:
+                parsed = int(str(value).strip())
+            except ValueError:
+                continue
+            max_size = parsed if max_size is None else max(max_size, parsed)
+            break
+    return max_size
+
+
+def _infer_docx_heading_levels(
+    paragraphs: list[_DocxParagraphInfo],
+) -> list[int | None]:
+    levels = [paragraph.explicit_heading_level for paragraph in paragraphs]
+    if any(level is not None for level in levels):
+        return levels
+
+    for index, paragraph in enumerate(paragraphs):
+        text = paragraph.text.strip()
+        if not text:
+            continue
+        if index == 0 and len(text) <= 40:
+            levels[index] = 1
+            continue
+        if index > 0 and text == paragraphs[index - 1].text.strip() and levels[index - 1] == 1:
+            continue
+        next_paragraph = _neighbor_paragraph(paragraphs, index, direction=1)
+        next_next_paragraph = _neighbor_paragraph(paragraphs, index, direction=2)
+        prev_paragraph = _neighbor_paragraph(paragraphs, index, direction=-1)
+        next_text = next_paragraph.text.strip() if next_paragraph is not None else ""
+        next_next_text = next_next_paragraph.text.strip() if next_next_paragraph is not None else ""
+        prev_text = prev_paragraph.text.strip() if prev_paragraph is not None else ""
+
+        if _looks_like_docx_top_heading(
+            text=text,
+            previous_text=prev_text,
+            next_text=next_text,
+            next_next_text=next_next_text,
+        ):
+            levels[index] = 2
+            continue
+
+        if _looks_like_docx_subheading(
+            text=text,
+            max_font_size=paragraph.max_font_size,
+            next_text=next_text,
+        ):
+            levels[index] = 3
+
+    return levels
+
+
+def _neighbor_paragraph(
+    paragraphs: list[_DocxParagraphInfo],
+    index: int,
+    *,
+    direction: int,
+) -> _DocxParagraphInfo | None:
+    candidate_index = index + direction
+    if candidate_index < 0 or candidate_index >= len(paragraphs):
+        return None
+    return paragraphs[candidate_index]
+
+
+def _looks_like_docx_top_heading(
+    *,
+    text: str,
+    previous_text: str,
+    next_text: str,
+    next_next_text: str,
+) -> bool:
+    if len(text) > 32 or any(mark in text for mark in "。！？；"):
+        return False
+    if _looks_like_stem_branch_line(text):
+        return False
+    if _DOCX_SECTION_RE.match(text):
+        return True
+    if text.endswith(("断", "诀", "法", "论", "篇")) and len(text) <= 16:
+        return True
+    if next_text and _DOCX_SECTION_RE.match(next_text) and len(text) <= 16:
+        return True
+    if ":" in text or "：" in text:
+        return False
+    if not next_text or len(next_text) <= max(24, len(text) + 4):
+        return False
+    if next_next_text and len(next_next_text) <= 20:
+        return False
+    if previous_text and len(previous_text) <= 16 and previous_text == text:
+        return False
+    return True
+
+
+def _looks_like_docx_subheading(
+    *,
+    text: str,
+    max_font_size: int | None,
+    next_text: str,
+) -> bool:
+    if len(text) > 96:
+        return False
+    if _DOCX_SUBSECTION_RE.match(text):
+        return len(text) <= 72 or (max_font_size is not None and max_font_size >= 40)
+    if _DOCX_TRAILING_COLON_HEADING_RE.match(text):
+        return len(next_text) >= 24
+    return False
+
+
+def _looks_like_stem_branch_line(text: str) -> bool:
+    normalized = "".join(character for character in text if character not in {" ", "\t", "\n"})
+    if not normalized or len(normalized) > 16:
+        return False
+    return all(character in _DOCX_STEM_BRANCH_CHARS for character in normalized)
 
 
 def _table_markdown(table: ET.Element) -> list[str]:

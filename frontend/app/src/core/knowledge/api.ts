@@ -3,6 +3,7 @@ import { getBackendBaseURL } from "@/core/config";
 
 import type {
   KnowledgeAcceptedResponse,
+  KnowledgeBasesClearedResponse,
   KnowledgeBaseDeletedResponse,
   KnowledgeBaseListResponse,
   KnowledgeBaseSettingsResponse,
@@ -14,6 +15,12 @@ import type {
 type KnowledgeErrorPayload = {
   error?: string;
 };
+
+export type VisibleKnowledgeDocumentVariant =
+  | "preview"
+  | "source"
+  | "markdown"
+  | "canonical";
 
 async function readKnowledgeErrorMessage(
   response: Response,
@@ -91,10 +98,14 @@ export async function createThreadKnowledgeBase(
 
 export async function listKnowledgeLibrary(
   threadId?: string,
+  options?: { readyOnly?: boolean },
 ): Promise<KnowledgeBaseListResponse> {
   const url = new URL(`${getBackendBaseURL()}/api/knowledge/bases`);
   if (threadId) {
     url.searchParams.set("thread_id", threadId);
+  }
+  if (options?.readyOnly) {
+    url.searchParams.set("ready_only", "true");
   }
   return fetchKnowledgeJson<KnowledgeBaseListResponse>(
     url,
@@ -210,6 +221,22 @@ export async function deleteKnowledgeBase(
   );
 }
 
+export async function clearKnowledgeBases(params?: {
+  ownerId?: string;
+}): Promise<KnowledgeBasesClearedResponse> {
+  const url = new URL(`${getBackendBaseURL()}/api/knowledge/bases`);
+  if (params?.ownerId) {
+    url.searchParams.set("owner_id", params.ownerId);
+  }
+  return fetchKnowledgeJson<KnowledgeBasesClearedResponse>(
+    url,
+    "Failed to clear knowledge bases",
+    {
+      method: "DELETE",
+    },
+  );
+}
+
 export async function getKnowledgeDocumentTree(
   threadId: string,
   documentId: string,
@@ -259,11 +286,24 @@ export async function getKnowledgeDocumentDebugPayload(
 
 export async function loadVisibleKnowledgeDocumentBlob(
   documentId: string,
-  variant: "preview" | "source" | "markdown" | "canonical" = "preview",
+  variant: VisibleKnowledgeDocumentVariant = "preview",
 ): Promise<Blob> {
   const url = new URL(
     `${getBackendBaseURL()}/api/knowledge/documents/${documentId}/file`,
   );
   url.searchParams.set("variant", variant);
   return fetchKnowledgeBlob(url, "Failed to load knowledge document file");
+}
+
+export async function loadVisibleKnowledgeDocumentAssetBlob(
+  documentId: string,
+  assetPath: string,
+  variant: VisibleKnowledgeDocumentVariant = "canonical",
+): Promise<Blob> {
+  const url = new URL(
+    `${getBackendBaseURL()}/api/knowledge/documents/${documentId}/asset`,
+  );
+  url.searchParams.set("variant", variant);
+  url.searchParams.set("path", assetPath);
+  return fetchKnowledgeBlob(url, "Failed to load knowledge document asset");
 }

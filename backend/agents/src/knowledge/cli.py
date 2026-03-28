@@ -11,6 +11,7 @@ from src.config.runtime_db import get_runtime_db_store
 from src.knowledge.models import KnowledgeManifest
 from src.knowledge.pageindex import build_document_index
 from src.knowledge.repository import KnowledgeRepository
+from src.knowledge.storage import get_knowledge_asset_store
 
 logger = logging.getLogger(__name__)
 _INDEX_CACHE_VERSION = "pageindex-pg-v1"
@@ -287,7 +288,7 @@ def ingest_manifest(manifest_path: Path) -> None:
 def _storage_ref_to_path(storage_ref: str | None) -> Path:
     if not storage_ref:
         raise ValueError("Knowledge storage ref is required.")
-    return (KnowledgeRepository()._paths.base_dir / storage_ref).resolve()
+    return get_knowledge_asset_store(KnowledgeRepository()._paths).resolve_local_path(storage_ref)
 
 
 def _compute_content_sha256(

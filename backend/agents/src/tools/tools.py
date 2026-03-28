@@ -7,6 +7,7 @@ from src.config.runtime_db import get_runtime_db_store
 from src.reflection import resolve_variable
 from src.tools.builtins import (
     ask_clarification_tool,
+    get_document_evidence,
     get_document_image,
     get_document_tree,
     get_document_tree_node_detail,
@@ -29,6 +30,7 @@ BUILTIN_TOOLS = [
     ask_clarification_tool,
     list_knowledge_documents,
     get_document_tree,
+    get_document_evidence,
     get_document_tree_node_detail,
     get_document_image,
 ]

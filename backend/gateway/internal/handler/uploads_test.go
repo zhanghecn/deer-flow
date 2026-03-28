@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -52,6 +53,31 @@ printf '# converted\n' > "$output"
 `
 	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
 		t.Fatalf("write fake markitdown: %v", err)
+	}
+	return scriptPath
+}
+
+func writeFailingMarkItDown(t *testing.T) string {
+	t.Helper()
+
+	scriptPath := filepath.Join(t.TempDir(), "markitdown")
+	script := `#!/bin/sh
+echo "markitdown failed" >&2
+exit 1
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+		t.Fatalf("write failing markitdown: %v", err)
+	}
+	return scriptPath
+}
+
+func writeFakeAntiword(t *testing.T, body string) string {
+	t.Helper()
+
+	scriptPath := filepath.Join(t.TempDir(), "antiword")
+	script := "#!/bin/sh\nprintf '%s\\n'" + " '" + strings.ReplaceAll(body, "'", "'\"'\"'") + "'\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+		t.Fatalf("write fake antiword: %v", err)
 	}
 	return scriptPath
 }
@@ -203,5 +229,65 @@ func TestUploadsHandlerDeleteRemovesMarkdownCompanion(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(uploadsDir, "contract.md")); !os.IsNotExist(err) {
 		t.Fatalf("expected contract.md to be removed, stat err=%v", err)
+	}
+}
+
+func TestMarkitdownBinaryFallsBackToRepoVirtualenv(t *testing.T) {
+	root := t.TempDir()
+	expected := filepath.Join(root, "backend", ".venv", "bin", "markitdown")
+	if err := os.MkdirAll(filepath.Dir(expected), 0755); err != nil {
+		t.Fatalf("mkdir bundled markitdown dir: %v", err)
+	}
+	if err := os.WriteFile(expected, []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatalf("write bundled markitdown: %v", err)
+	}
+
+	workingDir := filepath.Join(root, "backend", "gateway")
+	if err := os.MkdirAll(workingDir, 0755); err != nil {
+		t.Fatalf("mkdir working dir: %v", err)
+	}
+	previousDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(previousDir)
+	})
+	if err := os.Chdir(workingDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	t.Setenv("PATH", "")
+	got, err := markitdownBinary()
+	if err != nil {
+		t.Fatalf("markitdownBinary() error = %v", err)
+	}
+	if got != expected {
+		t.Fatalf("markitdownBinary() = %q, want %q", got, expected)
+	}
+}
+
+func TestConvertFileToMarkdownFallsBackToAntiwordForDoc(t *testing.T) {
+	t.Setenv("OPENAGENTS_MARKITDOWN_BIN", writeFailingMarkItDown(t))
+	t.Setenv("OPENAGENTS_ANTIWORD_BIN", writeFakeAntiword(t, "命理讲义\n第一章\n1、正文小节\n正文内容"))
+
+	sourcePath := filepath.Join(t.TempDir(), "sample.doc")
+	if err := os.WriteFile(sourcePath, []byte("doc"), 0644); err != nil {
+		t.Fatalf("write source doc: %v", err)
+	}
+
+	markdownPath, err := convertFileToMarkdown(sourcePath)
+	if err != nil {
+		t.Fatalf("convertFileToMarkdown() error = %v", err)
+	}
+	if markdownPath != strings.TrimSuffix(sourcePath, ".doc")+".md" {
+		t.Fatalf("markdownPath = %q", markdownPath)
+	}
+	content, err := os.ReadFile(markdownPath)
+	if err != nil {
+		t.Fatalf("read markdown companion: %v", err)
+	}
+	if got := string(content); got != "# 命理讲义\n\n## 第一章\n\n### 1、正文小节\n\n正文内容\n" {
+		t.Fatalf("markdown companion = %q", got)
 	}
 }

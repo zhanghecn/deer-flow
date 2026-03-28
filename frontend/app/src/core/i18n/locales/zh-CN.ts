@@ -244,7 +244,7 @@ export const zhCN: Translations = {
 
   knowledge: {
     sectionTitle: "知识库",
-    manageButton: "管理知识库",
+    manageButton: "知识库",
     loadingAttached: "正在加载已挂载知识库...",
     emptyAttached: "当前线程还没有挂载知识库。",
     chooseAtLeastOneFile: "请至少选择一个文件。",
@@ -303,6 +303,15 @@ export const zhCN: Translations = {
       `确定删除“${name}”及其全部索引文档吗？此操作不可撤销。`,
     deleteSuccess: (name: string) => `已删除“${name}”。`,
     deleteError: "删除知识库失败。",
+    clearAllTitle: "清空知识库",
+    clearAllSelfDescription: (count: number) =>
+      `确定清空你自己的全部 ${count} 个知识库吗？其索引、原文和预览文件都会被删除，此操作不可撤销。`,
+    clearAllOwnerDescription: (ownerName: string, count: number) =>
+      `确定清空“${ownerName}”名下的全部 ${count} 个知识库吗？其索引、原文和预览文件都会被删除，此操作不可撤销。`,
+    clearAllSuccess: (count: number) => `已清空 ${count} 个知识库。`,
+    clearAllOwnerSuccess: (ownerName: string, count: number) =>
+      `已清空“${ownerName}”名下的 ${count} 个知识库。`,
+    clearAllError: "清空知识库失败。",
     buildProgressTitle: "构建进度",
     buildProgressDescription: "查看选中文档的索引阶段、耗时和最新任务状态。",
     stageLabel: "阶段",

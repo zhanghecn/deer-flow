@@ -53,6 +53,7 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
     open: artifactsOpen,
     setOpen: setArtifactsOpen,
     setArtifacts,
+    syncThread,
     select: selectArtifact,
     deselect,
     selectedArtifact,
@@ -123,6 +124,11 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
       deselect();
     }
   }, [artifactsOpen, deselect, selectedOfficeArtifact]);
+
+  useEffect(() => {
+    syncThread(threadId);
+    setAutoSelectFirstArtifact(true);
+  }, [syncThread, threadId]);
 
   const artifactPanelOpen = useMemo(() => {
     if (officeDialogOpen) {

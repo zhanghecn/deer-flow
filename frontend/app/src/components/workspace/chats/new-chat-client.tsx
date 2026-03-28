@@ -204,8 +204,8 @@ export default function NewChatClient() {
           <div className="absolute top-4 right-4 z-30">
             <AgentSwitcherDialog selection={runtimeSelection} compact />
           </div>
-          <div className="absolute right-0 bottom-0 left-0 z-30 flex justify-center px-4">
-            <div className="relative w-full max-w-(--container-width-sm) -translate-y-[calc(50vh-96px)]">
+          <div className="pointer-events-none absolute right-0 bottom-0 left-0 z-30 flex justify-center px-4">
+            <div className="pointer-events-auto relative w-full max-w-(--container-width-sm) -translate-y-[calc(50vh-96px)]">
               <InputBox
                 className={cn("bg-background/5 w-full -translate-y-4")}
                 threadId={draftThreadIdRef.current}

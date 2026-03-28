@@ -1,9 +1,13 @@
 import { renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
-import { useThreadChat } from "./use-thread-chat";
+import {
+  clearDraftThreadId,
+  resolveThreadRouteIdentity,
+  useThreadChat,
+} from "./use-thread-chat";
 
 function createWrapper(initialEntry: string, path: string) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -18,6 +22,12 @@ function createWrapper(initialEntry: string, path: string) {
 }
 
 describe("useThreadChat", () => {
+  beforeEach(() => {
+    window.sessionStorage.clear();
+    clearDraftThreadId("/workspace/chats/new");
+    clearDraftThreadId("/workspace/agents/demo-agent/chats/new");
+  });
+
   it("treats /workspace/chats/new as a new thread on the first render", () => {
     const { result, rerender } = renderHook(() => useThreadChat(), {
       wrapper: createWrapper("/workspace/chats/new", "/workspace/chats/new"),
@@ -32,6 +42,15 @@ describe("useThreadChat", () => {
 
     expect(result.current.isNewThread).toBe(true);
     expect(result.current.threadId).toBe(initialThreadId);
+  });
+
+  it("reuses the same draft thread id for new-chat sidebars and pages", () => {
+    const first = resolveThreadRouteIdentity("/workspace/chats/new", "new");
+    const second = resolveThreadRouteIdentity("/workspace/chats/new", "new");
+
+    expect(first.isNewThread).toBe(true);
+    expect(first.threadId).toBeTruthy();
+    expect(second.threadId).toBe(first.threadId);
   });
 
   it("treats agent new-chat routes as a new thread on the first render", () => {

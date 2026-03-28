@@ -1,6 +1,9 @@
 Read these docs before changing agent/runtime/backend/skills behavior:
 @../../docs/runtime-architecture.md
 @../../docs/KNOWLEDGE_BASE_ARCHITECTURE.md
+@../../docs/testing/README.md
+@../../docs/testing/knowledge-base/TEST_SPEC.md
+@../../docs/testing/knowledge-base/PITFALLS.md
 @./docs/AGENT_PROTOCOL.md
 @./docs/ARCHITECTURE.md
 @./docs/CONFIGURATION.md
@@ -38,6 +41,18 @@ Critical agent protocol rules for future work:
 - `setup_agent` must receive an explicit `target_agent_name` or `agent_name` in runtime context. Do not rely on a special bootstrap-only runtime branch.
 - Do not re-introduce `skills_mode`, `soul`/`SOUL.md`, legacy agent directory fallbacks, or `exclude_groups`-style compatibility paths.
 - Do not re-register `file:read`, `file:write`, or `bash` in app config. File access and shell execution come from deepagents `FilesystemMiddleware` only.
+- Knowledge-base retrieval keeps the global tool registry stable. Do not solve KB behavior by dynamically removing unrelated tools from the model-visible list.
+- Knowledge-base file assets now go through a dedicated Knowledge Asset Store. Treat KB `storage_ref` values as opaque refs; they may be local relative paths or `s3://...` object refs.
+- KB filesystem refs still resolve under `.openagents/knowledge/users/...`, but MinIO/S3 object keys should normalize to `users/...` instead of `knowledge/users/...`. Legacy `s3://.../knowledge/users/...` refs must remain readable for compatibility.
+- Knowledge Asset Store is application-domain storage, not a runtime backend. Do not mix it with `BackendProtocol`, `SandboxBackendProtocol`, or `SandboxProvider`.
+- The primary agent-facing KB protocol is `list_knowledge_documents` -> `get_document_tree` -> `get_document_evidence`.
+- `get_document_tree_node_detail` and `get_document_image` are compatibility tools only. Keep them working, but do not make new prompts or middleware depend on them as the primary flow.
+- `get_document_tree` is a bounded window, not a full-tree dump. Root requests may downshift from the requested depth to a top-level overview and return `window_mode=root_overview` / `collapsed_root_overview=true`. Expand the returned `node_id` branches instead of retrying the whole root tree.
+- KB tree traversal stays on the same rule everywhere: root overview first, then branch expansion by `node_id`, then grounded evidence. Do not reintroduce direct full-text retrieval as the default first step.
+- KB response recovery is multi-round. If the model answers an attached-document question without current-turn evidence or exact citations, middleware may keep retrying until the response is grounded or the recovery cap is hit. Do not assume a single retry pass.
+- KB enforcement happens at prompt + middleware + tool-call blocking layers. Do not reintroduce model-visible tool filtering helpers for attached-document turns.
+- Knowledge citations and visual evidence share the same contract: `kb://citation` targets source previews and `kb://asset` targets inline image assets plus the same preview location.
+- Knowledge answers must be grounded from the current turn's KB evidence. Do not rely on earlier-turn citations without refreshing evidence again.
 
 When extending the protocol, including dependency-style extensions:
 

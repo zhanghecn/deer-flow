@@ -6,7 +6,7 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { ArtifactsProvider, useArtifacts } from "./context";
 
 function RevealHarness() {
-  const { previewTarget, reveal } = useArtifacts();
+  const { artifacts, previewTarget, reveal, reset } = useArtifacts();
 
   return (
     <div>
@@ -32,6 +32,10 @@ function RevealHarness() {
       >
         Reveal Page 572
       </button>
+      <button type="button" onClick={() => reset()}>
+        Reset Preview
+      </button>
+      <div data-testid="artifact-count">{artifacts.length}</div>
       <div data-testid="preview-page">{previewTarget?.page ?? "none"}</div>
       <div data-testid="preview-sequence">
         {previewTarget?.revealSequence ?? "none"}
@@ -73,5 +77,23 @@ describe("ArtifactsProvider", () => {
     fireEvent.click(screen.getByRole("button", { name: "Reveal Page 572" }));
     expect(screen.getByTestId("preview-page").textContent).toBe("572");
     expect(screen.getByTestId("preview-sequence").textContent).toBe("2");
+  });
+
+  it("clears the selected preview state on reset", () => {
+    render(
+      <SidebarProvider>
+        <ArtifactsProvider>
+          <RevealHarness />
+        </ArtifactsProvider>
+      </SidebarProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Reveal Page 7" }));
+    expect(screen.getByTestId("artifact-count").textContent).toBe("1");
+    expect(screen.getByTestId("preview-page").textContent).toBe("7");
+
+    fireEvent.click(screen.getByRole("button", { name: "Reset Preview" }));
+    expect(screen.getByTestId("artifact-count").textContent).toBe("0");
+    expect(screen.getByTestId("preview-page").textContent).toBe("none");
   });
 });

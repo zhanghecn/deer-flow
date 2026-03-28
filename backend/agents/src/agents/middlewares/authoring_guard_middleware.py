@@ -14,7 +14,7 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool
 from langgraph.types import Command
 
-from src.tools.builtins.runtime_context import runtime_context_value
+from src.utils.runtime_context import runtime_context_value
 
 _BLOCKED_CREATE_AGENT_TOOLS = frozenset({"write_file", "edit_file"})
 _PROTECTED_AUTHORING_ROOTS = (

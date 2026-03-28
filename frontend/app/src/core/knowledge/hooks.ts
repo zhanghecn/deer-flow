@@ -37,10 +37,13 @@ export function useThreadKnowledgeBases(threadId: string | undefined) {
   };
 }
 
-export function useKnowledgeLibrary(threadId: string | undefined) {
+export function useKnowledgeLibrary(
+  threadId: string | undefined,
+  options?: { readyOnly?: boolean },
+) {
   const { data, isLoading, error } = useQuery({
-    queryKey: ["knowledge-library", threadId],
-    queryFn: () => listKnowledgeLibrary(threadId),
+    queryKey: ["knowledge-library", threadId, options?.readyOnly ?? false],
+    queryFn: () => listKnowledgeLibrary(threadId, options),
     staleTime: 0,
     refetchOnWindowFocus: false,
     refetchInterval: (query) =>

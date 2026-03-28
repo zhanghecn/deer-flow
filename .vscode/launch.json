@@ -2,6 +2,20 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "当前 Python 文件 (uv)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "cwd": "${workspaceFolder}/backend/agents",
+      "envFile": "${workspaceFolder}/.env",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/backend/agents"
+      },
+      "console": "integratedTerminal",
+      "python": "${workspaceFolder}/backend/agents/.venv/bin/python",
+      "justMyCode": false
+    },
+    {
       "name": "当前 Python 文件",
       "type": "debugpy",
       "request": "launch",
@@ -19,18 +33,6 @@
       "console": "integratedTerminal",
       "python": "${workspaceFolder}/backend/agents/.venv/bin/python",
       "justMyCode": false
-    },
-    {
-      "name": "frontend",
-      "type": "node-terminal",
-      "request": "launch",
-      "command": "pnpm run dev",
-      "cwd": "${workspaceFolder}/frontend/app",
-      "serverReadyAction": {
-        "pattern": "Local:\\s+(https?://[^\\s]+)",
-        "uriFormat": "%s",
-        "action": "openExternally"
-      }
     },
     {
       "name": "gateway-go (breakpoints)",

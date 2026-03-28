@@ -411,6 +411,26 @@ export function InputBox({
             mergedExtraContext.original_user_input = normalizedText;
           }
         }
+        const selectedDocumentIds = Array.from(
+          new Set(
+            selectedKnowledgeDocuments
+              .map((item) => item.documentId.trim())
+              .filter(Boolean),
+          ),
+        );
+        if (selectedDocumentIds.length > 0) {
+          mergedExtraContext.knowledge_document_ids = selectedDocumentIds;
+        }
+        const selectedBaseIds = Array.from(
+          new Set(
+            selectedKnowledgeDocuments
+              .map((item) => item.knowledgeBaseId.trim())
+              .filter(Boolean),
+          ),
+        );
+        if (selectedBaseIds.length > 0) {
+          mergedExtraContext.knowledge_base_ids = selectedBaseIds;
+        }
       }
 
       onSubmit?.(

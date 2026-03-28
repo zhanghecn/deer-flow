@@ -1,6 +1,11 @@
 import type { BaseStream } from "@langchain/langgraph-sdk/react";
 
 import { authFetch } from "../auth/fetch";
+import {
+  loadVisibleKnowledgeDocumentAssetBlob,
+  loadVisibleKnowledgeDocumentBlob,
+} from "../knowledge/api";
+import { parseKnowledgeVirtualPath } from "../knowledge/virtual-paths";
 import type { AgentThreadState } from "../threads";
 
 import { urlOfArtifact } from "./utils";
@@ -54,6 +59,20 @@ export async function loadArtifactContent({
   if (filepath.endsWith(".skill")) {
     enhancedFilepath = filepath + "/SKILL.md";
   }
+  const knowledgePath = parseKnowledgeVirtualPath(enhancedFilepath);
+  if (knowledgePath) {
+    const blob = knowledgePath.isAsset
+      ? await loadVisibleKnowledgeDocumentAssetBlob(
+          knowledgePath.documentId,
+          knowledgePath.relativePath,
+          knowledgePath.variant,
+        )
+      : await loadVisibleKnowledgeDocumentBlob(
+          knowledgePath.documentId,
+          knowledgePath.variant,
+        );
+    return blob.text();
+  }
   const response = await fetchArtifactResponse({
     filepath: enhancedFilepath,
     threadId,
@@ -76,6 +95,27 @@ export async function loadArtifactBlob({
   download?: boolean;
   preview?: "pdf";
 }) {
+  const knowledgePath = parseKnowledgeVirtualPath(filepath);
+  if (knowledgePath) {
+    if (download && knowledgePath.isAsset) {
+      return loadVisibleKnowledgeDocumentAssetBlob(
+        knowledgePath.documentId,
+        knowledgePath.relativePath,
+        knowledgePath.variant,
+      );
+    }
+    if (knowledgePath.isAsset) {
+      return loadVisibleKnowledgeDocumentAssetBlob(
+        knowledgePath.documentId,
+        knowledgePath.relativePath,
+        knowledgePath.variant,
+      );
+    }
+    return loadVisibleKnowledgeDocumentBlob(
+      knowledgePath.documentId,
+      knowledgePath.variant,
+    );
+  }
   const response = await fetchArtifactResponse({
     filepath,
     threadId,

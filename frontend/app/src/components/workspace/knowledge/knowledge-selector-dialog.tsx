@@ -7,7 +7,7 @@ import {
   FolderIcon,
   LoaderIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -49,6 +49,13 @@ type KnowledgeLibraryGroup = {
 const sectionLabelClassName =
   "text-muted-foreground text-[11px] font-medium uppercase tracking-[0.22em]";
 
+function hasSameIds(left: string[], right: string[]) {
+  return (
+    left.length === right.length &&
+    left.every((value, index) => value === right[index])
+  );
+}
+
 export function KnowledgeSelectorDialog({
   threadId,
   value,
@@ -62,10 +69,17 @@ export function KnowledgeSelectorDialog({
 }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
-  const { knowledgeBases, isLoading } = useKnowledgeLibrary(threadId);
+  const { knowledgeBases, isLoading } = useKnowledgeLibrary(threadId, {
+    readyOnly: true,
+  });
   const [open, setOpen] = useState(false);
   const [applying, setApplying] = useState(false);
   const [draftIds, setDraftIds] = useState<string[]>([]);
+  const pointerToggleRef = useRef<{
+    documentId: string;
+    handled: boolean;
+    at: number;
+  } | null>(null);
 
   const documents = useMemo<KnowledgeLibraryDocument[]>(
     () =>
@@ -109,18 +123,74 @@ export function KnowledgeSelectorDialog({
     if (!open) {
       return;
     }
-    setDraftIds(value.map((item) => item.documentId));
-  }, [open, value]);
+    const selectableIds = new Set(
+      documents.map((document) => document.documentId),
+    );
+    const nextDraftIds = value
+      .map((item) => item.documentId)
+      .filter((documentId) => selectableIds.has(documentId));
+    setDraftIds((current) =>
+      hasSameIds(current, nextDraftIds) ? current : nextDraftIds,
+    );
+  }, [documents, open, value]);
 
   const selectedCount = value.length;
 
-  const handleToggle = (documentId: string) => {
+  const handleToggle = useCallback((documentId: string) => {
     setDraftIds((current) =>
       current.includes(documentId)
         ? current.filter((item) => item !== documentId)
         : current.concat(documentId),
     );
-  };
+  }, []);
+
+  const handlePointerToggle = useCallback(
+    (documentId: string) => {
+      const pointerToggle = pointerToggleRef.current;
+      if (
+        pointerToggle?.documentId === documentId &&
+        pointerToggle.handled &&
+        Date.now() - pointerToggle.at < 300
+      ) {
+        return;
+      }
+      handleToggle(documentId);
+      pointerToggleRef.current = {
+        documentId,
+        handled: true,
+        at: Date.now(),
+      };
+    },
+    [handleToggle],
+  );
+
+  const handleSelect = useCallback(
+    (documentId: string) => {
+      const pointerToggle = pointerToggleRef.current;
+      if (
+        pointerToggle?.documentId === documentId &&
+        pointerToggle.handled &&
+        Date.now() - pointerToggle.at < 300
+      ) {
+        return;
+      }
+      handleToggle(documentId);
+      pointerToggleRef.current = {
+        documentId,
+        handled: true,
+        at: Date.now(),
+      };
+    },
+    [handleToggle],
+  );
+
+  const handlePointerIntent = useCallback((documentId: string) => {
+    pointerToggleRef.current = {
+      documentId,
+      handled: false,
+      at: Date.now(),
+    };
+  }, []);
 
   const handleApply = async () => {
     setApplying(true);
@@ -193,10 +263,10 @@ export function KnowledgeSelectorDialog({
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="overflow-hidden border-border/70 bg-background/95 p-0 sm:max-w-4xl">
+        <DialogContent className="border-border/70 bg-background/95 flex max-h-[min(92vh,860px)] flex-col overflow-hidden p-0 sm:max-w-4xl">
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.1),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.08),transparent_28%)]" />
 
-          <div className="relative">
+          <div className="relative flex min-h-0 flex-1 flex-col">
             <DialogHeader className="border-border/60 border-b px-6 py-6">
               <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                 <div className="space-y-3">
@@ -234,12 +304,12 @@ export function KnowledgeSelectorDialog({
               </div>
             </DialogHeader>
 
-            <Command className="bg-transparent">
+            <Command className="flex min-h-0 flex-1 flex-col bg-transparent">
               <CommandInput
                 placeholder={t.knowledge.selector.searchPlaceholder}
                 className="text-sm"
               />
-              <CommandList className="max-h-[58vh] px-3 pb-3">
+              <CommandList className="max-h-none flex-1 overflow-y-auto px-3 pb-3">
                 <CommandEmpty>
                   {isLoading
                     ? t.knowledge.loadingLibrary
@@ -250,7 +320,7 @@ export function KnowledgeSelectorDialog({
                   <CommandGroup
                     key={group.ownerName}
                     heading={group.ownerName}
-                    className="mb-4 rounded-[22px] border border-border/60 bg-background/55 p-2 last:mb-0 [&_[cmdk-group-heading]]:flex [&_[cmdk-group-heading]]:items-center [&_[cmdk-group-heading]]:gap-2 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-[0.2em]"
+                    className="border-border/60 bg-background/55 mb-4 rounded-[22px] border p-2 last:mb-0 [&_[cmdk-group-heading]]:flex [&_[cmdk-group-heading]]:items-center [&_[cmdk-group-heading]]:gap-2 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:tracking-[0.2em] [&_[cmdk-group-heading]]:uppercase"
                   >
                     {group.documents.map((document) => {
                       const selected = draftIds.includes(document.documentId);
@@ -258,9 +328,15 @@ export function KnowledgeSelectorDialog({
                         <CommandItem
                           key={document.documentId}
                           value={`${document.documentName} ${document.knowledgeBaseName} ${document.ownerName} ${document.fileKind} ${document.locatorType}`}
-                          onSelect={() => handleToggle(document.documentId)}
+                          onSelect={() => handleSelect(document.documentId)}
+                          onPointerDown={() =>
+                            handlePointerIntent(document.documentId)
+                          }
+                          onClick={() =>
+                            handlePointerToggle(document.documentId)
+                          }
                           className={cn(
-                            "mb-2 rounded-[18px] border border-transparent bg-transparent px-3 py-3 last:mb-0",
+                            "mb-2 cursor-pointer rounded-[18px] border border-transparent bg-transparent px-3 py-3 last:mb-0",
                             selected
                               ? "border-primary/30 bg-primary/6"
                               : "hover:bg-background/90",
@@ -275,7 +351,9 @@ export function KnowledgeSelectorDialog({
                                   : "border-border bg-background",
                               )}
                             >
-                              {selected ? <CheckIcon className="size-3" /> : null}
+                              {selected ? (
+                                <CheckIcon className="size-3" />
+                              ) : null}
                             </div>
 
                             <div className="min-w-0 flex-1 space-y-2">
@@ -319,10 +397,12 @@ export function KnowledgeSelectorDialog({
               </CommandList>
             </Command>
 
-            <DialogFooter className="border-border/60 flex items-center justify-between border-t px-6 py-4">
+            <DialogFooter className="border-border/60 flex shrink-0 items-center justify-between border-t px-6 py-4">
               <div className="text-muted-foreground flex items-center gap-2 text-xs">
                 <BookOpenTextIcon className="size-4" />
-                <span>{t.knowledge.selector.selectedCount(draftIds.length)}</span>
+                <span>
+                  {t.knowledge.selector.selectedCount(draftIds.length)}
+                </span>
               </div>
               <div className="flex items-center gap-2">
                 <Button

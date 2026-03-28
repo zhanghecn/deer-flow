@@ -4,12 +4,15 @@ import logging
 import os
 from functools import lru_cache
 
+from deepagents.backends import CompositeBackend
 import yaml
 from deepagents.backends.protocol import BackendProtocol
 
 from src.config.app_config import AppConfig
 from src.reflection.resolvers import resolve_class
 from src.sandbox.sandbox_provider import SandboxProvider
+
+from .internal_routes import build_internal_runtime_routes
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +71,11 @@ def get_sandbox_provider(provider_path: str) -> SandboxProvider:
     return provider_cls()
 
 
-def build_sandbox_workspace_backend(thread_id: str) -> BackendProtocol:
+def build_sandbox_workspace_backend(
+    thread_id: str,
+    *,
+    user_data_dir: str | None = None,
+) -> BackendProtocol:
     provider_path = resolve_sandbox_provider()
     provider = get_sandbox_provider(provider_path)
     sandbox_id = provider.acquire(thread_id)
@@ -77,5 +84,6 @@ def build_sandbox_workspace_backend(thread_id: str) -> BackendProtocol:
         raise RuntimeError(
             f"Sandbox provider '{provider_path}' returned sandbox id '{sandbox_id}' but no sandbox instance."
         )
-    return sandbox
-
+    if not user_data_dir:
+        return sandbox
+    return CompositeBackend(default=sandbox, routes=build_internal_runtime_routes(user_data_dir))

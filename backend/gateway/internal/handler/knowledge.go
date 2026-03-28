@@ -10,14 +10,19 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
+	ppath "path"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/openagents/gateway/internal/knowledgeasset"
 	"github.com/openagents/gateway/internal/middleware"
 	"github.com/openagents/gateway/internal/model"
 	"github.com/openagents/gateway/internal/repository"
@@ -25,8 +30,9 @@ import (
 )
 
 type KnowledgeHandler struct {
-	repo *repository.KnowledgeRepo
-	fs   *storage.FS
+	repo       *repository.KnowledgeRepo
+	fs         *storage.FS
+	assetStore *knowledgeasset.Store
 }
 
 type knowledgeCreateResponse struct {
@@ -53,6 +59,12 @@ type knowledgeUpdateSettingsRequest struct {
 type knowledgeUpdateSettingsResponse struct {
 	KnowledgeBaseID string `json:"knowledge_base_id"`
 	PreviewEnabled  bool   `json:"preview_enabled"`
+}
+
+type knowledgeClearResponse struct {
+	OwnerID      string `json:"owner_id"`
+	DeletedCount int    `json:"deleted_count"`
+	Status       string `json:"status"`
 }
 
 type knowledgeManifest struct {
@@ -90,8 +102,17 @@ type knowledgePendingDocument struct {
 	PreviewStoragePath  string
 }
 
-func NewKnowledgeHandler(repo *repository.KnowledgeRepo, fs *storage.FS) *KnowledgeHandler {
-	return &KnowledgeHandler{repo: repo, fs: fs}
+var (
+	knowledgeMarkdownImageRefPattern = regexp.MustCompile(`!\[[^\]]*]\(([^)]+)\)`)
+	knowledgeHTMLImageRefPattern     = regexp.MustCompile(`(?i)<img[^>]+src=["']([^"']+)["']`)
+)
+
+func NewKnowledgeHandler(
+	repo *repository.KnowledgeRepo,
+	fs *storage.FS,
+	assetStore *knowledgeasset.Store,
+) *KnowledgeHandler {
+	return &KnowledgeHandler{repo: repo, fs: fs, assetStore: assetStore}
 }
 
 func (h *KnowledgeHandler) List(c *gin.Context) {
@@ -112,6 +133,9 @@ func (h *KnowledgeHandler) List(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to load knowledge bases"})
 		return
 	}
+	if queryReadyOnly(c) {
+		items = filterKnowledgeBasesForReadyDocuments(items)
+	}
 	if items == nil {
 		items = []repository.KnowledgeBaseRecord{}
 	}
@@ -131,10 +155,49 @@ func (h *KnowledgeHandler) ListLibrary(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to load knowledge library"})
 		return
 	}
+	if queryReadyOnly(c) {
+		items = filterKnowledgeBasesForReadyDocuments(items)
+	}
 	if items == nil {
 		items = []repository.KnowledgeBaseRecord{}
 	}
 	c.JSON(http.StatusOK, knowledgeCreateResponse{KnowledgeBases: items})
+}
+
+func queryReadyOnly(c *gin.Context) bool {
+	value := strings.TrimSpace(c.Query("ready_only"))
+	if value == "" {
+		return false
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return false
+	}
+	return parsed
+}
+
+func filterKnowledgeBasesForReadyDocuments(
+	items []repository.KnowledgeBaseRecord,
+) []repository.KnowledgeBaseRecord {
+	if len(items) == 0 {
+		return items
+	}
+
+	filtered := make([]repository.KnowledgeBaseRecord, 0, len(items))
+	for _, item := range items {
+		readyDocuments := make([]repository.KnowledgeDocumentRecord, 0, len(item.Documents))
+		for _, document := range item.Documents {
+			if strings.EqualFold(strings.TrimSpace(document.Status), "ready") {
+				readyDocuments = append(readyDocuments, document)
+			}
+		}
+		if len(readyDocuments) == 0 {
+			continue
+		}
+		item.Documents = readyDocuments
+		filtered = append(filtered, item)
+	}
+	return filtered
 }
 
 func (h *KnowledgeHandler) DocumentTree(c *gin.Context) {
@@ -261,15 +324,11 @@ func (h *KnowledgeHandler) DocumentDebug(c *gin.Context) {
 	}
 
 	if record.CanonicalMarkdown == nil || strings.TrimSpace(*record.CanonicalMarkdown) == "" {
-		canonical := h.readStorageText(
-			firstNonEmptyRef(
-				record.Document.CanonicalStoragePath,
-				record.Document.MarkdownStoragePath,
-				record.Document.SourceStoragePath,
-			),
-		)
-		if canonical != nil {
-			record.CanonicalMarkdown = canonical
+		if canonicalRef := debugCanonicalStorageRef(record.Document); canonicalRef != "" {
+			canonical := h.readStorageText(canonicalRef)
+			if canonical != nil {
+				record.CanonicalMarkdown = canonical
+			}
 		}
 	}
 	if len(record.SourceMapJSON) == 0 || string(record.SourceMapJSON) == "null" {
@@ -279,6 +338,16 @@ func (h *KnowledgeHandler) DocumentDebug(c *gin.Context) {
 		record.DocumentIndexJSON = h.readStorageJSON(firstNonEmptyRef(record.Document.CanonicalStoragePath, record.Document.SourceStoragePath), "document_index.json")
 	}
 	c.JSON(http.StatusOK, record)
+}
+
+func debugCanonicalStorageRef(document repository.KnowledgeDocumentRecord) string {
+	if ref := firstNonEmptyRef(document.CanonicalStoragePath, document.MarkdownStoragePath); ref != "" {
+		return ref
+	}
+	if strings.EqualFold(strings.TrimSpace(document.FileKind), "markdown") {
+		return firstNonEmptyRef(document.SourceStoragePath)
+	}
+	return ""
 }
 
 func (h *KnowledgeHandler) VisibleDocumentFile(c *gin.Context) {
@@ -305,17 +374,8 @@ func (h *KnowledgeHandler) VisibleDocumentFile(c *gin.Context) {
 	}
 
 	variant := strings.TrimSpace(c.DefaultQuery("variant", "preview"))
-	storageRef := ""
-	switch variant {
-	case "preview":
-		storageRef = firstNonEmptyRef(record.PreviewStoragePath, record.SourceStoragePath)
-	case "source":
-		storageRef = firstNonEmptyRef(record.SourceStoragePath, record.PreviewStoragePath)
-	case "markdown":
-		storageRef = firstNonEmptyRef(record.MarkdownStoragePath, record.CanonicalStoragePath)
-	case "canonical":
-		storageRef = firstNonEmptyRef(record.CanonicalStoragePath, record.MarkdownStoragePath)
-	default:
+	storageRef, err := visibleDocumentStorageRef(record, variant)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "unsupported file variant"})
 		return
 	}
@@ -324,8 +384,7 @@ func (h *KnowledgeHandler) VisibleDocumentFile(c *gin.Context) {
 		return
 	}
 
-	absPath := filepath.Join(h.fs.BaseDir(), filepath.FromSlash(storageRef))
-	data, err := os.ReadFile(absPath)
+	data, err := h.assetStore.ReadAll(c.Request.Context(), storageRef)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "knowledge document file not found"})
@@ -335,7 +394,7 @@ func (h *KnowledgeHandler) VisibleDocumentFile(c *gin.Context) {
 		return
 	}
 
-	filename := filepath.Base(absPath)
+	filename := storageRefFilename(storageRef, record.DisplayName)
 	if filename == "." || filename == "/" || filename == "" {
 		filename = record.DisplayName
 	}
@@ -351,6 +410,110 @@ func (h *KnowledgeHandler) VisibleDocumentFile(c *gin.Context) {
 	c.Header("Content-Type", contentType)
 	c.Header("Content-Disposition", fmt.Sprintf(`%s; filename="%s"`, disposition, filename))
 	c.Data(http.StatusOK, contentType, data)
+}
+
+func (h *KnowledgeHandler) VisibleDocumentAsset(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	if userID == uuid.Nil {
+		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "unauthorized"})
+		return
+	}
+
+	documentID := strings.TrimSpace(c.Param("document_id"))
+	if documentID == "" {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "document id is required"})
+		return
+	}
+
+	assetPath := strings.TrimSpace(c.Query("path"))
+	if assetPath == "" {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "asset path is required"})
+		return
+	}
+
+	record, err := h.repo.GetVisibleDocumentFile(c.Request.Context(), userID, documentID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "knowledge document not found or preview is disabled"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to load knowledge document asset"})
+		return
+	}
+
+	variant := strings.TrimSpace(c.DefaultQuery("variant", "canonical"))
+	storageRef, err := visibleDocumentStorageRef(record, variant)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "unsupported file variant"})
+		return
+	}
+	if strings.TrimSpace(storageRef) == "" {
+		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "knowledge document file not available"})
+		return
+	}
+
+	assetStorageRef, err := h.assetStore.ResolvePackageRelativeRef(storageRef, assetPath)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	data, err := h.assetStore.ReadAll(c.Request.Context(), assetStorageRef)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "knowledge document asset not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to read knowledge document asset"})
+		return
+	}
+
+	filename := storageRefFilename(assetStorageRef, filepath.Base(assetPath))
+	contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(filename)))
+	if strings.TrimSpace(contentType) == "" {
+		contentType = http.DetectContentType(data)
+	}
+	disposition := "inline"
+	if strings.EqualFold(strings.TrimSpace(c.Query("download")), "true") {
+		disposition = "attachment"
+	}
+	c.Header("Content-Type", contentType)
+	c.Header("Content-Disposition", fmt.Sprintf(`%s; filename="%s"`, disposition, filename))
+	c.Data(http.StatusOK, contentType, data)
+}
+
+func visibleDocumentStorageRef(record *repository.KnowledgeDocumentFileRecord, variant string) (string, error) {
+	switch variant {
+	case "preview":
+		return firstNonEmptyRef(record.PreviewStoragePath, record.SourceStoragePath), nil
+	case "source":
+		return firstNonEmptyRef(record.SourceStoragePath, record.PreviewStoragePath), nil
+	case "markdown":
+		return firstNonEmptyRef(record.MarkdownStoragePath, record.CanonicalStoragePath), nil
+	case "canonical":
+		return firstNonEmptyRef(record.CanonicalStoragePath, record.MarkdownStoragePath), nil
+	default:
+		return "", fmt.Errorf("unsupported file variant")
+	}
+}
+
+func storageRefFilename(storageRef string, fallback string) string {
+	trimmed := strings.TrimSpace(storageRef)
+	if trimmed == "" {
+		return fallback
+	}
+	if strings.HasPrefix(trimmed, "s3://") {
+		parsed, err := url.Parse(trimmed)
+		if err == nil {
+			if base := ppath.Base(parsed.Path); base != "." && base != "/" && base != "" {
+				return base
+			}
+		}
+	}
+	if base := filepath.Base(trimmed); base != "." && base != "/" && base != "" {
+		return base
+	}
+	return fallback
 }
 
 func (h *KnowledgeHandler) Create(c *gin.Context) {
@@ -413,6 +576,10 @@ func (h *KnowledgeHandler) queueKnowledgeBaseCreate(
 	for _, fileHeader := range files {
 		document, err := h.saveUploadedKnowledgeFile(c, userID.String(), baseID, fileHeader)
 		if err != nil {
+			c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
+			return
+		}
+		if err := h.persistPendingKnowledgeDocument(c.Request.Context(), &document); err != nil {
 			c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
 			return
 		}
@@ -557,10 +724,65 @@ func (h *KnowledgeHandler) DeleteBase(c *gin.Context) {
 	if removeErr := os.RemoveAll(basePath); removeErr != nil {
 		log.Printf("knowledge base file cleanup failed for %s: %v", record.ID, removeErr)
 	}
+	if removeErr := h.assetStore.DeleteRelativePrefix(
+		c.Request.Context(),
+		knowledgeBaseRelativePrefix(record.OwnerID, record.ID),
+	); removeErr != nil {
+		log.Printf("knowledge base object cleanup failed for %s: %v", record.ID, removeErr)
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"knowledge_base_id": record.ID,
 		"status":            "deleted",
+	})
+}
+
+func (h *KnowledgeHandler) DeleteAllBases(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	if userID == uuid.Nil {
+		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "unauthorized"})
+		return
+	}
+
+	isAdmin := strings.EqualFold(strings.TrimSpace(middleware.GetRole(c)), "admin")
+	targetOwnerID := userID
+	rawOwnerID := strings.TrimSpace(c.Query("owner_id"))
+	if rawOwnerID != "" {
+		parsedOwnerID, err := uuid.Parse(rawOwnerID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "invalid owner id"})
+			return
+		}
+		if !isAdmin && parsedOwnerID != userID {
+			c.JSON(http.StatusForbidden, model.ErrorResponse{Error: "forbidden"})
+			return
+		}
+		targetOwnerID = parsedOwnerID
+	}
+
+	records, err := h.repo.DeleteBasesByOwner(c.Request.Context(), targetOwnerID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to clear knowledge bases"})
+		return
+	}
+
+	for _, record := range records {
+		basePath := knowledgeBaseDir(h.fs.BaseDir(), record.OwnerID, record.ID)
+		if removeErr := os.RemoveAll(basePath); removeErr != nil {
+			log.Printf("knowledge base file cleanup failed for %s: %v", record.ID, removeErr)
+		}
+		if removeErr := h.assetStore.DeleteRelativePrefix(
+			c.Request.Context(),
+			knowledgeBaseRelativePrefix(record.OwnerID, record.ID),
+		); removeErr != nil {
+			log.Printf("knowledge base object cleanup failed for %s: %v", record.ID, removeErr)
+		}
+	}
+
+	c.JSON(http.StatusOK, knowledgeClearResponse{
+		OwnerID:      targetOwnerID.String(),
+		DeletedCount: len(records),
+		Status:       "cleared",
 	})
 }
 
@@ -598,6 +820,10 @@ func (h *KnowledgeHandler) IndexUploaded(c *gin.Context) {
 		document, err := h.copyThreadUploadToKnowledge(userID.String(), threadID, baseID, filename)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
+			return
+		}
+		if err := h.persistPendingKnowledgeDocument(c.Request.Context(), &document); err != nil {
+			c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
 			return
 		}
 		pendingDocuments = append(pendingDocuments, document)
@@ -654,7 +880,7 @@ func (h *KnowledgeHandler) readStorageText(storageRef string) *string {
 	if trimmed == "" {
 		return nil
 	}
-	data, err := os.ReadFile(filepath.Join(h.fs.BaseDir(), filepath.FromSlash(trimmed)))
+	data, err := h.assetStore.ReadAll(context.Background(), trimmed)
 	if err != nil {
 		return nil
 	}
@@ -667,13 +893,20 @@ func (h *KnowledgeHandler) readStorageJSON(baseStorageRef string, fallbackFileNa
 	if trimmed == "" {
 		return nil
 	}
-	basePath := filepath.Join(h.fs.BaseDir(), filepath.FromSlash(trimmed))
-	fallbackPath := filepath.Join(filepath.Dir(basePath), fallbackFileName)
-	data, err := os.ReadFile(fallbackPath)
-	if err != nil {
-		return nil
+	candidates := make([]string, 0, 2)
+	if packageRef, err := h.assetStore.ResolvePackageRelativeRef(trimmed, filepath.ToSlash(filepath.Join("index", fallbackFileName))); err == nil {
+		candidates = append(candidates, packageRef)
 	}
-	return json.RawMessage(data)
+	if siblingRef, err := h.assetStore.ResolveSiblingRef(trimmed, fallbackFileName); err == nil {
+		candidates = append(candidates, siblingRef)
+	}
+	for _, candidate := range candidates {
+		data, err := h.assetStore.ReadAll(context.Background(), candidate)
+		if err == nil {
+			return json.RawMessage(data)
+		}
+	}
+	return nil
 }
 
 func (h *KnowledgeHandler) saveUploadedKnowledgeFile(
@@ -691,7 +924,11 @@ func (h *KnowledgeHandler) saveUploadedKnowledgeFile(
 	if err := os.MkdirAll(documentDir, 0755); err != nil {
 		return knowledgePendingDocument{}, fmt.Errorf("mkdir knowledge document dir: %w", err)
 	}
-	sourcePath := filepath.Join(documentDir, safeName)
+	sourceDir := filepath.Join(documentDir, "source")
+	if err := os.MkdirAll(sourceDir, 0755); err != nil {
+		return knowledgePendingDocument{}, fmt.Errorf("mkdir knowledge source dir: %w", err)
+	}
+	sourcePath := filepath.Join(sourceDir, safeName)
 	if err := c.SaveUploadedFile(fileHeader, sourcePath); err != nil {
 		return knowledgePendingDocument{}, fmt.Errorf("save uploaded file: %w", err)
 	}
@@ -719,9 +956,18 @@ func (h *KnowledgeHandler) copyThreadUploadToKnowledge(
 	if err := os.MkdirAll(documentDir, 0755); err != nil {
 		return knowledgePendingDocument{}, fmt.Errorf("mkdir knowledge document dir: %w", err)
 	}
-	targetPath := filepath.Join(documentDir, safeName)
+	sourceDir := filepath.Join(documentDir, "source")
+	if err := os.MkdirAll(sourceDir, 0755); err != nil {
+		return knowledgePendingDocument{}, fmt.Errorf("mkdir knowledge source dir: %w", err)
+	}
+	targetPath := filepath.Join(sourceDir, safeName)
 	if err := copyFile(sourcePath, targetPath); err != nil {
 		return knowledgePendingDocument{}, fmt.Errorf("copy uploaded file: %w", err)
+	}
+	if knowledgeFileKind(safeName) == "markdown" {
+		if err := copyMarkdownReferencedAssets(sourcePath, targetPath); err != nil {
+			return knowledgePendingDocument{}, fmt.Errorf("copy markdown assets: %w", err)
+		}
 	}
 	return buildKnowledgePendingDocument(h.fs.BaseDir(), userID, baseID, documentID, safeName, targetPath)
 }
@@ -734,11 +980,17 @@ func buildKnowledgePendingDocument(
 	fileName string,
 	sourcePath string,
 ) (knowledgePendingDocument, error) {
+	documentDir := knowledgeDocumentDir(baseDir, userID, baseID, documentID)
 	markdownPath := ""
 	if shouldBuildKnowledgeMarkdown(fileName) {
 		generatedMarkdownPath, err := convertFileToMarkdown(sourcePath)
 		if err == nil {
-			markdownPath = generatedMarkdownPath
+			targetPath := filepath.Join(documentDir, "markdown", strings.TrimSuffix(fileName, filepath.Ext(fileName))+".md")
+			if err := moveGeneratedKnowledgeArtifactWithAssets(generatedMarkdownPath, targetPath); err == nil {
+				markdownPath = targetPath
+			} else {
+				return knowledgePendingDocument{}, fmt.Errorf("persist knowledge markdown companion: %w", err)
+			}
 		}
 	}
 
@@ -746,7 +998,12 @@ func buildKnowledgePendingDocument(
 	if isOfficeDocumentFile(sourcePath) {
 		generatedPreviewPath, err := officePreviewConverter(sourcePath)
 		if err == nil {
-			previewPath = generatedPreviewPath
+			targetPath := filepath.Join(documentDir, "preview", "preview.pdf")
+			if err := moveGeneratedKnowledgeArtifact(generatedPreviewPath, targetPath); err == nil {
+				previewPath = targetPath
+			} else {
+				return knowledgePendingDocument{}, fmt.Errorf("persist knowledge preview pdf: %w", err)
+			}
 		}
 	}
 
@@ -764,6 +1021,21 @@ func buildKnowledgePendingDocument(
 	}, nil
 }
 
+func (h *KnowledgeHandler) persistPendingKnowledgeDocument(
+	ctx context.Context,
+	document *knowledgePendingDocument,
+) error {
+	relativePrefix := knowledgeDocumentRelativePrefixFromStorageRef(document.SourceStoragePath)
+	localDir := filepath.Join(h.fs.BaseDir(), filepath.FromSlash(relativePrefix))
+	if err := h.assetStore.SyncDirectory(ctx, relativePrefix, localDir); err != nil {
+		return fmt.Errorf("sync knowledge document package: %w", err)
+	}
+	document.SourceStoragePath = mapKnowledgeStorageRef(h.assetStore, document.SourceStoragePath)
+	document.MarkdownStoragePath = mapKnowledgeStorageRef(h.assetStore, document.MarkdownStoragePath)
+	document.PreviewStoragePath = mapKnowledgeStorageRef(h.assetStore, document.PreviewStoragePath)
+	return nil
+}
+
 func shouldBuildKnowledgeMarkdown(fileName string) bool {
 	return isMarkdownConvertible(fileName)
 }
@@ -776,6 +1048,21 @@ func knowledgeBaseDir(baseDir string, userID string, baseID string) string {
 	return filepath.Join(baseDir, "knowledge", "users", userID, "bases", baseID)
 }
 
+func knowledgeBaseRelativePrefix(userID string, baseID string) string {
+	return filepath.ToSlash(filepath.Join("knowledge", "users", userID, "bases", baseID))
+}
+
+func knowledgeDocumentRelativePrefixFromStorageRef(storageRef string) string {
+	clean := filepath.ToSlash(filepath.Clean(strings.TrimSpace(storageRef)))
+	parent := filepath.ToSlash(filepath.Dir(clean))
+	switch filepath.Base(parent) {
+	case "source", "preview", "markdown", "canonical", "index", "assets":
+		return filepath.ToSlash(filepath.Dir(parent))
+	default:
+		return parent
+	}
+}
+
 func storageRef(baseDir string, absolutePath string) string {
 	if strings.TrimSpace(absolutePath) == "" {
 		return ""
@@ -785,6 +1072,14 @@ func storageRef(baseDir string, absolutePath string) string {
 		return filepath.ToSlash(absolutePath)
 	}
 	return filepath.ToSlash(relativePath)
+}
+
+func mapKnowledgeStorageRef(assetStore *knowledgeasset.Store, storageRef string) string {
+	trimmed := strings.TrimSpace(storageRef)
+	if trimmed == "" {
+		return ""
+	}
+	return assetStore.RefForRelativePath(trimmed)
 }
 
 func manifestDocuments(pending []knowledgePendingDocument) []knowledgeManifestDocument {
@@ -834,6 +1129,130 @@ func copyFile(sourcePath string, targetPath string) error {
 		return err
 	}
 	return nil
+}
+
+func moveGeneratedKnowledgeArtifact(sourcePath string, targetPath string) error {
+	if strings.TrimSpace(sourcePath) == "" {
+		return fmt.Errorf("generated artifact path is required")
+	}
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+		return err
+	}
+	if err := os.Rename(sourcePath, targetPath); err == nil {
+		return nil
+	}
+	if err := copyFile(sourcePath, targetPath); err != nil {
+		return err
+	}
+	return os.Remove(sourcePath)
+}
+
+func moveGeneratedKnowledgeArtifactWithAssets(sourcePath string, targetPath string) error {
+	if err := copyMarkdownReferencedAssets(sourcePath, targetPath); err != nil {
+		return err
+	}
+	return moveGeneratedKnowledgeArtifact(sourcePath, targetPath)
+}
+
+func copyMarkdownReferencedAssets(sourceMarkdownPath string, targetMarkdownPath string) error {
+	sourceMarkdownPath = strings.TrimSpace(sourceMarkdownPath)
+	targetMarkdownPath = strings.TrimSpace(targetMarkdownPath)
+	if sourceMarkdownPath == "" || targetMarkdownPath == "" {
+		return nil
+	}
+
+	sourceBytes, err := os.ReadFile(sourceMarkdownPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+
+	sourceDir := filepath.Dir(sourceMarkdownPath)
+	targetDir := filepath.Dir(targetMarkdownPath)
+	for _, relativeRef := range collectMarkdownRelativeAssetRefs(string(sourceBytes)) {
+		sourceAssetPath := filepath.Join(sourceDir, filepath.FromSlash(relativeRef))
+		info, statErr := os.Stat(sourceAssetPath)
+		if statErr != nil || info.IsDir() {
+			continue
+		}
+
+		targetAssetPath := filepath.Join(targetDir, filepath.FromSlash(relativeRef))
+		if err := os.MkdirAll(filepath.Dir(targetAssetPath), 0755); err != nil {
+			return err
+		}
+		if err := copyFile(sourceAssetPath, targetAssetPath); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func collectMarkdownRelativeAssetRefs(markdown string) []string {
+	refs := make([]string, 0, 8)
+	seen := make(map[string]struct{})
+	appendRef := func(raw string) {
+		normalized := normalizeMarkdownRelativeAssetRef(raw)
+		if normalized == "" {
+			return
+		}
+		if _, ok := seen[normalized]; ok {
+			return
+		}
+		seen[normalized] = struct{}{}
+		refs = append(refs, normalized)
+	}
+
+	for _, match := range knowledgeMarkdownImageRefPattern.FindAllStringSubmatch(markdown, -1) {
+		if len(match) > 1 {
+			appendRef(match[1])
+		}
+	}
+	for _, match := range knowledgeHTMLImageRefPattern.FindAllStringSubmatch(markdown, -1) {
+		if len(match) > 1 {
+			appendRef(match[1])
+		}
+	}
+
+	return refs
+}
+
+func normalizeMarkdownRelativeAssetRef(raw string) string {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return ""
+	}
+	if fields := strings.Fields(value); len(fields) > 0 {
+		value = fields[0]
+	}
+	value = strings.Trim(value, "<>")
+	if value == "" {
+		return ""
+	}
+	if queryIndex := strings.IndexAny(value, "?#"); queryIndex >= 0 {
+		value = value[:queryIndex]
+	}
+
+	lower := strings.ToLower(value)
+	if strings.HasPrefix(lower, "http://") ||
+		strings.HasPrefix(lower, "https://") ||
+		strings.HasPrefix(lower, "data:") ||
+		strings.HasPrefix(lower, "kb://") ||
+		strings.HasPrefix(lower, "/mnt/user-data/") {
+		return ""
+	}
+
+	cleanPath := filepath.Clean(filepath.FromSlash(value))
+	if cleanPath == "." || cleanPath == ".." || filepath.IsAbs(cleanPath) {
+		return ""
+	}
+	parentPrefix := ".." + string(filepath.Separator)
+	if strings.HasPrefix(cleanPath, parentPrefix) {
+		return ""
+	}
+	return filepath.ToSlash(cleanPath)
 }
 
 func (h *KnowledgeHandler) runKnowledgeIndexer(ctx context.Context, manifest knowledgeManifest) error {

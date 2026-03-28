@@ -256,7 +256,7 @@ export const enUS: Translations = {
 
   knowledge: {
     sectionTitle: "Knowledge",
-    manageButton: "Manage library",
+    manageButton: "Knowledge",
     loadingAttached: "Loading attached knowledge...",
     emptyAttached: "No knowledge base is attached to this thread yet.",
     chooseAtLeastOneFile: "Choose at least one file.",
@@ -319,6 +319,16 @@ export const enUS: Translations = {
       `Delete "${name}" and all of its indexed documents? This action cannot be undone.`,
     deleteSuccess: (name: string) => `Deleted "${name}".`,
     deleteError: "Failed to delete knowledge base.",
+    clearAllTitle: "Clear Knowledge Bases",
+    clearAllSelfDescription: (count: number) =>
+      `Delete all ${count} of your knowledge bases? Indexed data, source files, and preview artifacts will also be removed. This action cannot be undone.`,
+    clearAllOwnerDescription: (ownerName: string, count: number) =>
+      `Delete all ${count} knowledge bases owned by "${ownerName}"? Indexed data, source files, and preview artifacts will also be removed. This action cannot be undone.`,
+    clearAllSuccess: (count: number) =>
+      `Cleared ${count} knowledge base${count === 1 ? "" : "s"}.`,
+    clearAllOwnerSuccess: (ownerName: string, count: number) =>
+      `Cleared ${count} knowledge base${count === 1 ? "" : "s"} for "${ownerName}".`,
+    clearAllError: "Failed to clear knowledge bases.",
     buildProgressTitle: "Build Progress",
     buildProgressDescription:
       "Latest indexing stage, timing, and job status for the selected document.",

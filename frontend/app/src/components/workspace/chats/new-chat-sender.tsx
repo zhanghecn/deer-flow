@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
+import { attachKnowledgeBaseToThread } from "@/core/knowledge/api";
 import type { LocalSettings } from "@/core/settings";
 import { useThreadStream } from "@/core/threads/hooks";
 
@@ -37,13 +38,45 @@ export default function NewChatSender({
   onError: () => void;
 }) {
   const startedRef = useRef(false);
+  const persistedThreadBindingsRef = useRef<Set<string>>(new Set());
+
+  const persistSelectedKnowledgeBases = async (resolvedThreadId: string) => {
+    if (persistedThreadBindingsRef.current.has(resolvedThreadId)) {
+      return;
+    }
+
+    const selectedBaseIds = Array.isArray(extraContext?.knowledge_base_ids)
+      ? extraContext.knowledge_base_ids
+          .map((item) => String(item).trim())
+          .filter(Boolean)
+      : [];
+    if (selectedBaseIds.length === 0) {
+      return;
+    }
+
+    persistedThreadBindingsRef.current.add(resolvedThreadId);
+    try {
+      await Promise.allSettled(
+        Array.from(new Set(selectedBaseIds)).map((knowledgeBaseId) =>
+          attachKnowledgeBaseToThread(resolvedThreadId, knowledgeBaseId),
+        ),
+      );
+    } catch (error) {
+      console.warn(
+        "Failed to persist selected knowledge bases for new thread:",
+        error,
+      );
+    }
+  };
 
   const notifyStartedThread = (resolvedThreadId: string) => {
     if (startedRef.current) {
       return;
     }
     startedRef.current = true;
-    onStartedThread(resolvedThreadId);
+    void persistSelectedKnowledgeBases(resolvedThreadId).finally(() => {
+      onStartedThread(resolvedThreadId);
+    });
   };
 
   const [, sendMessage, , isThreadReady] = useThreadStream({

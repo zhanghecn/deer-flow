@@ -8,16 +8,27 @@ import pymupdf
 from PIL import Image
 
 from src.knowledge.models import (
+    DocumentEvidenceResult,
     DocumentImageResult,
+    EvidenceBlock,
+    EvidencePreviewTarget,
     KnowledgeToolNextSteps,
     KnowledgeDocumentRecord,
+    KnowledgeNodeRecord,
     NodeDetailItem,
     NodeDetailResult,
 )
 from src.knowledge.pageindex.canonical import build_canonical_document
-from src.knowledge.pageindex.indexer import _should_use_markdown_page_tree
+from src.knowledge.formatters import format_document_evidence_payload
+from src.knowledge.pageindex.indexer import (
+    _ParsedNode,
+    _PdfPage,
+    _should_use_markdown_page_tree,
+    _split_large_page_leaf_nodes,
+)
 from src.knowledge.pageindex import build_document_index
 from src.knowledge.repository import (
+    KnowledgeRepository,
     _limit_tree_depth,
     format_document_image_payload,
     format_node_detail_payload,
@@ -58,8 +69,8 @@ def test_build_document_index_markdown_persists_summaries_and_node_text(tmp_path
     root = nodes_by_title["Model Compression"]
     quantization = nodes_by_title["Quantization"]
 
-    assert root.prefix_summary is not None
-    assert "Quantization" in root.prefix_summary
+    assert root.summary is not None
+    assert "Quantization" in root.summary
     assert root.node_text is not None
     assert root.node_text.startswith("# Model Compression")
 
@@ -69,7 +80,8 @@ def test_build_document_index_markdown_persists_summaries_and_node_text(tmp_path
     assert "post-training quantization" in quantization.node_text
 
     assert "node_text" not in indexed.structure[0]
-    assert indexed.structure[0]["prefix_summary"] == root.prefix_summary
+    assert indexed.structure[0]["summary"] == root.summary
+    assert "prefix_summary" not in indexed.structure[0]
 
 
 def test_build_canonical_document_pdf_exports_image_placeholders(tmp_path):
@@ -117,6 +129,174 @@ def test_build_document_index_pdf_persists_image_placeholders_in_node_text(tmp_p
 
     assert indexed.nodes
     assert any(node.node_text and "![img-p0001-01]" in node.node_text for node in indexed.nodes)
+
+
+def test_build_document_index_pdf_recovers_leading_pages_before_outline(tmp_path):
+    pdf_path = tmp_path / "outline-image-doc.pdf"
+    png_path = tmp_path / "pixel.png"
+    Image.new("RGB", (8, 8), color=(0, 200, 0)).save(png_path)
+
+    doc = pymupdf.open()
+    cover = doc.new_page()
+    cover.insert_text((72, 72), "Annual Report Cover")
+    cover.insert_image(pymupdf.Rect(72, 100, 180, 208), filename=str(png_path))
+
+    intro = doc.new_page()
+    intro.insert_text((72, 72), "Introductory material")
+
+    section = doc.new_page()
+    section.insert_text((72, 72), "Section 1 Overview")
+    doc.set_toc([[1, "Section 1 Overview", 3]])
+    doc.save(pdf_path)
+    doc.close()
+
+    indexed = build_document_index(
+        source_path=pdf_path,
+        file_kind="pdf",
+        display_name="outline-image-doc.pdf",
+        model_name=None,
+    )
+
+    recovered_nodes = [
+        node
+        for node in indexed.nodes
+        if node.page_start == 1 and node.page_end == 2
+    ]
+    assert recovered_nodes
+    assert any(
+        ref.kind == "page_image" and ref.page_number == 1
+        for node in recovered_nodes
+        for ref in node.evidence_refs
+    )
+    assert any(
+        node.node_text and "![img-p0001-01]" in node.node_text
+        for node in recovered_nodes
+    )
+
+
+def test_split_large_page_leaf_nodes_creates_child_windows():
+    pages = [
+        _PdfPage(
+            page_number=index,
+            text=f"Page {index} text",
+            normalized_text=f"page {index} text",
+            markdown_text=f"# Heading {index}\n\nBody {index}",
+        )
+        for index in range(1, 16)
+    ]
+    root = _ParsedNode(
+        title="Large Section",
+        depth=0,
+        line_start=None,
+        line_end=None,
+        text="",
+        node_id="0001",
+        page_start=1,
+        page_end=15,
+    )
+
+    inserted = _split_large_page_leaf_nodes([root], pages)
+
+    assert inserted == 3
+    assert [(child.page_start, child.page_end) for child in root.children] == [
+        (1, 5),
+        (6, 10),
+        (11, 15),
+    ]
+    assert all(child.parent_node_id == "0001" for child in root.children)
+
+
+def test_split_large_page_leaf_nodes_falls_back_when_page_heading_is_numeric_noise():
+    pages = [
+        _PdfPage(
+            page_number=index,
+            text=f"Page {index} text",
+            normalized_text=f"page {index} text",
+            markdown_text="395,722 390,723 167,274 159,578\nhttps://example.com/report",
+        )
+        for index in range(1, 12)
+    ]
+    root = _ParsedNode(
+        title="Large Section",
+        depth=0,
+        line_start=None,
+        line_end=None,
+        text="",
+        node_id="0001",
+        page_start=1,
+        page_end=11,
+    )
+
+    inserted = _split_large_page_leaf_nodes([root], pages)
+
+    assert inserted == 3
+    assert [child.title for child in root.children] == [
+        "Large Section (pp.1-5)",
+        "Large Section (pp.6-10)",
+        "Large Section (p.11)",
+    ]
+
+
+def test_split_large_page_leaf_nodes_falls_back_when_page_heading_is_sentence_text():
+    pages = [
+        _PdfPage(
+            page_number=index,
+            text=f"Page {index} text",
+            normalized_text=f"page {index} text",
+            markdown_text="an examiner's commission and beyond. the goal of these efforts is to ensure that examiners have",
+        )
+        for index in range(1, 12)
+    ]
+    root = _ParsedNode(
+        title="Large Section",
+        depth=0,
+        line_start=None,
+        line_end=None,
+        text="",
+        node_id="0001",
+        page_start=1,
+        page_end=11,
+    )
+
+    inserted = _split_large_page_leaf_nodes([root], pages)
+
+    assert inserted == 3
+    assert [child.title for child in root.children] == [
+        "Large Section (pp.1-5)",
+        "Large Section (pp.6-10)",
+        "Large Section (p.11)",
+    ]
+
+
+def test_split_large_page_leaf_nodes_falls_back_when_page_heading_is_title_cased_sentence():
+    pages = [
+        _PdfPage(
+            page_number=index,
+            text=f"Page {index} text",
+            normalized_text=f"page {index} text",
+            markdown_text="The Federal Reserve's outreach included the annual Board-sponsored Fair Lending Interagency",
+        )
+        for index in range(1, 12)
+    ]
+    root = _ParsedNode(
+        title="Large Section",
+        depth=0,
+        line_start=None,
+        line_end=None,
+        text="",
+        node_id="0001",
+        page_start=1,
+        page_end=11,
+    )
+
+    inserted = _split_large_page_leaf_nodes([root], pages)
+
+    assert inserted == 3
+    assert [child.title for child in root.children] == [
+        "Large Section (pp.1-5)",
+        "Large Section (pp.6-10)",
+        "Large Section (p.11)",
+    ]
 
 
 def test_format_node_detail_payload_uses_text_field():
@@ -168,7 +348,10 @@ def test_format_node_detail_payload_uses_text_field():
 
     assert payload["items"][0]["text"].startswith("## Quantization")
     assert payload["items"][0]["page_chunks"] == []
-    assert payload["items"][0]["summary"].startswith("Covers post-training")
+    assert payload["items"][0]["citation_markdown"].startswith("[citation:guide.md")
+    assert "summary" not in payload["items"][0]
+    assert "line_start" not in payload["items"][0]
+    assert "heading_slug" not in payload["items"][0]
     assert payload["next_steps"]["summary"].startswith("Successfully retrieved")
 
 
@@ -234,6 +417,105 @@ def test_format_document_image_payload_reports_image_path():
     assert payload["page_number"] == 176
     assert payload["image_path"].endswith("page-0176.png")
     assert payload["embedded_image_count"] == 2
+
+
+def test_format_document_evidence_payload_omits_duplicate_page_text():
+    document = KnowledgeDocumentRecord(
+        id="doc-1",
+        knowledge_base_id="kb-1",
+        knowledge_base_name="Finance",
+        knowledge_base_description=None,
+        display_name="annual-report.pdf",
+        file_kind="pdf",
+        locator_type="page",
+        status="ready",
+        doc_description="annual report description",
+        error=None,
+        page_count=20,
+        node_count=8,
+        source_storage_path="knowledge/source.pdf",
+        markdown_storage_path=None,
+        preview_storage_path="knowledge/preview.pdf",
+    )
+    item = NodeDetailItem(
+        node_id="0008",
+        title="Monitoring Financial Vulnerabilities",
+        page_start=22,
+        page_end=26,
+        summary="Summary",
+        text="[Page 22]\\nRepeated text",
+        evidence_blocks=[
+            EvidenceBlock(
+                evidence_id="0008-text-p0022",
+                kind="text",
+                locator_type="page",
+                locator_label="annual-report.pdf p.22",
+                page_number=22,
+                text="Repeated text",
+                citation_markdown="[citation:annual-report.pdf · p.22](kb://citation?document_id=doc-1&page=22)",
+                preview_target=EvidencePreviewTarget(
+                    artifact_path="/mnt/user-data/outputs/.knowledge/doc-1/annual-report.pdf",
+                    page=22,
+                    locator_label="annual-report.pdf p.22",
+                ),
+            )
+        ],
+    )
+    result = DocumentEvidenceResult(
+        document=document,
+        requested_node_ids=["0008"],
+        items=[item],
+        total_pages=20,
+        returned_pages="22-26",
+        returned_lines=None,
+        next_steps=KnowledgeToolNextSteps(
+            summary="Successfully retrieved evidence for 1 nodes.",
+            options=["Use returned evidence_blocks."],
+        ),
+    )
+
+    payload = json.loads(format_document_evidence_payload(result))
+
+    assert "text" not in payload["items"][0]
+    assert payload["items"][0]["evidence_blocks"][0]["text"] == "Repeated text"
+
+
+def test_validate_node_detail_request_allows_small_page_root_with_children():
+    repository = object.__new__(KnowledgeRepository)
+    document = KnowledgeDocumentRecord(
+        id="doc-1",
+        knowledge_base_id="kb-1",
+        knowledge_base_name="Research",
+        knowledge_base_description=None,
+        display_name="PRML.pdf",
+        file_kind="pdf",
+        locator_type="page",
+        status="ready",
+        doc_description="Pattern recognition textbook.",
+        error=None,
+        page_count=758,
+        node_count=319,
+        source_storage_path="knowledge/PRML.pdf",
+        markdown_storage_path=None,
+        preview_storage_path="knowledge/PRML.preview.pdf",
+    )
+    node = KnowledgeNodeRecord(
+        document_id="doc-1",
+        node_id="0005",
+        node_path="0005",
+        title="1. Introduction",
+        depth=0,
+        child_count=7,
+        locator_type="page",
+        page_start=21,
+        page_end=23,
+        evidence_refs=[],
+    )
+
+    repository._validate_node_detail_request(  # noqa: SLF001
+        document=document,
+        nodes=[node],
+    )
 
 
 def test_should_skip_generated_page_markdown_without_real_companion():

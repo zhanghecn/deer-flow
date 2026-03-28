@@ -29,6 +29,8 @@ export interface ArtifactsContextType {
   select: (artifact: string, autoSelect?: boolean) => void;
   reveal: (target: ArtifactPreviewTarget) => void;
   deselect: () => void;
+  reset: () => void;
+  syncThread: (threadId: string) => void;
 
   open: boolean;
   autoOpen: boolean;
@@ -46,12 +48,12 @@ interface ArtifactsProviderProps {
 export function ArtifactsProvider({ children }: ArtifactsProviderProps) {
   const [artifacts, setArtifacts] = useState<string[]>([]);
   const [selectedArtifact, setSelectedArtifact] = useState<string | null>(null);
-  const [previewTarget, setPreviewTarget] = useState<ArtifactPreviewTarget | null>(null);
+  const [previewTarget, setPreviewTarget] =
+    useState<ArtifactPreviewTarget | null>(null);
   const revealSequenceRef = useRef(0);
+  const activeThreadIdRef = useRef<string | null>(null);
   const [autoSelect, setAutoSelect] = useState(true);
-  const [open, setOpen] = useState(
-    env.VITE_STATIC_WEBSITE_ONLY === "true",
-  );
+  const [open, setOpen] = useState(env.VITE_STATIC_WEBSITE_ONLY === "true");
   const [autoOpen, setAutoOpen] = useState(true);
   const { setOpen: setSidebarOpen } = useSidebar();
 
@@ -100,6 +102,34 @@ export function ArtifactsProvider({ children }: ArtifactsProviderProps) {
     setAutoSelect(true);
   }, []);
 
+  const reset = useCallback(() => {
+    setArtifacts([]);
+    setSelectedArtifact(null);
+    setPreviewTarget(null);
+    setAutoSelect(true);
+    setAutoOpen(true);
+    setOpen(env.VITE_STATIC_WEBSITE_ONLY === "true");
+  }, []);
+
+  const syncThread = useCallback(
+    (threadId: string) => {
+      const normalizedThreadId = threadId.trim();
+      if (!normalizedThreadId) {
+        return;
+      }
+      if (activeThreadIdRef.current === null) {
+        activeThreadIdRef.current = normalizedThreadId;
+        return;
+      }
+      if (activeThreadIdRef.current === normalizedThreadId) {
+        return;
+      }
+      activeThreadIdRef.current = normalizedThreadId;
+      reset();
+    },
+    [reset],
+  );
+
   const value: ArtifactsContextType = {
     artifacts,
     setArtifacts,
@@ -120,6 +150,8 @@ export function ArtifactsProvider({ children }: ArtifactsProviderProps) {
     select,
     reveal,
     deselect,
+    reset,
+    syncThread,
   };
 
   return (

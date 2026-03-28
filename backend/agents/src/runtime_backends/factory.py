@@ -38,9 +38,11 @@ def build_runtime_workspace_backend(
             raise ValueError("Remote execution requires `remote_session_id`.")
         return build_remote_workspace_backend(session_id=remote_session_id, paths=paths)
     if backend_kind == "sandbox":
-        return build_sandbox_workspace_backend(thread_id)
+        return build_sandbox_workspace_backend(
+            thread_id,
+            user_data_dir=user_data_dir,
+        )
     return build_local_workspace_backend(
         user_data_dir,
         shared_skills_mount=resolve_shared_skills_mount(paths),
     )
-

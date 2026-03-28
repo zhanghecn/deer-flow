@@ -6,6 +6,7 @@ import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { type PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { AgentSwitcherDialog } from "@/components/workspace/agent-switcher-dialog";
 import { ArtifactTrigger } from "@/components/workspace/artifacts/artifact-trigger";
+import { shouldShowCenteredComposer } from "@/components/workspace/chats/layout-state";
 import { useSpecificChatMode } from "@/components/workspace/chats/use-chat-mode";
 import { useThreadChat } from "@/components/workspace/chats/use-thread-chat";
 import { InputBox } from "@/components/workspace/input-box";
@@ -264,6 +265,17 @@ export default function ChatPage() {
     threadId,
   ]);
 
+  const showCenteredComposer = useMemo(
+    () =>
+      shouldShowCenteredComposer({
+        isNewThread,
+        isPendingRun,
+        isThreadLoading: thread.isLoading,
+        messages: thread.messages,
+      }),
+    [isNewThread, isPendingRun, thread.isLoading, thread.messages],
+  );
+
   if (!isNewThread && threadRuntimeLoading && !threadRuntime) {
     return (
       <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
@@ -286,7 +298,7 @@ export default function ChatPage() {
           <header
             className={cn(
               "absolute top-0 right-0 left-0 z-30 flex h-12 shrink-0 items-center gap-2 px-4",
-              isNewThread
+              showCenteredComposer
                 ? "bg-background/0 backdrop-blur-none"
                 : "bg-background/80 shadow-xs backdrop-blur",
             )}
@@ -302,17 +314,17 @@ export default function ChatPage() {
           <main className="flex min-h-0 max-w-full grow flex-col">
             <div className="flex size-full justify-center">
               <MessageList
-                className={cn("size-full", !isNewThread && "pt-10")}
+                className={cn("size-full", !showCenteredComposer && "pt-10")}
                 threadId={threadId}
                 thread={thread}
               />
             </div>
-            <div className="absolute right-0 bottom-0 left-0 z-30 flex justify-center px-4">
+            <div className="pointer-events-none absolute right-0 bottom-0 left-0 z-30 flex justify-center px-4">
               <div
                 className={cn(
-                  "relative w-full",
-                  isNewThread && "-translate-y-[calc(50vh-96px)]",
-                  isNewThread
+                  "pointer-events-auto relative w-full",
+                  showCenteredComposer && "-translate-y-[calc(50vh-96px)]",
+                  showCenteredComposer
                     ? "max-w-(--container-width-sm)"
                     : "max-w-(--container-width-md)",
                 )}
@@ -331,17 +343,19 @@ export default function ChatPage() {
                 <InputBox
                   className={cn("bg-background/5 w-full -translate-y-4")}
                   threadId={threadId}
-                  isNewThread={isNewThread}
-                  autoFocus={isNewThread}
+                  isNewThread={showCenteredComposer}
+                  autoFocus={showCenteredComposer}
                   status={thread.isLoading ? "streaming" : "ready"}
                   context={runtimeContext}
                   retryStatus={retryStatus}
                   initialValue={inputInitialValue}
                   contextWindow={
-                    isNewThread ? undefined : thread.values.context_window
+                    showCenteredComposer
+                      ? undefined
+                      : thread.values.context_window
                   }
                   extraHeader={
-                    isNewThread && (
+                    showCenteredComposer && (
                       <div className="mx-auto w-full max-w-(--container-width-md) px-2">
                         <Welcome mode={runtimeContext.mode} />
                       </div>

@@ -22,6 +22,7 @@ from src.knowledge.models import (
     DocumentTreeNode,
     HeadingPagePrediction,
     IndexedDocument,
+    KnowledgeEvidenceRef,
     NodeSummaryOutput,
 )
 from src.knowledge.pageindex.canonical import CanonicalPage, build_canonical_document
@@ -33,19 +34,27 @@ _NORMALIZE_RE = re.compile(r"[^0-9A-Za-z\u4e00-\u9fff]+")
 _MARKDOWN_HEADER_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 _CODE_FENCE_RE = re.compile(r"^```")
 _MARKDOWN_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
+_PAGE_IMAGE_NAME_RE = re.compile(r"img-p(?P<page>\d{4})-(?P<index>\d{2,})\.", re.IGNORECASE)
 _SUMMARY_COPY_WORD_THRESHOLD = 90
-_SUMMARY_INPUT_CHAR_LIMIT = 9000
-_SUMMARY_OUTPUT_CHAR_LIMIT = 900
+_SUMMARY_INPUT_CHAR_LIMIT = 7000
+_SUMMARY_OUTPUT_CHAR_LIMIT = 800
 _PARENT_CHILDREN_CONTEXT_LIMIT = 12
 _SUMMARY_CONCURRENCY = 6
 _SUMMARY_MAX_IMAGES = 4
+_MAX_LEAF_PAGE_SPAN = 10
+_MAX_LEAF_TEXT_CHARS = 12000
+_LEAF_CHILD_WINDOW_SIZE = 5
 
 _LEAF_SUMMARY_PROMPT = ChatPromptTemplate.from_messages(
     [
         (
             "system",
             "You summarize one document section for tree-based retrieval. "
-            "Produce a dense factual summary that includes distinctive topics, methods, entities, formulas, and unusual terms. "
+            "Return structured output. "
+            "`summary` must be a dense factual retrieval summary with distinctive topics, methods, entities, formulas, and unusual terms. "
+            "`visual_summary` must capture visually grounded facts only when figures, diagrams, layouts, tables, or embedded images materially help retrieval; otherwise leave it empty. "
+            "`distinctive_terms` should contain short keywords or phrases worth searching for. "
+            "Keep `summary` under 800 characters and `visual_summary` under 320 characters. "
             "Do not mention page numbers. Do not add filler.",
         ),
         (
@@ -63,7 +72,11 @@ _PARENT_SUMMARY_PROMPT = ChatPromptTemplate.from_messages(
             "system",
             "You write a high-level branch summary for a document tree node. "
             "The goal is to help an agent decide whether to expand this branch. "
-            "Summarize the scope of the branch, highlight the main subtopics, and preserve distinctive terminology from descendants. "
+            "Return structured output. "
+            "`summary` should summarize the scope of the branch, highlight the main subtopics, and preserve distinctive terminology from descendants. "
+            "`visual_summary` should mention recurring visual material only when it materially helps a retriever decide to expand this branch. "
+            "`distinctive_terms` should contain short keywords or phrases worth searching for. "
+            "Keep `summary` under 700 characters and `visual_summary` under 280 characters. "
             "Do not mention page numbers. Keep it concise and information-dense.",
         ),
         (
@@ -80,7 +93,8 @@ _DOCUMENT_DESCRIPTION_PROMPT = ChatPromptTemplate.from_messages(
         (
             "system",
             "Write one sentence that helps an agent decide whether a document is relevant. "
-            "Mention the document's core subject matter and distinctive scope.",
+            "Mention the document's core subject matter and distinctive scope. "
+            "Also return short keywords that describe the document's distinctive coverage.",
         ),
         (
             "human",
@@ -118,6 +132,9 @@ class _ParsedNode:
     page_end: int | None = None
     heading_slug: str | None = None
     summary: str | None = None
+    visual_summary: str | None = None
+    summary_quality: str = "fallback"
+    evidence_refs: list[KnowledgeEvidenceRef] = field(default_factory=list)
     prefix_summary: str | None = None
     image_paths: list[Path] = field(default_factory=list)
     children: list["_ParsedNode"] = field(default_factory=list)
@@ -326,6 +343,7 @@ def _build_markdown_index(
         progress_percent=35,
     )
     _populate_tree_summaries(tree, models=models, observer=observer)
+    _populate_markdown_evidence_refs(tree)
     nodes = _flatten_tree(tree)
     structure = _serialize_tree(tree, locator_type="heading")
     description = _generate_document_description(
@@ -355,6 +373,9 @@ def _build_markdown_index(
                 line_end=node.line_end,
                 heading_slug=node.heading_slug or _slugify(node.title),
                 summary=node.summary,
+                visual_summary=node.visual_summary,
+                summary_quality=node.summary_quality,
+                evidence_refs=list(node.evidence_refs),
                 prefix_summary=node.prefix_summary,
                 node_text=node.text,
             )
@@ -362,6 +383,8 @@ def _build_markdown_index(
         ],
         canonical_markdown=canonical_markdown,
         source_map=_source_map_from_nodes(nodes, locator_type="heading"),
+        build_quality=_document_build_quality(nodes),
+        quality_metadata=_document_quality_metadata(nodes),
     )
 
 
@@ -422,8 +445,33 @@ def _build_page_index(
         tree = _build_page_window_tree(pages)
 
     _apply_page_ranges(tree, len(pages))
+    recovered_windows = 0
+    if pages:
+        recovered_windows = _insert_uncovered_page_windows(tree, pages)
+        if recovered_windows > 0:
+            _observer_event(
+                observer,
+                stage="tree",
+                step_name="recover_uncovered_pages",
+                status="completed",
+                message=f"Recovered {recovered_windows} uncovered page window nodes",
+                metadata={"recovered_windows": recovered_windows},
+            )
+    split_children = 0
+    if pages:
+        split_children = _split_large_page_leaf_nodes(tree, pages)
+        if split_children > 0:
+            _observer_event(
+                observer,
+                stage="tree",
+                step_name="split_large_leaf_nodes",
+                status="completed",
+                message=f"Inserted {split_children} child windows for oversized leaf nodes",
+                metadata={"inserted_child_windows": split_children},
+            )
     if pages:
         _populate_page_node_text(tree, pages)
+        _populate_page_evidence_refs(tree, pages)
     _observer_event(
         observer,
         stage="tree",
@@ -467,6 +515,9 @@ def _build_page_index(
                 page_start=node.page_start,
                 page_end=node.page_end,
                 summary=node.summary,
+                visual_summary=node.visual_summary,
+                summary_quality=node.summary_quality,
+                evidence_refs=list(node.evidence_refs),
                 prefix_summary=node.prefix_summary,
                 node_text=node.text,
             )
@@ -474,6 +525,8 @@ def _build_page_index(
         ],
         canonical_markdown=canonical_markdown,
         source_map=_source_map_from_nodes(nodes, locator_type="page"),
+        build_quality=_document_build_quality(nodes),
+        quality_metadata=_document_quality_metadata(nodes),
     )
 
 
@@ -702,11 +755,54 @@ def _first_heading_like_line(text: str) -> str | None:
         stripped = line.strip()
         if len(stripped) < 6:
             continue
-        if stripped.isupper():
+        if stripped.isupper() and _is_reasonable_heading_candidate(stripped):
             return stripped[:120]
-        if stripped[:1].isdigit():
+        if stripped[:1].isdigit() and _is_reasonable_heading_candidate(stripped):
+            return stripped[:120]
+        if stripped[:1].isalpha() and _is_reasonable_heading_candidate(stripped):
             return stripped[:120]
     return None
+
+
+def _is_reasonable_heading_candidate(text: str) -> bool:
+    compact = _clean_title(text)
+    if len(compact) < 6 or len(compact) > 120:
+        return False
+    lowered = compact.casefold()
+    if "http://" in lowered or "https://" in lowered or "www." in lowered:
+        return False
+    alpha_count = sum(char.isalpha() for char in compact)
+    digit_count = sum(char.isdigit() for char in compact)
+    if alpha_count < 4:
+        return False
+    if digit_count > alpha_count:
+        return False
+    if compact.count(" ") < 1:
+        return False
+    alpha_words = [word for word in compact.split() if any(char.isalpha() for char in word)]
+    if not alpha_words:
+        return False
+    capitalized_words = sum(1 for word in alpha_words if word[:1].isupper())
+    max_consecutive_lowercase_words = 0
+    consecutive_lowercase_words = 0
+    for word in alpha_words:
+        if word[:1].islower():
+            consecutive_lowercase_words += 1
+            max_consecutive_lowercase_words = max(
+                max_consecutive_lowercase_words,
+                consecutive_lowercase_words,
+            )
+        else:
+            consecutive_lowercase_words = 0
+    if max_consecutive_lowercase_words >= 3:
+        return False
+    if compact.isupper():
+        return True
+    if compact[:1].islower():
+        return False
+    if compact[:1].isdigit():
+        return capitalized_words >= 1 and (capitalized_words / len(alpha_words)) >= 0.5
+    return (capitalized_words / len(alpha_words)) >= 0.6
 
 
 def _apply_page_ranges(tree: list[_ParsedNode], max_page: int) -> None:
@@ -732,6 +828,76 @@ def _populate_page_node_text(tree: list[_ParsedNode], pages: list[_PdfPage]) -> 
     for node in _flatten_tree(tree):
         node.text = _page_markdown_for_range(pages, node.page_start, node.page_end)
         node.image_paths = _page_image_paths_for_range(pages, node.page_start, node.page_end)
+
+
+def _insert_uncovered_page_windows(tree: list[_ParsedNode], pages: list[_PdfPage]) -> int:
+    if not tree or not pages:
+        return 0
+
+    covered_pages: set[int] = set()
+    for node in _flatten_tree(tree):
+        if node.page_start is None or node.page_end is None:
+            continue
+        covered_pages.update(range(node.page_start, node.page_end + 1))
+
+    missing_ranges: list[tuple[int, int]] = []
+    range_start: int | None = None
+    max_page = len(pages)
+    for page_number in range(1, max_page + 1):
+        if page_number in covered_pages:
+            if range_start is not None:
+                missing_ranges.append((range_start, page_number - 1))
+                range_start = None
+            continue
+        if range_start is None:
+            range_start = page_number
+    if range_start is not None:
+        missing_ranges.append((range_start, max_page))
+
+    if not missing_ranges:
+        return 0
+
+    flat_nodes = _flatten_tree(tree)
+    next_id = max((int(node.node_id) for node in flat_nodes if str(node.node_id).isdigit()), default=0) + 1
+    for start_page, end_page in missing_ranges:
+        tree.append(
+            _ParsedNode(
+                title=_uncovered_page_window_title(
+                    pages=pages,
+                    start_page=start_page,
+                    end_page=end_page,
+                ),
+                depth=0,
+                line_start=None,
+                line_end=None,
+                text="",
+                node_id=f"{next_id:04d}",
+                page_start=start_page,
+                page_end=end_page,
+            )
+        )
+        next_id += 1
+
+    tree.sort(key=lambda node: (node.page_start or max_page + 1, node.node_id))
+    return len(missing_ranges)
+
+
+def _uncovered_page_window_title(
+    *,
+    pages: list[_PdfPage],
+    start_page: int,
+    end_page: int,
+) -> str:
+    first_page_markdown = _page_markdown_for_range(pages, start_page, start_page)
+    heading = _clean_title(_first_heading_like_line(first_page_markdown) or "")
+    range_label = f"pp.{start_page}-{end_page}" if start_page != end_page else f"p.{start_page}"
+    if heading:
+        return f"{heading} ({range_label})"
+    if start_page == 1:
+        return f"Front Matter ({range_label})"
+    if start_page == end_page:
+        return f"Page {start_page}"
+    return f"Pages {start_page}-{end_page}"
 
 
 def _parse_markdown_tree(markdown_content: str) -> list[_ParsedNode]:
@@ -819,9 +985,13 @@ def _populate_tree_summaries(
     if models.summary_model is None:
         for node in _flatten_tree(tree):
             if node.children:
-                node.prefix_summary = _fallback_parent_summary(node)
+                node.summary = _fallback_parent_summary(node)
+                node.visual_summary = _fallback_visual_summary(node)
+                node.summary_quality = "fallback"
             else:
                 node.summary = _fallback_leaf_summary(node.text)
+                node.visual_summary = _fallback_visual_summary(node)
+                node.summary_quality = "fallback"
         return
     asyncio.run(
         _populate_tree_summaries_async(
@@ -852,7 +1022,9 @@ async def _populate_tree_summaries_async(
             await asyncio.gather(*(summarize_subtree(child) for child in node.children))
             context = _parent_summary_context(node)
             if not context:
-                node.prefix_summary = _fallback_parent_summary(node)
+                node.summary = _fallback_parent_summary(node)
+                node.visual_summary = _fallback_visual_summary(node)
+                node.summary_quality = "fallback"
                 async with progress_lock:
                     completed_nodes += 1
                     _observer_progress_from_summary(
@@ -873,7 +1045,9 @@ async def _populate_tree_summaries_async(
                             context=context,
                         ),
                     )
-                node.prefix_summary = _clean_summary_text(result.value.summary)
+                node.summary = _clean_summary_text(result.value.summary)
+                node.visual_summary = _clean_summary_text(result.value.visual_summary)
+                node.summary_quality = "llm"
                 _observer_event(
                     observer,
                     stage="summaries",
@@ -886,7 +1060,9 @@ async def _populate_tree_summaries_async(
                 )
             except Exception as exc:
                 logger.debug("Failed to summarize parent node %s", node.node_id, exc_info=True)
-                node.prefix_summary = _fallback_parent_summary(node)
+                node.summary = _fallback_parent_summary(node)
+                node.visual_summary = _fallback_visual_summary(node)
+                node.summary_quality = "fallback"
                 _observer_event(
                     observer,
                     stage="summaries",
@@ -907,6 +1083,8 @@ async def _populate_tree_summaries_async(
 
         if _word_count(node.text) <= _SUMMARY_COPY_WORD_THRESHOLD and not _node_has_images(node):
             node.summary = _clean_summary_text(node.text)
+            node.visual_summary = None
+            node.summary_quality = "extractive"
             _observer_event(
                 observer,
                 stage="summaries",
@@ -937,6 +1115,8 @@ async def _populate_tree_summaries_async(
                     messages,
                 )
             node.summary = _clean_summary_text(result.value.summary)
+            node.visual_summary = _clean_summary_text(result.value.visual_summary)
+            node.summary_quality = "llm"
             _observer_event(
                 observer,
                 stage="summaries",
@@ -950,6 +1130,8 @@ async def _populate_tree_summaries_async(
         except Exception as exc:
             logger.debug("Failed to summarize leaf node %s", node.node_id, exc_info=True)
             node.summary = _fallback_leaf_summary(node.text)
+            node.visual_summary = _fallback_visual_summary(node)
+            node.summary_quality = "fallback"
             _observer_event(
                 observer,
                 stage="summaries",
@@ -1027,9 +1209,14 @@ def _document_description_context(structure: list[dict]) -> str:
         title = str(item.get("title") or "").strip()
         if not title:
             continue
-        summary = str(item.get("prefix_summary") or item.get("summary") or "").strip()
-        if summary:
+        summary = str(item.get("summary") or item.get("prefix_summary") or "").strip()
+        visual_summary = str(item.get("visual_summary") or "").strip()
+        if summary and visual_summary:
+            lines.append(f"- {title}: {summary} Visual: {visual_summary}")
+        elif summary:
             lines.append(f"- {title}: {summary}")
+        elif visual_summary:
+            lines.append(f"- {title}: Visual: {visual_summary}")
         else:
             lines.append(f"- {title}")
     return "\n".join(lines)
@@ -1043,7 +1230,13 @@ def _parent_summary_context(node: _ParsedNode) -> str:
 
     child_lines: list[str] = []
     for child in node.children[:_PARENT_CHILDREN_CONTEXT_LIMIT]:
-        child_summary = child.prefix_summary or child.summary or _excerpt_text(child.text, limit=220)
+        child_summary = child.summary or child.prefix_summary or _excerpt_text(child.text, limit=220)
+        if child.visual_summary:
+            child_summary = (
+                f"{child_summary} Visual: {child.visual_summary}"
+                if child_summary
+                else f"Visual: {child.visual_summary}"
+            )
         locator = _locator_text(child)
         if child_summary:
             child_lines.append(f"- {child.title} ({locator}): {child_summary}")
@@ -1067,6 +1260,22 @@ def _fallback_parent_summary(node: _ParsedNode) -> str:
         f"Covers {', '.join(child_titles)}.",
         limit=320,
     )
+
+
+def _fallback_visual_summary(node: _ParsedNode) -> str | None:
+    if not _node_has_images(node):
+        return None
+
+    caption_like_lines = _extract_visual_caption_lines(node.text)
+    if caption_like_lines:
+        return _clean_summary_text(" ".join(caption_like_lines), limit=320)
+
+    if node.page_start is not None and node.page_end is not None:
+        if node.page_start == node.page_end:
+            return f"Contains visual material on page {node.page_start}."
+        return f"Contains visual material across pages {node.page_start}-{node.page_end}."
+
+    return "Contains visual material relevant to this section."
 
 
 def _clean_summary_text(text: str | None, *, limit: int = _SUMMARY_OUTPUT_CHAR_LIMIT) -> str | None:
@@ -1120,6 +1329,7 @@ def _serialize_tree(tree: list[_ParsedNode], *, locator_type: str) -> list[dict]
             "title": node.title,
             "node_id": node.node_id,
             "locator_type": locator_type,
+            "summary_quality": node.summary_quality,
         }
         if node.page_start is not None:
             payload["page_start"] = node.page_start
@@ -1133,8 +1343,13 @@ def _serialize_tree(tree: list[_ParsedNode], *, locator_type: str) -> list[dict]
             payload["heading_slug"] = node.heading_slug
         if node.summary:
             payload["summary"] = node.summary
-        if node.prefix_summary:
-            payload["prefix_summary"] = node.prefix_summary
+        if node.visual_summary:
+            payload["visual_summary"] = node.visual_summary
+        if node.evidence_refs:
+            payload["has_visual_evidence"] = any(
+                ref.kind in {"image", "page_image"} for ref in node.evidence_refs
+            )
+            payload["evidence_ref_count"] = len(node.evidence_refs)
         if node.children:
             payload["nodes"] = _serialize_tree(node.children, locator_type=locator_type)
         result.append(payload)
@@ -1190,6 +1405,118 @@ def _page_image_paths_for_range(
     return image_paths
 
 
+def _split_large_page_leaf_nodes(tree: list[_ParsedNode], pages: list[_PdfPage]) -> int:
+    flat_nodes = _flatten_tree(tree)
+    if not flat_nodes:
+        return 0
+
+    next_id = max((int(node.node_id) for node in flat_nodes if str(node.node_id).isdigit()), default=0) + 1
+    inserted_children = 0
+
+    for node in flat_nodes:
+        if node.children:
+            continue
+        if node.page_start is None or node.page_end is None:
+            continue
+
+        page_span = node.page_end - node.page_start + 1
+        page_text = _page_markdown_for_range(pages, node.page_start, node.page_end)
+        if page_span <= _MAX_LEAF_PAGE_SPAN and len(page_text) <= _MAX_LEAF_TEXT_CHARS:
+            continue
+
+        children: list[_ParsedNode] = []
+        for start_page in range(node.page_start, node.page_end + 1, _LEAF_CHILD_WINDOW_SIZE):
+            end_page = min(start_page + _LEAF_CHILD_WINDOW_SIZE - 1, node.page_end)
+            children.append(
+                _ParsedNode(
+                    title=_page_window_child_title(
+                        parent_title=node.title,
+                        pages=pages,
+                        start_page=start_page,
+                        end_page=end_page,
+                    ),
+                    depth=node.depth + 1,
+                    line_start=None,
+                    line_end=None,
+                    text="",
+                    node_id=f"{next_id:04d}",
+                    parent_node_id=node.node_id,
+                    page_start=start_page,
+                    page_end=end_page,
+                )
+            )
+            next_id += 1
+
+        if len(children) < 2:
+            continue
+
+        node.children = children
+        inserted_children += len(children)
+
+    return inserted_children
+
+
+def _page_window_child_title(
+    *,
+    parent_title: str,
+    pages: list[_PdfPage],
+    start_page: int,
+    end_page: int,
+) -> str:
+    first_page_markdown = _page_markdown_for_range(pages, start_page, start_page)
+    heading = _clean_title(_first_heading_like_line(first_page_markdown) or "")
+    range_label = f"pp.{start_page}-{end_page}" if start_page != end_page else f"p.{start_page}"
+    parent_compact = _clean_title(parent_title)
+    if heading and heading.casefold() != parent_compact.casefold():
+        return f"{heading} ({range_label})"
+    return f"{parent_compact or 'Section'} ({range_label})"
+
+
+def _populate_markdown_evidence_refs(tree: list[_ParsedNode]) -> None:
+    for node in _flatten_tree(tree):
+        refs: list[KnowledgeEvidenceRef] = []
+        for index, match in enumerate(_MARKDOWN_IMAGE_RE.finditer(node.text or ""), start=1):
+            raw_target = match.group(2).strip()
+            if not raw_target or raw_target.startswith(("http://", "https://", "data:", "kb://", "/mnt/user-data/")):
+                continue
+            refs.append(
+                KnowledgeEvidenceRef(
+                    evidence_id=f"{node.node_id}-img-{index:02d}",
+                    kind="image",
+                    locator_type="heading",
+                    line_number=node.line_start,
+                    heading_slug=node.heading_slug,
+                    alt_text=(match.group(1) or "").strip() or None,
+                    caption_text=_caption_near_image(node.text, match.start()),
+                    asset_rel_path=raw_target,
+                )
+            )
+        node.evidence_refs = refs
+
+
+def _populate_page_evidence_refs(tree: list[_ParsedNode], pages: list[_PdfPage]) -> None:
+    page_map = {page.page_number: page for page in pages}
+    for node in _flatten_tree(tree):
+        if node.page_start is None or node.page_end is None:
+            node.evidence_refs = []
+            continue
+        refs: list[KnowledgeEvidenceRef] = []
+        for page_number in range(node.page_start, node.page_end + 1):
+            page = page_map.get(page_number)
+            if page is None or not page.image_paths:
+                continue
+            refs.append(
+                KnowledgeEvidenceRef(
+                    evidence_id=f"{node.node_id}-page-{page_number:04d}",
+                    kind="page_image",
+                    locator_type="page",
+                    page_number=page_number,
+                    caption_text=_caption_from_page_text(page.markdown_text or page.text),
+                )
+            )
+        node.evidence_refs = refs
+
+
 def _excerpt_text(text: str, limit: int = 240) -> str | None:
     compact = " ".join(text.split())
     if not compact:
@@ -1237,7 +1564,11 @@ def _leaf_summary_messages(
         SystemMessage(
             content=(
                 "You summarize one document section for tree-based retrieval. "
-                "Produce a dense factual summary that includes distinctive topics, methods, entities, formulas, figure findings, and unusual terms. "
+                "Return structured output. "
+                "`summary` must be a dense factual retrieval summary that includes distinctive topics, methods, entities, formulas, figure findings, and unusual terms. "
+                "`visual_summary` must capture only the visually grounded details that materially help retrieval. "
+                "`distinctive_terms` should contain short keywords or phrases worth searching for. "
+                "Keep `summary` under 800 characters and `visual_summary` under 320 characters. "
                 "Do not mention page numbers. Do not add filler."
             )
         ),
@@ -1260,6 +1591,64 @@ def _image_data_url(image_path: Path) -> str | None:
 
 def _extract_markdown_image_paths(text: str) -> list[str]:
     return [match.group(2).strip() for match in _MARKDOWN_IMAGE_RE.finditer(text or "")]
+
+
+def _extract_visual_caption_lines(text: str, *, limit: int = 3) -> list[str]:
+    lines: list[str] = []
+    for raw_line in (text or "").splitlines():
+        compact = " ".join(raw_line.split())
+        if not compact:
+            continue
+        lowered = compact.casefold()
+        if lowered.startswith(("figure ", "fig.", "table ", "chart ", "diagram ", "image ")):
+            lines.append(compact)
+        elif "figure " in lowered or "diagram" in lowered or "chart" in lowered:
+            lines.append(compact)
+        if len(lines) >= limit:
+            break
+    return lines
+
+
+def _caption_near_image(text: str, image_offset: int) -> str | None:
+    if not text:
+        return None
+    prefix = text[:image_offset].splitlines()
+    suffix = text[image_offset:].splitlines()
+    nearby = prefix[-3:] + suffix[:3]
+    candidates = _extract_visual_caption_lines("\n".join(nearby), limit=2)
+    if not candidates:
+        return None
+    return _clean_summary_text(" ".join(candidates), limit=240)
+
+
+def _caption_from_page_text(text: str) -> str | None:
+    candidates = _extract_visual_caption_lines(text, limit=2)
+    if not candidates:
+        return None
+    return _clean_summary_text(" ".join(candidates), limit=240)
+
+
+def _document_build_quality(nodes: list[_ParsedNode]) -> str:
+    if any(node.summary_quality == "fallback" for node in nodes):
+        return "degraded"
+    return "ready"
+
+
+def _document_quality_metadata(nodes: list[_ParsedNode]) -> dict[str, Any]:
+    total_nodes = len(nodes)
+    llm_nodes = sum(1 for node in nodes if node.summary_quality == "llm")
+    extractive_nodes = sum(1 for node in nodes if node.summary_quality == "extractive")
+    fallback_nodes = sum(1 for node in nodes if node.summary_quality == "fallback")
+    visual_nodes = sum(1 for node in nodes if node.visual_summary)
+    evidence_ref_count = sum(len(node.evidence_refs) for node in nodes)
+    return {
+        "total_nodes": total_nodes,
+        "llm_nodes": llm_nodes,
+        "extractive_nodes": extractive_nodes,
+        "fallback_nodes": fallback_nodes,
+        "visual_nodes": visual_nodes,
+        "evidence_ref_count": evidence_ref_count,
+    }
 
 
 def _normalize_text(text: str) -> str:

@@ -32,5 +32,16 @@ def test_apply_prompt_template_includes_knowledge_base_retrieval_guardrails(monk
 
     assert "Knowledge Base Sources" in rendered
     assert "Knowledge Base Freshness Rule" in rendered
+    assert "Knowledge Base Output Contract" in rendered
+    assert "Knowledge Base Inline Citation Rule" in rendered
+    assert "Knowledge Base Tree Is Not Evidence Rule" in rendered
+    assert "Knowledge Base Evidence Before Prose Rule" in rendered
+    assert "Knowledge Base Multi-Node Rule" in rendered
     assert "Knowledge Base Retrieval Discipline" in rendered
     assert "copy that exact markdown into the visible answer" in rendered
+    assert "Knowledge Base First-Answer Visual Rule" in rendered
+    assert "Knowledge Base Figure Rule" in rendered
+    assert "Knowledge Base Scope Rule" in rendered
+    assert "Knowledge Base Visual Grounding Rule" in rendered
+    assert "Knowledge Base Tree Window Rule" in rendered
+    assert 'window_mode="root_overview"' in rendered

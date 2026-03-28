@@ -1,6 +1,7 @@
 from .clarification_tool import ask_clarification_tool
 from .install_skill_from_registry_tool import install_skill_from_registry
 from .knowledge_tools import (
+    get_document_evidence,
     get_document_image,
     get_document_tree,
     get_document_tree_node_detail,
@@ -22,6 +23,7 @@ __all__ = [
     "install_skill_from_registry",
     "list_knowledge_documents",
     "get_document_tree",
+    "get_document_evidence",
     "get_document_tree_node_detail",
     "get_document_image",
     "push_agent_prod",

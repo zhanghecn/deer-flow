@@ -11,7 +11,7 @@ from src.tools.builtins.authoring_persistence import (
     resolve_runtime_source_path,
     save_skill_directory_to_store,
 )
-from src.tools.builtins.runtime_context import runtime_context_value
+from src.utils.runtime_context import runtime_context_value
 
 logger = logging.getLogger(__name__)
 

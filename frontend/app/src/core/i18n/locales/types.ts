@@ -245,6 +245,12 @@ export interface Translations {
     deleteDescription: (name: string) => string;
     deleteSuccess: (name: string) => string;
     deleteError: string;
+    clearAllTitle: string;
+    clearAllSelfDescription: (count: number) => string;
+    clearAllOwnerDescription: (ownerName: string, count: number) => string;
+    clearAllSuccess: (count: number) => string;
+    clearAllOwnerSuccess: (ownerName: string, count: number) => string;
+    clearAllError: string;
     buildProgressTitle: string;
     buildProgressDescription: string;
     stageLabel: string;
