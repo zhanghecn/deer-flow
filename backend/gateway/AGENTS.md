@@ -3,7 +3,7 @@
 Shared development guide for coding agents working in `backend/gateway`.
 
 Read this doc before changing knowledge-base APIs, shared preview visibility, or thread/library bindings:
-@../../docs/KNOWLEDGE_BASE_ARCHITECTURE.md
+@../../docs/architecture/knowledge-base.md
 
 ## Overview
 

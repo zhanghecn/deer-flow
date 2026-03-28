@@ -182,7 +182,7 @@ mode. The provisioner only starts when the configured sandbox provider requires
 it.
 
 See the [Sandbox Configuration Guide](backend/agents/docs/CONFIGURATION.md) and
-[Remote Backend Guide](docs/remote-backend.md).
+[Remote Backend Guide](docs/architecture/remote-backend.md).
 
 #### MCP Server
 

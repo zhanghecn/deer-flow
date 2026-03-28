@@ -78,7 +78,7 @@ models (model_name -> config_json, enabled)
 ### Task 1: Freeze Runtime Contract (frontend -> gateway -> python)
 
 **Files:**
-- Modify: `docs/LANGGRAPH_RUNTIME_ARCHITECTURE.md`
+- Modify: `docs/architecture/langgraph-runtime.md`
 - Modify: `frontend/src/core/threads/hooks.ts`
 - Test: `frontend` runtime request payload tests/snapshots (add if missing)
 
@@ -106,7 +106,7 @@ Expected: payload contract tests pass.
 **Step 5: Commit**
 
 ```bash
-git add frontend/src/core/threads/hooks.ts docs/LANGGRAPH_RUNTIME_ARCHITECTURE.md
+git add frontend/src/core/threads/hooks.ts docs/architecture/langgraph-runtime.md
 git commit -m "feat(frontend): enforce canonical langgraph runtime payload contract"
 ```
 

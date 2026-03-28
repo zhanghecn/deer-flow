@@ -6,7 +6,7 @@ runtime backend unification.
 If you need the explicit control-plane vs data-plane explanation, or the reason
 the sandbox provider exists at all, read:
 
-- `docs/runtime-architecture.md`
+- `docs/architecture/runtime-architecture.md`
 
 ## System Overview
 

@@ -307,15 +307,16 @@ class MyMiddleware(BaseMiddleware):
         return state
 ```
 
-2. Register in `src/agents/lead_agent/agent.py`:
+2. Register it in `_build_openagents_middlewares()` inside `src/agents/lead_agent/agent.py`:
 
 ```python
 middlewares = [
-    ThreadDataMiddleware(),
-    SandboxMiddleware(),
+    ArtifactsMiddleware(),
+    UploadsMiddleware(),
+    KnowledgeContextMiddleware(),
     MyMiddleware(),  # Add your middleware
     TitleMiddleware(),
-    ClarificationMiddleware(),
+    ContextWindowMiddleware(),
 ]
 ```
 

@@ -164,10 +164,13 @@ The agent uses **deepagents built-in middleware** plus **OpenAgents-specific ext
 - `HumanInTheLoopMiddleware` — Handles `ask_clarification` interrupts
 
 **OpenAgents-specific extra middleware** (`_build_openagents_middlewares()`):
-1. **ThreadDataMiddleware** — Creates per-thread directories
+1. **ArtifactsMiddleware** — Tracks presented/generated artifacts
 2. **UploadsMiddleware** — Tracks and injects uploaded files
-3. **TitleMiddleware** — Auto-generates thread title
-4. **ViewImageMiddleware** — Injects base64 image data (conditional on vision support)
+3. **KnowledgeContextMiddleware** — Enforces the KB tool protocol for attached documents
+4. **TitleMiddleware** — Auto-generates thread title
+5. **Retry / recovery middlewares** — Normalize provider/tool failures and short-circuit bad visible responses
+6. **ContextWindowMiddleware** — Persists prompt occupancy telemetry
+7. **ViewImageMiddleware** — Injects base64 image data (conditional on vision support)
 
 ### Configuration System
 

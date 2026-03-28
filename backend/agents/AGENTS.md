@@ -1,6 +1,7 @@
 Read these docs before changing agent/runtime/backend/skills behavior:
-@../../docs/runtime-architecture.md
-@../../docs/KNOWLEDGE_BASE_ARCHITECTURE.md
+@../../docs/guides/documentation-boundaries.md
+@../../docs/architecture/runtime-architecture.md
+@../../docs/architecture/knowledge-base.md
 @../../docs/testing/README.md
 @../../docs/testing/knowledge-base/TEST_SPEC.md
 @../../docs/testing/knowledge-base/PITFALLS.md
@@ -12,6 +13,13 @@ For broader development workflow and commands:
 @./CLAUDE.md
 
 Critical agent protocol rules for future work:
+
+- Documentation boundary rule:
+  - `docs/**`, repo/service `README.md`, and `CONTRIBUTING.md` are repository engineering docs for humans
+  - `AGENTS.md` / `CLAUDE.md` are coding-agent collaboration docs for people or agents changing this repo
+  - `.openagents/**`, archived agent prompts, copied skills, and runtime prompt/tool contracts are runtime-agent contracts consumed by OpenAgents itself
+  - do not mix those layers when auditing "current project docs" unless the task explicitly asks to review runtime agent behavior
+  - inside repo `docs/`, default current-doc layers are `architecture/`, `guides/`, and `testing/`; `plans/` and `history/` are supporting context only
 
 - `lead_agent` is an explicit built-in agent and a reserved name.
 - Missing runtime `agent_name` should normalize to `lead_agent`, not to a special `None` branch.
@@ -25,8 +33,8 @@ Critical agent protocol rules for future work:
 - `lead_agent` does not implicitly read the full shared skills archive anymore. Its default archived skill set is explicit and currently includes `bootstrap`.
 - `1 thread = 1 agent/runtime binding`. Existing thread opens must restore the persisted binding; switching agent/archive/runtime must create a new thread instead of mutating the old one.
 - The persisted runtime binding lives in Gateway `thread_bindings` and currently includes `agent_name`, `agent_status`, `model_name`, `execution_backend`, and `remote_session_id`.
-- Go/Gateway owns CRUD, publish, DB persistence, and local archive writes.
-- Python runtime owns backend selection, runtime seeding, and execution.
+- Go/Gateway owns archive CRUD, publish, thread list/title/delete APIs, and local archive writes.
+- Python runtime currently persists `thread_bindings` runtime bindings, owns backend selection, runtime seeding, and execution.
 - Runtime must read from thread-local copies under `/mnt/user-data/...`, not directly mutate archived files.
 - Agent-visible execution paths must stay on the unified virtual path contract under `/mnt/user-data/...`.
 - Host filesystem paths such as `.openagents/...` or `/root/project/...` are backend implementation details and must never be hardcoded into skills, prompts, or agent-authored commands.

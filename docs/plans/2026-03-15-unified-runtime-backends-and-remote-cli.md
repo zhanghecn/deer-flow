@@ -216,7 +216,7 @@ git commit -m "feat: add bun remote execution client"
 - Modify: `backend/agents/docs/AGENT_PROTOCOL.md`
 - Modify: `backend/agents/docs/ARCHITECTURE.md`
 - Modify: `backend/agents/docs/CONFIGURATION.md`
-- Create: `docs/remote-backend.md`
+- Create: `docs/architecture/remote-backend.md`
 
 **Step 1: Write the failing test**
 
@@ -245,7 +245,7 @@ Expected: no stale legacy references in the touched docs.
 **Step 5: Commit**
 
 ```bash
-git add README.md backend/agents/README.md backend/agents/docs docs/remote-backend.md
+git add README.md backend/agents/README.md backend/agents/docs docs/architecture/remote-backend.md
 git commit -m "docs: document unified backends and remote client"
 ```
 

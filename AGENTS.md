@@ -1,13 +1,21 @@
 Read these docs before changing runtime/backend/sandbox/remote architecture:
-@./docs/runtime-architecture.md
-@./docs/remote-backend.md
-@./docs/KNOWLEDGE_BASE_ARCHITECTURE.md
+@./docs/guides/documentation-boundaries.md
+@./docs/architecture/runtime-architecture.md
+@./docs/architecture/remote-backend.md
+@./docs/architecture/knowledge-base.md
 @./docs/testing/README.md
 @./docs/testing/knowledge-base/TEST_SPEC.md
 @./docs/testing/knowledge-base/PITFALLS.md
 @./backend/agents/AGENTS.md
 
 Repository-wide runtime architecture rules:
+
+- Documentation boundary rule:
+  - repository engineering docs (`README.md`, `CONTRIBUTING.md`, `docs/**`, service `README.md`) are for humans
+  - `AGENTS.md` / subtree `AGENTS.md` / `CLAUDE.md` are for coding agents modifying this repo
+  - runtime prompts and skills under `.openagents/**` plus runtime prompt code are a separate runtime-agent contract layer
+  - when auditing whether "project docs" match the code, default to the first two layers unless the task explicitly asks about runtime agent behavior
+  - inside `docs/`, treat `architecture/`, `guides/`, and `testing/` as current-doc layers; `plans/` and `history/` are not default source of truth
 
 - Treat runtime execution as three separate layers:
   - data plane: file and command operations

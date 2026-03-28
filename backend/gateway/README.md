@@ -288,8 +288,8 @@ Agent/Skill 定义已经完全脱离数据库：
 - 发布只是文件复制与状态切换，不写任何 agent/skill 元数据表
 
 运行时职责分界：
-- Go gateway 只负责写归档文件
-- Go gateway 负责持久化 `thread_bindings`，作为 thread -> runtime identity 的真源
+- Go gateway 负责 agent/skill 归档文件 CRUD、发布，以及 thread 列表 / 标题 / 删除等读写 API
+- Python runtime 在执行期持久化 / 刷新 `thread_bindings`，该表仍然是 thread -> runtime identity 的真源
 - 是否启用 sandbox 由 Python runtime 启动时根据环境变量 / `config.yaml` 决定
 
 线程绑定规则：
@@ -377,7 +377,7 @@ Browser / Frontend
 [Python make_lead_agent]
 - read configurable + runtime.execution_runtime.context
 - resolve model via DB (models / thread_bindings)
-- persist thread_bindings(thread_id,user_id,agent_name,agent_status,model_name,execution_backend,remote_session_id)
+- persist or refresh thread_bindings(thread_id,user_id,agent_name,agent_status,model_name,execution_backend,remote_session_id)
         |
         v
 LangGraph run/history response

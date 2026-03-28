@@ -2,6 +2,17 @@
 
 Thank you for your interest in contributing to OpenAgents! This guide will help you set up your development environment and understand our development workflow.
 
+## Documentation Boundaries
+
+Before treating two documents as if they describe the same thing, check [docs/guides/documentation-boundaries.md](docs/guides/documentation-boundaries.md).
+
+In short:
+
+- `README.md`, `CONTRIBUTING.md`, `docs/**`, and service `README.md` files are repository engineering docs for humans.
+- `AGENTS.md` / subtree `AGENTS.md` / `CLAUDE.md` are collaboration docs for coding agents modifying this repo.
+- `.openagents/**` plus runtime prompt/skill contracts are the runtime-agent layer and should not be mixed into normal project-doc audits unless the task is explicitly about runtime behavior.
+- Inside `docs/`, use `architecture/`, `guides/`, and `testing/` as the default current-doc tree. Treat `plans/` and `history/` as non-authoritative supporting context unless the task is explicitly historical.
+
 ## Development Environment Setup
 
 We offer two development environments. **Docker is recommended** for the most consistent and hassle-free experience.
@@ -203,9 +214,11 @@ openagents/
 ├── frontend/
 │   ├── app/                      # Vite user frontend
 │   └── admin/                    # Vite admin console
-└── skills/                       # Agent skills
-    ├── public/                   # Public skills
-    └── custom/                   # Custom skills (gitignored)
+└── .openagents/                  # Host-side runtime/archive root created locally
+    ├── agents/                   # Archived agents (dev/prod)
+    ├── skills/                   # Shared skill archive (shared/store)
+    ├── users/                    # User-scoped durable data
+    └── threads/                  # Thread-scoped runtime workspaces
 ```
 
 ## Architecture

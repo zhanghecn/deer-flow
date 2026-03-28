@@ -95,7 +95,7 @@ Use admin APIs (or UI) to confirm:
 **Files:**
 - Modify: `backend/gateway/internal/proxy/proxy.go`
 - Modify: `backend/gateway/internal/proxy/proxy_test.go`
-- Modify: `docs/runtime-architecture.md`
+- Modify: `docs/architecture/runtime-architecture.md`
 
 **Step 1: Keep the proxy abort fix covered**
 

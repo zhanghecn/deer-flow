@@ -3,7 +3,7 @@
 Shared development guide for coding agents working in `frontend/app`.
 
 Read this doc before changing knowledge-base UI, citation preview behavior, or shared-library routes:
-@../../docs/KNOWLEDGE_BASE_ARCHITECTURE.md
+@../../docs/architecture/knowledge-base.md
 
 ## Overview
 

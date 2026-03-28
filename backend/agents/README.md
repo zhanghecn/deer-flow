@@ -96,28 +96,26 @@ The agent-visible path contract does not change across these modes.
 
 OpenAgents-specific middlewares are combined with deepagents built-ins such as `FilesystemMiddleware`, `SkillsMiddleware`, `MemoryMiddleware`, and `SummarizationMiddleware`.
 
-| # | Middleware | Purpose |
-|---|-----------|---------|
-| 1 | **ArtifactsMiddleware** | Tracks tool-produced artifacts for frontend presentation |
-| 2 | **ThreadDataMiddleware** | Creates per-thread isolated directories (workspace, uploads, outputs) |
-| 3 | **UploadsMiddleware** | Injects uploaded files into conversation context and prefers generated Markdown companions when available |
-| 4 | **FilesystemMiddleware** | Exposes file and execution tools over the configured backend |
-| 5 | **SummarizationMiddleware** | Reduces context when approaching token limits (optional) |
-| 6 | **TodoListMiddleware** | Tracks multi-step tasks in plan mode (optional) |
-| 7 | **TitleMiddleware** | Auto-generates conversation titles after first exchange |
-| 8 | **MaxTokensRecoveryMiddleware** | Retries after provider-side max-token/context-overflow failures |
-| 9 | **ContextWindowMiddleware** | Persists current prompt occupancy snapshots into LangGraph state |
-| 10 | **MemoryMiddleware** | Queues conversations for async memory extraction |
-| 11 | **ViewImageMiddleware** | Injects image data for vision-capable models (conditional) |
-| 12 | **ClarificationMiddleware** | Intercepts clarification requests and interrupts execution (must be last) |
+| Layer | Middleware | Purpose |
+|---|---|---|
+| OpenAgents extras | **ArtifactsMiddleware** | Tracks tool-produced artifacts for frontend presentation |
+| OpenAgents extras | **AuthoringGuardMiddleware** + **RuntimeCommandMiddleware** | Constrains direct authoring turns and runtime command handling |
+| OpenAgents extras | **UploadsMiddleware** | Injects uploaded files into conversation context and prefers generated Markdown companions when available |
+| OpenAgents extras | **KnowledgeContextMiddleware** | Enforces the knowledge-base retrieval protocol and blocks bypass flows |
+| OpenAgents extras | **TitleMiddleware** | Auto-generates and persists a lightweight first-turn title |
+| OpenAgents extras | **Retry / recovery middlewares** | Handles model/tool retries, target-length retries, max-token recovery, visible-response recovery, and clarification formatting |
+| OpenAgents extras | **ContextWindowMiddleware** | Persists current prompt occupancy snapshots into LangGraph state |
+| OpenAgents extras | **ViewImageMiddleware** | Injects image data for vision-capable models after successful `view_image` calls |
+| Deep Agents built-ins | **FilesystemMiddleware**, **SkillsMiddleware**, **SummarizationMiddleware**, **TodoListMiddleware**, **MemoryMiddleware** | Provide the core filesystem, skills, summarization, planning, and memory behaviors |
 
 Important distinction:
 
 - `SummarizationMiddleware` handles normal proactive compaction.
 - `MaxTokensRecoveryMiddleware` is only a recovery path when the provider already rejected the request for context/max-token reasons.
 - User/admin UI should read current occupancy from persisted `context_window`, not from aggregate trace token totals.
+- Runtime backend selection and thread runtime path resolution now happen before graph creation and inside backend/tool helpers from `thread_id`; there is no dedicated `ThreadDataMiddleware` or `SandboxMiddleware` in the current chain.
 
-See [../../docs/CONTEXT_WINDOW_AND_SUMMARIZATION_NOTES.md](../../docs/CONTEXT_WINDOW_AND_SUMMARIZATION_NOTES.md) for the concrete runtime notes and validation data.
+See [../../docs/guides/context-window-and-summarization.md](../../docs/guides/context-window-and-summarization.md) for the concrete runtime notes and validation data.
 
 ### Sandbox System
 
@@ -145,7 +143,7 @@ a connected client machine.
   - `configurable.execution_backend = "remote"`
   - `configurable.remote_session_id = "<session-id>"`
 
-See [../../docs/remote-backend.md](../../docs/remote-backend.md) for the
+See [../../docs/architecture/remote-backend.md](../../docs/architecture/remote-backend.md) for the
 session flow and CLI usage.
 
 ### Subagent System

@@ -5,7 +5,7 @@ Examples:
   python scripts/knowledge_e2e_smoke.py \
     --thread-id 2a503fb8-d428-45e6-944b-ed5296086332 \
     --name "Runtime Markdown Smoke" \
-    --file docs/runtime-architecture.md \
+    --file docs/architecture/runtime-architecture.md \
     --dump-debug
 
   python scripts/knowledge_e2e_smoke.py \
