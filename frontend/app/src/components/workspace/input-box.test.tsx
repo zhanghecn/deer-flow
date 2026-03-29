@@ -48,6 +48,10 @@ vi.mock("./knowledge/knowledge-selector-dialog", () => ({
   ),
 }));
 
+vi.mock("./knowledge/thread-knowledge-attachment-strip", () => ({
+  ThreadKnowledgeAttachmentStrip: () => null,
+}));
+
 vi.mock("@/core/i18n/hooks", () => ({
   useI18n: () => ({
     locale: "en-US",

@@ -29,26 +29,19 @@ class HeadingPagePrediction(BaseModel):
     reason: str = ""
 
 
-class KnowledgeManifestDocument(BaseModel):
-    id: str
+class QueuedKnowledgeBuildJob(BaseModel):
+    job_id: str
+    knowledge_base_id: str
+    document_id: str
+    user_id: str
+    thread_id: str
+    model_name: str | None = None
     display_name: str
     file_name: str
     file_kind: str
     source_storage_path: str
     markdown_storage_path: str | None = None
     preview_storage_path: str | None = None
-
-
-class KnowledgeManifest(BaseModel):
-    user_id: str
-    thread_id: str
-    knowledge_base_id: str
-    knowledge_base_name: str
-    knowledge_base_description: str | None = None
-    source_type: str = "sidebar"
-    command_name: str | None = None
-    model_name: str | None = None
-    documents: list[KnowledgeManifestDocument]
 
 
 class CanonicalSourceMapEntry(BaseModel):

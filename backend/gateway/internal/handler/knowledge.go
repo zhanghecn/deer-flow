@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	ppath "path"
 	"path/filepath"
 	"regexp"
@@ -31,6 +30,7 @@ import (
 
 type KnowledgeHandler struct {
 	repo       *repository.KnowledgeRepo
+	modelRepo  *repository.ModelRepo
 	fs         *storage.FS
 	assetStore *knowledgeasset.Store
 }
@@ -67,28 +67,6 @@ type knowledgeClearResponse struct {
 	Status       string `json:"status"`
 }
 
-type knowledgeManifest struct {
-	UserID                   string                      `json:"user_id"`
-	ThreadID                 string                      `json:"thread_id"`
-	KnowledgeBaseID          string                      `json:"knowledge_base_id"`
-	KnowledgeBaseName        string                      `json:"knowledge_base_name"`
-	KnowledgeBaseDescription string                      `json:"knowledge_base_description,omitempty"`
-	SourceType               string                      `json:"source_type"`
-	CommandName              string                      `json:"command_name,omitempty"`
-	ModelName                string                      `json:"model_name,omitempty"`
-	Documents                []knowledgeManifestDocument `json:"documents"`
-}
-
-type knowledgeManifestDocument struct {
-	ID                  string `json:"id"`
-	DisplayName         string `json:"display_name"`
-	FileName            string `json:"file_name"`
-	FileKind            string `json:"file_kind"`
-	SourceStoragePath   string `json:"source_storage_path"`
-	MarkdownStoragePath string `json:"markdown_storage_path,omitempty"`
-	PreviewStoragePath  string `json:"preview_storage_path,omitempty"`
-}
-
 type knowledgePendingDocument struct {
 	ID                  string
 	DisplayName         string
@@ -109,10 +87,11 @@ var (
 
 func NewKnowledgeHandler(
 	repo *repository.KnowledgeRepo,
+	modelRepo *repository.ModelRepo,
 	fs *storage.FS,
 	assetStore *knowledgeasset.Store,
 ) *KnowledgeHandler {
-	return &KnowledgeHandler{repo: repo, fs: fs, assetStore: assetStore}
+	return &KnowledgeHandler{repo: repo, modelRepo: modelRepo, fs: fs, assetStore: assetStore}
 }
 
 func (h *KnowledgeHandler) List(c *gin.Context) {
@@ -570,6 +549,10 @@ func (h *KnowledgeHandler) queueKnowledgeBaseCreate(
 	}
 	description := strings.TrimSpace(c.PostForm("description"))
 	modelName := strings.TrimSpace(c.PostForm("model_name"))
+	if err := h.requireEnabledModel(c.Request.Context(), modelName); err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
+		return
+	}
 
 	baseID := uuid.NewString()
 	pendingDocuments := make([]knowledgePendingDocument, 0, len(files))
@@ -586,17 +569,18 @@ func (h *KnowledgeHandler) queueKnowledgeBaseCreate(
 		pendingDocuments = append(pendingDocuments, document)
 	}
 
-	if err := h.runKnowledgeIndexer(c.Request.Context(), knowledgeManifest{
-		UserID:                   userID.String(),
-		ThreadID:                 threadID,
-		KnowledgeBaseID:          baseID,
-		KnowledgeBaseName:        baseName,
-		KnowledgeBaseDescription: description,
-		SourceType:               sourceType,
-		CommandName:              commandName,
-		ModelName:                modelName,
-		Documents:                manifestDocuments(pendingDocuments),
-	}); err != nil {
+	if err := h.queuePendingKnowledgeBuild(
+		c.Request.Context(),
+		userID,
+		threadID,
+		baseID,
+		baseName,
+		description,
+		sourceType,
+		commandName,
+		modelName,
+		pendingDocuments,
+	); err != nil {
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
 		return
 	}
@@ -808,6 +792,10 @@ func (h *KnowledgeHandler) IndexUploaded(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "filenames are required"})
 		return
 	}
+	if err := h.requireEnabledModel(c.Request.Context(), strings.TrimSpace(req.ModelName)); err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
+		return
+	}
 
 	baseName := strings.TrimSpace(req.Name)
 	if baseName == "" {
@@ -829,17 +817,18 @@ func (h *KnowledgeHandler) IndexUploaded(c *gin.Context) {
 		pendingDocuments = append(pendingDocuments, document)
 	}
 
-	if err := h.runKnowledgeIndexer(c.Request.Context(), knowledgeManifest{
-		UserID:                   userID.String(),
-		ThreadID:                 threadID,
-		KnowledgeBaseID:          baseID,
-		KnowledgeBaseName:        baseName,
-		KnowledgeBaseDescription: strings.TrimSpace(req.Description),
-		SourceType:               "command",
-		CommandName:              "knowledge-add",
-		ModelName:                strings.TrimSpace(req.ModelName),
-		Documents:                manifestDocuments(pendingDocuments),
-	}); err != nil {
+	if err := h.queuePendingKnowledgeBuild(
+		c.Request.Context(),
+		userID,
+		threadID,
+		baseID,
+		baseName,
+		strings.TrimSpace(req.Description),
+		"command",
+		"knowledge-add",
+		strings.TrimSpace(req.ModelName),
+		pendingDocuments,
+	); err != nil {
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
 		return
 	}
@@ -860,6 +849,21 @@ func (h *KnowledgeHandler) respondWithThreadKnowledgeBases(c *gin.Context, userI
 		items = []repository.KnowledgeBaseRecord{}
 	}
 	c.JSON(http.StatusOK, knowledgeCreateResponse{KnowledgeBases: items})
+}
+
+func (h *KnowledgeHandler) requireEnabledModel(ctx context.Context, modelName string) error {
+	normalized := strings.TrimSpace(modelName)
+	if normalized == "" {
+		return fmt.Errorf("model_name is required")
+	}
+	record, err := h.modelRepo.FindEnabledByName(ctx, normalized)
+	if err != nil {
+		return fmt.Errorf("failed to validate model_name: %w", err)
+	}
+	if record == nil {
+		return fmt.Errorf("model_name %q is not enabled", normalized)
+	}
+	return nil
 }
 
 func firstNonEmptyRef(values ...*string) string {
@@ -1082,20 +1086,57 @@ func mapKnowledgeStorageRef(assetStore *knowledgeasset.Store, storageRef string)
 	return assetStore.RefForRelativePath(trimmed)
 }
 
-func manifestDocuments(pending []knowledgePendingDocument) []knowledgeManifestDocument {
-	documents := make([]knowledgeManifestDocument, 0, len(pending))
+func (h *KnowledgeHandler) queuePendingKnowledgeBuild(
+	ctx context.Context,
+	userID uuid.UUID,
+	threadID string,
+	baseID string,
+	baseName string,
+	description string,
+	sourceType string,
+	commandName string,
+	modelName string,
+	pending []knowledgePendingDocument,
+) error {
+	documents := make([]repository.QueuedKnowledgeDocumentInput, 0, len(pending))
 	for _, document := range pending {
-		documents = append(documents, knowledgeManifestDocument{
+		documents = append(documents, repository.QueuedKnowledgeDocumentInput{
 			ID:                  document.ID,
 			DisplayName:         document.DisplayName,
 			FileName:            document.FileName,
 			FileKind:            document.FileKind,
+			LocatorType:         queuedKnowledgeLocatorType(document.FileKind),
 			SourceStoragePath:   document.SourceStoragePath,
-			MarkdownStoragePath: document.MarkdownStoragePath,
-			PreviewStoragePath:  document.PreviewStoragePath,
+			MarkdownStoragePath: optionalTrimmedString(document.MarkdownStoragePath),
+			PreviewStoragePath:  optionalTrimmedString(document.PreviewStoragePath),
+			ModelName:           modelName,
 		})
 	}
-	return documents
+	return h.repo.QueueBaseBuild(ctx, repository.QueueKnowledgeBaseBuildParams{
+		ID:          baseID,
+		UserID:      userID,
+		ThreadID:    threadID,
+		Name:        baseName,
+		Description: optionalTrimmedString(description),
+		SourceType:  sourceType,
+		CommandName: optionalTrimmedString(commandName),
+		Documents:   documents,
+	})
+}
+
+func optionalTrimmedString(value string) *string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
+}
+
+func queuedKnowledgeLocatorType(fileKind string) string {
+	if strings.EqualFold(strings.TrimSpace(fileKind), "markdown") {
+		return "heading"
+	}
+	return "page"
 }
 
 func knowledgeFileKind(fileName string) string {
@@ -1253,55 +1294,4 @@ func normalizeMarkdownRelativeAssetRef(raw string) string {
 		return ""
 	}
 	return filepath.ToSlash(cleanPath)
-}
-
-func (h *KnowledgeHandler) runKnowledgeIndexer(ctx context.Context, manifest knowledgeManifest) error {
-	manifestFile, err := os.CreateTemp("", "openagents-knowledge-manifest-*.json")
-	if err != nil {
-		return fmt.Errorf("create manifest file: %w", err)
-	}
-	manifestPath := manifestFile.Name()
-
-	if err := json.NewEncoder(manifestFile).Encode(manifest); err != nil {
-		_ = manifestFile.Close()
-		_ = os.Remove(manifestPath)
-		return fmt.Errorf("encode knowledge manifest: %w", err)
-	}
-	if err := manifestFile.Close(); err != nil {
-		_ = os.Remove(manifestPath)
-		return fmt.Errorf("close knowledge manifest: %w", err)
-	}
-
-	command := exec.CommandContext(
-		context.Background(),
-		"uv",
-		"run",
-		"python",
-		"-m",
-		"src.knowledge.cli",
-		"ingest",
-		"--manifest",
-		manifestPath,
-	)
-	command.Dir = filepath.Join(filepath.Dir(h.fs.BaseDir()), "backend", "agents")
-	command.Env = os.Environ()
-	go func(manifestPath string, cmd *exec.Cmd) {
-		defer os.Remove(manifestPath)
-		output, runErr := cmd.CombinedOutput()
-		if runErr != nil {
-			log.Printf(
-				"knowledge indexer failed for base %s: %v: %s",
-				manifest.KnowledgeBaseID,
-				runErr,
-				strings.TrimSpace(string(output)),
-			)
-			return
-		}
-		log.Printf(
-			"knowledge indexer completed for base %s: %s",
-			manifest.KnowledgeBaseID,
-			strings.TrimSpace(string(output)),
-		)
-	}(manifestPath, command)
-	return nil
 }

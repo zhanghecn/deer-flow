@@ -8,7 +8,12 @@
     "configurable_headers": {
       "includes": [
         "x-user-id",
-        "x-thread-id"
+        "x-thread-id",
+        "x-model-name",
+        "x-agent-name",
+        "x-agent-status",
+        "x-execution-backend",
+        "x-remote-session-id"
       ]
     }
   },

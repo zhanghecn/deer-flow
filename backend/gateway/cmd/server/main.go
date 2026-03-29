@@ -85,7 +85,7 @@ func main() {
 	threadsH := handler.NewThreadsHandler(threadRepo, cfg.Upstream.LangGraphURL, fs)
 	uploadsH := handler.NewUploadsHandler(fs)
 	artifactsH := handler.NewArtifactsHandler(fs)
-	knowledgeH := handler.NewKnowledgeHandler(knowledgeRepo, fs, knowledgeAssetStore)
+	knowledgeH := handler.NewKnowledgeHandler(knowledgeRepo, modelRepo, fs, knowledgeAssetStore)
 	onlyOfficeH := handler.NewOnlyOfficeHandler(fs, handler.OnlyOfficeConfig{
 		ServerURL:    cfg.OnlyOffice.ServerURL,
 		PublicAppURL: cfg.OnlyOffice.PublicAppURL,

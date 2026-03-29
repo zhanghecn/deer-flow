@@ -14,7 +14,7 @@ from langchain_anthropic._client_utils import (
 
 from src.config import get_tracing_config, is_tracing_enabled
 from src.config.model_config import ModelConfig
-from src.config.runtime_db import get_runtime_db_store
+from src.models.catalog import require_enabled_model
 from src.reflection import resolve_class
 from src.agents.middlewares.retry_utils import (
     DEFAULT_PROVIDER_MAX_RETRIES,
@@ -62,11 +62,7 @@ def _resolve_model_config(
     if name is None:
         raise ValueError("Model name is required when `runtime_model_config` is not provided.") from None
 
-    model_config = get_runtime_db_store().get_model(name)
-    if model_config is None:
-        raise ValueError(f"Model {name} not found in database or is disabled") from None
-
-    return name, model_config
+    return name, require_enabled_model(name)
 
 
 def _build_model_settings(model_config: ModelConfig) -> dict[str, Any]:
@@ -194,11 +190,7 @@ def _should_bypass_env_proxy_for_base_url(base_url: object) -> bool:
     except ValueError:
         return False
 
-    return bool(
-        host_ip.is_loopback
-        or host_ip.is_private
-        or host_ip.is_link_local
-    )
+    return bool(host_ip.is_loopback or host_ip.is_private or host_ip.is_link_local)
 
 
 def _attach_anthropic_http_retry_observers(model_instance: BaseChatModel) -> None:

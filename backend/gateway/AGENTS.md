@@ -84,6 +84,7 @@ When the frontend or lead agent creates a new domain agent, the runtime flow dep
 ## Working Conventions
 
 - Keep `/api/langgraph/*` policy minimal: pass payload through, inject authenticated identity, leave runtime resolution to Python.
+- Do not keep legacy fallback execution paths in Gateway once Python owns a business flow. Gateway should proxy or reject, not silently fall back to older subprocess or duplicate-logic branches.
 - Preserve the archive-definition-to-runtime-materialization contract.
 - When extending agent-owned assets, add them under `agents/{status}/{name}/...`, copy them during create and publish, and rely on Python startup to seed them into the runtime view.
 - Thread uploads live under `threads/{thread_id}/user-data/uploads/`. Go owns upload CRUD there, including auto-generating Markdown companions for convertible documents and keeping delete/list behavior consistent with those companions.

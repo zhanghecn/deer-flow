@@ -21,6 +21,7 @@ import {
   type ResolvedAgentRuntimeSelection,
 } from "@/core/agents";
 import { useI18n } from "@/core/i18n/hooks";
+import { useModels } from "@/core/models/hooks";
 import { useNotification } from "@/core/notification/hooks";
 import { useLocalSettings } from "@/core/settings";
 import { useThreadStream } from "@/core/threads/hooks";
@@ -52,8 +53,10 @@ export default function ChatPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const pathname = location.pathname;
-  const [settings] = useLocalSettings();
+  const [settings, setSettings] = useLocalSettings();
   const [searchParams] = useSearchParams();
+  const { models } = useModels();
+  const defaultModelName = models[0]?.name;
   const routeHasPendingRun = searchParams.get("pending_run") === "1";
   const routeRuntimeSelection = useMemo(
     () => readAgentRuntimeSelection(searchParams),
@@ -93,9 +96,17 @@ export default function ChatPage() {
     () => ({
       ...settings.context,
       ...runtimeMessageContext,
-      model_name: boundThreadRuntime.modelName ?? settings.context.model_name,
+      model_name:
+        boundThreadRuntime.modelName ??
+        settings.context.model_name ??
+        defaultModelName,
     }),
-    [boundThreadRuntime.modelName, runtimeMessageContext, settings.context],
+    [
+      boundThreadRuntime.modelName,
+      defaultModelName,
+      runtimeMessageContext,
+      settings.context,
+    ],
   );
   const [runtimeContext, setRuntimeContext] =
     useState<typeof settings.context>(runtimeContextSeed);
@@ -117,6 +128,16 @@ export default function ChatPage() {
     typeof runtimeContext.model_name === "string"
       ? runtimeContext.model_name.trim()
       : "";
+
+  useEffect(() => {
+    if (settings.context.model_name || !defaultModelName) {
+      return;
+    }
+
+    setSettings("context", {
+      model_name: defaultModelName,
+    });
+  }, [defaultModelName, setSettings, settings.context.model_name]);
 
   useEffect(() => {
     setRuntimeContext(runtimeContextSeed);
@@ -320,9 +341,7 @@ export default function ChatPage() {
                 className={cn("size-full", !showCenteredComposer && "pt-10")}
                 threadId={threadId}
                 thread={thread}
-                paddingBottom={
-                  showCenteredComposer ? undefined : paddingBottom
-                }
+                paddingBottom={showCenteredComposer ? undefined : paddingBottom}
               />
             </div>
             <div className="pointer-events-none absolute right-0 bottom-0 left-0 z-30 flex justify-center px-4">

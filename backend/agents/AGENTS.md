@@ -33,6 +33,7 @@ Critical agent protocol rules for future work:
 - `lead_agent` does not implicitly read the full shared skills archive anymore. Its default archived skill set is explicit and currently includes `bootstrap`.
 - `1 thread = 1 agent/runtime binding`. Existing thread opens must restore the persisted binding; switching agent/archive/runtime must create a new thread instead of mutating the old one.
 - The persisted runtime binding lives in Gateway `thread_bindings` and currently includes `agent_name`, `agent_status`, `model_name`, `execution_backend`, and `remote_session_id`.
+- Thread-scoped read requests before the first run may carry explicit runtime identity headers (`x-model-name`, `x-agent-name`, `x-agent-status`, `x-execution-backend`, `x-remote-session-id`) to seed an unbound thread view. Treat them as request input only when no persisted binding exists; never let them override an existing `thread_bindings` row.
 - Go/Gateway owns archive CRUD, publish, thread list/title/delete APIs, and local archive writes.
 - Python runtime currently persists `thread_bindings` runtime bindings, owns backend selection, runtime seeding, and execution.
 - Runtime must read from thread-local copies under `/mnt/user-data/...`, not directly mutate archived files.
@@ -45,6 +46,14 @@ Critical agent protocol rules for future work:
 - `LocalShellBackend` is for local debugging only and must preserve the same internal path contract as sandbox mode. If local mode needs special mapping, fix the backend mapping layer instead of changing skills to host paths.
 - `BackendProtocol` and `SandboxBackendProtocol` are data-plane interfaces. `SandboxProvider` is a control-plane interface. Do not collapse sandbox lifecycle allocation back into data-plane runtime backends.
 - `AioSandboxProvider` is not synonymous with single-machine sandbox mode. It is a managed sandbox provisioner that can drive local container sandboxes, provisioner-backed sandboxes, or externally managed sandbox endpoints.
+- Comment discipline is mandatory for runtime/backend/sandbox work:
+  - add concise comments/docstrings around non-obvious path rewriting, config precedence, thread binding restore/persist behavior, lifecycle caching/locking, and security/isolation assumptions
+  - prefer comments that state invariants and operator-relevant intent, not comments that merely restate Python syntax
+  - when touching a confusing code path, improve the surrounding comments in the same patch instead of leaving the next reader to reconstruct the execution model from logs alone
+- Hard-cut rule for legacy behavior:
+  - do not keep compatibility fallbacks for deprecated runtime, model, gateway, or knowledge-indexing paths once a canonical path has been chosen
+  - remove old branches instead of silently falling back from database -> config, request -> thread binding, or new endpoint -> legacy subprocess behavior
+  - if persisted stale values must be handled, migrate them in storage and then reject any remaining invalid values explicitly
 - Open API should resolve `prod` agents only.
 - `setup_agent` must receive an explicit `target_agent_name` or `agent_name` in runtime context. Do not rely on a special bootstrap-only runtime branch.
 - Do not re-introduce `skills_mode`, `soul`/`SOUL.md`, legacy agent directory fallbacks, or `exclude_groups`-style compatibility paths.

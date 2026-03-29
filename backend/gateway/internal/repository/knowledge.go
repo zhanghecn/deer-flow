@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -93,6 +94,29 @@ type KnowledgeBaseDeleteRecord struct {
 	Name    string `json:"name"`
 }
 
+type QueuedKnowledgeDocumentInput struct {
+	ID                  string
+	DisplayName         string
+	FileName            string
+	FileKind            string
+	LocatorType         string
+	SourceStoragePath   string
+	MarkdownStoragePath *string
+	PreviewStoragePath  *string
+	ModelName           string
+}
+
+type QueueKnowledgeBaseBuildParams struct {
+	ID          string
+	UserID      uuid.UUID
+	ThreadID    string
+	Name        string
+	Description *string
+	SourceType  string
+	CommandName *string
+	Documents   []QueuedKnowledgeDocumentInput
+}
+
 type KnowledgeDocumentDebugRecord struct {
 	Document          KnowledgeDocumentRecord `json:"document"`
 	KnowledgeBaseID   string                  `json:"knowledge_base_id"`
@@ -113,6 +137,165 @@ type KnowledgeRepo struct {
 
 func NewKnowledgeRepo(pool *pgxpool.Pool) *KnowledgeRepo {
 	return &KnowledgeRepo{pool: pool}
+}
+
+func (r *KnowledgeRepo) QueueBaseBuild(
+	ctx context.Context,
+	params QueueKnowledgeBaseBuildParams,
+) error {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(
+		ctx,
+		`
+			INSERT INTO knowledge_bases (
+				id,
+				user_id,
+				name,
+				description,
+				source_type,
+				command_name
+			)
+			VALUES ($1::uuid, $2, $3, $4, $5, $6)
+		`,
+		params.ID,
+		params.UserID,
+		params.Name,
+		params.Description,
+		params.SourceType,
+		params.CommandName,
+	); err != nil {
+		return err
+	}
+
+	if params.ThreadID != "" {
+		if _, err := tx.Exec(
+			ctx,
+			`
+				INSERT INTO knowledge_thread_bindings (thread_id, knowledge_base_id, user_id)
+				VALUES ($1, $2::uuid, $3)
+				ON CONFLICT (thread_id, knowledge_base_id) DO NOTHING
+			`,
+			params.ThreadID,
+			params.ID,
+			params.UserID,
+		); err != nil {
+			return err
+		}
+	}
+
+	for _, document := range params.Documents {
+		if _, err := tx.Exec(
+			ctx,
+			`
+				INSERT INTO knowledge_documents (
+					id,
+					knowledge_base_id,
+					user_id,
+					display_name,
+					file_name,
+					file_kind,
+					locator_type,
+					source_storage_path,
+					markdown_storage_path,
+					preview_storage_path,
+					status,
+					build_model_name
+				)
+				VALUES (
+					$1::uuid,
+					$2::uuid,
+					$3,
+					$4,
+					$5,
+					$6,
+					$7,
+					$8,
+					$9,
+					$10,
+					'queued',
+					$11
+				)
+			`,
+			document.ID,
+			params.ID,
+			params.UserID,
+			document.DisplayName,
+			document.FileName,
+			document.FileKind,
+			document.LocatorType,
+			document.SourceStoragePath,
+			document.MarkdownStoragePath,
+			document.PreviewStoragePath,
+			document.ModelName,
+		); err != nil {
+			return err
+		}
+
+		message := fmt.Sprintf("Queued indexing for %s", document.DisplayName)
+		var jobID string
+		if err := tx.QueryRow(
+			ctx,
+			`
+				INSERT INTO knowledge_build_jobs (
+					knowledge_base_id,
+					document_id,
+					user_id,
+					thread_id,
+					status,
+					stage,
+					message,
+					model_name
+				)
+				VALUES (
+					$1::uuid,
+					$2::uuid,
+					$3,
+					$4,
+					'queued',
+					'queued',
+					$5,
+					$6
+				)
+				RETURNING id::text
+			`,
+			params.ID,
+			document.ID,
+			params.UserID,
+			params.ThreadID,
+			message,
+			document.ModelName,
+		).Scan(&jobID); err != nil {
+			return err
+		}
+
+		if _, err := tx.Exec(
+			ctx,
+			`
+				INSERT INTO knowledge_build_events (
+					job_id,
+					document_id,
+					stage,
+					step_name,
+					status,
+					message,
+					metadata
+				)
+				VALUES ($1::uuid, $2::uuid, 'queued', 'job_queued', 'queued', $3, '{}'::jsonb)
+			`,
+			jobID,
+			document.ID,
+			message,
+		); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit(ctx)
 }
 
 func (r *KnowledgeRepo) ListByThread(

@@ -260,6 +260,8 @@ export const enUS: Translations = {
     loadingAttached: "Loading attached knowledge...",
     emptyAttached: "No knowledge base is attached to this thread yet.",
     chooseAtLeastOneFile: "Choose at least one file.",
+    invalidSelectedModel:
+      "Select a valid model before creating a knowledge base.",
     defaultBaseName: "Knowledge Base",
     indexQueued: "Knowledge indexing has been queued.",
     createError: "Failed to create knowledge base.",
@@ -269,6 +271,8 @@ export const enUS: Translations = {
       "Upload PDF, Word, or Markdown files and build a persistent document tree index for this thread.",
     newDescriptionGlobal:
       "Upload PDF, Word, or Markdown files and build a shared persistent document tree index for the library.",
+    modelLabel: "Index model",
+    modelPlaceholder: "Select a model",
     namePlaceholder: "Knowledge base name",
     descriptionPlaceholder: "Optional description for the agent",
     managerTitle: "Knowledge Library",
@@ -455,8 +459,7 @@ export const enUS: Translations = {
     questionProgress: (current: number, total: number) =>
       `Question ${current} of ${total}`,
     questionHintSingle: "Choose one option or type your own answer.",
-    questionHintMultiple:
-      "Choose one or more options, or add your own answer.",
+    questionHintMultiple: "Choose one or more options, or add your own answer.",
     questionCustomAnswer: "Custom answer",
     questionReplyPlaceholder: "Type your answer",
     questionReplyAction: "Send answer",

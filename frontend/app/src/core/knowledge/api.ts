@@ -70,7 +70,7 @@ export async function createThreadKnowledgeBase(
   params: {
     name: string;
     description?: string;
-    modelName?: string;
+    modelName: string;
     files: File[];
   },
 ): Promise<KnowledgeAcceptedResponse> {
@@ -79,9 +79,7 @@ export async function createThreadKnowledgeBase(
   if (params.description) {
     formData.set("description", params.description);
   }
-  if (params.modelName) {
-    formData.set("model_name", params.modelName);
-  }
+  formData.set("model_name", params.modelName);
   params.files.forEach((file) => {
     formData.append("files", file);
   });
@@ -116,7 +114,7 @@ export async function listKnowledgeLibrary(
 export async function createKnowledgeBase(params: {
   name: string;
   description?: string;
-  modelName?: string;
+  modelName: string;
   files: File[];
 }): Promise<KnowledgeAcceptedResponse> {
   const formData = new FormData();
@@ -124,9 +122,7 @@ export async function createKnowledgeBase(params: {
   if (params.description) {
     formData.set("description", params.description);
   }
-  if (params.modelName) {
-    formData.set("model_name", params.modelName);
-  }
+  formData.set("model_name", params.modelName);
   params.files.forEach((file) => {
     formData.append("files", file);
   });

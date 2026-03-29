@@ -639,13 +639,18 @@ function getExperimentalBranchTree(source: object) {
 }
 
 function extractPrimaryInterrupt(
-  state: { interrupts?: unknown } | null | undefined,
+  state: object | null | undefined,
 ): AgentInterrupt | undefined {
-  if (!state || !Array.isArray(state.interrupts) || state.interrupts.length === 0) {
+  if (!state || !("interrupts" in state)) {
     return undefined;
   }
 
-  const [interrupt] = state.interrupts;
+  const interrupts = (state as { interrupts?: unknown }).interrupts;
+  if (!Array.isArray(interrupts) || interrupts.length === 0) {
+    return undefined;
+  }
+
+  const [interrupt] = interrupts;
   return interrupt as AgentInterrupt | undefined;
 }
 
@@ -803,7 +808,48 @@ export function useThreadStream({
 }: ThreadStreamOptions) {
   const { t, locale } = useI18n();
   const { authenticated } = useAuth();
-  const apiClient = getAPIClient(isMock, threadId ?? null);
+  const resolvedContext = useMemo(
+    () => resolveThreadContext(context),
+    [context],
+  );
+  const requestRuntimeIdentity = useMemo(
+    () => ({
+      agent_name:
+        typeof resolvedContext.agent_name === "string"
+          ? resolvedContext.agent_name
+          : undefined,
+      agent_status:
+        resolvedContext.agent_status === "prod"
+          ? ("prod" as const)
+          : resolvedContext.agent_status === "dev"
+            ? ("dev" as const)
+            : undefined,
+      execution_backend:
+        resolvedContext.execution_backend === "remote"
+          ? ("remote" as const)
+          : undefined,
+      remote_session_id:
+        typeof resolvedContext.remote_session_id === "string"
+          ? resolvedContext.remote_session_id
+          : undefined,
+      model_name:
+        typeof resolvedContext.model_name === "string"
+          ? resolvedContext.model_name
+          : undefined,
+    }),
+    [
+      resolvedContext.agent_name,
+      resolvedContext.agent_status,
+      resolvedContext.execution_backend,
+      resolvedContext.model_name,
+      resolvedContext.remote_session_id,
+    ],
+  );
+  const apiClient = getAPIClient(
+    isMock,
+    threadId ?? null,
+    requestRuntimeIdentity,
+  );
   const { isActive: isWindowActive, activationId: windowActivationId } =
     useWindowActivity();
   const [streamThreadId, setStreamThreadId] = useState<string | null>(
@@ -828,11 +874,10 @@ export function useThreadStream({
   const ensureThreadPromiseRef = useRef<Promise<void> | null>(null);
   const ensureRequestedThreadIdRef = useRef<string | null>(null);
   const ensuredThreadIdRef = useRef<string | null>(null);
-  const resolvedContext = useMemo(
-    () => resolveThreadContext(context),
-    [context],
-  );
   const streamThrottle = resolveStreamThrottle(resolvedContext);
+  const hasResolvedModelName =
+    typeof resolvedContext.model_name === "string" &&
+    resolvedContext.model_name.trim().length > 0;
   const passthroughThreadHistory = useMemo(
     () =>
       historyEnabled || !(threadId ?? streamThreadId)
@@ -1070,6 +1115,10 @@ export function useThreadStream({
       return;
     }
 
+    if (!historyEnabled && !hasResolvedModelName) {
+      return;
+    }
+
     if (shouldDeferStateHydration) {
       return;
     }
@@ -1164,6 +1213,7 @@ export function useThreadStream({
   }, [
     apiClient,
     authenticated,
+    hasResolvedModelName,
     historyEnabled,
     isWindowActive,
     notifyThreadError,
@@ -1172,7 +1222,13 @@ export function useThreadStream({
   ]);
 
   useEffect(() => {
-    if (!threadId || !authenticated || historyEnabled || !isWindowActive) {
+    if (
+      !threadId ||
+      !authenticated ||
+      historyEnabled ||
+      !isWindowActive ||
+      !hasResolvedModelName
+    ) {
       return;
     }
 
@@ -1232,6 +1288,7 @@ export function useThreadStream({
     apiClient,
     authenticated,
     finalizeRecoveredRun,
+    hasResolvedModelName,
     historyEnabled,
     isWindowActive,
     thread,

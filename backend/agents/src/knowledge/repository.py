@@ -34,6 +34,7 @@ from src.knowledge.models import (
     NodeDetailItem,
     NodePageChunk,
     NodeDetailResult,
+    QueuedKnowledgeBuildJob,
     first_non_empty,
 )
 from src.knowledge.storage import get_knowledge_asset_store
@@ -180,6 +181,64 @@ class KnowledgeRepository:
         if row is None:
             raise RuntimeError("Failed to create knowledge build job.")
         return str(row[0])
+
+    def claim_next_queued_job(self) -> QueuedKnowledgeBuildJob | None:
+        query = """
+            SELECT
+                j.id::text,
+                j.knowledge_base_id::text,
+                j.document_id::text,
+                j.user_id::text,
+                j.thread_id,
+                j.model_name,
+                d.display_name,
+                d.file_name,
+                d.file_kind,
+                d.source_storage_path,
+                d.markdown_storage_path,
+                d.preview_storage_path
+            FROM knowledge_build_jobs j
+            JOIN knowledge_documents d ON d.id = j.document_id
+            WHERE j.status = 'queued'
+            ORDER BY j.created_at ASC
+            FOR UPDATE SKIP LOCKED
+            LIMIT 1
+        """
+        with self.connection() as conn, conn.transaction(), conn.cursor() as cur:
+            cur.execute(query)
+            row = cur.fetchone()
+            if row is None:
+                return None
+
+            job_id = str(row[0])
+            display_name = str(row[6])
+            cur.execute(
+                """
+                UPDATE knowledge_build_jobs
+                SET status = 'processing',
+                    stage = 'queued',
+                    message = %s,
+                    started_at = COALESCE(started_at, NOW()),
+                    updated_at = NOW()
+                WHERE id = %s::uuid
+                """,
+                (f"Starting indexing for {display_name}", job_id),
+            )
+
+        return QueuedKnowledgeBuildJob(
+            job_id=job_id,
+            knowledge_base_id=str(row[1]),
+            document_id=str(row[2]),
+            user_id=str(row[3]),
+            thread_id=str(row[4] or ""),
+            model_name=row[5],
+            display_name=display_name,
+            file_name=str(row[7]),
+            file_kind=str(row[8]),
+            source_storage_path=str(row[9]),
+            markdown_storage_path=row[10],
+            preview_storage_path=row[11],
+        )
 
     def update_build_job(
         self,
@@ -354,6 +413,35 @@ class KnowledgeRepository:
                 ),
             )
 
+    def mark_document_processing(
+        self,
+        *,
+        document_id: str,
+        locator_type: str,
+        build_model_name: str,
+        content_sha256: str | None,
+    ) -> None:
+        query = """
+            UPDATE knowledge_documents
+            SET locator_type = %s,
+                status = 'processing',
+                error = NULL,
+                build_model_name = %s,
+                content_sha256 = %s,
+                updated_at = NOW()
+            WHERE id = %s::uuid
+        """
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                query,
+                (
+                    locator_type,
+                    build_model_name,
+                    content_sha256,
+                    document_id,
+                ),
+            )
+
     def find_reusable_document_index(
         self,
         *,
@@ -452,10 +540,7 @@ class KnowledgeRepository:
             "canonical_storage_path": canonical_storage_path,
             "source_map_storage_path": source_map_storage_path,
             "structure": indexed_document.structure,
-            "nodes": [
-                node.model_dump(mode="json")
-                for node in indexed_document.nodes
-            ],
+            "nodes": [node.model_dump(mode="json") for node in indexed_document.nodes],
         }
         with self.connection() as conn, conn.cursor() as cur:
             cur.execute(
@@ -679,10 +764,7 @@ class KnowledgeRepository:
                     summary=row[12],
                     visual_summary=row[13],
                     summary_quality=row[14] or "fallback",
-                    evidence_refs=[
-                        KnowledgeEvidenceRef.model_validate(entry)
-                        for entry in (row[15] or [])
-                    ],
+                    evidence_refs=[KnowledgeEvidenceRef.model_validate(entry) for entry in (row[15] or [])],
                     prefix_summary=row[16],
                     node_text=row[17],
                 )
@@ -1210,10 +1292,7 @@ class KnowledgeRepository:
             summary=row[13],
             visual_summary=row[14],
             summary_quality=row[15] or "fallback",
-            evidence_refs=[
-                KnowledgeEvidenceRef.model_validate(entry)
-                for entry in (row[16] or [])
-            ],
+            evidence_refs=[KnowledgeEvidenceRef.model_validate(entry) for entry in (row[16] or [])],
             prefix_summary=row[17],
             node_text=row[18],
         )
@@ -1296,9 +1375,7 @@ class KnowledgeRepository:
             total_chars += sum(len(chunk.text) for chunk in item.page_chunks)
             total_chars += sum(len(block.text or "") for block in item.evidence_blocks)
             if total_chars > _DETAIL_MAX_TOTAL_CHARS:
-                raise ValueError(
-                    "Requested document evidence is too large. Inspect a narrower subtree with get_document_tree(document_name_or_id=..., node_id=...) and then request fewer nodes."
-                )
+                raise ValueError("Requested document evidence is too large. Inspect a narrower subtree with get_document_tree(document_name_or_id=..., node_id=...) and then request fewer nodes.")
             items.append(item)
 
         returned_pages = _page_range_label_from_nodes(nodes) if document.locator_type == "page" else None
@@ -1351,11 +1428,7 @@ class KnowledgeRepository:
         if document.locator_type == "page":
             source_ref = document.preview_storage_path or document.source_storage_path or document.markdown_storage_path
         else:
-            source_ref = (
-                document.canonical_storage_path
-                or document.markdown_storage_path
-                or document.source_storage_path
-            )
+            source_ref = document.canonical_storage_path or document.markdown_storage_path or document.source_storage_path
         source_path = self._storage_ref_to_path(source_ref)
         target_dir = self._paths.sandbox_outputs_dir(thread_id) / ".knowledge" / document.id
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -1581,10 +1654,7 @@ class KnowledgeRepository:
             )
 
             page_image_path: str | None = None
-            should_include_page_image = chunk.embedded_image_count > 0 or any(
-                ref.kind == "page_image" and ref.page_number == chunk.page_number
-                for ref in node.evidence_refs
-            )
+            should_include_page_image = chunk.embedded_image_count > 0 or any(ref.kind == "page_image" and ref.page_number == chunk.page_number for ref in node.evidence_refs)
             if should_include_page_image:
                 try:
                     page_image_path, _embedded_image_count = self.ensure_document_page_asset(
@@ -1921,12 +1991,7 @@ class KnowledgeRepository:
         source_path: Path,
     ) -> str:
         package_root = self._document_package_root_path(document)
-        base_storage_ref = (
-            document.canonical_storage_path
-            or document.markdown_storage_path
-            or document.preview_storage_path
-            or document.source_storage_path
-        )
+        base_storage_ref = document.canonical_storage_path or document.markdown_storage_path or document.preview_storage_path or document.source_storage_path
         resolved_source = source_path.resolve()
         try:
             relative_path = resolved_source.relative_to(package_root.resolve()).as_posix()
@@ -2002,12 +2067,7 @@ class KnowledgeRepository:
         return None
 
     def _document_package_root_path(self, document: KnowledgeDocumentRecord) -> Path:
-        base_ref = (
-            document.canonical_storage_path
-            or document.markdown_storage_path
-            or document.preview_storage_path
-            or document.source_storage_path
-        )
+        base_ref = document.canonical_storage_path or document.markdown_storage_path or document.preview_storage_path or document.source_storage_path
         path = self._storage_ref_to_path(base_ref)
         parent = path.parent
         if parent.name in _PACKAGE_SUBDIR_NAMES:
@@ -2142,17 +2202,8 @@ class KnowledgeRepository:
         document: KnowledgeDocumentRecord,
         items: list[NodeDetailItem],
     ) -> KnowledgeToolNextSteps:
-        visual_blocks = sum(
-            1
-            for item in items
-            for block in item.evidence_blocks
-            if block.kind in {"image", "page_image"}
-        )
-        summary = (
-            f"Successfully retrieved evidence for {len(items)} nodes with {visual_blocks} visual blocks."
-            if visual_blocks > 0
-            else f"Successfully retrieved evidence for {len(items)} nodes."
-        )
+        visual_blocks = sum(1 for item in items for block in item.evidence_blocks if block.kind in {"image", "page_image"})
+        summary = f"Successfully retrieved evidence for {len(items)} nodes with {visual_blocks} visual blocks." if visual_blocks > 0 else f"Successfully retrieved evidence for {len(items)} nodes."
         options = [
             "Use get_document_tree(document_name_or_id=..., node_id=...) to inspect child branches when a node still covers too much content.",
             "Use the returned evidence_blocks as the grounded source of truth for both citations and inline visuals.",
@@ -2286,11 +2337,7 @@ def _slice_root_overview_window(
         bounded_cursor = max(total - _ROOT_OVERVIEW_WINDOW_SIZE, 0)
 
     end = min(bounded_cursor + _ROOT_OVERVIEW_WINDOW_SIZE, total)
-    previous_cursor = (
-        max(bounded_cursor - _ROOT_OVERVIEW_WINDOW_SIZE, 0)
-        if bounded_cursor > 0
-        else None
-    )
+    previous_cursor = max(bounded_cursor - _ROOT_OVERVIEW_WINDOW_SIZE, 0) if bounded_cursor > 0 else None
     next_cursor = end if end < total else None
     return structure[bounded_cursor:end], bounded_cursor, previous_cursor, next_cursor
 

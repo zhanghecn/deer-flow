@@ -13,6 +13,7 @@ import yaml
 from src.agents.lead_agent.agent import prime_lead_agent_read_graph_cache
 from src.config.builtin_agents import ensure_builtin_agent_archive
 from src.config.config_files import resolve_config_file
+from src.knowledge.worker import start_knowledge_worker_thread
 from src.remote.server import start_remote_relay_sidecar
 
 ALLOWED_RUNTIME_EDITIONS = {"inmem", "postgres", "community"}
@@ -46,9 +47,7 @@ def _merge_runtime_env(env_values: dict[str, str]) -> dict[str, str]:
 def _load_env_from_config(config_path: Path, config_data: dict[str, Any]) -> dict[str, str] | None:
     env_config = config_data.get("env")
     if isinstance(env_config, dict):
-        return _merge_runtime_env(
-            {str(key): str(value) for key, value in env_config.items() if value is not None}
-        )
+        return _merge_runtime_env({str(key): str(value) for key, value in env_config.items() if value is not None})
     if not isinstance(env_config, str):
         return None
 
@@ -56,11 +55,7 @@ def _load_env_from_config(config_path: Path, config_data: dict[str, Any]) -> dic
     if env_path is None:
         return None
 
-    loaded_env = {
-        key: value
-        for key, value in dotenv_values(env_path).items()
-        if value is not None
-    }
+    loaded_env = {key: value for key, value in dotenv_values(env_path).items() if value is not None}
     if not loaded_env:
         return None
     return _merge_runtime_env(loaded_env)
@@ -173,15 +168,9 @@ def main() -> None:
     jobs_per_worker = _resolve_jobs_per_worker()
     if runtime_edition not in ALLOWED_RUNTIME_EDITIONS:
         allowed = "|".join(sorted(ALLOWED_RUNTIME_EDITIONS))
-        raise RuntimeError(
-            f"Invalid LANGGRAPH_RUNTIME_EDITION: {runtime_edition} (expected: {allowed})"
-        )
+        raise RuntimeError(f"Invalid LANGGRAPH_RUNTIME_EDITION: {runtime_edition} (expected: {allowed})")
     if runtime_edition == "postgres" and not _has_postgres_runtime_backend():
-        print(
-            "LANGGRAPH_RUNTIME_EDITION=postgres requested, but "
-            "langgraph_runtime_postgres is not installed. "
-            "Falling back to inmem runtime."
-        )
+        print("LANGGRAPH_RUNTIME_EDITION=postgres requested, but langgraph_runtime_postgres is not installed. Falling back to inmem runtime.")
         runtime_edition = "inmem"
 
     host = os.getenv("LANGGRAPH_HOST", "0.0.0.0").strip() or "0.0.0.0"
@@ -201,16 +190,14 @@ def main() -> None:
         if migrations_path:
             runtime_kwargs["__migrations_path__"] = migrations_path
 
-    print(
-        f"Starting LangGraph with runtime edition: {runtime_edition} "
-        f"(host={host} port={port} jobs_per_worker={jobs_per_worker})"
-    )
+    print(f"Starting LangGraph with runtime edition: {runtime_edition} (host={host} port={port} jobs_per_worker={jobs_per_worker})")
 
     # Ensure built-in archived agent files exist before serving requests.
     ensure_builtin_agent_archive("lead_agent", status="dev")
     ensure_builtin_agent_archive("lead_agent", status="prod")
     prime_lead_agent_read_graph_cache()
     start_remote_relay_sidecar()
+    start_knowledge_worker_thread()
 
     run_server(
         host=host,

@@ -5,6 +5,7 @@ import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
+import type { LocalSettings } from "@/core/settings";
 
 import { useThreadStream } from "./hooks";
 import {
@@ -31,6 +32,13 @@ type MockThreadState = {
 const subscribers = new Set<() => void>();
 const toastError = vi.fn();
 const updateSubtask = vi.fn();
+const getAPIClientMock = vi.fn();
+let mockLocalSettingsContext: LocalSettings["context"] = {
+  model_name: "kimi-k2.5",
+  mode: "pro",
+  reasoning_effort: "high",
+  agent_status: "dev",
+};
 const apiClient = {
   threads: {
     create: vi.fn(),
@@ -104,7 +112,7 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock("../api", () => ({
-  getAPIClient: () => apiClient,
+  getAPIClient: (...args: unknown[]) => getAPIClientMock(...args),
 }));
 
 vi.mock("../auth/hooks", () => ({
@@ -127,12 +135,7 @@ vi.mock("../settings", () => ({
   getLocalSettings: () => ({
     notification: { enabled: true },
     layout: { sidebar_collapsed: false },
-    context: {
-      model_name: "kimi-k2.5",
-      mode: "pro",
-      reasoning_effort: "high",
-      agent_status: "dev",
-    },
+    context: mockLocalSettingsContext,
   }),
 }));
 
@@ -166,6 +169,13 @@ describe("useThreadStream", () => {
     vi.restoreAllMocks();
     subscribers.clear();
     latestUseStreamOptions = null;
+    getAPIClientMock.mockReset().mockReturnValue(apiClient);
+    mockLocalSettingsContext = {
+      model_name: "kimi-k2.5",
+      mode: "pro",
+      reasoning_effort: "high",
+      agent_status: "dev",
+    };
     toastError.mockReset();
     updateSubtask.mockReset();
     window.sessionStorage.clear();
@@ -184,6 +194,62 @@ describe("useThreadStream", () => {
     });
     apiClient.threads.getHistory.mockReset().mockResolvedValue([]);
     streamState = makeThreadState();
+  });
+
+  it("passes the resolved runtime identity to the LangGraph API client", () => {
+    renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-identity",
+          context: {
+            thread_id: "thread-identity",
+            model_name: "selected-model",
+            mode: "pro",
+            thinking_enabled: true,
+            is_plan_mode: false,
+            subagent_enabled: true,
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    expect(getAPIClientMock).toHaveBeenCalledWith(
+      undefined,
+      "thread-identity",
+      expect.objectContaining({
+        model_name: "selected-model",
+        agent_status: "dev",
+      }),
+    );
+  });
+
+  it("skips state hydration for pending threads until a model is resolved", async () => {
+    mockLocalSettingsContext = {
+      model_name: undefined,
+      mode: "pro",
+      reasoning_effort: "high",
+      agent_status: "dev",
+    };
+
+    renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-pending",
+          context: {
+            model_name: undefined,
+            agent_status: "dev",
+            mode: "pro",
+          },
+          skipInitialHistory: true,
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(apiClient.threads.getState).not.toHaveBeenCalled();
   });
 
   it("surfaces stream errors through a toast once per distinct message", async () => {

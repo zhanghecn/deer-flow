@@ -26,8 +26,8 @@ from src.knowledge.models import (
     NodeSummaryOutput,
 )
 from src.knowledge.pageindex.canonical import CanonicalPage, build_canonical_document
-from src.config.runtime_db import get_runtime_db_store
 from src.models import create_chat_model
+from src.models.catalog import require_enabled_model
 
 logger = logging.getLogger(__name__)
 _NORMALIZE_RE = re.compile(r"[^0-9A-Za-z\u4e00-\u9fff]+")
@@ -59,9 +59,7 @@ _LEAF_SUMMARY_PROMPT = ChatPromptTemplate.from_messages(
         ),
         (
             "human",
-            "Section title: {title}\n"
-            "Locator: {locator}\n\n"
-            "Section text:\n{text}",
+            "Section title: {title}\nLocator: {locator}\n\nSection text:\n{text}",
         ),
     ]
 )
@@ -81,9 +79,7 @@ _PARENT_SUMMARY_PROMPT = ChatPromptTemplate.from_messages(
         ),
         (
             "human",
-            "Branch title: {title}\n"
-            "Locator: {locator}\n\n"
-            "Branch context:\n{context}",
+            "Branch title: {title}\nLocator: {locator}\n\nBranch context:\n{context}",
         ),
     ]
 )
@@ -92,15 +88,11 @@ _DOCUMENT_DESCRIPTION_PROMPT = ChatPromptTemplate.from_messages(
     [
         (
             "system",
-            "Write one sentence that helps an agent decide whether a document is relevant. "
-            "Mention the document's core subject matter and distinctive scope. "
-            "Also return short keywords that describe the document's distinctive coverage.",
+            "Write one sentence that helps an agent decide whether a document is relevant. Mention the document's core subject matter and distinctive scope. Also return short keywords that describe the document's distinctive coverage.",
         ),
         (
             "human",
-            "Document name: {display_name}\n"
-            "Document type: {file_kind}\n\n"
-            "Top-level structure:\n{structure}",
+            "Document name: {display_name}\nDocument type: {file_kind}\n\nTop-level structure:\n{structure}",
         ),
     ]
 )
@@ -221,7 +213,7 @@ def _model_bundle(model_name: str | None) -> _ModelBundle:
     if not model_name:
         return _ModelBundle()
 
-    model_config = get_runtime_db_store().get_model(model_name)
+    model_config = require_enabled_model(model_name)
     model = create_chat_model(name=model_name, thinking_enabled=False, temperature=0)
     return _ModelBundle(
         summary_model=model.with_structured_output(NodeSummaryOutput),
@@ -260,11 +252,7 @@ def build_document_index(
         stage="canonicalize",
         step_name="canonical_markdown",
         status="completed",
-        message=(
-            "Used markdown companion"
-            if canonical.used_markdown_companion
-            else "Built canonical markdown from source content"
-        ),
+        message=("Used markdown companion" if canonical.used_markdown_companion else "Built canonical markdown from source content"),
     )
 
     if normalized_kind == "markdown":
@@ -280,10 +268,7 @@ def build_document_index(
         effective_pdf_path = preview_path or source_path
         if effective_pdf_path.suffix.lower() != ".pdf" and not preview_path:
             if not canonical.markdown.strip():
-                raise ValueError(
-                    f"Could not build canonical markdown for {display_name}. "
-                    "Provide a markdown companion or install a document converter such as markitdown/soffice."
-                )
+                raise ValueError(f"Could not build canonical markdown for {display_name}. Provide a markdown companion or install a document converter such as markitdown/soffice.")
             return _build_markdown_index(
                 canonical_markdown=canonical.markdown,
                 file_name=source_path.name,
@@ -402,11 +387,7 @@ def _build_page_index(
     observer: Any | None,
     page_count_hint: int | None,
 ) -> IndexedDocument:
-    pages = (
-        _canonical_pages_to_pdf_pages(canonical_pages)
-        if canonical_pages
-        else (_load_pdf_pages(pdf_path) if pdf_path.is_file() else [])
-    )
+    pages = _canonical_pages_to_pdf_pages(canonical_pages) if canonical_pages else (_load_pdf_pages(pdf_path) if pdf_path.is_file() else [])
     effective_page_count = page_count_hint or (len(pages) if pages else None)
     _observer_stage(
         observer,
@@ -432,9 +413,7 @@ def _build_page_index(
             stage="tree",
             step_name="skip_markdown_page_tree",
             status="completed",
-            message=(
-                "Skipped markdown heading-to-page mapping because no real markdown companion was available"
-            ),
+            message=("Skipped markdown heading-to-page mapping because no real markdown companion was available"),
         )
 
     if mapped_markdown_nodes:
@@ -574,11 +553,7 @@ def _build_outline_tree(pdf_path: Path) -> list[_ParsedNode]:
         except Exception:
             pass
 
-    entries = [
-        (int(level), _clean_title(title), int(page))
-        for level, title, page in toc
-        if _clean_title(title) and int(page) >= 1
-    ]
+    entries = [(int(level), _clean_title(title), int(page)) for level, title, page in toc if _clean_title(title) and int(page) >= 1]
     if not entries:
         return []
 
@@ -684,10 +659,7 @@ def _find_heading_page(
         return None
 
     window = search_pages[:8]
-    snippets = "\n\n".join(
-        f"Page {page.page_number}:\n{page.text[:2000]}"
-        for page in window
-    )
+    snippets = "\n\n".join(f"Page {page.page_number}:\n{page.text[:2000]}" for page in window)
     started_at = _loop_time_ms()
     try:
         result = _invoke_structured_with_retry(
@@ -714,10 +686,7 @@ def _find_heading_page(
         stage="tree",
         step_name="heading_locator_llm",
         status="completed",
-        message=(
-            f"Mapped heading '{heading}' to page "
-            f"{result.value.page_number if result.value.page_number is not None else 'unknown'}"
-        ),
+        message=(f"Mapped heading '{heading}' to page {result.value.page_number if result.value.page_number is not None else 'unknown'}"),
         elapsed_ms=_elapsed_ms(started_at),
         retry_count=max(result.attempts - 1, 0),
         metadata={"heading": heading, "matched": result.value.matched},
@@ -954,11 +923,7 @@ def _synthetic_markdown_root(
 ) -> list[_ParsedNode]:
     lines = canonical_markdown.splitlines()
     title = next(
-        (
-            _clean_title(line)
-            for line in lines
-            if _clean_title(line)
-        ),
+        (_clean_title(line) for line in lines if _clean_title(line)),
         display_name,
     )
     return [
@@ -1232,11 +1197,7 @@ def _parent_summary_context(node: _ParsedNode) -> str:
     for child in node.children[:_PARENT_CHILDREN_CONTEXT_LIMIT]:
         child_summary = child.summary or child.prefix_summary or _excerpt_text(child.text, limit=220)
         if child.visual_summary:
-            child_summary = (
-                f"{child_summary} Visual: {child.visual_summary}"
-                if child_summary
-                else f"Visual: {child.visual_summary}"
-            )
+            child_summary = f"{child_summary} Visual: {child.visual_summary}" if child_summary else f"Visual: {child.visual_summary}"
         locator = _locator_text(child)
         if child_summary:
             child_lines.append(f"- {child.title} ({locator}): {child_summary}")
@@ -1346,9 +1307,7 @@ def _serialize_tree(tree: list[_ParsedNode], *, locator_type: str) -> list[dict]
         if node.visual_summary:
             payload["visual_summary"] = node.visual_summary
         if node.evidence_refs:
-            payload["has_visual_evidence"] = any(
-                ref.kind in {"image", "page_image"} for ref in node.evidence_refs
-            )
+            payload["has_visual_evidence"] = any(ref.kind in {"image", "page_image"} for ref in node.evidence_refs)
             payload["evidence_ref_count"] = len(node.evidence_refs)
         if node.children:
             payload["nodes"] = _serialize_tree(node.children, locator_type=locator_type)
@@ -1382,11 +1341,7 @@ def _page_markdown_for_range(
 ) -> str:
     if start_page is None or end_page is None:
         return ""
-    selected = [
-        page.markdown_text.strip()
-        for page in pages
-        if start_page <= page.page_number <= end_page and page.markdown_text.strip()
-    ]
+    selected = [page.markdown_text.strip() for page in pages if start_page <= page.page_number <= end_page and page.markdown_text.strip()]
     return "\n\n".join(selected).strip()
 
 

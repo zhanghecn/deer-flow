@@ -131,6 +131,17 @@ class LeadAgentRuntimeContext(BaseModel):
     runtime_thread_id: str | None = Field(default=None, alias="x-thread-id")
     user_id: str | None = None
     runtime_user_id: str | None = Field(default=None, alias="x-user-id")
+    runtime_model_name_header: str | None = Field(default=None, alias="x-model-name")
+    runtime_agent_name: str | None = Field(default=None, alias="x-agent-name")
+    runtime_agent_status: str | None = Field(default=None, alias="x-agent-status")
+    runtime_execution_backend: str | None = Field(
+        default=None,
+        alias="x-execution-backend",
+    )
+    runtime_remote_session_id: str | None = Field(
+        default=None,
+        alias="x-remote-session-id",
+    )
     langgraph_auth_user_id: str | None = None
 
 
@@ -154,6 +165,7 @@ class LeadAgentRequest:
     thread_id: str | None
     user_id: str | None
     runtime_model_name: str | None
+    header_model_name: str | None
     execution_backend: str | None
     remote_session_id: str | None
 
@@ -843,8 +855,10 @@ def _load_configurable_payload(config: RunnableConfig, runtime: ServerRuntime | 
     if not isinstance(configurable_payload, dict):
         raise ValueError("`configurable` must be an object.")
 
-    # LangGraph runtime context carries server-injected headers such as thread/user identity.
-    # Let explicit configurable values win so API callers can intentionally override them.
+    # LangGraph runtime context carries server-injected headers such as thread/user
+    # identity. Explicit configurable values still win, but thread-scoped read
+    # requests such as `/state` can rely on the header-derived context when a fresh
+    # thread has not persisted its runtime binding yet.
     merged_payload = _extract_runtime_context(runtime)
     merged_payload.update(configurable_payload)
     return merged_payload
@@ -982,14 +996,17 @@ def _resolve_run_model(
     *,
     requested_model_name: str | None,
     runtime_model_name: str | None,
+    header_model_name: str | None,
     agent_config: AgentConfig | None,
     thread_binding: ThreadBinding | None,
     thread_id: str | None,
     db_store: RuntimeDBStore,
 ) -> tuple[str, ModelConfig]:
-    """Resolve the run model with strict precedence and safe enabled-model fallback."""
+    """Resolve the run model with strict precedence and no implicit fallback."""
     # Precedence is intentionally strict: explicit per-request selection beats runtime
     # defaults, which beat the agent archive, which finally beats thread stickiness.
+    # Explicit header identity is only a seed for thread reads before the first
+    # persisted binding exists, so it is kept behind the persisted thread model.
     # The conflict checks below keep those sources from silently drifting apart.
     agent_model_name = agent_config.model if agent_config and agent_config.model else None
     if requested_model_name and agent_model_name and requested_model_name != agent_model_name:
@@ -998,35 +1015,23 @@ def _resolve_run_model(
         raise ValueError(f"Model conflict: requested model '{runtime_model_name}' does not match agent model '{agent_model_name}'.")
     if requested_model_name and runtime_model_name and requested_model_name != runtime_model_name:
         raise ValueError("Model conflict: `configurable.model_name` and `configurable.model_config.name` must match.")
+    if header_model_name and requested_model_name and header_model_name != requested_model_name:
+        raise ValueError("Model conflict: `configurable.model_name` and `x-model-name` must match.")
+    if header_model_name and runtime_model_name and header_model_name != runtime_model_name:
+        raise ValueError("Model conflict: `configurable.model_config.name` and `x-model-name` must match.")
+    if header_model_name and agent_model_name and header_model_name != agent_model_name:
+        raise ValueError(f"Model conflict: request header model '{header_model_name}' does not match agent model '{agent_model_name}'.")
 
     persisted_thread_model_name = thread_binding.model_name if thread_binding is not None else None
 
-    model_name = requested_model_name or runtime_model_name or agent_model_name or persisted_thread_model_name
+    model_name = requested_model_name or runtime_model_name or agent_model_name or persisted_thread_model_name or header_model_name
     if not model_name:
-        fallback_model = db_store.get_any_enabled_model()
-        if fallback_model is not None:
-            logger.warning(
-                "No explicit model resolved for thread '%s'; falling back to enabled model '%s'.",
-                thread_id,
-                fallback_model.name,
-            )
-            return fallback_model.name, fallback_model
-        raise ValueError("No model resolved for this run. Provide `configurable.model_name`/`model` or `configurable.model_config.name`, set `agent.model`, or ensure this thread has a persisted runtime model.")
+        raise ValueError(
+            "No model resolved for this run. Provide `configurable.model_name`/`model`, `configurable.model_config.name`, `agent.model`, a persisted thread runtime model, or `x-model-name` for thread-scoped requests before the first run."
+        )
 
     model_config = db_store.get_model(model_name)
     if model_config is None:
-        # Only use the "any enabled model" fallback for legacy threads that rely purely
-        # on persisted runtime state. If the caller explicitly asked for a model, fail hard.
-        if not requested_model_name and not runtime_model_name and not agent_model_name and persisted_thread_model_name:
-            fallback_model = db_store.get_any_enabled_model()
-            if fallback_model is not None:
-                logger.warning(
-                    "Persisted thread model '%s' is unavailable; falling back to enabled model '%s' for thread '%s'.",
-                    persisted_thread_model_name,
-                    fallback_model.name,
-                    thread_id,
-                )
-                return fallback_model.name, fallback_model
         raise ValueError(f"Resolved model '{model_name}' is not available in database or is disabled.")
     return model_name, model_config
 
@@ -1116,13 +1121,14 @@ def _resolve_lead_agent_request(
         referenced_skill_names=_coerce_optional_str_list(cfg.get("referenced_skill_names")),
         target_agent_name=command_resolution.target_agent_name,
         target_skill_name=command_resolution.target_skill_name,
-        agent_name=normalize_effective_agent_name(_coerce_optional_str(cfg.get("agent_name"))),
-        agent_status=_resolve_agent_status(cfg.get("agent_status", "dev")),
+        agent_name=normalize_effective_agent_name(_coerce_optional_str(cfg.get("agent_name") or cfg.get("x-agent-name"))),
+        agent_status=_resolve_agent_status(cfg.get("agent_status") or cfg.get("x-agent-status") or "dev"),
         thread_id=_coerce_optional_str(cfg.get("thread_id") or cfg.get("x-thread-id")),
         user_id=_resolve_request_user_id(cfg, runtime),
         runtime_model_name=_parse_runtime_model_config(cfg.get("model_config")),
-        execution_backend=_coerce_optional_str(cfg.get("execution_backend")),
-        remote_session_id=_coerce_optional_str(cfg.get("remote_session_id")),
+        header_model_name=_coerce_optional_str(cfg.get("x-model-name")),
+        execution_backend=_coerce_optional_str(cfg.get("execution_backend") or cfg.get("x-execution-backend")),
+        remote_session_id=_coerce_optional_str(cfg.get("remote_session_id") or cfg.get("x-remote-session-id")),
     )
 
 
@@ -1152,6 +1158,7 @@ def _resolve_lead_agent_runtime(
     model_name, model_config = _resolve_run_model(
         requested_model_name=effective_request.requested_model_name,
         runtime_model_name=effective_request.runtime_model_name,
+        header_model_name=effective_request.header_model_name,
         agent_config=agent_config,
         thread_binding=thread_binding,
         thread_id=effective_request.thread_id,
@@ -1191,6 +1198,11 @@ def _update_request_runtime_context(
         **{
             "x-thread-id": request.thread_id,
             "x-user-id": request.user_id,
+            "x-agent-name": request.agent_name,
+            "x-agent-status": request.agent_status,
+            "x-model-name": resolved_model_name,
+            "x-execution-backend": request.execution_backend,
+            "x-remote-session-id": request.remote_session_id,
             "agent_name": request.agent_name,
             "target_agent_name": request.target_agent_name,
             "target_skill_name": request.target_skill_name,

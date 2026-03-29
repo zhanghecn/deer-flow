@@ -127,12 +127,7 @@ class _FakeDBStore:
         binding = self.get_thread_binding(thread_id)
         if binding is not None and binding.user_id != user_id:
             raise ValueError(f"Thread access denied for thread '{thread_id}': owned by another user ({binding.user_id}).")
-        if (
-            binding is not None
-            and binding.user_id == user_id
-            and binding.model_name == model_name
-            and binding.agent_name == agent_name
-        ):
+        if binding is not None and binding.user_id == user_id and binding.model_name == model_name and binding.agent_name == agent_name:
             return False
 
         self.save_thread_runtime(
@@ -184,6 +179,7 @@ def test_resolve_run_model_uses_requested_model_name():
     model_name, model_config = lead_agent_module._resolve_run_model(
         requested_model_name="safe-model",
         runtime_model_name=None,
+        header_model_name=None,
         agent_config=None,
         thread_binding=None,
         thread_id=None,
@@ -203,6 +199,7 @@ def test_resolve_run_model_uses_persisted_thread_runtime_model():
     model_name, model_config = lead_agent_module._resolve_run_model(
         requested_model_name=None,
         runtime_model_name=None,
+        header_model_name=None,
         agent_config=None,
         thread_binding=store.get_thread_binding("thread-1"),
         thread_id="thread-1",
@@ -213,39 +210,37 @@ def test_resolve_run_model_uses_persisted_thread_runtime_model():
     assert model_config.name == "thread-model"
 
 
-def test_resolve_run_model_falls_back_when_persisted_thread_model_is_unavailable():
+def test_resolve_run_model_raises_when_persisted_thread_model_is_unavailable():
     store = _FakeDBStore(
         models={"safe-model": _make_model("safe-model", supports_thinking=True)},
         thread_models={("thread-1", "user-1"): "missing-model"},
     )
 
-    model_name, model_config = lead_agent_module._resolve_run_model(
-        requested_model_name=None,
-        runtime_model_name=None,
-        agent_config=None,
-        thread_binding=store.get_thread_binding("thread-1"),
-        thread_id="thread-1",
-        db_store=store,
-    )
+    with pytest.raises(ValueError, match="Resolved model 'missing-model'"):
+        lead_agent_module._resolve_run_model(
+            requested_model_name=None,
+            runtime_model_name=None,
+            header_model_name=None,
+            agent_config=None,
+            thread_binding=store.get_thread_binding("thread-1"),
+            thread_id="thread-1",
+            db_store=store,
+        )
 
-    assert model_name == "safe-model"
-    assert model_config.name == "safe-model"
 
-
-def test_resolve_run_model_falls_back_to_enabled_model_when_no_model_is_bound():
+def test_resolve_run_model_raises_when_no_model_is_bound():
     store = _FakeDBStore(models={"safe-model": _make_model("safe-model", supports_thinking=True)})
 
-    model_name, model_config = lead_agent_module._resolve_run_model(
-        requested_model_name=None,
-        runtime_model_name=None,
-        agent_config=None,
-        thread_binding=None,
-        thread_id="thread-new",
-        db_store=store,
-    )
-
-    assert model_name == "safe-model"
-    assert model_config.name == "safe-model"
+    with pytest.raises(ValueError, match="No model resolved"):
+        lead_agent_module._resolve_run_model(
+            requested_model_name=None,
+            runtime_model_name=None,
+            header_model_name=None,
+            agent_config=None,
+            thread_binding=None,
+            thread_id="thread-new",
+            db_store=store,
+        )
 
 
 def test_resolve_run_model_raises_for_conflicting_requested_and_agent_model():
@@ -255,6 +250,7 @@ def test_resolve_run_model_raises_for_conflicting_requested_and_agent_model():
         lead_agent_module._resolve_run_model(
             requested_model_name="other-model",
             runtime_model_name=None,
+            header_model_name=None,
             agent_config=lead_agent_module.AgentConfig(
                 name="agent-a",
                 status="dev",
@@ -275,9 +271,67 @@ def test_resolve_run_model_raises_when_model_unavailable():
         lead_agent_module._resolve_run_model(
             requested_model_name=None,
             runtime_model_name=None,
+            header_model_name=None,
             agent_config=None,
             thread_binding=None,
             thread_id=None,
+            db_store=store,
+        )
+
+
+def test_resolve_run_model_uses_request_header_model_for_unbound_thread_reads():
+    store = _FakeDBStore(
+        models={"header-model": _make_model("header-model", supports_thinking=True)},
+    )
+
+    model_name, model_config = lead_agent_module._resolve_run_model(
+        requested_model_name=None,
+        runtime_model_name=None,
+        header_model_name="header-model",
+        agent_config=None,
+        thread_binding=None,
+        thread_id="thread-1",
+        db_store=store,
+    )
+
+    assert model_name == "header-model"
+    assert model_config.name == "header-model"
+
+
+def test_resolve_run_model_prefers_persisted_thread_model_over_request_header_model():
+    store = _FakeDBStore(
+        models={
+            "thread-model": _make_model("thread-model", supports_thinking=True),
+            "header-model": _make_model("header-model", supports_thinking=True),
+        },
+        thread_models={("thread-1", "user-1"): "thread-model"},
+    )
+
+    model_name, model_config = lead_agent_module._resolve_run_model(
+        requested_model_name=None,
+        runtime_model_name=None,
+        header_model_name="header-model",
+        agent_config=None,
+        thread_binding=store.get_thread_binding("thread-1"),
+        thread_id="thread-1",
+        db_store=store,
+    )
+
+    assert model_name == "thread-model"
+    assert model_config.name == "thread-model"
+
+
+def test_resolve_run_model_raises_for_conflicting_requested_and_header_models():
+    store = _FakeDBStore(models={"safe-model": _make_model("safe-model", supports_thinking=True)})
+
+    with pytest.raises(ValueError, match="`configurable.model_name` and `x-model-name` must match"):
+        lead_agent_module._resolve_run_model(
+            requested_model_name="safe-model",
+            runtime_model_name=None,
+            header_model_name="other-model",
+            agent_config=None,
+            thread_binding=None,
+            thread_id="thread-1",
             db_store=store,
         )
 
@@ -358,6 +412,79 @@ def test_make_lead_agent_reads_runtime_context_and_persists_thread_runtime(monke
     assert "x_user_id" not in runtime.execution_runtime.context
 
 
+def test_make_lead_agent_uses_request_header_model_for_thread_state_reads(monkeypatch, tmp_path):
+    store = _FakeDBStore(
+        models={"header-model": _make_model("header-model", supports_thinking=True)},
+    )
+
+    import src.tools as tools_module
+
+    monkeypatch.setattr(
+        lead_agent_module,
+        "get_paths",
+        lambda: Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / "skills"),
+    )
+    monkeypatch.setattr(lead_agent_module, "get_runtime_db_store", lambda: store)
+    monkeypatch.setattr(tools_module, "get_available_tools", lambda **kwargs: [])
+    monkeypatch.setattr(
+        lead_agent_module,
+        "build_backend",
+        lambda thread_id, agent_name, status="dev", agent_config=None, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        lead_agent_module,
+        "_load_agent_runtime_config",
+        lambda **kwargs: _make_agent_config(),
+    )
+    monkeypatch.setattr(lead_agent_module, "apply_prompt_template", lambda **kwargs: "prompt")
+    monkeypatch.setattr(lead_agent_module, "create_deep_agent", lambda **kwargs: kwargs)
+
+    captured: dict[str, object] = {}
+
+    def _fake_create_chat_model(*, name, thinking_enabled, reasoning_effort=None, runtime_model_config=None):
+        captured["name"] = name
+        captured["thinking_enabled"] = thinking_enabled
+        captured["runtime_model_config"] = runtime_model_config
+        return object()
+
+    monkeypatch.setattr(lead_agent_module, "create_chat_model", _fake_create_chat_model)
+
+    class _ExecutionRuntime:
+        def __init__(self, context):
+            self.context = context
+
+    class _Runtime:
+        def __init__(self, context):
+            self.execution_runtime = _ExecutionRuntime(context)
+
+    runtime = _Runtime(
+        {
+            "x-model-name": "header-model",
+            "x-agent-name": "lead_agent",
+            "x-agent-status": "dev",
+            "thinking_enabled": True,
+            "subagent_enabled": False,
+        }
+    )
+
+    asyncio.run(
+        lead_agent_module.make_lead_agent(
+            {
+                "configurable": {
+                    "thread_id": "thread-1",
+                    "user_id": "user-1",
+                }
+            },
+            runtime=runtime,
+        )
+    )
+
+    assert captured["name"] == "header-model"
+    assert captured["thinking_enabled"] is True
+    assert store.saved == [("thread-1", "user-1", "header-model", LEAD_AGENT_NAME)]
+    assert runtime.execution_runtime.context["x-model-name"] == "header-model"
+
+
 def test_resolve_lead_agent_runtime_uses_persisted_thread_agent_runtime(monkeypatch):
     store = _FakeDBStore(
         models={"safe-model": _make_model("safe-model", supports_thinking=True)},
@@ -409,6 +536,7 @@ def test_resolve_lead_agent_runtime_uses_persisted_thread_agent_runtime(monkeypa
             thread_id="thread-1",
             user_id="user-1",
             runtime_model_name=None,
+            header_model_name=None,
             execution_backend=None,
             remote_session_id=None,
         ),

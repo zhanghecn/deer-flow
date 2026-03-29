@@ -15,6 +15,24 @@ OpenAgents runtime is split into three layers:
 - control plane: how a managed sandbox is created, reused, discovered, and destroyed
 - transport: how operations are relayed to a remote worker process
 
+## Hard-Cut Rule
+
+When the repository replaces a runtime, model, or backend contract with a new canonical one,
+do not keep the old path alive with compatibility fallback logic.
+
+Examples of prohibited patterns:
+
+- read models from both database and config just in case one is stale
+- silently retry a deprecated backend path after the canonical path fails
+- keep a legacy subprocess execution path after ownership moved to a service/worker
+- accept stale legacy identifiers and map them implicitly at runtime forever
+
+Required approach:
+
+- migrate persisted data to the new canonical contract
+- remove the deprecated branch
+- fail explicitly on invalid stale inputs that remain after the migration
+
 ## Terminology
 
 | Current Name | Preferred Meaning | Plane | Responsibility |
@@ -67,6 +85,13 @@ Runtime identity is thread-scoped, not process-scoped and not "current UI state"
 Operational rules:
 
 - Opening an existing thread must restore that thread's persisted agent/runtime binding
+- Before the first run persists a binding, thread-scoped read requests such as `/state` and `/history` may carry explicit runtime identity headers:
+  - `x-model-name`
+  - `x-agent-name`
+  - `x-agent-status`
+  - `x-execution-backend`
+  - `x-remote-session-id`
+- Those headers seed unbound threads only. They must never override an existing persisted `thread_bindings` row.
 - Frontend thread URLs must be derived from the persisted binding, not from a global agent selector
 - Switching agent, archive (`dev` / `prod`), or execution backend creates a new thread instead of mutating an existing thread
 - Frontend "current agent" settings only provide defaults for a new conversation; they must not overwrite historical thread bindings

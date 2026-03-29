@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { LoaderIcon } from "lucide-react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -13,12 +13,20 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { useI18n } from "@/core/i18n/hooks";
 import {
   createKnowledgeBase,
   createThreadKnowledgeBase,
 } from "@/core/knowledge/api";
-import { useI18n } from "@/core/i18n/hooks";
+import { useModels } from "@/core/models/hooks";
 import { getLocalSettings } from "@/core/settings";
 
 function stripFileExtension(filename: string) {
@@ -48,11 +56,35 @@ function resolveKnowledgeBaseName(
   return `${primaryLabel} +${files.length - 1}`;
 }
 
+function normalizeModelName(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function resolveInitialModelName(
+  currentModelName: string,
+  defaultModelName: string | undefined,
+  models: { name: string }[],
+) {
+  if (models.some((model) => model.name === currentModelName)) {
+    return currentModelName;
+  }
+
+  const configuredModelName =
+    normalizeModelName(defaultModelName) ||
+    normalizeModelName(getLocalSettings().context.model_name);
+  return (
+    models.find((model) => model.name === configuredModelName)?.name ??
+    models[0]?.name ??
+    ""
+  );
+}
+
 export function KnowledgeBaseUploadDialog({
   threadId,
   open,
   onOpenChange,
   onUploaded,
+  defaultModelName,
 }: {
   threadId?: string;
   open: boolean;
@@ -61,12 +93,15 @@ export function KnowledgeBaseUploadDialog({
     knowledgeBaseId: string;
     knowledgeBaseName: string;
   }) => void;
+  defaultModelName?: string;
 }) {
   const queryClient = useQueryClient();
   const { t } = useI18n();
+  const { models, isLoading: modelsLoading } = useModels({ enabled: open });
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [files, setFiles] = useState<File[]>([]);
+  const [selectedModelName, setSelectedModelName] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -76,8 +111,19 @@ export function KnowledgeBaseUploadDialog({
     setName("");
     setDescription("");
     setFiles([]);
+    setSelectedModelName("");
     setSubmitting(false);
   }, [open]);
+
+  useEffect(() => {
+    if (!open || models.length === 0) {
+      return;
+    }
+
+    setSelectedModelName((current) =>
+      resolveInitialModelName(current, defaultModelName, models),
+    );
+  }, [defaultModelName, models, open]);
 
   const handleCreate = async () => {
     if (files.length === 0) {
@@ -85,10 +131,15 @@ export function KnowledgeBaseUploadDialog({
       return;
     }
 
+    const selectedModel = models.find(
+      (model) => model.name === selectedModelName,
+    );
+    if (!selectedModel) {
+      toast.error(t.knowledge.invalidSelectedModel);
+      return;
+    }
+
     setSubmitting(true);
-    const configuredModelName = getLocalSettings().context.model_name;
-    const selectedModelName =
-      typeof configuredModelName === "string" ? configuredModelName : undefined;
     const resolvedName = resolveKnowledgeBaseName(
       name,
       files,
@@ -100,13 +151,13 @@ export function KnowledgeBaseUploadDialog({
         ? await createThreadKnowledgeBase(threadId, {
             name: resolvedName,
             description: description.trim(),
-            modelName: selectedModelName,
+            modelName: selectedModel.name,
             files,
           })
         : await createKnowledgeBase({
             name: resolvedName,
             description: description.trim(),
-            modelName: selectedModelName,
+            modelName: selectedModel.name,
             files,
           });
 
@@ -150,6 +201,31 @@ export function KnowledgeBaseUploadDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
+          <div className="space-y-1.5">
+            <div className="text-sm font-medium">{t.knowledge.modelLabel}</div>
+            <Select
+              value={selectedModelName}
+              onValueChange={setSelectedModelName}
+              disabled={submitting || modelsLoading || models.length === 0}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue
+                  placeholder={
+                    modelsLoading
+                      ? t.common.loading
+                      : t.knowledge.modelPlaceholder
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {models.map((model) => (
+                  <SelectItem key={model.name} value={model.name}>
+                    {model.display_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <Input
             value={name}
             onChange={(event) => setName(event.target.value)}
@@ -186,7 +262,10 @@ export function KnowledgeBaseUploadDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {t.common.cancel}
           </Button>
-          <Button onClick={handleCreate} disabled={submitting}>
+          <Button
+            onClick={handleCreate}
+            disabled={submitting || modelsLoading || selectedModelName === ""}
+          >
             {submitting ? (
               <LoaderIcon className="mr-2 size-4 animate-spin" />
             ) : null}

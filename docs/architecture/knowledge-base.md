@@ -25,6 +25,22 @@ Last updated: 2026-03-28
 
 知识库仍然遵守现有 runtime/backend 分层，不把它做成新的 runtime backend。
 
+### Hard-Cut Rule
+
+知识库链路在完成架构收敛后，不保留 legacy fallback：
+
+- 不保留 Go 直接拉起 Python subprocess 的旧执行路径
+- 不保留数据库 / 配置文件双模型源
+- 不保留前端本地缓存旧 `model_name` 的隐式兼容
+- 不保留缺失 `model_name` 时回退到线程绑定或任意 enabled model 的行为
+
+要求：
+
+- `model_name` 只代表一个 canonical 模型 ID
+- API 边界立即校验 `model_name`
+- 旧数据通过迁移清理
+- 剩余无效值显式报错，而不是继续 fallback
+
 ```text
 Frontend (workspace/chat/knowledge)
         |

@@ -248,6 +248,7 @@ export const zhCN: Translations = {
     loadingAttached: "正在加载已挂载知识库...",
     emptyAttached: "当前线程还没有挂载知识库。",
     chooseAtLeastOneFile: "请至少选择一个文件。",
+    invalidSelectedModel: "创建知识库前请先选择一个有效模型。",
     defaultBaseName: "知识库",
     indexQueued: "知识库索引任务已加入队列。",
     createError: "创建知识库失败。",
@@ -257,6 +258,8 @@ export const zhCN: Translations = {
       "上传 PDF、Word 或 Markdown 文件，并为当前线程构建可持久化的文档树索引。",
     newDescriptionGlobal:
       "上传 PDF、Word 或 Markdown 文件，并为共享知识库构建可持久化的文档树索引。",
+    modelLabel: "索引模型",
+    modelPlaceholder: "选择一个模型",
     namePlaceholder: "知识库名称",
     descriptionPlaceholder: "给 agent 的可选描述",
     managerTitle: "知识库管理",

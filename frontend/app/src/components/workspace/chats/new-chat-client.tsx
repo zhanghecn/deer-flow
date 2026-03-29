@@ -49,6 +49,7 @@ export default function NewChatClient() {
     isCustomAgent ? runtimeSelection.agentName : null,
     runtimeSelection.agentStatus,
   );
+  const defaultModelName = models[0]?.name;
   const pinnedModelName = useMemo(() => {
     const modelName = agent?.model?.trim();
     return modelName === "" ? undefined : modelName;
@@ -61,9 +62,9 @@ export default function NewChatClient() {
       execution_backend: runtimeSelection.executionBackend,
       remote_session_id: runtimeSelection.remoteSessionId ?? undefined,
       model_name:
-        pinnedModelName ?? settings.context.model_name ?? models[0]?.name,
+        pinnedModelName ?? settings.context.model_name ?? defaultModelName,
     }),
-    [models, pinnedModelName, runtimeSelection, settings.context],
+    [defaultModelName, pinnedModelName, runtimeSelection, settings.context],
   );
   const selectedModelName =
     typeof runtimeContext.model_name === "string"
@@ -102,14 +103,19 @@ export default function NewChatClient() {
       return;
     }
 
-    if (settings.context.model_name || !models[0]?.name) {
+    if (settings.context.model_name || !defaultModelName) {
       return;
     }
 
     setSettings("context", {
-      model_name: models[0].name,
+      model_name: defaultModelName,
     });
-  }, [models, pinnedModelName, setSettings, settings.context.model_name]);
+  }, [
+    defaultModelName,
+    pinnedModelName,
+    setSettings,
+    settings.context.model_name,
+  ]);
 
   useEffect(() => {
     setSettings("context", {

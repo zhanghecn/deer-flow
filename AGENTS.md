@@ -34,6 +34,22 @@ Repository-wide runtime architecture rules:
   - what is control plane
   - how thread/session identity is bound
   - how the `/mnt/user-data/...` contract is preserved
+- Comment discipline rule:
+  - code comments are a repository-wide requirement, not a backend-only convention
+  - add concise comments or docstrings for non-obvious control flow, state ownership, invariants, config precedence, and security assumptions
+  - comments should explain why the code is shaped that way, what contract it preserves, or what operators/maintainers must know; do not add trivial line-by-line narration
+  - when changing confusing code, improve the nearby comments in the same patch instead of leaving the next reader to reconstruct intent from logs, tests, or git history
+  - required comment cases include:
+    - path rewriting or path contract preservation
+    - config/env precedence and strict no-fallback behavior
+    - persistence/restore behavior for stateful flows
+    - lifecycle decisions such as acquire/reuse/release/startup/shutdown
+    - security, isolation, permission, or multi-tenant assumptions
+- Legacy-removal rule:
+  - do not preserve legacy runtime/model/backend behavior with compatibility fallbacks once the repository has chosen a new canonical contract
+  - when replacing a deprecated path, remove the old branch instead of keeping dual resolution, silent aliasing, or "try old, then new" behavior
+  - do not read the same product contract from multiple sources of truth just to preserve older setups; migrate stored data and fail explicitly on invalid stale values
+  - if a hard cut requires a migration, write the migration and delete the fallback in the same change set
 
 Repository-wide testing index:
 

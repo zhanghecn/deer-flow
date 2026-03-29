@@ -198,6 +198,7 @@ export interface Translations {
     loadingAttached: string;
     emptyAttached: string;
     chooseAtLeastOneFile: string;
+    invalidSelectedModel: string;
     defaultBaseName: string;
     indexQueued: string;
     createError: string;
@@ -205,6 +206,8 @@ export interface Translations {
     newTitle: string;
     newDescription: string;
     newDescriptionGlobal: string;
+    modelLabel: string;
+    modelPlaceholder: string;
     namePlaceholder: string;
     descriptionPlaceholder: string;
     managerTitle: string;

@@ -6,16 +6,6 @@ from src.config.model_config import ModelConfig
 from src.models import factory as factory_module
 
 
-class _Store:
-    def __init__(self, model: ModelConfig) -> None:
-        self._model = model
-
-    def get_model(self, name: str) -> ModelConfig | None:
-        if name == self._model.name:
-            return self._model
-        return None
-
-
 def _anthropic_model_config(**extra) -> ModelConfig:
     payload = {
         "name": "glm-5",
@@ -52,8 +42,8 @@ def _openai_model_config(**extra) -> ModelConfig:
 def test_create_chat_model_raises_anthropic_thinking_budget_when_unspecified(monkeypatch):
     monkeypatch.setattr(
         factory_module,
-        "get_runtime_db_store",
-        lambda: _Store(_anthropic_model_config()),
+        "require_enabled_model",
+        lambda _name: _anthropic_model_config(),
     )
 
     model = factory_module.create_chat_model(name="glm-5", thinking_enabled=True)
@@ -65,8 +55,8 @@ def test_create_chat_model_raises_anthropic_thinking_budget_when_unspecified(mon
 def test_create_chat_model_preserves_explicit_anthropic_budget(monkeypatch):
     monkeypatch.setattr(
         factory_module,
-        "get_runtime_db_store",
-        lambda: _Store(_anthropic_model_config(max_tokens=6144)),
+        "require_enabled_model",
+        lambda _name: _anthropic_model_config(max_tokens=6144),
     )
 
     model = factory_module.create_chat_model(name="glm-5", thinking_enabled=True)
@@ -77,8 +67,8 @@ def test_create_chat_model_preserves_explicit_anthropic_budget(monkeypatch):
 def test_create_chat_model_attaches_anthropic_retry_observers(monkeypatch):
     monkeypatch.setattr(
         factory_module,
-        "get_runtime_db_store",
-        lambda: _Store(_anthropic_model_config()),
+        "require_enabled_model",
+        lambda _name: _anthropic_model_config(),
     )
 
     model = factory_module.create_chat_model(name="glm-5", thinking_enabled=True)
@@ -100,8 +90,8 @@ def test_should_bypass_env_proxy_for_private_base_url():
 def test_create_chat_model_bypasses_env_proxy_for_private_anthropic_base_url(monkeypatch):
     monkeypatch.setattr(
         factory_module,
-        "get_runtime_db_store",
-        lambda: _Store(_anthropic_model_config(base_url="http://172.31.18.247:13000")),
+        "require_enabled_model",
+        lambda _name: _anthropic_model_config(base_url="http://172.31.18.247:13000"),
     )
 
     sync_calls: list[dict] = []
@@ -139,8 +129,8 @@ def test_create_chat_model_defaults_reasoning_effort_when_supported(monkeypatch)
 
     monkeypatch.setattr(
         factory_module,
-        "get_runtime_db_store",
-        lambda: _Store(_openai_model_config()),
+        "require_enabled_model",
+        lambda _name: _openai_model_config(),
     )
     monkeypatch.setattr(factory_module, "resolve_class", lambda *_args, **_kwargs: FakeModel)
 
@@ -158,8 +148,8 @@ def test_create_chat_model_defaults_provider_retry_budget(monkeypatch):
 
     monkeypatch.setattr(
         factory_module,
-        "get_runtime_db_store",
-        lambda: _Store(_openai_model_config()),
+        "require_enabled_model",
+        lambda _name: _openai_model_config(),
     )
     monkeypatch.setattr(factory_module, "resolve_class", lambda *_args, **_kwargs: FakeModel)
 
@@ -180,8 +170,8 @@ def test_create_chat_model_drops_injected_retry_budget_when_provider_rejects_it(
 
     monkeypatch.setattr(
         factory_module,
-        "get_runtime_db_store",
-        lambda: _Store(_openai_model_config()),
+        "require_enabled_model",
+        lambda _name: _openai_model_config(),
     )
     monkeypatch.setattr(factory_module, "resolve_class", lambda *_args, **_kwargs: FakeModel)
 
@@ -202,8 +192,8 @@ def test_create_chat_model_disables_extra_body_thinking_when_not_requested(monke
     )
     monkeypatch.setattr(
         factory_module,
-        "get_runtime_db_store",
-        lambda: _Store(model_config),
+        "require_enabled_model",
+        lambda _name: model_config,
     )
     monkeypatch.setattr(factory_module, "resolve_class", lambda *_args, **_kwargs: FakeModel)
 
@@ -223,8 +213,8 @@ def test_create_chat_model_attaches_explicit_max_input_tokens(monkeypatch):
 
     monkeypatch.setattr(
         factory_module,
-        "get_runtime_db_store",
-        lambda: _Store(_openai_model_config(max_input_tokens=200_000)),
+        "require_enabled_model",
+        lambda _name: _openai_model_config(max_input_tokens=200_000),
     )
     monkeypatch.setattr(factory_module, "resolve_class", lambda *_args, **_kwargs: FakeModel)
 

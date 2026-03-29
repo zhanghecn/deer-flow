@@ -94,6 +94,7 @@ import {
 
 import { ContextWindowCard } from "./context-window-card";
 import { KnowledgeBaseUploadDialog } from "./knowledge/knowledge-base-upload-dialog";
+import { ThreadKnowledgeAttachmentStrip } from "./knowledge/thread-knowledge-attachment-strip";
 import { KnowledgeSelectorDialog } from "./knowledge/knowledge-selector-dialog";
 import { ModeHoverGuide } from "./mode-hover-guide";
 import {
@@ -655,6 +656,11 @@ export function InputBox({
         threadId={threadId}
         open={knowledgeUploadOpen}
         onOpenChange={setKnowledgeUploadOpen}
+        defaultModelName={
+          typeof context.model_name === "string"
+            ? context.model_name
+            : undefined
+        }
       />
       {extraHeader && (
         <div className="absolute top-0 right-0 left-0 z-10">
@@ -794,6 +800,7 @@ export function InputBox({
           />
         </PromptInputTools>
       </PromptInputFooter>
+      <ThreadKnowledgeAttachmentStrip threadId={threadId} />
       {selectedKnowledgeDocuments.length > 0 && (
         <div className="border-border/60 border-t px-3 py-2">
           <div className="text-muted-foreground mb-2 flex flex-wrap items-center gap-2 text-xs">

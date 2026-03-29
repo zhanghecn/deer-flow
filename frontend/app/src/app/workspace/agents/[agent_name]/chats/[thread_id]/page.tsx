@@ -30,6 +30,7 @@ import {
 } from "@/core/agents";
 import { shouldShowCenteredComposer } from "@/components/workspace/chats/layout-state";
 import { useI18n } from "@/core/i18n/hooks";
+import { useModels } from "@/core/models/hooks";
 import { useNotification } from "@/core/notification/hooks";
 import { useLocalSettings } from "@/core/settings";
 import { useThreadStream } from "@/core/threads/hooks";
@@ -49,9 +50,11 @@ export default function AgentChatPage() {
   const { t } = useI18n();
   const location = useLocation();
   const pathname = location.pathname;
-  const [settings] = useLocalSettings();
+  const [settings, setSettings] = useLocalSettings();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { models } = useModels();
+  const defaultModelName = models[0]?.name;
   const routeHasPendingRun = searchParams.get("pending_run") === "1";
   const [isPendingRun, setIsPendingRun] = useState(routeHasPendingRun);
 
@@ -101,10 +104,13 @@ export default function AgentChatPage() {
       model_name:
         trimmedAgentModelName && trimmedAgentModelName.length > 0
           ? trimmedAgentModelName
-          : (boundThreadRuntime.modelName ?? settings.context.model_name),
+          : (boundThreadRuntime.modelName ??
+            settings.context.model_name ??
+            defaultModelName),
     }),
     [
       boundThreadRuntime.modelName,
+      defaultModelName,
       runtimeMessageContext,
       settings.context,
       trimmedAgentModelName,
@@ -130,6 +136,32 @@ export default function AgentChatPage() {
     typeof runtimeContext.model_name === "string"
       ? runtimeContext.model_name.trim()
       : "";
+
+  useEffect(() => {
+    if (trimmedAgentModelName) {
+      if (settings.context.model_name === trimmedAgentModelName) {
+        return;
+      }
+
+      setSettings("context", {
+        model_name: trimmedAgentModelName,
+      });
+      return;
+    }
+
+    if (settings.context.model_name || !defaultModelName) {
+      return;
+    }
+
+    setSettings("context", {
+      model_name: defaultModelName,
+    });
+  }, [
+    defaultModelName,
+    setSettings,
+    settings.context.model_name,
+    trimmedAgentModelName,
+  ]);
 
   useEffect(() => {
     setRuntimeContext(runtimeContextSeed);
@@ -352,9 +384,7 @@ export default function AgentChatPage() {
                 className={cn("size-full", !showCenteredComposer && "pt-10")}
                 threadId={threadId}
                 thread={thread}
-                paddingBottom={
-                  showCenteredComposer ? undefined : paddingBottom
-                }
+                paddingBottom={showCenteredComposer ? undefined : paddingBottom}
               />
             </div>
 

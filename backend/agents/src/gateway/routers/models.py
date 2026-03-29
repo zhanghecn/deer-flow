@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from src.config import get_app_config
+from src.models.catalog import list_enabled_models, require_enabled_model
 
 router = APIRouter(prefix="/api", tags=["models"])
 
@@ -29,7 +29,7 @@ class ModelsListResponse(BaseModel):
     description="Retrieve a list of all available AI models configured in the system.",
 )
 async def list_models() -> ModelsListResponse:
-    """List all available models from configuration.
+    """List all enabled models from the database runtime catalog.
 
     Returns model information suitable for frontend display,
     excluding sensitive fields like API keys and internal configuration.
@@ -57,7 +57,6 @@ async def list_models() -> ModelsListResponse:
         }
         ```
     """
-    config = get_app_config()
     models = [
         ModelResponse(
             name=model.name,
@@ -66,7 +65,7 @@ async def list_models() -> ModelsListResponse:
             supports_thinking=model.supports_thinking,
             supports_reasoning_effort=model.supports_reasoning_effort,
         )
-        for model in config.models
+        for model in list_enabled_models()
     ]
     return ModelsListResponse(models=models)
 
@@ -99,10 +98,10 @@ async def get_model(model_name: str) -> ModelResponse:
         }
         ```
     """
-    config = get_app_config()
-    model = config.get_model_config(model_name)
-    if model is None:
-        raise HTTPException(status_code=404, detail=f"Model '{model_name}' not found")
+    try:
+        model = require_enabled_model(model_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     return ModelResponse(
         name=model.name,
