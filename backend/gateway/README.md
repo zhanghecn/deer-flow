@@ -51,8 +51,10 @@ Nginx (:2026)
 # 创建数据库
 createdb openagents
 
-# 运行迁移（SQL 位于项目根目录 migrations/，读取仓库根目录 .env）
-make migrate
+# 手工执行项目根目录 migrations/ 下的 SQL
+# Gateway 不再内置自动迁移命令
+psql "$DATABASE_URI" -f migrations/001_init.up.sql
+psql "$DATABASE_URI" -f migrations/002_seed_data.up.sql
 ```
 
 ### 2. 配置
@@ -396,5 +398,4 @@ make build    # 编译到 bin/gateway
 make run      # go run 启动
 make test     # 运行测试
 make clean    # 清理构建产物
-make migrate  # 运行数据库迁移
 ```

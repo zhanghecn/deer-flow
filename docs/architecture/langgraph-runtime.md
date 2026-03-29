@@ -144,7 +144,7 @@ LANGGRAPH_HTTP='{"configurable_headers":{"includes":["x-user-id","x-thread-id"]}
 ```
 
 宿主机运行统一使用项目根目录 `.env`。`backend/agents/langgraph.json` 读取 `../../.env`，
-`backend/gateway` 启动/迁移也会优先读取根 `.env`。
+`backend/gateway` 本地启动也会优先读取根 `.env`。Gateway 已不再内置 SQL 迁移入口。
 
 Docker 开发栈也使用同一个根 `.env`：
 

@@ -1,5 +1,8 @@
 # Migration Baseline
 
+These SQL files are applied manually.
+Gateway and docker compose no longer execute repository migrations automatically.
+
 The active baseline is intentionally squashed into two files:
 
 - `001_init.up.sql`

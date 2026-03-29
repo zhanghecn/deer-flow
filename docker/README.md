@@ -1,5 +1,21 @@
 # Docker Config Layout
 
+For a Chinese review of `docker-compose-dev.yaml` plus recommended production
+release/update flow, see `docs/guides/docker-compose-dev-review-and-release-zh.md`.
+
+For the single-host production-oriented compose file, see
+`docs/guides/docker-compose-prod-selfhost-zh.md`.
+
+For direct production usage, run docker compose from `docker/`:
+
+```bash
+docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml build
+docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml up -d
+```
+
+Gateway no longer executes repository SQL migrations.
+If `migrations/*.sql` changes, review and apply them manually before startup.
+
 This repo now uses:
 
 - one shared root `.env` for secrets only

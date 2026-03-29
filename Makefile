@@ -1,6 +1,6 @@
 # OpenAgents - Unified Development Environment
 
-.PHONY: help config check install dev stop clean docker-init docker-start docker-infra-start docker-stop docker-infra-stop docker-logs docker-logs-frontend docker-logs-gateway gateway-build
+.PHONY: help config check install dev stop clean docker-init docker-start docker-infra-start docker-stop docker-infra-stop docker-logs docker-logs-frontend docker-logs-gateway docker-prod-config docker-prod-build docker-prod-start docker-prod-stop docker-prod-restart docker-prod-status docker-prod-logs gateway-build
 
 GO_TOOLCHAIN ?= auto
 HOST_LOG_DIR := $(CURDIR)/.openagents/host-logs
@@ -25,6 +25,13 @@ help:
 	@echo "  make docker-logs     - View Docker development logs"
 	@echo "  make docker-logs-frontend - View Docker frontend logs"
 	@echo "  make docker-logs-gateway - View Docker gateway logs"
+	@echo ""
+	@echo "Docker Production Commands:"
+	@echo "  make docker-prod-build   - Direct docker compose build for production"
+	@echo "  make docker-prod-start   - Direct docker compose up for production"
+	@echo "  make docker-prod-stop    - Direct docker compose down for production"
+	@echo "  make docker-prod-status  - Direct docker compose ps for production"
+	@echo "  make docker-prod-logs    - Direct docker compose logs for production"
 
 config:
 	@if [ -f config.yaml ] || [ -f config.yml ] || [ -f configure.yml ]; then \
@@ -330,3 +337,25 @@ docker-logs-frontend:
 	@./scripts/docker.sh logs --frontend
 docker-logs-gateway:
 	@./scripts/docker.sh logs --gateway
+
+docker-prod-config:
+	@cd docker && docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml config
+
+docker-prod-build:
+	@cd docker && docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml build nginx gateway langgraph sandbox-aio onlyoffice
+
+docker-prod-start:
+	@cd docker && docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml build nginx gateway langgraph sandbox-aio onlyoffice
+	@cd docker && docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml up -d --remove-orphans
+
+docker-prod-stop:
+	@cd docker && docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml down
+
+docker-prod-restart:
+	@cd docker && docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml restart
+
+docker-prod-status:
+	@cd docker && docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml ps
+
+docker-prod-logs:
+	@cd docker && docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml logs -f

@@ -1,6 +1,8 @@
 name: openagents-dev
 
 # OpenAgents Development Environment
+# This file is intentionally dev-only. Production should use immutable images,
+# no source bind mounts, and the smallest possible public port surface.
 # Usage: docker compose --env-file ../.env -f docker-compose-dev.yaml up --build
 #
 # Services:
@@ -220,7 +222,9 @@ services:
       - ../backend/agents:/app/backend/agents
       - ../backend/deepagents:/app/backend/deepagents
       - ../.env:/app/.env:ro
-      - ../config.yaml:/app/config.yaml
+      # LangGraph reads process/runtime config; it does not need write access
+      # to the mounted project config file.
+      - ../config.yaml:/app/config.yaml:ro
       - ../logs:/app/logs
       - ${OPENAGENTS_DOCKER_HOST_HOME:-../.openagents}:/openagents-home
       # Mount uv cache for faster dependency installation
@@ -234,8 +238,6 @@ services:
     networks:
       - openagents-dev
     restart: unless-stopped
-
-volumes: {}
 
 networks:
   openagents-dev:

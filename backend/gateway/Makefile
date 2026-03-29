@@ -1,5 +1,5 @@
 # 声明伪目标（不生成实际文件的目标）
-.PHONY: build run restart test clean migrate
+.PHONY: build run restart test clean
 
 # 构建：编译 Go 项目，输出到 bin/gateway
 build:
@@ -19,9 +19,3 @@ test:
 # 清理：删除编译生成的 bin/ 目录
 clean:
 	rm -rf bin/
-
-# 数据库迁移：使用 golang-migrate 执行项目根目录 migrations/ 下的 .up.sql 文件
-migrate:
-	@echo "Running migrations..."
-	@go run ./cmd/migrate
-	@echo "Migrations complete."

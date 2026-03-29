@@ -24,8 +24,11 @@ createdb openagents
 export DATABASE_URI=postgresql://root:zhangxuan66@localhost:5432/openagents?sslmode=disable
 export JWT_SECRET=dev-secret-change-me
 
-# 4. 运行迁移
-make migrate
+# 4. 手工执行项目根目录 migrations/ 下的 SQL
+#    Gateway 不再内置自动迁移命令
+#    例如在仓库根目录执行：
+#    psql "$DATABASE_URI" -f migrations/001_init.up.sql
+#    psql "$DATABASE_URI" -f migrations/002_seed_data.up.sql
 
 # 5. 启动
 make run
@@ -98,6 +101,7 @@ Handler → Service → Repository → Database
 - 文件名格式：`{序号}_{描述}.up.sql`（如 `002_seed_data.up.sql`）
 - 每个迁移文件包裹在 `BEGIN; ... COMMIT;` 事务中
 - 使用 `IF NOT EXISTS` 保证幂等性
+- 不要通过 Gateway 服务或启动脚本自动执行这些 SQL
 
 ### 认证
 

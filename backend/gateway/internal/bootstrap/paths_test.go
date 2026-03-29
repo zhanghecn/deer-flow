@@ -74,30 +74,3 @@ func TestExtensionsConfigPathRespectsEnvOverride(t *testing.T) {
 		t.Fatalf("unexpected extensions config override: got %s want %s", got, overridePath)
 	}
 }
-
-func TestMigrationsDirExists(t *testing.T) {
-	t.Parallel()
-
-	path := MigrationsDir()
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat migrations dir: %v", err)
-	}
-	if !info.IsDir() {
-		t.Fatalf("migrations path is not a directory: %s", path)
-	}
-}
-
-func TestMigrationsSourceURLMatchesMigrationsDir(t *testing.T) {
-	t.Parallel()
-
-	sourceURL, err := MigrationsSourceURL()
-	if err != nil {
-		t.Fatalf("resolve migrations source url: %v", err)
-	}
-
-	expected := "file://" + MigrationsDir()
-	if sourceURL != expected {
-		t.Fatalf("unexpected migrations source url: got %s want %s", sourceURL, expected)
-	}
-}

@@ -1,0 +1,63 @@
+# 第一阶段：构建用户前台 frontend/app
+# 用 Node 镜像只是为了打包静态资源，最终运行时不会带上 Node。
+FROM node:22-alpine AS app-builder
+
+# 在镜像内给前台构建一个独立工作目录，避免和 admin 构建互相干扰。
+WORKDIR /build/frontend/app
+
+# 仓库统一用 pnpm，这里显式安装固定版本，避免不同机器构建结果漂移。
+RUN corepack enable && corepack install -g pnpm@10.26.2
+
+# 先只复制依赖清单，利用 Docker 层缓存：
+# 如果 package.json / lockfile 没变，就不用重复安装依赖。
+COPY frontend/app/package.json frontend/app/pnpm-lock.yaml ./
+
+# 正式构建必须严格按 lockfile 安装，避免“我这台机器能跑，你那台不行”。
+RUN pnpm install --frozen-lockfile
+
+# 再复制完整前端源码并执行打包。
+COPY frontend/app ./
+
+# 这里直接使用默认构建配置：
+# - 不额外注入 VITE_BACKEND_BASE_URL
+# - 不启用静态只读模式
+# 正式环境统一依赖 nginx 同源反向代理到 gateway。
+RUN pnpm build
+
+# 第二阶段：构建后台管理 frontend/admin
+# 和用户前台分开构建，这样两个 dist 目录互不影响，也方便单独理解问题。
+FROM node:22-alpine AS admin-builder
+
+WORKDIR /build/frontend/admin
+
+RUN corepack enable && corepack install -g pnpm@10.26.2
+
+# 同样先复制依赖清单，最大化利用 Docker 构建缓存。
+COPY frontend/admin/package.json frontend/admin/pnpm-lock.yaml ./
+
+RUN pnpm install --frozen-lockfile
+
+COPY frontend/admin ./
+
+# 后台前端默认走当前访问 origin 下的 /api，
+# 不再在镜像构建阶段注入额外网关地址变量。
+RUN pnpm build
+
+# 第三阶段：最终运行镜像
+# 这里只保留 nginx 和打包后的静态文件，不再保留 Node / pnpm / 源码依赖。
+FROM nginx:alpine
+
+# 使用仓库里的正式 nginx 配置：
+# - 80 提供用户前台
+# - 8081 提供管理后台
+# - /api、/open、/health 反代到 gateway
+COPY docker/nginx/nginx.prod.conf /etc/nginx/nginx.conf
+
+# 复制用户前台构建产物到 nginx 静态目录。
+COPY --from=app-builder /build/frontend/app/dist /usr/share/nginx/html/app
+
+# 复制后台管理构建产物到 nginx 静态目录。
+COPY --from=admin-builder /build/frontend/admin/dist /usr/share/nginx/html/admin
+
+# 明确声明 nginx 会监听这两个端口，方便读 Dockerfile 的人快速理解用途。
+EXPOSE 80 8081

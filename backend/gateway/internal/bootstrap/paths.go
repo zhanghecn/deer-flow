@@ -73,11 +73,6 @@ func ExtensionsConfigPath() string {
 	return filepath.Join(RepoRootDir(), "extensions_config.json")
 }
 
-// MigrationsDir returns the repository migrations directory.
-func MigrationsDir() string {
-	return filepath.Join(RepoRootDir(), "migrations")
-}
-
 // LoadSharedEnv loads the repository-wide .env file.
 func LoadSharedEnv() error {
 	err := godotenv.Load(SharedEnvPath())
@@ -85,17 +80,4 @@ func LoadSharedEnv() error {
 		return err
 	}
 	return fmt.Errorf("load shared env: %w", err)
-}
-
-// MigrationsSourceURL returns the golang-migrate file source URL.
-func MigrationsSourceURL() (string, error) {
-	migrationsDir := MigrationsDir()
-	info, err := os.Stat(migrationsDir)
-	if err != nil {
-		return "", fmt.Errorf("stat migrations dir: %w", err)
-	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("migrations path is not a directory: %s", migrationsDir)
-	}
-	return "file://" + migrationsDir, nil
 }

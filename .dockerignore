@@ -4,6 +4,9 @@ Dockerfile
 .git
 .gitignore
 docker/
+!docker/nginx/
+!docker/nginx/nginx.prod.conf
+!docker/nginx/Dockerfile.prod
 
 # Python
 __pycache__/
@@ -66,7 +69,6 @@ tests/
 .openagents/
 scripts/
 logs/
-docker/
 skills/
 frontend/.next
 frontend/app/.next

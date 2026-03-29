@@ -19,7 +19,6 @@ Stack: Go 1.22, Gin, PostgreSQL (`pgx`), `golang-jwt`, `bcrypt`.
 | `make run` | Start with `go run ./cmd/server` |
 | `make test` | Run `go test ./...` |
 | `make clean` | Remove build artifacts |
-| `make migrate` | Apply SQL migrations with `DATABASE_URL` |
 
 ## Source Layout
 
@@ -79,12 +78,13 @@ Agent and Skill metadata live in PostgreSQL for querying, while `AGENTS.md` and 
 
 The Go gateway writes archived agent definitions. The Python runtime later seeds those archived files into thread-local runtime paths.
 
-When the frontend or lead agent creates a new domain agent, the runtime flow depends on `target_agent_name` being forwarded to Python so `setup_agent` can materialize the correct archive directory.
+When the frontend or lead agent creates a new domain agent, slash commands should only route the workflow. Do not add gateway-side natural-language parsing for target agent names or target skill names. If the UI already has an explicit target from a dedicated field, forwarding that structured value is fine; otherwise the runtime model must decide and pass explicit tool arguments such as `setup_agent(agent_name=...)`.
 
 ## Working Conventions
 
 - Keep `/api/langgraph/*` policy minimal: pass payload through, inject authenticated identity, leave runtime resolution to Python.
 - Do not keep legacy fallback execution paths in Gateway once Python owns a business flow. Gateway should proxy or reject, not silently fall back to older subprocess or duplicate-logic branches.
+- Gateway must not execute repository SQL migrations. Schema changes are reviewed and applied manually outside service startup.
 - Preserve the archive-definition-to-runtime-materialization contract.
 - When extending agent-owned assets, add them under `agents/{status}/{name}/...`, copy them during create and publish, and rely on Python startup to seed them into the runtime view.
 - Thread uploads live under `threads/{thread_id}/user-data/uploads/`. Go owns upload CRUD there, including auto-generating Markdown companions for convertible documents and keeping delete/list behavior consistent with those companions.
