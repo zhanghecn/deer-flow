@@ -1,46 +1,45 @@
 # Migration Baseline
 
-The active baseline is split into schema + data migrations:
+The active baseline is intentionally squashed into two files:
 
 - `001_init.up.sql`
 - `002_seed_data.up.sql`
 
-Compatibility cleanup retained for older environments:
-
-- `003_drop_legacy_agent_tables.up.sql`
-
-`001_init.up.sql` contains the full schema baseline:
+`001_init.up.sql` contains the full current gateway-owned schema:
 
 - `users`
 - `api_tokens`
 - `models`
-- `thread_bindings` (includes `title` and persisted thread runtime binding fields)
+- `thread_bindings`
 - `agent_traces`
 - `agent_trace_events`
+- `knowledge_bases`
+- `knowledge_documents`
+- `knowledge_document_nodes`
+- `knowledge_thread_bindings`
+- `knowledge_build_jobs`
+- `knowledge_build_events`
 
-Notably absent by design:
+Intentionally absent by design:
 
-- no `agents` table
-- no `skills` table
-- no `agent_skills` join table
+- runtime checkpoint tables such as `checkpoints`, `checkpoint_blobs`, and related runtime-owned state
+- legacy `agents`, `skills`, and `agent_skills` tables
 
-Agent and skill definitions are filesystem archives under `.openagents/`, not
-database rows.
+Agent and skill definitions remain filesystem archives under `.openagents/`,
+not database rows.
 
-`002_seed_data.up.sql` contains runtime seed data:
+`002_seed_data.up.sql` contains only deterministic bootstrap data:
 
-- seeded `models` rows
-- baseline `max_input_tokens` metadata for seeded models
-- default admin user:
+- the current `models` catalog, synchronized from the live `openagents` database
+- the default admin user:
   - account: `admin`
   - password: `admin123`
   - email: `admin@163.com`
 
-`003_drop_legacy_agent_tables.up.sql` is a cleanup migration for environments
-that were created before agent/skill definitions became filesystem-only. It
-removes legacy `agents`, `skills`, and `agent_skills` tables if they still
-exist.
+Runtime/user-generated rows in `users`, thread tables, observability tables, and
+knowledge-base tables are intentionally excluded from migrations.
 
-If your environment was migrated with older numbered files, reset or rebuild the
-database before re-running migrations so `schema_migrations` matches this
-three-file history.
+Historical stepwise migrations (`003` through `011`) have been squashed into the
+current `001` / `002` pair. Databases that were created from the historical
+chain should be kept as-is or rebuilt before re-bootstrap; do not expect the new
+baseline files to backfill a partially migrated older database.

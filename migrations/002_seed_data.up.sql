@@ -1,4 +1,7 @@
--- Seed runtime data.
+-- Deterministic bootstrap data only.
+-- Runtime/user-generated rows stay in the live database and are intentionally
+-- excluded from migrations. Model rows are synced from the current database
+-- snapshot so the baseline does not drift behind deployed configuration.
 -- WARNING: this migration contains API credentials in config_json.
 
 BEGIN;
@@ -6,67 +9,46 @@ BEGIN;
 INSERT INTO models (name, display_name, provider, config_json, enabled)
 VALUES
     (
-        'kimi-k2.5-1',
-        'Kimi K2.5 #1',
+        'kimi-k2.5',
+        'Kimi K2.5',
         'anthropic',
-        '{
+        $${
           "use": "langchain_anthropic:ChatAnthropic",
           "model": "kimi-k2.5",
-          "api_key": "sk-kimi-iTmVzeQofVNhi0NVJVn0gY21zEdrbXpEMlSeX6QotEpYL4op46Fb8TWzsQbPSSn1",
-          "base_url": "https://api.kimi.com/coding/",
+          "api_key": "sk-yVvFfJmS5Gg8wLNY4kOHvbr0H2ZAGi8VxfSLp2wQbHr9UPZp",
+          "base_url": "http://172.31.18.247:13000",
+          "supports_vision": true,
           "max_input_tokens": 256000,
           "supports_thinking": true,
-          "supports_vision": false,
-          "supports_reasoning_effort": false,
           "when_thinking_enabled": {
             "thinking": {
               "type": "enabled"
             }
-          }
-        }'::jsonb,
+          },
+          "supports_reasoning_effort": false
+        }$$::jsonb,
         true
     ),
     (
-        'kimi-k2.5-2',
-        'Kimi K2.5 #2',
-        'anthropic',
-        '{
-          "use": "langchain_anthropic:ChatAnthropic",
-          "model": "kimi-k2.5",
-          "api_key": "sk-kimi-OOSOEpfXJsjGQGB5dIuDTqNfrNWSzYCLlwHNuxD2cmsihdYQmq1qYRDfjx75kH4T",
-          "base_url": "https://api.kimi.com/coding/",
-          "max_input_tokens": 256000,
-          "supports_thinking": true,
-          "supports_vision": false,
-          "supports_reasoning_effort": false,
-          "when_thinking_enabled": {
-            "thinking": {
-              "type": "enabled"
-            }
-          }
-        }'::jsonb,
-        true
-    ),
-    (
-        'glm-5',
+        'GLM-5',
         'GLM-5',
         'anthropic',
-        '{
+        $${
           "use": "langchain_anthropic:ChatAnthropic",
           "model": "glm-5",
-          "api_key": "sk-sp-7f7dd6439d8e4af0a4241da5e4ea2e8c",
-          "base_url": "https://coding.dashscope.aliyuncs.com/apps/anthropic",
+          "api_key": "sk-yVvFfJmS5Gg8wLNY4kOHvbr0H2ZAGi8VxfSLp2wQbHr9UPZp",
+          "base_url": "http://172.31.18.247:13000",
+          "supports_vision": false,
           "max_input_tokens": 200000,
           "supports_thinking": true,
-          "supports_vision": false,
-          "supports_reasoning_effort": false,
           "when_thinking_enabled": {
             "thinking": {
               "type": "enabled"
             }
-          }
-        }'::jsonb,
-        true
+          },
+          "supports_reasoning_effort": false
+        }$$::jsonb,
+        false
     )
 ON CONFLICT (name) DO UPDATE
 SET
