@@ -39,36 +39,6 @@ class _FakeRepository:
         assert thread_id == "thread-1"
         return [_document()]
 
-    def list_documents_by_ids(
-        self,
-        *,
-        user_id: str,
-        document_ids: list[str],
-        ready_only: bool = False,
-    ) -> list[KnowledgeDocumentRecord]:
-        assert user_id == "user-1"
-        if document_ids == ["doc-selected"]:
-            return [
-                KnowledgeDocumentRecord(
-                    id="doc-selected",
-                    knowledge_base_id="kb-selected",
-                    knowledge_base_name="Selected",
-                    knowledge_base_description=None,
-                    display_name="selected-notes.md",
-                    file_kind="markdown",
-                    locator_type="heading",
-                    status="ready",
-                    doc_description="selected document description",
-                    error=None,
-                    page_count=None,
-                    node_count=4,
-                    source_storage_path="knowledge/selected.md",
-                    markdown_storage_path="knowledge/selected.md",
-                    preview_storage_path=None,
-                )
-            ]
-        return []
-
     def resolve_thread_document(
         self,
         *,
@@ -157,38 +127,6 @@ def test_get_document_tree_clamps_depth_and_normalizes_prefix_summary():
     assert data["recommended_evidence_node_ids"] == ["0001"]
     assert data["tree"][0]["summary"] == "Revenue overview and key drivers."
     assert "prefix_summary" not in json.dumps(data, ensure_ascii=False)
-
-
-def test_list_thread_documents_includes_selected_documents_for_new_thread_context():
-    repository = _FakeRepository()
-
-    payload = KnowledgeService(repository=repository).list_thread_documents(
-        user_id="user-1",
-        thread_id="thread-1",
-        selected_document_ids=["doc-selected"],
-    )
-
-    data = json.loads(payload)
-
-    available_names = [item["document_name"] for item in data["available_documents"]]
-    assert available_names == ["annual-report.pdf", "selected-notes.md"]
-
-
-def test_get_document_tree_can_resolve_selected_document_without_thread_binding():
-    repository = _FakeRepository()
-
-    payload = KnowledgeService(repository=repository).get_document_tree(
-        user_id="user-1",
-        thread_id="thread-1",
-        document_name_or_id="selected-notes.md",
-        node_id=None,
-        max_depth=2,
-        selected_document_ids=["doc-selected"],
-    )
-
-    data = json.loads(payload)
-
-    assert data["document"]["name"] == "selected-notes.md"
 
 
 class _LargeHeadingRepository(_FakeRepository):

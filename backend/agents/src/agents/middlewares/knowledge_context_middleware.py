@@ -14,7 +14,6 @@ from langgraph.types import Command
 
 from src.config.agents_config import load_agents_md
 from src.knowledge import KnowledgeService
-from src.knowledge.formatters import format_documents_payload
 from src.knowledge.models import KnowledgeDocumentRecord
 from src.knowledge.references import (
     ResolvedKnowledgeReferences,
@@ -22,7 +21,6 @@ from src.knowledge.references import (
     resolve_knowledge_document_mentions,
 )
 from src.knowledge.runtime import resolve_knowledge_runtime_identity
-from src.knowledge.runtime import resolve_knowledge_selected_document_ids
 from src.utils.runtime_context import runtime_context_value
 from src.agents.middlewares.model_response_utils import (
     has_visible_response,
@@ -173,7 +171,6 @@ def _ready_documents(runtime_context: object) -> list[KnowledgeDocumentRecord]:
     documents = KnowledgeService().get_thread_document_records(
         user_id=user_id,
         thread_id=thread_id,
-        selected_document_ids=resolve_knowledge_selected_document_ids(runtime_context),
     )
     return [document for document in documents if document.status == "ready"]
 
@@ -671,6 +668,29 @@ def _build_knowledge_protocol_prompt(
     return "\n".join(lines)
 
 
+def _build_knowledge_binding_prompt(documents: list[KnowledgeDocumentRecord]) -> str:
+    base_names = sorted(
+        {
+            document.knowledge_base_name
+            for document in documents
+            if str(document.knowledge_base_name or "").strip()
+        }
+    )
+    lines = [
+        "<knowledge_thread_bindings>",
+        (
+            "- This thread has "
+            f"{len(documents)} ready knowledge document(s) attached across "
+            f"{len(base_names)} knowledge base(s)."
+        ),
+        "- Do not rely on hidden document lists. When you need attached document names or descriptions, call `list_knowledge_documents`.",
+    ]
+    if base_names:
+        lines.append(f"- Attached knowledge bases: {', '.join(base_names)}.")
+    lines.append("</knowledge_thread_bindings>")
+    return "\n".join(lines)
+
+
 def build_knowledge_context_prompt(
     runtime_context: object,
     *,
@@ -680,19 +700,14 @@ def build_knowledge_context_prompt(
     if not documents:
         return ""
 
-    knowledge_payload = format_documents_payload(documents)
     selection_prompt = _build_document_selection_prompt(runtime_context, documents)
     protocol_prompt = _build_knowledge_protocol_prompt(runtime_context, documents)
+    binding_prompt = _build_knowledge_binding_prompt(documents)
     return "\n".join(
         [
             *([selection_prompt] if selection_prompt else []),
             protocol_prompt,
-            "<knowledge_documents>",
-            "- The following knowledge documents are attached to this thread.",
-            "- Use these descriptions only to decide which document to inspect next.",
-            "- Do not answer from the descriptions alone; use the knowledge tools to inspect tree nodes and source text.",
-            knowledge_payload,
-            "</knowledge_documents>",
+            binding_prompt,
         ]
     )
 

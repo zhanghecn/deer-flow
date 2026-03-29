@@ -40,6 +40,9 @@ Last updated: 2026-03-28
 - API 边界立即校验 `model_name`
 - 旧数据通过迁移清理
 - 剩余无效值显式报错，而不是继续 fallback
+- 聊天页知识库可用性以 `knowledge_thread_bindings` 为唯一真源
+- 不保留聊天前端本地“已选文档”与线程挂载并存的双状态
+- 不再通过聊天 `extra_context` 传递 `knowledge_document_ids` / `knowledge_base_ids` 作为临时选择协议
 
 ```text
 Frontend (workspace/chat/knowledge)
@@ -256,10 +259,13 @@ Gateway / frontend poll build progress and events
 - `get_document_tree`
 - `get_document_evidence`
 
-兼容工具仍保留：
+补充视觉工具：
+
+- `get_document_image`
+
+后端仍保留兼容接口，但不再纳入默认 Agent 工具集：
 
 - `get_document_tree_node_detail`
-- `get_document_image`
 
 推荐调用顺序：
 

@@ -321,6 +321,29 @@ def test_resolve_run_model_prefers_persisted_thread_model_over_request_header_mo
     assert model_config.name == "thread-model"
 
 
+def test_resolve_run_model_ignores_stale_request_header_model_for_bound_thread_agent():
+    store = _FakeDBStore(
+        models={
+            "thread-model": _make_model("thread-model", supports_thinking=True),
+            "header-model": _make_model("header-model", supports_thinking=True),
+        },
+        thread_models={("thread-1", "user-1"): "thread-model"},
+    )
+
+    model_name, model_config = lead_agent_module._resolve_run_model(
+        requested_model_name=None,
+        runtime_model_name=None,
+        header_model_name="header-model",
+        agent_config=_make_agent_config(model="thread-model"),
+        thread_binding=store.get_thread_binding("thread-1"),
+        thread_id="thread-1",
+        db_store=store,
+    )
+
+    assert model_name == "thread-model"
+    assert model_config.name == "thread-model"
+
+
 def test_resolve_run_model_raises_for_conflicting_requested_and_header_models():
     store = _FakeDBStore(models={"safe-model": _make_model("safe-model", supports_thinking=True)})
 
@@ -528,7 +551,6 @@ def test_resolve_lead_agent_runtime_uses_persisted_thread_agent_runtime(monkeypa
             command_args=None,
             command_prompt=None,
             authoring_actions=(),
-            referenced_skill_names=(),
             target_agent_name=None,
             target_skill_name=None,
             agent_name=LEAD_AGENT_NAME,

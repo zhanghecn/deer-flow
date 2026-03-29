@@ -279,6 +279,69 @@ def _load_existing_agent_skill_inputs(
     return []
 
 
+def _normalize_loaded_skill_refs(runtime_state: object) -> list[dict[str, str]]:
+    if not isinstance(runtime_state, dict):
+        return []
+
+    raw_entries = runtime_state.get("loaded_skills")
+    if not isinstance(raw_entries, list):
+        return []
+
+    normalized: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for entry in raw_entries:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("name") or "").strip()
+        source_path = str(entry.get("source_path") or "").strip()
+        if not name or not source_path:
+            continue
+        key = (name, source_path)
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append({"name": name, "source_path": source_path})
+    return normalized
+
+
+def _resolve_default_setup_agent_skills(
+    *,
+    runtime_context: object,
+    runtime_state: object,
+    agent_name: str,
+    agent_status: str,
+    thread_id: str | None,
+    paths: Any,
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """Build default skill inputs when the model omits `setup_agent.skills`.
+
+    Omitted skills historically meant "preserve the current archive's copied or
+    agent-owned skills". Keep that behavior, and additionally inherit archived
+    skills that were explicitly loaded through the canonical `skill` tool during
+    the current `/create-agent` run.
+    """
+
+    preserved_inline_skills = _load_existing_agent_skill_inputs(
+        agent_name=agent_name,
+        agent_status=agent_status,
+        thread_id=thread_id,
+        paths=paths,
+    )
+    preserved_names = {
+        str(skill_input.get("name") or "").strip()
+        for skill_input in preserved_inline_skills
+        if isinstance(skill_input, dict)
+    }
+    command_name = str(runtime_context_value(runtime_context, "command_name") or "").strip()
+    inherited_skill_refs = [
+        skill_ref
+        for skill_ref in _normalize_loaded_skill_refs(runtime_state)
+        if command_name == "create-agent"
+        if skill_ref["name"] not in preserved_names
+    ]
+    return inherited_skill_refs, preserved_inline_skills
+
+
 def _runtime_agent_root(*, agent_name: str, agent_status: str) -> str:
     return f"/mnt/user-data/agents/{agent_status}/{agent_name.lower()}"
 
@@ -383,8 +446,9 @@ def setup_agent(
         execution_backend = str(runtime_context_value(runtime.context, "execution_backend") or "").strip() or None
         remote_session_id = str(runtime_context_value(runtime.context, "remote_session_id") or "").strip() or None
         if skills is None:
-            copied_skill_refs = []
-            inline_skills = _load_existing_agent_skill_inputs(
+            copied_skill_refs, inline_skills = _resolve_default_setup_agent_skills(
+                runtime_context=runtime.context,
+                runtime_state=getattr(runtime, "state", None),
                 agent_name=agent_name,
                 agent_status=agent_status,
                 thread_id=runtime_thread_id,
@@ -408,6 +472,7 @@ def setup_agent(
             skill_refs=copied_skill_refs,
             inline_skills=inline_skills,
             paths=paths,
+            allow_shared_skills=True,
         )
         _refresh_thread_runtime_materials(
             agent_name=agent_name,

@@ -1,12 +1,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { I18nProvider } from "@/core/i18n/context";
 
-import { KnowledgeSelectorDialog } from "./knowledge-selector-dialog";
+import {
+  KnowledgeSelectorDialog,
+  resolveKnowledgeBaseBindingDiff,
+} from "./knowledge-selector-dialog";
 
 vi.mock("@/core/knowledge/hooks", () => ({
   useKnowledgeLibrary: () => ({
@@ -15,20 +17,42 @@ vi.mock("@/core/knowledge/hooks", () => ({
         id: "kb-1",
         owner_id: "user-1",
         owner_name: "admin",
-        name: "E210郑民生-民间盲派八字",
-        description: "demo",
+        name: "Attached Base",
+        description: "already attached",
+        source_type: "library",
+        visibility: "shared",
+        preview_enabled: true,
+        attached_to_thread: true,
+        documents: [
+          {
+            id: "doc-1",
+            display_name: "attached.pdf",
+            file_kind: "pdf",
+            locator_type: "page",
+            status: "ready",
+            doc_description: "attached document",
+            node_count: 1,
+          },
+        ],
+      },
+      {
+        id: "kb-2",
+        owner_id: "user-1",
+        owner_name: "admin",
+        name: "Detached Base",
+        description: "not attached yet",
         source_type: "library",
         visibility: "shared",
         preview_enabled: true,
         attached_to_thread: false,
         documents: [
           {
-            id: "doc-1",
-            display_name: "E210郑民生-民间盲派八字.md",
+            id: "doc-2",
+            display_name: "detached.md",
             file_kind: "markdown",
             locator_type: "heading",
             status: "ready",
-            doc_description: "排歌命理技法",
+            doc_description: "detached document",
             node_count: 1,
           },
         ],
@@ -39,16 +63,12 @@ vi.mock("@/core/knowledge/hooks", () => ({
   }),
 }));
 
-vi.mock("@/core/knowledge/api", () => ({
-  attachKnowledgeBaseToThread: vi.fn().mockResolvedValue({
-    knowledge_bases: [],
-  }),
-}));
-
 describe("KnowledgeSelectorDialog", () => {
-  it("shows the selected knowledge count when the dialog opens", async () => {
-    const user = userEvent.setup();
-    const onChange = vi.fn();
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("shows the attached knowledge base count on the trigger", () => {
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: {
@@ -61,25 +81,23 @@ describe("KnowledgeSelectorDialog", () => {
       <MemoryRouter>
         <QueryClientProvider client={queryClient}>
           <I18nProvider initialLocale="en-US">
-            <KnowledgeSelectorDialog
-              threadId="draft-thread"
-              value={[
-                {
-                  documentId: "doc-1",
-                  documentName: "E210郑民生-民间盲派八字.md",
-                  knowledgeBaseId: "kb-1",
-                  knowledgeBaseName: "E210郑民生-民间盲派八字",
-                  ownerName: "admin",
-                },
-              ]}
-              onChange={onChange}
-            />
+            <KnowledgeSelectorDialog threadId="draft-thread" />
           </I18nProvider>
         </QueryClientProvider>
       </MemoryRouter>,
     );
 
-    await user.click(screen.getByRole("button", { name: /1 knowledge doc/i }));
-    expect(screen.getAllByText(/1 knowledge doc/i).length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("button", { name: /1 knowledge base/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("computes the full attach and detach diff from thread bindings", () => {
+    expect(
+      resolveKnowledgeBaseBindingDiff(["kb-1", "kb-3"], ["kb-2", "kb-3"]),
+    ).toEqual({
+      baseIdsToAttach: ["kb-2"],
+      baseIdsToDetach: ["kb-1"],
+    });
   });
 });

@@ -1,6 +1,12 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { BookOpenTextIcon, LoaderIcon } from "lucide-react";
+import { useCallback, useState } from "react";
+import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { useI18n } from "@/core/i18n/hooks";
+import { detachKnowledgeBaseFromThread } from "@/core/knowledge/api";
 import {
   getKnowledgeDocumentProgress,
   getKnowledgeDocumentStatus,
@@ -8,7 +14,6 @@ import {
 } from "@/core/knowledge/documents";
 import { useThreadKnowledgeBases } from "@/core/knowledge/hooks";
 import type { KnowledgeBase } from "@/core/knowledge/types";
-import { useI18n } from "@/core/i18n/hooks";
 import { cn } from "@/lib/utils";
 
 type AttachedKnowledgeSummary = {
@@ -105,7 +110,37 @@ export function ThreadKnowledgeAttachmentStrip({
   className?: string;
 }) {
   const { t } = useI18n();
+  const queryClient = useQueryClient();
   const { knowledgeBases, isLoading } = useThreadKnowledgeBases(threadId);
+  const [busyBaseId, setBusyBaseId] = useState<string | null>(null);
+
+  const handleDetach = useCallback(
+    async (knowledgeBase: KnowledgeBase) => {
+      setBusyBaseId(knowledgeBase.id);
+      try {
+        // Thread bindings are the only chat-facing source of truth, so detach
+        // edits the persisted binding directly instead of mutating local UI
+        // state that would be lost on refresh.
+        await detachKnowledgeBaseFromThread(threadId, knowledgeBase.id);
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: ["thread-knowledge-bases", threadId],
+          }),
+          queryClient.invalidateQueries({
+            queryKey: ["knowledge-library", threadId],
+          }),
+        ]);
+        toast.success(t.knowledge.detachedSuccess(knowledgeBase.name));
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : t.knowledge.bindingError,
+        );
+      } finally {
+        setBusyBaseId(null);
+      }
+    },
+    [queryClient, t, threadId],
+  );
 
   if (!isLoading && knowledgeBases.length === 0) {
     return null;
@@ -130,6 +165,8 @@ export function ThreadKnowledgeAttachmentStrip({
         <div className="flex flex-wrap gap-2">
           {knowledgeBases.map((knowledgeBase) => {
             const summary = summarizeAttachedKnowledgeBase(knowledgeBase);
+            const isBusy = busyBaseId === knowledgeBase.id;
+
             return (
               <div
                 key={knowledgeBase.id}
@@ -169,6 +206,19 @@ export function ThreadKnowledgeAttachmentStrip({
                       ) : null}
                     </div>
                   </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-full"
+                    disabled={isBusy}
+                    onClick={() => void handleDetach(knowledgeBase)}
+                  >
+                    {isBusy ? (
+                      <LoaderIcon className="mr-2 size-3.5 animate-spin" />
+                    ) : null}
+                    {t.knowledge.detach}
+                  </Button>
                 </div>
 
                 {summary.status === "queued" ||

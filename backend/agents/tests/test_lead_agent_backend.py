@@ -41,7 +41,6 @@ def _write_shared_skill(base_dir: Path, name: str, *, category: str = "shared", 
 
 def _make_lead_agent_request(
     *,
-    referenced_skill_names: tuple[str, ...] = (),
     agent_status: str = "dev",
 ) -> lead_agent_module.LeadAgentRequest:
     return lead_agent_module.LeadAgentRequest(
@@ -55,7 +54,6 @@ def _make_lead_agent_request(
         command_args=None,
         command_prompt=None,
         authoring_actions=(),
-        referenced_skill_names=referenced_skill_names,
         target_agent_name=None,
         target_skill_name=None,
         agent_name=LEAD_AGENT_NAME,
@@ -63,6 +61,7 @@ def _make_lead_agent_request(
         thread_id="thread-1",
         user_id=None,
         runtime_model_name=None,
+        header_model_name=None,
         execution_backend=None,
         remote_session_id=None,
     )
@@ -213,7 +212,6 @@ def test_create_agent_request_seeds_existing_target_archive_into_thread_runtime(
         command_args="请更新 landing-copy-agent-0318",
         command_prompt="先检查已有归档，再修复。",
         authoring_actions=("setup_agent",),
-        referenced_skill_names=(),
         target_agent_name="landing-copy-agent-0318",
         target_skill_name=None,
         agent_name=LEAD_AGENT_NAME,
@@ -221,6 +219,7 @@ def test_create_agent_request_seeds_existing_target_archive_into_thread_runtime(
         thread_id="thread-1",
         user_id=None,
         runtime_model_name=None,
+        header_model_name=None,
         execution_backend=None,
         remote_session_id=None,
     )
@@ -254,7 +253,6 @@ def test_create_agent_request_ignores_missing_target_archive_for_new_agent(tmp_p
         command_args="请创建 pw-new-agent",
         command_prompt="创建新 agent。",
         authoring_actions=("setup_agent",),
-        referenced_skill_names=(),
         target_agent_name="pw-new-agent",
         target_skill_name=None,
         agent_name=LEAD_AGENT_NAME,
@@ -262,6 +260,7 @@ def test_create_agent_request_ignores_missing_target_archive_for_new_agent(tmp_p
         thread_id="thread-1",
         user_id=None,
         runtime_model_name=None,
+        header_model_name=None,
         execution_backend=None,
         remote_session_id=None,
     )
@@ -304,102 +303,39 @@ def test_build_backend_dev_lead_agent_does_not_seed_store_skills_without_explici
     assert responses[2].error == "file_not_found"
 
 
-def test_build_backend_dev_lead_agent_seeds_only_referenced_shared_and_store_skills(tmp_path):
+def test_build_skill_sources_for_dev_lead_agent_include_store_archives(tmp_path):
     base_dir = tmp_path / ".openagents"
-    _write_shared_skill(base_dir, "bootstrap", body="bootstrap")
-    _write_shared_skill(base_dir, "surprise-me", body="surprise")
-    _write_shared_skill(base_dir, "copywriting", category="store/dev", body="copywriting")
     paths = _make_paths(base_dir)
-    request = _make_lead_agent_request(
-        referenced_skill_names=("surprise-me", "copywriting"),
-    )
+    request = _make_lead_agent_request()
 
-    with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
-        backend = lead_agent_module.build_backend(
-            "thread-1",
-            agent_name=None,
-            request=request,
-        )
+    with patch("src.agents.lead_agent.agent.get_paths", return_value=paths), patch(
+        "src.agents.lead_agent.agent.resolve_shared_skills_mount",
+        return_value=(str(paths.skills_dir), "/mnt/skills/"),
+    ):
+        sources = lead_agent_module._build_skill_sources(request)
 
-    runtime_agent_root = lead_agent_module._runtime_agent_root(LEAD_AGENT_NAME, "dev")
-    responses = backend.download_files(
-        [
-            f"{runtime_agent_root}/skills/surprise-me/SKILL.md",
-            f"{runtime_agent_root}/skills/copywriting/SKILL.md",
-        ]
-    )
-
-    assert responses[0].content is not None
-    assert b"surprise" in responses[0].content
-    assert responses[1].content is not None
-    assert b"copywriting" in responses[1].content
+    assert sources == [
+        "/mnt/user-data/agents/dev/lead_agent/skills/",
+        "/mnt/skills/store/dev/",
+        "/mnt/skills/store/prod/",
+    ]
 
 
-def test_build_backend_dev_lead_agent_seeds_only_referenced_store_skills_without_duplicates(tmp_path):
+def test_build_skill_sources_for_prod_lead_agent_only_include_store_prod_archive(tmp_path):
     base_dir = tmp_path / ".openagents"
-    _write_shared_skill(base_dir, "bootstrap", body="bootstrap")
-    _write_shared_skill(base_dir, "copywriting", category="store/dev", body="copywriting")
-    _write_shared_skill(base_dir, "contract-review", category="store/prod", body="review")
-    _write_shared_skill(base_dir, "duplicate-skill", category="store/dev", body="dev duplicate")
-    _write_shared_skill(base_dir, "duplicate-skill", category="store/prod", body="prod duplicate")
     paths = _make_paths(base_dir)
-    request = _make_lead_agent_request(
-        referenced_skill_names=("copywriting", "contract-review", "duplicate-skill"),
-    )
+    request = _make_lead_agent_request(agent_status="prod")
 
-    with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
-        backend = lead_agent_module.build_backend(
-            "thread-1",
-            agent_name=None,
-            request=request,
-        )
+    with patch("src.agents.lead_agent.agent.get_paths", return_value=paths), patch(
+        "src.agents.lead_agent.agent.resolve_shared_skills_mount",
+        return_value=(str(paths.skills_dir), "/mnt/skills/"),
+    ):
+        sources = lead_agent_module._build_skill_sources(request)
 
-    runtime_agent_root = lead_agent_module._runtime_agent_root(LEAD_AGENT_NAME, "dev")
-    responses = backend.download_files(
-        [
-            f"{runtime_agent_root}/skills/copywriting/SKILL.md",
-            f"{runtime_agent_root}/skills/contract-review/SKILL.md",
-            f"{runtime_agent_root}/skills/duplicate-skill/SKILL.md",
-        ]
-    )
-
-    assert responses[0].content is not None
-    assert b"copywriting" in responses[0].content
-    assert responses[1].content is not None
-    assert b"review" in responses[1].content
-    assert responses[2].error == "file_not_found"
-
-
-def test_build_backend_prod_lead_agent_seeds_only_referenced_store_prod_skills(tmp_path):
-    base_dir = tmp_path / ".openagents"
-    _write_shared_skill(base_dir, "bootstrap", body="bootstrap")
-    _write_shared_skill(base_dir, "copywriting", category="store/dev", body="copywriting")
-    _write_shared_skill(base_dir, "contract-review", category="store/prod", body="review")
-    paths = _make_paths(base_dir)
-    request = _make_lead_agent_request(
-        referenced_skill_names=("copywriting", "contract-review"),
-        agent_status="prod",
-    )
-
-    with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
-        backend = lead_agent_module.build_backend(
-            "thread-1",
-            agent_name=None,
-            status="prod",
-            request=request,
-        )
-
-    runtime_agent_root = lead_agent_module._runtime_agent_root(LEAD_AGENT_NAME, "prod")
-    responses = backend.download_files(
-        [
-            f"{runtime_agent_root}/skills/copywriting/SKILL.md",
-            f"{runtime_agent_root}/skills/contract-review/SKILL.md",
-        ]
-    )
-
-    assert responses[0].error == "file_not_found"
-    assert responses[1].content is not None
-    assert b"review" in responses[1].content
+    assert sources == [
+        "/mnt/user-data/agents/prod/lead_agent/skills/",
+        "/mnt/skills/store/prod/",
+    ]
 
 
 def test_build_backend_supports_store_prod_skill_refs(tmp_path):

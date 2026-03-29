@@ -11,7 +11,6 @@ from src.tools.builtins import (
     get_document_evidence,
     get_document_image,
     get_document_tree,
-    get_document_tree_node_detail,
     install_skill_from_registry,
     list_knowledge_documents,
     present_file_tool,
@@ -21,6 +20,7 @@ from src.tools.builtins import (
     question_tool,
     save_agent_to_store,
     save_skill_to_store,
+    skill_tool,
     setup_agent,
     view_image_tool,
 )
@@ -28,12 +28,12 @@ from src.tools.builtins import (
 logger = logging.getLogger(__name__)
 
 BUILTIN_TOOLS = [
+    skill_tool,
     present_file_tool,
     question_tool,
     list_knowledge_documents,
     get_document_tree,
     get_document_evidence,
-    get_document_tree_node_detail,
     get_document_image,
 ]
 DEV_BUILTIN_TOOLS = [

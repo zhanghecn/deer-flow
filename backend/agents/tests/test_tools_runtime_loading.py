@@ -64,7 +64,7 @@ tool_groups: []
     assert "question" in tool_names
     assert "list_knowledge_documents" in tool_names
     assert "get_document_tree" in tool_names
-    assert "get_document_tree_node_detail" in tool_names
+    assert "get_document_evidence" in tool_names
     assert "get_document_image" in tool_names
 
 

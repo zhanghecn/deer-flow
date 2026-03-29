@@ -65,6 +65,16 @@ def test_should_enforce_direct_authoring_guard_only_for_hard_authoring_turns():
     )
 
 
+def test_should_enforce_direct_authoring_guard_ignores_create_agent_even_if_marked_hard():
+    assert not should_enforce_direct_authoring_guard(
+        {
+            "command_name": "create-agent",
+            "command_kind": "hard",
+            "authoring_actions": ["setup_agent"],
+        }
+    )
+
+
 def test_is_protected_create_agent_path_matches_runtime_roots():
     assert is_protected_create_agent_path("/mnt/user-data/agents/dev/demo/AGENTS.md")
     assert is_protected_create_agent_path("/mnt/user-data/authoring/agents/demo/AGENTS.md")

@@ -17,6 +17,7 @@ import {
 } from "@/core/agents";
 import { useI18n } from "@/core/i18n/hooks";
 import { useModels } from "@/core/models/hooks";
+import { findAvailableModelName } from "@/core/models";
 import { useLocalSettings } from "@/core/settings";
 import { uuid } from "@/core/utils/uuid";
 import { env } from "@/env";
@@ -50,6 +51,10 @@ export default function NewChatClient() {
     runtimeSelection.agentStatus,
   );
   const defaultModelName = models[0]?.name;
+  const configuredModelName = useMemo(
+    () => findAvailableModelName(models, settings.context.model_name),
+    [models, settings.context.model_name],
+  );
   const pinnedModelName = useMemo(() => {
     const modelName = agent?.model?.trim();
     return modelName === "" ? undefined : modelName;
@@ -62,9 +67,17 @@ export default function NewChatClient() {
       execution_backend: runtimeSelection.executionBackend,
       remote_session_id: runtimeSelection.remoteSessionId ?? undefined,
       model_name:
-        pinnedModelName ?? settings.context.model_name ?? defaultModelName,
+        pinnedModelName ??
+        (isCustomAgent ? undefined : (configuredModelName ?? defaultModelName)),
     }),
-    [defaultModelName, pinnedModelName, runtimeSelection, settings.context],
+    [
+      configuredModelName,
+      defaultModelName,
+      isCustomAgent,
+      pinnedModelName,
+      runtimeSelection,
+      settings.context,
+    ],
   );
   const selectedModelName =
     typeof runtimeContext.model_name === "string"
@@ -103,7 +116,7 @@ export default function NewChatClient() {
       return;
     }
 
-    if (settings.context.model_name || !defaultModelName) {
+    if (isCustomAgent || configuredModelName || !defaultModelName) {
       return;
     }
 
@@ -111,7 +124,9 @@ export default function NewChatClient() {
       model_name: defaultModelName,
     });
   }, [
+    configuredModelName,
     defaultModelName,
+    isCustomAgent,
     pinnedModelName,
     setSettings,
     settings.context.model_name,

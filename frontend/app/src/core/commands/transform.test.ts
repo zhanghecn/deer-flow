@@ -83,16 +83,16 @@ describe("buildCreateAgentFlowExtraContext", () => {
     });
   });
 
-  it("preserves referenced skills on plain follow-up text", () => {
+  it("preserves plain follow-up text without injecting skill references", () => {
     expect(
       buildCreateAgentFlowExtraContext(
-        "请复用 $find-skills 和 $skill-creator",
+        "请复用现有 skill 完成建档",
         "demo-agent",
       ),
     ).toMatchObject({
       command_name: "create-agent",
       target_agent_name: "demo-agent",
-      referenced_skill_names: ["find-skills", "skill-creator"],
+      original_user_input: "请复用现有 skill 完成建档",
     });
   });
 });

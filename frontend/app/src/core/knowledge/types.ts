@@ -129,11 +129,3 @@ export interface KnowledgeDocumentDebugPayload {
   source_map_json?: unknown;
   document_index_json?: unknown;
 }
-
-export interface KnowledgeSelection {
-  documentId: string;
-  documentName: string;
-  knowledgeBaseId: string;
-  knowledgeBaseName: string;
-  ownerName: string;
-}

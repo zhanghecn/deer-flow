@@ -90,10 +90,16 @@ type WindowActivity = {
 function resolveThreadContext(context: ThreadContext): ThreadContext {
   const storedContext = getLocalSettings().context;
   const mode = normalizeThreadMode(context.mode ?? storedContext.mode);
+  const hasExplicitModelName = Object.prototype.hasOwnProperty.call(
+    context,
+    "model_name",
+  );
 
   return {
     ...context,
-    model_name: context.model_name ?? storedContext.model_name,
+    model_name: hasExplicitModelName
+      ? context.model_name
+      : storedContext.model_name,
     mode,
     reasoning_effort:
       context.reasoning_effort ??

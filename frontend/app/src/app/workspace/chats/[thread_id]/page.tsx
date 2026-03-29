@@ -22,6 +22,7 @@ import {
 } from "@/core/agents";
 import { useI18n } from "@/core/i18n/hooks";
 import { useModels } from "@/core/models/hooks";
+import { findAvailableModelName } from "@/core/models";
 import { useNotification } from "@/core/notification/hooks";
 import { useLocalSettings } from "@/core/settings";
 import { useThreadStream } from "@/core/threads/hooks";
@@ -57,6 +58,10 @@ export default function ChatPage() {
   const [searchParams] = useSearchParams();
   const { models } = useModels();
   const defaultModelName = models[0]?.name;
+  const configuredModelName = useMemo(
+    () => findAvailableModelName(models, settings.context.model_name),
+    [models, settings.context.model_name],
+  );
   const routeHasPendingRun = searchParams.get("pending_run") === "1";
   const routeRuntimeSelection = useMemo(
     () => readAgentRuntimeSelection(searchParams),
@@ -97,12 +102,11 @@ export default function ChatPage() {
       ...settings.context,
       ...runtimeMessageContext,
       model_name:
-        boundThreadRuntime.modelName ??
-        settings.context.model_name ??
-        defaultModelName,
+        boundThreadRuntime.modelName ?? configuredModelName ?? defaultModelName,
     }),
     [
       boundThreadRuntime.modelName,
+      configuredModelName,
       defaultModelName,
       runtimeMessageContext,
       settings.context,
@@ -130,14 +134,14 @@ export default function ChatPage() {
       : "";
 
   useEffect(() => {
-    if (settings.context.model_name || !defaultModelName) {
+    if (configuredModelName || !defaultModelName) {
       return;
     }
 
     setSettings("context", {
       model_name: defaultModelName,
     });
-  }, [defaultModelName, setSettings, settings.context.model_name]);
+  }, [configuredModelName, defaultModelName, setSettings]);
 
   useEffect(() => {
     setRuntimeContext(runtimeContextSeed);

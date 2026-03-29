@@ -6,7 +6,6 @@ import {
   RocketIcon,
   SparklesIcon,
   UploadIcon,
-  XIcon,
   ZapIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -52,15 +51,6 @@ import {
 import { useI18n } from "@/core/i18n/hooks";
 import { useModels } from "@/core/models/hooks";
 import type { Model } from "@/core/models/types";
-import {
-  getLocalizedSkillDescription,
-  getSkillReferenceQuery,
-} from "@/core/skills";
-import { useSkills } from "@/core/skills/hooks";
-import {
-  formatSkillScopeLabel,
-  normalizeSkillScope,
-} from "@/core/skills/scope";
 import type {
   AgentThreadContext,
   ContextWindowState,
@@ -72,7 +62,6 @@ import {
   type ThreadMode,
   type ThreadReasoningEffort,
 } from "@/core/threads/mode";
-import type { KnowledgeSelection } from "@/core/knowledge/types";
 import { cn } from "@/lib/utils";
 
 import {
@@ -94,8 +83,8 @@ import {
 
 import { ContextWindowCard } from "./context-window-card";
 import { KnowledgeBaseUploadDialog } from "./knowledge/knowledge-base-upload-dialog";
-import { ThreadKnowledgeAttachmentStrip } from "./knowledge/thread-knowledge-attachment-strip";
 import { KnowledgeSelectorDialog } from "./knowledge/knowledge-selector-dialog";
+import { ThreadKnowledgeAttachmentStrip } from "./knowledge/thread-knowledge-attachment-strip";
 import { ModeHoverGuide } from "./mode-hover-guide";
 import {
   getNextPickerIndex,
@@ -283,17 +272,9 @@ export function InputBox({
   const [searchParams] = useSearchParams();
   const [modelDialogOpen, setModelDialogOpen] = useState(false);
   const { models } = useModels();
-  const { skills } = useSkills();
   const promptInputController = usePromptInputController();
   const draftText = promptInputController.textInput.value;
-  const [selectedKnowledgeDocuments, setSelectedKnowledgeDocuments] = useState<
-    KnowledgeSelection[]
-  >([]);
   const [knowledgeUploadOpen, setKnowledgeUploadOpen] = useState(false);
-
-  useEffect(() => {
-    setSelectedKnowledgeDocuments([]);
-  }, [threadId]);
 
   useEffect(() => {
     if (typeof initialValue !== "string") {
@@ -302,12 +283,17 @@ export function InputBox({
     promptInputController.textInput.setInput(initialValue);
   }, [initialValue, promptInputController]);
 
+  const waitsForPinnedAgentModel =
+    typeof context.agent_name === "string" &&
+    context.agent_name !== "" &&
+    context.agent_name !== "lead_agent" &&
+    typeof context.model_name !== "string";
   const selectedModel = useMemo(() => {
-    if (models.length === 0) {
+    if (models.length === 0 || waitsForPinnedAgentModel) {
       return undefined;
     }
     return models.find((m) => m.name === context.model_name) ?? models[0];
-  }, [context.model_name, models]);
+  }, [context.model_name, models, waitsForPinnedAgentModel]);
 
   useEffect(() => {
     if (!selectedModel) {
@@ -391,48 +377,6 @@ export function InputBox({
       const mergedExtraContext = {
         ...(buildPromptExtraContext(normalizedText) ?? {}),
       } as Record<string, unknown>;
-      if (selectedKnowledgeDocuments.length > 0) {
-        const existingMentions = Array.isArray(
-          mergedExtraContext.knowledge_document_mentions,
-        )
-          ? mergedExtraContext.knowledge_document_mentions
-              .map((item) => String(item).trim())
-              .filter(Boolean)
-          : [];
-        const nextMentions = Array.from(
-          new Set(
-            existingMentions.concat(
-              selectedKnowledgeDocuments.map((item) => item.documentName),
-            ),
-          ),
-        );
-        if (nextMentions.length > 0) {
-          mergedExtraContext.knowledge_document_mentions = nextMentions;
-          if (typeof mergedExtraContext.original_user_input !== "string") {
-            mergedExtraContext.original_user_input = normalizedText;
-          }
-        }
-        const selectedDocumentIds = Array.from(
-          new Set(
-            selectedKnowledgeDocuments
-              .map((item) => item.documentId.trim())
-              .filter(Boolean),
-          ),
-        );
-        if (selectedDocumentIds.length > 0) {
-          mergedExtraContext.knowledge_document_ids = selectedDocumentIds;
-        }
-        const selectedBaseIds = Array.from(
-          new Set(
-            selectedKnowledgeDocuments
-              .map((item) => item.knowledgeBaseId.trim())
-              .filter(Boolean),
-          ),
-        );
-        if (selectedBaseIds.length > 0) {
-          mergedExtraContext.knowledge_base_ids = selectedBaseIds;
-        }
-      }
 
       onSubmit?.(
         {
@@ -449,7 +393,6 @@ export function InputBox({
       onSubmit,
       onStop,
       promptInputController,
-      selectedKnowledgeDocuments,
       status,
     ],
   );
@@ -493,47 +436,19 @@ export function InputBox({
     slashQuery === null
       ? []
       : promptCommands.filter((command) => command.name.startsWith(slashQuery));
-  const skillReferenceQuery = getSkillReferenceQuery(draftText);
-  const skillReferenceSuggestions =
-    skillReferenceQuery === null
-      ? []
-      : skills
-          .filter((skill) => skill.enabled)
-          .filter((skill) => skill.name.startsWith(skillReferenceQuery))
-          .slice(0, 8);
 
   const quickInsertSuggestions = useMemo<QuickInsertSuggestion[]>(() => {
-    if (slashSuggestions.length > 0) {
-      return slashSuggestions.map((command) => ({
-        id: `command:${command.name}`,
-        title: `/${command.name}`,
-        description: command.description,
-        value: `/${command.name} `,
-        badge: t.inputBox.quickInsertCommandBadge,
-      }));
-    }
-
-    return skillReferenceSuggestions.map((skill) => ({
-      id: `skill:${skill.category}:${skill.name}`,
-      title: `$${skill.name}`,
-      description: getLocalizedSkillDescription(skill, locale),
-      value: `$${skill.name} `,
-      badge:
-        normalizeSkillScope(skill.category) != null
-          ? formatSkillScopeLabel(normalizeSkillScope(skill.category)!, locale)
-          : skill.category.replace("/", " "),
+    return slashSuggestions.map((command) => ({
+      id: `command:${command.name}`,
+      title: `/${command.name}`,
+      description: command.description,
+      value: `/${command.name} `,
+      badge: t.inputBox.quickInsertCommandBadge,
     }));
-  }, [locale, skillReferenceSuggestions, slashSuggestions, t]);
-  const quickInsertLabel =
-    slashSuggestions.length > 0
-      ? t.inputBox.quickInsertCommandsLabel
-      : t.inputBox.quickInsertSkillsLabel;
+  }, [slashSuggestions, t]);
+  const quickInsertLabel = t.inputBox.quickInsertCommandsLabel;
   const quickInsertQueryKey =
-    slashQuery !== null
-      ? `command:${slashQuery}`
-      : skillReferenceQuery !== null
-        ? `skill:${skillReferenceQuery}`
-        : null;
+    slashQuery !== null ? `command:${slashQuery}` : null;
   const [dismissedQuickInsertKey, setDismissedQuickInsertKey] = useState<
     string | null
   >(null);
@@ -704,9 +619,7 @@ export function InputBox({
           </Tooltip>
           <KnowledgeSelectorDialog
             threadId={threadId}
-            value={selectedKnowledgeDocuments}
             disabled={disabled}
-            onChange={setSelectedKnowledgeDocuments}
           />
           <PromptInputActionMenu>
             <ModeHoverGuide mode={displayedMode}>
@@ -748,7 +661,7 @@ export function InputBox({
             </PromptInputActionMenuContent>
           </PromptInputActionMenu>
         </PromptInputTools>
-        {(contextWindow || retryStatus) && (
+        {(contextWindow ?? retryStatus) && (
           <PromptInputTools className="min-w-0 flex-1 justify-center px-2">
             <div className="flex min-w-0 items-center justify-center gap-2">
               {retryStatus && status === "streaming" ? (
@@ -801,40 +714,6 @@ export function InputBox({
         </PromptInputTools>
       </PromptInputFooter>
       <ThreadKnowledgeAttachmentStrip threadId={threadId} />
-      {selectedKnowledgeDocuments.length > 0 && (
-        <div className="border-border/60 border-t px-3 py-2">
-          <div className="text-muted-foreground mb-2 flex flex-wrap items-center gap-2 text-xs">
-            <span>{t.knowledge.selector.readyLabel}</span>
-            <span>·</span>
-            <span>
-              {t.knowledge.selector.selectedCount(
-                selectedKnowledgeDocuments.length,
-              )}
-            </span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {selectedKnowledgeDocuments.map((selection) => (
-              <button
-                key={selection.documentId}
-                type="button"
-                className="bg-muted text-foreground hover:bg-muted/80 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs"
-                onClick={() =>
-                  setSelectedKnowledgeDocuments((current) =>
-                    current.filter(
-                      (item) => item.documentId !== selection.documentId,
-                    ),
-                  )
-                }
-              >
-                <span className="max-w-48 truncate">
-                  {selection.documentName}
-                </span>
-                <XIcon className="size-3" />
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
       {quickInsertOpen && (
         <div className="absolute right-0 bottom-18 left-0 z-20 flex justify-center px-4">
           <SkillReferencePicker

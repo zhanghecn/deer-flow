@@ -1,5 +1,3 @@
-import { extractSkillReferences } from "../skills/references";
-
 import type { ResolvedCommandIntent } from "./types";
 
 import { findPromptCommand } from "./index";
@@ -178,11 +176,6 @@ export function buildPromptExtraContext(
   const resolvedCommand = resolveCommandIntent(input);
   if (resolvedCommand) {
     Object.assign(extraContext, resolvedCommand.extraContext);
-  }
-
-  const referencedSkillNames = extractSkillReferences(input);
-  if (referencedSkillNames.length > 0) {
-    extraContext.referenced_skill_names = referencedSkillNames;
   }
 
   const knowledgeDocumentMentions = extractKnowledgeDocumentMentions(input);

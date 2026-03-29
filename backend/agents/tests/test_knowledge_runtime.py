@@ -58,6 +58,13 @@ def _tool(name: str):
     return SimpleNamespace(name=name)
 
 
+def _patch_thread_documents(monkeypatch, *documents: KnowledgeDocumentRecord) -> None:
+    monkeypatch.setattr(
+        "src.agents.middlewares.knowledge_context_middleware.KnowledgeService.get_thread_document_records",
+        lambda self, *, user_id, thread_id, ready_only=False: list(documents),
+    )
+
+
 def test_resolve_knowledge_runtime_identity_uses_explicit_user_id(monkeypatch):
     monkeypatch.setattr(
         "src.knowledge.runtime.get_runtime_db_store",
@@ -86,53 +93,19 @@ def test_build_knowledge_context_prompt_uses_thread_binding_fallback(monkeypatch
         "src.knowledge.runtime.get_runtime_db_store",
         lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
     )
-    monkeypatch.setattr(
-        "src.agents.middlewares.knowledge_context_middleware.KnowledgeService.get_thread_document_records",
-        lambda self, *, user_id, thread_id, selected_document_ids=None, ready_only=False: [
-            _document("annual-report.pdf", document_id=f"{user_id}:{thread_id}")
-        ],
+    _patch_thread_documents(
+        monkeypatch,
+        _document("annual-report.pdf", document_id="user-from-binding:thread-1"),
     )
 
     prompt = build_knowledge_context_prompt({"thread_id": "thread-1"})
 
-    assert "<knowledge_documents>" in prompt
-    assert '"document_id":"user-from-binding:thread-1"' in prompt
-    assert '"document_name":"annual-report.pdf"' in prompt
-
-
-def test_build_knowledge_context_prompt_includes_runtime_selected_documents(monkeypatch):
-    monkeypatch.setattr(
-        "src.knowledge.runtime.get_runtime_db_store",
-        lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
-    )
-
-    seen: dict[str, object] = {}
-
-    def _fake_get_thread_document_records(
-        self,
-        *,
-        user_id,
-        thread_id,
-        selected_document_ids=None,
-        ready_only=False,
-    ):
-        seen["selected_document_ids"] = selected_document_ids
-        return [_document("selected-notes.md", document_id="doc-selected")]
-
-    monkeypatch.setattr(
-        "src.agents.middlewares.knowledge_context_middleware.KnowledgeService.get_thread_document_records",
-        _fake_get_thread_document_records,
-    )
-
-    prompt = build_knowledge_context_prompt(
-        {
-            "thread_id": "thread-1",
-            "knowledge_document_ids": ["doc-selected"],
-        }
-    )
-
-    assert seen["selected_document_ids"] == ("doc-selected",)
-    assert '"document_name":"selected-notes.md"' in prompt
+    assert "<knowledge_thread_bindings>" in prompt
+    assert "1 ready knowledge document(s) attached across 1 knowledge base(s)" in prompt
+    assert "Do not rely on hidden document lists" in prompt
+    assert "list_knowledge_documents" in prompt
+    assert "annual-report.pdf" not in prompt
+    assert "user-from-binding:thread-1" not in prompt
 
 
 def test_build_knowledge_context_prompt_prioritizes_user_and_agent_document_targets(monkeypatch):
@@ -140,12 +113,10 @@ def test_build_knowledge_context_prompt_prioritizes_user_and_agent_document_targ
         "src.knowledge.runtime.get_runtime_db_store",
         lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
     )
-    monkeypatch.setattr(
-        "src.agents.middlewares.knowledge_context_middleware.KnowledgeService.get_thread_document_records",
-        lambda self, *, user_id, thread_id, selected_document_ids=None, ready_only=False: [
-            _document("annual-report.pdf", document_id="doc-1"),
-            _document("board-deck-q4.md", document_id="doc-2"),
-        ],
+    _patch_thread_documents(
+        monkeypatch,
+        _document("annual-report.pdf", document_id="doc-1"),
+        _document("board-deck-q4.md", document_id="doc-2"),
     )
     monkeypatch.setattr(
         "src.agents.middlewares.knowledge_context_middleware.load_agents_md",
@@ -179,6 +150,10 @@ def test_build_knowledge_context_prompt_prioritizes_user_and_agent_document_targ
     assert "use `get_document_evidence` before any `get_document_image(...)` or `view_image(...)` call" in prompt
     assert "instead of opening the spill file" in prompt
     assert "Avoid bypassing the knowledge index with raw file or shell search" in prompt
+    assert "<knowledge_thread_bindings>" in prompt
+    assert "Do not rely on hidden document lists" in prompt
+    assert "Attached knowledge bases: Finance." in prompt
+    assert '"document_name"' not in prompt
 
 
 def test_knowledge_context_middleware_keeps_model_tool_list_stable_for_attached_document_turns(monkeypatch):
@@ -186,15 +161,13 @@ def test_knowledge_context_middleware_keeps_model_tool_list_stable_for_attached_
         "src.knowledge.runtime.get_runtime_db_store",
         lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
     )
-    monkeypatch.setattr(
-        "src.agents.middlewares.knowledge_context_middleware.KnowledgeService.get_thread_document_records",
-        lambda self, *, user_id, thread_id, selected_document_ids=None, ready_only=False: [
-            _document(
-                "E210郑民生-民间盲派八字.md",
-                document_id="doc-1",
-                knowledge_base_name="E210郑民生-民间盲派八字",
-            )
-        ],
+    _patch_thread_documents(
+        monkeypatch,
+        _document(
+            "E210郑民生-民间盲派八字.md",
+            document_id="doc-1",
+            knowledge_base_name="E210郑民生-民间盲派八字",
+        ),
     )
 
     user_input = "这份《E210郑民生-民间盲派八字》里，文中如何区分牢狱之灾和伤灾残疾？"
@@ -239,15 +212,13 @@ def test_knowledge_context_middleware_keeps_raw_tools_for_index_debug_turns(monk
         "src.knowledge.runtime.get_runtime_db_store",
         lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
     )
-    monkeypatch.setattr(
-        "src.agents.middlewares.knowledge_context_middleware.KnowledgeService.get_thread_document_records",
-        lambda self, *, user_id, thread_id, selected_document_ids=None, ready_only=False: [
-            _document(
-                "E210郑民生-民间盲派八字.md",
-                document_id="doc-1",
-                knowledge_base_name="E210郑民生-民间盲派八字",
-            )
-        ],
+    _patch_thread_documents(
+        monkeypatch,
+        _document(
+            "E210郑民生-民间盲派八字.md",
+            document_id="doc-1",
+            knowledge_base_name="E210郑民生-民间盲派八字",
+        ),
     )
 
     user_input = "帮我调试这份 E210郑民生-民间盲派八字 的索引解析，看看 raw parsing 和 source map 是否有问题。"
@@ -280,11 +251,9 @@ def test_knowledge_context_middleware_does_not_retry_direct_answer_without_curre
         "src.knowledge.runtime.get_runtime_db_store",
         lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
     )
-    monkeypatch.setattr(
-        "src.agents.middlewares.knowledge_context_middleware.KnowledgeService.get_thread_document_records",
-        lambda self, *, user_id, thread_id, selected_document_ids=None, ready_only=False: [
-            _document("PRML.pdf", document_id="doc-1", knowledge_base_name="PRML")
-        ],
+    _patch_thread_documents(
+        monkeypatch,
+        _document("PRML.pdf", document_id="doc-1", knowledge_base_name="PRML"),
     )
 
     user_input = "根据 PRML.pdf 的 Figure 1.1 回答问题。"
@@ -323,11 +292,9 @@ def test_knowledge_context_middleware_retries_tree_only_answer_without_current_t
         "src.knowledge.runtime.get_runtime_db_store",
         lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
     )
-    monkeypatch.setattr(
-        "src.agents.middlewares.knowledge_context_middleware.KnowledgeService.get_thread_document_records",
-        lambda self, *, user_id, thread_id, selected_document_ids=None, ready_only=False: [
-            _document("PRML.pdf", document_id="doc-1", knowledge_base_name="PRML")
-        ],
+    _patch_thread_documents(
+        monkeypatch,
+        _document("PRML.pdf", document_id="doc-1", knowledge_base_name="PRML"),
     )
 
     user_input = "根据 PRML.pdf 的 Figure 1.1 回答问题。"
@@ -403,11 +370,9 @@ def test_knowledge_context_middleware_retries_evidence_answer_without_visible_ci
         "src.knowledge.runtime.get_runtime_db_store",
         lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
     )
-    monkeypatch.setattr(
-        "src.agents.middlewares.knowledge_context_middleware.KnowledgeService.get_thread_document_records",
-        lambda self, *, user_id, thread_id, selected_document_ids=None, ready_only=False: [
-            _document("PRML.pdf", document_id="doc-1", knowledge_base_name="PRML")
-        ],
+    _patch_thread_documents(
+        monkeypatch,
+        _document("PRML.pdf", document_id="doc-1", knowledge_base_name="PRML"),
     )
 
     user_input = "根据 PRML.pdf 的 Figure 1.1 回答问题。"
@@ -475,11 +440,9 @@ def test_knowledge_context_middleware_retries_grounded_evidence_answer_without_v
         "src.knowledge.runtime.get_runtime_db_store",
         lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
     )
-    monkeypatch.setattr(
-        "src.agents.middlewares.knowledge_context_middleware.KnowledgeService.get_thread_document_records",
-        lambda self, *, user_id, thread_id, selected_document_ids=None, ready_only=False: [
-            _document("PRML.pdf", document_id="doc-1", knowledge_base_name="PRML")
-        ],
+    _patch_thread_documents(
+        monkeypatch,
+        _document("PRML.pdf", document_id="doc-1", knowledge_base_name="PRML"),
     )
 
     user_input = "根据 PRML.pdf 里的 Figure 1.1，只根据图片本身回答内容。"
@@ -546,11 +509,9 @@ def test_knowledge_context_middleware_retries_visual_answer_without_inline_asset
         "src.knowledge.runtime.get_runtime_db_store",
         lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
     )
-    monkeypatch.setattr(
-        "src.agents.middlewares.knowledge_context_middleware.KnowledgeService.get_thread_document_records",
-        lambda self, *, user_id, thread_id, selected_document_ids=None, ready_only=False: [
-            _document("annual-report.pdf", document_id="doc-1", knowledge_base_name="Annual")
-        ],
+    _patch_thread_documents(
+        monkeypatch,
+        _document("annual-report.pdf", document_id="doc-1", knowledge_base_name="Annual"),
     )
 
     user_input = "这份年报封面页展示的是什么场景？"
@@ -614,15 +575,13 @@ def test_blocked_knowledge_bypass_tool_message_rejects_grep_after_knowledge_acti
         "src.knowledge.runtime.get_runtime_db_store",
         lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
     )
-    monkeypatch.setattr(
-        "src.agents.middlewares.knowledge_context_middleware.KnowledgeService.get_thread_document_records",
-        lambda self, *, user_id, thread_id, selected_document_ids=None, ready_only=False: [
-            _document(
-                "E210郑民生-民间盲派八字.md",
-                document_id="doc-1",
-                knowledge_base_name="E210郑民生-民间盲派八字",
-            )
-        ],
+    _patch_thread_documents(
+        monkeypatch,
+        _document(
+            "E210郑民生-民间盲派八字.md",
+            document_id="doc-1",
+            knowledge_base_name="E210郑民生-民间盲派八字",
+        ),
     )
 
     user_input = "这份《E210郑民生-民间盲派八字》里，文中如何区分牢狱之灾和伤灾残疾？"
@@ -653,15 +612,13 @@ def test_blocked_knowledge_bypass_tool_message_rejects_read_file_on_large_tool_r
         "src.knowledge.runtime.get_runtime_db_store",
         lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
     )
-    monkeypatch.setattr(
-        "src.agents.middlewares.knowledge_context_middleware.KnowledgeService.get_thread_document_records",
-        lambda self, *, user_id, thread_id, selected_document_ids=None, ready_only=False: [
-            _document(
-                "PRML.pdf",
-                document_id="doc-1",
-                knowledge_base_name="PRML",
-            )
-        ],
+    _patch_thread_documents(
+        monkeypatch,
+        _document(
+            "PRML.pdf",
+            document_id="doc-1",
+            knowledge_base_name="PRML",
+        ),
     )
 
     user_input = "PRML 里关于 Figure 3.1 的图想表达什么？"
@@ -700,15 +657,13 @@ def test_blocked_knowledge_visual_tool_message_blocks_get_document_image_before_
         "src.knowledge.runtime.get_runtime_db_store",
         lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
     )
-    monkeypatch.setattr(
-        "src.agents.middlewares.knowledge_context_middleware.KnowledgeService.get_thread_document_records",
-        lambda self, *, user_id, thread_id, selected_document_ids=None, ready_only=False: [
-            _document(
-                "PRML.pdf",
-                document_id="doc-1",
-                knowledge_base_name="PRML",
-            )
-        ],
+    _patch_thread_documents(
+        monkeypatch,
+        _document(
+            "PRML.pdf",
+            document_id="doc-1",
+            knowledge_base_name="PRML",
+        ),
     )
 
     user_input = "根据 PRML 里的 Figure 1.1，只根据图片本身回答内容。"
@@ -743,15 +698,13 @@ def test_blocked_knowledge_visual_tool_message_requires_evidence_before_view_ima
         "src.knowledge.runtime.get_runtime_db_store",
         lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
     )
-    monkeypatch.setattr(
-        "src.agents.middlewares.knowledge_context_middleware.KnowledgeService.get_thread_document_records",
-        lambda self, *, user_id, thread_id, selected_document_ids=None, ready_only=False: [
-            _document(
-                "PRML.pdf",
-                document_id="doc-1",
-                knowledge_base_name="PRML",
-            )
-        ],
+    _patch_thread_documents(
+        monkeypatch,
+        _document(
+            "PRML.pdf",
+            document_id="doc-1",
+            knowledge_base_name="PRML",
+        ),
     )
 
     user_input = "根据 PRML 里的 Figure 1.1，只根据图片本身回答内容。"

@@ -27,6 +27,10 @@ import {
   createThreadKnowledgeBase,
 } from "@/core/knowledge/api";
 import { useModels } from "@/core/models/hooks";
+import {
+  findAvailableModelName,
+  normalizeModelName,
+} from "@/core/models/selection";
 import { getLocalSettings } from "@/core/settings";
 
 function stripFileExtension(filename: string) {
@@ -56,27 +60,18 @@ function resolveKnowledgeBaseName(
   return `${primaryLabel} +${files.length - 1}`;
 }
 
-function normalizeModelName(value: unknown) {
-  return typeof value === "string" ? value.trim() : "";
-}
-
 function resolveInitialModelName(
   currentModelName: string,
   defaultModelName: string | undefined,
   models: { name: string }[],
 ) {
-  if (models.some((model) => model.name === currentModelName)) {
-    return currentModelName;
-  }
-
-  const configuredModelName =
-    normalizeModelName(defaultModelName) ||
-    normalizeModelName(getLocalSettings().context.model_name);
-  return (
-    models.find((model) => model.name === configuredModelName)?.name ??
-    models[0]?.name ??
-    ""
+  const configuredModelName = findAvailableModelName(
+    models,
+    currentModelName,
+    defaultModelName,
+    getLocalSettings().context.model_name,
   );
+  return (normalizeModelName(configuredModelName) || models[0]?.name) ?? "";
 }
 
 export function KnowledgeBaseUploadDialog({

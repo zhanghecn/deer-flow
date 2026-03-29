@@ -4,6 +4,7 @@ import base64
 import logging
 from typing import Any
 
+from deepagents.backends import CompositeBackend
 from deepagents.backends.protocol import (
     EditResult,
     ExecuteResponse,
@@ -17,6 +18,9 @@ from deepagents.backends.protocol import (
 
 from src.config.paths import Paths, get_paths
 from src.remote.store import RemoteRelayStore
+
+from .local import resolve_shared_skills_mount
+from .read_only_filesystem import ReadOnlyFilesystemBackend
 
 logger = logging.getLogger(__name__)
 
@@ -261,12 +265,29 @@ def build_remote_workspace_backend(
     *,
     session_id: str,
     paths: Paths | None = None,
-) -> RemoteShellBackend:
-    store = RemoteRelayStore(paths=paths or get_paths())
+) -> CompositeBackend | RemoteShellBackend:
+    resolved_paths = paths or get_paths()
+    store = RemoteRelayStore(paths=resolved_paths)
     session = store.get_session(session_id)
     if session.status != "connected":
         raise RuntimeError(
             f"Remote session '{session_id}' is not connected. Start `openagents-cli connect` before requesting remote execution."
         )
-    return RemoteShellBackend(session_id=session_id, store=store)
+    remote_backend = RemoteShellBackend(session_id=session_id, store=store)
+    shared_skills_mount = resolve_shared_skills_mount(resolved_paths)
+    if shared_skills_mount is None:
+        return remote_backend
 
+    shared_skills_dir, route_prefix = shared_skills_mount
+    # Remote execution relays `/mnt/user-data/...` to the user machine. Shared
+    # archived skills still live on the server, so expose them through a local
+    # read-only routed backend instead of trying to mirror them into the client.
+    return CompositeBackend(
+        default=remote_backend,
+        routes={
+            route_prefix: ReadOnlyFilesystemBackend(
+                root_dir=shared_skills_dir,
+                virtual_mode=True,
+            )
+        },
+    )

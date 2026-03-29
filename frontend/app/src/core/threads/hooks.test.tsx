@@ -223,6 +223,38 @@ describe("useThreadStream", () => {
     );
   });
 
+  it("does not restore a stored model name when the caller clears it explicitly", () => {
+    mockLocalSettingsContext = {
+      model_name: "kimi-k2.5-1",
+      mode: "pro",
+      reasoning_effort: "high",
+      agent_status: "dev",
+    };
+
+    renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-identity",
+          context: {
+            model_name: undefined,
+            agent_name: "contract-agent",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    expect(getAPIClientMock).toHaveBeenCalledWith(
+      undefined,
+      "thread-identity",
+      expect.objectContaining({
+        agent_name: "contract-agent",
+        model_name: undefined,
+      }),
+    );
+  });
+
   it("skips state hydration for pending threads until a model is resolved", async () => {
     mockLocalSettingsContext = {
       model_name: undefined,

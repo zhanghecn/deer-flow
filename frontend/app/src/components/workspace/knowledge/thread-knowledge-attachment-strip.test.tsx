@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -12,6 +13,7 @@ vi.mock("@/core/i18n/hooks", () => ({
           `${count} attached base${count === 1 ? "" : "s"}`,
         documentCount: (count: number) =>
           `${count} document${count === 1 ? "" : "s"}`,
+        detach: "Detach",
         status: {
           queued: "Queued",
           ready: "Ready",
@@ -60,13 +62,26 @@ vi.mock("@/core/knowledge/hooks", () => ({
   }),
 }));
 
+vi.mock("@/core/knowledge/api", () => ({
+  detachKnowledgeBaseFromThread: vi.fn().mockResolvedValue({
+    knowledge_bases: [],
+  }),
+}));
+
 describe("ThreadKnowledgeAttachmentStrip", () => {
   it("renders attached knowledge bases with live indexing progress", () => {
-    render(<ThreadKnowledgeAttachmentStrip threadId="thread-1" />);
+    const queryClient = new QueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ThreadKnowledgeAttachmentStrip threadId="thread-1" />
+      </QueryClientProvider>,
+    );
 
     expect(screen.getByText("1 attached base")).toBeInTheDocument();
     expect(screen.getByText("中文合同陷阱测试包")).toBeInTheDocument();
     expect(screen.getByText("Indexing 42%")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Detach" })).toBeInTheDocument();
     expect(
       screen.getByText("01_construction_killer_clauses.pdf"),
     ).toBeInTheDocument();

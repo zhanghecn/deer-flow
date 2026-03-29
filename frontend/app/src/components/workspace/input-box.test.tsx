@@ -16,36 +16,7 @@ vi.mock("@/components/ui/confetti-button", () => ({
 }));
 
 vi.mock("./knowledge/knowledge-selector-dialog", () => ({
-  KnowledgeSelectorDialog: ({
-    onChange,
-  }: {
-    onChange: (
-      value: Array<{
-        documentId: string;
-        documentName: string;
-        knowledgeBaseId: string;
-        knowledgeBaseName: string;
-        ownerName: string;
-      }>,
-    ) => void;
-  }) => (
-    <button
-      type="button"
-      onClick={() =>
-        onChange([
-          {
-            documentId: "doc-1",
-            documentName: "E210郑民生-民间盲派八字.md",
-            knowledgeBaseId: "kb-1",
-            knowledgeBaseName: "E210郑民生-民间盲派八字",
-            ownerName: "admin",
-          },
-        ])
-      }
-    >
-      Knowledge
-    </button>
-  ),
+  KnowledgeSelectorDialog: () => <button type="button">Knowledge</button>,
 }));
 
 vi.mock("./knowledge/thread-knowledge-attachment-strip", () => ({
@@ -130,7 +101,7 @@ vi.mock("@/core/skills/hooks", () => ({
 }));
 
 describe("InputBox", () => {
-  it("supports keyboard selection for $skill references", async () => {
+  it("supports keyboard selection for slash commands", async () => {
     const user = userEvent.setup();
     const queryClient = new QueryClient();
 
@@ -154,14 +125,14 @@ describe("InputBox", () => {
     );
 
     const textarea = screen.getByPlaceholderText("Ask anything");
-    await user.type(textarea, "$f");
+    await user.type(textarea, "/create");
 
     expect(screen.getByRole("listbox")).toBeInTheDocument();
 
     await user.keyboard("{ArrowDown}{Enter}");
 
     await waitFor(() => {
-      expect(textarea).toHaveValue("$frontend-design ");
+      expect(textarea).toHaveValue("/create-skill ");
     });
   });
 
@@ -201,7 +172,7 @@ describe("InputBox", () => {
     );
   });
 
-  it("includes selected knowledge document ids and base ids in extra context", async () => {
+  it("submits plain chat input without temporary knowledge selection payloads", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn();
     const queryClient = new QueryClient();
@@ -237,12 +208,7 @@ describe("InputBox", () => {
         text: "目录是什么？",
         files: [],
       },
-      expect.objectContaining({
-        knowledge_document_mentions: ["E210郑民生-民间盲派八字.md"],
-        knowledge_document_ids: ["doc-1"],
-        knowledge_base_ids: ["kb-1"],
-        original_user_input: "目录是什么？",
-      }),
+      undefined,
     );
   });
 });

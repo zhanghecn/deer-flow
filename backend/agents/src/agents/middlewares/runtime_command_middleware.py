@@ -31,47 +31,6 @@ def _normalize_authoring_actions(value: object) -> tuple[str, ...]:
     return tuple(normalized)
 
 
-def _normalize_skills_metadata(value: object) -> tuple[dict[str, str], ...]:
-    if not isinstance(value, list):
-        return ()
-
-    normalized: list[dict[str, str]] = []
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-        name = _normalize_text(item.get("name"))
-        path = _normalize_text(item.get("path"))
-        if name is None or path is None:
-            continue
-        normalized.append({"name": name, "path": path})
-    return tuple(normalized)
-
-
-def _resolve_referenced_skill_paths(
-    state: object,
-    referenced_skill_names: tuple[str, ...],
-) -> tuple[tuple[tuple[str, str], ...], tuple[str, ...]]:
-    if not referenced_skill_names:
-        return (), ()
-
-    if not isinstance(state, dict):
-        return (), referenced_skill_names
-
-    skills_metadata = _normalize_skills_metadata(state.get("skills_metadata"))
-    by_name = {item["name"]: item["path"] for item in skills_metadata}
-
-    available: list[tuple[str, str]] = []
-    unavailable: list[str] = []
-    for name in referenced_skill_names:
-        path = by_name.get(name)
-        if path is None:
-            unavailable.append(name)
-            continue
-        available.append((name, path))
-
-    return tuple(available), tuple(unavailable)
-
-
 def build_runtime_command_prompt(runtime_context: object, state: object | None = None) -> str:
     command_name = _normalize_text(runtime_context_value(runtime_context, "command_name"))
     command_kind = _normalize_text(runtime_context_value(runtime_context, "command_kind"))
@@ -82,11 +41,8 @@ def build_runtime_command_prompt(runtime_context: object, state: object | None =
     authoring_actions = _normalize_authoring_actions(
         runtime_context_value(runtime_context, "authoring_actions")
     )
-    referenced_skill_names = _normalize_authoring_actions(
-        runtime_context_value(runtime_context, "referenced_skill_names")
-    )
 
-    if not command_name and not authoring_actions and not command_prompt and not referenced_skill_names:
+    if not command_name and not authoring_actions and not command_prompt:
         return ""
 
     blocks: list[str] = []
@@ -140,48 +96,6 @@ def build_runtime_command_prompt(runtime_context: object, state: object | None =
                     ]
                 )
             )
-
-    if referenced_skill_names:
-        available_references, unavailable_references = _resolve_referenced_skill_paths(
-            state,
-            referenced_skill_names,
-        )
-        blocks.append(
-            "\n".join(
-                [
-                    "<runtime_skill_references>",
-                    f"- referenced_skill_names: {', '.join(referenced_skill_names)}",
-                    "- The user explicitly referenced these skills with `$skill_name`.",
-                    *(
-                        [
-                            "- The backend already resolved these referenced skills as available in the current runtime:",
-                            *[
-                                f"  - {name}: {path}"
-                                for name, path in available_references
-                            ],
-                            "- Treat every listed skill above as present and usable for this turn.",
-                            "- Do not claim that a listed referenced skill is unavailable, missing, or outside the current skills directory.",
-                            "- If you need the instructions, read the listed `SKILL.md` path directly.",
-                        ]
-                        if available_references
-                        else [
-                            "- No referenced skills were confirmed from runtime state in this turn.",
-                        ]
-                    ),
-                    *(
-                        [
-                            f"- Referenced skills not confirmed in runtime state: {', '.join(unavailable_references)}",
-                            "- Only say a referenced skill is unavailable when it appears in this unconfirmed list or the runtime skill inventory does not include it.",
-                        ]
-                        if unavailable_references
-                        else [
-                            "- All referenced skills were confirmed in the current runtime.",
-                        ]
-                    ),
-                    "</runtime_skill_references>",
-                ],
-            )
-        )
 
     return "\n".join(blocks)
 

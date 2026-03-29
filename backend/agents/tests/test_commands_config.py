@@ -146,6 +146,7 @@ def test_create_agent_command_prompt_documents_runtime_update_constraints():
     repo_root = Path(__file__).resolve().parents[3]
     command_text = (repo_root / ".openagents/commands/common/create-agent.md").read_text(encoding="utf-8")
 
+    assert "kind: soft" in command_text
     assert "/mnt/user-data/agents/{status}/lead_agent/skills/" in command_text
     assert "不要传 `model` 字段" in command_text
     assert "`setup_agent` 会按这个目标名直接创建或更新归档 agent" in command_text

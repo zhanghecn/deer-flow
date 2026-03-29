@@ -93,6 +93,11 @@ def should_enforce_setup_agent_guard(runtime_context: object) -> bool:
 
 
 def should_enforce_direct_authoring_guard(runtime_context: object) -> bool:
+    # `/create-agent` still needs normal authoring orchestration before the
+    # final `setup_agent` call, so do not collapse it into the exclusive
+    # save/push guard even if stale runtime metadata marks it as hard.
+    if _normalize_text(runtime_context_value(runtime_context, "command_name")) == "create-agent":
+        return False
     command_kind = _normalize_text(runtime_context_value(runtime_context, "command_kind"))
     return command_kind == "hard" and len(_runtime_authoring_actions(runtime_context)) > 0
 

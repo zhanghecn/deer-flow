@@ -8,7 +8,6 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
-from uuid import UUID
 
 import pymupdf
 
@@ -966,97 +965,6 @@ class KnowledgeRepository:
               AND t.thread_id = %s
         """
         params: list[Any] = [user_id, thread_id]
-        if ready_only:
-            query += " AND d.status IN ('ready', 'ready_degraded')"
-        query += " ORDER BY b.created_at DESC, d.created_at ASC"
-
-        with self.connection() as conn, conn.cursor() as cur:
-            cur.execute(query, params)
-            rows = cur.fetchall()
-
-        return [
-            KnowledgeDocumentRecord(
-                id=row[0],
-                knowledge_base_id=row[1],
-                knowledge_base_name=row[2],
-                knowledge_base_description=row[3],
-                display_name=row[4],
-                file_kind=row[5],
-                locator_type=row[6],
-                status=row[7],
-                doc_description=row[8],
-                error=row[9],
-                page_count=row[10],
-                node_count=int(row[11] or 0),
-                source_storage_path=row[12],
-                markdown_storage_path=row[13],
-                preview_storage_path=row[14],
-                canonical_storage_path=row[15],
-                source_map_storage_path=row[16],
-                build_quality=row[17] or "ready",
-                quality_metadata=row[18] if isinstance(row[18], dict) else {},
-                latest_build_job=_job_summary_from_row(row[19:31]),
-            )
-            for row in rows
-        ]
-
-    def list_documents_by_ids(
-        self,
-        *,
-        user_id: str,
-        document_ids: list[str],
-        ready_only: bool = False,
-    ) -> list[KnowledgeDocumentRecord]:
-        valid_document_ids = [document_id for document_id in document_ids if _is_uuid_string(document_id)]
-        if not valid_document_ids:
-            return []
-
-        query = """
-            SELECT
-                d.id::text,
-                d.knowledge_base_id::text,
-                b.name,
-                b.description,
-                d.display_name,
-                d.file_kind,
-                d.locator_type,
-                d.status,
-                d.doc_description,
-                d.error,
-                d.page_count,
-                d.node_count,
-                d.source_storage_path,
-                d.markdown_storage_path,
-                d.preview_storage_path,
-                d.canonical_storage_path,
-                d.source_map_storage_path,
-                d.build_quality,
-                d.quality_metadata,
-                j.id::text,
-                j.status,
-                j.stage,
-                j.message,
-                j.progress_percent,
-                j.total_steps,
-                j.completed_steps,
-                j.model_name,
-                j.started_at::text,
-                j.finished_at::text,
-                j.created_at::text,
-                j.updated_at::text
-            FROM knowledge_documents d
-            JOIN knowledge_bases b ON b.id = d.knowledge_base_id
-            LEFT JOIN LATERAL (
-                SELECT *
-                FROM knowledge_build_jobs j
-                WHERE j.document_id = d.id
-                ORDER BY j.created_at DESC
-                LIMIT 1
-            ) j ON TRUE
-            WHERE d.id = ANY(%s::uuid[])
-              AND (b.user_id = %s::uuid OR b.visibility = 'shared')
-        """
-        params: list[Any] = [valid_document_ids, user_id]
         if ready_only:
             query += " AND d.status IN ('ready', 'ready_degraded')"
         query += " ORDER BY b.created_at DESC, d.created_at ASC"
@@ -2340,15 +2248,6 @@ def _slice_root_overview_window(
     previous_cursor = max(bounded_cursor - _ROOT_OVERVIEW_WINDOW_SIZE, 0) if bounded_cursor > 0 else None
     next_cursor = end if end < total else None
     return structure[bounded_cursor:end], bounded_cursor, previous_cursor, next_cursor
-
-
-def _is_uuid_string(value: str) -> bool:
-    try:
-        UUID(str(value))
-    except (TypeError, ValueError):
-        return False
-    return True
-
 
 def _build_visual_display_markdown(
     *,

@@ -31,6 +31,7 @@ import {
 import { shouldShowCenteredComposer } from "@/components/workspace/chats/layout-state";
 import { useI18n } from "@/core/i18n/hooks";
 import { useModels } from "@/core/models/hooks";
+import { findAvailableModelName } from "@/core/models";
 import { useNotification } from "@/core/notification/hooks";
 import { useLocalSettings } from "@/core/settings";
 import { useThreadStream } from "@/core/threads/hooks";
@@ -55,6 +56,10 @@ export default function AgentChatPage() {
   const [searchParams] = useSearchParams();
   const { models } = useModels();
   const defaultModelName = models[0]?.name;
+  const configuredModelName = useMemo(
+    () => findAvailableModelName(models, settings.context.model_name),
+    [models, settings.context.model_name],
+  );
   const routeHasPendingRun = searchParams.get("pending_run") === "1";
   const [isPendingRun, setIsPendingRun] = useState(routeHasPendingRun);
 
@@ -102,16 +107,19 @@ export default function AgentChatPage() {
       ...settings.context,
       ...runtimeMessageContext,
       model_name:
-        trimmedAgentModelName && trimmedAgentModelName.length > 0
+        boundThreadRuntime.modelName ??
+        (trimmedAgentModelName && trimmedAgentModelName.length > 0
           ? trimmedAgentModelName
-          : (boundThreadRuntime.modelName ??
-            settings.context.model_name ??
-            defaultModelName),
+          : selectedAgentName
+            ? undefined
+            : (configuredModelName ?? defaultModelName)),
     }),
     [
       boundThreadRuntime.modelName,
+      configuredModelName,
       defaultModelName,
       runtimeMessageContext,
+      selectedAgentName,
       settings.context,
       trimmedAgentModelName,
     ],
@@ -138,7 +146,11 @@ export default function AgentChatPage() {
       : "";
 
   useEffect(() => {
-    if (trimmedAgentModelName) {
+    if (selectedAgentName) {
+      if (!trimmedAgentModelName) {
+        return;
+      }
+
       if (settings.context.model_name === trimmedAgentModelName) {
         return;
       }
@@ -149,7 +161,7 @@ export default function AgentChatPage() {
       return;
     }
 
-    if (settings.context.model_name || !defaultModelName) {
+    if (configuredModelName || !defaultModelName) {
       return;
     }
 
@@ -157,7 +169,9 @@ export default function AgentChatPage() {
       model_name: defaultModelName,
     });
   }, [
+    configuredModelName,
     defaultModelName,
+    selectedAgentName,
     setSettings,
     settings.context.model_name,
     trimmedAgentModelName,

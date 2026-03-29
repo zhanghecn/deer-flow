@@ -10,6 +10,7 @@ from src.config.app_config import get_app_config
 from src.config.paths import Paths
 
 from .internal_routes import build_internal_runtime_routes
+from .read_only_filesystem import ReadOnlyFilesystemBackend
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +68,9 @@ def build_local_workspace_backend(
     if shared_skills_mount is not None:
         shared_skills_dir, route_prefix = shared_skills_mount
         execute_path_mappings[route_prefix.rstrip("/")] = shared_skills_dir
-        routes[route_prefix] = FilesystemBackend(
+        # The mounted shared skills archive is a discovery/read surface only. The
+        # runtime must never mutate the canonical archive through filesystem tools.
+        routes[route_prefix] = ReadOnlyFilesystemBackend(
             root_dir=shared_skills_dir,
             virtual_mode=True,
         )

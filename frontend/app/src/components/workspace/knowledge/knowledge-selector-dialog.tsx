@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import {
   BookOpenTextIcon,
   BrainCircuitIcon,
@@ -8,7 +9,6 @@ import {
   LoaderIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -28,22 +28,28 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { attachKnowledgeBaseToThread } from "@/core/knowledge/api";
-import { useKnowledgeLibrary } from "@/core/knowledge/hooks";
 import { useI18n } from "@/core/i18n/hooks";
-import type { KnowledgeSelection } from "@/core/knowledge/types";
+import {
+  attachKnowledgeBaseToThread,
+  detachKnowledgeBaseFromThread,
+} from "@/core/knowledge/api";
+import { useKnowledgeLibrary } from "@/core/knowledge/hooks";
 import { cn } from "@/lib/utils";
 
-type KnowledgeLibraryDocument = KnowledgeSelection & {
+type KnowledgeLibraryBase = {
+  knowledgeBaseId: string;
+  knowledgeBaseName: string;
+  ownerName: string;
   description?: string;
-  locatorType: string;
-  fileKind: string;
   attachedToThread: boolean;
+  documentCount: number;
+  documentNames: string[];
+  fileKinds: string[];
 };
 
 type KnowledgeLibraryGroup = {
   ownerName: string;
-  documents: KnowledgeLibraryDocument[];
+  bases: KnowledgeLibraryBase[];
 };
 
 const sectionLabelClassName =
@@ -56,16 +62,36 @@ function hasSameIds(left: string[], right: string[]) {
   );
 }
 
+function summarizeBaseDocuments(base: KnowledgeLibraryBase) {
+  const visibleDocumentNames = base.documentNames.slice(0, 2);
+  const remainingCount = Math.max(base.documentNames.length - 2, 0);
+
+  return {
+    label: visibleDocumentNames.join(" · "),
+    remainingCount,
+  };
+}
+
+export function resolveKnowledgeBaseBindingDiff(
+  attachedBaseIds: string[],
+  draftBaseIds: string[],
+) {
+  return {
+    baseIdsToAttach: draftBaseIds.filter(
+      (baseId) => !attachedBaseIds.includes(baseId),
+    ),
+    baseIdsToDetach: attachedBaseIds.filter(
+      (baseId) => !draftBaseIds.includes(baseId),
+    ),
+  };
+}
+
 export function KnowledgeSelectorDialog({
   threadId,
-  value,
   disabled,
-  onChange,
 }: {
   threadId: string;
-  value: KnowledgeSelection[];
   disabled?: boolean;
-  onChange: (value: KnowledgeSelection[]) => void;
 }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
@@ -74,89 +100,105 @@ export function KnowledgeSelectorDialog({
   });
   const [open, setOpen] = useState(false);
   const [applying, setApplying] = useState(false);
-  const [draftIds, setDraftIds] = useState<string[]>([]);
+  const [draftBaseIds, setDraftBaseIds] = useState<string[]>([]);
   const pointerToggleRef = useRef<{
-    documentId: string;
+    knowledgeBaseId: string;
     handled: boolean;
     at: number;
   } | null>(null);
 
-  const documents = useMemo<KnowledgeLibraryDocument[]>(
+  const bases = useMemo<KnowledgeLibraryBase[]>(
     () =>
-      knowledgeBases.flatMap((knowledgeBase) =>
-        knowledgeBase.documents.map((document) => ({
-          documentId: document.id,
-          documentName: document.display_name,
-          knowledgeBaseId: knowledgeBase.id,
-          knowledgeBaseName: knowledgeBase.name,
-          ownerName: knowledgeBase.owner_name,
-          description: document.doc_description,
-          locatorType: document.locator_type,
-          fileKind: document.file_kind,
-          attachedToThread: knowledgeBase.attached_to_thread,
-        })),
-      ),
+      knowledgeBases.map((knowledgeBase) => ({
+        knowledgeBaseId: knowledgeBase.id,
+        knowledgeBaseName: knowledgeBase.name,
+        ownerName: knowledgeBase.owner_name,
+        description: knowledgeBase.description,
+        attachedToThread: knowledgeBase.attached_to_thread,
+        documentCount: knowledgeBase.documents.length,
+        documentNames: knowledgeBase.documents.map(
+          (document) => document.display_name,
+        ),
+        fileKinds: Array.from(
+          new Set(
+            knowledgeBase.documents.map((document) =>
+              document.file_kind.toUpperCase(),
+            ),
+          ),
+        ),
+      })),
     [knowledgeBases],
   );
 
-  const groupedDocuments = useMemo<KnowledgeLibraryGroup[]>(() => {
-    const groups = new Map<string, KnowledgeLibraryDocument[]>();
-    documents.forEach((document) => {
-      const existing = groups.get(document.ownerName) ?? [];
-      existing.push(document);
-      groups.set(document.ownerName, existing);
+  const groupedBases = useMemo<KnowledgeLibraryGroup[]>(() => {
+    const groups = new Map<string, KnowledgeLibraryBase[]>();
+    bases.forEach((base) => {
+      const existing = groups.get(base.ownerName) ?? [];
+      existing.push(base);
+      groups.set(base.ownerName, existing);
     });
 
     return Array.from(groups.entries())
       .sort(([leftName], [rightName]) => leftName.localeCompare(rightName))
       .map(([ownerName, grouped]) => ({
         ownerName,
-        documents: [...grouped].sort((leftDocument, rightDocument) => {
-          const leftKey = `${leftDocument.knowledgeBaseName}/${leftDocument.documentName}`;
-          const rightKey = `${rightDocument.knowledgeBaseName}/${rightDocument.documentName}`;
-          return leftKey.localeCompare(rightKey);
-        }),
+        bases: [...grouped].sort((leftBase, rightBase) =>
+          leftBase.knowledgeBaseName.localeCompare(rightBase.knowledgeBaseName),
+        ),
       }));
-  }, [documents]);
+  }, [bases]);
+
+  const attachedBaseIds = useMemo(
+    () =>
+      bases
+        .filter((base) => base.attachedToThread)
+        .map((base) => base.knowledgeBaseId),
+    [bases],
+  );
+  const selectedCount = attachedBaseIds.length;
+  const totalDocumentCount = useMemo(
+    () => bases.reduce((count, base) => count + base.documentCount, 0),
+    [bases],
+  );
 
   useEffect(() => {
     if (!open) {
       return;
     }
-    const selectableIds = new Set(
-      documents.map((document) => document.documentId),
-    );
-    const nextDraftIds = value
-      .map((item) => item.documentId)
-      .filter((documentId) => selectableIds.has(documentId));
-    setDraftIds((current) =>
-      hasSameIds(current, nextDraftIds) ? current : nextDraftIds,
-    );
-  }, [documents, open, value]);
 
-  const selectedCount = value.length;
+    // Thread bindings are the persisted source of truth. The dialog only keeps
+    // a temporary editing buffer while it is open, then rehydrates from the
+    // server-backed attached_to_thread flags on every reopen.
+    const selectableIds = new Set(bases.map((base) => base.knowledgeBaseId));
+    const nextDraftBaseIds = attachedBaseIds.filter((baseId) =>
+      selectableIds.has(baseId),
+    );
+    setDraftBaseIds((current) =>
+      hasSameIds(current, nextDraftBaseIds) ? current : nextDraftBaseIds,
+    );
+  }, [attachedBaseIds, bases, open]);
 
-  const handleToggle = useCallback((documentId: string) => {
-    setDraftIds((current) =>
-      current.includes(documentId)
-        ? current.filter((item) => item !== documentId)
-        : current.concat(documentId),
+  const handleToggle = useCallback((knowledgeBaseId: string) => {
+    setDraftBaseIds((current) =>
+      current.includes(knowledgeBaseId)
+        ? current.filter((item) => item !== knowledgeBaseId)
+        : current.concat(knowledgeBaseId),
     );
   }, []);
 
   const handlePointerToggle = useCallback(
-    (documentId: string) => {
+    (knowledgeBaseId: string) => {
       const pointerToggle = pointerToggleRef.current;
       if (
-        pointerToggle?.documentId === documentId &&
+        pointerToggle?.knowledgeBaseId === knowledgeBaseId &&
         pointerToggle.handled &&
         Date.now() - pointerToggle.at < 300
       ) {
         return;
       }
-      handleToggle(documentId);
+      handleToggle(knowledgeBaseId);
       pointerToggleRef.current = {
-        documentId,
+        knowledgeBaseId,
         handled: true,
         at: Date.now(),
       };
@@ -165,18 +207,18 @@ export function KnowledgeSelectorDialog({
   );
 
   const handleSelect = useCallback(
-    (documentId: string) => {
+    (knowledgeBaseId: string) => {
       const pointerToggle = pointerToggleRef.current;
       if (
-        pointerToggle?.documentId === documentId &&
+        pointerToggle?.knowledgeBaseId === knowledgeBaseId &&
         pointerToggle.handled &&
         Date.now() - pointerToggle.at < 300
       ) {
         return;
       }
-      handleToggle(documentId);
+      handleToggle(knowledgeBaseId);
       pointerToggleRef.current = {
-        documentId,
+        knowledgeBaseId,
         handled: true,
         at: Date.now(),
       };
@@ -184,28 +226,31 @@ export function KnowledgeSelectorDialog({
     [handleToggle],
   );
 
-  const handlePointerIntent = useCallback((documentId: string) => {
+  const handlePointerIntent = useCallback((knowledgeBaseId: string) => {
     pointerToggleRef.current = {
-      documentId,
+      knowledgeBaseId,
       handled: false,
       at: Date.now(),
     };
   }, []);
 
-  const handleApply = async () => {
+  const handleApply = useCallback(async () => {
     setApplying(true);
     try {
-      const nextSelections = documents.filter((document) =>
-        draftIds.includes(document.documentId),
-      );
-      const baseIds = Array.from(
-        new Set(nextSelections.map((document) => document.knowledgeBaseId)),
-      );
-      await Promise.all(
-        baseIds.map((knowledgeBaseId) =>
+      // The dialog writes the full attach/detach diff so chat state stays
+      // aligned with the persisted thread bindings after refreshes.
+      const { baseIdsToAttach, baseIdsToDetach } =
+        resolveKnowledgeBaseBindingDiff(attachedBaseIds, draftBaseIds);
+
+      await Promise.all([
+        ...baseIdsToAttach.map((knowledgeBaseId) =>
           attachKnowledgeBaseToThread(threadId, knowledgeBaseId),
         ),
-      );
+        ...baseIdsToDetach.map((knowledgeBaseId) =>
+          detachKnowledgeBaseFromThread(threadId, knowledgeBaseId),
+        ),
+      ]);
+
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: ["thread-knowledge-bases", threadId],
@@ -214,19 +259,11 @@ export function KnowledgeSelectorDialog({
           queryKey: ["knowledge-library", threadId],
         }),
       ]);
-      onChange(
-        nextSelections.map((document) => ({
-          documentId: document.documentId,
-          documentName: document.documentName,
-          knowledgeBaseId: document.knowledgeBaseId,
-          knowledgeBaseName: document.knowledgeBaseName,
-          ownerName: document.ownerName,
-        })),
-      );
+
       setOpen(false);
       toast.success(
-        nextSelections.length > 0
-          ? t.knowledge.selector.appliedCount(nextSelections.length)
+        draftBaseIds.length > 0
+          ? t.knowledge.selector.appliedCount(draftBaseIds.length)
           : t.knowledge.selector.applied,
       );
     } catch (error) {
@@ -238,7 +275,13 @@ export function KnowledgeSelectorDialog({
     } finally {
       setApplying(false);
     }
-  };
+  }, [
+    attachedBaseIds,
+    draftBaseIds,
+    queryClient,
+    t,
+    threadId,
+  ]);
 
   return (
     <>
@@ -289,7 +332,7 @@ export function KnowledgeSelectorDialog({
                       <FilesIcon className="size-4" />
                     </div>
                     <div className="text-sm font-medium">
-                      {t.knowledge.documentCount(documents.length)}
+                      {t.knowledge.documentCount(totalDocumentCount)}
                     </div>
                   </div>
                   <div className="border-border/70 bg-background/75 flex items-center gap-3 rounded-[20px] border px-4 py-3 shadow-sm">
@@ -297,7 +340,7 @@ export function KnowledgeSelectorDialog({
                       <CheckCircle2Icon className="size-4" />
                     </div>
                     <div className="text-sm font-medium">
-                      {t.knowledge.selector.selectedCount(draftIds.length)}
+                      {t.knowledge.selector.selectedCount(draftBaseIds.length)}
                     </div>
                   </div>
                 </div>
@@ -316,24 +359,26 @@ export function KnowledgeSelectorDialog({
                     : t.knowledge.selector.empty}
                 </CommandEmpty>
 
-                {groupedDocuments.map((group) => (
+                {groupedBases.map((group) => (
                   <CommandGroup
                     key={group.ownerName}
                     heading={group.ownerName}
                     className="border-border/60 bg-background/55 mb-4 rounded-[22px] border p-2 last:mb-0 [&_[cmdk-group-heading]]:flex [&_[cmdk-group-heading]]:items-center [&_[cmdk-group-heading]]:gap-2 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:tracking-[0.2em] [&_[cmdk-group-heading]]:uppercase"
                   >
-                    {group.documents.map((document) => {
-                      const selected = draftIds.includes(document.documentId);
+                    {group.bases.map((base) => {
+                      const selected = draftBaseIds.includes(base.knowledgeBaseId);
+                      const documentSummary = summarizeBaseDocuments(base);
+
                       return (
                         <CommandItem
-                          key={document.documentId}
-                          value={`${document.documentName} ${document.knowledgeBaseName} ${document.ownerName} ${document.fileKind} ${document.locatorType}`}
-                          onSelect={() => handleSelect(document.documentId)}
+                          key={base.knowledgeBaseId}
+                          value={`${base.knowledgeBaseName} ${base.ownerName} ${base.documentNames.join(" ")} ${base.fileKinds.join(" ")}`}
+                          onSelect={() => handleSelect(base.knowledgeBaseId)}
                           onPointerDown={() =>
-                            handlePointerIntent(document.documentId)
+                            handlePointerIntent(base.knowledgeBaseId)
                           }
                           onClick={() =>
-                            handlePointerToggle(document.documentId)
+                            handlePointerToggle(base.knowledgeBaseId)
                           }
                           className={cn(
                             "mb-2 cursor-pointer rounded-[18px] border border-transparent bg-transparent px-3 py-3 last:mb-0",
@@ -359,9 +404,9 @@ export function KnowledgeSelectorDialog({
                             <div className="min-w-0 flex-1 space-y-2">
                               <div className="flex flex-wrap items-center gap-2">
                                 <div className="truncate text-sm font-semibold">
-                                  {document.documentName}
+                                  {base.knowledgeBaseName}
                                 </div>
-                                {document.attachedToThread ? (
+                                {base.attachedToThread ? (
                                   <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
                                     <BookOpenTextIcon className="size-3" />
                                     {t.knowledge.attached}
@@ -371,20 +416,27 @@ export function KnowledgeSelectorDialog({
                               <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs">
                                 <span className="inline-flex items-center gap-1">
                                   <FolderIcon className="size-3" />
-                                  {document.ownerName}
+                                  {base.ownerName}
                                 </span>
                                 <span>/</span>
-                                <span>{document.knowledgeBaseName}</span>
-                                <span>/</span>
-                                <span className="uppercase">
-                                  {document.fileKind}
-                                </span>
-                                <span>/</span>
-                                <span>{document.locatorType}</span>
+                                <span>{t.knowledge.documentCount(base.documentCount)}</span>
+                                {base.fileKinds.length > 0 ? (
+                                  <>
+                                    <span>/</span>
+                                    <span>{base.fileKinds.join(" · ")}</span>
+                                  </>
+                                ) : null}
                               </div>
-                              {document.description ? (
+                              {base.description ? (
                                 <div className="text-muted-foreground line-clamp-2 text-xs leading-5">
-                                  {document.description}
+                                  {base.description}
+                                </div>
+                              ) : documentSummary.label ? (
+                                <div className="text-muted-foreground line-clamp-2 text-xs leading-5">
+                                  {documentSummary.label}
+                                  {documentSummary.remainingCount > 0
+                                    ? ` +${documentSummary.remainingCount}`
+                                    : ""}
                                 </div>
                               ) : null}
                             </div>
@@ -401,7 +453,7 @@ export function KnowledgeSelectorDialog({
               <div className="text-muted-foreground flex items-center gap-2 text-xs">
                 <BookOpenTextIcon className="size-4" />
                 <span>
-                  {t.knowledge.selector.selectedCount(draftIds.length)}
+                  {t.knowledge.selector.selectedCount(draftBaseIds.length)}
                 </span>
               </div>
               <div className="flex items-center gap-2">

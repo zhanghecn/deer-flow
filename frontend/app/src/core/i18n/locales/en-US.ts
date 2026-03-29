@@ -368,20 +368,20 @@ export const enUS: Translations = {
     },
     selector: {
       button: "Knowledge",
-      title: "Select Knowledge Documents",
+      title: "Select Knowledge Bases",
       description:
-        "Search shared documents, attach their bases to this thread, and prioritize them for the next turn.",
-      searchPlaceholder: "Search documents, bases, or owners",
-      results: "Documents",
-      empty: "No documents match this search.",
-      apply: "Load into chat",
-      applied: "Knowledge selection updated.",
+        "Search shared knowledge bases and update the thread bindings the agent will keep using across turns and refreshes.",
+      searchPlaceholder: "Search knowledge bases, documents, or owners",
+      results: "Knowledge Bases",
+      empty: "No knowledge bases match this search.",
+      apply: "Update thread knowledge",
+      applied: "Thread knowledge bindings updated.",
       appliedCount: (count: number) =>
-        `Loaded ${count} knowledge doc${count === 1 ? "" : "s"} for this turn.`,
-      attachError: "Failed to attach selected knowledge bases.",
-      readyLabel: "Knowledge ready for this turn",
+        `Attached ${count} knowledge base${count === 1 ? "" : "s"} to this thread.`,
+      attachError: "Failed to update selected knowledge bases.",
+      readyLabel: "Knowledge attached to this thread",
       selectedCount: (count: number) =>
-        `${count} knowledge doc${count === 1 ? "" : "s"}`,
+        `${count} knowledge base${count === 1 ? "" : "s"}`,
     },
   },
 

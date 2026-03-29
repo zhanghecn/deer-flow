@@ -35,21 +35,15 @@ class KnowledgeService:
         *,
         user_id: str,
         thread_id: str,
-        selected_document_ids: Sequence[str] | None = None,
         ready_only: bool = False,
     ) -> list[KnowledgeDocumentRecord]:
-        repository = self._repository_instance()
-        attached_documents = repository.list_thread_documents(
+        # Chat knowledge visibility is sourced only from persisted thread
+        # bindings. There is no second per-turn "selected document ids" path.
+        return self._repository_instance().list_thread_documents(
             user_id=user_id,
             thread_id=thread_id,
             ready_only=ready_only,
         )
-        selected_documents = repository.list_documents_by_ids(
-            user_id=user_id,
-            document_ids=_normalize_document_ids(selected_document_ids),
-            ready_only=ready_only,
-        )
-        return _merge_document_records(attached_documents, selected_documents)
 
     def _resolve_thread_document(
         self,
@@ -57,13 +51,11 @@ class KnowledgeService:
         user_id: str,
         thread_id: str,
         document_name_or_id: str,
-        selected_document_ids: Sequence[str] | None = None,
     ) -> tuple[KnowledgeDocumentRecord | None, str | None]:
         document = _match_document_record(
             self.get_thread_document_records(
                 user_id=user_id,
                 thread_id=thread_id,
-                selected_document_ids=selected_document_ids,
                 ready_only=True,
             ),
             document_name_or_id,
@@ -80,12 +72,10 @@ class KnowledgeService:
         *,
         user_id: str,
         thread_id: str,
-        selected_document_ids: Sequence[str] | None = None,
     ) -> str:
         documents = self.get_thread_document_records(
             user_id=user_id,
             thread_id=thread_id,
-            selected_document_ids=selected_document_ids,
         )
         return format_documents_payload(documents)
 
@@ -98,13 +88,11 @@ class KnowledgeService:
         node_id: str | None,
         max_depth: int,
         root_cursor: int = 0,
-        selected_document_ids: Sequence[str] | None = None,
     ) -> str:
         document, error = self._resolve_thread_document(
             user_id=user_id,
             thread_id=thread_id,
             document_name_or_id=document_name_or_id,
-            selected_document_ids=selected_document_ids,
         )
         if error is not None:
             return error
@@ -124,13 +112,11 @@ class KnowledgeService:
         thread_id: str,
         document_name_or_id: str,
         node_ids: str,
-        selected_document_ids: Sequence[str] | None = None,
     ) -> str:
         document, error = self._resolve_thread_document(
             user_id=user_id,
             thread_id=thread_id,
             document_name_or_id=document_name_or_id,
-            selected_document_ids=selected_document_ids,
         )
         if error is not None:
             return error
@@ -163,13 +149,11 @@ class KnowledgeService:
         thread_id: str,
         document_name_or_id: str,
         node_ids: str,
-        selected_document_ids: Sequence[str] | None = None,
     ) -> str:
         document, error = self._resolve_thread_document(
             user_id=user_id,
             thread_id=thread_id,
             document_name_or_id=document_name_or_id,
-            selected_document_ids=selected_document_ids,
         )
         if error is not None:
             return error
@@ -202,13 +186,11 @@ class KnowledgeService:
         thread_id: str,
         document_name_or_id: str,
         page_number: int,
-        selected_document_ids: Sequence[str] | None = None,
     ) -> str:
         document, error = self._resolve_thread_document(
             user_id=user_id,
             thread_id=thread_id,
             document_name_or_id=document_name_or_id,
-            selected_document_ids=selected_document_ids,
         )
         if error is not None:
             return error
@@ -234,37 +216,6 @@ def _parse_node_ids(raw_value: str) -> list[str]:
         seen.add(node_id)
         normalized.append(node_id)
     return normalized
-
-
-def _normalize_document_ids(raw_ids: Sequence[str] | None) -> list[str]:
-    if not raw_ids:
-        return []
-
-    normalized: list[str] = []
-    seen: set[str] = set()
-    for item in raw_ids:
-        value = str(item or "").strip()
-        if not value or value in seen:
-            continue
-        seen.add(value)
-        normalized.append(value)
-    return normalized
-
-
-def _merge_document_records(
-    attached_documents: Sequence[KnowledgeDocumentRecord],
-    selected_documents: Sequence[KnowledgeDocumentRecord],
-) -> list[KnowledgeDocumentRecord]:
-    merged: list[KnowledgeDocumentRecord] = []
-    seen: set[str] = set()
-
-    for document in [*attached_documents, *selected_documents]:
-        if document.id in seen:
-            continue
-        seen.add(document.id)
-        merged.append(document)
-
-    return merged
 
 
 def _match_document_record(

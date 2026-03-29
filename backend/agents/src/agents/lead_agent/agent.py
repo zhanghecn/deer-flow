@@ -3,7 +3,7 @@ import hashlib
 import json
 import logging
 from dataclasses import dataclass, replace
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from threading import Event, Lock
 from typing import Any, Literal
 
@@ -19,6 +19,7 @@ from src.agents.middlewares.artifacts_middleware import ArtifactsMiddleware
 from src.agents.middlewares.authoring_guard_middleware import AuthoringGuardMiddleware
 from src.agents.middlewares.context_window_middleware import ContextWindowMiddleware
 from src.agents.middlewares.knowledge_context_middleware import KnowledgeContextMiddleware
+from src.agents.middlewares.loaded_skills_middleware import LoadedSkillsMiddleware
 from src.agents.middlewares.max_tokens_recovery_middleware import MaxTokensRecoveryMiddleware
 from src.agents.middlewares.question_discipline_middleware import (
     QuestionDisciplineMiddleware,
@@ -70,8 +71,6 @@ from src.runtime_backends import (
 from src.runtime_backends import (
     resolve_sandbox_provider as resolve_runtime_sandbox_provider,
 )
-from src.skills import load_skills
-from src.skills.types import Skill
 
 logger = logging.getLogger(__name__)
 DEFAULT_THREAD_ID = "_default"
@@ -120,7 +119,6 @@ class LeadAgentRuntimeContext(BaseModel):
     command_args: str | None = None
     command_prompt: str | None = None
     authoring_actions: list[str] = Field(default_factory=list)
-    referenced_skill_names: list[str] = Field(default_factory=list)
     knowledge_document_mentions: list[str] = Field(default_factory=list)
     original_user_input: str | None = None
     mode: str | None = None
@@ -157,7 +155,6 @@ class LeadAgentRequest:
     command_args: str | None
     command_prompt: str | None
     authoring_actions: tuple[str, ...]
-    referenced_skill_names: tuple[str, ...]
     target_agent_name: str | None
     target_skill_name: str | None
     agent_name: str
@@ -170,15 +167,25 @@ class LeadAgentRequest:
     remote_session_id: str | None
 
     def requires_direct_authoring_tool(self) -> bool:
-        """Return whether this turn is a save/push confirmation command.
+        """Return whether this turn is an exclusive save/push confirmation.
 
         Hard authoring commands such as `/save-agent-to-store` or
         `/push-skill-prod` are explicit user confirmations. Those turns should
         keep the model focused on a single persistence tool call instead of
         branching into authoring skills or delegated subagent work.
+
+        `/create-agent` also persists through `setup_agent`, but it remains an
+        authoring workflow: the lead agent may still need to inspect existing
+        runtime files, use helper skills such as `find-skills`, and then call
+        `setup_agent`. Keep that command out of the exclusive direct-authoring
+        branch even if a stale client still marks it as `hard`.
         """
 
-        return self.command_kind == "hard" and len(self.authoring_actions) > 0
+        return (
+            self.command_name != "create-agent"
+            and self.command_kind == "hard"
+            and len(self.authoring_actions) > 0
+        )
 
     def allows_agent_setup(self) -> bool:
         return self.command_name == "create-agent" and bool(self.target_agent_name)
@@ -260,127 +267,6 @@ def _runtime_agent_root(agent_name: str, status: str) -> str:
 def _runtime_skills_path(agent_name: str, status: str) -> str:
     return f"{_runtime_agent_root(agent_name, status)}/skills/"
 
-
-def _lead_agent_runtime_reference_scopes(status: str) -> tuple[str, ...]:
-    if status == "prod":
-        return ("shared", "store/prod")
-    return ("shared", "store/dev", "store/prod")
-
-
-def _runtime_skill_relative_path(skill: Skill) -> PurePosixPath:
-    return PurePosixPath(skill.skill_path or skill.skill_dir.name)
-
-
-def _iter_runtime_skill_targets(
-    *,
-    skill: Skill,
-    target_root: str,
-) -> list[tuple[str, bytes]]:
-    skill_dir = Path(skill.skill_dir)
-    relative_path = _runtime_skill_relative_path(skill)
-    normalized_target_root = target_root.rstrip("/")
-
-    targets: list[tuple[str, bytes]] = []
-    for nested_file in sorted(skill_dir.rglob("*")):
-        if not nested_file.is_file():
-            continue
-        nested_relative = PurePosixPath(nested_file.relative_to(skill_dir).as_posix())
-        runtime_relative = PurePosixPath("skills") / relative_path / nested_relative
-        targets.append(
-            (
-                f"{normalized_target_root}/{runtime_relative.as_posix()}",
-                nested_file.read_bytes(),
-            )
-        )
-    return targets
-
-
-def _is_runtime_referenced_skill_candidate(
-    *,
-    skill: Skill,
-    allowed_scopes: tuple[str, ...],
-    archived_skill_names: set[str],
-    duplicated_skill_names: set[str],
-) -> bool:
-    return skill.category in allowed_scopes and skill.enabled and bool(skill.name) and skill.name not in archived_skill_names and skill.name not in duplicated_skill_names
-
-
-def _requested_runtime_skill_names(
-    request: LeadAgentRequest | None,
-) -> tuple[str, ...]:
-    """Return the referenced skills that should be materialized for this turn.
-
-    Lead-agent runtime copies should stay small because the thread-local seed is
-    paid on every execution run. Shared lead-agent skills remain archived in the
-    agent definition. Additional shared/store skills are only copied when the current turn
-    explicitly references them via `$skill-name`, which the frontend forwards as
-    `referenced_skill_names`.
-    """
-
-    if request is None or request.requires_direct_authoring_tool():
-        return ()
-    return request.referenced_skill_names
-
-
-def _collect_unique_runtime_referenced_skills(
-    *,
-    status: str,
-    agent_config: AgentConfig | None,
-    paths: Paths,
-    requested_skill_names: tuple[str, ...],
-) -> list[Skill]:
-    if not requested_skill_names:
-        return []
-
-    archived_skill_names = {skill_ref.name for skill_ref in (agent_config.skill_refs if agent_config is not None else [])}
-    allowed_scopes = _lead_agent_runtime_reference_scopes(status)
-    requested_skill_name_set = set(requested_skill_names)
-
-    unique_skills: dict[str, Skill] = {}
-    duplicated_skill_names: set[str] = set()
-    for skill in load_skills(skills_path=paths.skills_dir, use_config=False, enabled_only=False):
-        if skill.name not in requested_skill_name_set:
-            continue
-        if not _is_runtime_referenced_skill_candidate(
-            skill=skill,
-            allowed_scopes=allowed_scopes,
-            archived_skill_names=archived_skill_names,
-            duplicated_skill_names=duplicated_skill_names,
-        ):
-            continue
-        if skill.name in unique_skills:
-            unique_skills.pop(skill.name, None)
-            duplicated_skill_names.add(skill.name)
-            continue
-        unique_skills[skill.name] = skill
-
-    return [unique_skills[skill_name] for skill_name in sorted(unique_skills)]
-
-
-def _build_lead_agent_runtime_referenced_skill_targets(
-    *,
-    status: str,
-    target_root: str,
-    agent_config: AgentConfig | None,
-    paths: Paths,
-    requested_skill_names: tuple[str, ...],
-) -> list[tuple[str, bytes]]:
-    targets: list[tuple[str, bytes]] = []
-    for skill in _collect_unique_runtime_referenced_skills(
-        status=status,
-        agent_config=agent_config,
-        paths=paths,
-        requested_skill_names=requested_skill_names,
-    ):
-        targets.extend(
-            _iter_runtime_skill_targets(
-                skill=skill,
-                target_root=target_root,
-            )
-        )
-    return targets
-
-
 def _build_runtime_seed_targets(
     *,
     agent_name: str,
@@ -390,29 +276,14 @@ def _build_runtime_seed_targets(
     paths: Paths,
     request: LeadAgentRequest | None = None,
 ) -> list[tuple[str, bytes]]:
-    targets = runtime_seed_targets(
+    del request
+    return runtime_seed_targets(
         agent_name,
         status=status,
         target_root=target_root,
         paths=paths,
         manifest=agent_config,
     )
-    if normalize_effective_agent_name(agent_name) != LEAD_AGENT_NAME:
-        return targets
-
-    existing_paths = {path for path, _content in targets}
-    for path, content in _build_lead_agent_runtime_referenced_skill_targets(
-        status=status,
-        target_root=target_root,
-        agent_config=agent_config,
-        paths=paths,
-        requested_skill_names=_requested_runtime_skill_names(request),
-    ):
-        if path in existing_paths:
-            continue
-        targets.append((path, content))
-        existing_paths.add(path)
-    return targets
 
 
 def _collect_missing_runtime_uploads(
@@ -636,6 +507,7 @@ def _build_openagents_middlewares(model_config: ModelConfig):
         ArtifactsMiddleware(),
         AuthoringGuardMiddleware(),
         QuestionDisciplineMiddleware(),
+        LoadedSkillsMiddleware(),
         RuntimeCommandMiddleware(),
         UploadsMiddleware(),
         KnowledgeContextMiddleware(),
@@ -1015,16 +887,21 @@ def _resolve_run_model(
         raise ValueError(f"Model conflict: requested model '{runtime_model_name}' does not match agent model '{agent_model_name}'.")
     if requested_model_name and runtime_model_name and requested_model_name != runtime_model_name:
         raise ValueError("Model conflict: `configurable.model_name` and `configurable.model_config.name` must match.")
-    if header_model_name and requested_model_name and header_model_name != requested_model_name:
-        raise ValueError("Model conflict: `configurable.model_name` and `x-model-name` must match.")
-    if header_model_name and runtime_model_name and header_model_name != runtime_model_name:
-        raise ValueError("Model conflict: `configurable.model_config.name` and `x-model-name` must match.")
-    if header_model_name and agent_model_name and header_model_name != agent_model_name:
-        raise ValueError(f"Model conflict: request header model '{header_model_name}' does not match agent model '{agent_model_name}'.")
-
     persisted_thread_model_name = thread_binding.model_name if thread_binding is not None else None
+    header_model_is_seed = persisted_thread_model_name is None
 
-    model_name = requested_model_name or runtime_model_name or agent_model_name or persisted_thread_model_name or header_model_name
+    if header_model_is_seed and header_model_name and requested_model_name and header_model_name != requested_model_name:
+        raise ValueError("Model conflict: `configurable.model_name` and `x-model-name` must match.")
+    if header_model_is_seed and header_model_name and runtime_model_name and header_model_name != runtime_model_name:
+        raise ValueError("Model conflict: `configurable.model_config.name` and `x-model-name` must match.")
+    if header_model_is_seed and header_model_name and agent_model_name and header_model_name != agent_model_name:
+        raise ValueError(f"Model conflict: request header model '{header_model_name}' does not match agent model '{agent_model_name}'.")
+    # Thread-scoped headers are only a seed before the first persisted runtime
+    # binding exists. Once a thread model is bound, stale client headers must not
+    # override or conflict with the persisted thread runtime.
+    effective_header_model_name = header_model_name if header_model_is_seed else None
+
+    model_name = requested_model_name or runtime_model_name or agent_model_name or persisted_thread_model_name or effective_header_model_name
     if not model_name:
         raise ValueError(
             "No model resolved for this run. Provide `configurable.model_name`/`model`, `configurable.model_config.name`, `agent.model`, a persisted thread runtime model, or `x-model-name` for thread-scoped requests before the first run."
@@ -1118,7 +995,6 @@ def _resolve_lead_agent_request(
         command_args=command_resolution.args,
         command_prompt=command_resolution.prompt,
         authoring_actions=command_resolution.authoring_actions,
-        referenced_skill_names=_coerce_optional_str_list(cfg.get("referenced_skill_names")),
         target_agent_name=command_resolution.target_agent_name,
         target_skill_name=command_resolution.target_skill_name,
         agent_name=normalize_effective_agent_name(_coerce_optional_str(cfg.get("agent_name") or cfg.get("x-agent-name"))),
@@ -1214,7 +1090,6 @@ def _update_request_runtime_context(
             "command_args": request.command_args,
             "command_prompt": request.command_prompt,
             "authoring_actions": list(request.authoring_actions),
-            "referenced_skill_names": list(request.referenced_skill_names),
             "execution_backend": request.execution_backend,
             "remote_session_id": request.remote_session_id,
         },
@@ -1346,14 +1221,38 @@ def _build_skill_sources(request: LeadAgentRequest) -> list[str]:
     """Return Deep Agents skill directories for this turn.
 
     Skills are progressively disclosed from the archived runtime copy under the
-    agent workspace. Direct save/push confirmations intentionally skip skill
-    loading so the model stays focused on the explicit persistence tool call
-    that the user just approved.
+    agent workspace. Lead-agent create/update flows can also discover existing
+    store skills from the read-only shared skills archive, but those skills must
+    still be loaded through the canonical `skill` tool before use.
+
+    Direct save/push confirmations intentionally skip skill loading so the
+    model stays focused on the explicit persistence tool call that the user just
+    approved.
     """
 
     if request.requires_direct_authoring_tool():
         return []
-    return [_runtime_skills_path(request.agent_name, request.agent_status)]
+
+    sources = [_runtime_skills_path(request.agent_name, request.agent_status)]
+    if request.agent_name != LEAD_AGENT_NAME:
+        return sources
+
+    shared_skills_mount = resolve_shared_skills_mount(get_paths())
+    if shared_skills_mount is None:
+        return sources
+
+    archive_root = shared_skills_mount[1].rstrip("/")
+    if request.agent_status == "prod":
+        sources.append(f"{archive_root}/store/prod/")
+        return sources
+
+    sources.extend(
+        [
+            f"{archive_root}/store/dev/",
+            f"{archive_root}/store/prod/",
+        ]
+    )
+    return sources
 
 
 def _build_system_prompt(

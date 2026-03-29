@@ -5,20 +5,11 @@ from langgraph.typing import ContextT
 
 from src.agents.thread_state import ThreadState
 from src.knowledge import KnowledgeService
-from src.knowledge.runtime import (
-    resolve_knowledge_runtime_identity,
-    resolve_knowledge_selected_document_ids,
-)
+from src.knowledge.runtime import resolve_knowledge_runtime_identity
 
 
 def _runtime_identity(runtime: ToolRuntime[ContextT, ThreadState]) -> tuple[str, str]:
     return resolve_knowledge_runtime_identity(getattr(runtime, "context", None))
-
-
-def _selected_document_ids(
-    runtime: ToolRuntime[ContextT, ThreadState],
-) -> tuple[str, ...]:
-    return resolve_knowledge_selected_document_ids(getattr(runtime, "context", None))
 
 
 @tool("list_knowledge_documents", parse_docstring=True)
@@ -36,7 +27,6 @@ def list_knowledge_documents(
     return KnowledgeService().list_thread_documents(
         user_id=user_id,
         thread_id=thread_id,
-        selected_document_ids=_selected_document_ids(runtime),
     )
 
 
@@ -79,7 +69,6 @@ def get_document_tree(
         node_id=node_id,
         max_depth=max_depth,
         root_cursor=root_cursor,
-        selected_document_ids=_selected_document_ids(runtime),
     )
 
 
@@ -112,7 +101,6 @@ def get_document_evidence(
         thread_id=thread_id,
         document_name_or_id=document_name_or_id,
         node_ids=node_ids,
-        selected_document_ids=_selected_document_ids(runtime),
     )
 
 
@@ -124,8 +112,10 @@ def get_document_tree_node_detail(
 ) -> str:
     """Read source text and citation metadata for one or more document_tree nodes.
 
-    Legacy compatibility tool. Prefer get_document_evidence(...) for new retrieval flows.
-    Use this when you only need grounded text slices without the richer evidence bundle.
+    Opt-in compatibility tool. This is not part of the default agent tool set.
+    Prefer get_document_evidence(...) for normal retrieval flows and use this only
+    when an explicitly enabled workflow needs raw grounded text slices without the
+    richer evidence bundle.
     Pass one or more node ids as a comma-separated string such as "0007" or "0007,0008,0012".
     The response is JSON with one item per node. For PDFs it also includes per-page text chunks with
     single-page citation_markdown values. Copy the returned citation_markdown exactly into your visible answer.
@@ -142,7 +132,6 @@ def get_document_tree_node_detail(
         thread_id=thread_id,
         document_name_or_id=document_name_or_id,
         node_ids=node_ids,
-        selected_document_ids=_selected_document_ids(runtime),
     )
 
 
@@ -154,8 +143,8 @@ def get_document_image(
 ) -> str:
     """Export a PDF page image for visual inspection.
 
-    Legacy compatibility tool. Prefer get_document_evidence(...) for the main knowledge flow.
-    Use this after get_document_tree_node_detail when a relevant PDF page contains a figure, chart,
+    Specialized visual inspection tool. Prefer get_document_evidence(...) for the main knowledge flow.
+    Use this after get_document_evidence when a relevant PDF page contains a figure, chart,
     diagram, or layout question that needs ad-hoc visual inspection. The response includes an image_path that can be
     passed to view_image(image_path=...) when the current model supports vision. If the answer depends on what the
     page looks like, do not treat present_files(image_path) or raw image_paths from node detail as a substitute for
@@ -171,5 +160,4 @@ def get_document_image(
         thread_id=thread_id,
         document_name_or_id=document_name_or_id,
         page_number=page_number,
-        selected_document_ids=_selected_document_ids(runtime),
     )
