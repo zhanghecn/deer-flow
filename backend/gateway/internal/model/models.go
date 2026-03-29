@@ -33,15 +33,42 @@ type APIToken struct {
 // Agent is a filesystem-backed agent definition stored under
 // `.openagents/agents/{status}/{name}/`.
 type Agent struct {
-	Name        string             `json:"name"`
-	Description string             `json:"description"`
-	Model       *string            `json:"model"`
-	ToolGroups  []string           `json:"tool_groups"`
-	McpServers  []string           `json:"mcp_servers"`
-	Status      string             `json:"status"`
-	Memory      *AgentMemoryConfig `json:"memory,omitempty"`
-	AgentsMD    string             `json:"agents_md"`
-	Skills      []SkillRef         `json:"skills,omitempty"`
+	Name             string                 `json:"name"`
+	Description      string                 `json:"description"`
+	Model            *string                `json:"model"`
+	ToolGroups       []string               `json:"tool_groups"`
+	ToolNames        []string               `json:"tool_names,omitempty"`
+	McpServers       []string               `json:"mcp_servers"`
+	Status           string                 `json:"status"`
+	Memory           *AgentMemoryConfig     `json:"memory,omitempty"`
+	SubagentDefaults *AgentSubagentDefaults `json:"subagent_defaults,omitempty"`
+	Subagents        []AgentSubagent        `json:"subagents,omitempty"`
+	AgentsMD         string                 `json:"agents_md"`
+	Skills           []SkillRef             `json:"skills,omitempty"`
+}
+
+type AgentSubagentDefaults struct {
+	GeneralPurposeEnabled bool     `json:"general_purpose_enabled" yaml:"general_purpose_enabled"`
+	ToolNames             []string `json:"tool_names,omitempty" yaml:"tool_names,omitempty"`
+}
+
+type AgentSubagent struct {
+	Name         string   `json:"name" yaml:"name"`
+	Description  string   `json:"description" yaml:"description"`
+	SystemPrompt string   `json:"system_prompt" yaml:"system_prompt"`
+	Model        *string  `json:"model,omitempty" yaml:"model,omitempty"`
+	ToolNames    []string `json:"tool_names,omitempty" yaml:"tool_names,omitempty"`
+	Enabled      bool     `json:"enabled" yaml:"enabled"`
+}
+
+type ToolCatalogItem struct {
+	Name                     string `json:"name"`
+	Group                    string `json:"group"`
+	Label                    string `json:"label"`
+	Description              string `json:"description"`
+	ConfigurableForMainAgent bool   `json:"configurable_for_main_agent"`
+	ConfigurableForSubagent  bool   `json:"configurable_for_subagent"`
+	ReservedPolicy           string `json:"reserved_policy"`
 }
 
 type AgentMemoryConfig struct {

@@ -311,6 +311,79 @@ describe("useThreadStream", () => {
     expect(result.current[4]).toBeNull();
   });
 
+  it("surfaces hydrated interrupts from thread state recovery", async () => {
+    apiClient.threads.getState.mockResolvedValue({
+      values: {
+        title: "Thread",
+        messages: [
+          {
+            type: "human",
+            id: "human-1",
+            content: "帮我整理案例",
+          },
+          {
+            type: "ai",
+            id: "ai-1",
+            content: "需要进一步确认范围。",
+          },
+        ],
+        artifacts: [],
+      },
+      interrupts: [
+        {
+          id: "question-1",
+          value: {
+            kind: "question",
+            request_id: "question-1",
+            questions: [
+              {
+                header: "Scope",
+                question: "Which source set should I prioritize?",
+                options: [{ label: "Public web only" }],
+                multiple: false,
+                custom: true,
+              },
+            ],
+          },
+        },
+      ],
+      next: ["tools"],
+    });
+
+    const { result } = renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+          skipInitialHistory: true,
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    await waitFor(() => {
+      expect(result.current[0].interrupt).toEqual({
+        id: "question-1",
+        value: {
+          kind: "question",
+          request_id: "question-1",
+          questions: [
+            {
+              header: "Scope",
+              question: "Which source set should I prioritize?",
+              options: [{ label: "Public web only" }],
+              multiple: false,
+              custom: true,
+            },
+          ],
+        },
+      });
+    });
+  });
+
   it("adds a pending thread to the sidebar cache before a run finishes", async () => {
     const wrapper = createWrapper();
     wrapper.queryClient.setQueryData(

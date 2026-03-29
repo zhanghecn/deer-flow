@@ -70,6 +70,10 @@ When the user asks you to do something:
 3. **Verify** — check your work against what was asked, not against your own output. Your first attempt is rarely correct — iterate.
 
 Keep working until the task is fully complete. Don't stop partway and explain what you would do — just do it. Only yield back to the user when the task is done or you're genuinely blocked.
+- Do not stop at a plan, research summary, progress update, or proposed next steps when the user asked you to execute.
+- If you create a todo list, treat it as an execution contract: keep it current, mark items complete as soon as they are done, and do not end your turn while required items are still `pending` or `in_progress`.
+- If you say you will do something next, immediately do it with the appropriate tool call instead of yielding back to the user.
+- Only yield when the requested deliverable is finished and verified, or when a concrete blocker remains that you cannot resolve autonomously.
 
 **When things go wrong:**
 - If something fails repeatedly, stop and analyze *why* — don't keep retrying the same approach.
@@ -124,6 +128,8 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
     system_prompt: str | SystemMessage | None = None,
     middleware: Sequence[AgentMiddleware] = (),
     subagents: list[SubAgent | CompiledSubAgent] | None = None,
+    general_purpose_tools: Sequence[BaseTool | Callable | dict[str, Any]] | None = None,
+    general_purpose_enabled: bool = True,
     skills: list[str] | None = None,
     memory: list[str] | None = None,
     response_format: ResponseFormat | None = None,
@@ -145,7 +151,7 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
     - `write_todos`: manage a todo list
     - `ls`, `read_file`, `write_file`, `edit_file`, `glob`, `grep`: file operations
     - `execute`: run shell commands
-    - `task`: call subagents
+    - `task`: call subagents (only when one or more subagents are configured)
 
     The `execute` tool allows running shell commands if the backend implements `SandboxBackendProtocol`.
     For non-sandbox backends, the `execute` tool will return an error message.
@@ -174,7 +180,7 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
 
             If a string, it's concatenated with the base prompt.
         middleware: Additional middleware to apply after the standard middleware stack
-            (`TodoListMiddleware`, `FilesystemMiddleware`, `SubAgentMiddleware`,
+            (`TodoListMiddleware`, `FilesystemMiddleware`, optional `SubAgentMiddleware`,
             `SummarizationMiddleware`, `AnthropicPromptCachingMiddleware`,
             `PatchToolCallsMiddleware`).
         subagents: The subagents to use.
@@ -187,6 +193,10 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
             - (optional) `tools`
             - (optional) `model` (either a `LanguageModelLike` instance or `dict` settings)
             - (optional) `middleware` (list of `AgentMiddleware`)
+        general_purpose_tools: Optional tool override for the built-in general-purpose subagent.
+
+            Defaults to the main agent's ``tools`` when omitted.
+        general_purpose_enabled: Whether to include the built-in general-purpose subagent.
         skills: Optional list of skill source paths (e.g., `["/skills/user/", "/skills/project/"]`).
 
             Paths must be specified using POSIX conventions (forward slashes) and are relative
@@ -237,12 +247,14 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
     if interrupt_on is not None:
         gp_middleware.append(HumanInTheLoopMiddleware(interrupt_on=interrupt_on))
 
-    general_purpose_spec: SubAgent = {  # ty: ignore[missing-typed-dict-key]
-        **GENERAL_PURPOSE_SUBAGENT,
-        "model": model,
-        "tools": tools or [],
-        "middleware": gp_middleware,
-    }
+    general_purpose_spec: SubAgent | None = None
+    if general_purpose_enabled:
+        general_purpose_spec = {  # ty: ignore[missing-typed-dict-key]
+            **GENERAL_PURPOSE_SUBAGENT,
+            "model": model,
+            "tools": general_purpose_tools if general_purpose_tools is not None else (tools or []),
+            "middleware": gp_middleware,
+        }
 
     # Process user-provided subagents to fill in defaults for model, tools, and middleware
     processed_subagents: list[SubAgent | CompiledSubAgent] = []
@@ -277,7 +289,9 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
             processed_subagents.append(processed_spec)
 
     # Combine GP with processed user-provided subagents
-    all_subagents: list[SubAgent | CompiledSubAgent] = [general_purpose_spec, *processed_subagents]
+    all_subagents: list[SubAgent | CompiledSubAgent] = [*processed_subagents]
+    if general_purpose_spec is not None:
+        all_subagents.insert(0, general_purpose_spec)
 
     # Build main agent middleware stack
     deepagent_middleware: list[AgentMiddleware[Any, Any, Any]] = [
@@ -287,13 +301,16 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
         deepagent_middleware.append(MemoryMiddleware(backend=backend, sources=memory))
     if skills is not None:
         deepagent_middleware.append(SkillsMiddleware(backend=backend, sources=skills))
-    deepagent_middleware.extend(
-        [
-            FilesystemMiddleware(backend=backend),
+    deepagent_middleware.append(FilesystemMiddleware(backend=backend))
+    if all_subagents:
+        deepagent_middleware.append(
             SubAgentMiddleware(
                 backend=backend,
                 subagents=all_subagents,
-            ),
+            )
+        )
+    deepagent_middleware.extend(
+        [
             create_summarization_middleware(model, backend),
             AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
             PatchToolCallsMiddleware(),

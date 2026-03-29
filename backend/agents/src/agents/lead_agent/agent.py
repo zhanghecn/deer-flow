@@ -14,15 +14,15 @@ from langgraph_sdk.runtime import ServerRuntime
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.agents.lead_agent.prompt import apply_prompt_template
-from src.agents.lead_agent.subagents import load_subagent_specs
+from src.agents.lead_agent.subagents import LoadedSubagentSpecs, load_subagent_specs
 from src.agents.middlewares.artifacts_middleware import ArtifactsMiddleware
 from src.agents.middlewares.authoring_guard_middleware import AuthoringGuardMiddleware
-from src.agents.middlewares.clarification_tool_formatting_middleware import (
-    ClarificationToolFormattingMiddleware,
-)
 from src.agents.middlewares.context_window_middleware import ContextWindowMiddleware
 from src.agents.middlewares.knowledge_context_middleware import KnowledgeContextMiddleware
 from src.agents.middlewares.max_tokens_recovery_middleware import MaxTokensRecoveryMiddleware
+from src.agents.middlewares.question_discipline_middleware import (
+    QuestionDisciplineMiddleware,
+)
 from src.agents.middlewares.retry_utils import (
     build_model_retry_middleware,
     build_tool_retry_middleware,
@@ -76,7 +76,6 @@ from src.skills.types import Skill
 logger = logging.getLogger(__name__)
 DEFAULT_THREAD_ID = "_default"
 ExecutionBackend = Literal["local", "sandbox", "remote"]
-LEAD_AGENT_INTERRUPT_ON = {"ask_clarification": True}
 _LEAD_AGENT_GRAPH_CACHE_MAX = 16
 _lead_agent_graph_cache: dict[tuple[object, ...], "LeadAgentGraphCacheEntry"] = {}
 _lead_agent_graph_cache_order: list[tuple[object, ...]] = []
@@ -191,6 +190,8 @@ class LeadAgentGraphParts:
     tools: list[Any]
     middleware: list[Any]
     subagents: list[Any] | None
+    general_purpose_enabled: bool
+    general_purpose_tools: list[Any]
     skill_sources: list[str]
     system_prompt: str
 
@@ -289,13 +290,7 @@ def _is_runtime_referenced_skill_candidate(
     archived_skill_names: set[str],
     duplicated_skill_names: set[str],
 ) -> bool:
-    return (
-        skill.category in allowed_scopes
-        and skill.enabled
-        and bool(skill.name)
-        and skill.name not in archived_skill_names
-        and skill.name not in duplicated_skill_names
-    )
+    return skill.category in allowed_scopes and skill.enabled and bool(skill.name) and skill.name not in archived_skill_names and skill.name not in duplicated_skill_names
 
 
 def _requested_runtime_skill_names(
@@ -325,9 +320,7 @@ def _collect_unique_runtime_referenced_skills(
     if not requested_skill_names:
         return []
 
-    archived_skill_names = {
-        skill_ref.name for skill_ref in (agent_config.skill_refs if agent_config is not None else [])
-    }
+    archived_skill_names = {skill_ref.name for skill_ref in (agent_config.skill_refs if agent_config is not None else [])}
     allowed_scopes = _lead_agent_runtime_reference_scopes(status)
     requested_skill_name_set = set(requested_skill_names)
 
@@ -623,13 +616,14 @@ def _build_openagents_middlewares(model_config: ModelConfig):
     - AuthoringGuardMiddleware + RuntimeCommandMiddleware: constrain direct authoring turns
     - UploadsMiddleware: injects uploaded file context into the current user turn
     - TitleMiddleware: persists a local first-turn title without another model call
-    - Clarification / recovery middlewares: normalize or recover provider-specific outputs
+    - Recovery middlewares: recover provider-specific outputs
     - ContextWindowMiddleware: emit telemetry for the admin console
     - ViewImageMiddleware: injects image content after successful `view_image` tool calls
     """
     middlewares = [
         ArtifactsMiddleware(),
         AuthoringGuardMiddleware(),
+        QuestionDisciplineMiddleware(),
         RuntimeCommandMiddleware(),
         UploadsMiddleware(),
         KnowledgeContextMiddleware(),
@@ -640,7 +634,6 @@ def _build_openagents_middlewares(model_config: ModelConfig):
         TargetLengthRetryMiddleware(),
         MaxTokensRecoveryMiddleware(),
         VisibleResponseRecoveryMiddleware(),
-        ClarificationToolFormattingMiddleware(),
         ContextWindowMiddleware(),
     ]
 
@@ -932,16 +925,9 @@ def _bind_request_to_thread_runtime(
     bound_agent_name = thread_binding.agent_name or request.agent_name
     bound_agent_status = thread_binding.agent_status or request.agent_status
     bound_execution_backend = thread_binding.execution_backend
-    bound_remote_session_id = (
-        thread_binding.remote_session_id if bound_execution_backend == "remote" else None
-    )
+    bound_remote_session_id = thread_binding.remote_session_id if bound_execution_backend == "remote" else None
 
-    if (
-        bound_agent_name != request.agent_name
-        or bound_agent_status != request.agent_status
-        or bound_execution_backend != request.execution_backend
-        or bound_remote_session_id != request.remote_session_id
-    ):
+    if bound_agent_name != request.agent_name or bound_agent_status != request.agent_status or bound_execution_backend != request.execution_backend or bound_remote_session_id != request.remote_session_id:
         logger.info(
             "Thread '%s' is already bound to agent=%s status=%s backend=%s remote_session_id=%s; using persisted thread runtime.",
             request.thread_id,
@@ -984,6 +970,7 @@ def _load_agent_tools(
         model_name=model_name,
         model_supports_vision=model_supports_vision,
         groups=agent_config.tool_groups,
+        tool_names=agent_config.tool_names,
         mcp_servers=agent_config.mcp_servers,
         agent_status=agent_status,
         authoring_actions=list(authoring_actions),
@@ -1292,16 +1279,23 @@ def _resolve_agent_backend(
 def _build_agent_subagents(
     *,
     request: LeadAgentRequest,
+    agent_config: AgentConfig,
     tools: object,
-):
+    model_name: str,
+    model_supports_vision: bool,
+) -> LoadedSubagentSpecs | None:
     if request.requires_direct_authoring_tool():
         return None
     if not request.subagent_enabled:
         return None
+    if not isinstance(tools, list):
+        raise ValueError("Lead agent tools must resolve to a list before subagent construction.")
     return load_subagent_specs(
         tools,
-        agent_name=request.agent_name,
+        agent_config=agent_config,
         agent_status=request.agent_status,
+        model_name=model_name,
+        model_supports_vision=model_supports_vision,
     )
 
 
@@ -1398,10 +1392,19 @@ def _build_graph_parts(
         authoring_actions=request.authoring_actions,
         setup_agent_enabled=request.allows_agent_setup(),
     )
+    subagent_specs = _build_agent_subagents(
+        request=request,
+        agent_config=resolution.agent_config,
+        tools=tools,
+        model_name=resolution.model_name,
+        model_supports_vision=resolution.model_config.supports_vision,
+    )
     return LeadAgentGraphParts(
         tools=tools,
         middleware=_build_openagents_middlewares(resolution.model_config),
-        subagents=_build_agent_subagents(request=request, tools=tools),
+        subagents=subagent_specs.custom_subagents if subagent_specs is not None else None,
+        general_purpose_enabled=subagent_specs.general_purpose_enabled if subagent_specs is not None else False,
+        general_purpose_tools=subagent_specs.general_purpose_tools if subagent_specs is not None else tools,
         skill_sources=_build_skill_sources(request),
         system_prompt=_build_system_prompt(request=request, resolution=resolution),
     )
@@ -1494,10 +1497,11 @@ def _create_lead_agent(
             system_prompt=graph_parts.system_prompt,
             middleware=graph_parts.middleware,
             subagents=graph_parts.subagents,
+            general_purpose_tools=graph_parts.general_purpose_tools,
+            general_purpose_enabled=graph_parts.general_purpose_enabled,
             skills=graph_parts.skill_sources,
             backend=backend,
             context_schema=LeadAgentRuntimeContext,
-            interrupt_on=LEAD_AGENT_INTERRUPT_ON,
             name=request.agent_name,
         )
         cached_entry = _store_cached_lead_agent_graph(

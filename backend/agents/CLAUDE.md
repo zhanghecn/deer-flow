@@ -43,7 +43,7 @@ openagents/
 │   │   │   └── routers/       # 6 route modules (agents, skills, models, etc.)
 │   │   ├── sandbox/           # Sandbox execution system (legacy, replaced by deepagents backends)
 │   │   ├── subagents/         # Subagent delegation system (legacy, replaced by deepagents SubAgentMiddleware)
-│   │   ├── tools/builtins/    # Built-in tools (present_files, ask_clarification, view_image, setup_agent)
+│   │   ├── tools/builtins/    # Built-in tools (present_files, question, view_image, setup_agent)
 │   │   ├── mcp/               # MCP integration (tools, cache, client)
 │   │   ├── models/            # Model factory with thinking/vision support
 │   │   ├── skills/            # Skills discovery, loading, parsing
@@ -141,7 +141,7 @@ CI runs these regression tests for every pull request via [.github/workflows/bac
 - `thinking_enabled` - Enable model's extended thinking
 - `model_name` - Select specific LLM model
 - `model_config` - Inject full runtime model config for this run (DB-driven mode)
-- `is_plan_mode` - Enable TodoList middleware
+- `is_plan_mode` - Legacy compatibility flag only; current question/execute behavior does not depend on it
 - `subagent_enabled` - Enable task delegation tool
 - **No implicit model fallback in agent runtime**: each run must resolve model from one of:
   - `configurable.model_name` / `configurable.model`
@@ -161,16 +161,22 @@ The agent uses **deepagents built-in middleware** plus **OpenAgents-specific ext
 - `SubAgentMiddleware` — Subagent delegation (when subagents provided)
 - `SkillsMiddleware` — Skills loading and injection
 - `FilesystemMiddleware` — Provides sandbox tools (ls, read_file, write_file, edit_file, execute, glob, grep)
-- `HumanInTheLoopMiddleware` — Handles `ask_clarification` interrupts
+- `HumanInTheLoopMiddleware` — Reserved for approval-style interrupts, not question turns
 
 **OpenAgents-specific extra middleware** (`_build_openagents_middlewares()`):
 1. **ArtifactsMiddleware** — Tracks presented/generated artifacts
-2. **UploadsMiddleware** — Tracks and injects uploaded files
-3. **KnowledgeContextMiddleware** — Enforces the KB tool protocol for attached documents
-4. **TitleMiddleware** — Auto-generates thread title
-5. **Retry / recovery middlewares** — Normalize provider/tool failures and short-circuit bad visible responses
-6. **ContextWindowMiddleware** — Persists prompt occupancy telemetry
-7. **ViewImageMiddleware** — Injects base64 image data (conditional on vision support)
+2. **QuestionDisciplineMiddleware** — Keeps clarifications on the structured `question` tool path, bundles blocker questions up front, and resumes execution after answers instead of serial follow-up intake
+3. **UploadsMiddleware** — Tracks and injects uploaded files
+4. **KnowledgeContextMiddleware** — Enforces the KB tool protocol for attached documents
+5. **TitleMiddleware** — Auto-generates thread title
+6. **Retry / recovery middlewares** — Normalize provider/tool failures and short-circuit bad visible responses
+7. **ContextWindowMiddleware** — Persists prompt occupancy telemetry
+8. **ViewImageMiddleware** — Injects base64 image data (conditional on vision support)
+
+Prompt-level completion discipline:
+- DeepAgents base prompt plus `lead_agent` prompt are responsible for the "keep going until done" contract.
+- If the agent creates todos, it should not end the turn while required items remain `pending` or `in_progress`.
+- After a `question` answer, the next step is continued execution, not an interim research/proposal summary, unless the user explicitly asked for analysis only.
 
 ### Configuration System
 
@@ -253,7 +259,7 @@ The lead agent uses `deepagents.create_deep_agent()` which provides:
 2. **MCP tools** - From enabled MCP servers (lazy initialized, cached with mtime invalidation)
 3. **Built-in tools**:
    - `present_files` - Make output files visible to user (only `/mnt/user-data/outputs`)
-   - `ask_clarification` - Request clarification (intercepted by ClarificationMiddleware → interrupts)
+   - `question` - Request structured user answers via LangGraph interrupt/resume
    - `view_image` - Read image as base64 (added only if model supports vision)
 4. **Subagent tool** (if enabled):
    - `task` - Delegate to subagent (description, prompt, subagent_type, max_turns)

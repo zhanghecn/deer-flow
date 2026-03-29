@@ -20,15 +20,30 @@ func isBuiltinLeadAgent(name string) bool {
 }
 
 type manifest struct {
-	Name        string                   `yaml:"name"`
-	Description string                   `yaml:"description"`
-	Model       *string                  `yaml:"model"`
-	ToolGroups  []string                 `yaml:"tool_groups"`
-	McpServers  []string                 `yaml:"mcp_servers"`
-	Status      string                   `yaml:"status"`
-	AgentsMD    string                   `yaml:"agents_md_path"`
-	Memory      *model.AgentMemoryConfig `yaml:"memory"`
-	SkillRefs   []model.SkillRef         `yaml:"skill_refs"`
+	Name             string                       `yaml:"name"`
+	Description      string                       `yaml:"description"`
+	Model            *string                      `yaml:"model"`
+	ToolGroups       []string                     `yaml:"tool_groups"`
+	ToolNames        []string                     `yaml:"tool_names"`
+	McpServers       []string                     `yaml:"mcp_servers"`
+	Status           string                       `yaml:"status"`
+	AgentsMD         string                       `yaml:"agents_md_path"`
+	Memory           *model.AgentMemoryConfig     `yaml:"memory"`
+	SkillRefs        []model.SkillRef             `yaml:"skill_refs"`
+	SubagentDefaults *model.AgentSubagentDefaults `yaml:"subagent_defaults"`
+}
+
+type subagentsManifest struct {
+	Version   int                         `yaml:"version"`
+	Subagents map[string]subagentManifest `yaml:"subagents"`
+}
+
+type subagentManifest struct {
+	Description  string   `yaml:"description"`
+	SystemPrompt string   `yaml:"system_prompt"`
+	Model        *string  `yaml:"model,omitempty"`
+	ToolNames    []string `yaml:"tool_names,omitempty"`
+	Enabled      *bool    `yaml:"enabled,omitempty"`
 }
 
 func LoadAgent(fsStore *storage.FS, name string, status string, includeMarkdown bool) (*model.Agent, error) {
@@ -60,19 +75,30 @@ func LoadAgent(fsStore *storage.FS, name string, status string, includeMarkdown 
 	}
 
 	agent := &model.Agent{
-		Name:        agentName,
-		Description: cfg.Description,
-		Model:       cfg.Model,
-		ToolGroups:  cfg.ToolGroups,
-		McpServers:  cfg.McpServers,
-		Status:      status,
-		Memory:      cfg.Memory,
-		Skills:      cfg.SkillRefs,
+		Name:             agentName,
+		Description:      cfg.Description,
+		Model:            cfg.Model,
+		ToolGroups:       cfg.ToolGroups,
+		ToolNames:        cfg.ToolNames,
+		McpServers:       cfg.McpServers,
+		Status:           status,
+		Memory:           cfg.Memory,
+		Skills:           cfg.SkillRefs,
+		SubagentDefaults: cfg.SubagentDefaults,
 	}
 	if agent.Memory == nil {
 		normalized := defaultMemoryConfig()
 		agent.Memory = &normalized
 	}
+	if agent.SubagentDefaults == nil {
+		normalized := defaultSubagentDefaults()
+		agent.SubagentDefaults = &normalized
+	}
+	subagents, err := loadSubagents(fsStore, agentName, status)
+	if err != nil {
+		return nil, err
+	}
+	agent.Subagents = subagents
 
 	if includeMarkdown {
 		agentsMDPath := strings.TrimSpace(cfg.AgentsMD)
@@ -87,6 +113,50 @@ func LoadAgent(fsStore *storage.FS, name string, status string, includeMarkdown 
 	}
 
 	return agent, nil
+}
+
+func loadSubagents(fsStore *storage.FS, name string, status string) ([]model.AgentSubagent, error) {
+	sourcePath := fsStore.AgentSubagentsPath(name, status)
+	data, err := os.ReadFile(sourcePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []model.AgentSubagent{}, nil
+		}
+		return nil, err
+	}
+
+	var payload subagentsManifest
+	if err := yaml.Unmarshal(data, &payload); err != nil {
+		return nil, err
+	}
+	if payload.Version == 0 {
+		payload.Version = 1
+	}
+	if payload.Subagents == nil {
+		var legacy map[string]subagentManifest
+		if err := yaml.Unmarshal(data, &legacy); err == nil && len(legacy) > 0 {
+			payload.Subagents = legacy
+		}
+	}
+	subagents := make([]model.AgentSubagent, 0, len(payload.Subagents))
+	for name, item := range payload.Subagents {
+		enabled := true
+		if item.Enabled != nil {
+			enabled = *item.Enabled
+		}
+		subagents = append(subagents, model.AgentSubagent{
+			Name:         strings.TrimSpace(name),
+			Description:  item.Description,
+			SystemPrompt: item.SystemPrompt,
+			Model:        item.Model,
+			ToolNames:    item.ToolNames,
+			Enabled:      enabled,
+		})
+	}
+	slices.SortFunc(subagents, func(a, b model.AgentSubagent) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+	return subagents, nil
 }
 
 func ListAgents(fsStore *storage.FS, status string) ([]model.Agent, error) {
@@ -286,5 +356,11 @@ func defaultMemoryConfig() model.AgentMemoryConfig {
 		FactConfidenceThreshold: 0.7,
 		InjectionEnabled:        true,
 		MaxInjectionTokens:      2000,
+	}
+}
+
+func defaultSubagentDefaults() model.AgentSubagentDefaults {
+	return model.AgentSubagentDefaults{
+		GeneralPurposeEnabled: true,
 	}
 }

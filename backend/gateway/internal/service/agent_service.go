@@ -108,6 +108,176 @@ func deriveMaterializedPathFromSourcePath(sourcePath string) (string, error) {
 	return normalizeMaterializedPath(path.Join("skills", relativePath))
 }
 
+func normalizeStringList(values []string) []string {
+	normalized := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, raw := range values {
+		value := strings.TrimSpace(raw)
+		if value == "" {
+			continue
+		}
+		key := strings.ToLower(value)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		normalized = append(normalized, value)
+		seen[key] = struct{}{}
+	}
+	return normalized
+}
+
+func normalizeOptionalStringList(values []string) []string {
+	if values == nil {
+		return nil
+	}
+	return normalizeStringList(values)
+}
+
+func normalizeToolNames(values []string) []string {
+	return normalizeOptionalStringList(values)
+}
+
+func defaultAgentSubagentDefaults() model.AgentSubagentDefaults {
+	return model.AgentSubagentDefaults{
+		GeneralPurposeEnabled: true,
+	}
+}
+
+func normalizeAgentSubagentDefaults(cfg *model.AgentSubagentDefaults) model.AgentSubagentDefaults {
+	normalized := defaultAgentSubagentDefaults()
+	if cfg == nil {
+		return normalized
+	}
+	normalized.GeneralPurposeEnabled = cfg.GeneralPurposeEnabled
+	normalized.ToolNames = normalizeToolNames(cfg.ToolNames)
+	return normalized
+}
+
+func normalizeAgentSubagents(subagents []model.AgentSubagent) ([]model.AgentSubagent, error) {
+	if subagents == nil {
+		return []model.AgentSubagent{}, nil
+	}
+
+	normalized := make([]model.AgentSubagent, 0, len(subagents))
+	seen := make(map[string]struct{}, len(subagents))
+	for _, subagent := range subagents {
+		name := strings.TrimSpace(subagent.Name)
+		if name == "" {
+			return nil, fmt.Errorf("subagent name is required")
+		}
+		if strings.EqualFold(name, "general-purpose") {
+			return nil, fmt.Errorf("subagent name %q is reserved", name)
+		}
+		key := strings.ToLower(name)
+		if _, ok := seen[key]; ok {
+			return nil, fmt.Errorf("duplicate subagent name %q", name)
+		}
+		description := strings.TrimSpace(subagent.Description)
+		if description == "" {
+			return nil, fmt.Errorf("subagent %q requires description", name)
+		}
+		systemPrompt := strings.TrimSpace(subagent.SystemPrompt)
+		if systemPrompt == "" {
+			return nil, fmt.Errorf("subagent %q requires system_prompt", name)
+		}
+
+		var modelName *string
+		if subagent.Model != nil {
+			trimmed := strings.TrimSpace(*subagent.Model)
+			if trimmed != "" {
+				modelName = &trimmed
+			}
+		}
+
+		normalized = append(normalized, model.AgentSubagent{
+			Name:         name,
+			Description:  description,
+			SystemPrompt: systemPrompt,
+			Model:        modelName,
+			ToolNames:    normalizeToolNames(subagent.ToolNames),
+			Enabled:      subagent.Enabled,
+		})
+		seen[key] = struct{}{}
+	}
+	return normalized, nil
+}
+
+func (s *AgentService) validateMainToolNames(toolNames []string) ([]string, error) {
+	normalized := normalizeToolNames(toolNames)
+	if normalized == nil {
+		return nil, nil
+	}
+
+	index, err := s.toolCatalogByName()
+	if err != nil {
+		return nil, err
+	}
+	for _, toolName := range normalized {
+		item, ok := index[toolName]
+		if !ok {
+			return nil, fmt.Errorf("unknown tool %q", toolName)
+		}
+		if !item.ConfigurableForMainAgent || item.ReservedPolicy == "runtime_only" {
+			return nil, fmt.Errorf("tool %q is not configurable for archived agents", toolName)
+		}
+	}
+	return normalized, nil
+}
+
+func (s *AgentService) validateSubagentToolNames(toolNames []string) ([]string, error) {
+	normalized := normalizeToolNames(toolNames)
+	if normalized == nil {
+		return nil, nil
+	}
+
+	index, err := s.toolCatalogByName()
+	if err != nil {
+		return nil, err
+	}
+	for _, toolName := range normalized {
+		item, ok := index[toolName]
+		if !ok {
+			return nil, fmt.Errorf("unknown tool %q", toolName)
+		}
+		if !item.ConfigurableForSubagent || item.ReservedPolicy != "normal" {
+			return nil, fmt.Errorf("tool %q is not allowed for subagents", toolName)
+		}
+	}
+	return normalized, nil
+}
+
+func (s *AgentService) validateToolScopes(
+	toolNames []string,
+	subagentDefaults model.AgentSubagentDefaults,
+	subagents []model.AgentSubagent,
+) (model.AgentSubagentDefaults, []model.AgentSubagent, error) {
+	normalizedDefaults := normalizeAgentSubagentDefaults(&subagentDefaults)
+	validatedToolNames, err := s.validateMainToolNames(toolNames)
+	if err != nil {
+		return model.AgentSubagentDefaults{}, nil, err
+	}
+	_ = validatedToolNames
+
+	validatedDefaultTools, err := s.validateSubagentToolNames(normalizedDefaults.ToolNames)
+	if err != nil {
+		return model.AgentSubagentDefaults{}, nil, err
+	}
+	normalizedDefaults.ToolNames = validatedDefaultTools
+
+	normalizedSubagents, err := normalizeAgentSubagents(subagents)
+	if err != nil {
+		return model.AgentSubagentDefaults{}, nil, err
+	}
+	for i := range normalizedSubagents {
+		validatedSubagentTools, err := s.validateSubagentToolNames(normalizedSubagents[i].ToolNames)
+		if err != nil {
+			return model.AgentSubagentDefaults{}, nil, fmt.Errorf("subagent %q: %w", normalizedSubagents[i].Name, err)
+		}
+		normalizedSubagents[i].ToolNames = validatedSubagentTools
+	}
+	return normalizedDefaults, normalizedSubagents, nil
+}
+
 func (s *AgentService) Create(_ context.Context, req model.CreateAgentRequest, _ uuid.UUID) (*model.Agent, error) {
 	name := strings.TrimSpace(req.Name)
 	if isReservedAgentName(name) {
@@ -132,15 +302,37 @@ func (s *AgentService) Create(_ context.Context, req model.CreateAgentRequest, _
 	if err != nil {
 		return nil, err
 	}
+	mainToolNames, err := s.validateMainToolNames(req.ToolNames)
+	if err != nil {
+		return nil, err
+	}
+	subagentDefaults := normalizeAgentSubagentDefaults(req.SubagentDefaults)
+	subagentDefaults.ToolNames, err = s.validateSubagentToolNames(subagentDefaults.ToolNames)
+	if err != nil {
+		return nil, err
+	}
+	subagents, err := normalizeAgentSubagents(req.Subagents)
+	if err != nil {
+		return nil, err
+	}
+	for i := range subagents {
+		subagents[i].ToolNames, err = s.validateSubagentToolNames(subagents[i].ToolNames)
+		if err != nil {
+			return nil, fmt.Errorf("subagent %q: %w", subagents[i].Name, err)
+		}
+	}
 
 	agent := &model.Agent{
-		Name:        name,
-		Description: req.Description,
-		Model:       req.Model,
-		ToolGroups:  req.ToolGroups,
-		McpServers:  req.McpServers,
-		Status:      "dev",
-		Memory:      &memoryConfig,
+		Name:             name,
+		Description:      req.Description,
+		Model:            req.Model,
+		ToolGroups:       normalizeOptionalStringList(req.ToolGroups),
+		ToolNames:        mainToolNames,
+		McpServers:       normalizeOptionalStringList(req.McpServers),
+		Status:           "dev",
+		Memory:           &memoryConfig,
+		SubagentDefaults: &subagentDefaults,
+		Subagents:        subagents,
 	}
 	if err := s.syncAgentFilesystem(agent, req.AgentsMD, skillRefs); err != nil {
 		return nil, fmt.Errorf("sync agent files: %w", err)
@@ -164,10 +356,16 @@ func (s *AgentService) Update(_ context.Context, name string, status string, req
 		existing.Model = req.Model
 	}
 	if req.ToolGroups != nil {
-		existing.ToolGroups = req.ToolGroups
+		existing.ToolGroups = normalizeOptionalStringList(req.ToolGroups)
+	}
+	if req.ToolNames != nil {
+		existing.ToolNames, err = s.validateMainToolNames(req.ToolNames)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if req.McpServers != nil {
-		existing.McpServers = req.McpServers
+		existing.McpServers = normalizeOptionalStringList(req.McpServers)
 	}
 	if req.Memory != nil {
 		memoryConfig, err := normalizeAgentMemoryConfig(req.Memory)
@@ -175,6 +373,31 @@ func (s *AgentService) Update(_ context.Context, name string, status string, req
 			return nil, err
 		}
 		existing.Memory = &memoryConfig
+	}
+	if existing.SubagentDefaults == nil {
+		normalizedDefaults := defaultAgentSubagentDefaults()
+		existing.SubagentDefaults = &normalizedDefaults
+	}
+	if req.SubagentDefaults != nil {
+		normalizedDefaults := normalizeAgentSubagentDefaults(req.SubagentDefaults)
+		normalizedDefaults.ToolNames, err = s.validateSubagentToolNames(normalizedDefaults.ToolNames)
+		if err != nil {
+			return nil, err
+		}
+		existing.SubagentDefaults = &normalizedDefaults
+	}
+	if req.Subagents != nil {
+		subagents, err := normalizeAgentSubagents(req.Subagents)
+		if err != nil {
+			return nil, err
+		}
+		for i := range subagents {
+			subagents[i].ToolNames, err = s.validateSubagentToolNames(subagents[i].ToolNames)
+			if err != nil {
+				return nil, fmt.Errorf("subagent %q: %w", subagents[i].Name, err)
+			}
+		}
+		existing.Subagents = subagents
 	}
 
 	skillRefs, err := s.normalizeSkillRefs(existing.Skills, name, status)
@@ -487,12 +710,13 @@ func (s *AgentService) syncAgentFilesystem(agent *model.Agent, agentsMD string, 
 	}()
 
 	config := map[string]interface{}{
-		"name":           agent.Name,
-		"description":    agent.Description,
-		"status":         agent.Status,
-		"agents_md_path": "AGENTS.md",
-		"skill_refs":     skillRefs,
-		"memory":         agentMemoryPayload(agent.Memory),
+		"name":              agent.Name,
+		"description":       agent.Description,
+		"status":            agent.Status,
+		"agents_md_path":    "AGENTS.md",
+		"skill_refs":        skillRefs,
+		"memory":            agentMemoryPayload(agent.Memory),
+		"subagent_defaults": agentSubagentDefaultsPayload(agent.SubagentDefaults),
 	}
 	if agent.Model != nil {
 		config["model"] = *agent.Model
@@ -500,11 +724,21 @@ func (s *AgentService) syncAgentFilesystem(agent *model.Agent, agentsMD string, 
 	if agent.ToolGroups != nil {
 		config["tool_groups"] = agent.ToolGroups
 	}
+	if agent.ToolNames != nil {
+		config["tool_names"] = agent.ToolNames
+	}
 	if agent.McpServers != nil {
 		config["mcp_servers"] = agent.McpServers
 	}
 
 	if err := s.fs.WriteAgentFiles(agent.Name, agent.Status, agentsMD, config); err != nil {
+		return err
+	}
+	if len(agent.Subagents) > 0 {
+		if err := s.fs.WriteAgentSubagentsFile(agent.Name, agent.Status, agentSubagentsPayload(agent.Subagents)); err != nil {
+			return err
+		}
+	} else if err := s.fs.DeleteAgentSubagentsFile(agent.Name, agent.Status); err != nil {
 		return err
 	}
 	if err := s.fs.DeleteAgentSkillsDir(agent.Name, agent.Status); err != nil {
@@ -543,6 +777,13 @@ func (s *AgentService) hydrateFilesystemAgent(agent *model.Agent, agentsMD strin
 	if agent.Memory == nil {
 		normalized := defaultAgentMemoryConfig()
 		agent.Memory = &normalized
+	}
+	if agent.SubagentDefaults == nil {
+		normalized := defaultAgentSubagentDefaults()
+		agent.SubagentDefaults = &normalized
+	}
+	if agent.Subagents == nil {
+		agent.Subagents = []model.AgentSubagent{}
 	}
 	return agent
 }
@@ -607,5 +848,44 @@ func agentMemoryPayload(cfg *model.AgentMemoryConfig) map[string]interface{} {
 	if normalized.ModelName != nil && strings.TrimSpace(*normalized.ModelName) != "" {
 		payload["model_name"] = strings.TrimSpace(*normalized.ModelName)
 	}
+	return payload
+}
+
+func agentSubagentDefaultsPayload(cfg *model.AgentSubagentDefaults) map[string]interface{} {
+	normalized := defaultAgentSubagentDefaults()
+	if cfg != nil {
+		normalized = normalizeAgentSubagentDefaults(cfg)
+	}
+
+	payload := map[string]interface{}{
+		"general_purpose_enabled": normalized.GeneralPurposeEnabled,
+	}
+	if normalized.ToolNames != nil {
+		payload["tool_names"] = normalized.ToolNames
+	}
+	return payload
+}
+
+func agentSubagentsPayload(subagents []model.AgentSubagent) map[string]interface{} {
+	payload := map[string]interface{}{
+		"version":   1,
+		"subagents": map[string]interface{}{},
+	}
+	items := make(map[string]interface{}, len(subagents))
+	for _, subagent := range subagents {
+		item := map[string]interface{}{
+			"description":   subagent.Description,
+			"system_prompt": subagent.SystemPrompt,
+			"enabled":       subagent.Enabled,
+		}
+		if subagent.Model != nil && strings.TrimSpace(*subagent.Model) != "" {
+			item["model"] = strings.TrimSpace(*subagent.Model)
+		}
+		if subagent.ToolNames != nil {
+			item["tool_names"] = subagent.ToolNames
+		}
+		items[subagent.Name] = item
+	}
+	payload["subagents"] = items
 	return payload
 }

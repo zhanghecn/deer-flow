@@ -100,13 +100,15 @@ OpenAgents-specific middlewares are combined with deepagents built-ins such as `
 |---|---|---|
 | OpenAgents extras | **ArtifactsMiddleware** | Tracks tool-produced artifacts for frontend presentation |
 | OpenAgents extras | **AuthoringGuardMiddleware** + **RuntimeCommandMiddleware** | Constrains direct authoring turns and runtime command handling |
+| OpenAgents extras | **QuestionDisciplineMiddleware** | Forces structured clarification through `question`, batches material blocker questions together, and resumes execution after answers instead of serial follow-up intake |
 | OpenAgents extras | **UploadsMiddleware** | Injects uploaded files into conversation context and prefers generated Markdown companions when available |
 | OpenAgents extras | **KnowledgeContextMiddleware** | Enforces the knowledge-base retrieval protocol and blocks bypass flows |
 | OpenAgents extras | **TitleMiddleware** | Auto-generates and persists a lightweight first-turn title |
-| OpenAgents extras | **Retry / recovery middlewares** | Handles model/tool retries, target-length retries, max-token recovery, visible-response recovery, and clarification formatting |
+| OpenAgents extras | **Retry / recovery middlewares** | Handles model/tool retries, target-length retries, max-token recovery, visible-response recovery, and question-flow recovery |
 | OpenAgents extras | **ContextWindowMiddleware** | Persists current prompt occupancy snapshots into LangGraph state |
 | OpenAgents extras | **ViewImageMiddleware** | Injects image data for vision-capable models after successful `view_image` calls |
 | Deep Agents built-ins | **FilesystemMiddleware**, **SkillsMiddleware**, **SummarizationMiddleware**, **TodoListMiddleware**, **MemoryMiddleware** | Provide the core filesystem, skills, summarization, planning, and memory behaviors |
+| Prompt contract | DeepAgents base prompt + `lead_agent` prompt | Keep execution running until required deliverables are actually completed, prevent ending on unfinished todos, and treat research/proposal text as non-final when the user asked for execution |
 
 Important distinction:
 
@@ -172,7 +174,15 @@ LLM-powered persistent context retention across conversations:
 | Category | Tools |
 |----------|-------|
 | **Sandbox** | `bash`, `ls`, `read_file`, `write_file`, `str_replace` |
-| **Built-in** | `present_files`, `ask_clarification`, `view_image`, `task` (subagent) |
+| **Built-in** | `present_files`, `question`, `view_image`, `task` (subagent) |
+
+Question behavior notes:
+
+- Users interact through one input path only; internal planning/execution stages are runtime implementation details, not separate user entry modes.
+- `question` is the structured clarification mechanism for the main agent.
+- Broad tasks should batch the material blocker questions into one `question` call when possible.
+- After the user answers, the agent should continue execution by default instead of treating every remaining secondary detail as another intake round.
+- When the user asked for actual execution and deliverables, interim research summaries or方案建议 are not valid completion; the agent should continue until the deliverable is produced or a concrete blocker is explained.
 | **Community** | Tavily (web search), Jina AI (web fetch), Firecrawl (scraping), DuckDuckGo (image search) |
 | **MCP** | Any Model Context Protocol server (stdio, SSE, HTTP transports) |
 | **Skills** | Domain-specific workflows injected via system prompt |

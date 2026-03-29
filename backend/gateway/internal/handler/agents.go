@@ -39,6 +39,15 @@ func (h *AgentHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"agents": agents})
 }
 
+func (h *AgentHandler) ListToolCatalog(c *gin.Context) {
+	tools, err := h.svc.ListToolCatalog()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"tools": tools})
+}
+
 func (h *AgentHandler) Get(c *gin.Context) {
 	name := c.Param("name")
 	status := c.DefaultQuery("status", "dev")

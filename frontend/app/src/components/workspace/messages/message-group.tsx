@@ -29,7 +29,7 @@ import {
   extractTextFromMessage,
 } from "@/core/messages/utils";
 import { workspaceMessageRehypePlugins } from "@/core/streamdown";
-import { extractClarificationRequestFromArgs } from "@/core/threads/interrupts";
+import { extractQuestionRequestFromArgs } from "@/core/threads/interrupts";
 import { getUserVisibleRuntimePath } from "@/core/utils/files";
 import { extractTitleFromMarkdown } from "@/core/utils/markdown";
 import { env } from "@/env";
@@ -214,7 +214,7 @@ export function MessageGroup({
                     rehypePlugins={workspaceMessageRehypePlugins}
                   />
                 }
-                ></ChainOfThoughtStep>
+              ></ChainOfThoughtStep>
             </ChainOfThoughtContent>
           )}
         </>
@@ -383,7 +383,10 @@ function ToolCall({
     let description: string | undefined = (args as { description: string })
       ?.description;
     if (!description) {
-      description = name === "edit_file" ? t.toolCalls.useTool(name) : t.toolCalls.writeFile;
+      description =
+        name === "edit_file"
+          ? t.toolCalls.useTool(name)
+          : t.toolCalls.writeFile;
     }
     const path = getPathArg(args);
     const content = getStringArg(args, "content");
@@ -514,22 +517,18 @@ function ToolCall({
         )}
       </ChainOfThoughtStep>
     );
-  } else if (name === "ask_clarification") {
-    const clarification = extractClarificationRequestFromArgs(args);
+  } else if (name === "question") {
+    const questionRequest = extractQuestionRequestFromArgs(args, id);
+    const question = questionRequest?.questions[0];
     return (
       <ChainOfThoughtStep
         key={id}
-        label={clarification?.question ?? t.toolCalls.needYourHelp}
+        label={question?.question ?? t.toolCalls.needYourHelp}
         icon={MessageCircleQuestionMarkIcon}
       >
-        {clarification?.context && (
-          <ChainOfThoughtSearchResult className="text-muted-foreground">
-            {clarification.context}
-          </ChainOfThoughtSearchResult>
-        )}
-        {clarification?.options.map((option, index) => (
-          <ChainOfThoughtSearchResult key={`${option}-${index}`}>
-            {option}
+        {question?.options.map((option, index) => (
+          <ChainOfThoughtSearchResult key={`${option.label}-${index}`}>
+            {option.label}
           </ChainOfThoughtSearchResult>
         ))}
       </ChainOfThoughtStep>
@@ -585,8 +584,10 @@ export function shouldShowTrailingReasoning(
     return true;
   }
 
-  return !nextGroupType.startsWith("assistant") ||
-    nextGroupType === "assistant:processing";
+  return (
+    !nextGroupType.startsWith("assistant") ||
+    nextGroupType === "assistant:processing"
+  );
 }
 
 function convertToSteps(messages: Message[]): CoTStep[] {

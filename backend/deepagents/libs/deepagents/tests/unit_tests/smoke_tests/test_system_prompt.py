@@ -73,6 +73,32 @@ def test_system_prompt_snapshot_without_execute(snapshots_dir: Path, *, update_s
     )
 
 
+def test_system_prompt_without_subagents_omits_task_tool() -> None:
+    model = GenericFakeChatModel(messages=iter([AIMessage(content="hello!")]))
+    backend = FilesystemBackend(root_dir=str(Path.cwd()), virtual_mode=True)
+    agent = create_deep_agent(
+        model=model,
+        backend=backend,
+        general_purpose_enabled=False,
+        subagents=None,
+    )
+
+    assert "task" not in agent.nodes["tools"].bound._tools_by_name
+
+    agent.invoke({"messages": [HumanMessage(content="hi")]})
+
+    history = model.call_history
+    assert len(history) >= 1
+
+    messages = history[0]["messages"]
+    system_messages = [m for m in messages if isinstance(m, SystemMessage)]
+    assert len(system_messages) >= 1
+
+    system_text = _system_message_as_text(system_messages[0])
+    assert "`task` tool" not in system_text
+    assert "Available subagent types:" not in system_text
+
+
 def test_custom_system_message_snapshot(snapshots_dir: Path, *, update_snapshots: bool) -> None:
     model = GenericFakeChatModel(messages=iter([AIMessage(content="hello!")]))
     backend = FilesystemBackend(root_dir=str(Path.cwd()), virtual_mode=True)

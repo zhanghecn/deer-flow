@@ -33,26 +33,32 @@ type APITokenResponse struct {
 // Agent DTOs
 
 type CreateAgentRequest struct {
-	Name        string             `json:"name" binding:"required,min=1,max=128"`
-	Description string             `json:"description"`
-	Model       *string            `json:"model"`
-	ToolGroups  []string           `json:"tool_groups"`
-	McpServers  []string           `json:"mcp_servers"`
-	Memory      *AgentMemoryConfig `json:"memory"`
-	Skills      []string           `json:"skills"`
-	SkillRefs   []SkillRef         `json:"skill_refs"`
-	AgentsMD    string             `json:"agents_md"`
+	Name             string                 `json:"name" binding:"required,min=1,max=128"`
+	Description      string                 `json:"description"`
+	Model            *string                `json:"model"`
+	ToolGroups       []string               `json:"tool_groups"`
+	ToolNames        []string               `json:"tool_names"`
+	McpServers       []string               `json:"mcp_servers"`
+	Memory           *AgentMemoryConfig     `json:"memory"`
+	SubagentDefaults *AgentSubagentDefaults `json:"subagent_defaults"`
+	Subagents        []AgentSubagent        `json:"subagents"`
+	Skills           []string               `json:"skills"`
+	SkillRefs        []SkillRef             `json:"skill_refs"`
+	AgentsMD         string                 `json:"agents_md"`
 }
 
 type UpdateAgentRequest struct {
-	Description *string            `json:"description"`
-	Model       *string            `json:"model"`
-	ToolGroups  []string           `json:"tool_groups"`
-	McpServers  []string           `json:"mcp_servers"`
-	Memory      *AgentMemoryConfig `json:"memory"`
-	Skills      []string           `json:"skills"`
-	SkillRefs   []SkillRef         `json:"skill_refs"`
-	AgentsMD    *string            `json:"agents_md"`
+	Description      *string                `json:"description"`
+	Model            *string                `json:"model"`
+	ToolGroups       []string               `json:"tool_groups"`
+	ToolNames        []string               `json:"tool_names"`
+	McpServers       []string               `json:"mcp_servers"`
+	Memory           *AgentMemoryConfig     `json:"memory"`
+	SubagentDefaults *AgentSubagentDefaults `json:"subagent_defaults"`
+	Subagents        []AgentSubagent        `json:"subagents"`
+	Skills           []string               `json:"skills"`
+	SkillRefs        []SkillRef             `json:"skill_refs"`
+	AgentsMD         *string                `json:"agents_md"`
 }
 
 type SkillRef struct {

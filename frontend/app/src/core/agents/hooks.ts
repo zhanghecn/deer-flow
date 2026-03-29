@@ -9,6 +9,7 @@ import {
   getAgent,
   getAgentExportDoc,
   listAgents,
+  listToolCatalog,
   publishAgent,
   updateAgent,
 } from "./api";
@@ -16,6 +17,7 @@ import type {
   AgentExportDoc,
   AgentStatus,
   CreateAgentRequest,
+  ToolCatalogItem,
   UpdateAgentRequest,
 } from "./types";
 
@@ -40,6 +42,16 @@ export function useAgent(
     enabled: authenticated && !!name,
   });
   return { agent: data ?? null, isLoading, error };
+}
+
+export function useToolCatalog() {
+  const { authenticated } = useAuth();
+  const { data, isLoading, error } = useQuery<ToolCatalogItem[]>({
+    queryKey: ["tools", "catalog"],
+    queryFn: () => listToolCatalog(),
+    enabled: authenticated,
+  });
+  return { tools: data ?? [], isLoading, error };
 }
 
 export function useAgentExportDoc(

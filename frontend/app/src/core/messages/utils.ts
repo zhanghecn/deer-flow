@@ -2,6 +2,7 @@ import type { AIMessage, Message } from "@langchain/langgraph-sdk";
 
 import type { AgentStatus } from "@/core/agents/types";
 import { filterLegacyPptPreviewArtifacts } from "@/core/artifacts/utils";
+import { extractQuestionToolResult } from "@/core/threads/interrupts";
 
 interface GenericMessageGroup<T = string> {
   type: T;
@@ -17,7 +18,7 @@ interface AssistantMessageGroup extends GenericMessageGroup<"assistant"> {}
 
 interface AssistantPresentFilesGroup extends GenericMessageGroup<"assistant:present-files"> {}
 
-interface AssistantClarificationGroup extends GenericMessageGroup<"assistant:clarification"> {}
+interface AssistantQuestionGroup extends GenericMessageGroup<"assistant:question"> {}
 
 interface AssistantSubagentGroup extends GenericMessageGroup<"assistant:subagent"> {}
 
@@ -26,7 +27,7 @@ export type MessageGroup =
   | AssistantProcessingGroup
   | AssistantMessageGroup
   | AssistantPresentFilesGroup
-  | AssistantClarificationGroup
+  | AssistantQuestionGroup
   | AssistantSubagentGroup;
 
 export interface AssistantNextStep {
@@ -40,8 +41,6 @@ export interface AssistantNextStep {
 }
 
 const NEXT_STEPS_BLOCK_RE = /<next_steps>\s*([\s\S]*?)\s*<\/next_steps>/i;
-const CLARIFICATION_CANCELLATION_SUFFIX =
-  "was cancelled - another message came in before it could be completed.";
 const NEXT_STEP_AGENT_NAME_PATTERNS = [
   /(?:切换到|切到|进入|使用)\s+([A-Za-z0-9-]+)\s*(?:智能体|agent)/i,
   /(?:switch to|use|open|test)\s+([A-Za-z0-9-]+)\s+agent/i,
@@ -119,20 +118,13 @@ export function groupMessages<T>(
     } else if (message.type === "tool") {
       const matchedGroup = findGroupForToolMessage(groups, message);
 
-      // Check if this is a clarification tool message
-      if (isClarificationToolMessage(message)) {
-        if (isClarificationCancellationMessage(message)) {
-          continue;
-        }
-        // Add to processing group if available (to maintain tool call association)
-        if (matchedGroup) {
-          matchedGroup.messages.push(message);
-        }
-        // Also create a separate clarification group for prominent display
+      if (isQuestionToolMessage(message)) {
         groups.push({
           id: message.id,
-          type: "assistant:clarification",
-          messages: [message],
+          type: "assistant:question",
+          messages: matchedGroup
+            ? [...matchedGroup.messages, message]
+            : [message],
         });
       } else if (matchedGroup) {
         matchedGroup.messages.push(message);
@@ -464,16 +456,12 @@ export function hasPresentFiles(message: Message) {
   );
 }
 
-export function isClarificationToolMessage(message: Message) {
-  return message.type === "tool" && message.name === "ask_clarification";
-}
-
-export function isClarificationCancellationMessage(message: Message) {
-  if (!isClarificationToolMessage(message)) {
-    return false;
-  }
-
-  return extractTextFromMessage(message).includes(CLARIFICATION_CANCELLATION_SUFFIX);
+export function isQuestionToolMessage(message: Message) {
+  return (
+    message.type === "tool" &&
+    message.name === "question" &&
+    extractQuestionToolResult(message.content) !== null
+  );
 }
 
 export function extractPresentFilesFromMessage(message: Message) {

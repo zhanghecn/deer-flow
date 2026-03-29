@@ -195,8 +195,8 @@ Key runtime middlewares:
   - persists prompt occupancy for monitoring
 - `MemoryMiddleware`
   - queues long-term memory extraction
-- `ClarificationMiddleware`
-  - interrupts for explicit clarification turns
+- `Question` flow via `question` tool plus main-agent prompt/middleware discipline
+  - interrupts for structured user-answer turns
 
 Thread runtime paths are now resolved from `thread_id` inside tool/backend helpers
 instead of being precomputed into graph state by a dedicated middleware.

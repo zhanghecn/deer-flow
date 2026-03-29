@@ -24,9 +24,16 @@ _RECOVERY_SYSTEM_PROMPT = """
 <visible_response_recovery>
 - Your previous attempt ended without any user-visible text or tool call.
 - Produce a visible next action now.
-- If the request is ambiguous, contradictory, or underspecified, call `ask_clarification` immediately.
-- Keep `ask_clarification.question` short and focused.
-- Put concrete choices in `ask_clarification.options` instead of embedding the option list inside `question`.
+- If the request is ambiguous, contradictory, or underspecified, call `question` immediately.
+- Ask the smallest set of focused questions needed to continue safely.
+- If multiple answers are tightly related, keep them as multiple `question.questions[]` entries in one request instead of collapsing them unnaturally.
+- Start with the highest-leverage questions first instead of dumping every secondary uncertainty into the same request.
+- Put the prompt under each `question.questions[].question` entry and keep it short and focused.
+- Do not turn the question into a long memo, feasibility report, or multi-paragraph option dump.
+- Put concrete choices in `question.questions[].options` as `{label, description}` objects instead of embedding the option list inside the question text.
+- When you can enumerate sensible defaults, provide 2-4 concrete options instead of making the question pure free text.
+- Keep option labels short and move supporting detail into `description`.
+- Do not add an "Other" option; typed custom input is handled by the UI when `custom` stays enabled.
 - Do not emit more internal thinking.
 </visible_response_recovery>
 """.strip()

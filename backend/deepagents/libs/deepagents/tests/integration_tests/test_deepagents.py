@@ -134,6 +134,19 @@ class TestDeepAgents:
         tool_calls = [tool_call for msg in agent_messages for tool_call in msg.tool_calls]
         assert any(tool_call["name"] == "task" and tool_call["args"].get("subagent_type") == "basketball_info_agent" for tool_call in tool_calls)
 
+    def test_deep_agent_without_subagents_omits_task_tool(self):
+        agent = create_deep_agent(
+            model=SAMPLE_MODEL,
+            tools=[sample_tool],
+            subagents=None,
+            general_purpose_enabled=False,
+        )
+
+        agent_tools = agent.nodes["tools"].bound._tools_by_name
+        assert "write_todos" in agent_tools
+        assert "ls" in agent_tools
+        assert "task" not in agent_tools
+
     def test_response_format_tool_strategy(self):
         class StructuredOutput(BaseModel):
             pokemon: list[str]

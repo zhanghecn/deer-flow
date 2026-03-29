@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ArtifactsProvider } from "@/components/workspace/artifacts/context";
+import { QuestionDock } from "@/components/workspace/messages/question-dock";
 import { ThreadContext } from "@/components/workspace/messages/context";
 import { MessageList } from "@/components/workspace/messages/message-list";
 import type { Agent } from "@/core/agents";
@@ -327,9 +328,7 @@ export default function NewAgentPage() {
                     <div className="flex gap-2">
                       <Button
                         onClick={() =>
-                          navigate(
-                            `/workspace/agents/${agentName}/chats/new`,
-                          )
+                          navigate(`/workspace/agents/${agentName}/chats/new`)
                         }
                       >
                         {t.agents.startChatting}
@@ -343,19 +342,21 @@ export default function NewAgentPage() {
                     </div>
                   </div>
                 ) : (
-                  // 📝 Normal input
-                  <PromptInput
-                    onSubmit={({ text }) => void handleChatSubmit(text)}
-                  >
-                    <PromptInputTextarea
-                      autoFocus
-                      placeholder={t.agents.createPageSubtitle}
-                      disabled={thread.isLoading}
-                    />
-                    <PromptInputFooter className="justify-end">
-                      <PromptInputSubmit disabled={thread.isLoading} />
-                    </PromptInputFooter>
-                  </PromptInput>
+                  <div className="space-y-3">
+                    <QuestionDock />
+                    <PromptInput
+                      onSubmit={({ text }) => void handleChatSubmit(text)}
+                    >
+                      <PromptInputTextarea
+                        autoFocus
+                        placeholder={t.agents.createPageSubtitle}
+                        disabled={thread.isLoading}
+                      />
+                      <PromptInputFooter className="justify-end">
+                        <PromptInputSubmit disabled={thread.isLoading} />
+                      </PromptInputFooter>
+                    </PromptInput>
+                  </div>
                 )}
               </div>
             </div>

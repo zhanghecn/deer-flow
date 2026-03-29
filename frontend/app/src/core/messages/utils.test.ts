@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { groupMessages } from "./utils";
 
 describe("groupMessages", () => {
-  it("hides internal clarification cancellation patch messages", () => {
+  it("keeps question summaries after the tool result arrives", () => {
     const groups = groupMessages(
       [
         {
@@ -12,11 +12,16 @@ describe("groupMessages", () => {
           content: "",
           tool_calls: [
             {
-              id: "ask_clarification_from_text",
-              name: "ask_clarification",
+              id: "question_from_text",
+              name: "question",
               args: {
-                question: "你想要哪种交付物？",
-                options: ["报告", "PPT"],
+                request_id: "question_from_text",
+                questions: [
+                  {
+                    question: "你想要哪种交付物？",
+                    options: [{ label: "报告" }, { label: "PPT" }],
+                  },
+                ],
               },
             },
           ],
@@ -24,15 +29,15 @@ describe("groupMessages", () => {
         {
           id: "tool-1",
           type: "tool",
-          name: "ask_clarification",
-          tool_call_id: "ask_clarification_from_text",
-          content:
-            "Tool call ask_clarification with id ask_clarification_from_text was cancelled - another message came in before it could be completed.",
-        },
-        {
-          id: "human-1",
-          type: "human",
-          content: "报告",
+          name: "question",
+          tool_call_id: "question_from_text",
+          content: JSON.stringify({
+            kind: "question_result",
+            request_id: "question_from_text",
+            status: "answered",
+            answers: [["报告"]],
+            message: "User answered.",
+          }),
         },
       ] as never,
       (group) => group,
@@ -40,8 +45,50 @@ describe("groupMessages", () => {
 
     expect(groups.map((group) => group.type)).toEqual([
       "assistant:processing",
-      "human",
+      "assistant:question",
     ]);
     expect(groups[0]?.messages).toHaveLength(1);
+    expect(groups[1]?.messages).toHaveLength(2);
+  });
+
+  it("does not surface invalid question tool failures as question summaries", () => {
+    const groups = groupMessages(
+      [
+        {
+          id: "ai-1",
+          type: "ai",
+          content: "",
+          tool_calls: [
+            {
+              id: "question_invalid",
+              name: "question",
+              args: {
+                request_id: "question_invalid",
+                questions: [
+                  {
+                    question: "你想要哪种交付物？",
+                    options: [{ label: "报告" }, { label: "其他" }],
+                  },
+                ],
+              },
+            },
+          ],
+        },
+        {
+          id: "tool-1",
+          type: "tool",
+          name: "question",
+          tool_call_id: "question_invalid",
+          content:
+            'Error: Do not use catch-all options such as "Other"; the UI already provides typed custom input.',
+        },
+      ] as never,
+      (group) => group,
+    );
+
+    expect(groups.map((group) => group.type)).toEqual([
+      "assistant:processing",
+    ]);
+    expect(groups[0]?.messages).toHaveLength(2);
   });
 });

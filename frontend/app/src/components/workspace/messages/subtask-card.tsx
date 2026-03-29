@@ -14,6 +14,7 @@ import {
   ChainOfThoughtStep,
 } from "@/components/ai-elements/chain-of-thought";
 import { Shimmer } from "@/components/ai-elements/shimmer";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ShineBorder } from "@/components/ui/shine-border";
 import { useI18n } from "@/core/i18n/hooks";
@@ -59,6 +60,13 @@ export function SubtaskCard({
       ...liveTask,
     }),
     [fallbackTask, liveTask, t.subtasks.in_progress, taskId],
+  );
+  const subagentTypeLabel = useMemo(
+    () =>
+      typeof task.subagent_type === "string"
+        ? task.subagent_type.replaceAll("-", " ")
+        : "",
+    [task.subagent_type],
   );
   const statusMeta = useMemo(() => {
     if (task.status === "completed") {
@@ -115,19 +123,29 @@ export function SubtaskCard({
             onClick={() => setCollapsed(!collapsed)}
           >
             <div className="flex w-full min-w-0 items-start justify-between gap-2">
-              <ChainOfThoughtStep
-                className="min-w-0 flex-1 font-normal"
-                label={
-                  task.status === "in_progress" ? (
-                    <Shimmer duration={3} spread={3}>
-                      {task.description}
-                    </Shimmer>
-                  ) : (
-                    task.description
-                  )
-                }
-                icon={<ClipboardListIcon />}
-              ></ChainOfThoughtStep>
+              <div className="min-w-0 flex-1">
+                <ChainOfThoughtStep
+                  className="min-w-0 font-normal"
+                  label={
+                    task.status === "in_progress" ? (
+                      <Shimmer duration={3} spread={3}>
+                        {task.description}
+                      </Shimmer>
+                    ) : (
+                      task.description
+                    )
+                  }
+                  icon={<ClipboardListIcon />}
+                ></ChainOfThoughtStep>
+                {subagentTypeLabel && (
+                  <Badge
+                    className="ml-7 mt-1 max-w-fit text-[10px] uppercase tracking-wide"
+                    variant="secondary"
+                  >
+                    {subagentTypeLabel}
+                  </Badge>
+                )}
+              </div>
               <div className="flex items-center gap-1">
                 {collapsed && (
                   <div

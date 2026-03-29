@@ -107,7 +107,7 @@ def build_runtime_command_prompt(runtime_context: object, state: object | None =
                     "- This turn is an explicit user confirmation to persist or publish authored content.",
                     "- First priority: if the matching authoring tool is available and prerequisites are satisfied, call it before any other work.",
                     "- Do not continue drafting, refactoring, or filesystem editing before attempting the matching authoring tool.",
-                    "- If the tool fails, explain the blocker briefly and ask only the minimal clarification needed.",
+                    "- If the tool fails, explain the blocker briefly and ask only the minimal follow-up question needed.",
                 ]
             )
         else:

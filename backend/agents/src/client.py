@@ -34,7 +34,6 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from langchain_core.runnables import RunnableConfig
 
 from src.agents.lead_agent.agent import (
-    LEAD_AGENT_INTERRUPT_ON,
     LeadAgentRuntimeContext,
     _build_openagents_middlewares,
     _runtime_skills_path,
@@ -42,7 +41,7 @@ from src.agents.lead_agent.agent import (
 )
 from src.agents.lead_agent.prompt import apply_prompt_template
 from src.agents.lead_agent.subagents import load_subagent_specs
-from src.config.agents_config import load_agent_config
+from src.config.agents_config import AgentConfig, load_agent_config
 from src.config.app_config import get_app_config, reload_app_config
 from src.config.builtin_agents import LEAD_AGENT_NAME
 from src.config.extensions_config import ExtensionsConfig, SkillStateConfig, get_extensions_config, reload_extensions_config
@@ -160,7 +159,10 @@ class OpenAgentsClient:
     def _atomic_write_json(path: Path, data: dict) -> None:
         """Write JSON to *path* atomically (temp file + replace)."""
         fd = tempfile.NamedTemporaryFile(
-            mode="w", dir=path.parent, suffix=".tmp", delete=False,
+            mode="w",
+            dir=path.parent,
+            suffix=".tmp",
+            delete=False,
         )
         try:
             json.dump(data, fd, indent=2)
@@ -236,13 +238,15 @@ class OpenAgentsClient:
         try:
             lead_agent_config = load_agent_config(LEAD_AGENT_NAME, status="dev")
         except FileNotFoundError:
-            lead_agent_config = None
+            lead_agent_config = AgentConfig(name=LEAD_AGENT_NAME, status="dev")
 
-        subagents = (
+        loaded_subagents = (
             load_subagent_specs(
                 tools,
-                agent_name=LEAD_AGENT_NAME,
+                agent_config=lead_agent_config,
                 agent_status="dev",
+                model_name=effective_model_name,
+                model_supports_vision=model_config.supports_vision,
             )
             if subagent_enabled
             else None
@@ -263,11 +267,12 @@ class OpenAgentsClient:
                 memory_config=lead_agent_config.memory if lead_agent_config is not None else None,
             ),
             middleware=_build_openagents_middlewares(model_config),
-            subagents=subagents,
+            subagents=loaded_subagents.custom_subagents if loaded_subagents is not None else None,
+            general_purpose_tools=loaded_subagents.general_purpose_tools if loaded_subagents is not None else tools,
+            general_purpose_enabled=loaded_subagents.general_purpose_enabled if loaded_subagents is not None else False,
             skills=[_runtime_skills_path(LEAD_AGENT_NAME, "dev")],
             backend=backend,
             context_schema=LeadAgentRuntimeContext,
-            interrupt_on=LEAD_AGENT_INTERRUPT_ON,
             checkpointer=self._checkpointer,
             name=LEAD_AGENT_NAME,
         )
@@ -422,10 +427,7 @@ class OpenAgentsClient:
                                 "type": "ai",
                                 "content": "",
                                 "id": msg_id,
-                                "tool_calls": [
-                                    {"name": tc["name"], "args": tc["args"], "id": tc.get("id")}
-                                    for tc in msg.tool_calls
-                                ],
+                                "tool_calls": [{"name": tc["name"], "args": tc["args"], "id": tc.get("id")} for tc in msg.tool_calls],
                             },
                         )
 
@@ -600,10 +602,7 @@ class OpenAgentsClient:
         """
         config_path = ExtensionsConfig.resolve_config_path()
         if config_path is None:
-            raise FileNotFoundError(
-                "Cannot locate extensions_config.json. "
-                "Set OPENAGENTS_EXTENSIONS_CONFIG_PATH or ensure it exists in the project root."
-            )
+            raise FileNotFoundError("Cannot locate extensions_config.json. Set OPENAGENTS_EXTENSIONS_CONFIG_PATH or ensure it exists in the project root.")
 
         current_config = get_extensions_config()
 
@@ -667,10 +666,7 @@ class OpenAgentsClient:
 
         config_path = ExtensionsConfig.resolve_config_path()
         if config_path is None:
-            raise FileNotFoundError(
-                "Cannot locate extensions_config.json. "
-                "Set OPENAGENTS_EXTENSIONS_CONFIG_PATH or ensure it exists in the project root."
-            )
+            raise FileNotFoundError("Cannot locate extensions_config.json. Set OPENAGENTS_EXTENSIONS_CONFIG_PATH or ensure it exists in the project root.")
 
         extensions_config = get_extensions_config()
         extensions_config.skills[name] = SkillStateConfig(enabled=enabled)
@@ -852,7 +848,6 @@ class OpenAgentsClient:
         uploaded_files: list[dict] = []
 
         for src_path in resolved_files:
-
             dest = uploads_dir / src_path.name
             shutil.copy2(src_path, dest)
 
@@ -869,6 +864,7 @@ class OpenAgentsClient:
                     try:
                         asyncio.get_running_loop()
                         import concurrent.futures
+
                         with concurrent.futures.ThreadPoolExecutor() as pool:
                             md_path = pool.submit(lambda: asyncio.run(convert_file_to_markdown(dest))).result()
                     except RuntimeError:
@@ -988,7 +984,7 @@ class OpenAgentsClient:
         if not clean_path.startswith(virtual_prefix):
             raise ValueError(f"Path must start with /{virtual_prefix}")
 
-        relative = clean_path[len(virtual_prefix):].lstrip("/")
+        relative = clean_path[len(virtual_prefix) :].lstrip("/")
         base_dir = get_paths().sandbox_user_data_dir(thread_id)
         actual = (base_dir / relative).resolve()
 

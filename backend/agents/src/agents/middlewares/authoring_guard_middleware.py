@@ -64,7 +64,7 @@ _CREATE_AGENT_GUARD_ERROR = (
     "Do not invent alternate paths such as `/mnt/user-data/agentz`, and do not read or write "
     "host/package paths like `/agents`, `/app`, raw `/mnt`, `.openagents`, or `~/.agents` with filesystem tools."
 )
-_DIRECT_AUTHORING_HELPER_TOOLS = frozenset({"ask_clarification", "present_files", "view_image"})
+_DIRECT_AUTHORING_HELPER_TOOLS = frozenset({"question", "present_files", "view_image"})
 
 
 def _runtime_authoring_actions(runtime_context: object) -> tuple[str, ...]:

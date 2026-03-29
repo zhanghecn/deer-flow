@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildTaskStatusUpdate,
   getSubtaskAggregateLabel,
   getSubtaskAggregateStatus,
 } from "./message-list";
@@ -14,6 +15,14 @@ const t = {
 } as never;
 
 describe("subtask aggregate state", () => {
+  it("treats non-prefixed task tool output as a completed subtask result", () => {
+    expect(buildTaskStatusUpdate("task-1", "Reviewed the source material.")).toEqual({
+      id: "task-1",
+      status: "completed",
+      result: "Reviewed the source material.",
+    });
+  });
+
   it("shows completed label once all tasks finish", () => {
     const tasks = [
       { id: "task-1", status: "completed" as const },

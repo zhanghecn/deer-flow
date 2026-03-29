@@ -8,8 +8,10 @@ import { AgentSwitcherDialog } from "@/components/workspace/agent-switcher-dialo
 import { ArtifactTrigger } from "@/components/workspace/artifacts/artifact-trigger";
 import { shouldShowCenteredComposer } from "@/components/workspace/chats/layout-state";
 import { useSpecificChatMode } from "@/components/workspace/chats/use-chat-mode";
+import { useDockPadding } from "@/components/workspace/chats/use-dock-padding";
 import { useThreadChat } from "@/components/workspace/chats/use-thread-chat";
 import { InputBox } from "@/components/workspace/input-box";
+import { QuestionDock } from "@/components/workspace/messages/question-dock";
 import { ThreadContext } from "@/components/workspace/messages/context";
 import { ThreadTitle } from "@/components/workspace/thread-title";
 import { TodoList } from "@/components/workspace/todo-list";
@@ -97,6 +99,7 @@ export default function ChatPage() {
   );
   const [runtimeContext, setRuntimeContext] =
     useState<typeof settings.context>(runtimeContextSeed);
+  const { dockRef, paddingBottom } = useDockPadding();
   const autoSubmitHandledRef = useRef(false);
   const inputInitialValue = useMemo(() => {
     const prefill = searchParams.get("prefill")?.trim();
@@ -317,6 +320,9 @@ export default function ChatPage() {
                 className={cn("size-full", !showCenteredComposer && "pt-10")}
                 threadId={threadId}
                 thread={thread}
+                paddingBottom={
+                  showCenteredComposer ? undefined : paddingBottom
+                }
               />
             </div>
             <div className="pointer-events-none absolute right-0 bottom-0 left-0 z-30 flex justify-center px-4">
@@ -340,32 +346,35 @@ export default function ChatPage() {
                     />
                   </div>
                 </div>
-                <InputBox
-                  className={cn("bg-background/5 w-full -translate-y-4")}
-                  threadId={threadId}
-                  isNewThread={showCenteredComposer}
-                  autoFocus={showCenteredComposer}
-                  status={thread.isLoading ? "streaming" : "ready"}
-                  context={runtimeContext}
-                  retryStatus={retryStatus}
-                  initialValue={inputInitialValue}
-                  contextWindow={
-                    showCenteredComposer
-                      ? undefined
-                      : thread.values.context_window
-                  }
-                  extraHeader={
-                    showCenteredComposer && (
-                      <div className="mx-auto w-full max-w-(--container-width-md) px-2">
-                        <Welcome mode={runtimeContext.mode} />
-                      </div>
-                    )
-                  }
-                  disabled={env.VITE_STATIC_WEBSITE_ONLY === "true"}
-                  onContextChange={(context) => setRuntimeContext(context)}
-                  onSubmit={handleSubmit}
-                  onStop={handleStop}
-                />
+                <div className="space-y-3" ref={dockRef}>
+                  <QuestionDock />
+                  <InputBox
+                    className={cn("bg-background/5 w-full -translate-y-4")}
+                    threadId={threadId}
+                    isNewThread={showCenteredComposer}
+                    autoFocus={showCenteredComposer}
+                    status={thread.isLoading ? "streaming" : "ready"}
+                    context={runtimeContext}
+                    retryStatus={retryStatus}
+                    initialValue={inputInitialValue}
+                    contextWindow={
+                      showCenteredComposer
+                        ? undefined
+                        : thread.values.context_window
+                    }
+                    extraHeader={
+                      showCenteredComposer && (
+                        <div className="mx-auto w-full max-w-(--container-width-md) px-2">
+                          <Welcome mode={runtimeContext.mode} />
+                        </div>
+                      )
+                    }
+                    disabled={env.VITE_STATIC_WEBSITE_ONLY === "true"}
+                    onContextChange={(context) => setRuntimeContext(context)}
+                    onSubmit={handleSubmit}
+                    onStop={handleStop}
+                  />
+                </div>
                 {env.VITE_STATIC_WEBSITE_ONLY === "true" && (
                   <div className="text-muted-foreground/67 w-full translate-y-12 text-center text-xs">
                     {t.common.notAvailableInDemoMode}

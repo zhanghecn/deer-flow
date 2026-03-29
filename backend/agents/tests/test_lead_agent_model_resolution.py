@@ -350,7 +350,7 @@ def test_make_lead_agent_reads_runtime_context_and_persists_thread_runtime(monke
     assert result["model"] is not None
     assert "memory" not in result
     assert result["context_schema"] is lead_agent_module.LeadAgentRuntimeContext
-    assert result["interrupt_on"] == lead_agent_module.LEAD_AGENT_INTERRUPT_ON
+    assert "interrupt_on" not in result
     assert store.saved == [("thread-1", "user-1", "safe-model", LEAD_AGENT_NAME)]
     assert runtime.execution_runtime.context["thread_id"] == "thread-1"
     assert runtime.execution_runtime.context["x-thread-id"] == "thread-1"
@@ -432,16 +432,16 @@ def test_build_openagents_middlewares_includes_vision_middleware_for_vision_mode
 
     from langchain.agents.middleware import ModelRetryMiddleware, ToolRetryMiddleware
 
-    from src.agents.middlewares.clarification_tool_formatting_middleware import ClarificationToolFormattingMiddleware
     from src.agents.middlewares.max_tokens_recovery_middleware import MaxTokensRecoveryMiddleware
+    from src.agents.middlewares.question_discipline_middleware import QuestionDisciplineMiddleware
     from src.agents.middlewares.view_image_middleware import ViewImageMiddleware
     from src.agents.middlewares.visible_response_recovery_middleware import VisibleResponseRecoveryMiddleware
 
     assert any(isinstance(m, ModelRetryMiddleware) for m in middlewares)
     assert any(isinstance(m, ToolRetryMiddleware) for m in middlewares)
     assert any(isinstance(m, MaxTokensRecoveryMiddleware) for m in middlewares)
+    assert any(isinstance(m, QuestionDisciplineMiddleware) for m in middlewares)
     assert any(isinstance(m, VisibleResponseRecoveryMiddleware) for m in middlewares)
-    assert any(isinstance(m, ClarificationToolFormattingMiddleware) for m in middlewares)
     assert any(isinstance(m, ViewImageMiddleware) for m in middlewares)
 
 
@@ -450,16 +450,16 @@ def test_build_openagents_middlewares_excludes_vision_middleware_for_non_vision_
 
     from langchain.agents.middleware import ModelRetryMiddleware, ToolRetryMiddleware
 
-    from src.agents.middlewares.clarification_tool_formatting_middleware import ClarificationToolFormattingMiddleware
     from src.agents.middlewares.max_tokens_recovery_middleware import MaxTokensRecoveryMiddleware
+    from src.agents.middlewares.question_discipline_middleware import QuestionDisciplineMiddleware
     from src.agents.middlewares.view_image_middleware import ViewImageMiddleware
     from src.agents.middlewares.visible_response_recovery_middleware import VisibleResponseRecoveryMiddleware
 
     assert any(isinstance(m, ModelRetryMiddleware) for m in middlewares)
     assert any(isinstance(m, ToolRetryMiddleware) for m in middlewares)
     assert any(isinstance(m, MaxTokensRecoveryMiddleware) for m in middlewares)
+    assert any(isinstance(m, QuestionDisciplineMiddleware) for m in middlewares)
     assert any(isinstance(m, VisibleResponseRecoveryMiddleware) for m in middlewares)
-    assert any(isinstance(m, ClarificationToolFormattingMiddleware) for m in middlewares)
     assert not any(isinstance(m, ViewImageMiddleware) for m in middlewares)
 
 
@@ -909,7 +909,7 @@ authoring_actions:
     assert result["skills"] == []
     assert result["subagents"] is None
     assert result["context_schema"] is lead_agent_module.LeadAgentRuntimeContext
-    assert result["interrupt_on"] == lead_agent_module.LEAD_AGENT_INTERRUPT_ON
+    assert "interrupt_on" not in result
     assert captured_prompt_kwargs["command_name"] == "save-skill-to-store"
     assert captured_prompt_kwargs["command_kind"] == "hard"
     assert captured_prompt_kwargs["command_args"] == "nda-clause-checker"

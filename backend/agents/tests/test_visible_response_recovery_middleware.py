@@ -46,11 +46,20 @@ def test_wrap_model_call_retries_when_model_returns_reasoning_only_without_visib
                     content="",
                     tool_calls=[
                         {
-                            "name": "ask_clarification",
+                            "name": "question",
                             "args": {
-                                "question": "你想让我做哪种类型的 AI 内容？",
-                                "clarification_type": "ambiguous_requirement",
-                                "options": ["报告", "PPT", "视频脚本", "代码项目"],
+                                "questions": [
+                                    {
+                                        "header": "交付物",
+                                        "question": "你想让我做哪种类型的 AI 内容？",
+                                        "options": [
+                                            {"label": "报告"},
+                                            {"label": "PPT"},
+                                            {"label": "视频脚本"},
+                                            {"label": "代码项目"},
+                                        ],
+                                    }
+                                ],
                             },
                             "id": "tc-1",
                         }
@@ -65,7 +74,7 @@ def test_wrap_model_call_retries_when_model_returns_reasoning_only_without_visib
     assert len(calls) == 2
     assert calls[1].model_settings["thinking"] == {"type": "disabled"}
     assert "visible_response_recovery" in calls[1].system_message.text
-    assert response.result[0].tool_calls[0]["name"] == "ask_clarification"
+    assert response.result[0].tool_calls[0]["name"] == "question"
 
 
 def test_wrap_model_call_skips_retry_when_visible_text_exists():

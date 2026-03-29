@@ -38,11 +38,17 @@
         "id": "lc_run--019bf2c5-ba1e-7152-b702-a81b6970d411",
         "tool_calls": [
           {
-            "name": "ask_clarification",
+            "name": "question",
             "args": {
-              "question": "What timeframe do you consider \"recent\" for Dr. Fei-Fei Li's podcast appearances? (e.g., last 6 months, last year, last 2 years) Also, how many podcast episodes would you like me to include? Should I aim for a comprehensive list or focus on the most notable ones?",
-              "clarification_type": "missing_info",
-              "context": "To ensure I search for the right timeframe and scope for the timeline compilation."
+              "questions": [
+                {
+                  "header": "Scope",
+                  "question": "What timeframe do you consider \"recent\" for Dr. Fei-Fei Li's podcast appearances? Also, how many podcast episodes should I include?",
+                  "options": [],
+                  "multiple": false,
+                  "custom": true
+                }
+              ]
             },
             "id": "call_vg21nzrh1bczcdsvulve0ycy",
             "type": "tool_call"
@@ -52,18 +58,18 @@
         "usage_metadata": null
       },
       {
-        "content": "❓ To ensure I search for the right timeframe and scope for the timeline compilation.\n\nWhat timeframe do you consider \"recent\" for Dr. Fei-Fei Li's podcast appearances? (e.g., last 6 months, last year, last 2 years) Also, how many podcast episodes would you like me to include? Should I aim for a comprehensive list or focus on the most notable ones?",
+        "content": "{\"kind\":\"question_result\",\"request_id\":\"call_vg21nzrh1bczcdsvulve0ycy\",\"status\":\"answered\",\"answers\":[[\"last 6 months\"]],\"message\":\"User answered.\"}",
         "additional_kwargs": {},
         "response_metadata": {},
         "type": "tool",
-        "name": "ask_clarification",
+        "name": "question",
         "id": "95608c00-a2d9-4eef-9918-afba3e92c12b",
         "tool_call_id": "call_vg21nzrh1bczcdsvulve0ycy",
         "artifact": null,
         "status": "success"
       },
       {
-        "content": "❓ To ensure I search for the right timeframe and scope for the timeline compilation.\n\nWhat timeframe do you consider \"recent\" for Dr. Fei-Fei Li's podcast appearances? (e.g., last 6 months, last year, last 2 years) Also, how many podcast episodes would you like me to include? Should I aim for a comprehensive list or focus on the most notable ones?",
+        "content": "",
         "additional_kwargs": {},
         "response_metadata": {},
         "type": "ai",

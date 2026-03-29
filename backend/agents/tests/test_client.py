@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage  # noqa: F401
 
-from src.agents.lead_agent.agent import LEAD_AGENT_INTERRUPT_ON, LeadAgentRuntimeContext
+from src.agents.lead_agent.agent import LeadAgentRuntimeContext
 from src.client import OpenAgentsClient
 from src.gateway.routers.mcp import McpConfigResponse
 from src.gateway.routers.memory import MemoryConfigResponse, MemoryStatusResponse
@@ -378,7 +378,7 @@ class TestEnsureAgent:
 
         assert client._agent is mock_agent
         assert captured_kwargs["context_schema"] is LeadAgentRuntimeContext
-        assert captured_kwargs["interrupt_on"] == LEAD_AGENT_INTERRUPT_ON
+        assert "interrupt_on" not in captured_kwargs
         assert captured_kwargs["checkpointer"] is checkpointer
 
     def test_reuses_agent_same_config(self, client):

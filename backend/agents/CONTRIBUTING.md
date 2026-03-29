@@ -77,7 +77,7 @@ backend/agents/src/
 │   │   ├── title_middleware.py
 │   │   ├── uploads_middleware.py
 │   │   ├── view_image_middleware.py
-│   │   └── clarification_middleware.py
+│   │   └── visible_response_recovery_middleware.py
 │   └── thread_state.py     # Thread state definition
 │
 ├── sandbox/                 # Sandbox execution
@@ -88,7 +88,7 @@ backend/agents/src/
 ├── tools/                   # Agent tools
 │   └── builtins/           # Built-in tools
 │       ├── present_file_tool.py
-│       ├── ask_clarification_tool.py
+│       ├── question_tool.py
 │       └── view_image_tool.py
 │
 ├── mcp/                     # MCP integration

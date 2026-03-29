@@ -164,40 +164,50 @@ function firstAssistantReply(messages = []) {
     }
     const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
     const text = normalizeText(extractTextParts(message.content).join("\n"));
-    const clarificationCalls = toolCalls.filter(
-      (call) => call?.name === "ask_clarification",
-    );
-    const clarificationQuestion = normalizeText(
-      clarificationCalls
-        .map((call) => call?.args?.question)
+    const questionCalls = toolCalls.filter((call) => call?.name === "question");
+    const questionPrompt = normalizeText(
+      questionCalls
+        .flatMap((call) => (Array.isArray(call?.args?.questions) ? call.args.questions : []))
+        .map((question) => question?.question)
         .filter((question) => typeof question === "string" && question.trim().length > 0)
         .join("\n\n"),
     );
-    const clarificationOptions = clarificationCalls.flatMap((call) =>
-      Array.isArray(call?.args?.options)
-        ? call.args.options.filter((option) => typeof option === "string" && option.trim().length > 0)
+    const questionOptions = questionCalls.flatMap((call) =>
+      Array.isArray(call?.args?.questions)
+        ? call.args.questions.flatMap((question) =>
+            Array.isArray(question?.options)
+              ? question.options
+                  .map((option) =>
+                    typeof option === "string" ? option : option?.label,
+                  )
+                  .filter(
+                    (option) =>
+                      typeof option === "string" && option.trim().length > 0,
+                  )
+              : [],
+          )
         : [],
     );
     const onlyReadsUploadedFiles =
       toolCalls.length > 0 &&
       toolCalls.every((call) => call?.name === "read_file");
 
-    if (onlyReadsUploadedFiles && !clarificationQuestion && clarificationOptions.length === 0) {
+    if (onlyReadsUploadedFiles && !questionPrompt && questionOptions.length === 0) {
       continue;
     }
 
-    if (text || clarificationQuestion || clarificationOptions.length > 0) {
+    if (text || questionPrompt || questionOptions.length > 0) {
       return {
         text,
-        clarificationQuestion,
-        clarificationOptions,
+        questionPrompt,
+        questionOptions,
       };
     }
   }
   return {
     text: "",
-    clarificationQuestion: "",
-    clarificationOptions: [],
+    questionPrompt: "",
+    questionOptions: [],
   };
 }
 
@@ -532,14 +542,14 @@ async function persistOutputFiles(auth, threadId, caseId, expectedFiles, target)
 function evaluateTCA(result) {
   const text = [
     result.firstAssistantText,
-    result.firstClarificationQuestion,
-    ...(result.firstClarificationOptions ?? []),
+    result.firstQuestionPrompt,
+    ...(result.firstQuestionOptions ?? []),
   ]
     .filter(Boolean)
     .join("\n\n");
   const asksClarification = containsClarification(text);
   const hasOptions =
-    containsOptionList(text) || (result.firstClarificationOptions?.length ?? 0) >= 3;
+    containsOptionList(text) || (result.firstQuestionOptions?.length ?? 0) >= 3;
   const questionCount = countQuestionMarks(text);
   result.notes = [
     `首轮回复长度: ${text.length}`,
@@ -563,8 +573,8 @@ function evaluateTCA(result) {
 function evaluateTCB(result) {
   const text = [
     result.firstAssistantText,
-    result.firstClarificationQuestion,
-    ...(result.firstClarificationOptions ?? []),
+    result.firstQuestionPrompt,
+    ...(result.firstQuestionOptions ?? []),
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -572,7 +582,7 @@ function evaluateTCB(result) {
   const mentionsReasons = /100\s*字|80\s*字|320|四个章节|四章节/.test(text);
   const asksPriority = containsPriorityQuestion(text);
   const hasOptions =
-    containsOptionList(text) || (result.firstClarificationOptions?.length ?? 0) >= 2;
+    containsOptionList(text) || (result.firstQuestionOptions?.length ?? 0) >= 2;
   result.notes = [`首轮回复长度: ${text.length}`];
 
   if (identifiesConflict && mentionsReasons && asksPriority && hasOptions) {
@@ -967,8 +977,8 @@ async function main() {
         {
           const firstReply = firstAssistantReply(caseResult.messages);
           caseResult.firstAssistantText = firstReply.text;
-          caseResult.firstClarificationQuestion = firstReply.clarificationQuestion;
-          caseResult.firstClarificationOptions = firstReply.clarificationOptions;
+          caseResult.firstQuestionPrompt = firstReply.questionPrompt;
+          caseResult.firstQuestionOptions = firstReply.questionOptions;
         }
         caseResult.artifacts = state?.values?.artifacts ?? [];
 

@@ -227,7 +227,7 @@ def test_filter_direct_authoring_model_tools_keeps_only_authoring_and_helper_too
             _tool("push_skill_prod"),
             _tool("execute"),
             _tool("read_file"),
-            _tool("ask_clarification"),
+            _tool("question"),
             _tool("present_files"),
         ],
         runtime_context={"command_kind": "hard", "authoring_actions": ["push_skill_prod"]},
@@ -235,7 +235,7 @@ def test_filter_direct_authoring_model_tools_keeps_only_authoring_and_helper_too
 
     assert [tool.name for tool in filtered] == [
         "push_skill_prod",
-        "ask_clarification",
+        "question",
         "present_files",
     ]
 

@@ -30,11 +30,17 @@
         "id": "lc_run--019bd121-59e4-7470-bd61-24af8875929d",
         "tool_calls": [
           {
-            "name": "ask_clarification",
+            "name": "question",
             "args": {
-              "question": "您能详细说明一下“苏超联赛第一季”具体指什么吗？是指苏格兰足球超级联赛的新赛季，还是某个特定的锦标赛或活动？另外，您希望这个网站包含哪些具体功能？比如：赛程表、积分榜、球队信息、球员数据、新闻动态、实时比分等。还有，您偏好哪种设计风格（现代、简约、炫酷动画等）？",
-              "clarification_type": "missing_info",
-              "context": "为了创建一个符合您期望的足球网站，我需要明确联赛的具体含义、网站的功能需求以及设计风格偏好。"
+              "questions": [
+                {
+                  "header": "League",
+                  "question": "请说明“苏超联赛第一季”具体指什么，以及网站希望包含哪些核心功能和设计风格。",
+                  "options": [],
+                  "multiple": false,
+                  "custom": true
+                }
+              ]
             },
             "id": "call_pfqwz96vtgfhmdcuklsft7e9",
             "type": "tool_call"
@@ -44,18 +50,18 @@
         "usage_metadata": null
       },
       {
-        "content": "❓ 为了创建一个符合您期望的足球网站，我需要明确联赛的具体含义、网站的功能需求以及设计风格偏好。\n\n您能详细说明一下“苏超联赛第一季”具体指什么吗？是指苏格兰足球超级联赛的新赛季，还是某个特定的锦标赛或活动？另外，您希望这个网站包含哪些具体功能？比如：赛程表、积分榜、球队信息、球员数据、新闻动态、实时比分等。还有，您偏好哪种设计风格（现代、简约、炫酷动画等）？",
+        "content": "{\"kind\":\"question_result\",\"request_id\":\"call_pfqwz96vtgfhmdcuklsft7e9\",\"status\":\"answered\",\"answers\":[[\"好像叫江苏城市足球联赛2025赛季，其他你决定\"]],\"message\":\"User answered.\"}",
         "additional_kwargs": {},
         "response_metadata": {},
         "type": "tool",
-        "name": "ask_clarification",
+        "name": "question",
         "id": "f3bc3d66-b12f-4fa5-b3f1-63e8440de101",
         "tool_call_id": "call_pfqwz96vtgfhmdcuklsft7e9",
         "artifact": null,
         "status": "success"
       },
       {
-        "content": "❓ 为了创建一个符合您期望的足球网站，我需要明确联赛的具体含义、网站的功能需求以及设计风格偏好。\n\n您能详细说明一下“苏超联赛第一季”具体指什么吗？是指苏格兰足球超级联赛的新赛季，还是某个特定的锦标赛或活动？另外，您希望这个网站包含哪些具体功能？比如：赛程表、积分榜、球队信息、球员数据、新闻动态、实时比分等。还有，您偏好哪种设计风格（现代、简约、炫酷动画等）？",
+        "content": "",
         "additional_kwargs": {},
         "response_metadata": {},
         "type": "ai",

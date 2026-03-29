@@ -35,6 +35,7 @@ import {
 } from "./search";
 import type {
   AgentInterruptValue,
+  AgentInterrupt,
   AgentThread,
   AgentThreadState,
   RetryStatus,
@@ -77,6 +78,7 @@ type ThreadOverride = {
   values: AgentThreadState;
   messages: Message[];
   history: ThreadState<AgentThreadState>[];
+  interrupt: AgentInterrupt | undefined;
   experimental_branchTree?: unknown;
 };
 
@@ -584,6 +586,7 @@ function buildThreadOverride(
   values: AgentThreadState,
   messages: Message[],
   history: ThreadState<AgentThreadState>[],
+  interrupt: AgentInterrupt | undefined,
   experimental_branchTree?: unknown,
 ): ThreadOverride {
   return {
@@ -591,6 +594,7 @@ function buildThreadOverride(
     values,
     messages,
     history,
+    interrupt,
     experimental_branchTree,
   };
 }
@@ -603,6 +607,7 @@ function buildThreadOverrideFromState(
   source: ThreadOverride["source"],
   values: AgentThreadState,
   history: ThreadState<AgentThreadState>[],
+  interrupt: AgentInterrupt | undefined,
   experimentalBranchTree?: unknown,
 ): ThreadOverride | null {
   const messages = extractThreadMessages(values);
@@ -615,6 +620,7 @@ function buildThreadOverrideFromState(
     values,
     messages,
     history,
+    interrupt,
     experimentalBranchTree,
   );
 }
@@ -630,6 +636,17 @@ function getExperimentalBranchTree(source: object) {
 
   return (source as { experimental_branchTree?: unknown })
     .experimental_branchTree;
+}
+
+function extractPrimaryInterrupt(
+  state: { interrupts?: unknown } | null | undefined,
+): AgentInterrupt | undefined {
+  if (!state || !Array.isArray(state.interrupts) || state.interrupts.length === 0) {
+    return undefined;
+  }
+
+  const [interrupt] = state.interrupts;
+  return interrupt as AgentInterrupt | undefined;
 }
 
 function mergeOptimisticMessages<T extends { messages: Message[] }>(
@@ -1081,6 +1098,7 @@ export function useThreadStream({
             "hydration",
             state.values,
             [],
+            extractPrimaryInterrupt(state),
           );
           if (!nextThreadOverride) {
             return;
@@ -1182,6 +1200,7 @@ export function useThreadStream({
             "hydration",
             state.values,
             [],
+            extractPrimaryInterrupt(state),
             getExperimentalBranchTree(thread),
           );
           if (nextThreadOverride) {
@@ -1458,6 +1477,7 @@ export function useThreadStream({
       mergedThreadValues,
       mergedThread.messages,
       liveHistory,
+      mergedThread.interrupt as AgentInterrupt | undefined,
       getExperimentalBranchTree(thread),
     );
     setThreadOverride(snapshot);
@@ -1502,6 +1522,7 @@ export function useThreadStream({
           "snapshot",
           state.values,
           history,
+          extractPrimaryInterrupt(state),
           getExperimentalBranchTree(thread),
         );
         if (nextThreadOverride) {
@@ -1535,11 +1556,14 @@ export function useThreadStream({
   const effectiveMessages = threadOverride?.messages ?? mergedThread.messages;
   const effectiveValues = threadOverride?.values ?? mergedThreadValues;
   const effectiveHistory = threadOverride?.history ?? liveHistory;
+  const effectiveInterrupt =
+    threadOverride !== null ? threadOverride.interrupt : mergedThread.interrupt;
   const enrichedThread = useMemo(
     () =>
       cloneThreadStream(mergedThread, {
         values: effectiveValues,
         messages: effectiveMessages,
+        interrupt: effectiveInterrupt,
         history: historyEnabled
           ? effectiveHistory
           : (threadOverride?.history ?? []),
@@ -1551,6 +1575,7 @@ export function useThreadStream({
       }),
     [
       effectiveHistory,
+      effectiveInterrupt,
       effectiveMessages,
       effectiveValues,
       historyEnabled,

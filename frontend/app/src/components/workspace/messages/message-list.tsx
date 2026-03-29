@@ -1,5 +1,5 @@
 import type { BaseStream } from "@langchain/langgraph-sdk/react";
-import { memo, useEffect, useMemo, useState } from "react";
+import { Fragment, memo, useEffect, useMemo, useState } from "react";
 
 import {
   Conversation,
@@ -19,25 +19,33 @@ import {
 } from "@/core/messages/utils";
 import { workspaceMessageRehypePlugins } from "@/core/streamdown";
 import type { Subtask } from "@/core/tasks";
-import { useUpdateSubtask } from "@/core/tasks/context";
+import { useSubtaskContext, useUpdateSubtask } from "@/core/tasks/context";
 import type { AgentThreadState } from "@/core/threads";
-import type { AgentInterrupt } from "@/core/threads/types";
+import {
+  extractQuestionReplyFromMessages,
+  extractQuestionRequestFromMessages,
+} from "@/core/threads/interrupts";
 import { cn } from "@/lib/utils";
 
 import { ArtifactFileList } from "../artifacts/artifact-file-list";
 import { StreamingIndicator } from "../streaming-indicator";
 
-import { ClarificationInterrupt } from "./clarification-interrupt";
 import { MarkdownContent } from "./markdown-content";
 import { MessageGroup, shouldShowTrailingReasoning } from "./message-group";
 import { MessageListItem } from "./message-list-item";
+import { QuestionSummary } from "./question-dock";
 import { MessageListSkeleton } from "./skeleton";
 import { SubtaskCard } from "./subtask-card";
 
 type TaskUpdate = Partial<Subtask> & { id: string };
+type PersistedSubtaskTurn = {
+  anchorMessageId: string;
+  taskIds: string[];
+};
 type MessageRendererContext = {
   isLoading: boolean;
   rehypePlugins: typeof workspaceMessageRehypePlugins;
+  tasks: Record<string, Subtask>;
   threadId: string;
   t: ReturnType<typeof useI18n>["t"];
 };
@@ -72,38 +80,51 @@ function mergeTaskUpdate(
   });
 }
 
-function buildTaskStatusUpdate(taskId: string, result: string): TaskUpdate {
-  if (result.startsWith(TASK_SUCCEEDED_PREFIX)) {
+export function buildTaskStatusUpdate(
+  taskId: string,
+  result: string,
+): TaskUpdate {
+  const trimmedResult = result.trim();
+
+  if (!trimmedResult) {
+    return {
+      id: taskId,
+      status: "in_progress",
+    };
+  }
+
+  if (trimmedResult.startsWith(TASK_SUCCEEDED_PREFIX)) {
     return {
       id: taskId,
       status: "completed",
-      result: result.split(TASK_SUCCEEDED_PREFIX)[1]?.trim(),
+      result: trimmedResult.split(TASK_SUCCEEDED_PREFIX)[1]?.trim(),
     };
   }
 
-  if (result.startsWith(TASK_FAILED_PREFIX)) {
+  if (trimmedResult.startsWith(TASK_FAILED_PREFIX)) {
     return {
       id: taskId,
       status: "failed",
-      error: result.split(TASK_FAILED_PREFIX)[1]?.trim(),
+      error: trimmedResult.split(TASK_FAILED_PREFIX)[1]?.trim(),
     };
   }
 
-  if (result.startsWith(TASK_TIMED_OUT_PREFIX)) {
+  if (trimmedResult.startsWith(TASK_TIMED_OUT_PREFIX)) {
     return {
       id: taskId,
       status: "failed",
-      error: result,
+      error: trimmedResult,
     };
   }
 
   return {
     id: taskId,
-    status: "in_progress",
+    status: "completed",
+    result: trimmedResult,
   };
 }
 
-function collectSubtaskUpdates(messages: AgentThreadState["messages"]) {
+export function collectSubtaskUpdates(messages: AgentThreadState["messages"]) {
   const updates = new Map<string, TaskUpdate>();
 
   for (const message of messages) {
@@ -135,19 +156,26 @@ function collectSubtaskUpdates(messages: AgentThreadState["messages"]) {
   return [...updates.values()];
 }
 
-function collectSubtaskIds(group: GroupedMessage) {
+function collectSubtaskIdsFromMessages(messages: AgentThreadState["messages"]) {
   const ids = new Set<string>();
-  for (const message of group.messages) {
+
+  for (const message of messages) {
     if (message.type !== "ai") {
       continue;
     }
+
     for (const toolCall of message.tool_calls ?? []) {
       if (toolCall.name === "task" && toolCall.id) {
         ids.add(toolCall.id);
       }
     }
   }
+
   return [...ids];
+}
+
+function collectSubtaskIds(group: GroupedMessage) {
+  return collectSubtaskIdsFromMessages(group.messages);
 }
 
 export type SubtaskAggregateStatus = "running" | "completed" | "failed";
@@ -221,17 +249,32 @@ function collectPresentFilePaths(group: GroupedMessage) {
 function renderPrimaryMessage(group: GroupedMessage, isLoading: boolean) {
   return (
     <MessageListItem
-      key={group.id}
+      key={`${group.type}-${group.id ?? "group"}`}
       message={group.messages[0]!}
       isLoading={isLoading}
     />
   );
 }
 
-function renderClarificationMessage(
+function renderQuestionMessage(
   group: GroupedMessage,
   renderer: MessageRendererContext,
 ) {
+  const question = extractQuestionRequestFromMessages(group.messages);
+  if (question) {
+    const reply = extractQuestionReplyFromMessages(
+      group.messages,
+      question.requestId,
+    );
+    return (
+      <div className="w-full" key={`question-${group.id ?? "group"}`}>
+        <div className="border-border/80 bg-background/95 w-full rounded-2xl border p-4 shadow-sm">
+          <QuestionSummary question={question} reply={reply} />
+        </div>
+      </div>
+    );
+  }
+
   const message = group.messages[0];
   if (!message || !hasContent(message)) {
     return null;
@@ -239,7 +282,7 @@ function renderClarificationMessage(
 
   return (
     <MarkdownContent
-      key={group.id}
+      key={`question-${group.id ?? "group"}`}
       content={extractContentFromMessage(message)}
       isLoading={renderer.isLoading}
       rehypePlugins={renderer.rehypePlugins}
@@ -255,7 +298,7 @@ function renderPresentFilesMessage(
   const files = collectPresentFilePaths(group);
 
   return (
-    <div className="w-full" key={group.id}>
+    <div className="w-full" key={`present-files-${group.id ?? "group"}`}>
       {leadMessage && hasContent(leadMessage) && (
         <MarkdownContent
           content={stripNextStepsFromText(
@@ -277,6 +320,15 @@ function renderSubagentMessage(
 ) {
   const taskIds = collectSubtaskIds(group);
   const groupTaskUpdates = collectSubtaskUpdates(group.messages);
+  const resolvedTasks = taskIds.map((taskId) => {
+    const liveTask = renderer.tasks[taskId];
+    if (liveTask) {
+      return liveTask;
+    }
+    return (
+      groupTaskUpdates.find((task) => task.id === taskId) ?? { id: taskId }
+    );
+  });
   const subagentMessages = group.messages.filter(
     (message) => message.type === "ai",
   );
@@ -288,7 +340,7 @@ function renderSubagentMessage(
         key={`subtask-summary-${group.id}`}
         className="text-foreground/80 pt-2 text-sm font-medium"
       >
-        {getSubtaskAggregateLabel(taskIds, groupTaskUpdates, renderer.t)}
+        {getSubtaskAggregateLabel(taskIds, resolvedTasks, renderer.t)}
       </div>,
     );
   }
@@ -329,14 +381,50 @@ function renderSubagentMessage(
   );
 }
 
+function renderPersistedSubtaskGroup(
+  taskIds: string[],
+  renderer: MessageRendererContext,
+  key: string,
+) {
+  if (taskIds.length === 0) {
+    return null;
+  }
+
+  const resolvedTasks = taskIds.map(
+    (taskId) => renderer.tasks[taskId] ?? { id: taskId },
+  );
+
+  return (
+    <div key={key} className="relative z-1 flex flex-col gap-2">
+      <div className="text-foreground/80 pt-2 text-sm font-medium">
+        {getSubtaskAggregateLabel(taskIds, resolvedTasks, renderer.t)}
+      </div>
+      {taskIds.map((taskId) => (
+        <SubtaskCard
+          key={"persisted-task-group-" + taskId}
+          taskId={taskId}
+          isLoading={false}
+        />
+      ))}
+    </div>
+  );
+}
+
 function renderProcessingMessage(
   group: GroupedMessage,
   isLoading: boolean,
   nextGroupType?: GroupedMessage["type"],
 ) {
+  if (
+    nextGroupType === "assistant:question" ||
+    extractQuestionRequestFromMessages(group.messages)
+  ) {
+    return null;
+  }
+
   return (
     <MessageGroup
-      key={"group-" + group.id}
+      key={`processing-${group.id ?? "group"}`}
       messages={group.messages}
       isLoading={isLoading}
       showTrailingReasoning={shouldShowTrailingReasoning(
@@ -356,8 +444,8 @@ function renderGroupedMessage(
     case "human":
     case "assistant":
       return renderPrimaryMessage(group, renderer.isLoading);
-    case "assistant:clarification":
-      return renderClarificationMessage(group, renderer);
+    case "assistant:question":
+      return renderQuestionMessage(group, renderer);
     case "assistant:present-files":
       return renderPresentFilesMessage(group, renderer);
     case "assistant:subagent":
@@ -412,26 +500,51 @@ function useStreamingMessagePartitions(
 const GroupedMessagesContent = memo(function GroupedMessagesContent({
   groups,
   isLoading,
+  persistedTaskIds = [],
+  persistedTaskAnchorMessageId,
   threadId,
 }: {
   groups: GroupedMessage[];
   isLoading: boolean;
+  persistedTaskIds?: string[];
+  persistedTaskAnchorMessageId?: string | null;
   threadId: string;
 }) {
   const { t } = useI18n();
+  const { tasks } = useSubtaskContext();
   const rehypePlugins = workspaceMessageRehypePlugins;
   const renderer: MessageRendererContext = {
     isLoading,
     rehypePlugins,
+    tasks,
     threadId,
     t,
   };
+  const hasRenderedPersistedGroup =
+    persistedTaskIds.length > 0 &&
+    groups.some((group) => group.id === persistedTaskAnchorMessageId);
 
   return (
     <>
-      {groups.map((group, index) =>
-        renderGroupedMessage(group, renderer, groups[index + 1]?.type),
-      )}
+      {groups.map((group, index) => (
+        <Fragment key={`${group.type}-${group.id ?? "group"}-${index}`}>
+          {renderGroupedMessage(group, renderer, groups[index + 1]?.type)}
+          {persistedTaskIds.length > 0 &&
+            group.id === persistedTaskAnchorMessageId &&
+            renderPersistedSubtaskGroup(
+              persistedTaskIds,
+              renderer,
+              `persisted-subtasks-${group.id ?? index}`,
+            )}
+        </Fragment>
+      ))}
+      {persistedTaskIds.length > 0 &&
+        !hasRenderedPersistedGroup &&
+        renderPersistedSubtaskGroup(
+          persistedTaskIds,
+          renderer,
+          "persisted-subtasks-tail",
+        )}
     </>
   );
 });
@@ -450,8 +563,22 @@ export function MessageList({
   const updateSubtask = useUpdateSubtask();
   const messages = thread.messages;
   const isStreamingCurrentTurn = thread.isLoading && !thread.isThreadLoading;
+  const lastTurnStartIndex = useMemo(
+    () => findCurrentTurnStartIndex(messages),
+    [messages],
+  );
+  const lastTurnMessages = useMemo(
+    () => messages.slice(lastTurnStartIndex),
+    [lastTurnStartIndex, messages],
+  );
+  const lastTurnAnchorMessageId =
+    messages[lastTurnStartIndex]?.type === "human"
+      ? (messages[lastTurnStartIndex]?.id ?? null)
+      : null;
   const { historyMessages, currentTurnMessages } =
     useStreamingMessagePartitions(messages, isStreamingCurrentTurn);
+  const [persistedSubtaskTurn, setPersistedSubtaskTurn] =
+    useState<PersistedSubtaskTurn | null>(null);
 
   const historyGroups = useMemo(
     () => groupMessages(historyMessages, (group) => group),
@@ -465,12 +592,65 @@ export function MessageList({
     () => collectSubtaskUpdates(messages),
     [messages],
   );
+  const lastTurnTaskIds = useMemo(
+    () => collectSubtaskIdsFromMessages(lastTurnMessages),
+    [lastTurnMessages],
+  );
+  const visibleCurrentTurnTaskIds = useMemo(
+    () =>
+      currentTurnGroups.flatMap((group) =>
+        group.type === "assistant:subagent" ? collectSubtaskIds(group) : [],
+      ),
+    [currentTurnGroups],
+  );
+  const persistedCurrentTurnTaskIds = useMemo(() => {
+    if (!persistedSubtaskTurn) {
+      return [];
+    }
+
+    const visibleTaskIds = new Set(visibleCurrentTurnTaskIds);
+    return persistedSubtaskTurn.taskIds.filter(
+      (taskId) => !visibleTaskIds.has(taskId),
+    );
+  }, [persistedSubtaskTurn, visibleCurrentTurnTaskIds]);
 
   useEffect(() => {
     for (const update of subtaskUpdates) {
       updateSubtask(update);
     }
   }, [subtaskUpdates, updateSubtask]);
+
+  useEffect(() => {
+    setPersistedSubtaskTurn(null);
+  }, [threadId]);
+
+  useEffect(() => {
+    if (!lastTurnAnchorMessageId) {
+      setPersistedSubtaskTurn(null);
+      return;
+    }
+
+    setPersistedSubtaskTurn((previous) => {
+      if (previous?.anchorMessageId === lastTurnAnchorMessageId) {
+        if (lastTurnTaskIds.length > 0) {
+          return {
+            anchorMessageId: lastTurnAnchorMessageId,
+            taskIds: lastTurnTaskIds,
+          };
+        }
+        return previous;
+      }
+
+      if (lastTurnTaskIds.length === 0) {
+        return null;
+      }
+
+      return {
+        anchorMessageId: lastTurnAnchorMessageId,
+        taskIds: lastTurnTaskIds,
+      };
+    });
+  }, [lastTurnAnchorMessageId, lastTurnTaskIds]);
 
   if (thread.isThreadLoading && messages.length === 0) {
     return <MessageListSkeleton />;
@@ -484,17 +664,22 @@ export function MessageList({
           <GroupedMessagesContent
             groups={historyGroups}
             isLoading={false}
+            persistedTaskAnchorMessageId={null}
             threadId={threadId}
           />
         )}
         <GroupedMessagesContent
           groups={currentTurnGroups}
           isLoading={isStreamingCurrentTurn}
+          persistedTaskAnchorMessageId={
+            isStreamingCurrentTurn
+              ? null
+              : persistedSubtaskTurn?.anchorMessageId
+          }
+          persistedTaskIds={
+            isStreamingCurrentTurn ? [] : persistedCurrentTurnTaskIds
+          }
           threadId={threadId}
-        />
-        <ClarificationInterrupt
-          className="mt-2"
-          interrupt={thread.interrupt as AgentInterrupt | undefined}
         />
         {thread.isLoading && <StreamingIndicator className="my-4" />}
         <div style={{ height: `${paddingBottom}px` }} />

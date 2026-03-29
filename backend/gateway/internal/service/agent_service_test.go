@@ -207,6 +207,88 @@ func TestAgentServiceUpdateAcceptsScopedSkillRefs(t *testing.T) {
 	}
 }
 
+func TestAgentServiceCreatePersistsToolNamesAndSubagents(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	svc := NewAgentService(storage.NewFS(baseDir))
+
+	agent, err := svc.Create(context.Background(), model.CreateAgentRequest{
+		Name:      "research-agent",
+		ToolNames: []string{"present_files", "question"},
+		SubagentDefaults: &model.AgentSubagentDefaults{
+			GeneralPurposeEnabled: true,
+			ToolNames:             []string{"present_files"},
+		},
+		Subagents: []model.AgentSubagent{
+			{
+				Name:         "reviewer",
+				Description:  "Review drafts",
+				SystemPrompt: "Review carefully.",
+				ToolNames:    []string{"present_files"},
+				Enabled:      true,
+			},
+		},
+		AgentsMD: "# Agent",
+	}, uuid.Nil)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	if got := agent.ToolNames; len(got) != 2 || got[0] != "present_files" || got[1] != "question" {
+		t.Fatalf("agent.ToolNames = %#v, want explicit main tool_names", got)
+	}
+	if agent.SubagentDefaults == nil || !agent.SubagentDefaults.GeneralPurposeEnabled {
+		t.Fatalf("agent.SubagentDefaults = %#v, want enabled defaults", agent.SubagentDefaults)
+	}
+	if len(agent.Subagents) != 1 || agent.Subagents[0].Name != "reviewer" {
+		t.Fatalf("agent.Subagents = %#v, want persisted custom subagent", agent.Subagents)
+	}
+
+	configBytes, err := os.ReadFile(filepath.Join(baseDir, "agents", "dev", "research-agent", "config.yaml"))
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if !strings.Contains(string(configBytes), "tool_names:") {
+		t.Fatalf("config.yaml missing tool_names: %s", string(configBytes))
+	}
+
+	subagentsBytes, err := os.ReadFile(filepath.Join(baseDir, "agents", "dev", "research-agent", "subagents.yaml"))
+	if err != nil {
+		t.Fatalf("read subagents: %v", err)
+	}
+	if !strings.Contains(string(subagentsBytes), "reviewer:") {
+		t.Fatalf("subagents.yaml missing reviewer entry: %s", string(subagentsBytes))
+	}
+}
+
+func TestAgentServiceRejectsMainAgentOnlyToolForSubagent(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	svc := NewAgentService(storage.NewFS(baseDir))
+
+	_, err := svc.Create(context.Background(), model.CreateAgentRequest{
+		Name: "research-agent",
+		Subagents: []model.AgentSubagent{
+			{
+				Name:         "reviewer",
+				Description:  "Review drafts",
+				SystemPrompt: "Review carefully.",
+				ToolNames:    []string{"question"},
+				Enabled:      true,
+			},
+		},
+		AgentsMD: "# Agent",
+	}, uuid.Nil)
+	if err == nil {
+		t.Fatal("expected subagent tool validation error")
+	}
+	if !strings.Contains(err.Error(), "not allowed for subagents") {
+		t.Fatalf("Create() error = %v, want subagent tool rejection", err)
+	}
+}
+
 func TestAgentServiceUpdateDerivesSkillMetadataFromSourcePath(t *testing.T) {
 	t.Parallel()
 

@@ -56,6 +56,35 @@ type AgentSettingsDialogText = {
   editingScopeDescription: string;
   memoryTitle: string;
   memoryDescription: string;
+  mainToolsTitle: string;
+  mainToolsDescription: string;
+  explicitMainTools: string;
+  explicitMainToolsDescription: string;
+  loadingToolCatalog: string;
+  loadToolCatalogFailed: string;
+  noConfigurableTools: string;
+  mainToolsFallbackHint: string;
+  generalPurposeSubagentTitle: string;
+  generalPurposeSubagentDescription: string;
+  enableGeneralPurposeSubagent: string;
+  enableGeneralPurposeSubagentDescription: string;
+  inheritMainTools: string;
+  inheritMainToolsDescription: string;
+  noSubagentTools: string;
+  customSubagentsTitle: string;
+  customSubagentsDescription: string;
+  customSubagentsHint: string;
+  addSubagent: string;
+  noCustomSubagents: string;
+  subagentCardTitle: (index: number) => string;
+  subagentCardDescription: string;
+  subagentNameLabel: string;
+  subagentNamePlaceholder: string;
+  subagentDescriptionPlaceholder: string;
+  subagentPromptLabel: string;
+  subagentPromptPlaceholder: string;
+  explicitSubagentTools: string;
+  explicitSubagentToolsDescription: string;
   enableMemory: string;
   enableMemoryDescription: string;
   memoryModel: string;
@@ -120,6 +149,11 @@ type AgentSettingsDialogText = {
   chatEndpointCopied: string;
   streamEndpointCopied: string;
   memoryModelRequired: string;
+  enabledState: string;
+  subagentNameRequired: (index: number) => string;
+  duplicateSubagentName: (name: string) => string;
+  subagentDescriptionRequired: (name: string) => string;
+  subagentPromptRequired: (name: string) => string;
   saveSuccess: (name: string, status: string) => string;
   saveFailed: string;
   mustBeInteger: (label: string) => string;
@@ -129,7 +163,7 @@ type AgentSettingsDialogText = {
 const enUS: AgentSettingsDialogText = {
   headerEyebrow: "Agent Settings",
   headerDescription:
-    "Edit the archived agent profile, its private `AGENTS.md`, and the structured config that becomes `config.yaml`.",
+    "Adjust how this agent behaves in your workspace, what it can use, and how it can be shared. Advanced archive controls live in the last tab.",
   remoteCliBadge: "remote cli",
   openWorkspace: "Open workspace",
   copyUrl: "Copy URL",
@@ -142,19 +176,19 @@ const enUS: AgentSettingsDialogText = {
   tabs: {
     profile: "Profile",
     skills: "Skills",
-    prompt: "Prompt",
+    prompt: "Advanced",
     config: "Config",
-    access: "Access",
+    access: "Share",
   },
   identityTitle: "Identity",
   identityDescription:
     "Define how this archived agent should be described and targeted.",
   capabilitiesTitle: "Capabilities",
   capabilitiesDescription:
-    "Keep the fast controls here; skill authoring still belongs to the create-agent flow.",
-  archiveContextTitle: "Archive context",
+    "Keep everyday integration controls here. Tool access is managed from the picker on the Config tab.",
+  archiveContextTitle: "Current version",
   archiveContextDescription:
-    "A quick read on the currently loaded agent archive.",
+    "A quick read on the version you are editing right now.",
   copiedSkillsCount: (count) =>
     `${count} copied skill${count === 1 ? "" : "s"}`,
   leadAgentArchiveNote:
@@ -188,22 +222,63 @@ const enUS: AgentSettingsDialogText = {
     "Prod archives must use `store/prod` skills. If a dev-only skill is still attached, publish that skill to prod before publishing the agent.",
   selectionRulesDev:
     "Dev archives may use both `store/dev` and `store/prod`, but names that exist in both stores are intentionally blocked to avoid ambiguous selection.",
-  promptTitle: "Archived AGENTS.md",
+  promptTitle: "Advanced instructions",
   promptDescription:
-    "This prompt lives with the agent archive and is materialized into the runtime copy for each thread.",
-  promptBody: "Prompt body",
-  promptPlaceholder: "Write the agent-owned instructions here.",
-  runtimeContract: "Runtime contract",
-  runtimeContractIntro: "The archived prompt is copied into:",
-  editingScope: "Editing scope",
+    "Optional. Use this only when you need to tune deeper agent behavior for this version.",
+  promptBody: "Custom instructions",
+  promptPlaceholder: "Write deeper guidance for this agent here.",
+  runtimeContract: "Runtime path",
+  runtimeContractIntro:
+    "These instructions are copied into the runtime workspace at:",
+  editingScope: "Use this for",
   editingScopeDescription:
-    "Keep the generic orchestrator rules in backend code. Put only agent-owned domain behavior, decomposition guidance, and skill usage policy in this file.",
+    "Keep high-level behavior, decomposition guidance, and special policies here. Everyday tool access and skills belong in the other tabs.",
   memoryTitle: "Memory capture",
   memoryDescription:
     "Structure the archived memory policy instead of editing raw YAML.",
+  mainToolsTitle: "Main agent tools",
+  mainToolsDescription:
+    "Pick the tools this agent can use from a grouped checklist. The dialog saves the selection for you.",
+  explicitMainTools: "Use explicit tool selection",
+  explicitMainToolsDescription:
+    "When enabled, `tool_names` takes precedence over `tool_groups` in the archived manifest.",
+  loadingToolCatalog: "Loading tool catalog...",
+  loadToolCatalogFailed: "Failed to load tool catalog.",
+  noConfigurableTools: "No configurable archive tools are available.",
+  mainToolsFallbackHint:
+    "Legacy `tool_groups` remain active until you switch this archive to explicit tool selection.",
+  generalPurposeSubagentTitle: "General-purpose subagent",
+  generalPurposeSubagentDescription:
+    "Control the built-in DeepAgents subagent separately from the main archive tool allowlist.",
+  enableGeneralPurposeSubagent: "Enable general-purpose subagent",
+  enableGeneralPurposeSubagentDescription:
+    "Disable this when the archive should never expose the default catch-all subagent.",
+  inheritMainTools: "Inherit main-agent tools",
+  inheritMainToolsDescription:
+    "Keep DeepAgents default inheritance, but still remove main-agent-only tools such as question.",
+  noSubagentTools: "No subagent-safe archive tools are available.",
+  customSubagentsTitle: "Custom subagents",
+  customSubagentsDescription:
+    "Each entry becomes a structured record in `subagents.yaml` and is loaded by the runtime task middleware.",
+  customSubagentsHint:
+    "Custom subagents stay stateless. Give each one a clear name, delegation description, prompt, and optional tool override.",
+  addSubagent: "Add subagent",
+  noCustomSubagents: "No custom subagents are configured for this archive yet.",
+  subagentCardTitle: (index) => `Subagent ${index}`,
+  subagentCardDescription:
+    "These settings apply only to the selected subagent definition.",
+  subagentNameLabel: "Subagent name",
+  subagentNamePlaceholder: "researcher / reviewer / explorer",
+  subagentDescriptionPlaceholder:
+    "Explain when the main agent should delegate work to this subagent.",
+  subagentPromptLabel: "System prompt",
+  subagentPromptPlaceholder:
+    "Write the subagent-specific instructions that should run inside its isolated context.",
+  explicitSubagentTools: "Use explicit subagent tools",
+  explicitSubagentToolsDescription:
+    "If disabled, this subagent inherits the main archive tool set after main-agent-only tools are removed.",
   enableMemory: "Enable memory",
-  enableMemoryDescription:
-    "User-scoped memory is stored per agent archive.",
+  enableMemoryDescription: "User-scoped memory is stored per agent archive.",
   memoryModel: "Memory model",
   memoryModelPlaceholder: "Required when memory is enabled",
   debounceSeconds: "Debounce seconds",
@@ -280,6 +355,14 @@ const enUS: AgentSettingsDialogText = {
   chatEndpointCopied: "Chat endpoint copied",
   streamEndpointCopied: "Stream endpoint copied",
   memoryModelRequired: "Memory model is required when memory is enabled.",
+  enabledState: "Enabled",
+  subagentNameRequired: (index) =>
+    `Subagent ${index} requires a name before saving.`,
+  duplicateSubagentName: (name) => `Subagent name '${name}' is duplicated.`,
+  subagentDescriptionRequired: (name) =>
+    `Subagent '${name}' requires a description.`,
+  subagentPromptRequired: (name) =>
+    `Subagent '${name}' requires a system prompt.`,
   saveSuccess: (name, status) => `${name} (${status}) saved`,
   saveFailed: "Failed to save agent settings",
   mustBeInteger: (label) => `${label} must be an integer.`,
@@ -289,7 +372,7 @@ const enUS: AgentSettingsDialogText = {
 const zhCN: AgentSettingsDialogText = {
   headerEyebrow: "智能体设置",
   headerDescription:
-    "编辑归档智能体的资料、私有 `AGENTS.md`，以及最终生成 `config.yaml` 的结构化配置。",
+    "调整这个智能体在工作区里的行为、可用能力和分享方式。更底层的归档控制统一收在最后的高级页。",
   remoteCliBadge: "远程 CLI",
   openWorkspace: "打开工作区",
   copyUrl: "复制链接",
@@ -301,17 +384,17 @@ const zhCN: AgentSettingsDialogText = {
   tabs: {
     profile: "资料",
     skills: "技能",
-    prompt: "提示词",
+    prompt: "高级",
     config: "配置",
-    access: "访问",
+    access: "分享",
   },
   identityTitle: "身份信息",
   identityDescription: "定义这个归档智能体的定位、描述和目标。",
   capabilitiesTitle: "能力配置",
   capabilitiesDescription:
-    "这里保留高频控制项；skill 的编写流程仍应放在 create-agent 流程中完成。",
-  archiveContextTitle: "归档上下文",
-  archiveContextDescription: "快速查看当前加载的智能体归档信息。",
+    "这里保留日常集成控制项；工具权限请直接在“配置”页用勾选列表管理。",
+  archiveContextTitle: "当前版本",
+  archiveContextDescription: "快速查看你当前正在编辑的这个版本。",
   copiedSkillsCount: (count) => `已复制 ${count} 个技能`,
   leadAgentArchiveNote:
     "`lead_agent` 仍然是内置编排入口。通用系统提示词继续保留在后端代码中；这里编辑的只是归档里属于 lead_agent 的提示词和配置。",
@@ -343,18 +426,59 @@ const zhCN: AgentSettingsDialogText = {
     "生产归档必须使用 `store/prod` 技能。如果当前仍依赖仅 dev 存在的技能，请先把该技能发布到 prod，再发布智能体。",
   selectionRulesDev:
     "开发归档可以同时使用 `store/dev` 和 `store/prod`，但如果两个仓库里存在同名技能，会被刻意屏蔽以避免选择歧义。",
-  promptTitle: "归档 AGENTS.md",
+  promptTitle: "高级指令",
   promptDescription:
-    "这份提示词跟随智能体归档保存，并会在每个线程中物化到运行时副本。",
-  promptBody: "提示词正文",
-  promptPlaceholder: "在这里填写属于该智能体自己的指令。",
-  runtimeContract: "运行时约定",
-  runtimeContractIntro: "归档提示词会被复制到：",
-  editingScope: "编辑范围",
+    "可选。只有在你确实需要微调这个版本的深层行为时再修改这里。",
+  promptBody: "自定义指令",
+  promptPlaceholder: "在这里填写更深层的智能体行为指导。",
+  runtimeContract: "运行时路径",
+  runtimeContractIntro: "这些指令会被复制到运行时工作区中的：",
+  editingScope: "适合放什么",
   editingScopeDescription:
-    "通用编排规则仍保留在后端代码中。这个文件里只放该智能体自己的领域行为、拆解策略和 skill 使用策略。",
+    "这里更适合放高层行为、任务拆解方式和特殊策略。日常工具权限与技能选择请在其他标签页里处理。",
   memoryTitle: "记忆采集",
-  memoryDescription: "通过结构化方式管理归档记忆策略，而不是直接编辑原始 YAML。",
+  memoryDescription:
+    "通过结构化方式管理归档记忆策略，而不是直接编辑原始 YAML。",
+  mainToolsTitle: "主智能体工具",
+  mainToolsDescription:
+    "直接从分组工具列表里勾选这个智能体能使用的工具，保存时会自动写入对应配置。",
+  explicitMainTools: "使用显式工具选择",
+  explicitMainToolsDescription:
+    "开启后，归档中的 `tool_names` 会优先于 `tool_groups` 生效。",
+  loadingToolCatalog: "正在加载工具目录...",
+  loadToolCatalogFailed: "加载工具目录失败。",
+  noConfigurableTools: "当前没有可配置的归档工具。",
+  mainToolsFallbackHint:
+    "在你切换到显式工具选择之前，旧的 `tool_groups` 仍然会继续生效。",
+  generalPurposeSubagentTitle: "通用 subagent",
+  generalPurposeSubagentDescription:
+    "把内置 DeepAgents 通用子智能体和主归档工具白名单分开控制。",
+  enableGeneralPurposeSubagent: "启用通用 subagent",
+  enableGeneralPurposeSubagentDescription:
+    "如果这个归档不应该暴露默认兜底 subagent，可以在这里关闭。",
+  inheritMainTools: "继承主智能体工具",
+  inheritMainToolsDescription:
+    "保持 DeepAgents 默认继承语义，但仍会去掉只能主 agent 使用的工具。",
+  noSubagentTools: "当前没有可供 subagent 使用的安全归档工具。",
+  customSubagentsTitle: "自定义 subagent",
+  customSubagentsDescription:
+    "这里的每一项都会写入 `subagents.yaml`，并由运行时 task middleware 加载。",
+  customSubagentsHint:
+    "自定义 subagent 是无状态的。请为它提供明确的名称、委派描述、提示词，以及可选的工具覆盖。",
+  addSubagent: "新增 subagent",
+  noCustomSubagents: "当前归档还没有自定义 subagent。",
+  subagentCardTitle: (index) => `子智能体 ${index}`,
+  subagentCardDescription: "这些设置只作用于当前这条 subagent 定义。",
+  subagentNameLabel: "子智能体名称",
+  subagentNamePlaceholder: "researcher / reviewer / explorer",
+  subagentDescriptionPlaceholder:
+    "说明主智能体应该在什么场景下把工作委派给它。",
+  subagentPromptLabel: "系统提示词",
+  subagentPromptPlaceholder:
+    "填写这个 subagent 在隔离上下文里执行时应遵循的指令。",
+  explicitSubagentTools: "使用显式 subagent 工具",
+  explicitSubagentToolsDescription:
+    "关闭后，这个 subagent 会继承主归档工具集，并自动移除主 agent 专属工具。",
   enableMemory: "启用记忆",
   enableMemoryDescription: "用户级记忆会按智能体归档分别存储。",
   memoryModel: "记忆模型",
@@ -371,7 +495,8 @@ const zhCN: AgentSettingsDialogText = {
   whyNoRawYamlDescription:
     "`config.yaml` 仍然是归档配置清单，但这个工作区改用结构化控件，让常用设置更清晰，也更不容易被改坏。",
   launchSurfaceTitle: "启动入口",
-  launchSurfaceDescription: "分享或测试时，直接使用当前归档和运行时选择生成的精确入口。",
+  launchSurfaceDescription:
+    "分享或测试时，直接使用当前归档和运行时选择生成的精确入口。",
   launchUrl: "启动链接",
   openApiExportTitle: "Open API 导出",
   openApiExportDescription:
@@ -425,6 +550,12 @@ const zhCN: AgentSettingsDialogText = {
   chatEndpointCopied: "已复制 chat 接口",
   streamEndpointCopied: "已复制 stream 接口",
   memoryModelRequired: "启用记忆时必须填写记忆模型。",
+  enabledState: "已启用",
+  subagentNameRequired: (index) =>
+    `保存前必须填写第 ${index} 个子智能体的名称。`,
+  duplicateSubagentName: (name) => `子智能体名称“${name}”重复了。`,
+  subagentDescriptionRequired: (name) => `子智能体“${name}”必须填写描述。`,
+  subagentPromptRequired: (name) => `子智能体“${name}”必须填写系统提示词。`,
   saveSuccess: (name, status) => `${name}（${status}）已保存`,
   saveFailed: "保存智能体设置失败",
   mustBeInteger: (label) => `${label}必须是整数。`,

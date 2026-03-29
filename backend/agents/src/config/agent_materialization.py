@@ -11,11 +11,17 @@ import yaml
 
 from src.config.agents_config import (
     AGENTS_MD_FILENAME,
+    SUBAGENTS_FILENAME,
     AgentConfig,
     AgentMemoryConfig,
     AgentSkillRef,
+    AgentSubagentConfig,
+    AgentSubagentDefaults,
+    AgentSubagentsConfig,
     _parse_skill_source_path,
+    serialize_agent_subagents_config,
     serialize_agent_skill_ref,
+    serialize_subagent_defaults,
 )
 from src.config.paths import Paths, get_paths
 from src.skills import load_skills
@@ -63,9 +69,7 @@ def _normalize_copied_skill_refs(
             seen[ref.name] = ref
             continue
         if existing.model_dump(exclude_none=True) != ref.model_dump(exclude_none=True):
-            raise ValueError(
-                f"Agent definition duplicates copied skill '{ref.name}' with conflicting sources."
-            )
+            raise ValueError(f"Agent definition duplicates copied skill '{ref.name}' with conflicting sources.")
 
     return normalized
 
@@ -139,9 +143,7 @@ def _resolve_requested_skill(
 
     scoped_matches = {skill.category for skill in matches}
     if target_status == "dev" and not allow_shared and {"store/dev", "store/prod"} <= scoped_matches:
-        raise ValueError(
-            f"Skill '{skill_name}' exists in both store/dev and store/prod and cannot be attached to a dev agent."
-        )
+        raise ValueError(f"Skill '{skill_name}' exists in both store/dev and store/prod and cannot be attached to a dev agent.")
 
     if len(matches) > 1:
         locations = ", ".join(f"{skill.category}:{skill.skill_path or skill.name}" for skill in matches)
@@ -171,13 +173,9 @@ def _resolve_skill_ref(
     skill = skills_by_source_path.get(skill_ref.source_path)
     if skill is None:
         scopes = ", ".join(allowed_scopes)
-        raise ValueError(
-            f"Skill '{skill_ref.name}' from {skill_ref.source_path} not found in allowed scopes: {scopes}."
-        )
+        raise ValueError(f"Skill '{skill_ref.name}' from {skill_ref.source_path} not found in allowed scopes: {scopes}.")
     if skill.name != skill_ref.name:
-        raise ValueError(
-            f"Skill ref name '{skill_ref.name}' does not match installed skill '{skill.name}' at {skill_ref.source_path}."
-        )
+        raise ValueError(f"Skill ref name '{skill_ref.name}' does not match installed skill '{skill.name}' at {skill_ref.source_path}.")
     return skill
 
 
@@ -202,9 +200,7 @@ def validate_skill_refs_for_status(
         scope, _relative_path = _parse_skill_source_path(skill_ref.source_path)
         if scope not in allowed_scopes:
             scopes = ", ".join(allowed_scopes)
-            raise ValueError(
-                f"Skill '{skill_ref.name}' from {scope} is not allowed for {target_status} agent archives. Allowed scopes: {scopes}."
-            )
+            raise ValueError(f"Skill '{skill_ref.name}' from {scope} is not allowed for {target_status} agent archives. Allowed scopes: {scopes}.")
         _resolve_skill_ref(
             skill_ref=skill_ref,
             catalog=catalog,
@@ -373,9 +369,11 @@ def _write_agent_manifest(
     description: str,
     model: str | None,
     tool_groups: list[str] | None,
+    tool_names: list[str] | None,
     mcp_servers: list[str] | None,
     skill_refs: list[AgentSkillRef],
     memory: AgentMemoryConfig | None,
+    subagent_defaults: AgentSubagentDefaults | None,
 ) -> None:
     manifest: dict[str, object] = {
         "name": name,
@@ -384,17 +382,34 @@ def _write_agent_manifest(
         "agents_md_path": AGENTS_MD_FILENAME,
         "skill_refs": [serialize_agent_skill_ref(skill_ref) for skill_ref in skill_refs],
         "memory": (memory or AgentMemoryConfig()).model_dump(exclude_none=True),
+        "subagent_defaults": serialize_subagent_defaults(subagent_defaults or AgentSubagentDefaults()),
     }
     if model is not None:
         manifest["model"] = model
     if tool_groups is not None:
         manifest["tool_groups"] = tool_groups
+    if tool_names is not None:
+        manifest["tool_names"] = tool_names
     if mcp_servers is not None:
         manifest["mcp_servers"] = mcp_servers
 
     config_file = agent_dir / "config.yaml"
     with open(config_file, "w", encoding="utf-8") as f:
         yaml.dump(manifest, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+
+def _write_agent_subagents_file(
+    *,
+    agent_dir: Path,
+    subagents: list[AgentSubagentConfig],
+) -> None:
+    if not subagents:
+        return
+
+    subagents_file = agent_dir / SUBAGENTS_FILENAME
+    payload = serialize_agent_subagents_config(AgentSubagentsConfig(subagents=subagents))
+    with open(subagents_file, "w", encoding="utf-8") as handle:
+        yaml.dump(payload, handle, default_flow_style=False, allow_unicode=True, sort_keys=False)
 
 
 def materialize_agent_definition(
@@ -405,11 +420,14 @@ def materialize_agent_definition(
     description: str = "",
     model: str | None = None,
     tool_groups: list[str] | None = None,
+    tool_names: list[str] | None = None,
     mcp_servers: list[str] | None = None,
     skill_names: list[str] | None = None,
     skill_refs: list[AgentSkillRef | dict[str, str]] | None = None,
     inline_skills: list[dict[str, str]] | None = None,
     memory: AgentMemoryConfig | dict | None = None,
+    subagent_defaults: AgentSubagentDefaults | dict | None = None,
+    subagents: list[AgentSubagentConfig | dict[str, object]] | None = None,
     paths: Paths | None = None,
     allow_shared_skills: bool = False,
 ) -> AgentConfig:
@@ -444,17 +462,15 @@ def materialize_agent_definition(
             skills_dir=skills_dir,
             inline_skills=inline_skills,
         )
-        duplicate_names = {ref.name for ref in copied_skill_refs} & {
-            ref.name for ref in inline_skill_refs
-        }
+        duplicate_names = {ref.name for ref in copied_skill_refs} & {ref.name for ref in inline_skill_refs}
         if duplicate_names:
             joined = ", ".join(sorted(duplicate_names))
-            raise ValueError(
-                f"Agent definition duplicates skill names across copied and inline skills: {joined}."
-            )
+            raise ValueError(f"Agent definition duplicates skill names across copied and inline skills: {joined}.")
         skill_refs = copied_skill_refs + inline_skill_refs
 
         memory_config = memory if isinstance(memory, AgentMemoryConfig) else AgentMemoryConfig.model_validate(memory or {})
+        subagent_defaults_config = subagent_defaults if isinstance(subagent_defaults, AgentSubagentDefaults) else AgentSubagentDefaults.model_validate(subagent_defaults or {})
+        subagent_configs = [item if isinstance(item, AgentSubagentConfig) else AgentSubagentConfig.model_validate(item) for item in (subagents or [])]
 
         _write_agent_manifest(
             agent_dir=staging_dir,
@@ -463,10 +479,13 @@ def materialize_agent_definition(
             description=description,
             model=model,
             tool_groups=tool_groups,
+            tool_names=tool_names,
             mcp_servers=mcp_servers,
             skill_refs=skill_refs,
             memory=memory_config,
+            subagent_defaults=subagent_defaults_config,
         )
+        _write_agent_subagents_file(agent_dir=staging_dir, subagents=subagent_configs)
 
         if agent_dir.exists():
             backup_dir = agent_parent / f".{agent_dir.name}.bak-{uuid4().hex}"
@@ -486,11 +505,13 @@ def materialize_agent_definition(
             description=description,
             model=model,
             tool_groups=tool_groups,
+            tool_names=tool_names,
             mcp_servers=mcp_servers,
             status=status,
             agents_md_path=AGENTS_MD_FILENAME,
             skill_refs=skill_refs,
             memory=memory_config,
+            subagent_defaults=subagent_defaults_config,
         )
     finally:
         if staging_dir.exists():

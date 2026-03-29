@@ -58,6 +58,11 @@ func (f *FS) AgentSkillsDir(name, status string) string {
 	return filepath.Join(f.AgentDir(name, status), "skills")
 }
 
+// AgentSubagentsPath returns the structured subagents manifest path for an agent.
+func (f *FS) AgentSubagentsPath(name, status string) string {
+	return filepath.Join(f.AgentDir(name, status), "subagents.yaml")
+}
+
 // SkillsDir returns the root directory for all global skills.
 func (f *FS) SkillsDir() string {
 	return filepath.Join(f.baseDir, "skills")
@@ -138,6 +143,31 @@ func (f *FS) WriteAgentFiles(name, status, agentsMD string, config map[string]in
 	// Ensure skills/ subdirectory
 	_ = os.MkdirAll(filepath.Join(dir, "skills"), 0755)
 
+	return nil
+}
+
+// WriteAgentSubagentsFile writes the structured subagents manifest for an agent.
+func (f *FS) WriteAgentSubagentsFile(name, status string, payload map[string]interface{}) error {
+	dir := f.AgentDir(name, status)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("mkdir agent: %w", err)
+	}
+	data, err := yaml.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal subagents: %w", err)
+	}
+	if err := os.WriteFile(f.AgentSubagentsPath(name, status), data, 0o644); err != nil {
+		return fmt.Errorf("write subagents.yaml: %w", err)
+	}
+	return nil
+}
+
+// DeleteAgentSubagentsFile removes the structured subagents manifest for an agent.
+func (f *FS) DeleteAgentSubagentsFile(name, status string) error {
+	err := os.Remove(f.AgentSubagentsPath(name, status))
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
 	return nil
 }
 

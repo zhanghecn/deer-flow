@@ -25,7 +25,7 @@
       {
         "content": "",
         "additional_kwargs": {
-          "reasoning_content": "I need to explain what MOE is to a 12-year-old boy. First, I should clarify what \"MOE\" refers to, as it could mean multiple things: Ministry of Education (in some countries), Moe from The Simpsons, or maybe something else. But the user likely means \"Moe\" as in the character from The Simpsons, given the context of explaining to a 12-year-old boy. However, I should confirm.\n\nI'll ask for clarification to be sure. Let me use the ask_clarification tool."
+          "reasoning_content": "I need to explain what MOE is to a 12-year-old boy. First, I should clarify what \"MOE\" refers to, as it could mean multiple things: Ministry of Education (in some countries), Moe from The Simpsons, or maybe something else. But the user likely means \"Moe\" as in the character from The Simpsons, given the context of explaining to a 12-year-old boy. However, I should confirm.\n\nI'll ask a structured question to be sure."
         },
         "response_metadata": {
           "finish_reason": "tool_calls",
@@ -38,15 +38,26 @@
         "id": "lc_run--019bf482-43cb-7702-acea-df30353780cb",
         "tool_calls": [
           {
-            "name": "ask_clarification",
+            "name": "question",
             "args": {
-              "question": "When you say \"MOE\", do you mean the character Moe from The Simpsons, or something else like Ministry of Education? I want to make sure I explain the right thing to a 12-year-old.",
-              "clarification_type": "ambiguous_requirement",
-              "context": "MOE could refer to multiple things: Moe Szyslak from The Simpsons, Ministry of Education in some countries, or other meanings. For a 12-year-old boy, it's likely the Simpsons character, but I need to be sure.",
-              "options": [
-                "Moe from The Simpsons",
-                "Ministry of Education",
-                "Something else"
+              "questions": [
+                {
+                  "header": "Meaning",
+                  "question": "When you say \"MOE\", which meaning do you want explained?",
+                  "options": [
+                    {
+                      "label": "Moe from The Simpsons"
+                    },
+                    {
+                      "label": "Ministry of Education"
+                    },
+                    {
+                      "label": "Something else"
+                    }
+                  ],
+                  "multiple": false,
+                  "custom": true
+                }
               ]
             },
             "id": "call_43m62r1quh5fskzp8v4qyzkh",
@@ -57,18 +68,18 @@
         "usage_metadata": null
       },
       {
-        "content": "🤔 MOE could refer to multiple things: Moe Szyslak from The Simpsons, Ministry of Education in some countries, or other meanings. For a 12-year-old boy, it's likely the Simpsons character, but I need to be sure.\n\nWhen you say \"MOE\", do you mean the character Moe from The Simpsons, or something else like Ministry of Education? I want to make sure I explain the right thing to a 12-year-old.\n\n  1. Moe from The Simpsons\n  2. Ministry of Education\n  3. Something else",
+        "content": "{\"kind\":\"question_result\",\"request_id\":\"call_43m62r1quh5fskzp8v4qyzkh\",\"status\":\"answered\",\"answers\":[[\"The one related to AI models\"]],\"message\":\"User answered.\"}",
         "additional_kwargs": {},
         "response_metadata": {},
         "type": "tool",
-        "name": "ask_clarification",
+        "name": "question",
         "id": "0f2d92f7-61d1-4e1b-8fc1-79c08dd601cd",
         "tool_call_id": "call_43m62r1quh5fskzp8v4qyzkh",
         "artifact": null,
         "status": "success"
       },
       {
-        "content": "🤔 MOE could refer to multiple things: Moe Szyslak from The Simpsons, Ministry of Education in some countries, or other meanings. For a 12-year-old boy, it's likely the Simpsons character, but I need to be sure.\n\nWhen you say \"MOE\", do you mean the character Moe from The Simpsons, or something else like Ministry of Education? I want to make sure I explain the right thing to a 12-year-old.\n\n  1. Moe from The Simpsons\n  2. Ministry of Education\n  3. Something else",
+        "content": "",
         "additional_kwargs": {},
         "response_metadata": {},
         "type": "ai",

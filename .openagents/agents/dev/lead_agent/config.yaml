@@ -1,72 +1,42 @@
 agents_md_path: AGENTS.md
 description: Default system lead agent.
 memory:
-    debounce_seconds: 30
-    enabled: false
-    fact_confidence_threshold: 0.7
-    injection_enabled: true
-    max_facts: 100
-    max_injection_tokens: 2000
+  debounce_seconds: 30
+  enabled: false
+  fact_confidence_threshold: 0.7
+  injection_enabled: true
+  max_facts: 100
+  max_injection_tokens: 2000
 name: lead_agent
 skill_refs:
-    - name: bootstrap
-      category: shared
-      source_path: shared/bootstrap
-      materialized_path: skills/bootstrap
-    - name: web-design-guidelines
-      category: shared
-      source_path: shared/web-design-guidelines
-      materialized_path: skills/web-design-guidelines
-    - name: video-generation
-      category: shared
-      source_path: shared/video-generation
-      materialized_path: skills/video-generation
-    - name: surprise-me
-      category: shared
-      source_path: shared/surprise-me
-      materialized_path: skills/surprise-me
-    - name: skill-creator
-      category: shared
-      source_path: shared/skill-creator
-      materialized_path: skills/skill-creator
-    - name: ppt-generation
-      category: shared
-      source_path: shared/ppt-generation
-      materialized_path: skills/ppt-generation
-    - name: podcast-generation
-      category: shared
-      source_path: shared/podcast-generation
-      materialized_path: skills/podcast-generation
-    - name: image-generation
-      category: shared
-      source_path: shared/image-generation
-      materialized_path: skills/image-generation
-    - name: github-deep-research
-      category: shared
-      source_path: shared/github-deep-research
-      materialized_path: skills/github-deep-research
-    - name: frontend-design
-      category: shared
-      source_path: shared/frontend-design
-      materialized_path: skills/frontend-design
-    - name: find-skills
-      category: shared
-      source_path: shared/find-skills
-      materialized_path: skills/find-skills
-    - name: deep-research
-      category: shared
-      source_path: shared/deep-research
-      materialized_path: skills/deep-research
-    - name: consulting-analysis
-      category: shared
-      source_path: shared/consulting-analysis
-      materialized_path: skills/consulting-analysis
-    - name: data-analysis
-      category: shared
-      source_path: shared/data-analysis
-      materialized_path: skills/data-analysis
-    - name: chart-visualization
-      category: shared
-      source_path: shared/chart-visualization
-      materialized_path: skills/chart-visualization
+- name: bootstrap
+  source_path: shared/bootstrap
+- name: web-design-guidelines
+  source_path: shared/web-design-guidelines
+- name: video-generation
+  source_path: shared/video-generation
+- name: surprise-me
+  source_path: shared/surprise-me
+- name: skill-creator
+  source_path: shared/skill-creator
+- name: ppt-generation
+  source_path: shared/ppt-generation
+- name: podcast-generation
+  source_path: shared/podcast-generation
+- name: image-generation
+  source_path: shared/image-generation
+- name: github-deep-research
+  source_path: shared/github-deep-research
+- name: frontend-design
+  source_path: shared/frontend-design
+- name: find-skills
+  source_path: shared/find-skills
+- name: deep-research
+  source_path: shared/deep-research
+- name: consulting-analysis
+  source_path: shared/consulting-analysis
+- name: data-analysis
+  source_path: shared/data-analysis
+- name: chart-visualization
+  source_path: shared/chart-visualization
 status: dev

@@ -6,6 +6,7 @@ import type {
   AgentExportDoc,
   AgentStatus,
   CreateAgentRequest,
+  ToolCatalogItem,
   UpdateAgentRequest,
 } from "./types";
 
@@ -22,7 +23,9 @@ function resolveAPIErrorMessage(
   return payload.details ?? payload.detail ?? payload.error ?? fallback;
 }
 
-function extractFilenameFromDisposition(headerValue: string | null): string | null {
+function extractFilenameFromDisposition(
+  headerValue: string | null,
+): string | null {
   if (!headerValue) {
     return null;
   }
@@ -54,6 +57,14 @@ export async function listAgents(status?: AgentStatus): Promise<Agent[]> {
   if (!res.ok) throw new Error(`Failed to load agents: ${res.statusText}`);
   const data = (await res.json()) as { agents: Agent[] };
   return data.agents;
+}
+
+export async function listToolCatalog(): Promise<ToolCatalogItem[]> {
+  const res = await authFetch(`${getBackendBaseURL()}/api/tools/catalog`);
+  if (!res.ok)
+    throw new Error(`Failed to load tool catalog: ${res.statusText}`);
+  const data = (await res.json()) as { tools: ToolCatalogItem[] };
+  return data.tools;
 }
 
 export async function getAgent(
@@ -146,7 +157,9 @@ export async function checkAgentName(
 }
 
 export async function getAgentExportDoc(name: string): Promise<AgentExportDoc> {
-  const res = await authFetch(`${getBackendBaseURL()}/api/agents/${name}/export`);
+  const res = await authFetch(
+    `${getBackendBaseURL()}/api/agents/${name}/export`,
+  );
   if (!res.ok) {
     const err = (await res.json().catch(() => ({}))) as APIErrorShape;
     throw new Error(

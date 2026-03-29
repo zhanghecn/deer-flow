@@ -14,8 +14,10 @@ from src.config.paths import Paths, get_paths
 logger = logging.getLogger(__name__)
 
 AGENTS_MD_FILENAME = "AGENTS.md"
+SUBAGENTS_FILENAME = "subagents.yaml"
 AGENT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 _SKILL_SOURCE_SCOPES = ("shared", "store/prod", "store/dev")
+_RESERVED_SUBAGENT_NAMES = frozenset({"general-purpose"})
 
 
 def _normalize_optional_text(value: str | None) -> str | None:
@@ -23,6 +25,33 @@ def _normalize_optional_text(value: str | None) -> str | None:
         return None
     normalized = str(value).strip()
     return normalized or None
+
+
+def _normalize_optional_string_list(value: Any, *, field_name: str) -> list[str] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        raise ValueError(f"Agent field '{field_name}' must be a list of strings.")
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError(f"Agent field '{field_name}' must be a list of strings.")
+        text = item.strip()
+        if not text or text in seen:
+            continue
+        normalized.append(text)
+        seen.add(text)
+
+    return normalized or None
+
+
+def _normalize_required_text(value: str, *, field_name: str) -> str:
+    text = str(value).strip()
+    if not text:
+        raise ValueError(f"Agent field '{field_name}' requires a non-empty string.")
+    return text
 
 
 def _parse_skill_source_path(source_path: str) -> tuple[str, PurePosixPath]:
@@ -72,11 +101,86 @@ class AgentConfig(BaseModel):
     description: str = ""
     model: str | None = None
     tool_groups: list[str] | None = None
+    tool_names: list[str] | None = None
     mcp_servers: list[str] | None = None
     status: str = "dev"
     agents_md_path: str = AGENTS_MD_FILENAME
     skill_refs: list["AgentSkillRef"] = Field(default_factory=list)
     memory: "AgentMemoryConfig" = Field(default_factory=lambda: AgentMemoryConfig())
+    subagent_defaults: "AgentSubagentDefaults" = Field(default_factory=lambda: AgentSubagentDefaults())
+
+    @model_validator(mode="after")
+    def normalize_manifest_lists(self) -> "AgentConfig":
+        self.tool_groups = _normalize_optional_string_list(self.tool_groups, field_name="tool_groups")
+        self.tool_names = _normalize_optional_string_list(self.tool_names, field_name="tool_names")
+        self.mcp_servers = _normalize_optional_string_list(self.mcp_servers, field_name="mcp_servers")
+        return self
+
+
+class AgentSubagentDefaults(BaseModel):
+    """Default runtime policy for the built-in general-purpose subagent."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    general_purpose_enabled: bool = True
+    tool_names: list[str] | None = None
+
+    @model_validator(mode="after")
+    def normalize_defaults(self) -> "AgentSubagentDefaults":
+        self.tool_names = _normalize_optional_string_list(self.tool_names, field_name="subagent_defaults.tool_names")
+        return self
+
+
+class AgentSubagentConfig(BaseModel):
+    """Structured configuration for a custom subagent."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    description: str
+    system_prompt: str
+    model: str | None = None
+    tool_names: list[str] | None = None
+    enabled: bool = True
+
+    @model_validator(mode="after")
+    def normalize_subagent(self) -> "AgentSubagentConfig":
+        self.name = _normalize_required_text(self.name, field_name="subagents[].name")
+        if not AGENT_NAME_PATTERN.match(self.name):
+            raise ValueError(f"Invalid subagent name '{self.name}'. Must match pattern: {AGENT_NAME_PATTERN.pattern}")
+        if self.name.lower() in _RESERVED_SUBAGENT_NAMES:
+            raise ValueError(f"Subagent name '{self.name}' is reserved.")
+
+        self.description = _normalize_required_text(self.description, field_name=f"subagents[{self.name}].description")
+        self.system_prompt = _normalize_required_text(
+            self.system_prompt,
+            field_name=f"subagents[{self.name}].system_prompt",
+        )
+        self.model = _normalize_optional_text(self.model)
+        self.tool_names = _normalize_optional_string_list(
+            self.tool_names,
+            field_name=f"subagents[{self.name}].tool_names",
+        )
+        return self
+
+
+class AgentSubagentsConfig(BaseModel):
+    """Versioned subagent file payload."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: int = 1
+    subagents: list[AgentSubagentConfig] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_unique_names(self) -> "AgentSubagentsConfig":
+        seen: set[str] = set()
+        for subagent in self.subagents:
+            lowered = subagent.name.lower()
+            if lowered in seen:
+                raise ValueError(f"Duplicate subagent name '{subagent.name}'.")
+            seen.add(lowered)
+        return self
 
 
 class AgentSkillRef(BaseModel):
@@ -143,6 +247,9 @@ class AgentMemoryConfig(BaseModel):
 
 
 AgentConfig.model_rebuild()
+AgentSubagentDefaults.model_rebuild()
+AgentSubagentConfig.model_rebuild()
+AgentSubagentsConfig.model_rebuild()
 
 
 def serialize_agent_skill_ref(skill_ref: AgentSkillRef) -> dict[str, str]:
@@ -158,8 +265,72 @@ def serialize_agent_skill_ref(skill_ref: AgentSkillRef) -> dict[str, str]:
     return payload
 
 
+def serialize_subagent_defaults(subagent_defaults: AgentSubagentDefaults) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "general_purpose_enabled": subagent_defaults.general_purpose_enabled,
+    }
+    if subagent_defaults.tool_names is not None:
+        payload["tool_names"] = subagent_defaults.tool_names
+    return payload
+
+
+def serialize_agent_subagent(subagent: AgentSubagentConfig) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "description": subagent.description,
+        "system_prompt": subagent.system_prompt,
+        "enabled": subagent.enabled,
+    }
+    if subagent.model is not None:
+        payload["model"] = subagent.model
+    if subagent.tool_names is not None:
+        payload["tool_names"] = subagent.tool_names
+    return payload
+
+
+def serialize_agent_subagents_config(config: AgentSubagentsConfig) -> dict[str, Any]:
+    return {
+        "version": config.version,
+        "subagents": {subagent.name: serialize_agent_subagent(subagent) for subagent in config.subagents},
+    }
+
+
 def _resolve_agent_dir(name: str, status: str, paths: Paths | None = None) -> Path:
     return (paths or get_paths()).agent_dir(name, status)
+
+
+def _parse_agent_subagents_payload(raw_data: Any, *, source_path: Path) -> AgentSubagentsConfig:
+    if raw_data in (None, {}):
+        return AgentSubagentsConfig()
+    if not isinstance(raw_data, dict):
+        raise ValueError(f"{source_path}: subagents config must be a mapping.")
+
+    raw_version = raw_data.get("version", 1)
+    if not isinstance(raw_version, int):
+        raise ValueError(f"{source_path}: subagents config field 'version' must be an integer.")
+
+    if "subagents" in raw_data:
+        raw_subagents = raw_data.get("subagents") or {}
+    else:
+        raw_subagents = raw_data
+
+    if not isinstance(raw_subagents, dict):
+        raise ValueError(f"{source_path}: subagents config field 'subagents' must be a mapping.")
+
+    parsed_subagents: list[AgentSubagentConfig] = []
+    for raw_name, raw_subagent in raw_subagents.items():
+        if not isinstance(raw_name, str):
+            raise ValueError(f"{source_path}: subagent names must be strings.")
+        if not isinstance(raw_subagent, dict):
+            raise ValueError(f"{source_path}: subagent '{raw_name}' config must be an object.")
+
+        payload = dict(raw_subagent)
+        embedded_name = _normalize_optional_text(payload.get("name"))
+        if embedded_name is not None and embedded_name != raw_name.strip():
+            raise ValueError(f"{source_path}: subagent key '{raw_name}' does not match embedded name '{embedded_name}'.")
+        payload["name"] = raw_name
+        parsed_subagents.append(AgentSubagentConfig.model_validate(payload))
+
+    return AgentSubagentsConfig(version=raw_version, subagents=parsed_subagents)
 
 
 def load_agent_config(name: str | None, status: str = "dev", *, paths: Paths | None = None) -> AgentConfig | None:
@@ -200,6 +371,29 @@ def load_agent_config(name: str | None, status: str = "dev", *, paths: Paths | N
     data = {k: v for k, v in data.items() if k in known_fields}
 
     return AgentConfig(**data)
+
+
+def load_agent_subagents(
+    agent_name: str | None,
+    status: str = "dev",
+    *,
+    paths: Paths | None = None,
+) -> AgentSubagentsConfig:
+    """Load structured custom subagent definitions for an agent archive."""
+    if agent_name is None:
+        return AgentSubagentsConfig()
+
+    source_path = _resolve_agent_dir(agent_name, status, paths) / SUBAGENTS_FILENAME
+    if not source_path.exists():
+        return AgentSubagentsConfig()
+
+    try:
+        with source_path.open(encoding="utf-8") as handle:
+            raw_data = yaml.safe_load(handle)
+    except yaml.YAMLError as e:
+        raise ValueError(f"Failed to parse subagents config {source_path}: {e}") from e
+
+    return _parse_agent_subagents_payload(raw_data, source_path=source_path)
 
 
 def load_agents_md(agent_name: str | None, status: str = "dev", *, paths: Paths | None = None) -> str | None:

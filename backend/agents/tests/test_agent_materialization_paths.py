@@ -8,7 +8,7 @@ from src.config.agent_materialization import (
     resolve_skill_refs,
 )
 from src.config.agents_config import AgentSkillRef
-from src.config.agents_config import load_agent_config
+from src.config.agents_config import load_agent_config, load_agent_subagents
 from src.config.paths import Paths
 
 
@@ -129,9 +129,7 @@ def test_materialize_agent_definition_writes_inline_agent_skills_and_manifest(tm
 
     agent_skills_dir = base_dir / "agents" / "dev" / "contract-agent" / "skills"
     assert (agent_skills_dir / "bootstrap" / "SKILL.md").exists()
-    assert (agent_skills_dir / "contract-review" / "SKILL.md").read_text(encoding="utf-8").startswith(
-        "---\nname: contract-review"
-    )
+    assert (agent_skills_dir / "contract-review" / "SKILL.md").read_text(encoding="utf-8").startswith("---\nname: contract-review")
     assert config.skill_refs == [
         AgentSkillRef(
             name="bootstrap",
@@ -148,6 +146,45 @@ def test_materialize_agent_definition_writes_inline_agent_skills_and_manifest(tm
     loaded = load_agent_config("contract-agent", "dev", paths=paths)
     assert loaded is not None
     assert loaded.skill_refs == config.skill_refs
+
+
+def test_materialize_agent_definition_writes_subagent_defaults_and_subagents(tmp_path: Path):
+    base_dir = tmp_path / ".openagents"
+    paths = Paths(base_dir=base_dir, skills_dir=base_dir / "skills")
+
+    config = materialize_agent_definition(
+        name="contract-agent",
+        status="dev",
+        agents_md="# Contract Agent",
+        description="Reviews contracts",
+        tool_names=["present_files"],
+        subagent_defaults={
+            "general_purpose_enabled": False,
+            "tool_names": ["present_files"],
+        },
+        subagents=[
+            {
+                "name": "reviewer",
+                "description": "Review generated drafts",
+                "system_prompt": "Review carefully.",
+                "tool_names": ["present_files"],
+            }
+        ],
+        paths=paths,
+    )
+
+    assert config.tool_names == ["present_files"]
+    assert config.subagent_defaults.general_purpose_enabled is False
+    assert config.subagent_defaults.tool_names == ["present_files"]
+
+    loaded = load_agent_config("contract-agent", "dev", paths=paths)
+    assert loaded is not None
+    assert loaded.tool_names == ["present_files"]
+    assert loaded.subagent_defaults.general_purpose_enabled is False
+
+    subagents = load_agent_subagents("contract-agent", "dev", paths=paths)
+    assert [item.name for item in subagents.subagents] == ["reviewer"]
+    assert subagents.subagents[0].tool_names == ["present_files"]
 
 
 def test_materialize_agent_definition_rejects_store_dev_skills_for_prod_agents(tmp_path: Path):
@@ -179,13 +216,7 @@ def test_materialize_agent_definition_does_not_mutate_existing_archive_when_reso
         encoding="utf-8",
     )
     (existing_agent_dir / "config.yaml").write_text(
-        "name: contract-agent\n"
-        "status: dev\n"
-        "description: original\n"
-        "agents_md_path: AGENTS.md\n"
-        "skill_refs:\n"
-        "  - name: bootstrap\n"
-        "    source_path: store/dev/bootstrap\n",
+        "name: contract-agent\nstatus: dev\ndescription: original\nagents_md_path: AGENTS.md\nskill_refs:\n  - name: bootstrap\n    source_path: store/dev/bootstrap\n",
         encoding="utf-8",
     )
 

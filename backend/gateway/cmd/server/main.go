@@ -179,6 +179,7 @@ func main() {
 
 		// Agents
 		api.GET("/agents", agentH.List)
+		api.GET("/tools/catalog", agentH.ListToolCatalog)
 		api.GET("/agents/check", agentH.CheckName)
 		api.POST("/agents", agentH.Create)
 		api.GET("/agents/:name", agentH.Get)
