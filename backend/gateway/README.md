@@ -175,7 +175,7 @@ go run ./cmd/server
 - 记忆文件固定存储在 `{OPENAGENTS_HOME}/users/{user_id}/agents/{status}/{agent_name}/memory.json`
 - 文档上传转换依赖运行 Gateway 的环境里可执行的 `markitdown`；可用 `OPENAGENTS_MARKITDOWN_BIN` 显式指定二进制路径。
 - Office 文件的 `?preview=pdf` 转换依赖运行 Gateway 的环境内可执行的 `soffice`（LibreOffice）。
-- `docker/docker-compose-dev.yaml` 构建的 Gateway 镜像已内置 LibreOffice；若直接在宿主机运行 Gateway，需要自行安装 `soffice`。
+- `docker/docker-compose-dev.yaml` / `docker/docker-compose-prod.yaml` 构建的 Gateway 镜像已内置 headless LibreOffice；若直接在宿主机运行 Gateway，需要自行安装 `soffice`。
 - 即使未安装 LibreOffice，工作区内联预览仍可通过 `/api/threads/:id/office-config/*path` 走 ONLYOFFICE 编辑器。
 
 ### 开放式 API（API Token 认证）
