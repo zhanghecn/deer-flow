@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 AGENTS_MD_FILENAME = "AGENTS.md"
 SUBAGENTS_FILENAME = "subagents.yaml"
 AGENT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
-_SKILL_SOURCE_SCOPES = ("shared", "store/prod", "store/dev")
+_SKILL_SOURCE_SCOPES = ("store/prod", "store/dev")
 _RESERVED_SUBAGENT_NAMES = frozenset({"general-purpose"})
 
 
@@ -57,7 +57,7 @@ def _normalize_required_text(value: str, *, field_name: str) -> str:
 def _parse_skill_source_path(source_path: str) -> tuple[str, PurePosixPath]:
     path = PurePosixPath(source_path)
     if path.is_absolute() or ".." in path.parts or len(path.parts) < 2:
-        raise ValueError("Agent skill source_path must be a safe relative path like 'shared/my-skill' or 'store/prod/my-skill'.")
+        raise ValueError("Agent skill source_path must be a safe relative path like 'store/dev/my-skill' or 'store/prod/my-skill'.")
 
     path_str = path.as_posix()
     for scope in sorted(_SKILL_SOURCE_SCOPES, key=len, reverse=True):

@@ -22,13 +22,13 @@ def normalize_route_prefix(path: str) -> str:
     return normalized.rstrip("/") + "/"
 
 
-def resolve_shared_skills_mount(paths: Paths) -> tuple[str, str] | None:
+def resolve_skills_mount(paths: Paths) -> tuple[str, str] | None:
     try:
-        shared_skills_dir = paths.skills_dir
+        skills_dir = paths.skills_dir
     except RuntimeError:
         return None
 
-    if not shared_skills_dir.exists():
+    if not skills_dir.exists():
         return None
 
     container_path = str(get_app_config().skills.container_path or "").strip()
@@ -36,9 +36,9 @@ def resolve_shared_skills_mount(paths: Paths) -> tuple[str, str] | None:
         return None
 
     try:
-        return str(shared_skills_dir), normalize_route_prefix(container_path)
+        return str(skills_dir), normalize_route_prefix(container_path)
     except ValueError as exc:
-        logger.warning("Ignoring invalid shared skills container path %r: %s", container_path, exc)
+        logger.warning("Ignoring invalid skills container path %r: %s", container_path, exc)
         return None
 
 
@@ -60,18 +60,19 @@ def build_runtime_execute_aliases(user_data_dir: str) -> dict[str, str]:
 def build_local_workspace_backend(
     user_data_dir: str,
     *,
-    shared_skills_mount: tuple[str, str] | None = None,
+    skills_mount: tuple[str, str] | None = None,
 ) -> BackendProtocol:
     execute_path_mappings = build_runtime_execute_aliases(user_data_dir)
     routes = build_internal_runtime_routes(user_data_dir)
 
-    if shared_skills_mount is not None:
-        shared_skills_dir, route_prefix = shared_skills_mount
-        execute_path_mappings[route_prefix.rstrip("/")] = shared_skills_dir
-        # The mounted shared skills archive is a discovery/read surface only. The
-        # runtime must never mutate the canonical archive through filesystem tools.
+    if skills_mount is not None:
+        skills_dir, route_prefix = skills_mount
+        execute_path_mappings[route_prefix.rstrip("/")] = skills_dir
+        # The mounted archived skills library is a discovery/read surface only.
+        # Runtime execution must never mutate canonical store content through
+        # filesystem tools.
         routes[route_prefix] = ReadOnlyFilesystemBackend(
-            root_dir=shared_skills_dir,
+            root_dir=skills_dir,
             virtual_mode=True,
         )
 

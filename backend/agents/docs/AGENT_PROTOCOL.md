@@ -5,7 +5,7 @@ This document defines the filesystem contract shared by `backend/gateway`,
 
 ## Goals
 
-- Keep one shared skills archive under `.openagents/skills/`.
+- Keep one archived skills library under `.openagents/skills/store/{dev,prod}/`.
 - Keep each agent's prompt and copied skills under its own archived directory.
 - Seed every run into the same agent-visible runtime paths under
   `/mnt/user-data/...`.
@@ -19,7 +19,6 @@ With the default `storage.base_dir: .openagents`, the host-side layout is:
 ```text
 .openagents/
 ├── skills/
-│   ├── shared/<skill>/SKILL.md
 │   └── store/
 │       ├── dev/<skill>/SKILL.md
 │       └── prod/<skill>/SKILL.md
@@ -38,7 +37,7 @@ With the default `storage.base_dir: .openagents`, the host-side layout is:
 
 Rules:
 
-- `.openagents/skills/` is the only maintained shared skill archive.
+- `.openagents/skills/store/{dev,prod}/` is the only maintained archived skill library.
 - Vertical or domain prompts belong in
   `.openagents/agents/{dev,prod}/{agent}/AGENTS.md`.
 - Agent-owned copied skills belong in
@@ -49,22 +48,22 @@ Rules:
 
 ### 1. Definition Layer
 
-Gateway owns archived agent definitions and shared skill references.
+Gateway owns archived agent definitions and archived skill references.
 
-- Shared reusable skills live under `.openagents/skills/{shared,store/dev,store/prod}/`.
+- Reusable archived skills live under `.openagents/skills/store/{dev,prod}/`.
 - Agent archives live under `.openagents/agents/{status}/{name}/`.
 - `config.yaml` stores normal agent metadata plus copied `skill_refs`.
 - Publishing is filesystem promotion from `dev` to `prod`.
 
 ### 2. Materialization Layer
 
-Materialization copies selected shared skills into an agent-owned archive:
+Materialization copies selected archived skills into an agent-owned archive:
 
 ```text
 .openagents/skills/... -> .openagents/agents/{status}/{name}/skills/...
 ```
 
-This prevents one agent from mutating the shared archive for every other agent.
+This prevents one agent from mutating the archived skill library for every other agent.
 
 ### 3. Runtime Layer
 
@@ -178,7 +177,7 @@ into prompts, skills, or agent-authored shell commands.
 
 ### Gateway
 
-- CRUD for agents and shared skill metadata
+- CRUD for agents and archived skill metadata
 - materialization into `.openagents/agents/{status}/{name}/`
 - publish flow from `dev` to `prod`
 
@@ -196,7 +195,7 @@ into prompts, skills, or agent-authored shell commands.
 
 ## Why This Split
 
-- Shared skills stay reusable and centrally managed.
+- Archived store skills stay reusable and centrally managed.
 - Agent prompts stay agent-owned.
 - `dev` and `prod` remain archive lifecycles, not execution modes.
 - Local debug, managed sandbox, k8s sandbox, and remote execution all share one

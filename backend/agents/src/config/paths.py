@@ -34,7 +34,6 @@ class Paths:
         │       ├── AGENTS.md
         │       └── skills/{skill-name}/SKILL.md
         ├── skills/                          # Global OpenAgents skills
-        │   ├── shared/{skill-name}/SKILL.md
         │   └── store/
         │       ├── dev/{skill-name}/SKILL.md
         │       └── prod/{skill-name}/SKILL.md
@@ -107,10 +106,6 @@ class Paths:
         if self._skills_dir is None:
             raise RuntimeError("Skills directory is not configured. Set skills.path in config.yaml or pass skills_dir explicitly.")
         return self._skills_dir
-
-    @property
-    def shared_skills_dir(self) -> Path:
-        return self.skills_dir / "shared"
 
     @property
     def store_dev_skills_dir(self) -> Path:

@@ -116,7 +116,7 @@ def _load_agent_payload(
 def validate_skill_directory(skill_dir: Path) -> None:
     _require_directory(skill_dir, label="skill source")
     skill_file = skill_dir / "SKILL.md"
-    parsed = parse_skill_file(skill_file, category="shared", relative_path=Path(skill_dir.name))
+    parsed = parse_skill_file(skill_file, category="store/dev", relative_path=Path(skill_dir.name))
     if parsed is None:
         raise ValueError(f"Valid SKILL.md is required: {skill_file}")
 
@@ -124,8 +124,6 @@ def validate_skill_directory(skill_dir: Path) -> None:
 def _existing_skill_scopes(*, skill_name: PurePosixPath, paths: Paths) -> tuple[str, ...]:
     relative_path = Path(skill_name.as_posix())
     scopes: list[str] = []
-    if (paths.shared_skills_dir / relative_path).is_dir():
-        scopes.append("shared")
     if (paths.store_dev_skills_dir / relative_path).is_dir():
         scopes.append("store/dev")
     if (paths.store_prod_skills_dir / relative_path).is_dir():
@@ -327,19 +325,6 @@ def push_skill_directory_to_prod(
     source_dir = paths.store_dev_skills_dir / Path(skill_path.as_posix())
     validate_skill_directory(source_dir)
     target_dir = paths.store_prod_skills_dir / Path(skill_path.as_posix())
-    return _copy_directory(source_dir, target_dir)
-
-
-def promote_skill_directory_to_shared(
-    skill_name: str,
-    *,
-    paths: Paths | None = None,
-) -> tuple[Path, Path | None]:
-    paths = paths or get_paths()
-    skill_path = _normalize_skill_path(skill_name)
-    source_dir = paths.store_prod_skills_dir / Path(skill_path.as_posix())
-    validate_skill_directory(source_dir)
-    target_dir = paths.shared_skills_dir / Path(skill_path.as_posix())
     return _copy_directory(source_dir, target_dir)
 
 

@@ -1,5 +1,21 @@
-const BASE_URL =
-  import.meta.env.VITE_GATEWAY_BASE_URL || "http://localhost:8001";
+function trimTrailingSlash(url: string) {
+  return url.replace(/\/+$/, "");
+}
+
+function resolveBaseURL() {
+  const configured = import.meta.env.VITE_GATEWAY_BASE_URL;
+  if (configured && configured.trim() !== "") {
+    return trimTrailingSlash(configured);
+  }
+
+  if (typeof window !== "undefined") {
+    return window.location.origin;
+  }
+
+  return "http://localhost:8001";
+}
+
+const BASE_URL = resolveBaseURL();
 
 type RequestOptions = Omit<RequestInit, "body"> & {
   body?: unknown;

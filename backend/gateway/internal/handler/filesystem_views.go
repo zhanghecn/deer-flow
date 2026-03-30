@@ -83,11 +83,8 @@ func skillScopeRoots(fsStore *storage.FS, status string) map[string]string {
 		return map[string]string{"store/dev": fsStore.StoreDevSkillsDir()}
 	case "prod":
 		return map[string]string{"store/prod": fsStore.StoreProdSkillsDir()}
-	case "shared":
-		return map[string]string{"shared": fsStore.SharedSkillsDir()}
 	default:
 		return map[string]string{
-			"shared":     fsStore.SharedSkillsDir(),
 			"store/dev":  fsStore.StoreDevSkillsDir(),
 			"store/prod": fsStore.StoreProdSkillsDir(),
 		}

@@ -410,8 +410,7 @@ export function AgentSettingsDialog({
   const [savedForm, setSavedForm] = useState<AgentSettingsFormState | null>(
     null,
   );
-  const [skillsCategory, setSkillsCategory] = useState<SkillScope>("shared");
-  const allowSharedSkillSelection = isLeadAgent(agentName);
+  const [skillsCategory, setSkillsCategory] = useState<SkillScope>("store/dev");
 
   const launchPath = useMemo(
     () =>
@@ -439,8 +438,8 @@ export function AgentSettingsDialog({
     [agent?.skills, form?.skillRefs],
   );
   const allowedSkillScopes = useMemo(
-    () => getAllowedSkillScopesForAgent(agentStatus, allowSharedSkillSelection),
-    [agentStatus, allowSharedSkillSelection],
+    () => getAllowedSkillScopesForAgent(agentStatus),
+    [agentStatus],
   );
   const duplicateSkillNames = useMemo(
     () => getDuplicateSkillNames(availableSkills, allowedSkillScopes),
@@ -454,7 +453,6 @@ export function AgentSettingsDialog({
           return false;
         }
         if (
-          !allowSharedSkillSelection &&
           agentStatus === "dev" &&
           duplicateSkillNames.has(skill.name)
         ) {
@@ -464,7 +462,6 @@ export function AgentSettingsDialog({
       }),
     [
       agentStatus,
-      allowSharedSkillSelection,
       allowedSkillScopes,
       availableSkills,
       duplicateSkillNames,
@@ -518,7 +515,7 @@ export function AgentSettingsDialog({
       return;
     }
     setActiveTab("profile");
-    setSkillsCategory("shared");
+    setSkillsCategory("store/dev");
   }, [agentName, agentStatus, open]);
 
   useEffect(() => {
@@ -1095,17 +1092,15 @@ export function AgentSettingsDialog({
 
                     <TabsContent value="skills" className="m-0 space-y-6">
                       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_320px]">
-                        <SurfaceCard
-                          eyebrow={<SparklesIcon className="size-4" />}
-                          title={text.copiedSkillsTitle}
-                          description={
-                            allowSharedSkillSelection
-                              ? text.copiedSkillsDescriptionShared
-                              : agentStatus === "prod"
+                          <SurfaceCard
+                            eyebrow={<SparklesIcon className="size-4" />}
+                            title={text.copiedSkillsTitle}
+                            description={
+                              agentStatus === "prod"
                                 ? text.copiedSkillsDescriptionProd
                                 : text.copiedSkillsDescriptionDev
-                          }
-                        >
+                            }
+                          >
                           <div className="flex flex-wrap gap-2">
                             {availableSkillCategories.map((category) => {
                               const active = category === skillsCategory;
@@ -1220,8 +1215,7 @@ export function AgentSettingsDialog({
                               })}
                             </div>
                           )}
-                          {!allowSharedSkillSelection &&
-                            agentStatus === "dev" &&
+                          {agentStatus === "dev" &&
                             duplicateSkillNames.size > 0 && (
                               <div className="text-muted-foreground border-border/70 bg-muted/25 rounded-2xl border px-4 py-3 text-xs leading-6">
                                 {text.hiddenDuplicateNames(
@@ -1287,11 +1281,7 @@ export function AgentSettingsDialog({
                             title={text.selectionRulesTitle}
                             description={text.selectionRulesDescription}
                           >
-                            {allowSharedSkillSelection ? (
-                              <p className="text-muted-foreground text-sm leading-6">
-                                {text.selectionRulesLeadAgent}
-                              </p>
-                            ) : agentStatus === "prod" ? (
+                            {agentStatus === "prod" ? (
                               <p className="text-muted-foreground text-sm leading-6">
                                 {text.selectionRulesProd}
                               </p>

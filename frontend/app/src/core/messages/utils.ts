@@ -41,10 +41,6 @@ export interface AssistantNextStep {
 }
 
 const NEXT_STEPS_BLOCK_RE = /<next_steps>\s*([\s\S]*?)\s*<\/next_steps>/i;
-const NEXT_STEP_AGENT_NAME_PATTERNS = [
-  /(?:切换到|切到|进入|使用)\s+([A-Za-z0-9-]+)\s*(?:智能体|agent)/i,
-  /(?:switch to|use|open|test)\s+([A-Za-z0-9-]+)\s+agent/i,
-];
 
 type MessageContentBlock = {
   type?: string;
@@ -234,6 +230,8 @@ export function extractNextStepsFromText(content: string): AssistantNextStep[] {
   }
 
   try {
+    // Next-step routing must come from machine-readable JSON fields, not from
+    // regex over the assistant's prose prompt.
     const parsed = JSON.parse(matched[1]);
     if (!Array.isArray(parsed)) {
       return [];
@@ -285,63 +283,6 @@ export function extractNextStepsFromText(content: string): AssistantNextStep[] {
   } catch {
     return [];
   }
-}
-
-function extractDraftAuthoringNames(
-  content: string,
-  kind: "skills" | "agents",
-): string[] {
-  const names = new Set<string>();
-  const pattern = new RegExp(
-    `/mnt/user-data/authoring/${kind}/([A-Za-z0-9._-]+)`,
-    "g",
-  );
-
-  for (const match of content.matchAll(pattern)) {
-    const name = match[1]?.trim();
-    if (name) {
-      names.add(name.toLowerCase());
-    }
-  }
-
-  return Array.from(names);
-}
-
-export function shouldKeepNextStepInCurrentThread(
-  content: string,
-  step: AssistantNextStep,
-) {
-  const prompt = step.prompt.trim().toLowerCase();
-  if (!prompt) {
-    return false;
-  }
-
-  for (const kind of ["skills", "agents"] as const) {
-    const draftNames = extractDraftAuthoringNames(content, kind);
-    if (draftNames.some((name) => prompt.includes(name))) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-export function inferAgentNameFromNextStepPrompt(
-  prompt: string,
-): string | undefined {
-  const normalizedPrompt = prompt.trim();
-  if (!normalizedPrompt) {
-    return undefined;
-  }
-
-  for (const pattern of NEXT_STEP_AGENT_NAME_PATTERNS) {
-    const matched = normalizedPrompt.match(pattern)?.[1]?.trim();
-    if (matched) {
-      return matched;
-    }
-  }
-
-  return undefined;
 }
 
 export function extractReasoningContentFromMessage(message: Message) {

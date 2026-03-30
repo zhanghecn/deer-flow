@@ -5,7 +5,6 @@ from unittest.mock import MagicMock
 
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
-from langchain.tools.tool_node import ToolCallRequest
 
 from src.agents.middlewares.question_discipline_middleware import (
     QuestionDisciplineMiddleware,
@@ -89,70 +88,32 @@ def test_question_discipline_middleware_adds_resume_prompt_after_answered_questi
     assert "Do not call `question` again for secondary scoping details" in captured[0].system_message.text
 
 
-def test_question_discipline_blocks_large_scale_research_tools_until_question():
+def test_question_discipline_does_not_heuristically_block_tools_from_user_text():
     middleware = QuestionDisciplineMiddleware()
-    request = ToolCallRequest(
-        tool_call={
-            "id": "tool-1",
-            "name": "web_search",
-            "args": {"query": "盲派案例"},
-        },
-        tool=None,
-        state={
-            "messages": [
-                HumanMessage(
-                    content=(
-                        "帮我收集所有盲派实战案例和理论，数量尽量上万，"
-                        "最后按不同 markdown 分类整理输出。"
-                    )
+    request = ModelRequest(
+        model=MagicMock(),
+        messages=[
+            HumanMessage(
+                content=(
+                    "帮我收集所有盲派实战案例和理论，数量尽量上万，"
+                    "最后按不同 markdown 分类整理输出。"
                 )
-            ]
-        },
+            )
+        ],
+        system_message=SystemMessage(content="You are helpful."),
+        tools=[],
         runtime=MagicMock(context={}),
+        state={"messages": []},
     )
 
-    response = middleware.wrap_tool_call(request, MagicMock())
+    captured: list[ModelRequest] = []
 
-    assert isinstance(response, ToolMessage)
-    assert response.tool_call_id == "tool-1"
-    assert "upfront `question` call" in str(response.content)
+    def handler(next_request: ModelRequest):
+        captured.append(next_request)
+        return ModelResponse(result=[AIMessage(content="ok")])
 
+    response = middleware.wrap_model_call(request, handler)
 
-def test_question_discipline_allows_tools_after_question_is_answered():
-    middleware = QuestionDisciplineMiddleware()
-    answered_question = json.dumps(
-        {
-            "kind": "question_result",
-            "request_id": "question-1",
-            "status": "answered",
-            "answers": [["公开案例优先"]],
-            "message": "User answered.",
-        },
-        ensure_ascii=False,
-    )
-    request = ToolCallRequest(
-        tool_call={
-            "id": "tool-2",
-            "name": "web_search",
-            "args": {"query": "盲派案例"},
-        },
-        tool=None,
-        state={
-            "messages": [
-                HumanMessage(
-                    content=(
-                        "帮我收集所有盲派实战案例和理论，数量尽量上万，"
-                        "最后按不同 markdown 分类整理输出。"
-                    )
-                ),
-                ToolMessage(content=answered_question, tool_call_id="question-1"),
-            ]
-        },
-        runtime=MagicMock(context={}),
-    )
-
-    handler = MagicMock(return_value="ok")
-    response = middleware.wrap_tool_call(request, handler)
-
-    assert response == "ok"
-    handler.assert_called_once_with(request)
+    assert response.result[-1].content == "ok"
+    assert len(captured) == 1
+    assert "question_discipline" in captured[0].system_message.text

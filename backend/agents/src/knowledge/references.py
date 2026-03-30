@@ -6,6 +6,8 @@ from typing import NamedTuple
 
 from src.knowledge.models import KnowledgeDocumentRecord
 
+# Parse explicit `@document`-style syntax only. Runtime KB routing must not
+# grow free-text heuristics that guess document targets from arbitrary prose.
 _LOOKUP_NORMALIZE_RE = re.compile(r"[^0-9A-Za-z\u4e00-\u9fff]+")
 _BRACKET_REFERENCE_RE = re.compile(
     r"(?:^|[\s([{（【])@(?:knowledge|kb|doc|document)\[([^\]\n]+)\]",

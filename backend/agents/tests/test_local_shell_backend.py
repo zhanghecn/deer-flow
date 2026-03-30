@@ -66,9 +66,9 @@ def test_execute_rewrites_virtual_paths_to_thread_root(tmp_path):
 
 def test_execute_rewrites_additional_virtual_paths(tmp_path):
     root = tmp_path / "thread" / "user-data"
-    shared_skills_dir = tmp_path / "shared-skills"
-    shared_skills_dir.mkdir(parents=True)
-    proof_file = shared_skills_dir / "proof.txt"
+    archived_skills_dir = tmp_path / "archived-skills"
+    archived_skills_dir.mkdir(parents=True)
+    proof_file = archived_skills_dir / "proof.txt"
     proof_file.write_text("shared", encoding="utf-8")
 
     backend = LocalShellBackend(
@@ -76,7 +76,7 @@ def test_execute_rewrites_additional_virtual_paths(tmp_path):
         virtual_mode=True,
         inherit_env=True,
         timeout=30,
-        execute_path_mappings={"/mnt/skills": shared_skills_dir},
+        execute_path_mappings={"/mnt/skills": archived_skills_dir},
     )
 
     result = backend.execute("cat /mnt/skills/proof.txt")

@@ -170,6 +170,7 @@ func TestFilterKnowledgeBasesForReadyDocuments(t *testing.T) {
 		ID: "base-ready",
 		Documents: []repository.KnowledgeDocumentRecord{
 			{ID: "doc-ready", Status: "ready"},
+			{ID: "doc-ready-degraded", Status: "ready_degraded"},
 			{ID: "doc-error", Status: "error"},
 		},
 	}
@@ -190,10 +191,17 @@ func TestFilterKnowledgeBasesForReadyDocuments(t *testing.T) {
 	if filtered[0].ID != "base-ready" {
 		t.Fatalf("filterKnowledgeBasesForReadyDocuments()[0].ID = %q, want %q", filtered[0].ID, "base-ready")
 	}
-	if len(filtered[0].Documents) != 1 {
-		t.Fatalf("filterKnowledgeBasesForReadyDocuments()[0].Documents len = %d, want 1", len(filtered[0].Documents))
+	if len(filtered[0].Documents) != 2 {
+		t.Fatalf("filterKnowledgeBasesForReadyDocuments()[0].Documents len = %d, want 2", len(filtered[0].Documents))
 	}
 	if filtered[0].Documents[0].ID != "doc-ready" {
 		t.Fatalf("filterKnowledgeBasesForReadyDocuments()[0].Documents[0].ID = %q, want %q", filtered[0].Documents[0].ID, "doc-ready")
+	}
+	if filtered[0].Documents[1].ID != "doc-ready-degraded" {
+		t.Fatalf(
+			"filterKnowledgeBasesForReadyDocuments()[0].Documents[1].ID = %q, want %q",
+			filtered[0].Documents[1].ID,
+			"doc-ready-degraded",
+		)
 	}
 }

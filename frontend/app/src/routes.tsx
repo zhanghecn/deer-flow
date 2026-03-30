@@ -18,6 +18,9 @@ const ThreadKnowledgePage = lazy(
 );
 const AgentsPage = lazy(() => import("@/app/workspace/agents/page"));
 const NewAgentPage = lazy(() => import("@/app/workspace/agents/new/page"));
+const AgentSettingsPage = lazy(
+  () => import("@/app/workspace/agents/[agent_name]/settings/page"),
+);
 const AgentChatPage = lazy(
   () =>
     import(
@@ -136,6 +139,14 @@ export function AppRoutes() {
             element={
               <PageSuspense>
                 <NewAgentPage />
+              </PageSuspense>
+            }
+          />
+          <Route
+            path="agents/:agent_name/settings"
+            element={
+              <PageSuspense>
+                <AgentSettingsPage />
               </PageSuspense>
             }
           />

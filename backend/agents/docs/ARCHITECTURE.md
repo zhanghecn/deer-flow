@@ -87,7 +87,7 @@ Archived definitions live under `.openagents/`.
 
 ```text
 .openagents/
-├── skills/{shared,store/dev,store/prod}/...
+├── skills/store/{dev,prod}/...
 └── agents/{dev,prod}/{agent}/
     ├── AGENTS.md
     ├── config.yaml
@@ -96,7 +96,7 @@ Archived definitions live under `.openagents/`.
 
 Ownership rules:
 
-- Shared skills belong only in `.openagents/skills/`.
+- Archived reusable skills belong only in `.openagents/skills/store/{dev,prod}/`.
 - Vertical or domain prompt ownership belongs in
   `.openagents/agents/{dev,prod}/{agent}/AGENTS.md`.
 - Runtime copies are seeded from those archives into `/mnt/user-data/...`.
@@ -109,8 +109,9 @@ Used for local debugging on one machine.
 
 - `LocalShellBackend` is rooted at the thread's `user-data` directory.
 - Path rewriting preserves the `/mnt/user-data/...` illusion.
-- Shared skills may still be mounted through the configured compatibility route,
-  but the active agent reads copied runtime skills from `/mnt/user-data/agents/...`.
+- Archived skills may still be exposed through the configured `/mnt/skills`
+  compatibility mount, but the active agent reads copied runtime skills from
+  `/mnt/user-data/agents/...`.
 
 ### Sandbox
 
@@ -217,7 +218,7 @@ sandbox, or remote, the trace shape should stay coherent.
 
 - One runtime backend protocol
 - One agent-visible path contract
-- One shared skills archive
+- One archived skills library
 - Agent-owned prompts and copied skills
 - No legacy host-path instructions in prompts or skills
 - Backend choice isolated from agent definition lifecycle

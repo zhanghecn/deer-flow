@@ -112,7 +112,7 @@ func TestListFilesystemSkillsPreservesAliasedSourcePath(t *testing.T) {
 	t.Parallel()
 
 	baseDir := filepath.Join(t.TempDir(), ".openagents")
-	skillDir := filepath.Join(baseDir, "skills", "shared", "vercel-deploy-claimable")
+	skillDir := filepath.Join(baseDir, "skills", "store", "prod", "vercel-deploy-claimable")
 	if err := os.MkdirAll(skillDir, 0755); err != nil {
 		t.Fatalf("mkdir skill dir: %v", err)
 	}
@@ -147,11 +147,11 @@ func TestListFilesystemSkillsPreservesAliasedSourcePath(t *testing.T) {
 	if got := skills[0].Name; got != "vercel-deploy" {
 		t.Fatalf("skills[0].Name = %q, want %q", got, "vercel-deploy")
 	}
-	if got := skills[0].Category; got != "shared" {
-		t.Fatalf("skills[0].Category = %q, want %q", got, "shared")
+	if got := skills[0].Category; got != "store/prod" {
+		t.Fatalf("skills[0].Category = %q, want %q", got, "store/prod")
 	}
-	if got := skills[0].SourcePath; got != "shared/vercel-deploy-claimable" {
-		t.Fatalf("skills[0].SourcePath = %q, want %q", got, "shared/vercel-deploy-claimable")
+	if got := skills[0].SourcePath; got != "store/prod/vercel-deploy-claimable" {
+		t.Fatalf("skills[0].SourcePath = %q, want %q", got, "store/prod/vercel-deploy-claimable")
 	}
 	if got := skills[0].DescriptionI18n["en-US"]; got != "Aliased skill" {
 		t.Fatalf("skills[0].DescriptionI18n[en-US] = %q, want %q", got, "Aliased skill")

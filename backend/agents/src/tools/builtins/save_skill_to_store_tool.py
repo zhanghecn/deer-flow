@@ -11,7 +11,6 @@ from src.tools.builtins.authoring_persistence import (
     resolve_runtime_source_path,
     save_skill_directory_to_store,
 )
-from src.utils.runtime_context import runtime_context_value
 
 logger = logging.getLogger(__name__)
 
@@ -19,22 +18,20 @@ logger = logging.getLogger(__name__)
 @tool
 def save_skill_to_store(
     runtime: ToolRuntime,
-    skill_name: str | None = None,
+    skill_name: str,
     source_path: str | None = None,
 ) -> Command:
     """Persist a drafted skill into `.openagents/skills/store/dev`.
 
     Args:
-        skill_name: Optional skill name or relative path under the skill store.
+        skill_name: Skill name or relative path under the skill store.
         source_path: Optional explicit runtime or absolute source directory path.
     """
 
-    resolved_skill_name = str(
-        skill_name
-        or runtime_context_value(runtime.context, "target_skill_name")
-        or ""
-    ).strip()
+    resolved_skill_name = str(skill_name or "").strip()
     try:
+        if not resolved_skill_name:
+            raise ValueError("save_skill_to_store requires explicit `skill_name`.")
         paths = get_paths()
         resolved_source = (
             resolve_runtime_source_path(runtime=runtime, source_path=source_path, paths=paths)

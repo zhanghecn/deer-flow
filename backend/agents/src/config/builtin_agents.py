@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 LEAD_AGENT_NAME = "lead_agent"
 RESERVED_AGENT_NAMES = frozenset({LEAD_AGENT_NAME})
-_DEFAULT_LEAD_AGENT_SHARED_SKILL_NAMES = ("bootstrap",)
+_DEFAULT_LEAD_AGENT_PROD_SKILL_NAMES = ("bootstrap",)
 
 _BUILTIN_LEAD_AGENT_AGENTS_MD = Path(__file__).resolve().parents[1] / "agents" / "lead_agent" / "AGENTS.md"
 _ENSURED_ARCHIVES: set[tuple[str, str]] = set()
@@ -42,10 +42,10 @@ def _load_config_data(config_path: Path) -> dict[str, object]:
 def _default_lead_agent_skill_refs(paths: Paths) -> list["AgentSkillRef"]:
     from src.config.agents_config import AgentSkillRef
 
-    shared_skills_by_name = {
+    prod_skills_by_name = {
         skill.name: skill
         for skill in load_skills(skills_path=paths.skills_dir, use_config=False, enabled_only=False)
-        if skill.category == "shared" and skill.name in _DEFAULT_LEAD_AGENT_SHARED_SKILL_NAMES
+        if skill.category == "store/prod" and skill.name in _DEFAULT_LEAD_AGENT_PROD_SKILL_NAMES
     }
 
     return [
@@ -53,8 +53,8 @@ def _default_lead_agent_skill_refs(paths: Paths) -> list["AgentSkillRef"]:
             name=skill.name,
             source_path=Path(skill.category, skill.skill_path or skill.skill_dir.name).as_posix(),
         )
-        for skill_name in _DEFAULT_LEAD_AGENT_SHARED_SKILL_NAMES
-        for skill in [shared_skills_by_name.get(skill_name)]
+        for skill_name in _DEFAULT_LEAD_AGENT_PROD_SKILL_NAMES
+        for skill in [prod_skills_by_name.get(skill_name)]
         if skill is not None
     ]
 
@@ -98,7 +98,6 @@ def _copy_builtin_skills(*, paths: Paths, status: str, skill_refs: list["AgentSk
         skill_refs=skill_refs,
         target_status=status,
         paths=paths,
-        allow_shared=True,
     )
     return [serialize_agent_skill_ref(skill_ref) for skill_ref in materialized_refs]
 

@@ -14,9 +14,11 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool
 from langgraph.types import Command
 
+from src.config.builtin_agents import LEAD_AGENT_NAME, normalize_effective_agent_name
 from src.utils.runtime_context import runtime_context_value
 
 _BLOCKED_CREATE_AGENT_TOOLS = frozenset({"write_file", "edit_file"})
+_BLOCKED_SELF_AGENT_MUTATION_TOOLS = frozenset({"write_file", "edit_file"})
 _PROTECTED_AUTHORING_ROOTS = (
     "/mnt/user-data/agents",
     "/mnt/user-data/authoring/agents",
@@ -29,6 +31,8 @@ _FORBIDDEN_HOST_PATH_HINTS = (
     "/root/.agents",
     "/home/user/.local",
 )
+_SKILL_LIBRARY_ROOT = "/mnt/skills"
+_SKILL_STORE_ROOT = "/mnt/skills/store"
 _CANONICAL_RUNTIME_TOP_LEVEL_DIRS = frozenset(
     {
         "agents",
@@ -57,12 +61,28 @@ _READ_ONLY_SHELL_SEGMENT_COMMANDS = frozenset(
         "wc",
     }
 )
+_READ_ONLY_CREATE_AGENT_TOOLS = frozenset(
+    {
+        "glob",
+        "grep",
+        "list_dir",
+        "ls",
+        "read_file",
+    }
+)
 _CREATE_AGENT_GUARD_ERROR = (
     "Error: `/create-agent` must use `setup_agent` for agent and skill materialization. "
     "Use canonical runtime roots only: `/mnt/user-data/agents/...`, `/mnt/user-data/authoring/...`, "
-    "`/mnt/user-data/uploads`, `/mnt/user-data/workspace`, and `/mnt/user-data/outputs`. "
+    "`/mnt/user-data/uploads`, `/mnt/user-data/workspace`, `/mnt/user-data/outputs`, and "
+    "read-only archived skill discovery under `/mnt/skills/store/...`. "
     "Do not invent alternate paths such as `/mnt/user-data/agentz`, and do not read or write "
-    "host/package paths like `/agents`, `/app`, raw `/mnt`, `.openagents`, or `~/.agents` with filesystem tools."
+    "host/package paths like `/agents`, `/app`, raw `/mnt` outside those roots, `.openagents`, "
+    "or `~/.agents` with filesystem tools."
+)
+_SELF_AGENT_PERSISTENCE_GUARD_ERROR = (
+    "Error: updating the current dev agent must persist through `setup_agent`, not by mutating "
+    "the thread-local runtime copy under `/mnt/user-data/agents/...`. Read the current AGENTS.md "
+    "or owned SKILL.md first, then call `setup_agent` with the full updated content."
 )
 _DIRECT_AUTHORING_HELPER_TOOLS = frozenset({"question", "present_files", "view_image"})
 
@@ -85,11 +105,14 @@ def _runtime_authoring_actions(runtime_context: object) -> tuple[str, ...]:
 
 def should_enforce_setup_agent_guard(runtime_context: object) -> bool:
     command_name = runtime_context_value(runtime_context, "command_name")
-    if str(command_name or "").strip() != "create-agent":
-        return False
+    return str(command_name or "").strip() == "create-agent"
 
-    target_agent_name = runtime_context_value(runtime_context, "target_agent_name")
-    return bool(str(target_agent_name or "").strip())
+
+def should_enforce_self_agent_persistence_guard(runtime_context: object) -> bool:
+    if _normalize_text(runtime_context_value(runtime_context, "agent_status")) != "dev":
+        return False
+    current_agent = normalize_effective_agent_name(runtime_context_value(runtime_context, "agent_name"))
+    return current_agent != LEAD_AGENT_NAME
 
 
 def should_enforce_direct_authoring_guard(runtime_context: object) -> bool:
@@ -132,13 +155,23 @@ def is_protected_create_agent_path(file_path: object) -> bool:
     return False
 
 
-def uses_forbidden_create_agent_host_path(value: object) -> bool:
+def uses_forbidden_create_agent_host_path(
+    value: object,
+    *,
+    allow_skill_library_reads: bool = False,
+) -> bool:
     normalized = _normalize_text(value).lower()
     if not normalized:
         return False
     if any(hint in normalized for hint in _FORBIDDEN_HOST_PATH_HINTS):
         return True
-    return any(not _is_allowed_runtime_path(token) for token in _absolute_path_tokens(normalized))
+    for token in _absolute_path_tokens(normalized):
+        if _is_allowed_runtime_path(token):
+            continue
+        if allow_skill_library_reads and _is_allowed_skill_library_path(token):
+            continue
+        return True
+    return False
 
 
 def _absolute_path_tokens(value: str) -> tuple[str, ...]:
@@ -161,7 +194,20 @@ def _is_allowed_runtime_path(path: str) -> bool:
     return first_segment in _CANONICAL_RUNTIME_TOP_LEVEL_DIRS
 
 
-def uses_forbidden_create_agent_path_arg(value: object) -> bool:
+def _is_allowed_skill_library_path(path: str) -> bool:
+    normalized = _normalize_text(path).lower()
+    if normalized == _SKILL_LIBRARY_ROOT:
+        return True
+    if normalized == _SKILL_STORE_ROOT:
+        return True
+    return normalized.startswith(f"{_SKILL_STORE_ROOT}/")
+
+
+def uses_forbidden_create_agent_path_arg(
+    value: object,
+    *,
+    allow_skill_library_reads: bool = False,
+) -> bool:
     normalized = _normalize_text(value).lower()
     if not normalized:
         return False
@@ -169,7 +215,27 @@ def uses_forbidden_create_agent_path_arg(value: object) -> bool:
         return True
     if not normalized.startswith("/"):
         return False
-    return not _is_allowed_runtime_path(normalized)
+    if _is_allowed_runtime_path(normalized):
+        return False
+    if allow_skill_library_reads and _is_allowed_skill_library_path(normalized):
+        return False
+    return True
+
+
+def _current_runtime_agent_root(runtime_context: object) -> str | None:
+    current_agent = normalize_effective_agent_name(runtime_context_value(runtime_context, "agent_name"))
+    agent_status = _normalize_text(runtime_context_value(runtime_context, "agent_status")) or "dev"
+    if current_agent == LEAD_AGENT_NAME:
+        return None
+    return f"/mnt/user-data/agents/{agent_status}/{current_agent}".lower()
+
+
+def is_current_agent_runtime_path(file_path: object, runtime_context: object) -> bool:
+    normalized = _normalize_text(file_path).lower()
+    runtime_root = _current_runtime_agent_root(runtime_context)
+    if not normalized or not runtime_root:
+        return False
+    return normalized == runtime_root or normalized.startswith(f"{runtime_root}/")
 
 
 def _tool_call_args(tool_call: object) -> dict[str, Any]:
@@ -220,6 +286,7 @@ def blocked_create_agent_tool_message(request: ToolCallRequest) -> ToolMessage |
 
     tool_name = _normalize_text(request.tool_call.get("name") if isinstance(request.tool_call, dict) else None)
     tool_args = _tool_call_args(request.tool_call)
+    allow_skill_library_reads = tool_name in _READ_ONLY_CREATE_AGENT_TOOLS
 
     if tool_name in _BLOCKED_CREATE_AGENT_TOOLS:
         file_path = tool_args.get("file_path")
@@ -235,7 +302,10 @@ def blocked_create_agent_tool_message(request: ToolCallRequest) -> ToolMessage |
             )
 
     for key in ("path", "pattern", "glob", "file_path"):
-        if uses_forbidden_create_agent_path_arg(tool_args.get(key)):
+        if uses_forbidden_create_agent_path_arg(
+            tool_args.get(key),
+            allow_skill_library_reads=allow_skill_library_reads,
+        ):
             return ToolMessage(
                 content=_CREATE_AGENT_GUARD_ERROR,
                 tool_call_id=request.tool_call["id"],
@@ -253,9 +323,43 @@ def blocked_create_agent_tool_message(request: ToolCallRequest) -> ToolMessage |
             content=_CREATE_AGENT_GUARD_ERROR,
             tool_call_id=request.tool_call["id"],
         )
-    if uses_forbidden_create_agent_host_path(normalized_command):
+    if uses_forbidden_create_agent_host_path(
+        normalized_command,
+        allow_skill_library_reads=is_read_only_create_agent_shell_command(command),
+    ):
         return ToolMessage(
             content=_CREATE_AGENT_GUARD_ERROR,
+            tool_call_id=request.tool_call["id"],
+        )
+
+    return None
+
+
+def blocked_self_agent_persistence_tool_message(request: ToolCallRequest) -> ToolMessage | None:
+    runtime_context = getattr(request.runtime, "context", None)
+    if not should_enforce_self_agent_persistence_guard(runtime_context):
+        return None
+
+    tool_name = _normalize_text(request.tool_call.get("name") if isinstance(request.tool_call, dict) else None)
+    tool_args = _tool_call_args(request.tool_call)
+
+    if tool_name in _BLOCKED_SELF_AGENT_MUTATION_TOOLS and is_current_agent_runtime_path(
+        tool_args.get("file_path"),
+        runtime_context,
+    ):
+        return ToolMessage(
+            content=_SELF_AGENT_PERSISTENCE_GUARD_ERROR,
+            tool_call_id=request.tool_call["id"],
+        )
+
+    if tool_name != "execute":
+        return None
+
+    command = _normalize_text(tool_args.get("command"))
+    runtime_root = _current_runtime_agent_root(runtime_context)
+    if runtime_root and runtime_root in command.lower() and not is_read_only_create_agent_shell_command(command):
+        return ToolMessage(
+            content=_SELF_AGENT_PERSISTENCE_GUARD_ERROR,
             tool_call_id=request.tool_call["id"],
         )
 
@@ -356,6 +460,9 @@ class AuthoringGuardMiddleware(AgentMiddleware):
         request: ToolCallRequest,
         handler: Callable[[ToolCallRequest], ToolMessage | Command],
     ) -> ToolMessage | Command:
+        blocked = blocked_self_agent_persistence_tool_message(request)
+        if blocked is not None:
+            return blocked
         blocked = blocked_direct_authoring_tool_message(request)
         if blocked is not None:
             return blocked
@@ -370,6 +477,9 @@ class AuthoringGuardMiddleware(AgentMiddleware):
         request: ToolCallRequest,
         handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]],
     ) -> ToolMessage | Command:
+        blocked = blocked_self_agent_persistence_tool_message(request)
+        if blocked is not None:
+            return blocked
         blocked = blocked_direct_authoring_tool_message(request)
         if blocked is not None:
             return blocked

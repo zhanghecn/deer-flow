@@ -51,6 +51,30 @@ export function buildWorkspaceAgentPath(
   return query ? `${pathname}?${query}` : pathname;
 }
 
+export function buildWorkspaceAgentSettingsPath(
+  selection: AgentRuntimeSelection,
+): string {
+  const params = new URLSearchParams();
+  const normalizedAgentName = selection.agentName?.trim();
+  const agentName =
+    normalizedAgentName && normalizedAgentName.length > 0
+      ? normalizedAgentName
+      : "lead_agent";
+  const agentStatus = selection.agentStatus ?? "dev";
+
+  params.set("agent_status", agentStatus);
+  if (selection.executionBackend === "remote") {
+    params.set("execution_backend", "remote");
+  }
+  if (selection.remoteSessionId?.trim()) {
+    params.set("remote_session_id", selection.remoteSessionId.trim());
+  }
+
+  const pathname = `/workspace/agents/${encodeURIComponent(agentName)}/settings`;
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
+}
+
 export function appendWorkspacePromptParams(
   basePath: string,
   {

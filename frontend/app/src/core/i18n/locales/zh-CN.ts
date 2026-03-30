@@ -59,7 +59,6 @@ export const zhCN: Translations = {
     saveSkillToStore: "将当前草稿技能保存到开发仓库",
     pushAgentProd: "将当前开发智能体发布到生产环境",
     pushSkillProd: "将当前开发技能发布到生产环境",
-    promoteSkillShared: "将当前技能推广到共享技能归档",
   },
 
   // Welcome

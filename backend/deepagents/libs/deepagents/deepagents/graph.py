@@ -141,6 +141,7 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
     debug: bool = False,
     name: str | None = None,
     cache: BaseCache | None = None,
+    todo_enabled: bool = True,
 ) -> CompiledStateGraph:
     """Create a deep agent.
 
@@ -226,6 +227,11 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
         debug: Whether to enable debug mode. Passed through to `create_agent`.
         name: The name of the agent. Passed through to `create_agent`.
         cache: The cache to use for the agent. Passed through to `create_agent`.
+        todo_enabled:
+            Whether to include `TodoListMiddleware` and the `write_todos` tool.
+
+            Disable this for direct-execution runtimes where planner/todo
+            behavior should only appear after an explicit opt-in.
 
     Returns:
         A configured deep agent.
@@ -235,13 +241,17 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
     backend = backend if backend is not None else (StateBackend)
 
     # Build general-purpose subagent with default middleware stack
-    gp_middleware: list[AgentMiddleware[Any, Any, Any]] = [
-        TodoListMiddleware(),
-        FilesystemMiddleware(backend=backend),
-        create_summarization_middleware(model, backend),
-        AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
-        PatchToolCallsMiddleware(),
-    ]
+    gp_middleware: list[AgentMiddleware[Any, Any, Any]] = []
+    if todo_enabled:
+        gp_middleware.append(TodoListMiddleware())
+    gp_middleware.extend(
+        [
+            FilesystemMiddleware(backend=backend),
+            create_summarization_middleware(model, backend),
+            AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
+            PatchToolCallsMiddleware(),
+        ]
+    )
     if skills is not None:
         gp_middleware.append(SkillsMiddleware(backend=backend, sources=skills))
     if interrupt_on is not None:
@@ -268,13 +278,17 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
             subagent_model = resolve_model(subagent_model)
 
             # Build middleware: base stack + skills (if specified) + user's middleware
-            subagent_middleware: list[AgentMiddleware[Any, Any, Any]] = [
-                TodoListMiddleware(),
-                FilesystemMiddleware(backend=backend),
-                create_summarization_middleware(subagent_model, backend),
-                AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
-                PatchToolCallsMiddleware(),
-            ]
+            subagent_middleware: list[AgentMiddleware[Any, Any, Any]] = []
+            if todo_enabled:
+                subagent_middleware.append(TodoListMiddleware())
+            subagent_middleware.extend(
+                [
+                    FilesystemMiddleware(backend=backend),
+                    create_summarization_middleware(subagent_model, backend),
+                    AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
+                    PatchToolCallsMiddleware(),
+                ]
+            )
             subagent_skills = spec.get("skills")
             if subagent_skills:
                 subagent_middleware.append(SkillsMiddleware(backend=backend, sources=subagent_skills))
@@ -294,9 +308,9 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
         all_subagents.insert(0, general_purpose_spec)
 
     # Build main agent middleware stack
-    deepagent_middleware: list[AgentMiddleware[Any, Any, Any]] = [
-        TodoListMiddleware(),
-    ]
+    deepagent_middleware: list[AgentMiddleware[Any, Any, Any]] = []
+    if todo_enabled:
+        deepagent_middleware.append(TodoListMiddleware())
     if memory is not None:
         deepagent_middleware.append(MemoryMiddleware(backend=backend, sources=memory))
     if skills is not None:

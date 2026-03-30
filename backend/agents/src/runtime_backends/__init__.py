@@ -3,7 +3,7 @@ from .factory import (
     build_runtime_workspace_backend,
     resolve_runtime_backend_kind,
 )
-from .local import build_local_workspace_backend, normalize_route_prefix, resolve_shared_skills_mount
+from .local import build_local_workspace_backend, normalize_route_prefix, resolve_skills_mount
 from .remote import (
     DEFAULT_REMOTE_OPERATION_TIMEOUT_SECONDS,
     REMOTE_EXECUTION_BACKEND,
@@ -33,6 +33,5 @@ __all__ = [
     "resolve_default_execution_backend",
     "resolve_runtime_backend_kind",
     "resolve_sandbox_provider",
-    "resolve_shared_skills_mount",
+    "resolve_skills_mount",
 ]
-

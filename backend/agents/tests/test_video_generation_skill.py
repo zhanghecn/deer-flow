@@ -7,7 +7,7 @@ import pytest
 import requests
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-MODULE_PATH = REPO_ROOT / ".openagents/skills/shared/video-generation/scripts/generate.py"
+MODULE_PATH = REPO_ROOT / ".openagents/skills/store/prod/video-generation/scripts/generate.py"
 
 
 class FakeResponse:

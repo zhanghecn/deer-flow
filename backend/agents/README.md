@@ -62,7 +62,7 @@ The single LangGraph agent (`lead_agent`) is the runtime entry point, created vi
 
 Custom agents now follow one filesystem protocol:
 
-- Shared skills live only in `.openagents/skills/{shared,store/dev,store/prod}/`
+- Archived reusable skills live only in `.openagents/skills/store/{dev,prod}/`
 - Each agent owns its own archive under `.openagents/agents/{status}/{name}/`
 - Vertical or domain prompts belong in `.openagents/agents/{status}/{name}/AGENTS.md`
 - Selected skills are copied into `.openagents/agents/{status}/{name}/skills/`
@@ -254,7 +254,7 @@ Important variables:
   optional secret; only needed when `config.yaml` sets `runtime.edition=postgres`
 - `config.yaml`:
   non-secret runtime config such as `runtime.edition`, `sandbox`, `storage`,
-  shared skills path, and tool registration
+  archived skills path, and tool registration
 - Header pass-through (`x-user-id`, `x-thread-id`) is configured in
   `backend/agents/langgraph.json`:
   `http.configurable_headers.includes`

@@ -743,9 +743,9 @@ You have access to a skills library that provides specialized capabilities and d
 Skills follow a **progressive disclosure** pattern - you see their name and description above, but only load full instructions when needed:
 
 1. **Recognize when a skill applies**: Check if the user's task matches a skill's description
-2. **Load the skill's full instructions**: Call the `skill` tool for the selected skill
-3. **Follow the skill's instructions**: Tool output contains the full SKILL.md workflow plus a runtime base directory for helper files
-4. **Access supporting files**: After loading a skill, resolve any `scripts/...`, `templates/...`, `references/...`, or other relative paths from the runtime base directory returned by the `skill` tool
+2. **Load the skill's full instructions**: Read the listed `SKILL.md` path with your normal file-reading tools
+3. **Follow the skill's instructions**: Treat the containing directory of that `SKILL.md` as the skill base directory
+4. **Access supporting files**: Resolve any `scripts/...`, `templates/...`, `references/...`, or other relative helper paths from that skill base directory
 
 **When to Use Skills:**
 - User's request matches a skill's domain (e.g., "research X" -> web-research skill)
@@ -757,8 +757,8 @@ Skills follow a **progressive disclosure** pattern - you see their name and desc
 User: "Can you research the latest developments in quantum computing?"
 
 1. Check available skills -> See "web-research" skill in the list
-2. Call `skill(name="web-research")`
-3. Treat the returned runtime base directory as the skill base directory
+2. Read the listed `SKILL.md` path for `web-research`
+3. Treat that file's containing directory as the skill base directory
 4. Follow the skill's workflow and resolve any relative helper paths from that base directory
 
 Remember: Skills make you more capable and consistent. When in doubt, check if a skill exists for the task!
@@ -861,6 +861,7 @@ class SkillsMiddleware(AgentMiddleware[SkillsState, ContextT, ResponseT]):
         for skill in skills:
             annotations = _format_skill_annotations(skill)
             source_hint = _skill_source_hint(skill)
+            skill_path = str(skill.get("path") or "").strip()
             desc_line = f"- **{skill['name']}**: {skill['description']}"
             if source_hint:
                 desc_line += f" [source: {source_hint}]"
@@ -869,7 +870,8 @@ class SkillsMiddleware(AgentMiddleware[SkillsState, ContextT, ResponseT]):
             lines.append(desc_line)
             if skill["allowed_tools"]:
                 lines.append(f"  -> Allowed tools: {', '.join(skill['allowed_tools'])}")
-            lines.append(f"  -> Load with `skill(name=\"{skill['name']}\")` when needed")
+            if skill_path:
+                lines.append(f"  -> Read `{skill_path}` when needed")
 
         return "\n".join(lines)
 

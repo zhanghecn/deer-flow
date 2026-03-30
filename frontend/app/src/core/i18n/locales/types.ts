@@ -47,7 +47,6 @@ export interface Translations {
     saveSkillToStore: string;
     pushAgentProd: string;
     pushSkillProd: string;
-    promoteSkillShared: string;
   };
 
   // Welcome

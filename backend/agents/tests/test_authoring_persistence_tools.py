@@ -6,7 +6,6 @@ import pytest
 from src.config.paths import Paths
 from src.tools.builtins.authoring_persistence import (
     install_registry_skill_to_store,
-    promote_skill_directory_to_shared,
     push_agent_directory_to_prod,
     push_skill_directory_to_prod,
     save_agent_directory_to_store,
@@ -114,30 +113,6 @@ def test_install_registry_skill_to_store_rejects_existing_scope_conflicts(tmp_pa
         )
 
 
-def test_install_registry_skill_to_store_allows_shared_name_when_dev_store_is_missing(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-):
-    paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
-    _write_skill(paths.shared_skills_dir / "copywriting", "copywriting")
-
-    def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        home = Path(str((kwargs.get("env") or {}).get("HOME")))
-        _write_skill(home / ".agents" / "skills" / "copywriting", "copywriting", "Marketing copywriting")
-        return subprocess.CompletedProcess(args=args, returncode=0, stdout="ok", stderr="")
-
-    monkeypatch.setattr("src.tools.builtins.authoring_persistence.subprocess.run", fake_run)
-
-    installed_name, target_dir = install_registry_skill_to_store(
-        source="coreyhaines31/marketingskills@copywriting",
-        paths=paths,
-    )
-
-    assert installed_name == "copywriting"
-    assert target_dir == paths.store_dev_skills_dir / "copywriting"
-    assert (target_dir / "SKILL.md").exists()
-
-
 def test_install_registry_skill_to_store_reports_meaningful_cli_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -229,15 +204,3 @@ def test_push_skill_directory_to_prod_requires_dev_source(tmp_path: Path):
 
     with pytest.raises(FileNotFoundError, match="store/dev"):
         push_skill_directory_to_prod("missing-skill", paths=paths)
-
-
-def test_promote_skill_directory_to_shared_copies_prod_skill(tmp_path: Path):
-    paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
-    prod_dir = paths.store_prod_skills_dir / "contract-risk-rating"
-    _write_skill(prod_dir, "contract-risk-rating", "Contract risk rating")
-
-    target_dir, backup_dir = promote_skill_directory_to_shared("contract-risk-rating", paths=paths)
-
-    assert backup_dir is None
-    assert target_dir == paths.shared_skills_dir / "contract-risk-rating"
-    assert (target_dir / "SKILL.md").exists()

@@ -7,6 +7,7 @@ import asyncio
 import pytest
 
 from src.agents.lead_agent import agent as lead_agent_module
+from src.agents.middlewares.runtime_command_middleware import RuntimeCommandMiddleware
 from src.config.builtin_agents import LEAD_AGENT_NAME
 from src.config.model_config import ModelConfig
 from src.config.paths import Paths
@@ -544,6 +545,7 @@ def test_resolve_lead_agent_runtime_uses_persisted_thread_agent_runtime(monkeypa
             thinking_enabled=True,
             reasoning_effort="high",
             requested_model_name=None,
+            is_plan_mode=False,
             subagent_enabled=False,
             max_concurrent_subagents=3,
             command_name=None,
@@ -552,7 +554,6 @@ def test_resolve_lead_agent_runtime_uses_persisted_thread_agent_runtime(monkeypa
             command_prompt=None,
             authoring_actions=(),
             target_agent_name=None,
-            target_skill_name=None,
             agent_name=LEAD_AGENT_NAME,
             agent_status="dev",
             thread_id="thread-1",
@@ -662,6 +663,7 @@ def test_make_lead_agent_reuses_cached_graph_for_identical_request(monkeypatch, 
 
     assert first is second
     assert len(create_calls) == 1
+    assert create_calls[0]["todo_enabled"] is False
     assert store.saved == [("thread-1", "user-1", "safe-model", LEAD_AGENT_NAME)]
 
 
@@ -745,6 +747,57 @@ def test_make_lead_agent_rebuilds_cached_graph_when_model_config_changes(monkeyp
     assert len(create_calls) == 2
 
 
+def test_make_lead_agent_passes_todo_enabled_when_plan_mode_is_explicit(monkeypatch, tmp_path):
+    lead_agent_module._clear_lead_agent_graph_cache()
+    store = _FakeDBStore(models={"safe-model": _make_model("safe-model", supports_thinking=True)})
+
+    import src.tools as tools_module
+
+    monkeypatch.setattr(
+        lead_agent_module,
+        "get_paths",
+        lambda: Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / "skills"),
+    )
+    monkeypatch.setattr(lead_agent_module, "get_runtime_db_store", lambda: store)
+    monkeypatch.setattr(tools_module, "get_available_tools", lambda **kwargs: [])
+    monkeypatch.setattr(
+        lead_agent_module,
+        "build_backend",
+        lambda thread_id, agent_name, status="dev", agent_config=None, **kwargs: {"thread_id": thread_id},
+    )
+    monkeypatch.setattr(
+        lead_agent_module,
+        "_load_agent_runtime_config",
+        lambda **kwargs: _make_agent_config(),
+    )
+    monkeypatch.setattr(lead_agent_module, "apply_prompt_template", lambda **kwargs: "prompt")
+    monkeypatch.setattr(lead_agent_module, "create_chat_model", lambda **kwargs: object())
+
+    create_calls: list[dict[str, object]] = []
+
+    def _fake_create_deep_agent(**kwargs):
+        create_calls.append(kwargs)
+        return {"graph_id": len(create_calls)}
+
+    monkeypatch.setattr(lead_agent_module, "create_deep_agent", _fake_create_deep_agent)
+
+    config = {
+        "configurable": {
+            "thread_id": "thread-1",
+            "user_id": "user-1",
+            "model_name": "safe-model",
+            "thinking_enabled": True,
+            "is_plan_mode": True,
+            "subagent_enabled": False,
+        }
+    }
+
+    asyncio.run(lead_agent_module.make_lead_agent(config, runtime=None))
+
+    assert len(create_calls) == 1
+    assert create_calls[0]["todo_enabled"] is True
+
+
 def test_make_lead_agent_reuses_read_only_graph_across_threads(monkeypatch, tmp_path):
     lead_agent_module._clear_lead_agent_graph_cache()
     store = _FakeDBStore(models={"safe-model": _make_model("safe-model", supports_thinking=True)})
@@ -761,7 +814,7 @@ def test_make_lead_agent_reuses_read_only_graph_across_threads(monkeypatch, tmp_
     monkeypatch.setattr(
         lead_agent_module,
         "_build_local_workspace_backend",
-        lambda user_data_dir, shared_skills_mount=None: {"user_data_dir": user_data_dir},
+        lambda user_data_dir, skills_mount=None: {"user_data_dir": user_data_dir},
     )
     monkeypatch.setattr(
         lead_agent_module,
@@ -1056,12 +1109,11 @@ authoring_actions:
         )
     )
 
-    assert result["skills"] == []
+    assert "skills" not in result
     assert result["subagents"] is None
     assert result["context_schema"] is lead_agent_module.LeadAgentRuntimeContext
     assert "interrupt_on" not in result
-    assert captured_prompt_kwargs["command_name"] == "save-skill-to-store"
-    assert captured_prompt_kwargs["command_kind"] == "hard"
-    assert captured_prompt_kwargs["command_args"] == "nda-clause-checker"
-    assert captured_prompt_kwargs["authoring_actions"] == ("save_skill_to_store",)
-    assert "nda-clause-checker" in str(captured_prompt_kwargs["command_prompt"])
+    assert captured_prompt_kwargs["agent_name"] == LEAD_AGENT_NAME
+    assert captured_prompt_kwargs["agent_status"] == "dev"
+    assert "command_name" not in captured_prompt_kwargs
+    assert any(isinstance(middleware, RuntimeCommandMiddleware) for middleware in result["middleware"])

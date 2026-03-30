@@ -32,6 +32,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  buildWorkspaceAgentSettingsPath,
   useDeleteAgent,
   useDownloadAgentReactDemo,
   usePublishAgent,
@@ -39,9 +40,6 @@ import {
 import { buildWorkspaceAgentPath } from "@/core/agents";
 import type { Agent } from "@/core/agents";
 import { useI18n } from "@/core/i18n/hooks";
-
-import { AgentSettingsDialog } from "../agent-settings-dialog";
-
 interface AgentCardProps {
   agent: Agent;
 }
@@ -65,7 +63,6 @@ export function AgentCard({ agent }: AgentCardProps) {
   const downloadDemoMutation = useDownloadAgentReactDemo();
   const publishAgentMutation = usePublishAgent();
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [manageOpen, setManageOpen] = useState(false);
   const isProd = agent.status === "prod";
   const memoryEnabled = agent.memory?.enabled ?? false;
   const memoryLabel = getAgentMemoryBadgeLabel(agent, t);
@@ -114,6 +111,15 @@ export function AgentCard({ agent }: AgentCardProps) {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err));
     }
+  }
+
+  function handleOpenSettings() {
+    void navigate(
+      buildWorkspaceAgentSettingsPath({
+        agentName: agent.name,
+        agentStatus: agent.status,
+      }),
+    );
   }
 
   return (
@@ -180,7 +186,7 @@ export function AgentCard({ agent }: AgentCardProps) {
             <MessageSquareIcon className="mr-1.5 h-3.5 w-3.5" />
             {t.agents.chat}
           </Button>
-          <Button size="sm" variant="outline" onClick={() => setManageOpen(true)}>
+          <Button size="sm" variant="outline" onClick={handleOpenSettings}>
             <Settings2Icon className="mr-1.5 h-3.5 w-3.5" />
             {t.common.settings}
           </Button>
@@ -262,13 +268,6 @@ export function AgentCard({ agent }: AgentCardProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <AgentSettingsDialog
-        open={manageOpen}
-        onOpenChange={setManageOpen}
-        agentName={agent.name}
-        agentStatus={agent.status}
-      />
     </>
   );
 }

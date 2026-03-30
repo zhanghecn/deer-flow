@@ -5,7 +5,6 @@ from .parser import parse_skill_file
 from .types import Skill
 
 _SKILL_SCOPE_PATHS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("shared", ("shared",)),
     ("store/dev", ("store", "dev")),
     ("store/prod", ("store", "prod")),
 )

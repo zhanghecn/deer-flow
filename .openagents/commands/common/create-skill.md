@@ -26,6 +26,6 @@ authoring_actions: []
 - 当前回合结束时，必须给出简短结果说明，并附上 `<next_steps>`。只要 skill 已可测试，前两个 next-step 默认应分别是“测试 skill”和“创建 agent”。
 - “测试 skill” 这个 next-step 的 `prompt` 必须明确说明：使用当前线程内刚创建的 draft skill，并先读取 `/mnt/user-data/authoring/skills/<skill-name>/SKILL.md`。
 - “测试 skill” 这个 next-step 默认不要让后续回合去模拟、杜撰或自动生成一份示例合同。若当前线程里已有合适的真实上传文件，就直接用那个文件测试；若还没有真实文件，就让后续回合先提示用户上传或选择一份真实合同再开始测试。
-- “创建 agent” 这个 next-step 的 `prompt` 必须明确说明：agent 要基于当前线程内的 draft skill 创建，不能假设该 skill 已经发布到 store/shared。
+- “创建 agent” 这个 next-step 的 `prompt` 必须明确说明：agent 要基于当前线程内的 draft skill 创建，不能假设该 skill 已经发布到 store/dev 或 store/prod。
 - “创建 agent” 这个 next-step 应引导后续回合创建一个可直接切换测试的 `dev` agent，并生成正式 agent archive 所需的 `AGENTS.md`、`config.yaml` 和 copied skill。
 - 第三个可选 next-step 再考虑“优化 skill”或“保存 skill”；不要用“安装到当前 agent”替代“创建 agent”。

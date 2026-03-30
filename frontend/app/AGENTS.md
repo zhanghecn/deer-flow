@@ -4,6 +4,7 @@ Shared development guide for coding agents working in `frontend/app`.
 
 Read this doc before changing knowledge-base UI, citation preview behavior, or shared-library routes:
 @../../docs/architecture/knowledge-base.md
+@../../docs/architecture/runtime-semantic-boundary.md
 
 ## Overview
 
@@ -106,7 +107,10 @@ Important directories:
 - Use `authFetch()` for non-LangGraph APIs and `getAPIClient()` for LangGraph APIs.
 - Agent payloads use `agents_md` only.
 - Agent status values are `dev` and `prod`.
-- The new-agent bootstrap flow depends on forwarding `target_agent_name` through thread extra context. Do not re-introduce `is_bootstrap` or `soul` compatibility fields on the frontend side.
+- Slash commands are routing hints only. Do not parse free-form user text on the frontend to infer target agents, target skills, or other business entities.
+- The new-agent page may forward an explicit `target_agent_name` only because the UI already owns that value as a dedicated field. Do not re-introduce `is_bootstrap`, `soul`, or natural-language target inference on the frontend side.
+- Frontend may parse explicit syntax and machine-readable payloads such as slash tokens, `@document` mentions, and `<next_steps>` JSON.
+- Frontend must not read free-form user/assistant prose and infer runtime switching, next-step target agents, current-thread reuse, or other business behavior from that prose.
 
 ## Code Style
 

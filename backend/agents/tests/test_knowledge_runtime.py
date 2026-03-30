@@ -102,7 +102,7 @@ def test_build_knowledge_context_prompt_uses_thread_binding_fallback(monkeypatch
 
     assert "<knowledge_thread_bindings>" in prompt
     assert "1 ready knowledge document(s) attached across 1 knowledge base(s)" in prompt
-    assert "Do not rely on hidden document lists" in prompt
+    assert "call `list_knowledge_documents` instead of assuming hidden lists" in prompt
     assert "list_knowledge_documents" in prompt
     assert "annual-report.pdf" not in prompt
     assert "user-from-binding:thread-1" not in prompt
@@ -136,22 +136,21 @@ def test_build_knowledge_context_prompt_prioritizes_user_and_agent_document_targ
     assert "<knowledge_tool_protocol>" in prompt
     assert "User-explicit document targets for this turn" in prompt
     assert "annual-report.pdf [Finance]" in prompt
-    assert "Treat these explicit targets as a hard retrieval preference" in prompt
-    assert "Do not reuse an earlier turn's citation" in prompt
+    assert "Treat these explicit targets as the first retrieval choice" in prompt
+    assert "Refresh evidence in the current turn before answering" in prompt
     assert "max_depth=2" in prompt
     assert "root_cursor" in prompt
     assert "AGENTS.md default document targets when relevant" in prompt
     assert "board-deck-q4.md [Finance]" in prompt
     assert "get_document_evidence" in prompt
     assert "answer_requires_evidence=true" in prompt
-    assert "inline-ready image markdown" in prompt
     assert "display_markdown" in prompt
-    assert "inline the relevant `image_markdown` by default" in prompt
-    assert "use `get_document_evidence` before any `get_document_image(...)` or `view_image(...)` call" in prompt
-    assert "instead of opening the spill file" in prompt
-    assert "Avoid bypassing the knowledge index with raw file or shell search" in prompt
+    assert "image_markdown" in prompt
+    assert "For visual questions, retrieve evidence first" in prompt
+    assert "instead of opening spill files" in prompt
+    assert "Avoid raw file or shell bypass" in prompt
     assert "<knowledge_thread_bindings>" in prompt
-    assert "Do not rely on hidden document lists" in prompt
+    assert "call `list_knowledge_documents` instead of assuming hidden lists" in prompt
     assert "Attached knowledge bases: Finance." in prompt
     assert '"document_name"' not in prompt
 
@@ -504,7 +503,7 @@ def test_knowledge_context_middleware_retries_grounded_evidence_answer_without_v
     assert "(kb://citation" in response.result[-1].content
 
 
-def test_knowledge_context_middleware_retries_visual_answer_without_inline_asset(monkeypatch):
+def test_knowledge_context_middleware_does_not_retry_inline_asset_without_structured_signal(monkeypatch):
     monkeypatch.setattr(
         "src.knowledge.runtime.get_runtime_db_store",
         lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
@@ -546,18 +545,10 @@ def test_knowledge_context_middleware_retries_visual_answer_without_inline_asset
         nonlocal call_count
         call_count += 1
         seen_system_messages.append(str(filtered_request.system_message or ""))
-        if call_count == 1:
-            return ModelResponse(
-                result=[
-                    AIMessage(
-                        content="封面展示的是联邦储备委员会大楼。[citation:annual-report.pdf p.1](kb://citation?x=1)"
-                    )
-                ]
-            )
         return ModelResponse(
             result=[
                 AIMessage(
-                    content="![annual-report.pdf p.1](kb://asset?x=1)\n\n[citation:annual-report.pdf p.1](kb://citation?x=1)"
+                    content="封面展示的是联邦储备委员会大楼。[citation:annual-report.pdf p.1](kb://citation?x=1)"
                 )
             ]
         )
@@ -565,9 +556,10 @@ def test_knowledge_context_middleware_retries_visual_answer_without_inline_asset
     middleware = KnowledgeContextMiddleware()
     response = middleware.wrap_model_call(request, handler)
 
-    assert call_count == 2
-    assert "<knowledge_response_recovery>" in seen_system_messages[1]
-    assert "(kb://asset" in response.result[-1].content
+    assert call_count == 1
+    assert len(seen_system_messages) == 1
+    assert "<knowledge_response_recovery>" not in seen_system_messages[0]
+    assert "(kb://citation" in response.result[-1].content
 
 
 def test_blocked_knowledge_bypass_tool_message_rejects_grep_after_knowledge_activity(monkeypatch):
@@ -605,6 +597,65 @@ def test_blocked_knowledge_bypass_tool_message_rejects_grep_after_knowledge_acti
     assert blocked is not None
     assert blocked.tool_call_id == "tool-1"
     assert "must stay on the knowledge tools" in blocked.content
+
+
+def test_blocked_knowledge_bypass_tool_message_does_not_infer_document_target_from_free_text(monkeypatch):
+    monkeypatch.setattr(
+        "src.knowledge.runtime.get_runtime_db_store",
+        lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
+    )
+    _patch_thread_documents(
+        monkeypatch,
+        _document(
+            "E210郑民生-民间盲派八字.md",
+            document_id="doc-1",
+            knowledge_base_name="E210郑民生-民间盲派八字",
+        ),
+    )
+
+    user_input = "这份《E210郑民生-民间盲派八字》里，文中如何区分牢狱之灾和伤灾残疾？"
+    request = ToolCallRequest(
+        tool_call={"id": "tool-free-text", "name": "grep", "args": {"pattern": "牢狱"}},
+        tool=_tool("grep"),
+        state={"messages": [HumanMessage(content=user_input)]},
+        runtime=SimpleNamespace(
+            context={"thread_id": "thread-1", "original_user_input": user_input}
+        ),
+    )
+
+    blocked = blocked_knowledge_bypass_tool_message(request)
+
+    assert blocked is None
+
+
+def test_blocked_knowledge_bypass_tool_message_respects_explicit_document_mentions(monkeypatch):
+    monkeypatch.setattr(
+        "src.knowledge.runtime.get_runtime_db_store",
+        lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
+    )
+    _patch_thread_documents(
+        monkeypatch,
+        _document(
+            "PRML.pdf",
+            document_id="doc-1",
+            knowledge_base_name="PRML",
+        ),
+    )
+
+    user_input = "请先看 @PRML.pdf，再回答 Figure 3.1 想表达什么。"
+    request = ToolCallRequest(
+        tool_call={"id": "tool-explicit", "name": "read_file", "args": {"file_path": "/large_tool_results/tree"}},
+        tool=_tool("read_file"),
+        state={"messages": [HumanMessage(content=user_input)]},
+        runtime=SimpleNamespace(
+            context={"thread_id": "thread-1", "original_user_input": user_input}
+        ),
+    )
+
+    blocked = blocked_knowledge_bypass_tool_message(request)
+
+    assert blocked is not None
+    assert blocked.tool_call_id == "tool-explicit"
 
 
 def test_blocked_knowledge_bypass_tool_message_rejects_read_file_on_large_tool_results_after_knowledge_activity(monkeypatch):
@@ -650,6 +701,50 @@ def test_blocked_knowledge_bypass_tool_message_rejects_read_file_on_large_tool_r
     assert blocked is not None
     assert blocked.tool_call_id == "tool-2"
     assert "narrow the subtree" in blocked.content
+
+
+def test_blocked_knowledge_bypass_tool_message_allows_current_agent_skill_reads(monkeypatch):
+    monkeypatch.setattr(
+        "src.knowledge.runtime.get_runtime_db_store",
+        lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
+    )
+    _patch_thread_documents(
+        monkeypatch,
+        _document(
+            "劳动合同.pdf",
+            document_id="doc-1",
+            knowledge_base_name="Contracts",
+        ),
+    )
+
+    user_input = "请结合知识库里的劳动合同进行审查。"
+    request = ToolCallRequest(
+        tool_call={
+            "id": "tool-2b",
+            "name": "read_file",
+            "args": {"file_path": "/mnt/user-data/agents/dev/demo-agent/skills/contract-review/SKILL.md"},
+        },
+        tool=_tool("read_file"),
+        state={
+            "messages": [
+                HumanMessage(content=user_input),
+                AIMessage(content="", tool_calls=[{"id": "call-tree", "name": "get_document_tree", "args": {}}]),
+                ToolMessage(content="{}", tool_call_id="call-tree", name="get_document_tree"),
+            ]
+        },
+        runtime=SimpleNamespace(
+            context={
+                "thread_id": "thread-1",
+                "original_user_input": user_input,
+                "agent_name": "demo-agent",
+                "agent_status": "dev",
+            }
+        ),
+    )
+
+    blocked = blocked_knowledge_bypass_tool_message(request)
+
+    assert blocked is None
 
 
 def test_blocked_knowledge_visual_tool_message_blocks_get_document_image_before_evidence(monkeypatch):

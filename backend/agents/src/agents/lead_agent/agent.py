@@ -19,7 +19,6 @@ from src.agents.middlewares.artifacts_middleware import ArtifactsMiddleware
 from src.agents.middlewares.authoring_guard_middleware import AuthoringGuardMiddleware
 from src.agents.middlewares.context_window_middleware import ContextWindowMiddleware
 from src.agents.middlewares.knowledge_context_middleware import KnowledgeContextMiddleware
-from src.agents.middlewares.loaded_skills_middleware import LoadedSkillsMiddleware
 from src.agents.middlewares.max_tokens_recovery_middleware import MaxTokensRecoveryMiddleware
 from src.agents.middlewares.question_discipline_middleware import (
     QuestionDisciplineMiddleware,
@@ -29,9 +28,6 @@ from src.agents.middlewares.retry_utils import (
     build_tool_retry_middleware,
 )
 from src.agents.middlewares.runtime_command_middleware import RuntimeCommandMiddleware
-from src.agents.middlewares.target_length_retry_middleware import (
-    TargetLengthRetryMiddleware,
-)
 from src.agents.middlewares.title_middleware import TitleMiddleware
 from src.agents.middlewares.tool_batch_sequencing_middleware import (
     ToolBatchSequencingMiddleware,
@@ -60,7 +56,7 @@ from src.runtime_backends import (
 from src.runtime_backends import (
     build_runtime_workspace_backend,
     resolve_default_execution_backend,
-    resolve_shared_skills_mount,
+    resolve_skills_mount,
 )
 from src.runtime_backends import (
     build_sandbox_workspace_backend as build_sandbox_runtime_backend,
@@ -102,7 +98,6 @@ class LeadAgentRuntimeContext(BaseModel):
 
     agent_name: str | None = None
     target_agent_name: str | None = None
-    target_skill_name: str | None = None
     agent_status: str | None = None
     model_name: str | None = None
     model: str | None = None
@@ -148,6 +143,7 @@ class LeadAgentRequest:
     thinking_enabled: object
     reasoning_effort: object
     requested_model_name: str | None
+    is_plan_mode: object
     subagent_enabled: object
     max_concurrent_subagents: object
     command_name: str | None
@@ -156,7 +152,6 @@ class LeadAgentRequest:
     command_prompt: str | None
     authoring_actions: tuple[str, ...]
     target_agent_name: str | None
-    target_skill_name: str | None
     agent_name: str
     agent_status: str
     thread_id: str | None
@@ -188,7 +183,12 @@ class LeadAgentRequest:
         )
 
     def allows_agent_setup(self) -> bool:
-        return self.command_name == "create-agent" and bool(self.target_agent_name)
+        if self.command_name == "create-agent":
+            return True
+        # Non-lead dev agents must persist self-edits through `setup_agent`
+        # instead of mutating their thread-local runtime copy under
+        # `/mnt/user-data/agents/...`, which would be lost outside the thread.
+        return self.agent_status == "dev" and self.agent_name != LEAD_AGENT_NAME
 
 
 @dataclass(frozen=True)
@@ -211,7 +211,6 @@ class LeadAgentGraphParts:
     subagents: list[Any] | None
     general_purpose_enabled: bool
     general_purpose_tools: list[Any]
-    skill_sources: list[str]
     system_prompt: str
 
 
@@ -262,10 +261,6 @@ def _effective_thread_id(thread_id: str | None) -> str:
 
 def _runtime_agent_root(agent_name: str, status: str) -> str:
     return f"{VIRTUAL_PATH_PREFIX}/agents/{status}/{agent_name.lower()}"
-
-
-def _runtime_skills_path(agent_name: str, status: str) -> str:
-    return f"{_runtime_agent_root(agent_name, status)}/skills/"
 
 def _build_runtime_seed_targets(
     *,
@@ -384,11 +379,11 @@ def _seed_create_agent_target_runtime_materials_if_available(
 def _build_local_workspace_backend(
     user_data_dir: str,
     *,
-    shared_skills_mount: tuple[str, str] | None = None,
+    skills_mount: tuple[str, str] | None = None,
 ) -> BackendProtocol:
     return build_local_runtime_backend(
         user_data_dir,
-        shared_skills_mount=shared_skills_mount,
+        skills_mount=skills_mount,
     )
 
 
@@ -420,7 +415,7 @@ def _build_read_context_backend(thread_id: str | None) -> BackendProtocol:
     user_data_dir = str(paths.sandbox_user_data_dir(effective_thread_id))
     return _build_local_workspace_backend(
         user_data_dir,
-        shared_skills_mount=resolve_shared_skills_mount(paths),
+        skills_mount=resolve_skills_mount(paths),
     )
 
 
@@ -451,7 +446,7 @@ def build_backend(
     The backend provides:
     - Per-thread runtime workspace under `/mnt/user-data`
     - Thread-local copies of archived agent definition files (`AGENTS.md`, `config.yaml`, copied `skills/`)
-    - Local-debug compatibility routing for shared skills under `/mnt/skills` when execution is not sandboxed
+    - Local-debug compatibility routing for archived skills under `/mnt/skills` when execution is not sandboxed
 
     Runtime execution mode is resolved from Python sandbox configuration.
     """
@@ -490,7 +485,6 @@ def _build_openagents_middlewares(model_config: ModelConfig):
     - TodoListMiddleware (replaces our custom one)
     - MemoryMiddleware (replaces our custom one)
     - SubAgentMiddleware (replaces SubagentExecutor + SubagentLimitMiddleware)
-    - SkillsMiddleware (replaces SkillsLoader)
     - FilesystemMiddleware (replaces sandbox tools: execute, ls, read_file, write_file, str_replace, edit_file, glob, grep)
 
     We only keep OpenAgents-specific middleware where Deep Agents does not
@@ -507,7 +501,6 @@ def _build_openagents_middlewares(model_config: ModelConfig):
         ArtifactsMiddleware(),
         AuthoringGuardMiddleware(),
         QuestionDisciplineMiddleware(),
-        LoadedSkillsMiddleware(),
         RuntimeCommandMiddleware(),
         UploadsMiddleware(),
         KnowledgeContextMiddleware(),
@@ -515,7 +508,6 @@ def _build_openagents_middlewares(model_config: ModelConfig):
         build_model_retry_middleware(),
         build_tool_retry_middleware(),
         ToolBatchSequencingMiddleware(),
-        TargetLengthRetryMiddleware(),
         MaxTokensRecoveryMiddleware(),
         VisibleResponseRecoveryMiddleware(),
         ContextWindowMiddleware(),
@@ -704,20 +696,6 @@ def _coerce_optional_str(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
-
-
-def _coerce_optional_str_list(value: object) -> tuple[str, ...]:
-    if value is None or not isinstance(value, list):
-        return ()
-    normalized: list[str] = []
-    seen: set[str] = set()
-    for item in value:
-        text = _coerce_optional_str(item)
-        if text is None or text in seen:
-            continue
-        normalized.append(text)
-        seen.add(text)
-    return tuple(normalized)
 
 
 def _load_configurable_payload(config: RunnableConfig, runtime: ServerRuntime | None) -> dict:
@@ -951,6 +929,7 @@ def _build_run_metadata(
     model_name: str,
     thinking_enabled: object,
     reasoning_effort: object,
+    is_plan_mode: object,
     subagent_enabled: object,
     thread_id: str | None,
     user_id: str | None,
@@ -961,6 +940,7 @@ def _build_run_metadata(
         "model_name": model_name,
         "thinking_enabled": thinking_enabled,
         "reasoning_effort": reasoning_effort,
+        "is_plan_mode": is_plan_mode,
         "subagent_enabled": subagent_enabled,
         "thread_id": thread_id,
         "user_id": user_id,
@@ -976,18 +956,16 @@ def _resolve_lead_agent_request(
     cfg = _load_configurable_payload(config, runtime)
     command_resolution = resolve_runtime_command(
         command_name=_coerce_optional_str(cfg.get("command_name")),
-        command_kind=_coerce_optional_str(cfg.get("command_kind")),
         command_args=_coerce_optional_str(cfg.get("command_args")),
-        authoring_actions=_coerce_optional_str_list(cfg.get("authoring_actions")),
         original_user_input=_coerce_optional_str(cfg.get("original_user_input")),
         target_agent_name=_coerce_optional_str(cfg.get("target_agent_name")),
-        target_skill_name=_coerce_optional_str(cfg.get("target_skill_name")),
         paths=get_paths(),
     )
     return LeadAgentRequest(
         thinking_enabled=cfg.get("thinking_enabled", True),
         reasoning_effort=cfg.get("reasoning_effort"),
         requested_model_name=_coerce_optional_str(cfg.get("model_name") or cfg.get("model")),
+        is_plan_mode=cfg.get("is_plan_mode", False),
         subagent_enabled=cfg.get("subagent_enabled", False),
         max_concurrent_subagents=cfg.get("max_concurrent_subagents", 3),
         command_name=command_resolution.name,
@@ -996,7 +974,6 @@ def _resolve_lead_agent_request(
         command_prompt=command_resolution.prompt,
         authoring_actions=command_resolution.authoring_actions,
         target_agent_name=command_resolution.target_agent_name,
-        target_skill_name=command_resolution.target_skill_name,
         agent_name=normalize_effective_agent_name(_coerce_optional_str(cfg.get("agent_name") or cfg.get("x-agent-name"))),
         agent_status=_resolve_agent_status(cfg.get("agent_status") or cfg.get("x-agent-status") or "dev"),
         thread_id=_coerce_optional_str(cfg.get("thread_id") or cfg.get("x-thread-id")),
@@ -1081,7 +1058,6 @@ def _update_request_runtime_context(
             "x-remote-session-id": request.remote_session_id,
             "agent_name": request.agent_name,
             "target_agent_name": request.target_agent_name,
-            "target_skill_name": request.target_skill_name,
             "agent_status": request.agent_status,
             "model_name": resolved_model_name,
             "model": resolved_model_name,
@@ -1111,6 +1087,7 @@ def _attach_trace_metadata(
         model_name=model_name,
         thinking_enabled=request.thinking_enabled,
         reasoning_effort=request.reasoning_effort,
+        is_plan_mode=request.is_plan_mode,
         subagent_enabled=request.subagent_enabled,
         thread_id=request.thread_id,
         user_id=request.user_id,
@@ -1217,44 +1194,6 @@ def _assert_requested_model_capabilities(
         raise ValueError(f"Thinking mode is enabled but model '{resolution.model_name}' does not support thinking.")
 
 
-def _build_skill_sources(request: LeadAgentRequest) -> list[str]:
-    """Return Deep Agents skill directories for this turn.
-
-    Skills are progressively disclosed from the archived runtime copy under the
-    agent workspace. Lead-agent create/update flows can also discover existing
-    store skills from the read-only shared skills archive, but those skills must
-    still be loaded through the canonical `skill` tool before use.
-
-    Direct save/push confirmations intentionally skip skill loading so the
-    model stays focused on the explicit persistence tool call that the user just
-    approved.
-    """
-
-    if request.requires_direct_authoring_tool():
-        return []
-
-    sources = [_runtime_skills_path(request.agent_name, request.agent_status)]
-    if request.agent_name != LEAD_AGENT_NAME:
-        return sources
-
-    shared_skills_mount = resolve_shared_skills_mount(get_paths())
-    if shared_skills_mount is None:
-        return sources
-
-    archive_root = shared_skills_mount[1].rstrip("/")
-    if request.agent_status == "prod":
-        sources.append(f"{archive_root}/store/prod/")
-        return sources
-
-    sources.extend(
-        [
-            f"{archive_root}/store/dev/",
-            f"{archive_root}/store/prod/",
-        ]
-    )
-    return sources
-
-
 def _build_system_prompt(
     *,
     request: LeadAgentRequest,
@@ -1268,17 +1207,11 @@ def _build_system_prompt(
     """
 
     return apply_prompt_template(
-        subagent_enabled=bool(request.subagent_enabled),
-        max_concurrent_subagents=int(request.max_concurrent_subagents),
         user_id=request.user_id,
         agent_name=request.agent_name,
         agent_status=request.agent_status,
         memory_config=resolution.agent_config.memory,
-        command_name=request.command_name,
-        command_kind=request.command_kind,
-        command_args=request.command_args,
-        command_prompt=request.command_prompt,
-        authoring_actions=request.authoring_actions,
+        agent_config=resolution.agent_config,
     )
 
 
@@ -1290,7 +1223,7 @@ def _build_graph_parts(
     """Assemble request-specific Deep Agents graph inputs.
 
     This groups together the pieces that materially change the compiled graph:
-    tool set, middleware, prompt, subagents, and skills. The resulting object is
+    tool set, middleware, prompt, and subagents. The resulting object is
     easy to inspect in tests and keeps `_create_lead_agent` as a short
     orchestration narrative instead of a long construction routine.
     """
@@ -1316,7 +1249,6 @@ def _build_graph_parts(
         subagents=subagent_specs.custom_subagents if subagent_specs is not None else None,
         general_purpose_enabled=subagent_specs.general_purpose_enabled if subagent_specs is not None else False,
         general_purpose_tools=subagent_specs.general_purpose_tools if subagent_specs is not None else tools,
-        skill_sources=_build_skill_sources(request),
         system_prompt=_build_system_prompt(request=request, resolution=resolution),
     )
 
@@ -1370,10 +1302,11 @@ def _create_lead_agent(
         return cached_entry.graph
 
     logger.info(
-        "Create Agent(%s) -> thinking_enabled: %s, reasoning_effort: %s, model_name: %s, subagent_enabled: %s, agent_status: %s",
+        "Create Agent(%s) -> thinking_enabled: %s, reasoning_effort: %s, is_plan_mode: %s, model_name: %s, subagent_enabled: %s, agent_status: %s",
         request.agent_name,
         request.thinking_enabled,
         request.reasoning_effort,
+        request.is_plan_mode,
         resolution.model_name,
         request.subagent_enabled,
         request.agent_status,
@@ -1397,24 +1330,27 @@ def _create_lead_agent(
             tool_names=tool_names,
         )
 
-        graph = create_deep_agent(
-            model=create_chat_model(
+        deep_agent_kwargs: dict[str, Any] = {
+            "model": create_chat_model(
                 name=resolution.model_name,
                 thinking_enabled=bool(request.thinking_enabled),
                 reasoning_effort=request.reasoning_effort,
                 runtime_model_config=resolution.model_config,
             ),
-            tools=graph_parts.tools,
-            system_prompt=graph_parts.system_prompt,
-            middleware=graph_parts.middleware,
-            subagents=graph_parts.subagents,
-            general_purpose_tools=graph_parts.general_purpose_tools,
-            general_purpose_enabled=graph_parts.general_purpose_enabled,
-            skills=graph_parts.skill_sources,
-            backend=backend,
-            context_schema=LeadAgentRuntimeContext,
-            name=request.agent_name,
-        )
+            "tools": graph_parts.tools,
+            "system_prompt": graph_parts.system_prompt,
+            "middleware": graph_parts.middleware,
+            "subagents": graph_parts.subagents,
+            "general_purpose_tools": graph_parts.general_purpose_tools,
+            "general_purpose_enabled": graph_parts.general_purpose_enabled,
+            "backend": backend,
+            "context_schema": LeadAgentRuntimeContext,
+            "name": request.agent_name,
+            # Keep planner/todo behavior behind explicit plan-mode opt-in.
+            "todo_enabled": bool(request.is_plan_mode),
+        }
+
+        graph = create_deep_agent(**deep_agent_kwargs)
         cached_entry = _store_cached_lead_agent_graph(
             cache_key,
             graph=graph,

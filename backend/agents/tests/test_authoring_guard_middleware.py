@@ -5,11 +5,13 @@ from src.agents.middlewares.authoring_guard_middleware import (
     AuthoringGuardMiddleware,
     blocked_direct_authoring_tool_message,
     blocked_create_agent_tool_message,
+    blocked_self_agent_persistence_tool_message,
     filter_direct_authoring_model_tools,
     filter_create_agent_model_tools,
     is_read_only_create_agent_shell_command,
     is_protected_create_agent_path,
     should_enforce_direct_authoring_guard,
+    should_enforce_self_agent_persistence_guard,
     should_enforce_setup_agent_guard,
     uses_forbidden_create_agent_host_path,
 )
@@ -49,8 +51,8 @@ def _model() -> ModelConfig:
     )
 
 
-def test_should_enforce_setup_agent_guard_only_for_create_agent_with_target():
-    assert not should_enforce_setup_agent_guard({"command_name": "create-agent"})
+def test_should_enforce_setup_agent_guard_for_all_create_agent_turns():
+    assert should_enforce_setup_agent_guard({"command_name": "create-agent"})
     assert not should_enforce_setup_agent_guard({"command_name": "create-skill", "target_agent_name": "demo"})
     assert should_enforce_setup_agent_guard(
         {"command_name": "create-agent", "target_agent_name": "demo-agent"}
@@ -63,6 +65,12 @@ def test_should_enforce_direct_authoring_guard_only_for_hard_authoring_turns():
     assert should_enforce_direct_authoring_guard(
         {"command_kind": "hard", "authoring_actions": ["push_skill_prod"]}
     )
+
+
+def test_should_enforce_self_agent_persistence_guard_for_non_lead_dev_agents():
+    assert should_enforce_self_agent_persistence_guard({"agent_name": "demo-agent", "agent_status": "dev"})
+    assert not should_enforce_self_agent_persistence_guard({"agent_name": "lead_agent", "agent_status": "dev"})
+    assert not should_enforce_self_agent_persistence_guard({"agent_name": "demo-agent", "agent_status": "prod"})
 
 
 def test_should_enforce_direct_authoring_guard_ignores_create_agent_even_if_marked_hard():
@@ -91,6 +99,10 @@ def test_uses_forbidden_create_agent_host_path_matches_host_roots():
     assert uses_forbidden_create_agent_host_path(".openagents/agents/dev/demo")
     assert uses_forbidden_create_agent_host_path("~/.agents/skills/bootstrap")
     assert not uses_forbidden_create_agent_host_path("/mnt/user-data/agents/dev/demo")
+    assert not uses_forbidden_create_agent_host_path(
+        "find /mnt/skills/store -name 'SKILL.md'",
+        allow_skill_library_reads=True,
+    )
     assert not uses_forbidden_create_agent_host_path("find /mnt/user-data -name '*.md' 2>/dev/null")
 
 
@@ -112,10 +124,48 @@ def test_blocked_create_agent_tool_message_blocks_direct_agent_file_writes():
     request = _tool_request(
         "write_file",
         args={"file_path": "/mnt/user-data/agents/dev/demo/AGENTS.md"},
-        context={"command_name": "create-agent", "target_agent_name": "demo"},
+        context={"command_name": "create-agent"},
     )
 
     blocked = blocked_create_agent_tool_message(request)
+
+    assert blocked is not None
+    assert "setup_agent" in blocked.content
+
+
+def test_blocked_self_agent_persistence_tool_message_blocks_runtime_agents_md_mutation():
+    request = _tool_request(
+        "edit_file",
+        args={"file_path": "/mnt/user-data/agents/dev/demo-agent/AGENTS.md"},
+        context={"agent_name": "demo-agent", "agent_status": "dev"},
+    )
+
+    blocked = blocked_self_agent_persistence_tool_message(request)
+
+    assert blocked is not None
+    assert "setup_agent" in blocked.content
+
+
+def test_blocked_self_agent_persistence_tool_message_allows_workspace_edits():
+    request = _tool_request(
+        "edit_file",
+        args={"file_path": "/mnt/user-data/workspace/report.md"},
+        context={"agent_name": "demo-agent", "agent_status": "dev"},
+    )
+
+    blocked = blocked_self_agent_persistence_tool_message(request)
+
+    assert blocked is None
+
+
+def test_blocked_self_agent_persistence_tool_message_blocks_shell_mutation_of_current_agent_root():
+    request = _tool_request(
+        "execute",
+        args={"command": "cp /tmp/new.md /mnt/user-data/agents/dev/demo-agent/AGENTS.md"},
+        context={"agent_name": "demo-agent", "agent_status": "dev"},
+    )
+
+    blocked = blocked_self_agent_persistence_tool_message(request)
 
     assert blocked is not None
     assert "setup_agent" in blocked.content
@@ -125,7 +175,7 @@ def test_blocked_create_agent_tool_message_blocks_shell_commands_touching_agent_
     request = _tool_request(
         "execute",
         args={"command": "mkdir -p /mnt/user-data/authoring/agents/demo"},
-        context={"command_name": "create-agent", "target_agent_name": "demo"},
+        context={"command_name": "create-agent"},
     )
 
     blocked = blocked_create_agent_tool_message(request)
@@ -221,6 +271,43 @@ def test_blocked_create_agent_tool_message_blocks_raw_mnt_shell_discovery():
 
     assert blocked is not None
     assert "/mnt/user-data" in blocked.content
+
+
+def test_blocked_create_agent_tool_message_allows_ls_on_archived_skill_store():
+    request = _tool_request(
+        "ls",
+        args={"path": "/mnt/skills/store"},
+        context={"command_name": "create-agent", "target_agent_name": "demo"},
+    )
+
+    blocked = blocked_create_agent_tool_message(request)
+
+    assert blocked is None
+
+
+def test_blocked_create_agent_tool_message_allows_read_file_on_archived_skill_store():
+    request = _tool_request(
+        "read_file",
+        args={"file_path": "/mnt/skills/store/prod/find-skills/SKILL.md"},
+        context={"command_name": "create-agent", "target_agent_name": "demo"},
+    )
+
+    blocked = blocked_create_agent_tool_message(request)
+
+    assert blocked is None
+
+
+def test_blocked_create_agent_tool_message_still_blocks_skill_store_shell_mutation():
+    request = _tool_request(
+        "execute",
+        args={"command": "cp /tmp/demo.md /mnt/skills/store/dev/demo/SKILL.md"},
+        context={"command_name": "create-agent", "target_agent_name": "demo"},
+    )
+
+    blocked = blocked_create_agent_tool_message(request)
+
+    assert blocked is not None
+    assert "/mnt/skills/store" in blocked.content
 
 
 def test_filter_create_agent_model_tools_removes_direct_file_mutation_tools():

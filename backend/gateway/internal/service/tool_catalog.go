@@ -140,15 +140,6 @@ var builtinToolCatalog = []model.ToolCatalogItem{
 		ReservedPolicy:           "runtime_only",
 	},
 	{
-		Name:                     "promote_skill_shared",
-		Group:                    "authoring",
-		Label:                    "Promote Skill Shared",
-		Description:              "Runtime-only authoring helper for promoting a skill to shared scope.",
-		ConfigurableForMainAgent: false,
-		ConfigurableForSubagent:  false,
-		ReservedPolicy:           "runtime_only",
-	},
-	{
 		Name:                     "setup_agent",
 		Group:                    "authoring",
 		Label:                    "Setup Agent",

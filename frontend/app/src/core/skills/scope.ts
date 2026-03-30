@@ -2,7 +2,7 @@ import type { Locale } from "@/core/i18n";
 
 import type { Skill } from "./type";
 
-export const SKILL_SCOPE_ORDER = ["shared", "store/dev", "store/prod"] as const;
+export const SKILL_SCOPE_ORDER = ["store/dev", "store/prod"] as const;
 export const DEV_AGENT_SKILL_SCOPE_ORDER = ["store/dev", "store/prod"] as const;
 export const PROD_AGENT_SKILL_SCOPE_ORDER = ["store/prod"] as const;
 
@@ -11,7 +11,7 @@ export type SkillScope = (typeof SKILL_SCOPE_ORDER)[number];
 export function normalizeSkillScope(
   scope: string | null | undefined,
 ): SkillScope | null {
-  if (scope === "shared" || scope === "store/dev" || scope === "store/prod") {
+  if (scope === "store/dev" || scope === "store/prod") {
     return scope;
   }
   return null;
@@ -22,18 +22,12 @@ export function formatSkillScopeLabel(
   locale: Locale = "en-US",
 ) {
   if (locale === "zh-CN") {
-    if (scope === "shared") {
-      return "共享";
-    }
     if (scope === "store/dev") {
       return "开发仓库";
     }
     return "生产仓库";
   }
 
-  if (scope === "shared") {
-    return "Shared";
-  }
   if (scope === "store/dev") {
     return "Store Dev";
   }
@@ -48,11 +42,10 @@ export function getSkillScopes(skills: Pick<Skill, "category">[]) {
 
 export function getAllowedSkillScopesForAgent(
   status: "dev" | "prod",
-  allowShared = false,
 ) {
-  const baseScopes =
-    status === "prod" ? PROD_AGENT_SKILL_SCOPE_ORDER : DEV_AGENT_SKILL_SCOPE_ORDER;
-  return allowShared ? (["shared", ...baseScopes] as SkillScope[]) : [...baseScopes];
+  return status === "prod"
+    ? [...PROD_AGENT_SKILL_SCOPE_ORDER]
+    : [...DEV_AGENT_SKILL_SCOPE_ORDER];
 }
 
 export function filterSkillsByScope<T extends Pick<Skill, "category">>(

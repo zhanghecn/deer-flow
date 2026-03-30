@@ -30,7 +30,7 @@ def _make_paths(base_dir: Path) -> Paths:
     return Paths(base_dir=base_dir, skills_dir=base_dir / "skills")
 
 
-def _write_shared_skill(base_dir: Path, name: str, *, category: str = "shared", body: str = "skill") -> None:
+def _write_archived_skill(base_dir: Path, name: str, *, category: str = "store/prod", body: str = "skill") -> None:
     skill_file = base_dir / "skills" / Path(category) / name / "SKILL.md"
     skill_file.parent.mkdir(parents=True, exist_ok=True)
     skill_file.write_text(
@@ -55,7 +55,6 @@ def _make_lead_agent_request(
         command_prompt=None,
         authoring_actions=(),
         target_agent_name=None,
-        target_skill_name=None,
         agent_name=LEAD_AGENT_NAME,
         agent_status=agent_status,
         thread_id="thread-1",
@@ -69,7 +68,7 @@ def _make_lead_agent_request(
 
 def test_build_backend_sets_thread_user_data_as_shell_cwd(tmp_path):
     base_dir = tmp_path / ".openagents"
-    _write_shared_skill(base_dir, "bootstrap", body="bootstrap")
+    _write_archived_skill(base_dir, "bootstrap", body="bootstrap")
     paths = _make_paths(base_dir)
 
     with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
@@ -85,7 +84,7 @@ def test_build_backend_sets_thread_user_data_as_shell_cwd(tmp_path):
 
 def test_build_backend_sets_default_user_data_as_shell_cwd_when_thread_missing(tmp_path):
     base_dir = tmp_path / ".openagents"
-    _write_shared_skill(base_dir, "bootstrap", body="bootstrap")
+    _write_archived_skill(base_dir, "bootstrap", body="bootstrap")
     paths = _make_paths(base_dir)
 
     with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
@@ -98,8 +97,8 @@ def test_build_backend_sets_default_user_data_as_shell_cwd_when_thread_missing(t
 
 def test_build_backend_default_agent_seeds_archived_agent_tree_into_thread_runtime(tmp_path):
     base_dir = tmp_path / ".openagents"
-    _write_shared_skill(base_dir, "bootstrap", body="bootstrap skill")
-    _write_shared_skill(base_dir, "surprise-me", body="surprise skill")
+    _write_archived_skill(base_dir, "bootstrap", body="bootstrap skill")
+    _write_archived_skill(base_dir, "surprise-me", body="surprise skill")
     paths = _make_paths(base_dir)
 
     with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
@@ -121,13 +120,13 @@ def test_build_backend_default_agent_seeds_archived_agent_tree_into_thread_runti
 
 def test_build_backend_routes_shared_skills_into_local_debug_backend(tmp_path):
     base_dir = tmp_path / ".openagents"
-    _write_shared_skill(base_dir, "bootstrap", body="bootstrap")
+    _write_archived_skill(base_dir, "bootstrap", body="bootstrap")
     paths = _make_paths(base_dir)
 
     with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
         backend = lead_agent_module.build_backend("thread-1", agent_name=None)
 
-    shared_skill = backend.download_files(["/mnt/skills/shared/bootstrap/SKILL.md"])[0]
+    shared_skill = backend.download_files(["/mnt/skills/store/prod/bootstrap/SKILL.md"])[0]
 
     assert shared_skill.error is None
     assert shared_skill.content is not None
@@ -136,7 +135,7 @@ def test_build_backend_routes_shared_skills_into_local_debug_backend(tmp_path):
 
 def test_build_backend_execute_rewrites_runtime_skill_aliases(tmp_path):
     base_dir = tmp_path / ".openagents"
-    _write_shared_skill(base_dir, "bootstrap", body="bootstrap")
+    _write_archived_skill(base_dir, "bootstrap", body="bootstrap")
     paths = _make_paths(base_dir)
 
     with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
@@ -187,7 +186,7 @@ def test_build_backend_named_agent_seeds_agent_definition_into_thread_runtime(tm
 
 def test_create_agent_request_seeds_existing_target_archive_into_thread_runtime(tmp_path):
     base_dir = tmp_path / ".openagents"
-    _write_shared_skill(base_dir, "bootstrap", body="bootstrap")
+    _write_archived_skill(base_dir, "bootstrap", body="bootstrap")
     target_agent_dir = base_dir / "agents" / "dev" / "landing-copy-agent-0318"
     target_agent_dir.mkdir(parents=True, exist_ok=True)
     (target_agent_dir / "AGENTS.md").write_text("You write landing page copy.", encoding="utf-8")
@@ -213,7 +212,6 @@ def test_create_agent_request_seeds_existing_target_archive_into_thread_runtime(
         command_prompt="先检查已有归档，再修复。",
         authoring_actions=("setup_agent",),
         target_agent_name="landing-copy-agent-0318",
-        target_skill_name=None,
         agent_name=LEAD_AGENT_NAME,
         agent_status="dev",
         thread_id="thread-1",
@@ -239,7 +237,7 @@ def test_create_agent_request_seeds_existing_target_archive_into_thread_runtime(
 
 def test_create_agent_request_ignores_missing_target_archive_for_new_agent(tmp_path):
     base_dir = tmp_path / ".openagents"
-    _write_shared_skill(base_dir, "bootstrap", body="bootstrap")
+    _write_archived_skill(base_dir, "bootstrap", body="bootstrap")
     paths = _make_paths(base_dir)
 
     request = lead_agent_module.LeadAgentRequest(
@@ -254,7 +252,6 @@ def test_create_agent_request_ignores_missing_target_archive_for_new_agent(tmp_p
         command_prompt="创建新 agent。",
         authoring_actions=("setup_agent",),
         target_agent_name="pw-new-agent",
-        target_skill_name=None,
         agent_name=LEAD_AGENT_NAME,
         agent_status="dev",
         thread_id="thread-1",
@@ -280,10 +277,10 @@ def test_create_agent_request_ignores_missing_target_archive_for_new_agent(tmp_p
 
 def test_build_backend_dev_lead_agent_does_not_seed_store_skills_without_explicit_references(tmp_path):
     base_dir = tmp_path / ".openagents"
-    _write_shared_skill(base_dir, "bootstrap", body="bootstrap")
-    _write_shared_skill(base_dir, "surprise-me", body="surprise")
-    _write_shared_skill(base_dir, "copywriting", category="store/dev", body="copywriting")
-    _write_shared_skill(base_dir, "contract-review", category="store/prod", body="review")
+    _write_archived_skill(base_dir, "bootstrap", body="bootstrap")
+    _write_archived_skill(base_dir, "surprise-me", body="surprise")
+    _write_archived_skill(base_dir, "copywriting", category="store/dev", body="copywriting")
+    _write_archived_skill(base_dir, "contract-review", category="store/prod", body="review")
     paths = _make_paths(base_dir)
 
     with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
@@ -301,41 +298,6 @@ def test_build_backend_dev_lead_agent_does_not_seed_store_skills_without_explici
     assert responses[0].error == "file_not_found"
     assert responses[1].error == "file_not_found"
     assert responses[2].error == "file_not_found"
-
-
-def test_build_skill_sources_for_dev_lead_agent_include_store_archives(tmp_path):
-    base_dir = tmp_path / ".openagents"
-    paths = _make_paths(base_dir)
-    request = _make_lead_agent_request()
-
-    with patch("src.agents.lead_agent.agent.get_paths", return_value=paths), patch(
-        "src.agents.lead_agent.agent.resolve_shared_skills_mount",
-        return_value=(str(paths.skills_dir), "/mnt/skills/"),
-    ):
-        sources = lead_agent_module._build_skill_sources(request)
-
-    assert sources == [
-        "/mnt/user-data/agents/dev/lead_agent/skills/",
-        "/mnt/skills/store/dev/",
-        "/mnt/skills/store/prod/",
-    ]
-
-
-def test_build_skill_sources_for_prod_lead_agent_only_include_store_prod_archive(tmp_path):
-    base_dir = tmp_path / ".openagents"
-    paths = _make_paths(base_dir)
-    request = _make_lead_agent_request(agent_status="prod")
-
-    with patch("src.agents.lead_agent.agent.get_paths", return_value=paths), patch(
-        "src.agents.lead_agent.agent.resolve_shared_skills_mount",
-        return_value=(str(paths.skills_dir), "/mnt/skills/"),
-    ):
-        sources = lead_agent_module._build_skill_sources(request)
-
-    assert sources == [
-        "/mnt/user-data/agents/prod/lead_agent/skills/",
-        "/mnt/skills/store/prod/",
-    ]
 
 
 def test_build_backend_supports_store_prod_skill_refs(tmp_path):
@@ -443,7 +405,7 @@ def test_build_workspace_backend_uses_configured_sandbox_provider(monkeypatch):
 
 def test_build_backend_routes_internal_agent_spill_files_into_thread_outputs(tmp_path):
     base_dir = tmp_path / ".openagents"
-    _write_shared_skill(base_dir, "bootstrap", body="bootstrap")
+    _write_archived_skill(base_dir, "bootstrap", body="bootstrap")
     paths = _make_paths(base_dir)
 
     with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
@@ -461,7 +423,7 @@ def test_build_backend_routes_internal_agent_spill_files_into_thread_outputs(tmp
 
 def test_build_backend_uses_remote_backend_when_requested(monkeypatch, tmp_path):
     base_dir = tmp_path / ".openagents"
-    _write_shared_skill(base_dir, "bootstrap", body="bootstrap")
+    _write_archived_skill(base_dir, "bootstrap", body="bootstrap")
     paths = _make_paths(base_dir)
     captured: dict[str, str] = {}
 
@@ -498,7 +460,7 @@ def test_build_backend_uses_remote_backend_when_requested(monkeypatch, tmp_path)
 
 def test_build_backend_remote_requires_session_id(tmp_path):
     base_dir = tmp_path / ".openagents"
-    _write_shared_skill(base_dir, "bootstrap", body="bootstrap")
+    _write_archived_skill(base_dir, "bootstrap", body="bootstrap")
     paths = _make_paths(base_dir)
 
     with (
@@ -536,7 +498,7 @@ def test_openagents_middlewares_include_artifacts_state():
 
 def test_create_lead_agent_deduplicates_concurrent_graph_builds(tmp_path):
     base_dir = tmp_path / ".openagents"
-    _write_shared_skill(base_dir, "bootstrap", body="bootstrap")
+    _write_archived_skill(base_dir, "bootstrap", body="bootstrap")
     paths = _make_paths(base_dir)
     model_config = ModelConfig(
         name="test-model",
@@ -597,3 +559,55 @@ def test_create_lead_agent_deduplicates_concurrent_graph_builds(tmp_path):
 
     assert len(created_graphs) == 1
     assert first_graph is second_graph
+
+
+def test_non_lead_dev_request_allows_setup_agent_for_self_updates():
+    request = lead_agent_module.LeadAgentRequest(
+        thinking_enabled=None,
+        reasoning_effort=None,
+        requested_model_name=None,
+        subagent_enabled=None,
+        max_concurrent_subagents=None,
+        command_name=None,
+        command_kind=None,
+        command_args=None,
+        command_prompt=None,
+        authoring_actions=(),
+        target_agent_name=None,
+        agent_name="contract-reviewer",
+        agent_status="dev",
+        thread_id="thread-1",
+        user_id=None,
+        runtime_model_name=None,
+        header_model_name=None,
+        execution_backend=None,
+        remote_session_id=None,
+    )
+
+    assert request.allows_agent_setup() is True
+
+
+def test_prod_agent_request_does_not_allow_self_setup_agent():
+    request = lead_agent_module.LeadAgentRequest(
+        thinking_enabled=None,
+        reasoning_effort=None,
+        requested_model_name=None,
+        subagent_enabled=None,
+        max_concurrent_subagents=None,
+        command_name=None,
+        command_kind=None,
+        command_args=None,
+        command_prompt=None,
+        authoring_actions=(),
+        target_agent_name=None,
+        agent_name="contract-reviewer",
+        agent_status="prod",
+        thread_id="thread-1",
+        user_id=None,
+        runtime_model_name=None,
+        header_model_name=None,
+        execution_backend=None,
+        remote_session_id=None,
+    )
+
+    assert request.allows_agent_setup() is False

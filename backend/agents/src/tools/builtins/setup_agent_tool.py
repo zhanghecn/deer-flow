@@ -1,8 +1,5 @@
 import logging
-from pathlib import Path
 from typing import Any
-
-import yaml
 
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
@@ -10,15 +7,21 @@ from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
+from src.config.builtin_agents import LEAD_AGENT_NAME, normalize_effective_agent_name
 from src.config.agent_runtime_seed import runtime_seed_targets
 from src.config.agent_materialization import materialize_agent_definition
-from src.config.agents_config import AGENT_NAME_PATTERN, AGENTS_MD_FILENAME, AgentConfig
+from src.config.agent_skill_preservation import (
+    load_existing_agent_owned_skill_content,
+    load_existing_agent_skill_inputs,
+)
+from src.config.agents_config import AGENT_NAME_PATTERN, AgentConfig
 from src.config.paths import get_paths
 from src.runtime_backends import (
     REMOTE_EXECUTION_BACKEND,
     build_runtime_workspace_backend,
     resolve_runtime_backend_kind,
 )
+from src.skills import load_skills, skill_source_path
 from src.utils.runtime_context import runtime_context_value
 
 logger = logging.getLogger(__name__)
@@ -27,16 +30,17 @@ logger = logging.getLogger(__name__)
 class SetupAgentSkillInput(BaseModel):
     """Single skill entry for setup_agent."""
 
-    name: str = Field(
+    name: str | None = Field(
+        default=None,
         description=(
-            "Skill name. When copying an existing shared/store skill, use the existing skill name. "
+            "Skill name. When copying an existing archived store skill, use the existing skill name. "
             "When creating a brand-new agent-owned skill, use the target local skill name."
         )
     )
     source_path: str | None = Field(
         default=None,
         description=(
-            "Optional explicit shared skill source path such as 'store/prod/my-skill' or "
+            "Optional explicit skill source path such as 'store/prod/my-skill' or "
             "'store/dev/team/my-skill'. Use this when the same skill name exists in multiple scopes "
             "and the source must be explicit."
         ),
@@ -45,7 +49,7 @@ class SetupAgentSkillInput(BaseModel):
         default=None,
         description=(
             "Optional full SKILL.md markdown for a brand-new agent-owned skill. "
-            "Omit this field when copying an existing shared/store skill by name."
+            "Omit this field when copying an existing archived store skill by name."
         ),
     )
 
@@ -56,6 +60,19 @@ def _skill_entry_field(skill_entry: SetupAgentSkillInput | dict[str, Any], key: 
     if isinstance(skill_entry, dict):
         return skill_entry.get(key)
     return getattr(skill_entry, key, None)
+
+
+def _resolve_archive_skill_name(*, source_path: str, paths: Any) -> str:
+    normalized_source_path = str(source_path).strip().strip("/")
+    for archived_skill in load_skills(
+        skills_path=paths.skills_dir,
+        use_config=False,
+        enabled_only=False,
+    ):
+        if skill_source_path(archived_skill) != normalized_source_path:
+            continue
+        return archived_skill.name
+    raise ValueError(f"setup_agent skill source_path '{source_path}' was not found.")
 
 
 def _split_skill_inputs(
@@ -74,20 +91,18 @@ def _split_skill_inputs(
         raw_source_path = _skill_entry_field(skill_entry, "source_path")
         raw_content = _skill_entry_field(skill_entry, "content")
 
-        if raw_name is None:
-            if raw_content is None:
-                continue
-            raise ValueError("setup_agent skill entries with `content` must also provide `name`.")
-
-        name = str(raw_name).strip()
-        if not name:
-            if raw_content is None:
-                continue
-            raise ValueError("setup_agent skill entries require a non-empty `name`.")
-
         source_path = str(raw_source_path).strip() if raw_source_path is not None else None
         if source_path == "":
             source_path = None
+
+        name = str(raw_name).strip() if raw_name is not None else ""
+        if not name and source_path is not None:
+            name = _resolve_archive_skill_name(source_path=source_path, paths=paths)
+
+        if not name:
+            if raw_content is None and source_path is None:
+                continue
+            raise ValueError("setup_agent skill entries with `content` must provide `name`.")
 
         if source_path is not None and raw_content is not None:
             raise ValueError(
@@ -96,7 +111,7 @@ def _split_skill_inputs(
 
         if raw_content is None:
             if source_path is None:
-                existing_content = _load_existing_agent_owned_skill_content(
+                existing_content = load_existing_agent_owned_skill_content(
                     skill_name=name,
                     agent_name=agent_name,
                     agent_status=agent_status,
@@ -147,167 +162,8 @@ def _name_only_skill_names(
     return names
 
 
-def _load_agent_config_from_directory(
-    agent_dir: Path,
-    *,
-    agent_name: str,
-    agent_status: str,
-) -> AgentConfig | None:
-    config_file = agent_dir / "config.yaml"
-    if not config_file.is_file():
-        return None
-
-    try:
-        payload = yaml.safe_load(config_file.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError:
-        return None
-    if not isinstance(payload, dict):
-        return None
-
-    payload.setdefault("name", agent_name)
-    payload.setdefault("status", agent_status)
-    payload.setdefault("agents_md_path", AGENTS_MD_FILENAME)
-
-    try:
-        return AgentConfig.model_validate(payload)
-    except Exception:
-        return None
-
-
-def _skill_file_for_ref(agent_root: Path, *, materialized_path: str) -> Path:
-    candidate = agent_root / Path(materialized_path)
-    if candidate.is_file():
-        return candidate
-    return candidate / "SKILL.md"
-
-
-def _load_existing_agent_owned_skill_content(
-    *,
-    skill_name: str,
-    agent_name: str | None,
-    agent_status: str,
-    thread_id: str | None,
-    paths: Any,
-) -> str | None:
-    normalized_agent_name = str(agent_name or "").strip().lower()
-    if not normalized_agent_name or paths is None:
-        return None
-    if not AGENT_NAME_PATTERN.match(normalized_agent_name):
-        return None
-
-    candidate_roots: list[Path] = []
-    if thread_id and hasattr(paths, "sandbox_agents_dir"):
-        sandbox_root = paths.sandbox_agents_dir(thread_id)
-        candidate_roots.append(Path(sandbox_root) / agent_status / normalized_agent_name)
-    if hasattr(paths, "agent_dir"):
-        agent_root = paths.agent_dir(normalized_agent_name, agent_status)
-        candidate_roots.append(Path(agent_root))
-
-    seen_roots: set[Path] = set()
-    for agent_root in candidate_roots:
-        if agent_root in seen_roots:
-            continue
-        seen_roots.add(agent_root)
-        agent_config = _load_agent_config_from_directory(
-            agent_root,
-            agent_name=normalized_agent_name,
-            agent_status=agent_status,
-        )
-        if agent_config is None:
-            continue
-        for skill_ref in agent_config.skill_refs:
-            if skill_ref.name != skill_name:
-                continue
-            if skill_ref.source_path is not None or not skill_ref.materialized_path:
-                continue
-            skill_file = _skill_file_for_ref(agent_root, materialized_path=skill_ref.materialized_path)
-            if not skill_file.is_file():
-                continue
-            return skill_file.read_text(encoding="utf-8")
-    return None
-
-
-def _load_existing_agent_skill_inputs(
-    *,
-    agent_name: str | None,
-    agent_status: str,
-    thread_id: str | None,
-    paths: Any,
-) -> list[dict[str, str]]:
-    normalized_agent_name = str(agent_name or "").strip().lower()
-    if not normalized_agent_name or paths is None:
-        return []
-    if not AGENT_NAME_PATTERN.match(normalized_agent_name):
-        return []
-
-    candidate_roots: list[Path] = []
-    if hasattr(paths, "agent_dir"):
-        candidate_roots.append(Path(paths.agent_dir(normalized_agent_name, agent_status)))
-    if thread_id and hasattr(paths, "sandbox_agents_dir"):
-        sandbox_root = paths.sandbox_agents_dir(thread_id)
-        candidate_roots.append(Path(sandbox_root) / agent_status / normalized_agent_name)
-
-    seen_roots: set[Path] = set()
-    for agent_root in candidate_roots:
-        if agent_root in seen_roots:
-            continue
-        seen_roots.add(agent_root)
-        agent_config = _load_agent_config_from_directory(
-            agent_root,
-            agent_name=normalized_agent_name,
-            agent_status=agent_status,
-        )
-        if agent_config is None or not agent_config.skill_refs:
-            continue
-
-        preserved_skills: list[dict[str, str]] = []
-        for skill_ref in agent_config.skill_refs:
-            if not skill_ref.materialized_path:
-                continue
-            skill_file = _skill_file_for_ref(agent_root, materialized_path=skill_ref.materialized_path)
-            if not skill_file.is_file():
-                continue
-            preserved_skills.append(
-                {
-                    "name": skill_ref.name,
-                    "content": skill_file.read_text(encoding="utf-8"),
-                }
-            )
-        if preserved_skills:
-            return preserved_skills
-
-    return []
-
-
-def _normalize_loaded_skill_refs(runtime_state: object) -> list[dict[str, str]]:
-    if not isinstance(runtime_state, dict):
-        return []
-
-    raw_entries = runtime_state.get("loaded_skills")
-    if not isinstance(raw_entries, list):
-        return []
-
-    normalized: list[dict[str, str]] = []
-    seen: set[tuple[str, str]] = set()
-    for entry in raw_entries:
-        if not isinstance(entry, dict):
-            continue
-        name = str(entry.get("name") or "").strip()
-        source_path = str(entry.get("source_path") or "").strip()
-        if not name or not source_path:
-            continue
-        key = (name, source_path)
-        if key in seen:
-            continue
-        seen.add(key)
-        normalized.append({"name": name, "source_path": source_path})
-    return normalized
-
-
 def _resolve_default_setup_agent_skills(
     *,
-    runtime_context: object,
-    runtime_state: object,
     agent_name: str,
     agent_status: str,
     thread_id: str | None,
@@ -315,31 +171,17 @@ def _resolve_default_setup_agent_skills(
 ) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
     """Build default skill inputs when the model omits `setup_agent.skills`.
 
-    Omitted skills historically meant "preserve the current archive's copied or
-    agent-owned skills". Keep that behavior, and additionally inherit archived
-    skills that were explicitly loaded through the canonical `skill` tool during
-    the current `/create-agent` run.
+    Omitting `skills` means "preserve the target agent's current skill setup".
+    Keep archived copied skills as copied refs with their existing `source_path`,
+    and keep agent-owned skills as inline `content`.
     """
 
-    preserved_inline_skills = _load_existing_agent_skill_inputs(
+    return load_existing_agent_skill_inputs(
         agent_name=agent_name,
         agent_status=agent_status,
         thread_id=thread_id,
         paths=paths,
     )
-    preserved_names = {
-        str(skill_input.get("name") or "").strip()
-        for skill_input in preserved_inline_skills
-        if isinstance(skill_input, dict)
-    }
-    command_name = str(runtime_context_value(runtime_context, "command_name") or "").strip()
-    inherited_skill_refs = [
-        skill_ref
-        for skill_ref in _normalize_loaded_skill_refs(runtime_state)
-        if command_name == "create-agent"
-        if skill_ref["name"] not in preserved_names
-    ]
-    return inherited_skill_refs, preserved_inline_skills
 
 
 def _runtime_agent_root(*, agent_name: str, agent_status: str) -> str:
@@ -353,6 +195,17 @@ def _runtime_thread_id(runtime_context: object) -> str | None:
         if normalized:
             return normalized
     return None
+
+
+def _resolve_setup_agent_name(*, runtime_context: object, explicit_agent_name: str | None) -> str | None:
+    normalized_explicit = str(explicit_agent_name or "").strip().lower()
+    if normalized_explicit:
+        return normalized_explicit
+
+    current_agent_name = normalize_effective_agent_name(runtime_context_value(runtime_context, "agent_name"))
+    if current_agent_name == LEAD_AGENT_NAME:
+        return None
+    return current_agent_name
 
 
 def _refresh_thread_runtime_materials(
@@ -404,6 +257,7 @@ def setup_agent(
     agents_md: str,
     description: str,
     runtime: ToolRuntime,
+    agent_name: str | None = None,
     model: str | None = None,
     tool_groups: list[str] | None = None,
     skills: list[SetupAgentSkillInput] | None = None,
@@ -413,19 +267,20 @@ def setup_agent(
     Args:
         agents_md: Full AGENTS.md content defining the agent's personality and behavior.
         description: One-line description of what the agent does.
+        agent_name: Explicit target agent archive name. Required for `lead_agent`.
+            When omitted, only a non-`lead_agent` runtime may update itself.
         model: Optional model override for the agent (e.g. "openai/gpt-4o").
             When omitted, setup_agent persists the current runtime model selection.
         tool_groups: Optional list of tool groups the agent can use.
         skills: Optional list of skill entries.
-            Use {"name": "..."} to copy an existing shared/store skill by name.
+            Use {"name": "..."} to copy an existing archived store skill by name.
             Use {"name": "...", "content": "...full SKILL.md..."} to create a new agent-owned skill.
     """
 
-    target_agent_name = runtime_context_value(runtime.context, "target_agent_name") or runtime_context_value(
-        runtime.context,
-        "agent_name",
+    resolved_agent_name = _resolve_setup_agent_name(
+        runtime_context=runtime.context,
+        explicit_agent_name=agent_name,
     )
-    agent_name = str(target_agent_name).strip() if target_agent_name is not None else None
     resolved_model = model
     if resolved_model is None:
         runtime_model = runtime_context_value(runtime.context, "model_name") or runtime_context_value(
@@ -437,8 +292,11 @@ def setup_agent(
             resolved_model = normalized_model or None
 
     try:
-        if not agent_name:
-            raise ValueError("setup_agent requires `agent_name` or `target_agent_name` in runtime context.")
+        if not resolved_agent_name:
+            raise ValueError(
+                "setup_agent requires explicit `agent_name` when called by `lead_agent`. "
+                "Only a non-`lead_agent` runtime may omit `agent_name` to update itself."
+            )
 
         paths = get_paths()
         agent_status = str(runtime_context_value(runtime.context, "agent_status", "dev")).strip() or "dev"
@@ -447,9 +305,7 @@ def setup_agent(
         remote_session_id = str(runtime_context_value(runtime.context, "remote_session_id") or "").strip() or None
         if skills is None:
             copied_skill_refs, inline_skills = _resolve_default_setup_agent_skills(
-                runtime_context=runtime.context,
-                runtime_state=getattr(runtime, "state", None),
-                agent_name=agent_name,
+                agent_name=resolved_agent_name,
                 agent_status=agent_status,
                 thread_id=runtime_thread_id,
                 paths=paths,
@@ -457,13 +313,15 @@ def setup_agent(
         else:
             copied_skill_refs, inline_skills = _split_skill_inputs(
                 skills,
-                agent_name=agent_name,
+                agent_name=resolved_agent_name,
                 agent_status=agent_status,
                 thread_id=runtime_thread_id,
                 paths=paths,
             )
+        agent_dir = paths.agent_dir(resolved_agent_name, agent_status)
+        archive_existed = agent_dir.is_dir()
         materialized = materialize_agent_definition(
-            name=agent_name,
+            name=resolved_agent_name,
             status=agent_status,
             agents_md=agents_md,
             description=description,
@@ -472,10 +330,9 @@ def setup_agent(
             skill_refs=copied_skill_refs,
             inline_skills=inline_skills,
             paths=paths,
-            allow_shared_skills=True,
         )
         _refresh_thread_runtime_materials(
-            agent_name=agent_name,
+            agent_name=resolved_agent_name,
             agent_status=agent_status,
             thread_id=runtime_thread_id,
             requested_backend=execution_backend,
@@ -484,21 +341,21 @@ def setup_agent(
             paths=paths,
         )
         materialized_skills = [skill_ref.name for skill_ref in materialized.skill_refs]
-        agent_dir = paths.agent_dir(agent_name, agent_status)
 
-        parts = [f"Agent '{agent_name}' created successfully!"]
+        verb = "updated" if archive_existed else "created"
+        parts = [f"Agent '{resolved_agent_name}' {verb} successfully!"]
         if materialized_skills:
             parts.append(f"Skills materialized: {', '.join(materialized_skills)}")
 
         logger.info(
             "[agent_creator] Created agent '%s' at %s (skills: %s)",
-            agent_name,
+            resolved_agent_name,
             agent_dir,
             materialized_skills,
         )
         return Command(
             update={
-                "created_agent_name": agent_name,
+                "created_agent_name": resolved_agent_name,
                 "messages": [ToolMessage(content=" ".join(parts), tool_call_id=runtime.tool_call_id)],
             }
         )
@@ -513,7 +370,7 @@ def setup_agent(
                 "call `setup_agent` with `skills: [{name: \"...\", content: \"...full SKILL.md...\"}]` "
                 "instead of name-only skill entries."
             )
-        logger.error(f"[agent_creator] Failed to create agent '{agent_name}': {error_message}", exc_info=True)
+        logger.error(f"[agent_creator] Failed to create agent '{resolved_agent_name}': {error_message}", exc_info=True)
         return Command(
             update={"messages": [ToolMessage(content=f"Error: {error_message}", tool_call_id=runtime.tool_call_id)]}
         )

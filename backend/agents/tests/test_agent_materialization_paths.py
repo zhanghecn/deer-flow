@@ -21,10 +21,10 @@ def _write_skill(base_dir: Path, scope: str, relative_path: str, name: str) -> N
     )
 
 
-def test_agent_skill_ref_derives_agent_materialized_path_from_shared_source():
-    ref = AgentSkillRef(name="bootstrap", source_path="shared/bootstrap")
+def test_agent_skill_ref_derives_agent_materialized_path_from_store_prod_source():
+    ref = AgentSkillRef(name="bootstrap", source_path="store/prod/bootstrap")
 
-    assert ref.category == "shared"
+    assert ref.category == "store/prod"
     assert ref.materialized_path == "skills/bootstrap"
 
 
@@ -37,7 +37,6 @@ def test_agent_skill_ref_derives_agent_materialized_path_from_store_prod_source(
 
 def test_resolve_skill_refs_prefers_store_prod_when_dev_agent_only_has_prod_match(tmp_path: Path):
     base_dir = tmp_path / ".openagents"
-    _write_skill(base_dir, "shared", "bootstrap", "bootstrap")
     _write_skill(base_dir, "store/prod", "bootstrap", "bootstrap")
     paths = Paths(base_dir=base_dir, skills_dir=base_dir / "skills")
 

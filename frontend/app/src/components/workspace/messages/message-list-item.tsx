@@ -28,11 +28,9 @@ import { useI18n } from "@/core/i18n/hooks";
 import { parseKnowledgeCitationHref } from "@/core/knowledge/citations";
 import {
   extractContentFromMessage,
-  inferAgentNameFromNextStepPrompt,
   extractNextStepsFromText,
   extractReasoningContentFromMessage,
   parseUploadedFiles,
-  shouldKeepNextStepInCurrentThread,
   stripNextStepsFromText,
   stripUploadedFilesTag,
   type FileInMessage,
@@ -245,10 +243,10 @@ function MessageContent_({
     remote_session_id?: string;
     new_chat?: boolean;
   }) {
-    const inferredAgentName =
-      step.agent_name ?? inferAgentNameFromNextStepPrompt(step.prompt);
+    // Trust only structured next-step fields. The UI must not recover agent or
+    // thread-routing intent by re-parsing the assistant's natural-language prompt.
     const targetSelection = {
-      agentName: inferredAgentName ?? currentRuntimeSelection.agentName,
+      agentName: step.agent_name ?? currentRuntimeSelection.agentName,
       agentStatus: step.agent_status ?? currentRuntimeSelection.agentStatus,
       executionBackend:
         step.execution_backend ?? currentRuntimeSelection.executionBackend,
@@ -263,10 +261,7 @@ function MessageContent_({
         currentRuntimeSelection.executionBackend ||
       targetSelection.remoteSessionId !==
         currentRuntimeSelection.remoteSessionId;
-    const keepInCurrentThread =
-      !runtimeChanged && shouldKeepNextStepInCurrentThread(rawContent, step);
-    const shouldStartNewChat =
-      !keepInCurrentThread && (step.new_chat === true || runtimeChanged);
+    const shouldStartNewChat = step.new_chat === true || runtimeChanged;
 
     if (!shouldStartNewChat && sendMessage) {
       await sendMessage({

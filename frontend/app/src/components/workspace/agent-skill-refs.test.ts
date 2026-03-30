@@ -14,7 +14,7 @@ function createSkill(overrides: Partial<Skill>): Skill {
   return {
     name: "bootstrap",
     description: "",
-    category: "shared",
+    category: "store/prod",
     license: null,
     enabled: true,
     ...overrides,
@@ -25,10 +25,10 @@ describe("agent skill refs", () => {
   it("preserves explicit aliased source paths", () => {
     const skill = createSkill({
       name: "vercel-deploy",
-      source_path: "shared/vercel-deploy-claimable",
+      source_path: "store/prod/vercel-deploy-claimable",
     });
 
-    expect(buildSkillSourcePath(skill)).toBe("shared/vercel-deploy-claimable");
+    expect(buildSkillSourcePath(skill)).toBe("store/prod/vercel-deploy-claimable");
     expect(buildSkillMaterializedPath(skill)).toBe(
       "skills/vercel-deploy-claimable",
     );
@@ -48,14 +48,14 @@ describe("agent skill refs", () => {
     const skillRef = createSkillRef(
       createSkill({
         name: "vercel-deploy",
-        source_path: "shared/vercel-deploy-claimable",
+        source_path: "store/prod/vercel-deploy-claimable",
       }),
     );
 
     expect(skillRef).toEqual({
       name: "vercel-deploy",
-      category: "shared",
-      source_path: "shared/vercel-deploy-claimable",
+      category: "store/prod",
+      source_path: "store/prod/vercel-deploy-claimable",
       materialized_path: "skills/vercel-deploy-claimable",
     });
   });
@@ -63,14 +63,14 @@ describe("agent skill refs", () => {
   it("strips derived fields from sourced skill requests", () => {
     const skillRef: AgentSkillRef = {
       name: "vercel-deploy",
-      category: "shared",
-      source_path: "shared/vercel-deploy-claimable",
+      category: "store/prod",
+      source_path: "store/prod/vercel-deploy-claimable",
       materialized_path: "skills/vercel-deploy-claimable",
     };
 
     expect(serializeSkillRefForRequest(skillRef)).toEqual({
       name: "vercel-deploy",
-      source_path: "shared/vercel-deploy-claimable",
+      source_path: "store/prod/vercel-deploy-claimable",
     });
   });
 

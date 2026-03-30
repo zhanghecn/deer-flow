@@ -1,5 +1,8 @@
 Read these docs before changing runtime/backend/sandbox/remote architecture:
 @./docs/guides/documentation-boundaries.md
+@./docs/architecture/agent-authoring-command-contract.md
+@./docs/architecture/opencode-alignment-and-skill-boundary.md
+@./docs/architecture/runtime-semantic-boundary.md
 @./docs/architecture/runtime-architecture.md
 @./docs/architecture/remote-backend.md
 @./docs/architecture/knowledge-base.md
@@ -50,6 +53,28 @@ Repository-wide runtime architecture rules:
   - when replacing a deprecated path, remove the old branch instead of keeping dual resolution, silent aliasing, or "try old, then new" behavior
   - do not read the same product contract from multiple sources of truth just to preserve older setups; migrate stored data and fail explicitly on invalid stale values
   - if a hard cut requires a migration, write the migration and delete the fallback in the same change set
+- Slash-command rule:
+  - slash commands are routing and template-selection primitives, not natural-language semantic parsers
+  - frontend, gateway, and backend middleware must not regex or heuristically infer target agents, target skills, or other business entities from free-form user text
+  - only explicit structured UI selections may populate target identifiers outside the model, and only when those identifiers come from dedicated fields or selections rather than message-text parsing
+  - command/object understanding belongs to the runtime model; tool calls must carry explicit targets instead of relying on inferred runtime context
+- Runtime semantic boundary rule:
+  - outside the model, only syntax-level parsing, machine-readable payload parsing, explicit UI fields, tool arguments/results, and safety validation are allowed
+  - frontend, gateway, and backend middleware must not inspect free-form user prose or assistant prose and then infer business mode, target runtime, review mode, question gating, or other semantic intent
+  - if a non-model layer needs a business decision, expose that decision as an explicit structured field or tool/result contract instead of adding keyword tables, fuzzy matching, or regex heuristics
+- Runtime skill contract rule:
+  - slash-command 对齐 `opencode` 时，必须先检查本地参考仓库 `../opencode`（当前绝对路径 `/root/project/ai/opencode`），并明确写清楚对齐的是 command routing / template loading / skill discovery / explicit skill tool 中的哪一层
+  - 不要把 “对齐 opencode” 扩大解释成 deer-flow runtime skill 全架构自动应当如何实现
+  - skill 相关架构至少涉及 3 套不同机制：`opencode` 的显式 `skill` 工具、Deep Agents `skills=` / `SkillsMiddleware` / `skills_metadata`、以及 deer-flow agent-owned copied skills；修改前必须先区分清楚，禁止混写
+  - 在新的唯一 skill 链路完成 end-to-end 代码接线、trace 可见性、状态验证、以及真实 UI 测试前，不要在 `AGENTS.md` 中写“只能 direct read `SKILL.md`”“不能再用 `skills=`”“不能有 `skill` 工具”这类绝对化约束
+  - when an agent's domain behavior is primarily defined by attached copied skills, keep `AGENTS.md` thin and let copied `SKILL.md` remain the single detailed workflow source
+  - do not duplicate a skill's full checklist, step order, or output contract into `AGENTS.md`, because that creates a second weaker instruction source that drifts from the copied skill
+  - if the same domain skill must support different task shapes such as editable-file review vs knowledge-base chat review, define those modes in `SKILL.md` itself rather than in frontend heuristics or extra prompt glue
+  - changing an archived store skill does not silently rewrite existing agent-owned copied skills; copied skill refresh must happen through an explicit agent update/materialization flow
+- Runtime mode flag rule:
+  - frontend defaults must not hard-force planner-style runtime flags such as `is_plan_mode` onto every chat turn
+  - non-`lead_agent` domain agents, especially ones governed by attached copied skills, should default to direct execution unless a dedicated UI control explicitly opts into planner/todo behavior
+  - avoid front-end policy that broadens runtime behavior for all agents by default; keep those choices explicit and structured
 
 Repository-wide testing index:
 

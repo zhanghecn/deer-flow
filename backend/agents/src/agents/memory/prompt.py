@@ -253,9 +253,9 @@ def format_conversation_for_update(messages: list[Any]) -> str:
             text_parts = [p.get("text", "") for p in content if isinstance(p, dict) and "text" in p]
             content = " ".join(text_parts) if text_parts else str(content)
 
-        # Strip uploaded_files tags from human messages to avoid persisting
-        # ephemeral file path info into long-term memory.  Skip the turn entirely
-        # when nothing remains after stripping (upload-only message).
+        # Upload metadata is session-scoped runtime context, not durable user
+        # memory. Filter it here at the conversation-format boundary and keep
+        # updater/save layers free of second-pass regex cleanup.
         if role == "human":
             content = re.sub(
                 r"<uploaded_files>[\s\S]*?</uploaded_files>\n*", "", str(content)

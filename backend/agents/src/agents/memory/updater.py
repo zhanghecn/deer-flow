@@ -1,7 +1,6 @@
 """Memory updater for reading, writing, and updating memory data."""
 
 import json
-import re
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -160,47 +159,6 @@ def _load_memory_from_file(
         return _create_empty_memory()
 
 
-# Matches sentences that describe a file-upload *event* rather than general
-# file-related work.  Deliberately narrow to avoid removing legitimate facts
-# such as "User works with CSV files" or "prefers PDF export".
-_UPLOAD_SENTENCE_RE = re.compile(
-    r"[^.!?]*\b(?:"
-    r"upload(?:ed|ing)?(?:\s+\w+){0,3}\s+(?:file|files?|document|documents?|attachment|attachments?)"
-    r"|file\s+upload"
-    r"|/mnt/user-data/uploads/"
-    r"|<uploaded_files>"
-    r")[^.!?]*[.!?]?\s*",
-    re.IGNORECASE,
-)
-
-
-def _strip_upload_mentions_from_memory(memory_data: dict[str, Any]) -> dict[str, Any]:
-    """Remove sentences about file uploads from all memory summaries and facts.
-
-    Uploaded files are session-scoped; persisting upload events in long-term
-    memory causes the agent to search for non-existent files in future sessions.
-    """
-    # Scrub summaries in user/history sections
-    for section in ("user", "history"):
-        section_data = memory_data.get(section, {})
-        for _key, val in section_data.items():
-            if isinstance(val, dict) and "summary" in val:
-                cleaned = _UPLOAD_SENTENCE_RE.sub("", val["summary"]).strip()
-                cleaned = re.sub(r"  +", " ", cleaned)
-                val["summary"] = cleaned
-
-    # Also remove any facts that describe upload events
-    facts = memory_data.get("facts", [])
-    if facts:
-        memory_data["facts"] = [
-            f
-            for f in facts
-            if not _UPLOAD_SENTENCE_RE.search(f.get("content", ""))
-        ]
-
-    return memory_data
-
-
 def _save_memory_to_file(
     memory_data: dict[str, Any],
     *,
@@ -333,12 +291,6 @@ class MemoryUpdater:
 
             # Apply updates
             updated_memory = self._apply_updates(current_memory, update_data, thread_id)
-
-            # Strip file-upload mentions from all summaries before saving.
-            # Uploaded files are session-scoped and won't exist in future sessions,
-            # so recording upload events in long-term memory causes the agent to
-            # try (and fail) to locate those files in subsequent conversations.
-            updated_memory = _strip_upload_mentions_from_memory(updated_memory)
 
             # Save
             return _save_memory_to_file(

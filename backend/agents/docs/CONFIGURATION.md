@@ -32,7 +32,7 @@ Notes:
   newer threads behind a single worker.
 - `storage.base_dir` is where archived agents, users, threads, and remote relay
   session state live.
-- `skills.path` points at the shared skills archive root, not at per-agent skill
+- `skills.path` points at the archived skills library root, not at per-agent skill
   copies.
 - `skills.container_path` is only a compatibility mount for local execution.
   Active runtime skills are still read from `/mnt/user-data/agents/...`.
@@ -208,8 +208,7 @@ Compiled binary:
 
 Current ownership rules:
 
-- shared reusable skills:
-  - `.openagents/skills/shared`
+- archived reusable skills:
   - `.openagents/skills/store/dev`
   - `.openagents/skills/store/prod`
 - agent-owned prompt:
@@ -217,7 +216,7 @@ Current ownership rules:
 - agent-owned copied skills:
   - `.openagents/agents/{dev,prod}/{agent}/skills`
 
-`config.yaml` should reference the shared skills archive and agent manifests.
+`config.yaml` should reference the archived skills library and agent manifests.
 Runtime then copies archived agent files into `/mnt/user-data/...`.
 
 ## Models, MCP, And Secrets
@@ -234,4 +233,4 @@ Model and extension settings remain unchanged:
 - Treat `dev` and `prod` as archive lifecycles, not runtime modes.
 - Switch `local` and `sandbox` through config or environment.
 - Switch `remote` through runtime request parameters only.
-- Keep `.openagents/skills/` as the only maintained shared skill source.
+- Keep `.openagents/skills/store/{dev,prod}/` as the only maintained archived skill source.

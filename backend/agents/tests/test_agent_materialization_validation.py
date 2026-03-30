@@ -14,9 +14,9 @@ def _write_skill(base_dir: Path, scope: str, relative_path: str, name: str) -> N
     )
 
 
-def test_validate_skill_refs_allows_explicit_shared_source_path_when_name_conflicts(tmp_path: Path):
+def test_validate_skill_refs_allows_explicit_prod_source_path_when_name_conflicts(tmp_path: Path):
     base_dir = tmp_path / ".openagents"
-    _write_skill(base_dir, "shared", "frontend-design", "frontend-design")
+    _write_skill(base_dir, "store/prod", "frontend-design", "frontend-design")
     _write_skill(base_dir, "store/dev", "frontend-design", "frontend-design")
     paths = Paths(base_dir=base_dir, skills_dir=base_dir / "skills")
 
@@ -24,10 +24,9 @@ def test_validate_skill_refs_allows_explicit_shared_source_path_when_name_confli
         [
             AgentSkillRef(
                 name="frontend-design",
-                source_path="shared/frontend-design",
+                source_path="store/prod/frontend-design",
             )
         ],
         target_status="dev",
         paths=paths,
-        allow_shared=True,
     )

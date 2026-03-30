@@ -166,7 +166,11 @@ func filterKnowledgeBasesForReadyDocuments(
 	for _, item := range items {
 		readyDocuments := make([]repository.KnowledgeDocumentRecord, 0, len(item.Documents))
 		for _, document := range item.Documents {
-			if strings.EqualFold(strings.TrimSpace(document.Status), "ready") {
+			// `ready_degraded` is still attachable and retrievable by the agent.
+			// The selector must not hide those documents or its document counts
+			// diverge from thread bindings and runtime knowledge tools.
+			status := strings.TrimSpace(document.Status)
+			if strings.EqualFold(status, "ready") || strings.EqualFold(status, "ready_degraded") {
 				readyDocuments = append(readyDocuments, document)
 			}
 		}

@@ -216,7 +216,7 @@ openagents/
 │   └── admin/                    # Vite admin console
 └── .openagents/                  # Host-side runtime/archive root created locally
     ├── agents/                   # Archived agents (dev/prod)
-    ├── skills/                   # Shared skill archive (shared/store)
+    ├── skills/                   # Archived skill library (store/dev + store/prod)
     ├── users/                    # User-scoped durable data
     └── threads/                  # Thread-scoped runtime workspaces
 ```

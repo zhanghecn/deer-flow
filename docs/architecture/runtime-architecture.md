@@ -7,6 +7,12 @@ It exists for two reasons:
 - future maintainers need a stable mental model before changing backend code
 - coding agents need short, explicit rules that separate runtime layers cleanly
 
+Related contract:
+
+- slash-command and authoring-target ownership lives in `docs/architecture/agent-authoring-command-contract.md`
+- broader syntax-vs-semantics boundary lives in `docs/architecture/runtime-semantic-boundary.md`
+- slash commands route workflows; they must not absorb natural-language target inference that belongs to the runtime model
+
 ## One-Sentence Model
 
 OpenAgents runtime is split into three layers:
@@ -96,6 +102,10 @@ Operational rules:
 - Switching agent, archive (`dev` / `prod`), or execution backend creates a new thread instead of mutating an existing thread
 - Frontend "current agent" settings only provide defaults for a new conversation; they must not overwrite historical thread bindings
 - Open API always resolves `prod` agent archives, but regular workspace threads may bind either `dev` or `prod`
+- Frontend runtime-behavior defaults must stay minimal:
+  - do not hard-force planner/todo execution (`is_plan_mode`) onto every thread
+  - domain agents whose behavior is governed by copied skills should default to direct execution unless the UI explicitly opts into planner mode
+  - reasoning/delegation toggles are runtime-behavior inputs, not a place to smuggle frontend policy into every agent run
 
 ## Why The Provider Exists
 

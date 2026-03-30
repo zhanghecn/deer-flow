@@ -14,13 +14,11 @@ from src.tools.builtins import (
     install_skill_from_registry,
     list_knowledge_documents,
     present_file_tool,
-    promote_skill_shared,
     push_agent_prod,
     push_skill_prod,
     question_tool,
     save_agent_to_store,
     save_skill_to_store,
-    skill_tool,
     setup_agent,
     view_image_tool,
 )
@@ -28,7 +26,6 @@ from src.tools.builtins import (
 logger = logging.getLogger(__name__)
 
 BUILTIN_TOOLS = [
-    skill_tool,
     present_file_tool,
     question_tool,
     list_knowledge_documents,
@@ -45,7 +42,6 @@ AUTHORING_TOOL_REGISTRY = {
     "save_skill_to_store": save_skill_to_store,
     "push_agent_prod": push_agent_prod,
     "push_skill_prod": push_skill_prod,
-    "promote_skill_shared": promote_skill_shared,
 }
 
 MAIN_AGENT_ONLY_TOOL_NAMES = frozenset({"question"})

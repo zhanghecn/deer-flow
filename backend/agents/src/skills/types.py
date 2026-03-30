@@ -12,7 +12,7 @@ class Skill:
     skill_dir: Path
     skill_file: Path
     relative_path: Path  # Relative path from the scope root to the skill directory
-    category: str  # e.g. 'shared', 'store/dev', or 'store/prod'
+    category: str  # e.g. 'store/dev' or 'store/prod'
     enabled: bool = False  # Whether this skill is enabled
 
     @property

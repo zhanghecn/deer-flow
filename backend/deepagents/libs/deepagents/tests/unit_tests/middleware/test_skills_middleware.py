@@ -827,8 +827,8 @@ def test_format_skills_list_empty() -> None:
 
 def test_skills_system_prompt_describes_relative_path_resolution() -> None:
     """Skill helper paths should resolve from the loaded SKILL.md directory."""
-    assert "Call the `skill` tool" in SKILLS_SYSTEM_PROMPT
-    assert "runtime base directory" in SKILLS_SYSTEM_PROMPT
+    assert "Read the listed `SKILL.md` path" in SKILLS_SYSTEM_PROMPT
+    assert "containing directory" in SKILLS_SYSTEM_PROMPT
 
 
 def test_format_skills_list_single_skill() -> None:
@@ -854,7 +854,7 @@ def test_format_skills_list_single_skill() -> None:
     result = middleware._format_skills_list(skills)
     assert "web-research" in result
     assert "Research topics on the web" in result
-    assert "Load with `skill(name=\"web-research\")` when needed" in result
+    assert "Read `/skills/user/web-research/SKILL.md` when needed" in result
 
 
 def test_format_skills_list_multiple_skills_multiple_registries() -> None:

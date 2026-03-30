@@ -10,7 +10,6 @@ const PROMPT_COMMAND_NAMES = [
   "save-skill-to-store",
   "push-agent-prod",
   "push-skill-prod",
-  "promote-skill-shared",
 ] as const;
 
 export function getPromptCommands(t: Translations): PromptCommand[] {
@@ -42,10 +41,6 @@ export function getPromptCommands(t: Translations): PromptCommand[] {
     {
       name: "push-skill-prod",
       description: t.commands.pushSkillProd,
-    },
-    {
-      name: "promote-skill-shared",
-      description: t.commands.promoteSkillShared,
     },
   ];
 }

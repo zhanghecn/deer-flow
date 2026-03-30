@@ -5,18 +5,21 @@ description: Helps users discover and install agent skills when they ask questio
 
 # Find Skills
 
-Use this skill when the user wants an existing skill from the skills ecosystem instead of drafting a brand-new skill from scratch.
+Use this skill when the user wants an existing skill from the current skills ecosystem instead of drafting a brand-new skill from scratch.
 
 ## Core Rules
 
-- Search first. Do not install blindly.
-- Use `npx --yes skills find <query>` to discover candidates in non-interactive sandboxes.
-- Treat `/mnt/user-data/agents/{status}/{name}/skills/...` as a runtime copy only. It is never proof that a skill was installed durably.
+- Search the local archived skill store first.
+- The local archived store lives under `/mnt/skills/store/dev/...` and `/mnt/skills/store/prod/...`.
+- Use normal file-reading tools such as `ls`, `glob`, `grep`, and `read_file` to locate candidate skills and inspect their `SKILL.md`.
+- If a suitable local archived skill already exists, reuse it. Do not install or create a duplicate just because an external registry also has something similar.
+- When a local skill is selected for agent creation, keep its exact `source_path` such as `store/dev/contract-review` or `store/prod/frontend-design`.
+- Only run external registry discovery when the user explicitly wants installation, or when no suitable local archived skill exists.
 - When a missing skill should be installed for a dev workflow, prefer the built-in `install_skill_from_registry` tool.
 - Search can be parallel, but install skills one at a time. Wait for each install result before starting the next install.
 - Do not use `npx skills add`, `cp`, `mkdir`, `write_file`, or similar shell steps to fake installation into a runtime directory.
+- Treat `/mnt/user-data/agents/{status}/{name}/skills/...` as a runtime copy only. It is never proof that a skill was installed durably.
 - If the current run is `prod`, or the install tool is unavailable, say that clearly instead of claiming success. Prod usage must rely on already-published prod skills.
-- If a skill already exists in the available dev/prod stores, reuse that archived skill instead of creating a duplicate same-name dev skill.
 
 ## Workflow
 
@@ -26,11 +29,49 @@ Identify:
 
 1. The domain, such as design, video, writing, coding, testing, deployment, or research
 2. The specific job the user wants done
-3. Whether the user wants discovery only, or discovery plus installation
+3. Whether the user wants local skill reuse only, local reuse plus agent creation, or external discovery / installation
 
-### Step 2: Search for Candidates
+### Step 2: Search the Local Archived Store First
 
-Run:
+Inspect the local archived store before doing anything external:
+
+- `/mnt/skills/store/dev/...`
+- `/mnt/skills/store/prod/...`
+
+Use filesystem tools to:
+
+1. List candidate skill directories
+2. Read candidate `SKILL.md` files
+3. Compare the skill descriptions and workflows to the user's request
+4. Record the exact `source_path` for each good match
+
+Examples of valid local `source_path` values:
+
+- `store/dev/contract-review`
+- `store/prod/find-skills`
+- `store/prod/frontend-design`
+
+### Step 3: Present the Best Local Match
+
+When you find relevant local skills, present:
+
+1. The skill name
+2. Why it matches the request
+3. The exact local `source_path`
+4. Whether it already exists in `store/dev` or `store/prod`
+5. Whether the next step is to attach it to an agent or simply use it directly
+
+If the task is agent creation or agent update, the final persistence step must preserve that exact source:
+
+```text
+setup_agent(..., skills=[{source_path: "store/dev/contract-review"}])
+```
+
+If the same skill name exists in both `store/dev` and `store/prod`, do not collapse it to a bare `{name}` entry.
+
+### Step 4: External Discovery Only When Needed
+
+Only if no suitable local archived skill exists, or the user explicitly asks for external discovery, run:
 
 ```bash
 npx --yes skills find <query>
@@ -40,8 +81,8 @@ Examples:
 
 - `npx --yes skills find ui design`
 - `npx --yes skills find video generation`
-- `npx --yes skills find copywriting`
-- `npx --yes skills find coding`
+- `npx --yes skills find contract review`
+- `npx --yes skills find playwright testing`
 
 Typical results look like:
 
@@ -52,19 +93,7 @@ vercel-labs/agent-skills@vercel-react-best-practices
 └ https://skills.sh/vercel-labs/agent-skills/vercel-react-best-practices
 ```
 
-That install hint comes from the registry output. In sandboxed manual workflows, prepend `--yes` to `npx` or use the helper script below so the install stays non-interactive.
-
-### Step 3: Present the Best Match
-
-When you find relevant skills, present:
-
-1. The skill name
-2. Why it matches the request
-3. The install source, such as `owner/repo@skill-name`
-4. The `skills.sh` link
-5. Whether the skill is already available or still needs installation
-
-### Step 4: Install Only Through the Durable Path
+### Step 5: Install Only Through the Durable Path
 
 If the user explicitly wants installation in a dev workflow, call:
 
@@ -96,12 +125,14 @@ This helper requires an explicit target root and is not the normal agent workflo
 | Writing | `writing`, `copywriting`, `blog`, `marketing` |
 | Coding | `coding`, `programming`, `react`, `typescript`, `review` |
 | Testing | `testing`, `playwright`, `jest`, `e2e` |
+| Legal | `contract review`, `legal review`, `document audit` |
 | DevOps | `deploy`, `docker`, `ci-cd`, `kubernetes` |
 
 ## When No Skill Is Found
 
 If no good match exists:
 
-1. Say that no suitable existing skill was found
-2. Offer to help directly
-3. Suggest creating a new skill only if that is the right next step
+1. Say that no suitable existing skill was found in the local archived store
+2. If relevant, say whether external registry discovery was also checked
+3. Offer to help directly
+4. Suggest creating a new skill only if that is the right next step

@@ -80,7 +80,7 @@ func TestAgentServiceCreateRejectsAmbiguousSkillNames(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected duplicate-name skill error")
 	}
-	if !strings.Contains(err.Error(), "cannot be attached to a dev agent") {
+	if !strings.Contains(err.Error(), "explicit source_path") {
 		t.Fatalf("Create() error = %v, want duplicate-name rejection", err)
 	}
 }
@@ -89,7 +89,7 @@ func TestAgentServiceUpdatePreservesAliasedSkillSourcePath(t *testing.T) {
 	t.Parallel()
 
 	baseDir := filepath.Join(t.TempDir(), ".openagents")
-	skillDir := filepath.Join(baseDir, "skills", "shared", "vercel-deploy-claimable")
+	skillDir := filepath.Join(baseDir, "skills", "store", "prod", "vercel-deploy-claimable")
 	if err := os.MkdirAll(skillDir, 0755); err != nil {
 		t.Fatalf("mkdir aliased skill dir: %v", err)
 	}
@@ -107,8 +107,8 @@ func TestAgentServiceUpdatePreservesAliasedSkillSourcePath(t *testing.T) {
 		"skill_refs": []model.SkillRef{
 			{
 				Name:       "vercel-deploy",
-				Category:   "shared",
-				SourcePath: "shared/vercel-deploy-claimable",
+				Category:   "store/prod",
+				SourcePath: "store/prod/vercel-deploy-claimable",
 			},
 		},
 		"memory": map[string]interface{}{
@@ -135,11 +135,11 @@ func TestAgentServiceUpdatePreservesAliasedSkillSourcePath(t *testing.T) {
 	if len(agent.Skills) != 1 {
 		t.Fatalf("len(agent.Skills) = %d, want 1", len(agent.Skills))
 	}
-	if got := agent.Skills[0].Category; got != "shared" {
-		t.Fatalf("agent.Skills[0].Category = %q, want %q", got, "shared")
+	if got := agent.Skills[0].Category; got != "store/prod" {
+		t.Fatalf("agent.Skills[0].Category = %q, want %q", got, "store/prod")
 	}
-	if got := agent.Skills[0].SourcePath; got != "shared/vercel-deploy-claimable" {
-		t.Fatalf("agent.Skills[0].SourcePath = %q, want %q", got, "shared/vercel-deploy-claimable")
+	if got := agent.Skills[0].SourcePath; got != "store/prod/vercel-deploy-claimable" {
+		t.Fatalf("agent.Skills[0].SourcePath = %q, want %q", got, "store/prod/vercel-deploy-claimable")
 	}
 	if got := agent.Skills[0].MaterializedPath; got != "skills/vercel-deploy-claimable" {
 		t.Fatalf("agent.Skills[0].MaterializedPath = %q, want %q", got, "skills/vercel-deploy-claimable")
@@ -155,7 +155,7 @@ func TestAgentServiceUpdateAcceptsScopedSkillRefs(t *testing.T) {
 	t.Parallel()
 
 	baseDir := filepath.Join(t.TempDir(), ".openagents")
-	for _, scope := range []string{"shared", filepath.Join("store", "dev")} {
+	for _, scope := range []string{filepath.Join("store", "prod"), filepath.Join("store", "dev")} {
 		skillDir := filepath.Join(baseDir, "skills", scope, "research")
 		if err := os.MkdirAll(skillDir, 0755); err != nil {
 			t.Fatalf("mkdir skill dir: %v", err)
@@ -293,7 +293,7 @@ func TestAgentServiceUpdateDerivesSkillMetadataFromSourcePath(t *testing.T) {
 	t.Parallel()
 
 	baseDir := filepath.Join(t.TempDir(), ".openagents")
-	skillDir := filepath.Join(baseDir, "skills", "shared", "vercel-deploy-claimable")
+	skillDir := filepath.Join(baseDir, "skills", "store", "prod", "vercel-deploy-claimable")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatalf("mkdir aliased skill dir: %v", err)
 	}
@@ -327,7 +327,7 @@ func TestAgentServiceUpdateDerivesSkillMetadataFromSourcePath(t *testing.T) {
 			{
 				Name:             "vercel-deploy",
 				Category:         "store/prod",
-				SourcePath:       "shared/vercel-deploy-claimable",
+				SourcePath:       "store/prod/vercel-deploy-claimable",
 				MaterializedPath: "skills/vercel-deploy",
 			},
 		},
@@ -339,11 +339,11 @@ func TestAgentServiceUpdateDerivesSkillMetadataFromSourcePath(t *testing.T) {
 	if len(agent.Skills) != 1 {
 		t.Fatalf("len(agent.Skills) = %d, want 1", len(agent.Skills))
 	}
-	if got := agent.Skills[0].Category; got != "shared" {
-		t.Fatalf("agent.Skills[0].Category = %q, want %q", got, "shared")
+	if got := agent.Skills[0].Category; got != "store/prod" {
+		t.Fatalf("agent.Skills[0].Category = %q, want %q", got, "store/prod")
 	}
-	if got := agent.Skills[0].SourcePath; got != "shared/vercel-deploy-claimable" {
-		t.Fatalf("agent.Skills[0].SourcePath = %q, want %q", got, "shared/vercel-deploy-claimable")
+	if got := agent.Skills[0].SourcePath; got != "store/prod/vercel-deploy-claimable" {
+		t.Fatalf("agent.Skills[0].SourcePath = %q, want %q", got, "store/prod/vercel-deploy-claimable")
 	}
 	if got := agent.Skills[0].MaterializedPath; got != "skills/vercel-deploy-claimable" {
 		t.Fatalf("agent.Skills[0].MaterializedPath = %q, want %q", got, "skills/vercel-deploy-claimable")

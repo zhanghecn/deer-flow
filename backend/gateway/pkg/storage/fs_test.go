@@ -25,15 +25,15 @@ func TestResolveRefRoutesSkillRefsToOpenAgentsSkillsRoot(t *testing.T) {
 
 	projectDir := t.TempDir()
 	baseDir := filepath.Join(projectDir, ".openagents")
-	skillsDir := filepath.Join(baseDir, "skills", "shared", "research")
+	skillsDir := filepath.Join(baseDir, "skills", "store", "prod", "research")
 	if err := os.MkdirAll(skillsDir, 0755); err != nil {
 		t.Fatalf("mkdir skills dir: %v", err)
 	}
 
 	fs := NewFS(baseDir)
 
-	got := fs.ResolveRef("skills/shared/research/SKILL.md")
-	want := filepath.Join(baseDir, "skills", "shared", "research", "SKILL.md")
+	got := fs.ResolveRef("skills/store/prod/research/SKILL.md")
+	want := filepath.Join(baseDir, "skills", "store", "prod", "research", "SKILL.md")
 	if got != want {
 		t.Fatalf("ResolveRef() = %q, want %q", got, want)
 	}
@@ -45,7 +45,7 @@ func TestGlobalSkillDirUsesOpenAgentsSkillsArchive(t *testing.T) {
 	projectDir := t.TempDir()
 	baseDir := filepath.Join(projectDir, ".openagents")
 	if err := os.MkdirAll(filepath.Join(baseDir, "skills"), 0755); err != nil {
-		t.Fatalf("mkdir shared skills root: %v", err)
+		t.Fatalf("mkdir skills root: %v", err)
 	}
 
 	fs := NewFS(baseDir)
@@ -57,21 +57,21 @@ func TestGlobalSkillDirUsesOpenAgentsSkillsArchive(t *testing.T) {
 	}
 }
 
-func TestSharedSkillsDirUsesOpenAgentsSharedScope(t *testing.T) {
+func TestStoreProdSkillsDirUsesOpenAgentsStoreProdScope(t *testing.T) {
 	t.Parallel()
 
 	projectDir := t.TempDir()
 	baseDir := filepath.Join(projectDir, ".openagents")
-	if err := os.MkdirAll(filepath.Join(baseDir, "skills", "shared"), 0755); err != nil {
-		t.Fatalf("mkdir shared skills root: %v", err)
+	if err := os.MkdirAll(filepath.Join(baseDir, "skills", "store", "prod"), 0755); err != nil {
+		t.Fatalf("mkdir store/prod skills root: %v", err)
 	}
 
 	fs := NewFS(baseDir)
 
-	got := fs.SharedSkillsDir()
-	want := filepath.Join(baseDir, "skills", "shared")
+	got := fs.StoreProdSkillsDir()
+	want := filepath.Join(baseDir, "skills", "store", "prod")
 	if got != want {
-		t.Fatalf("SharedSkillsDir() = %q, want %q", got, want)
+		t.Fatalf("StoreProdSkillsDir() = %q, want %q", got, want)
 	}
 }
 

@@ -1,13 +1,13 @@
-"""Inject backend-resolved slash-command instructions at runtime."""
+"""Inject backend-resolved slash-command instructions as message-level context."""
 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from typing import Any, override
 
-from deepagents.middleware._utils import append_to_system_message
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
+from langchain_core.messages import HumanMessage
 
 from src.utils.runtime_context import runtime_context_value
 
@@ -31,7 +31,7 @@ def _normalize_authoring_actions(value: object) -> tuple[str, ...]:
     return tuple(normalized)
 
 
-def build_runtime_command_prompt(runtime_context: object, state: object | None = None) -> str:
+def build_runtime_command_prompt(runtime_context: object) -> str:
     command_name = _normalize_text(runtime_context_value(runtime_context, "command_name"))
     command_kind = _normalize_text(runtime_context_value(runtime_context, "command_kind"))
     command_args = _normalize_text(runtime_context_value(runtime_context, "command_args"))
@@ -101,20 +101,19 @@ def build_runtime_command_prompt(runtime_context: object, state: object | None =
 
 
 class RuntimeCommandMiddleware(AgentMiddleware):
-    """Append resolved slash-command guidance without baking it into the base prompt."""
+    """Append resolved slash-command guidance without baking it into the base prompt.
+
+    This mirrors the `opencode` model where command templates are injected as a
+    turn-local instruction, not merged into the long-lived system prompt.
+    """
 
     @staticmethod
     def _override_request(request: ModelRequest[Any]) -> ModelRequest[Any]:
-        command_prompt = build_runtime_command_prompt(request.runtime.context, request.state)
+        command_prompt = build_runtime_command_prompt(request.runtime.context)
         if not command_prompt:
             return request
 
-        return request.override(
-            system_message=append_to_system_message(
-                request.system_message,
-                command_prompt,
-            )
-        )
+        return request.override(messages=[*request.messages, HumanMessage(content=command_prompt)])
 
     @override
     def wrap_model_call(

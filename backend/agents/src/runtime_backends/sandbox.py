@@ -13,6 +13,7 @@ from src.reflection.resolvers import resolve_class
 from src.sandbox.sandbox_provider import SandboxProvider
 
 from .internal_routes import build_internal_runtime_routes
+from .read_only_filesystem import ReadOnlyFilesystemBackend
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,7 @@ def build_sandbox_workspace_backend(
     thread_id: str,
     *,
     user_data_dir: str | None = None,
+    skills_mount: tuple[str, str] | None = None,
 ) -> BackendProtocol:
     provider_path = resolve_sandbox_provider()
     provider = get_sandbox_provider(provider_path)
@@ -84,6 +86,19 @@ def build_sandbox_workspace_backend(
         raise RuntimeError(
             f"Sandbox provider '{provider_path}' returned sandbox id '{sandbox_id}' but no sandbox instance."
         )
-    if not user_data_dir:
+    if not user_data_dir and skills_mount is None:
         return sandbox
-    return CompositeBackend(default=sandbox, routes=build_internal_runtime_routes(user_data_dir))
+
+    routes = build_internal_runtime_routes(user_data_dir) if user_data_dir else {}
+    if skills_mount is not None:
+        skills_dir, route_prefix = skills_mount
+        # Keep archived store skill reads on a deterministic server-side
+        # read-only backend in sandbox mode too. Shell commands still see the
+        # mounted `/mnt/skills/...` path inside the sandbox, but normal file
+        # tools should not depend on sandbox mount timing or lifecycle.
+        routes[route_prefix] = ReadOnlyFilesystemBackend(
+            root_dir=skills_dir,
+            virtual_mode=True,
+        )
+
+    return CompositeBackend(default=sandbox, routes=routes)

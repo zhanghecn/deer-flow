@@ -17,8 +17,8 @@ describe("thread mode helpers", () => {
     expect(resolveSubmitFlags("flash")).toEqual({
       mode: "flash",
       thinking_enabled: false,
-      is_plan_mode: true,
-      subagent_enabled: true,
+      is_plan_mode: false,
+      subagent_enabled: false,
       reasoning_effort: "minimal",
     });
   });
@@ -27,8 +27,8 @@ describe("thread mode helpers", () => {
     expect(resolveSubmitFlags("pro")).toEqual({
       mode: "pro",
       thinking_enabled: true,
-      is_plan_mode: true,
-      subagent_enabled: true,
+      is_plan_mode: false,
+      subagent_enabled: false,
       reasoning_effort: "high",
     });
   });

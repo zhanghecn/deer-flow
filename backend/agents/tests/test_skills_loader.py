@@ -16,8 +16,8 @@ def test_load_skills_discovers_openagents_skill_scopes_and_sets_container_paths(
     """Nested skills should be discovered recursively with correct container paths."""
     skills_root = tmp_path / "skills"
 
-    _write_skill(skills_root / "shared" / "root-skill", "root-skill", "Root skill")
-    _write_skill(skills_root / "shared" / "parent" / "child-skill", "child-skill", "Child skill")
+    _write_skill(skills_root / "store" / "prod" / "root-skill", "root-skill", "Root skill")
+    _write_skill(skills_root / "store" / "prod" / "parent" / "child-skill", "child-skill", "Child skill")
     _write_skill(skills_root / "store" / "dev" / "team" / "helper", "team-helper", "Team helper")
     _write_skill(skills_root / "store" / "prod" / "contracts" / "review", "contract-review", "Contract review")
 
@@ -32,12 +32,12 @@ def test_load_skills_discovers_openagents_skill_scopes_and_sets_container_paths(
     review_skill = by_name["contract-review"]
 
     assert root_skill.skill_path == "root-skill"
-    assert root_skill.category == "shared"
-    assert root_skill.get_container_file_path() == "/mnt/skills/shared/root-skill/SKILL.md"
+    assert root_skill.category == "store/prod"
+    assert root_skill.get_container_file_path() == "/mnt/skills/store/prod/root-skill/SKILL.md"
 
     assert child_skill.skill_path == "parent/child-skill"
-    assert child_skill.category == "shared"
-    assert child_skill.get_container_file_path() == "/mnt/skills/shared/parent/child-skill/SKILL.md"
+    assert child_skill.category == "store/prod"
+    assert child_skill.get_container_file_path() == "/mnt/skills/store/prod/parent/child-skill/SKILL.md"
 
     assert team_skill.skill_path == "team/helper"
     assert team_skill.category == "store/dev"
@@ -50,9 +50,9 @@ def test_load_skills_skips_hidden_directories(tmp_path: Path):
     """Hidden directories should be excluded from recursive discovery."""
     skills_root = tmp_path / "skills"
 
-    _write_skill(skills_root / "shared" / "visible" / "ok-skill", "ok-skill", "Visible skill")
+    _write_skill(skills_root / "store" / "prod" / "visible" / "ok-skill", "ok-skill", "Visible skill")
     _write_skill(
-        skills_root / "shared" / "visible" / ".hidden" / "secret-skill",
+        skills_root / "store" / "prod" / "visible" / ".hidden" / "secret-skill",
         "secret-skill",
         "Hidden skill",
     )

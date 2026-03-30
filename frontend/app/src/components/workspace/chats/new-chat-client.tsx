@@ -7,6 +7,7 @@ import {
   type PromptInputMessage,
 } from "@/components/ai-elements/prompt-input";
 import { AgentSwitcherDialog } from "@/components/workspace/agent-switcher-dialog";
+import { useThreadChat } from "@/components/workspace/chats/use-thread-chat";
 import { InputBox } from "@/components/workspace/input-box";
 import { Welcome } from "@/components/workspace/welcome";
 import {
@@ -19,7 +20,6 @@ import { useI18n } from "@/core/i18n/hooks";
 import { useModels } from "@/core/models/hooks";
 import { findAvailableModelName } from "@/core/models";
 import { useLocalSettings } from "@/core/settings";
-import { uuid } from "@/core/utils/uuid";
 import { env } from "@/env";
 import { cn } from "@/lib/utils";
 
@@ -40,6 +40,7 @@ export default function NewChatClient() {
   const [pendingExtraContext, setPendingExtraContext] = useState<
     Record<string, unknown> | undefined
   >(undefined);
+  const { threadId: draftThreadId } = useThreadChat();
   const isMock = searchParams.get("mock") === "true";
   const runtimeSelection = useMemo(
     () => readAgentRuntimeSelection(searchParams, routeParams.agent_name),
@@ -84,7 +85,6 @@ export default function NewChatClient() {
       ? runtimeContext.model_name.trim()
       : "";
   const autoSubmitHandledRef = useRef(false);
-  const draftThreadIdRef = useRef(uuid());
   const inputInitialValue = useMemo(() => {
     const prefill = searchParams.get("prefill")?.trim();
     if (prefill) {
@@ -98,11 +98,11 @@ export default function NewChatClient() {
 
   const handleSubmit = useCallback(
     (message: PromptInputMessage, extraContext?: Record<string, unknown>) => {
-      setPendingThreadId(draftThreadIdRef.current);
+      setPendingThreadId(draftThreadId);
       setPendingMessage(message);
       setPendingExtraContext(extraContext);
     },
-    [],
+    [draftThreadId],
   );
 
   useEffect(() => {
@@ -229,7 +229,7 @@ export default function NewChatClient() {
             <div className="pointer-events-auto relative w-full max-w-(--container-width-sm) -translate-y-[calc(50vh-96px)]">
               <InputBox
                 className={cn("bg-background/5 w-full -translate-y-4")}
-                threadId={draftThreadIdRef.current}
+                threadId={draftThreadId}
                 isNewThread
                 autoFocus
                 status="ready"

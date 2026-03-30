@@ -28,9 +28,8 @@ from src.skills import load_skills
 from src.skills.types import Skill
 
 _SKILL_SCOPE_PRIORITY: dict[str, int] = {
-    "shared": 0,
+    "store/dev": 0,
     "store/prod": 1,
-    "store/dev": 2,
 }
 _DEV_AGENT_SKILL_SCOPES = ("store/dev", "store/prod")
 _PROD_AGENT_SKILL_SCOPES = ("store/prod",)
@@ -77,15 +76,10 @@ def _normalize_copied_skill_refs(
 def _allowed_skill_scopes_for_agent(
     *,
     target_status: str,
-    allow_shared: bool = False,
 ) -> tuple[str, ...]:
     if target_status == "prod":
-        scopes = list(_PROD_AGENT_SKILL_SCOPES)
-    else:
-        scopes = list(_DEV_AGENT_SKILL_SCOPES)
-    if allow_shared:
-        scopes.insert(0, "shared")
-    return tuple(scopes)
+        return _PROD_AGENT_SKILL_SCOPES
+    return _DEV_AGENT_SKILL_SCOPES
 
 
 def _skills_by_name_for_scopes(
@@ -134,7 +128,6 @@ def _resolve_requested_skill(
     catalog: dict[str, list[Skill]],
     allowed_scopes: tuple[str, ...],
     target_status: str,
-    allow_shared: bool,
 ) -> Skill:
     matches = _sort_skills_for_scope_priority(catalog.get(skill_name, []), allowed_scopes=allowed_scopes)
     if not matches:
@@ -142,8 +135,11 @@ def _resolve_requested_skill(
         raise ValueError(f"Skill '{skill_name}' not found in allowed scopes: {scopes}.")
 
     scoped_matches = {skill.category for skill in matches}
-    if target_status == "dev" and not allow_shared and {"store/dev", "store/prod"} <= scoped_matches:
-        raise ValueError(f"Skill '{skill_name}' exists in both store/dev and store/prod and cannot be attached to a dev agent.")
+    if target_status == "dev" and {"store/dev", "store/prod"} <= scoped_matches:
+        raise ValueError(
+            f"Skill '{skill_name}' exists in both store/dev and store/prod. "
+            "Attach it with an explicit `source_path`."
+        )
 
     if len(matches) > 1:
         locations = ", ".join(f"{skill.category}:{skill.skill_path or skill.name}" for skill in matches)
@@ -159,7 +155,6 @@ def _resolve_skill_ref(
     skills_by_source_path: dict[str, Skill],
     allowed_scopes: tuple[str, ...],
     target_status: str,
-    allow_shared: bool,
 ) -> Skill:
     if skill_ref.source_path is None:
         return _resolve_requested_skill(
@@ -167,7 +162,6 @@ def _resolve_skill_ref(
             catalog=catalog,
             allowed_scopes=allowed_scopes,
             target_status=target_status,
-            allow_shared=allow_shared,
         )
 
     skill = skills_by_source_path.get(skill_ref.source_path)
@@ -184,13 +178,9 @@ def validate_skill_refs_for_status(
     *,
     target_status: str,
     paths: Paths | None = None,
-    allow_shared: bool = False,
 ) -> None:
     paths = paths or get_paths()
-    allowed_scopes = _allowed_skill_scopes_for_agent(
-        target_status=target_status,
-        allow_shared=allow_shared,
-    )
+    allowed_scopes = _allowed_skill_scopes_for_agent(target_status=target_status)
     catalog = _skills_by_name_for_scopes(paths=paths, allowed_scopes=allowed_scopes)
     skills_by_source_path = _skills_by_source_path_for_scopes(paths=paths, allowed_scopes=allowed_scopes)
 
@@ -207,7 +197,6 @@ def validate_skill_refs_for_status(
             skills_by_source_path=skills_by_source_path,
             allowed_scopes=allowed_scopes,
             target_status=target_status,
-            allow_shared=allow_shared,
         )
 
 
@@ -216,17 +205,13 @@ def resolve_skill_refs(
     *,
     target_status: str = "dev",
     paths: Paths | None = None,
-    allow_shared: bool = False,
 ) -> list[Skill]:
     paths = paths or get_paths()
     requested = _dedupe_skill_names(skill_names)
     if not requested:
         return []
 
-    allowed_scopes = _allowed_skill_scopes_for_agent(
-        target_status=target_status,
-        allow_shared=allow_shared,
-    )
+    allowed_scopes = _allowed_skill_scopes_for_agent(target_status=target_status)
     catalog = _skills_by_name_for_scopes(paths=paths, allowed_scopes=allowed_scopes)
     resolved: list[Skill] = []
     for name in requested:
@@ -235,7 +220,6 @@ def resolve_skill_refs(
             catalog=catalog,
             allowed_scopes=allowed_scopes,
             target_status=target_status,
-            allow_shared=allow_shared,
         )
         resolved.append(skill)
     return resolved
@@ -271,9 +255,8 @@ def materialize_agent_skills(
     skill_names: list[str] | None,
     target_status: str = "dev",
     paths: Paths | None = None,
-    allow_shared: bool = False,
 ) -> list[AgentSkillRef]:
-    """Copy selected shared skills into an agent-owned skills directory."""
+    """Copy selected archived skills into an agent-owned skills directory."""
 
     paths = paths or get_paths()
     if skills_dir.exists():
@@ -284,7 +267,6 @@ def materialize_agent_skills(
         skill_names,
         target_status=target_status,
         paths=paths,
-        allow_shared=allow_shared,
     )
     return _materialize_resolved_skills(skills_dir=skills_dir, resolved_skills=resolved_skills)
 
@@ -295,17 +277,13 @@ def materialize_agent_skill_refs(
     skill_refs: list[AgentSkillRef],
     target_status: str = "dev",
     paths: Paths | None = None,
-    allow_shared: bool = False,
 ) -> list[AgentSkillRef]:
     paths = paths or get_paths()
     if skills_dir.exists():
         shutil.rmtree(skills_dir)
     skills_dir.mkdir(parents=True, exist_ok=True)
 
-    allowed_scopes = _allowed_skill_scopes_for_agent(
-        target_status=target_status,
-        allow_shared=allow_shared,
-    )
+    allowed_scopes = _allowed_skill_scopes_for_agent(target_status=target_status)
     catalog = _skills_by_name_for_scopes(paths=paths, allowed_scopes=allowed_scopes)
     skills_by_source_path = _skills_by_source_path_for_scopes(paths=paths, allowed_scopes=allowed_scopes)
     resolved_skills = [
@@ -315,7 +293,6 @@ def materialize_agent_skill_refs(
             skills_by_source_path=skills_by_source_path,
             allowed_scopes=allowed_scopes,
             target_status=target_status,
-            allow_shared=allow_shared,
         )
         for skill_ref in skill_refs
     ]
@@ -429,7 +406,6 @@ def materialize_agent_definition(
     subagent_defaults: AgentSubagentDefaults | dict | None = None,
     subagents: list[AgentSubagentConfig | dict[str, object]] | None = None,
     paths: Paths | None = None,
-    allow_shared_skills: bool = False,
 ) -> AgentConfig:
     """Write an agent definition to disk and copy referenced skills locally."""
 
@@ -456,7 +432,6 @@ def materialize_agent_definition(
             skill_refs=copied_skill_ref_inputs,
             target_status=status,
             paths=paths,
-            allow_shared=allow_shared_skills,
         )
         inline_skill_refs = materialize_inline_agent_skills(
             skills_dir=skills_dir,

@@ -20,8 +20,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { AgentSettingsDialog } from "@/components/workspace/agent-settings-dialog";
 import {
+  buildWorkspaceAgentSettingsPath,
   buildWorkspaceAgentPath,
   groupAgentsByName,
   isLeadAgent,
@@ -55,7 +55,6 @@ export function AgentSwitcherPanel({
   const { agents, isLoading, error } = useAgents();
   const [remoteDraft, setRemoteDraft] = useState("");
   const [searchValue, setSearchValue] = useState("");
-  const [agentSettingsOpen, setAgentSettingsOpen] = useState(false);
 
   const runtimeSelection = useMemo(
     () => readAgentRuntimeSelection(searchParams, routeParams.agent_name),
@@ -195,6 +194,11 @@ export function AgentSwitcherPanel({
     void navigate("/workspace/agents");
   }, [navigate, onClose]);
 
+  const handleOpenAgentSettings = useCallback(() => {
+    onClose?.();
+    void navigate(buildWorkspaceAgentSettingsPath(currentSelection));
+  }, [currentSelection, navigate, onClose]);
+
   return (
     <>
       <section>
@@ -254,7 +258,7 @@ export function AgentSwitcherPanel({
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => setAgentSettingsOpen(true)}
+                  onClick={handleOpenAgentSettings}
                 >
                   <Settings2Icon className="size-3.5" />
                   {t.common.settings}
@@ -491,14 +495,6 @@ export function AgentSwitcherPanel({
         </div>
       </section>
 
-      <AgentSettingsDialog
-        open={agentSettingsOpen}
-        onOpenChange={setAgentSettingsOpen}
-        agentName={currentSelection.agentName}
-        agentStatus={currentSelection.agentStatus}
-        executionBackend={currentSelection.executionBackend}
-        remoteSessionId={currentSelection.remoteSessionId}
-      />
     </>
   );
 }

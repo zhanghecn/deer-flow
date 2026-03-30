@@ -60,8 +60,6 @@ export const enUS: Translations = {
     saveSkillToStore: "Save the current draft skill to the dev store",
     pushAgentProd: "Publish the current dev agent to prod",
     pushSkillProd: "Publish the current dev skill to prod",
-    promoteSkillShared:
-      "Promote the current skill into the shared skill archive",
   },
 
   // Welcome

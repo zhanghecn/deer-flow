@@ -28,7 +28,6 @@ type AgentSettingsDialogText = {
   leadAgentArchiveNote: string;
   noCopiedSkillsAttached: string;
   copiedSkillsTitle: string;
-  copiedSkillsDescriptionShared: string;
   copiedSkillsDescriptionProd: string;
   copiedSkillsDescriptionDev: string;
   loadingSkills: string;
@@ -43,7 +42,6 @@ type AgentSettingsDialogText = {
   noSelectedSkills: string;
   selectionRulesTitle: string;
   selectionRulesDescription: string;
-  selectionRulesLeadAgent: string;
   selectionRulesProd: string;
   selectionRulesDev: string;
   promptTitle: string;
@@ -163,7 +161,7 @@ type AgentSettingsDialogText = {
 const enUS: AgentSettingsDialogText = {
   headerEyebrow: "Agent Settings",
   headerDescription:
-    "Adjust how this agent behaves in your workspace, what it can use, and how it can be shared. Advanced archive controls live in the last tab.",
+    "Adjust how this agent behaves in your workspace, what it can use, and how it can be published. Advanced archive controls live in the last tab.",
   remoteCliBadge: "remote cli",
   openWorkspace: "Open workspace",
   copyUrl: "Copy URL",
@@ -195,8 +193,6 @@ const enUS: AgentSettingsDialogText = {
     "`lead_agent` stays the built-in orchestration entrypoint. The generic system prompt remains in backend code; this dialog edits only the archived lead-agent-owned prompt and config.",
   noCopiedSkillsAttached: "No copied skills are attached to this archive.",
   copiedSkillsTitle: "Copied skills",
-  copiedSkillsDescriptionShared:
-    "Attach archived skills from shared, dev, or prod stores to this agent archive.",
   copiedSkillsDescriptionProd:
     "Prod archives can only attach skills from the prod store.",
   copiedSkillsDescriptionDev:
@@ -215,9 +211,7 @@ const enUS: AgentSettingsDialogText = {
   noSelectedSkills: "No copied skills selected for this archive.",
   selectionRulesTitle: "Selection rules",
   selectionRulesDescription:
-    "Skill sources stay in the shared archives; this dialog only decides what gets copied into this agent.",
-  selectionRulesLeadAgent:
-    "`lead_agent` may still use `shared` building blocks. Other archived agents should prefer the dev/prod stores.",
+    "Skill sources stay in the archived stores; this dialog only decides what gets copied into this agent.",
   selectionRulesProd:
     "Prod archives must use `store/prod` skills. If a dev-only skill is still attached, publish that skill to prod before publishing the agent.",
   selectionRulesDev:
@@ -372,7 +366,7 @@ const enUS: AgentSettingsDialogText = {
 const zhCN: AgentSettingsDialogText = {
   headerEyebrow: "智能体设置",
   headerDescription:
-    "调整这个智能体在工作区里的行为、可用能力和分享方式。更底层的归档控制统一收在最后的高级页。",
+    "调整这个智能体在工作区里的行为、可用能力和发布方式。更底层的归档控制统一收在最后的高级页。",
   remoteCliBadge: "远程 CLI",
   openWorkspace: "打开工作区",
   copyUrl: "复制链接",
@@ -400,8 +394,6 @@ const zhCN: AgentSettingsDialogText = {
     "`lead_agent` 仍然是内置编排入口。通用系统提示词继续保留在后端代码中；这里编辑的只是归档里属于 lead_agent 的提示词和配置。",
   noCopiedSkillsAttached: "这个归档当前还没有挂载任何已复制技能。",
   copiedSkillsTitle: "复制技能",
-  copiedSkillsDescriptionShared:
-    "可将 shared、dev 或 prod 仓库中的归档技能挂到这个智能体归档上。",
   copiedSkillsDescriptionProd: "生产归档只能挂载来自 prod 仓库的技能。",
   copiedSkillsDescriptionDev:
     "开发归档可以挂载 dev 和 prod 仓库技能，但同名技能会被阻止以避免歧义。",
@@ -419,9 +411,7 @@ const zhCN: AgentSettingsDialogText = {
   noSelectedSkills: "这个归档当前还没有选中任何复制技能。",
   selectionRulesTitle: "选择规则",
   selectionRulesDescription:
-    "技能源仍保留在共享归档中；这个对话框只决定哪些技能会被复制进当前智能体。",
-  selectionRulesLeadAgent:
-    "`lead_agent` 仍可使用 `shared` 里的基础能力块；其他归档智能体应优先使用 dev/prod 仓库技能。",
+    "技能源仍保留在归档仓库中；这个对话框只决定哪些技能会被复制进当前智能体。",
   selectionRulesProd:
     "生产归档必须使用 `store/prod` 技能。如果当前仍依赖仅 dev 存在的技能，请先把该技能发布到 prod，再发布智能体。",
   selectionRulesDev:

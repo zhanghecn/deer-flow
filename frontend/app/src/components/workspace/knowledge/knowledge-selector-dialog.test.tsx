@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -90,6 +91,41 @@ describe("KnowledgeSelectorDialog", () => {
     expect(
       screen.getByRole("button", { name: /1 knowledge base/i }),
     ).toBeInTheDocument();
+  });
+
+  it("keeps the checked state separate from command focus state", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <I18nProvider initialLocale="en-US">
+            <KnowledgeSelectorDialog threadId="draft-thread" />
+          </I18nProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole("button", { name: /1 knowledge base/i }));
+
+    const attachedBase = screen
+      .getByText("Attached Base")
+      .closest('[cmdk-item=""]');
+    const detachedBase = screen
+      .getByText("Detached Base")
+      .closest('[cmdk-item=""]');
+
+    expect(attachedBase).toHaveAttribute("aria-checked", "true");
+    expect(attachedBase).toHaveAttribute("data-checked", "true");
+    expect(detachedBase).toHaveAttribute("aria-checked", "false");
+    expect(detachedBase).toHaveAttribute("data-checked", "false");
   });
 
   it("computes the full attach and detach diff from thread bindings", () => {

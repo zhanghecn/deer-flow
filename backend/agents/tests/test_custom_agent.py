@@ -38,11 +38,11 @@ def _write_agent(
     (agent_dir / "AGENTS.md").write_text(agents_md, encoding="utf-8")
 
 
-def _write_shared_skill(
+def _write_archived_skill(
     base_dir: Path,
     skill_name: str,
     *,
-    category: str = "public",
+    category: str = "store/dev",
     relative_path: str | None = None,
 ) -> None:
     skills_root = _make_paths(base_dir).skills_dir
@@ -115,12 +115,12 @@ class TestAgentConfig:
             skill_refs=[
                 {
                     "name": "data-analysis",
-                    "source_path": "public/data-analysis",
+                    "source_path": "store/dev/data-analysis",
                 }
             ],
         )
         assert cfg.skill_refs[0].name == "data-analysis"
-        assert cfg.skill_refs[0].category == "public"
+        assert cfg.skill_refs[0].category == "store/dev"
         assert cfg.skill_refs[0].materialized_path == "skills/data-analysis"
 
     def test_config_with_memory_policy(self):
@@ -208,7 +208,7 @@ class TestLoadAgentConfig:
                 "skill_refs": [
                     {
                         "name": "data-analysis",
-                        "source_path": "public/data-analysis",
+                        "source_path": "store/dev/data-analysis",
                     }
                 ]
             },
@@ -221,7 +221,7 @@ class TestLoadAgentConfig:
 
         assert len(cfg.skill_refs) == 1
         assert cfg.skill_refs[0].name == "data-analysis"
-        assert cfg.skill_refs[0].category == "public"
+        assert cfg.skill_refs[0].category == "store/dev"
         assert cfg.skill_refs[0].materialized_path == "skills/data-analysis"
 
     def test_unknown_fields_are_ignored(self, tmp_path):
@@ -490,8 +490,8 @@ class TestAgentsAPI:
         assert data["tool_groups"] == ["web"]
 
     def test_create_agent_with_selected_skills_copies_library_skill(self, agent_client, tmp_path):
-        _write_shared_skill(tmp_path, "data-analysis", category="public")
-        _write_shared_skill(tmp_path, "deep-research", category="custom")
+        _write_archived_skill(tmp_path, "data-analysis", category="store/dev")
+        _write_archived_skill(tmp_path, "deep-research", category="store/dev")
 
         payload = {
             "name": "industry-analyst",
@@ -512,15 +512,15 @@ class TestAgentsAPI:
         config = yaml.safe_load((agent_dir / "config.yaml").read_text(encoding="utf-8"))
         assert config["agents_md_path"] == "AGENTS.md"
         assert config["skill_refs"] == [
-            {"name": "data-analysis", "source_path": "public/data-analysis"},
-            {"name": "deep-research", "source_path": "custom/deep-research"},
+            {"name": "data-analysis", "source_path": "store/dev/data-analysis"},
+            {"name": "deep-research", "source_path": "store/dev/deep-research"},
         ]
         assert config["memory"]["enabled"] is False
         assert "skills_mode" not in config
 
     def test_update_agent_replaces_materialized_skills(self, agent_client, tmp_path):
-        _write_shared_skill(tmp_path, "data-analysis", category="public")
-        _write_shared_skill(tmp_path, "deep-research", category="public")
+        _write_archived_skill(tmp_path, "data-analysis", category="store/dev")
+        _write_archived_skill(tmp_path, "deep-research", category="store/dev")
 
         agent_client.post(
             "/api/agents",
@@ -540,10 +540,79 @@ class TestAgentsAPI:
         assert (agent_dir / "skills" / "deep-research" / "SKILL.md").exists()
         assert (agent_dir / "AGENTS.md").read_text(encoding="utf-8") == "v2"
 
+    def test_update_agent_without_skills_refreshes_existing_copied_skill_by_source_path(self, agent_client, tmp_path):
+        _write_archived_skill(tmp_path, "contract-review", category="store/dev")
+
+        agent_dir = tmp_path / "agents" / "dev" / "contract-agent"
+        archived_skill_dir = agent_dir / "skills" / "contract-review"
+        archived_skill_dir.mkdir(parents=True, exist_ok=True)
+        (archived_skill_dir / "SKILL.md").write_text(
+            "---\nname: contract-review\ndescription: stale copy\n---\n\n# stale-copy\n",
+            encoding="utf-8",
+        )
+        _write_agent(
+            tmp_path,
+            "contract-agent",
+            {
+                "name": "contract-agent",
+                "status": "dev",
+                "agents_md_path": "AGENTS.md",
+                "skill_refs": [
+                    {
+                        "name": "contract-review",
+                        "source_path": "store/dev/contract-review",
+                    }
+                ],
+            },
+            agents_md="v1",
+        )
+
+        response = agent_client.put("/api/agents/contract-agent", json={"agents_md": "v2"})
+        assert response.status_code == 200
+
+        updated_skill = (agent_dir / "skills" / "contract-review" / "SKILL.md").read_text(encoding="utf-8")
+        assert "# contract-review\n" in updated_skill
+        assert "# stale-copy\n" not in updated_skill
+
+        config = yaml.safe_load((agent_dir / "config.yaml").read_text(encoding="utf-8"))
+        assert config["skill_refs"] == [
+            {
+                "name": "contract-review",
+                "source_path": "store/dev/contract-review",
+            }
+        ]
+
+    def test_update_agent_without_skills_preserves_existing_inline_skill_content(self, agent_client, tmp_path):
+        agent_dir = tmp_path / "agents" / "dev" / "inline-agent"
+        inline_skill_dir = agent_dir / "skills" / "local-checklist"
+        inline_skill_dir.mkdir(parents=True, exist_ok=True)
+        inline_content = "---\nname: local-checklist\ndescription: local\n---\n\n# inline-skill\n"
+        (inline_skill_dir / "SKILL.md").write_text(inline_content, encoding="utf-8")
+        _write_agent(
+            tmp_path,
+            "inline-agent",
+            {
+                "name": "inline-agent",
+                "status": "dev",
+                "agents_md_path": "AGENTS.md",
+                "skill_refs": [
+                    {
+                        "name": "local-checklist",
+                        "materialized_path": "skills/local-checklist",
+                    }
+                ],
+            },
+            agents_md="v1",
+        )
+
+        response = agent_client.put("/api/agents/inline-agent", json={"agents_md": "v2"})
+        assert response.status_code == 200
+        assert (agent_dir / "skills" / "local-checklist" / "SKILL.md").read_text(encoding="utf-8") == inline_content
+
 
 class TestPublishAPI:
     def test_publish_agent(self, agent_client, tmp_path):
-        _write_shared_skill(tmp_path, "data-analysis", category="public")
+        _write_archived_skill(tmp_path, "data-analysis", category="store/prod")
         agent_client.post("/api/agents", json={"name": "pub-test", "agents_md": "Hello", "skills": ["data-analysis"]})
 
         response = agent_client.post("/api/agents/pub-test/publish")

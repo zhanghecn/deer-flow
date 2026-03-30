@@ -31,9 +31,6 @@ func isReservedAgentName(name string) bool {
 }
 
 func allowedArchiveSkillScopes(agentName string, agentStatus string) []string {
-	if isReservedAgentName(agentName) {
-		return []string{"shared", "store/dev", "store/prod"}
-	}
 	if strings.TrimSpace(agentStatus) == "prod" {
 		return []string{"store/prod"}
 	}
@@ -41,7 +38,7 @@ func allowedArchiveSkillScopes(agentName string, agentStatus string) []string {
 }
 
 func regularDevAgentRejectsDuplicateSkillNames(agentName string, agentStatus string) bool {
-	return !isReservedAgentName(agentName) && strings.TrimSpace(agentStatus) == "dev"
+	return strings.TrimSpace(agentStatus) == "dev"
 }
 
 func isScopeAllowed(allowedScopes []string, scope string) bool {
@@ -86,7 +83,7 @@ func parseSkillSourcePath(sourcePath string) (string, string, error) {
 		return "", "", fmt.Errorf("skill source_path must be a safe relative path")
 	}
 
-	for _, prefix := range []string{"store/prod/", "store/dev/", "shared/"} {
+	for _, prefix := range []string{"store/prod/", "store/dev/"} {
 		if !strings.HasPrefix(normalized, prefix) {
 			continue
 		}
@@ -97,7 +94,7 @@ func parseSkillSourcePath(sourcePath string) (string, string, error) {
 		return strings.TrimSuffix(prefix, "/"), relativePath, nil
 	}
 
-	return "", "", fmt.Errorf("skill source_path must start with shared/, store/dev/, or store/prod/")
+	return "", "", fmt.Errorf("skill source_path must start with store/dev/ or store/prod/")
 }
 
 func deriveMaterializedPathFromSourcePath(sourcePath string) (string, error) {
@@ -466,7 +463,7 @@ func (s *AgentService) resolveSkillRefByName(name string, agentName string, agen
 	default:
 		if regularDevAgentRejectsDuplicateSkillNames(agentName, agentStatus) {
 			return model.SkillRef{}, fmt.Errorf(
-				"skill %q exists in both store/dev and store/prod and cannot be attached to a dev agent",
+				"skill %q exists in both store/dev and store/prod; attach it with an explicit source_path",
 				name,
 			)
 		}
@@ -546,17 +543,6 @@ func (s *AgentService) normalizeSkillRef(ref model.SkillRef, agentName string, a
 			strings.TrimSpace(agentStatus),
 		)
 	}
-	if regularDevAgentRejectsDuplicateSkillNames(agentName, agentStatus) {
-		_, hasDev := s.skillRefFromScope(name, "store/dev")
-		_, hasProd := s.skillRefFromScope(name, "store/prod")
-		if hasDev && hasProd {
-			return model.SkillRef{}, fmt.Errorf(
-				"skill %q exists in both store/dev and store/prod and cannot be attached to a dev agent",
-				name,
-			)
-		}
-	}
-
 	if sourcePath == "" {
 		sourcePath = path.Join(category, name)
 	}

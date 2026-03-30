@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from src.config.agent_materialization import materialize_agent_definition, publish_agent_definition
+from src.config.agent_skill_preservation import load_existing_agent_skill_inputs
 from src.config.agents_config import AgentConfig, AgentMemoryConfig, AgentSkillRef, list_custom_agents, load_agent_config, load_agents_md
 from src.config.builtin_agents import LEAD_AGENT_NAME, is_reserved_agent_name
 from src.config.paths import get_paths
@@ -23,7 +24,7 @@ class AgentSkillResponse(BaseModel):
     """Response model for an agent skill reference."""
 
     name: str
-    category: str | None = Field(default=None, description="Skill source scope: shared, store/dev, or store/prod")
+    category: str | None = Field(default=None, description="Skill source scope: store/dev or store/prod")
     source_path: str | None = Field(default=None, description="Relative path inside .openagents/skills")
     materialized_path: str | None = Field(default=None, description="Relative path inside the agent directory")
 
@@ -57,7 +58,7 @@ class AgentCreateRequest(BaseModel):
     tool_groups: list[str] | None = Field(default=None, description="Optional tool group whitelist")
     mcp_servers: list[str] | None = Field(default=None, description="Optional MCP server whitelist")
     memory: AgentMemoryConfig = Field(default_factory=AgentMemoryConfig, description="Per-agent user-scoped memory policy")
-    skills: list[str] = Field(default_factory=list, description="Shared skills to copy into the agent")
+    skills: list[str] = Field(default_factory=list, description="Archived store skills to copy into the agent")
     agents_md: str = Field(default="", description="AGENTS.md content — agent personality and behavioral guardrails")
 
 
@@ -69,7 +70,7 @@ class AgentUpdateRequest(BaseModel):
     tool_groups: list[str] | None = Field(default=None, description="Updated tool group whitelist")
     mcp_servers: list[str] | None = Field(default=None, description="Updated MCP server whitelist")
     memory: AgentMemoryConfig | None = Field(default=None, description="Updated per-agent user-scoped memory policy")
-    skills: list[str] | None = Field(default=None, description="Replacement shared skills to copy into the agent")
+    skills: list[str] | None = Field(default=None, description="Replacement archived store skills to copy into the agent")
     agents_md: str | None = Field(default=None, description="Updated AGENTS.md content")
 
 
@@ -281,6 +282,19 @@ async def update_agent(
         if agents_md_content is None:
             agents_md_content = load_agents_md(name, status=normalized_status) or ""
 
+        paths = get_paths()
+        preserved_skill_refs: list[dict[str, str]] | None = None
+        preserved_inline_skills: list[dict[str, str]] | None = None
+        if request.skills is None:
+            # Preserve the agent's current skill contract without degrading copied
+            # refs to bare names or dropping agent-owned inline SKILL.md content.
+            preserved_skill_refs, preserved_inline_skills = load_existing_agent_skill_inputs(
+                agent_name=name,
+                agent_status=normalized_status,
+                thread_id=None,
+                paths=paths,
+            )
+
         updated_cfg = materialize_agent_definition(
             name=name,
             status=normalized_status,
@@ -289,9 +303,11 @@ async def update_agent(
             tool_groups=request.tool_groups if request.tool_groups is not None else agent_cfg.tool_groups,
             mcp_servers=request.mcp_servers if request.mcp_servers is not None else agent_cfg.mcp_servers,
             memory=request.memory if request.memory is not None else agent_cfg.memory,
-            skill_names=request.skills if request.skills is not None else [skill_ref.name for skill_ref in agent_cfg.skill_refs],
+            skill_names=request.skills,
+            skill_refs=preserved_skill_refs,
+            inline_skills=preserved_inline_skills,
             agents_md=agents_md_content,
-            paths=get_paths(),
+            paths=paths,
         )
         logger.info("Updated agent '%s' (%s)", name, normalized_status)
         return _agent_config_to_response(updated_cfg, include_agents_md=True)

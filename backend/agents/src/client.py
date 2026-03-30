@@ -36,7 +36,6 @@ from langchain_core.runnables import RunnableConfig
 from src.agents.lead_agent.agent import (
     LeadAgentRuntimeContext,
     _build_openagents_middlewares,
-    _runtime_skills_path,
     build_backend,
 )
 from src.agents.lead_agent.prompt import apply_prompt_template
@@ -251,31 +250,31 @@ class OpenAgentsClient:
             if subagent_enabled
             else None
         )
-        return create_deep_agent(
-            model=create_chat_model(
+        create_kwargs: dict[str, Any] = {
+            "model": create_chat_model(
                 name=effective_model_name,
                 thinking_enabled=thinking_enabled,
                 runtime_model_config=model_config,
             ),
-            tools=tools,
-            system_prompt=apply_prompt_template(
-                subagent_enabled=subagent_enabled,
-                max_concurrent_subagents=max_concurrent_subagents,
+            "tools": tools,
+            "system_prompt": apply_prompt_template(
                 user_id=user_id,
                 agent_name=LEAD_AGENT_NAME,
                 agent_status="dev",
                 memory_config=lead_agent_config.memory if lead_agent_config is not None else None,
+                agent_config=lead_agent_config,
             ),
-            middleware=_build_openagents_middlewares(model_config),
-            subagents=loaded_subagents.custom_subagents if loaded_subagents is not None else None,
-            general_purpose_tools=loaded_subagents.general_purpose_tools if loaded_subagents is not None else tools,
-            general_purpose_enabled=loaded_subagents.general_purpose_enabled if loaded_subagents is not None else False,
-            skills=[_runtime_skills_path(LEAD_AGENT_NAME, "dev")],
-            backend=backend,
-            context_schema=LeadAgentRuntimeContext,
-            checkpointer=self._checkpointer,
-            name=LEAD_AGENT_NAME,
-        )
+            "middleware": _build_openagents_middlewares(model_config),
+            "subagents": loaded_subagents.custom_subagents if loaded_subagents is not None else None,
+            "general_purpose_tools": loaded_subagents.general_purpose_tools if loaded_subagents is not None else tools,
+            "general_purpose_enabled": loaded_subagents.general_purpose_enabled if loaded_subagents is not None else False,
+            "backend": backend,
+            "context_schema": LeadAgentRuntimeContext,
+            "checkpointer": self._checkpointer,
+            "name": LEAD_AGENT_NAME,
+        }
+
+        return create_deep_agent(**create_kwargs)
 
     def _ensure_agent(self, config: RunnableConfig):
         """Create (or recreate) the agent when graph-defining inputs change."""

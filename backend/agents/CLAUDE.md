@@ -63,9 +63,8 @@ openagents/
 │   └── gateway.yaml           # Gateway configuration
 ├── migrations/                 # PostgreSQL schema + seed SQL
 ├── frontend/                   # Frontend applications
-└── .openagents/skills/         # Shared skill archive and store lifecycle
-    ├── shared/                # Canonical shared skills source
-    └── store/                 # Dev/prod promoted skills
+└── .openagents/skills/         # Archived skill library
+    └── store/                 # Dev/prod archived skills
 ```
 
 ## Important Development Guidelines
@@ -125,7 +124,7 @@ CI runs these regression tests for every pull request via [.github/workflows/bac
   LLM request messages, request settings, registered tools, and field-level truncation markers
 
 **Agent Definition Protocol**:
-- Shared skills live in `.openagents/skills/{shared,store/dev,store/prod}/`
+- Archived reusable skills live in `.openagents/skills/store/{dev,prod}/`
 - Each agent owns its own `AGENTS.md`
 - Selected skills are copied into `agents/{status}/{name}/skills/`
 - `agents/{status}/{name}/config.yaml` is the manifest and records `agents_md_path` and `skill_refs`
@@ -281,10 +280,10 @@ The lead agent uses `deepagents.create_deep_agent()` which provides:
 
 ### Skills System (`src/skills/`)
 
-- **Location**: `.openagents/skills/{shared,store/dev,store/prod}/`
+- **Location**: `.openagents/skills/store/{dev,prod}/`
 - **Format**: Directory with `SKILL.md` (YAML frontmatter: name, description, license, allowed-tools)
-- **Loading**: `load_skills()` scans `.openagents/skills/{shared,store/dev,store/prod}` for `SKILL.md`, parses metadata, and reads enabled state from extensions_config.json
-- **Materialization**: custom agents do not mutate shared skills in place; they copy selected skills into `agents/{status}/{name}/skills/`
+- **Loading**: `load_skills()` scans `.openagents/skills/store/{dev,prod}` for `SKILL.md`, parses metadata, and reads enabled state from extensions_config.json
+- **Materialization**: custom agents do not mutate archived skills in place; they copy selected skills into `agents/{status}/{name}/skills/`
 - **Injection**: all agents, including `lead_agent`, read skills from their thread-local copied runtime path under `/mnt/user-data/agents/{status}/{name}/skills/`
 - **Installation**: `POST /api/skills/install` extracts `.skill` archives to `.openagents/skills/store/dev/`
 

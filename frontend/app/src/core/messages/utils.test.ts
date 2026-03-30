@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { groupMessages } from "./utils";
+import { extractNextStepsFromText, groupMessages } from "./utils";
 
 describe("groupMessages", () => {
   it("keeps question summaries after the tool result arrives", () => {
@@ -90,5 +90,55 @@ describe("groupMessages", () => {
       "assistant:processing",
     ]);
     expect(groups[0]?.messages).toHaveLength(2);
+  });
+});
+
+describe("extractNextStepsFromText", () => {
+  it("keeps explicit runtime targets from next_steps JSON", () => {
+    const steps = extractNextStepsFromText(`
+<next_steps>
+[
+  {
+    "label": "测试 agent",
+    "prompt": "切换到 contract-review-agent 智能体并开始测试",
+    "agent_name": "contract-review-agent",
+    "agent_status": "dev",
+    "new_chat": true
+  }
+]
+</next_steps>
+`);
+
+    expect(steps).toEqual([
+      {
+        label: "测试 agent",
+        prompt: "切换到 contract-review-agent 智能体并开始测试",
+        agent_name: "contract-review-agent",
+        agent_status: "dev",
+        new_chat: true,
+      },
+    ]);
+  });
+
+  it("does not infer agent targets from prompt text when next_steps omits them", () => {
+    const steps = extractNextStepsFromText(`
+<next_steps>
+[
+  {
+    "label": "测试 agent",
+    "prompt": "切换到 contract-review-agent 智能体并开始测试",
+    "new_chat": true
+  }
+]
+</next_steps>
+`);
+
+    expect(steps).toEqual([
+      {
+        label: "测试 agent",
+        prompt: "切换到 contract-review-agent 智能体并开始测试",
+        new_chat: true,
+      },
+    ]);
   });
 });

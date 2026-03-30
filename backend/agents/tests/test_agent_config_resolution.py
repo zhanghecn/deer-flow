@@ -14,7 +14,7 @@ def _write_agent(base_dir: Path, name: str, status: str = "dev") -> None:
         encoding="utf-8",
     )
     (agent_dir / "config.yaml").write_text(
-        f"name: analyst\nstatus: {status}\ndescription: file config\nmodel: model-from-file\ntool_groups:\n  - web\nagents_md_path: AGENTS.md\nskill_refs:\n  - name: bootstrap\n    source_path: shared/bootstrap\n",
+        f"name: analyst\nstatus: {status}\ndescription: file config\nmodel: model-from-file\ntool_groups:\n  - web\nagents_md_path: AGENTS.md\nskill_refs:\n  - name: bootstrap\n    source_path: store/prod/bootstrap\n",
         encoding="utf-8",
     )
 

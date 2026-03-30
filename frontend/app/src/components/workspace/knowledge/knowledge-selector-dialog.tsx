@@ -373,6 +373,8 @@ export function KnowledgeSelectorDialog({
                         <CommandItem
                           key={base.knowledgeBaseId}
                           value={`${base.knowledgeBaseName} ${base.ownerName} ${base.documentNames.join(" ")} ${base.fileKinds.join(" ")}`}
+                          aria-checked={selected}
+                          data-checked={selected ? "true" : "false"}
                           onSelect={() => handleSelect(base.knowledgeBaseId)}
                           onPointerDown={() =>
                             handlePointerIntent(base.knowledgeBaseId)
@@ -381,10 +383,15 @@ export function KnowledgeSelectorDialog({
                             handlePointerToggle(base.knowledgeBaseId)
                           }
                           className={cn(
+                            // Cmdk marks the active keyboard row as
+                            // `data-selected=true`, which is not the same as a
+                            // persisted knowledge-base selection. Keep that
+                            // focus state neutral so it cannot masquerade as a
+                            // checked attachment.
                             "mb-2 cursor-pointer rounded-[18px] border border-transparent bg-transparent px-3 py-3 last:mb-0",
                             selected
-                              ? "border-primary/30 bg-primary/6"
-                              : "hover:bg-background/90",
+                              ? "border-primary/30 bg-primary/6 data-[selected=true]:border-primary/30 data-[selected=true]:bg-primary/10"
+                              : "hover:bg-background/90 data-[selected=true]:border-border/60 data-[selected=true]:bg-background/85",
                           )}
                         >
                           <div className="flex min-w-0 flex-1 items-start gap-3">

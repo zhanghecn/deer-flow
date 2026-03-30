@@ -43,7 +43,7 @@ func main() {
 	}
 
 	// Align with the Python runtime: relative OPENAGENTS_HOME paths resolve
-	// from the project root, while shared skills live in a sibling skills/ dir.
+	// from the project root, while archived skills live in a sibling skills/ dir.
 	baseDir := storage.ResolveBaseDir(cfg.Storage.BaseDir)
 
 	extensionsConfigPath := bootstrap.ExtensionsConfigPath()

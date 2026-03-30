@@ -8,27 +8,6 @@ from src.config.paths import Paths, get_paths
 _ALLOWED_FRONTMATTER_KEYS = {"name", "kind", "description", "authoring_actions"}
 _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n?(.*)$", re.DOTALL)
 _SAFE_COMMAND_NAME_RE = re.compile(r"^[A-Za-z0-9-]+$")
-_TARGET_AGENT_PATTERNS = (
-    re.compile(r"(?:名为|名字叫|叫做)\s+([A-Za-z0-9-]+)", re.IGNORECASE),
-    re.compile(r"(?:named|called)\s+([A-Za-z0-9-]+)", re.IGNORECASE),
-    re.compile(r"(?:agent[_\s-]*name|name)\s*[:=]\s*([A-Za-z0-9-]+)", re.IGNORECASE),
-    re.compile(
-        r"(?:^|[\s,.:;!?，。：；！？()（）])(?:已有|已存在|现有|修复|更新|测试|创建|这个|该)?\s*"
-        r"(?:(?:dev|prod)\s+)?(?:agent|智能体)\s*[`'\"]?([A-Za-z0-9-]+)[`'\"]?",
-        re.IGNORECASE,
-    ),
-)
-_TARGET_SKILL_PATTERNS = (
-    re.compile(r"(?:名为|名字叫|叫做)\s+([A-Za-z0-9][A-Za-z0-9/_-]*)", re.IGNORECASE),
-    re.compile(r"(?:skill[_\s-]*name|name)\s*[:=]\s*([A-Za-z0-9][A-Za-z0-9/_-]*)", re.IGNORECASE),
-    re.compile(r"source_path\s*[:=]\s*(?:shared|store/(?:dev|prod))/([A-Za-z0-9][A-Za-z0-9/_-]*)", re.IGNORECASE),
-    re.compile(r"(?:shared|store/(?:dev|prod))/([A-Za-z0-9][A-Za-z0-9/_-]*)", re.IGNORECASE),
-    re.compile(
-        r"(?:^|[\s,.:;!?，。：；！？()（）])(?:已有|已存在|现有|保存|发布|推送|创建|这个|该)?\s*"
-        r"(?:(?:dev|prod)\s+)?(?:skill|技能)\s*[`'\"]?([A-Za-z0-9][A-Za-z0-9/_-]*)[`'\"]?",
-        re.IGNORECASE,
-    ),
-)
 
 
 @dataclass(frozen=True)
@@ -47,7 +26,6 @@ class RuntimeCommandResolution:
     args: str | None
     authoring_actions: tuple[str, ...]
     target_agent_name: str | None
-    target_skill_name: str | None
     prompt: str | None
 
 
@@ -117,32 +95,6 @@ def parse_slash_command(raw_input: str | None) -> tuple[str, str | None] | None:
     return normalized_name, args
 
 
-def infer_target_agent_name(args_text: str | None) -> str | None:
-    if args_text is None:
-        return None
-    for pattern in _TARGET_AGENT_PATTERNS:
-        matched = pattern.search(args_text)
-        if matched is None:
-            continue
-        agent_name = matched.group(1).strip()
-        if agent_name:
-            return agent_name
-    return None
-
-
-def infer_target_skill_name(args_text: str | None) -> str | None:
-    if args_text is None:
-        return None
-    for pattern in _TARGET_SKILL_PATTERNS:
-        matched = pattern.search(args_text)
-        if matched is None:
-            continue
-        skill_name = matched.group(1).strip().strip("`'\"")
-        if skill_name:
-            return skill_name
-    return None
-
-
 def load_common_command_definition(
     command_name: str | None,
     *,
@@ -205,12 +157,9 @@ def render_command_prompt(
 def resolve_runtime_command(
     *,
     command_name: str | None,
-    command_kind: str | None,
     command_args: str | None,
-    authoring_actions: tuple[str, ...] | list[str],
     original_user_input: str | None,
     target_agent_name: str | None,
-    target_skill_name: str | None = None,
     paths: Paths | None = None,
 ) -> RuntimeCommandResolution:
     resolved_name = _normalize_command_name(command_name)
@@ -225,23 +174,16 @@ def resolve_runtime_command(
 
     definition = load_common_command_definition(resolved_name, paths=paths)
     resolved_target_agent_name = _normalize_optional_text(target_agent_name)
-    if resolved_target_agent_name is None and resolved_name == "create-agent":
-        resolved_target_agent_name = infer_target_agent_name(resolved_args)
-    resolved_target_skill_name = _normalize_optional_text(target_skill_name)
-    if resolved_target_skill_name is None and resolved_name is not None and "skill" in resolved_name:
-        resolved_target_skill_name = infer_target_skill_name(resolved_args)
 
+    # Slash-command metadata is canonical only when it comes from the archived
+    # command definition. Callers may provide the command token and raw args, but
+    # they must not inject `kind` or `authoring_actions` as a second source of truth.
     return RuntimeCommandResolution(
         name=resolved_name,
-        kind=definition.kind if definition is not None else _normalize_optional_text(command_kind),
+        kind=definition.kind if definition is not None else None,
         args=resolved_args,
-        authoring_actions=(
-            definition.authoring_actions
-            if definition is not None
-            else _normalize_authoring_actions(authoring_actions)
-        ),
+        authoring_actions=definition.authoring_actions if definition is not None else (),
         target_agent_name=resolved_target_agent_name,
-        target_skill_name=resolved_target_skill_name,
         prompt=(
             render_command_prompt(definition, user_text=resolved_args)
             if definition is not None

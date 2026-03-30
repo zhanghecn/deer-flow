@@ -7,8 +7,8 @@ from deepagents.backends.protocol import EditResult, FileUploadResponse, WriteRe
 class ReadOnlyFilesystemBackend(FilesystemBackend):
     """Expose a filesystem tree through BackendProtocol without mutation support.
 
-    The shared skills archive is a canonical source of truth. Runtime agents may
-    inspect it, but they must not mutate it through routed filesystem calls.
+    The archived skills library is a canonical source of truth. Runtime agents
+    may inspect it, but they must not mutate it through routed filesystem calls.
     """
 
     def write(

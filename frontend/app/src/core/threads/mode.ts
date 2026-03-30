@@ -36,8 +36,13 @@ export function resolveSubmitFlags(mode: string | null | undefined) {
   return {
     mode: resolvedMode,
     thinking_enabled: resolvedMode !== "flash",
-    is_plan_mode: true,
-    subagent_enabled: true,
+    // Copied-skill and other domain agents should stay on direct execution by
+    // default. Planner/todo behavior must be an explicit UI choice instead of a
+    // frontend-wide hidden default on every chat turn.
+    is_plan_mode: false,
+    // Keep delegated subagent behavior opt-in as well. Domain agents should not
+    // silently inherit extra planner/delegation surface on every turn.
+    subagent_enabled: false,
     reasoning_effort: getReasoningEffortForMode(resolvedMode),
   };
 }

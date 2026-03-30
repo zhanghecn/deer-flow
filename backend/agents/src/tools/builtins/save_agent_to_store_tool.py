@@ -5,6 +5,7 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 
+from src.config.builtin_agents import LEAD_AGENT_NAME, normalize_effective_agent_name
 from src.config.paths import get_paths
 from src.tools.builtins.authoring_persistence import (
     resolve_default_agent_source_dir,
@@ -25,17 +26,20 @@ def save_agent_to_store(
     """Persist a drafted or runtime-edited agent into `.openagents/agents/dev`.
 
     Args:
-        agent_name: Optional target agent name. Defaults to runtime `agent_name`.
+        agent_name: Optional target agent name. Defaults to the current non-`lead_agent` runtime agent.
         source_path: Optional explicit runtime or absolute source directory path.
     """
 
-    resolved_agent_name = str(
-        agent_name
-        or runtime_context_value(runtime.context, "target_agent_name")
-        or runtime_context_value(runtime.context, "agent_name")
-        or ""
-    ).strip()
+    resolved_agent_name = str(agent_name or "").strip().lower()
+    if not resolved_agent_name:
+        current_agent_name = normalize_effective_agent_name(runtime_context_value(runtime.context, "agent_name"))
+        if current_agent_name != LEAD_AGENT_NAME:
+            resolved_agent_name = current_agent_name
     try:
+        if not resolved_agent_name:
+            raise ValueError(
+                "save_agent_to_store requires explicit `agent_name` when the current runtime agent is `lead_agent`."
+            )
         paths = get_paths()
         resolved_source = (
             resolve_runtime_source_path(runtime=runtime, source_path=source_path, paths=paths)

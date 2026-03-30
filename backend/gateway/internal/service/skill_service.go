@@ -88,7 +88,7 @@ func (s *SkillService) Update(_ context.Context, name string, req model.UpdateSk
 
 func (s *SkillService) Delete(_ context.Context, name string) error {
 	deleted := false
-	for _, scope := range []string{"store/dev", "store/prod", "shared"} {
+	for _, scope := range []string{"store/dev", "store/prod"} {
 		targetDir := s.fs.GlobalSkillDir(scope, name)
 		if info, err := os.Stat(targetDir); err == nil && info.IsDir() {
 			if err := os.RemoveAll(targetDir); err != nil {
@@ -120,8 +120,8 @@ func (s *SkillService) Publish(_ context.Context, name string) (*model.Skill, er
 }
 
 func (s *SkillService) findSkillScopes(name string) []string {
-	scopes := make([]string, 0, 3)
-	for _, scope := range []string{"shared", "store/dev", "store/prod"} {
+	scopes := make([]string, 0, 2)
+	for _, scope := range []string{"store/dev", "store/prod"} {
 		info, err := os.Stat(s.fs.GlobalSkillDir(scope, name))
 		if err == nil && info.IsDir() {
 			scopes = append(scopes, scope)
@@ -161,7 +161,7 @@ func (s *SkillService) loadSkillFromScope(name string, scope string) (*model.Ski
 		descriptionI18n = nil
 	}
 
-	status := "shared"
+	status := "dev"
 	switch scope {
 	case "store/dev":
 		status = "dev"

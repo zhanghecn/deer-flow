@@ -1,5 +1,8 @@
 Read these docs before changing agent/runtime/backend/skills behavior:
 @../../docs/guides/documentation-boundaries.md
+@../../docs/architecture/agent-authoring-command-contract.md
+@../../docs/architecture/opencode-alignment-and-skill-boundary.md
+@../../docs/architecture/runtime-semantic-boundary.md
 @../../docs/architecture/runtime-architecture.md
 @../../docs/architecture/knowledge-base.md
 @../../docs/testing/README.md
@@ -25,12 +28,19 @@ Critical agent protocol rules for future work:
 - Missing runtime `agent_name` should normalize to `lead_agent`, not to a special `None` branch.
 - `dev` and `prod` are archive versions only, not runtime mode switches.
 - Runtime local vs sandbox selection belongs to Python startup/config only.
-- Shared skills live in `.openagents/skills/{shared,store/dev,store/prod}/`.
-- `.openagents/skills/` is the only maintained shared skill source. Do not recreate or rely on a repo-side `skills/public` mirror.
+- Slash commands are workflow-routing primitives, not semantic parsers.
+- Do not regex or heuristically infer `target_agent_name`, `target_skill_name`, or other authoring targets from natural-language user text in frontend, gateway, backend command resolution, or middleware.
+- Only explicit structured UI selections may populate target identifiers outside the model, and only when the UI already knows that identifier from a dedicated field or picker rather than message-text parsing.
+- Agent/object understanding belongs to the runtime model. Tool calls such as `setup_agent(...)` must carry explicit authoring targets instead of relying on inferred ambient runtime context.
+- Outside the model, only syntax parsing, machine-readable payload parsing, explicit UI fields, tool arguments/results, and safety validation may drive runtime behavior.
+- Do not inspect free-form user prose or assistant prose in middleware/helpers to infer domain mode, KB mode, next-step routing, question gating, or output policy.
+- If runtime behavior needs a non-model decision, move that decision into an explicit structured field or tool/result contract instead of adding keyword tables, fuzzy matching, or regex heuristics.
+- Archived reusable skills live in `.openagents/skills/store/{dev,prod}/`.
+- `.openagents/skills/` is the only maintained archived skill source. Do not recreate or rely on a repo-side `skills/public` mirror.
 - Agent-owned copies live in `agents/{status}/{name}/skills/`.
 - Agent-owned prompt lives in `agents/{status}/{name}/AGENTS.md`.
 - `lead_agent` also uses `agents/{status}/lead_agent/AGENTS.md` and `agents/{status}/lead_agent/skills/` like every other agent.
-- `lead_agent` does not implicitly read the full shared skills archive anymore. Its default archived skill set is explicit and currently includes `bootstrap`.
+- `lead_agent` does not implicitly read the full archived skills library anymore. Its default archived skill set is explicit and currently includes `bootstrap`.
 - `1 thread = 1 agent/runtime binding`. Existing thread opens must restore the persisted binding; switching agent/archive/runtime must create a new thread instead of mutating the old one.
 - The persisted runtime binding lives in Gateway `thread_bindings` and currently includes `agent_name`, `agent_status`, `model_name`, `execution_backend`, and `remote_session_id`.
 - Thread-scoped read requests before the first run may carry explicit runtime identity headers (`x-model-name`, `x-agent-name`, `x-agent-status`, `x-execution-backend`, `x-remote-session-id`) to seed an unbound thread view. Treat them as request input only when no persisted binding exists; never let them override an existing `thread_bindings` row.
@@ -40,9 +50,25 @@ Critical agent protocol rules for future work:
 - Agent-visible execution paths must stay on the unified virtual path contract under `/mnt/user-data/...`.
 - Host filesystem paths such as `.openagents/...` or `/root/project/...` are backend implementation details and must never be hardcoded into skills, prompts, or agent-authored commands.
 - All agents, including `lead_agent`, load skills from their thread-local copied runtime directory under `/mnt/user-data/agents/{status}/{name}/skills/`.
-- `SkillsMiddleware` is the correct layer for skill path semantics. The `{skills_locations}` prompt block must list runtime-visible backend paths such as `/mnt/user-data/agents/{status}/{name}/skills/`, not archive paths or host paths.
-- SKILL bodies should assume the model already knows each skill's runtime `SKILL.md` location from `SkillsMiddleware`. Inside SKILL docs, use relative-path guidance like `<current-skill-dir>` instead of hardcoding shared-archive or host-specific roots.
-- When an archived agent config already contains `skill_refs[].source_path`, preserve and materialize that exact source path. Do not collapse explicit refs back to bare skill names, because shared/store scopes may contain same-named skills.
+- 如果任务声称“对齐 opencode”，必须先检查本地参考仓库 `../opencode`（当前绝对路径 `/root/project/ai/opencode`），并明确范围到底是 slash command、command template、skill discovery，还是显式 `skill` 工具。
+- 不要把 slash-command 对齐错误扩大成 runtime skill 全架构重写。
+- deer-flow 当前唯一 canonical skill 链路是：
+  - archived skill 位于 `.openagents/skills/store/{dev,prod}/...`
+  - `setup_agent(..., skills=[{source_path: "..."}])` 负责 materialize 到 `.openagents/agents/{status}/{name}/skills/...`
+  - runtime prompt 只暴露 copied skill 的名称/描述/虚拟路径
+  - 模型使用普通文件工具读取 `/mnt/user-data/agents/{status}/{name}/skills/.../SKILL.md`
+- deer-flow runtime 不再把 copied skills 接到 Deep Agents `skills=` / `SkillsMiddleware` / `skills_metadata` 上。不要把 Deep Agents 的通用库能力重新当成 deer-flow runtime contract。
+- `find-skills` 在 deer-flow 里是发现策略 skill，不是新的 runtime skill 注入机制。
+- `find-skills` 的固定策略是：先查本地 archived store（`/mnt/skills/store/dev/...`、`/mnt/skills/store/prod/...`），只有本地没有合适 skill，或用户明确要求安装外部 skill 时，才走 registry 搜索 / 安装。
+- 如果 `find-skills` 找到的是本地 archived skill，最终仍然要通过 `setup_agent(..., skills=[{source_path: "..."}])` 完成装配，而不是靠额外 prompt glue 或前端推断。
+- 以后审计“skill 是否生效”，优先检查 copied `SKILL.md` 是否 materialize、runtime prompt 是否暴露 attached skill、以及 trace 里模型是否真的读取了 copied `SKILL.md`；不要再把 `skills_metadata` 当成必要证据。
+- Changing an archived store skill does not retroactively mutate existing agent-owned copies already archived under `.openagents/agents/{status}/{name}/skills/...`. Refresh those copied skills only through an explicit agent update/materialization flow such as `setup_agent` or the agent update API.
+- When a copied skill defines the user-visible review/report structure, keep the runtime prompt thin and let the skill remain the primary runtime contract. Do not mirror the whole skill into a second giant system-prompt summary.
+- Inside SKILL docs, use relative-path guidance like `<current-skill-dir>` instead of hardcoding archived-library or host-specific roots.
+- When an agent's core domain behavior comes from copied skills, keep its `AGENTS.md` thin. Do not restate the copied skill's full workflow, checklist, or output contract in `AGENTS.md`; that creates a second weaker runtime contract that can drift from the copied `SKILL.md`.
+- Frontend/runtime defaults must not force planner-style execution (`is_plan_mode`) onto every agent turn. Non-`lead_agent` domain agents with copied skills should default to direct execution unless the UI explicitly opts into planner/todo behavior.
+- If a domain skill must support different task shapes such as editable-file workflows and knowledge-base review workflows, define those modes in `SKILL.md` itself. Do not solve that by front-end guessing, regex parsing, or by teaching a second parallel workflow in `AGENTS.md`.
+- When an archived agent config already contains `skill_refs[].source_path`, preserve and materialize that exact source path. Do not collapse explicit refs back to bare skill names, because store scopes may contain same-named skills.
 - `LocalShellBackend` is for local debugging only and must preserve the same internal path contract as sandbox mode. If local mode needs special mapping, fix the backend mapping layer instead of changing skills to host paths.
 - `BackendProtocol` and `SandboxBackendProtocol` are data-plane interfaces. `SandboxProvider` is a control-plane interface. Do not collapse sandbox lifecycle allocation back into data-plane runtime backends.
 - `AioSandboxProvider` is not synonymous with single-machine sandbox mode. It is a managed sandbox provisioner that can drive local container sandboxes, provisioner-backed sandboxes, or externally managed sandbox endpoints.
@@ -55,7 +81,7 @@ Critical agent protocol rules for future work:
   - remove old branches instead of silently falling back from database -> config, request -> thread binding, or new endpoint -> legacy subprocess behavior
   - if persisted stale values must be handled, migrate them in storage and then reject any remaining invalid values explicitly
 - Open API should resolve `prod` agents only.
-- `setup_agent` must receive an explicit `target_agent_name` or `agent_name` in runtime context. Do not rely on a special bootstrap-only runtime branch.
+- `setup_agent` must use an explicit `agent_name` tool argument for `lead_agent`. Only a non-`lead_agent` dev runtime may omit `agent_name` to update itself.
 - Do not re-introduce `skills_mode`, `soul`/`SOUL.md`, legacy agent directory fallbacks, or `exclude_groups`-style compatibility paths.
 - Do not re-register `file:read`, `file:write`, or `bash` in app config. File access and shell execution come from deepagents `FilesystemMiddleware` only.
 - Knowledge-base retrieval keeps the global tool registry stable. Do not solve KB behavior by dynamically removing unrelated tools from the model-visible list.

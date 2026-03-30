@@ -14,15 +14,17 @@ describe("buildPromptExtraContext", () => {
     });
   });
 
-  it("infers target skill name for skill persistence commands", () => {
-    expect(
-      buildPromptExtraContext(
-        '/push-skill-prod 请把 dev skill oa-test-se-code-20260320 推送到 prod，必要时直接调用 push_skill_prod(skill_name="oa-test-se-code-20260320")。',
-      ),
-    ).toMatchObject({
+  it("does not infer target entities from slash-command free text", () => {
+    const result = buildPromptExtraContext(
+      '/push-skill-prod 请把 dev skill oa-test-se-code-20260320 推送到 prod，必要时直接调用 push_skill_prod(skill_name="oa-test-se-code-20260320")。',
+    );
+
+    expect(result).toMatchObject({
       command_name: "push-skill-prod",
-      target_skill_name: "oa-test-se-code-20260320",
+      command_args:
+        '请把 dev skill oa-test-se-code-20260320 推送到 prod，必要时直接调用 push_skill_prod(skill_name="oa-test-se-code-20260320")。',
     });
+    expect(result).not.toHaveProperty("target_skill_name");
   });
 
   it("extracts knowledge document mentions from inline @ references", () => {
@@ -81,6 +83,19 @@ describe("buildCreateAgentFlowExtraContext", () => {
       target_agent_name: "demo-agent",
       original_user_input: "/push-agent-prod 现在发布",
     });
+  });
+
+  it("does not infer target agent name from slash-command text", () => {
+    const result = buildPromptExtraContext(
+      "/create-agent 请帮我创建一个名为 demo-agent 的智能体",
+    );
+
+    expect(result).toMatchObject({
+      command_name: "create-agent",
+      command_args: "请帮我创建一个名为 demo-agent 的智能体",
+      original_user_input: "/create-agent 请帮我创建一个名为 demo-agent 的智能体",
+    });
+    expect(result).not.toHaveProperty("target_agent_name");
   });
 
   it("preserves plain follow-up text without injecting skill references", () => {

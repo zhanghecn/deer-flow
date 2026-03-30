@@ -3,16 +3,12 @@
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Awaitable, Callable
 from typing import Any, override
 
 from deepagents.middleware._utils import append_to_system_message
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
-from langchain.tools.tool_node import ToolCallRequest
-from langchain_core.messages import ToolMessage
-from langgraph.types import Command
 
 _QUESTION_DISCIPLINE_PROMPT = """
 <question_discipline>
@@ -39,62 +35,6 @@ _QUESTION_RESUME_PROMPT = """
 - Keep internal execution strategy internal. Do not expose plan/build stage terminology to the user unless they explicitly ask about it.
 </question_resume>
 """.strip()
-
-_QUESTION_FIRST_REQUIRED_TOOL_ERROR = (
-    "Error: this request still needs an upfront `question` call before using other tools. "
-    "Ask the user the highest-leverage 2-4 blocking questions now, keep each `questions[].question` short, "
-    "and put concrete choices into `questions[].options`."
-)
-_LARGE_SCALE_RESEARCH_KEYWORDS = (
-    "collect",
-    "collection",
-    "compile",
-    "crawl",
-    "evaluate",
-    "gather",
-    "inventory",
-    "map",
-    "organize",
-    "research",
-    "scrape",
-    "survey",
-    "整理",
-    "收集",
-    "汇总",
-    "爬",
-    "爬取",
-    "抓取",
-    "调研",
-    "研究",
-    "评估",
-    "分类",
-)
-_LARGE_SCALE_VOLUME_KEYWORDS = (
-    "all",
-    "every",
-    "hundreds",
-    "thousands",
-    "大量",
-    "海量",
-    "全部",
-    "所有",
-    "上千",
-    "上万",
-    "成百上千",
-)
-_LARGE_SCALE_STRUCTURE_KEYWORDS = (
-    ".md",
-    "markdown",
-    "report",
-    "zip",
-    "分类",
-    "理论",
-    "案例",
-    "文件",
-    "知识体系",
-    "输出",
-)
-_MULTISPACE_RE = re.compile(r"\s+")
 
 
 def _message_type(message: Any) -> str | None:
@@ -151,61 +91,6 @@ def _has_recent_answered_question(messages: Any) -> bool:
     return False
 
 
-def _latest_human_text(messages: Any) -> str:
-    if not isinstance(messages, list):
-        return ""
-
-    for message in reversed(messages):
-        if _message_type(message) != "human":
-            continue
-        return _content_text(getattr(message, "content", ""))
-    return ""
-
-
-def _normalized_match_text(value: str) -> str:
-    return _MULTISPACE_RE.sub(" ", value).strip().lower()
-
-
-def _contains_any(text: str, keywords: tuple[str, ...]) -> bool:
-    return any(keyword in text for keyword in keywords)
-
-
-def _requires_large_scale_intake_question(messages: Any) -> bool:
-    if _has_recent_answered_question(messages):
-        return False
-
-    latest_human = _normalized_match_text(_latest_human_text(messages))
-    if not latest_human:
-        return False
-
-    research_like = _contains_any(latest_human, _LARGE_SCALE_RESEARCH_KEYWORDS)
-    if not research_like:
-        return False
-
-    scale_like = _contains_any(latest_human, _LARGE_SCALE_VOLUME_KEYWORDS)
-    structure_like = _contains_any(latest_human, _LARGE_SCALE_STRUCTURE_KEYWORDS)
-    return scale_like and structure_like
-
-
-def _blocked_question_gate_tool_message(request: ToolCallRequest) -> ToolMessage | None:
-    tool_name = ""
-    if isinstance(request.tool_call, dict):
-        tool_name = str(request.tool_call.get("name") or "").strip()
-    if tool_name == "question":
-        return None
-
-    raw_messages = request.state
-    if isinstance(request.state, dict):
-        raw_messages = request.state.get("messages", request.state)
-    if not _requires_large_scale_intake_question(raw_messages):
-        return None
-
-    return ToolMessage(
-        content=_QUESTION_FIRST_REQUIRED_TOOL_ERROR,
-        tool_call_id=request.tool_call["id"],
-    )
-
-
 class QuestionDisciplineMiddleware(AgentMiddleware):
     """Append a compact policy block that keeps clarification on the tool path."""
 
@@ -240,25 +125,3 @@ class QuestionDisciplineMiddleware(AgentMiddleware):
         handler: Callable[[ModelRequest[Any]], Awaitable[ModelResponse[Any]]],
     ) -> ModelResponse[Any]:
         return await handler(self._override_request(request))
-
-    @override
-    def wrap_tool_call(
-        self,
-        request: ToolCallRequest,
-        handler: Callable[[ToolCallRequest], ToolMessage | Command | Any],
-    ) -> ToolMessage | Command | Any:
-        blocked = _blocked_question_gate_tool_message(request)
-        if blocked is not None:
-            return blocked
-        return handler(request)
-
-    @override
-    async def awrap_tool_call(
-        self,
-        request: ToolCallRequest,
-        handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command | Any]],
-    ) -> ToolMessage | Command | Any:
-        blocked = _blocked_question_gate_tool_message(request)
-        if blocked is not None:
-            return blocked
-        return await handler(request)

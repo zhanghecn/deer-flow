@@ -73,14 +73,14 @@ function createFormState(agent: Agent): AgentFormState {
 }
 
 function frontendBaseURL() {
-  if (typeof window === "undefined") {
-    return "http://localhost:3000";
-  }
   const envURL = import.meta.env.VITE_FRONTEND_BASE_URL as string | undefined;
-  if (envURL) {
+  if (envURL && envURL.trim() !== "") {
     return envURL.replace(/\/+$/, "");
   }
-  return `http://${window.location.hostname}:3000`;
+  if (typeof window === "undefined") {
+    return "http://localhost";
+  }
+  return `${window.location.protocol}//${window.location.hostname}`;
 }
 
 function buildDemoURL(

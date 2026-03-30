@@ -25,7 +25,7 @@ class SkillResponse(BaseModel):
     name: str = Field(..., description="Name of the skill")
     description: str = Field(..., description="Description of what the skill does")
     license: str | None = Field(None, description="License information")
-    category: str = Field(..., description="Skill scope: shared, store/dev, or store/prod")
+    category: str = Field(..., description="Skill scope: store/dev or store/prod")
     enabled: bool = Field(default=True, description="Whether this skill is enabled")
 
 
@@ -148,7 +148,7 @@ def _skill_to_response(skill: Skill) -> SkillResponse:
     "/skills",
     response_model=SkillsListResponse,
     summary="List All Skills",
-    description="Retrieve a list of all available skills from the shared and store skill scopes.",
+    description="Retrieve a list of all available skills from the archived store skill scopes.",
 )
 async def list_skills() -> SkillsListResponse:
     """List all available skills.
@@ -166,7 +166,7 @@ async def list_skills() -> SkillsListResponse:
                     "name": "PDF Processing",
                     "description": "Extract and analyze PDF content",
                     "license": "MIT",
-                    "category": "shared",
+                    "category": "store/prod",
                     "enabled": true
                 },
                 {
@@ -213,7 +213,7 @@ async def get_skill(skill_name: str) -> SkillResponse:
             "name": "PDF Processing",
             "description": "Extract and analyze PDF content",
             "license": "MIT",
-            "category": "shared",
+            "category": "store/prod",
             "enabled": true
         }
         ```
@@ -268,7 +268,7 @@ async def update_skill(skill_name: str, request: SkillUpdateRequest) -> SkillRes
             "name": "PDF Processing",
             "description": "Extract and analyze PDF content",
             "license": "MIT",
-            "category": "shared",
+            "category": "store/prod",
             "enabled": false
         }
         ```

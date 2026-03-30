@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import yaml
 
 from src.config import builtin_agents
@@ -25,9 +27,9 @@ def test_ensure_builtin_agent_archive_rewrites_legacy_skills_mode(tmp_path, monk
     monkeypatch.setattr(builtin_agents, "_ENSURED_ARCHIVES", set())
 
     base_dir = tmp_path / ".openagents"
-    shared_skill_dir = base_dir / "skills" / "shared" / "bootstrap"
-    shared_skill_dir.mkdir(parents=True, exist_ok=True)
-    (shared_skill_dir / "SKILL.md").write_text(
+    archived_skill_dir = base_dir / "skills" / "store" / "prod" / "bootstrap"
+    archived_skill_dir.mkdir(parents=True, exist_ok=True)
+    (archived_skill_dir / "SKILL.md").write_text(
         "---\nname: bootstrap\ndescription: bootstrap\n---\n\nbootstrap\n",
         encoding="utf-8",
     )
@@ -47,18 +49,18 @@ def test_ensure_builtin_agent_archive_rewrites_legacy_skills_mode(tmp_path, monk
     assert config_data["skill_refs"]
     assert config_data["skill_refs"][0] == {
         "name": "bootstrap",
-        "source_path": "shared/bootstrap",
+        "source_path": "store/prod/bootstrap",
     }
-    assert (paths.shared_skills_dir / "bootstrap" / "SKILL.md").read_text(encoding="utf-8").strip().endswith("bootstrap")
+    assert (paths.store_prod_skills_dir / "bootstrap" / "SKILL.md").read_text(encoding="utf-8").strip().endswith("bootstrap")
 
 
 def test_ensure_builtin_agent_archive_preserves_archived_agents_md(tmp_path, monkeypatch):
     monkeypatch.setattr(builtin_agents, "_ENSURED_ARCHIVES", set())
 
     base_dir = tmp_path / ".openagents"
-    shared_skill_dir = base_dir / "skills" / "shared" / "bootstrap"
-    shared_skill_dir.mkdir(parents=True, exist_ok=True)
-    (shared_skill_dir / "SKILL.md").write_text(
+    archived_skill_dir = base_dir / "skills" / "store" / "prod" / "bootstrap"
+    archived_skill_dir.mkdir(parents=True, exist_ok=True)
+    (archived_skill_dir / "SKILL.md").write_text(
         "---\nname: bootstrap\ndescription: bootstrap\n---\n\nbootstrap\n",
         encoding="utf-8",
     )
@@ -74,14 +76,14 @@ def test_ensure_builtin_agent_archive_preserves_archived_agents_md(tmp_path, mon
     assert (agent_dir / "AGENTS.md").read_text(encoding="utf-8") == customized_agents_md
 
 
-def test_ensure_builtin_agent_archive_preserves_explicit_shared_skill_refs_when_names_conflict(tmp_path, monkeypatch):
+def test_ensure_builtin_agent_archive_preserves_explicit_prod_skill_refs_when_names_conflict(tmp_path, monkeypatch):
     monkeypatch.setattr(builtin_agents, "_ENSURED_ARCHIVES", set())
 
     base_dir = tmp_path / ".openagents"
-    shared_skill_dir = base_dir / "skills" / "shared" / "frontend-design"
-    shared_skill_dir.mkdir(parents=True, exist_ok=True)
-    (shared_skill_dir / "SKILL.md").write_text(
-        "---\nname: frontend-design\ndescription: shared frontend design\n---\n\nshared\n",
+    prod_skill_dir = base_dir / "skills" / "store" / "prod" / "frontend-design"
+    prod_skill_dir.mkdir(parents=True, exist_ok=True)
+    (prod_skill_dir / "SKILL.md").write_text(
+        "---\nname: frontend-design\ndescription: prod frontend design\n---\n\nprod\n",
         encoding="utf-8",
     )
     dev_skill_dir = base_dir / "skills" / "store" / "dev" / "frontend-design"
@@ -100,7 +102,7 @@ def test_ensure_builtin_agent_archive_preserves_explicit_shared_skill_refs_when_
         "agents_md_path: AGENTS.md\n"
         "skill_refs:\n"
         "  - name: frontend-design\n"
-        "    source_path: shared/frontend-design\n",
+        "    source_path: store/prod/frontend-design\n",
         encoding="utf-8",
     )
 
@@ -110,7 +112,17 @@ def test_ensure_builtin_agent_archive_preserves_explicit_shared_skill_refs_when_
     assert config_data["skill_refs"] == [
         {
             "name": "frontend-design",
-            "source_path": "shared/frontend-design",
+            "source_path": "store/prod/frontend-design",
         }
     ]
-    assert (agent_dir / "skills" / "frontend-design" / "SKILL.md").read_text(encoding="utf-8").strip().endswith("shared")
+    assert (agent_dir / "skills" / "frontend-design" / "SKILL.md").read_text(encoding="utf-8").strip().endswith("prod")
+
+
+def test_builtin_lead_agent_prompt_keeps_skill_discovery_local_first():
+    repo_root = Path(__file__).resolve().parents[3]
+    agents_md = (repo_root / "backend/agents/src/agents/lead_agent/AGENTS.md").read_text(encoding="utf-8")
+
+    assert "find-skills" in agents_md
+    assert "/mnt/skills/store/dev" in agents_md
+    assert "/mnt/skills/store/prod" in agents_md
+    assert "local-store-first" in agents_md

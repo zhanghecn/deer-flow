@@ -218,7 +218,7 @@ Tools follow the same philosophy. OpenAgents comes with a core toolset — web s
 
 ```
 # Shared skill archive on the host
-.openagents/skills/shared
+.openagents/skills/store/prod
 ├── research/SKILL.md
 ├── report-generation/SKILL.md
 ├── slide-creation/SKILL.md
@@ -236,8 +236,8 @@ Tools follow the same philosophy. OpenAgents comes with a core toolset — web s
 └── image-generation/SKILL.md
 ```
 
-Shared skills belong only in `.openagents/skills/`. Vertical or domain prompts
-belong in `.openagents/agents/{dev,prod}/{agent}/AGENTS.md`.
+Archived reusable skills belong only in `.openagents/skills/store/{dev,prod}/`.
+Vertical or domain prompts belong in `.openagents/agents/{dev,prod}/{agent}/AGENTS.md`.
 
 ### Sub-Agents
 

@@ -2,6 +2,8 @@ import type { ResolvedCommandIntent } from "./types";
 
 import { findPromptCommand } from "./index";
 
+// These regexes parse only explicit mention syntax written by the user.
+// They are not a license to infer document targets from arbitrary prose.
 const KNOWLEDGE_BRACKET_REFERENCE_RE =
   /(?:^|[\s([{（【])@(?:knowledge|kb|doc|document)\[([^\]\n]+)\]/gi;
 const KNOWLEDGE_QUOTED_REFERENCE_RE =
@@ -92,42 +94,6 @@ function extractKnowledgeDocumentMentions(input: string): string[] {
   return resolved;
 }
 
-function inferTargetAgentName(argsText: string): string | undefined {
-  const patterns = [
-    /(?:名为|名字叫|叫做)\s+([A-Za-z0-9-]+)/i,
-    /(?:named|called)\s+([A-Za-z0-9-]+)/i,
-    /(?:agent[_\s-]*name|name)\s*[:=]\s*([A-Za-z0-9-]+)/i,
-  ];
-
-  for (const pattern of patterns) {
-    const matched = argsText.match(pattern)?.[1]?.trim();
-    if (matched) {
-      return matched;
-    }
-  }
-
-  return undefined;
-}
-
-function inferTargetSkillName(argsText: string): string | undefined {
-  const patterns = [
-    /(?:名为|名字叫|叫做)\s+([A-Za-z0-9][A-Za-z0-9/_-]*)/i,
-    /(?:skill[_\s-]*name|name)\s*[:=]\s*([A-Za-z0-9][A-Za-z0-9/_-]*)/i,
-    /source_path\s*[:=]\s*(?:shared|store\/(?:dev|prod))\/([A-Za-z0-9][A-Za-z0-9/_-]*)/i,
-    /(?:shared|store\/(?:dev|prod))\/([A-Za-z0-9][A-Za-z0-9/_-]*)/i,
-    /(?:^|[\s,.:;!?，。：；！？()（）])(?:已有|已存在|现有|保存|发布|推送|创建|这个|该)?\s*(?:(?:dev|prod)\s+)?(?:skill|技能)\s*[`'"]?([A-Za-z0-9][A-Za-z0-9/_-]*)[`'"]?/i,
-  ];
-
-  for (const pattern of patterns) {
-    const matched = argsText.match(pattern)?.[1]?.trim();
-    if (matched) {
-      return matched;
-    }
-  }
-
-  return undefined;
-}
-
 export function resolveCommandIntent(
   input: string,
 ): ResolvedCommandIntent | null {
@@ -146,14 +112,6 @@ export function resolveCommandIntent(
     return null;
   }
 
-  const targetAgentName =
-    command.name === "create-agent"
-      ? inferTargetAgentName(argsText)
-      : undefined;
-  const targetSkillName = command.name.includes("skill")
-    ? inferTargetSkillName(argsText)
-    : undefined;
-
   return {
     command,
     rawInput,
@@ -162,8 +120,6 @@ export function resolveCommandIntent(
     extraContext: {
       command_name: command.name,
       command_args: argsText,
-      target_agent_name: targetAgentName,
-      target_skill_name: targetSkillName,
       original_user_input: rawInput,
     },
   };

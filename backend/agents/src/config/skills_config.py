@@ -10,7 +10,7 @@ class SkillsConfig(BaseModel):
 
     path: str | None = Field(
         default=None,
-        description="Path to the shared skills archive directory.",
+        description="Path to the archived skills library directory.",
     )
     container_path: str = Field(
         default="/mnt/skills",
@@ -28,13 +28,13 @@ class SkillsConfig(BaseModel):
             raise RuntimeError("skills.path must be configured in config.yaml.")
         return resolve_relative_to_config_dir(self.path, config_dir=config_dir)
 
-    def get_skill_container_path(self, skill_name: str, category: str = "shared") -> str:
+    def get_skill_container_path(self, skill_name: str, category: str = "store/prod") -> str:
         """
         Get the full container path for a specific skill.
 
         Args:
             skill_name: Name of the skill (directory name)
-            category: Scope of the skill (shared, store/dev, or store/prod)
+            category: Scope of the skill (store/dev or store/prod)
 
         Returns:
             Full path to the skill in the container

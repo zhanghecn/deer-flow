@@ -7,7 +7,6 @@ from langgraph.types import Command
 
 from src.config.paths import get_paths
 from src.tools.builtins.authoring_persistence import push_skill_directory_to_prod
-from src.utils.runtime_context import runtime_context_value
 
 logger = logging.getLogger(__name__)
 
@@ -15,20 +14,18 @@ logger = logging.getLogger(__name__)
 @tool
 def push_skill_prod(
     runtime: ToolRuntime,
-    skill_name: str | None = None,
+    skill_name: str,
 ) -> Command:
     """Promote a saved dev skill into `.openagents/skills/store/prod`.
 
     Args:
-        skill_name: Optional skill name or relative path under the skill store.
+        skill_name: Skill name or relative path under the skill store.
     """
 
-    resolved_skill_name = str(
-        skill_name
-        or runtime_context_value(runtime.context, "target_skill_name")
-        or ""
-    ).strip()
+    resolved_skill_name = str(skill_name or "").strip()
     try:
+        if not resolved_skill_name:
+            raise ValueError("push_skill_prod requires explicit `skill_name`.")
         target_dir, backup_dir = push_skill_directory_to_prod(resolved_skill_name, paths=get_paths())
         parts = [f"Skill '{resolved_skill_name}' pushed to {target_dir}."]
         if backup_dir is not None:

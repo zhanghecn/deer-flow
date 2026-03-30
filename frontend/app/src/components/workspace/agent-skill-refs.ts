@@ -5,7 +5,6 @@ import type { Skill } from "@/core/skills/type";
 const SKILL_SOURCE_SCOPE_PREFIXES = [
   "store/prod/",
   "store/dev/",
-  "shared/",
 ] as const;
 
 export function skillRefKey(skillRef: AgentSkillRef) {
@@ -68,7 +67,7 @@ export function buildSkillMaterializedPath(skill: Skill) {
 export function normalizeSkillCategory(
   category: string | null | undefined,
 ): SkillScope {
-  return normalizeSkillScope(category) ?? "shared";
+  return normalizeSkillScope(category) ?? "store/dev";
 }
 
 function stripSkillSourceScopePrefix(sourcePath: string) {

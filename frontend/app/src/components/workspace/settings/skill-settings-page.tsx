@@ -63,7 +63,7 @@ function SkillSettingsList({
   const { t, locale } = useI18n();
   const navigate = useNavigate();
   const categories = useMemo(() => getSkillScopes(skills), [skills]);
-  const [filter, setFilter] = useState<SkillScope>("shared");
+  const [filter, setFilter] = useState<SkillScope>("store/dev");
   const { mutate: enableSkill } = useEnableSkill();
   const filteredSkills = useMemo(
     () => filterSkillsByScope(skills, filter),
@@ -89,7 +89,7 @@ function SkillSettingsList({
       <header className="flex justify-between">
         <div className="flex gap-2">
           <Tabs
-            defaultValue={categories[0] ?? "shared"}
+            defaultValue={categories[0] ?? "store/dev"}
             value={filter}
             onValueChange={(value) => setFilter(value as SkillScope)}
           >

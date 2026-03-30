@@ -6,7 +6,7 @@ from deepagents.backends.protocol import BackendProtocol
 
 from src.config.paths import Paths
 
-from .local import build_local_workspace_backend, resolve_shared_skills_mount
+from .local import build_local_workspace_backend, resolve_skills_mount
 from .remote import REMOTE_EXECUTION_BACKEND, build_remote_workspace_backend
 from .sandbox import build_sandbox_workspace_backend, resolve_default_execution_backend
 
@@ -41,8 +41,9 @@ def build_runtime_workspace_backend(
         return build_sandbox_workspace_backend(
             thread_id,
             user_data_dir=user_data_dir,
+            skills_mount=resolve_skills_mount(paths),
         )
     return build_local_workspace_backend(
         user_data_dir,
-        shared_skills_mount=resolve_shared_skills_mount(paths),
+        skills_mount=resolve_skills_mount(paths),
     )

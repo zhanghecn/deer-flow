@@ -68,11 +68,6 @@ func (f *FS) SkillsDir() string {
 	return filepath.Join(f.baseDir, "skills")
 }
 
-// SharedSkillsDir returns the shared skills archive root.
-func (f *FS) SharedSkillsDir() string {
-	return filepath.Join(f.SkillsDir(), "shared")
-}
-
 func (f *FS) StoreDevSkillsDir() string {
 	return filepath.Join(f.SkillsDir(), "store", "dev")
 }

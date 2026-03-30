@@ -71,7 +71,7 @@ psql "$DATABASE_URI" -f migrations/002_seed_data.up.sql
 
 说明：
 - 非密钥配置放在 `gateway.yaml` 与项目根 `config.yaml`
-- 共享技能库位于 `storage.base_dir/skills/`，默认即 `.openagents/skills/`
+- 技能归档库位于 `storage.base_dir/skills/`，默认即 `.openagents/skills/`
 - 当 `OPENAGENTS_HOME` 或 `storage.base_dir` 使用相对路径时，网关会按项目根目录解析，和 Python runtime 保持一致
 - 若通过 `docker/docker-compose-dev.yaml` 启动容器化开发环境：
   - 根 `.env` 仍是唯一共享 secrets 文件
@@ -238,8 +238,8 @@ POST /open/v1/agents/:name/stream  # 只有 prod agent 可通过 Open API 调用
 
 ```text
                      +-----------------------------------------+
-                     | shared skills library                   |
-                     | {OPENAGENTS_HOME}/skills/{shared,store} |
+                     | archived skills library                 |
+                     | {OPENAGENTS_HOME}/skills/store/{dev,prod} |
                      +-------------------+---------------------+
                                       |
                                       | select skill names
@@ -286,7 +286,7 @@ POST /open/v1/agents/:name/stream  # 只有 prod agent 可通过 Open API 调用
 
 Agent/Skill 定义已经完全脱离数据库：
 - Agent 真源在 `{OPENAGENTS_HOME}/agents/{status}/{name}/`
-- Skill 真源在 `{OPENAGENTS_HOME}/skills/{shared|store/dev|store/prod}/{name}/`
+- Skill 真源在 `{OPENAGENTS_HOME}/skills/store/{dev,prod}/{name}/`
 - 发布只是文件复制与状态切换，不写任何 agent/skill 元数据表
 
 运行时职责分界：
@@ -308,7 +308,6 @@ Agent/Skill 定义已经完全脱离数据库：
 ```
 {OPENAGENTS_HOME}/
 ├── skills/
-│   ├── shared/{skill-name}/SKILL.md
 │   └── store/
 │       ├── dev/{skill-name}/SKILL.md
 │       └── prod/{skill-name}/SKILL.md
@@ -333,9 +332,9 @@ Agent/Skill 定义已经完全脱离数据库：
 
 说明：
 - `AGENTS.md` 归 agent 自己所有
-- 共享技能真源位于 `{OPENAGENTS_HOME}/skills/{shared|store/dev|store/prod}/`
+- 技能归档真源位于 `{OPENAGENTS_HOME}/skills/store/{dev,prod}/`
 - agent 只引用并复制选中的 skill 到 `agents/{status}/{name}/skills/`
-- 发布时 Go gateway 会从共享技能库复制到 `agents/prod/{name}/skills/`
+- 发布时 Go gateway 会从归档技能库复制到 `agents/prod/{name}/skills/`
 - `lead_agent` 也走标准 agent 目录和 agent-local skills 副本
 - 本地调试时，runtime 使用线程级 `/mnt/user-data/...` 虚拟路径，并仅对 legacy `/mnt/skills/...` 做后端映射兼容
 - 启用 sandbox 时，运行时仍读取同一套线程级 `/mnt/user-data/...` 副本，只是执行后端不同
