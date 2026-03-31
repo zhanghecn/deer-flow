@@ -85,6 +85,9 @@ make docker-start
 
 `ONLYOFFICE` is part of the default Docker dev stack.
 `SANDBOX_AIO` is also part of the default stack when `config.yaml` uses the AIO sandbox provider.
+In `docker-compose-dev.yaml`, `gateway` now starts with `go run ./cmd/server`
+against the mounted source tree, so normal Go code edits only need a container
+restart instead of a full image rebuild.
 For host-run local development, start just the shared infra with:
 
 ```bash

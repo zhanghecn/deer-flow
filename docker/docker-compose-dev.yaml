@@ -157,6 +157,13 @@ services:
       cache_from:
         - type=local,src=/tmp/docker-cache-gateway
     container_name: openagents-gateway
+    command:
+      # 开发环境直接跑挂载进来的源码：
+      # - 首次 build 只负责准备 Go/LibreOffice 依赖
+      # - 之后改 Go 代码只需要重启容器，不必重新 build 镜像
+      - sh
+      - -lc
+      - cd /app/backend/gateway && GATEWAY_CONFIG_PATH=/app/backend/gateway/gateway.yaml go run ./cmd/server
     ports:
       - "8001:8001"
     volumes:
