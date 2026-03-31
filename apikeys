@@ -3,8 +3,7 @@
 "ANTHROPIC_MODEL": "glm-5"
 
 
-1	anthropic	kimi-k2.5-1	sk-kimi-iTmVzeQofVNhi0NVJVn0gY21zEdrbXpEMlSeX6QotEpYL4op46Fb8TWzsQbPSSn1	https://api.kimi.com/coding/	kimi-k2.5	
-2	anthropic	kimi-k2.5-2	sk-kimi-OOSOEpfXJsjGQGB5dIuDTqNfrNWSzYCLlwHNuxD2cmsihdYQmq1qYRDfjx75kH4T	https://api.kimi.com/coding/	kimi-k2.5	
-
+189 1 anthropic kimi-k2.5-1 sk-kimi-DhkiZXqywgy1fGy8TYqC27FShrgsRvsRDrhhnGxQBo9lC8dBiI0uJsohJRwL0gF7 https://api.kimi.com/coding/ kimi-k2.5
+167 2 anthropic kimi-k2.5-2 sk-kimi-YhYlfXaDwAOaf80PW3t5acDFLZkBq61MrRBY0iAYDgmuv3qC9GO7o6yATdHSx9lp https://api.kimi.com/coding/ kimi-k2.5
 
 # Add your tokens here

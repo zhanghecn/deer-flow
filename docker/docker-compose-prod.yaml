@@ -31,7 +31,7 @@ services:
         condition: service_healthy
     ports:
       # 正式环境固定端口，不再额外抽象为 compose 变量。
-      - "80:80"
+      - "8083:80"
       - "8081:8081"
     networks:
       - openagents
