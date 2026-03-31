@@ -95,7 +95,7 @@ docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml
 - `command:` 是容器启动后真正执行的命令
 - 这决定了“这个容器起来后到底跑什么”
 - 例如：
-  - `gateway` 跑的是网关二进制
+  - `gateway` 跑的是挂载进来的源码 `go run ./cmd/server`
 
 ### 4. 每个容器是干什么的
 

@@ -46,11 +46,13 @@ services:
       context: ..
       dockerfile: backend/gateway/Dockerfile
     command:
-      # 直接运行镜像里已经编译好的 gateway 二进制。
+      # 正式环境同样直接跑仓库挂载进来的 Go 源码：
+      # - 首次 build 只负责准备 Go/LibreOffice 依赖
+      # - 之后纯 Gateway 代码更新只需要 restart，不必重新 build 这个重镜像
       # GATEWAY_CONFIG_PATH 指向仓库中的正式配置文件。
       - sh
       - -lc
-      - cd /app/backend/gateway && GATEWAY_CONFIG_PATH=/app/backend/gateway/gateway.yaml /usr/local/bin/openagents-gateway
+      - cd /app/backend/gateway && GATEWAY_CONFIG_PATH=/app/backend/gateway/gateway.yaml go run ./cmd/server
     depends_on:
       langgraph:
         # 这里只要求 langgraph 进程已启动；真正 API 可用性由 gateway 自己重试和上游访问决定。
