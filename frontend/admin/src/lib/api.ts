@@ -2,17 +2,33 @@ function trimTrailingSlash(url: string) {
   return url.replace(/\/+$/, "");
 }
 
+function getBrowserBaseURL() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  return window.location.origin;
+}
+
+function shouldUseDevProxy() {
+  return typeof window !== "undefined" && import.meta.env.DEV;
+}
+
 function resolveBaseURL() {
   const configured = import.meta.env.VITE_GATEWAY_BASE_URL;
+  const browserBaseURL = getBrowserBaseURL();
+
+  // 后台管理前端在 Vite dev 下也统一走同源 `/api`，
+  // 这样请求会经过 vite.config.ts 里的 dev proxy，而不是浏览器直接跨域打 gateway。
+  if (shouldUseDevProxy() && browserBaseURL) {
+    return browserBaseURL;
+  }
+
   if (configured && configured.trim() !== "") {
     return trimTrailingSlash(configured);
   }
 
-  if (typeof window !== "undefined") {
-    return window.location.origin;
-  }
-
-  return "http://localhost:8001";
+  return browserBaseURL ?? "http://localhost:8001";
 }
 
 const BASE_URL = resolveBaseURL();

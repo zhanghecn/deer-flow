@@ -25,16 +25,17 @@
 
 ## Environment
 
-创建 `.env`：
+开发环境默认读取 `.env.development`。如果你只想在本机覆写，不改仓库文件，可以新建 `.env.development.local`：
 
 ```bash
-cp .env.example .env
+cp .env.example .env.development.local
 ```
 
-`.env` 示例：
+开发环境变量示例：
 
 ```bash
 VITE_GATEWAY_BASE_URL=http://localhost:8001
+VITE_FRONTEND_BASE_URL=http://localhost:3000
 ```
 
 ## Run
@@ -46,9 +47,14 @@ pnpm dev
 
 默认地址：`http://localhost:5173`
 
+- 浏览器请求默认走同源 `/api`
+- Vite dev server 再把 `/api`、`/open`、`/health` 代理到 `VITE_GATEWAY_BASE_URL`
+
 ## Build
 
 ```bash
 pnpm build
 pnpm preview
 ```
+
+`pnpm build` 默认走 Vite production mode，因此会读取 `.env.production`

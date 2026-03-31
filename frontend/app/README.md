@@ -22,8 +22,8 @@ Like the original OpenAgents 1.0, we would love to give the community a minimali
 # Install dependencies
 pnpm install
 
-# Optional: copy `.env.example` only if you need to override the default gateway URL
-# cp .env.example .env
+# Optional: only if you need to override the default dev gateway URL
+# cp .env.example .env.development.local
 ```
 
 ### Development
@@ -34,6 +34,7 @@ pnpm dev
 
 # The app will be available at http://localhost:3000
 # In browser-side Vite dev, API calls stay same-origin and go through the Vite proxy.
+# Proxy target comes from `.env.development*`.
 ```
 
 ### Build
@@ -76,7 +77,8 @@ pnpm preview
 Optional environment variables (see `.env.example` for overrides):
 
 ```bash
-# Controls the Vite dev proxy target and non-dev direct API base URL.
+# `vite` reads `.env.development*`, `vite build` reads `.env.production*`.
+# This variable controls the Vite dev proxy target and the non-dev direct API base URL.
 # In browser-side Vite dev, requests still go to same-origin /api and are
 # forwarded by the dev server proxy.
 VITE_BACKEND_BASE_URL="http://localhost:8001"
@@ -136,6 +138,7 @@ src/
 
 - Uses pnpm workspaces (see `packageManager` in package.json)
 - Host-run development uses the Vite dev proxy for `/api`, `/open`, and `/health`
+- `vite` default development mode reads `.env.development*`; `vite build` default production mode reads `.env.production*`
 - `VITE_BACKEND_BASE_URL` controls the proxy target in dev and the direct backend base URL outside Vite dev
 - `src/mock-server/plugin.ts` serves mock/demo data under `/mock/api/*`
 - The route components still live under `src/app/`, but routing is driven by `src/routes.tsx`, not Next.js App Router

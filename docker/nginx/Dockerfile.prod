@@ -18,10 +18,10 @@ RUN pnpm install --frozen-lockfile
 # 再复制完整前端源码并执行打包。
 COPY frontend/app ./
 
-# 这里直接使用默认构建配置：
-# - 不额外注入 VITE_BACKEND_BASE_URL
-# - 不启用静态只读模式
-# 正式环境统一依赖 nginx 同源反向代理到 gateway。
+# 前台自己通过 `.env.production` 区分正式构建配置：
+# - `pnpm build` 会显式走 `vite build --mode production`
+# - 生产模式下不再使用本地开发 `.env` 里的 localhost 地址
+# - 正式环境统一依赖 nginx 同源反向代理到 gateway
 RUN pnpm build
 
 # 第二阶段：构建后台管理 frontend/admin
@@ -39,8 +39,8 @@ RUN pnpm install --frozen-lockfile
 
 COPY frontend/admin ./
 
-# 后台前端默认走当前访问 origin 下的 /api，
-# 不再在镜像构建阶段注入额外网关地址变量。
+# 后台管理前端同理，生产配置也由自身 `.env.production` 负责，
+# 不再在 Dockerfile 里额外注入 VITE 变量。
 RUN pnpm build
 
 # 第三阶段：最终运行镜像

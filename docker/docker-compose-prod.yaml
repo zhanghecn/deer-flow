@@ -5,8 +5,8 @@ name: openagents-prod
 # 直接执行 docker compose 命令就能启动。
 #
 # 推荐命令（在 docker/ 目录执行）：
-# - docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml build
-# - docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml up -d
+# - docker compose -p openagents-prod -f docker-compose-prod.yaml build
+# - docker compose -p openagents-prod -f docker-compose-prod.yaml up -d
 #
 # 与 docker-compose-dev.yaml 的核心差异：
 # - 前端不跑 Vite，改为构建静态产物后由 nginx 提供
@@ -49,10 +49,13 @@ services:
       # 正式环境同样直接跑仓库挂载进来的 Go 源码：
       # - 首次 build 只负责准备 Go/LibreOffice 依赖
       # - 之后纯 Gateway 代码更新只需要 restart，不必重新 build 这个重镜像
-      # GATEWAY_CONFIG_PATH 指向仓库中的正式配置文件。
+      # 这里不要用 `sh -lc`：
+      # - Debian 的 login shell 会把 PATH 重置掉
+      # - 结果就是镜像里明明有 Go，启动时仍然报 `go: not found`
+      # 所以这里固定用 `sh -c`，并显式写 Go 绝对路径。
       - sh
-      - -lc
-      - cd /app/backend/gateway && GATEWAY_CONFIG_PATH=/app/backend/gateway/gateway.yaml go run ./cmd/server
+      - -c
+      - cd /app/backend/gateway && GATEWAY_CONFIG_PATH=/app/backend/gateway/gateway.yaml /usr/local/go/bin/go run ./cmd/server
     depends_on:
       langgraph:
         # 这里只要求 langgraph 进程已启动；真正 API 可用性由 gateway 自己重试和上游访问决定。
@@ -80,6 +83,11 @@ services:
       start_period: 20s
     networks:
       - openagents
+    extra_hosts:
+      # 让 Linux 服务器上的容器也能解析 `host.docker.internal`。
+      # 根 `.env` 里的 DATABASE_URI 直接给后端代码读取，
+      # 所以数据库主机名应该写成 `host.docker.internal`，而不是容器自己的 127.0.0.1。
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     volumes:
       # 整个仓库只读挂到 /app：
@@ -88,6 +96,9 @@ services:
       # - backend/gateway/gateway.yaml
       # - 代码本身
       # 都直接用服务器上这份仓库，不再拆散挂载。
+      # Gateway 会自己读取 `/app/.env`；
+      # 这里不再把 DATABASE_URI 二次透传到容器环境里，
+      # 避免你直接执行 `docker compose up -d` 时被空变量覆盖。
       - ../:/app:ro
       # OpenAgents 持久化目录。
       # 这里不要删，删了会把 agent / threads / knowledge 这类运行时数据一起清掉。
@@ -154,10 +165,12 @@ services:
       # AIO sandbox 运行需要较宽松的 seccomp 配置。
       - seccomp=unconfined
     volumes:
-      # env_file 是把 secrets 注入进容器进程环境；
-      # 这里再额外挂一份 .env 到容器里，仅用于排障时能看到同一份来源文件。
-      - ../.env:/openagents/.env:ro
       # sandbox 内的 /openagents 对应宿主机仓库根目录下的 .openagents。
+      # 这里不再把根 `.env` 额外挂到 `/openagents/.env`：
+      # - `env_file` 已经把同一份 secrets 注入进进程环境
+      # - 额外的文件 bind mount 会和 `/openagents` 目录挂载重叠
+      # - Docker 会在宿主机 `.openagents/.env` 生成一个空挂载点文件
+      #   看起来像“莫名创建”
       - ../.openagents:/openagents
 
   # Python LangGraph runtime。
@@ -169,6 +182,15 @@ services:
     depends_on:
       sandbox-aio:
         condition: service_healthy
+    command:
+      # 这里不要继续用 `uv run`：
+      # - 当前 prod compose 会把整个仓库只读挂到 /app
+      # - `uv run` 会在启动时尝试同步 editable 依赖
+      # - deepagents 的 egg-info 需要写回源码目录，结果在只读挂载下直接失败
+      # 镜像 build 阶段已经完成依赖安装，所以正式环境直接用 venv 里的 python 启动即可。
+      - sh
+      - -c
+      - cd /app/backend/agents && python -m src.langgraph_dev
     environment:
       # Python runtime 的归档/线程数据根目录。
       OPENAGENTS_HOME: /openagents-home
@@ -180,10 +202,15 @@ services:
       OPENAGENTS_SANDBOX_BASE_URL: http://sandbox-aio:8080
     networks:
       - openagents
+    extra_hosts:
+      # 同 gateway，允许容器通过 `host.docker.internal` 访问宿主机服务。
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     volumes:
       # 挂整个仓库根目录，配置和代码统一来自服务器上的当前仓库。
       # Python 依赖在镜像里的 /opt/venv，不会因为源码挂载而丢失。
+      # LangGraph 的 `langgraph.json` 也会从这里读取 `../../.env`，
+      # 所以同样不再在 compose 里重复透传 DATABASE_URI。
       - ../:/app:ro
       - ../.openagents:/openagents-home
     working_dir: /app
