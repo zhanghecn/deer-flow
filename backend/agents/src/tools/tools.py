@@ -11,6 +11,7 @@ from src.tools.builtins import (
     get_document_evidence,
     get_document_image,
     get_document_tree,
+    get_document_tree_node_detail,
     install_skill_from_registry,
     list_knowledge_documents,
     present_file_tool,
@@ -25,14 +26,36 @@ from src.tools.builtins import (
 
 logger = logging.getLogger(__name__)
 
-BUILTIN_TOOLS = [
-    present_file_tool,
-    question_tool,
+# Knowledge tools are kept adjacent so the KB protocol stays easy to audit.
+# Only the default slice joins the common runtime surface; compatibility tools
+# remain opt-in via explicit `tool_names=[...]`.
+DEFAULT_KNOWLEDGE_BUILTIN_TOOLS = [
     list_knowledge_documents,
     get_document_tree,
     get_document_evidence,
     get_document_image,
 ]
+COMPATIBILITY_KNOWLEDGE_BUILTIN_TOOLS = [
+    get_document_tree_node_detail,
+]
+
+# Default built-ins are part of the common runtime surface for normal agent work.
+# Keep this list small and stable because every addition broadens what any agent can
+# call when it relies on `tool_groups` instead of an explicit `tool_names` whitelist.
+DEFAULT_BUILTIN_TOOLS = [
+    present_file_tool,
+    question_tool,
+    *DEFAULT_KNOWLEDGE_BUILTIN_TOOLS,
+]
+# Compatibility built-ins remain implemented for archived agents or niche flows
+# that opt into them explicitly via `tool_names=[...]`, but they are intentionally
+# excluded from the default runtime surface.
+COMPATIBILITY_BUILTIN_TOOLS = [
+    *COMPATIBILITY_KNOWLEDGE_BUILTIN_TOOLS,
+]
+# Dev-only built-ins are repository-specific authoring helpers. They are not a
+# LangChain convention; this repo exposes them only for dev archives because prod
+# agents must not mutate agent/skill archives or install new capabilities.
 DEV_BUILTIN_TOOLS = [
     install_skill_from_registry,
 ]
@@ -118,8 +141,15 @@ def _resolve_builtin_tool_items(
     agent_status: str | None,
     authoring_actions: Sequence[str] | None,
     setup_agent_enabled: bool,
+    include_compatibility: bool = False,
 ) -> list[tuple[str, BaseTool]]:
-    builtin_tools = BUILTIN_TOOLS.copy()
+    builtin_tools = DEFAULT_BUILTIN_TOOLS.copy()
+    if include_compatibility:
+        # Archived agents may opt into compatibility tools explicitly without
+        # broadening the default runtime tool surface for every agent.
+        for tool in COMPATIBILITY_BUILTIN_TOOLS:
+            if tool not in builtin_tools:
+                builtin_tools.append(tool)
     if agent_status == "dev":
         for tool in DEV_BUILTIN_TOOLS:
             if tool not in builtin_tools:
@@ -153,6 +183,10 @@ def _tool_items_by_name(
     authoring_actions: Sequence[str] | None,
     setup_agent_enabled: bool,
 ) -> dict[str, Any]:
+    # Explicit `tool_names` resolution must see both normal built-ins and
+    # opt-in compatibility built-ins. Otherwise an archived agent manifest can
+    # validly reference a built-in tool that exists in code but is hidden from
+    # the default surface, which is exactly how the contract-reviewer bug slipped in.
     all_items = [
         *_load_configured_tool_items(),
         *_resolve_builtin_tool_items(
@@ -161,6 +195,7 @@ def _tool_items_by_name(
             agent_status=agent_status,
             authoring_actions=authoring_actions,
             setup_agent_enabled=setup_agent_enabled,
+            include_compatibility=True,
         ),
         *_load_mcp_tool_items(
             include_mcp=include_mcp,
@@ -192,6 +227,13 @@ def get_available_tools(
     setup_agent_enabled: bool = False,
 ) -> list[BaseTool]:
     """Get the tools available to the runtime.
+
+    This loader is repository policy, not a LangChain rule. OpenAgents combines:
+    - configured tools from `config.yaml` tool groups,
+    - repository-owned built-in tools,
+    - dev-only authoring helpers,
+    - opt-in compatibility built-ins,
+    - MCP tools.
 
     Explicit ``tool_names`` take precedence over ``groups``. When ``tool_names``
     is omitted, configured tools are selected by group and then merged with the
