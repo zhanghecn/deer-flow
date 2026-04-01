@@ -1,367 +1,134 @@
-# 🦌 OpenAgents - 2.0
+# OpenAgents 2.0
 
-<a href="https://trendshift.io/repositories/14699" target="_blank"><img src="https://trendshift.io/api/badge/repositories/14699" alt="bytedance%2Fopenagents | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-> On February 28th, 2026, OpenAgents claimed the 🏆 #1 spot on GitHub Trending following the launch of version 2. Thanks a million to our incredible community — you made this happen! 💪🔥
+OpenAgents is an open-source agent runtime built around:
 
-OpenAgents (**D**eep **E**xploration and **E**fficient **R**esearch **Flow**) is an open-source **super agent harness** that orchestrates **sub-agents**, **memory**, and **sandboxes** to do almost anything — powered by **extensible skills**.
-
-https://github.com/user-attachments/assets/a8bcadc4-e040-4cf2-8fda-dd768b999c18
+- LangGraph-based agent orchestration
+- sandboxed and remote execution backends
+- thread-scoped runtime files under `/mnt/user-data/...`
+- agent-owned prompts and copied skills under `.openagents/...`
+- a Go Gateway plus Python agent runtime
 
 > [!NOTE]
-> **OpenAgents 2.0 is a ground-up rewrite.** It shares no code with v1. If you're looking for the original Deep Research framework, it's maintained on the [`1.x` branch](https://github.com/bytedance/openagents/tree/main-1.x) — contributions there are still welcome. Active development has moved to 2.0.
+> OpenAgents 2.0 is a ground-up rewrite. The original Deep Research framework remains on the [`1.x` branch](https://github.com/bytedance/openagents/tree/main-1.x).
 
 ## Official Website
 
-Learn more and see **real demos** on our official website.
-
-**[openagents.dev](https://openagents.dev/)**
-
----
-
-## Table of Contents
-
-- [🦌 OpenAgents - 2.0](#-openagents---20)
-  - [Official Website](#official-website)
-  - [Table of Contents](#table-of-contents)
-  - [Quick Start](#quick-start)
-    - [Configuration](#configuration)
-    - [Running the Application](#running-the-application)
-      - [Option 1: Docker (Recommended)](#option-1-docker-recommended)
-      - [Option 2: Local Development](#option-2-local-development)
-    - [Advanced](#advanced)
-      - [Sandbox Mode](#sandbox-mode)
-      - [MCP Server](#mcp-server)
-  - [From Deep Research to Super Agent Harness](#from-deep-research-to-super-agent-harness)
-  - [Core Features](#core-features)
-    - [Skills \& Tools](#skills--tools)
-    - [Sub-Agents](#sub-agents)
-    - [Sandbox \& File System](#sandbox--file-system)
-    - [Context Engineering](#context-engineering)
-    - [Long-Term Memory](#long-term-memory)
-  - [Recommended Models](#recommended-models)
-  - [Documentation](#documentation)
-  - [Contributing](#contributing)
-  - [License](#license)
-  - [Acknowledgments](#acknowledgments)
-    - [Key Contributors](#key-contributors)
-  - [Star History](#star-history)
+- Website and live demos: [openagents.dev](https://openagents.dev/)
+- This repository does not ship committed frontend demo thread snapshots.
+- Local frontend `?mock=true` mode is only for a small in-code test fixture set.
 
 ## Quick Start
 
-### Configuration
+### 1. Clone and configure
 
-1. **Clone the OpenAgents repository**
-
-   ```bash
-   git clone https://github.com/bytedance/openagents.git
-   cd openagents
-   ```
-
-2. **Generate local configuration files**
-
-   From the project root directory (`openagents/`), run:
-
-   ```bash
-   make config
-   ```
-
-   This command creates local configuration files based on the provided example templates.
-
-3. **Configure your preferred model(s)**
-
-   Edit `config.yaml` and define at least one model:
-
-   ```yaml
-   models:
-     - name: gpt-4                       # Internal identifier
-       display_name: GPT-4               # Human-readable name
-       use: langchain_openai:ChatOpenAI  # LangChain class path
-       model: gpt-4                      # Model identifier for API
-       api_key: $OPENAI_API_KEY          # API key (recommended: use env var)
-       max_tokens: 4096                  # Maximum tokens per request
-       temperature: 0.7                  # Sampling temperature
-   ```
-
-   Note: In cloud mode (Go Gateway + PostgreSQL models table), Open API requests inject runtime model config per request; agent runtime no longer relies on implicit default model fallback.
-
-  
-4. **Set API keys for your configured model(s)**
-
-   Choose one of the following methods:
-
-- Option A: Edit the `.env` file in the project root (Recommended)
-
-
-   ```bash
-   TAVILY_API_KEY=your-tavily-api-key
-   OPENAI_API_KEY=your-openai-api-key
-   # Add other provider keys as needed
-   ```
-
-- Option B: Export environment variables in your shell
-
-   ```bash
-   export OPENAI_API_KEY=your-openai-api-key
-   ```
-
-- Option C: Edit `config.yaml` directly (Not recommended for production)
-
-   ```yaml
-   models:
-     - name: gpt-4
-       api_key: your-actual-api-key-here  # Replace placeholder
-   ```
-
-### Running the Application
-
-#### Option 1: Docker (Recommended)
-
-The fastest way to get started with a consistent environment:
-
-1. **Initialize and start**:
-   ```bash
-   make docker-init    # Pull sandbox image (Only once or when image updates)
-   make docker-start   # Start services (auto-detects sandbox mode from config.yaml)
-   ```
-
-   `make docker-start` now starts `provisioner` only when `config.yaml` uses provisioner mode (`sandbox.use: src.community.aio_sandbox:AioSandboxProvider` with `provisioner_url`).
-
-2. **Access**: http://localhost:2026
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed Docker development guide.
-
-#### Option 2: Local Development
-
-If you prefer running services locally:
-
-1. **Check prerequisites**:
-   ```bash
-   make check  # Verifies Node.js 22+, pnpm, uv, nginx
-   ```
-
-2. **Install dependencies**:
-   ```bash
-   make install  # Install backend + frontend dependencies
-   ```
-
-3. **(Optional) Pre-pull sandbox image**:
-   ```bash
-   # Recommended if using Docker/Container-based sandbox
-   make setup-sandbox
-   ```
-
-4. **Start local debug infra when you need sandbox / ONLYOFFICE**:
-   ```bash
-   make docker-infra-start
-   ```
-
-   This starts only `sandbox-aio` and `onlyoffice` for host-run development.
-
-5. **Start services**:
-   ```bash
-   make dev
-   ```
-
-6. **Access**: http://localhost:2026
-
-### Advanced
-#### Sandbox Mode
-
-OpenAgents now uses one runtime backend protocol with three execution targets:
-
-- **Local**: host execution for debugging, still exposed to the agent as `/mnt/user-data/...`
-- **Sandbox**: managed sandbox provider execution, including one-machine and k8s autoscaling modes
-- **Remote**: per-run relay to a connected `openagents-cli` worker on another machine
-
-`local` vs `sandbox` is selected from Python config or environment. `remote` is
-selected per request with `configurable.execution_backend="remote"` and
-`configurable.remote_session_id="<session-id>"`.
-
-For Docker development, service startup still follows `config.yaml` sandbox
-mode. The provisioner only starts when the configured sandbox provider requires
-it.
-
-See the [Sandbox Configuration Guide](backend/agents/docs/CONFIGURATION.md) and
-[Remote Backend Guide](docs/architecture/remote-backend.md).
-
-#### MCP Server
-
-OpenAgents supports configurable MCP servers and skills to extend its capabilities.
-For HTTP/SSE MCP servers, OAuth token flows are supported (`client_credentials`, `refresh_token`).
-See the [MCP Server Guide](backend/agents/docs/MCP_SERVER.md) for detailed instructions.
-
-## From Deep Research to Super Agent Harness
-
-OpenAgents started as a Deep Research framework — and the community ran with it. Since launch, developers have pushed it far beyond research: building data pipelines, generating slide decks, spinning up dashboards, automating content workflows. Things we never anticipated.
-
-That told us something important: OpenAgents wasn't just a research tool. It was a **harness** — a runtime that gives agents the infrastructure to actually get work done.
-
-So we rebuilt it from scratch.
-
-OpenAgents 2.0 is no longer a framework you wire together. It's a super agent harness — batteries included, fully extensible. Built on LangGraph and LangChain, it ships with everything an agent needs out of the box: a filesystem, memory, skills, sandboxed execution, and the ability to plan and spawn sub-agents for complex, multi-step tasks.
-
-Use it as-is. Or tear it apart and make it yours.
-
-## Core Features
-
-### Skills & Tools
-
-Skills are what make OpenAgents do *almost anything*.
-
-A standard Agent Skill is a structured capability module — a Markdown file that defines a workflow, best practices, and references to supporting resources. OpenAgents ships with built-in skills for research, report generation, slide creation, web pages, image and video generation, and more. But the real power is extensibility: add your own skills, replace the built-in ones, or combine them into compound workflows.
-
-Skills are loaded progressively — only when the task needs them, not all at
-once. This keeps the context window lean and makes OpenAgents work well even
-with token-sensitive models.
-
-Tools follow the same philosophy. OpenAgents comes with a core toolset — web search, web fetch, file operations, bash execution — and supports custom tools via MCP servers and Python functions. Swap anything. Add anything.
-
-```
-# Shared skill archive on the host
-.openagents/skills/store/prod
-├── research/SKILL.md
-├── report-generation/SKILL.md
-├── slide-creation/SKILL.md
-├── web-page/SKILL.md
-└── image-generation/SKILL.md
-
-# Agent-owned prompt and copied skills
-.openagents/agents/dev/lead_agent
-├── AGENTS.md
-└── skills/
-    └── image-generation/SKILL.md
-
-# Runtime paths visible to an agent
-/mnt/user-data/agents/dev/lead_agent/skills
-└── image-generation/SKILL.md
+```bash
+git clone https://github.com/bytedance/openagents.git
+cd openagents
+make config
 ```
 
-Archived reusable skills belong only in `.openagents/skills/store/{dev,prod}/`.
-Vertical or domain prompts belong in `.openagents/agents/{dev,prod}/{agent}/AGENTS.md`.
+Edit `config.yaml` and define at least one model:
 
-### Sub-Agents
-
-Complex tasks rarely fit in a single pass. OpenAgents decomposes them.
-
-The lead agent can spawn sub-agents on the fly — each with its own scoped context, tools, and termination conditions. Sub-agents run in parallel when possible, report back structured results, and the lead agent synthesizes everything into a coherent output.
-
-This is how OpenAgents handles tasks that take minutes to hours: a research task might fan out into a dozen sub-agents, each exploring a different angle, then converge into a single report — or a website — or a slide deck with generated visuals. One harness, many hands.
-
-### Sandbox & File System
-
-OpenAgents doesn't just *talk* about doing things. It has its own computer.
-
-Each task runs against a unified runtime filesystem — whether the backend is
-local, managed sandbox, or remote. The agent reads, writes, and edits files. It
-executes shell commands. It views images. The host implementation changes, but
-the agent-visible contract stays the same.
-
-This is the difference between a chatbot with tool access and an agent with an actual execution environment.
-
+```yaml
+models:
+  - name: gpt-4
+    display_name: GPT-4
+    use: langchain_openai:ChatOpenAI
+    model: gpt-4
+    api_key: $OPENAI_API_KEY
+    max_tokens: 4096
+    temperature: 0.7
 ```
-# Paths inside the runtime backend
+
+Set provider keys in `.env` or your shell:
+
+```bash
+OPENAI_API_KEY=your-openai-api-key
+TAVILY_API_KEY=your-tavily-api-key
+```
+
+### 2. Run with Docker
+
+```bash
+make docker-init
+make docker-start
+```
+
+Open: `http://localhost:2026`
+
+### 3. Run locally
+
+```bash
+make check
+make install
+make docker-infra-start
+make dev
+```
+
+Open: `http://localhost:2026`
+
+## Runtime Overview
+
+OpenAgents uses one agent-visible filesystem contract across all runtime backends:
+
+```text
 /mnt/user-data/
-├── uploads/          ← your files
-├── workspace/        ← agents' working directory
-├── outputs/          ← final deliverables
-└── agents/           ← runtime copy of AGENTS.md and skills
+├── uploads/
+├── workspace/
+├── outputs/
+└── agents/
 ```
 
-### Context Engineering
+Supported execution targets:
 
-**Isolated Sub-Agent Context**: Each sub-agent runs in its own isolated context. This means that the sub-agent will not be able to see the context of the main agent or other sub-agents. This is important to ensure that the sub-agent is able to focus on the task at hand and not be distracted by the context of the main agent or other sub-agents.
+- `local`: host execution for debugging, still exposed as `/mnt/user-data/...`
+- `sandbox`: managed sandbox execution via provider/provisioner
+- `remote`: per-run relay to a connected remote worker
 
-**Summarization**: Within a session, OpenAgents manages context aggressively — summarizing completed sub-tasks, offloading intermediate results to the filesystem, compressing what's no longer immediately relevant. This lets it stay sharp across long, multi-step tasks without blowing the context window.
+Current backend architecture docs:
 
-### Long-Term Memory
-
-Most agents forget everything the moment a conversation ends. OpenAgents remembers.
-
-Across sessions, OpenAgents builds a persistent memory of your profile, preferences, and accumulated knowledge. The more you use it, the better it knows you — your writing style, your technical stack, your recurring workflows. Memory is stored locally and stays under your control.
-
-## Recommended Models
-
-OpenAgents is model-agnostic — it works with any LLM that implements the OpenAI-compatible API. That said, it performs best with models that support:
-
-- **Long context windows** (100k+ tokens) for deep research and multi-step tasks
-- **Reasoning capabilities** for adaptive planning and complex decomposition
-- **Multimodal inputs** for image understanding and video comprehension
-- **Strong tool-use** for reliable function calling and structured outputs
+- [Runtime Architecture](docs/architecture/runtime-architecture.md)
+- [Remote Backend](docs/architecture/remote-backend.md)
+- [Knowledge Base Architecture](docs/architecture/knowledge-base.md)
 
 ## Embedded Python Client
 
-OpenAgents can be used as an embedded Python library without running the full HTTP services. The `OpenAgentsClient` provides direct in-process access to all agent and Gateway capabilities, returning the same response schemas as the HTTP Gateway API:
+You can use OpenAgents without starting the full HTTP stack:
 
 ```python
 from src.client import OpenAgentsClient
 
 client = OpenAgentsClient()
 
-# Chat
-response = client.chat("Analyze this paper for me", thread_id="my-thread")
+response = client.chat("Analyze this paper", thread_id="my-thread")
 
-# Streaming (LangGraph SSE protocol: values, messages-tuple, end)
 for event in client.stream("hello"):
     if event.type == "messages-tuple" and event.data.get("type") == "ai":
         print(event.data["content"])
-
-# Configuration & management — returns Gateway-aligned dicts
-models = client.list_models()        # {"models": [...]}
-skills = client.list_skills()        # {"skills": [...]}
-client.update_skill("web-search", enabled=True)
-client.upload_files("thread-1", ["./report.pdf"])  # {"success": True, "files": [...]}
 ```
 
-All dict-returning methods are validated against Gateway Pydantic response models in CI (`TestGatewayConformance`), ensuring the embedded client stays in sync with the HTTP API schemas. See `backend/agents/src/client.py` for full API documentation.
-
-For direct `lead_agent` debugging without the frontend, run:
+For direct lead-agent debugging:
 
 ```bash
 cd backend/agents
 uv run python debug.py
 ```
 
-Edit the `Quick Edit` variables at the top of [`backend/agents/debug.py`](./backend/agents/debug.py) first. `debug.py` also supports an interactive REPL and an `--mode embedded` option that uses `OpenAgentsClient` instead of calling `make_lead_agent()` directly.
+See [`backend/agents/src/client.py`](backend/agents/src/client.py) and [`backend/agents/debug.py`](backend/agents/debug.py).
 
 ## Documentation
 
-- [Contributing Guide](CONTRIBUTING.md) - Development environment setup and workflow
-- [Configuration Guide](backend/agents/docs/CONFIGURATION.md) - Setup and configuration instructions
-- [Architecture Overview](backend/agents/CLAUDE.md) - Technical architecture details
-- [Agents Architecture](backend/agents/README.md) - Python LangGraph agents architecture and API reference
-- [Gateway](backend/gateway/README.md) - Go Gateway setup, API routes, and authentication
-- [Gateway Contributing](backend/gateway/CONTRIBUTING.md) - Gateway development guide
+- [Docs Index](docs/README.md)
+- [Contributing Guide](CONTRIBUTING.md)
+- [Testing Guide](docs/testing/README.md)
+- [Agents Architecture](backend/agents/README.md)
+- [Gateway README](backend/gateway/README.md)
+- [Backend Configuration](backend/agents/docs/CONFIGURATION.md)
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, workflow, and guidelines.
-
-Regression coverage includes Docker sandbox mode detection and provisioner kubeconfig-path handling tests in `backend/agents/tests/`.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, workflow, and development commands.
 
 ## License
 
-This project is open source and available under the [MIT License](./LICENSE).
-
-## Acknowledgments
-
-OpenAgents is built upon the incredible work of the open-source community. We are deeply grateful to all the projects and contributors whose efforts have made OpenAgents possible. Truly, we stand on the shoulders of giants.
-
-We would like to extend our sincere appreciation to the following projects for their invaluable contributions:
-
-- **[LangChain](https://github.com/langchain-ai/langchain)**: Their exceptional framework powers our LLM interactions and chains, enabling seamless integration and functionality.
-- **[LangGraph](https://github.com/langchain-ai/langgraph)**: Their innovative approach to multi-agent orchestration has been instrumental in enabling OpenAgents's sophisticated workflows.
-
-These projects exemplify the transformative power of open-source collaboration, and we are proud to build upon their foundations.
-
-### Key Contributors
-
-A heartfelt thank you goes out to the core authors of `OpenAgents`, whose vision, passion, and dedication have brought this project to life:
-
-- **[Daniel Walnut](https://github.com/hetaoBackend/)**
-- **[Henry Li](https://github.com/magiccube/)**
-
-Your unwavering commitment and expertise have been the driving force behind OpenAgents's success. We are honored to have you at the helm of this journey.
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=bytedance/openagents&type=Date)](https://star-history.com/#bytedance/openagents&Date)
+[MIT](LICENSE)
