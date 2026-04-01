@@ -17,6 +17,13 @@
 - `gateway` / `langgraph` 只挂一个根仓库目录，避免零碎配置挂载
 - Python 依赖保留在镜像里的 `/opt/venv`，不会因为源码挂载而反复安装
 
+注意：
+
+- 根目录 `config.yaml` 依然会被挂进正式环境容器
+- 但其中 `sandbox.base_url: http://127.0.0.1:8083` 属于宿主机/开发视角地址
+- 正式环境里 `langgraph` 会用 `OPENAGENTS_SANDBOX_BASE_URL=http://sandbox-aio:8080` 覆盖它
+- 浏览器访问链路仍然是 `nginx -> gateway -> langgraph -> sandbox-aio`
+
 这份方案更适合：
 
 - 你已经把仓库 clone 到正式机器

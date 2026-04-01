@@ -15,7 +15,6 @@ Frontend
   | POST /api/langgraph/threads/{thread_id}/runs/stream
   | body:
   |   input
-  |   config: { recursion_limit: 1000 }
   |   context: { model_name, agent_name, thinking_enabled, ... }
   v
 Gateway (Go)
@@ -36,6 +35,7 @@ LangGraph API
 Python make_lead_agent(config, runtime)
   |
   | cfg = runtime.context + config.configurable
+  | recursion_limit <- backend-enforced 3500
   | user_id <- user_id | x-user-id | langgraph_auth_user_id
   | thread_id <- thread_id | x-thread-id
   | assert thread owner

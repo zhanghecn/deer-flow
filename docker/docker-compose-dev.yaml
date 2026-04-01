@@ -161,9 +161,11 @@ services:
       # 开发环境直接跑挂载进来的源码：
       # - 首次 build 只负责准备 Go/LibreOffice 依赖
       # - 之后改 Go 代码只需要重启容器，不必重新 build 镜像
+      # 这里固定用 Go 绝对路径，避免 shell 环境差异把 PATH 里的 go
+      # 丢掉后，容器启动直接报 `go: not found`。
       - sh
       - -lc
-      - cd /app/backend/gateway && GATEWAY_CONFIG_PATH=/app/backend/gateway/gateway.yaml go run ./cmd/server
+      - cd /app/backend/gateway && GATEWAY_CONFIG_PATH=/app/backend/gateway/gateway.yaml /usr/local/go/bin/go run ./cmd/server
     ports:
       - "8001:8001"
     volumes:
@@ -190,19 +192,17 @@ services:
     build:
       context: .
       dockerfile: onlyoffice/Dockerfile
+    env_file:
+      # 与 prod 一样直接读取根 `.env` 里的 JWT secrets。
+      # 这样即使从不同工作目录启动 compose，也不会把 ONLYOFFICE
+      # 的 JWT_SECRET 展开成空字符串，导致预览 token 校验失败。
+      - ../.env
     image: openagents-onlyoffice:9.3.1-cjk
     container_name: openagents-onlyoffice
     ports:
       - "${ONLYOFFICE_PORT:-8082}:80"
     environment:
       JWT_ENABLED: "true"
-      ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-}
-      JWT_SECRET: ${JWT_SECRET:-}
-    extra_hosts:
-      # Required only when gateway runs on the host during local debug.
-      # Bridge networking covers container-to-container traffic, but not
-      # callbacks from ONLYOFFICE back into a host-run gateway.
-      - "openagents-host:host-gateway"
     entrypoint:
       - /bin/bash
       - -lc

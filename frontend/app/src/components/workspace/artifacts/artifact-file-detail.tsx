@@ -1013,7 +1013,15 @@ function OfficeArtifactView({
             ? error.message
             : "Configure ONLYOFFICE to enable direct office editing."
         }
-        previewUrl={officePreviewUrl}
+        previewArtifact={
+          officePreviewUrl
+            ? {
+                filepath,
+                threadId,
+                isMock,
+              }
+            : undefined
+        }
       />
     );
   }
@@ -1037,7 +1045,15 @@ function OfficeArtifactView({
           filepath={filepath}
           label="Editor unavailable"
           description={editorLoadError}
-          previewUrl={officePreviewUrl}
+          previewArtifact={
+            officePreviewUrl
+              ? {
+                  filepath,
+                  threadId,
+                  isMock,
+                }
+              : undefined
+          }
         />
       );
     }
@@ -1055,7 +1071,15 @@ function OfficeArtifactView({
         filepath={filepath}
         label="Editor unavailable"
         description={editorRuntimeError}
-        previewUrl={officePreviewUrl}
+        previewArtifact={
+          officePreviewUrl
+            ? {
+                filepath,
+                threadId,
+                isMock,
+              }
+            : undefined
+        }
       />
     );
   }
@@ -1175,13 +1199,40 @@ function ArtifactUnavailableCard({
   filepath,
   label,
   description,
-  previewUrl,
+  previewArtifact,
 }: {
   filepath: string;
   label: string;
   description: string;
-  previewUrl?: string | null;
+  previewArtifact?: {
+    filepath: string;
+    threadId: string;
+    isMock: boolean;
+  };
 }) {
+  const [isOpeningPreview, setIsOpeningPreview] = useState(false);
+
+  const handleOpenPreview = useCallback(async () => {
+    if (!previewArtifact || isOpeningPreview) {
+      return;
+    }
+
+    setIsOpeningPreview(true);
+    try {
+      await openArtifactInNewWindow({
+        filepath: previewArtifact.filepath,
+        threadId: previewArtifact.threadId,
+        isMock: previewArtifact.isMock,
+        preview: "pdf",
+      });
+    } catch (error) {
+      console.error("Failed to open artifact preview:", error);
+      toast.error("Failed to open PDF preview");
+    } finally {
+      setIsOpeningPreview(false);
+    }
+  }, [isOpeningPreview, previewArtifact]);
+
   return (
     <div className="flex size-full items-center justify-center p-6">
       <div className="bg-muted/20 flex max-w-md flex-col items-center gap-4 rounded-2xl border px-6 py-8 text-center">
@@ -1195,14 +1246,17 @@ function ArtifactUnavailableCard({
           </p>
         </div>
         <p className="text-muted-foreground text-sm leading-6">{description}</p>
-        {previewUrl && (
-          <a
-            className="text-primary text-sm underline underline-offset-4"
-            href={previewUrl}
-            target="_blank"
+        {previewArtifact && (
+          <button
+            type="button"
+            className="text-primary text-sm underline underline-offset-4 disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={() => {
+              void handleOpenPreview();
+            }}
+            disabled={isOpeningPreview}
           >
-            Open PDF preview
-          </a>
+            {isOpeningPreview ? "Opening PDF preview..." : "Open PDF preview"}
+          </button>
         )}
       </div>
     </div>

@@ -84,9 +84,11 @@ services:
     networks:
       - openagents
     extra_hosts:
-      # 让 Linux 服务器上的容器也能解析 `host.docker.internal`。
-      # 根 `.env` 里的 DATABASE_URI 直接给后端代码读取，
-      # 所以数据库主机名应该写成 `host.docker.internal`，而不是容器自己的 127.0.0.1。
+      # 保留这个 Linux host alias，只为共享 `.env` 里的 DATABASE_URI：
+      # - 宿主机上的 psql / 运维脚本可以继续用 `host.docker.internal`
+      # - gateway 容器里读取同一份 `.env` 时也能解析这个主机名
+      # 这条映射与 sandbox / ONLYOFFICE / langgraph 的容器间通信无关，
+      # 那些流量都已经走上面的 service DNS。
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
     volumes:
@@ -203,7 +205,9 @@ services:
     networks:
       - openagents
     extra_hosts:
-      # 同 gateway，允许容器通过 `host.docker.internal` 访问宿主机服务。
+      # 同 gateway，这里只为共享 `.env` 中的 DATABASE_URI 提供
+      # `host.docker.internal` 解析，避免 langgraph 容器和宿主机脚本
+      # 需要维护两套数据库地址。
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
     volumes:
