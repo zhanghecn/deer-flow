@@ -12,6 +12,7 @@ import { useFetch } from "@/hooks/use-fetch";
 import type { TraceItem, TraceEvent } from "@/types";
 import {
   buildTraceRuns,
+  extractRegisteredToolNames,
   extractContextWindowPayload,
   isCoreTraceRun,
   type TraceRunSummary,
@@ -110,11 +111,7 @@ function TraceDetailContent({
     () => buildTraceRuns(events, trace.root_run_id),
     [events, trace.root_run_id],
   );
-  const toolNames = useMemo(() => {
-    const rawToolNames = trace.metadata?.tool_names;
-    if (!Array.isArray(rawToolNames)) return [];
-    return rawToolNames.filter((item): item is string => typeof item === "string");
-  }, [trace.metadata]);
+  const toolNames = useMemo(() => extractRegisteredToolNames(runs), [runs]);
 
   const visibleRuns = useMemo(
     () => (runFilter === "all" ? runs : runs.filter(isCoreTraceRun)),

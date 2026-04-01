@@ -47,6 +47,7 @@ def _make_lead_agent_request(
         thinking_enabled=None,
         reasoning_effort=None,
         requested_model_name=None,
+        is_plan_mode=None,
         subagent_enabled=None,
         max_concurrent_subagents=None,
         command_name=None,
@@ -64,6 +65,11 @@ def _make_lead_agent_request(
         execution_backend=None,
         remote_session_id=None,
     )
+
+
+class _FakeDeepAgentGraph:
+    def with_config(self, _config):
+        return self
 
 
 def test_build_backend_sets_thread_user_data_as_shell_cwd(tmp_path):
@@ -204,6 +210,7 @@ def test_create_agent_request_seeds_existing_target_archive_into_thread_runtime(
         thinking_enabled=None,
         reasoning_effort=None,
         requested_model_name=None,
+        is_plan_mode=None,
         subagent_enabled=None,
         max_concurrent_subagents=None,
         command_name="create-agent",
@@ -244,6 +251,7 @@ def test_create_agent_request_ignores_missing_target_archive_for_new_agent(tmp_p
         thinking_enabled=None,
         reasoning_effort=None,
         requested_model_name=None,
+        is_plan_mode=None,
         subagent_enabled=None,
         max_concurrent_subagents=None,
         command_name="create-agent",
@@ -521,7 +529,7 @@ def test_create_lead_agent_deduplicates_concurrent_graph_builds(tmp_path):
     created_graphs: list[object] = []
 
     def fake_create_deep_agent(**kwargs):
-        graph = object()
+        graph = _FakeDeepAgentGraph()
         created_graphs.append(graph)
         build_started.set()
         assert allow_finish.wait(timeout=5)
@@ -566,6 +574,7 @@ def test_non_lead_dev_request_allows_setup_agent_for_self_updates():
         thinking_enabled=None,
         reasoning_effort=None,
         requested_model_name=None,
+        is_plan_mode=None,
         subagent_enabled=None,
         max_concurrent_subagents=None,
         command_name=None,
@@ -592,6 +601,7 @@ def test_prod_agent_request_does_not_allow_self_setup_agent():
         thinking_enabled=None,
         reasoning_effort=None,
         requested_model_name=None,
+        is_plan_mode=None,
         subagent_enabled=None,
         max_concurrent_subagents=None,
         command_name=None,

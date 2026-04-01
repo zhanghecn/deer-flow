@@ -47,6 +47,8 @@ from src.config.builtin_agents import (
 from src.config.commands_config import resolve_runtime_command
 from src.config.model_config import ModelConfig
 from src.config.paths import VIRTUAL_PATH_PREFIX, Paths, get_paths
+from src.config.runtime_defaults import DEFAULT_SUBAGENT_ENABLED
+from src.config.runtime_limits import DEFAULT_AGENT_RECURSION_LIMIT
 from src.config.runtime_db import RuntimeDBStore, ThreadBinding, get_runtime_db_store
 from src.models import create_chat_model
 from src.observability import create_agent_trace_callback
@@ -217,7 +219,6 @@ class LeadAgentGraphParts:
 @dataclass(frozen=True)
 class LeadAgentGraphCacheEntry:
     graph: Any
-    tool_names: tuple[str, ...]
 
 
 @dataclass
@@ -241,6 +242,18 @@ def _clear_lead_agent_graph_cache() -> None:
         _lead_agent_graph_cache.clear()
         _lead_agent_graph_cache_order.clear()
         _lead_agent_graph_builds.clear()
+
+
+def _apply_backend_runtime_limits(config: RunnableConfig) -> None:
+    """Force backend-owned step limits onto the mutable request config.
+
+    LangGraph graph factories receive the same config object that is later used
+    for graph execution. Mutating it here keeps the registered graph as a real
+    `CompiledStateGraph` while still overriding any caller-supplied
+    `recursion_limit` before the graph runs.
+    """
+
+    config["recursion_limit"] = DEFAULT_AGENT_RECURSION_LIMIT
 
 
 def _resolve_sandbox_provider() -> str:
@@ -583,9 +596,8 @@ def _store_cached_lead_agent_graph(
     cache_key: tuple[object, ...],
     *,
     graph: Any,
-    tool_names: list[str],
 ) -> LeadAgentGraphCacheEntry:
-    entry = LeadAgentGraphCacheEntry(graph=graph, tool_names=tuple(tool_names))
+    entry = LeadAgentGraphCacheEntry(graph=graph)
     with _lead_agent_graph_cache_lock:
         _lead_agent_graph_cache[cache_key] = entry
         if cache_key in _lead_agent_graph_cache_order:
@@ -933,7 +945,6 @@ def _build_run_metadata(
     subagent_enabled: object,
     thread_id: str | None,
     user_id: str | None,
-    tool_names: list[str],
 ) -> dict[str, object]:
     return {
         "agent_name": agent_name,
@@ -944,8 +955,6 @@ def _build_run_metadata(
         "subagent_enabled": subagent_enabled,
         "thread_id": thread_id,
         "user_id": user_id,
-        "tool_names": tool_names,
-        "tool_count": len(tool_names),
     }
 
 
@@ -966,7 +975,7 @@ def _resolve_lead_agent_request(
         reasoning_effort=cfg.get("reasoning_effort"),
         requested_model_name=_coerce_optional_str(cfg.get("model_name") or cfg.get("model")),
         is_plan_mode=cfg.get("is_plan_mode", False),
-        subagent_enabled=cfg.get("subagent_enabled", False),
+        subagent_enabled=cfg.get("subagent_enabled", DEFAULT_SUBAGENT_ENABLED),
         max_concurrent_subagents=cfg.get("max_concurrent_subagents", 3),
         command_name=command_resolution.name,
         command_kind=command_resolution.kind,
@@ -1077,11 +1086,13 @@ def _attach_trace_metadata(
     *,
     request: LeadAgentRequest,
     model_name: str,
-    tool_names: list[str],
 ) -> None:
     if "metadata" not in config:
         config["metadata"] = {}
 
+    # Registered tools must be derived from callback-captured LLM requests because
+    # Deep Agents middleware can inject runtime tools such as `task` after graph
+    # assembly. Trace metadata here stays limited to stable run identity/config.
     run_metadata = _build_run_metadata(
         agent_name=request.agent_name,
         model_name=model_name,
@@ -1091,7 +1102,6 @@ def _attach_trace_metadata(
         subagent_enabled=request.subagent_enabled,
         thread_id=request.thread_id,
         user_id=request.user_id,
-        tool_names=tool_names,
     )
     config["metadata"].update(run_metadata)
 
@@ -1107,14 +1117,6 @@ def _attach_trace_metadata(
 
     config["callbacks"] = _merge_callbacks(config.get("callbacks"), trace_callback)
     config["metadata"]["trace_id"] = trace_callback.trace_id
-
-
-def _extract_tool_names(tools: object) -> list[str]:
-    if not isinstance(tools, list):
-        return []
-    names = [getattr(tool, "name", None) for tool in tools]
-    return [name for name in names if isinstance(name, str) and name.strip()]
-
 
 def _resolve_agent_backend(
     *,
@@ -1259,6 +1261,7 @@ def _create_lead_agent(
     *,
     prepare_runtime_resources: bool,
 ):
+    _apply_backend_runtime_limits(config)
     request = _resolve_lead_agent_request(config, runtime)
     db_store = get_runtime_db_store()
     request, resolution = _resolve_lead_agent_runtime(
@@ -1287,7 +1290,6 @@ def _create_lead_agent(
             config,
             request=request,
             model_name=resolution.model_name,
-            tool_names=list(cached_entry.tool_names),
         )
         return cached_entry.graph
     if not should_build:
@@ -1297,7 +1299,6 @@ def _create_lead_agent(
             config,
             request=request,
             model_name=resolution.model_name,
-            tool_names=list(cached_entry.tool_names),
         )
         return cached_entry.graph
 
@@ -1322,12 +1323,10 @@ def _create_lead_agent(
             request=request,
             resolution=resolution,
         )
-        tool_names = _extract_tool_names(graph_parts.tools)
         _attach_trace_metadata(
             config,
             request=request,
             model_name=resolution.model_name,
-            tool_names=tool_names,
         )
 
         deep_agent_kwargs: dict[str, Any] = {
@@ -1350,11 +1349,12 @@ def _create_lead_agent(
             "todo_enabled": bool(request.is_plan_mode),
         }
 
-        graph = create_deep_agent(**deep_agent_kwargs)
+        graph = create_deep_agent(**deep_agent_kwargs).with_config(
+            {"recursion_limit": DEFAULT_AGENT_RECURSION_LIMIT}
+        )
         cached_entry = _store_cached_lead_agent_graph(
             cache_key,
             graph=graph,
-            tool_names=tool_names,
         )
     except BaseException as exc:
         _finish_lead_agent_graph_build(cache_key, error=exc)

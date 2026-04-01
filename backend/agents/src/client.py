@@ -45,6 +45,8 @@ from src.config.app_config import get_app_config, reload_app_config
 from src.config.builtin_agents import LEAD_AGENT_NAME
 from src.config.extensions_config import ExtensionsConfig, SkillStateConfig, get_extensions_config, reload_extensions_config
 from src.config.paths import get_paths
+from src.config.runtime_defaults import DEFAULT_SUBAGENT_ENABLED
+from src.config.runtime_limits import DEFAULT_AGENT_RECURSION_LIMIT
 from src.models import create_chat_model
 
 logger = logging.getLogger(__name__)
@@ -109,7 +111,7 @@ class OpenAgentsClient:
         *,
         model_name: str | None = None,
         thinking_enabled: bool = True,
-        subagent_enabled: bool = False,
+        subagent_enabled: bool = DEFAULT_SUBAGENT_ENABLED,
         plan_mode: bool = False,
     ):
         """Initialize the client.
@@ -187,9 +189,11 @@ class OpenAgentsClient:
             "execution_backend": overrides.get("execution_backend"),
             "remote_session_id": overrides.get("remote_session_id"),
         }
+        # Keep the embedded client aligned with the server-owned step budget
+        # instead of exposing a per-call recursion override.
         return RunnableConfig(
             configurable=configurable,
-            recursion_limit=overrides.get("recursion_limit", 100),
+            recursion_limit=DEFAULT_AGENT_RECURSION_LIMIT,
         )
 
     @staticmethod
@@ -285,7 +289,10 @@ class OpenAgentsClient:
 
         thinking_enabled = cfg.get("thinking_enabled", True)
         model_name = cfg.get("model_name")
-        subagent_enabled = cfg.get("subagent_enabled", False)
+        subagent_enabled = cfg.get(
+            "subagent_enabled",
+            DEFAULT_SUBAGENT_ENABLED,
+        )
         max_concurrent_subagents = cfg.get("max_concurrent_subagents", 3)
         thread_id = cfg.get("thread_id", "_default")
         effective_model_name = model_name

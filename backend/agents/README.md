@@ -57,6 +57,8 @@ The single LangGraph agent (`lead_agent`) is the runtime entry point, created vi
 - **System prompt** with skills injection, memory context, and working directory guidance
 - **Structured observability** that records LLM request messages, registered tool schemas,
   and per-run payloads for the admin console
+  - Registered tools come from callback-captured model request payloads, not
+    from precomputed lead-agent metadata
 
 ### Agent Definition Protocol
 

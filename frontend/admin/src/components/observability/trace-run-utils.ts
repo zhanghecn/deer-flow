@@ -260,6 +260,37 @@ function extractToolNames(rawTools: unknown): string[] {
     .filter((name) => name.trim().length > 0);
 }
 
+export function extractRegisteredToolNames(
+  runs: TraceRunSummary[],
+): string[] {
+  const seen = new Set<string>();
+  const registeredToolNames: string[] = [];
+
+  for (const run of runs) {
+    if (run.runType !== "llm") {
+      continue;
+    }
+
+    // Use the actual model request captured by callbacks instead of trace
+    // metadata so middleware-injected tools like `task` remain visible.
+    const startPayload = toRecord(run.startEvent?.payload);
+    const modelRequest = toRecord(
+      normalizeTraceValue(startPayload?.model_request),
+    );
+    const toolNames = extractToolNames(modelRequest?.tools);
+
+    for (const toolName of toolNames) {
+      if (seen.has(toolName)) {
+        continue;
+      }
+      seen.add(toolName);
+      registeredToolNames.push(toolName);
+    }
+  }
+
+  return registeredToolNames;
+}
+
 function normalizeMessageCollection(messages: unknown): Record<string, unknown>[] {
   if (!Array.isArray(messages)) return [];
 

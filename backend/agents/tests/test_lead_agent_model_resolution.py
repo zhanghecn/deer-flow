@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-
 from src.agents.lead_agent import agent as lead_agent_module
 from src.agents.middlewares.runtime_command_middleware import RuntimeCommandMiddleware
 from src.config.builtin_agents import LEAD_AGENT_NAME
@@ -167,6 +166,24 @@ def _make_agent_config(
         tool_groups=[],
         mcp_servers=[],
     )
+
+
+class _FakeDeepAgentGraph(dict):
+    def with_config(self, config):
+        self["bound_config"] = config
+        return self
+
+
+def _make_fake_deep_agent_graph(**kwargs):
+    return _FakeDeepAgentGraph(kwargs)
+
+
+def test_apply_backend_runtime_limits_overrides_request_recursion_limit():
+    config = {"recursion_limit": 12}
+
+    lead_agent_module._apply_backend_runtime_limits(config)
+
+    assert config["recursion_limit"] == lead_agent_module.DEFAULT_AGENT_RECURSION_LIMIT
 
 
 def test_parse_runtime_model_config_requires_name_field():
@@ -383,7 +400,7 @@ def test_make_lead_agent_reads_runtime_context_and_persists_thread_runtime(monke
         lambda **kwargs: _make_agent_config(),
     )
     monkeypatch.setattr(lead_agent_module, "apply_prompt_template", lambda **kwargs: "prompt")
-    monkeypatch.setattr(lead_agent_module, "create_deep_agent", lambda **kwargs: kwargs)
+    monkeypatch.setattr(lead_agent_module, "create_deep_agent", _make_fake_deep_agent_graph)
 
     captured: dict[str, object] = {}
 
@@ -461,7 +478,7 @@ def test_make_lead_agent_uses_request_header_model_for_thread_state_reads(monkey
         lambda **kwargs: _make_agent_config(),
     )
     monkeypatch.setattr(lead_agent_module, "apply_prompt_template", lambda **kwargs: "prompt")
-    monkeypatch.setattr(lead_agent_module, "create_deep_agent", lambda **kwargs: kwargs)
+    monkeypatch.setattr(lead_agent_module, "create_deep_agent", _make_fake_deep_agent_graph)
 
     captured: dict[str, object] = {}
 
@@ -614,6 +631,15 @@ def test_build_openagents_middlewares_excludes_vision_middleware_for_non_vision_
     assert not any(isinstance(m, ViewImageMiddleware) for m in middlewares)
 
 
+def test_resolve_lead_agent_request_defaults_subagent_enabled_to_backend_default():
+    request = lead_agent_module._resolve_lead_agent_request(
+        {"configurable": {}},
+        runtime=None,
+    )
+
+    assert request.subagent_enabled is lead_agent_module.DEFAULT_SUBAGENT_ENABLED
+
+
 def test_make_lead_agent_reuses_cached_graph_for_identical_request(monkeypatch, tmp_path):
     lead_agent_module._clear_lead_agent_graph_cache()
     store = _FakeDBStore(models={"safe-model": _make_model("safe-model", supports_thinking=True)})
@@ -644,7 +670,7 @@ def test_make_lead_agent_reuses_cached_graph_for_identical_request(monkeypatch, 
 
     def _fake_create_deep_agent(**kwargs):
         create_calls.append(kwargs)
-        return {"graph_id": len(create_calls)}
+        return _make_fake_deep_agent_graph(graph_id=len(create_calls))
 
     monkeypatch.setattr(lead_agent_module, "create_deep_agent", _fake_create_deep_agent)
 
@@ -712,7 +738,7 @@ def test_make_lead_agent_rebuilds_cached_graph_when_model_config_changes(monkeyp
 
     def _fake_create_deep_agent(**kwargs):
         create_calls.append(kwargs)
-        return {"graph_id": len(create_calls)}
+        return _make_fake_deep_agent_graph(graph_id=len(create_calls))
 
     monkeypatch.setattr(lead_agent_module, "create_deep_agent", _fake_create_deep_agent)
 
@@ -777,7 +803,7 @@ def test_make_lead_agent_passes_todo_enabled_when_plan_mode_is_explicit(monkeypa
 
     def _fake_create_deep_agent(**kwargs):
         create_calls.append(kwargs)
-        return {"graph_id": len(create_calls)}
+        return _make_fake_deep_agent_graph(graph_id=len(create_calls))
 
     monkeypatch.setattr(lead_agent_module, "create_deep_agent", _fake_create_deep_agent)
 
@@ -828,7 +854,7 @@ def test_make_lead_agent_reuses_read_only_graph_across_threads(monkeypatch, tmp_
 
     def _fake_create_deep_agent(**kwargs):
         create_calls.append(kwargs)
-        return {"graph_id": len(create_calls)}
+        return _make_fake_deep_agent_graph(graph_id=len(create_calls))
 
     monkeypatch.setattr(lead_agent_module, "create_deep_agent", _fake_create_deep_agent)
 
@@ -912,7 +938,7 @@ def test_make_lead_agent_accepts_header_injected_user_id(monkeypatch, tmp_path):
         lambda **kwargs: _make_agent_config(),
     )
     monkeypatch.setattr(lead_agent_module, "apply_prompt_template", lambda **kwargs: "prompt")
-    monkeypatch.setattr(lead_agent_module, "create_deep_agent", lambda **kwargs: kwargs)
+    monkeypatch.setattr(lead_agent_module, "create_deep_agent", _make_fake_deep_agent_graph)
     monkeypatch.setattr(lead_agent_module, "create_chat_model", lambda **kwargs: object())
 
     result = asyncio.run(
@@ -975,7 +1001,7 @@ def test_make_lead_agent_skips_runtime_seeding_for_read_context(monkeypatch, tmp
         lambda **kwargs: _make_agent_config(),
     )
     monkeypatch.setattr(lead_agent_module, "apply_prompt_template", lambda **kwargs: "prompt")
-    monkeypatch.setattr(lead_agent_module, "create_deep_agent", lambda **kwargs: kwargs)
+    monkeypatch.setattr(lead_agent_module, "create_deep_agent", _make_fake_deep_agent_graph)
     monkeypatch.setattr(lead_agent_module, "create_chat_model", lambda **kwargs: object())
 
     class _Runtime:
@@ -1020,7 +1046,7 @@ def test_make_lead_agent_skips_thread_runtime_persistence_for_read_context(monke
         lambda **kwargs: _make_agent_config(),
     )
     monkeypatch.setattr(lead_agent_module, "apply_prompt_template", lambda **kwargs: "prompt")
-    monkeypatch.setattr(lead_agent_module, "create_deep_agent", lambda **kwargs: kwargs)
+    monkeypatch.setattr(lead_agent_module, "create_deep_agent", _make_fake_deep_agent_graph)
     monkeypatch.setattr(lead_agent_module, "create_chat_model", lambda **kwargs: object())
 
     class _Runtime:
@@ -1092,7 +1118,7 @@ authoring_actions:
         return "prompt"
 
     monkeypatch.setattr(lead_agent_module, "apply_prompt_template", _fake_prompt)
-    monkeypatch.setattr(lead_agent_module, "create_deep_agent", lambda **kwargs: kwargs)
+    monkeypatch.setattr(lead_agent_module, "create_deep_agent", _make_fake_deep_agent_graph)
 
     result = asyncio.run(
         lead_agent_module.make_lead_agent(
@@ -1117,3 +1143,45 @@ authoring_actions:
     assert captured_prompt_kwargs["agent_status"] == "dev"
     assert "command_name" not in captured_prompt_kwargs
     assert any(isinstance(middleware, RuntimeCommandMiddleware) for middleware in result["middleware"])
+
+
+def test_attach_trace_metadata_keeps_trace_metadata_free_of_precomputed_tool_lists(monkeypatch):
+    config: dict[str, object] = {}
+    request = lead_agent_module.LeadAgentRequest(
+        thinking_enabled=True,
+        reasoning_effort="high",
+        requested_model_name="safe-model",
+        is_plan_mode=False,
+        subagent_enabled=True,
+        max_concurrent_subagents=3,
+        command_name=None,
+        command_kind=None,
+        command_args=None,
+        command_prompt=None,
+        authoring_actions=(),
+        target_agent_name=None,
+        agent_name=LEAD_AGENT_NAME,
+        agent_status="dev",
+        thread_id="thread-1",
+        user_id="user-1",
+        runtime_model_name=None,
+        header_model_name=None,
+        execution_backend=None,
+        remote_session_id=None,
+    )
+
+    monkeypatch.setattr(lead_agent_module, "create_agent_trace_callback", lambda **kwargs: None)
+
+    lead_agent_module._attach_trace_metadata(
+        config,
+        request=request,
+        model_name="safe-model",
+    )
+
+    metadata = config["metadata"]
+
+    assert isinstance(metadata, dict)
+    assert metadata["model_name"] == "safe-model"
+    assert metadata["subagent_enabled"] is True
+    assert "tool_names" not in metadata
+    assert "tool_count" not in metadata

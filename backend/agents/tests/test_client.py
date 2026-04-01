@@ -11,6 +11,8 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage  # noqa
 
 from src.agents.lead_agent.agent import LeadAgentRuntimeContext
 from src.client import OpenAgentsClient
+from src.config.runtime_defaults import DEFAULT_SUBAGENT_ENABLED
+from src.config.runtime_limits import DEFAULT_AGENT_RECURSION_LIMIT
 from src.gateway.routers.mcp import McpConfigResponse
 from src.gateway.routers.memory import MemoryConfigResponse, MemoryStatusResponse
 from src.gateway.routers.models import ModelResponse, ModelsListResponse
@@ -50,7 +52,7 @@ class TestClientInit:
     def test_default_params(self, client):
         assert client._model_name is None
         assert client._thinking_enabled is True
-        assert client._subagent_enabled is False
+        assert client._subagent_enabled is DEFAULT_SUBAGENT_ENABLED
         assert client._plan_mode is False
         assert client._checkpointer is None
         assert client._agent is None
@@ -142,6 +144,14 @@ class TestRunnableConfig:
 
         assert config["configurable"]["execution_backend"] == "remote"
         assert config["configurable"]["remote_session_id"] == "remote-session-1"
+
+    def test_get_runnable_config_ignores_recursion_limit_override(self, client):
+        config = client._get_runnable_config(
+            "thread-1",
+            recursion_limit=12,
+        )
+
+        assert config["recursion_limit"] == DEFAULT_AGENT_RECURSION_LIMIT
 
 
 # ---------------------------------------------------------------------------
