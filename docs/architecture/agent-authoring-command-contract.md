@@ -145,8 +145,8 @@ Check these files before claiming alignment:
 
 This section is intentionally about slash commands only.
 
-Do not use it as blanket justification for deer-flow runtime skill changes.
-`opencode` skill discovery/loading is a separate mechanism from deer-flow's
+Do not use it as blanket justification for OpenAgents runtime skill changes.
+`opencode` skill discovery/loading is a separate mechanism from the OpenAgents
 runtime copied-skill contract, where the model reads attached copied
 `SKILL.md` files from `/mnt/user-data/agents/{status}/{name}/skills/...`.
 

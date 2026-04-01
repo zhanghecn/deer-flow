@@ -1,6 +1,6 @@
 # Opencode 对齐与 Skill 边界
 
-这份文档记录 deer-flow 当前已经收口的最终方案，避免下次再把 slash command、skill 发现、runtime skill 消费混成一套。
+这份文档记录 OpenAgents 当前已经收口的最终方案，避免下次再把 slash command、skill 发现、runtime skill 消费混成一套。
 
 ## 本地参考仓库
 
@@ -19,18 +19,18 @@
 
 ## 对齐范围
 
-deer-flow 只在下面两层对齐 `opencode`：
+OpenAgents 只在下面两层对齐 `opencode`：
 
 1. slash command 是显式路由 / 模板选择入口
 2. skill 详细内容不提前全部塞进系统提示词，而是由模型在需要时再读取
 
 不对齐的部分也必须说清楚：
 
-- deer-flow 没有把 `opencode` 的显式 `skill` 工具原样搬过来
-- deer-flow 的 agent skill 仍然通过 `setup_agent(..., skills=[...])` 归档并 materialize
-- deer-flow runtime 消费的是 agent-owned copied skill，不是 archived store 本身
+- OpenAgents 没有把 `opencode` 的显式 `skill` 工具原样搬过来
+- OpenAgents 的 agent skill 仍然通过 `setup_agent(..., skills=[...])` 归档并 materialize
+- OpenAgents runtime 消费的是 agent-owned copied skill，不是 archived store 本身
 
-## deer-flow 当前唯一 canonical skill 链路
+## OpenAgents 当前唯一 canonical skill 链路
 
 ```text
 archived store skill
@@ -55,7 +55,7 @@ model uses read_file
 
 ## 当前实现 ASCII 架构图
 
-下面这张图只描述 deer-flow 当前认可的 runtime skill 链路，不包含旧的 `shared` 概念，也不把 Deep Agents 通用 `skills=` 注入误认为 deer-flow 的 domain-skill 运行机制。
+下面这张图只描述 OpenAgents 当前认可的 runtime skill 链路，不包含旧的 `shared` 概念，也不把 Deep Agents 通用 `skills=` 注入误认为 OpenAgents 的 domain-skill 运行机制。
 
 ```text
 用户
@@ -99,7 +99,7 @@ runtime model
   /mnt/user-data/outputs/...
 ```
 
-当前 deer-flow 的明确规则：
+当前 OpenAgents 的明确规则：
 
 - archived reusable skills 只存在于 `.openagents/skills/store/dev` 与 `.openagents/skills/store/prod`
 - `shared` 已废弃，不再作为单独 runtime scope
@@ -140,12 +140,12 @@ runtime model
 
 ## Runtime Prompt 规则
 
-当前 deer-flow runtime 不再把 copied skills 走 Deep Agents `skills=` 注入。
+当前 OpenAgents runtime 不再把 copied skills 走 Deep Agents `skills=` 注入。
 
 也就是说：
 
-- deer-flow runtime 不再依赖 `SkillsMiddleware`
-- deer-flow runtime 不要求出现 `skills_metadata`
+- OpenAgents runtime 不再依赖 `SkillsMiddleware`
+- OpenAgents runtime 不要求出现 `skills_metadata`
 - 内部审计如果看不到 `skills_metadata`，这本身不是 bug
 
 现在的 prompt 合同是：
@@ -173,13 +173,13 @@ runtime model
 
 ## 为什么 `skills_metadata` 缺失不等于 bug
 
-这里必须把 deer-flow 和 Deep Agents 的通用能力分开看：
+这里必须把 OpenAgents 和 Deep Agents 的通用能力分开看：
 
 - Deep Agents 库本身仍然支持 `create_deep_agent(..., skills=[...])`
 - 这条通用链路会挂 `SkillsMiddleware`，并在 state 中产生 `skills_metadata`
-- 但 deer-flow 当前 domain agent runtime **没有**把 attached copied skills 走这条注入链
+- 但 OpenAgents 当前 domain agent runtime **没有**把 attached copied skills 走这条注入链
 
-deer-flow 当前实际做法是：
+OpenAgents 当前实际做法是：
 
 - graph 构建时不把 attached copied skills 作为 `skills=` 传给 `create_deep_agent`
 - 改为由 `apply_prompt_template()` 生成一个很薄的 `<attached_skills>` 段
@@ -187,12 +187,12 @@ deer-flow 当前实际做法是：
 
 所以：
 
-- trace 里没有 `skills_metadata`，本身不构成 deer-flow skill 失效的证据
+- trace 里没有 `skills_metadata`，本身不构成 OpenAgents skill 失效的证据
 - 真正应该检查的是“模型是否读取 copied `SKILL.md` 并遵循它”
 
 ## `find-skills` 的定位
 
-`find-skills` 仍然是 deer-flow 的发现策略 skill，不是新的 runtime skill 注入机制。
+`find-skills` 仍然是 OpenAgents 的发现策略 skill，不是新的 runtime skill 注入机制。
 
 固定规则：
 
@@ -207,14 +207,14 @@ deer-flow 当前实际做法是：
 
 ## 与 opencode 的边界
 
-`opencode` 的 `skill` 工具与 deer-flow 当前方案不是一回事。
+`opencode` 的 `skill` 工具与 OpenAgents 当前方案不是一回事。
 
 `opencode`：
 
 - 命令层显式路由
 - skill 层有显式 `skill` 工具
 
-deer-flow：
+OpenAgents：
 
 - 命令层对齐 `opencode`
 - runtime skill 消费不走显式 `skill` 工具
@@ -226,7 +226,7 @@ deer-flow：
 - command template loading
 - skill discovery 思路
 
-不能再把它笼统说成“所以 deer-flow runtime skill 也该怎样”。
+不能再把它笼统说成“所以 OpenAgents runtime skill 也该怎样”。
 
 ## 关键源码定位
 
@@ -247,7 +247,7 @@ deer-flow：
    - `apply_prompt_template()` 组装薄 prompt，不内联整份 skill 内容
 
 4. `backend/agents/src/agents/lead_agent/agent.py`
-   - `_build_graph_parts()` / `_create_lead_agent()` 负责把 prompt、middleware、tools 组装进 deer-flow runtime
+   - `_build_graph_parts()` / `_create_lead_agent()` 负责把 prompt、middleware、tools 组装进 OpenAgents runtime
    - 当前并未在这里把 attached copied skills 作为 `skills=` 传给 `create_deep_agent`
 
 5. `backend/agents/src/client.py`
@@ -256,7 +256,7 @@ deer-flow：
 6. `backend/deepagents/libs/deepagents/deepagents/graph.py`
    - 这是 Deep Agents 通用实现
    - 只有调用方显式传 `skills=` 时，才会挂 `SkillsMiddleware`
-   - 这是库能力，不等于 deer-flow 当前 runtime skill 合同
+   - 这是库能力，不等于 OpenAgents 当前 runtime skill 合同
 
 ## 源码阅读顺序与注释
 
@@ -315,12 +315,12 @@ deer-flow：
 - `backend/deepagents/libs/deepagents/deepagents/graph.py`
   - 只有传 `skills=` 才会挂 `SkillsMiddleware`
 - `backend/agents/src/agents/lead_agent/agent.py`
-  - deer-flow 当前构图没有把 attached copied skill 当成 `skills=` 传进去
+  - OpenAgents 当前构图没有把 attached copied skill 当成 `skills=` 传进去
 
 所以审查时不要再把下面两件事混成一件事：
 
 - “Deep Agents 通用 skills 注入”
-- “deer-flow agent-owned copied skill runtime”
+- “OpenAgents agent-owned copied skill runtime”
 
 ## 当前 clean-code 收口点
 
@@ -333,7 +333,7 @@ deer-flow：
 - `contract-review` skill
   - 把 Mode B 的默认输出与覆盖要求写回 skill 本体，而不是写到外围 prompt/middleware
 - 文档
-  - 用这份文档固定“对齐 opencode 的范围”和“deer-flow runtime skill 边界”
+  - 用这份文档固定“对齐 opencode 的范围”和“OpenAgents runtime skill 边界”
 
 ## 审查时建议重点看什么
 
@@ -355,4 +355,4 @@ deer-flow：
 6. 如果 skill 默认要求聊天回答，trace 不应在未被用户要求时先落成可下载文件再结束
 7. 即使调用了 `present_files`，最终仍应有非空 assistant 可见答复
 
-不要再把“有没有 `skills_metadata`”当成 deer-flow skill 生效的必要条件。
+不要再把“有没有 `skills_metadata`”当成 OpenAgents skill 生效的必要条件。

@@ -1,8 +1,160 @@
-import fs from "fs";
 import type { IncomingMessage, ServerResponse } from "http";
-import path from "path";
 
 import type { Plugin, ViteDevServer } from "vite";
+
+type MockThread = {
+  values: {
+    title: string;
+    messages: Array<Record<string, unknown>>;
+    thread_data: Record<string, unknown>;
+    uploaded_files: unknown[];
+    artifacts: string[];
+  };
+  next: unknown[];
+  tasks: unknown[];
+  metadata: Record<string, unknown>;
+  created_at: string;
+  checkpoint: Record<string, unknown>;
+  parent_checkpoint: null;
+  interrupts: unknown[];
+  checkpoint_id: string;
+  parent_checkpoint_id: null;
+  history?: unknown[];
+};
+
+// Keep the minimal fixtures in code so mock-mode e2e coverage does not depend
+// on committed demo snapshots under public assets.
+const MOCK_THREADS: Record<string, MockThread> = {
+  "test-cancel": {
+    values: {
+      title: "Follow-up after stop",
+      messages: [
+        {
+          type: "human",
+          id: "human-cancel-1",
+          content: [{ type: "text", text: "Initial draft request" }],
+          additional_kwargs: {},
+        },
+        {
+          type: "ai",
+          id: "ai-cancel-1",
+          content: [{ type: "text", text: "Here is the first draft." }],
+          additional_kwargs: {},
+          response_metadata: {},
+        },
+        {
+          type: "human",
+          id: "human-cancel-2",
+          content: [{ type: "text", text: "Please revise the second paragraph." }],
+          additional_kwargs: {},
+        },
+        {
+          type: "ai",
+          id: "ai-cancel-2",
+          content: [{ type: "text", text: "Updated the second paragraph." }],
+          additional_kwargs: {},
+          response_metadata: {},
+        },
+      ],
+      thread_data: {},
+      uploaded_files: [],
+      artifacts: [],
+    },
+    next: [],
+    tasks: [],
+    metadata: {},
+    created_at: "2026-03-18T00:00:00Z",
+    checkpoint: {},
+    parent_checkpoint: null,
+    interrupts: [],
+    checkpoint_id: "checkpoint-cancel",
+    parent_checkpoint_id: null,
+  },
+  "test-error": {
+    values: {
+      title: "Error thread",
+      messages: [],
+      thread_data: {},
+      uploaded_files: [],
+      artifacts: [],
+    },
+    next: [],
+    tasks: [],
+    metadata: {},
+    created_at: "2026-03-18T00:00:00Z",
+    checkpoint: {},
+    parent_checkpoint: null,
+    interrupts: [],
+    checkpoint_id: "checkpoint-error",
+    parent_checkpoint_id: null,
+  },
+  "test-subagents": {
+    values: {
+      title: "Completed subtasks",
+      messages: [
+        {
+          type: "human",
+          id: "human-subtasks-1",
+          content: [{ type: "text", text: "Break this work into subtasks." }],
+          additional_kwargs: {},
+        },
+        {
+          type: "ai",
+          id: "ai-subtasks-1",
+          content: "",
+          additional_kwargs: {},
+          response_metadata: {},
+          tool_calls: [
+            {
+              name: "task",
+              id: "task-sub-1",
+              args: {
+                description: "Review source material",
+                prompt: "Read the source material and summarize key points.",
+                subagent_type: "research",
+              },
+            },
+            {
+              name: "task",
+              id: "task-sub-2",
+              args: {
+                description: "Draft final response",
+                prompt: "Prepare the final answer from the gathered notes.",
+                subagent_type: "writer",
+              },
+            },
+          ],
+        },
+        {
+          type: "tool",
+          id: "tool-sub-1",
+          name: "task",
+          tool_call_id: "task-sub-1",
+          content: "Task Succeeded. Result: Reviewed the source material.",
+        },
+        {
+          type: "tool",
+          id: "tool-sub-2",
+          name: "task",
+          tool_call_id: "task-sub-2",
+          content: "Task Succeeded. Result: Drafted the final answer.",
+        },
+      ],
+      thread_data: {},
+      uploaded_files: [],
+      artifacts: [],
+    },
+    next: [],
+    tasks: [],
+    metadata: {},
+    created_at: "2026-03-18T00:00:00Z",
+    checkpoint: {},
+    parent_checkpoint: null,
+    interrupts: [],
+    checkpoint_id: "checkpoint-subtasks",
+    parent_checkpoint_id: null,
+  },
+};
 
 function parseJson(str: string) {
   try {
@@ -54,25 +206,7 @@ export function mockApiPlugin(): Plugin {
 
           // POST /mock/api/threads/search
           if (url === "/mock/api/threads/search" && req.method === "POST") {
-            const threadsDir = path.resolve(process.cwd(), "public/demo/threads");
-            if (!fs.existsSync(threadsDir)) {
-              return sendJson(res, []);
-            }
-            const entries = fs.readdirSync(threadsDir, { withFileTypes: true });
-            const threadData = entries
-              .filter((e) => e.isDirectory() && !e.name.startsWith("."))
-              .map((e) => {
-                const threadFile = path.resolve(
-                  threadsDir,
-                  e.name,
-                  "thread.json",
-                );
-                if (!fs.existsSync(threadFile)) return null;
-                const data = JSON.parse(fs.readFileSync(threadFile, "utf8"));
-                return { thread_id: e.name, values: data.values };
-              })
-              .filter(Boolean);
-            return sendJson(res, threadData);
+            return sendJson(res, []);
           }
 
           // Match /mock/api/threads/:thread_id/...
@@ -83,55 +217,26 @@ export function mockApiPlugin(): Plugin {
           if (threadMatch) {
             const threadId = threadMatch[1]!;
             const action = threadMatch[2]!;
-            const subPath = threadMatch[3] ?? "";
-
-            const threadFile = path.resolve(
-              process.cwd(),
-              `public/demo/threads/${threadId}/thread.json`,
-            );
+            const fixture = MOCK_THREADS[threadId] ?? null;
 
             if (action === "state") {
-              if (!fs.existsSync(threadFile)) {
-                return sendJson(res, { error: "Thread not found" }, 404);
+              if (fixture) {
+                return sendJson(res, fixture);
               }
-              const data = JSON.parse(fs.readFileSync(threadFile, "utf8"));
-              return sendJson(res, data);
+              return sendJson(res, { error: "Thread not found" }, 404);
             }
 
             if (action === "history" && req.method === "POST") {
-              if (!fs.existsSync(threadFile)) {
-                return sendJson(res, { error: "Thread not found" }, 404);
+              if (fixture) {
+                return sendJson(
+                  res,
+                  Array.isArray(fixture.history) ? fixture : [fixture],
+                );
               }
-              const data = JSON.parse(fs.readFileSync(threadFile, "utf8"));
-              return sendJson(res, Array.isArray(data.history) ? data : [data]);
+              return sendJson(res, { error: "Thread not found" }, 404);
             }
 
             if (action === "artifacts") {
-              let artifactPath = subPath.replace(/^\//, "");
-              if (artifactPath.startsWith("mnt/")) {
-                artifactPath = path.resolve(
-                  process.cwd(),
-                  artifactPath.replace(
-                    "mnt/",
-                    `public/demo/threads/${threadId}/`,
-                  ),
-                );
-                if (fs.existsSync(artifactPath)) {
-                  const urlObj = new URL(url, "http://localhost");
-                  if (urlObj.searchParams.get("download") === "true") {
-                    res.writeHead(200, {
-                      "Content-Disposition": `attachment; filename="${path.basename(artifactPath)}"`,
-                    });
-                    return res.end(fs.readFileSync(artifactPath));
-                  }
-                  if (artifactPath.endsWith(".mp4")) {
-                    res.writeHead(200, { "Content-Type": "video/mp4" });
-                    return res.end(fs.readFileSync(artifactPath));
-                  }
-                  res.writeHead(200);
-                  return res.end(fs.readFileSync(artifactPath));
-                }
-              }
               res.writeHead(404);
               return res.end("File not found");
             }

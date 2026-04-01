@@ -1,6 +1,6 @@
 # Slash Command / Authoring 运行架构
 
-本文记录当前 deer-flow 在 slash command、agent authoring、skill 装配上的运行架构。
+本文记录当前 OpenAgents 在 slash command、agent authoring、skill 装配上的运行架构。
 
 目标只有两个：
 
@@ -161,7 +161,7 @@
 
 ### C. canonical skill 链路
 
-当前 deer-flow 的 canonical runtime skill mechanism 已经收口：
+当前 OpenAgents 的 canonical runtime skill mechanism 已经收口：
 
 1. archived skill 存在于 `.openagents/skills/store/{dev,prod}/...`
 2. `setup_agent(..., skills=[{source_path: "..."}])` 把 skill materialize 到 agent archive
@@ -170,12 +170,12 @@
 5. `apply_prompt_template()` 只暴露 attached skill 的名称、描述和 copied `SKILL.md` 虚拟路径
 6. 模型自己用 `read_file` 读取 copied `SKILL.md` 并执行
 
-当前明确不再使用的 deer-flow runtime 路径：
+当前明确不再使用的 OpenAgents runtime 路径：
 
 - 不再把 copied skills 通过 Deep Agents `skills=` 注入
-- 不再把 `SkillsMiddleware` / `skills_metadata` 当作 deer-flow runtime skill 生效的必要条件
+- 不再把 `SkillsMiddleware` / `skills_metadata` 当作 OpenAgents runtime skill 生效的必要条件
 
-这不影响 `opencode` 本身仍然拥有显式 `skill` 工具；只是 deer-flow 没有照搬那套 runtime 工具契约。
+这不影响 `opencode` 本身仍然拥有显式 `skill` 工具；只是 OpenAgents 没有照搬那套 runtime 工具契约。
 
 仍然成立的生命周期规则：
 
@@ -184,7 +184,7 @@
 
 ### D. `find-skills` 的定位
 
-`find-skills` 在 deer-flow 里是一个发现策略 skill，不是新的 runtime skill 注入架构。
+`find-skills` 在 OpenAgents 里是一个发现策略 skill，不是新的 runtime skill 注入架构。
 
 当前固定规则：
 
@@ -200,7 +200,7 @@
 
 - `find-skills` 不替代 copied skill
 - `find-skills` 不替代 `setup_agent`
-- `find-skills` 也不意味着 deer-flow 已切换到 `opencode` 的显式 `skill` 工具模型
+- `find-skills` 也不意味着 OpenAgents 已切换到 `opencode` 的显式 `skill` 工具模型
 
 ### E. hard authoring command
 
@@ -253,7 +253,7 @@
 - `resolve_runtime_command(...)` 不再接受外部注入的 `command_kind` / `authoring_actions`
 - `../opencode` 是本地对齐参考仓库，不允许只凭记忆说“已经对齐 opencode”
 - slash-command 对齐与 runtime skill 架构是两个不同问题，不能互相替代
-- deer-flow runtime 当前唯一 skill 消费真相是“copied skill + prompt 暴露路径 + 模型 read_file”
+- OpenAgents runtime 当前唯一 skill 消费真相是“copied skill + prompt 暴露路径 + 模型 read_file”
 
 ## 关键源码索引
 

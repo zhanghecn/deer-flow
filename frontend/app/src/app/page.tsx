@@ -1,6 +1,5 @@
 import { Header } from "@/components/landing/header";
 import { Hero } from "@/components/landing/hero";
-import { CaseStudySection } from "@/components/landing/sections/case-study-section";
 import { CommunitySection } from "@/components/landing/sections/community-section";
 import { SandboxSection } from "@/components/landing/sections/sandbox-section";
 import { SkillsSection } from "@/components/landing/sections/skills-section";
@@ -16,7 +15,6 @@ export default function HomePage() {
           <WhatsNewSection />
           <SkillsSection />
           <SandboxSection />
-          <CaseStudySection />
           <CommunitySection />
         </div>
       </main>

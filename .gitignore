@@ -67,7 +67,6 @@ sandbox_image_cache.tar
 
 # ignore the legacy `web` folder
 web/
-.deer-flow
 .playwright-cli
 .playwright/
 /server

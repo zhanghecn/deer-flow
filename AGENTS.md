@@ -64,8 +64,8 @@ Repository-wide runtime architecture rules:
   - if a non-model layer needs a business decision, expose that decision as an explicit structured field or tool/result contract instead of adding keyword tables, fuzzy matching, or regex heuristics
 - Runtime skill contract rule:
   - slash-command 对齐 `opencode` 时，必须先检查本地参考仓库 `../opencode`（当前绝对路径 `/root/project/ai/opencode`），并明确写清楚对齐的是 command routing / template loading / skill discovery / explicit skill tool 中的哪一层
-  - 不要把 “对齐 opencode” 扩大解释成 deer-flow runtime skill 全架构自动应当如何实现
-  - skill 相关架构至少涉及 3 套不同机制：`opencode` 的显式 `skill` 工具、Deep Agents `skills=` / `SkillsMiddleware` / `skills_metadata`、以及 deer-flow agent-owned copied skills；修改前必须先区分清楚，禁止混写
+  - 不要把 “对齐 opencode” 扩大解释成 OpenAgents runtime skill 全架构自动应当如何实现
+  - skill 相关架构至少涉及 3 套不同机制：`opencode` 的显式 `skill` 工具、Deep Agents `skills=` / `SkillsMiddleware` / `skills_metadata`、以及 OpenAgents agent-owned copied skills；修改前必须先区分清楚，禁止混写
   - 在新的唯一 skill 链路完成 end-to-end 代码接线、trace 可见性、状态验证、以及真实 UI 测试前，不要在 `AGENTS.md` 中写“只能 direct read `SKILL.md`”“不能再用 `skills=`”“不能有 `skill` 工具”这类绝对化约束
   - when an agent's domain behavior is primarily defined by attached copied skills, keep `AGENTS.md` thin and let copied `SKILL.md` remain the single detailed workflow source
   - do not duplicate a skill's full checklist, step order, or output contract into `AGENTS.md`, because that creates a second weaker instruction source that drifts from the copied skill

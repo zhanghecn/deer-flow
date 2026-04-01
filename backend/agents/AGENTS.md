@@ -52,13 +52,13 @@ Critical agent protocol rules for future work:
 - All agents, including `lead_agent`, load skills from their thread-local copied runtime directory under `/mnt/user-data/agents/{status}/{name}/skills/`.
 - 如果任务声称“对齐 opencode”，必须先检查本地参考仓库 `../opencode`（当前绝对路径 `/root/project/ai/opencode`），并明确范围到底是 slash command、command template、skill discovery，还是显式 `skill` 工具。
 - 不要把 slash-command 对齐错误扩大成 runtime skill 全架构重写。
-- deer-flow 当前唯一 canonical skill 链路是：
+- OpenAgents 当前唯一 canonical skill 链路是：
   - archived skill 位于 `.openagents/skills/store/{dev,prod}/...`
   - `setup_agent(..., skills=[{source_path: "..."}])` 负责 materialize 到 `.openagents/agents/{status}/{name}/skills/...`
   - runtime prompt 只暴露 copied skill 的名称/描述/虚拟路径
   - 模型使用普通文件工具读取 `/mnt/user-data/agents/{status}/{name}/skills/.../SKILL.md`
-- deer-flow runtime 不再把 copied skills 接到 Deep Agents `skills=` / `SkillsMiddleware` / `skills_metadata` 上。不要把 Deep Agents 的通用库能力重新当成 deer-flow runtime contract。
-- `find-skills` 在 deer-flow 里是发现策略 skill，不是新的 runtime skill 注入机制。
+- OpenAgents runtime 不再把 copied skills 接到 Deep Agents `skills=` / `SkillsMiddleware` / `skills_metadata` 上。不要把 Deep Agents 的通用库能力重新当成 OpenAgents runtime contract。
+- `find-skills` 在 OpenAgents 里是发现策略 skill，不是新的 runtime skill 注入机制。
 - `find-skills` 的固定策略是：先查本地 archived store（`/mnt/skills/store/dev/...`、`/mnt/skills/store/prod/...`），只有本地没有合适 skill，或用户明确要求安装外部 skill 时，才走 registry 搜索 / 安装。
 - 如果 `find-skills` 找到的是本地 archived skill，最终仍然要通过 `setup_agent(..., skills=[{source_path: "..."}])` 完成装配，而不是靠额外 prompt glue 或前端推断。
 - 以后审计“skill 是否生效”，优先检查 copied `SKILL.md` 是否 materialize、runtime prompt 是否暴露 attached skill、以及 trace 里模型是否真的读取了 copied `SKILL.md`；不要再把 `skills_metadata` 当成必要证据。

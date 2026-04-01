@@ -1,11 +1,11 @@
 """Manual debug helper for building PageIndex-style knowledge indexes.
 
 Usage:
-    cd /root/project/ai/deer-flow/backend/agents
+    cd backend/agents
     uv run python tests/test_knowledge_index_build_debug.py
 
 Optional pytest entry:
-    cd /root/project/ai/deer-flow/backend/agents
+    cd backend/agents
     OPENAGENTS_RUN_INDEX_DEBUG=1 uv run python -m pytest -s tests/test_knowledge_index_build_debug.py
 """
 

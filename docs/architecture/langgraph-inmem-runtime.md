@@ -1,4 +1,4 @@
-# LangGraph inmem Runtime 解释（结合 deer-flow）
+# LangGraph inmem Runtime 解释（结合 OpenAgents）
 
 ## 1. 一句话结论
 
@@ -8,7 +8,7 @@
 
 ## 2. 你项目当前的真实组合
 
-当前 deer-flow 的组合是：
+当前 OpenAgents 的组合是：
 
 - Runtime backend: `inmem`
 - Checkpointer: `AsyncPostgresSaver`（自定义）
@@ -40,7 +40,7 @@
 7. stream 事件通过 inmem stream manager 推送。
 8. 进程退出时关闭 queue/store/checkpointer。
 
-## 3.1 ASCII 流程图（当前 deer-flow）
+## 3.1 ASCII 流程图（当前 OpenAgents）
 
 ```text
                  HTTP/SSE
@@ -71,7 +71,7 @@
                                      |
                                      v
                  +--------------------------------------------+
-                 | custom checkpointer (deer-flow)           |
+                 | custom checkpointer (OpenAgents)           |
                  | src.checkpointer.checkpointer             |
                  | -> AsyncPostgresSaver.from_conn_string() |
                  +-------------------+------------------------+
@@ -104,7 +104,7 @@ Local dev side persistence (inmem runtime internals):
 
 ## 5. 哪些数据会持久化到哪里
 
-| 数据类型 | inmem 默认行为 | deer-flow 当前行为 |
+| 数据类型 | inmem 默认行为 | OpenAgents 当前行为 |
 | --- | --- | --- |
 | runs/threads/assistants 运行时元数据 | 内存 + `.langgraph_api/.langgraph_ops.pckl` | 同左（运行时层面） |
 | store 数据 | 内存 + `.langgraph_api/store*.pckl` | 同左（如启用默认 store） |
@@ -183,7 +183,7 @@ for module_name in ("checkpoint", "database", "lifespan", "ops", "store", "route
 - `LANGGRAPH_RUNTIME_EDITION=inmem` -> 导入 `langgraph_runtime_inmem`
 - `LANGGRAPH_RUNTIME_EDITION=postgres` -> 导入 `langgraph_runtime_postgres`
 
-### 10.2 deer-flow 的启动器如何兜底并保留 DATABASE_URI
+### 10.2 OpenAgents 的启动器如何兜底并保留 DATABASE_URI
 
 来源：`backend/agents/src/langgraph_dev.py`
 

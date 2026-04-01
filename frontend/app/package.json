@@ -4,7 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "demo:save": "node scripts/save-demo.js",
     "build": "tsc --noEmit && vite build",
     "check": "eslint . --ext .ts,.tsx && tsc --noEmit",
     "dev": "vite",
