@@ -2,6 +2,8 @@ export type ThreadMode = "flash" | "pro";
 export type LegacyThreadMode = ThreadMode | "thinking" | "ultra";
 export type ThreadReasoningEffort = "minimal" | "high";
 
+export const DEFAULT_SUBAGENT_ENABLED = true;
+
 export function normalizeThreadMode(
   mode: string | null | undefined,
 ): ThreadMode | undefined {
@@ -30,8 +32,17 @@ export function getReasoningEffortForMode(
   return mode === "flash" ? "minimal" : "high";
 }
 
-export function resolveSubmitFlags(mode: string | null | undefined) {
+export function resolveSubmitFlags(
+  mode: string | null | undefined,
+  options?: {
+    planMode?: boolean;
+    subagentEnabled?: boolean;
+  },
+) {
   const resolvedMode = getResolvedThreadMode(mode);
+  const planMode = options?.planMode ?? false;
+  const subagentEnabled =
+    options?.subagentEnabled ?? DEFAULT_SUBAGENT_ENABLED;
 
   return {
     mode: resolvedMode,
@@ -39,10 +50,10 @@ export function resolveSubmitFlags(mode: string | null | undefined) {
     // Copied-skill and other domain agents should stay on direct execution by
     // default. Planner/todo behavior must be an explicit UI choice instead of a
     // frontend-wide hidden default on every chat turn.
-    is_plan_mode: false,
-    // Keep delegated subagent behavior opt-in as well. Domain agents should not
-    // silently inherit extra planner/delegation surface on every turn.
-    subagent_enabled: false,
+    is_plan_mode: planMode,
+    // Workspace chats keep delegated subtasks available by default so the
+    // built-in Deep Agents `task` tool is ready unless the user turns it off.
+    subagent_enabled: subagentEnabled,
     reasoning_effort: getReasoningEffortForMode(resolvedMode),
   };
 }

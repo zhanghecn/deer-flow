@@ -93,6 +93,9 @@ export const enUS: Translations = {
     proMode: "Pro",
     proModeDescription:
       "Reasoning, planning and executing, get more accurate results, may take more time",
+    subagentToggle: "Subtasks",
+    subagentToggleDescription:
+      "Allow the agent to delegate work with the task tool and configured subagents when useful.",
     searchModels: "Search models...",
     surpriseMe: "Surprise",
     surpriseMePrompt: "Surprise me",

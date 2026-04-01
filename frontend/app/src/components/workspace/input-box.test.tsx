@@ -49,6 +49,8 @@ vi.mock("@/core/i18n/hooks", () => ({
         flashModeDescription: "Fast",
         proMode: "Pro",
         proModeDescription: "Precise",
+        subagentToggle: "Subtasks",
+        subagentToggleDescription: "Allow delegation",
         mode: "Mode",
         searchModels: "Search models",
         surpriseMe: "Surprise",
@@ -114,6 +116,7 @@ describe("InputBox", () => {
               context={{
                 model_name: "kimi-k2.5",
                 mode: "pro",
+                subagent_enabled: false,
                 agent_status: "dev",
               }}
               onContextChange={vi.fn()}
@@ -151,6 +154,7 @@ describe("InputBox", () => {
               context={{
                 model_name: "kimi-k2.5",
                 mode: "pro",
+                subagent_enabled: false,
                 agent_status: "dev",
               }}
               onContextChange={vi.fn()}
@@ -186,6 +190,7 @@ describe("InputBox", () => {
               context={{
                 model_name: "kimi-k2.5",
                 mode: "pro",
+                subagent_enabled: false,
                 agent_status: "dev",
               }}
               onContextChange={vi.fn()}
@@ -209,6 +214,68 @@ describe("InputBox", () => {
         files: [],
       },
       undefined,
+    );
+  });
+
+  it("exposes an explicit subtask toggle and reports state changes", async () => {
+    const user = userEvent.setup();
+    const onContextChange = vi.fn();
+    const queryClient = new QueryClient();
+
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <PromptInputProvider>
+            <InputBox
+              threadId="thread-test"
+              context={{
+                model_name: "kimi-k2.5",
+                mode: "pro",
+                subagent_enabled: false,
+                agent_status: "dev",
+              }}
+              onContextChange={onContextChange}
+              onSubmit={vi.fn()}
+            />
+          </PromptInputProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Subtasks" }));
+
+    expect(onContextChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subagent_enabled: true,
+      }),
+    );
+  });
+
+  it("defaults the subtask toggle to enabled when context omits it", () => {
+    const queryClient = new QueryClient();
+
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <PromptInputProvider>
+            <InputBox
+              threadId="thread-test"
+              context={{
+                model_name: "kimi-k2.5",
+                mode: "pro",
+                agent_status: "dev",
+              }}
+              onContextChange={vi.fn()}
+              onSubmit={vi.fn()}
+            />
+          </PromptInputProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("button", { name: "Subtasks" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
     );
   });
 });

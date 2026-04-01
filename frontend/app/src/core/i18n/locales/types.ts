@@ -75,6 +75,8 @@ export interface Translations {
     flashModeDescription: string;
     proMode: string;
     proModeDescription: string;
+    subagentToggle: string;
+    subagentToggleDescription: string;
     searchModels: string;
     surpriseMe: string;
     surpriseMePrompt: string;

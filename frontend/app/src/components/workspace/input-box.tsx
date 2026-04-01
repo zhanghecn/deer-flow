@@ -57,6 +57,7 @@ import type {
   RetryStatus,
 } from "@/core/threads";
 import {
+  DEFAULT_SUBAGENT_ENABLED,
   getReasoningEffortForMode,
   getResolvedThreadMode,
   type ThreadMode,
@@ -101,6 +102,7 @@ type InputBoxContext = Omit<
 > & {
   mode: InputMode | undefined;
   reasoning_effort?: ReasoningEffort;
+  subagent_enabled?: boolean;
 };
 type ModelSelection = Pick<Model, "name">;
 type ModeOption = {
@@ -314,6 +316,8 @@ export function InputBox({
   }, [context, onContextChange, selectedModel]);
 
   const displayedMode = getResolvedThreadMode(context.mode);
+  const subagentEnabled =
+    context.subagent_enabled ?? DEFAULT_SUBAGENT_ENABLED;
 
   const modeOptions = useMemo<ModeOption[]>(
     () => [
@@ -361,6 +365,13 @@ export function InputBox({
     },
     [onContextChange, context, selectedModel],
   );
+
+  const handleSubagentToggle = useCallback(() => {
+    onContextChange?.({
+      ...context,
+      subagent_enabled: !subagentEnabled,
+    });
+  }, [context, onContextChange, subagentEnabled]);
 
   const submitMessage = useCallback(
     (message: PromptInputMessage) => {
@@ -621,6 +632,23 @@ export function InputBox({
             threadId={threadId}
             disabled={disabled}
           />
+          <Tooltip
+            content={`${t.inputBox.subagentToggle}: ${t.inputBox.subagentToggleDescription}`}
+          >
+            <PromptInputButton
+              aria-pressed={subagentEnabled}
+              className={cn(
+                "gap-1 px-2! text-xs font-normal",
+                subagentEnabled
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                  : "text-muted-foreground",
+              )}
+              onClick={handleSubagentToggle}
+            >
+              <SparklesIcon className="size-3" />
+              <span>{t.inputBox.subagentToggle}</span>
+            </PromptInputButton>
+          </Tooltip>
           <PromptInputActionMenu>
             <ModeHoverGuide mode={displayedMode}>
               <PromptInputActionMenuTrigger className="gap-1! px-2!">

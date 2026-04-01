@@ -91,6 +91,9 @@ export const zhCN: Translations = {
     flashModeDescription: "快速且高效的完成任务，但可能不够精准",
     proMode: "Pro",
     proModeDescription: "思考、计划再执行，获得更精准的结果，可能需要更多时间",
+    subagentToggle: "子任务",
+    subagentToggleDescription:
+      "允许 agent 在合适的时候使用 task 工具，把工作委派给通用或自定义 subagent。",
     searchModels: "搜索模型...",
     surpriseMe: "小惊喜",
     surpriseMePrompt: "给我一个小惊喜吧",

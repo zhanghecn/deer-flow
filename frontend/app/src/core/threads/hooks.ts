@@ -23,6 +23,7 @@ import { uploadFiles } from "../uploads";
 
 import { normalizeThreadError } from "./error";
 import {
+  DEFAULT_SUBAGENT_ENABLED,
   getReasoningEffortForMode,
   normalizeThreadMode,
   resolveSubmitFlags,
@@ -66,7 +67,6 @@ const LEAD_AGENT_ID = "lead_agent";
 const FLASH_STREAM_THROTTLE = 96;
 const DEFAULT_STREAM_THROTTLE = 192;
 const HISTORY_PAGE_SIZE = 1;
-const STREAM_RECURSION_LIMIT = 1000;
 const STATE_HYDRATION_DELAY_MS = process.env.NODE_ENV === "test" ? 0 : 1500;
 const PENDING_RUN_RECOVERY_POLL_MS =
   process.env.NODE_ENV === "test" ? 25 : 2000;
@@ -107,6 +107,10 @@ function resolveThreadContext(context: ThreadContext): ThreadContext {
       (mode ? getReasoningEffortForMode(mode) : undefined),
     agent_name: context.agent_name ?? storedContext.agent_name,
     agent_status: context.agent_status ?? storedContext.agent_status,
+    subagent_enabled:
+      context.subagent_enabled ??
+      storedContext.subagent_enabled ??
+      DEFAULT_SUBAGENT_ENABLED,
     execution_backend:
       context.execution_backend ?? storedContext.execution_backend,
     remote_session_id:
@@ -556,7 +560,9 @@ function buildSubmitOptions(
   command?: Command,
 ) {
   const agentName = resolveAgentName(context, extraContext);
-  const submitFlags = resolveSubmitFlags(context.mode);
+  const submitFlags = resolveSubmitFlags(context.mode, {
+    subagentEnabled: context.subagent_enabled,
+  });
 
   return {
     threadId,
@@ -564,7 +570,6 @@ function buildSubmitOptions(
     streamResumable: true,
     streamMode: [...STREAM_MODES],
     config: {
-      recursion_limit: STREAM_RECURSION_LIMIT,
       configurable: {
         ...extraContext,
         ...context,

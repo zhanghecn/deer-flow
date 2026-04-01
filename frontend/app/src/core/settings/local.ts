@@ -1,5 +1,6 @@
 import type { AgentThreadContext } from "../threads";
 import {
+  DEFAULT_SUBAGENT_ENABLED,
   normalizeThreadMode,
   type ThreadMode,
   type ThreadReasoningEffort,
@@ -13,6 +14,7 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
     model_name: undefined,
     mode: undefined,
     reasoning_effort: undefined,
+    subagent_enabled: DEFAULT_SUBAGENT_ENABLED,
     agent_status: "dev",
     execution_backend: undefined,
     remote_session_id: undefined,
@@ -34,6 +36,7 @@ export interface LocalSettings {
   > & {
     mode: ThreadMode | undefined;
     reasoning_effort?: ThreadReasoningEffort;
+    subagent_enabled?: boolean;
   };
   layout: {
     sidebar_collapsed: boolean;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_SUBAGENT_ENABLED,
   getResolvedThreadMode,
   normalizeThreadMode,
   resolveSubmitFlags,
@@ -18,7 +19,7 @@ describe("thread mode helpers", () => {
       mode: "flash",
       thinking_enabled: false,
       is_plan_mode: false,
-      subagent_enabled: false,
+      subagent_enabled: DEFAULT_SUBAGENT_ENABLED,
       reasoning_effort: "minimal",
     });
   });
@@ -28,7 +29,21 @@ describe("thread mode helpers", () => {
       mode: "pro",
       thinking_enabled: true,
       is_plan_mode: false,
-      subagent_enabled: false,
+      subagent_enabled: DEFAULT_SUBAGENT_ENABLED,
+      reasoning_effort: "high",
+    });
+  });
+
+  it("respects explicit subagent opt-in without enabling planner mode", () => {
+    expect(
+      resolveSubmitFlags("pro", {
+        subagentEnabled: true,
+      }),
+    ).toEqual({
+      mode: "pro",
+      thinking_enabled: true,
+      is_plan_mode: false,
+      subagent_enabled: true,
       reasoning_effort: "high",
     });
   });
