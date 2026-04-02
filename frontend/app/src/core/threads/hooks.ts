@@ -87,6 +87,11 @@ type WindowActivity = {
   activationId: number;
 };
 
+type ActiveRunTarget = {
+  threadId: string | null;
+  runId: string | null;
+};
+
 function resolveThreadContext(context: ThreadContext): ThreadContext {
   const storedContext = getLocalSettings().context;
   const mode = normalizeThreadMode(context.mode ?? storedContext.mode);
@@ -258,6 +263,53 @@ function clearStoredActiveRunId(threadId?: string | null) {
   } catch {
     // Ignore storage failures during cleanup.
   }
+}
+
+function resolveActiveRunTarget(
+  routeThreadId?: string | null,
+  streamThreadId?: string | null,
+): ActiveRunTarget {
+  // New-thread routes keep a draft thread ID until navigation catches up.
+  // Once the stream is created, `streamThreadId` is the canonical backend ID
+  // and must win for run lookup/cancel.
+  const threadId = streamThreadId ?? routeThreadId ?? null;
+
+  return {
+    threadId,
+    runId: readStoredActiveRunId(threadId),
+  };
+}
+
+function clearActiveRunTarget(target: ActiveRunTarget) {
+  clearLocalActiveRunOwnership(target.threadId);
+  clearStoredActiveRunId(target.threadId);
+}
+
+function logRunCancelFailure(target: ActiveRunTarget, error: unknown) {
+  if (!target.threadId || !target.runId) {
+    return;
+  }
+
+  console.warn(
+    `Failed to cancel active run ${target.runId} for thread ${target.threadId}:`,
+    error,
+  );
+}
+
+async function stopStreamingRun(options: {
+  stopStream: () => Promise<unknown>;
+  cancelRun: () => Promise<unknown>;
+}) {
+  const [stopResult, cancelResult] = await Promise.allSettled([
+    options.stopStream(),
+    options.cancelRun(),
+  ]);
+
+  if (stopResult.status === "rejected") {
+    throw stopResult.reason;
+  }
+
+  return cancelResult;
 }
 
 function resolveAgentName(
@@ -645,8 +697,15 @@ function getExperimentalBranchTree(source: object) {
     return undefined;
   }
 
-  return (source as { experimental_branchTree?: unknown })
-    .experimental_branchTree;
+  try {
+    // The SDK exposes branch data via a getter that throws unless
+    // `fetchStateHistory` is enabled. Stop/recovery flows still need to run
+    // while initial history is deferred, so treat branch state as optional.
+    return (source as { experimental_branchTree?: unknown })
+      .experimental_branchTree;
+  } catch {
+    return undefined;
+  }
 }
 
 function extractPrimaryInterrupt(
@@ -1538,7 +1597,7 @@ export function useThreadStream({
       return;
     }
 
-    const activeThreadId = threadId ?? streamThreadId;
+    const activeRunTarget = resolveActiveRunTarget(threadId, streamThreadId);
     setRetryStatus(null);
     const snapshot = buildThreadOverride(
       "snapshot",
@@ -1554,17 +1613,30 @@ export function useThreadStream({
       let latestState: AgentThreadState | null = snapshot.values;
 
       try {
-        await thread.stop();
+        // reconnectOnMount is disabled, so the SDK will not retain the
+        // runMetadataStorage it normally uses to issue server-side cancel.
+        const cancelResult = await stopStreamingRun({
+          stopStream: thread.stop,
+          cancelRun: () =>
+            activeRunTarget.threadId && activeRunTarget.runId
+              ? apiClient.runs.cancel(
+                  activeRunTarget.threadId,
+                  activeRunTarget.runId,
+                )
+              : Promise.resolve(),
+        });
+        if (cancelResult.status === "rejected") {
+          logRunCancelFailure(activeRunTarget, cancelResult.reason);
+        }
       } catch (error) {
         notifyThreadError(error);
       } finally {
-        clearLocalActiveRunOwnership(activeThreadId);
-        clearStoredActiveRunId(activeThreadId);
+        clearActiveRunTarget(activeRunTarget);
       }
 
       setHistoryEnabled(true);
 
-      if (!activeThreadId || !authenticated) {
+      if (!activeRunTarget.threadId || !authenticated) {
         onStop?.(latestState);
         return;
       }
@@ -1572,14 +1644,14 @@ export function useThreadStream({
       try {
         const [state, history] = await Promise.all([
           apiClient.threads.getState<AgentThreadState>(
-            activeThreadId,
+            activeRunTarget.threadId,
             undefined,
             {
               subgraphs: true,
             },
           ),
           apiClient.threads
-            .getHistory<AgentThreadState>(activeThreadId, {
+            .getHistory<AgentThreadState>(activeRunTarget.threadId, {
               limit: HISTORY_PAGE_SIZE,
             })
             .catch(() => []),
@@ -1609,6 +1681,7 @@ export function useThreadStream({
     stopPromiseRef.current = stopPromise;
     await stopPromise;
   }, [
+    apiClient.runs,
     apiClient.threads,
     authenticated,
     liveHistory,

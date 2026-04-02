@@ -45,6 +45,9 @@ const apiClient = {
     getState: vi.fn(),
     getHistory: vi.fn(),
   },
+  runs: {
+    cancel: vi.fn(),
+  },
 };
 
 let streamState: MockThreadState;
@@ -193,6 +196,7 @@ describe("useThreadStream", () => {
       },
     });
     apiClient.threads.getHistory.mockReset().mockResolvedValue([]);
+    apiClient.runs.cancel.mockReset().mockResolvedValue(undefined);
     streamState = makeThreadState();
   });
 
@@ -638,6 +642,7 @@ describe("useThreadStream", () => {
       values: persistedValues,
       stop: vi.fn().mockResolvedValue(undefined),
     });
+    window.sessionStorage.setItem("lg:stream:thread-1", "run-stop-1");
     apiClient.threads.getState.mockResolvedValueOnce({
       values: persistedValues,
     });
@@ -664,12 +669,185 @@ describe("useThreadStream", () => {
       await result.current[0].stop();
     });
 
+    expect(apiClient.runs.cancel).toHaveBeenCalledWith(
+      "thread-1",
+      "run-stop-1",
+    );
     expect(apiClient.threads.getState).toHaveBeenCalledWith(
       "thread-1",
       undefined,
       { subgraphs: true },
     );
     expect(result.current[0].messages).toEqual(initialMessages);
+  });
+
+  it("still stops locally when the server-side cancel request fails", async () => {
+    const initialMessages: Message[] = [
+      {
+        id: "human-1",
+        type: "human",
+        content: [{ type: "text", text: "Stop this run" }],
+        additional_kwargs: {},
+      },
+    ];
+    const persistedValues: AgentThreadState = {
+      title: "Thread",
+      messages: initialMessages,
+      artifacts: [],
+    };
+
+    const stopMock = vi.fn().mockResolvedValue(undefined);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    streamState = makeThreadState({
+      messages: initialMessages,
+      values: persistedValues,
+      stop: stopMock,
+    });
+    window.sessionStorage.setItem("lg:stream:thread-1", "run-stop-2");
+    apiClient.runs.cancel.mockRejectedValueOnce(new Error("cancel failed"));
+    apiClient.threads.getState.mockResolvedValueOnce({
+      values: persistedValues,
+    });
+    apiClient.threads.getHistory.mockResolvedValueOnce([]);
+
+    const { result } = renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    await act(async () => {
+      await result.current[0].stop();
+    });
+
+    expect(stopMock).toHaveBeenCalledTimes(1);
+    expect(apiClient.runs.cancel).toHaveBeenCalledWith(
+      "thread-1",
+      "run-stop-2",
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      "Failed to cancel active run run-stop-2 for thread thread-1:",
+      expect.any(Error),
+    );
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("prefers the created stream thread id over a draft route id when canceling", async () => {
+    streamState = makeThreadState({
+      stop: vi.fn().mockResolvedValue(undefined),
+    });
+    apiClient.threads.getState.mockResolvedValueOnce({
+      values: {
+        title: "Thread",
+        messages: [],
+        artifacts: [],
+      },
+    });
+    apiClient.threads.getHistory.mockResolvedValueOnce([]);
+
+    const { result } = renderHook(
+      () =>
+        useThreadStream({
+          threadId: "draft-thread",
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    const onCreated = latestUseStreamOptions?.onCreated;
+    expect(typeof onCreated).toBe("function");
+    if (typeof onCreated !== "function") {
+      throw new Error("Expected onCreated callback to be registered.");
+    }
+
+    await act(async () => {
+      onCreated({
+        thread_id: "thread-real",
+        run_id: "run-real",
+      });
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await result.current[0].stop();
+    });
+
+    expect(apiClient.runs.cancel).toHaveBeenCalledWith(
+      "thread-real",
+      "run-real",
+    );
+  });
+
+  it("still cancels a deferred-history run when branch tree access throws", async () => {
+    const persistedValues: AgentThreadState = {
+      title: "Thread",
+      messages: [
+        {
+          id: "human-1",
+          type: "human",
+          content: [{ type: "text", text: "Stop this looping run" }],
+          additional_kwargs: {},
+        },
+      ],
+      artifacts: [],
+    };
+    const stopMock = vi.fn().mockResolvedValue(undefined);
+    const throwingThreadState = makeThreadState({
+      messages: persistedValues.messages ?? [],
+      values: persistedValues,
+      stop: stopMock,
+    });
+    Object.defineProperty(throwingThreadState, "experimental_branchTree", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        throw new Error(
+          "`fetchStateHistory` must be set to `true` to use `experimental_branchTree`",
+        );
+      },
+    });
+    streamState = throwingThreadState;
+    window.sessionStorage.setItem("lg:stream:thread-1", "run-stop-3");
+    apiClient.threads.getState.mockResolvedValueOnce({
+      values: persistedValues,
+    });
+    apiClient.threads.getHistory.mockResolvedValueOnce([]);
+
+    const { result } = renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          skipInitialHistory: true,
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    await act(async () => {
+      await result.current[0].stop();
+    });
+
+    expect(stopMock).toHaveBeenCalledTimes(1);
+    expect(apiClient.runs.cancel).toHaveBeenCalledWith(
+      "thread-1",
+      "run-stop-3",
+    );
+    expect(toastError).not.toHaveBeenCalled();
   });
 
   it("does not touch stream history when initial history loading is disabled", () => {
