@@ -1,6 +1,46 @@
-import { describe, expect, it } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
-import { shouldShowTrailingReasoning } from "./message-group";
+import { MessageGroup, shouldShowTrailingReasoning } from "./message-group";
+
+vi.mock("@/core/i18n/hooks", () => ({
+  useI18n: () => ({
+    t: {
+      common: { thinking: "Thinking" },
+      toolCalls: {
+        lessSteps: "Less steps",
+        moreSteps: (count: number) => `${count} more steps`,
+        searchForRelatedInfo: "Search for related info",
+        searchOnWebFor: (query: string) => `Search on web for ${query}`,
+        searchForRelatedImages: "Search for related images",
+        searchForRelatedImagesFor: (query: string) =>
+          `Search for related images for ${query}`,
+        viewWebPage: "View web page",
+        listFolder: "List folder",
+        readFile: "Read file",
+        writeFile: "Write file",
+        executeCommand: "Execute command",
+        useTool: (name: string) => name,
+        presentFiles: "Present files",
+        writeTodos: "Write todos",
+      },
+    },
+  }),
+}));
+
+vi.mock("../artifacts", () => ({
+  useArtifacts: () => ({
+    setOpen: vi.fn(),
+    autoOpen: false,
+    autoSelect: false,
+    selectedArtifact: null,
+    select: vi.fn(),
+  }),
+}));
+
+vi.mock("@/components/ai-elements/code-block", () => ({
+  CodeBlock: ({ code }: { code: string }) => <pre>{code}</pre>,
+}));
 
 describe("shouldShowTrailingReasoning", () => {
   it("keeps trailing reasoning visible while the turn is still streaming", () => {
@@ -13,5 +53,79 @@ describe("shouldShowTrailingReasoning", () => {
 
   it("keeps trailing reasoning when there is no follow-up assistant group", () => {
     expect(shouldShowTrailingReasoning(undefined, false)).toBe(true);
+  });
+});
+
+describe("MessageGroup tool display", () => {
+  it("shows the full runtime path for read_file tool calls", () => {
+    render(
+      <MessageGroup
+        messages={[
+          {
+            id: "ai-1",
+            type: "ai",
+            content: "",
+            tool_calls: [
+              {
+                id: "tool-1",
+                name: "read_file",
+                args: {
+                  file_path:
+                    "/mnt/user-data/agents/dev/lead_agent/skills/surprise-me/SKILL.md",
+                },
+              },
+            ],
+          },
+          {
+            id: "tool-msg-1",
+            type: "tool",
+            tool_call_id: "tool-1",
+            content: "content",
+          },
+        ]}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "/mnt/user-data/agents/dev/lead_agent/skills/surprise-me/SKILL.md",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("shows execute tool output inside the chain-of-thought step", () => {
+    render(
+      <MessageGroup
+        messages={[
+          {
+            id: "ai-1",
+            type: "ai",
+            content: "",
+            tool_calls: [
+              {
+                id: "tool-1",
+                name: "execute",
+                args: {
+                  command: "whoami",
+                },
+              },
+            ],
+          },
+          {
+            id: "tool-msg-1",
+            type: "tool",
+            tool_call_id: "tool-1",
+            content: "gem\n[Command succeeded with exit code 0]",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("whoami")).toBeInTheDocument();
+    expect(
+      screen.getByText((_, element) =>
+        element?.textContent === "gem\n[Command succeeded with exit code 0]",
+      ),
+    ).toBeInTheDocument();
   });
 });

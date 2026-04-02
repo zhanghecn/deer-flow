@@ -30,7 +30,7 @@ import {
 } from "@/core/messages/utils";
 import { workspaceMessageRehypePlugins } from "@/core/streamdown";
 import { extractQuestionRequestFromArgs } from "@/core/threads/interrupts";
-import { getUserVisibleRuntimePath } from "@/core/utils/files";
+import { getUserVisibleRuntimePathWithOptions } from "@/core/utils/files";
 import { extractTitleFromMarkdown } from "@/core/utils/markdown";
 import { env } from "@/env";
 import { cn } from "@/lib/utils";
@@ -63,6 +63,10 @@ function getNumberArg(args: Record<string, unknown>, ...keys: string[]) {
 
 function getPathArg(args: Record<string, unknown>) {
   return getStringArg(args, "path", "file_path");
+}
+
+function getToolDisplayPath(path: string) {
+  return getUserVisibleRuntimePathWithOptions(path, { compact: false });
 }
 
 export function MessageGroup({
@@ -346,8 +350,8 @@ function ToolCall({
     return (
       <ChainOfThoughtStep key={id} label={description} icon={FolderOpenIcon}>
         {path && (
-          <ChainOfThoughtSearchResult className="cursor-pointer">
-            {getUserVisibleRuntimePath(path)}
+          <ChainOfThoughtSearchResult className="max-w-full cursor-pointer whitespace-normal break-all text-left">
+            {getToolDisplayPath(path)}
           </ChainOfThoughtSearchResult>
         )}
       </ChainOfThoughtStep>
@@ -364,8 +368,8 @@ function ToolCall({
     return (
       <ChainOfThoughtStep key={id} label={description} icon={BookOpenTextIcon}>
         {path && (
-          <ChainOfThoughtSearchResult className="cursor-pointer">
-            {getUserVisibleRuntimePath(path)}
+          <ChainOfThoughtSearchResult className="max-w-full cursor-pointer whitespace-normal break-all text-left">
+            {getToolDisplayPath(path)}
           </ChainOfThoughtSearchResult>
         )}
         {(offset !== undefined || limit !== undefined) && (
@@ -427,8 +431,8 @@ function ToolCall({
         }
       >
         {path && (
-          <ChainOfThoughtSearchResult className="cursor-pointer">
-            {getUserVisibleRuntimePath(path)}
+          <ChainOfThoughtSearchResult className="max-w-full cursor-pointer whitespace-normal break-all text-left">
+            {getToolDisplayPath(path)}
           </ChainOfThoughtSearchResult>
         )}
       </ChainOfThoughtStep>
@@ -449,6 +453,14 @@ function ToolCall({
             showLineNumbers={false}
             language="bash"
             code={command}
+          />
+        )}
+        {typeof result === "string" && result.trim() && (
+          <CodeBlock
+            className="mx-0 border-none px-0"
+            showLineNumbers={false}
+            language="bash"
+            code={result}
           />
         )}
       </ChainOfThoughtStep>
@@ -475,8 +487,8 @@ function ToolCall({
           />
         )}
         {path && (
-          <ChainOfThoughtSearchResult className="text-muted-foreground">
-            path: {getUserVisibleRuntimePath(path)}
+          <ChainOfThoughtSearchResult className="max-w-full whitespace-normal break-all text-left text-muted-foreground">
+            path: {getToolDisplayPath(path)}
           </ChainOfThoughtSearchResult>
         )}
         {glob && (
@@ -511,8 +523,8 @@ function ToolCall({
           />
         )}
         {path && (
-          <ChainOfThoughtSearchResult className="text-muted-foreground">
-            path: {getUserVisibleRuntimePath(path)}
+          <ChainOfThoughtSearchResult className="max-w-full whitespace-normal break-all text-left text-muted-foreground">
+            path: {getToolDisplayPath(path)}
           </ChainOfThoughtSearchResult>
         )}
       </ChainOfThoughtStep>

@@ -3,7 +3,7 @@ import type { AIMessage } from "@langchain/langgraph-sdk";
 
 import type { Translations } from "../i18n";
 import { hasToolCalls } from "../messages/utils";
-import { getUserVisibleRuntimePath } from "../utils/files";
+import { getUserVisibleRuntimePathWithOptions } from "../utils/files";
 
 function getStringArg(args: unknown, ...keys: string[]) {
   if (!args || typeof args !== "object") {
@@ -38,7 +38,7 @@ export function explainToolCall(toolCall: ToolCall, t: Translations) {
   } else if (toolCall.name === "read_file") {
     const path = getStringArg(toolCall.args, "path", "file_path");
     return path
-      ? `${t.toolCalls.readFile}: ${getUserVisibleRuntimePath(path)}`
+      ? `${t.toolCalls.readFile}: ${getUserVisibleRuntimePathWithOptions(path, { compact: false })}`
       : t.toolCalls.readFile;
   } else if (
     toolCall.name === "write_file" ||
@@ -47,7 +47,7 @@ export function explainToolCall(toolCall: ToolCall, t: Translations) {
   ) {
     const path = getStringArg(toolCall.args, "path", "file_path");
     return path
-      ? `${t.toolCalls.writeFile}: ${getUserVisibleRuntimePath(path)}`
+      ? `${t.toolCalls.writeFile}: ${getUserVisibleRuntimePathWithOptions(path, { compact: false })}`
       : t.toolCalls.writeFile;
   } else if (toolCall.name === "grep") {
     const pattern = getStringArg(toolCall.args, "pattern");

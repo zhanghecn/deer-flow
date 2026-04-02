@@ -158,7 +158,18 @@ export function getFileName(filepath: string) {
 }
 
 export function getUserVisibleRuntimePath(filepath: string) {
+  return getUserVisibleRuntimePathWithOptions(filepath);
+}
+
+export function getUserVisibleRuntimePathWithOptions(
+  filepath: string,
+  options?: { compact?: boolean },
+) {
   if (!filepath.startsWith(VIRTUAL_USER_DATA_PREFIX)) {
+    return filepath;
+  }
+
+  if (options?.compact === false) {
     return filepath;
   }
 
