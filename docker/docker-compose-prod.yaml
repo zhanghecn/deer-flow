@@ -1,130 +1,83 @@
 name: openagents-prod
 
-# OpenAgents 正式环境单机版编排。
-# 这份文件的目标不是做复杂的多节点部署，而是让你把仓库传到服务器后，
-# 直接执行 docker compose 命令就能启动。
-#
-# 推荐命令（在 docker/ 目录执行）：
-# - docker compose -p openagents-prod -f docker-compose-prod.yaml build
-# - docker compose -p openagents-prod -f docker-compose-prod.yaml up -d
-#
-# 与 docker-compose-dev.yaml 的核心差异：
-# - 前端不跑 Vite，改为构建静态产物后由 nginx 提供
-# - gateway / langgraph 都直接挂整个仓库根目录，减少零碎挂载
-# - sandbox-aio / onlyoffice 作为正式环境基础能力常驻
-# - 默认只暴露 nginx 和 onlyoffice 端口
-# - 所有 build context 和挂载路径都固定为相对 docker/ 的路径
-#   不再依赖额外的正式环境参数
-
 services:
-  # 用户前台 + 后台管理统一由一个 nginx 容器托管。
-  # - 80: 面向普通用户的前台
-  # - 8081: 面向管理后台的前端
+  # 统一托管用户前台和后台管理页面。
   nginx:
     build:
-      # 从仓库根目录构建，这样 nginx 镜像可以直接复制两个前端的源码并完成打包。
       context: ..
       dockerfile: docker/nginx/Dockerfile.prod
     depends_on:
       gateway:
-        # 等 gateway 健康后再起 nginx，避免 nginx 先起来但 API 还没就绪。
         condition: service_healthy
     ports:
-      # 正式环境固定端口，不再额外抽象为 compose 变量。
       - "8083:80"
       - "8081:8081"
     networks:
       - openagents
     restart: unless-stopped
 
-  # Go Gateway:
-  # - 用户登录鉴权
-  # - Agent / Skill / Model / Thread / Knowledge API
-  # - 代理 /api/langgraph/* 到 Python LangGraph runtime
+  # Go 网关：
+  # - 登录鉴权
+  # - 线程 / 知识库 / Agent / Model API
+  # - 反向代理 /api/langgraph 到 Python runtime
   gateway:
     build:
       context: ..
       dockerfile: backend/gateway/Dockerfile
-    command:
-      # 正式环境同样直接跑仓库挂载进来的 Go 源码：
-      # - 首次 build 只负责准备 Go/LibreOffice 依赖
-      # - 之后纯 Gateway 代码更新只需要 restart，不必重新 build 这个重镜像
-      # 这里不要用 `sh -lc`：
-      # - Debian 的 login shell 会把 PATH 重置掉
-      # - 结果就是镜像里明明有 Go，启动时仍然报 `go: not found`
-      # 所以这里固定用 `sh -c`，并显式写 Go 绝对路径。
-      - sh
-      - -c
-      - cd /app/backend/gateway && GATEWAY_CONFIG_PATH=/app/backend/gateway/gateway.yaml /usr/local/go/bin/go run ./cmd/server
+    # 直接在挂载进来的 gateway 源码目录里启动，不再额外写 cd 命令。
+    working_dir: /app/backend/gateway
+    command: ["/usr/local/go/bin/go", "run", "./cmd/server"]
     depends_on:
       langgraph:
-        # 这里只要求 langgraph 进程已启动；真正 API 可用性由 gateway 自己重试和上游访问决定。
         condition: service_started
       onlyoffice:
         condition: service_healthy
       sandbox-aio:
         condition: service_healthy
     environment:
-      # OpenAgents 运行时根目录，归档数据、线程数据等都从这里读写。
-      OPENAGENTS_HOME: /openagents-home
-      # MCP / skills 扩展配置文件位置。
-      OPENAGENTS_EXTENSIONS_CONFIG_PATH: /openagents-home/extensions_config.json
-      # Gateway 访问 LangGraph 的容器内地址。
+      GATEWAY_CONFIG_PATH: /app/backend/gateway/gateway.yaml
       LANGGRAPH_URL: http://langgraph:2024
-      # ONLYOFFICE 回调给 Gateway 时使用的容器内地址。
-      # 这是容器间访问地址，不是浏览器访问地址。
       ONLYOFFICE_PUBLIC_APP_URL: http://gateway:8001
+      OPENAGENTS_HOME: /openagents-home
+      OPENAGENTS_EXTENSIONS_CONFIG_PATH: /openagents-home/extensions_config.json
     healthcheck:
-      # Gateway 自身健康检查，nginx 依赖这个状态。
+      # 网关健康后，nginx 才会接外部流量。
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8001/health"]
       interval: 15s
       timeout: 5s
       retries: 6
       start_period: 20s
+    extra_hosts:
+      # 让容器里也能使用 .env 里的 host.docker.internal 数据库地址。
+      - "host.docker.internal:host-gateway"
+    logging:
+      # 日志继续走 docker logs，并由 Docker 自己轮转。
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    volumes:
+      # 只挂自己需要热更新的代码和配置。
+      - ../backend/gateway:/app/backend/gateway:ro
+      - ../.env:/app/.env:ro
+      - ../.openagents:/openagents-home
     networks:
       - openagents
-    extra_hosts:
-      # 保留这个 Linux host alias，只为共享 `.env` 里的 DATABASE_URI：
-      # - 宿主机上的 psql / 运维脚本可以继续用 `host.docker.internal`
-      # - gateway 容器里读取同一份 `.env` 时也能解析这个主机名
-      # 这条映射与 sandbox / ONLYOFFICE / langgraph 的容器间通信无关，
-      # 那些流量都已经走上面的 service DNS。
-      - "host.docker.internal:host-gateway"
     restart: unless-stopped
-    volumes:
-      # 整个仓库只读挂到 /app：
-      # - .env
-      # - config.yaml
-      # - backend/gateway/gateway.yaml
-      # - 代码本身
-      # 都直接用服务器上这份仓库，不再拆散挂载。
-      # Gateway 会自己读取 `/app/.env`；
-      # 这里不再把 DATABASE_URI 二次透传到容器环境里，
-      # 避免你直接执行 `docker compose up -d` 时被空变量覆盖。
-      - ../:/app:ro
-      # OpenAgents 持久化目录。
-      # 这里不要删，删了会把 agent / threads / knowledge 这类运行时数据一起清掉。
-      - ../.openagents:/openagents-home
-    working_dir: /app
 
-  # ONLYOFFICE 文档服务。
-  # 浏览器访问它的 8082 端口，在线预览和编辑 office 文档都走这里。
+  # ONLYOFFICE 文档预览/编辑服务。
   onlyoffice:
     build:
-      # onlyoffice 的 Dockerfile 在 docker/ 子目录下，所以这里 context 只需要当前目录。
       context: .
       dockerfile: onlyoffice/Dockerfile
+    image: openagents-onlyoffice:9.3.1-cjk
     env_file:
-      # 读取根目录 .env 里的 secrets，例如 JWT_SECRET / ONLYOFFICE_JWT_SECRET。
       - ../.env
     entrypoint:
-      # 优先使用 ONLYOFFICE_JWT_SECRET；
-      # 如果没单独配置，就退回复用 JWT_SECRET。
       - /bin/bash
       - -lc
       - export JWT_SECRET="$${ONLYOFFICE_JWT_SECRET:-$${JWT_SECRET}}"; exec /app/ds/run-document-server.sh
     environment:
-      # 开启 ONLYOFFICE 自身的 JWT 校验。
       JWT_ENABLED: "true"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1/healthcheck"]
@@ -132,94 +85,80 @@ services:
       timeout: 10s
       retries: 5
       start_period: 60s
-    image: openagents-onlyoffice:9.3.1-cjk
-    networks:
-      - openagents
     ports:
       - "8082:80"
+    networks:
+      - openagents
     restart: unless-stopped
 
-  # 共享 AIO Sandbox。
-  # 这是 Python runtime 真正执行文件读写、命令运行等能力的地方。
+  # 共享 AIO sandbox。
+  # LangGraph 里的文件读写、命令执行最后都落到这里。
   sandbox-aio:
     build:
       context: .
       dockerfile: sandbox-aio/Dockerfile
       args:
-        # sandbox-aio 的基础镜像。这里保留为 build arg，
-        # 只是为了 Dockerfile 里 FROM ${BASE_IMAGE} 能正常工作。
         BASE_IMAGE: enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest
+    image: openagents-sandbox-aio:prod
     env_file:
-      # 让 sandbox 内执行出来的技能也能读到根目录 .env 中的 API Key。
       - ../.env
     healthcheck:
-      # 检查 sandbox HTTP API 是否就绪。
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/v1/sandbox"]
       interval: 15s
       timeout: 5s
       retries: 6
       start_period: 20s
-    image: openagents-sandbox-aio:prod
+    security_opt:
+      - seccomp=unconfined
+      # bwrap 会在 sandbox-aio 容器里做 mount / namespace 隔离，Ubuntu 服务器上常被默认 AppArmor 拦住。
+      - apparmor=unconfined
+    volumes:
+      # 运行时线程目录、产物、缓存都写到仓库根目录的 .openagents 下。
+      - ../.openagents:/openagents
     networks:
       - openagents
     restart: unless-stopped
-    security_opt:
-      # AIO sandbox 运行需要较宽松的 seccomp 配置。
-      - seccomp=unconfined
-    volumes:
-      # sandbox 内的 /openagents 对应宿主机仓库根目录下的 .openagents。
-      # 这里不再把根 `.env` 额外挂到 `/openagents/.env`：
-      # - `env_file` 已经把同一份 secrets 注入进进程环境
-      # - 额外的文件 bind mount 会和 `/openagents` 目录挂载重叠
-      # - Docker 会在宿主机 `.openagents/.env` 生成一个空挂载点文件
-      #   看起来像“莫名创建”
-      - ../.openagents:/openagents
 
   # Python LangGraph runtime。
-  # 真正运行 agent 推理、工具调用、线程执行逻辑的就是这个容器。
   langgraph:
     build:
       context: ..
       dockerfile: backend/agents/Dockerfile
+    # 运行时会写 .langgraph_api，所以工作目录必须放在可写的 .openagents 下，
+    # 不能放在只读源码目录里。
+    working_dir: /openagents-home/runtime/langgraph
+    command: ["python", "-m", "src.langgraph_dev"]
     depends_on:
       sandbox-aio:
         condition: service_healthy
-    command:
-      # 这里不要继续用 `uv run`：
-      # - 当前 prod compose 会把整个仓库只读挂到 /app
-      # - `uv run` 会在启动时尝试同步 editable 依赖
-      # - deepagents 的 egg-info 需要写回源码目录，结果在只读挂载下直接失败
-      # 镜像 build 阶段已经完成依赖安装，所以正式环境直接用 venv 里的 python 启动即可。
-      - sh
-      - -c
-      - cd /app/backend/agents && python -m src.langgraph_dev
     environment:
-      # Python runtime 的归档/线程数据根目录。
       OPENAGENTS_HOME: /openagents-home
-      # 指向仓库根目录 config.yaml。
       OPENAGENTS_CONFIG_PATH: /app/config.yaml
-      # 指向统一扩展配置文件。
+      OPENAGENTS_LANGGRAPH_CONFIG_PATH: /app/backend/agents/langgraph.json
       OPENAGENTS_EXTENSIONS_CONFIG_PATH: /openagents-home/extensions_config.json
-      # LangGraph 访问共享 sandbox-aio 的容器内地址。
       OPENAGENTS_SANDBOX_BASE_URL: http://sandbox-aio:8080
+      # 源码目录是只读挂载，不要往里面写 __pycache__。
+      PYTHONDONTWRITEBYTECODE: "1"
+      # src.langgraph_dev 在 /app/backend/agents 这棵源码下面。
+      PYTHONPATH: /app/backend/agents
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    volumes:
+      - ../backend/agents:/app/backend/agents:ro
+      - ../backend/deepagents:/app/backend/deepagents:ro
+      - ../.env:/app/.env:ro
+      - ../config.yaml:/app/config.yaml:ro
+      - ../.openagents:/openagents-home
     networks:
       - openagents
-    extra_hosts:
-      # 同 gateway，这里只为共享 `.env` 中的 DATABASE_URI 提供
-      # `host.docker.internal` 解析，避免 langgraph 容器和宿主机脚本
-      # 需要维护两套数据库地址。
-      - "host.docker.internal:host-gateway"
     restart: unless-stopped
-    volumes:
-      # 挂整个仓库根目录，配置和代码统一来自服务器上的当前仓库。
-      # Python 依赖在镜像里的 /opt/venv，不会因为源码挂载而丢失。
-      # LangGraph 的 `langgraph.json` 也会从这里读取 `../../.env`，
-      # 所以同样不再在 compose 里重复透传 DATABASE_URI。
-      - ../:/app:ro
-      - ../.openagents:/openagents-home
-    working_dir: /app
 
 networks:
-  # 单机 bridge 网络，容器之间通过服务名互相访问。
+  # 单机 bridge 网络，服务之间通过服务名互相访问。
   openagents:
     driver: bridge

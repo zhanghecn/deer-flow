@@ -7,6 +7,7 @@ from deepagents.backends.protocol import BackendProtocol
 from src.config.paths import Paths
 
 from .local import build_local_workspace_backend, resolve_skills_mount
+from .operation_logging import wrap_runtime_backend_with_logging
 from .remote import REMOTE_EXECUTION_BACKEND, build_remote_workspace_backend
 from .sandbox import build_sandbox_workspace_backend, resolve_default_execution_backend
 
@@ -33,17 +34,26 @@ def build_runtime_workspace_backend(
     remote_session_id: str | None = None,
 ) -> BackendProtocol:
     backend_kind = resolve_runtime_backend_kind(requested_backend)
+    skills_mount = resolve_skills_mount(paths)
+
     if backend_kind == REMOTE_EXECUTION_BACKEND:
         if not remote_session_id:
             raise ValueError("Remote execution requires `remote_session_id`.")
-        return build_remote_workspace_backend(session_id=remote_session_id, paths=paths)
-    if backend_kind == "sandbox":
-        return build_sandbox_workspace_backend(
+        backend = build_remote_workspace_backend(session_id=remote_session_id, paths=paths)
+    elif backend_kind == "sandbox":
+        backend = build_sandbox_workspace_backend(
             thread_id,
             user_data_dir=user_data_dir,
-            skills_mount=resolve_skills_mount(paths),
+            skills_mount=skills_mount,
         )
-    return build_local_workspace_backend(
-        user_data_dir,
-        skills_mount=resolve_skills_mount(paths),
+    else:
+        backend = build_local_workspace_backend(
+            user_data_dir,
+            skills_mount=skills_mount,
+        )
+
+    return wrap_runtime_backend_with_logging(
+        backend,
+        backend_kind=backend_kind,
+        thread_id=thread_id,
     )

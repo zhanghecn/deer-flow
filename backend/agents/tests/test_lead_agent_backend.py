@@ -462,7 +462,7 @@ def test_build_backend_uses_remote_backend_when_requested(monkeypatch, tmp_path)
             remote_session_id="remote-session-1",
         )
 
-    assert backend is remote_backend
+    assert getattr(backend, "__wrapped_backend__", backend) is remote_backend
     assert captured["session_id"] == "remote-session-1"
 
 

@@ -60,6 +60,8 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     security_opt:
       - seccomp=unconfined
+      # Allow bubblewrap inside the shared sandbox container on AppArmor-enabled hosts.
+      - apparmor=unconfined
     networks:
       - openagents-dev
     healthcheck:

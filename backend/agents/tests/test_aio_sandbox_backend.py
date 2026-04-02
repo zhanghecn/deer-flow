@@ -1,3 +1,4 @@
+import logging
 from types import SimpleNamespace
 
 from deepagents.backends.sandbox import BaseSandbox
@@ -149,6 +150,27 @@ def test_aio_sandbox_file_api_rewrites_virtual_paths_into_thread_mount(monkeypat
     download_result = sandbox.download_files(["/mnt/user-data/workspace/demo.txt"])
     assert download_result[0].path == "/mnt/user-data/workspace/demo.txt"
     assert download_result[0].content == b"hello"
+
+
+def test_aio_sandbox_transport_logs_execute_upload_and_download(monkeypatch, caplog):
+    monkeypatch.setattr(aio_sandbox_module, "AioSandboxClient", _DummyClient)
+    caplog.set_level(logging.INFO, logger=aio_sandbox_module.__name__)
+
+    sandbox = aio_sandbox_module.AioSandbox(
+        id="sb-log",
+        base_url="http://sandbox.test",
+        runtime_root="/openagents/threads/thread-log/user-data",
+    )
+
+    sandbox.execute("pwd")
+    sandbox.upload_files([("/mnt/user-data/workspace/demo.txt", b"hello")])
+    sandbox.download_files(["/mnt/user-data/workspace/demo.txt"])
+
+    assert "sandbox-aio transport sandbox_id=sb-log" in caplog.text
+    assert "operation=execute" in caplog.text
+    assert "operation=upload_files" in caplog.text
+    assert "operation=download_files" in caplog.text
+    assert "first_transport_path='/openagents/threads/thread-log/user-data/workspace/demo.txt'" in caplog.text
 
 
 def test_aio_sandbox_ls_info_virtualizes_runtime_root_paths(monkeypatch):

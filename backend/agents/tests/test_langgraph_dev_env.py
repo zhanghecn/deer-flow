@@ -33,7 +33,7 @@ def test_main_passes_merged_runtime_env_to_run_server(tmp_path, monkeypatch):
     project_config = tmp_path / "config.yaml"
     project_config.write_text("runtime:\n  jobs_per_worker: 3\n", encoding="utf-8")
 
-    monkeypatch.setenv("LANGGRAPH_CONFIG", str(config_path))
+    monkeypatch.setenv("OPENAGENTS_LANGGRAPH_CONFIG_PATH", str(config_path))
     monkeypatch.setenv("OPENAGENTS_CONFIG_PATH", str(project_config))
     monkeypatch.setenv("OPENAGENTS_SANDBOX_BASE_URL", "http://sandbox-aio:8080")
     monkeypatch.setenv("DATABASE_URI", "postgresql://from-container-env")

@@ -14,14 +14,16 @@
 - 两个前端都先构建产物，再由一个 Nginx 容器托管
 - `gateway` 和 `langgraph` 不对外暴露端口
 - `sandbox-aio` 和 `onlyoffice` 作为基础能力常驻
-- `gateway` / `langgraph` 只挂一个根仓库目录，避免零碎配置挂载
-- Python 依赖保留在镜像里的 `/opt/venv`，不会因为源码挂载而反复安装
+- `gateway` / `langgraph` 只挂各自需要热更新的源码目录与显式配置文件
+- Python 依赖保留在镜像里的 `/opt/venv`，代码更新只需要重启容器，不会因为源码挂载而反复安装
 
 注意：
 
 - 根目录 `config.yaml` 依然会被挂进正式环境容器
 - 但其中 `sandbox.base_url: http://127.0.0.1:8083` 属于宿主机/开发视角地址
 - 正式环境里 `langgraph` 会用 `OPENAGENTS_SANDBOX_BASE_URL=http://sandbox-aio:8080` 覆盖它
+- `langgraph` 的 inmem 运行时目录固定落在 `.openagents/runtime/langgraph/`
+- `gateway` / `langgraph` 继续输出到容器标准日志，由 Docker 做日志轮转
 - 浏览器访问链路仍然是 `nginx -> gateway -> langgraph -> sandbox-aio`
 
 这份方案更适合：
@@ -103,6 +105,7 @@ docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml
 - 这决定了“这个容器起来后到底跑什么”
 - 例如：
   - `gateway` 跑的是挂载进来的源码 `go run ./cmd/server`
+  - `langgraph` 直接以 `.openagents/runtime/langgraph/` 作为工作目录启动，避免把运行时状态写回源码目录
 
 ### 4. 每个容器是干什么的
 
@@ -280,6 +283,7 @@ onlyoffice:
 - users
 - threads
 - knowledge
+- runtime/langgraph
 
 不要在发版时覆盖或删除这个目录。
 
@@ -347,9 +351,17 @@ docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml
 - `.env`
 - `config.yaml`
 - `backend/gateway/gateway.yaml`
-- 仓库源码
+- `backend/gateway/**`
+- `backend/agents/**`
+- `backend/deepagents/**`
 
-由于 `gateway` 和 `langgraph` 都挂了仓库根目录，所以重启对应容器即可让改动生效。
+由于 prod compose 挂的是这几个服务自己的源码目录，所以重启对应容器即可让改动生效。
+
+补充说明：
+
+- 服务源码在 prod compose 里保持只读挂载，避免运行时把代码树写脏。
+- `langgraph` 的 `.langgraph_api` 运行时文件不再写回源码目录，而是写到 `.openagents/runtime/langgraph/`。
+- `gateway` / `langgraph` 日志继续通过 `docker compose logs` 查看，compose 已配置 Docker 日志轮转。
 
 常见操作：
 

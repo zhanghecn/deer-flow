@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import shlex
+import time
 
 from agent_sandbox import Sandbox as AioSandboxClient
 from agent_sandbox.core.api_error import ApiError
@@ -22,10 +23,37 @@ from src.sandbox.sandbox import Sandbox
 
 logger = logging.getLogger(__name__)
 MAX_READ_LINE_LENGTH = 5000
+MAX_LOG_TEXT_LENGTH = 120
 VIRTUAL_WORKSPACE = f"{VIRTUAL_PATH_PREFIX}/workspace"
 SHELL_PATH = "/usr/bin/bash"
 DEFAULT_EXEC_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 READ_ONLY_BIND_DIRS = ("/usr", "/etc", "/bin", "/lib", "/lib64", "/sbin", "/opt")
+
+
+def _preview_log_text(value: object, *, max_chars: int = MAX_LOG_TEXT_LENGTH) -> str:
+    text = str(value).replace("\n", "\\n")
+    if len(text) <= max_chars:
+        return text
+    return f"{text[: max_chars - 3]}..."
+
+
+def _count_response_errors(responses: list[object]) -> int:
+    error_count = 0
+    for response in responses:
+        error = getattr(response, "error", None)
+        if error is not None:
+            error_count += 1
+    return error_count
+
+
+def _total_downloaded_bytes(responses: list[FileDownloadResponse]) -> int:
+    return sum(len(response.content or b"") for response in responses)
+
+
+def _first_item(values: list[str]) -> str | None:
+    if not values:
+        return None
+    return values[0]
 
 
 class AioSandbox(Sandbox):
@@ -223,12 +251,66 @@ class AioSandbox(Sandbox):
         argv.extend([SHELL_PATH, "-lc", runtime_command])
         return self._quote_command(argv)
 
+    def _log_transport_success(
+        self,
+        *,
+        operation: str,
+        started_at: float,
+        **fields: object,
+    ) -> None:
+        duration_ms = (time.perf_counter() - started_at) * 1000
+        rendered_fields = " ".join(
+            f"{key}={_preview_log_text(value)!r}" if isinstance(value, str) else f"{key}={value}"
+            for key, value in fields.items()
+            if value is not None
+        )
+        suffix = f" {rendered_fields}" if rendered_fields else ""
+        logger.info(
+            "sandbox-aio transport sandbox_id=%s base_url=%s runtime_root=%s operation=%s duration_ms=%.1f%s",
+            self.id,
+            self.base_url,
+            self.runtime_root,
+            operation,
+            duration_ms,
+            suffix,
+        )
+
+    def _log_transport_failure(
+        self,
+        *,
+        operation: str,
+        started_at: float,
+        error: Exception,
+        **fields: object,
+    ) -> None:
+        duration_ms = (time.perf_counter() - started_at) * 1000
+        rendered_fields = " ".join(
+            f"{key}={_preview_log_text(value)!r}" if isinstance(value, str) else f"{key}={value}"
+            for key, value in {
+                **fields,
+                "exception_type": type(error).__name__,
+                "exception": _preview_log_text(error),
+            }.items()
+            if value is not None
+        )
+        suffix = f" {rendered_fields}" if rendered_fields else ""
+        logger.error(
+            "sandbox-aio transport sandbox_id=%s base_url=%s runtime_root=%s operation=%s duration_ms=%.1f%s",
+            self.id,
+            self.base_url,
+            self.runtime_root,
+            operation,
+            duration_ms,
+            suffix,
+        )
+
     def execute(
         self,
         command: str,
         *,
         timeout: int | None = None,
     ) -> ExecuteResponse:
+        started_at = time.perf_counter()
         effective_timeout = timeout if timeout is not None else self._default_timeout
         rewritten_command = (
             self._build_exec_jail_command(command)
@@ -247,13 +329,35 @@ class AioSandbox(Sandbox):
             output = str(self._result_value(result, "output") or "")
             status = str(self._result_value(result, "status") or "")
             exit_code = self._result_value(result, "exit_code")
-            return ExecuteResponse(
+            response = ExecuteResponse(
                 output=output,
                 exit_code=exit_code,
                 truncated=status in {"hard_timeout", "no_change_timeout"},
             )
+            # The runtime backend logger records the virtual command the agent asked
+            # for. We also log the concrete payload sent to sandbox-aio so operators
+            # can verify path rewriting and isolation behavior in production.
+            self._log_transport_success(
+                operation="execute",
+                started_at=started_at,
+                requested_command=command,
+                transport_command=rewritten_command,
+                exec_dir=self.home_dir,
+                timeout=effective_timeout,
+                exit_code=response.exit_code,
+                truncated=response.truncated,
+            )
+            return response
         except Exception as exc:  # noqa: BLE001
-            logger.error("Failed to execute command in sandbox %s: %s", self.id, exc)
+            self._log_transport_failure(
+                operation="execute",
+                started_at=started_at,
+                error=exc,
+                requested_command=command,
+                transport_command=rewritten_command,
+                exec_dir=self.home_dir,
+                timeout=effective_timeout,
+            )
             return ExecuteResponse(
                 output=f"Error executing command in sandbox: {exc}",
                 exit_code=1,
@@ -401,9 +505,12 @@ class AioSandbox(Sandbox):
         return EditResult(path=file_path, files_update=None, occurrences=occurrences)
 
     def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
+        started_at = time.perf_counter()
         responses: list[FileUploadResponse] = []
+        transport_paths: list[str] = []
         for requested_path, content in files:
             path = self._normalize_runtime_path(requested_path)
+            transport_paths.append(path)
             virtual_path = self._to_virtual_runtime_path(path)
             if not self._is_absolute_path(path):
                 responses.append(self._upload_error_for(virtual_path))
@@ -427,12 +534,24 @@ class AioSandbox(Sandbox):
             except Exception as exc:  # noqa: BLE001
                 logger.error("Failed to upload file to sandbox %s: %s", self.id, exc)
                 responses.append(FileUploadResponse(path=virtual_path, error="invalid_path"))
+        self._log_transport_success(
+            operation="upload_files",
+            started_at=started_at,
+            files_count=len(files),
+            first_path=_first_item([path for path, _content in files]),
+            first_transport_path=_first_item(transport_paths),
+            total_bytes=sum(len(content) for _path, content in files),
+            errors=_count_response_errors(responses),
+        )
         return responses
 
     def download_files(self, paths: list[str]) -> list[FileDownloadResponse]:
+        started_at = time.perf_counter()
         responses: list[FileDownloadResponse] = []
+        transport_paths: list[str] = []
         for requested_path in paths:
             path = self._normalize_runtime_path(requested_path)
+            transport_paths.append(path)
             virtual_path = self._to_virtual_runtime_path(path)
             if not self._is_absolute_path(path):
                 responses.append(self._download_error_for(virtual_path))
@@ -462,4 +581,13 @@ class AioSandbox(Sandbox):
             except Exception as exc:  # noqa: BLE001
                 logger.error("Failed to download file from sandbox %s: %s", self.id, exc)
                 responses.append(FileDownloadResponse(path=virtual_path, content=None, error="file_not_found"))
+        self._log_transport_success(
+            operation="download_files",
+            started_at=started_at,
+            files_count=len(paths),
+            first_path=_first_item(paths),
+            first_transport_path=_first_item(transport_paths),
+            total_bytes=_total_downloaded_bytes(responses),
+            errors=_count_response_errors(responses),
+        )
         return responses

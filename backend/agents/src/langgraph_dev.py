@@ -87,7 +87,11 @@ def _required_env(var_name: str) -> str:
 
 
 def _resolve_config_path() -> Path:
-    raw = os.getenv("LANGGRAPH_CONFIG", "langgraph.json").strip() or "langgraph.json"
+    # `LANGGRAPH_CONFIG` is owned by langgraph_api itself and expects an inline
+    # JSON object. OpenAgents keeps its launcher config-path contract on a
+    # separate env var so runtime startup can relocate the working directory
+    # without colliding with upstream env parsing.
+    raw = os.getenv("OPENAGENTS_LANGGRAPH_CONFIG_PATH", "langgraph.json").strip() or "langgraph.json"
     path = Path(raw).expanduser()
     if not path.is_absolute():
         path = (Path.cwd() / path).resolve()

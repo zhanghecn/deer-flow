@@ -57,6 +57,11 @@ For container-only fixed values, compose already owns them:
 - gateway sees `ONLYOFFICE_PUBLIC_APP_URL=http://gateway:8001`
 - gateway/langgraph see `OPENAGENTS_HOME=/openagents-home`
 
+In production compose, do not mount the whole repository into app containers.
+Mount only the service source directories that need hot updates, keep those
+code mounts read-only, and write runtime scratch data under `OPENAGENTS_HOME`.
+Container logs should stay on stdout/stderr and use Docker log rotation.
+
 ## Important Constraint
 
 With one `.env`, `DATABASE_URI` should ideally be reachable from both:
