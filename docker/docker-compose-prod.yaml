@@ -112,6 +112,8 @@ services:
       - seccomp=unconfined
       # bwrap 会在 sandbox-aio 容器里做 mount / namespace 隔离，Ubuntu 服务器上常被默认 AppArmor 拦住。
       - apparmor=unconfined
+      # Docker 默认会屏蔽一部分 /proc system paths，bwrap 重新挂 proc 时会被这里拦住。
+      - systempaths=unconfined
     volumes:
       # 运行时线程目录、产物、缓存都写到仓库根目录的 .openagents 下。
       - ../.openagents:/openagents

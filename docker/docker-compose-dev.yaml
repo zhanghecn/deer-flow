@@ -62,6 +62,8 @@ services:
       - seccomp=unconfined
       # Allow bubblewrap inside the shared sandbox container on AppArmor-enabled hosts.
       - apparmor=unconfined
+      # Bubblewrap also needs Docker's masked/read-only system paths relaxed so it can mount procfs.
+      - systempaths=unconfined
     networks:
       - openagents-dev
     healthcheck:
