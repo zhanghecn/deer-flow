@@ -2,11 +2,18 @@
 FROM python:3.12-slim-bookworm
 
 ARG UV_PACKAGE_INDEX="https://mirrors.ustc.edu.cn/pypi/simple"
+ARG DEBIAN_MIRROR="https://mirrors.ustc.edu.cn"
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN sed -i "s|http://deb.debian.org/debian|${DEBIAN_MIRROR}/debian|g; s|http://deb.debian.org/debian-security|${DEBIAN_MIRROR}/debian-security|g" /etc/apt/sources.list.d/debian.sources \
+    && apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
+    git \
+    # `install_skill_from_registry` shells out to `npx skills add ...`, so the
+    # runtime image must ship Node/npm instead of assuming the host provides it.
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv from the package index instead of the standalone installer so the

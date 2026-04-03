@@ -1,10 +1,15 @@
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 
 import yaml
 
 from src.agents.lead_agent.agent import LeadAgentRuntimeContext
 from src.config.paths import Paths
+from src.tools.builtins.authoring_persistence import (
+    RegistryInstalledSkill,
+    RegistrySkillInstallResult,
+    RegistrySkippedSkill,
+)
 from src.tools.builtins.install_skill_from_registry_tool import install_skill_from_registry
 from src.tools.builtins.push_agent_prod_tool import push_agent_prod
 from src.tools.builtins.push_skill_prod_tool import push_skill_prod
@@ -140,7 +145,7 @@ def test_setup_agent_accepts_typed_runtime_context(monkeypatch):
     monkeypatch.setattr(
         "src.tools.builtins.setup_agent_tool.get_paths",
         lambda: SimpleNamespace(
-            agent_dir=lambda name, status: f"/tmp/{status}/{name}",
+            agent_dir=lambda name, status: Path(f"/tmp/{status}/{name}"),
         ),
     )
 
@@ -445,7 +450,7 @@ def test_setup_agent_forwards_explicit_skill_source_path(monkeypatch):
     monkeypatch.setattr(
         "src.tools.builtins.setup_agent_tool.get_paths",
         lambda: SimpleNamespace(
-            agent_dir=lambda name, status: f"/tmp/{status}/{name}",
+            agent_dir=lambda name, status: Path(f"/tmp/{status}/{name}"),
         ),
     )
 
@@ -605,7 +610,15 @@ def test_install_skill_from_registry_tool_returns_success_message(monkeypatch):
     )
     monkeypatch.setattr(
         "src.tools.builtins.install_skill_from_registry_tool.install_registry_skill_to_store",
-        lambda source, skill_name, paths: ("copywriting", "/store/dev/copywriting"),
+        lambda source, skill_name, paths: RegistrySkillInstallResult(
+            installed_skills=(
+                RegistryInstalledSkill(
+                    name="copywriting",
+                    relative_path=PurePosixPath("copywriting"),
+                    target_dir=Path("/store/dev/copywriting"),
+                ),
+            ),
+        ),
     )
 
     runtime = SimpleNamespace(
@@ -619,6 +632,50 @@ def test_install_skill_from_registry_tool_returns_success_message(monkeypatch):
     )
 
     assert "copywriting" in result
+
+
+def test_install_skill_from_registry_tool_summarizes_repo_root_install(monkeypatch):
+    monkeypatch.setattr(
+        "src.tools.builtins.install_skill_from_registry_tool.get_paths",
+        lambda: object(),
+    )
+    monkeypatch.setattr(
+        "src.tools.builtins.install_skill_from_registry_tool.install_registry_skill_to_store",
+        lambda source, skill_name, paths: RegistrySkillInstallResult(
+            installed_skills=(
+                RegistryInstalledSkill(
+                    name="alpha-skill",
+                    relative_path=PurePosixPath("alpha-skill"),
+                    target_dir=Path("/store/dev/alpha-skill"),
+                ),
+                RegistryInstalledSkill(
+                    name="beta-skill",
+                    relative_path=PurePosixPath("beta-skill"),
+                    target_dir=Path("/store/dev/beta-skill"),
+                ),
+            ),
+            skipped_skills=(
+                RegistrySkippedSkill(
+                    relative_path=PurePosixPath("gamma-skill"),
+                    existing_scopes=("store/prod",),
+                ),
+            ),
+        ),
+    )
+
+    runtime = SimpleNamespace(
+        context=LeadAgentRuntimeContext(agent_status="dev"),
+        tool_call_id="tc-3-bulk",
+    )
+
+    result = install_skill_from_registry.func(
+        runtime=runtime,
+        source="https://github.com/MiniMax-AI/skills.git",
+    )
+
+    assert "Installed 2 skills" in result
+    assert "alpha-skill, beta-skill" in result
+    assert "gamma-skill (store/prod)" in result
 
 
 def test_install_skill_from_registry_rejects_duplicate_archive_skill_during_create_agent(monkeypatch):

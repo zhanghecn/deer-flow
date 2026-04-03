@@ -1,6 +1,6 @@
 ---
 name: find-skills
-description: Helps users discover and install agent skills when they ask questions like "how do I do X", "find a skill for X", "is there a skill that can...", or express interest in extending capabilities. This skill should be used when the user is looking for functionality that might exist as an installable skill.
+description: Helps users discover, reuse, and install agent skills. Use this skill when the user wants capabilities that may exist as installable skills, including when they paste a bare registry reference, skill marketplace source, or GitHub repository/path that appears to be a skills library.
 ---
 
 # Find Skills
@@ -13,6 +13,7 @@ Use this skill when the user wants an existing skill from the current skills eco
 - The local archived store lives under `/mnt/skills/store/dev/...` and `/mnt/skills/store/prod/...`.
 - Use normal file-reading tools such as `ls`, `glob`, `grep`, and `read_file` to locate candidate skills and inspect their `SKILL.md`.
 - If a suitable local archived skill already exists, reuse it. Do not install or create a duplicate just because an external registry also has something similar.
+- If the user pastes a bare GitHub repo or path that appears to be a skills library, treat it as a discovery/install lead rather than defaulting to repository research.
 - When a local skill is selected for agent creation, keep its exact `source_path` such as `store/dev/contract-review` or `store/prod/frontend-design`.
 - Only run external registry discovery when the user explicitly wants installation, or when no suitable local archived skill exists.
 - When a missing skill should be installed for a dev workflow, prefer the built-in `install_skill_from_registry` tool.
@@ -30,6 +31,13 @@ Identify:
 1. The domain, such as design, video, writing, coding, testing, deployment, or research
 2. The specific job the user wants done
 3. Whether the user wants local skill reuse only, local reuse plus agent creation, or external discovery / installation
+
+Special handling for external sources:
+
+- A bare GitHub repo or path can still mean "help me install or reuse skills from here" even if the user did not literally say "install".
+- If the user explicitly asks to install everything from a bare repo root or multi-skill catalog, call `install_skill_from_registry(source="<repo-root-or-url>")` directly. Do not detour through `web_fetch`, repository research, or shell installation first.
+- If the source points to a single installable skill, continue the install workflow.
+- If the source looks like a multi-skill catalog or repository root and the user only wants discovery, inspect it enough to identify installable candidates, then ask a focused follow-up or present the best candidates.
 
 ### Step 2: Search the Local Archived Store First
 
@@ -93,12 +101,25 @@ vercel-labs/agent-skills@vercel-react-best-practices
 └ https://skills.sh/vercel-labs/agent-skills/vercel-react-best-practices
 ```
 
+If the user supplied a GitHub source directly:
+
+1. Determine whether it is a single skill path or a multi-skill repository.
+2. If the user explicitly asked to install everything from that repo root, call `install_skill_from_registry(source="<repo-root-or-url>")` directly.
+3. If it is a multi-skill repository and the user only wants discovery, identify candidate skills first instead of claiming success on the whole repo.
+4. Convert to a concrete installable source only when you know the exact skill to install.
+
 ### Step 5: Install Only Through the Durable Path
 
 If the user explicitly wants installation in a dev workflow, call:
 
 ```text
 install_skill_from_registry(source="owner/repo@skill-name")
+```
+
+For a bare registry repo or GitHub repo root that should install everything it exposes, call:
+
+```text
+install_skill_from_registry(source="https://github.com/owner/skills.git")
 ```
 
 After the tool succeeds:

@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from fcntl import LOCK_EX, LOCK_UN, flock
 from pathlib import Path, PurePosixPath
-import re
 
 import yaml
 from langgraph.prebuilt import ToolRuntime
@@ -131,7 +132,10 @@ def _existing_skill_scopes(*, skill_name: PurePosixPath, paths: Paths) -> tuple[
     return tuple(scopes)
 
 
-def _registry_skill_name(skill_source: str, explicit_skill_name: str | None = None) -> PurePosixPath:
+def _requested_registry_skill_path(
+    skill_source: str,
+    explicit_skill_name: str | None = None,
+) -> PurePosixPath | None:
     normalized_source = str(skill_source).strip()
     if not normalized_source:
         raise ValueError("source is required.")
@@ -140,7 +144,7 @@ def _registry_skill_name(skill_source: str, explicit_skill_name: str | None = No
         return _normalize_skill_path(explicit_skill_name)
 
     if "@" not in normalized_source:
-        raise ValueError("skill_name is required when source does not include '@skill-name'.")
+        return None
 
     return _normalize_skill_path(normalized_source.rsplit("@", 1)[-1])
 
@@ -156,6 +160,32 @@ _FAILURE_MESSAGE_HINTS = (
     "unable",
     "cannot",
 )
+
+
+@dataclass(frozen=True)
+class RegistryInstalledSkill:
+    name: str
+    relative_path: PurePosixPath
+    target_dir: Path
+
+
+@dataclass(frozen=True)
+class RegistrySkippedSkill:
+    relative_path: PurePosixPath
+    existing_scopes: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class RegistrySkillInstallResult:
+    installed_skills: tuple[RegistryInstalledSkill, ...]
+    skipped_skills: tuple[RegistrySkippedSkill, ...] = ()
+
+
+@dataclass(frozen=True)
+class _DownloadedRegistrySkill:
+    name: str
+    relative_path: PurePosixPath
+    source_dir: Path
 
 
 def _normalize_subprocess_output_line(line: str) -> str:
@@ -183,23 +213,75 @@ def _subprocess_failure_message(result: subprocess.CompletedProcess[str]) -> str
     return f"command exited with code {result.returncode}"
 
 
+def _discover_downloaded_registry_skills(download_root: Path) -> list[_DownloadedRegistrySkill]:
+    _require_directory(download_root, label="downloaded skills")
+
+    discovered: list[_DownloadedRegistrySkill] = []
+    seen_paths: set[PurePosixPath] = set()
+
+    for current_root, dir_names, file_names in os.walk(download_root):
+        dir_names[:] = sorted(name for name in dir_names if not name.startswith("."))
+        if "SKILL.md" not in file_names:
+            continue
+
+        skill_dir = Path(current_root)
+        relative_path = PurePosixPath(skill_dir.relative_to(download_root).as_posix())
+        if relative_path in seen_paths:
+            continue
+
+        parsed = parse_skill_file(
+            skill_dir / "SKILL.md",
+            category="store/dev",
+            relative_path=Path(relative_path.as_posix()),
+        )
+        if parsed is None:
+            raise ValueError(f"Valid SKILL.md is required: {skill_dir / 'SKILL.md'}")
+
+        discovered.append(
+            _DownloadedRegistrySkill(
+                name=parsed.name,
+                relative_path=relative_path,
+                source_dir=skill_dir,
+            )
+        )
+        seen_paths.add(relative_path)
+
+    if not discovered:
+        raise ValueError(f"Registry source did not install any skills under '{download_root}'.")
+
+    return sorted(discovered, key=lambda skill: skill.relative_path.as_posix())
+
+
+def _selected_downloaded_registry_skills(
+    *,
+    source: str,
+    requested_skill_path: PurePosixPath | None,
+    downloaded_skills: list[_DownloadedRegistrySkill],
+) -> tuple[list[_DownloadedRegistrySkill], bool]:
+    if requested_skill_path is None:
+        return downloaded_skills, True
+
+    selected_skills = [
+        skill
+        for skill in downloaded_skills
+        if skill.relative_path == requested_skill_path
+    ]
+    if not selected_skills:
+        raise ValueError(
+            f"Registry source '{source}' did not install skill '{requested_skill_path.as_posix()}'."
+        )
+    return selected_skills, False
+
+
 def install_registry_skill_to_store(
     *,
     source: str,
     skill_name: str | None = None,
     paths: Paths | None = None,
-) -> tuple[str, Path]:
+) -> RegistrySkillInstallResult:
     paths = paths or get_paths()
     normalized_source = str(source).strip()
-    resolved_skill_name = _registry_skill_name(normalized_source, skill_name)
-
-    existing_scopes = _existing_skill_scopes(skill_name=resolved_skill_name, paths=paths)
-    runtime_scopes = tuple(
-        scope for scope in existing_scopes if scope in {"store/dev", "store/prod"}
-    )
-    if runtime_scopes:
-        scopes = ", ".join(runtime_scopes)
-        raise ValueError(f"Skill '{resolved_skill_name.as_posix()}' already exists in {scopes}.")
+    requested_skill_path = _requested_registry_skill_path(normalized_source, skill_name)
 
     with _acquire_skill_install_lock(paths):
         with tempfile.TemporaryDirectory(prefix="openagents-skill-install-") as temp_home:
@@ -224,26 +306,60 @@ def install_registry_skill_to_store(
                     f"Failed to install registry skill '{normalized_source}': {_subprocess_failure_message(result)}"
                 )
 
-            downloaded_dir = temp_home_path / ".agents" / "skills" / Path(resolved_skill_name.as_posix())
-            validate_skill_directory(downloaded_dir)
-
-            parsed = parse_skill_file(
-                downloaded_dir / "SKILL.md",
-                category="store/dev",
-                relative_path=Path(resolved_skill_name.as_posix()),
+            downloaded_skills = _discover_downloaded_registry_skills(temp_home_path / ".agents" / "skills")
+            selected_skills, install_all_from_source = _selected_downloaded_registry_skills(
+                source=normalized_source,
+                requested_skill_path=requested_skill_path,
+                downloaded_skills=downloaded_skills,
             )
-            if parsed is None:
-                raise ValueError(f"Valid SKILL.md is required: {downloaded_dir / 'SKILL.md'}")
-            if parsed.name != resolved_skill_name.name:
-                raise ValueError(
-                    f"Installed skill name mismatch: expected '{resolved_skill_name.name}', got '{parsed.name}'."
+
+            installed_skills: list[RegistryInstalledSkill] = []
+            skipped_skills: list[RegistrySkippedSkill] = []
+
+            # The skills CLI already resolves whether a bare source is a single skill
+            # or a multi-skill repo. We preserve the resulting directory layout so the
+            # archived store stays aligned with the registry's canonical paths.
+            for downloaded_skill in selected_skills:
+                runtime_scopes = tuple(
+                    scope
+                    for scope in _existing_skill_scopes(
+                        skill_name=downloaded_skill.relative_path,
+                        paths=paths,
+                    )
+                    if scope in {"store/dev", "store/prod"}
+                )
+                if runtime_scopes:
+                    if install_all_from_source:
+                        skipped_skills.append(
+                            RegistrySkippedSkill(
+                                relative_path=downloaded_skill.relative_path,
+                                existing_scopes=runtime_scopes,
+                            )
+                        )
+                        continue
+
+                    scopes = ", ".join(runtime_scopes)
+                    raise ValueError(
+                        f"Skill '{downloaded_skill.relative_path.as_posix()}' already exists in {scopes}."
+                    )
+
+                validate_skill_directory(downloaded_skill.source_dir)
+                target_dir, _backup_dir = _copy_directory(
+                    downloaded_skill.source_dir,
+                    paths.store_dev_skills_dir / Path(downloaded_skill.relative_path.as_posix()),
+                )
+                installed_skills.append(
+                    RegistryInstalledSkill(
+                        name=downloaded_skill.name,
+                        relative_path=downloaded_skill.relative_path,
+                        target_dir=target_dir,
+                    )
                 )
 
-            target_dir, _backup_dir = _copy_directory(
-                downloaded_dir,
-                paths.store_dev_skills_dir / Path(resolved_skill_name.as_posix()),
+            return RegistrySkillInstallResult(
+                installed_skills=tuple(installed_skills),
+                skipped_skills=tuple(skipped_skills),
             )
-            return parsed.name, target_dir
 
 
 def validate_agent_directory(

@@ -6,7 +6,10 @@ from langgraph.prebuilt import ToolRuntime
 
 from src.config.paths import get_paths
 from src.skills import find_archived_skills_by_name, skill_source_path
-from src.tools.builtins.authoring_persistence import install_registry_skill_to_store
+from src.tools.builtins.authoring_persistence import (
+    RegistrySkillInstallResult,
+    install_registry_skill_to_store,
+)
 from src.utils.runtime_context import runtime_context_value
 
 logger = logging.getLogger(__name__)
@@ -35,6 +38,29 @@ def _archive_source_path(match: object) -> str:
     return Path(category, skill_path or fallback_name).as_posix()
 
 
+def _format_install_result(result: RegistrySkillInstallResult) -> str:
+    installed_names = [skill.name for skill in result.installed_skills]
+    skipped_labels = [
+        f"{skill.relative_path.as_posix()} ({', '.join(skill.existing_scopes)})"
+        for skill in result.skipped_skills
+    ]
+
+    if len(installed_names) == 1 and not skipped_labels:
+        return f"Skill '{installed_names[0]}' installed successfully to .openagents/skills/store/dev."
+
+    if installed_names:
+        summary = (
+            f"Installed {len(installed_names)} skills to .openagents/skills/store/dev: "
+            f"{', '.join(installed_names)}."
+        )
+    else:
+        summary = "No new skills were installed into .openagents/skills/store/dev."
+
+    if skipped_labels:
+        return f"{summary} Skipped existing skills: {', '.join(skipped_labels)}."
+    return summary
+
+
 @tool
 def install_skill_from_registry(
     runtime: ToolRuntime,
@@ -44,8 +70,8 @@ def install_skill_from_registry(
     """Download an external registry skill and persist it into the dev skill store.
 
     Args:
-        source: Registry reference like `owner/repo@skill-name`.
-        skill_name: Optional explicit skill name when the source does not include `@skill-name`.
+        source: Registry reference like `owner/repo@skill-name` or a bare repo URL/path.
+        skill_name: Optional explicit skill name when selecting one skill from a broader source.
     """
 
     try:
@@ -70,12 +96,12 @@ def install_skill_from_registry(
                     "instead of reinstalling it from the registry."
                 )
 
-        installed_name, _target_dir = install_registry_skill_to_store(
+        result = install_registry_skill_to_store(
             source=source,
             skill_name=skill_name,
             paths=get_paths(),
         )
-        return f"Skill '{installed_name}' installed successfully to .openagents/skills/store/dev."
+        return _format_install_result(result)
     except Exception as exc:
         logger.error("Failed to install registry skill '%s': %s", source, exc, exc_info=True)
         return f"Error: {exc}"

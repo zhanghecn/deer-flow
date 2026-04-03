@@ -1,10 +1,11 @@
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import subprocess
 
 import pytest
 
 from src.config.paths import Paths
 from src.tools.builtins.authoring_persistence import (
+    RegistrySkippedSkill,
     install_registry_skill_to_store,
     push_agent_directory_to_prod,
     push_skill_directory_to_prod,
@@ -88,14 +89,16 @@ def test_install_registry_skill_to_store_downloads_into_dev_store(tmp_path: Path
 
     monkeypatch.setattr("src.tools.builtins.authoring_persistence.subprocess.run", fake_run)
 
-    installed_name, target_dir = install_registry_skill_to_store(
+    result = install_registry_skill_to_store(
         source="coreyhaines31/marketingskills@copywriting",
         paths=paths,
     )
 
-    assert installed_name == "copywriting"
-    assert target_dir == paths.store_dev_skills_dir / "copywriting"
-    assert (target_dir / "SKILL.md").exists()
+    assert [skill.name for skill in result.installed_skills] == ["copywriting"]
+    assert [skill.relative_path for skill in result.installed_skills] == [PurePosixPath("copywriting")]
+    assert [skill.target_dir for skill in result.installed_skills] == [paths.store_dev_skills_dir / "copywriting"]
+    assert result.skipped_skills == ()
+    assert (paths.store_dev_skills_dir / "copywriting" / "SKILL.md").exists()
     assert state["home"]
     assert state["npm_config_yes"] == "true"
     assert state["args"].startswith("npx --yes skills add ")
@@ -142,6 +145,60 @@ npm notice New major version of npm available!
             source="vercel-labs/agent-skills@playwright-best-practices",
             paths=paths,
         )
+
+
+def test_install_registry_skill_to_store_installs_all_skills_from_repo_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
+
+    def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        home = Path(str((kwargs.get("env") or {}).get("HOME")))
+        _write_skill(home / ".agents" / "skills" / "alpha-skill", "alpha-skill", "Alpha")
+        _write_skill(home / ".agents" / "skills" / "beta-skill", "beta-skill", "Beta")
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("src.tools.builtins.authoring_persistence.subprocess.run", fake_run)
+
+    result = install_registry_skill_to_store(
+        source="https://github.com/MiniMax-AI/skills.git",
+        paths=paths,
+    )
+
+    assert [skill.name for skill in result.installed_skills] == ["alpha-skill", "beta-skill"]
+    assert [skill.relative_path.as_posix() for skill in result.installed_skills] == ["alpha-skill", "beta-skill"]
+    assert result.skipped_skills == ()
+    assert (paths.store_dev_skills_dir / "alpha-skill" / "SKILL.md").exists()
+    assert (paths.store_dev_skills_dir / "beta-skill" / "SKILL.md").exists()
+
+
+def test_install_registry_skill_to_store_skips_existing_repo_root_skills(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
+    _write_skill(paths.store_prod_skills_dir / "alpha-skill", "alpha-skill", "Existing alpha")
+
+    def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        home = Path(str((kwargs.get("env") or {}).get("HOME")))
+        _write_skill(home / ".agents" / "skills" / "alpha-skill", "alpha-skill", "Alpha")
+        _write_skill(home / ".agents" / "skills" / "beta-skill", "beta-skill", "Beta")
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout="ok", stderr="")
+
+    monkeypatch.setattr("src.tools.builtins.authoring_persistence.subprocess.run", fake_run)
+
+    result = install_registry_skill_to_store(
+        source="https://github.com/MiniMax-AI/skills.git",
+        paths=paths,
+    )
+
+    assert [skill.name for skill in result.installed_skills] == ["beta-skill"]
+    assert result.skipped_skills == (
+        RegistrySkippedSkill(relative_path=PurePosixPath("alpha-skill"), existing_scopes=("store/prod",)),
+    )
+    assert not (paths.store_dev_skills_dir / "alpha-skill").exists()
+    assert (paths.store_dev_skills_dir / "beta-skill" / "SKILL.md").exists()
 
 
 def test_save_agent_directory_to_store_accepts_runtime_agent_copy(tmp_path: Path):
