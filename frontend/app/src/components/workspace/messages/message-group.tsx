@@ -84,9 +84,6 @@ export function MessageGroup({
   const [showAbove, setShowAbove] = useState(
     env.VITE_STATIC_WEBSITE_ONLY === "true",
   );
-  const [showLastThinking, setShowLastThinking] = useState(
-    env.VITE_STATIC_WEBSITE_ONLY === "true",
-  );
   const steps = useMemo(() => convertToSteps(messages), [messages]);
   const lastToolCallStep = useMemo(() => {
     const filteredSteps = steps.filter((step) => step.type === "toolCall");
@@ -152,77 +149,50 @@ export function MessageGroup({
           ></ChainOfThoughtStep>
         </Button>
       )}
-      {lastToolCallStep && (
-        <ChainOfThoughtContent className="px-4 pb-2">
-          {showAbove &&
-            aboveLastToolCallSteps.map((step) =>
-              step.type === "reasoning" ? (
-                <ChainOfThoughtStep
-                  key={step.id}
-                  label={
-                    <MarkdownContent
-                      content={step.reasoning ?? ""}
-                      isLoading={isLoading}
-                      rehypePlugins={workspaceMessageRehypePlugins}
-                    />
-                  }
-                ></ChainOfThoughtStep>
-              ) : (
-                <ToolCall key={step.id} {...step} isLoading={isLoading} />
-              ),
-            )}
-          {lastToolCallStep && (
-            <FlipDisplay uniqueKey={lastToolCallStep.id ?? ""}>
-              <ToolCall
-                key={lastToolCallStep.id}
-                {...lastToolCallStep}
-                isLast={true}
-                isLoading={isLoading}
-              />
-            </FlipDisplay>
-          )}
-        </ChainOfThoughtContent>
-      )}
-      {visibleLastReasoningStep && (
-        <>
-          <Button
-            key={visibleLastReasoningStep.id}
-            className="w-full items-start justify-start text-left"
-            variant="ghost"
-            onClick={() => setShowLastThinking(!showLastThinking)}
-          >
-            <div className="flex w-full items-center justify-between">
+      <ChainOfThoughtContent className="px-4 pb-2">
+        {/* Hide older steps behind an explicit toggle so long tool chains do not make the active message column sluggish. */}
+        {showAbove &&
+          aboveLastToolCallSteps.map((step) =>
+            step.type === "reasoning" ? (
               <ChainOfThoughtStep
-                className="font-normal"
-                label={t.common.thinking}
-                icon={LightbulbIcon}
-              ></ChainOfThoughtStep>
-              <div>
-                <ChevronUp
-                  className={cn(
-                    "text-muted-foreground size-4",
-                    showLastThinking ? "" : "rotate-180",
-                  )}
-                />
-              </div>
-            </div>
-          </Button>
-          {showLastThinking && (
-            <ChainOfThoughtContent className="px-4 pb-2">
-              <ChainOfThoughtStep
-                key={visibleLastReasoningStep.id}
+                key={step.id}
                 label={
                   <MarkdownContent
-                    content={visibleLastReasoningStep.reasoning ?? ""}
+                    content={step.reasoning ?? ""}
                     isLoading={isLoading}
                     rehypePlugins={workspaceMessageRehypePlugins}
                   />
                 }
               ></ChainOfThoughtStep>
-            </ChainOfThoughtContent>
+            ) : (
+              <ToolCall key={step.id} {...step} isLoading={isLoading} />
+            ),
           )}
-        </>
-      )}
+        {lastToolCallStep && (
+          <FlipDisplay uniqueKey={lastToolCallStep.id ?? ""}>
+            <ToolCall
+              key={lastToolCallStep.id}
+              {...lastToolCallStep}
+              isLast={true}
+              isLoading={isLoading}
+            />
+          </FlipDisplay>
+        )}
+        {visibleLastReasoningStep && (
+          <ChainOfThoughtStep
+            key={visibleLastReasoningStep.id}
+            className="font-normal"
+            label={t.common.thinking}
+            icon={LightbulbIcon}
+          >
+            <MarkdownContent
+              content={visibleLastReasoningStep.reasoning ?? ""}
+              isLoading={isLoading}
+              rehypePlugins={workspaceMessageRehypePlugins}
+            />
+          </ChainOfThoughtStep>
+        )}
+      </ChainOfThoughtContent>
     </ChainOfThought>
   );
 }
@@ -447,22 +417,28 @@ function ToolCall({
         label={description ?? t.toolCalls.executeCommand}
         icon={SquareTerminalIcon}
       >
-        {command && (
-          <CodeBlock
-            className="mx-0 cursor-pointer border-none px-0"
-            showLineNumbers={false}
-            language="bash"
-            code={command}
-          />
-        )}
-        {typeof result === "string" && result.trim() && (
-          <CodeBlock
-            className="mx-0 border-none px-0"
-            showLineNumbers={false}
-            language="bash"
-            code={result}
-          />
-        )}
+        <div className="space-y-2">
+          {command && (
+            <CodeBlock
+              className="mx-0 overflow-hidden border-border/60 px-0 shadow-sm"
+              showLineNumbers={false}
+              language="bash"
+              code={command}
+              renderMode="highlight"
+              wrapLongLines={false}
+            />
+          )}
+          {typeof result === "string" && result.trim() && (
+            <CodeBlock
+              className="mx-0 overflow-hidden border-border/60 px-0 shadow-sm"
+              showLineNumbers={false}
+              language="bash"
+              code={result}
+              renderMode="auto"
+              wrapLongLines={false}
+            />
+          )}
+        </div>
       </ChainOfThoughtStep>
     );
   } else if (name === "grep") {
@@ -484,6 +460,8 @@ function ToolCall({
             showLineNumbers={false}
             language="bash"
             code={pattern}
+            renderMode="plain"
+            wrapLongLines={false}
           />
         )}
         {path && (
@@ -520,6 +498,8 @@ function ToolCall({
             showLineNumbers={false}
             language="bash"
             code={pattern}
+            renderMode="plain"
+            wrapLongLines={false}
           />
         )}
         {path && (

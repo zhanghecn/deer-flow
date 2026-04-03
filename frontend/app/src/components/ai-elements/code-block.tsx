@@ -7,15 +7,19 @@ import {
   type HTMLAttributes,
   useContext,
   useEffect,
-  useRef,
   useState,
 } from "react";
 import { type BundledLanguage, codeToHtml, type ShikiTransformer } from "shiki";
+
+type CodeBlockRenderMode = "auto" | "highlight" | "plain";
 
 type CodeBlockProps = HTMLAttributes<HTMLDivElement> & {
   code: string;
   language: BundledLanguage;
   showLineNumbers?: boolean;
+  renderMode?: CodeBlockRenderMode;
+  viewportClassName?: string;
+  wrapLongLines?: boolean;
 };
 
 type CodeBlockContextType = {
@@ -70,52 +74,99 @@ export async function highlightCode(
   ]);
 }
 
+function shouldUsePlainTextRender(code: string, renderMode: CodeBlockRenderMode) {
+  if (renderMode === "plain") {
+    return true;
+  }
+  if (renderMode === "highlight") {
+    return false;
+  }
+
+  const lineCount = code.split("\n").length;
+  return code.length > 12_000 || lineCount > 200;
+}
+
 export const CodeBlock = ({
   code,
   language,
   showLineNumbers = false,
+  renderMode = "auto",
+  viewportClassName,
+  wrapLongLines = true,
   className,
   children,
   ...props
 }: CodeBlockProps) => {
   const [html, setHtml] = useState<string>("");
   const [darkHtml, setDarkHtml] = useState<string>("");
-  const mounted = useRef(false);
+  const shouldUsePlainText = shouldUsePlainTextRender(code, renderMode);
+  const viewportClasses = cn(
+    "overflow-auto font-mono text-sm",
+    viewportClassName,
+    wrapLongLines ? "whitespace-pre-wrap break-words" : "whitespace-pre",
+  );
 
   useEffect(() => {
+    if (shouldUsePlainText) {
+      setHtml("");
+      setDarkHtml("");
+      return;
+    }
+
+    let cancelled = false;
+
     highlightCode(code, language, showLineNumbers).then(([light, dark]) => {
-      if (!mounted.current) {
+      if (!cancelled) {
         setHtml(light);
         setDarkHtml(dark);
-        mounted.current = true;
       }
     });
 
     return () => {
-      mounted.current = false;
+      cancelled = true;
     };
-  }, [code, language, showLineNumbers]);
+  }, [code, language, showLineNumbers, shouldUsePlainText]);
 
   return (
     <CodeBlockContext.Provider value={{ code }}>
       <div
         className={cn(
-          "group bg-background text-foreground relative size-full overflow-hidden rounded-md border",
+          "group bg-background text-foreground relative w-full overflow-hidden rounded-md border",
           className,
         )}
         {...props}
       >
-        <div className="relative size-full">
-          <div
-            className="[&>pre]:bg-background! [&>pre]:text-foreground! size-full overflow-auto dark:hidden [&_code]:font-mono [&_code]:text-sm [&>pre]:m-0 [&>pre]:text-sm [&>pre]:whitespace-pre-wrap"
-            // biome-ignore lint/security/noDangerouslySetInnerHtml: "this is needed."
-            dangerouslySetInnerHTML={{ __html: html }}
-          />
-          <div
-            className="[&>pre]:bg-background! [&>pre]:text-foreground! hidden size-full overflow-auto dark:block [&_code]:font-mono [&_code]:text-sm [&>pre]:m-0 [&>pre]:text-sm [&>pre]:whitespace-pre-wrap"
-            // biome-ignore lint/security/noDangerouslySetInnerHtml: "this is needed."
-            dangerouslySetInnerHTML={{ __html: darkHtml }}
-          />
+        <div className="relative w-full">
+          {shouldUsePlainText ? (
+            <pre className={cn("bg-background text-foreground m-0 p-3", viewportClasses)}>
+              {code}
+            </pre>
+          ) : (
+            <>
+              <div
+                className={cn(
+                  "[&>pre]:bg-background! [&>pre]:text-foreground! overflow-auto dark:hidden [&_code]:font-mono [&_code]:text-sm [&>pre]:m-0 [&>pre]:p-3 [&>pre]:text-sm",
+                  wrapLongLines
+                    ? "[&>pre]:whitespace-pre-wrap"
+                    : "[&>pre]:min-w-max [&>pre]:whitespace-pre",
+                  viewportClassName,
+                )}
+                // biome-ignore lint/security/noDangerouslySetInnerHtml: "this is needed."
+                dangerouslySetInnerHTML={{ __html: html }}
+              />
+              <div
+                className={cn(
+                  "[&>pre]:bg-background! [&>pre]:text-foreground! hidden overflow-auto dark:block [&_code]:font-mono [&_code]:text-sm [&>pre]:m-0 [&>pre]:p-3 [&>pre]:text-sm",
+                  wrapLongLines
+                    ? "[&>pre]:whitespace-pre-wrap"
+                    : "[&>pre]:min-w-max [&>pre]:whitespace-pre",
+                  viewportClassName,
+                )}
+                // biome-ignore lint/security/noDangerouslySetInnerHtml: "this is needed."
+                dangerouslySetInnerHTML={{ __html: darkHtml }}
+              />
+            </>
+          )}
           {children && (
             <div className="absolute top-2 right-2 flex items-center gap-2">
               {children}

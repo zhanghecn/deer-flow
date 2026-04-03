@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { MessageGroup, shouldShowTrailingReasoning } from "./message-group";
@@ -39,7 +39,19 @@ vi.mock("../artifacts", () => ({
 }));
 
 vi.mock("@/components/ai-elements/code-block", () => ({
-  CodeBlock: ({ code }: { code: string }) => <pre>{code}</pre>,
+  CodeBlock: ({
+    code,
+    renderMode,
+    viewportClassName,
+  }: {
+    code: string;
+    renderMode?: string;
+    viewportClassName?: string;
+  }) => (
+    <pre data-render-mode={renderMode} data-viewport-class={viewportClassName}>
+      {code}
+    </pre>
+  ),
 }));
 
 describe("shouldShowTrailingReasoning", () => {
@@ -127,5 +139,100 @@ describe("MessageGroup tool display", () => {
         element?.textContent === "gem\n[Command succeeded with exit code 0]",
       ),
     ).toBeInTheDocument();
+    expect(screen.getByText("whoami")).toHaveAttribute(
+      "data-render-mode",
+      "highlight",
+    );
+    expect(screen.getByText("whoami")).not.toHaveAttribute(
+      "data-viewport-class",
+    );
+  });
+
+  it("allows older tool steps to stay collapsed until expanded", () => {
+    render(
+      <MessageGroup
+        messages={[
+          {
+            id: "ai-1",
+            type: "ai",
+            content: "",
+            tool_calls: [
+              {
+                id: "tool-1",
+                name: "read_file",
+                args: {
+                  file_path: "/mnt/user-data/project/README.md",
+                },
+              },
+              {
+                id: "tool-2",
+                name: "execute",
+                args: {
+                  command: "pwd",
+                },
+              },
+            ],
+          },
+          {
+            id: "tool-msg-1",
+            type: "tool",
+            tool_call_id: "tool-1",
+            content: "file contents",
+          },
+          {
+            id: "tool-msg-2",
+            type: "tool",
+            tool_call_id: "tool-2",
+            content: "/mnt/user-data/project",
+          },
+        ]}
+      />,
+    );
+
+    expect(
+      screen.queryByText("/mnt/user-data/project/README.md"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("pwd")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("1 more steps"));
+    expect(
+      screen.getByText("/mnt/user-data/project/README.md"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Less steps")).toBeInTheDocument();
+  });
+
+  it("lets large command output grow naturally instead of pinning a fixed viewport", () => {
+    const largeOutput = Array.from({ length: 40 }, (_, index) => `line ${index}`)
+      .join("\n");
+
+    render(
+      <MessageGroup
+        messages={[
+          {
+            id: "ai-1",
+            type: "ai",
+            content: "",
+            tool_calls: [
+              {
+                id: "tool-1",
+                name: "bash",
+                args: {
+                  command: "cat huge.log",
+                },
+              },
+            ],
+          },
+          {
+            id: "tool-msg-1",
+            type: "tool",
+            tool_call_id: "tool-1",
+            content: largeOutput,
+          },
+        ]}
+      />,
+    );
+
+    expect(
+      screen.getByText((_, element) => element?.textContent === largeOutput),
+    ).not.toHaveAttribute("data-viewport-class");
   });
 });
