@@ -103,6 +103,52 @@ func TestOnlyOfficeConfigReturnsSignedPresentationConfig(t *testing.T) {
 	}
 }
 
+func TestOnlyOfficeConfigAllowsRelativeDocumentServerURL(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	baseDir := t.TempDir()
+	threadID := "thread-office-relative"
+	writeTestDeck(t, baseDir, threadID, "outputs", "deck.pptx", []byte("pptx"))
+
+	handler := NewOnlyOfficeHandler(storage.NewFS(baseDir), OnlyOfficeConfig{
+		ServerURL:    "/onlyoffice",
+		PublicAppURL: "http://gateway.local",
+		JWTSecret:    "office-secret",
+	})
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(
+		http.MethodGet,
+		"/api/threads/"+threadID+"/office-config/outputs/deck.pptx?mode=view",
+		nil,
+	)
+	c.Params = gin.Params{
+		{Key: "id", Value: threadID},
+		{Key: "head", Value: "outputs"},
+		{Key: "tail", Value: "/deck.pptx"},
+	}
+	c.Set(string(middleware.UserIDKey), uuid.MustParse("6098d570-33fa-40ad-a622-dd1525afbd41"))
+
+	handler.Config(c)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		DocumentServerURL string `json:"documentServerUrl"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if payload.DocumentServerURL != "/onlyoffice" {
+		t.Fatalf("unexpected document server url: %q", payload.DocumentServerURL)
+	}
+}
+
 func TestOnlyOfficeConfigReturnsSpreadsheetConfig(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)

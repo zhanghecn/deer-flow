@@ -177,6 +177,8 @@ go run ./cmd/server
 - Office 文件的 `?preview=pdf` 转换依赖运行 Gateway 的环境内可执行的 `soffice`（LibreOffice）。
 - `docker/docker-compose-dev.yaml` / `docker/docker-compose-prod.yaml` 构建的 Gateway 镜像已内置 LibreOffice；若直接在宿主机运行 Gateway，需要自行安装 `soffice`。
 - 即使未安装 LibreOffice，工作区内联预览仍可通过 `/api/threads/:id/office-config/*path` 走 ONLYOFFICE 编辑器。
+- `onlyoffice.server_url` 是浏览器访问 Document Server 的地址；在正式环境 compose 中建议走 nginx 同源子路径，例如 `/onlyoffice`。
+- `onlyoffice.public_app_url` 是 Document Server 回调 Gateway 的地址；在 Docker Compose 网络内通常保持 `http://gateway:8001`。
 
 ### 开放式 API（API Token 认证）
 

@@ -146,6 +146,9 @@ func (h *OnlyOfficeHandler) Config(c *gin.Context) {
 	payload["token"] = token
 
 	c.JSON(http.StatusOK, gin.H{
+		// Browser-visible ONLYOFFICE assets may be served through a same-origin
+		// reverse-proxy path such as `/onlyoffice`, so keep this value exactly as
+		// configured instead of forcing an absolute URL shape in the gateway.
 		"documentServerUrl": h.config.ServerURL,
 		"config":            payload,
 	})

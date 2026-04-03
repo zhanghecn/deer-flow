@@ -6,13 +6,19 @@ import { defineConfig, loadEnv } from "vite";
 import { mockApiPlugin } from "./src/mock-server/plugin";
 
 const DEFAULT_GATEWAY_BASE_URL = "http://localhost:8001";
+const DEFAULT_ONLYOFFICE_DEV_SERVER_URL = "http://localhost:8082";
 
 function getGatewayBaseURL(rawURL?: string): string {
   const url = rawURL ?? DEFAULT_GATEWAY_BASE_URL;
   return url.replace(/\/+$/, "");
 }
 
-function createGatewayProxy(target: string) {
+function getOnlyOfficeDevServerURL(rawURL?: string): string {
+  const url = rawURL ?? DEFAULT_ONLYOFFICE_DEV_SERVER_URL;
+  return url.replace(/\/+$/, "");
+}
+
+function createGatewayProxy(target: string, onlyOfficeTarget: string) {
   return {
     "/api": {
       target,
@@ -26,12 +32,23 @@ function createGatewayProxy(target: string) {
       target,
       changeOrigin: true,
     },
+    // Keep local browser traffic aligned with production nginx by exposing
+    // ONLYOFFICE under the same-origin `/onlyoffice` prefix during Vite dev.
+    "/onlyoffice": {
+      target: onlyOfficeTarget,
+      changeOrigin: true,
+      ws: true,
+      rewrite: (path) => path.replace(/^\/onlyoffice/, ""),
+    },
   };
 }
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, __dirname, "VITE_");
   const gatewayBaseURL = getGatewayBaseURL(env.VITE_BACKEND_BASE_URL);
+  const onlyOfficeDevServerURL = getOnlyOfficeDevServerURL(
+    env.VITE_ONLYOFFICE_DEV_SERVER_URL,
+  );
 
   return {
     plugins: [react(), mockApiPlugin()],
@@ -68,7 +85,7 @@ export default defineConfig(({ mode }) => {
       port: 3000,
       // `vite` 默认使用 development mode，这里按当前 mode 读取
       // `.env.development*` 里的网关地址，只用于开发时的反向代理。
-      proxy: createGatewayProxy(gatewayBaseURL),
+      proxy: createGatewayProxy(gatewayBaseURL, onlyOfficeDevServerURL),
     },
     build: {
       outDir: "dist",

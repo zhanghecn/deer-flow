@@ -186,6 +186,9 @@ services:
       OPENAGENTS_CONFIG_PATH: /app/config.yaml
       OPENAGENTS_EXTENSIONS_CONFIG_PATH: /openagents-home/extensions_config.json
       LANGGRAPH_URL: http://langgraph:2024
+      # Keep browser-facing ONLYOFFICE URLs aligned with the production
+      # same-origin `/onlyoffice` path so local Vite proxying matches nginx.
+      ONLYOFFICE_SERVER_URL: /onlyoffice
       ONLYOFFICE_PUBLIC_APP_URL: http://gateway:8001
     networks:
       - openagents-dev

@@ -40,7 +40,6 @@
 
 - 用户前台端口：`80`
 - 后台管理端口：`8081`
-- ONLYOFFICE 端口：`8082`
 - 持久化目录：仓库根目录 `.openagents/`
 - 根目录 `.env`：唯一 secrets 来源
 
@@ -143,17 +142,16 @@ docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml
 
 ## 暴露端口
 
-默认暴露三个端口：
+默认暴露两个端口：
 
 - 用户前台：`80`
 - 后台管理：`8081`
-- ONLYOFFICE：`8082`
 
 说明：
 
 - 用户前台走 `http://你的主机/`
 - 后台管理走 `http://你的主机:8081/`
-- ONLYOFFICE 单独走 `http://你的主机:8082/`
+- ONLYOFFICE 编辑器脚本与 websocket 统一走同源 `http://你的主机/onlyoffice/`
 
 之所以把后台放到单独端口，而不是 `/admin/` 子路径，是因为当前 admin 前端没有做 basename 子路径部署，这样最简单、改动最少、最稳。
 
@@ -226,7 +224,7 @@ docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml
 
 对外端口：
 
-- `8082`
+- 不单独暴露；由 nginx 反向代理 `/onlyoffice/`
 
 ## 目录与配置约定
 
@@ -265,11 +263,12 @@ docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml
 - `proxy`
 - `onlyoffice`
 
-其中 `onlyoffice.server_url` 要写成浏览器可访问的地址，例如：
+其中 `onlyoffice.server_url` 要写成浏览器可访问的地址。
+正式环境 compose 已通过环境变量固定覆盖成同源 `/onlyoffice`，一般不需要你再手工改：
 
 ```yaml
 onlyoffice:
-  server_url: http://your-host:8082
+  server_url: /onlyoffice
 ```
 
 而容器之间回调用的 `ONLYOFFICE_PUBLIC_APP_URL` 已经由 compose 固定注入为 `http://gateway:8001`，不需要你再手工写进 `gateway.yaml`。
@@ -342,7 +341,7 @@ docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml
 
 - 用户前台：`http://<host>/`
 - 后台管理：`http://<host>:8081/`
-- ONLYOFFICE：`http://<host>:8082/`
+- ONLYOFFICE 静态资源：`http://<host>/onlyoffice/`
 
 ## 运行中的修改方式
 

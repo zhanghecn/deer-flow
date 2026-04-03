@@ -82,7 +82,20 @@ Optional environment variables (see `.env.example` for overrides):
 # In browser-side Vite dev, requests still go to same-origin /api and are
 # forwarded by the dev server proxy.
 VITE_BACKEND_BASE_URL="http://localhost:8001"
+
+# This variable is only used by the Vite dev proxy so local browser requests
+# can keep using same-origin /onlyoffice while the dev server forwards them to
+# the local Document Server.
+VITE_ONLYOFFICE_DEV_SERVER_URL="http://localhost:8082"
 ```
+
+In local Vite development, the dev server now proxies:
+
+- `/api`, `/open`, `/health` -> `VITE_BACKEND_BASE_URL`
+- `/onlyoffice` -> `VITE_ONLYOFFICE_DEV_SERVER_URL`
+
+That keeps local browser behavior aligned with production, where nginx exposes
+ONLYOFFICE under the same-origin `/onlyoffice` prefix.
 
 ## Project Structure
 
