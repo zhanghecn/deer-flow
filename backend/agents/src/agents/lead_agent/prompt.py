@@ -183,6 +183,7 @@ def _load_attached_skills_section(
         "- If the copied `SKILL.md` explicitly requires a relative reference file for the workflow, read that file before substantive analysis, evidence synthesis, or drafting.",
         "- After reading a matched copied `SKILL.md`, follow its mode-specific workflow and output contract literally instead of improvising a shorter variant.",
         "- If the copied skill marks certain evidence, citation, or coverage rules as required, satisfy those rules in the visible answer and in any optional artifact you choose to generate.",
+        "- A bare external repo URL is not, by itself, a request for repository research. If it looks like a skill or capability source, prefer the matching discovery/install workflow unless the user explicitly asked for analysis.",
         "- Do not generate extra deliverables that the copied skill treats as optional unless the user asked for them or the skill makes them mandatory for the current mode.",
         "- If the copied skill says chat is the default output unless the user explicitly requested a file, artifact, or report, answer in chat and do not create optional files.",
         "- Never finish a turn with only presented artifacts or an empty assistant reply. If you create or present any file, you must still provide a substantive visible answer in the same turn.",

@@ -111,5 +111,6 @@ def test_apply_prompt_template_lists_attached_copied_skills(monkeypatch, tmp_pat
     assert "/mnt/user-data/agents/dev/demo-agent/skills/contract-review/SKILL.md" in rendered
     assert "store/dev/contract-review" in rendered
     assert "read that file before substantive analysis" in rendered
+    assert "A bare external repo URL is not, by itself, a request for repository research" in rendered
     assert "chat is the default output unless the user explicitly requested a file" in rendered
     assert "Never finish a turn with only presented artifacts" in rendered
