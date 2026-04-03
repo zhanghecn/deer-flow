@@ -225,10 +225,11 @@ def format_documents_payload(documents: list[KnowledgeDocumentRecord]) -> str:
         "available_documents": available,
         "unavailable_documents": processing,
         "tool_protocol": [
-            "1. Use get_document_tree(document_name_or_id=..., max_depth=2) to inspect the root tree window.",
-            "2. Use get_document_tree(document_name_or_id=..., node_id=...) to inspect a deeper subtree when needed.",
-            "3. Use get_document_evidence(document_name_or_id=..., node_ids=...) to retrieve grounded text, visual evidence blocks, exact citations, and inline image markdown when available.",
-            "4. If a tree response says answer_requires_evidence=true, do not answer yet. Call get_document_evidence(...) first.",
+            "1. After listing documents, copy one document_id and prefer that ASCII id for every later document_name_or_id=... argument.",
+            "2. Use get_document_tree(document_name_or_id=<document_id>, max_depth=2) to inspect the root tree window.",
+            "3. Use get_document_tree(document_name_or_id=<document_id>, node_id=...) to inspect a deeper subtree when needed.",
+            "4. Use get_document_evidence(document_name_or_id=<document_id>, node_ids=...) to retrieve grounded text, visual evidence blocks, exact citations, and inline image markdown when available.",
+            "5. If a tree response says answer_requires_evidence=true, do not answer yet. Call get_document_evidence(...) first.",
         ],
     }
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))

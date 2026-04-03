@@ -278,7 +278,7 @@ list_knowledge_documents
 
 设计原则：
 
-- 保持 **全局工具注册稳定**，知识库约束由 middleware / prompt 引导与 tool-call 拦截完成，不再通过动态裁剪模型可见工具列表来避免 KV cache 抖动
+- 保持 **全局工具注册稳定**，知识库约束主要由 prompt / trace 审计引导完成，不通过动态裁剪模型可见工具列表，也不通过 tool-call 拦截去硬限制通用 agent 能力
 - 先看树，不直接看全文
 - `get_document_tree` 每次只返回一个 **2 层窗口**
 - 需要更深层级时，必须基于 `node_id` 继续调用 `get_document_tree`
@@ -303,20 +303,15 @@ list_knowledge_documents
 - Agent 应该选中最相关的 `node_id` 再继续下钻，而不是反复请求整棵根树
 - 这个策略的目标是把大文档检索稳定控制在工具预算内，减少 `/large_tool_results/...` spill
 
-### Agent Runtime Enforcement
+### Agent Runtime Guidance
 
-- 知识库约束不通过动态删工具完成，而是通过三层同时约束：
+- 知识库主链路保持为 prompt-first guidance：
   - system prompt
-  - `KnowledgeContextMiddleware`
-  - tool-call 拦截
-- 当当前线程问题明显在问已挂载知识库时：
-  - 会阻断对同一文档的 `grep` / `read_file` / `ls` / `execute` 等绕过调用
-  - 会要求先走 tree，再走 evidence
-- 如果模型直接口头回答、缺少当前轮 evidence、缺少 exact citation，middleware 会触发 **多轮 response recovery**，直到：
-  - 模型改为调用知识工具
-  - 或最终答案满足当前轮 evidence / citation / image 约束
-  - 或达到 recovery 上限
-- 因而主链路不依赖“删工具保正确”，而依赖稳定工具面 + 强约束协议
+  - `KnowledgeContextMiddleware` 的上下文注入
+- middleware 不再对 `grep` / `read_file` / `ls` / `execute` / `view_image` 等通用工具做 tool-call 拦截
+- middleware 也不再在答案已开始可见输出后做隐藏重试，因为这会在流式 UI 中追加第二段割裂答案
+- 主链路目标仍然是引导模型优先走 `list_knowledge_documents` -> `get_document_tree` -> `get_document_evidence`
+- 是否真正遵循该链路，主要通过 trace 审计与前端真实流测试验证，而不是靠 middleware 在工具层强行兜底
 
 ## 6. Citation and Preview Contract
 

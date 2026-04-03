@@ -1,14 +1,11 @@
 from types import SimpleNamespace
 
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
-from langchain.tools.tool_node import ToolCallRequest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.runtime import Runtime
 
 from src.agents.middlewares.knowledge_context_middleware import (
     KnowledgeContextMiddleware,
-    blocked_knowledge_bypass_tool_message,
-    blocked_knowledge_visual_tool_message,
     build_knowledge_context_prompt,
 )
 from src.knowledge.models import KnowledgeDocumentRecord
@@ -140,6 +137,8 @@ def test_build_knowledge_context_prompt_prioritizes_user_and_agent_document_targ
     assert "Refresh evidence in the current turn before answering" in prompt
     assert "max_depth=2" in prompt
     assert "root_cursor" in prompt
+    assert "prefer the returned ASCII `document_id`" in prompt
+    assert "Do not send placeholder, guessed, or empty `document_name_or_id` values" in prompt
     assert "AGENTS.md default document targets when relevant" in prompt
     assert "board-deck-q4.md [Finance]" in prompt
     assert "get_document_evidence" in prompt
@@ -286,7 +285,7 @@ def test_knowledge_context_middleware_does_not_retry_direct_answer_without_curre
     assert response.result[-1].content == "直接回答，不调用知识库工具。"
 
 
-def test_knowledge_context_middleware_retries_tree_only_answer_without_current_turn_evidence(monkeypatch):
+def test_knowledge_context_middleware_does_not_retry_tree_only_answer_without_current_turn_evidence(monkeypatch):
     monkeypatch.setattr(
         "src.knowledge.runtime.get_runtime_db_store",
         lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
@@ -338,18 +337,10 @@ def test_knowledge_context_middleware_retries_tree_only_answer_without_current_t
         nonlocal call_count
         call_count += 1
         seen_system_messages.append(str(filtered_request.system_message or ""))
-        if call_count == 1:
-            return ModelResponse(
-                result=[
-                    AIMessage(
-                        content="目录大概分为几部分，后面会讲概率模型、分类与降维。",
-                    )
-                ]
-            )
         return ModelResponse(
             result=[
                 AIMessage(
-                    content="先去拿 evidence，不再直接用树回答。",
+                    content="目录大概分为几部分，后面会讲概率模型、分类与降维。",
                 )
             ]
         )
@@ -357,14 +348,13 @@ def test_knowledge_context_middleware_retries_tree_only_answer_without_current_t
     middleware = KnowledgeContextMiddleware()
     response = middleware.wrap_model_call(request, handler)
 
-    assert call_count == 2
-    assert len(seen_system_messages) == 2
+    assert call_count == 1
+    assert len(seen_system_messages) == 1
     assert "<knowledge_response_recovery>" not in seen_system_messages[0]
-    assert "<knowledge_response_recovery>" in seen_system_messages[1]
-    assert response.result[-1].content == "先去拿 evidence，不再直接用树回答。"
+    assert response.result[-1].content == "目录大概分为几部分，后面会讲概率模型、分类与降维。"
 
 
-def test_knowledge_context_middleware_retries_evidence_answer_without_visible_citation(monkeypatch):
+def test_knowledge_context_middleware_does_not_retry_evidence_answer_without_visible_citation(monkeypatch):
     monkeypatch.setattr(
         "src.knowledge.runtime.get_runtime_db_store",
         lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
@@ -416,25 +406,18 @@ def test_knowledge_context_middleware_retries_evidence_answer_without_visible_ci
         nonlocal call_count
         call_count += 1
         seen_system_messages.append(str(filtered_request.system_message or ""))
-        if call_count == 1:
-            return ModelResponse(result=[AIMessage(content="Figure 1.1 展示了概率密度。")])
-        return ModelResponse(
-            result=[
-                AIMessage(
-                    content="Figure 1.1 展示了概率密度。[citation:PRML.pdf p.1](kb://citation?document_name=PRML.pdf&page=1)"
-                )
-            ]
-        )
+        return ModelResponse(result=[AIMessage(content="Figure 1.1 展示了概率密度。")])
 
     middleware = KnowledgeContextMiddleware()
     response = middleware.wrap_model_call(request, handler)
 
-    assert call_count == 2
-    assert "<knowledge_response_recovery>" in seen_system_messages[1]
-    assert "(kb://citation" in str(response.result[-1].content)
+    assert call_count == 1
+    assert len(seen_system_messages) == 1
+    assert "<knowledge_response_recovery>" not in seen_system_messages[0]
+    assert response.result[-1].content == "Figure 1.1 展示了概率密度。"
 
 
-def test_knowledge_context_middleware_retries_grounded_evidence_answer_without_visible_citation(monkeypatch):
+def test_knowledge_context_middleware_does_not_retry_grounded_evidence_answer_without_visible_citation(monkeypatch):
     monkeypatch.setattr(
         "src.knowledge.runtime.get_runtime_db_store",
         lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
@@ -475,22 +458,10 @@ def test_knowledge_context_middleware_retries_grounded_evidence_answer_without_v
         nonlocal call_count
         call_count += 1
         seen_system_messages.append(str(filtered_request.system_message or ""))
-        if call_count == 1:
-            return ModelResponse(
-                result=[
-                    AIMessage(
-                        content="答案如下：\n\n![Figure 1.1](/mnt/user-data/outputs/.knowledge/doc-1/pages/page-0022.png)"
-                    )
-                ]
-            )
         return ModelResponse(
             result=[
                 AIMessage(
-                    content=(
-                        "答案如下：\n\n"
-                        "![PRML.pdf p.22](kb://asset?x=1)\n\n"
-                        "[citation:PRML.pdf p.22](kb://citation?x=1)"
-                    )
+                    content="答案如下：\n\n![Figure 1.1](/mnt/user-data/outputs/.knowledge/doc-1/pages/page-0022.png)"
                 )
             ]
         )
@@ -498,9 +469,10 @@ def test_knowledge_context_middleware_retries_grounded_evidence_answer_without_v
     middleware = KnowledgeContextMiddleware()
     response = middleware.wrap_model_call(request, handler)
 
-    assert call_count == 2
-    assert "<knowledge_response_recovery>" in seen_system_messages[1]
-    assert "(kb://citation" in response.result[-1].content
+    assert call_count == 1
+    assert len(seen_system_messages) == 1
+    assert "<knowledge_response_recovery>" not in seen_system_messages[0]
+    assert response.result[-1].content == "答案如下：\n\n![Figure 1.1](/mnt/user-data/outputs/.knowledge/doc-1/pages/page-0022.png)"
 
 
 def test_knowledge_context_middleware_does_not_retry_inline_asset_without_structured_signal(monkeypatch):
@@ -560,438 +532,3 @@ def test_knowledge_context_middleware_does_not_retry_inline_asset_without_struct
     assert len(seen_system_messages) == 1
     assert "<knowledge_response_recovery>" not in seen_system_messages[0]
     assert "(kb://citation" in response.result[-1].content
-
-
-def test_blocked_knowledge_bypass_tool_message_rejects_grep_after_knowledge_activity(monkeypatch):
-    monkeypatch.setattr(
-        "src.knowledge.runtime.get_runtime_db_store",
-        lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
-    )
-    _patch_thread_documents(
-        monkeypatch,
-        _document(
-            "E210郑民生-民间盲派八字.md",
-            document_id="doc-1",
-            knowledge_base_name="E210郑民生-民间盲派八字",
-        ),
-    )
-
-    user_input = "这份《E210郑民生-民间盲派八字》里，文中如何区分牢狱之灾和伤灾残疾？"
-    request = ToolCallRequest(
-        tool_call={"id": "tool-1", "name": "grep", "args": {"pattern": "牢狱"}},
-        tool=_tool("grep"),
-        state={
-            "messages": [
-                HumanMessage(content=user_input),
-                AIMessage(content="", tool_calls=[{"id": "call-tree", "name": "get_document_tree", "args": {}}]),
-                ToolMessage(content="{}", tool_call_id="call-tree", name="get_document_tree"),
-            ]
-        },
-        runtime=SimpleNamespace(
-            context={"thread_id": "thread-1", "original_user_input": user_input}
-        ),
-    )
-
-    blocked = blocked_knowledge_bypass_tool_message(request)
-
-    assert blocked is not None
-    assert blocked.tool_call_id == "tool-1"
-    assert "must stay on the knowledge tools" in blocked.content
-
-
-def test_blocked_knowledge_bypass_tool_message_does_not_infer_document_target_from_free_text(monkeypatch):
-    monkeypatch.setattr(
-        "src.knowledge.runtime.get_runtime_db_store",
-        lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
-    )
-    _patch_thread_documents(
-        monkeypatch,
-        _document(
-            "E210郑民生-民间盲派八字.md",
-            document_id="doc-1",
-            knowledge_base_name="E210郑民生-民间盲派八字",
-        ),
-    )
-
-    user_input = "这份《E210郑民生-民间盲派八字》里，文中如何区分牢狱之灾和伤灾残疾？"
-    request = ToolCallRequest(
-        tool_call={"id": "tool-free-text", "name": "grep", "args": {"pattern": "牢狱"}},
-        tool=_tool("grep"),
-        state={"messages": [HumanMessage(content=user_input)]},
-        runtime=SimpleNamespace(
-            context={"thread_id": "thread-1", "original_user_input": user_input}
-        ),
-    )
-
-    blocked = blocked_knowledge_bypass_tool_message(request)
-
-    assert blocked is None
-
-
-def test_blocked_knowledge_bypass_tool_message_respects_explicit_document_mentions(monkeypatch):
-    monkeypatch.setattr(
-        "src.knowledge.runtime.get_runtime_db_store",
-        lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
-    )
-    _patch_thread_documents(
-        monkeypatch,
-        _document(
-            "PRML.pdf",
-            document_id="doc-1",
-            knowledge_base_name="PRML",
-        ),
-    )
-
-    user_input = "请先看 @PRML.pdf，再回答 Figure 3.1 想表达什么。"
-    request = ToolCallRequest(
-        tool_call={"id": "tool-explicit", "name": "read_file", "args": {"file_path": "/large_tool_results/tree"}},
-        tool=_tool("read_file"),
-        state={"messages": [HumanMessage(content=user_input)]},
-        runtime=SimpleNamespace(
-            context={"thread_id": "thread-1", "original_user_input": user_input}
-        ),
-    )
-
-    blocked = blocked_knowledge_bypass_tool_message(request)
-
-    assert blocked is not None
-    assert blocked.tool_call_id == "tool-explicit"
-
-
-def test_blocked_knowledge_bypass_tool_message_rejects_read_file_on_large_tool_results_after_knowledge_activity(monkeypatch):
-    monkeypatch.setattr(
-        "src.knowledge.runtime.get_runtime_db_store",
-        lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
-    )
-    _patch_thread_documents(
-        monkeypatch,
-        _document(
-            "PRML.pdf",
-            document_id="doc-1",
-            knowledge_base_name="PRML",
-        ),
-    )
-
-    user_input = "PRML 里关于 Figure 3.1 的图想表达什么？"
-    request = ToolCallRequest(
-        tool_call={
-            "id": "tool-2",
-            "name": "read_file",
-            "args": {"file_path": "/large_tool_results/call-tree"},
-        },
-        tool=_tool("read_file"),
-        state={
-            "messages": [
-                HumanMessage(content=user_input),
-                AIMessage(content="", tool_calls=[{"id": "call-tree", "name": "get_document_tree", "args": {}}]),
-                ToolMessage(
-                    content="Tool result too large, the result of this tool call call-tree was saved in the filesystem at this path: /large_tool_results/call-tree",
-                    tool_call_id="call-tree",
-                    name="get_document_tree",
-                ),
-            ]
-        },
-        runtime=SimpleNamespace(
-            context={"thread_id": "thread-1", "original_user_input": user_input}
-        ),
-    )
-
-    blocked = blocked_knowledge_bypass_tool_message(request)
-
-    assert blocked is not None
-    assert blocked.tool_call_id == "tool-2"
-    assert "narrow the subtree" in blocked.content
-
-
-def test_blocked_knowledge_bypass_tool_message_allows_current_agent_skill_reads(monkeypatch):
-    monkeypatch.setattr(
-        "src.knowledge.runtime.get_runtime_db_store",
-        lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
-    )
-    _patch_thread_documents(
-        monkeypatch,
-        _document(
-            "劳动合同.pdf",
-            document_id="doc-1",
-            knowledge_base_name="Contracts",
-        ),
-    )
-
-    user_input = "请结合知识库里的劳动合同进行审查。"
-    request = ToolCallRequest(
-        tool_call={
-            "id": "tool-2b",
-            "name": "read_file",
-            "args": {"file_path": "/mnt/user-data/agents/dev/demo-agent/skills/contract-review/SKILL.md"},
-        },
-        tool=_tool("read_file"),
-        state={
-            "messages": [
-                HumanMessage(content=user_input),
-                AIMessage(content="", tool_calls=[{"id": "call-tree", "name": "get_document_tree", "args": {}}]),
-                ToolMessage(content="{}", tool_call_id="call-tree", name="get_document_tree"),
-            ]
-        },
-        runtime=SimpleNamespace(
-            context={
-                "thread_id": "thread-1",
-                "original_user_input": user_input,
-                "agent_name": "demo-agent",
-                "agent_status": "dev",
-            }
-        ),
-    )
-
-    blocked = blocked_knowledge_bypass_tool_message(request)
-
-    assert blocked is None
-
-
-def test_blocked_knowledge_visual_tool_message_blocks_get_document_image_before_evidence(monkeypatch):
-    monkeypatch.setattr(
-        "src.knowledge.runtime.get_runtime_db_store",
-        lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
-    )
-    _patch_thread_documents(
-        monkeypatch,
-        _document(
-            "PRML.pdf",
-            document_id="doc-1",
-            knowledge_base_name="PRML",
-        ),
-    )
-
-    user_input = "根据 PRML 里的 Figure 1.1，只根据图片本身回答内容。"
-    request = ToolCallRequest(
-        tool_call={
-            "id": "tool-3a",
-            "name": "get_document_image",
-            "args": {"document_name_or_id": "PRML.pdf", "page_number": 22},
-        },
-        tool=_tool("get_document_image"),
-        state={
-            "messages": [
-                HumanMessage(content=user_input),
-                AIMessage(content="", tool_calls=[{"id": "call-tree", "name": "get_document_tree", "args": {}}]),
-                ToolMessage(content="{}", tool_call_id="call-tree", name="get_document_tree"),
-            ]
-        },
-        runtime=SimpleNamespace(
-            context={"thread_id": "thread-1", "original_user_input": user_input}
-        ),
-    )
-
-    blocked = blocked_knowledge_visual_tool_message(request)
-
-    assert blocked is not None
-    assert blocked.tool_call_id == "tool-3a"
-    assert "do not call `get_document_image` or `view_image` before grounding" in blocked.content
-
-
-def test_blocked_knowledge_visual_tool_message_requires_evidence_before_view_image(monkeypatch):
-    monkeypatch.setattr(
-        "src.knowledge.runtime.get_runtime_db_store",
-        lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
-    )
-    _patch_thread_documents(
-        monkeypatch,
-        _document(
-            "PRML.pdf",
-            document_id="doc-1",
-            knowledge_base_name="PRML",
-        ),
-    )
-
-    user_input = "根据 PRML 里的 Figure 1.1，只根据图片本身回答内容。"
-    request = ToolCallRequest(
-        tool_call={
-            "id": "tool-3",
-            "name": "view_image",
-            "args": {"image_path": "/mnt/user-data/outputs/.knowledge/doc-1/pages/page-0022.png"},
-        },
-        tool=_tool("view_image"),
-        state={
-            "messages": [
-                HumanMessage(content=user_input),
-                AIMessage(content="", tool_calls=[{"id": "call-tree", "name": "get_document_tree", "args": {}}]),
-                ToolMessage(content="{}", tool_call_id="call-tree", name="get_document_tree"),
-            ]
-        },
-        runtime=SimpleNamespace(
-            context={"thread_id": "thread-1", "original_user_input": user_input}
-        ),
-    )
-
-    blocked = blocked_knowledge_visual_tool_message(request)
-
-    assert blocked is not None
-    assert blocked.tool_call_id == "tool-3"
-    assert "First use `get_document_evidence" in blocked.content
-
-
-def test_blocked_knowledge_visual_tool_message_allows_inspection_after_evidence():
-    request = ToolCallRequest(
-        tool_call={
-            "id": "tool-4",
-            "name": "view_image",
-            "args": {"image_path": "/mnt/user-data/outputs/.knowledge/doc-1/pages/page-0022.png"},
-        },
-        tool=_tool("view_image"),
-        state={
-            "messages": [
-                HumanMessage(content="根据 PRML 里的 Figure 1.1，只根据图片本身回答内容。"),
-                AIMessage(content="", tool_calls=[{"id": "call-evidence", "name": "get_document_evidence", "args": {}}]),
-                ToolMessage(
-                    content='{"returned_pages":"22-22","items":[{"node_id":"0006","evidence_blocks":[{"page_number":22,"image_path":"/mnt/user-data/outputs/.knowledge/doc-1/pages/page-0022.png","citation_markdown":"[citation:PRML.pdf p.22](kb://citation?x=1)"}]}]}',
-                    tool_call_id="call-evidence",
-                    name="get_document_evidence",
-                ),
-            ]
-        },
-        runtime=SimpleNamespace(context={"thread_id": "thread-1"}),
-    )
-
-    assert blocked_knowledge_visual_tool_message(request) is None
-
-
-def test_blocked_knowledge_visual_tool_message_rejects_failed_evidence_for_get_document_image():
-    request = ToolCallRequest(
-        tool_call={
-            "id": "tool-5",
-            "name": "get_document_image",
-            "args": {"document_name_or_id": "PRML.pdf", "page_number": 22},
-        },
-        tool=_tool("get_document_image"),
-        state={
-            "messages": [
-                HumanMessage(content="根据 PRML 里的 Figure 1.1，只根据图片本身回答内容。"),
-                AIMessage(content="", tool_calls=[{"id": "call-evidence", "name": "get_document_evidence", "args": {}}]),
-                ToolMessage(
-                    content="Error: The requested node is a root branch with many descendants.",
-                    tool_call_id="call-evidence",
-                    name="get_document_evidence",
-                ),
-            ]
-        },
-        runtime=SimpleNamespace(context={"thread_id": "thread-1"}),
-    )
-
-    blocked = blocked_knowledge_visual_tool_message(request)
-
-    assert blocked is not None
-    assert "does not count as grounding" in blocked.content
-
-
-def test_blocked_knowledge_visual_tool_message_rejects_get_document_image_for_unmatched_page():
-    request = ToolCallRequest(
-        tool_call={
-            "id": "tool-5b",
-            "name": "get_document_image",
-            "args": {"document_name_or_id": "PRML.pdf", "page_number": 22},
-        },
-        tool=_tool("get_document_image"),
-        state={
-            "messages": [
-                HumanMessage(content="根据 PRML 里的 Figure 1.1，只根据图片本身回答内容。"),
-                AIMessage(content="", tool_calls=[{"id": "call-evidence", "name": "get_document_evidence", "args": {}}]),
-                ToolMessage(
-                    content='{"returned_pages":"13-20","items":[{"node_id":"0286","evidence_blocks":[{"page_number":13,"citation_markdown":"[citation:PRML.pdf p.13](kb://citation?x=1)"}]}]}',
-                    tool_call_id="call-evidence",
-                    name="get_document_evidence",
-                ),
-            ]
-        },
-        runtime=SimpleNamespace(context={"thread_id": "thread-1"}),
-    )
-
-    blocked = blocked_knowledge_visual_tool_message(request)
-
-    assert blocked is not None
-    assert "covers the same page" in blocked.content
-
-
-def test_blocked_knowledge_visual_tool_message_rejects_guessed_view_image_path():
-    request = ToolCallRequest(
-        tool_call={
-            "id": "tool-5c",
-            "name": "view_image",
-            "args": {"image_path": "/mnt/user-data/outputs/.knowledge/doc-1/pages/page-0022.png"},
-        },
-        tool=_tool("view_image"),
-        state={
-            "messages": [
-                HumanMessage(content="根据 PRML 里的 Figure 1.1，只根据图片本身回答内容。"),
-                AIMessage(content="", tool_calls=[{"id": "call-evidence", "name": "get_document_evidence", "args": {}}]),
-                ToolMessage(
-                    content='{"returned_pages":"13-20","items":[{"node_id":"0286","evidence_blocks":[{"page_number":13,"image_path":"/mnt/user-data/outputs/.knowledge/doc-1/pages/page-0013.png","citation_markdown":"[citation:PRML.pdf p.13](kb://citation?x=1)"}]}]}',
-                    tool_call_id="call-evidence",
-                    name="get_document_evidence",
-                ),
-            ]
-        },
-        runtime=SimpleNamespace(context={"thread_id": "thread-1"}),
-    )
-
-    blocked = blocked_knowledge_visual_tool_message(request)
-
-    assert blocked is not None
-    assert "only use the exact `image_path` returned in the current turn" in blocked.content
-
-
-def test_blocked_knowledge_visual_tool_message_allows_view_image_after_get_document_image():
-    request = ToolCallRequest(
-        tool_call={
-            "id": "tool-5d",
-            "name": "view_image",
-            "args": {"image_path": "/mnt/user-data/outputs/.knowledge/doc-1/pages/page-0022.png"},
-        },
-        tool=_tool("view_image"),
-        state={
-            "messages": [
-                HumanMessage(content="根据 PRML 里的 Figure 1.1，只根据图片本身回答内容。"),
-                AIMessage(content="", tool_calls=[{"id": "call-evidence", "name": "get_document_evidence", "args": {}}]),
-                ToolMessage(
-                    content='{"returned_pages":"21-23","items":[{"node_id":"0005","evidence_blocks":[{"page_number":22,"citation_markdown":"[citation:PRML.pdf p.22](kb://citation?x=1)"}]}]}',
-                    tool_call_id="call-evidence",
-                    name="get_document_evidence",
-                ),
-                AIMessage(content="", tool_calls=[{"id": "call-image", "name": "get_document_image", "args": {}}]),
-                ToolMessage(
-                    content='{"page_number":22,"image_path":"/mnt/user-data/outputs/.knowledge/doc-1/pages/page-0022.png"}',
-                    tool_call_id="call-image",
-                    name="get_document_image",
-                ),
-            ]
-        },
-        runtime=SimpleNamespace(context={"thread_id": "thread-1"}),
-    )
-
-    assert blocked_knowledge_visual_tool_message(request) is None
-
-
-def test_blocked_knowledge_visual_tool_message_rejects_failed_evidence_for_view_image():
-    request = ToolCallRequest(
-        tool_call={
-            "id": "tool-6",
-            "name": "view_image",
-            "args": {"image_path": "/mnt/user-data/outputs/.knowledge/doc-1/pages/page-0022.png"},
-        },
-        tool=_tool("view_image"),
-        state={
-            "messages": [
-                HumanMessage(content="根据 PRML 里的 Figure 1.1，只根据图片本身回答内容。"),
-                AIMessage(content="", tool_calls=[{"id": "call-evidence", "name": "get_document_evidence", "args": {}}]),
-                ToolMessage(
-                    content="Error: Requested document evidence is too large.",
-                    tool_call_id="call-evidence",
-                    name="get_document_evidence",
-                ),
-            ]
-        },
-        runtime=SimpleNamespace(context={"thread_id": "thread-1"}),
-    )
-
-    blocked = blocked_knowledge_visual_tool_message(request)
-
-    assert blocked is not None
-    assert "does not count as grounding" in blocked.content

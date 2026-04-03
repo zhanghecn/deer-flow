@@ -62,6 +62,11 @@ Repository-wide runtime architecture rules:
   - outside the model, only syntax-level parsing, machine-readable payload parsing, explicit UI fields, tool arguments/results, and safety validation are allowed
   - frontend, gateway, and backend middleware must not inspect free-form user prose or assistant prose and then infer business mode, target runtime, review mode, question gating, or other semantic intent
   - if a non-model layer needs a business decision, expose that decision as an explicit structured field or tool/result contract instead of adding keyword tables, fuzzy matching, or regex heuristics
+- Generic-agent / harness-first rule:
+  - treat this project as a general-purpose agent runtime, not a single-demo or single-example workflow
+  - do not keep adding example-specific prompt glue, one-off tool additions, or special-case middleware just to make one scenario pass
+  - when a capability gap is real, first fix it in the harness/runtime/tool contract/eval path so the improvement generalizes across tasks
+  - only add new prompts, tools, or workflow constraints when they represent a reusable product contract rather than a patch for one example
 - Runtime skill contract rule:
   - slash-command 对齐 `opencode` 时，必须先检查本地参考仓库 `../opencode`（当前绝对路径 `/root/project/ai/opencode`），并明确写清楚对齐的是 command routing / template loading / skill discovery / explicit skill tool 中的哪一层
   - 不要把 “对齐 opencode” 扩大解释成 OpenAgents runtime skill 全架构自动应当如何实现

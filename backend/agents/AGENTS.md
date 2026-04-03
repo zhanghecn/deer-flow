@@ -35,6 +35,8 @@ Critical agent protocol rules for future work:
 - Outside the model, only syntax parsing, machine-readable payload parsing, explicit UI fields, tool arguments/results, and safety validation may drive runtime behavior.
 - Do not inspect free-form user prose or assistant prose in middleware/helpers to infer domain mode, KB mode, next-step routing, question gating, or output policy.
 - If runtime behavior needs a non-model decision, move that decision into an explicit structured field or tool/result contract instead of adding keyword tables, fuzzy matching, or regex heuristics.
+- This repository's agent runtime is general-purpose. Do not keep patching one failing example by adding example-specific prompt text, one-off tools, or special-case middleware.
+- When a scenario exposes a real product gap, prefer harness/runtime/tool-contract/eval changes that improve the generic agent path instead of embedding that scenario into prompts or tool wiring.
 - Archived reusable skills live in `.openagents/skills/store/{dev,prod}/`.
 - `.openagents/skills/` is the only maintained archived skill source. Do not recreate or rely on a repo-side `skills/public` mirror.
 - Agent-owned copies live in `agents/{status}/{name}/skills/`.
@@ -92,8 +94,8 @@ Critical agent protocol rules for future work:
 - `get_document_tree_node_detail` and `get_document_image` are compatibility tools only. Keep them working, but do not make new prompts or middleware depend on them as the primary flow.
 - `get_document_tree` is a bounded window, not a full-tree dump. Root requests may downshift from the requested depth to a top-level overview and return `window_mode=root_overview` / `collapsed_root_overview=true`. Expand the returned `node_id` branches instead of retrying the whole root tree.
 - KB tree traversal stays on the same rule everywhere: root overview first, then branch expansion by `node_id`, then grounded evidence. Do not reintroduce direct full-text retrieval as the default first step.
-- KB response recovery is multi-round. If the model answers an attached-document question without current-turn evidence or exact citations, middleware may keep retrying until the response is grounded or the recovery cap is hit. Do not assume a single retry pass.
-- KB enforcement happens at prompt + middleware + tool-call blocking layers. Do not reintroduce model-visible tool filtering helpers for attached-document turns.
+- KB knowledge guidance is prompt-first. Do not reintroduce hidden post-answer retries once visible streaming has started.
+- Keep the global tool registry stable for knowledge turns. Do not reintroduce tool-call blocking heuristics for generic tools; prefer prompt guidance plus trace-based verification.
 - Knowledge citations and visual evidence share the same contract: `kb://citation` targets source previews and `kb://asset` targets inline image assets plus the same preview location.
 - Knowledge answers must be grounded from the current turn's KB evidence. Do not rely on earlier-turn citations without refreshing evidence again.
 
