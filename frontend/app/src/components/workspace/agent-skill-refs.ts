@@ -2,16 +2,41 @@ import type { AgentSkillRef, AgentSkillRefInput } from "@/core/agents/types";
 import { normalizeSkillScope, type SkillScope } from "@/core/skills/scope";
 import type { Skill } from "@/core/skills/type";
 
-const SKILL_SOURCE_SCOPE_PREFIXES = [
-  "store/prod/",
-  "store/dev/",
-] as const;
+const SKILL_SOURCE_SCOPE_PREFIXES = ["store/prod/", "store/dev/"] as const;
 
 export function skillRefKey(skillRef: AgentSkillRef) {
   return (
     skillRef.source_path ??
     skillRef.materialized_path ??
     `${skillRef.category ?? "uncategorized"}:${skillRef.name}`
+  );
+}
+
+function isArchivedStoreSkillRef(skillRef: AgentSkillRef) {
+  return (
+    normalizeSkillScope(skillRef.category) != null &&
+    Boolean(skillRef.source_path?.trim())
+  );
+}
+
+function skillRefNameKey(skillRef: AgentSkillRef) {
+  return skillRef.name.trim().toLowerCase();
+}
+
+function removeArchivedStoreVariantsWithSameName(
+  skillRefs: AgentSkillRef[],
+  nextRef: AgentSkillRef,
+) {
+  if (!isArchivedStoreSkillRef(nextRef)) {
+    return skillRefs;
+  }
+
+  return skillRefs.filter(
+    (skillRef) =>
+      !(
+        isArchivedStoreSkillRef(skillRef) &&
+        skillRefNameKey(skillRef) === skillRefNameKey(nextRef)
+      ),
   );
 }
 
@@ -68,6 +93,38 @@ export function normalizeSkillCategory(
   category: string | null | undefined,
 ): SkillScope {
   return normalizeSkillScope(category) ?? "store/dev";
+}
+
+export function isSkillRefSelected(
+  skillRefs: AgentSkillRef[],
+  targetRef: AgentSkillRef,
+) {
+  return skillRefs.some(
+    (skillRef) => skillRefKey(skillRef) === skillRefKey(targetRef),
+  );
+}
+
+export function removeSkillRef(
+  skillRefs: AgentSkillRef[],
+  targetRef: AgentSkillRef,
+) {
+  return skillRefs.filter(
+    (skillRef) => skillRefKey(skillRef) !== skillRefKey(targetRef),
+  );
+}
+
+export function toggleSkillRefSelection(
+  skillRefs: AgentSkillRef[],
+  nextRef: AgentSkillRef,
+) {
+  if (isSkillRefSelected(skillRefs, nextRef)) {
+    return removeSkillRef(skillRefs, nextRef);
+  }
+
+  return [
+    ...removeArchivedStoreVariantsWithSameName(skillRefs, nextRef),
+    nextRef,
+  ];
 }
 
 function stripSkillSourceScopePrefix(sourcePath: string) {

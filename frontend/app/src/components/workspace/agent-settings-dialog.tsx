@@ -57,11 +57,15 @@ import {
   normalizeSkillScope,
   type SkillScope,
 } from "@/core/skills/scope";
+import type { Skill } from "@/core/skills/type";
 import { cn } from "@/lib/utils";
 
 import {
   createSkillRef,
+  isSkillRefSelected,
+  removeSkillRef,
   serializeSkillRefForRequest,
+  toggleSkillRefSelection,
   skillRefKey,
 } from "./agent-skill-refs";
 import { getAgentSettingsDialogText } from "./agent-settings-dialog.i18n";
@@ -214,6 +218,14 @@ function resolveEffectiveToolNames(
   }
 
   return catalog.map((tool) => tool.name);
+}
+
+function isSkillInAllowedScopes(
+  skill: Pick<Skill, "category">,
+  allowedSkillScopes: SkillScope[],
+) {
+  const scope = normalizeSkillScope(skill.category);
+  return scope != null && allowedSkillScopes.includes(scope);
 }
 
 function parseIntegerInput(
@@ -445,27 +457,16 @@ export function AgentSettingsDialog({
     () => getDuplicateSkillNames(availableSkills, allowedSkillScopes),
     [allowedSkillScopes, availableSkills],
   );
+  const duplicateSkillNamesLabel = useMemo(
+    () => [...duplicateSkillNames].sort().join(", "),
+    [duplicateSkillNames],
+  );
   const selectableSkills = useMemo(
     () =>
-      availableSkills.filter((skill) => {
-        const scope = normalizeSkillScope(skill.category);
-        if (!scope || !allowedSkillScopes.includes(scope)) {
-          return false;
-        }
-        if (
-          agentStatus === "dev" &&
-          duplicateSkillNames.has(skill.name)
-        ) {
-          return false;
-        }
-        return true;
-      }),
-    [
-      agentStatus,
-      allowedSkillScopes,
-      availableSkills,
-      duplicateSkillNames,
-    ],
+      availableSkills.filter((skill) =>
+        isSkillInAllowedScopes(skill, allowedSkillScopes),
+      ),
+    [allowedSkillScopes, availableSkills],
   );
   const availableSkillCategories = useMemo(
     () =>
@@ -747,6 +748,28 @@ export function AgentSettingsDialog({
       return;
     }
     setForm(savedForm);
+  }
+
+  function updateSkillRefs(
+    updater: (skillRefs: AgentSkillRef[]) => AgentSkillRef[],
+  ) {
+    setForm((current) =>
+      current
+        ? {
+            ...current,
+            skillRefs: updater(current.skillRefs),
+          }
+        : current,
+    );
+  }
+
+  function handleToggleAvailableSkill(skill: Skill) {
+    const nextRef = createSkillRef(skill);
+    updateSkillRefs((skillRefs) => toggleSkillRefSelection(skillRefs, nextRef));
+  }
+
+  function handleRemoveSelectedSkill(skillRef: AgentSkillRef) {
+    updateSkillRefs((skillRefs) => removeSkillRef(skillRefs, skillRef));
   }
 
   const tabItems: Array<{
@@ -1092,15 +1115,15 @@ export function AgentSettingsDialog({
 
                     <TabsContent value="skills" className="m-0 space-y-6">
                       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_320px]">
-                          <SurfaceCard
-                            eyebrow={<SparklesIcon className="size-4" />}
-                            title={text.copiedSkillsTitle}
-                            description={
-                              agentStatus === "prod"
-                                ? text.copiedSkillsDescriptionProd
-                                : text.copiedSkillsDescriptionDev
-                            }
-                          >
+                        <SurfaceCard
+                          eyebrow={<SparklesIcon className="size-4" />}
+                          title={text.copiedSkillsTitle}
+                          description={
+                            agentStatus === "prod"
+                              ? text.copiedSkillsDescriptionProd
+                              : text.copiedSkillsDescriptionDev
+                          }
+                        >
                           <div className="flex flex-wrap gap-2">
                             {availableSkillCategories.map((category) => {
                               const active = category === skillsCategory;
@@ -1136,10 +1159,9 @@ export function AgentSettingsDialog({
                             <div className="grid gap-3">
                               {filteredSkills.map((skill) => {
                                 const nextRef = createSkillRef(skill);
-                                const selected = form.skillRefs.some(
-                                  (skillRef) =>
-                                    skillRefKey(skillRef) ===
-                                    skillRefKey(nextRef),
+                                const selected = isSkillRefSelected(
+                                  form.skillRefs,
+                                  nextRef,
                                 );
 
                                 return (
@@ -1147,35 +1169,7 @@ export function AgentSettingsDialog({
                                     key={skillRefKey(nextRef)}
                                     type="button"
                                     onClick={() =>
-                                      setForm((current) => {
-                                        if (!current) {
-                                          return current;
-                                        }
-
-                                        const exists = current.skillRefs.some(
-                                          (skillRef) =>
-                                            skillRefKey(skillRef) ===
-                                            skillRefKey(nextRef),
-                                        );
-                                        if (exists) {
-                                          return {
-                                            ...current,
-                                            skillRefs: current.skillRefs.filter(
-                                              (skillRef) =>
-                                                skillRefKey(skillRef) !==
-                                                skillRefKey(nextRef),
-                                            ),
-                                          };
-                                        }
-
-                                        return {
-                                          ...current,
-                                          skillRefs: [
-                                            ...current.skillRefs,
-                                            nextRef,
-                                          ],
-                                        };
-                                      })
+                                      handleToggleAvailableSkill(skill)
                                     }
                                     className={cn(
                                       "rounded-3xl border p-4 text-left transition-colors",
@@ -1218,8 +1212,8 @@ export function AgentSettingsDialog({
                           {agentStatus === "dev" &&
                             duplicateSkillNames.size > 0 && (
                               <div className="text-muted-foreground border-border/70 bg-muted/25 rounded-2xl border px-4 py-3 text-xs leading-6">
-                                {text.hiddenDuplicateNames(
-                                  [...duplicateSkillNames].sort().join(", "),
+                                {text.duplicateNameHint(
+                                  duplicateSkillNamesLabel,
                                 )}
                               </div>
                             )}
@@ -1239,19 +1233,7 @@ export function AgentSettingsDialog({
                                     type="button"
                                     className="bg-secondary text-secondary-foreground inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-xs"
                                     onClick={() =>
-                                      setForm((current) =>
-                                        current
-                                          ? {
-                                              ...current,
-                                              skillRefs:
-                                                current.skillRefs.filter(
-                                                  (item) =>
-                                                    skillRefKey(item) !==
-                                                    skillRefKey(skillRef),
-                                                ),
-                                            }
-                                          : current,
-                                      )
+                                      handleRemoveSelectedSkill(skillRef)
                                     }
                                   >
                                     {skillRef.name}

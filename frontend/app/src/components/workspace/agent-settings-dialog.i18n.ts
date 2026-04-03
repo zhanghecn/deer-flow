@@ -35,7 +35,7 @@ type AgentSettingsDialogText = {
   noSkillsInScope: string;
   disabledBadge: string;
   attachedBadge: string;
-  hiddenDuplicateNames: (names: string) => string;
+  duplicateNameHint: (names: string) => string;
   selectedSkillsTitle: string;
   selectedSkillsDescription: string;
   remove: string;
@@ -196,14 +196,14 @@ const enUS: AgentSettingsDialogText = {
   copiedSkillsDescriptionProd:
     "Prod archives can only attach skills from the prod store.",
   copiedSkillsDescriptionDev:
-    "Dev archives can attach skills from dev and prod stores, but duplicate names across both stores are blocked.",
+    "Dev archives can attach skills from dev and prod stores. When the same name exists in both, choose the exact store entry you want to copy.",
   loadingSkills: "Loading skill catalog...",
   loadSkillsFailed: "Failed to load skills",
   noSkillsInScope: "No skills are available in this archive scope.",
   disabledBadge: "disabled",
   attachedBadge: "attached",
-  hiddenDuplicateNames: (names) =>
-    `Hidden duplicate names across \`store/dev\` and \`store/prod\`: ${names}`,
+  duplicateNameHint: (names) =>
+    `Same names exist across \`store/dev\` and \`store/prod\`: ${names}. Use the store tabs to choose the exact source.`,
   selectedSkillsTitle: "Selected archive skills",
   selectedSkillsDescription:
     "These copied skills are written into the archive's `skills/` directory on save.",
@@ -215,7 +215,7 @@ const enUS: AgentSettingsDialogText = {
   selectionRulesProd:
     "Prod archives must use `store/prod` skills. If a dev-only skill is still attached, publish that skill to prod before publishing the agent.",
   selectionRulesDev:
-    "Dev archives may use both `store/dev` and `store/prod`, but names that exist in both stores are intentionally blocked to avoid ambiguous selection.",
+    "Dev archives may use both `store/dev` and `store/prod`. The dialog saves the exact `source_path`, so same-named skills stay selectable as long as you choose the intended store variant.",
   promptTitle: "Advanced instructions",
   promptDescription:
     "Optional. Use this only when you need to tune deeper agent behavior for this version.",
@@ -396,14 +396,14 @@ const zhCN: AgentSettingsDialogText = {
   copiedSkillsTitle: "复制技能",
   copiedSkillsDescriptionProd: "生产归档只能挂载来自 prod 仓库的技能。",
   copiedSkillsDescriptionDev:
-    "开发归档可以挂载 dev 和 prod 仓库技能，但同名技能会被阻止以避免歧义。",
+    "开发归档可以挂载 dev 和 prod 仓库技能；如果两个仓库里有同名技能，请选择你要复制的具体仓库版本。",
   loadingSkills: "正在加载技能目录...",
   loadSkillsFailed: "加载技能失败",
   noSkillsInScope: "当前归档范围内没有可用技能。",
   disabledBadge: "已禁用",
   attachedBadge: "已挂载",
-  hiddenDuplicateNames: (names) =>
-    `已隐藏 \`store/dev\` 与 \`store/prod\` 中的重名技能：${names}`,
+  duplicateNameHint: (names) =>
+    `\`store/dev\` 与 \`store/prod\` 中存在同名技能：${names}。请通过上方仓库标签选择具体来源。`,
   selectedSkillsTitle: "已选择的归档技能",
   selectedSkillsDescription:
     "这些已复制技能会在保存时写入归档目录下的 `skills/`。",
@@ -415,7 +415,7 @@ const zhCN: AgentSettingsDialogText = {
   selectionRulesProd:
     "生产归档必须使用 `store/prod` 技能。如果当前仍依赖仅 dev 存在的技能，请先把该技能发布到 prod，再发布智能体。",
   selectionRulesDev:
-    "开发归档可以同时使用 `store/dev` 和 `store/prod`，但如果两个仓库里存在同名技能，会被刻意屏蔽以避免选择歧义。",
+    "开发归档可以同时使用 `store/dev` 和 `store/prod`。系统会保存精确的 `source_path`，所以同名技能也可以选，但一次只会保留你当前选中的那个仓库版本。",
   promptTitle: "高级指令",
   promptDescription:
     "可选。只有在你确实需要微调这个版本的深层行为时再修改这里。",

@@ -7,7 +7,10 @@ import {
   buildSkillMaterializedPath,
   buildSkillSourcePath,
   createSkillRef,
+  isSkillRefSelected,
+  removeSkillRef,
   serializeSkillRefForRequest,
+  toggleSkillRefSelection,
 } from "./agent-skill-refs";
 
 function createSkill(overrides: Partial<Skill>): Skill {
@@ -28,7 +31,9 @@ describe("agent skill refs", () => {
       source_path: "store/prod/vercel-deploy-claimable",
     });
 
-    expect(buildSkillSourcePath(skill)).toBe("store/prod/vercel-deploy-claimable");
+    expect(buildSkillSourcePath(skill)).toBe(
+      "store/prod/vercel-deploy-claimable",
+    );
     expect(buildSkillMaterializedPath(skill)).toBe(
       "skills/vercel-deploy-claimable",
     );
@@ -86,5 +91,109 @@ describe("agent skill refs", () => {
       name: "contract-review",
       materialized_path: "skills/contract-review",
     });
+  });
+
+  it("replaces duplicate archived store names with the newly chosen source", () => {
+    const selected = toggleSkillRefSelection(
+      [
+        {
+          name: "frontend-dev",
+          category: "store/dev",
+          source_path: "store/dev/frontend-dev",
+          materialized_path: "skills/frontend-dev",
+        },
+      ],
+      {
+        name: "frontend-dev",
+        category: "store/prod",
+        source_path: "store/prod/frontend-dev",
+        materialized_path: "skills/frontend-dev",
+      },
+    );
+
+    expect(selected).toEqual([
+      {
+        name: "frontend-dev",
+        category: "store/prod",
+        source_path: "store/prod/frontend-dev",
+        materialized_path: "skills/frontend-dev",
+      },
+    ]);
+  });
+
+  it("removes selected skill refs by their stable key", () => {
+    const selected = removeSkillRef(
+      [
+        {
+          name: "frontend-dev",
+          category: "store/prod",
+          source_path: "store/prod/frontend-dev",
+          materialized_path: "skills/frontend-dev",
+        },
+      ],
+      {
+        name: "frontend-dev",
+        category: "store/prod",
+        source_path: "store/prod/frontend-dev",
+        materialized_path: "skills/frontend-dev",
+      },
+    );
+
+    expect(selected).toEqual([]);
+  });
+
+  it("keeps agent-owned skills when switching archived store variants", () => {
+    const selected = toggleSkillRefSelection(
+      [
+        {
+          name: "frontend-dev",
+          category: null,
+          source_path: null,
+          materialized_path: "skills/custom/frontend-dev",
+        },
+      ],
+      {
+        name: "frontend-dev",
+        category: "store/prod",
+        source_path: "store/prod/frontend-dev",
+        materialized_path: "skills/frontend-dev",
+      },
+    );
+
+    expect(selected).toEqual([
+      {
+        name: "frontend-dev",
+        category: null,
+        source_path: null,
+        materialized_path: "skills/custom/frontend-dev",
+      },
+      {
+        name: "frontend-dev",
+        category: "store/prod",
+        source_path: "store/prod/frontend-dev",
+        materialized_path: "skills/frontend-dev",
+      },
+    ]);
+  });
+
+  it("detects selected skill refs by exact source path", () => {
+    expect(
+      isSkillRefSelected(
+        [
+          {
+            name: "frontend-dev",
+            category: "store/prod",
+            source_path: "store/prod/frontend-dev",
+            materialized_path: "skills/frontend-dev",
+          },
+        ],
+        {
+          name: "frontend-dev",
+          category: "store/dev",
+          source_path: "store/dev/frontend-dev",
+          materialized_path: "skills/frontend-dev",
+        },
+      ),
+    ).toBe(false);
   });
 });
