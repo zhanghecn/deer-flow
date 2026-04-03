@@ -1,3 +1,4 @@
+import json
 import logging
 from pathlib import Path
 
@@ -13,6 +14,67 @@ from src.tools.builtins.authoring_persistence import (
 from src.utils.runtime_context import runtime_context_value
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_embedded_registry_payload(source: str) -> dict[str, object] | None:
+    normalized_source = str(source or "").strip()
+    if not normalized_source:
+        return None
+
+    candidates: list[str] = [normalized_source]
+    colon_trimmed = normalized_source.lstrip(":").strip()
+    if colon_trimmed and colon_trimmed not in candidates:
+        candidates.append(colon_trimmed)
+
+    first_brace = normalized_source.find("{")
+    last_brace = normalized_source.rfind("}")
+    if 0 <= first_brace < last_brace:
+        embedded_object = normalized_source[first_brace : last_brace + 1].strip()
+        if embedded_object and embedded_object not in candidates:
+            candidates.append(embedded_object)
+
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
+def _normalize_registry_install_request(*, source: str, skill_name: str | None) -> tuple[str, str | None]:
+    normalized_source = str(source or "").strip()
+    normalized_skill_name = str(skill_name).strip() if skill_name is not None and str(skill_name).strip() else None
+
+    # Some OpenAI-compatible/Anthropic-compatible providers occasionally stringify
+    # the whole tool payload into the first string arg. Accept that malformed shape
+    # here so registry installation stays a generic runtime capability instead of a
+    # provider-specific prompt hack.
+    payload = _parse_embedded_registry_payload(normalized_source)
+    if payload is None:
+        return normalized_source, normalized_skill_name
+
+    payload_source = payload.get("source")
+    if isinstance(payload_source, str) and payload_source.strip():
+        normalized_source = payload_source.strip()
+
+    if normalized_skill_name is None:
+        for key in ("skill_name", "skillName", "name"):
+            payload_skill_name = payload.get(key)
+            if isinstance(payload_skill_name, str) and payload_skill_name.strip():
+                normalized_skill_name = payload_skill_name.strip()
+                break
+
+    if normalized_source != str(source or "").strip() or normalized_skill_name != skill_name:
+        logger.warning(
+            "Normalized embedded registry-install payload from source=%r to source=%r skill_name=%r",
+            source,
+            normalized_source,
+            normalized_skill_name,
+        )
+
+    return normalized_source, normalized_skill_name
 
 
 def _candidate_skill_name(*, source: str, skill_name: str | None) -> str | None:
@@ -77,7 +139,14 @@ def install_skill_from_registry(
     try:
         agent_status = str(runtime_context_value(runtime.context, "agent_status") or "dev").strip() or "dev"
         command_name = str(runtime_context_value(runtime.context, "command_name") or "").strip()
-        resolved_skill_name = _candidate_skill_name(source=source, skill_name=skill_name)
+        normalized_source, normalized_skill_name = _normalize_registry_install_request(
+            source=source,
+            skill_name=skill_name,
+        )
+        resolved_skill_name = _candidate_skill_name(
+            source=normalized_source,
+            skill_name=normalized_skill_name,
+        )
 
         # During `/create-agent`, reuse any visible archived store skill
         # instead of silently reinstalling another same-named copy from the registry.
@@ -97,8 +166,8 @@ def install_skill_from_registry(
                 )
 
         result = install_registry_skill_to_store(
-            source=source,
-            skill_name=skill_name,
+            source=normalized_source,
+            skill_name=normalized_skill_name,
             paths=get_paths(),
         )
         return _format_install_result(result)

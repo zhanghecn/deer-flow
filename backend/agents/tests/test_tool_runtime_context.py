@@ -678,6 +678,72 @@ def test_install_skill_from_registry_tool_summarizes_repo_root_install(monkeypat
     assert "gamma-skill (store/prod)" in result
 
 
+def test_install_skill_from_registry_tool_normalizes_embedded_json_source(monkeypatch):
+    monkeypatch.setattr(
+        "src.tools.builtins.install_skill_from_registry_tool.get_paths",
+        lambda: object(),
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_install_registry_skill_to_store(*, source, skill_name, paths):
+        captured["source"] = source
+        captured["skill_name"] = skill_name
+        captured["paths"] = paths
+        return RegistrySkillInstallResult(
+            installed_skills=(
+                RegistryInstalledSkill(
+                    name="minimax-pdf",
+                    relative_path=PurePosixPath("minimax-pdf"),
+                    target_dir=Path("/store/dev/minimax-pdf"),
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(
+        "src.tools.builtins.install_skill_from_registry_tool.install_registry_skill_to_store",
+        fake_install_registry_skill_to_store,
+    )
+
+    runtime = SimpleNamespace(
+        context=LeadAgentRuntimeContext(agent_status="dev"),
+        tool_call_id="tc-embedded-json",
+    )
+
+    result = install_skill_from_registry.func(
+        runtime=runtime,
+        source=':{ "source": "https://github.com/MiniMax-AI/skills.git" }',
+    )
+
+    assert captured["source"] == "https://github.com/MiniMax-AI/skills.git"
+    assert captured["skill_name"] is None
+    assert "minimax-pdf" in result
+
+
+def test_install_skill_from_registry_uses_embedded_payload_skill_name_for_duplicate_check(monkeypatch):
+    monkeypatch.setattr(
+        "src.tools.builtins.install_skill_from_registry_tool.find_archived_skills_by_name",
+        lambda name, agent_status: [
+            SimpleNamespace(category="store/prod", skill_path="contract-review", skill_dir=Path("/tmp/contract-review"))
+        ]
+        if name == "contract-review"
+        else [],
+    )
+
+    runtime = SimpleNamespace(
+        context=LeadAgentRuntimeContext(agent_status="dev", command_name="create-agent"),
+        tool_call_id="tc-embedded-json-duplicate",
+    )
+
+    result = install_skill_from_registry.func(
+        runtime=runtime,
+        source=':{ "source": "https://github.com/MiniMax-AI/skills.git", "skill_name": "contract-review" }',
+    )
+
+    assert "already exists" in result
+    assert "store/prod/contract-review" in result
+
+
 def test_install_skill_from_registry_rejects_duplicate_archive_skill_during_create_agent(monkeypatch):
     monkeypatch.setattr(
         "src.tools.builtins.install_skill_from_registry_tool.find_archived_skills_by_name",
