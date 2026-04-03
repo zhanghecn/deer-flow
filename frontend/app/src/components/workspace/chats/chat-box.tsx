@@ -64,10 +64,26 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
     () => filterLegacyPptPreviewArtifacts(thread.values.artifacts ?? []),
     [thread.values.artifacts],
   );
+  const artifactsRefreshKey = useMemo(
+    () => stateArtifacts.join("\n"),
+    [stateArtifacts],
+  );
+  const shouldFetchDiscoveredArtifacts = useMemo(
+    () =>
+      !isMock &&
+      (stateArtifacts.length > 0 ||
+        thread.messages.length > 0 ||
+        (thread.values.messages?.length ?? 0) > 0),
+    [isMock, stateArtifacts.length, thread.messages.length, thread.values.messages],
+  );
   const { artifacts: discoveredOutputArtifacts } = useThreadOutputArtifacts({
     threadId,
-    enabled: !isMock,
-    refreshKey: `${thread.values.messages?.length ?? 0}:${stateArtifacts.length}`,
+    enabled: shouldFetchDiscoveredArtifacts,
+    // Polling already covers live runs, so keep the cache key tied only to
+    // persisted artifact hints instead of the loading flag to avoid a second
+    // fetch when the composer flips from idle to streaming.
+    refreshKey: artifactsRefreshKey,
+    refetchIntervalMs: thread.isLoading ? 5000 : false,
   });
   const visibleArtifacts = useMemo(
     () =>

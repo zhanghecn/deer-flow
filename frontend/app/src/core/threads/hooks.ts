@@ -69,7 +69,7 @@ const DEFAULT_STREAM_THROTTLE = 192;
 const HISTORY_PAGE_SIZE = 1;
 const STATE_HYDRATION_DELAY_MS = process.env.NODE_ENV === "test" ? 0 : 1500;
 const PENDING_RUN_RECOVERY_POLL_MS =
-  process.env.NODE_ENV === "test" ? 25 : 2000;
+  process.env.NODE_ENV === "test" ? 25 : 5000;
 const STREAM_MODES = ["values", "messages-tuple", "custom"] as const;
 const ACTIVE_RUN_OWNER_STORAGE_PREFIX = "openagents:stream-owner:";
 const ACTIVE_RUN_METADATA_STORAGE_PREFIX = "lg:stream:";
@@ -940,6 +940,7 @@ export function useThreadStream({
   const stateHydrationInFlightRef = useRef(false);
   const deferStateHydrationRef = useRef(false);
   const terminalStateNotifiedRef = useRef(false);
+  const manualHistorySeedRef = useRef(false);
   const stopPromiseRef = useRef<Promise<void> | null>(null);
   const ensureThreadPromiseRef = useRef<Promise<void> | null>(null);
   const ensureRequestedThreadIdRef = useRef<string | null>(null);
@@ -963,6 +964,7 @@ export function useThreadStream({
 
     deferStateHydrationRef.current = createdThreadDuringCurrentSession;
     hasStartedStreamRef.current = false;
+    manualHistorySeedRef.current = false;
     previousThreadIdRef.current = threadId;
     setHistoryEnabled(
       threadId
@@ -1039,6 +1041,7 @@ export function useThreadStream({
       if (activeThreadId) {
         deferStateHydrationRef.current = false;
         lastHydrationActivationRef.current = null;
+        manualHistorySeedRef.current = false;
         setHistoryEnabled(true);
       }
       lastErrorMessageRef.current = null;
@@ -1059,7 +1062,12 @@ export function useThreadStream({
     thread: passthroughThreadHistory,
     // Fresh threads can race with the first run before the runtime model is
     // persisted. Delay history reads until the first turn finishes.
-    fetchStateHistory: historyEnabled ? { limit: HISTORY_PAGE_SIZE } : false,
+    // Manual stop already seeds the latest history snapshot, so suppress the
+    // SDK history fetch for that transition to avoid a duplicate history call.
+    fetchStateHistory:
+      historyEnabled && !manualHistorySeedRef.current
+        ? { limit: HISTORY_PAGE_SIZE }
+        : false,
     onCreated(meta) {
       setStreamThreadId(meta.thread_id);
       storeActiveRunId(
@@ -1185,6 +1193,10 @@ export function useThreadStream({
       return;
     }
 
+    if (thread.isLoading) {
+      return;
+    }
+
     if (!historyEnabled && !hasResolvedModelName) {
       return;
     }
@@ -1287,6 +1299,7 @@ export function useThreadStream({
     historyEnabled,
     isWindowActive,
     notifyThreadError,
+    thread.isLoading,
     threadId,
     windowActivationId,
   ]);
@@ -1296,6 +1309,7 @@ export function useThreadStream({
       !threadId ||
       !authenticated ||
       historyEnabled ||
+      thread.isLoading ||
       !isWindowActive ||
       !hasResolvedModelName
     ) {
@@ -1362,6 +1376,7 @@ export function useThreadStream({
     historyEnabled,
     isWindowActive,
     thread,
+    thread.isLoading,
     threadId,
   ]);
 
@@ -1409,6 +1424,7 @@ export function useThreadStream({
       const files = message.files ?? [];
 
       terminalStateNotifiedRef.current = false;
+      manualHistorySeedRef.current = false;
       setThreadOverride(null);
       setRetryStatus(null);
       lastErrorMessageRef.current = null;
@@ -1539,6 +1555,7 @@ export function useThreadStream({
 
       const selectedModelName = requireModelName(resolvedContext);
       terminalStateNotifiedRef.current = false;
+      manualHistorySeedRef.current = false;
       setThreadOverride(null);
       setRetryStatus(null);
       lastErrorMessageRef.current = null;
@@ -1599,6 +1616,7 @@ export function useThreadStream({
 
     const activeRunTarget = resolveActiveRunTarget(threadId, streamThreadId);
     setRetryStatus(null);
+    manualHistorySeedRef.current = false;
     const snapshot = buildThreadOverride(
       "snapshot",
       mergedThreadValues,
@@ -1634,9 +1652,8 @@ export function useThreadStream({
         clearActiveRunTarget(activeRunTarget);
       }
 
-      setHistoryEnabled(true);
-
       if (!activeRunTarget.threadId || !authenticated) {
+        setHistoryEnabled(true);
         onStop?.(latestState);
         return;
       }
@@ -1658,6 +1675,7 @@ export function useThreadStream({
         ]);
 
         latestState = state.values;
+        manualHistorySeedRef.current = true;
         const nextThreadOverride = buildThreadOverrideFromState(
           "snapshot",
           state.values,
@@ -1669,9 +1687,11 @@ export function useThreadStream({
           setThreadOverride(nextThreadOverride);
         }
       } catch (error) {
+        manualHistorySeedRef.current = false;
         notifyThreadError(error);
       }
 
+      setHistoryEnabled(true);
       onStop?.(latestState);
       void invalidateThreadSearchCaches(queryClient);
     })().finally(() => {

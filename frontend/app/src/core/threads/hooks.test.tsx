@@ -697,7 +697,7 @@ describe("useThreadStream", () => {
     };
 
     const stopMock = vi.fn().mockResolvedValue(undefined);
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     streamState = makeThreadState({
       messages: initialMessages,
       values: persistedValues,
@@ -850,6 +850,60 @@ describe("useThreadStream", () => {
     expect(toastError).not.toHaveBeenCalled();
   });
 
+  it("reuses the manually fetched history after stopping a deferred-history run", async () => {
+    const persistedValues: AgentThreadState = {
+      title: "Thread",
+      messages: [
+        {
+          id: "human-1",
+          type: "human",
+          content: [{ type: "text", text: "Stop and keep the trace" }],
+          additional_kwargs: {},
+        },
+      ],
+      artifacts: [],
+    };
+    const persistedHistory = [
+      {
+        values: persistedValues,
+      },
+    ];
+
+    streamState = makeThreadState({
+      messages: persistedValues.messages ?? [],
+      values: persistedValues,
+      stop: vi.fn().mockResolvedValue(undefined),
+    });
+    window.sessionStorage.setItem("lg:stream:thread-1", "run-stop-4");
+    apiClient.threads.getState.mockResolvedValueOnce({
+      values: persistedValues,
+    });
+    apiClient.threads.getHistory.mockResolvedValueOnce(persistedHistory);
+
+    const { result } = renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          skipInitialHistory: true,
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    expect(latestUseStreamOptions?.fetchStateHistory).toBe(false);
+
+    await act(async () => {
+      await result.current[0].stop();
+    });
+
+    expect(apiClient.threads.getHistory).toHaveBeenCalledTimes(1);
+    expect(latestUseStreamOptions?.fetchStateHistory).toBe(false);
+  });
+
   it("does not touch stream history when initial history loading is disabled", () => {
     const throwingThreadState = makeThreadState();
     Object.defineProperty(throwingThreadState, "history", {
@@ -903,6 +957,33 @@ describe("useThreadStream", () => {
         { subgraphs: true },
       );
     });
+  });
+
+  it("does not poll deferred-history state while a live stream is still active", async () => {
+    apiClient.threads.create.mockImplementation(() => createPendingPromise());
+    streamState = makeThreadState({
+      isLoading: true,
+    });
+
+    renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          skipInitialHistory: true,
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(apiClient.threads.getState).not.toHaveBeenCalled();
   });
 
   it("defers state hydration for threads created during the current session until the first run finishes", async () => {

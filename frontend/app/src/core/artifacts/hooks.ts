@@ -95,10 +95,12 @@ export function useThreadOutputArtifacts({
   threadId,
   enabled,
   refreshKey,
+  refetchIntervalMs,
 }: {
   threadId: string;
   enabled?: boolean;
   refreshKey?: string | number;
+  refetchIntervalMs?: number | false;
 }) {
   const { data, isLoading, error } = useQuery({
     queryKey: ["thread-output-artifacts", threadId, refreshKey],
@@ -106,6 +108,8 @@ export function useThreadOutputArtifacts({
     enabled: Boolean(threadId) && enabled,
     staleTime: 0,
     refetchOnWindowFocus: false,
+    refetchInterval: enabled ? refetchIntervalMs : false,
+    refetchIntervalInBackground: false,
   });
 
   return {
