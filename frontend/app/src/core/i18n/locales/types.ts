@@ -68,6 +68,8 @@ export interface Translations {
   // Input Box
   inputBox: {
     placeholder: string;
+    submit: string;
+    stop: string;
     createSkillPrompt: string;
     addAttachments: string;
     mode: string;

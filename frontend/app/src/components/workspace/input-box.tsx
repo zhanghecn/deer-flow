@@ -4,6 +4,7 @@ import {
   PaperclipIcon,
   PlusIcon,
   RocketIcon,
+  SquareIcon,
   SparklesIcon,
   UploadIcon,
   ZapIcon,
@@ -318,6 +319,8 @@ export function InputBox({
   const displayedMode = getResolvedThreadMode(context.mode);
   const subagentEnabled =
     context.subagent_enabled ?? DEFAULT_SUBAGENT_ENABLED;
+  const submitButtonLabel =
+    status === "streaming" ? t.inputBox.stop : t.inputBox.submit;
 
   const modeOptions = useMemo<ModeOption[]>(
     () => [
@@ -734,11 +737,21 @@ export function InputBox({
             </ModelSelectorContent>
           </ModelSelector>
           <PromptInputSubmit
-            className="rounded-full"
+            aria-label={submitButtonLabel}
+            title={submitButtonLabel}
+            className={cn("rounded-full", status === "streaming" && "px-3")}
             disabled={disabled}
-            variant="outline"
+            size={status === "streaming" ? "sm" : "icon-sm"}
+            variant={status === "streaming" ? "default" : "outline"}
             status={status}
-          />
+          >
+            {status === "streaming" ? (
+              <>
+                <SquareIcon className="size-4" />
+                <span>{submitButtonLabel}</span>
+              </>
+            ) : undefined}
+          </PromptInputSubmit>
         </PromptInputTools>
       </PromptInputFooter>
       <ThreadKnowledgeAttachmentStrip threadId={threadId} />

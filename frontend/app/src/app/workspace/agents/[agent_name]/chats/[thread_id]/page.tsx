@@ -182,6 +182,14 @@ export default function AgentChatPage() {
   }, [runtimeContextSeed]);
 
   const { showNotification } = useNotification();
+  const clearPendingRun = useCallback(() => {
+    setIsPendingRun(false);
+    const nextPath = buildThreadPath(runtimeSelection, threadId, { isMock });
+    const currentPath = buildCurrentPath(pathname, searchParams);
+    if (nextPath !== currentPath) {
+      void navigate(nextPath, { replace: true });
+    }
+  }, [isMock, navigate, pathname, runtimeSelection, searchParams, threadId]);
 
   useEffect(() => {
     if (!threadRuntime || isNewThread) {
@@ -231,10 +239,7 @@ export default function AgentChatPage() {
         );
       },
       onFinish: (state) => {
-        setIsPendingRun(false);
-        void navigate(buildThreadPath(runtimeSelection, threadId, { isMock }), {
-          replace: true,
-        });
+        clearPendingRun();
         if (document.hidden || !document.hasFocus()) {
           showNotification(state.title, {
             body: buildThreadCompletionNotificationBody(state),
@@ -301,8 +306,12 @@ export default function AgentChatPage() {
   );
 
   const handleStop = useCallback(async () => {
-    await thread.stop();
-  }, [thread]);
+    try {
+      await thread.stop();
+    } finally {
+      clearPendingRun();
+    }
+  }, [clearPendingRun, thread]);
 
   useEffect(() => {
     if (thread.isLoading || !isPendingRun) {
@@ -316,22 +325,8 @@ export default function AgentChatPage() {
       return;
     }
 
-    setIsPendingRun(false);
-    const nextPath = buildThreadPath(runtimeSelection, threadId, { isMock });
-    const currentPath = buildCurrentPath(pathname, searchParams);
-    if (nextPath !== currentPath) {
-      void navigate(nextPath, { replace: true });
-    }
-  }, [
-    isMock,
-    isPendingRun,
-    navigate,
-    pathname,
-    runtimeSelection,
-    searchParams,
-    thread,
-    threadId,
-  ]);
+    clearPendingRun();
+  }, [clearPendingRun, isPendingRun, thread]);
 
   const showCenteredComposer = useMemo(
     () =>

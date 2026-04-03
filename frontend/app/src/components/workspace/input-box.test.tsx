@@ -44,6 +44,8 @@ vi.mock("@/core/i18n/hooks", () => ({
       },
       inputBox: {
         placeholder: "Ask anything",
+        submit: "Submit",
+        stop: "Stop",
         addAttachments: "Add attachments",
         flashMode: "Flash",
         flashModeDescription: "Fast",
@@ -277,5 +279,42 @@ describe("InputBox", () => {
       "aria-pressed",
       "true",
     );
+  });
+
+  it("shows a stop action while streaming and routes clicks to onStop", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    const onStop = vi.fn();
+    const queryClient = new QueryClient();
+
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <PromptInputProvider>
+            <InputBox
+              threadId="thread-test"
+              status="streaming"
+              context={{
+                model_name: "kimi-k2.5",
+                mode: "pro",
+                subagent_enabled: false,
+                agent_status: "dev",
+              }}
+              onContextChange={vi.fn()}
+              onSubmit={onSubmit}
+              onStop={onStop}
+            />
+          </PromptInputProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    const stopButton = screen.getByRole("button", { name: "Stop" });
+    expect(stopButton).toHaveTextContent("Stop");
+
+    await user.click(stopButton);
+
+    expect(onStop).toHaveBeenCalledTimes(1);
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 });
