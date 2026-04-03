@@ -87,9 +87,10 @@ func main() {
 	artifactsH := handler.NewArtifactsHandler(fs)
 	knowledgeH := handler.NewKnowledgeHandler(knowledgeRepo, modelRepo, fs, knowledgeAssetStore)
 	onlyOfficeH := handler.NewOnlyOfficeHandler(fs, handler.OnlyOfficeConfig{
-		ServerURL:    cfg.OnlyOffice.ServerURL,
-		PublicAppURL: cfg.OnlyOffice.PublicAppURL,
-		JWTSecret:    resolveOnlyOfficeJWTSecret(),
+		ServerURL:         cfg.OnlyOffice.ServerURL,
+		InternalServerURL: cfg.OnlyOffice.InternalServerURL,
+		PublicAppURL:      cfg.OnlyOffice.PublicAppURL,
+		JWTSecret:         resolveOnlyOfficeJWTSecret(),
 	})
 	openAPIH := handler.NewOpenAPIHandler(modelRepo, cfg.Upstream.LangGraphURL, fs)
 	langGraphRuntimeH := handler.NewLangGraphRuntimeHandler()

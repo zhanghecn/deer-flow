@@ -66,8 +66,9 @@ type UpstreamConfig struct {
 }
 
 type OnlyOfficeConfig struct {
-	ServerURL    string `yaml:"server_url"`
-	PublicAppURL string `yaml:"public_app_url"`
+	ServerURL         string `yaml:"server_url"`
+	InternalServerURL string `yaml:"internal_server_url"`
+	PublicAppURL      string `yaml:"public_app_url"`
 }
 
 func Load(path string) (*Config, error) {
@@ -95,8 +96,9 @@ func Load(path string) (*Config, error) {
 			LangGraphURL: "http://localhost:2024",
 		},
 		OnlyOffice: OnlyOfficeConfig{
-			ServerURL:    "http://localhost:8082",
-			PublicAppURL: "http://host.docker.internal:8001",
+			ServerURL:         "http://localhost:8082",
+			InternalServerURL: "http://localhost:8082",
+			PublicAppURL:      "http://host.docker.internal:8001",
 		},
 	}
 
@@ -139,6 +141,7 @@ func (c *Config) resolveEnvVars() {
 	c.JWT.Secret = resolve(c.JWT.Secret)
 	c.Upstream.LangGraphURL = resolve(c.Upstream.LangGraphURL)
 	c.OnlyOffice.ServerURL = resolve(c.OnlyOffice.ServerURL)
+	c.OnlyOffice.InternalServerURL = resolve(c.OnlyOffice.InternalServerURL)
 	c.OnlyOffice.PublicAppURL = resolve(c.OnlyOffice.PublicAppURL)
 	for i := range c.Proxy.Routes {
 		c.Proxy.Routes[i].Upstream = resolve(c.Proxy.Routes[i].Upstream)
@@ -158,6 +161,7 @@ func (c *Config) applyEnvOverrides() {
 
 	override("LANGGRAPH_URL", &c.Upstream.LangGraphURL)
 	override("ONLYOFFICE_SERVER_URL", &c.OnlyOffice.ServerURL)
+	override("ONLYOFFICE_INTERNAL_SERVER_URL", &c.OnlyOffice.InternalServerURL)
 	override("ONLYOFFICE_PUBLIC_APP_URL", &c.OnlyOffice.PublicAppURL)
 }
 

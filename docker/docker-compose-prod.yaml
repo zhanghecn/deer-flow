@@ -38,6 +38,7 @@ services:
       GATEWAY_CONFIG_PATH: /app/backend/gateway/gateway.yaml
       LANGGRAPH_URL: http://langgraph:2024
       ONLYOFFICE_SERVER_URL: /onlyoffice
+      ONLYOFFICE_INTERNAL_SERVER_URL: http://onlyoffice
       ONLYOFFICE_PUBLIC_APP_URL: http://gateway:8001
       OPENAGENTS_HOME: /openagents-home
       OPENAGENTS_EXTENSIONS_CONFIG_PATH: /openagents-home/extensions_config.json

@@ -1,5 +1,5 @@
 import { FilesIcon, XIcon } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ConversationEmptyState } from "@/components/ai-elements/conversation";
 import { Button } from "@/components/ui/button";
@@ -34,12 +34,33 @@ import { useThread } from "../messages/context";
 
 const CLOSE_MODE = { chat: 100, artifacts: 0 };
 const OPEN_MODE = { chat: 60, artifacts: 40 };
+const FAST_ARTIFACT_DISCOVERY_POLL_MS = 5000;
+const MEDIUM_ARTIFACT_DISCOVERY_POLL_MS = 15000;
+const SLOW_ARTIFACT_DISCOVERY_POLL_MS = 30000;
+const STABLE_DISCOVERY_POLLS_FOR_MEDIUM = 2;
+const STABLE_DISCOVERY_POLLS_FOR_SLOW = 5;
 
 function hasSameArtifacts(left: string[], right: string[]) {
   return (
     left.length === right.length &&
     left.every((filepath, index) => filepath === right[index])
   );
+}
+
+function getArtifactDiscoveryPollInterval(
+  isLoading: boolean,
+  stableDiscoveryPollCount: number,
+) {
+  if (!isLoading) {
+    return false;
+  }
+  if (stableDiscoveryPollCount >= STABLE_DISCOVERY_POLLS_FOR_SLOW) {
+    return SLOW_ARTIFACT_DISCOVERY_POLL_MS;
+  }
+  if (stableDiscoveryPollCount >= STABLE_DISCOVERY_POLLS_FOR_MEDIUM) {
+    return MEDIUM_ARTIFACT_DISCOVERY_POLL_MS;
+  }
+  return FAST_ARTIFACT_DISCOVERY_POLL_MS;
 }
 
 const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
@@ -60,6 +81,9 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
   } = useArtifacts();
 
   const [autoSelectFirstArtifact, setAutoSelectFirstArtifact] = useState(true);
+  const [stableDiscoveryPollCount, setStableDiscoveryPollCount] = useState(0);
+  const lastDiscoveredArtifactsKeyRef = useRef<string | null>(null);
+  const lastDiscoveryUpdateAtRef = useRef(0);
   const stateArtifacts = useMemo(
     () => filterLegacyPptPreviewArtifacts(thread.values.artifacts ?? []),
     [thread.values.artifacts],
@@ -76,15 +100,25 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
         (thread.values.messages?.length ?? 0) > 0),
     [isMock, stateArtifacts.length, thread.messages.length, thread.values.messages],
   );
-  const { artifacts: discoveredOutputArtifacts } = useThreadOutputArtifacts({
+  const {
+    artifacts: discoveredOutputArtifacts,
+    lastUpdatedAt: discoveredArtifactsUpdatedAt,
+  } = useThreadOutputArtifacts({
     threadId,
     enabled: shouldFetchDiscoveredArtifacts,
     // Polling already covers live runs, so keep the cache key tied only to
     // persisted artifact hints instead of the loading flag to avoid a second
     // fetch when the composer flips from idle to streaming.
     refreshKey: artifactsRefreshKey,
-    refetchIntervalMs: thread.isLoading ? 5000 : false,
+    refetchIntervalMs: getArtifactDiscoveryPollInterval(
+      thread.isLoading,
+      stableDiscoveryPollCount,
+    ),
   });
+  const discoveredArtifactsKey = useMemo(
+    () => discoveredOutputArtifacts.join("\n"),
+    [discoveredOutputArtifacts],
+  );
   const visibleArtifacts = useMemo(
     () =>
       mergeVisibleArtifacts(
@@ -93,6 +127,52 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
       ),
     [artifacts, discoveredOutputArtifacts, stateArtifacts],
   );
+
+  useEffect(() => {
+    lastDiscoveredArtifactsKeyRef.current = null;
+    lastDiscoveryUpdateAtRef.current = 0;
+    setStableDiscoveryPollCount(0);
+  }, [artifactsRefreshKey, threadId]);
+
+  useEffect(() => {
+    if (!thread.isLoading) {
+      lastDiscoveredArtifactsKeyRef.current = discoveredArtifactsKey;
+      lastDiscoveryUpdateAtRef.current = discoveredArtifactsUpdatedAt;
+      setStableDiscoveryPollCount(0);
+      return;
+    }
+
+    if (discoveredArtifactsUpdatedAt === 0) {
+      return;
+    }
+
+    if (lastDiscoveryUpdateAtRef.current === discoveredArtifactsUpdatedAt) {
+      return;
+    }
+
+    lastDiscoveryUpdateAtRef.current = discoveredArtifactsUpdatedAt;
+
+    // Keep discovery fast while outputs are changing, then back off repeated
+    // identical scans so long-running runs do not keep hammering the gateway.
+    if (lastDiscoveredArtifactsKeyRef.current === null) {
+      lastDiscoveredArtifactsKeyRef.current = discoveredArtifactsKey;
+      setStableDiscoveryPollCount(0);
+      return;
+    }
+
+    if (lastDiscoveredArtifactsKeyRef.current === discoveredArtifactsKey) {
+      setStableDiscoveryPollCount((count) => count + 1);
+      return;
+    }
+
+    lastDiscoveredArtifactsKeyRef.current = discoveredArtifactsKey;
+    setStableDiscoveryPollCount(0);
+  }, [
+    discoveredArtifactsKey,
+    discoveredArtifactsUpdatedAt,
+    thread.isLoading,
+  ]);
+
   const selectedOfficeArtifact = useMemo(() => {
     if (!selectedArtifact) {
       return null;

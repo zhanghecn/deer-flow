@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -15,16 +15,35 @@ import type { AgentThreadState } from "@/core/threads";
 
 import { ChatBox } from "./chat-box";
 
-const useThreadOutputArtifactsMock = vi.fn(
-  (_args?: { refreshKey?: string }) => ({
+type ThreadOutputArtifactsHookArgs = {
+  refreshKey?: string;
+  refetchIntervalMs?: number | false;
+};
+
+type ThreadOutputArtifactsHookResult = {
+  artifacts: string[];
+  isLoading: boolean;
+  error: null;
+  lastUpdatedAt: number;
+};
+
+function defaultThreadOutputArtifactsResult(
+  _args?: ThreadOutputArtifactsHookArgs,
+): ThreadOutputArtifactsHookResult {
+  return {
     artifacts: [],
     isLoading: false,
     error: null,
-  }),
-);
+    lastUpdatedAt: 0,
+  };
+}
+
+const useThreadOutputArtifactsMock = vi.fn<
+  (args?: ThreadOutputArtifactsHookArgs) => ThreadOutputArtifactsHookResult
+>(defaultThreadOutputArtifactsResult);
 
 vi.mock("@/core/artifacts/hooks", () => ({
-  useThreadOutputArtifacts: (args?: { refreshKey?: string }) =>
+  useThreadOutputArtifacts: (args?: ThreadOutputArtifactsHookArgs) =>
     useThreadOutputArtifactsMock(args),
 }));
 
@@ -74,9 +93,52 @@ function RevealArtifact({ path }: { path: string }) {
   return null;
 }
 
+function createQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+      },
+    },
+  });
+}
+
+function renderChatBoxShell({
+  queryClient,
+  thread,
+  isMock,
+  threadId,
+  children,
+}: {
+  queryClient: QueryClient;
+  thread: { values: AgentThreadState };
+  isMock: boolean;
+  threadId: string;
+  children?: ReactNode;
+}) {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <I18nProvider initialLocale="en-US">
+        <SidebarProvider>
+          <ThreadContext.Provider value={{ thread: thread as never, isMock }}>
+            <ArtifactsProvider>
+              <ChatBox threadId={threadId}>
+                {children ?? <div>Chat content</div>}
+              </ChatBox>
+            </ArtifactsProvider>
+          </ThreadContext.Provider>
+        </SidebarProvider>
+      </I18nProvider>
+    </QueryClientProvider>
+  );
+}
+
 describe("ChatBox", () => {
   beforeEach(() => {
-    useThreadOutputArtifactsMock.mockClear();
+    useThreadOutputArtifactsMock.mockReset();
+    useThreadOutputArtifactsMock.mockImplementation(
+      defaultThreadOutputArtifactsResult,
+    );
   });
 
   it("hides virtual runtime paths in the office dialog title", async () => {
@@ -103,31 +165,21 @@ describe("ChatBox", () => {
         messages: [],
       },
     } as unknown as { values: AgentThreadState };
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: {
-          retry: false,
-        },
-      },
-    });
+    const queryClient = createQueryClient();
 
     render(
-      <QueryClientProvider client={queryClient}>
-        <I18nProvider initialLocale="en-US">
-          <SidebarProvider>
-            <ThreadContext.Provider
-              value={{ thread: thread as never, isMock: true }}
-            >
-              <ArtifactsProvider>
-                <OpenOfficeArtifact path={artifactPath} />
-                <ChatBox threadId="thread-1">
-                  <div>Chat content</div>
-                </ChatBox>
-              </ArtifactsProvider>
-            </ThreadContext.Provider>
-          </SidebarProvider>
-        </I18nProvider>
-      </QueryClientProvider>,
+      renderChatBoxShell({
+        queryClient,
+        thread,
+        isMock: true,
+        threadId: "thread-1",
+        children: (
+          <>
+            <OpenOfficeArtifact path={artifactPath} />
+            <div>Chat content</div>
+          </>
+        ),
+      }),
     );
 
     await waitFor(() => {
@@ -155,13 +207,7 @@ describe("ChatBox", () => {
     );
 
     const artifactPath = "/mnt/user-data/outputs/knowledge-preview.pdf";
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: {
-          retry: false,
-        },
-      },
-    });
+    const queryClient = createQueryClient();
 
     const firstThread = {
       messages: [],
@@ -181,22 +227,18 @@ describe("ChatBox", () => {
     } as unknown as { values: AgentThreadState };
 
     const { rerender } = render(
-      <QueryClientProvider client={queryClient}>
-        <I18nProvider initialLocale="en-US">
-          <SidebarProvider>
-            <ThreadContext.Provider
-              value={{ thread: firstThread as never, isMock: true }}
-            >
-              <ArtifactsProvider>
-                <RevealArtifact path={artifactPath} />
-                <ChatBox threadId="thread-1">
-                  <div>Chat content</div>
-                </ChatBox>
-              </ArtifactsProvider>
-            </ThreadContext.Provider>
-          </SidebarProvider>
-        </I18nProvider>
-      </QueryClientProvider>,
+      renderChatBoxShell({
+        queryClient,
+        thread: firstThread,
+        isMock: true,
+        threadId: "thread-1",
+        children: (
+          <>
+            <RevealArtifact path={artifactPath} />
+            <div>Chat content</div>
+          </>
+        ),
+      }),
     );
 
     await waitFor(() => {
@@ -206,21 +248,12 @@ describe("ChatBox", () => {
     });
 
     rerender(
-      <QueryClientProvider client={queryClient}>
-        <I18nProvider initialLocale="en-US">
-          <SidebarProvider>
-            <ThreadContext.Provider
-              value={{ thread: secondThread as never, isMock: true }}
-            >
-              <ArtifactsProvider>
-                <ChatBox threadId="thread-2">
-                  <div>Chat content</div>
-                </ChatBox>
-              </ArtifactsProvider>
-            </ThreadContext.Provider>
-          </SidebarProvider>
-        </I18nProvider>
-      </QueryClientProvider>,
+      renderChatBoxShell({
+        queryClient,
+        thread: secondThread,
+        isMock: true,
+        threadId: "thread-2",
+      }),
     );
 
     await waitFor(() => {
@@ -230,13 +263,7 @@ describe("ChatBox", () => {
 
   it("keeps artifact refresh keys stable when a thread flips into loading", () => {
     const artifactPath = "/mnt/user-data/outputs/report.pdf";
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: {
-          retry: false,
-        },
-      },
-    });
+    const queryClient = createQueryClient();
     const idleThread = {
       messages: [],
       isLoading: false,
@@ -255,25 +282,16 @@ describe("ChatBox", () => {
     } as unknown as { values: AgentThreadState };
 
     const { rerender } = render(
-      <QueryClientProvider client={queryClient}>
-        <I18nProvider initialLocale="en-US">
-          <SidebarProvider>
-            <ThreadContext.Provider
-              value={{ thread: idleThread as never, isMock: false }}
-            >
-              <ArtifactsProvider>
-                <ChatBox threadId="thread-1">
-                  <div>Chat content</div>
-                </ChatBox>
-              </ArtifactsProvider>
-            </ThreadContext.Provider>
-          </SidebarProvider>
-        </I18nProvider>
-      </QueryClientProvider>,
+      renderChatBoxShell({
+        queryClient,
+        thread: idleThread,
+        isMock: false,
+        threadId: "thread-1",
+      }),
     );
 
     const initialCalls = useThreadOutputArtifactsMock.mock.calls as Array<
-      [{ refreshKey?: string } | undefined]
+      [{ refreshKey?: string; refetchIntervalMs?: number | false } | undefined]
     >;
     const initialRefreshKey = initialCalls.at(-1)?.[0]?.refreshKey;
     expect(initialRefreshKey).toBe(artifactPath);
@@ -281,29 +299,103 @@ describe("ChatBox", () => {
     useThreadOutputArtifactsMock.mockClear();
 
     rerender(
-      <QueryClientProvider client={queryClient}>
-        <I18nProvider initialLocale="en-US">
-          <SidebarProvider>
-            <ThreadContext.Provider
-              value={{ thread: loadingThread as never, isMock: false }}
-            >
-              <ArtifactsProvider>
-                <ChatBox threadId="thread-1">
-                  <div>Chat content</div>
-                </ChatBox>
-              </ArtifactsProvider>
-            </ThreadContext.Provider>
-          </SidebarProvider>
-        </I18nProvider>
-      </QueryClientProvider>,
+      renderChatBoxShell({
+        queryClient,
+        thread: loadingThread,
+        isMock: false,
+        threadId: "thread-1",
+      }),
     );
 
     expect(useThreadOutputArtifactsMock).toHaveBeenCalled();
     const rerenderCalls = useThreadOutputArtifactsMock.mock.calls as Array<
-      [{ refreshKey?: string } | undefined]
+      [{ refreshKey?: string; refetchIntervalMs?: number | false } | undefined]
     >;
     for (const [args] of rerenderCalls) {
       expect(args?.refreshKey).toBe(initialRefreshKey);
     }
+    expect(rerenderCalls.at(-1)?.[0]?.refetchIntervalMs).toBe(5000);
+  });
+
+  it("backs off artifact polling after repeated identical discovery scans", async () => {
+    let lastUpdatedAt = 1;
+    let discoveredArtifacts: string[] = [];
+    useThreadOutputArtifactsMock.mockImplementation(
+      (_args?: { refreshKey?: string; refetchIntervalMs?: number | false }) => ({
+        artifacts: discoveredArtifacts,
+        isLoading: false,
+        error: null,
+        lastUpdatedAt,
+      }),
+    );
+
+    const queryClient = createQueryClient();
+    const loadingThread = {
+      messages: [{}],
+      isLoading: true,
+      values: {
+        artifacts: [],
+        messages: [],
+      },
+    } as unknown as { values: AgentThreadState };
+
+    const { rerender } = render(
+      renderChatBoxShell({
+        queryClient,
+        thread: loadingThread,
+        isMock: false,
+        threadId: "thread-1",
+      }),
+    );
+
+    const rerenderLoadingThread = (nextUpdatedAt: number) => {
+      lastUpdatedAt = nextUpdatedAt;
+      rerender(
+        renderChatBoxShell({
+          queryClient,
+          thread: loadingThread,
+          isMock: false,
+          threadId: "thread-1",
+        }),
+      );
+    };
+
+    const latestArgs = () =>
+      (
+        useThreadOutputArtifactsMock.mock.calls.at(-1)?.[0] as
+          | { refetchIntervalMs?: number | false }
+          | undefined
+      ) ?? {};
+
+    await waitFor(() => {
+      expect(latestArgs().refetchIntervalMs).toBe(5000);
+    });
+
+    rerenderLoadingThread(2);
+
+    await waitFor(() => {
+      expect(latestArgs().refetchIntervalMs).toBe(5000);
+    });
+
+    rerenderLoadingThread(3);
+
+    await waitFor(() => {
+      expect(latestArgs().refetchIntervalMs).toBe(15000);
+    });
+
+    rerenderLoadingThread(4);
+    rerenderLoadingThread(5);
+    rerenderLoadingThread(6);
+
+    await waitFor(() => {
+      expect(latestArgs().refetchIntervalMs).toBe(30000);
+    });
+
+    discoveredArtifacts = ["/mnt/user-data/outputs/report.pdf"];
+    rerenderLoadingThread(7);
+
+    await waitFor(() => {
+      expect(latestArgs().refetchIntervalMs).toBe(5000);
+    });
   });
 });

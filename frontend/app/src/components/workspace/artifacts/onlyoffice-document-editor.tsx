@@ -252,7 +252,9 @@ export function OnlyOfficeDocumentEditor({
     return () => {
       disposed = true;
       destroyOnlyOfficeInstance(id);
-      document.getElementById(id)?.replaceChildren();
+      // React owns the editor container node. Clearing its children manually
+      // during unmount races React's own DOM teardown and can surface
+      // NotFoundError/removeChild crashes when switching office previews.
     };
   }, [
     configSignature,

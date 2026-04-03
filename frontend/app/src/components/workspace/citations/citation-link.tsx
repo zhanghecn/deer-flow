@@ -1,5 +1,11 @@
 import { ExternalLinkIcon, FileTextIcon } from "lucide-react";
-import type { ComponentProps } from "react";
+import {
+  Children,
+  isValidElement,
+  type ComponentProps,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -12,50 +18,56 @@ import { cn } from "@/lib/utils";
 
 import { useArtifacts } from "../artifacts";
 
-export function CitationLink({ 
-  href, 
+export function CitationLink({
+  href,
   children,
+  className,
+  onClick,
   ...props 
 }: ComponentProps<"a">) {
   const { reveal } = useArtifacts();
   const knowledgeCitation = parseKnowledgeCitationHref(href);
   const domain = extractDomain(href ?? "");
-  
-  // Priority: children > domain
-  const childrenText =
-    typeof children === "string"
-      ? children.replace(/^citation:\s*/i, "")
-      : null;
+
+  const childrenText = normalizeCitationText(extractTextContent(children));
   const isGenericText = childrenText === "Source" || childrenText === "来源";
   const displayText =
-    (!isGenericText && childrenText) ??
+    (!isGenericText ? childrenText : null) ??
     knowledgeCitation?.locatorLabel ??
     knowledgeCitation?.documentName ??
     domain;
+
+  function handleClick(event: MouseEvent<HTMLAnchorElement>) {
+    onClick?.(event);
+    if (event.defaultPrevented) {
+      return;
+    }
+
+    event.stopPropagation();
+    if (!knowledgeCitation) {
+      return;
+    }
+
+    event.preventDefault();
+    reveal({
+      filepath: knowledgeCitation.artifactPath,
+      page: knowledgeCitation.page,
+      heading: knowledgeCitation.heading,
+      line: knowledgeCitation.line,
+      locatorLabel: knowledgeCitation.locatorLabel,
+    });
+  }
 
   return (
     <HoverCard closeDelay={0} openDelay={0}>
       <HoverCardTrigger asChild>
         <a
+          {...props}
           href={href}
           target={knowledgeCitation ? undefined : "_blank"}
           rel={knowledgeCitation ? undefined : "noopener noreferrer"}
-          className="inline-flex items-center"
-          onClick={(event) => {
-            event.stopPropagation();
-            if (!knowledgeCitation) {
-              return;
-            }
-            event.preventDefault();
-            reveal({
-              filepath: knowledgeCitation.artifactPath,
-              page: knowledgeCitation.page,
-              heading: knowledgeCitation.heading,
-              line: knowledgeCitation.line,
-              locatorLabel: knowledgeCitation.locatorLabel,
-            });
-          }}
-          {...props}
+          className={cn("inline-flex items-center", className)}
+          onClick={handleClick}
         >
           <Badge
             variant="secondary"
@@ -70,7 +82,7 @@ export function CitationLink({
           </Badge>
         </a>
       </HoverCardTrigger>
-      <HoverCardContent className={cn("relative w-80 p-0", props.className)}>
+      <HoverCardContent className="relative w-80 p-0">
         <div className="p-3">
           <div className="space-y-1">
             {displayText && (
@@ -116,4 +128,23 @@ function extractDomain(url: string): string {
   } catch {
     return url;
   }
+}
+
+function normalizeCitationText(text: string): string | null {
+  const normalizedText = text.replace(/^citation:\s*/i, "").trim();
+  return normalizedText || null;
+}
+
+function extractTextContent(node: ReactNode): string {
+  return Children.toArray(node)
+    .map((child) => {
+      if (typeof child === "string" || typeof child === "number") {
+        return String(child);
+      }
+      if (isValidElement<{ children?: ReactNode }>(child)) {
+        return extractTextContent(child.props.children);
+      }
+      return "";
+    })
+    .join("");
 }

@@ -189,6 +189,7 @@ services:
       # Keep browser-facing ONLYOFFICE URLs aligned with the production
       # same-origin `/onlyoffice` path so local Vite proxying matches nginx.
       ONLYOFFICE_SERVER_URL: /onlyoffice
+      ONLYOFFICE_INTERNAL_SERVER_URL: http://onlyoffice
       ONLYOFFICE_PUBLIC_APP_URL: http://gateway:8001
     networks:
       - openagents-dev

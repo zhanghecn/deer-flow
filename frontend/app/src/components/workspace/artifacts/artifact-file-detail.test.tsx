@@ -26,6 +26,7 @@ vi.mock("streamdown", () => {
       children: string;
       components?: {
         img?: (props: { alt?: string; src?: string }) => ReactNode;
+        a?: (props: { children?: ReactNode; href?: string }) => ReactNode;
       };
     }) => {
       const imageMatch = /!\[([^\]]*)\]\(([^)]+)\)/.exec(children);
@@ -33,6 +34,16 @@ vi.mock("streamdown", () => {
         const [, alt, src] = imageMatch;
         return components.img({ alt, src });
       }
+
+      const linkMatch = /\[([^\]]+)\]\(([^)]+)\)/.exec(children);
+      if (linkMatch && components?.a) {
+        const [, label, href] = linkMatch;
+        return components.a({
+          href,
+          children: <span>{label}</span>,
+        });
+      }
+
       return <>{children}</>;
     },
   };
@@ -93,6 +104,25 @@ function PdfRevealHarness() {
         Reveal PDF Page 572
       </button>
       <ArtifactFileDetail filepath={pdfFilepath} threadId="thread-1" />
+    </>
+  );
+}
+
+function MarkdownCitationRevealHarness() {
+  const { previewTarget } = useArtifacts();
+
+  return (
+    <>
+      <div data-testid="preview-filepath">{previewTarget?.filepath ?? "none"}</div>
+      <div data-testid="preview-page">{previewTarget?.page ?? "none"}</div>
+      <ArtifactFilePreview
+        filepath="/mnt/user-data/outputs/.knowledge/doc-1/canonical.md"
+        threadId="thread-1"
+        content="[citation:PRML.pdf p.12](kb://citation?artifact_path=/mnt/user-data/outputs/.knowledge/doc-1/PRML.pdf&locator_type=page&page=12)"
+        isLoading={false}
+        error={null}
+        language="markdown"
+      />
     </>
   );
 }
@@ -196,6 +226,17 @@ describe("ArtifactFilePreview", () => {
         "blob:demo-pdf#page=572",
       );
     });
+  });
+
+  it("reveals knowledge citations from markdown previews when the link label is wrapped", () => {
+    renderWithProviders(<MarkdownCitationRevealHarness />);
+
+    fireEvent.click(screen.getByRole("link", { name: "PRML.pdf p.12" }));
+
+    expect(screen.getByTestId("preview-filepath").textContent).toBe(
+      "/mnt/user-data/outputs/.knowledge/doc-1/PRML.pdf",
+    );
+    expect(screen.getByTestId("preview-page").textContent).toBe("12");
   });
 
   it("reveals markdown previews by heading before falling back to line scrolling", () => {

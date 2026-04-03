@@ -904,6 +904,70 @@ describe("useThreadStream", () => {
     expect(latestUseStreamOptions?.fetchStateHistory).toBe(false);
   });
 
+  it("keeps the seeded history after stopping even when the live history getter throws", async () => {
+    const persistedValues: AgentThreadState = {
+      title: "Thread",
+      messages: [
+        {
+          id: "human-1",
+          type: "human",
+          content: [{ type: "text", text: "Stop and keep the seeded history" }],
+          additional_kwargs: {},
+        },
+      ],
+      artifacts: [],
+    };
+    const persistedHistory = [
+      {
+        values: persistedValues,
+      },
+    ];
+    const stopMock = vi.fn().mockResolvedValue(undefined);
+    const throwingThreadState = makeThreadState({
+      messages: persistedValues.messages ?? [],
+      values: persistedValues,
+      stop: stopMock,
+    });
+    Object.defineProperty(throwingThreadState, "history", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        throw new Error(
+          "`fetchStateHistory` must be set to `true` to use `history`",
+        );
+      },
+    });
+    streamState = throwingThreadState;
+    window.sessionStorage.setItem("lg:stream:thread-1", "run-stop-history");
+    apiClient.threads.getState.mockResolvedValueOnce({
+      values: persistedValues,
+    });
+    apiClient.threads.getHistory.mockResolvedValueOnce(persistedHistory);
+
+    const { result } = renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          skipInitialHistory: true,
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    await act(async () => {
+      await result.current[0].stop();
+    });
+
+    expect(stopMock).toHaveBeenCalledTimes(1);
+    expect(apiClient.threads.getHistory).toHaveBeenCalledTimes(1);
+    expect(result.current[0].messages).toEqual(persistedValues.messages);
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
   it("does not touch stream history when initial history loading is disabled", () => {
     const throwingThreadState = makeThreadState();
     Object.defineProperty(throwingThreadState, "history", {

@@ -37,6 +37,7 @@ test("existing threads restore the persisted runtime in the URL", async ({
   page,
 }) => {
   await bootstrapThreadRuntimeFixtures(page);
+  let legacyStateRequested = false;
 
   await page.route("**/api/threads/thread-custom/runtime", (route) =>
     fulfillJson(route, {
@@ -69,6 +70,10 @@ test("existing threads restore the persisted runtime in the URL", async ({
       metadata: {},
     }),
   );
+  await page.route("**/api/threads/thread-custom/state**", async (route) => {
+    legacyStateRequested = true;
+    await route.fulfill({ status: 500, body: "legacy state route" });
+  });
   await page.route(
     "**/api/langgraph/threads/thread-custom/history**",
     (route) => fulfillJson(route, []),
@@ -84,6 +89,7 @@ test("existing threads restore the persisted runtime in the URL", async ({
   await expect(page).toHaveURL(
     /\/workspace\/agents\/reviewer\/chats\/thread-custom\?agent_status=prod$/,
   );
+  expect(legacyStateRequested).toBeFalsy();
 });
 
 test("thread lists build links from each thread runtime binding", async ({

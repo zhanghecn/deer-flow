@@ -64,6 +64,10 @@ describe("OnlyOfficeDocumentEditor", () => {
 
   it("cleans up the editor instance on unmount", async () => {
     const createdDestroy = vi.fn();
+    const replaceChildrenSpy = vi.spyOn(
+      HTMLElement.prototype,
+      "replaceChildren",
+    );
     const ctor = vi.fn(function (this: { destroyEditor?: () => void }) {
       this.destroyEditor = createdDestroy;
       return this;
@@ -90,6 +94,9 @@ describe("OnlyOfficeDocumentEditor", () => {
 
     expect(createdDestroy).toHaveBeenCalledTimes(1);
     expect(onlyOfficeWindow.DocEditor?.instances?.["office-editor"]).toBeUndefined();
+    expect(replaceChildrenSpy).not.toHaveBeenCalled();
+
+    replaceChildrenSpy.mockRestore();
   });
 
   it("forwards ONLYOFFICE runtime errors through onEditorError", async () => {

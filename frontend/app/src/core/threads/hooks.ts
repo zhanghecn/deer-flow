@@ -708,6 +708,27 @@ function getExperimentalBranchTree(source: object) {
   }
 }
 
+function getThreadHistorySnapshot(
+  source: object,
+): ThreadState<AgentThreadState>[] {
+  if (!("history" in source)) {
+    return [];
+  }
+
+  try {
+    // The SDK exposes `history` via a getter that throws when
+    // `fetchStateHistory` is disabled. Stop/recovery flows temporarily keep
+    // history reads disabled after manually seeding the latest snapshot, so
+    // treat the live getter as optional and fall back to the seeded override.
+    const history = (source as { history?: unknown }).history;
+    return Array.isArray(history)
+      ? (history as ThreadState<AgentThreadState>[])
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 function extractPrimaryInterrupt(
   state: object | null | undefined,
 ): AgentInterrupt | undefined {
@@ -1535,7 +1556,9 @@ export function useThreadStream({
   );
 
   const historyContextWindow = useMemo(() => {
-    const historySnapshot = historyEnabled ? thread.history : null;
+    const historySnapshot = historyEnabled
+      ? getThreadHistorySnapshot(thread)
+      : null;
     if (!historySnapshot) {
       return null;
     }
@@ -1606,7 +1629,7 @@ export function useThreadStream({
       return [];
     }
 
-    return thread.history;
+    return getThreadHistorySnapshot(thread);
   }, [historyEnabled, thread]);
   const stopRun = useCallback(async () => {
     if (stopPromiseRef.current) {

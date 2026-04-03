@@ -348,6 +348,70 @@ func TestOnlyOfficeCallbackDownloadsAndReplacesPresentation(t *testing.T) {
 	}
 }
 
+func TestOnlyOfficeCallbackRewritesBrowserFacingDownloadURLToInternalServer(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	baseDir := t.TempDir()
+	threadID := "thread-office-callback-rewrite"
+	deckPath := writeTestDeck(t, baseDir, threadID, "outputs", "deck.docx", []byte("before"))
+
+	downloadServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/cache/files/data/save-1/output.docx/output.docx" {
+			t.Fatalf("unexpected rebased path: %s", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("filename"); got != "output.docx" {
+			t.Fatalf("unexpected filename query: %s", got)
+		}
+		_, _ = w.Write([]byte("after"))
+	}))
+	defer downloadServer.Close()
+
+	handler := NewOnlyOfficeHandler(storage.NewFS(baseDir), OnlyOfficeConfig{
+		ServerURL:         "/onlyoffice",
+		InternalServerURL: downloadServer.URL,
+		JWTSecret:         "office-secret",
+	})
+
+	body := map[string]any{
+		"status": 2,
+		"url":    "http://localhost:8083/onlyoffice/cache/files/data/save-1/output.docx/output.docx?filename=output.docx",
+		"token":  signOnlyOfficeTestToken(t, "office-secret"),
+	}
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal callback body: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(
+		http.MethodPost,
+		"/api/office/threads/"+threadID+"/callback/outputs/deck.docx",
+		bytes.NewReader(bodyBytes),
+	)
+	c.Request = c.Request.WithContext(context.Background())
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Params = gin.Params{
+		{Key: "id", Value: threadID},
+		{Key: "head", Value: "outputs"},
+		{Key: "tail", Value: "/deck.docx"},
+	}
+
+	handler.Callback(c)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	gotBytes, err := os.ReadFile(deckPath)
+	if err != nil {
+		t.Fatalf("read updated deck: %v", err)
+	}
+	if string(gotBytes) != "after" {
+		t.Fatalf("expected updated file contents, got %q", string(gotBytes))
+	}
+}
+
 func writeTestDeck(
 	t *testing.T,
 	baseDir string,

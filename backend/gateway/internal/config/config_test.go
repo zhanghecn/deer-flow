@@ -25,6 +25,9 @@ func TestLoadUsesGatewayDefaultsForNonSecretURLs(t *testing.T) {
 	if cfg.OnlyOffice.ServerURL != "http://localhost:8082" {
 		t.Fatalf("unexpected default onlyoffice server url: %s", cfg.OnlyOffice.ServerURL)
 	}
+	if cfg.OnlyOffice.InternalServerURL != "http://localhost:8082" {
+		t.Fatalf("unexpected default onlyoffice internal url: %s", cfg.OnlyOffice.InternalServerURL)
+	}
 	if cfg.OnlyOffice.PublicAppURL != "http://host.docker.internal:8001" {
 		t.Fatalf("unexpected default onlyoffice public url: %s", cfg.OnlyOffice.PublicAppURL)
 	}
@@ -43,7 +46,8 @@ func TestLoadAllowsExplicitEnvOverridesForContainerWiring(t *testing.T) {
 	}
 
 	t.Setenv("LANGGRAPH_URL", "http://langgraph:2024")
-	t.Setenv("ONLYOFFICE_SERVER_URL", "http://onlyoffice:80")
+	t.Setenv("ONLYOFFICE_SERVER_URL", "/onlyoffice")
+	t.Setenv("ONLYOFFICE_INTERNAL_SERVER_URL", "http://onlyoffice")
 	t.Setenv("ONLYOFFICE_PUBLIC_APP_URL", "http://gateway:8001")
 
 	cfg, err := Load(configPath)
@@ -57,8 +61,11 @@ func TestLoadAllowsExplicitEnvOverridesForContainerWiring(t *testing.T) {
 	if len(cfg.Proxy.Routes) != 1 || cfg.Proxy.Routes[0].Upstream != "http://langgraph:2024" {
 		t.Fatalf("expected proxy langgraph upstream override, got %#v", cfg.Proxy.Routes)
 	}
-	if cfg.OnlyOffice.ServerURL != "http://onlyoffice:80" {
+	if cfg.OnlyOffice.ServerURL != "/onlyoffice" {
 		t.Fatalf("unexpected overridden onlyoffice server url: %s", cfg.OnlyOffice.ServerURL)
+	}
+	if cfg.OnlyOffice.InternalServerURL != "http://onlyoffice" {
+		t.Fatalf("unexpected overridden onlyoffice internal url: %s", cfg.OnlyOffice.InternalServerURL)
 	}
 	if cfg.OnlyOffice.PublicAppURL != "http://gateway:8001" {
 		t.Fatalf("unexpected overridden onlyoffice public url: %s", cfg.OnlyOffice.PublicAppURL)

@@ -655,6 +655,7 @@ function ArtifactMarkdownLink({
   threadId: string;
   isMock: boolean;
 }) {
+  const knowledgeCitation = parseKnowledgeCitationHref(href);
   const internalFilepath = useMemo(() => {
     if (typeof href !== "string") {
       return null;
@@ -662,22 +663,18 @@ function ArtifactMarkdownLink({
     return resolveThreadScopedPath(href, filepath);
   }, [filepath, href]);
 
-  if (typeof children === "string") {
-    const match = /^citation:(.+)$/.exec(children);
-    if (match) {
-      const [, text] = match;
-      return (
-        <CitationLink
-          href={href}
-          onClick={onClick}
-          rel={rel}
-          target={target}
-          {...props}
-        >
-          {text}
-        </CitationLink>
-      );
-    }
+  if (knowledgeCitation) {
+    return (
+      <CitationLink
+        {...props}
+        href={href}
+        onClick={onClick}
+        rel={rel}
+        target={target}
+      >
+        {children}
+      </CitationLink>
+    );
   }
 
   return (

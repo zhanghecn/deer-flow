@@ -6,9 +6,11 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -21,9 +23,10 @@ import (
 )
 
 type OnlyOfficeConfig struct {
-	ServerURL    string
-	PublicAppURL string
-	JWTSecret    string
+	ServerURL         string
+	InternalServerURL string
+	PublicAppURL      string
+	JWTSecret         string
 }
 
 type OnlyOfficeHandler struct {
@@ -43,9 +46,10 @@ func NewOnlyOfficeHandler(fs *storage.FS, cfg OnlyOfficeConfig) *OnlyOfficeHandl
 	return &OnlyOfficeHandler{
 		fs: fs,
 		config: OnlyOfficeConfig{
-			ServerURL:    strings.TrimRight(strings.TrimSpace(cfg.ServerURL), "/"),
-			PublicAppURL: strings.TrimRight(strings.TrimSpace(cfg.PublicAppURL), "/"),
-			JWTSecret:    strings.TrimSpace(cfg.JWTSecret),
+			ServerURL:         strings.TrimRight(strings.TrimSpace(cfg.ServerURL), "/"),
+			InternalServerURL: strings.TrimRight(strings.TrimSpace(cfg.InternalServerURL), "/"),
+			PublicAppURL:      strings.TrimRight(strings.TrimSpace(cfg.PublicAppURL), "/"),
+			JWTSecret:         strings.TrimSpace(cfg.JWTSecret),
 		},
 		client: &http.Client{Timeout: 30 * time.Second},
 		now:    time.Now,
@@ -236,6 +240,12 @@ func (h *OnlyOfficeHandler) Callback(c *gin.Context) {
 			return
 		}
 		if err := h.downloadAndReplace(c.Request.Context(), request.URL, resolvedPath, info.Mode()); err != nil {
+			log.Printf(
+				"ONLYOFFICE callback save failed for thread=%s path=%s: %v",
+				threadID,
+				resolvedPath,
+				err,
+			)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": 1})
 			return
 		}
@@ -305,14 +315,19 @@ func (h *OnlyOfficeHandler) downloadAndReplace(
 	targetPath string,
 	mode os.FileMode,
 ) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sourceURL, nil)
+	downloadURL, err := h.rewriteCallbackDownloadURL(sourceURL)
 	if err != nil {
 		return err
 	}
 
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
+	if err != nil {
+		return fmt.Errorf("build onlyoffice download request: %w", err)
+	}
+
 	resp, err := h.client.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("request onlyoffice document server: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -339,6 +354,72 @@ func (h *OnlyOfficeHandler) downloadAndReplace(
 	}
 
 	return os.Rename(tmpPath, targetPath)
+}
+
+func (h *OnlyOfficeHandler) rewriteCallbackDownloadURL(sourceURL string) (string, error) {
+	trimmedSourceURL := strings.TrimSpace(sourceURL)
+	if trimmedSourceURL == "" {
+		return "", fmt.Errorf("missing onlyoffice download url")
+	}
+
+	internalBaseURL := strings.TrimSpace(h.config.InternalServerURL)
+	if internalBaseURL == "" {
+		return trimmedSourceURL, nil
+	}
+
+	source, err := url.Parse(trimmedSourceURL)
+	if err != nil {
+		return "", fmt.Errorf("parse onlyoffice download url: %w", err)
+	}
+	internalBase, err := url.Parse(internalBaseURL)
+	if err != nil {
+		return "", fmt.Errorf("parse onlyoffice internal server url: %w", err)
+	}
+
+	rebasedPath := source.Path
+	publicPrefix := onlyOfficeURLPathPrefix(h.config.ServerURL)
+	if publicPrefix != "" && publicPrefix != "/" {
+		switch {
+		case rebasedPath == publicPrefix:
+			rebasedPath = "/"
+		case strings.HasPrefix(rebasedPath, publicPrefix+"/"):
+			rebasedPath = strings.TrimPrefix(rebasedPath, publicPrefix)
+		}
+	}
+
+	// The callback body carries the browser-facing document-server URL. Gateway
+	// may run in a container where that public origin is unreachable, so rebase
+	// the request onto an internal ONLYOFFICE origin while preserving the exact
+	// cache file path and query produced for this save event.
+	internalBase.Path = joinOnlyOfficeURLPath(internalBase.Path, rebasedPath)
+	internalBase.RawQuery = source.RawQuery
+	internalBase.Fragment = ""
+	return internalBase.String(), nil
+}
+
+func onlyOfficeURLPathPrefix(serverURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(serverURL))
+	if err != nil {
+		return ""
+	}
+
+	cleaned := path.Clean("/" + strings.Trim(parsed.Path, "/"))
+	if cleaned == "/" {
+		return ""
+	}
+	return cleaned
+}
+
+func joinOnlyOfficeURLPath(basePath string, suffixPath string) string {
+	base := "/" + strings.Trim(basePath, "/")
+	suffix := "/" + strings.TrimLeft(suffixPath, "/")
+	if base == "/" {
+		return path.Clean(suffix)
+	}
+	if suffix == "/" {
+		return path.Clean(base)
+	}
+	return path.Clean(base + suffix)
 }
 
 func buildOnlyOfficeDocumentKey(threadID string, resolvedPath string, info os.FileInfo) string {

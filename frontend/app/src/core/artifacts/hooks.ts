@@ -102,7 +102,7 @@ export function useThreadOutputArtifacts({
   refreshKey?: string | number;
   refetchIntervalMs?: number | false;
 }) {
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, dataUpdatedAt } = useQuery({
     queryKey: ["thread-output-artifacts", threadId, refreshKey],
     queryFn: () => listThreadOutputArtifacts(threadId),
     enabled: Boolean(threadId) && enabled,
@@ -116,5 +116,6 @@ export function useThreadOutputArtifacts({
     artifacts: data ?? [],
     isLoading,
     error,
+    lastUpdatedAt: dataUpdatedAt,
   };
 }
