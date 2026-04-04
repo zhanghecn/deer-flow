@@ -310,7 +310,7 @@ def test_setup_agent_refreshes_thread_runtime_files_after_update(monkeypatch, tm
         ],
     )
 
-    archive_agent_dir = paths.agent_dir("landing-copy-agent-0318", "dev")
+    archive_agent_dir = paths.custom_agent_dir("landing-copy-agent-0318", "dev")
     assert (archive_agent_dir / "AGENTS.md").read_text(encoding="utf-8") == new_agents_md
     assert (runtime_agent_dir / "AGENTS.md").read_text(encoding="utf-8") == new_agents_md
     assert (runtime_skill_dir / "SKILL.md").read_text(encoding="utf-8") == new_skill_content
@@ -370,7 +370,7 @@ def test_setup_agent_refreshes_thread_runtime_files_with_thread_id_only_context(
 
 def test_setup_agent_omitted_skills_preserves_existing_archive_skills(monkeypatch, tmp_path: Path):
     paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
-    archive_agent_dir = paths.agent_dir("landing-copy-agent-0318", "dev")
+    archive_agent_dir = paths.custom_agent_dir("landing-copy-agent-0318", "dev")
     archive_skill_dir = archive_agent_dir / "skills" / "saas-landing-copywriter"
     archive_skill_dir.mkdir(parents=True, exist_ok=True)
     (archive_skill_dir / "SKILL.md").write_text(

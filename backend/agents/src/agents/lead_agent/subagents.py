@@ -14,6 +14,7 @@ from src.config.agents_config import (
     AgentSubagentConfig,
     AgentSubagentsConfig,
     _parse_agent_subagents_payload,
+    resolve_authored_agent_dir,
 )
 from src.config.paths import get_paths
 from src.tools.tools import filter_main_agent_only_tools, get_available_tools
@@ -32,9 +33,11 @@ def _default_subagents_path() -> Path:
 
 def _resolve_subagents_path(agent_name: str | None, agent_status: str) -> Path:
     if agent_name:
-        custom_path = get_paths().agent_dir(agent_name, agent_status) / SUBAGENTS_FILENAME
-        if custom_path.exists():
-            return custom_path
+        authored_dir = resolve_authored_agent_dir(agent_name, agent_status, paths=get_paths())
+        if authored_dir is not None:
+            custom_path = authored_dir / SUBAGENTS_FILENAME
+            if custom_path.exists():
+                return custom_path
     return _default_subagents_path()
 
 

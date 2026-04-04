@@ -6,7 +6,7 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 
 from src.config.paths import get_paths
-from src.skills import find_archived_skills_by_name, skill_source_path
+from src.skills import find_archived_skills_by_name
 from src.tools.builtins.authoring_persistence import (
     RegistrySkillInstallResult,
     install_registry_skill_to_store,
@@ -90,14 +90,18 @@ def _candidate_skill_name(*, source: str, skill_name: str | None) -> str | None:
 
 
 def _archive_source_path(match: object) -> str:
-    if hasattr(match, "category") and hasattr(match, "skill_dir"):
-        return skill_source_path(match)
+    direct_source_path = str(getattr(match, "source_path", "") or "").strip()
+    if direct_source_path:
+        return direct_source_path
 
     category = str(getattr(match, "category", "") or "").strip()
     skill_path = str(getattr(match, "skill_path", "") or "").strip()
     skill_dir = getattr(match, "skill_dir", None)
     fallback_name = Path(skill_dir).name if skill_dir is not None else ""
-    return Path(category, skill_path or fallback_name).as_posix()
+    relative_path = skill_path or fallback_name
+    if category in {"system", "custom"}:
+        return Path(category, "skills", relative_path).as_posix()
+    return Path(category, relative_path).as_posix()
 
 
 def _format_install_result(result: RegistrySkillInstallResult) -> str:
@@ -108,15 +112,15 @@ def _format_install_result(result: RegistrySkillInstallResult) -> str:
     ]
 
     if len(installed_names) == 1 and not skipped_labels:
-        return f"Skill '{installed_names[0]}' installed successfully to .openagents/skills/store/dev."
+        return f"Skill '{installed_names[0]}' installed successfully to .openagents/custom/skills."
 
     if installed_names:
         summary = (
-            f"Installed {len(installed_names)} skills to .openagents/skills/store/dev: "
+            f"Installed {len(installed_names)} skills to .openagents/custom/skills: "
             f"{', '.join(installed_names)}."
         )
     else:
-        summary = "No new skills were installed into .openagents/skills/store/dev."
+        summary = "No new skills were installed into .openagents/custom/skills."
 
     if skipped_labels:
         return f"{summary} Skipped existing skills: {', '.join(skipped_labels)}."
@@ -129,7 +133,7 @@ def install_skill_from_registry(
     source: str,
     skill_name: str | None = None,
 ) -> str:
-    """Download an external registry skill and persist it into the dev skill store.
+    """Download an external registry skill and persist it into the custom skill store.
 
     Args:
         source: Registry reference like `owner/repo@skill-name` or a bare repo URL/path.

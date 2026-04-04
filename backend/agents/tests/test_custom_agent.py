@@ -25,7 +25,7 @@ def _write_agent(
     status: str = "dev",
     agents_md: str = "You are helpful.",
 ) -> None:
-    agent_dir = base_dir / "agents" / status / name
+    agent_dir = base_dir / "custom" / "agents" / status / name
     agent_dir.mkdir(parents=True, exist_ok=True)
 
     config_copy = dict(config)
@@ -505,7 +505,7 @@ class TestAgentsAPI:
         data = response.json()
         assert [skill["name"] for skill in data["skills"]] == ["data-analysis", "deep-research"]
 
-        agent_dir = tmp_path / "agents" / "dev" / "industry-analyst"
+        agent_dir = tmp_path / "custom" / "agents" / "dev" / "industry-analyst"
         assert (agent_dir / "skills" / "data-analysis" / "SKILL.md").exists()
         assert (agent_dir / "skills" / "deep-research" / "SKILL.md").exists()
 
@@ -535,7 +535,7 @@ class TestAgentsAPI:
         data = response.json()
         assert [skill["name"] for skill in data["skills"]] == ["deep-research"]
 
-        agent_dir = tmp_path / "agents" / "dev" / "skill-switcher"
+        agent_dir = tmp_path / "custom" / "agents" / "dev" / "skill-switcher"
         assert not (agent_dir / "skills" / "data-analysis").exists()
         assert (agent_dir / "skills" / "deep-research" / "SKILL.md").exists()
         assert (agent_dir / "AGENTS.md").read_text(encoding="utf-8") == "v2"
@@ -543,13 +543,6 @@ class TestAgentsAPI:
     def test_update_agent_without_skills_refreshes_existing_copied_skill_by_source_path(self, agent_client, tmp_path):
         _write_archived_skill(tmp_path, "contract-review", category="store/dev")
 
-        agent_dir = tmp_path / "agents" / "dev" / "contract-agent"
-        archived_skill_dir = agent_dir / "skills" / "contract-review"
-        archived_skill_dir.mkdir(parents=True, exist_ok=True)
-        (archived_skill_dir / "SKILL.md").write_text(
-            "---\nname: contract-review\ndescription: stale copy\n---\n\n# stale-copy\n",
-            encoding="utf-8",
-        )
         _write_agent(
             tmp_path,
             "contract-agent",
@@ -565,6 +558,13 @@ class TestAgentsAPI:
                 ],
             },
             agents_md="v1",
+        )
+        agent_dir = tmp_path / "custom" / "agents" / "dev" / "contract-agent"
+        archived_skill_dir = agent_dir / "skills" / "contract-review"
+        archived_skill_dir.mkdir(parents=True, exist_ok=True)
+        (archived_skill_dir / "SKILL.md").write_text(
+            "---\nname: contract-review\ndescription: stale copy\n---\n\n# stale-copy\n",
+            encoding="utf-8",
         )
 
         response = agent_client.put("/api/agents/contract-agent", json={"agents_md": "v2"})
@@ -583,11 +583,6 @@ class TestAgentsAPI:
         ]
 
     def test_update_agent_without_skills_preserves_existing_inline_skill_content(self, agent_client, tmp_path):
-        agent_dir = tmp_path / "agents" / "dev" / "inline-agent"
-        inline_skill_dir = agent_dir / "skills" / "local-checklist"
-        inline_skill_dir.mkdir(parents=True, exist_ok=True)
-        inline_content = "---\nname: local-checklist\ndescription: local\n---\n\n# inline-skill\n"
-        (inline_skill_dir / "SKILL.md").write_text(inline_content, encoding="utf-8")
         _write_agent(
             tmp_path,
             "inline-agent",
@@ -604,6 +599,11 @@ class TestAgentsAPI:
             },
             agents_md="v1",
         )
+        agent_dir = tmp_path / "custom" / "agents" / "dev" / "inline-agent"
+        inline_skill_dir = agent_dir / "skills" / "local-checklist"
+        inline_skill_dir.mkdir(parents=True, exist_ok=True)
+        inline_content = "---\nname: local-checklist\ndescription: local\n---\n\n# inline-skill\n"
+        (inline_skill_dir / "SKILL.md").write_text(inline_content, encoding="utf-8")
 
         response = agent_client.put("/api/agents/inline-agent", json={"agents_md": "v2"})
         assert response.status_code == 200
@@ -623,7 +623,7 @@ class TestPublishAPI:
         assert data["agents_md"] == "Hello"
         assert [skill["name"] for skill in data["skills"]] == ["data-analysis"]
 
-        prod_dir = tmp_path / "agents" / "prod" / "pub-test"
+        prod_dir = tmp_path / "custom" / "agents" / "prod" / "pub-test"
         assert prod_dir.exists()
         assert (prod_dir / "AGENTS.md").read_text(encoding="utf-8") == "Hello"
         assert (prod_dir / "skills" / "data-analysis" / "SKILL.md").exists()
@@ -644,7 +644,7 @@ class TestPublishAPI:
         response = agent_client.post("/api/agents/re-pub/publish")
         assert response.status_code == 200
 
-        prod_dir = agent_client._tmp_path / "agents" / "prod" / "re-pub"  # type: ignore[attr-defined]
+        prod_dir = agent_client._tmp_path / "custom" / "agents" / "prod" / "re-pub"  # type: ignore[attr-defined]
         assert (prod_dir / "AGENTS.md").read_text(encoding="utf-8") == "v2"
 
     def test_get_agent_can_target_prod_status(self, agent_client):

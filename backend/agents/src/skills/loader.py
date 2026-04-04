@@ -5,6 +5,8 @@ from .parser import parse_skill_file
 from .types import Skill
 
 _SKILL_SCOPE_PATHS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("system", ("system", "skills")),
+    ("custom", ("custom", "skills")),
     ("store/dev", ("store", "dev")),
     ("store/prod", ("store", "prod")),
 )
@@ -15,6 +17,40 @@ def get_skills_root_path() -> Path:
 
     config = get_app_config()
     return config.skills.get_skills_path(config.config_dir)
+
+
+def _candidate_skill_roots(skills_path: Path) -> tuple[Path, ...]:
+    """Resolve authored roots during the `skills.path` migration.
+
+    The canonical layout now lives under `.openagents/system` and
+    `.openagents/custom`, but some call sites still pass the historical
+    `.openagents/skills` root. Keep the root resolution in one place so the
+    rest of the loader only reasons about concrete directories.
+    """
+
+    candidates: list[Path] = [skills_path]
+    if skills_path.name == "skills":
+        candidates.append(skills_path.parent)
+    else:
+        candidates.append(skills_path / "skills")
+
+    ordered: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved in seen:
+            continue
+        ordered.append(candidate)
+        seen.add(resolved)
+    return tuple(ordered)
+
+
+def _resolve_scope_root(skills_path: Path, path_parts: tuple[str, ...]) -> Path | None:
+    for candidate_root in _candidate_skill_roots(skills_path):
+        scope_root = candidate_root.joinpath(*path_parts)
+        if scope_root.exists() and scope_root.is_dir():
+            return scope_root
+    return None
 
 
 def load_skills(skills_path: Path | None = None, use_config: bool = True, enabled_only: bool = False) -> list[Skill]:
@@ -40,15 +76,16 @@ def load_skills(skills_path: Path | None = None, use_config: bool = True, enable
         else:
             raise RuntimeError("skills_path must be provided when use_config is False.")
 
-    if not skills_path.exists():
+    if not any(candidate.exists() for candidate in _candidate_skill_roots(skills_path)):
         return []
 
     skills = []
 
-    # Scan supported skill scopes.
+    # Scan supported skill scopes in deterministic order. Canonical authored
+    # roots come first; legacy store scopes remain readable during migration.
     for category, path_parts in _SKILL_SCOPE_PATHS:
-        category_path = skills_path.joinpath(*path_parts)
-        if not category_path.exists() or not category_path.is_dir():
+        category_path = _resolve_scope_root(skills_path, path_parts)
+        if category_path is None:
             continue
 
         for current_root, dir_names, file_names in os.walk(category_path):

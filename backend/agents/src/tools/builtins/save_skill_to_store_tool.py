@@ -21,7 +21,7 @@ def save_skill_to_store(
     skill_name: str,
     source_path: str | None = None,
 ) -> Command:
-    """Persist a drafted skill into `.openagents/skills/store/dev`.
+    """Persist a drafted skill into `.openagents/custom/skills`.
 
     Args:
         skill_name: Skill name or relative path under the skill store.

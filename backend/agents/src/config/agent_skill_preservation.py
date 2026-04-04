@@ -7,7 +7,7 @@ from typing import Any
 
 import yaml
 
-from src.config.agents_config import AGENT_NAME_PATTERN, AGENTS_MD_FILENAME, AgentConfig
+from src.config.agents_config import AGENT_NAME_PATTERN, AGENTS_MD_FILENAME, AgentConfig, resolve_authored_agent_dir
 
 
 def _load_agent_config_from_directory(
@@ -62,8 +62,9 @@ def load_existing_agent_owned_skill_content(
     if thread_id and hasattr(paths, "sandbox_agents_dir"):
         sandbox_root = paths.sandbox_agents_dir(thread_id)
         candidate_roots.append(Path(sandbox_root) / agent_status / normalized_agent_name)
-    if hasattr(paths, "agent_dir"):
-        candidate_roots.append(Path(paths.agent_dir(normalized_agent_name, agent_status)))
+    authored_root = resolve_authored_agent_dir(normalized_agent_name, agent_status, paths=paths)
+    if authored_root is not None:
+        candidate_roots.append(authored_root)
 
     seen_roots: set[Path] = set()
     for agent_root in candidate_roots:
@@ -111,8 +112,9 @@ def load_existing_agent_skill_inputs(
         return [], []
 
     candidate_roots: list[Path] = []
-    if hasattr(paths, "agent_dir"):
-        candidate_roots.append(Path(paths.agent_dir(normalized_agent_name, agent_status)))
+    authored_root = resolve_authored_agent_dir(normalized_agent_name, agent_status, paths=paths)
+    if authored_root is not None:
+        candidate_roots.append(authored_root)
     if thread_id and hasattr(paths, "sandbox_agents_dir"):
         sandbox_root = paths.sandbox_agents_dir(thread_id)
         candidate_roots.append(Path(sandbox_root) / agent_status / normalized_agent_name)

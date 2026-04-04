@@ -9,7 +9,15 @@ from pydantic import BaseModel, Field
 
 from src.config.agent_materialization import materialize_agent_definition, publish_agent_definition
 from src.config.agent_skill_preservation import load_existing_agent_skill_inputs
-from src.config.agents_config import AgentConfig, AgentMemoryConfig, AgentSkillRef, list_custom_agents, load_agent_config, load_agents_md
+from src.config.agents_config import (
+    AgentConfig,
+    AgentMemoryConfig,
+    AgentSkillRef,
+    list_custom_agents,
+    load_agent_config,
+    load_agents_md,
+    resolve_authored_agent_dir,
+)
 from src.config.builtin_agents import LEAD_AGENT_NAME, is_reserved_agent_name
 from src.config.paths import get_paths
 
@@ -24,8 +32,8 @@ class AgentSkillResponse(BaseModel):
     """Response model for an agent skill reference."""
 
     name: str
-    category: str | None = Field(default=None, description="Skill source scope: store/dev or store/prod")
-    source_path: str | None = Field(default=None, description="Relative path inside .openagents/skills")
+    category: str | None = Field(default=None, description="Skill source root: system, custom, or legacy store scope during migration")
+    source_path: str | None = Field(default=None, description="Archived skill source path such as system/skills/bootstrap")
     materialized_path: str | None = Field(default=None, description="Relative path inside the agent directory")
 
 
@@ -141,8 +149,8 @@ def _agent_config_to_response(agent_cfg: AgentConfig, include_agents_md: bool = 
 
 def _agent_exists(paths, name: str) -> bool:
     return (
-        paths.agent_dir(name, "dev").exists()
-        or paths.agent_dir(name, "prod").exists()
+        resolve_authored_agent_dir(name, "dev", paths=paths) is not None
+        or resolve_authored_agent_dir(name, "prod", paths=paths) is not None
     )
 
 
@@ -239,18 +247,18 @@ async def create_agent_endpoint(request: AgentCreateRequest) -> AgentResponse:
             agents_md=request.agents_md,
             paths=paths,
         )
-        logger.info("Created agent '%s' at %s", normalized_name, paths.agent_dir(normalized_name, "dev"))
+        logger.info("Created agent '%s' at %s", normalized_name, paths.custom_agent_dir(normalized_name, "dev"))
         return _agent_config_to_response(agent_cfg, include_agents_md=True)
     except ValueError as e:
         logger.error("Failed to create agent '%s': %s", normalized_name, e, exc_info=True)
-        if paths.agent_dir(normalized_name, "dev").exists():
-            shutil.rmtree(paths.agent_dir(normalized_name, "dev"))
+        if paths.custom_agent_dir(normalized_name, "dev").exists():
+            shutil.rmtree(paths.custom_agent_dir(normalized_name, "dev"))
         raise HTTPException(status_code=422, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
-        if paths.agent_dir(normalized_name, "dev").exists():
-            shutil.rmtree(paths.agent_dir(normalized_name, "dev"))
+        if paths.custom_agent_dir(normalized_name, "dev").exists():
+            shutil.rmtree(paths.custom_agent_dir(normalized_name, "dev"))
         logger.error(f"Failed to create agent '{request.name}': {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to create agent: {str(e)}")
 
@@ -405,7 +413,7 @@ async def delete_agent(
 
     try:
         for target_status in target_statuses:
-            agent_dir = paths.agent_dir(name, target_status)
+            agent_dir = paths.custom_agent_dir(name, target_status)
             if agent_dir.exists():
                 shutil.rmtree(agent_dir)
                 deleted = True

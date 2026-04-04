@@ -29,7 +29,7 @@ def _create_skill_archive(tmp_path: Path, skill_name: str) -> Path:
     return archive_path
 
 
-def test_install_skill_writes_to_store_dev(tmp_path: Path):
+def test_install_skill_writes_to_custom_skills(tmp_path: Path):
     archive_path = _create_skill_archive(tmp_path, "contract-review")
     openagents_root = tmp_path / ".openagents"
     paths = Paths(base_dir=openagents_root, skills_dir=openagents_root / "skills")
@@ -51,5 +51,4 @@ def test_install_skill_writes_to_store_dev(tmp_path: Path):
     data = response.json()
     assert data["success"] is True
     assert data["skill_name"] == "contract-review"
-    assert (paths.store_dev_skills_dir / "contract-review" / "SKILL.md").exists()
-    assert not (paths.skills_dir / "custom").exists()
+    assert (paths.custom_skills_dir / "contract-review" / "SKILL.md").exists()

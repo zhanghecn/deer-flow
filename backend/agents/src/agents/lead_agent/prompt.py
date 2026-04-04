@@ -1,7 +1,7 @@
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 
-from src.config.agents_config import AgentConfig, AgentMemoryConfig, load_agent_config, load_agents_md
+from src.config.agents_config import AgentConfig, AgentMemoryConfig, load_agent_config, load_agents_md, resolve_authored_agent_dir
 from src.config.builtin_agents import ensure_builtin_agent_archive
 from src.config.paths import VIRTUAL_PATH_PREFIX, Paths, get_paths
 from src.skills.parser import parse_skill_file
@@ -174,7 +174,9 @@ def _load_attached_skills_section(
     if resolved_config is None or not resolved_config.skill_refs:
         return ""
 
-    agent_root = resolved_paths.agent_dir(normalized_agent_name, agent_status)
+    agent_root = resolve_authored_agent_dir(normalized_agent_name, agent_status, paths=resolved_paths)
+    if agent_root is None:
+        return ""
     entries: list[str] = [
         "<attached_skills>",
         "- Attached copied skills are not expanded automatically.",

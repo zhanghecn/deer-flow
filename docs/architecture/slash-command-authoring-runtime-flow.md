@@ -117,7 +117,8 @@
 │                                          │
 │ read_file / ls / grep                    │
 │   └─ 读取 copied skill，或读取选中的     │
-│      /mnt/skills/store/.../SKILL.md      │
+│      /mnt/skills/system/skills/.../SKILL.md
+│      /mnt/skills/custom/skills/.../SKILL.md
 │                                          │
 │ setup_agent(...)                         │
 │   └─ 持久化 agent + 显式 skill 装配      │
@@ -132,7 +133,8 @@
 │                                          │
 │ .openagents/commands/common/*.md         │
 │ .openagents/agents/{dev,prod}/...        │
-│ .openagents/skills/store/{dev,prod}/...  │
+│ .openagents/system/skills/...            │
+│ .openagents/custom/skills/...            │
 │ /mnt/user-data/agents/...                │
 └──────────────────────────────────────────┘
 ```
@@ -147,7 +149,7 @@
 4. 模型自己决定：
    - 是否先读已有 agent
    - 如果用户要“找现有 skill”，是否先读 attached `find-skills` skill
-   - 是否先在 `/mnt/skills/store/dev/...` 与 `/mnt/skills/store/prod/...` 中找本地 archived skill
+   - 是否先在 `/mnt/skills/system/skills/...` 与 `/mnt/skills/custom/skills/...` 中找本地 archived skill
    - 如果已经确定具体 archived skill，是否读取对应 `/mnt/skills/<source_path>/SKILL.md`
    - 最后是否 `setup_agent(agent_name=..., skills=[...])`
 5. `AuthoringGuardMiddleware` 阻止它去写错误目录、宿主路径、或绕过 `setup_agent`
@@ -163,7 +165,7 @@
 
 当前 OpenAgents 的 canonical runtime skill mechanism 已经收口：
 
-1. archived skill 存在于 `.openagents/skills/store/{dev,prod}/...`
+1. archived skill 存在于 `.openagents/system/skills/...` 或 `.openagents/custom/skills/...`
 2. `setup_agent(..., skills=[{source_path: "..."}])` 把 skill materialize 到 agent archive
 3. agent archive copied skill 位于 `.openagents/agents/{status}/{name}/skills/...`
 4. runtime 只读 `/mnt/user-data/agents/{status}/{name}/skills/...`
@@ -179,7 +181,7 @@
 
 仍然成立的生命周期规则：
 
-- archived store skill 被修改后，不会自动回写到已经存在的 agent-owned copied skill
+- archived authored skill 被修改后，不会自动回写到已经存在的 agent-owned copied skill
 - 现有 agent 想拿到新版 skill，必须再走一次显式 agent 更新/materialize 流程
 
 ### D. `find-skills` 的定位
@@ -188,13 +190,14 @@
 
 当前固定规则：
 
-- 先搜索本地 archived store
-  - `/mnt/skills/store/dev/...`
-  - `/mnt/skills/store/prod/...`
+- 先搜索本地 canonical archived library
+  - `/mnt/skills/system/skills/...`
+  - `/mnt/skills/custom/skills/...`
+- `/mnt/skills/store/...` 只作为迁移期兼容输入
 - 先读取候选 skill 的 `SKILL.md` 再判断是否匹配
 - 如果要把本地 archived skill 装到 agent 上，最终仍然靠
   `setup_agent(..., skills=[{source_path: "..."}])`
-- 只有在用户明确要安装外部 skill，或本地 archived store 没有合适 skill 时，才进入 registry 搜索 / 安装
+- 只有在用户明确要安装外部 skill，或本地 canonical archived library 没有合适 skill 时，才进入 registry 搜索 / 安装
 
 这意味着：
 

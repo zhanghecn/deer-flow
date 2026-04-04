@@ -53,7 +53,7 @@ def test_save_skill_directory_to_store_copies_authoring_skill(tmp_path: Path):
     )
 
     assert backup_dir is None
-    assert target_dir == paths.store_dev_skills_dir / "contract-risk-rating"
+    assert target_dir == paths.custom_skills_dir / "contract-risk-rating"
     assert (target_dir / "SKILL.md").exists()
 
 
@@ -61,7 +61,7 @@ def test_save_skill_directory_to_store_overwrite_creates_backup(tmp_path: Path):
     paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
     source_dir = paths.sandbox_authoring_skills_dir("thread-1") / "contract-risk-rating"
     _write_skill(source_dir, "contract-risk-rating", "Contract risk rating v2")
-    existing_target = paths.store_dev_skills_dir / "contract-risk-rating"
+    existing_target = paths.custom_skills_dir / "contract-risk-rating"
     _write_skill(existing_target, "contract-risk-rating", "Contract risk rating v1")
 
     target_dir, backup_dir = save_skill_directory_to_store(
@@ -75,7 +75,7 @@ def test_save_skill_directory_to_store_overwrite_creates_backup(tmp_path: Path):
     assert (backup_dir / "SKILL.md").exists()
 
 
-def test_install_registry_skill_to_store_downloads_into_dev_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_install_registry_skill_to_store_downloads_into_custom_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
     state: dict[str, str] = {}
 
@@ -96,9 +96,9 @@ def test_install_registry_skill_to_store_downloads_into_dev_store(tmp_path: Path
 
     assert [skill.name for skill in result.installed_skills] == ["copywriting"]
     assert [skill.relative_path for skill in result.installed_skills] == [PurePosixPath("copywriting")]
-    assert [skill.target_dir for skill in result.installed_skills] == [paths.store_dev_skills_dir / "copywriting"]
+    assert [skill.target_dir for skill in result.installed_skills] == [paths.custom_skills_dir / "copywriting"]
     assert result.skipped_skills == ()
-    assert (paths.store_dev_skills_dir / "copywriting" / "SKILL.md").exists()
+    assert (paths.custom_skills_dir / "copywriting" / "SKILL.md").exists()
     assert state["home"]
     assert state["npm_config_yes"] == "true"
     assert state["args"].startswith("npx --yes skills add ")
@@ -107,9 +107,9 @@ def test_install_registry_skill_to_store_downloads_into_dev_store(tmp_path: Path
 
 def test_install_registry_skill_to_store_rejects_existing_scope_conflicts(tmp_path: Path):
     paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
-    _write_skill(paths.store_prod_skills_dir / "copywriting", "copywriting")
+    _write_skill(paths.system_skills_dir / "copywriting", "copywriting")
 
-    with pytest.raises(ValueError, match="store/prod"):
+    with pytest.raises(ValueError, match="system"):
         install_registry_skill_to_store(
             source="coreyhaines31/marketingskills@copywriting",
             paths=paths,
@@ -169,8 +169,8 @@ def test_install_registry_skill_to_store_installs_all_skills_from_repo_root(
     assert [skill.name for skill in result.installed_skills] == ["alpha-skill", "beta-skill"]
     assert [skill.relative_path.as_posix() for skill in result.installed_skills] == ["alpha-skill", "beta-skill"]
     assert result.skipped_skills == ()
-    assert (paths.store_dev_skills_dir / "alpha-skill" / "SKILL.md").exists()
-    assert (paths.store_dev_skills_dir / "beta-skill" / "SKILL.md").exists()
+    assert (paths.custom_skills_dir / "alpha-skill" / "SKILL.md").exists()
+    assert (paths.custom_skills_dir / "beta-skill" / "SKILL.md").exists()
 
 
 def test_install_registry_skill_to_store_skips_existing_repo_root_skills(
@@ -178,7 +178,7 @@ def test_install_registry_skill_to_store_skips_existing_repo_root_skills(
     monkeypatch: pytest.MonkeyPatch,
 ):
     paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
-    _write_skill(paths.store_prod_skills_dir / "alpha-skill", "alpha-skill", "Existing alpha")
+    _write_skill(paths.system_skills_dir / "alpha-skill", "alpha-skill", "Existing alpha")
 
     def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         home = Path(str((kwargs.get("env") or {}).get("HOME")))
@@ -195,10 +195,10 @@ def test_install_registry_skill_to_store_skips_existing_repo_root_skills(
 
     assert [skill.name for skill in result.installed_skills] == ["beta-skill"]
     assert result.skipped_skills == (
-        RegistrySkippedSkill(relative_path=PurePosixPath("alpha-skill"), existing_scopes=("store/prod",)),
+        RegistrySkippedSkill(relative_path=PurePosixPath("alpha-skill"), existing_scopes=("system",)),
     )
-    assert not (paths.store_dev_skills_dir / "alpha-skill").exists()
-    assert (paths.store_dev_skills_dir / "beta-skill" / "SKILL.md").exists()
+    assert not (paths.custom_skills_dir / "alpha-skill").exists()
+    assert (paths.custom_skills_dir / "beta-skill" / "SKILL.md").exists()
 
 
 def test_save_agent_directory_to_store_accepts_runtime_agent_copy(tmp_path: Path):
@@ -214,7 +214,7 @@ def test_save_agent_directory_to_store_accepts_runtime_agent_copy(tmp_path: Path
     )
 
     assert backup_dir is None
-    assert target_dir == paths.agent_dir("contract-review", "dev")
+    assert target_dir == paths.custom_agent_dir("contract-review", "dev")
     assert (target_dir / "AGENTS.md").exists()
     assert (target_dir / "skills" / "bootstrap" / "SKILL.md").exists()
 
@@ -235,20 +235,20 @@ def test_save_agent_directory_to_store_rejects_invalid_manifest(tmp_path: Path):
 
 def test_push_agent_directory_to_prod_updates_status(tmp_path: Path):
     paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
-    dev_dir = paths.agent_dir("contract-review", "dev")
+    dev_dir = paths.custom_agent_dir("contract-review", "dev")
     _write_skill(paths.store_prod_skills_dir / "bootstrap", "bootstrap")
     _write_agent(dev_dir, "contract-review", status="dev", skill_source_path="store/prod/bootstrap")
 
     target_dir, backup_dir = push_agent_directory_to_prod("contract-review", paths=paths)
 
     assert backup_dir is None
-    assert target_dir == paths.agent_dir("contract-review", "prod")
+    assert target_dir == paths.custom_agent_dir("contract-review", "prod")
     assert "status: prod" in (target_dir / "config.yaml").read_text(encoding="utf-8")
 
 
 def test_push_agent_directory_to_prod_rejects_store_dev_skill_refs(tmp_path: Path):
     paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
-    dev_dir = paths.agent_dir("contract-review", "dev")
+    dev_dir = paths.custom_agent_dir("contract-review", "dev")
     _write_skill(paths.store_dev_skills_dir / "bootstrap", "bootstrap")
     _write_agent(dev_dir, "contract-review", status="dev", skill_source_path="store/dev/bootstrap")
 
@@ -256,8 +256,8 @@ def test_push_agent_directory_to_prod_rejects_store_dev_skill_refs(tmp_path: Pat
         push_agent_directory_to_prod("contract-review", paths=paths)
 
 
-def test_push_skill_directory_to_prod_requires_dev_source(tmp_path: Path):
+def test_push_skill_directory_to_prod_is_no_longer_supported(tmp_path: Path):
     paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
 
-    with pytest.raises(FileNotFoundError, match="store/dev"):
+    with pytest.raises(ValueError, match="no longer support push to prod"):
         push_skill_directory_to_prod("missing-skill", paths=paths)

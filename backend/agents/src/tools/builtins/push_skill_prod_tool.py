@@ -16,7 +16,7 @@ def push_skill_prod(
     runtime: ToolRuntime,
     skill_name: str,
 ) -> Command:
-    """Promote a saved dev skill into `.openagents/skills/store/prod`.
+    """Legacy compatibility wrapper for deprecated skill publish flow.
 
     Args:
         skill_name: Skill name or relative path under the skill store.

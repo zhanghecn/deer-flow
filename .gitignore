@@ -49,6 +49,7 @@ coverage/
 .openagents/agents/prod/lead_agent/**/*.pyo
 .openagents/threads/
 .openagents/users/
+.openagents/custom/
 .claude/
 skills/custom/*
 logs/

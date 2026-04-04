@@ -16,7 +16,12 @@ logger = logging.getLogger(__name__)
 AGENTS_MD_FILENAME = "AGENTS.md"
 SUBAGENTS_FILENAME = "subagents.yaml"
 AGENT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
-_SKILL_SOURCE_SCOPES = ("store/prod", "store/dev")
+_SKILL_SOURCE_PREFIXES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("system", ("system", "skills")),
+    ("custom", ("custom", "skills")),
+    ("store/prod", ("store", "prod")),
+    ("store/dev", ("store", "dev")),
+)
 _RESERVED_SUBAGENT_NAMES = frozenset({"general-purpose"})
 
 
@@ -57,19 +62,22 @@ def _normalize_required_text(value: str, *, field_name: str) -> str:
 def _parse_skill_source_path(source_path: str) -> tuple[str, PurePosixPath]:
     path = PurePosixPath(source_path)
     if path.is_absolute() or ".." in path.parts or len(path.parts) < 2:
-        raise ValueError("Agent skill source_path must be a safe relative path like 'store/dev/my-skill' or 'store/prod/my-skill'.")
+        raise ValueError(
+            "Agent skill source_path must be a safe relative path like "
+            "'system/skills/my-skill' or 'custom/skills/my-skill'."
+        )
 
     path_str = path.as_posix()
-    for scope in sorted(_SKILL_SOURCE_SCOPES, key=len, reverse=True):
-        scope_prefix = f"{scope}/"
+    for category, prefix_parts in _SKILL_SOURCE_PREFIXES:
+        scope_prefix = PurePosixPath(*prefix_parts).as_posix() + "/"
         if not path_str.startswith(scope_prefix):
             continue
         relative_path = PurePosixPath(path_str[len(scope_prefix) :])
         if str(relative_path) == "." or not relative_path.parts:
             raise ValueError("Agent skill source_path must point to a concrete skill directory.")
-        return scope, relative_path
+        return category, relative_path
 
-    valid = ", ".join(_SKILL_SOURCE_SCOPES)
+    valid = ", ".join(PurePosixPath(*prefix_parts).as_posix() for _, prefix_parts in _SKILL_SOURCE_PREFIXES)
     raise ValueError(f"Agent skill source_path must start with one of: {valid}.")
 
 
@@ -80,8 +88,9 @@ def _derive_materialized_path(source_path: str) -> str:
 
 def _derive_source_path(category: str, materialized_path: str) -> str:
     normalized_category = category.strip()
-    if normalized_category not in _SKILL_SOURCE_SCOPES:
-        valid = ", ".join(_SKILL_SOURCE_SCOPES)
+    prefix_parts = next((parts for key, parts in _SKILL_SOURCE_PREFIXES if key == normalized_category), None)
+    if prefix_parts is None:
+        valid = ", ".join(category for category, _ in _SKILL_SOURCE_PREFIXES)
         raise ValueError(f"Agent skill category must be one of: {valid}.")
 
     path = PurePosixPath(materialized_path)
@@ -91,7 +100,7 @@ def _derive_source_path(category: str, materialized_path: str) -> str:
     relative_path = PurePosixPath(*path.parts[1:])
     if str(relative_path) == ".":
         raise ValueError("Agent skill materialized_path must point to a concrete skill directory.")
-    return PurePosixPath(normalized_category, relative_path).as_posix()
+    return PurePosixPath(*prefix_parts, relative_path).as_posix()
 
 
 class AgentConfig(BaseModel):
@@ -295,7 +304,37 @@ def serialize_agent_subagents_config(config: AgentSubagentsConfig) -> dict[str, 
 
 
 def _resolve_agent_dir(name: str, status: str, paths: Paths | None = None) -> Path:
-    return (paths or get_paths()).agent_dir(name, status)
+    resolved = resolve_authored_agent_dir(name, status, paths=paths)
+    if resolved is None:
+        return (paths or get_paths()).custom_agent_dir(name, status)
+    return resolved
+
+
+def iter_authored_agent_dirs(name: str, status: str, *, paths: Paths | None = None) -> tuple[Path, ...]:
+    resolved_paths = paths or get_paths()
+    normalized_name = name.lower()
+    candidates: list[Path] = []
+
+    custom_agent_dir = getattr(resolved_paths, "custom_agent_dir", None)
+    if callable(custom_agent_dir):
+        candidates.append(Path(custom_agent_dir(normalized_name, status)))
+
+    system_agent_dir = getattr(resolved_paths, "system_agent_dir", None)
+    if callable(system_agent_dir):
+        candidates.append(Path(system_agent_dir(normalized_name, status)))
+
+    legacy_agent_dir = getattr(resolved_paths, "agent_dir", None)
+    if callable(legacy_agent_dir):
+        candidates.append(Path(legacy_agent_dir(normalized_name, status)))
+
+    return tuple(candidates)
+
+
+def resolve_authored_agent_dir(name: str, status: str, *, paths: Paths | None = None) -> Path | None:
+    for candidate in iter_authored_agent_dirs(name, status, paths=paths):
+        if candidate.exists():
+            return candidate
+    return None
 
 
 def _parse_agent_subagents_payload(raw_data: Any, *, source_path: Path) -> AgentSubagentsConfig:
@@ -425,32 +464,34 @@ def load_agents_md(agent_name: str | None, status: str = "dev", *, paths: Paths 
 def list_custom_agents() -> list[AgentConfig]:
     """Scan the agents directory and return all valid custom agents.
 
-    Scans `agents/{status}/{name}/` for both `dev` and `prod`.
+    Scans the writable custom-authored agent roots for both `dev` and `prod`.
     """
-    agents_dir = get_paths().agents_dir
-    if not agents_dir.exists():
+    paths = get_paths()
+    agents_dir = paths.custom_agents_dir
+    legacy_agents_dir = paths.agents_dir
+    if not agents_dir.exists() and not legacy_agents_dir.exists():
         return []
 
     agents: list[AgentConfig] = []
     seen_agents: set[tuple[str, str]] = set()
 
     for status_dir_name in ("prod", "dev"):
-        status_dir = agents_dir / status_dir_name
-        if not status_dir.exists():
-            continue
-        for entry in sorted(status_dir.iterdir()):
-            if not entry.is_dir() or not (entry / "config.yaml").exists():
+        for status_dir in (agents_dir / status_dir_name, legacy_agents_dir / status_dir_name):
+            if not status_dir.exists():
                 continue
-            if is_reserved_agent_name(entry.name):
-                continue
-            try:
-                agent_cfg = load_agent_config(entry.name, status=status_dir_name)
-                key = (agent_cfg.name, agent_cfg.status) if agent_cfg else None
-                if agent_cfg and key not in seen_agents:
-                    agents.append(agent_cfg)
-                    assert key is not None
-                    seen_agents.add(key)
-            except Exception as e:
-                logger.warning(f"Skipping agent '{entry.name}' ({status_dir_name}): {e}")
+            for entry in sorted(status_dir.iterdir()):
+                if not entry.is_dir() or not (entry / "config.yaml").exists():
+                    continue
+                if is_reserved_agent_name(entry.name):
+                    continue
+                try:
+                    agent_cfg = load_agent_config(entry.name, status=status_dir_name, paths=paths)
+                    key = (agent_cfg.name, agent_cfg.status) if agent_cfg else None
+                    if agent_cfg and key not in seen_agents:
+                        agents.append(agent_cfg)
+                        assert key is not None
+                        seen_agents.add(key)
+                except Exception as e:
+                    logger.warning(f"Skipping agent '{entry.name}' ({status_dir_name}): {e}")
 
     return sorted(agents, key=lambda agent: (agent.name, agent.status))

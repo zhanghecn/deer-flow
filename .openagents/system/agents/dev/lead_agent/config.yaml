@@ -1,0 +1,85 @@
+agents_md_path: AGENTS.md
+description: Default system lead agent.
+memory:
+  debounce_seconds: 30
+  enabled: false
+  fact_confidence_threshold: 0.7
+  injection_enabled: true
+  max_facts: 100
+  max_injection_tokens: 2000
+name: lead_agent
+skill_refs:
+- name: bootstrap
+  source_path: system/skills/bootstrap
+- name: web-design-guidelines
+  source_path: system/skills/web-design-guidelines
+- name: video-generation
+  source_path: system/skills/video-generation
+- name: surprise-me
+  source_path: system/skills/surprise-me
+- name: skill-creator
+  source_path: system/skills/skill-creator
+- name: ppt-generation
+  source_path: system/skills/ppt-generation
+- name: podcast-generation
+  source_path: system/skills/podcast-generation
+- name: image-generation
+  source_path: system/skills/image-generation
+- name: github-deep-research
+  source_path: system/skills/github-deep-research
+- name: frontend-design
+  source_path: system/skills/frontend-design
+- name: find-skills
+  source_path: system/skills/find-skills
+- name: deep-research
+  source_path: system/skills/deep-research
+- name: consulting-analysis
+  source_path: system/skills/consulting-analysis
+- name: data-analysis
+  source_path: system/skills/data-analysis
+- name: chart-visualization
+  source_path: system/skills/chart-visualization
+- name: android-native-dev
+  source_path: system/skills/android-native-dev
+- name: flutter-dev
+  source_path: system/skills/flutter-dev
+- name: frontend-dev
+  source_path: system/skills/frontend-dev
+- name: fullstack-dev
+  source_path: system/skills/fullstack-dev
+- name: gif-sticker-maker
+  source_path: system/skills/gif-sticker-maker
+- name: ios-application-dev
+  source_path: system/skills/ios-application-dev
+- name: minimax-docx
+  source_path: system/skills/minimax-docx
+- name: minimax-multimodal-toolkit
+  source_path: system/skills/minimax-multimodal-toolkit
+- name: minimax-pdf
+  source_path: system/skills/minimax-pdf
+- name: minimax-xlsx
+  source_path: system/skills/minimax-xlsx
+- name: pptx-generator
+  source_path: system/skills/pptx-generator
+- name: pr-review
+  source_path: system/skills/pr-review
+- name: react-native-dev
+  source_path: system/skills/react-native-dev
+- name: shader-dev
+  source_path: system/skills/shader-dev
+- name: vision-analysis
+  source_path: system/skills/vision-analysis
+- name: tailwindcss-animations
+  source_path: system/skills/tailwindcss-animations
+status: dev
+subagent_defaults:
+  general_purpose_enabled: true
+tool_names:
+- question
+- get_document_evidence
+- get_document_image
+- get_document_tree
+- get_document_tree_node_detail
+- list_knowledge_documents
+- present_files
+- view_image

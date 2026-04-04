@@ -94,7 +94,7 @@ def test_materialize_agent_definition_allows_explicit_prod_source_path_for_dev_a
         paths=paths,
     )
 
-    agent_skills_dir = base_dir / "agents" / "dev" / "contract-agent" / "skills"
+    agent_skills_dir = base_dir / "custom" / "agents" / "dev" / "contract-agent" / "skills"
     assert (agent_skills_dir / "bootstrap" / "SKILL.md").exists()
     assert config.skill_refs == [
         AgentSkillRef(
@@ -126,7 +126,7 @@ def test_materialize_agent_definition_writes_inline_agent_skills_and_manifest(tm
         paths=paths,
     )
 
-    agent_skills_dir = base_dir / "agents" / "dev" / "contract-agent" / "skills"
+    agent_skills_dir = base_dir / "custom" / "agents" / "dev" / "contract-agent" / "skills"
     assert (agent_skills_dir / "bootstrap" / "SKILL.md").exists()
     assert (agent_skills_dir / "contract-review" / "SKILL.md").read_text(encoding="utf-8").startswith("---\nname: contract-review")
     assert config.skill_refs == [
@@ -191,7 +191,7 @@ def test_materialize_agent_definition_rejects_store_dev_skills_for_prod_agents(t
     _write_skill(base_dir, "store/dev", "bootstrap", "bootstrap")
     paths = Paths(base_dir=base_dir, skills_dir=base_dir / "skills")
 
-    with pytest.raises(ValueError, match="allowed scopes: store/prod"):
+    with pytest.raises(ValueError, match="allowed scopes: system, custom, store/prod"):
         materialize_agent_definition(
             name="contract-agent",
             status="prod",

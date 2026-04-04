@@ -37,8 +37,8 @@ Critical agent protocol rules for future work:
 - If runtime behavior needs a non-model decision, move that decision into an explicit structured field or tool/result contract instead of adding keyword tables, fuzzy matching, or regex heuristics.
 - This repository's agent runtime is general-purpose. Do not keep patching one failing example by adding example-specific prompt text, one-off tools, or special-case middleware.
 - When a scenario exposes a real product gap, prefer harness/runtime/tool-contract/eval changes that improve the generic agent path instead of embedding that scenario into prompts or tool wiring.
-- Archived reusable skills live in `.openagents/skills/store/{dev,prod}/`.
-- `.openagents/skills/` is the only maintained archived skill source. Do not recreate or rely on a repo-side `skills/public` mirror.
+- Archived reusable skills now materialize from authored roots under `.openagents/system/skills/` and `.openagents/custom/skills/`.
+- `.openagents/skills/store/{dev,prod}` is a legacy migration input only. Do not treat it as the canonical write target for new runtime or authoring work.
 - Agent-owned copies live in `agents/{status}/{name}/skills/`.
 - Agent-owned prompt lives in `agents/{status}/{name}/AGENTS.md`.
 - `lead_agent` also uses `agents/{status}/lead_agent/AGENTS.md` and `agents/{status}/lead_agent/skills/` like every other agent.
@@ -55,22 +55,22 @@ Critical agent protocol rules for future work:
 - 如果任务声称“对齐 opencode”，必须先检查本地参考仓库 `../opencode`（当前绝对路径 `/root/project/ai/opencode`），并明确范围到底是 slash command、command template、skill discovery，还是显式 `skill` 工具。
 - 不要把 slash-command 对齐错误扩大成 runtime skill 全架构重写。
 - OpenAgents 当前唯一 canonical skill 链路是：
-  - archived skill 位于 `.openagents/skills/store/{dev,prod}/...`
+  - archived skill 位于 `.openagents/system/skills/...` 或 `.openagents/custom/skills/...`
   - `setup_agent(..., skills=[{source_path: "..."}])` 负责 materialize 到 `.openagents/agents/{status}/{name}/skills/...`
   - runtime prompt 只暴露 copied skill 的名称/描述/虚拟路径
   - 模型使用普通文件工具读取 `/mnt/user-data/agents/{status}/{name}/skills/.../SKILL.md`
 - OpenAgents runtime 不再把 copied skills 接到 Deep Agents `skills=` / `SkillsMiddleware` / `skills_metadata` 上。不要把 Deep Agents 的通用库能力重新当成 OpenAgents runtime contract。
 - `find-skills` 在 OpenAgents 里是发现策略 skill，不是新的 runtime skill 注入机制。
-- `find-skills` 的固定策略是：先查本地 archived store（`/mnt/skills/store/dev/...`、`/mnt/skills/store/prod/...`），只有本地没有合适 skill，或用户明确要求安装外部 skill 时，才走 registry 搜索 / 安装。
+- `find-skills` 的固定策略是：先查本地 canonical archived library（`/mnt/skills/system/skills/...`、`/mnt/skills/custom/skills/...`）；`/mnt/skills/store/...` 只作为迁移期兼容输入。只有本地没有合适 skill，或用户明确要求安装外部 skill 时，才走 registry 搜索 / 安装。
 - 如果 `find-skills` 找到的是本地 archived skill，最终仍然要通过 `setup_agent(..., skills=[{source_path: "..."}])` 完成装配，而不是靠额外 prompt glue 或前端推断。
 - 以后审计“skill 是否生效”，优先检查 copied `SKILL.md` 是否 materialize、runtime prompt 是否暴露 attached skill、以及 trace 里模型是否真的读取了 copied `SKILL.md`；不要再把 `skills_metadata` 当成必要证据。
-- Changing an archived store skill does not retroactively mutate existing agent-owned copies already archived under `.openagents/agents/{status}/{name}/skills/...`. Refresh those copied skills only through an explicit agent update/materialization flow such as `setup_agent` or the agent update API.
+- Changing an archived authored skill does not retroactively mutate existing agent-owned copies already archived under `.openagents/agents/{status}/{name}/skills/...`. Refresh those copied skills only through an explicit agent update/materialization flow such as `setup_agent` or the agent update API.
 - When a copied skill defines the user-visible review/report structure, keep the runtime prompt thin and let the skill remain the primary runtime contract. Do not mirror the whole skill into a second giant system-prompt summary.
 - Inside SKILL docs, use relative-path guidance like `<current-skill-dir>` instead of hardcoding archived-library or host-specific roots.
 - When an agent's core domain behavior comes from copied skills, keep its `AGENTS.md` thin. Do not restate the copied skill's full workflow, checklist, or output contract in `AGENTS.md`; that creates a second weaker runtime contract that can drift from the copied `SKILL.md`.
 - Frontend/runtime defaults must not force planner-style execution (`is_plan_mode`) onto every agent turn. Non-`lead_agent` domain agents with copied skills should default to direct execution unless the UI explicitly opts into planner/todo behavior.
 - If a domain skill must support different task shapes such as editable-file workflows and knowledge-base review workflows, define those modes in `SKILL.md` itself. Do not solve that by front-end guessing, regex parsing, or by teaching a second parallel workflow in `AGENTS.md`.
-- When an archived agent config already contains `skill_refs[].source_path`, preserve and materialize that exact source path. Do not collapse explicit refs back to bare skill names, because store scopes may contain same-named skills.
+- When an archived agent config already contains `skill_refs[].source_path`, preserve and materialize that exact source path. Do not collapse explicit refs back to bare skill names, because authored roots may contain same-named skills.
 - `LocalShellBackend` is for local debugging only and must preserve the same internal path contract as sandbox mode. If local mode needs special mapping, fix the backend mapping layer instead of changing skills to host paths.
 - `BackendProtocol` and `SandboxBackendProtocol` are data-plane interfaces. `SandboxProvider` is a control-plane interface. Do not collapse sandbox lifecycle allocation back into data-plane runtime backends.
 - `AioSandboxProvider` is not synonymous with single-machine sandbox mode. It is a managed sandbox provisioner that can drive local container sandboxes, provisioner-backed sandboxes, or externally managed sandbox endpoints.

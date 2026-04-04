@@ -24,27 +24,23 @@ class Paths:
 
     Directory layout (host side):
         {base_dir}/
-        ├── agents/                          # Agent definitions (shared across all users)
-        │   ├── prod/{agent-name}/
-        │   │   ├── config.yaml
-        │   │   ├── AGENTS.md                # Agent-owned system prompt / personality
-        │   │   └── skills/{skill-name}/SKILL.md   # Copied skill snapshots for this agent
-        │   └── dev/{agent-name}/
-        │       ├── config.yaml
-        │       ├── AGENTS.md
-        │       └── skills/{skill-name}/SKILL.md
-        ├── skills/                          # Global OpenAgents skills
-        │   └── store/
-        │       ├── dev/{skill-name}/SKILL.md
-        │       └── prod/{skill-name}/SKILL.md
-        ├── users/{user_id}/                 # Per-user data
-        │   ├── USER.md
-        │   └── agents/{status}/{agent-name}/memory.json
-        └── threads/{thread_id}/             # Per-thread runtime data
-            └── user-data/
-                ├── workspace/
-                ├── uploads/
-                └── outputs/
+        ├── system/                          # Git-tracked authored baselines
+        │   ├── agents/{status}/{agent-name}/
+        │   └── skills/{skill-name}/
+        ├── custom/                          # Dynamic authored assets
+        │   ├── agents/{status}/{agent-name}/
+        │   └── skills/{skill-name}/
+        └── runtime/                         # Disposable materialized/runtime data
+            ├── agents/{status}/{agent-name}/
+            ├── threads/{thread_id}/
+            ├── users/{user_id}/
+            └── knowledge/
+
+    The current codebase still has compatibility call sites that read from the
+    older flat `.openagents/agents`, `.openagents/skills`, `.openagents/users`,
+    and `.openagents/threads` roots. The new helpers below model the intended
+    split explicitly so migration work can move callers one slice at a time
+    without inventing ad-hoc paths in each module.
     """
 
     def __init__(self, base_dir: str | Path, *, skills_dir: str | Path | None = None) -> None:
@@ -55,6 +51,79 @@ class Paths:
     def base_dir(self) -> Path:
         """Root directory for all application data."""
         return self._base_dir
+
+    # ── Authored source-of-truth layers ──
+
+    @property
+    def system_dir(self) -> Path:
+        """Git-tracked platform-authored assets."""
+        return self.base_dir / "system"
+
+    @property
+    def custom_dir(self) -> Path:
+        """Writable custom-authored assets created by users or agents."""
+        return self.base_dir / "custom"
+
+    @property
+    def runtime_dir(self) -> Path:
+        """Disposable runtime state and materialized outputs."""
+        return self.base_dir / "runtime"
+
+    @property
+    def system_agents_dir(self) -> Path:
+        return self.system_dir / "agents"
+
+    @property
+    def custom_agents_dir(self) -> Path:
+        return self.custom_dir / "agents"
+
+    @property
+    def runtime_agents_dir(self) -> Path:
+        return self.runtime_dir / "agents"
+
+    def system_agent_dir(self, name: str, status: str = "dev") -> Path:
+        return self.system_agents_dir / status / name.lower()
+
+    def custom_agent_dir(self, name: str, status: str = "dev") -> Path:
+        return self.custom_agents_dir / status / name.lower()
+
+    def runtime_agent_dir(self, name: str, status: str = "dev") -> Path:
+        return self.runtime_agents_dir / status / name.lower()
+
+    def system_agent_skills_dir(self, name: str, status: str = "dev") -> Path:
+        return self.system_agent_dir(name, status) / "skills"
+
+    def custom_agent_skills_dir(self, name: str, status: str = "dev") -> Path:
+        return self.custom_agent_dir(name, status) / "skills"
+
+    def runtime_agent_skills_dir(self, name: str, status: str = "dev") -> Path:
+        return self.runtime_agent_dir(name, status) / "skills"
+
+    @property
+    def system_skills_dir(self) -> Path:
+        return self.system_dir / "skills"
+
+    @property
+    def custom_skills_dir(self) -> Path:
+        return self.custom_dir / "skills"
+
+    def system_skill_dir(self, skill_name: str | Path) -> Path:
+        return self.system_skills_dir / Path(skill_name)
+
+    def custom_skill_dir(self, skill_name: str | Path) -> Path:
+        return self.custom_skills_dir / Path(skill_name)
+
+    @property
+    def runtime_threads_dir(self) -> Path:
+        return self.runtime_dir / "threads"
+
+    @property
+    def runtime_users_dir(self) -> Path:
+        return self.runtime_dir / "users"
+
+    @property
+    def runtime_knowledge_dir(self) -> Path:
+        return self.runtime_dir / "knowledge"
 
     # ── User profile ──
 
@@ -108,12 +177,34 @@ class Paths:
         return self._skills_dir
 
     @property
+    def legacy_skills_dir(self) -> Path:
+        """Best-effort root for the retired `.openagents/skills` library tree.
+
+        The canonical authored layout now lives under `{base_dir}/system` and
+        `{base_dir}/custom`, but some migration and compatibility flows still
+        need to inspect the historical `skills/store/...` tree. `skills.path`
+        may point either at `.openagents` or at `.openagents/skills`, so keep
+        the legacy-root resolution centralized here.
+        """
+
+        direct_root = self.skills_dir
+        nested_root = self.skills_dir / "skills"
+
+        if (direct_root / "store").exists():
+            return direct_root
+        if nested_root.exists():
+            return nested_root
+        if direct_root.name == "skills":
+            return direct_root
+        return nested_root
+
+    @property
     def store_dev_skills_dir(self) -> Path:
-        return self.skills_dir / "store" / "dev"
+        return self.legacy_skills_dir / "store" / "dev"
 
     @property
     def store_prod_skills_dir(self) -> Path:
-        return self.skills_dir / "store" / "prod"
+        return self.legacy_skills_dir / "store" / "prod"
 
     @property
     def commands_dir(self) -> Path:

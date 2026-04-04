@@ -40,8 +40,8 @@ class SetupAgentSkillInput(BaseModel):
     source_path: str | None = Field(
         default=None,
         description=(
-            "Optional explicit skill source path such as 'store/prod/my-skill' or "
-            "'store/dev/team/my-skill'. Use this when the same skill name exists in multiple scopes "
+            "Optional explicit skill source path such as 'system/skills/my-skill' or "
+            "'custom/skills/team/my-skill'. Use this when the same skill name exists in multiple roots "
             "and the source must be explicit."
         ),
     )
@@ -318,7 +318,10 @@ def setup_agent(
                 thread_id=runtime_thread_id,
                 paths=paths,
             )
-        agent_dir = paths.agent_dir(resolved_agent_name, agent_status)
+        if hasattr(paths, "custom_agent_dir"):
+            agent_dir = paths.custom_agent_dir(resolved_agent_name, agent_status)
+        else:
+            agent_dir = paths.agent_dir(resolved_agent_name, agent_status)
         archive_existed = agent_dir.is_dir()
         materialized = materialize_agent_definition(
             name=resolved_agent_name,

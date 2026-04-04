@@ -21,6 +21,15 @@ class Skill:
         path = self.relative_path.as_posix()
         return "" if path == "." else path
 
+    @property
+    def source_path(self) -> str:
+        """Return the canonical source_path for this skill."""
+
+        relative_path = self.skill_path or self.skill_dir.name
+        if self.category in {"system", "custom"}:
+            return Path(self.category, "skills", relative_path).as_posix()
+        return Path(self.category, relative_path).as_posix()
+
     def get_container_path(self, container_base_path: str = "/mnt/skills") -> str:
         """
         Get the full path to this skill in the container.
@@ -31,11 +40,7 @@ class Skill:
         Returns:
             Full container path to the skill directory
         """
-        category_base = f"{container_base_path}/{self.category}"
-        skill_path = self.skill_path
-        if skill_path:
-            return f"{category_base}/{skill_path}"
-        return category_base
+        return f"{container_base_path}/{self.source_path}"
 
     def get_container_file_path(self, container_base_path: str = "/mnt/skills") -> str:
         """

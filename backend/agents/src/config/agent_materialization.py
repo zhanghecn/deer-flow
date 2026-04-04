@@ -24,15 +24,18 @@ from src.config.agents_config import (
     serialize_subagent_defaults,
 )
 from src.config.paths import Paths, get_paths
-from src.skills import load_skills
+from src.skills import load_skills, skill_source_path
 from src.skills.types import Skill
 
 _SKILL_SCOPE_PRIORITY: dict[str, int] = {
+    "system": 0,
+    "custom": 1,
     "store/dev": 0,
     "store/prod": 1,
 }
-_DEV_AGENT_SKILL_SCOPES = ("store/dev", "store/prod")
-_PROD_AGENT_SKILL_SCOPES = ("store/prod",)
+_AUTHORED_SKILL_SCOPES = ("system", "custom")
+_DEV_AGENT_SKILL_SCOPES = _AUTHORED_SKILL_SCOPES + ("store/dev", "store/prod")
+_PROD_AGENT_SKILL_SCOPES = _AUTHORED_SKILL_SCOPES + ("store/prod",)
 
 
 def _dedupe_skill_names(skill_names: list[str] | None) -> list[str]:
@@ -105,7 +108,7 @@ def _skills_by_source_path_for_scopes(
     for skill in load_skills(skills_path=paths.skills_dir, use_config=False, enabled_only=False):
         if skill.category not in allowed_scopes:
             continue
-        catalog[Path(skill.category, skill.skill_path or skill.skill_dir.name).as_posix()] = skill
+        catalog[skill_source_path(skill)] = skill
 
     return catalog
 
@@ -142,8 +145,8 @@ def _resolve_requested_skill(
         )
 
     if len(matches) > 1:
-        locations = ", ".join(f"{skill.category}:{skill.skill_path or skill.name}" for skill in matches)
-        raise ValueError(f"Skill '{skill_name}' is ambiguous across: {locations}.")
+        locations = ", ".join(skill_source_path(skill) for skill in matches)
+        raise ValueError(f"Skill '{skill_name}' is ambiguous across multiple sources: {locations}.")
 
     return matches[0]
 
@@ -234,7 +237,7 @@ def _skill_relative_path(skill: Skill) -> Path:
 def _to_agent_skill_ref(skill: Skill) -> AgentSkillRef:
     return AgentSkillRef(
         name=skill.name,
-        source_path=Path(skill.category, skill.skill_path or skill.skill_dir.name).as_posix(),
+        source_path=skill_source_path(skill),
     )
 
 
@@ -410,7 +413,7 @@ def materialize_agent_definition(
     """Write an agent definition to disk and copy referenced skills locally."""
 
     paths = paths or get_paths()
-    agent_dir = paths.agent_dir(name, status)
+    agent_dir = paths.custom_agent_dir(name, status)
     agent_parent = agent_dir.parent
     agent_parent.mkdir(parents=True, exist_ok=True)
     staging_dir = Path(tempfile.mkdtemp(prefix=f".{agent_dir.name}.tmp-", dir=agent_parent))
@@ -497,8 +500,8 @@ def publish_agent_definition(name: str, *, paths: Paths | None = None) -> AgentC
     """Copy a dev agent definition to prod."""
 
     paths = paths or get_paths()
-    dev_dir = paths.agent_dir(name, "dev")
-    prod_dir = paths.agent_dir(name, "prod")
+    dev_dir = paths.custom_agent_dir(name, "dev")
+    prod_dir = paths.custom_agent_dir(name, "prod")
 
     if not dev_dir.exists():
         raise FileNotFoundError(f"Dev agent directory not found: {dev_dir}")

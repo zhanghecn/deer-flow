@@ -130,7 +130,7 @@ def test_get_paths_rebases_default_storage_and_skills_to_openagents_home(monkeyp
                 "sandbox:",
                 "  use: src.sandbox.local:LocalSandboxProvider",
                 "skills:",
-                "  path: .openagents/skills",
+                "  path: .openagents",
                 "  container_path: /mnt/skills",
             ]
         )
@@ -144,7 +144,9 @@ def test_get_paths_rebases_default_storage_and_skills_to_openagents_home(monkeyp
     paths = get_paths()
 
     assert paths.base_dir == runtime_home.resolve()
-    assert paths.skills_dir == (runtime_home / "skills").resolve()
+    assert paths.skills_dir == runtime_home.resolve()
+    assert paths.legacy_skills_dir == (runtime_home.resolve() / "skills")
+    assert paths.store_prod_skills_dir == (runtime_home.resolve() / "skills" / "store" / "prod")
 
 
 def test_get_paths_keeps_explicit_non_default_storage_and_skills(monkeypatch, tmp_path: Path):

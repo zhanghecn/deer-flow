@@ -16,7 +16,7 @@ from langgraph.prebuilt import ToolRuntime
 
 from src.agents.thread_state import ThreadState
 from src.config.agent_materialization import validate_skill_refs_for_status
-from src.config.agents_config import AGENT_NAME_PATTERN, AGENTS_MD_FILENAME, AgentConfig
+from src.config.agents_config import AGENT_NAME_PATTERN, AGENTS_MD_FILENAME, AgentConfig, resolve_authored_agent_dir
 from src.config.paths import Paths, VIRTUAL_PATH_PREFIX, get_paths
 from src.skills.parser import parse_skill_file
 from src.utils.runtime_context import runtime_context_value
@@ -117,19 +117,34 @@ def _load_agent_payload(
 def validate_skill_directory(skill_dir: Path) -> None:
     _require_directory(skill_dir, label="skill source")
     skill_file = skill_dir / "SKILL.md"
-    parsed = parse_skill_file(skill_file, category="store/dev", relative_path=Path(skill_dir.name))
+    parsed = parse_skill_file(skill_file, category="custom", relative_path=Path(skill_dir.name))
     if parsed is None:
         raise ValueError(f"Valid SKILL.md is required: {skill_file}")
 
 
-def _existing_skill_scopes(*, skill_name: PurePosixPath, paths: Paths) -> tuple[str, ...]:
+def _existing_skill_sources(*, skill_name: PurePosixPath, paths: Paths) -> tuple[str, ...]:
     relative_path = Path(skill_name.as_posix())
-    scopes: list[str] = []
-    if (paths.store_dev_skills_dir / relative_path).is_dir():
-        scopes.append("store/dev")
-    if (paths.store_prod_skills_dir / relative_path).is_dir():
-        scopes.append("store/prod")
-    return tuple(scopes)
+    sources: list[str] = []
+
+    canonical_locations = (
+        ("system", paths.system_skill_dir(relative_path)),
+        ("custom", paths.custom_skill_dir(relative_path)),
+    )
+    for label, directory in canonical_locations:
+        if directory.is_dir():
+            sources.append(label)
+
+    # Keep legacy store conflict checks during the authored-root migration so we
+    # do not silently duplicate a skill that still exists only in the old tree.
+    legacy_locations = (
+        ("store/dev", paths.store_dev_skills_dir / relative_path),
+        ("store/prod", paths.store_prod_skills_dir / relative_path),
+    )
+    for label, directory in legacy_locations:
+        if directory.is_dir():
+            sources.append(label)
+
+    return tuple(sources)
 
 
 def _requested_registry_skill_path(
@@ -231,7 +246,7 @@ def _discover_downloaded_registry_skills(download_root: Path) -> list[_Downloade
 
         parsed = parse_skill_file(
             skill_dir / "SKILL.md",
-            category="store/dev",
+            category="custom",
             relative_path=Path(relative_path.as_posix()),
         )
         if parsed is None:
@@ -320,25 +335,21 @@ def install_registry_skill_to_store(
             # or a multi-skill repo. We preserve the resulting directory layout so the
             # archived store stays aligned with the registry's canonical paths.
             for downloaded_skill in selected_skills:
-                runtime_scopes = tuple(
-                    scope
-                    for scope in _existing_skill_scopes(
-                        skill_name=downloaded_skill.relative_path,
-                        paths=paths,
-                    )
-                    if scope in {"store/dev", "store/prod"}
+                existing_sources = _existing_skill_sources(
+                    skill_name=downloaded_skill.relative_path,
+                    paths=paths,
                 )
-                if runtime_scopes:
+                if existing_sources:
                     if install_all_from_source:
                         skipped_skills.append(
                             RegistrySkippedSkill(
                                 relative_path=downloaded_skill.relative_path,
-                                existing_scopes=runtime_scopes,
+                                existing_scopes=existing_sources,
                             )
                         )
                         continue
 
-                    scopes = ", ".join(runtime_scopes)
+                    scopes = ", ".join(existing_sources)
                     raise ValueError(
                         f"Skill '{downloaded_skill.relative_path.as_posix()}' already exists in {scopes}."
                     )
@@ -346,7 +357,7 @@ def install_registry_skill_to_store(
                 validate_skill_directory(downloaded_skill.source_dir)
                 target_dir, _backup_dir = _copy_directory(
                     downloaded_skill.source_dir,
-                    paths.store_dev_skills_dir / Path(downloaded_skill.relative_path.as_posix()),
+                    paths.custom_skill_dir(downloaded_skill.relative_path.as_posix()),
                 )
                 installed_skills.append(
                     RegistryInstalledSkill(
@@ -412,7 +423,7 @@ def save_skill_directory_to_store(
     paths = paths or get_paths()
     skill_path = _normalize_skill_path(skill_name)
     validate_skill_directory(source_dir)
-    target_dir = paths.store_dev_skills_dir / Path(skill_path.as_posix())
+    target_dir = paths.custom_skill_dir(skill_path.as_posix())
     return _copy_directory(source_dir, target_dir)
 
 
@@ -425,7 +436,7 @@ def save_agent_directory_to_store(
     paths = paths or get_paths()
     normalized_agent_name = _normalize_agent_name(agent_name)
     validate_agent_directory(source_dir, target_status="dev", paths=paths)
-    target_dir = paths.agent_dir(normalized_agent_name, "dev")
+    target_dir = paths.custom_agent_dir(normalized_agent_name, "dev")
     saved_target_dir, backup_dir = _copy_directory(source_dir, target_dir)
     _rewrite_agent_status(saved_target_dir, status="dev")
     return saved_target_dir, backup_dir
@@ -436,12 +447,10 @@ def push_skill_directory_to_prod(
     *,
     paths: Paths | None = None,
 ) -> tuple[Path, Path | None]:
-    paths = paths or get_paths()
-    skill_path = _normalize_skill_path(skill_name)
-    source_dir = paths.store_dev_skills_dir / Path(skill_path.as_posix())
-    validate_skill_directory(source_dir)
-    target_dir = paths.store_prod_skills_dir / Path(skill_path.as_posix())
-    return _copy_directory(source_dir, target_dir)
+    _normalize_skill_path(skill_name)
+    raise ValueError(
+        "Skills are standalone assets under system/custom authored roots and no longer support push to prod."
+    )
 
 
 def push_agent_directory_to_prod(
@@ -451,9 +460,12 @@ def push_agent_directory_to_prod(
 ) -> tuple[Path, Path | None]:
     paths = paths or get_paths()
     normalized_agent_name = _normalize_agent_name(agent_name)
-    source_dir = paths.agent_dir(normalized_agent_name, "dev")
+    source_dir = resolve_authored_agent_dir(normalized_agent_name, "dev", paths=paths) or paths.custom_agent_dir(
+        normalized_agent_name,
+        "dev",
+    )
     validate_agent_directory(source_dir, target_status="prod", paths=paths)
-    target_dir = paths.agent_dir(normalized_agent_name, "prod")
+    target_dir = paths.custom_agent_dir(normalized_agent_name, "prod")
     saved_target_dir, backup_dir = _copy_directory(source_dir, target_dir)
     _rewrite_agent_status(saved_target_dir, status="prod")
     return saved_target_dir, backup_dir

@@ -723,7 +723,7 @@ class OpenAgentsClient:
         if not zipfile.is_zipfile(path):
             raise ValueError("File is not a valid ZIP archive")
 
-        target_root = get_paths().store_dev_skills_dir
+        target_root = get_paths().custom_skills_dir
         target_root.mkdir(parents=True, exist_ok=True)
 
         with tempfile.TemporaryDirectory() as tmp:

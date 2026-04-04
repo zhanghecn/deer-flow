@@ -24,7 +24,10 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 DEFAULT_OPENAGENTS_HOME = ".openagents"
-DEFAULT_SHARED_SKILLS_PATH = f"{DEFAULT_OPENAGENTS_HOME}/skills"
+DEFAULT_SHARED_SKILLS_PATHS = (
+    DEFAULT_OPENAGENTS_HOME,
+    f"{DEFAULT_OPENAGENTS_HOME}/skills",
+)
 
 
 class AppConfig(BaseModel):
@@ -132,8 +135,8 @@ class AppConfig(BaseModel):
         skills = normalized.get("skills")
         if isinstance(skills, dict):
             skills_path = skills.get("path")
-            if skills_path in (None, "", DEFAULT_SHARED_SKILLS_PATH):
-                skills["path"] = os.path.join(env_home, "skills")
+            if skills_path in (None, "", *DEFAULT_SHARED_SKILLS_PATHS):
+                skills["path"] = env_home
 
         return normalized
 

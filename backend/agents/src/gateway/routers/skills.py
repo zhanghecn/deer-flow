@@ -25,7 +25,7 @@ class SkillResponse(BaseModel):
     name: str = Field(..., description="Name of the skill")
     description: str = Field(..., description="Description of what the skill does")
     license: str | None = Field(None, description="License information")
-    category: str = Field(..., description="Skill scope: store/dev or store/prod")
+    category: str = Field(..., description="Skill source category, such as system or custom")
     enabled: bool = Field(default=True, description="Whether this skill is enabled")
 
 
@@ -148,7 +148,7 @@ def _skill_to_response(skill: Skill) -> SkillResponse:
     "/skills",
     response_model=SkillsListResponse,
     summary="List All Skills",
-    description="Retrieve a list of all available skills from the archived store skill scopes.",
+    description="Retrieve a list of all available skills from the authored skill roots.",
 )
 async def list_skills() -> SkillsListResponse:
     """List all available skills.
@@ -389,8 +389,9 @@ async def install_skill(request: SkillInstallRequest) -> SkillInstallResponse:
         if not zipfile.is_zipfile(skill_file_path):
             raise HTTPException(status_code=400, detail="File is not a valid ZIP archive")
 
-        # Install imported skills into the dev store scope.
-        target_root = get_paths().store_dev_skills_dir
+        # Imported skills are custom authored assets and should never mutate the
+        # git-tracked system root.
+        target_root = get_paths().custom_skills_dir
         target_root.mkdir(parents=True, exist_ok=True)
 
         # Extract to a temporary directory first for validation
@@ -435,14 +436,14 @@ async def install_skill(request: SkillInstallRequest) -> SkillInstallResponse:
             if target_dir.exists():
                 raise HTTPException(status_code=409, detail=f"Skill '{skill_name}' already exists. Please remove it first or use a different name.")
 
-            # Save into the durable dev store scope.
+            # Save into the durable custom-authored skill root.
             shutil.copytree(skill_dir, target_dir)
 
         logger.info(f"Skill '{skill_name}' installed successfully to {target_dir}")
         return SkillInstallResponse(
             success=True,
             skill_name=skill_name,
-            message=f"Skill '{skill_name}' installed successfully to .openagents/skills/store/dev",
+            message=f"Skill '{skill_name}' installed successfully to .openagents/custom/skills",
         )
 
     except HTTPException:

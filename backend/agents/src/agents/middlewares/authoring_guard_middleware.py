@@ -32,7 +32,11 @@ _FORBIDDEN_HOST_PATH_HINTS = (
     "/home/user/.local",
 )
 _SKILL_LIBRARY_ROOT = "/mnt/skills"
-_SKILL_STORE_ROOT = "/mnt/skills/store"
+_SKILL_ARCHIVE_ROOTS = (
+    "/mnt/skills/system/skills",
+    "/mnt/skills/custom/skills",
+    "/mnt/skills/store",
+)
 _CANONICAL_RUNTIME_TOP_LEVEL_DIRS = frozenset(
     {
         "agents",
@@ -74,7 +78,8 @@ _CREATE_AGENT_GUARD_ERROR = (
     "Error: `/create-agent` must use `setup_agent` for agent and skill materialization. "
     "Use canonical runtime roots only: `/mnt/user-data/agents/...`, `/mnt/user-data/authoring/...`, "
     "`/mnt/user-data/uploads`, `/mnt/user-data/workspace`, `/mnt/user-data/outputs`, and "
-    "read-only archived skill discovery under `/mnt/skills/store/...`. "
+    "read-only archived skill discovery under `/mnt/skills/system/skills/...`, "
+    "`/mnt/skills/custom/skills/...`, or the legacy migration input `/mnt/skills/store/...`. "
     "Do not invent alternate paths such as `/mnt/user-data/agentz`, and do not read or write "
     "host/package paths like `/agents`, `/app`, raw `/mnt` outside those roots, `.openagents`, "
     "or `~/.agents` with filesystem tools."
@@ -198,9 +203,10 @@ def _is_allowed_skill_library_path(path: str) -> bool:
     normalized = _normalize_text(path).lower()
     if normalized == _SKILL_LIBRARY_ROOT:
         return True
-    if normalized == _SKILL_STORE_ROOT:
-        return True
-    return normalized.startswith(f"{_SKILL_STORE_ROOT}/")
+    return any(
+        normalized == archive_root or normalized.startswith(f"{archive_root}/")
+        for archive_root in _SKILL_ARCHIVE_ROOTS
+    )
 
 
 def uses_forbidden_create_agent_path_arg(

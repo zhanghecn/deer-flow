@@ -8,6 +8,7 @@ from typing import Protocol
 
 import yaml
 
+from src.config.agents_config import resolve_authored_agent_dir
 from src.config.paths import Paths, get_paths
 
 
@@ -55,7 +56,11 @@ def _dedupe_paths(paths: list[PurePosixPath]) -> tuple[PurePosixPath, ...]:
 def _load_manifest(agent_name: str, status: str, *, paths: Paths) -> _LocalSeedManifest:
     from src.config.agents_config import AgentSkillRef
 
-    config_path = paths.agent_config_file(agent_name, status)
+    agent_dir = resolve_authored_agent_dir(agent_name, status, paths=paths)
+    if agent_dir is None:
+        raise FileNotFoundError(f"Agent '{agent_name}' ({status}) not found in local archive.")
+
+    config_path = agent_dir / "config.yaml"
     if not config_path.exists():
         raise FileNotFoundError(f"Agent '{agent_name}' ({status}) not found in local archive.")
 
@@ -137,7 +142,9 @@ def runtime_seed_targets(
 ) -> list[tuple[str, bytes]]:
     paths = paths or get_paths()
     loaded_manifest = manifest or _load_manifest(agent_name, status, paths=paths)
-    agent_dir = paths.agent_dir(agent_name, status)
+    agent_dir = resolve_authored_agent_dir(agent_name, status, paths=paths)
+    if agent_dir is None:
+        raise FileNotFoundError(f"Agent archive not found: {agent_name} ({status})")
     normalized_target_root = target_root.rstrip("/")
 
     targets: list[tuple[str, bytes]] = []

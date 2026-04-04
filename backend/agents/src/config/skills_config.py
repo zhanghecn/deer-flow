@@ -28,13 +28,13 @@ class SkillsConfig(BaseModel):
             raise RuntimeError("skills.path must be configured in config.yaml.")
         return resolve_relative_to_config_dir(self.path, config_dir=config_dir)
 
-    def get_skill_container_path(self, skill_name: str, category: str = "store/prod") -> str:
+    def get_skill_container_path(self, skill_name: str, category: str = "system/skills") -> str:
         """
         Get the full container path for a specific skill.
 
         Args:
             skill_name: Name of the skill (directory name)
-            category: Scope of the skill (store/dev or store/prod)
+            category: Archived skill root, for example `system/skills` or `custom/skills`
 
         Returns:
             Full path to the skill in the container

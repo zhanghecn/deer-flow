@@ -33,8 +33,9 @@ OpenAgents 只在下面两层对齐 `opencode`：
 ## OpenAgents 当前唯一 canonical skill 链路
 
 ```text
-archived store skill
-  .openagents/skills/store/{dev,prod}/...
+archived authored skill
+  .openagents/system/skills/... or
+  .openagents/custom/skills/...
         │
         │ 通过 setup_agent(..., skills=[{source_path: "..."}])
         v
@@ -101,7 +102,8 @@ runtime model
 
 当前 OpenAgents 的明确规则：
 
-- archived reusable skills 只存在于 `.openagents/skills/store/dev` 与 `.openagents/skills/store/prod`
+- archived reusable skills 的 canonical authored roots 是 `.openagents/system/skills/...` 与 `.openagents/custom/skills/...`
+- `.openagents/skills/store/{dev,prod}` 只作为历史迁移输入保留，不再是新的 canonical write target
 - `shared` 已废弃，不再作为单独 runtime scope
 - `setup_agent(..., skills=[{source_path: "..."}])` 是 archived skill 装配的唯一正式入口
 - agent config 记录 `skill_refs[].source_path`
@@ -196,9 +198,10 @@ OpenAgents 当前实际做法是：
 
 固定规则：
 
-- 先查本地 archived store：
-  - `/mnt/skills/store/dev/...`
-  - `/mnt/skills/store/prod/...`
+- 先查本地 canonical archived library：
+  - `/mnt/skills/system/skills/...`
+  - `/mnt/skills/custom/skills/...`
+- `/mnt/skills/store/...` 只作为迁移期兼容输入
 - 先读取候选 `SKILL.md` 再判断是否匹配
 - 如果复用本地 archived skill，最后必须通过
   `setup_agent(..., skills=[{source_path: "..."}])`

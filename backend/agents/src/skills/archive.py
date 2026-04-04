@@ -1,21 +1,25 @@
 from __future__ import annotations
 
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 
 from src.skills.loader import load_skills
 from src.skills.types import Skill
+
+_CANONICAL_SKILL_CATEGORIES = ("system", "custom")
+_LEGACY_DEV_SKILL_CATEGORIES = ("store/dev", "store/prod")
+_LEGACY_PROD_SKILL_CATEGORIES = ("store/prod",)
 
 
 def skill_source_path(skill: Skill) -> str:
     """Return the canonical archived source_path for a skill."""
 
-    return Path(skill.category, skill.skill_path or skill.skill_dir.name).as_posix()
+    return skill.source_path
 
 
 def archived_skill_categories(agent_status: str) -> tuple[str, ...]:
     if agent_status == "prod":
-        return ("store/prod",)
-    return ("store/dev", "store/prod")
+        return _CANONICAL_SKILL_CATEGORIES + _LEGACY_PROD_SKILL_CATEGORIES
+    return _CANONICAL_SKILL_CATEGORIES + _LEGACY_DEV_SKILL_CATEGORIES
 
 
 def find_archived_skills_by_name(
