@@ -40,10 +40,15 @@ type Store struct {
 
 func New(baseDir string) (*Store, error) {
 	backend := strings.ToLower(strings.TrimSpace(os.Getenv("KNOWLEDGE_OBJECT_STORE")))
-	if backend == "" || backend == "filesystem" || backend == "fs" || backend == "local" {
+	// Backend selection is explicit on purpose. Missing config used to silently
+	// route production KB assets onto local disk, which breaks rollouts and migrations.
+	if backend == "" {
+		return nil, fmt.Errorf("KNOWLEDGE_OBJECT_STORE must be explicitly set to filesystem or minio")
+	}
+	if backend == "filesystem" {
 		return &Store{baseDir: filepath.Clean(baseDir), backend: "filesystem"}, nil
 	}
-	if backend != "minio" && backend != "s3" {
+	if backend != "minio" {
 		return nil, fmt.Errorf("unsupported KNOWLEDGE_OBJECT_STORE backend: %s", backend)
 	}
 
@@ -152,18 +157,16 @@ func (s *Store) DeleteRelativePrefix(ctx context.Context, relativePrefix string)
 	if s.backend != "s3" {
 		return nil
 	}
-	prefixes := storagePrefixesForCleanup(relativePrefix)
-	for _, cleanPrefix := range prefixes {
-		for object := range s.client.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{
-			Prefix:    cleanPrefix,
-			Recursive: true,
-		}) {
-			if object.Err != nil {
-				return object.Err
-			}
-			if err := s.client.RemoveObject(ctx, s.bucket, object.Key, minio.RemoveObjectOptions{}); err != nil {
-				return err
-			}
+	cleanPrefix := normalizeObjectKey(relativePrefix)
+	for object := range s.client.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{
+		Prefix:    cleanPrefix,
+		Recursive: true,
+	}) {
+		if object.Err != nil {
+			return object.Err
+		}
+		if err := s.client.RemoveObject(ctx, s.bucket, object.Key, minio.RemoveObjectOptions{}); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -183,18 +186,6 @@ func (s *Store) ResolvePackageRelativeRef(storageRef string, relativePath string
 		return "", fmt.Errorf("asset path must stay within the knowledge document")
 	}
 	return s.buildStorageRef(parsed.scheme, parsed.bucket, joinKey(parsed.key, cleanRelativePath)), nil
-}
-
-func (s *Store) ResolveSiblingRef(storageRef string, siblingName string) (string, error) {
-	parsed, err := s.parseStorageRef(storageRef)
-	if err != nil {
-		return "", err
-	}
-	return s.buildStorageRef(
-		parsed.scheme,
-		parsed.bucket,
-		joinKey(ppath.Dir(parsed.key), siblingName),
-	), nil
 }
 
 func (s *Store) PackageRootRef(storageRef string) (string, error) {
@@ -227,9 +218,8 @@ func (s *Store) parseStorageRef(storageRef string) (parsedStorageRef, error) {
 		}
 		return parsedStorageRef{scheme: "s3", bucket: bucket, key: key}, nil
 	}
-
 	if filepath.IsAbs(ref) {
-		return parsedStorageRef{scheme: "filesystem", key: filepath.Clean(ref)}, nil
+		return parsedStorageRef{}, fmt.Errorf("filesystem knowledge storage refs must be relative to OPENAGENTS_HOME")
 	}
 	return parsedStorageRef{scheme: "filesystem", key: cleanRelativeRef(ref)}, nil
 }
@@ -243,11 +233,7 @@ func (s *Store) buildStorageRef(scheme string, bucket string, key string) string
 }
 
 func (s *Store) filesystemPath(key string) string {
-	parsedPath := filepath.Clean(key)
-	if filepath.IsAbs(parsedPath) {
-		return parsedPath
-	}
-	return filepath.Join(s.baseDir, filepath.FromSlash(parsedPath))
+	return filepath.Join(s.baseDir, filepath.FromSlash(filepath.Clean(key)))
 }
 
 func (s *Store) ensureBucket(ctx context.Context) error {
@@ -302,17 +288,4 @@ func normalizeObjectKey(value string) string {
 		return clean
 	}
 	return normalized
-}
-
-func storagePrefixesForCleanup(relativePrefix string) []string {
-	rawPrefix := cleanRelativeRef(relativePrefix)
-	normalizedPrefix := normalizeObjectKey(relativePrefix)
-	prefixes := make([]string, 0, 2)
-	if normalizedPrefix != "" {
-		prefixes = append(prefixes, normalizedPrefix)
-	}
-	if rawPrefix != "" && rawPrefix != normalizedPrefix {
-		prefixes = append(prefixes, rawPrefix)
-	}
-	return prefixes
 }

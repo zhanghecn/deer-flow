@@ -116,24 +116,31 @@ Python Agents Runtime
   - 保存知识库元数据
   - 保存树结构 / source map / debug JSON
 - **Knowledge Asset Store**
-  - 默认 `filesystem`
+  - `KNOWLEDGE_OBJECT_STORE` 必须显式配置
+  - 本地调试可显式设为 `filesystem`
   - 可切换 `MinIO / S3-compatible object storage`
   - `storage_ref` 对应用层是 opaque ref，当前兼容：
     - 相对路径 ref，例如 `knowledge/users/.../documents/.../source/file.pdf`
     - 对象存储 ref，例如 `s3://knowledge/users/.../documents/.../source/file.pdf`
 
+硬切规则：
+
+- 不允许缺失 `KNOWLEDGE_OBJECT_STORE` 时静默回退到本地 filesystem
+- 生产 / 共享环境必须显式使用 `minio`
+- 已有本地 `knowledge/...` `storage_ref` 必须通过迁移脚本搬迁后再切换
+- 禁止继续依赖“先落本地盘，之后再看是否要上对象存储”的默认路径
+
 对象存储 key 规范：
 
 - 本地 filesystem 包路径仍位于 `.openagents/knowledge/users/...`
 - 新写入的对象存储 key 统一去掉顶层 `knowledge/` 前缀，直接写成 `users/...`
-- 旧的 `s3://{bucket}/knowledge/users/...` ref 继续兼容读取和清理，不强制立即迁移
 
 这样可以避免 bucket 已经叫 `knowledge` 时再出现 `s3://knowledge/knowledge/users/...` 这种双重前缀。
 
 推荐后续演进：
 
-- 本地开发默认继续使用 filesystem，便于直接调试
-- 共享/生产环境优先使用 **MinIO / S3-compatible object storage**
+- 本地开发可继续显式使用 `filesystem`，便于直接调试
+- 共享/生产环境使用 **MinIO / S3-compatible object storage**
 - 不建议把 Word / PDF / 图片等二进制文件直接塞进 PostgreSQL
 
 原因：
@@ -143,7 +150,7 @@ Python Agents Runtime
 - 因此前后一致的方案应是：
   - PostgreSQL 管 metadata / JSON
   - Knowledge Asset Store 管 file assets
-    - 本地调试时落 filesystem
+    - 本地调试时可显式落 filesystem
     - 共享/生产时落 MinIO
 
 ### Knowledge Asset Store
@@ -198,13 +205,26 @@ bucket: knowledge
 当前环境开关：
 
 ```text
-KNOWLEDGE_OBJECT_STORE=filesystem|minio
+KNOWLEDGE_OBJECT_STORE=filesystem|minio   # required
 KNOWLEDGE_S3_ENDPOINT=http://localhost:9000
 KNOWLEDGE_S3_ACCESS_KEY=...
 KNOWLEDGE_S3_SECRET_KEY=...
 KNOWLEDGE_S3_BUCKET=knowledge
 KNOWLEDGE_S3_SECURE=false
 ```
+
+迁移工具：
+
+```text
+backend/agents/scripts/migrate_knowledge_storage_refs.py
+```
+
+用途：
+
+- 扫描 `knowledge_documents` 中仍然指向本地 filesystem 的 `storage_ref`
+- 上传对应 `.openagents/knowledge/users/...` 文档包到对象存储
+- 回写数据库中的 `source_storage_path` / `markdown_storage_path` / `preview_storage_path` / `canonical_storage_path` / `source_map_storage_path`
+- 刷新对象存储中的 `index/document_index.json`
 
 运行时给 Agent 暴露的仍然是虚拟路径：
 

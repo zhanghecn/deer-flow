@@ -80,6 +80,11 @@ Repository-wide runtime architecture rules:
   - frontend defaults must not hard-force planner-style runtime flags such as `is_plan_mode` onto every chat turn
   - non-`lead_agent` domain agents, especially ones governed by attached copied skills, should default to direct execution unless a dedicated UI control explicitly opts into planner/todo behavior
   - avoid front-end policy that broadens runtime behavior for all agents by default; keep those choices explicit and structured
+- Knowledge asset storage rule:
+  - knowledge-base file assets use a dedicated Knowledge Asset Store; PostgreSQL is not the binary asset source of truth
+  - `KNOWLEDGE_OBJECT_STORE` must be explicitly configured; do not reintroduce a missing-env fallback to filesystem
+  - production/shared environments must use `minio`; local `filesystem` is only for explicitly configured debugging or development
+  - when removing filesystem-backed KB storage from an environment, migrate persisted `storage_ref` rows and document packages in the same change set instead of relying on dual-read fallbacks
 
 Repository-wide testing index:
 

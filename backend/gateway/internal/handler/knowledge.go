@@ -901,18 +901,13 @@ func (h *KnowledgeHandler) readStorageJSON(baseStorageRef string, fallbackFileNa
 	if trimmed == "" {
 		return nil
 	}
-	candidates := make([]string, 0, 2)
-	if packageRef, err := h.assetStore.ResolvePackageRelativeRef(trimmed, filepath.ToSlash(filepath.Join("index", fallbackFileName))); err == nil {
-		candidates = append(candidates, packageRef)
+	packageRef, err := h.assetStore.ResolvePackageRelativeRef(trimmed, filepath.ToSlash(filepath.Join("index", fallbackFileName)))
+	if err != nil {
+		return nil
 	}
-	if siblingRef, err := h.assetStore.ResolveSiblingRef(trimmed, fallbackFileName); err == nil {
-		candidates = append(candidates, siblingRef)
-	}
-	for _, candidate := range candidates {
-		data, err := h.assetStore.ReadAll(context.Background(), candidate)
-		if err == nil {
-			return json.RawMessage(data)
-		}
+	data, err := h.assetStore.ReadAll(context.Background(), packageRef)
+	if err == nil {
+		return json.RawMessage(data)
 	}
 	return nil
 }
@@ -1015,6 +1010,19 @@ func buildKnowledgePendingDocument(
 		}
 	}
 
+	sourceStoragePath, err := storageRef(baseDir, sourcePath)
+	if err != nil {
+		return knowledgePendingDocument{}, err
+	}
+	markdownStoragePath, err := storageRef(baseDir, markdownPath)
+	if err != nil {
+		return knowledgePendingDocument{}, err
+	}
+	previewStoragePath, err := storageRef(baseDir, previewPath)
+	if err != nil {
+		return knowledgePendingDocument{}, err
+	}
+
 	return knowledgePendingDocument{
 		ID:                  documentID,
 		DisplayName:         fileName,
@@ -1023,9 +1031,9 @@ func buildKnowledgePendingDocument(
 		SourceAbsPath:       sourcePath,
 		MarkdownAbsPath:     markdownPath,
 		PreviewAbsPath:      previewPath,
-		SourceStoragePath:   storageRef(baseDir, sourcePath),
-		MarkdownStoragePath: storageRef(baseDir, markdownPath),
-		PreviewStoragePath:  storageRef(baseDir, previewPath),
+		SourceStoragePath:   sourceStoragePath,
+		MarkdownStoragePath: markdownStoragePath,
+		PreviewStoragePath:  previewStoragePath,
 	}, nil
 }
 
@@ -1071,15 +1079,18 @@ func knowledgeDocumentRelativePrefixFromStorageRef(storageRef string) string {
 	}
 }
 
-func storageRef(baseDir string, absolutePath string) string {
+func storageRef(baseDir string, absolutePath string) (string, error) {
 	if strings.TrimSpace(absolutePath) == "" {
-		return ""
+		return "", nil
 	}
 	relativePath, err := filepath.Rel(baseDir, absolutePath)
 	if err != nil {
-		return filepath.ToSlash(absolutePath)
+		return "", fmt.Errorf("knowledge storage path must stay under %s: %w", baseDir, err)
 	}
-	return filepath.ToSlash(relativePath)
+	if strings.HasPrefix(relativePath, "..") {
+		return "", fmt.Errorf("knowledge storage path escaped base dir: %s", absolutePath)
+	}
+	return filepath.ToSlash(relativePath), nil
 }
 
 func mapKnowledgeStorageRef(assetStore *knowledgeasset.Store, storageRef string) string {

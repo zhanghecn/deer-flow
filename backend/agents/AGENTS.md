@@ -88,7 +88,10 @@ Critical agent protocol rules for future work:
 - Do not re-register `file:read`, `file:write`, or `bash` in app config. File access and shell execution come from deepagents `FilesystemMiddleware` only.
 - Knowledge-base retrieval keeps the global tool registry stable. Do not solve KB behavior by dynamically removing unrelated tools from the model-visible list.
 - Knowledge-base file assets now go through a dedicated Knowledge Asset Store. Treat KB `storage_ref` values as opaque refs; they may be local relative paths or `s3://...` object refs.
-- KB filesystem refs still resolve under `.openagents/knowledge/users/...`, but MinIO/S3 object keys should normalize to `users/...` instead of `knowledge/users/...`. Legacy `s3://.../knowledge/users/...` refs must remain readable for compatibility.
+- `KNOWLEDGE_OBJECT_STORE` must be explicitly configured. Do not reintroduce an implicit filesystem default when the env is missing.
+- Production/shared KB environments must use `minio`; explicit `filesystem` is only for local development/debugging.
+- KB filesystem refs still resolve under `.openagents/knowledge/users/...`, and MinIO/S3 object keys normalize to `users/...` instead of `knowledge/users/...`.
+- If filesystem-backed KB refs are being retired in an environment, migrate the stored `storage_ref` rows and document packages first, then reject remaining stale local refs explicitly.
 - Knowledge Asset Store is application-domain storage, not a runtime backend. Do not mix it with `BackendProtocol`, `SandboxBackendProtocol`, or `SandboxProvider`.
 - The primary agent-facing KB protocol is `list_knowledge_documents` -> `get_document_tree` -> `get_document_evidence`.
 - `get_document_tree_node_detail` and `get_document_image` are compatibility tools only. Keep them working, but do not make new prompts or middleware depend on them as the primary flow.

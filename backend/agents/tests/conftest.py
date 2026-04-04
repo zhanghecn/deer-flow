@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 # Make 'src' importable from any working directory
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -31,3 +33,9 @@ _executor_mock.MAX_CONCURRENT_SUBAGENTS = 3
 _executor_mock.get_background_task_result = MagicMock()
 
 sys.modules["src.subagents.executor"] = _executor_mock
+
+
+@pytest.fixture(autouse=True)
+def _set_explicit_knowledge_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests should never rely on the old implicit filesystem KB backend."""
+    monkeypatch.setenv("KNOWLEDGE_OBJECT_STORE", "filesystem")

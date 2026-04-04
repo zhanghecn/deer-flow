@@ -67,6 +67,7 @@ func TestDebugCanonicalStorageRef(t *testing.T) {
 }
 
 func TestResolveKnowledgeAssetRef(t *testing.T) {
+	t.Setenv("KNOWLEDGE_OBJECT_STORE", "filesystem")
 	store, err := knowledgeasset.New(filepath.Join(t.TempDir(), ".openagents"))
 	if err != nil {
 		t.Fatalf("knowledgeasset.New() error = %v", err)
@@ -109,6 +110,15 @@ func TestResolveKnowledgeAssetRef(t *testing.T) {
 			t.Fatal("ResolvePackageRelativeRef() error = nil, want rejection")
 		}
 	})
+}
+
+func TestStorageRefRejectsPathsOutsideKnowledgeBaseRoot(t *testing.T) {
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+
+	_, err := storageRef(baseDir, filepath.Join(t.TempDir(), "outside.pdf"))
+	if err == nil {
+		t.Fatal("storageRef() error = nil, want rejection for path outside base dir")
+	}
 }
 
 func TestCopyMarkdownReferencedAssets(t *testing.T) {

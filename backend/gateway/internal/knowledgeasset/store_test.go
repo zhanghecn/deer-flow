@@ -5,6 +5,34 @@ import (
 	"testing"
 )
 
+func TestNewRequiresExplicitBackendConfig(t *testing.T) {
+	t.Setenv("KNOWLEDGE_OBJECT_STORE", "")
+
+	_, err := New(filepath.Join(t.TempDir(), ".openagents"))
+	if err == nil {
+		t.Fatal("New() error = nil, want explicit backend validation")
+	}
+}
+
+func TestNewRejectsLegacyBackendAliases(t *testing.T) {
+	for _, backend := range []string{"fs", "local", "s3"} {
+		t.Run(backend, func(t *testing.T) {
+			t.Setenv("KNOWLEDGE_OBJECT_STORE", backend)
+			if backend == "s3" {
+				t.Setenv("KNOWLEDGE_S3_ENDPOINT", "http://localhost:9000")
+				t.Setenv("KNOWLEDGE_S3_ACCESS_KEY", "zhangxuan")
+				t.Setenv("KNOWLEDGE_S3_SECRET_KEY", "zhangxuan66")
+				t.Setenv("KNOWLEDGE_S3_BUCKET", "knowledge")
+			}
+
+			_, err := New(filepath.Join(t.TempDir(), ".openagents"))
+			if err == nil {
+				t.Fatalf("New() error = nil for legacy backend alias %q", backend)
+			}
+		})
+	}
+}
+
 func TestRefForRelativePathUsesS3SchemeWhenObjectStoreEnabled(t *testing.T) {
 	t.Setenv("KNOWLEDGE_OBJECT_STORE", "minio")
 	t.Setenv("KNOWLEDGE_S3_ENDPOINT", "http://localhost:9000")
@@ -58,15 +86,16 @@ func TestNormalizeObjectKeyStripsLegacyKnowledgePrefix(t *testing.T) {
 	}
 }
 
-func TestStoragePrefixesForCleanupIncludesLegacyAndNormalizedPrefixes(t *testing.T) {
-	got := storagePrefixesForCleanup("knowledge/users/u-1/bases/b-1")
-	want := []string{"users/u-1/bases/b-1", "knowledge/users/u-1/bases/b-1"}
-	if len(got) != len(want) {
-		t.Fatalf("storagePrefixesForCleanup() len = %d, want %d", len(got), len(want))
+func TestParseStorageRefRejectsAbsoluteFilesystemPaths(t *testing.T) {
+	t.Setenv("KNOWLEDGE_OBJECT_STORE", "filesystem")
+
+	store, err := New(filepath.Join(t.TempDir(), ".openagents"))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
 	}
-	for idx := range want {
-		if got[idx] != want[idx] {
-			t.Fatalf("storagePrefixesForCleanup()[%d] = %q, want %q", idx, got[idx], want[idx])
-		}
+
+	_, err = store.parseStorageRef("/tmp/demo.pdf")
+	if err == nil {
+		t.Fatal("parseStorageRef() error = nil, want rejection for absolute filesystem path")
 	}
 }

@@ -23,10 +23,14 @@ class _ParsedStorageRef:
 class KnowledgeAssetStore:
     def __init__(self, paths: Paths | None = None) -> None:
         self._paths = paths or get_paths()
-        backend = os.getenv("KNOWLEDGE_OBJECT_STORE", "filesystem").strip().lower()
-        if backend in {"", "filesystem", "fs", "local"}:
+        # Backend selection is explicit on purpose. A missing env silently
+        # falling back to local disk made production KB uploads easy to misroute.
+        backend = os.getenv("KNOWLEDGE_OBJECT_STORE", "").strip().lower()
+        if not backend:
+            raise ValueError("KNOWLEDGE_OBJECT_STORE must be explicitly set to 'filesystem' or 'minio'.")
+        if backend == "filesystem":
             self._backend = "filesystem"
-        elif backend in {"minio", "s3"}:
+        elif backend == "minio":
             self._backend = "s3"
         else:
             raise ValueError(f"Unsupported KNOWLEDGE_OBJECT_STORE backend: {backend}")
@@ -144,12 +148,6 @@ class KnowledgeAssetStore:
         joined_key = self._join_key(parsed.key, relative_key)
         return self._build_storage_ref(parsed.scheme, parsed.bucket, joined_key)
 
-    def resolve_sibling_ref(self, *, storage_ref: str, sibling_name: str) -> str:
-        parsed = self._parse_storage_ref(storage_ref)
-        parent_key = PurePosixPath(parsed.key).parent.as_posix()
-        sibling_key = self._join_key(parent_key, sibling_name)
-        return self._build_storage_ref(parsed.scheme, parsed.bucket, sibling_key)
-
     def _load_s3_options(self) -> dict[str, str | bool | None]:
         raw_endpoint = os.getenv("KNOWLEDGE_S3_ENDPOINT", "").strip()
         if not raw_endpoint:
@@ -219,9 +217,8 @@ class KnowledgeAssetStore:
                 raise ValueError(f"Invalid S3 knowledge storage ref: {storage_ref!r}")
             return _ParsedStorageRef(scheme="s3", bucket=bucket, key=key)
 
-        path = Path(ref)
-        if path.is_absolute():
-            return _ParsedStorageRef(scheme="filesystem", bucket=None, key=str(path))
+        if Path(ref).is_absolute():
+            raise ValueError("Filesystem knowledge storage refs must be relative to OPENAGENTS_HOME.")
         return _ParsedStorageRef(
             scheme="filesystem",
             bucket=None,
@@ -229,9 +226,6 @@ class KnowledgeAssetStore:
         )
 
     def _filesystem_path(self, key: str) -> Path:
-        candidate = Path(key)
-        if candidate.is_absolute():
-            return candidate.resolve()
         return (self._paths.base_dir / key).resolve()
 
     def _cache_path(self, parsed: _ParsedStorageRef) -> Path:
