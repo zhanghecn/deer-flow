@@ -8,6 +8,8 @@
   基于 `todos/multi_agent_test_suite_complete/agent_dataset/` 执行 7 个数据集用例，并按评审规则校验结果。
 - `find_skills_browser_probe.mjs`
   回归 `find-skills` 的搜索、安装成功路径和失败回显路径。
+- `agent_skill_regression_probe.mjs`
+  回归 lead_agent 的两条通用 authoring 链路：自主安装整个 skills 仓库并真实使用新 agent，以及自主创建 skill 后在下一轮真实使用。
 - `headed_full_flow_probe.mjs`
   执行从创建 skill、创建 agent、dev 验证、推送 prod、下载 demo 到 artifact 产物验证的整条链路。
 
@@ -19,6 +21,7 @@
 - 浏览器内核从 `frontend/app` 的 Playwright 依赖加载
 - 运行结果统一写入：
   `todos/multi_agent_test_suite_complete/agent_test_package/runtime_results/`
+- `agent_skill_regression_probe.mjs` 默认更偏向 compose-prod 场景，未显式设置时使用 `http://127.0.0.1:8083`
 - 如果目标是本地 Next dev server，请优先使用 `http://localhost:3000`，不要用 `http://127.0.0.1:3000`，否则 Next dev 的 `/_next/*` 资源可能触发跨源告警并让登录页 hydration 失效。
 
 ## 常用环境变量
@@ -43,6 +46,10 @@
 
 ```bash
 node scripts/find_skills_browser_probe.mjs
+```
+
+```bash
+node scripts/agent_skill_regression_probe.mjs
 ```
 
 ```bash

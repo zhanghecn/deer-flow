@@ -131,10 +131,29 @@ export async function login(
   );
 
   if (!/\/workspace(\/|$)/.test(page.url())) {
-    await page.goto(`${baseUrl}/workspace`, {
-      waitUntil: "commit",
-      timeout: timeoutMs,
-    });
+    try {
+      // Some builds trigger an automatic post-login redirect at the same time
+      // this helper falls back to an explicit `/workspace` navigation. Treat
+      // that as success instead of failing the whole browser probe on a benign
+      // same-destination navigation race.
+      await page.goto(`${baseUrl}/workspace`, {
+        waitUntil: "commit",
+        timeout: timeoutMs,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : String(error ?? "");
+      if (!message.includes("interrupted by another navigation")) {
+        throw error;
+      }
+    }
+
+    await waitForCondition(
+      "workspace navigation completion",
+      async () => /\/workspace(\/|$)/.test(page.url()),
+      timeoutMs,
+      300,
+    );
   }
 }
 

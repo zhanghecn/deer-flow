@@ -146,4 +146,5 @@ def test_create_agent_command_prompt_documents_runtime_update_constraints():
     assert "本地 archived store 优先" in command_text
     assert "不要传 `model` 字段" in command_text
     assert "显式传入 `agent_name`" in command_text
+    assert "自己选一个简短 kebab-case 名称" in command_text
     assert "setup_agent" in command_text

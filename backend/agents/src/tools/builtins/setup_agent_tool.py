@@ -208,6 +208,42 @@ def _resolve_setup_agent_name(*, runtime_context: object, explicit_agent_name: s
     return current_agent_name
 
 
+def _current_runtime_agent_name(runtime_context: object) -> str:
+    return normalize_effective_agent_name(runtime_context_value(runtime_context, "agent_name"))
+
+
+def _missing_agent_name_error(*, runtime_context: object) -> str:
+    # `agent_name` remains a model-owned authoring choice for lead_agent. Do not
+    # silently derive it from natural language or ambient runtime state here.
+    # Instead, return a stronger retry contract so the model can correct the
+    # tool call in the same turn without prompt-specific glue.
+    explicit_target = str(runtime_context_value(runtime_context, "target_agent_name") or "").strip().lower()
+    lines = [
+        "setup_agent requires explicit `agent_name` when called by `lead_agent`.",
+        "Only a non-`lead_agent` runtime may omit `agent_name` to update itself.",
+    ]
+    if explicit_target:
+        lines.append(
+            f"This turn already provides structured `target_agent_name=\"{explicit_target}\"`; "
+            "retry immediately with that exact value in `agent_name`."
+        )
+        example_name = explicit_target
+    else:
+        lines.append(
+            "If the user did not provide a name, choose a short descriptive kebab-case "
+            "`agent_name` yourself and retry immediately in the same turn instead of "
+            "asking only for naming."
+        )
+        example_name = "pr-review-agent"
+    lines.append(
+        "Call `setup_agent` again with explicit `agent_name`, `agents_md`, and `description`, "
+        "for example "
+        f"`setup_agent(agent_name=\"{example_name}\", description=\"Reviews pull requests\", "
+        "agents_md=\"# PR Review Agent\\n...\")`."
+    )
+    return " ".join(lines)
+
+
 def _refresh_thread_runtime_materials(
     *,
     agent_name: str,
@@ -252,7 +288,7 @@ def _refresh_thread_runtime_materials(
         raise RuntimeError(f"Failed to refresh target agent runtime files: {', '.join(errors)}")
 
 
-@tool
+@tool("setup_agent", parse_docstring=True)
 def setup_agent(
     agents_md: str,
     description: str,
@@ -265,16 +301,20 @@ def setup_agent(
     """Create or update a dev agent definition with copied and/or inline skills.
 
     Args:
-        agents_md: Full AGENTS.md content defining the agent's personality and behavior.
-        description: One-line description of what the agent does.
-        agent_name: Explicit target agent archive name. Required for `lead_agent`.
-            When omitted, only a non-`lead_agent` runtime may update itself.
+        agents_md: Full AGENTS.md markdown content for the target agent. Pass the actual
+            file body, not a path or a partial diff.
+        description: One-line summary of what the agent does.
+        agent_name: Explicit target agent archive name. Required when the current runtime
+            agent is `lead_agent`. When creating a new agent, choose a short kebab-case
+            archive name such as `pr-review-agent`. If the user did not provide one,
+            `lead_agent` must still choose one explicitly instead of omitting the field.
+            Only a non-`lead_agent` runtime may omit this field to update itself.
         model: Optional model override for the agent (e.g. "openai/gpt-4o").
             When omitted, setup_agent persists the current runtime model selection.
-        tool_groups: Optional list of tool groups the agent can use.
-        skills: Optional list of skill entries.
-            Use {"name": "..."} to copy an existing archived store skill by name.
-            Use {"name": "...", "content": "...full SKILL.md..."} to create a new agent-owned skill.
+        tool_groups: Optional list of runtime tool groups to enable for the agent.
+        skills: Optional list of skill entries. Use a skill `source_path` or existing
+            skill `name` to copy an archived skill. Use both a new skill `name` and full
+            `content` to create or replace an agent-owned skill.
     """
 
     resolved_agent_name = _resolve_setup_agent_name(
@@ -293,10 +333,7 @@ def setup_agent(
 
     try:
         if not resolved_agent_name:
-            raise ValueError(
-                "setup_agent requires explicit `agent_name` when called by `lead_agent`. "
-                "Only a non-`lead_agent` runtime may omit `agent_name` to update itself."
-            )
+            raise ValueError(_missing_agent_name_error(runtime_context=runtime.context))
 
         paths = get_paths()
         agent_status = str(runtime_context_value(runtime.context, "agent_status", "dev")).strip() or "dev"
@@ -318,10 +355,7 @@ def setup_agent(
                 thread_id=runtime_thread_id,
                 paths=paths,
             )
-        if hasattr(paths, "custom_agent_dir"):
-            agent_dir = paths.custom_agent_dir(resolved_agent_name, agent_status)
-        else:
-            agent_dir = paths.agent_dir(resolved_agent_name, agent_status)
+        agent_dir = paths.custom_agent_dir(resolved_agent_name, agent_status)
         archive_existed = agent_dir.is_dir()
         materialized = materialize_agent_definition(
             name=resolved_agent_name,
@@ -346,9 +380,16 @@ def setup_agent(
         materialized_skills = [skill_ref.name for skill_ref in materialized.skill_refs]
 
         verb = "updated" if archive_existed else "created"
+        current_runtime_agent = _current_runtime_agent_name(runtime.context)
         parts = [f"Agent '{resolved_agent_name}' {verb} successfully!"]
         if materialized_skills:
             parts.append(f"Skills materialized: {', '.join(materialized_skills)}")
+        if current_runtime_agent != resolved_agent_name:
+            parts.append(
+                "If the user's same-turn request still needs this new agent to do real work now, "
+                f"delegate with `task(subagent_type=\"{resolved_agent_name}\", description=\"...\")` "
+                "instead of continuing in assistant prose as if you already switched agents."
+            )
 
         logger.info(
             "[agent_creator] Created agent '%s' at %s (skills: %s)",

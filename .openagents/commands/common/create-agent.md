@@ -10,7 +10,7 @@ authoring_actions:
 用户需求：
 {{user_text}}
 
-`/create-agent` 只是进入 agent 创作工作流的路由，不负责替你解析目标 agent 名称。你必须自己从用户要求或显式结构化 UI 上下文里判断目标 agent，并在调用 `setup_agent` 时显式传入 `agent_name`。
+`/create-agent` 只是进入 agent 创作工作流的路由，不负责替你解析目标 agent 名称。你必须自己从用户要求或显式结构化 UI 上下文里判断目标 agent，并在调用 `setup_agent` 时显式传入 `agent_name`。如果用户只描述了角色没有给名称，你也必须先自己选一个简短 kebab-case 名称再调用 `setup_agent`，不要省略该字段。
 
 执行原则：
 - 优先产出一个可直接切换测试的 `dev` agent。

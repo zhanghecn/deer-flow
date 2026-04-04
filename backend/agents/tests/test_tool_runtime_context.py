@@ -2,6 +2,7 @@ from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 
 import yaml
+from langchain_core.messages import HumanMessage
 
 from src.agents.lead_agent.agent import LeadAgentRuntimeContext
 from src.config.paths import Paths
@@ -131,6 +132,22 @@ def test_push_skill_prod_requires_explicit_skill_name(monkeypatch):
     assert command.update["messages"][0].content.startswith("Skill 'contract-skill' pushed")
 
 
+def test_save_skill_to_store_tool_exposes_docstring_arg_descriptions():
+    schema = save_skill_to_store.args
+
+    assert schema["skill_name"]["description"].startswith("Required skill name")
+    assert "runtime draft directory" in schema["source_path"]["description"]
+
+
+def test_setup_agent_tool_exposes_docstring_arg_descriptions():
+    schema = setup_agent.args
+
+    assert "Full AGENTS.md markdown content" in schema["agents_md"]["description"]
+    assert "Required when the current runtime" in schema["agent_name"]["description"]
+    assert "must still choose one explicitly" in schema["agent_name"]["description"]
+    assert "source_path" in schema["skills"]["description"]
+
+
 def test_setup_agent_accepts_typed_runtime_context(monkeypatch):
     calls: dict[str, object] = {}
 
@@ -145,7 +162,7 @@ def test_setup_agent_accepts_typed_runtime_context(monkeypatch):
     monkeypatch.setattr(
         "src.tools.builtins.setup_agent_tool.get_paths",
         lambda: SimpleNamespace(
-            agent_dir=lambda name, status: Path(f"/tmp/{status}/{name}"),
+            custom_agent_dir=lambda name, status: Path(f"/tmp/{status}/{name}"),
         ),
     )
 
@@ -184,6 +201,54 @@ def test_setup_agent_accepts_typed_runtime_context(monkeypatch):
         }
     ]
     assert command.update["created_agent_name"] == "contract-agent"
+    assert 'task(subagent_type="contract-agent"' in command.update["messages"][0].content
+
+
+def test_setup_agent_missing_agent_name_returns_recovery_hint():
+    runtime = SimpleNamespace(
+        context=LeadAgentRuntimeContext(
+            agent_name="lead_agent",
+            agent_status="dev",
+            model_name="kimi-k2.5",
+        ),
+        tool_call_id="tc-missing-agent-name",
+    )
+
+    command = setup_agent.func(
+        agents_md="# PR Review Agent\n",
+        description="Reviews pull requests",
+        runtime=runtime,
+        skills=[{"source_path": "system/skills/pr-review"}],
+    )
+
+    message = command.update["messages"][0].content
+    assert "requires explicit `agent_name`" in message
+    assert "choose a short descriptive kebab-case" in message
+    assert 'setup_agent(agent_name="pr-review-agent"' in message
+
+
+def test_setup_agent_missing_agent_name_uses_structured_target_name_in_recovery_hint():
+    runtime = SimpleNamespace(
+        context=LeadAgentRuntimeContext(
+            agent_name="lead_agent",
+            agent_status="dev",
+            model_name="kimi-k2.5",
+            target_agent_name="contract-review-agent",
+            command_name="create-agent",
+        ),
+        tool_call_id="tc-missing-agent-name-targeted",
+    )
+
+    command = setup_agent.func(
+        agents_md="# Contract Review Agent\n",
+        description="Reviews contracts",
+        runtime=runtime,
+        skills=[{"source_path": "system/skills/pr-review"}],
+    )
+
+    message = command.update["messages"][0].content
+    assert 'target_agent_name="contract-review-agent"' in message
+    assert 'setup_agent(agent_name="contract-review-agent"' in message
 
 
 def test_setup_agent_preserves_existing_agent_owned_skill_from_thread_runtime(monkeypatch, tmp_path: Path):
@@ -315,6 +380,35 @@ def test_setup_agent_refreshes_thread_runtime_files_after_update(monkeypatch, tm
     assert (runtime_agent_dir / "AGENTS.md").read_text(encoding="utf-8") == new_agents_md
     assert (runtime_skill_dir / "SKILL.md").read_text(encoding="utf-8") == new_skill_content
     assert command.update["created_agent_name"] == "landing-copy-agent-0318"
+
+
+def test_setup_agent_omits_task_handoff_hint_for_self_update(monkeypatch, tmp_path: Path):
+    paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.get_paths",
+        lambda: paths,
+    )
+
+    runtime = SimpleNamespace(
+        context=LeadAgentRuntimeContext(
+            agent_name="demo-agent",
+            agent_status="dev",
+            runtime_thread_id="thread-1",
+            model_name="kimi-k2.5-1",
+        ),
+        tool_call_id="tc-self-update-no-task-hint",
+    )
+
+    command = setup_agent.func(
+        agents_md="# Demo Agent\n\nUpdated instructions.\n",
+        description="Does demo work",
+        runtime=runtime,
+        skills=[],
+    )
+
+    message = command.update["messages"][0].content
+    assert "Agent 'demo-agent' created successfully!" in message
+    assert "task(subagent_type=" not in message
 
 
 def test_setup_agent_refreshes_thread_runtime_files_with_thread_id_only_context(monkeypatch, tmp_path: Path):
@@ -450,7 +544,7 @@ def test_setup_agent_forwards_explicit_skill_source_path(monkeypatch):
     monkeypatch.setattr(
         "src.tools.builtins.setup_agent_tool.get_paths",
         lambda: SimpleNamespace(
-            agent_dir=lambda name, status: Path(f"/tmp/{status}/{name}"),
+            custom_agent_dir=lambda name, status: Path(f"/tmp/{status}/{name}"),
         ),
     )
 
@@ -676,6 +770,121 @@ def test_install_skill_from_registry_tool_summarizes_repo_root_install(monkeypat
     assert "Installed 2 skills" in result
     assert "alpha-skill, beta-skill" in result
     assert "gamma-skill (store/prod)" in result
+
+
+def test_install_skill_from_registry_tool_exposes_source_arg_description():
+    assert install_skill_from_registry.args["source"]["description"].startswith("Required registry source")
+
+
+def test_install_skill_from_registry_tool_infers_unique_explicit_url_from_latest_human_message(monkeypatch):
+    monkeypatch.setattr(
+        "src.tools.builtins.install_skill_from_registry_tool.get_paths",
+        lambda: object(),
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_install_registry_skill_to_store(*, source, skill_name, paths):
+        captured["source"] = source
+        captured["skill_name"] = skill_name
+        return RegistrySkillInstallResult(
+            installed_skills=(
+                RegistryInstalledSkill(
+                    name="alpha-skill",
+                    relative_path=PurePosixPath("alpha-skill"),
+                    target_dir=Path("/store/dev/alpha-skill"),
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(
+        "src.tools.builtins.install_skill_from_registry_tool.install_registry_skill_to_store",
+        fake_install_registry_skill_to_store,
+    )
+
+    runtime = SimpleNamespace(
+        context=LeadAgentRuntimeContext(agent_status="dev"),
+        state={
+            "messages": [
+                HumanMessage(content="从 https://github.com/MiniMax-AI/skills.git 安装里面全部 skills")
+            ]
+        },
+        tool_call_id="tc-registry-fallback",
+    )
+
+    result = install_skill_from_registry.func(
+        runtime=runtime,
+        source="",
+    )
+
+    assert captured["source"] == "https://github.com/MiniMax-AI/skills.git"
+    assert captured["skill_name"] is None
+    assert "alpha-skill" in result
+
+
+def test_install_skill_from_registry_tool_returns_explicit_error_when_source_missing(monkeypatch):
+    monkeypatch.setattr(
+        "src.tools.builtins.install_skill_from_registry_tool.get_paths",
+        lambda: object(),
+    )
+
+    runtime = SimpleNamespace(
+        context=LeadAgentRuntimeContext(agent_status="dev"),
+        state={"messages": [HumanMessage(content="请帮我安装 skills")]},
+        tool_call_id="tc-registry-missing-source",
+    )
+
+    result = install_skill_from_registry.func(
+        runtime=runtime,
+        source="",
+    )
+
+    assert "source is required" in result
+    assert "https://github.com/MiniMax-AI/skills.git" in result
+
+
+def test_install_skill_from_registry_tool_falls_back_from_malformed_source_to_latest_human_url(monkeypatch):
+    monkeypatch.setattr(
+        "src.tools.builtins.install_skill_from_registry_tool.get_paths",
+        lambda: object(),
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_install_registry_skill_to_store(*, source, skill_name, paths):
+        captured["source"] = source
+        return RegistrySkillInstallResult(
+            installed_skills=(
+                RegistryInstalledSkill(
+                    name="alpha-skill",
+                    relative_path=PurePosixPath("alpha-skill"),
+                    target_dir=Path("/store/dev/alpha-skill"),
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(
+        "src.tools.builtins.install_skill_from_registry_tool.install_registry_skill_to_store",
+        fake_install_registry_skill_to_store,
+    )
+
+    runtime = SimpleNamespace(
+        context=LeadAgentRuntimeContext(agent_status="dev"),
+        state={
+            "messages": [
+                HumanMessage(content="从 https://github.com/MiniMax-AI/skills.git 安装里面全部 skills")
+            ]
+        },
+        tool_call_id="tc-registry-malformed-source",
+    )
+
+    result = install_skill_from_registry.func(
+        runtime=runtime,
+        source='}  <|tool_calls_section_end|>  执行命令出错了',
+    )
+
+    assert captured["source"] == "https://github.com/MiniMax-AI/skills.git"
+    assert "alpha-skill" in result
 
 
 def test_install_skill_from_registry_tool_normalizes_embedded_json_source(monkeypatch):
