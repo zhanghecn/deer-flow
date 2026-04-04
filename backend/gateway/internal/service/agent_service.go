@@ -20,7 +20,7 @@ type AgentService struct {
 
 const builtinLeadAgentName = "lead_agent"
 
-var defaultRegularAgentSkillScopes = []string{"store/dev", "store/prod"}
+var defaultRegularAgentSkillScopes = []string{"system", "custom", "store/dev", "store/prod"}
 
 func NewAgentService(fs *storage.FS) *AgentService {
 	return &AgentService{fs: fs}
@@ -32,7 +32,7 @@ func isReservedAgentName(name string) bool {
 
 func allowedArchiveSkillScopes(agentName string, agentStatus string) []string {
 	if strings.TrimSpace(agentStatus) == "prod" {
-		return []string{"store/prod"}
+		return []string{"system", "custom", "store/prod"}
 	}
 	return append([]string(nil), defaultRegularAgentSkillScopes...)
 }
@@ -83,7 +83,7 @@ func parseSkillSourcePath(sourcePath string) (string, string, error) {
 		return "", "", fmt.Errorf("skill source_path must be a safe relative path")
 	}
 
-	for _, prefix := range []string{"store/prod/", "store/dev/"} {
+	for _, prefix := range []string{"system/skills/", "custom/skills/", "store/prod/", "store/dev/"} {
 		if !strings.HasPrefix(normalized, prefix) {
 			continue
 		}
@@ -91,10 +91,17 @@ func parseSkillSourcePath(sourcePath string) (string, string, error) {
 		if relativePath == "" || relativePath == "." {
 			return "", "", fmt.Errorf("skill source_path must point to a concrete skill directory")
 		}
-		return strings.TrimSuffix(prefix, "/"), relativePath, nil
+		category := strings.TrimSuffix(prefix, "/")
+		switch category {
+		case "system/skills":
+			category = "system"
+		case "custom/skills":
+			category = "custom"
+		}
+		return category, relativePath, nil
 	}
 
-	return "", "", fmt.Errorf("skill source_path must start with store/dev/ or store/prod/")
+	return "", "", fmt.Errorf("skill source_path must start with system/skills/, custom/skills/, store/dev/, or store/prod/")
 }
 
 func deriveMaterializedPathFromSourcePath(sourcePath string) (string, error) {
@@ -544,7 +551,12 @@ func (s *AgentService) normalizeSkillRef(ref model.SkillRef, agentName string, a
 		)
 	}
 	if sourcePath == "" {
-		sourcePath = path.Join(category, name)
+		switch category {
+		case "system", "custom":
+			sourcePath = path.Join(category, "skills", name)
+		default:
+			sourcePath = path.Join(category, name)
+		}
 	}
 
 	normalized := model.SkillRef{
@@ -573,6 +585,8 @@ func (s *AgentService) normalizeSkillRef(ref model.SkillRef, agentName string, a
 	}
 	if normalized.Status == "" {
 		switch category {
+		case "system", "custom":
+			normalized.Status = ""
 		case "store/dev":
 			normalized.Status = "dev"
 		case "store/prod":
@@ -581,7 +595,7 @@ func (s *AgentService) normalizeSkillRef(ref model.SkillRef, agentName string, a
 	}
 
 	if sourcePath != "" {
-		sourceDir := filepath.Join(s.fs.SkillsDir(), filepath.FromSlash(sourcePath))
+		sourceDir := s.fs.ResolveRef(sourcePath)
 		info, err := os.Stat(sourceDir)
 		if err != nil || !info.IsDir() {
 			return model.SkillRef{}, fmt.Errorf("skill %q not found in %s", name, sourcePath)
@@ -604,6 +618,8 @@ func (s *AgentService) skillRefFromScope(name string, scope string) (model.Skill
 
 	status := ""
 	switch scope {
+	case "system", "custom":
+		status = ""
 	case "store/dev":
 		status = "dev"
 	case "store/prod":
@@ -611,10 +627,15 @@ func (s *AgentService) skillRefFromScope(name string, scope string) (model.Skill
 	}
 
 	return model.SkillRef{
-		Name:             name,
-		Status:           status,
-		Category:         scope,
-		SourcePath:       path.Join(scope, name),
+		Name:     name,
+		Status:   status,
+		Category: scope,
+		SourcePath: func() string {
+			if scope == "system" || scope == "custom" {
+				return path.Join(scope, "skills", name)
+			}
+			return path.Join(scope, name)
+		}(),
 		MaterializedPath: path.Join("skills", name),
 	}, true
 }
@@ -671,7 +692,7 @@ func (s *AgentService) resolveSkillSourceDir(agent *model.Agent, ref model.Skill
 	}
 	sourcePath := strings.Trim(strings.TrimSpace(ref.SourcePath), "/")
 	if sourcePath != "" {
-		return filepath.Join(s.fs.SkillsDir(), filepath.FromSlash(sourcePath))
+		return s.fs.ResolveRef(sourcePath)
 	}
 	return s.fs.GlobalSkillDir(ref.Category, ref.Name)
 }

@@ -33,20 +33,6 @@ extensions_config.json
 # Coverage report
 coverage.xml
 coverage/
-# Keep only built-in lead_agent archived in git.
-# Other archived agents are local/test data and should stay ignored.
-.openagents/agents/dev/*
-!.openagents/agents/dev/lead_agent/
-!.openagents/agents/dev/lead_agent/**
-.openagents/agents/dev/lead_agent/**/__pycache__/
-.openagents/agents/dev/lead_agent/**/*.pyc
-.openagents/agents/dev/lead_agent/**/*.pyo
-.openagents/agents/prod/*
-!.openagents/agents/prod/lead_agent/
-!.openagents/agents/prod/lead_agent/**
-.openagents/agents/prod/lead_agent/**/__pycache__/
-.openagents/agents/prod/lead_agent/**/*.pyc
-.openagents/agents/prod/lead_agent/**/*.pyo
 .openagents/threads/
 .openagents/users/
 .openagents/custom/

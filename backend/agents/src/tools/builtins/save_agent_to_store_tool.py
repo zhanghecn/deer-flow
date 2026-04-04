@@ -17,17 +17,19 @@ from src.utils.runtime_context import runtime_context_value
 logger = logging.getLogger(__name__)
 
 
-@tool
+@tool("save_agent_to_store", parse_docstring=True)
 def save_agent_to_store(
     runtime: ToolRuntime,
     agent_name: str | None = None,
     source_path: str | None = None,
 ) -> Command:
-    """Persist a drafted or runtime-edited agent into `.openagents/agents/dev`.
+    """Persist a drafted or runtime-edited agent into `.openagents/custom/agents/dev`.
 
     Args:
-        agent_name: Optional target agent name. Defaults to the current non-`lead_agent` runtime agent.
-        source_path: Optional explicit runtime or absolute source directory path.
+        agent_name: Optional target agent name. Defaults to the current non-`lead_agent`
+            runtime agent.
+        source_path: Optional explicit runtime or absolute source directory path. When
+            omitted, the current runtime draft directory is used.
     """
 
     resolved_agent_name = str(agent_name or "").strip().lower()

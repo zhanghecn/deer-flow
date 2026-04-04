@@ -24,6 +24,7 @@ import { useI18n } from "@/core/i18n/hooks";
 import { getLocalizedSkillDescription } from "@/core/skills";
 import { useEnableSkill, useSkills } from "@/core/skills/hooks";
 import {
+  DEFAULT_SKILL_SCOPE,
   filterSkillsByScope,
   formatSkillScopeLabel,
   getSkillScopes,
@@ -63,7 +64,7 @@ function SkillSettingsList({
   const { t, locale } = useI18n();
   const navigate = useNavigate();
   const categories = useMemo(() => getSkillScopes(skills), [skills]);
-  const [filter, setFilter] = useState<SkillScope>("store/dev");
+  const [filter, setFilter] = useState<SkillScope>(DEFAULT_SKILL_SCOPE);
   const { mutate: enableSkill } = useEnableSkill();
   const filteredSkills = useMemo(
     () => filterSkillsByScope(skills, filter),
@@ -89,7 +90,7 @@ function SkillSettingsList({
       <header className="flex justify-between">
         <div className="flex gap-2">
           <Tabs
-            defaultValue={categories[0] ?? "store/dev"}
+            defaultValue={categories[0] ?? DEFAULT_SKILL_SCOPE}
             value={filter}
             onValueChange={(value) => setFilter(value as SkillScope)}
           >

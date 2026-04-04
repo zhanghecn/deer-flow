@@ -19,6 +19,7 @@ from src.utils.runtime_context import runtime_context_value
 
 _BLOCKED_CREATE_AGENT_TOOLS = frozenset({"write_file", "edit_file"})
 _BLOCKED_SELF_AGENT_MUTATION_TOOLS = frozenset({"write_file", "edit_file"})
+_BLOCKED_LEAD_AGENT_RUNTIME_AGENT_MUTATION_TOOLS = frozenset({"write_file", "edit_file"})
 _PROTECTED_AUTHORING_ROOTS = (
     "/mnt/user-data/agents",
     "/mnt/user-data/authoring/agents",
@@ -48,6 +49,7 @@ _CANONICAL_RUNTIME_TOP_LEVEL_DIRS = frozenset(
 )
 _ABSOLUTE_PATH_TOKEN_RE = re.compile(r"/[^\s'\"`|;&()<>{}\[\]]+")
 _DEV_NULL_REDIRECTION_RE = re.compile(r"\d*>>?\s*/dev/null\b")
+_LEADING_COMMAND_FRAGMENT_RE = re.compile(r"^(?:&&|\|\||[|;,:<>\])}])")
 _READ_ONLY_SHELL_SEGMENT_COMMANDS = frozenset(
     {
         "cat",
@@ -89,7 +91,32 @@ _SELF_AGENT_PERSISTENCE_GUARD_ERROR = (
     "the thread-local runtime copy under `/mnt/user-data/agents/...`. Read the current AGENTS.md "
     "or owned SKILL.md first, then call `setup_agent` with the full updated content."
 )
+_LEAD_AGENT_RUNTIME_AGENT_PERSISTENCE_GUARD_ERROR = (
+    "Error: lead_agent must materialize or update agent archives through `setup_agent`, not by "
+    "mutating `/mnt/user-data/agents/...` with file edits, shell copies, or directory creation."
+)
+_LEAD_AGENT_SKILL_INSTALL_GUARD_ERROR = (
+    "Error: install reusable skills with `install_skill_from_registry(source=\"...\")`, not by "
+    "running `git clone`, `npx skills add`, or similar shell installation steps."
+)
+_AUTHORING_ABSOLUTE_PATH_GUARD_ERROR = (
+    "Error: filesystem path arguments in authoring/runtime turns must be explicit absolute virtual paths "
+    "starting with `/`. Use canonical runtime paths like `/mnt/user-data/...` or archived skill paths like "
+    "`/mnt/skills/...`, not relative paths, line-number fragments, or partial tool payloads."
+)
+_AUTHORING_EXECUTE_FRAGMENT_GUARD_ERROR = (
+    "Error: `execute.command` must be a concrete shell command or script path. "
+    "Do not pass partial tool payloads, line-number fragments, or shell no-op fragments."
+)
 _DIRECT_AUTHORING_HELPER_TOOLS = frozenset({"question", "present_files", "view_image"})
+_FILESYSTEM_PATH_ARG_BY_TOOL = {
+    "ls": "path",
+    "read_file": "file_path",
+    "write_file": "file_path",
+    "edit_file": "file_path",
+    "glob": "path",
+    "grep": "path",
+}
 
 
 def _runtime_authoring_actions(runtime_context: object) -> tuple[str, ...]:
@@ -118,6 +145,13 @@ def should_enforce_self_agent_persistence_guard(runtime_context: object) -> bool
         return False
     current_agent = normalize_effective_agent_name(runtime_context_value(runtime_context, "agent_name"))
     return current_agent != LEAD_AGENT_NAME
+
+
+def should_enforce_lead_agent_dev_authoring_guard(runtime_context: object) -> bool:
+    if _normalize_text(runtime_context_value(runtime_context, "agent_status")) != "dev":
+        return False
+    current_agent = normalize_effective_agent_name(runtime_context_value(runtime_context, "agent_name"))
+    return current_agent == LEAD_AGENT_NAME
 
 
 def should_enforce_direct_authoring_guard(runtime_context: object) -> bool:
@@ -244,11 +278,75 @@ def is_current_agent_runtime_path(file_path: object, runtime_context: object) ->
     return normalized == runtime_root or normalized.startswith(f"{runtime_root}/")
 
 
+def is_runtime_agents_path(file_path: object) -> bool:
+    normalized = _normalize_text(file_path).lower()
+    return normalized == "/mnt/user-data/agents" or normalized.startswith("/mnt/user-data/agents/")
+
+
 def _tool_call_args(tool_call: object) -> dict[str, Any]:
     if not isinstance(tool_call, dict):
         return {}
     args = tool_call.get("args")
     return args if isinstance(args, dict) else {}
+
+
+def _authoring_relative_path_error(
+    *,
+    tool_name: str,
+    arg_name: str,
+    value: object,
+) -> str:
+    return (
+        f"{_AUTHORING_ABSOLUTE_PATH_GUARD_ERROR} "
+        f"Received `{tool_name}.{arg_name}={value!r}`."
+    )
+
+
+def _authoring_malformed_execute_error(command: object) -> str:
+    return f"{_AUTHORING_EXECUTE_FRAGMENT_GUARD_ERROR} Received `command={command!r}`."
+
+
+def _non_absolute_authoring_path_error(
+    *,
+    tool_name: str,
+    tool_args: dict[str, Any],
+) -> str | None:
+    arg_name = _FILESYSTEM_PATH_ARG_BY_TOOL.get(tool_name)
+    if arg_name is None:
+        return None
+
+    raw_value = tool_args.get(arg_name)
+    normalized_value = _normalize_text(raw_value)
+    if not normalized_value:
+        return None
+    if normalized_value.startswith("/"):
+        return None
+    return _authoring_relative_path_error(tool_name=tool_name, arg_name=arg_name, value=raw_value)
+
+
+def _looks_like_malformed_execute_fragment(command: object) -> bool:
+    normalized = _normalize_text(command)
+    if not normalized:
+        return False
+    lowered = normalized.lower()
+    if "<invoke" in lowered or "</invoke" in lowered:
+        return True
+    if _LEADING_COMMAND_FRAGMENT_RE.match(normalized):
+        return True
+    # Require at least one concrete command/script token character so fragments
+    # like `: 0,` fail fast instead of becoming misleading shell no-ops.
+    return re.search(r"[A-Za-z_./-]", normalized) is None
+
+
+def _is_shell_skill_install_attempt(command: object) -> bool:
+    normalized = _normalize_text(command).lower()
+    if not normalized:
+        return False
+    if "install-skills" in normalized:
+        return True
+    if "npx" in normalized and "skills add" in normalized:
+        return True
+    return "git clone" in normalized and "skills.git" in normalized
 
 
 def _is_read_only_shell_segment(segment: str) -> bool:
@@ -294,6 +392,16 @@ def blocked_create_agent_tool_message(request: ToolCallRequest) -> ToolMessage |
     tool_args = _tool_call_args(request.tool_call)
     allow_skill_library_reads = tool_name in _READ_ONLY_CREATE_AGENT_TOOLS
 
+    relative_path_error = _non_absolute_authoring_path_error(
+        tool_name=tool_name,
+        tool_args=tool_args,
+    )
+    if relative_path_error is not None:
+        return ToolMessage(
+            content=relative_path_error,
+            tool_call_id=request.tool_call["id"],
+        )
+
     if tool_name in _BLOCKED_CREATE_AGENT_TOOLS:
         file_path = tool_args.get("file_path")
         if is_protected_create_agent_path(file_path):
@@ -321,6 +429,11 @@ def blocked_create_agent_tool_message(request: ToolCallRequest) -> ToolMessage |
         return None
 
     command = _normalize_text(tool_args.get("command"))
+    if _looks_like_malformed_execute_fragment(command):
+        return ToolMessage(
+            content=_authoring_malformed_execute_error(tool_args.get("command")),
+            tool_call_id=request.tool_call["id"],
+        )
     normalized_command = command.lower()
     if any(root.lower() in normalized_command for root in _PROTECTED_AUTHORING_ROOTS) and not (
         is_read_only_create_agent_shell_command(command)
@@ -366,6 +479,55 @@ def blocked_self_agent_persistence_tool_message(request: ToolCallRequest) -> Too
     if runtime_root and runtime_root in command.lower() and not is_read_only_create_agent_shell_command(command):
         return ToolMessage(
             content=_SELF_AGENT_PERSISTENCE_GUARD_ERROR,
+            tool_call_id=request.tool_call["id"],
+        )
+
+    return None
+
+
+def blocked_lead_agent_dev_authoring_tool_message(request: ToolCallRequest) -> ToolMessage | None:
+    runtime_context = getattr(request.runtime, "context", None)
+    if not should_enforce_lead_agent_dev_authoring_guard(runtime_context):
+        return None
+
+    tool_name = _normalize_text(request.tool_call.get("name") if isinstance(request.tool_call, dict) else None)
+    tool_args = _tool_call_args(request.tool_call)
+
+    relative_path_error = _non_absolute_authoring_path_error(
+        tool_name=tool_name,
+        tool_args=tool_args,
+    )
+    if relative_path_error is not None:
+        return ToolMessage(
+            content=relative_path_error,
+            tool_call_id=request.tool_call["id"],
+        )
+
+    if tool_name in _BLOCKED_LEAD_AGENT_RUNTIME_AGENT_MUTATION_TOOLS and is_runtime_agents_path(
+        tool_args.get("file_path")
+    ):
+        return ToolMessage(
+            content=_LEAD_AGENT_RUNTIME_AGENT_PERSISTENCE_GUARD_ERROR,
+            tool_call_id=request.tool_call["id"],
+        )
+
+    if tool_name != "execute":
+        return None
+
+    command = _normalize_text(tool_args.get("command"))
+    if _looks_like_malformed_execute_fragment(command):
+        return ToolMessage(
+            content=_authoring_malformed_execute_error(tool_args.get("command")),
+            tool_call_id=request.tool_call["id"],
+        )
+    if _is_shell_skill_install_attempt(command):
+        return ToolMessage(
+            content=_LEAD_AGENT_SKILL_INSTALL_GUARD_ERROR,
+            tool_call_id=request.tool_call["id"],
+        )
+    if "/mnt/user-data/agents" in command.lower() and not is_read_only_create_agent_shell_command(command):
+        return ToolMessage(
+            content=_LEAD_AGENT_RUNTIME_AGENT_PERSISTENCE_GUARD_ERROR,
             tool_call_id=request.tool_call["id"],
         )
 
@@ -466,6 +628,9 @@ class AuthoringGuardMiddleware(AgentMiddleware):
         request: ToolCallRequest,
         handler: Callable[[ToolCallRequest], ToolMessage | Command],
     ) -> ToolMessage | Command:
+        blocked = blocked_lead_agent_dev_authoring_tool_message(request)
+        if blocked is not None:
+            return blocked
         blocked = blocked_self_agent_persistence_tool_message(request)
         if blocked is not None:
             return blocked
@@ -483,6 +648,9 @@ class AuthoringGuardMiddleware(AgentMiddleware):
         request: ToolCallRequest,
         handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]],
     ) -> ToolMessage | Command:
+        blocked = blocked_lead_agent_dev_authoring_tool_message(request)
+        if blocked is not None:
+            return blocked
         blocked = blocked_self_agent_persistence_tool_message(request)
         if blocked is not None:
             return blocked

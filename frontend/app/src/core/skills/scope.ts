@@ -2,17 +2,59 @@ import type { Locale } from "@/core/i18n";
 
 import type { Skill } from "./type";
 
-export const SKILL_SCOPE_ORDER = ["store/dev", "store/prod"] as const;
-export const DEV_AGENT_SKILL_SCOPE_ORDER = ["store/dev", "store/prod"] as const;
-export const PROD_AGENT_SKILL_SCOPE_ORDER = ["store/prod"] as const;
+export const SKILL_SCOPE_ORDER = [
+  "system",
+  "custom",
+  "store/dev",
+  "store/prod",
+] as const;
+export const DEV_AGENT_SKILL_SCOPE_ORDER = [
+  "system",
+  "custom",
+  "store/dev",
+  "store/prod",
+] as const;
+export const PROD_AGENT_SKILL_SCOPE_ORDER = [
+  "system",
+  "custom",
+  "store/prod",
+] as const;
+export const DEFAULT_SKILL_SCOPE = SKILL_SCOPE_ORDER[0];
 
 export type SkillScope = (typeof SKILL_SCOPE_ORDER)[number];
 
 export function normalizeSkillScope(
   scope: string | null | undefined,
 ): SkillScope | null {
-  if (scope === "store/dev" || scope === "store/prod") {
+  if (
+    scope === "system" ||
+    scope === "custom" ||
+    scope === "store/dev" ||
+    scope === "store/prod"
+  ) {
     return scope;
+  }
+  return null;
+}
+
+export function normalizeSkillScopeFromSourcePath(
+  sourcePath: string | null | undefined,
+): SkillScope | null {
+  const normalizedPath = sourcePath?.trim();
+  if (!normalizedPath) {
+    return null;
+  }
+  if (normalizedPath.startsWith("system/skills/")) {
+    return "system";
+  }
+  if (normalizedPath.startsWith("custom/skills/")) {
+    return "custom";
+  }
+  if (normalizedPath.startsWith("store/dev/")) {
+    return "store/dev";
+  }
+  if (normalizedPath.startsWith("store/prod/")) {
+    return "store/prod";
   }
   return null;
 }
@@ -22,12 +64,24 @@ export function formatSkillScopeLabel(
   locale: Locale = "en-US",
 ) {
   if (locale === "zh-CN") {
+    if (scope === "system") {
+      return "系统技能";
+    }
+    if (scope === "custom") {
+      return "自定义技能";
+    }
     if (scope === "store/dev") {
       return "开发仓库";
     }
     return "生产仓库";
   }
 
+  if (scope === "system") {
+    return "System";
+  }
+  if (scope === "custom") {
+    return "Custom";
+  }
   if (scope === "store/dev") {
     return "Store Dev";
   }

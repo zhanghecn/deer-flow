@@ -87,18 +87,30 @@ Archived definitions live under `.openagents/`.
 
 ```text
 .openagents/
-├── skills/store/{dev,prod}/...
-└── agents/{dev,prod}/{agent}/
-    ├── AGENTS.md
-    ├── config.yaml
-    └── skills/...
+├── system/
+│   ├── skills/<skill>/...
+│   └── agents/{dev,prod}/lead_agent/
+│       ├── AGENTS.md
+│       ├── config.yaml
+│       └── skills/...
+├── custom/
+│   ├── skills/<skill>/...
+│   └── agents/{dev,prod}/{agent}/
+│       ├── AGENTS.md
+│       ├── config.yaml
+│       └── skills/...
+└── skills/store/{dev,prod}/...
 ```
 
 Ownership rules:
 
-- Archived reusable skills belong only in `.openagents/skills/store/{dev,prod}/`.
-- Vertical or domain prompt ownership belongs in
-  `.openagents/agents/{dev,prod}/{agent}/AGENTS.md`.
+- Canonical authored reusable skills belong in `.openagents/system/skills/` and
+  `.openagents/custom/skills/`.
+- `.openagents/skills/store/{dev,prod}/` remains only as a legacy migration input.
+- Built-in agent prompt ownership belongs in
+  `.openagents/system/agents/{dev,prod}/{agent}/AGENTS.md`.
+- Custom agent prompt ownership belongs in
+  `.openagents/custom/agents/{dev,prod}/{agent}/AGENTS.md`.
 - Runtime copies are seeded from those archives into `/mnt/user-data/...`.
 
 ## Runtime Backends

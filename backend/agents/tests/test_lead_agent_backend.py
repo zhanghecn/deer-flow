@@ -27,11 +27,14 @@ def _default_to_local_execution_backend(monkeypatch):
 
 
 def _make_paths(base_dir: Path) -> Paths:
-    return Paths(base_dir=base_dir, skills_dir=base_dir / "skills")
+    return Paths(base_dir=base_dir, skills_dir=base_dir)
 
 
-def _write_archived_skill(base_dir: Path, name: str, *, category: str = "store/prod", body: str = "skill") -> None:
-    skill_file = base_dir / "skills" / Path(category) / name / "SKILL.md"
+def _write_archived_skill(base_dir: Path, name: str, *, category: str = "system", body: str = "skill") -> None:
+    if category in {"system", "custom"}:
+        skill_file = base_dir / category / "skills" / name / "SKILL.md"
+    else:
+        skill_file = base_dir / "skills" / Path(category) / name / "SKILL.md"
     skill_file.parent.mkdir(parents=True, exist_ok=True)
     skill_file.write_text(
         f"---\nname: {name}\ndescription: {name} description\n---\n\n{body}\n",
@@ -132,7 +135,7 @@ def test_build_backend_routes_shared_skills_into_local_debug_backend(tmp_path):
     with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
         backend = lead_agent_module.build_backend("thread-1", agent_name=None)
 
-    shared_skill = backend.download_files(["/mnt/skills/store/prod/bootstrap/SKILL.md"])[0]
+    shared_skill = backend.download_files(["/mnt/skills/system/skills/bootstrap/SKILL.md"])[0]
 
     assert shared_skill.error is None
     assert shared_skill.content is not None
@@ -156,7 +159,7 @@ def test_build_backend_execute_rewrites_runtime_skill_aliases(tmp_path):
 
 def test_build_backend_named_agent_seeds_agent_definition_into_thread_runtime(tmp_path):
     base_dir = tmp_path / ".openagents"
-    agent_dir = base_dir / "agents" / "prod" / "analyst"
+    agent_dir = base_dir / "custom" / "agents" / "prod" / "analyst"
     (agent_dir / "skills" / "data-analysis").mkdir(parents=True)
     (agent_dir / "AGENTS.md").write_text("You are an analyst.", encoding="utf-8")
     (agent_dir / "config.yaml").write_text(
@@ -193,7 +196,7 @@ def test_build_backend_named_agent_seeds_agent_definition_into_thread_runtime(tm
 def test_create_agent_request_seeds_existing_target_archive_into_thread_runtime(tmp_path):
     base_dir = tmp_path / ".openagents"
     _write_archived_skill(base_dir, "bootstrap", body="bootstrap")
-    target_agent_dir = base_dir / "agents" / "dev" / "landing-copy-agent-0318"
+    target_agent_dir = base_dir / "custom" / "agents" / "dev" / "landing-copy-agent-0318"
     target_agent_dir.mkdir(parents=True, exist_ok=True)
     (target_agent_dir / "AGENTS.md").write_text("You write landing page copy.", encoding="utf-8")
     (target_agent_dir / "config.yaml").write_text(
@@ -310,7 +313,7 @@ def test_build_backend_dev_lead_agent_does_not_seed_store_skills_without_explici
 
 def test_build_backend_supports_store_prod_skill_refs(tmp_path):
     base_dir = tmp_path / ".openagents"
-    agent_dir = base_dir / "agents" / "prod" / "reviewer"
+    agent_dir = base_dir / "custom" / "agents" / "prod" / "reviewer"
     (agent_dir / "skills" / "contracts" / "review").mkdir(parents=True)
     (agent_dir / "AGENTS.md").write_text("You review contracts.", encoding="utf-8")
     (agent_dir / "config.yaml").write_text(
@@ -336,7 +339,7 @@ def test_build_backend_supports_store_prod_skill_refs(tmp_path):
 
 def test_runtime_seed_targets_reads_latest_archive_contents(tmp_path):
     base_dir = tmp_path / ".openagents"
-    agent_dir = base_dir / "agents" / "dev" / "analyst"
+    agent_dir = base_dir / "custom" / "agents" / "dev" / "analyst"
     (agent_dir / "skills" / "data-analysis").mkdir(parents=True)
     (agent_dir / "AGENTS.md").write_text("v1", encoding="utf-8")
     (agent_dir / "config.yaml").write_text(
@@ -594,6 +597,39 @@ def test_non_lead_dev_request_allows_setup_agent_for_self_updates():
     )
 
     assert request.allows_agent_setup() is True
+
+
+def test_lead_agent_dev_request_allows_setup_agent_for_generic_authoring():
+    request = lead_agent_module.LeadAgentRequest(
+        thinking_enabled=None,
+        reasoning_effort=None,
+        requested_model_name=None,
+        is_plan_mode=None,
+        subagent_enabled=None,
+        max_concurrent_subagents=None,
+        command_name=None,
+        command_kind=None,
+        command_args=None,
+        command_prompt=None,
+        authoring_actions=(),
+        target_agent_name=None,
+        agent_name="lead_agent",
+        agent_status="dev",
+        thread_id="thread-1",
+        user_id=None,
+        runtime_model_name=None,
+        header_model_name=None,
+        execution_backend=None,
+        remote_session_id=None,
+    )
+
+    assert request.allows_agent_setup() is True
+    assert request.always_available_tool_names() == (
+        "install_skill_from_registry",
+        "save_skill_to_store",
+        "setup_agent",
+    )
+    assert request.always_available_authoring_actions() == ("save_skill_to_store",)
 
 
 def test_prod_agent_request_does_not_allow_self_setup_agent():

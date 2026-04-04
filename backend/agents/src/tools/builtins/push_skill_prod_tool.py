@@ -11,7 +11,7 @@ from src.tools.builtins.authoring_persistence import push_skill_directory_to_pro
 logger = logging.getLogger(__name__)
 
 
-@tool
+@tool("push_skill_prod", parse_docstring=True)
 def push_skill_prod(
     runtime: ToolRuntime,
     skill_name: str,

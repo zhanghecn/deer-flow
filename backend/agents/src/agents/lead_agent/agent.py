@@ -38,10 +38,16 @@ from src.agents.middlewares.visible_response_recovery_middleware import (
     VisibleResponseRecoveryMiddleware,
 )
 from src.config.agent_runtime_seed import runtime_seed_targets
-from src.config.agents_config import AgentConfig, load_agent_config
+from src.config.agents_config import (
+    AGENTS_MD_FILENAME,
+    AgentConfig,
+    load_agent_config,
+    resolve_authored_agent_dir,
+)
 from src.config.builtin_agents import (
     LEAD_AGENT_NAME,
     ensure_builtin_agent_archive,
+    is_reserved_agent_name,
     normalize_effective_agent_name,
 )
 from src.config.commands_config import resolve_runtime_command
@@ -185,12 +191,28 @@ class LeadAgentRequest:
         )
 
     def allows_agent_setup(self) -> bool:
-        if self.command_name == "create-agent":
-            return True
-        # Non-lead dev agents must persist self-edits through `setup_agent`
-        # instead of mutating their thread-local runtime copy under
-        # `/mnt/user-data/agents/...`, which would be lost outside the thread.
-        return self.agent_status == "dev" and self.agent_name != LEAD_AGENT_NAME
+        # Dev lead_agent must be able to create/update agents from plain natural
+        # language, not only through slash-command scaffolding. Non-lead dev
+        # agents also need `setup_agent` for self-edits because mutating their
+        # thread-local `/mnt/user-data/agents/...` copy would be lost.
+        return self.agent_status == "dev"
+
+    def always_available_tool_names(self) -> tuple[str, ...]:
+        if self.agent_status != "dev" or self.agent_name != LEAD_AGENT_NAME:
+            return ()
+        # These runtime-only helpers are part of lead_agent's generic dev
+        # authoring surface, even when the archived config uses explicit
+        # `tool_names` for its normal task surface.
+        return (
+            "install_skill_from_registry",
+            "save_skill_to_store",
+            "setup_agent",
+        )
+
+    def always_available_authoring_actions(self) -> tuple[str, ...]:
+        if self.agent_status != "dev" or self.agent_name != LEAD_AGENT_NAME:
+            return ()
+        return ("save_skill_to_store",)
 
 
 @dataclass(frozen=True)
@@ -558,6 +580,16 @@ def _lead_agent_graph_cache_key(
     prepare_runtime_resources: bool,
 ) -> tuple[object, ...]:
     paths = get_paths()
+    authored_dir = resolve_authored_agent_dir(
+        request.agent_name,
+        request.agent_status,
+        paths=paths,
+    )
+    if authored_dir is None:
+        if is_reserved_agent_name(request.agent_name):
+            authored_dir = paths.system_agent_dir(request.agent_name, request.agent_status)
+        else:
+            authored_dir = paths.custom_agent_dir(request.agent_name, request.agent_status)
     normalized_request = request
     if not prepare_runtime_resources:
         normalized_request = replace(
@@ -574,8 +606,8 @@ def _lead_agent_graph_cache_key(
         resolution.model_name,
         _model_config_cache_token(resolution.model_config),
         prepare_runtime_resources,
-        _path_mtime_ns(paths.agent_config_file(request.agent_name, request.agent_status)),
-        _path_mtime_ns(paths.agent_agents_md_file(request.agent_name, request.agent_status)),
+        _path_mtime_ns(authored_dir / "config.yaml"),
+        _path_mtime_ns(authored_dir / AGENTS_MD_FILENAME),
     )
 
 
@@ -838,6 +870,8 @@ def _load_agent_tools(
     model_supports_vision: bool,
     agent_status: str,
     authoring_actions: tuple[str, ...],
+    always_available_tool_names: tuple[str, ...],
+    always_available_authoring_actions: tuple[str, ...],
     setup_agent_enabled: bool,
 ):
     from src.tools import get_available_tools
@@ -850,6 +884,8 @@ def _load_agent_tools(
         mcp_servers=agent_config.mcp_servers,
         agent_status=agent_status,
         authoring_actions=list(authoring_actions),
+        always_available_tool_names=list(always_available_tool_names),
+        always_available_authoring_actions=list(always_available_authoring_actions),
         setup_agent_enabled=setup_agent_enabled,
     )
 
@@ -1236,6 +1272,8 @@ def _build_graph_parts(
         model_supports_vision=resolution.model_config.supports_vision,
         agent_status=request.agent_status,
         authoring_actions=request.authoring_actions,
+        always_available_tool_names=request.always_available_tool_names(),
+        always_available_authoring_actions=request.always_available_authoring_actions(),
         setup_agent_enabled=request.allows_agent_setup(),
     )
     subagent_specs = _build_agent_subagents(

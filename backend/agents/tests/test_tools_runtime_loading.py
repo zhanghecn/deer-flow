@@ -127,3 +127,43 @@ tool_groups:
     )
 
     assert tools == [{"use": "tests.fake_tools:image_search"}]
+
+
+def test_get_available_tools_appends_contextual_runtime_helpers_to_explicit_tool_names(
+    monkeypatch,
+    tmp_path: Path,
+):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+models: []
+sandbox:
+  use: src.sandbox.local:LocalSandboxProvider
+tools: []
+tool_groups: []
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("OPENAGENTS_CONFIG_PATH", str(config_path))
+
+    tools = get_available_tools(
+        tool_names=["get_document_tree"],
+        include_mcp=False,
+        model_supports_vision=False,
+        agent_status="dev",
+        setup_agent_enabled=True,
+        always_available_tool_names=[
+            "install_skill_from_registry",
+            "save_skill_to_store",
+            "setup_agent",
+        ],
+        always_available_authoring_actions=["save_skill_to_store"],
+    )
+
+    assert [tool.name for tool in tools] == [
+        "get_document_tree",
+        "install_skill_from_registry",
+        "save_skill_to_store",
+        "setup_agent",
+    ]

@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from src.agents.lead_agent import agent as lead_agent_module
 from src.agents.middlewares.authoring_guard_middleware import (
     AuthoringGuardMiddleware,
+    blocked_lead_agent_dev_authoring_tool_message,
     blocked_direct_authoring_tool_message,
     blocked_create_agent_tool_message,
     blocked_self_agent_persistence_tool_message,
@@ -11,6 +12,7 @@ from src.agents.middlewares.authoring_guard_middleware import (
     is_read_only_create_agent_shell_command,
     is_protected_create_agent_path,
     should_enforce_direct_authoring_guard,
+    should_enforce_lead_agent_dev_authoring_guard,
     should_enforce_self_agent_persistence_guard,
     should_enforce_setup_agent_guard,
     uses_forbidden_create_agent_host_path,
@@ -73,6 +75,18 @@ def test_should_enforce_self_agent_persistence_guard_for_non_lead_dev_agents():
     assert not should_enforce_self_agent_persistence_guard({"agent_name": "demo-agent", "agent_status": "prod"})
 
 
+def test_should_enforce_lead_agent_dev_authoring_guard_only_for_dev_lead_agent():
+    assert should_enforce_lead_agent_dev_authoring_guard(
+        {"agent_name": "lead_agent", "agent_status": "dev"}
+    )
+    assert not should_enforce_lead_agent_dev_authoring_guard(
+        {"agent_name": "demo-agent", "agent_status": "dev"}
+    )
+    assert not should_enforce_lead_agent_dev_authoring_guard(
+        {"agent_name": "lead_agent", "agent_status": "prod"}
+    )
+
+
 def test_should_enforce_direct_authoring_guard_ignores_create_agent_even_if_marked_hard():
     assert not should_enforce_direct_authoring_guard(
         {
@@ -96,7 +110,7 @@ def test_uses_forbidden_create_agent_host_path_matches_host_roots():
     assert uses_forbidden_create_agent_host_path("/agents/dev/demo/AGENTS.md")
     assert uses_forbidden_create_agent_host_path("find /mnt -name '*.md'")
     assert uses_forbidden_create_agent_host_path("ls -la /mnt/user-data/agentz")
-    assert uses_forbidden_create_agent_host_path(".openagents/agents/dev/demo")
+    assert uses_forbidden_create_agent_host_path(".openagents/custom/agents/dev/demo")
     assert uses_forbidden_create_agent_host_path("~/.agents/skills/bootstrap")
     assert not uses_forbidden_create_agent_host_path("/mnt/user-data/agents/dev/demo")
     assert not uses_forbidden_create_agent_host_path(
@@ -166,6 +180,73 @@ def test_blocked_self_agent_persistence_tool_message_blocks_shell_mutation_of_cu
     )
 
     blocked = blocked_self_agent_persistence_tool_message(request)
+
+    assert blocked is not None
+    assert "setup_agent" in blocked.content
+
+
+def test_blocked_lead_agent_dev_authoring_tool_message_blocks_shell_skill_install_shortcuts():
+    request = _tool_request(
+        "execute",
+        args={"command": "cd /tmp && git clone https://github.com/MiniMax-AI/skills.git"},
+        context={"agent_name": "lead_agent", "agent_status": "dev"},
+    )
+
+    blocked = blocked_lead_agent_dev_authoring_tool_message(request)
+
+    assert blocked is not None
+    assert "install_skill_from_registry" in blocked.content
+
+
+def test_blocked_lead_agent_dev_authoring_tool_message_blocks_relative_filesystem_paths():
+    request = _tool_request(
+        "ls",
+        args={"path": "."},
+        context={"agent_name": "lead_agent", "agent_status": "dev"},
+    )
+
+    blocked = blocked_lead_agent_dev_authoring_tool_message(request)
+
+    assert blocked is not None
+    assert "absolute virtual paths" in blocked.content
+    assert "ls.path='.'" in blocked.content
+
+
+def test_blocked_lead_agent_dev_authoring_tool_message_blocks_malformed_execute_fragments():
+    request = _tool_request(
+        "execute",
+        args={"command": ": 0,"},
+        context={"agent_name": "lead_agent", "agent_status": "dev"},
+    )
+
+    blocked = blocked_lead_agent_dev_authoring_tool_message(request)
+
+    assert blocked is not None
+    assert "concrete shell command" in blocked.content
+    assert "command=': 0,'" in blocked.content
+
+
+def test_blocked_lead_agent_dev_authoring_tool_message_blocks_install_skills_wrapper_script():
+    request = _tool_request(
+        "execute",
+        args={"command": "/app/.openagents/bin/install-skills https://github.com/MiniMax-AI/skills.git"},
+        context={"agent_name": "lead_agent", "agent_status": "dev"},
+    )
+
+    blocked = blocked_lead_agent_dev_authoring_tool_message(request)
+
+    assert blocked is not None
+    assert "install_skill_from_registry" in blocked.content
+
+
+def test_blocked_lead_agent_dev_authoring_tool_message_blocks_runtime_agent_shell_mutation():
+    request = _tool_request(
+        "execute",
+        args={"command": "cp -r /tmp/skill /mnt/user-data/agents/dev/demo-agent/skills/skill"},
+        context={"agent_name": "lead_agent", "agent_status": "dev"},
+    )
+
+    blocked = blocked_lead_agent_dev_authoring_tool_message(request)
 
     assert blocked is not None
     assert "setup_agent" in blocked.content
@@ -258,6 +339,20 @@ def test_blocked_create_agent_tool_message_blocks_reads_outside_runtime_contract
 
     assert blocked is not None
     assert "/mnt/user-data" in blocked.content
+
+
+def test_blocked_create_agent_tool_message_blocks_relative_runtime_reads():
+    request = _tool_request(
+        "read_file",
+        args={"file_path": "agents/dev/demo/AGENTS.md"},
+        context={"command_name": "create-agent", "target_agent_name": "demo"},
+    )
+
+    blocked = blocked_create_agent_tool_message(request)
+
+    assert blocked is not None
+    assert "absolute virtual paths" in blocked.content
+    assert "read_file.file_path='agents/dev/demo/AGENTS.md'" in blocked.content
 
 
 def test_blocked_create_agent_tool_message_blocks_raw_mnt_shell_discovery():

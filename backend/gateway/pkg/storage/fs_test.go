@@ -13,8 +13,8 @@ func TestResolveRefKeepsAgentRefsUnderBaseDir(t *testing.T) {
 	baseDir := filepath.Join(projectDir, ".openagents")
 	fs := NewFS(baseDir)
 
-	got := fs.ResolveRef("agents/dev/analyst/AGENTS.md")
-	want := filepath.Join(baseDir, "agents", "dev", "analyst", "AGENTS.md")
+	got := fs.ResolveRef("custom/agents/dev/analyst/AGENTS.md")
+	want := filepath.Join(baseDir, "custom", "agents", "dev", "analyst", "AGENTS.md")
 	if got != want {
 		t.Fatalf("ResolveRef() = %q, want %q", got, want)
 	}
@@ -34,6 +34,25 @@ func TestResolveRefRoutesSkillRefsToOpenAgentsSkillsRoot(t *testing.T) {
 
 	got := fs.ResolveRef("skills/store/prod/research/SKILL.md")
 	want := filepath.Join(baseDir, "skills", "store", "prod", "research", "SKILL.md")
+	if got != want {
+		t.Fatalf("ResolveRef() = %q, want %q", got, want)
+	}
+}
+
+func TestResolveRefRoutesCanonicalStoreSkillRefsToOpenAgentsSkillsRoot(t *testing.T) {
+	t.Parallel()
+
+	projectDir := t.TempDir()
+	baseDir := filepath.Join(projectDir, ".openagents")
+	skillsDir := filepath.Join(baseDir, "skills", "store", "dev", "research")
+	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
+		t.Fatalf("mkdir skills dir: %v", err)
+	}
+
+	fs := NewFS(baseDir)
+
+	got := fs.ResolveRef("store/dev/research/SKILL.md")
+	want := filepath.Join(baseDir, "skills", "store", "dev", "research", "SKILL.md")
 	if got != want {
 		t.Fatalf("ResolveRef() = %q, want %q", got, want)
 	}

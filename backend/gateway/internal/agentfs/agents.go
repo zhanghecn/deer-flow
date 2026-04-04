@@ -46,6 +46,70 @@ type subagentManifest struct {
 	Enabled      *bool    `yaml:"enabled,omitempty"`
 }
 
+func parseSkillRefSourcePath(sourcePath string) (string, string, bool) {
+	normalized := strings.Trim(strings.TrimSpace(sourcePath), "/")
+	if normalized == "" {
+		return "", "", false
+	}
+	for _, prefix := range []string{
+		"system/skills/",
+		"custom/skills/",
+		"store/dev/",
+		"store/prod/",
+	} {
+		if !strings.HasPrefix(normalized, prefix) {
+			continue
+		}
+		category := strings.TrimSuffix(prefix, "/")
+		switch category {
+		case "system/skills":
+			category = "system"
+		case "custom/skills":
+			category = "custom"
+		}
+		return category, strings.TrimPrefix(normalized, prefix), true
+	}
+	return "", "", false
+}
+
+// Older archived manifests may only persist source_path. Derive the scope and
+// copied target path at load time so the browser and update APIs see the same
+// canonical skill ref shape the save path expects.
+func normalizeLoadedSkillRef(ref model.SkillRef) model.SkillRef {
+	sourcePath := strings.Trim(strings.TrimSpace(ref.SourcePath), "/")
+	if sourcePath == "" {
+		return ref
+	}
+
+	category := strings.Trim(strings.TrimSpace(ref.Category), "/")
+	relativePath := ""
+	if derivedCategory, derivedRelativePath, ok := parseSkillRefSourcePath(sourcePath); ok {
+		if category == "" {
+			category = derivedCategory
+		}
+		relativePath = derivedRelativePath
+	}
+
+	if strings.TrimSpace(ref.MaterializedPath) == "" {
+		if relativePath == "" {
+			relativePath = ref.Name
+		}
+		ref.MaterializedPath = path.Join("skills", relativePath)
+	}
+	if ref.Status == "" {
+		switch category {
+		case "store/dev":
+			ref.Status = "dev"
+		case "store/prod":
+			ref.Status = "prod"
+		}
+	}
+
+	ref.Category = category
+	ref.SourcePath = sourcePath
+	return ref
+}
+
 func LoadAgent(fsStore *storage.FS, name string, status string, includeMarkdown bool) (*model.Agent, error) {
 	configFile := filepath.Join(fsStore.AgentDir(name, status), "config.yaml")
 	info, err := os.Stat(configFile)
@@ -67,6 +131,9 @@ func LoadAgent(fsStore *storage.FS, name string, status string, includeMarkdown 
 	var cfg manifest
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
+	}
+	for i := range cfg.SkillRefs {
+		cfg.SkillRefs[i] = normalizeLoadedSkillRef(cfg.SkillRefs[i])
 	}
 
 	agentName := strings.TrimSpace(cfg.Name)
@@ -161,6 +228,7 @@ func loadSubagents(fsStore *storage.FS, name string, status string) ([]model.Age
 
 func ListAgents(fsStore *storage.FS, status string) ([]model.Agent, error) {
 	var agents []model.Agent
+	seen := make(map[string]struct{})
 	for _, root := range statusRoots(fsStore, status) {
 		entries, err := os.ReadDir(root)
 		if err != nil {
@@ -180,7 +248,12 @@ func ListAgents(fsStore *storage.FS, status string) ([]model.Agent, error) {
 				return nil, err
 			}
 			if agent != nil {
+				key := strings.ToLower(agent.Name) + "|" + agent.Status
+				if _, ok := seen[key]; ok {
+					continue
+				}
 				agents = append(agents, *agent)
+				seen[key] = struct{}{}
 			}
 		}
 	}
@@ -239,7 +312,7 @@ func validateProdSkillRefs(skillRefs []model.SkillRef) error {
 			continue
 		}
 		scope := normalizeSkillRefScope(ref)
-		if scope == "store/prod" {
+		if scope == "system" || scope == "custom" || scope == "store/prod" {
 			continue
 		}
 
@@ -251,7 +324,7 @@ func validateProdSkillRefs(skillRefs []model.SkillRef) error {
 			location = "unknown source"
 		}
 		return fmt.Errorf(
-			"prod agents can only use store/prod skills; skill %q comes from %s",
+			"prod agents can only use system/custom or store/prod skills; skill %q comes from %s",
 			ref.Name,
 			location,
 		)
@@ -319,13 +392,21 @@ func DeleteAgent(fsStore *storage.FS, name string, status string) error {
 func statusRoots(fsStore *storage.FS, status string) []string {
 	switch strings.TrimSpace(status) {
 	case "dev":
-		return []string{filepath.Join(fsStore.BaseDir(), "agents", "dev")}
+		return []string{
+			fsStore.SystemAgentsDir("dev"),
+			fsStore.CustomAgentsDir("dev"),
+		}
 	case "prod":
-		return []string{filepath.Join(fsStore.BaseDir(), "agents", "prod")}
+		return []string{
+			fsStore.SystemAgentsDir("prod"),
+			fsStore.CustomAgentsDir("prod"),
+		}
 	default:
 		return []string{
-			filepath.Join(fsStore.BaseDir(), "agents", "dev"),
-			filepath.Join(fsStore.BaseDir(), "agents", "prod"),
+			fsStore.SystemAgentsDir("dev"),
+			fsStore.CustomAgentsDir("dev"),
+			fsStore.SystemAgentsDir("prod"),
+			fsStore.CustomAgentsDir("prod"),
 		}
 	}
 }

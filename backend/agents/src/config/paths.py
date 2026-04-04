@@ -36,11 +36,9 @@ class Paths:
             ├── users/{user_id}/
             └── knowledge/
 
-    The current codebase still has compatibility call sites that read from the
-    older flat `.openagents/agents`, `.openagents/skills`, `.openagents/users`,
-    and `.openagents/threads` roots. The new helpers below model the intended
-    split explicitly so migration work can move callers one slice at a time
-    without inventing ad-hoc paths in each module.
+    The authored/runtime split below is the canonical contract. Legacy flat
+    roots still appear only in dedicated migration helpers and tests; runtime
+    code should reason about `system`, `custom`, and `runtime` explicitly.
     """
 
     def __init__(self, base_dir: str | Path, *, skills_dir: str | Path | None = None) -> None:

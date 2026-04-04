@@ -140,6 +140,7 @@ def _resolve_builtin_tool_items(
     model_supports_vision: bool | None,
     agent_status: str | None,
     authoring_actions: Sequence[str] | None,
+    always_available_authoring_actions: Sequence[str] | None,
     setup_agent_enabled: bool,
     include_compatibility: bool = False,
 ) -> list[tuple[str, BaseTool]]:
@@ -156,7 +157,11 @@ def _resolve_builtin_tool_items(
                 builtin_tools.append(tool)
         if setup_agent_enabled and setup_agent not in builtin_tools:
             builtin_tools.append(setup_agent)
-        for action in authoring_actions or []:
+        requested_authoring_actions = list(authoring_actions or [])
+        for action in always_available_authoring_actions or []:
+            if action not in requested_authoring_actions:
+                requested_authoring_actions.append(action)
+        for action in requested_authoring_actions:
             authoring_tool = AUTHORING_TOOL_REGISTRY.get(action)
             if authoring_tool is None or authoring_tool in builtin_tools:
                 continue
@@ -181,6 +186,7 @@ def _tool_items_by_name(
     model_supports_vision: bool | None,
     agent_status: str | None,
     authoring_actions: Sequence[str] | None,
+    always_available_authoring_actions: Sequence[str] | None,
     setup_agent_enabled: bool,
 ) -> dict[str, Any]:
     # Explicit `tool_names` resolution must see both normal built-ins and
@@ -194,6 +200,7 @@ def _tool_items_by_name(
             model_supports_vision=model_supports_vision,
             agent_status=agent_status,
             authoring_actions=authoring_actions,
+            always_available_authoring_actions=always_available_authoring_actions,
             setup_agent_enabled=setup_agent_enabled,
             include_compatibility=True,
         ),
@@ -224,6 +231,8 @@ def get_available_tools(
     model_supports_vision: bool | None = None,
     agent_status: str | None = None,
     authoring_actions: list[str] | None = None,
+    always_available_tool_names: list[str] | None = None,
+    always_available_authoring_actions: list[str] | None = None,
     setup_agent_enabled: bool = False,
 ) -> list[BaseTool]:
     """Get the tools available to the runtime.
@@ -241,6 +250,15 @@ def get_available_tools(
     """
 
     requested_tool_names = _normalize_requested_tool_names(tool_names)
+    contextual_tool_names = _normalize_requested_tool_names(always_available_tool_names)
+    if requested_tool_names is not None and contextual_tool_names:
+        # Explicit archive tool_names stay canonical for the normal runtime
+        # surface, but dev-only runtime authoring helpers must still be additive
+        # so lead_agent can create agents/skills from plain natural language.
+        requested_tool_names = [
+            *requested_tool_names,
+            *[name for name in contextual_tool_names if name not in requested_tool_names],
+        ]
     if requested_tool_names is not None:
         available_by_name = _tool_items_by_name(
             include_mcp=include_mcp,
@@ -249,6 +267,7 @@ def get_available_tools(
             model_supports_vision=model_supports_vision,
             agent_status=agent_status,
             authoring_actions=authoring_actions,
+            always_available_authoring_actions=always_available_authoring_actions,
             setup_agent_enabled=setup_agent_enabled,
         )
 
@@ -272,6 +291,7 @@ def get_available_tools(
             model_supports_vision=model_supports_vision,
             agent_status=agent_status,
             authoring_actions=authoring_actions,
+            always_available_authoring_actions=always_available_authoring_actions,
             setup_agent_enabled=setup_agent_enabled,
         ),
         *_load_mcp_tool_items(
@@ -279,4 +299,25 @@ def get_available_tools(
             mcp_servers=mcp_servers,
         ),
     ]
+    if contextual_tool_names:
+        available_by_name = _tool_items_by_name(
+            include_mcp=include_mcp,
+            mcp_servers=mcp_servers,
+            model_name=model_name,
+            model_supports_vision=model_supports_vision,
+            agent_status=agent_status,
+            authoring_actions=authoring_actions,
+            always_available_authoring_actions=always_available_authoring_actions,
+            setup_agent_enabled=setup_agent_enabled,
+        )
+        missing_contextual: list[str] = []
+        for name in contextual_tool_names:
+            tool = available_by_name.get(name)
+            if tool is None:
+                missing_contextual.append(name)
+                continue
+            tool_items.append((name, tool))
+        if missing_contextual:
+            joined = ", ".join(missing_contextual)
+            raise ValueError(f"Unknown contextual tool name(s): {joined}.")
     return _dedupe_tool_items(tool_items)

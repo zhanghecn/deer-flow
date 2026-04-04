@@ -315,17 +315,13 @@ def iter_authored_agent_dirs(name: str, status: str, *, paths: Paths | None = No
     normalized_name = name.lower()
     candidates: list[Path] = []
 
-    custom_agent_dir = getattr(resolved_paths, "custom_agent_dir", None)
-    if callable(custom_agent_dir):
-        candidates.append(Path(custom_agent_dir(normalized_name, status)))
-
     system_agent_dir = getattr(resolved_paths, "system_agent_dir", None)
-    if callable(system_agent_dir):
+    if callable(system_agent_dir) and is_reserved_agent_name(normalized_name):
         candidates.append(Path(system_agent_dir(normalized_name, status)))
 
-    legacy_agent_dir = getattr(resolved_paths, "agent_dir", None)
-    if callable(legacy_agent_dir):
-        candidates.append(Path(legacy_agent_dir(normalized_name, status)))
+    custom_agent_dir = getattr(resolved_paths, "custom_agent_dir", None)
+    if callable(custom_agent_dir) and not is_reserved_agent_name(normalized_name):
+        candidates.append(Path(custom_agent_dir(normalized_name, status)))
 
     return tuple(candidates)
 
@@ -375,7 +371,8 @@ def _parse_agent_subagents_payload(raw_data: Any, *, source_path: Path) -> Agent
 def load_agent_config(name: str | None, status: str = "dev", *, paths: Paths | None = None) -> AgentConfig | None:
     """Load the custom or default agent's config from its directory.
 
-    Agent definitions are stored only in `{base_dir}/agents/{status}/{name}/`.
+    Lead-agent definitions live under `{base_dir}/system/agents/{status}/lead_agent/`.
+    Custom agent definitions live under `{base_dir}/custom/agents/{status}/{name}/`.
     """
     if name is None:
         return None
@@ -468,30 +465,29 @@ def list_custom_agents() -> list[AgentConfig]:
     """
     paths = get_paths()
     agents_dir = paths.custom_agents_dir
-    legacy_agents_dir = paths.agents_dir
-    if not agents_dir.exists() and not legacy_agents_dir.exists():
+    if not agents_dir.exists():
         return []
 
     agents: list[AgentConfig] = []
     seen_agents: set[tuple[str, str]] = set()
 
     for status_dir_name in ("prod", "dev"):
-        for status_dir in (agents_dir / status_dir_name, legacy_agents_dir / status_dir_name):
-            if not status_dir.exists():
+        status_dir = agents_dir / status_dir_name
+        if not status_dir.exists():
+            continue
+        for entry in sorted(status_dir.iterdir()):
+            if not entry.is_dir() or not (entry / "config.yaml").exists():
                 continue
-            for entry in sorted(status_dir.iterdir()):
-                if not entry.is_dir() or not (entry / "config.yaml").exists():
-                    continue
-                if is_reserved_agent_name(entry.name):
-                    continue
-                try:
-                    agent_cfg = load_agent_config(entry.name, status=status_dir_name, paths=paths)
-                    key = (agent_cfg.name, agent_cfg.status) if agent_cfg else None
-                    if agent_cfg and key not in seen_agents:
-                        agents.append(agent_cfg)
-                        assert key is not None
-                        seen_agents.add(key)
-                except Exception as e:
-                    logger.warning(f"Skipping agent '{entry.name}' ({status_dir_name}): {e}")
+            if is_reserved_agent_name(entry.name):
+                continue
+            try:
+                agent_cfg = load_agent_config(entry.name, status=status_dir_name, paths=paths)
+                key = (agent_cfg.name, agent_cfg.status) if agent_cfg else None
+                if agent_cfg and key not in seen_agents:
+                    agents.append(agent_cfg)
+                    assert key is not None
+                    seen_agents.add(key)
+            except Exception as e:
+                logger.warning(f"Skipping agent '{entry.name}' ({status_dir_name}): {e}")
 
     return sorted(agents, key=lambda agent: (agent.name, agent.status))

@@ -67,8 +67,8 @@ def test_apply_prompt_template_lists_attached_copied_skills(monkeypatch, tmp_pat
     )
 
     base_dir = tmp_path / ".openagents"
-    paths = Paths(base_dir=base_dir, skills_dir=base_dir / "skills")
-    agent_dir = paths.agent_dir("demo-agent", "dev")
+    paths = Paths(base_dir=base_dir, skills_dir=base_dir)
+    agent_dir = paths.custom_agent_dir("demo-agent", "dev")
     skill_dir = agent_dir / "skills" / "contract-review"
     skill_dir.mkdir(parents=True, exist_ok=True)
     (agent_dir / "AGENTS.md").write_text("# Demo Agent\n", encoding="utf-8")
@@ -81,7 +81,7 @@ def test_apply_prompt_template_lists_attached_copied_skills(monkeypatch, tmp_pat
                 "skill_refs": [
                     {
                         "name": "contract-review",
-                        "source_path": "store/dev/contract-review",
+                        "source_path": "system/skills/contract-review",
                     }
                 ],
             },
@@ -109,7 +109,7 @@ def test_apply_prompt_template_lists_attached_copied_skills(monkeypatch, tmp_pat
     assert "contract-review" in rendered
     assert "review contracts with copied workflow" in rendered
     assert "/mnt/user-data/agents/dev/demo-agent/skills/contract-review/SKILL.md" in rendered
-    assert "store/dev/contract-review" in rendered
+    assert "system/skills/contract-review" in rendered
     assert "read that file before substantive analysis" in rendered
     assert "A bare external repo URL is not, by itself, a request for repository research" in rendered
     assert "chat is the default output unless the user explicitly requested a file" in rendered

@@ -30,8 +30,9 @@ type APIToken struct {
 	CreatedAt time.Time  `json:"created_at" db:"created_at"`
 }
 
-// Agent is a filesystem-backed agent definition stored under
-// `.openagents/agents/{status}/{name}/`.
+// Agent is a filesystem-backed authored definition stored under either
+// `.openagents/system/agents/{status}/{name}/` for reserved built-ins or
+// `.openagents/custom/agents/{status}/{name}/` for custom agents.
 type Agent struct {
 	Name             string                 `json:"name"`
 	Description      string                 `json:"description"`

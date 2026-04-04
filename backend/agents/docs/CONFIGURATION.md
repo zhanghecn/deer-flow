@@ -32,8 +32,9 @@ Notes:
   newer threads behind a single worker.
 - `storage.base_dir` is where archived agents, users, threads, and remote relay
   session state live.
-- `skills.path` points at the archived skills library root, not at per-agent skill
-  copies.
+- `skills.path` points at the legacy skills-library compatibility root used for
+  `store/dev|prod` migration input and `/mnt/skills` exposure, not at per-agent
+  copied skills.
 - `skills.container_path` is only a compatibility mount for local execution.
   Active runtime skills are still read from `/mnt/user-data/agents/...`.
 
@@ -208,13 +209,18 @@ Compiled binary:
 
 Current ownership rules:
 
-- archived reusable skills:
+- canonical authored reusable skills:
+  - `.openagents/system/skills/<skill>`
+  - `.openagents/custom/skills/<skill>`
+- legacy migration-only skill input:
   - `.openagents/skills/store/dev`
   - `.openagents/skills/store/prod`
-- agent-owned prompt:
-  - `.openagents/agents/{dev,prod}/{agent}/AGENTS.md`
-- agent-owned copied skills:
-  - `.openagents/agents/{dev,prod}/{agent}/skills`
+- built-in agent-owned prompt/copies:
+  - `.openagents/system/agents/{dev,prod}/{agent}/AGENTS.md`
+  - `.openagents/system/agents/{dev,prod}/{agent}/skills`
+- custom agent-owned prompt/copies:
+  - `.openagents/custom/agents/{dev,prod}/{agent}/AGENTS.md`
+  - `.openagents/custom/agents/{dev,prod}/{agent}/skills`
 
 `config.yaml` should reference the archived skills library and agent manifests.
 Runtime then copies archived agent files into `/mnt/user-data/...`.

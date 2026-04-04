@@ -1,8 +1,0 @@
-{
-  "version": 1,
-  "default_locale": "en-US",
-  "description": {
-    "en-US": "Helps users discover and install agent skills when they ask questions like \"how do I do X\", \"find a skill for X\", \"is there a skill that can...\", or express interest in extending capabilities. This skill should be used when the user is looking for functionality that might exist as an installable skill.",
-    "zh-CN": "帮助用户发现并安装可复用的 agent skills。适用于用户想问“怎么做 X”、寻找现成 skill、确认是否已有某个 skill，或希望扩展能力而不是从零创建 skill 的场景。"
-  }
-}

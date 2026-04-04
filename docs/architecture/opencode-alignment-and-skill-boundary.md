@@ -40,7 +40,8 @@ archived authored skill
         │ 通过 setup_agent(..., skills=[{source_path: "..."}])
         v
 agent archive copied skill
-  .openagents/agents/{status}/{name}/skills/...
+  .openagents/system/agents/{status}/lead_agent/skills/... or
+  .openagents/custom/agents/{status}/{name}/skills/...
         │
         │ runtime seed
         v
@@ -76,10 +77,11 @@ lead_agent
   │ 3. setup_agent(..., skills=[{source_path: "..."}])
   v
 agent archive materialization
-  .openagents/agents/{dev,prod}/{agent}/
+  .openagents/system/agents/{dev,prod}/lead_agent/ or
+  .openagents/custom/agents/{dev,prod}/{agent}/
   - 写入 AGENTS.md
   - 写入 config.yaml.skill_refs[]
-  - 复制 store skill -> agent-owned copied skill
+  - 复制 archived skill -> agent-owned copied skill
   │
   │ 4. 每个 thread 启动时 seed 到 runtime
   v
@@ -107,7 +109,7 @@ runtime model
 - `shared` 已废弃，不再作为单独 runtime scope
 - `setup_agent(..., skills=[{source_path: "..."}])` 是 archived skill 装配的唯一正式入口
 - agent config 记录 `skill_refs[].source_path`
-- materialize 后的 copied skill 进入 `.openagents/agents/{status}/{name}/skills/...`
+- materialize 后的 copied skill 进入 `.openagents/system/agents/...` 或 `.openagents/custom/agents/...`
 - runtime 只读 `/mnt/user-data/agents/{status}/{name}/skills/...`
 - 模型必须用正常文件工具读取 copied `SKILL.md`
 
@@ -285,7 +287,7 @@ OpenAgents：
 
 再看 `backend/agents/src/config/agent_materialization.py`：
 
-- archived store skill 先复制进 `.openagents/agents/{status}/{agent}/skills/...`
+- archived skill 先复制进 `.openagents/system/agents/...` 或 `.openagents/custom/agents/...`
 - `config.yaml` 中记录 `skill_refs[].source_path`
 - 运行时永远消费 agent-owned copied skill，而不是直接消费 store 目录
 

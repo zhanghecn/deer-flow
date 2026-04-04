@@ -5,7 +5,9 @@ This document defines the filesystem contract shared by `backend/gateway`,
 
 ## Goals
 
-- Keep one archived skills library under `.openagents/skills/store/{dev,prod}/`.
+- Keep canonical authored skills under `.openagents/system/skills/` and
+  `.openagents/custom/skills/`.
+- Keep `.openagents/skills/store/{dev,prod}/` only as a legacy migration input.
 - Keep each agent's prompt and copied skills under its own archived directory.
 - Seed every run into the same agent-visible runtime paths under
   `/mnt/user-data/...`.
@@ -18,31 +20,37 @@ With the default `storage.base_dir: .openagents`, the host-side layout is:
 
 ```text
 .openagents/
+├── system/
+│   ├── skills/<skill>/SKILL.md
+│   └── agents/{dev,prod}/lead_agent/
+│       ├── AGENTS.md
+│       ├── config.yaml
+│       └── skills/<skill>/...
+├── custom/
+│   ├── skills/<skill>/SKILL.md
+│   └── agents/{dev,prod}/<agent>/
+│       ├── AGENTS.md
+│       ├── config.yaml
+│       └── skills/<skill>/...
 ├── skills/
 │   └── store/
 │       ├── dev/<skill>/SKILL.md
 │       └── prod/<skill>/SKILL.md
-├── agents/
-│   ├── dev/<agent>/
-│   │   ├── AGENTS.md
-│   │   ├── config.yaml
-│   │   └── skills/<skill>/...
-│   └── prod/<agent>/
-│       ├── AGENTS.md
-│       ├── config.yaml
-│       └── skills/<skill>/...
 ├── threads/<thread_id>/user-data/
 └── remote/sessions/<session_id>/
 ```
 
 Rules:
 
-- `.openagents/skills/store/{dev,prod}/` is the only maintained archived skill library.
-- Vertical or domain prompts belong in
-  `.openagents/agents/{dev,prod}/{agent}/AGENTS.md`.
-- Agent-owned copied skills belong in
-  `.openagents/agents/{dev,prod}/{agent}/skills/`.
-- `lead_agent` follows the same archive rules as any other agent.
+- Canonical authored skills live under `.openagents/system/skills/` and
+  `.openagents/custom/skills/`.
+- `.openagents/skills/store/{dev,prod}/` is retained only so migration and
+  compatibility code can read older skill refs explicitly.
+- Reserved built-in agents such as `lead_agent` live under
+  `.openagents/system/agents/{status}/{name}/`.
+- Custom authored agents live under `.openagents/custom/agents/{status}/{name}/`.
+- Vertical or domain prompts belong in each agent's own `AGENTS.md`.
+- Agent-owned copied skills belong in each agent's own `skills/`.
 
 ## Three Layers
 
@@ -50,8 +58,12 @@ Rules:
 
 Gateway owns archived agent definitions and archived skill references.
 
-- Reusable archived skills live under `.openagents/skills/store/{dev,prod}/`.
-- Agent archives live under `.openagents/agents/{status}/{name}/`.
+- Reusable authored skills live under `.openagents/system/skills/` and
+  `.openagents/custom/skills/`.
+- `.openagents/skills/store/{dev,prod}/` is not a canonical write target.
+- Built-in reserved agent archives live under
+  `.openagents/system/agents/{status}/{name}/`.
+- Custom agent archives live under `.openagents/custom/agents/{status}/{name}/`.
 - `config.yaml` stores normal agent metadata plus copied `skill_refs`.
 - Publishing is filesystem promotion from `dev` to `prod`.
 
@@ -60,7 +72,8 @@ Gateway owns archived agent definitions and archived skill references.
 Materialization copies selected archived skills into an agent-owned archive:
 
 ```text
-.openagents/skills/... -> .openagents/agents/{status}/{name}/skills/...
+.openagents/system/skills/... -> .openagents/system/agents/{status}/{name}/skills/...
+.openagents/custom/skills/... -> .openagents/custom/agents/{status}/{name}/skills/...
 ```
 
 This prevents one agent from mutating the archived skill library for every other agent.
@@ -168,7 +181,7 @@ into prompts, skills, or agent-authored shell commands.
 
 ## Skill Runtime Rules
 
-- `SkillsMiddleware` must advertise runtime-visible paths, not archive paths.
+- The runtime prompt must advertise runtime-visible copied-skill paths, not archive paths.
 - A skill may refer to files relative to its own `SKILL.md` directory.
 - Skill docs should not assume local-debug-only host paths.
 - Runtime edits affect the seeded runtime copy, not the archived source files.
@@ -178,7 +191,8 @@ into prompts, skills, or agent-authored shell commands.
 ### Gateway
 
 - CRUD for agents and archived skill metadata
-- materialization into `.openagents/agents/{status}/{name}/`
+- materialization into `.openagents/system/agents/{status}/{name}/` or
+  `.openagents/custom/agents/{status}/{name}/`
 - publish flow from `dev` to `prod`
 
 ### Python Runtime

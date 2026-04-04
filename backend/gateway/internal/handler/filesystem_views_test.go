@@ -14,7 +14,10 @@ func TestListFilesystemAgentsIncludesBuiltinLeadAgent(t *testing.T) {
 
 	baseDir := filepath.Join(t.TempDir(), ".openagents")
 	writeAgent := func(status string, name string) {
-		agentDir := filepath.Join(baseDir, "agents", status, name)
+		agentDir := filepath.Join(baseDir, "custom", "agents", status, name)
+		if name == "lead_agent" {
+			agentDir = filepath.Join(baseDir, "system", "agents", status, name)
+		}
 		if err := os.MkdirAll(agentDir, 0755); err != nil {
 			t.Fatalf("mkdir %s: %v", agentDir, err)
 		}
@@ -61,7 +64,7 @@ func TestLoadFilesystemAgentPreservesMemoryConfig(t *testing.T) {
 	t.Parallel()
 
 	baseDir := filepath.Join(t.TempDir(), ".openagents")
-	agentDir := filepath.Join(baseDir, "agents", "dev", "memory-agent")
+	agentDir := filepath.Join(baseDir, "custom", "agents", "dev", "memory-agent")
 	if err := os.MkdirAll(agentDir, 0755); err != nil {
 		t.Fatalf("mkdir %s: %v", agentDir, err)
 	}
@@ -158,5 +161,63 @@ func TestListFilesystemSkillsPreservesAliasedSourcePath(t *testing.T) {
 	}
 	if got := skills[0].DescriptionI18n["zh-CN"]; got != "别名技能" {
 		t.Fatalf("skills[0].DescriptionI18n[zh-CN] = %q, want %q", got, "别名技能")
+	}
+}
+
+func TestListFilesystemSkillsIncludesCanonicalSystemAndCustomScopes(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	systemDir := filepath.Join(baseDir, "system", "skills", "bootstrap")
+	customDir := filepath.Join(baseDir, "custom", "skills", "contract-review")
+	prodDir := filepath.Join(baseDir, "skills", "store", "prod", "vercel-deploy")
+	for _, dir := range []string{systemDir, customDir, prodDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+
+	if err := os.WriteFile(filepath.Join(systemDir, "SKILL.md"), []byte("---\nname: bootstrap\ndescription: system skill\n---\n"), 0o644); err != nil {
+		t.Fatalf("write system skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(customDir, "SKILL.md"), []byte("---\nname: contract-review\ndescription: custom skill\n---\n"), 0o644); err != nil {
+		t.Fatalf("write custom skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(prodDir, "SKILL.md"), []byte("---\nname: vercel-deploy\ndescription: prod skill\n---\n"), 0o644); err != nil {
+		t.Fatalf("write prod skill: %v", err)
+	}
+
+	skills, err := listFilesystemSkills(
+		storage.NewFS(baseDir),
+		filepath.Join(baseDir, "extensions_config.json"),
+		"prod",
+	)
+	if err != nil {
+		t.Fatalf("listFilesystemSkills() error = %v", err)
+	}
+
+	got := make(map[string]string, len(skills))
+	gotSourcePaths := make(map[string]string, len(skills))
+	for _, skill := range skills {
+		got[skill.Name] = skill.Category
+		gotSourcePaths[skill.Name] = skill.SourcePath
+	}
+	if got["bootstrap"] != "system" {
+		t.Fatalf("bootstrap category = %q, want system", got["bootstrap"])
+	}
+	if gotSourcePaths["bootstrap"] != "system/skills/bootstrap" {
+		t.Fatalf("bootstrap source_path = %q, want system/skills/bootstrap", gotSourcePaths["bootstrap"])
+	}
+	if got["contract-review"] != "custom" {
+		t.Fatalf("contract-review category = %q, want custom", got["contract-review"])
+	}
+	if gotSourcePaths["contract-review"] != "custom/skills/contract-review" {
+		t.Fatalf("contract-review source_path = %q, want custom/skills/contract-review", gotSourcePaths["contract-review"])
+	}
+	if got["vercel-deploy"] != "store/prod" {
+		t.Fatalf("vercel-deploy category = %q, want store/prod", got["vercel-deploy"])
+	}
+	if gotSourcePaths["vercel-deploy"] != "store/prod/vercel-deploy" {
+		t.Fatalf("vercel-deploy source_path = %q, want store/prod/vercel-deploy", gotSourcePaths["vercel-deploy"])
 	}
 }

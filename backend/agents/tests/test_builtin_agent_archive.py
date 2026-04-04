@@ -27,15 +27,15 @@ def test_ensure_builtin_agent_archive_rewrites_legacy_skills_mode(tmp_path, monk
     monkeypatch.setattr(builtin_agents, "_ENSURED_ARCHIVES", set())
 
     base_dir = tmp_path / ".openagents"
-    archived_skill_dir = base_dir / "skills" / "store" / "prod" / "bootstrap"
+    archived_skill_dir = base_dir / "system" / "skills" / "bootstrap"
     archived_skill_dir.mkdir(parents=True, exist_ok=True)
     (archived_skill_dir / "SKILL.md").write_text(
         "---\nname: bootstrap\ndescription: bootstrap\n---\n\nbootstrap\n",
         encoding="utf-8",
     )
 
-    paths = Paths(base_dir=base_dir, skills_dir=base_dir / "skills")
-    agent_dir = paths.agent_dir("lead_agent", "dev")
+    paths = Paths(base_dir=base_dir, skills_dir=base_dir)
+    agent_dir = paths.system_agent_dir("lead_agent", "dev")
     agent_dir.mkdir(parents=True, exist_ok=True)
     (agent_dir / "config.yaml").write_text(
         "name: lead_agent\nstatus: dev\nagents_md_path: AGENTS.md\nskills_mode: shared_all\nskill_refs: []\n",
@@ -59,15 +59,15 @@ def test_ensure_builtin_agent_archive_preserves_archived_agents_md(tmp_path, mon
     monkeypatch.setattr(builtin_agents, "_ENSURED_ARCHIVES", set())
 
     base_dir = tmp_path / ".openagents"
-    archived_skill_dir = base_dir / "skills" / "store" / "prod" / "bootstrap"
+    archived_skill_dir = base_dir / "system" / "skills" / "bootstrap"
     archived_skill_dir.mkdir(parents=True, exist_ok=True)
     (archived_skill_dir / "SKILL.md").write_text(
         "---\nname: bootstrap\ndescription: bootstrap\n---\n\nbootstrap\n",
         encoding="utf-8",
     )
 
-    paths = Paths(base_dir=base_dir, skills_dir=base_dir / "skills")
-    legacy_agent_dir = paths.agent_dir("lead_agent", "dev")
+    paths = Paths(base_dir=base_dir, skills_dir=base_dir)
+    legacy_agent_dir = paths.system_agent_dir("lead_agent", "dev")
     legacy_agent_dir.mkdir(parents=True, exist_ok=True)
     customized_agents_md = "# Lead Agent\n\nCustom archived prompt.\n"
     (legacy_agent_dir / "AGENTS.md").write_text(customized_agents_md, encoding="utf-8")
@@ -95,7 +95,7 @@ def test_ensure_builtin_agent_archive_preserves_explicit_system_skill_refs_when_
     )
 
     paths = Paths(base_dir=base_dir, skills_dir=base_dir)
-    agent_dir = paths.agent_dir("lead_agent", "dev")
+    agent_dir = paths.system_agent_dir("lead_agent", "dev")
     agent_dir.mkdir(parents=True, exist_ok=True)
     (agent_dir / "config.yaml").write_text(
         "name: lead_agent\n"
@@ -124,13 +124,13 @@ def test_ensure_builtin_agent_archive_rewrites_legacy_prod_manifest_to_canonical
     monkeypatch.setattr(builtin_agents, "_ENSURED_ARCHIVES", set())
 
     base_dir = tmp_path / ".openagents"
-    prod_skill_dir = base_dir / "skills" / "store" / "prod" / "bootstrap"
+    prod_skill_dir = base_dir / "system" / "skills" / "bootstrap"
     prod_skill_dir.mkdir(parents=True, exist_ok=True)
     (prod_skill_dir / "SKILL.md").write_text(
         "---\nname: bootstrap\ndescription: bootstrap\n---\n\nbootstrap\n",
         encoding="utf-8",
     )
-    dev_skill_dir = base_dir / "skills" / "store" / "dev" / "android-native-dev"
+    dev_skill_dir = base_dir / "system" / "skills" / "android-native-dev"
     dev_skill_dir.mkdir(parents=True, exist_ok=True)
     (dev_skill_dir / "SKILL.md").write_text(
         "---\nname: android-native-dev\ndescription: android native dev\n---\n\nandroid\n",
@@ -138,7 +138,7 @@ def test_ensure_builtin_agent_archive_rewrites_legacy_prod_manifest_to_canonical
     )
 
     paths = Paths(base_dir=base_dir, skills_dir=base_dir)
-    agent_dir = paths.agent_dir("lead_agent", "prod")
+    agent_dir = paths.system_agent_dir("lead_agent", "prod")
     agent_dir.mkdir(parents=True, exist_ok=True)
     (agent_dir / "config.yaml").write_text(
         "name: lead_agent\n"

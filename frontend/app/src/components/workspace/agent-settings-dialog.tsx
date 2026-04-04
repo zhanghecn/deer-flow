@@ -50,6 +50,7 @@ import { useI18n } from "@/core/i18n/hooks";
 import { getLocalizedSkillDescription } from "@/core/skills";
 import { useSkills } from "@/core/skills/hooks";
 import {
+  DEFAULT_SKILL_SCOPE,
   filterSkillsByScope,
   formatSkillScopeLabel,
   getAllowedSkillScopesForAgent,
@@ -60,6 +61,7 @@ import {
 import type { Skill } from "@/core/skills/type";
 import { cn } from "@/lib/utils";
 
+import { getAgentSettingsDialogText } from "./agent-settings-dialog.i18n";
 import {
   createSkillRef,
   isSkillRefSelected,
@@ -68,7 +70,6 @@ import {
   toggleSkillRefSelection,
   skillRefKey,
 } from "./agent-skill-refs";
-import { getAgentSettingsDialogText } from "./agent-settings-dialog.i18n";
 
 type SettingsTab = "profile" | "skills" | "prompt" | "config" | "access";
 
@@ -422,7 +423,8 @@ export function AgentSettingsDialog({
   const [savedForm, setSavedForm] = useState<AgentSettingsFormState | null>(
     null,
   );
-  const [skillsCategory, setSkillsCategory] = useState<SkillScope>("store/dev");
+  const [skillsCategory, setSkillsCategory] =
+    useState<SkillScope>(DEFAULT_SKILL_SCOPE);
 
   const launchPath = useMemo(
     () =>
@@ -516,7 +518,7 @@ export function AgentSettingsDialog({
       return;
     }
     setActiveTab("profile");
-    setSkillsCategory("store/dev");
+    setSkillsCategory(DEFAULT_SKILL_SCOPE);
   }, [agentName, agentStatus, open]);
 
   useEffect(() => {
@@ -643,8 +645,7 @@ export function AgentSettingsDialog({
         mainToolOptions,
         "main",
       );
-      const shouldPersistExplicitMainTools =
-        mainToolOptions.length > 0 || form.toolSelectionEnabled;
+      const shouldPersistExplicitMainTools = form.toolSelectionEnabled;
       const normalizedSubagents = form.subagents.map((subagent, index) => {
         const name = subagent.name.trim();
         if (!name) {

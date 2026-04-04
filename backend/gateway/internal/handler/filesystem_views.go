@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -80,14 +81,36 @@ func writeExtensionsConfig(configPath string, cfg extensionsConfigJSON) error {
 func skillScopeRoots(fsStore *storage.FS, status string) map[string]string {
 	switch strings.TrimSpace(status) {
 	case "dev":
-		return map[string]string{"store/dev": fsStore.StoreDevSkillsDir()}
-	case "prod":
-		return map[string]string{"store/prod": fsStore.StoreProdSkillsDir()}
-	default:
 		return map[string]string{
+			"system":     fsStore.GlobalSkillDir("system", ""),
+			"custom":     fsStore.GlobalSkillDir("custom", ""),
 			"store/dev":  fsStore.StoreDevSkillsDir(),
 			"store/prod": fsStore.StoreProdSkillsDir(),
 		}
+	case "prod":
+		return map[string]string{
+			"system":     fsStore.GlobalSkillDir("system", ""),
+			"custom":     fsStore.GlobalSkillDir("custom", ""),
+			"store/prod": fsStore.StoreProdSkillsDir(),
+		}
+	default:
+		return map[string]string{
+			"system":     fsStore.GlobalSkillDir("system", ""),
+			"custom":     fsStore.GlobalSkillDir("custom", ""),
+			"store/dev":  fsStore.StoreDevSkillsDir(),
+			"store/prod": fsStore.StoreProdSkillsDir(),
+		}
+	}
+}
+
+func buildSkillSourcePath(category string, relativeDir string) string {
+	cleanCategory := strings.Trim(strings.TrimSpace(category), "/")
+	cleanRelative := strings.Trim(strings.TrimSpace(relativeDir), "/")
+	switch cleanCategory {
+	case "system", "custom":
+		return path.Join(cleanCategory, "skills", cleanRelative)
+	default:
+		return path.Join(cleanCategory, cleanRelative)
 	}
 }
 
@@ -130,10 +153,7 @@ func listFilesystemSkills(fsStore *storage.FS, extensionsConfigPath string, stat
 			if err != nil {
 				return nil
 			}
-			sourcePath := category
-			if relativeDir != "." {
-				sourcePath += "/" + filepath.ToSlash(relativeDir)
-			}
+			sourcePath := buildSkillSourcePath(category, filepath.ToSlash(relativeDir))
 			state, ok := extensionsCfg.Skills[meta.Name]
 			skills = append(skills, skillListItem{
 				Name:            meta.Name,

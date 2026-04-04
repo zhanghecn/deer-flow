@@ -64,10 +64,13 @@ The single LangGraph agent (`lead_agent`) is the runtime entry point, created vi
 
 Custom agents now follow one filesystem protocol:
 
-- Archived reusable skills live only in `.openagents/skills/store/{dev,prod}/`
-- Each agent owns its own archive under `.openagents/agents/{status}/{name}/`
-- Vertical or domain prompts belong in `.openagents/agents/{status}/{name}/AGENTS.md`
-- Selected skills are copied into `.openagents/agents/{status}/{name}/skills/`
+- Canonical authored reusable skills live in `.openagents/system/skills/` and
+  `.openagents/custom/skills/`
+- `.openagents/skills/store/{dev,prod}/` is legacy migration input only
+- Built-in agent archives live under `.openagents/system/agents/{status}/{name}/`
+- Custom agent archives live under `.openagents/custom/agents/{status}/{name}/`
+- Vertical or domain prompts belong in each agent archive's `AGENTS.md`
+- Selected skills are copied into each agent archive's `skills/`
 - `config.yaml` is the local manifest and records `agents_md_path` and `skill_refs`
 - `dev` and `prod` are archive versions only; they are not runtime mode switches
 - Runtime backend choice belongs to Python startup/config or per-run remote params

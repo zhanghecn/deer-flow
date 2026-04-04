@@ -36,6 +36,7 @@ services:
         condition: service_healthy
     environment:
       GATEWAY_CONFIG_PATH: /app/backend/gateway/gateway.yaml
+      OPENAGENTS_CONFIG_PATH: /app/config.yaml
       LANGGRAPH_URL: http://langgraph:2024
       ONLYOFFICE_SERVER_URL: /onlyoffice
       ONLYOFFICE_INTERNAL_SERVER_URL: http://onlyoffice
@@ -62,6 +63,8 @@ services:
       # 只挂自己需要热更新的代码和配置。
       - ../backend/gateway:/app/backend/gateway:ro
       - ../.env:/app/.env:ro
+      # 网关也要读取仓库根 config.yaml，保证工具目录与 runtime 配置一致。
+      - ../config.yaml:/app/config.yaml:ro
       - ../.openagents:/openagents-home
     networks:
       - openagents

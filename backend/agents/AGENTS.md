@@ -56,7 +56,9 @@ Critical agent protocol rules for future work:
 - 不要把 slash-command 对齐错误扩大成 runtime skill 全架构重写。
 - OpenAgents 当前唯一 canonical skill 链路是：
   - archived skill 位于 `.openagents/system/skills/...` 或 `.openagents/custom/skills/...`
-  - `setup_agent(..., skills=[{source_path: "..."}])` 负责 materialize 到 `.openagents/agents/{status}/{name}/skills/...`
+  - `setup_agent(..., skills=[{source_path: "..."}])` 负责 materialize 到 agent archive copied skills
+  - `lead_agent` 的 copied skills 位于 `.openagents/system/agents/{status}/lead_agent/skills/...`
+  - 自定义 agent 的 copied skills 位于 `.openagents/custom/agents/{status}/{name}/skills/...`
   - runtime prompt 只暴露 copied skill 的名称/描述/虚拟路径
   - 模型使用普通文件工具读取 `/mnt/user-data/agents/{status}/{name}/skills/.../SKILL.md`
 - OpenAgents runtime 不再把 copied skills 接到 Deep Agents `skills=` / `SkillsMiddleware` / `skills_metadata` 上。不要把 Deep Agents 的通用库能力重新当成 OpenAgents runtime contract。
@@ -64,7 +66,7 @@ Critical agent protocol rules for future work:
 - `find-skills` 的固定策略是：先查本地 canonical archived library（`/mnt/skills/system/skills/...`、`/mnt/skills/custom/skills/...`）；`/mnt/skills/store/...` 只作为迁移期兼容输入。只有本地没有合适 skill，或用户明确要求安装外部 skill 时，才走 registry 搜索 / 安装。
 - 如果 `find-skills` 找到的是本地 archived skill，最终仍然要通过 `setup_agent(..., skills=[{source_path: "..."}])` 完成装配，而不是靠额外 prompt glue 或前端推断。
 - 以后审计“skill 是否生效”，优先检查 copied `SKILL.md` 是否 materialize、runtime prompt 是否暴露 attached skill、以及 trace 里模型是否真的读取了 copied `SKILL.md`；不要再把 `skills_metadata` 当成必要证据。
-- Changing an archived authored skill does not retroactively mutate existing agent-owned copies already archived under `.openagents/agents/{status}/{name}/skills/...`. Refresh those copied skills only through an explicit agent update/materialization flow such as `setup_agent` or the agent update API.
+- Changing an archived authored skill does not retroactively mutate existing agent-owned copies already archived under `.openagents/system/agents/...` or `.openagents/custom/agents/...`. Refresh those copied skills only through an explicit agent update/materialization flow such as `setup_agent` or the agent update API.
 - When a copied skill defines the user-visible review/report structure, keep the runtime prompt thin and let the skill remain the primary runtime contract. Do not mirror the whole skill into a second giant system-prompt summary.
 - Inside SKILL docs, use relative-path guidance like `<current-skill-dir>` instead of hardcoding archived-library or host-specific roots.
 - When an agent's core domain behavior comes from copied skills, keep its `AGENTS.md` thin. Do not restate the copied skill's full workflow, checklist, or output contract in `AGENTS.md`; that creates a second weaker runtime contract that can drift from the copied `SKILL.md`.

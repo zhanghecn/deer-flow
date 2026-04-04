@@ -13,12 +13,12 @@ from src.utils.runtime_context import runtime_context_value
 logger = logging.getLogger(__name__)
 
 
-@tool
+@tool("push_agent_prod", parse_docstring=True)
 def push_agent_prod(
     runtime: ToolRuntime,
     agent_name: str | None = None,
 ) -> Command:
-    """Promote a saved dev agent into `.openagents/agents/prod`.
+    """Promote a saved dev agent into `.openagents/custom/agents/prod`.
 
     Args:
         agent_name: Optional target agent name. Defaults to the current non-`lead_agent` runtime agent.

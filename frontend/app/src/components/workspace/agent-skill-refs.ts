@@ -1,8 +1,17 @@
 import type { AgentSkillRef, AgentSkillRefInput } from "@/core/agents/types";
-import { normalizeSkillScope, type SkillScope } from "@/core/skills/scope";
+import {
+  normalizeSkillScope,
+  normalizeSkillScopeFromSourcePath,
+  type SkillScope,
+} from "@/core/skills/scope";
 import type { Skill } from "@/core/skills/type";
 
-const SKILL_SOURCE_SCOPE_PREFIXES = ["store/prod/", "store/dev/"] as const;
+const SKILL_SOURCE_SCOPE_PREFIXES = [
+  "system/skills/",
+  "custom/skills/",
+  "store/prod/",
+  "store/dev/",
+] as const;
 
 export function skillRefKey(skillRef: AgentSkillRef) {
   return (
@@ -12,29 +21,46 @@ export function skillRefKey(skillRef: AgentSkillRef) {
   );
 }
 
-function isArchivedStoreSkillRef(skillRef: AgentSkillRef) {
-  return (
-    normalizeSkillScope(skillRef.category) != null &&
-    Boolean(skillRef.source_path?.trim())
-  );
+function isArchivedLibrarySkillRef(skillRef: AgentSkillRef) {
+  return Boolean(skillRef.source_path?.trim());
 }
 
 function skillRefNameKey(skillRef: AgentSkillRef) {
   return skillRef.name.trim().toLowerCase();
 }
 
-function removeArchivedStoreVariantsWithSameName(
+function canonicalizeArchivedSkillSourcePath(
+  scope: SkillScope,
+  sourcePath: string,
+) {
+  const normalizedPath = sourcePath.trim().replace(/^\/+|\/+$/g, "");
+  if (scope === "system" && normalizedPath.startsWith("system/")) {
+    const relativePath = normalizedPath.slice("system/".length);
+    return relativePath.startsWith("skills/")
+      ? normalizedPath
+      : `system/skills/${relativePath}`;
+  }
+  if (scope === "custom" && normalizedPath.startsWith("custom/")) {
+    const relativePath = normalizedPath.slice("custom/".length);
+    return relativePath.startsWith("skills/")
+      ? normalizedPath
+      : `custom/skills/${relativePath}`;
+  }
+  return normalizedPath;
+}
+
+function removeArchivedVariantsWithSameName(
   skillRefs: AgentSkillRef[],
   nextRef: AgentSkillRef,
 ) {
-  if (!isArchivedStoreSkillRef(nextRef)) {
+  if (!isArchivedLibrarySkillRef(nextRef)) {
     return skillRefs;
   }
 
   return skillRefs.filter(
     (skillRef) =>
       !(
-        isArchivedStoreSkillRef(skillRef) &&
+        isArchivedLibrarySkillRef(skillRef) &&
         skillRefNameKey(skillRef) === skillRefNameKey(nextRef)
       ),
   );
@@ -43,7 +69,7 @@ function removeArchivedStoreVariantsWithSameName(
 export function createSkillRef(skill: Skill): AgentSkillRef {
   return {
     name: skill.name,
-    category: normalizeSkillCategory(skill.category),
+    category: normalizeSkillCategory(skill.category, skill.source_path),
     source_path: buildSkillSourcePath(skill),
     materialized_path: buildSkillMaterializedPath(skill),
   };
@@ -71,12 +97,15 @@ export function serializeSkillRefForRequest(
 }
 
 export function buildSkillSourcePath(skill: Skill) {
+  const scope = normalizeSkillCategory(skill.category, skill.source_path);
   const sourcePath = skill.source_path?.trim();
   if (sourcePath) {
-    return sourcePath;
+    return canonicalizeArchivedSkillSourcePath(scope, sourcePath);
   }
 
-  const scope = normalizeSkillCategory(skill.category);
+  if (scope === "system" || scope === "custom") {
+    return `${scope}/skills/${skill.name}`;
+  }
   return `${scope}/${skill.name}`;
 }
 
@@ -91,8 +120,13 @@ export function buildSkillMaterializedPath(skill: Skill) {
 
 export function normalizeSkillCategory(
   category: string | null | undefined,
+  sourcePath?: string | null,
 ): SkillScope {
-  return normalizeSkillScope(category) ?? "store/dev";
+  return (
+    normalizeSkillScope(category) ??
+    normalizeSkillScopeFromSourcePath(sourcePath) ??
+    "store/dev"
+  );
 }
 
 export function isSkillRefSelected(
@@ -122,7 +156,7 @@ export function toggleSkillRefSelection(
   }
 
   return [
-    ...removeArchivedStoreVariantsWithSameName(skillRefs, nextRef),
+    ...removeArchivedVariantsWithSameName(skillRefs, nextRef),
     nextRef,
   ];
 }

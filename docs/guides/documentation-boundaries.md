@@ -60,7 +60,8 @@ Audience:
 
 Examples:
 
-- `.openagents/agents/{status}/{name}/AGENTS.md`
+- `.openagents/system/agents/{status}/lead_agent/AGENTS.md`
+- `.openagents/custom/agents/{status}/{name}/AGENTS.md`
 - `.openagents/skills/**/SKILL.md`
 - runtime prompt code such as `backend/agents/src/agents/lead_agent/prompt.py`
 - middleware-enforced tool protocols that shape model behavior

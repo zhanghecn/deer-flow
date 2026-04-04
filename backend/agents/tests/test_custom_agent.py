@@ -179,7 +179,7 @@ class TestLoadAgentConfig:
                 load_agent_config("nonexistent-agent")
 
     def test_load_missing_config_yaml_raises(self, tmp_path):
-        (tmp_path / "agents" / "dev" / "broken-agent").mkdir(parents=True)
+        (tmp_path / "custom" / "agents" / "dev" / "broken-agent").mkdir(parents=True)
 
         with patch("src.config.agents_config.get_paths", return_value=_make_paths(tmp_path)):
             from src.config.agents_config import load_agent_config
@@ -188,7 +188,7 @@ class TestLoadAgentConfig:
                 load_agent_config("broken-agent")
 
     def test_load_config_infers_name_from_dir(self, tmp_path):
-        agent_dir = tmp_path / "agents" / "dev" / "inferred-name"
+        agent_dir = tmp_path / "custom" / "agents" / "dev" / "inferred-name"
         agent_dir.mkdir(parents=True)
         (agent_dir / "config.yaml").write_text("description: My agent\n", encoding="utf-8")
         (agent_dir / "AGENTS.md").write_text("Hello", encoding="utf-8")
@@ -225,7 +225,7 @@ class TestLoadAgentConfig:
         assert cfg.skill_refs[0].materialized_path == "skills/data-analysis"
 
     def test_unknown_fields_are_ignored(self, tmp_path):
-        agent_dir = tmp_path / "agents" / "dev" / "legacy-agent"
+        agent_dir = tmp_path / "custom" / "agents" / "dev" / "legacy-agent"
         agent_dir.mkdir(parents=True)
         (agent_dir / "config.yaml").write_text("name: legacy-agent\nprompt_file: system.md\n", encoding="utf-8")
         (agent_dir / "AGENTS.md").write_text("Agent content", encoding="utf-8")
@@ -251,7 +251,7 @@ class TestLoadAgentsMd:
         assert content == expected
 
     def test_missing_agents_md_returns_none(self, tmp_path):
-        agent_dir = tmp_path / "agents" / "dev" / "no-md"
+        agent_dir = tmp_path / "custom" / "agents" / "dev" / "no-md"
         agent_dir.mkdir(parents=True)
         (agent_dir / "config.yaml").write_text("name: no-md\n", encoding="utf-8")
 
@@ -313,7 +313,7 @@ class TestListCustomAgents:
 
     def test_skips_dirs_without_config_yaml(self, tmp_path):
         _write_agent(tmp_path, "valid-agent", {"name": "valid-agent"})
-        (tmp_path / "agents" / "dev" / "invalid-dir").mkdir(parents=True)
+        (tmp_path / "custom" / "agents" / "dev" / "invalid-dir").mkdir(parents=True)
 
         with patch("src.config.agents_config.get_paths", return_value=_make_paths(tmp_path)):
             from src.config.agents_config import list_custom_agents

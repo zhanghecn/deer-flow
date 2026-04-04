@@ -14,6 +14,8 @@ type FS struct {
 	baseDir string
 }
 
+const builtinLeadAgentName = "lead_agent"
+
 func NewFS(baseDir string) *FS {
 	return &FS{baseDir: baseDir}
 }
@@ -43,14 +45,51 @@ func ResolveBaseDir(baseDir string) string {
 	return filepath.Join(cwd, baseDir)
 }
 
-// AgentDir returns the directory for an agent: {baseDir}/agents/{status}/{name}/
+func isBuiltinAgentName(name string) bool {
+	return strings.EqualFold(strings.TrimSpace(name), builtinLeadAgentName)
+}
+
+func (f *FS) SystemDir() string {
+	return filepath.Join(f.baseDir, "system")
+}
+
+func (f *FS) CustomDir() string {
+	return filepath.Join(f.baseDir, "custom")
+}
+
+func (f *FS) SystemAgentsDir(status string) string {
+	return filepath.Join(f.SystemDir(), "agents", status)
+}
+
+func (f *FS) CustomAgentsDir(status string) string {
+	return filepath.Join(f.CustomDir(), "agents", status)
+}
+
+func (f *FS) SystemAgentDir(name, status string) string {
+	return filepath.Join(f.SystemAgentsDir(status), name)
+}
+
+func (f *FS) CustomAgentDir(name, status string) string {
+	return filepath.Join(f.CustomAgentsDir(status), name)
+}
+
+// AgentDir returns the canonical authored archive directory for an agent.
+//
+// Reserved built-ins live under `system/agents/...`; writable user-authored
+// agents live under `custom/agents/...`.
 func (f *FS) AgentDir(name, status string) string {
-	return filepath.Join(f.baseDir, "agents", status, name)
+	if isBuiltinAgentName(name) {
+		return f.SystemAgentDir(name, status)
+	}
+	return f.CustomAgentDir(name, status)
 }
 
 // AgentConfigRef returns the relative reference path for an agent config manifest.
 func (f *FS) AgentConfigRef(name, status string) string {
-	return filepath.ToSlash(filepath.Join("agents", status, name, "config.yaml"))
+	if isBuiltinAgentName(name) {
+		return filepath.ToSlash(filepath.Join("system", "agents", status, name, "config.yaml"))
+	}
+	return filepath.ToSlash(filepath.Join("custom", "agents", status, name, "config.yaml"))
 }
 
 // AgentSkillsDir returns the directory containing copied skills for an agent.
@@ -78,7 +117,14 @@ func (f *FS) StoreProdSkillsDir() string {
 
 // GlobalSkillDir returns the directory for a global skill.
 func (f *FS) GlobalSkillDir(scope, skillName string) string {
-	return filepath.Join(f.SkillsDir(), filepath.FromSlash(scope), skillName)
+	switch strings.Trim(strings.TrimSpace(scope), "/") {
+	case "system":
+		return filepath.Join(f.SystemDir(), "skills", skillName)
+	case "custom":
+		return filepath.Join(f.CustomDir(), "skills", skillName)
+	default:
+		return filepath.Join(f.SkillsDir(), filepath.FromSlash(scope), skillName)
+	}
 }
 
 // ResolveRef resolves a relative storage reference against the gateway base dir.
@@ -93,6 +139,18 @@ func (f *FS) ResolveRef(ref string) string {
 	}
 	if strings.HasPrefix(clean, skillsPrefix) {
 		return filepath.Join(f.SkillsDir(), strings.TrimPrefix(clean, skillsPrefix))
+	}
+	storePrefix := "store" + string(filepath.Separator)
+	if clean == "store" || strings.HasPrefix(clean, storePrefix) {
+		return filepath.Join(f.SkillsDir(), clean)
+	}
+	systemPrefix := "system" + string(filepath.Separator)
+	if clean == "system" || strings.HasPrefix(clean, systemPrefix) {
+		return filepath.Join(f.baseDir, clean)
+	}
+	customPrefix := "custom" + string(filepath.Separator)
+	if clean == "custom" || strings.HasPrefix(clean, customPrefix) {
+		return filepath.Join(f.baseDir, clean)
 	}
 	return filepath.Join(f.baseDir, clean)
 }

@@ -207,7 +207,7 @@ def test_materialize_agent_definition_does_not_mutate_existing_archive_when_reso
     _write_skill(base_dir, "store/dev", "bootstrap", "bootstrap")
     paths = Paths(base_dir=base_dir, skills_dir=base_dir / "skills")
 
-    existing_agent_dir = paths.agent_dir("contract-agent", "dev")
+    existing_agent_dir = paths.custom_agent_dir("contract-agent", "dev")
     (existing_agent_dir / "skills" / "bootstrap").mkdir(parents=True, exist_ok=True)
     (existing_agent_dir / "AGENTS.md").write_text("# Original Agent", encoding="utf-8")
     (existing_agent_dir / "skills" / "bootstrap" / "SKILL.md").write_text(

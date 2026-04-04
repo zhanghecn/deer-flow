@@ -196,7 +196,8 @@ Internet
   - `migrations/`
   - PostgreSQL 中的 `models` 等表
 - 运行时归档数据
-  - `.openagents/agents`
+  - `.openagents/system`
+  - `.openagents/custom`
   - `.openagents/skills`
   - `.openagents/threads`
   - `.openagents/knowledge`

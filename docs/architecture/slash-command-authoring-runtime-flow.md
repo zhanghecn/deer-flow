@@ -132,7 +132,8 @@
 │ Archive / Runtime                        │
 │                                          │
 │ .openagents/commands/common/*.md         │
-│ .openagents/agents/{dev,prod}/...        │
+│ .openagents/system/agents/{dev,prod}/... │
+│ .openagents/custom/agents/{dev,prod}/... │
 │ .openagents/system/skills/...            │
 │ .openagents/custom/skills/...            │
 │ /mnt/user-data/agents/...                │
@@ -167,7 +168,7 @@
 
 1. archived skill 存在于 `.openagents/system/skills/...` 或 `.openagents/custom/skills/...`
 2. `setup_agent(..., skills=[{source_path: "..."}])` 把 skill materialize 到 agent archive
-3. agent archive copied skill 位于 `.openagents/agents/{status}/{name}/skills/...`
+3. agent archive copied skill 位于 `.openagents/system/agents/...` 或 `.openagents/custom/agents/...`
 4. runtime 只读 `/mnt/user-data/agents/{status}/{name}/skills/...`
 5. `apply_prompt_template()` 只暴露 attached skill 的名称、描述和 copied `SKILL.md` 虚拟路径
 6. 模型自己用 `read_file` 读取 copied `SKILL.md` 并执行

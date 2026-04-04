@@ -134,16 +134,6 @@ def _existing_skill_sources(*, skill_name: PurePosixPath, paths: Paths) -> tuple
         if directory.is_dir():
             sources.append(label)
 
-    # Keep legacy store conflict checks during the authored-root migration so we
-    # do not silently duplicate a skill that still exists only in the old tree.
-    legacy_locations = (
-        ("store/dev", paths.store_dev_skills_dir / relative_path),
-        ("store/prod", paths.store_prod_skills_dir / relative_path),
-    )
-    for label, directory in legacy_locations:
-        if directory.is_dir():
-            sources.append(label)
-
     return tuple(sources)
 
 

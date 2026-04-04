@@ -65,6 +65,38 @@ describe("agent skill refs", () => {
     });
   });
 
+  it("derives canonical materialized paths from system skill sources", () => {
+    const skill = createSkill({
+      name: "bootstrap",
+      category: "system",
+      source_path: "system/skills/bootstrap",
+    });
+
+    expect(buildSkillMaterializedPath(skill)).toBe("skills/bootstrap");
+  });
+
+  it("normalizes non-canonical system skill sources before save", () => {
+    const skill = createSkill({
+      name: "bootstrap",
+      category: "system",
+      source_path: "system/bootstrap",
+    });
+
+    expect(buildSkillSourcePath(skill)).toBe("system/skills/bootstrap");
+    expect(buildSkillMaterializedPath(skill)).toBe("skills/bootstrap");
+  });
+
+  it("builds canonical source paths for system skills without explicit source_path", () => {
+    const skill = createSkill({
+      name: "bootstrap",
+      category: "system",
+      source_path: undefined,
+    });
+
+    expect(buildSkillSourcePath(skill)).toBe("system/skills/bootstrap");
+    expect(buildSkillMaterializedPath(skill)).toBe("skills/bootstrap");
+  });
+
   it("strips derived fields from sourced skill requests", () => {
     const skillRef: AgentSkillRef = {
       name: "vercel-deploy",
@@ -117,6 +149,34 @@ describe("agent skill refs", () => {
         category: "store/prod",
         source_path: "store/prod/frontend-dev",
         materialized_path: "skills/frontend-dev",
+      },
+    ]);
+  });
+
+  it("replaces same-name archived variants across canonical scopes", () => {
+    const selected = toggleSkillRefSelection(
+      [
+        {
+          name: "china-lawyer-analyst",
+          category: "system",
+          source_path: "system/skills/china-lawyer-analyst",
+          materialized_path: "skills/china-lawyer-analyst",
+        },
+      ],
+      {
+        name: "china-lawyer-analyst",
+        category: "store/dev",
+        source_path: "store/dev/china-lawyer-analyst",
+        materialized_path: "skills/china-lawyer-analyst",
+      },
+    );
+
+    expect(selected).toEqual([
+      {
+        name: "china-lawyer-analyst",
+        category: "store/dev",
+        source_path: "store/dev/china-lawyer-analyst",
+        materialized_path: "skills/china-lawyer-analyst",
       },
     ]);
   });

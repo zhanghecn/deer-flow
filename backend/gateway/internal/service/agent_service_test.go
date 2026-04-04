@@ -50,7 +50,7 @@ func TestAgentServiceCreateCopiesResolvedSkillIntoAgentDir(t *testing.T) {
 		t.Fatalf("agent.Skills[0].Category = %q, want %q", agent.Skills[0].Category, "store/dev")
 	}
 
-	copiedSkill := filepath.Join(baseDir, "agents", "dev", "contract-review", "skills", "bootstrap", "SKILL.md")
+	copiedSkill := filepath.Join(baseDir, "custom", "agents", "dev", "contract-review", "skills", "bootstrap", "SKILL.md")
 	if _, err := os.Stat(copiedSkill); err != nil {
 		t.Fatalf("expected copied skill at %s: %v", copiedSkill, err)
 	}
@@ -145,7 +145,7 @@ func TestAgentServiceUpdatePreservesAliasedSkillSourcePath(t *testing.T) {
 		t.Fatalf("agent.Skills[0].MaterializedPath = %q, want %q", got, "skills/vercel-deploy-claimable")
 	}
 
-	copiedSkill := filepath.Join(baseDir, "agents", "prod", "lead_agent", "skills", "vercel-deploy-claimable", "SKILL.md")
+	copiedSkill := filepath.Join(baseDir, "system", "agents", "prod", "lead_agent", "skills", "vercel-deploy-claimable", "SKILL.md")
 	if _, err := os.Stat(copiedSkill); err != nil {
 		t.Fatalf("expected copied aliased skill at %s: %v", copiedSkill, err)
 	}
@@ -245,7 +245,7 @@ func TestAgentServiceCreatePersistsToolNamesAndSubagents(t *testing.T) {
 		t.Fatalf("agent.Subagents = %#v, want persisted custom subagent", agent.Subagents)
 	}
 
-	configBytes, err := os.ReadFile(filepath.Join(baseDir, "agents", "dev", "research-agent", "config.yaml"))
+	configBytes, err := os.ReadFile(filepath.Join(baseDir, "custom", "agents", "dev", "research-agent", "config.yaml"))
 	if err != nil {
 		t.Fatalf("read config: %v", err)
 	}
@@ -253,7 +253,7 @@ func TestAgentServiceCreatePersistsToolNamesAndSubagents(t *testing.T) {
 		t.Fatalf("config.yaml missing tool_names: %s", string(configBytes))
 	}
 
-	subagentsBytes, err := os.ReadFile(filepath.Join(baseDir, "agents", "dev", "research-agent", "subagents.yaml"))
+	subagentsBytes, err := os.ReadFile(filepath.Join(baseDir, "custom", "agents", "dev", "research-agent", "subagents.yaml"))
 	if err != nil {
 		t.Fatalf("read subagents: %v", err)
 	}
@@ -354,7 +354,7 @@ func TestAgentServiceUpdatePreservesAgentOwnedSkillRefs(t *testing.T) {
 	t.Parallel()
 
 	baseDir := filepath.Join(t.TempDir(), ".openagents")
-	agentSkillsDir := filepath.Join(baseDir, "agents", "dev", "contract-agent", "skills", "contract-review")
+	agentSkillsDir := filepath.Join(baseDir, "custom", "agents", "dev", "contract-agent", "skills", "contract-review")
 	if err := os.MkdirAll(agentSkillsDir, 0755); err != nil {
 		t.Fatalf("mkdir private skill dir: %v", err)
 	}

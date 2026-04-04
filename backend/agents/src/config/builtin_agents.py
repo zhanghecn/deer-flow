@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 import yaml
 
 from src.config.paths import Paths, get_paths
-from src.config.source_of_truth_migration import ensure_source_of_truth_layout
 from src.skills import load_skills, skill_source_path
 
 if TYPE_CHECKING:
@@ -42,10 +41,6 @@ def _load_config_data(config_path: Path) -> dict[str, object]:
     return dict(loaded)
 
 
-def _legacy_builtin_agent_dir(paths: Paths, *, status: str) -> Path:
-    return paths.agent_dir(LEAD_AGENT_NAME, status)
-
-
 def _default_lead_agent_skill_refs(paths: Paths) -> list["AgentSkillRef"]:
     from src.config.agents_config import AgentSkillRef
 
@@ -53,7 +48,7 @@ def _default_lead_agent_skill_refs(paths: Paths) -> list["AgentSkillRef"]:
     for skill in load_skills(skills_path=paths.skills_dir, use_config=False, enabled_only=False):
         if skill.name not in _DEFAULT_LEAD_AGENT_PROD_SKILL_NAMES:
             continue
-        if skill.category not in {"system", "store/prod"}:
+        if skill.category != "system":
             continue
         prod_skills_by_name.setdefault(skill.name, skill)
 
@@ -144,6 +139,45 @@ def _sanitize_builtin_skill_refs(
     return sanitized_refs, True
 
 
+def _canonicalize_builtin_skill_refs(
+    skill_refs: list["AgentSkillRef"],
+    *,
+    paths: Paths,
+) -> tuple[list["AgentSkillRef"], bool]:
+    from src.config.agents_config import AgentSkillRef
+
+    archived_skills_by_source_path = {
+        skill_source_path(skill): skill
+        for skill in load_skills(skills_path=paths.skills_dir, use_config=False, enabled_only=False)
+        if skill.category == "system"
+    }
+
+    rewritten_refs: list[AgentSkillRef] = []
+    changed = False
+    for skill_ref in skill_refs:
+        source_path = str(skill_ref.source_path or "").strip()
+        if not source_path.startswith(("store/dev/", "store/prod/")):
+            rewritten_refs.append(skill_ref)
+            continue
+
+        relative_path = source_path.split("/", 2)[-1]
+        canonical_source_path = f"system/skills/{relative_path}"
+        canonical_skill = archived_skills_by_source_path.get(canonical_source_path)
+        if canonical_skill is None or canonical_skill.name != skill_ref.name:
+            rewritten_refs.append(skill_ref)
+            continue
+
+        rewritten_refs.append(
+            AgentSkillRef(
+                name=skill_ref.name,
+                source_path=canonical_source_path,
+            )
+        )
+        changed = True
+
+    return rewritten_refs, changed
+
+
 def _copy_builtin_skills(*, paths: Paths, status: str, skill_refs: list["AgentSkillRef"]) -> list[dict[str, str]]:
     from src.config.agent_materialization import materialize_agent_skill_refs
     from src.config.agents_config import serialize_agent_skill_ref
@@ -159,24 +193,18 @@ def _copy_builtin_skills(*, paths: Paths, status: str, skill_refs: list["AgentSk
 
 def _ensure_lead_agent_archive_for_status(*, status: str, paths: Paths) -> None:
     agent_dir = paths.system_agent_dir(LEAD_AGENT_NAME, status)
-    legacy_agent_dir = _legacy_builtin_agent_dir(paths, status=status)
     agent_dir.mkdir(parents=True, exist_ok=True)
 
     agents_md_path = agent_dir / "AGENTS.md"
-    legacy_agents_md_path = legacy_agent_dir / "AGENTS.md"
     builtin_agents_md = _BUILTIN_LEAD_AGENT_AGENTS_MD.read_text(encoding="utf-8")
     # Seed the built-in prompt once, then treat the archived copy as the
     # editable source of truth. This keeps the generic system prompt in code
     # while letting lead_agent-specific instructions live under `.openagents`.
     if not agents_md_path.exists():
-        if legacy_agents_md_path.exists():
-            agents_md_path.write_text(legacy_agents_md_path.read_text(encoding="utf-8"), encoding="utf-8")
-        else:
-            agents_md_path.write_text(builtin_agents_md, encoding="utf-8")
+        agents_md_path.write_text(builtin_agents_md, encoding="utf-8")
 
     config_path = agent_dir / "config.yaml"
-    source_config_path = config_path if config_path.exists() else legacy_agent_dir / "config.yaml"
-    config_data = _load_config_data(source_config_path)
+    config_data = _load_config_data(config_path)
     had_legacy_skills_mode = config_data.pop("skills_mode", None) is not None
 
     changed = had_legacy_skills_mode
@@ -199,12 +227,16 @@ def _ensure_lead_agent_archive_for_status(*, status: str, paths: Paths) -> None:
         paths=paths,
         had_legacy_skills_mode=had_legacy_skills_mode,
     )
+    selected_skill_refs, canonicalized = _canonicalize_builtin_skill_refs(
+        selected_skill_refs,
+        paths=paths,
+    )
     selected_skill_refs, sanitized = _sanitize_builtin_skill_refs(
         selected_skill_refs,
         status=status,
         paths=paths,
     )
-    changed = changed or sanitized
+    changed = changed or canonicalized or sanitized
 
     skill_refs = _copy_builtin_skills(
         paths=paths,
@@ -233,8 +265,6 @@ def ensure_builtin_agent_archive(
         return
 
     paths = paths or get_paths()
-    if hasattr(paths, "base_dir"):
-        ensure_source_of_truth_layout(paths=paths, log=logger)
     cache_key = (effective_name, status)
 
     if cache_key in _ENSURED_ARCHIVES:

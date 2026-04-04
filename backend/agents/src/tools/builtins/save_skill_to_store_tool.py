@@ -15,7 +15,7 @@ from src.tools.builtins.authoring_persistence import (
 logger = logging.getLogger(__name__)
 
 
-@tool
+@tool("save_skill_to_store", parse_docstring=True)
 def save_skill_to_store(
     runtime: ToolRuntime,
     skill_name: str,
@@ -24,8 +24,9 @@ def save_skill_to_store(
     """Persist a drafted skill into `.openagents/custom/skills`.
 
     Args:
-        skill_name: Skill name or relative path under the skill store.
-        source_path: Optional explicit runtime or absolute source directory path.
+        skill_name: Required skill name or relative path under the skill store.
+        source_path: Optional explicit runtime or absolute source directory path. When
+            omitted, the runtime draft directory for `skill_name` is used.
     """
 
     resolved_skill_name = str(skill_name or "").strip()
