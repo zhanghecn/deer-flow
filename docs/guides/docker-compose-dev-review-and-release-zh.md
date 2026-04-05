@@ -12,6 +12,12 @@
 
 `docker/docker-compose-dev.yaml` 是一份开发联调编排文件，不应该直接当正式发布清单。
 
+当前仓库默认的生产式验证入口是：
+
+- 编排文件：`docker/docker-compose-prod.yaml`
+- 浏览器主入口：`http://127.0.0.1:8083`
+- 这套栈同时用于“接近生产的本地/服务器验证”和“当前代码是否真的已经进入容器”的确认
+
 它的主要目标是：
 
 - 本地一键拉起前端、Gateway、LangGraph、Nginx
@@ -25,6 +31,73 @@
 - 配置边界清晰
 - 数据持久化明确
 - 更新、回滚、迁移流程可重复
+
+## 当前默认的生产式 Docker 测试约定
+
+以后仓库内默认按下面这套方式理解“用 Docker 测试生产环境”，避免再反复口头补充：
+
+- 从仓库根目录执行命令
+- 使用唯一编排文件 `docker/docker-compose-prod.yaml`
+- 浏览器验证入口默认看 `http://127.0.0.1:8083`
+- 这套验证优先于旧的开发热更新栈；如果要确认“当前代码”是否生效，先看这套 prod compose 栈
+
+### 常用命令
+
+1. 校验 Compose 配置是否可解析
+
+```bash
+docker compose -f docker/docker-compose-prod.yaml config
+```
+
+2. 构建并启动整套生产式验证栈
+
+```bash
+docker compose -f docker/docker-compose-prod.yaml up -d --build
+```
+
+3. 查看容器状态
+
+```bash
+docker compose -f docker/docker-compose-prod.yaml ps
+```
+
+4. 查看关键服务日志
+
+```bash
+docker compose -f docker/docker-compose-prod.yaml logs -f nginx gateway langgraph onlyoffice sandbox-aio
+```
+
+5. 停止并移除这套验证栈
+
+```bash
+docker compose -f docker/docker-compose-prod.yaml down
+```
+
+### 建议的最小验证顺序
+
+1. 先执行 `docker compose -f docker/docker-compose-prod.yaml config`
+2. 再执行 `docker compose -f docker/docker-compose-prod.yaml up -d --build`
+3. 用 `docker compose -f docker/docker-compose-prod.yaml ps` 确认 `gateway`、`langgraph`、`onlyoffice`、`sandbox-aio`、`nginx` 都已启动
+4. 浏览器打开 `http://127.0.0.1:8083`
+5. 如需排查，优先看 `gateway` 与 `langgraph` 日志，再看 `nginx`、`onlyoffice`、`sandbox-aio`
+
+### 端口约定
+
+- `8083`
+  - 默认用户侧主入口
+  - 生产式页面验证、文件预览、知识库引用跳转、agent 交互等都优先从这里确认
+- `8081`
+  - 当前也由 `nginx` 暴露
+  - 只在明确需要时再用，不作为默认“网页入口”
+
+### 什么时候必须用这套栈
+
+下列情况不要只看长期运行的开发服务，而应优先用这套 compose prod 栈重新验证：
+
+- 你怀疑服务器或本地页面还在跑旧代码
+- 你修改了 `gateway` / `langgraph` / `nginx` / `onlyoffice` / `sandbox-aio` 联动行为
+- 你要确认文件预览、ONLYOFFICE、知识库引用、反向代理、容器内路径挂载是否正常
+- 你要模拟真实发布后的容器运行方式，而不是源码热更新方式
 
 ## 当前文件的定位
 
