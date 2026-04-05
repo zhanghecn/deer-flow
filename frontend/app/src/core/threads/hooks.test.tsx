@@ -1,4 +1,4 @@
-import type { Message } from "@langchain/langgraph-sdk";
+import type { Message, ThreadState } from "@langchain/langgraph-sdk";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import React from "react";
@@ -19,7 +19,7 @@ import type { AgentThread, AgentThreadState } from "./types";
 type MockThreadState = {
   values: AgentThreadState;
   messages: Message[];
-  history: Array<{ values: AgentThreadState }>;
+  history: ThreadState<AgentThreadState>[];
   error: unknown;
   interrupt: undefined;
   isLoading: boolean;
@@ -289,6 +289,8 @@ describe("useThreadStream", () => {
   });
 
   it("surfaces stream errors through a toast once per distinct message", async () => {
+    window.sessionStorage.setItem("openagents:stream-owner:thread-1", "1");
+
     renderHook(
       () =>
         useThreadStream({
@@ -319,6 +321,47 @@ describe("useThreadStream", () => {
     });
 
     expect(toastError).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not replay the last persisted run error when reopening a thread", async () => {
+    streamState = makeThreadState({
+      error: new Error("Connection error"),
+      history: [
+        {
+          values: {
+            title: "Thread",
+            messages: [
+              {
+                type: "human",
+                id: "human-1",
+                content: "hello",
+              },
+            ],
+            artifacts: [],
+          },
+          tasks: [{ error: "Connection error" }],
+        } as unknown as ThreadState<AgentThreadState>,
+      ],
+    });
+
+    renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(toastError).not.toHaveBeenCalled();
   });
 
   it("surfaces submit failures to the user", async () => {

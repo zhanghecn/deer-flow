@@ -802,6 +802,39 @@ function extractLatestContextWindow(
   return undefined;
 }
 
+function extractLatestPersistedTaskError(
+  history: unknown,
+): unknown | undefined {
+  if (!Array.isArray(history)) {
+    return undefined;
+  }
+
+  for (const item of history) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+
+    const tasks = (item as { tasks?: unknown }).tasks;
+    if (!Array.isArray(tasks) || tasks.length === 0) {
+      continue;
+    }
+
+    for (let index = tasks.length - 1; index >= 0; index -= 1) {
+      const task = tasks[index];
+      if (!task || typeof task !== "object") {
+        continue;
+      }
+
+      const error = (task as { error?: unknown }).error;
+      if (error != null) {
+        return error;
+      }
+    }
+  }
+
+  return undefined;
+}
+
 function buildPassthroughThreadHistory<
   StateType extends Record<string, unknown>,
 >(): {
@@ -1148,6 +1181,13 @@ export function useThreadStream({
   const joinStreamRef = useRef(thread.joinStream);
   const threadLoadingRef = useRef(thread.isLoading);
   const isThreadReady = !threadId || streamThreadId === threadId;
+  const latestPersistedTaskError = useMemo(() => {
+    if (!historyEnabled) {
+      return undefined;
+    }
+
+    return extractLatestPersistedTaskError(getThreadHistorySnapshot(thread));
+  }, [historyEnabled, thread]);
 
   joinStreamRef.current = thread.joinStream;
   threadLoadingRef.current = thread.isLoading;
@@ -1167,8 +1207,21 @@ export function useThreadStream({
       return;
     }
 
+    // Reopening a thread rehydrates the last persisted run error before this
+    // browser owns any active stream. Suppress that replay so only failures
+    // from runs started in this tab raise a toast.
+    if (
+      threadId &&
+      !hasLocalActiveRunOwnership(threadId) &&
+      latestPersistedTaskError != null &&
+      normalizeThreadError(latestPersistedTaskError) ===
+        normalizeThreadError(thread.error)
+    ) {
+      return;
+    }
+
     notifyThreadError(thread.error);
-  }, [notifyThreadError, thread.error]);
+  }, [latestPersistedTaskError, notifyThreadError, thread.error, threadId]);
 
   useEffect(() => {
     if (!thread.isLoading) {
