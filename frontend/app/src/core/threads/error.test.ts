@@ -24,6 +24,18 @@ describe("normalizeThreadError", () => {
     ).toBe("Temporary upstream failure");
   });
 
+  it("unwraps wrapped provider errors into readable messages", () => {
+    expect(
+      normalizeThreadError("APIConnectionError('Connection error.')"),
+    ).toBe("Connection error.");
+
+    expect(
+      normalizeThreadError(
+        "RateLimitError('Error code: 429 - {\\'error\\': {\\'message\\': \"We\\'re receiving too many requests right now.\"}, \\'type\\': \\'error\\'}')",
+      ),
+    ).toBe("429 We're receiving too many requests right now.");
+  });
+
   it("falls back to a generic message", () => {
     expect(normalizeThreadError(null)).toBe(
       "Something went wrong while running the conversation.",

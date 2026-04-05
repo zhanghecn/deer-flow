@@ -835,6 +835,17 @@ function extractLatestPersistedTaskError(
   return undefined;
 }
 
+function isTransientConnectionReplay(error: unknown): boolean {
+  return /connection error/i.test(normalizeThreadError(error));
+}
+
+function buildThreadErrorToastId(
+  threadId: string | null | undefined,
+  message: string,
+) {
+  return `thread-error:${threadId ?? "unknown"}:${message}`;
+}
+
 function buildPassthroughThreadHistory<
   StateType extends Record<string, unknown>,
 >(): {
@@ -1069,17 +1080,23 @@ export function useThreadStream({
   const notifyThreadError = useCallback(
     (error: unknown) => {
       const message = normalizeThreadError(error);
+      const activeThreadId = streamThreadId ?? threadId;
       setRetryStatus(null);
       if (lastErrorMessageRef.current === message) {
         return message;
       }
 
       lastErrorMessageRef.current = message;
-      toast.error(message);
+      // Reopened threads can trigger the same persisted failure through more
+      // than one hydration path. Keep a stable toast id per thread/message so
+      // the UI updates the existing notification instead of stacking clones.
+      toast.error(message, {
+        id: buildThreadErrorToastId(activeThreadId, message),
+      });
       onError?.(message);
       return message;
     },
-    [onError],
+    [onError, streamThreadId, threadId],
   );
   const finalizeRecoveredRun = useCallback(
     (state: AgentThreadState, resolvedThreadId?: string | null) => {
@@ -1202,18 +1219,38 @@ export function useThreadStream({
   }, [threadId]);
 
   useEffect(() => {
-    if (!thread.error) {
-      lastErrorMessageRef.current = null;
+    const shouldReplayPersistedError =
+      threadId != null &&
+      !hasLocalActiveRunOwnership(threadId) &&
+      latestPersistedTaskError != null &&
+      !isTransientConnectionReplay(latestPersistedTaskError);
+
+    if (!thread.error && !shouldReplayPersistedError) {
+      // Reopened threads can briefly drop hydrated task errors while history is
+      // still loading. Keep the last surfaced message until hydration settles
+      // so the same persisted failure is not replayed twice.
+      if (!thread.isLoading) {
+        lastErrorMessageRef.current = null;
+      }
+      return;
+    }
+
+    if (!thread.error && shouldReplayPersistedError) {
+      // LangGraph state recovery can surface failed task history without
+      // rehydrating `thread.error`. Replay actionable persisted failures so
+      // reopened threads do not look idle after a model-side failure.
+      notifyThreadError(latestPersistedTaskError);
       return;
     }
 
     // Reopening a thread rehydrates the last persisted run error before this
-    // browser owns any active stream. Suppress that replay so only failures
-    // from runs started in this tab raise a toast.
+    // browser owns any active stream. Only suppress stale transport failures
+    // from old runs; actionable errors such as 429s should still surface.
     if (
       threadId &&
       !hasLocalActiveRunOwnership(threadId) &&
       latestPersistedTaskError != null &&
+      isTransientConnectionReplay(latestPersistedTaskError) &&
       normalizeThreadError(latestPersistedTaskError) ===
         normalizeThreadError(thread.error)
     ) {
@@ -1221,7 +1258,13 @@ export function useThreadStream({
     }
 
     notifyThreadError(thread.error);
-  }, [latestPersistedTaskError, notifyThreadError, thread.error, threadId]);
+  }, [
+    latestPersistedTaskError,
+    notifyThreadError,
+    thread.error,
+    thread.isLoading,
+    threadId,
+  ]);
 
   useEffect(() => {
     if (!thread.isLoading) {

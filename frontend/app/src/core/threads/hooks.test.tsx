@@ -311,7 +311,12 @@ describe("useThreadStream", () => {
     });
 
     await waitFor(() => {
-      expect(toastError).toHaveBeenCalledWith("Connection error");
+      expect(toastError).toHaveBeenCalledWith(
+        "Connection error",
+        expect.objectContaining({
+          id: expect.stringContaining("thread-1"),
+        }),
+      );
     });
 
     act(() => {
@@ -325,7 +330,7 @@ describe("useThreadStream", () => {
 
   it("does not replay the last persisted run error when reopening a thread", async () => {
     streamState = makeThreadState({
-      error: new Error("Connection error"),
+      error: "APIConnectionError('Connection error.')",
       history: [
         {
           values: {
@@ -339,7 +344,7 @@ describe("useThreadStream", () => {
             ],
             artifacts: [],
           },
-          tasks: [{ error: "Connection error" }],
+          tasks: [{ error: "APIConnectionError('Connection error.')" }],
         } as unknown as ThreadState<AgentThreadState>,
       ],
     });
@@ -362,6 +367,137 @@ describe("useThreadStream", () => {
     });
 
     expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("replays persisted actionable errors when reopening a thread", async () => {
+    const rateLimitError =
+      "RateLimitError('Error code: 429 - {\\'error\\': {\\'message\\': \"We\\'re receiving too many requests right now.\"}, \\'type\\': \\'error\\'}')";
+
+    streamState = makeThreadState({
+      history: [
+        {
+          values: {
+            title: "Thread",
+            messages: [
+              {
+                type: "human",
+                id: "human-1",
+                content: "hello",
+              },
+            ],
+            artifacts: [],
+          },
+          tasks: [
+            {
+              error: rateLimitError,
+            },
+          ],
+        } as unknown as ThreadState<AgentThreadState>,
+      ],
+    });
+
+    renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(toastError).toHaveBeenCalledWith(
+      "429 We're receiving too many requests right now.",
+      expect.objectContaining({
+        id: expect.stringContaining("thread-1"),
+      }),
+    );
+  });
+
+  it("does not replay the same persisted actionable error twice while hydration is loading", async () => {
+    const rateLimitError =
+      "RateLimitError('Error code: 429 - {\\'error\\': {\\'message\\': \"We\\'re receiving too many requests right now.\"}, \\'type\\': \\'error\\'}')";
+
+    streamState = makeThreadState({
+      isLoading: true,
+    });
+
+    renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    act(() => {
+      emitStream({
+        isLoading: true,
+        history: [
+          {
+            values: {
+              title: "Thread",
+              messages: [
+                {
+                  type: "human",
+                  id: "human-1",
+                  content: "hello",
+                },
+              ],
+              artifacts: [],
+            },
+            tasks: [{ error: rateLimitError }],
+          } as unknown as ThreadState<AgentThreadState>,
+        ],
+      });
+    });
+
+    await waitFor(() => {
+      expect(toastError).toHaveBeenCalledTimes(1);
+    });
+
+    act(() => {
+      emitStream({
+        isLoading: true,
+        history: [],
+      });
+    });
+
+    act(() => {
+      emitStream({
+        isLoading: true,
+        history: [
+          {
+            values: {
+              title: "Thread",
+              messages: [
+                {
+                  type: "human",
+                  id: "human-1",
+                  content: "hello",
+                },
+              ],
+              artifacts: [],
+            },
+            tasks: [{ error: rateLimitError }],
+          } as unknown as ThreadState<AgentThreadState>,
+        ],
+      });
+    });
+
+    expect(toastError).toHaveBeenCalledTimes(1);
   });
 
   it("surfaces submit failures to the user", async () => {
@@ -393,7 +529,12 @@ describe("useThreadStream", () => {
       );
     });
 
-    expect(toastError).toHaveBeenCalledWith("429 Too Many Requests");
+    expect(toastError).toHaveBeenCalledWith(
+      "429 Too Many Requests",
+      expect.objectContaining({
+        id: expect.stringContaining("thread-1"),
+      }),
+    );
   });
 
   it("tracks retry progress from custom stream events and clears it when completed", async () => {

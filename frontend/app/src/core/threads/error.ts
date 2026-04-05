@@ -1,6 +1,22 @@
 const DEFAULT_THREAD_ERROR =
   "Something went wrong while running the conversation.";
 
+function parsePseudoJsonErrorMessage(input: string) {
+  const value = input.trim();
+  for (const key of ["message", "error", "detail"]) {
+    const match = new RegExp(
+      `['"]${key}['"]\\s*:\\s*(["'])([\\s\\S]*?)\\1`,
+      "i",
+    ).exec(value);
+    const candidate = match?.[2]?.trim();
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
 function parseJsonErrorMessage(input: string) {
   const value = input.trim();
   if (!value.startsWith("{") || !value.endsWith("}")) {
@@ -20,6 +36,42 @@ function parseJsonErrorMessage(input: string) {
   }
 
   return null;
+}
+
+function unwrapErrorWrapper(input: string) {
+  const match = /^([A-Za-z_][\w.]*)\((['"])([\s\S]*)\2\)$/.exec(input.trim());
+  if (!match) {
+    return null;
+  }
+
+  return match[3]
+    ?.replace(/\\'/g, "'")
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, "\\")
+    .trim();
+}
+
+function normalizeStructuredErrorMessage(input: string) {
+  const match = /^(?:HTTP|Error code:)\s*(\d+)\s*[:\-]\s*(.+)$/i.exec(
+    input.trim(),
+  );
+  if (!match) {
+    return null;
+  }
+
+  const statusCode = match[1] ?? "";
+  const rawBody = match[2] ?? "";
+  const parsedBodyMessage =
+    parseJsonErrorMessage(rawBody) ?? parsePseudoJsonErrorMessage(rawBody);
+  if (!parsedBodyMessage) {
+    return input;
+  }
+
+  if (parsedBodyMessage.startsWith(statusCode)) {
+    return parsedBodyMessage;
+  }
+
+  return `${statusCode} ${parsedBodyMessage}`;
 }
 
 function extractErrorMessage(error: unknown) {
@@ -50,21 +102,15 @@ export function normalizeThreadError(error: unknown) {
     return DEFAULT_THREAD_ERROR;
   }
 
-  const httpMatch = /^HTTP\s+(\d+):\s*(.+)$/i.exec(message);
-  if (!httpMatch) {
-    return parseJsonErrorMessage(message) ?? message;
+  const unwrapped = unwrapErrorWrapper(message) ?? message;
+  const structuredMessage = normalizeStructuredErrorMessage(unwrapped);
+  if (structuredMessage) {
+    return structuredMessage;
   }
 
-  const statusCode = httpMatch[1] ?? "";
-  const rawBody = httpMatch[2] ?? "";
-  const parsedBodyMessage = parseJsonErrorMessage(rawBody);
-  if (!parsedBodyMessage) {
-    return message;
-  }
-
-  if (parsedBodyMessage.startsWith(statusCode)) {
-    return parsedBodyMessage;
-  }
-
-  return `${statusCode} ${parsedBodyMessage}`;
+  return (
+    parseJsonErrorMessage(unwrapped) ??
+    parsePseudoJsonErrorMessage(unwrapped) ??
+    unwrapped
+  );
 }
