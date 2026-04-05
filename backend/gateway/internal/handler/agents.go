@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -20,10 +21,73 @@ type AgentHandler struct {
 	svc       *service.AgentService
 	fs        *storage.FS
 	tokenRepo *repository.APITokenRepo
+	userRepo  *repository.UserRepo
 }
 
-func NewAgentHandler(svc *service.AgentService, fs *storage.FS, tokenRepo *repository.APITokenRepo) *AgentHandler {
-	return &AgentHandler{svc: svc, fs: fs, tokenRepo: tokenRepo}
+const manageAgentForbiddenDetail = "you do not have permission to manage this agent"
+
+func NewAgentHandler(
+	svc *service.AgentService,
+	fs *storage.FS,
+	tokenRepo *repository.APITokenRepo,
+	userRepo *repository.UserRepo,
+) *AgentHandler {
+	return &AgentHandler{svc: svc, fs: fs, tokenRepo: tokenRepo, userRepo: userRepo}
+}
+
+func canManageAgent(c *gin.Context, agent *model.Agent) bool {
+	if agent == nil {
+		return false
+	}
+	if middleware.GetRole(c) == "admin" {
+		return true
+	}
+
+	ownerUserID := strings.TrimSpace(agent.OwnerUserID)
+	// Older custom agents have no persisted owner yet. Keep them manageable by
+	// all authenticated users rather than locking them behind an unknown owner.
+	if ownerUserID == "" {
+		return true
+	}
+
+	userID := middleware.GetUserID(c)
+	return userID != uuid.Nil && userID.String() == ownerUserID
+}
+
+func (h *AgentHandler) decorateAgentAccess(c *gin.Context, agent *model.Agent) *model.Agent {
+	if agent == nil {
+		return nil
+	}
+	decorated := *agent
+	decorated.CanManage = canManageAgent(c, agent)
+	h.decorateAgentOwnerName(c, &decorated)
+	return &decorated
+}
+
+func (h *AgentHandler) decorateAgentOwnerName(c *gin.Context, agent *model.Agent) {
+	if agent == nil || h.userRepo == nil {
+		return
+	}
+	ownerUserID := strings.TrimSpace(agent.OwnerUserID)
+	if ownerUserID == "" {
+		return
+	}
+	parsedOwnerUserID, err := uuid.Parse(ownerUserID)
+	if err != nil {
+		return
+	}
+	owner, err := h.userRepo.FindByID(c.Request.Context(), parsedOwnerUserID)
+	if err != nil || owner == nil {
+		return
+	}
+	agent.OwnerName = owner.Name
+}
+
+func writeManageAgentForbidden(c *gin.Context) {
+	c.JSON(http.StatusForbidden, model.ErrorResponse{
+		Error:   "forbidden",
+		Details: manageAgentForbiddenDetail,
+	})
 }
 
 func (h *AgentHandler) List(c *gin.Context) {
@@ -35,6 +99,10 @@ func (h *AgentHandler) List(c *gin.Context) {
 	}
 	if agents == nil {
 		agents = []model.Agent{}
+	}
+	for i := range agents {
+		agents[i].CanManage = canManageAgent(c, &agents[i])
+		h.decorateAgentOwnerName(c, &agents[i])
 	}
 	c.JSON(http.StatusOK, gin.H{"agents": agents})
 }
@@ -60,7 +128,7 @@ func (h *AgentHandler) Get(c *gin.Context) {
 		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "agent not found"})
 		return
 	}
-	c.JSON(http.StatusOK, agent)
+	c.JSON(http.StatusOK, h.decorateAgentAccess(c, agent))
 }
 
 func (h *AgentHandler) Create(c *gin.Context) {
@@ -76,7 +144,7 @@ func (h *AgentHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusConflict, model.ErrorResponse{Error: err.Error()})
 		return
 	}
-	c.JSON(http.StatusCreated, agent)
+	c.JSON(http.StatusCreated, h.decorateAgentAccess(c, agent))
 }
 
 func (h *AgentHandler) Update(c *gin.Context) {
@@ -88,17 +156,56 @@ func (h *AgentHandler) Update(c *gin.Context) {
 		return
 	}
 
+	existing, err := agentfs.LoadAgent(h.fs, name, status, false)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
+		return
+	}
+	if existing == nil {
+		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: fmt.Sprintf("agent %q (%s) not found", name, status)})
+		return
+	}
+	if !canManageAgent(c, existing) {
+		writeManageAgentForbidden(c)
+		return
+	}
+
 	agent, err := h.svc.Update(c.Request.Context(), name, status, req)
 	if err != nil {
 		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, agent)
+	c.JSON(http.StatusOK, h.decorateAgentAccess(c, agent))
 }
 
 func (h *AgentHandler) Delete(c *gin.Context) {
 	name := c.Param("name")
 	status := c.Query("status")
+	targetStatuses := []string{"dev", "prod"}
+	if trimmedStatus := strings.TrimSpace(status); trimmedStatus != "" {
+		targetStatuses = []string{trimmedStatus}
+	}
+
+	found := false
+	for _, item := range targetStatuses {
+		agent, err := agentfs.LoadAgent(h.fs, name, item, false)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
+			return
+		}
+		if agent == nil {
+			continue
+		}
+		found = true
+		if !canManageAgent(c, agent) {
+			writeManageAgentForbidden(c)
+			return
+		}
+	}
+	if !found {
+		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: fmt.Sprintf("agent %q not found", name)})
+		return
+	}
 	if err := agentfs.DeleteAgent(h.fs, name, status); err != nil {
 		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: err.Error()})
 		return
@@ -108,12 +215,67 @@ func (h *AgentHandler) Delete(c *gin.Context) {
 
 func (h *AgentHandler) Publish(c *gin.Context) {
 	name := c.Param("name")
+	devAgent, err := agentfs.LoadAgent(h.fs, name, "dev", false)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
+		return
+	}
+	if devAgent == nil {
+		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "agent not found"})
+		return
+	}
+	if !canManageAgent(c, devAgent) {
+		writeManageAgentForbidden(c)
+		return
+	}
+
 	agent, err := agentfs.PublishAgent(h.fs, name)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, agent)
+	c.JSON(http.StatusOK, h.decorateAgentAccess(c, agent))
+}
+
+func (h *AgentHandler) Claim(c *gin.Context) {
+	name := c.Param("name")
+	status := c.DefaultQuery("status", "dev")
+
+	existing, err := agentfs.LoadAgent(h.fs, name, status, false)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
+		return
+	}
+	if existing == nil {
+		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "agent not found"})
+		return
+	}
+	if strings.TrimSpace(existing.OwnerUserID) != "" && !canManageAgent(c, existing) {
+		writeManageAgentForbidden(c)
+		return
+	}
+
+	userID := middleware.GetUserID(c)
+	if userID == uuid.Nil {
+		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "missing user"})
+		return
+	}
+	if err := agentfs.SetAgentOwner(h.fs, name, userID.String()); err != nil {
+		switch {
+		case errors.Is(err, agentfs.ErrAgentAlreadyOwned):
+			writeManageAgentForbidden(c)
+		default:
+			c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
+		}
+		return
+	}
+
+	claimed, err := agentfs.LoadAgent(h.fs, name, status, true)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, h.decorateAgentAccess(c, claimed))
 }
 
 func (h *AgentHandler) CheckName(c *gin.Context) {
@@ -141,6 +303,10 @@ func (h *AgentHandler) Export(c *gin.Context) {
 		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "agent not found"})
 		return
 	}
+	if !canManageAgent(c, agent) {
+		writeManageAgentForbidden(c)
+		return
+	}
 
 	doc := h.buildExportDocument(c, agent.Name)
 	c.JSON(http.StatusOK, doc)
@@ -151,6 +317,10 @@ func (h *AgentHandler) ExportDemo(c *gin.Context) {
 	agent, err := agentfs.LoadAgent(h.fs, name, "prod", true)
 	if err != nil || agent == nil {
 		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "agent not found"})
+		return
+	}
+	if !canManageAgent(c, agent) {
+		writeManageAgentForbidden(c)
 		return
 	}
 	if h.tokenRepo == nil {

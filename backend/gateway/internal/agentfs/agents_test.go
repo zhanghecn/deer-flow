@@ -1,6 +1,7 @@
 package agentfs
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -152,5 +153,85 @@ func TestLoadAgentDerivesSkillRefMetadataFromSourcePath(t *testing.T) {
 	}
 	if got := agent.Skills[0].MaterializedPath; got != "skills/china-lawyer-analyst" {
 		t.Fatalf("agent.Skills[0].MaterializedPath = %q, want skills/china-lawyer-analyst", got)
+	}
+}
+
+func TestLoadAgentReadsOwnerUserID(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	fsStore := storage.NewFS(baseDir)
+	ownerUserID := "00000000-0000-0000-0000-000000000123"
+	if err := fsStore.WriteAgentFiles("contract-reviewer", "dev", "# Contract Reviewer", map[string]interface{}{
+		"name":           "contract-reviewer",
+		"description":    "Contract reviewer",
+		"status":         "dev",
+		"owner_user_id":  ownerUserID,
+		"agents_md_path": "AGENTS.md",
+	}); err != nil {
+		t.Fatalf("write agent files: %v", err)
+	}
+
+	agent, err := LoadAgent(fsStore, "contract-reviewer", "dev", false)
+	if err != nil {
+		t.Fatalf("LoadAgent() error = %v", err)
+	}
+	if agent == nil {
+		t.Fatal("expected agent to load")
+	}
+	if agent.OwnerUserID != ownerUserID {
+		t.Fatalf("agent.OwnerUserID = %q, want %q", agent.OwnerUserID, ownerUserID)
+	}
+}
+
+func TestSetAgentOwnerClaimsExistingArchives(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	fsStore := storage.NewFS(baseDir)
+	for _, status := range []string{"dev", "prod"} {
+		if err := fsStore.WriteAgentFiles("contract-reviewer", status, "# Contract Reviewer", map[string]interface{}{
+			"name":           "contract-reviewer",
+			"description":    "Contract reviewer",
+			"status":         status,
+			"agents_md_path": "AGENTS.md",
+		}); err != nil {
+			t.Fatalf("write %s agent files: %v", status, err)
+		}
+	}
+
+	if err := SetAgentOwner(fsStore, "contract-reviewer", "user-123"); err != nil {
+		t.Fatalf("SetAgentOwner() error = %v", err)
+	}
+
+	for _, status := range []string{"dev", "prod"} {
+		agent, err := LoadAgent(fsStore, "contract-reviewer", status, false)
+		if err != nil {
+			t.Fatalf("LoadAgent(%s) error = %v", status, err)
+		}
+		if agent.OwnerUserID != "user-123" {
+			t.Fatalf("%s agent.OwnerUserID = %q, want %q", status, agent.OwnerUserID, "user-123")
+		}
+	}
+}
+
+func TestSetAgentOwnerRejectsDifferentExistingOwner(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	fsStore := storage.NewFS(baseDir)
+	if err := fsStore.WriteAgentFiles("contract-reviewer", "dev", "# Contract Reviewer", map[string]interface{}{
+		"name":           "contract-reviewer",
+		"description":    "Contract reviewer",
+		"status":         "dev",
+		"owner_user_id":  "owner-a",
+		"agents_md_path": "AGENTS.md",
+	}); err != nil {
+		t.Fatalf("write agent files: %v", err)
+	}
+
+	err := SetAgentOwner(fsStore, "contract-reviewer", "owner-b")
+	if !errors.Is(err, ErrAgentAlreadyOwned) {
+		t.Fatalf("SetAgentOwner() error = %v, want ErrAgentAlreadyOwned", err)
 	}
 }

@@ -82,21 +82,21 @@ func skillScopeRoots(fsStore *storage.FS, status string) map[string]string {
 	switch strings.TrimSpace(status) {
 	case "dev":
 		return map[string]string{
-			"system":     fsStore.GlobalSkillDir("system", ""),
-			"custom":     fsStore.GlobalSkillDir("custom", ""),
+			"system":     fsStore.SystemSkillsDir(),
+			"custom":     fsStore.CustomSkillsDir(),
 			"store/dev":  fsStore.StoreDevSkillsDir(),
 			"store/prod": fsStore.StoreProdSkillsDir(),
 		}
 	case "prod":
 		return map[string]string{
-			"system":     fsStore.GlobalSkillDir("system", ""),
-			"custom":     fsStore.GlobalSkillDir("custom", ""),
+			"system":     fsStore.SystemSkillsDir(),
+			"custom":     fsStore.CustomSkillsDir(),
 			"store/prod": fsStore.StoreProdSkillsDir(),
 		}
 	default:
 		return map[string]string{
-			"system":     fsStore.GlobalSkillDir("system", ""),
-			"custom":     fsStore.GlobalSkillDir("custom", ""),
+			"system":     fsStore.SystemSkillsDir(),
+			"custom":     fsStore.CustomSkillsDir(),
 			"store/dev":  fsStore.StoreDevSkillsDir(),
 			"store/prod": fsStore.StoreProdSkillsDir(),
 		}
@@ -300,7 +300,7 @@ func installSkillArchive(fsStore *storage.FS, threadID string, virtualPath strin
 		return "", err
 	}
 
-	targetDir := fsStore.GlobalSkillDir("store/dev", meta.Name)
+	targetDir := fsStore.GlobalSkillDir("custom", meta.Name)
 	if info, err := os.Stat(targetDir); err == nil && info.IsDir() {
 		return "", fmt.Errorf("skill %q already exists", meta.Name)
 	}

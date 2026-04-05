@@ -43,11 +43,7 @@ type AgentSelection = {
 const switcherSectionLabelClassName =
   "text-muted-foreground text-xs font-medium tracking-[0.16em] uppercase";
 
-export function AgentSwitcherPanel({
-  onClose,
-}: {
-  onClose?: () => void;
-}) {
+export function AgentSwitcherPanel({ onClose }: { onClose?: () => void }) {
   const { t } = useI18n();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -79,6 +75,15 @@ export function AgentSwitcherPanel({
     runtimeSelection.agentStatus,
     selectedAgent.statuses,
   );
+  const currentAgentRecord = useMemo(
+    () =>
+      agents.find(
+        (agent) =>
+          agent.name === selectedAgent.name && agent.status === selectedStatus,
+      ) ?? null,
+    [agents, selectedAgent.name, selectedStatus],
+  );
+  const canManageCurrentAgent = currentAgentRecord?.can_manage !== false;
   const currentSelection: AgentSelection = useMemo(
     () => ({
       agentName: selectedAgent.name,
@@ -203,9 +208,7 @@ export function AgentSwitcherPanel({
     <>
       <section>
         <header className="space-y-2">
-          <div className="text-lg font-semibold">
-            {t.agents.switcher.title}
-          </div>
+          <div className="text-lg font-semibold">{t.agents.switcher.title}</div>
           <div className="text-muted-foreground text-sm">
             {t.agents.switcher.description}
           </div>
@@ -255,14 +258,16 @@ export function AgentSwitcherPanel({
                   <ExternalLinkIcon className="size-3.5" />
                   {t.agents.chat}
                 </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleOpenAgentSettings}
-                >
-                  <Settings2Icon className="size-3.5" />
-                  {t.common.settings}
-                </Button>
+                {canManageCurrentAgent && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleOpenAgentSettings}
+                  >
+                    <Settings2Icon className="size-3.5" />
+                    {t.common.settings}
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="outline"
@@ -494,7 +499,6 @@ export function AgentSwitcherPanel({
           </section>
         </div>
       </section>
-
     </>
   );
 }

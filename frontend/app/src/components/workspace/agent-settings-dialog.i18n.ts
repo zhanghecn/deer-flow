@@ -9,6 +9,10 @@ type AgentSettingsDialogText = {
   loading: string;
   loadErrorTitle: string;
   loadErrorDescription: string;
+  readOnlyBadge: string;
+  readOnlyTitle: string;
+  readOnlyDescription: string;
+  readOnlyFooter: string;
   unknownError: string;
   selectArchive: string;
   tabs: {
@@ -169,6 +173,12 @@ const enUS: AgentSettingsDialogText = {
   loadErrorTitle: "Archive unavailable",
   loadErrorDescription:
     "The selected archived agent could not be loaded from the gateway.",
+  readOnlyBadge: "read only",
+  readOnlyTitle: "Management restricted",
+  readOnlyDescription:
+    "You can use this agent, but only its creator or an admin can change archive settings, publish, delete, or export it.",
+  readOnlyFooter:
+    "Save is disabled because you do not have permission to manage this agent.",
   unknownError: "Unknown error",
   selectArchive: "Select an agent archive to configure.",
   tabs: {
@@ -373,6 +383,11 @@ const zhCN: AgentSettingsDialogText = {
   loading: "正在加载归档智能体设置...",
   loadErrorTitle: "归档不可用",
   loadErrorDescription: "无法从网关加载所选的归档智能体。",
+  readOnlyBadge: "只读",
+  readOnlyTitle: "管理受限",
+  readOnlyDescription:
+    "你仍然可以使用这个智能体，但只有创建者或管理员可以修改归档设置、发布、删除或导出它。",
+  readOnlyFooter: "你没有管理这个智能体的权限，因此保存已被禁用。",
   unknownError: "未知错误",
   selectArchive: "请选择一个要配置的智能体归档。",
   tabs: {

@@ -33,12 +33,14 @@ import {
 } from "@/components/ui/dialog";
 import {
   buildWorkspaceAgentSettingsPath,
+  useClaimAgent,
   useDeleteAgent,
   useDownloadAgentReactDemo,
   usePublishAgent,
 } from "@/core/agents";
 import { buildWorkspaceAgentPath } from "@/core/agents";
 import type { Agent } from "@/core/agents";
+import { useAuth } from "@/core/auth/hooks";
 import { useI18n } from "@/core/i18n/hooks";
 interface AgentCardProps {
   agent: Agent;
@@ -59,14 +61,23 @@ function getAgentMemoryBadgeLabel(
 export function AgentCard({ agent }: AgentCardProps) {
   const { t } = useI18n();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const claimAgent = useClaimAgent();
   const deleteAgent = useDeleteAgent();
   const downloadDemoMutation = useDownloadAgentReactDemo();
   const publishAgentMutation = usePublishAgent();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const isProd = agent.status === "prod";
+  const canManage = agent.can_manage !== false;
   const memoryEnabled = agent.memory?.enabled ?? false;
   const memoryLabel = getAgentMemoryBadgeLabel(agent, t);
   const isBuiltinLeadAgent = agent.name === "lead_agent";
+  const isOwnerlessLegacyAgent = !isBuiltinLeadAgent && !agent.owner_user_id;
+  const ownerLabel = isOwnerlessLegacyAgent
+    ? t.agents.legacyOwnerless
+    : agent.owner_user_id === user?.id
+      ? t.agents.ownedByYou
+      : t.agents.ownedBy(agent.owner_name ?? agent.owner_user_id ?? "");
   const launchPath = buildWorkspaceAgentPath({
     agentName: agent.name,
     agentStatus: agent.status,
@@ -78,7 +89,9 @@ export function AgentCard({ agent }: AgentCardProps) {
 
   async function handleCopyLaunchURL() {
     try {
-      await navigator.clipboard.writeText(`${window.location.origin}${launchPath}`);
+      await navigator.clipboard.writeText(
+        `${window.location.origin}${launchPath}`,
+      );
       toast.success(t.clipboard.linkCopied);
     } catch {
       toast.error(t.clipboard.failedToCopyToClipboard);
@@ -113,6 +126,15 @@ export function AgentCard({ agent }: AgentCardProps) {
     }
   }
 
+  async function handleClaimOwnership() {
+    try {
+      await claimAgent.mutateAsync({ name: agent.name, status: agent.status });
+      toast.success(t.agents.claimOwnershipSuccess(agent.name));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   function handleOpenSettings() {
     void navigate(
       buildWorkspaceAgentSettingsPath({
@@ -124,7 +146,7 @@ export function AgentCard({ agent }: AgentCardProps) {
 
   return (
     <>
-      <Card className="group flex flex-col bg-background transition-shadow hover:shadow-md dark:glass dark:hover:glow-cyan">
+      <Card className="group bg-background dark:glass dark:hover:glow-cyan flex flex-col transition-shadow hover:shadow-md">
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-2">
             <div className="flex items-center gap-2">
@@ -149,6 +171,11 @@ export function AgentCard({ agent }: AgentCardProps) {
                       {agent.model}
                     </Badge>
                   )}
+                  {!canManage && (
+                    <Badge variant="outline" className="text-xs">
+                      {t.agents.readOnlyBadge}
+                    </Badge>
+                  )}
                 </div>
               </div>
             </div>
@@ -162,6 +189,9 @@ export function AgentCard({ agent }: AgentCardProps) {
 
         <CardContent className="space-y-3 pt-0 pb-3">
           <div className="flex flex-wrap gap-1">
+            <Badge variant="outline" className="text-xs">
+              {t.agents.ownerBadge}: {ownerLabel}
+            </Badge>
             <Badge
               variant={memoryEnabled ? "secondary" : "outline"}
               className="inline-flex items-center gap-1 text-xs"
@@ -182,14 +212,35 @@ export function AgentCard({ agent }: AgentCardProps) {
         </CardContent>
 
         <CardFooter className="mt-auto flex flex-wrap items-center gap-2 pt-3">
-          <Button size="sm" className="min-w-[120px] flex-1" onClick={handleChat}>
+          <Button
+            size="sm"
+            className="min-w-[120px] flex-1"
+            onClick={handleChat}
+          >
             <MessageSquareIcon className="mr-1.5 h-3.5 w-3.5" />
             {t.agents.chat}
           </Button>
-          <Button size="sm" variant="outline" onClick={handleOpenSettings}>
-            <Settings2Icon className="mr-1.5 h-3.5 w-3.5" />
-            {t.common.settings}
-          </Button>
+          {canManage && (
+            <Button size="sm" variant="outline" onClick={handleOpenSettings}>
+              <Settings2Icon className="mr-1.5 h-3.5 w-3.5" />
+              {t.common.settings}
+            </Button>
+          )}
+          {isOwnerlessLegacyAgent && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleClaimOwnership}
+              disabled={claimAgent.isPending}
+            >
+              {claimAgent.isPending ? (
+                <Loader2Icon className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Settings2Icon className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              {t.agents.claimOwnership}
+            </Button>
+          )}
           <div className="ml-auto flex gap-1">
             <Button
               size="icon"
@@ -200,7 +251,7 @@ export function AgentCard({ agent }: AgentCardProps) {
             >
               <CopyIcon className="h-3.5 w-3.5" />
             </Button>
-            {!isProd && (
+            {!isProd && canManage && (
               <Button
                 size="icon"
                 variant="ghost"
@@ -212,7 +263,7 @@ export function AgentCard({ agent }: AgentCardProps) {
                 <RocketIcon className="h-3.5 w-3.5" />
               </Button>
             )}
-            {isProd && (
+            {isProd && canManage && (
               <Button
                 size="icon"
                 variant="ghost"
@@ -228,7 +279,7 @@ export function AgentCard({ agent }: AgentCardProps) {
                 )}
               </Button>
             )}
-            {!isBuiltinLeadAgent && (
+            {canManage && !isBuiltinLeadAgent && (
               <Button
                 size="icon"
                 variant="ghost"

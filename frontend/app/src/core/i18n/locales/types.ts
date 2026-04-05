@@ -115,6 +115,7 @@ export interface Translations {
   sidebar: {
     recentChats: string;
     newChat: string;
+    runtimeWorkspace: string;
     chats: string;
     demoChats: string;
     agents: string;
@@ -136,6 +137,13 @@ export interface Translations {
     publishSuccess: (agentName: string) => string;
     downloadDemo: string;
     downloadSuccess: (filename: string) => string;
+    ownerBadge: string;
+    ownedByYou: string;
+    ownedBy: (ownerName: string) => string;
+    legacyOwnerless: string;
+    readOnlyBadge: string;
+    claimOwnership: string;
+    claimOwnershipSuccess: (agentName: string) => string;
     memoryOff: string;
     memoryOn: string;
     memoryWithModel: (modelName: string) => string;

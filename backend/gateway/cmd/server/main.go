@@ -74,15 +74,18 @@ func main() {
 	// Services
 	agentSvc := service.NewAgentService(fs)
 	skillSvc := service.NewSkillService(fs)
+	authoringWorkspaceSvc := service.NewAuthoringWorkspaceService(fs)
 
 	// Handlers
 	authH := handler.NewAuthHandler(userRepo, tokenRepo, jwtMgr, fs)
-	agentH := handler.NewAgentHandler(agentSvc, fs, tokenRepo)
+	agentH := handler.NewAgentHandler(agentSvc, fs, tokenRepo, userRepo)
 	skillH := handler.NewSkillHandler(skillSvc, fs, extensionsConfigPath)
+	authoringWorkspaceH := handler.NewAuthoringWorkspaceHandler(authoringWorkspaceSvc, fs, threadRepo)
 	modelH := handler.NewModelHandler(modelRepo)
 	memoryH := handler.NewMemoryHandler(fs)
 	mcpH := handler.NewMCPHandler(extensionsConfigPath)
 	threadsH := handler.NewThreadsHandler(threadRepo, cfg.Upstream.LangGraphURL, fs)
+	runtimeWorkspaceH := handler.NewRuntimeWorkspaceHandler(threadRepo, cfg.Upstream.LangGraphURL)
 	uploadsH := handler.NewUploadsHandler(fs)
 	artifactsH := handler.NewArtifactsHandler(fs)
 	knowledgeH := handler.NewKnowledgeHandler(knowledgeRepo, modelRepo, fs, knowledgeAssetStore)
@@ -186,17 +189,28 @@ func main() {
 		api.GET("/agents/:name", agentH.Get)
 		api.PUT("/agents/:name", agentH.Update)
 		api.DELETE("/agents/:name", agentH.Delete)
+		api.POST("/agents/:name/claim", agentH.Claim)
 		api.POST("/agents/:name/publish", agentH.Publish)
 		api.GET("/agents/:name/export", agentH.Export)
 		api.POST("/agents/:name/export/demo", agentH.ExportDemo)
 
 		// Skills
 		api.GET("/skills", skillH.List)
+		api.GET("/skills/:name", skillH.Get)
 		api.POST("/skills", skillH.Create)
 		api.POST("/skills/install", skillH.Install)
 		api.PUT("/skills/:name", skillH.Update)
 		api.DELETE("/skills/:name", skillH.Delete)
 		api.POST("/skills/:name/publish", skillH.Publish)
+
+		// Authoring workspace drafts
+		api.POST("/authoring/agents/:name/draft", authoringWorkspaceH.CreateAgentDraft)
+		api.POST("/authoring/skills/:name/draft", authoringWorkspaceH.CreateSkillDraft)
+		api.GET("/authoring/files", authoringWorkspaceH.ListFiles)
+		api.GET("/authoring/file", authoringWorkspaceH.ReadFile)
+		api.PUT("/authoring/file", authoringWorkspaceH.WriteFile)
+		api.POST("/authoring/agents/:name/save", authoringWorkspaceH.SaveAgentDraft)
+		api.POST("/authoring/skills/:name/save", authoringWorkspaceH.SaveSkillDraft)
 
 		// Models
 		api.GET("/models", modelH.List)
@@ -214,6 +228,7 @@ func main() {
 		api.DELETE("/threads", threadsH.ClearAll)
 		api.DELETE("/threads/:id", threadsH.Delete)
 		api.GET("/threads/:id/runtime", threadsH.GetRuntime)
+		api.POST("/threads/:id/runtime-workspace/open", runtimeWorkspaceH.Open)
 		api.PATCH("/threads/:id/title", threadsH.UpdateTitle)
 
 		// Uploads
@@ -264,6 +279,9 @@ func main() {
 		}
 
 	}
+
+	r.Any("/sandbox-ide/:session_id/:access_token", middleware.JWTAuth(jwtMgr), runtimeWorkspaceH.Proxy())
+	r.Any("/sandbox-ide/:session_id/:access_token/*path", middleware.JWTAuth(jwtMgr), runtimeWorkspaceH.Proxy())
 
 	// Register proxy routes from config (declarative, no code changes needed)
 	for _, route := range proxyRoutes {

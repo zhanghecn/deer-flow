@@ -170,6 +170,24 @@ func (r *ThreadRepo) GetRuntimeByUser(
 	return &record, nil
 }
 
+func (r *ThreadRepo) GetOwnerByThreadID(
+	ctx context.Context,
+	threadID string,
+) (uuid.UUID, error) {
+	const query = `
+		SELECT user_id
+		FROM thread_bindings
+		WHERE thread_id = $1
+		LIMIT 1
+	`
+
+	var ownerID uuid.UUID
+	if err := r.pool.QueryRow(ctx, query, threadID).Scan(&ownerID); err != nil {
+		return uuid.Nil, err
+	}
+	return ownerID, nil
+}
+
 func (r *ThreadRepo) ListIDsByUser(
 	ctx context.Context,
 	userID uuid.UUID,

@@ -492,6 +492,25 @@ class AioSandboxProvider(SandboxProvider):
                 self._last_activity[sandbox_id] = time.time()
             return sandbox
 
+    def resolve_thread_sandbox(self, thread_id: str) -> tuple[str, AioSandbox]:
+        """Return the managed sandbox instance for one thread.
+
+        Auxiliary services such as the runtime IDE still need the control plane
+        to own sandbox discovery/reuse instead of reconstructing backend URLs
+        themselves. This helper keeps that thread -> sandbox lookup on the
+        provider side while leaving all file/command operations on `AioSandbox`.
+        """
+
+        sandbox_id = self.acquire(thread_id)
+        sandbox = self.get(sandbox_id)
+        if sandbox is None:
+            raise RuntimeError(f"Sandbox provider could not resolve sandbox '{sandbox_id}' for thread '{thread_id}'.")
+        if not isinstance(sandbox, AioSandbox):
+            raise RuntimeError(
+                f"Sandbox '{sandbox_id}' for thread '{thread_id}' is not an AioSandbox instance: {type(sandbox).__name__}."
+            )
+        return sandbox_id, sandbox
+
     def release(self, sandbox_id: str) -> None:
         """Release a sandbox: clean up in-memory state, persisted state, and backend resources.
 

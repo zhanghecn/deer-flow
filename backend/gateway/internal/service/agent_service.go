@@ -282,7 +282,7 @@ func (s *AgentService) validateToolScopes(
 	return normalizedDefaults, normalizedSubagents, nil
 }
 
-func (s *AgentService) Create(_ context.Context, req model.CreateAgentRequest, _ uuid.UUID) (*model.Agent, error) {
+func (s *AgentService) Create(_ context.Context, req model.CreateAgentRequest, userID uuid.UUID) (*model.Agent, error) {
 	name := strings.TrimSpace(req.Name)
 	if isReservedAgentName(name) {
 		return nil, fmt.Errorf("agent %q is reserved for the built-in lead agent", name)
@@ -337,6 +337,9 @@ func (s *AgentService) Create(_ context.Context, req model.CreateAgentRequest, _
 		Memory:           &memoryConfig,
 		SubagentDefaults: &subagentDefaults,
 		Subagents:        subagents,
+	}
+	if userID != uuid.Nil {
+		agent.OwnerUserID = userID.String()
 	}
 	if err := s.syncAgentFilesystem(agent, req.AgentsMD, skillRefs); err != nil {
 		return nil, fmt.Errorf("sync agent files: %w", err)
@@ -724,6 +727,11 @@ func (s *AgentService) syncAgentFilesystem(agent *model.Agent, agentsMD string, 
 		"skill_refs":        skillRefs,
 		"memory":            agentMemoryPayload(agent.Memory),
 		"subagent_defaults": agentSubagentDefaultsPayload(agent.SubagentDefaults),
+	}
+	// Ownerless archives remain manageable by everyone for backward
+	// compatibility until legacy custom agents have an explicit migration path.
+	if ownerUserID := strings.TrimSpace(agent.OwnerUserID); ownerUserID != "" {
+		config["owner_user_id"] = ownerUserID
 	}
 	if agent.Model != nil {
 		config["model"] = *agent.Model

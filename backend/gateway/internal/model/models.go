@@ -41,6 +41,9 @@ type Agent struct {
 	ToolNames        []string               `json:"tool_names,omitempty"`
 	McpServers       []string               `json:"mcp_servers"`
 	Status           string                 `json:"status"`
+	OwnerUserID      string                 `json:"owner_user_id,omitempty"`
+	OwnerName        string                 `json:"owner_name,omitempty"`
+	CanManage        bool                   `json:"can_manage"`
 	Memory           *AgentMemoryConfig     `json:"memory,omitempty"`
 	SubagentDefaults *AgentSubagentDefaults `json:"subagent_defaults,omitempty"`
 	Subagents        []AgentSubagent        `json:"subagents,omitempty"`
@@ -87,6 +90,15 @@ type Skill struct {
 	Name            string            `json:"name"`
 	Description     string            `json:"description"`
 	DescriptionI18n map[string]string `json:"description_i18n,omitempty"`
+	Category        string            `json:"category,omitempty"`
+	SourcePath      string            `json:"source_path,omitempty"`
+	CanEdit         bool              `json:"can_edit"`
 	Status          string            `json:"status"`
 	SkillMD         string            `json:"skill_md"`
+}
+
+type AuthoringFileEntry struct {
+	Name  string `json:"name"`
+	Path  string `json:"path"`
+	IsDir bool   `json:"is_dir"`
 }

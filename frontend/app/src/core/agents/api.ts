@@ -75,7 +75,10 @@ export async function getAgent(
   const res = await authFetch(
     `${getBackendBaseURL()}/api/agents/${name}${query}`,
   );
-  if (!res.ok) throw new Error(`Agent '${name}' not found`);
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as APIErrorShape;
+    throw new Error(resolveAPIErrorMessage(err, `Agent '${name}' not found`));
+  }
   return res.json() as Promise<Agent>;
 }
 
@@ -121,7 +124,12 @@ export async function deleteAgent(name: string): Promise<void> {
   const res = await authFetch(`${getBackendBaseURL()}/api/agents/${name}`, {
     method: "DELETE",
   });
-  if (!res.ok) throw new Error(`Failed to delete agent: ${res.statusText}`);
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as APIErrorShape;
+    throw new Error(
+      resolveAPIErrorMessage(err, `Failed to delete agent: ${res.statusText}`),
+    );
+  }
 }
 
 export async function publishAgent(name: string): Promise<Agent> {
@@ -133,6 +141,26 @@ export async function publishAgent(name: string): Promise<Agent> {
     const err = (await res.json().catch(() => ({}))) as APIErrorShape;
     throw new Error(
       resolveAPIErrorMessage(err, `Failed to publish agent: ${res.statusText}`),
+    );
+  }
+  return res.json() as Promise<Agent>;
+}
+
+export async function claimAgent(
+  name: string,
+  status?: AgentStatus,
+): Promise<Agent> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  const res = await authFetch(
+    `${getBackendBaseURL()}/api/agents/${name}/claim${query}`,
+    {
+      method: "POST",
+    },
+  );
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as APIErrorShape;
+    throw new Error(
+      resolveAPIErrorMessage(err, `Failed to claim agent: ${res.statusText}`),
     );
   }
   return res.json() as Promise<Agent>;

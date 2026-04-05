@@ -5,6 +5,7 @@
   ],
   "env": "../../.env",
   "http": {
+    "app": "src.gateway.app:app",
     "configurable_headers": {
       "includes": [
         "x-user-id",

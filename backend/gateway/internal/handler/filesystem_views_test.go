@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"archive/zip"
 	"os"
 	"path/filepath"
 	"testing"
@@ -219,5 +220,53 @@ func TestListFilesystemSkillsIncludesCanonicalSystemAndCustomScopes(t *testing.T
 	}
 	if gotSourcePaths["vercel-deploy"] != "store/prod/vercel-deploy" {
 		t.Fatalf("vercel-deploy source_path = %q, want store/prod/vercel-deploy", gotSourcePaths["vercel-deploy"])
+	}
+}
+
+func TestInstallSkillArchiveWritesToCanonicalCustomSkillsRoot(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	fsStore := storage.NewFS(baseDir)
+	threadID := "thread-1"
+	if err := fsStore.EnsureThreadDirs(threadID); err != nil {
+		t.Fatalf("EnsureThreadDirs() error = %v", err)
+	}
+
+	archivePath := filepath.Join(fsStore.ThreadUserDataDir(threadID), "uploads", "imported.skill")
+	file, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatalf("create archive: %v", err)
+	}
+	writer := zip.NewWriter(file)
+	entry, err := writer.Create("imported-skill/SKILL.md")
+	if err != nil {
+		t.Fatalf("create zip entry: %v", err)
+	}
+	if _, err := entry.Write([]byte("---\nname: imported-skill\ndescription: Imported skill\n---\n\nbody")); err != nil {
+		t.Fatalf("write zip entry: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close zip writer: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close archive file: %v", err)
+	}
+
+	skillName, err := installSkillArchive(fsStore, threadID, "/mnt/user-data/uploads/imported.skill")
+	if err != nil {
+		t.Fatalf("installSkillArchive() error = %v", err)
+	}
+	if skillName != "imported-skill" {
+		t.Fatalf("skillName = %q, want %q", skillName, "imported-skill")
+	}
+
+	customSkillPath := filepath.Join(baseDir, "custom", "skills", "imported-skill", "SKILL.md")
+	if _, err := os.Stat(customSkillPath); err != nil {
+		t.Fatalf("expected custom skill at %s: %v", customSkillPath, err)
+	}
+	legacySkillPath := filepath.Join(baseDir, "skills", "store", "dev", "imported-skill", "SKILL.md")
+	if _, err := os.Stat(legacySkillPath); !os.IsNotExist(err) {
+		t.Fatalf("legacy store/dev skill should not exist, stat err = %v", err)
 	}
 }

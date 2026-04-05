@@ -46,6 +46,8 @@ import {
   useUpdateAgent,
 } from "@/core/agents";
 import type { AgentSkillRef } from "@/core/agents";
+import { useAuth } from "@/core/auth/hooks";
+import { buildWorkspaceAgentAuthoringPath } from "@/core/authoring";
 import { useI18n } from "@/core/i18n/hooks";
 import { getLocalizedSkillDescription } from "@/core/skills";
 import { useSkills } from "@/core/skills/hooks";
@@ -391,26 +393,26 @@ export function AgentSettingsDialog({
   executionBackend,
   remoteSessionId,
 }: AgentSettingsDialogProps) {
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
+  const { user } = useAuth();
   const text = getAgentSettingsDialogText(locale);
   const { agent, isLoading, error } = useAgent(
     open ? agentName : null,
     agentStatus,
   );
+  const canManage = agent?.can_manage !== false;
   const {
     skills: availableSkills,
     isLoading: skillsLoading,
     error: skillsError,
   } = useSkills();
   const isProdArchive = agentStatus === "prod";
+  const canLoadExportDoc = open && isProdArchive && agent != null && canManage;
   const {
     exportDoc,
     isLoading: exportDocLoading,
     error: exportDocError,
-  } = useAgentExportDoc(
-    open && isProdArchive ? agentName : null,
-    open && isProdArchive,
-  );
+  } = useAgentExportDoc(canLoadExportDoc ? agentName : null, canLoadExportDoc);
   const {
     tools: toolCatalog,
     isLoading: toolCatalogLoading,
@@ -443,6 +445,21 @@ export function AgentSettingsDialog({
     }
     return `${window.location.origin}${launchPath}`;
   }, [launchPath]);
+  const ownerLabel = useMemo(() => {
+    if (!agent?.owner_user_id) {
+      return t.agents.legacyOwnerless;
+    }
+    if (agent.owner_user_id === user?.id) {
+      return t.agents.ownedByYou;
+    }
+    return agent.owner_name ?? agent.owner_user_id;
+  }, [
+    agent?.owner_name,
+    agent?.owner_user_id,
+    t.agents.legacyOwnerless,
+    t.agents.ownedByYou,
+    user?.id,
+  ]);
 
   const skillNames = useMemo(
     () =>
@@ -824,6 +841,9 @@ export function AgentSettingsDialog({
                   <Badge variant="outline" className="capitalize">
                     {agentStatus}
                   </Badge>
+                  {agent?.can_manage === false && (
+                    <Badge variant="secondary">{text.readOnlyBadge}</Badge>
+                  )}
                   {executionBackend === "remote" && (
                     <Badge variant="secondary">{text.remoteCliBadge}</Badge>
                   )}
@@ -924,6 +944,17 @@ export function AgentSettingsDialog({
                   </div>
                 ) : (
                   <>
+                    {!canManage && (
+                      <SurfaceCard
+                        eyebrow={<Settings2Icon className="size-4" />}
+                        title={text.readOnlyTitle}
+                        description={text.readOnlyDescription}
+                      >
+                        <p className="text-sm leading-6">
+                          {text.readOnlyFooter}
+                        </p>
+                      </SurfaceCard>
+                    )}
                     <TabsContent value="profile" className="m-0 space-y-6">
                       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_320px]">
                         <div className="space-y-6">
@@ -1077,6 +1108,9 @@ export function AgentSettingsDialog({
                             <div className="flex flex-wrap gap-2">
                               <Badge variant="outline" className="capitalize">
                                 {agent.status}
+                              </Badge>
+                              <Badge variant="outline">
+                                {t.agents.ownerBadge}: {ownerLabel}
                               </Badge>
                               {agent.model && (
                                 <Badge variant="secondary">{agent.model}</Badge>
@@ -1288,21 +1322,32 @@ export function AgentSettingsDialog({
                           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
                             <div className="space-y-2">
                               <FieldLabel>{text.promptBody}</FieldLabel>
-                              <Textarea
-                                value={form.agentsMd}
-                                placeholder={text.promptPlaceholder}
-                                onChange={(event) =>
-                                  setForm((current) =>
-                                    current
-                                      ? {
-                                          ...current,
-                                          agentsMd: event.target.value,
-                                        }
-                                      : current,
-                                  )
-                                }
-                                className="border-border/70 bg-muted/10 min-h-[440px] rounded-3xl px-4 py-4 font-mono text-[13px] leading-6"
-                              />
+                              <div className="border-border/70 bg-muted/10 rounded-3xl border p-5">
+                                <p className="text-muted-foreground text-sm leading-6">
+                                  {text.promptPlaceholder}
+                                </p>
+                                <div className="mt-4 flex flex-wrap items-center gap-3">
+                                  <Button asChild>
+                                    <Link
+                                      to={buildWorkspaceAgentAuthoringPath({
+                                        agentName: agent.name,
+                                        agentStatus: agent.status,
+                                      })}
+                                    >
+                                      <ExternalLinkIcon className="size-4" />
+                                      {text.openWorkspace}
+                                    </Link>
+                                  </Button>
+                                  <Badge variant="secondary">
+                                    {text.editableBadge}
+                                  </Badge>
+                                </div>
+                                <p className="text-muted-foreground mt-4 text-xs leading-6">
+                                  AGENTS.md authoring now lives in the full-width
+                                  workbench so the archive tree is not constrained
+                                  by this dialog layout.
+                                </p>
+                              </div>
                             </div>
 
                             <div className="space-y-4">
@@ -2044,112 +2089,124 @@ export function AgentSettingsDialog({
                         </SurfaceCard>
 
                         {isProdArchive ? (
-                          <SurfaceCard
-                            eyebrow={<DownloadIcon className="size-4" />}
-                            title={text.openApiExportTitle}
-                            description={text.openApiExportDescription}
-                          >
-                            {exportDocLoading ? (
-                              <div className="text-muted-foreground flex items-center gap-2 text-sm">
-                                <Loader2Icon className="size-4 animate-spin" />
-                                {text.loadingExportDocument}
-                              </div>
-                            ) : exportDocError ? (
-                              <p className="text-sm leading-6">
-                                {exportDocError instanceof Error
-                                  ? exportDocError.message
-                                  : text.loadExportDocumentFailed}
-                              </p>
-                            ) : exportDoc ? (
-                              <div className="space-y-4">
-                                <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
-                                  <FieldLabel className="mb-2">
-                                    {text.gatewayBase}
-                                  </FieldLabel>
-                                  <code className="bg-background border-border/70 block rounded-2xl border px-3 py-3 text-xs leading-6 break-all">
-                                    {exportDoc.api_base_url}
-                                  </code>
+                          canManage ? (
+                            <SurfaceCard
+                              eyebrow={<DownloadIcon className="size-4" />}
+                              title={text.openApiExportTitle}
+                              description={text.openApiExportDescription}
+                            >
+                              {exportDocLoading ? (
+                                <div className="text-muted-foreground flex items-center gap-2 text-sm">
+                                  <Loader2Icon className="size-4 animate-spin" />
+                                  {text.loadingExportDocument}
                                 </div>
-
-                                {(
-                                  [
-                                    ["chat", exportDoc.endpoints.chat],
-                                    ["stream", exportDoc.endpoints.stream],
-                                  ] as const
-                                ).map(([endpointName, endpoint]) => (
-                                  <div
-                                    key={endpointName}
-                                    className="border-border/70 rounded-3xl border p-4"
-                                  >
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      <Badge variant="secondary">
-                                        {endpoint.method}
-                                      </Badge>
-                                      <p className="text-sm font-medium capitalize">
-                                        {endpointName}
-                                      </p>
-                                    </div>
-                                    <code className="bg-background border-border/70 mt-3 block rounded-2xl border px-3 py-3 text-xs leading-6 break-all">
-                                      {endpoint.url}
+                              ) : exportDocError ? (
+                                <p className="text-sm leading-6">
+                                  {exportDocError instanceof Error
+                                    ? exportDocError.message
+                                    : text.loadExportDocumentFailed}
+                                </p>
+                              ) : exportDoc ? (
+                                <div className="space-y-4">
+                                  <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
+                                    <FieldLabel className="mb-2">
+                                      {text.gatewayBase}
+                                    </FieldLabel>
+                                    <code className="bg-background border-border/70 block rounded-2xl border px-3 py-3 text-xs leading-6 break-all">
+                                      {exportDoc.api_base_url}
                                     </code>
                                   </div>
-                                ))}
 
-                                <div className="flex flex-wrap gap-2">
-                                  <Button
-                                    variant="outline"
-                                    onClick={() =>
-                                      handleCopyText(
-                                        exportDoc.endpoints.chat.url,
-                                        text.chatEndpointCopied,
-                                      )
-                                    }
-                                  >
-                                    <CopyIcon className="size-3.5" />
-                                    {text.copyChatEndpoint}
-                                  </Button>
-                                  <Button
-                                    variant="outline"
-                                    onClick={() =>
-                                      handleCopyText(
-                                        exportDoc.endpoints.stream.url,
-                                        text.streamEndpointCopied,
-                                      )
-                                    }
-                                  >
-                                    <CopyIcon className="size-3.5" />
-                                    {text.copyStreamEndpoint}
-                                  </Button>
-                                  <Button
-                                    onClick={handleDownloadReactDemo}
-                                    disabled={downloadDemoMutation.isPending}
-                                  >
-                                    {downloadDemoMutation.isPending && (
-                                      <Loader2Icon className="size-3.5 animate-spin" />
-                                    )}
-                                    {!downloadDemoMutation.isPending && (
-                                      <DownloadIcon className="size-3.5" />
-                                    )}
-                                    {text.downloadReactDemo}
-                                  </Button>
-                                </div>
+                                  {(
+                                    [
+                                      ["chat", exportDoc.endpoints.chat],
+                                      ["stream", exportDoc.endpoints.stream],
+                                    ] as const
+                                  ).map(([endpointName, endpoint]) => (
+                                    <div
+                                      key={endpointName}
+                                      className="border-border/70 rounded-3xl border p-4"
+                                    >
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <Badge variant="secondary">
+                                          {endpoint.method}
+                                        </Badge>
+                                        <p className="text-sm font-medium capitalize">
+                                          {endpointName}
+                                        </p>
+                                      </div>
+                                      <code className="bg-background border-border/70 mt-3 block rounded-2xl border px-3 py-3 text-xs leading-6 break-all">
+                                        {endpoint.url}
+                                      </code>
+                                    </div>
+                                  ))}
 
-                                <div className="space-y-2">
-                                  <FieldLabel>{text.demoNotes}</FieldLabel>
+                                  <div className="flex flex-wrap gap-2">
+                                    <Button
+                                      variant="outline"
+                                      onClick={() =>
+                                        handleCopyText(
+                                          exportDoc.endpoints.chat.url,
+                                          text.chatEndpointCopied,
+                                        )
+                                      }
+                                    >
+                                      <CopyIcon className="size-3.5" />
+                                      {text.copyChatEndpoint}
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      onClick={() =>
+                                        handleCopyText(
+                                          exportDoc.endpoints.stream.url,
+                                          text.streamEndpointCopied,
+                                        )
+                                      }
+                                    >
+                                      <CopyIcon className="size-3.5" />
+                                      {text.copyStreamEndpoint}
+                                    </Button>
+                                    <Button
+                                      onClick={handleDownloadReactDemo}
+                                      disabled={downloadDemoMutation.isPending}
+                                    >
+                                      {downloadDemoMutation.isPending && (
+                                        <Loader2Icon className="size-3.5 animate-spin" />
+                                      )}
+                                      {!downloadDemoMutation.isPending && (
+                                        <DownloadIcon className="size-3.5" />
+                                      )}
+                                      {text.downloadReactDemo}
+                                    </Button>
+                                  </div>
+
                                   <div className="space-y-2">
-                                    {exportDoc.demo.notes.map((note) => (
-                                      <p
-                                        key={note}
-                                        className="text-muted-foreground rounded-2xl border px-4 py-3 text-sm leading-6"
-                                      >
-                                        {note}
-                                      </p>
-                                    ))}
+                                    <FieldLabel>{text.demoNotes}</FieldLabel>
+                                    <div className="space-y-2">
+                                      {exportDoc.demo.notes.map((note) => (
+                                        <p
+                                          key={note}
+                                          className="text-muted-foreground rounded-2xl border px-4 py-3 text-sm leading-6"
+                                        >
+                                          {note}
+                                        </p>
+                                      ))}
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
-                            ) : null}
-                          </SurfaceCard>
+                              ) : null}
+                            </SurfaceCard>
+                          ) : (
+                            <SurfaceCard
+                              eyebrow={<Settings2Icon className="size-4" />}
+                              title={text.readOnlyTitle}
+                              description={text.readOnlyDescription}
+                            >
+                              <p className="text-sm leading-6">
+                                {text.readOnlyFooter}
+                              </p>
+                            </SurfaceCard>
+                          )
                         ) : (
                           <SurfaceCard
                             eyebrow={<Link2Icon className="size-4" />}
@@ -2179,7 +2236,9 @@ export function AgentSettingsDialog({
                 {isDirty ? text.dirtyState : text.cleanState}
               </p>
               <p className="text-muted-foreground text-xs leading-5">
-                {text.saveAppliesTo(agentStatus)}
+                {canManage
+                  ? text.saveAppliesTo(agentStatus)
+                  : text.readOnlyFooter}
               </p>
             </div>
             <div className="flex items-center justify-end gap-2">
@@ -2191,7 +2250,12 @@ export function AgentSettingsDialog({
                 {text.reset}
               </Button>
               <Button
-                disabled={!isDirty || !form || updateAgentMutation.isPending}
+                disabled={
+                  !canManage ||
+                  !isDirty ||
+                  !form ||
+                  updateAgentMutation.isPending
+                }
                 onClick={handleSave}
               >
                 {updateAgentMutation.isPending && (

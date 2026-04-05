@@ -21,6 +21,12 @@ const NewAgentPage = lazy(() => import("@/app/workspace/agents/new/page"));
 const AgentSettingsPage = lazy(
   () => import("@/app/workspace/agents/[agent_name]/settings/page"),
 );
+const AgentAuthoringPage = lazy(
+  () => import("@/app/workspace/agents/[agent_name]/authoring/page"),
+);
+const SkillAuthoringPage = lazy(
+  () => import("@/app/workspace/skills/[skill_name]/authoring/page"),
+);
 const AgentChatPage = lazy(
   () =>
     import(
@@ -147,6 +153,22 @@ export function AppRoutes() {
             element={
               <PageSuspense>
                 <AgentSettingsPage />
+              </PageSuspense>
+            }
+          />
+          <Route
+            path="agents/:agent_name/authoring"
+            element={
+              <PageSuspense>
+                <AgentAuthoringPage />
+              </PageSuspense>
+            }
+          />
+          <Route
+            path="skills/:skill_name/authoring"
+            element={
+              <PageSuspense>
+                <SkillAuthoringPage />
               </PageSuspense>
             }
           />

@@ -32,6 +32,11 @@ function createGatewayProxy(target: string, onlyOfficeTarget: string) {
       target,
       changeOrigin: true,
     },
+    "/sandbox-ide": {
+      target,
+      changeOrigin: true,
+      ws: true,
+    },
     // Keep local browser traffic aligned with production nginx by exposing
     // ONLYOFFICE under the same-origin `/onlyoffice` prefix during Vite dev.
     "/onlyoffice": {

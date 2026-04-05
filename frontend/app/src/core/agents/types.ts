@@ -56,6 +56,9 @@ export interface Agent {
   tool_names?: string[] | null;
   mcp_servers?: string[] | null;
   status: AgentStatus;
+  owner_user_id?: string | null;
+  owner_name?: string | null;
+  can_manage?: boolean;
   memory?: AgentMemoryConfig | null;
   subagent_defaults?: AgentSubagentDefaults | null;
   subagents?: AgentSubagent[];

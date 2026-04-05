@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -24,6 +25,19 @@ func NewSkillHandler(svc *service.SkillService, fs *storage.FS, extensionsConfig
 	}
 }
 
+func writeSkillServiceError(c *gin.Context, err error, notFoundStatus int) {
+	switch {
+	case errors.Is(err, service.ErrSkillReadOnly):
+		c.JSON(http.StatusForbidden, model.ErrorResponse{Error: err.Error()})
+	case errors.Is(err, service.ErrSkillAmbiguous):
+		c.JSON(http.StatusConflict, model.ErrorResponse{Error: err.Error()})
+	case errors.Is(err, service.ErrSkillInvalidSourcePath):
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
+	default:
+		c.JSON(notFoundStatus, model.ErrorResponse{Error: err.Error()})
+	}
+}
+
 func (h *SkillHandler) List(c *gin.Context) {
 	status := c.Query("status")
 	skills, err := listFilesystemSkills(h.fs, h.extensionsConfigPath, status)
@@ -35,6 +49,17 @@ func (h *SkillHandler) List(c *gin.Context) {
 		skills = []skillListItem{}
 	}
 	c.JSON(http.StatusOK, gin.H{"skills": skills})
+}
+
+func (h *SkillHandler) Get(c *gin.Context) {
+	name := c.Param("name")
+	sourcePath := c.Query("source_path")
+	skill, err := h.svc.Get(c.Request.Context(), name, sourcePath)
+	if err != nil {
+		writeSkillServiceError(c, err, http.StatusNotFound)
+		return
+	}
+	c.JSON(http.StatusOK, skill)
 }
 
 func (h *SkillHandler) Create(c *gin.Context) {
@@ -99,7 +124,7 @@ func (h *SkillHandler) Update(c *gin.Context) {
 		SkillMD:         req.SkillMD,
 	})
 	if err != nil {
-		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: err.Error()})
+		writeSkillServiceError(c, err, http.StatusNotFound)
 		return
 	}
 	c.JSON(http.StatusOK, skill)
@@ -108,7 +133,7 @@ func (h *SkillHandler) Update(c *gin.Context) {
 func (h *SkillHandler) Delete(c *gin.Context) {
 	name := c.Param("name")
 	if err := h.svc.Delete(c.Request.Context(), name); err != nil {
-		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: err.Error()})
+		writeSkillServiceError(c, err, http.StatusNotFound)
 		return
 	}
 	c.JSON(http.StatusOK, model.SuccessResponse{Message: "skill deleted"})
@@ -133,7 +158,7 @@ func (h *SkillHandler) Install(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success":    true,
 		"skill_name": skillName,
-		"message":    "Skill '" + skillName + "' installed successfully to .openagents/skills/store/dev",
+		"message":    "Skill '" + skillName + "' installed successfully to .openagents/custom/skills",
 	})
 }
 

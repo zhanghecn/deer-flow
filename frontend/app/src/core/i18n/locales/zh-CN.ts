@@ -162,6 +162,7 @@ export const zhCN: Translations = {
   // Sidebar
   sidebar: {
     newChat: "新对话",
+    runtimeWorkspace: "运行空间",
     chats: "对话",
     recentChats: "最近的对话",
     demoChats: "演示对话",
@@ -184,6 +185,14 @@ export const zhCN: Translations = {
     publishSuccess: (agentName: string) => `智能体“${agentName}”已发布`,
     downloadDemo: "下载 Demo",
     downloadSuccess: (filename: string) => `已下载 ${filename}`,
+    ownerBadge: "归属",
+    ownedByYou: "由你管理",
+    ownedBy: (ownerName: string) => `归属：${ownerName}`,
+    legacyOwnerless: "历史未认领智能体",
+    readOnlyBadge: "只读",
+    claimOwnership: "认领管理权限",
+    claimOwnershipSuccess: (agentName: string) =>
+      `你现在可以管理“${agentName}”了`,
     memoryOff: "记忆已关闭",
     memoryOn: "记忆已启用",
     memoryWithModel: (modelName: string) => `记忆 · ${modelName}`,

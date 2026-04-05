@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/core/auth/hooks";
 
 import {
+  claimAgent,
   createAgent,
   deleteAgent,
   downloadAgentReactDemo,
@@ -102,6 +103,18 @@ export function usePublishAgent() {
     mutationFn: (name: string) => publishAgent(name),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["agents"] });
+    },
+  });
+}
+
+export function useClaimAgent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name, status }: { name: string; status?: AgentStatus }) =>
+      claimAgent(name, status),
+    onSuccess: (_data, { name }) => {
+      void queryClient.invalidateQueries({ queryKey: ["agents"] });
+      void queryClient.invalidateQueries({ queryKey: ["agents", name] });
     },
   });
 }

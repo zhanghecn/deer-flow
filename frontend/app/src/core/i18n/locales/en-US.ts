@@ -165,6 +165,7 @@ export const enUS: Translations = {
   // Sidebar
   sidebar: {
     newChat: "New chat",
+    runtimeWorkspace: "Runtime workspace",
     chats: "Chats",
     recentChats: "Recent chats",
     demoChats: "Demo chats",
@@ -190,6 +191,14 @@ export const enUS: Translations = {
     publishSuccess: (agentName: string) => `Agent "${agentName}" published`,
     downloadDemo: "Download demo",
     downloadSuccess: (filename: string) => `Downloaded ${filename}`,
+    ownerBadge: "owner",
+    ownedByYou: "Owned by you",
+    ownedBy: (ownerName: string) => `Owned by ${ownerName}`,
+    legacyOwnerless: "Unclaimed legacy agent",
+    readOnlyBadge: "read only",
+    claimOwnership: "Claim ownership",
+    claimOwnershipSuccess: (agentName: string) =>
+      `You now manage "${agentName}"`,
     memoryOff: "Memory off",
     memoryOn: "Memory on",
     memoryWithModel: (modelName: string) => `Memory · ${modelName}`,

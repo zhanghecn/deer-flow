@@ -56,6 +56,34 @@ func TestAgentServiceCreateCopiesResolvedSkillIntoAgentDir(t *testing.T) {
 	}
 }
 
+func TestAgentServiceCreatePersistsOwnerUserID(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	svc := NewAgentService(storage.NewFS(baseDir))
+	ownerUserID := uuid.New()
+
+	agent, err := svc.Create(context.Background(), model.CreateAgentRequest{
+		Name:     "owned-agent",
+		AgentsMD: "# Agent",
+	}, ownerUserID)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	if agent.OwnerUserID != ownerUserID.String() {
+		t.Fatalf("agent.OwnerUserID = %q, want %q", agent.OwnerUserID, ownerUserID.String())
+	}
+
+	configBytes, err := os.ReadFile(filepath.Join(baseDir, "custom", "agents", "dev", "owned-agent", "config.yaml"))
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if !strings.Contains(string(configBytes), "owner_user_id: "+ownerUserID.String()) {
+		t.Fatalf("config.yaml missing owner_user_id: %s", string(configBytes))
+	}
+}
+
 func TestAgentServiceCreateRejectsAmbiguousSkillNames(t *testing.T) {
 	t.Parallel()
 

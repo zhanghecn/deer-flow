@@ -1,6 +1,7 @@
 package agentfs
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -15,6 +16,8 @@ import (
 
 const builtinLeadAgentName = "lead_agent"
 
+var ErrAgentAlreadyOwned = errors.New("agent already has an owner")
+
 func isBuiltinLeadAgent(name string) bool {
 	return strings.EqualFold(strings.TrimSpace(name), builtinLeadAgentName)
 }
@@ -27,6 +30,7 @@ type manifest struct {
 	ToolNames        []string                     `yaml:"tool_names"`
 	McpServers       []string                     `yaml:"mcp_servers"`
 	Status           string                       `yaml:"status"`
+	OwnerUserID      string                       `yaml:"owner_user_id,omitempty"`
 	AgentsMD         string                       `yaml:"agents_md_path"`
 	Memory           *model.AgentMemoryConfig     `yaml:"memory"`
 	SkillRefs        []model.SkillRef             `yaml:"skill_refs"`
@@ -149,6 +153,7 @@ func LoadAgent(fsStore *storage.FS, name string, status string, includeMarkdown 
 		ToolNames:        cfg.ToolNames,
 		McpServers:       cfg.McpServers,
 		Status:           status,
+		OwnerUserID:      strings.TrimSpace(cfg.OwnerUserID),
 		Memory:           cfg.Memory,
 		Skills:           cfg.SkillRefs,
 		SubagentDefaults: cfg.SubagentDefaults,
@@ -361,6 +366,60 @@ func PublishAgent(fsStore *storage.FS, name string) (*model.Agent, error) {
 		return nil, err
 	}
 	return LoadAgent(fsStore, name, "prod", true)
+}
+
+func SetAgentOwner(fsStore *storage.FS, name string, ownerUserID string) error {
+	if isBuiltinLeadAgent(name) {
+		return fmt.Errorf("agent %q is reserved and cannot be claimed", builtinLeadAgentName)
+	}
+
+	trimmedOwnerUserID := strings.TrimSpace(ownerUserID)
+	if trimmedOwnerUserID == "" {
+		return fmt.Errorf("owner user id is required")
+	}
+
+	found := false
+	// Claim both archives together so a legacy custom agent cannot keep a
+	// split-brain ownerless prod/dev pair after the first explicit ownership
+	// assignment.
+	for _, status := range []string{"dev", "prod"} {
+		configFile := filepath.Join(fsStore.AgentDir(name, status), "config.yaml")
+		data, err := os.ReadFile(configFile)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return err
+		}
+		found = true
+
+		var payload map[string]any
+		if err := yaml.Unmarshal(data, &payload); err != nil {
+			return err
+		}
+		existingOwnerUserID := strings.TrimSpace(fmt.Sprint(payload["owner_user_id"]))
+		switch {
+		case existingOwnerUserID == "" || existingOwnerUserID == "<nil>":
+			payload["owner_user_id"] = trimmedOwnerUserID
+		case existingOwnerUserID == trimmedOwnerUserID:
+			continue
+		default:
+			return ErrAgentAlreadyOwned
+		}
+
+		updated, err := yaml.Marshal(payload)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(configFile, updated, 0o644); err != nil {
+			return err
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("agent %q not found", name)
+	}
+	return nil
 }
 
 func DeleteAgent(fsStore *storage.FS, name string, status string) error {

@@ -3,6 +3,7 @@ package storage
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -107,6 +108,14 @@ func (f *FS) SkillsDir() string {
 	return filepath.Join(f.baseDir, "skills")
 }
 
+func (f *FS) SystemSkillsDir() string {
+	return filepath.Join(f.SystemDir(), "skills")
+}
+
+func (f *FS) CustomSkillsDir() string {
+	return filepath.Join(f.CustomDir(), "skills")
+}
+
 func (f *FS) StoreDevSkillsDir() string {
 	return filepath.Join(f.SkillsDir(), "store", "dev")
 }
@@ -119,11 +128,24 @@ func (f *FS) StoreProdSkillsDir() string {
 func (f *FS) GlobalSkillDir(scope, skillName string) string {
 	switch strings.Trim(strings.TrimSpace(scope), "/") {
 	case "system":
-		return filepath.Join(f.SystemDir(), "skills", skillName)
+		return filepath.Join(f.SystemSkillsDir(), skillName)
 	case "custom":
-		return filepath.Join(f.CustomDir(), "skills", skillName)
+		return filepath.Join(f.CustomSkillsDir(), skillName)
 	default:
 		return filepath.Join(f.SkillsDir(), filepath.FromSlash(scope), skillName)
+	}
+}
+
+// GlobalSkillSourcePath returns the canonical archived source_path for a skill
+// directory relative to one of the visible authored roots.
+func (f *FS) GlobalSkillSourcePath(scope, relativeDir string) string {
+	cleanScope := strings.Trim(strings.TrimSpace(scope), "/")
+	cleanRelativeDir := strings.Trim(strings.TrimSpace(relativeDir), "/")
+	switch cleanScope {
+	case "system", "custom":
+		return path.Join(cleanScope, "skills", cleanRelativeDir)
+	default:
+		return path.Join(cleanScope, cleanRelativeDir)
 	}
 }
 

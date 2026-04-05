@@ -85,6 +85,41 @@ type UpdateSkillRequest struct {
 	SkillMD         *string            `json:"skill_md"`
 }
 
+type CreateAgentAuthoringDraftRequest struct {
+	ThreadID    string `json:"thread_id" binding:"required"`
+	AgentStatus string `json:"agent_status"`
+}
+
+type CreateSkillAuthoringDraftRequest struct {
+	ThreadID   string `json:"thread_id" binding:"required"`
+	SourcePath string `json:"source_path"`
+}
+
+type ListAuthoringFilesRequest struct {
+	ThreadID string `form:"thread_id" binding:"required"`
+	Path     string `form:"path"`
+}
+
+type ReadAuthoringFileRequest struct {
+	ThreadID string `form:"thread_id" binding:"required"`
+	Path     string `form:"path" binding:"required"`
+}
+
+type WriteAuthoringFileRequest struct {
+	ThreadID string `json:"thread_id" binding:"required"`
+	Path     string `json:"path" binding:"required"`
+	Content  string `json:"content"`
+}
+
+type SaveAgentAuthoringDraftRequest struct {
+	ThreadID    string `json:"thread_id" binding:"required"`
+	AgentStatus string `json:"agent_status"`
+}
+
+type SaveSkillAuthoringDraftRequest struct {
+	ThreadID string `json:"thread_id" binding:"required"`
+}
+
 // Open API DTOs
 
 type OpenAPIChatRequest struct {

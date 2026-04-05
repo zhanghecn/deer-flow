@@ -251,6 +251,205 @@ class AioSandbox(Sandbox):
         argv.extend([SHELL_PATH, "-lc", runtime_command])
         return self._quote_command(argv)
 
+    def _build_code_server_jail_command(
+        self,
+        *,
+        bind_source: str,
+        visible_workdir: str,
+        visible_state_root: str,
+        port: int,
+        public_base_path: str,
+    ) -> str:
+        """Build a long-lived `code-server` command jailed to one visible root.
+
+        Shell `execute()` calls use `--die-with-parent` because they should stop
+        with the request-scoped shell. IDE sessions are different: they need a
+        dedicated long-lived bwrap process per thread/mode, so the gateway can
+        proxy browser traffic into that isolated root until the IDE session
+        expires.
+        """
+
+        argv = [
+            "bwrap",
+            "--new-session",
+            "--unshare-user",
+            "--unshare-ipc",
+            "--unshare-pid",
+            "--unshare-uts",
+            "--proc",
+            "/proc",
+            "--dev",
+            "/dev",
+            "--tmpfs",
+            "/tmp",
+            "--bind",
+            bind_source,
+            VIRTUAL_PATH_PREFIX,
+            "--setenv",
+            "HOME",
+            f"{visible_state_root}/home",
+            "--setenv",
+            "XDG_DATA_HOME",
+            f"{visible_state_root}/data",
+            "--setenv",
+            "XDG_CACHE_HOME",
+            f"{visible_state_root}/cache",
+            "--setenv",
+            "PATH",
+            DEFAULT_EXEC_PATH,
+            "--setenv",
+            "OPENAGENTS_RUNTIME_ROOT",
+            VIRTUAL_PATH_PREFIX,
+            "--setenv",
+            "OPENAGENTS_WORKSPACE",
+            visible_workdir,
+            "--chdir",
+            visible_workdir,
+        ]
+        for directory in READ_ONLY_BIND_DIRS:
+            if os.path.exists(directory):
+                argv.extend(["--ro-bind", directory, directory])
+        argv.extend(
+            [
+                "code-server",
+                "--auth",
+                "none",
+                "--bind-addr",
+                f"127.0.0.1:{port}",
+                "--disable-update-check",
+                "--disable-telemetry",
+                "--app-name",
+                "OpenAgents Workspace",
+                "--user-data-dir",
+                f"{visible_state_root}/data",
+                "--extensions-dir",
+                f"{visible_state_root}/extensions",
+                # code-server 4.104.x serves the main app with relative asset
+                # URLs, so the reverse proxy should strip the external session
+                # prefix and only absproxy requests need the public base path.
+                "--abs-proxy-base-path",
+                public_base_path,
+                visible_workdir,
+            ]
+        )
+        return self._quote_command(argv)
+
+    def launch_detached_code_server(
+        self,
+        *,
+        bind_source: str,
+        visible_workdir: str,
+        state_root: str,
+        visible_state_root: str,
+        port: int,
+        public_base_path: str,
+        timeout: int | None = None,
+    ) -> int:
+        """Start a detached `code-server` process and return its outer bwrap PID.
+
+        The returned PID belongs to the detached bwrap wrapper, not the inner
+        `code-server` child. Killing that outer process tears down the full IDE
+        session and its isolated PID namespace in one step.
+        """
+
+        started_at = time.perf_counter()
+        effective_timeout = timeout if timeout is not None else self._default_timeout
+        normalized_bind_source = self._normalize_runtime_path(bind_source)
+        normalized_state_root = self._normalize_runtime_path(state_root)
+        normalized_visible_workdir = self._to_virtual_runtime_path(
+            self._normalize_runtime_path(visible_workdir)
+        )
+        inner_command = self._build_code_server_jail_command(
+            bind_source=normalized_bind_source,
+            visible_workdir=normalized_visible_workdir,
+            visible_state_root=visible_state_root,
+            port=port,
+            public_base_path=public_base_path,
+        )
+        shell_command = (
+            "mkdir -p "
+            f"{shlex.quote(normalized_state_root)}/home "
+            f"{shlex.quote(normalized_state_root)}/data "
+            f"{shlex.quote(normalized_state_root)}/cache "
+            f"{shlex.quote(normalized_state_root)}/extensions "
+            f"{shlex.quote(normalized_state_root)}/logs && "
+            "chmod 700 "
+            f"{shlex.quote(normalized_state_root)} "
+            f"{shlex.quote(normalized_state_root)}/home "
+            f"{shlex.quote(normalized_state_root)}/data "
+            f"{shlex.quote(normalized_state_root)}/cache "
+            f"{shlex.quote(normalized_state_root)}/extensions "
+            f"{shlex.quote(normalized_state_root)}/logs && "
+            "nohup sh -lc "
+            f"{shlex.quote(f'exec {inner_command}')}"
+            f" > {shlex.quote(f'{normalized_state_root}/logs/code-server.log')} 2>&1 < /dev/null & echo $!"
+        )
+
+        try:
+            result = self._client.shell.exec_command(
+                command=shell_command,
+                exec_dir=self.home_dir,
+                timeout=float(effective_timeout),
+                hard_timeout=float(effective_timeout),
+                truncate=True,
+            )
+            output = str(self._result_value(result, "output") or "").strip()
+            pid = int(output.splitlines()[-1].strip())
+            self._log_transport_success(
+                operation="launch_code_server",
+                started_at=started_at,
+                bind_source=normalized_bind_source,
+                state_root=normalized_state_root,
+                public_base_path=public_base_path,
+                port=port,
+                pid=pid,
+            )
+            return pid
+        except Exception as exc:  # noqa: BLE001
+            self._log_transport_failure(
+                operation="launch_code_server",
+                started_at=started_at,
+                error=exc,
+                bind_source=normalized_bind_source,
+                state_root=normalized_state_root,
+                public_base_path=public_base_path,
+                port=port,
+            )
+            raise RuntimeError(f"Failed to launch detached code-server: {exc}") from exc
+
+    def terminate_detached_process(
+        self,
+        pid: int,
+        *,
+        timeout: int | None = None,
+    ) -> None:
+        """Terminate a detached outer bwrap process created for IDE access."""
+
+        started_at = time.perf_counter()
+        effective_timeout = timeout if timeout is not None else 30
+        command = f"kill -TERM {int(pid)} >/dev/null 2>&1 || true"
+        try:
+            self._client.shell.exec_command(
+                command=command,
+                exec_dir=self.home_dir,
+                timeout=float(effective_timeout),
+                hard_timeout=float(effective_timeout),
+                truncate=True,
+            )
+            self._log_transport_success(
+                operation="terminate_code_server",
+                started_at=started_at,
+                pid=pid,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._log_transport_failure(
+                operation="terminate_code_server",
+                started_at=started_at,
+                error=exc,
+                pid=pid,
+            )
+            raise RuntimeError(f"Failed to terminate detached code-server pid {pid}: {exc}") from exc
+
     def _log_transport_success(
         self,
         *,
