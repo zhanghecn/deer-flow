@@ -4,11 +4,11 @@
 
 - `docker/docker-compose-prod.yaml`
 
-目标不是做云原生大规模编排，而是提供一份适合单机/单节点正式环境的、尽量简单的自托管方案。
+目标不是做云原生大规模编排，而是提供一份适合单机/单节点正式环境、同时也能作为本地 Docker 默认入口的自托管方案。
 
 ## 设计取向
 
-这份正式版 Compose 和 `docker-compose-dev.yaml` 的差异是有意的：
+这份 Compose 现在就是仓库唯一保留的编排文件：
 
 - 前端不再跑 Vite dev server
 - 两个前端都先构建产物，再由一个 Nginx 容器托管
@@ -20,8 +20,9 @@
 注意：
 
 - 根目录 `config.yaml` 依然会被挂进正式环境容器
-- 但其中 `sandbox.base_url: http://127.0.0.1:8083` 属于宿主机/开发视角地址
+- 但其中 `sandbox.base_url: http://127.0.0.1:18080` 属于宿主机/开发视角地址
 - 正式环境里 `langgraph` 会用 `OPENAGENTS_SANDBOX_BASE_URL=http://sandbox-aio:8080` 覆盖它
+- `sandbox-aio` 额外对宿主机暴露 `18080 -> 8080`，方便访问它的管理页面
 - `langgraph` 的 inmem 运行时目录固定落在 `.openagents/runtime/langgraph/`
 - `gateway` / `langgraph` 继续输出到容器标准日志，由 Docker 做日志轮转
 - 浏览器访问链路仍然是 `nginx -> gateway -> langgraph -> sandbox-aio`

@@ -6,7 +6,7 @@ from src import langgraph_dev
 def test_load_env_from_config_keeps_existing_environment_over_env_file(tmp_path, monkeypatch):
     env_path = tmp_path / "runtime.env"
     env_path.write_text(
-        "OPENAGENTS_SANDBOX_BASE_URL=http://127.0.0.1:8083\nOPENAGENTS_SANDBOX_SHARED_DATA_MOUNT_PATH=/openagents\n",
+        "OPENAGENTS_SANDBOX_BASE_URL=http://127.0.0.1:18080\nOPENAGENTS_SANDBOX_SHARED_DATA_MOUNT_PATH=/openagents\n",
         encoding="utf-8",
     )
     config_path = tmp_path / "langgraph.json"
@@ -25,7 +25,7 @@ def test_load_env_from_config_keeps_existing_environment_over_env_file(tmp_path,
 def test_main_passes_merged_runtime_env_to_run_server(tmp_path, monkeypatch):
     env_path = tmp_path / "runtime.env"
     env_path.write_text(
-        "OPENAGENTS_SANDBOX_BASE_URL=http://127.0.0.1:8083\nOPENAGENTS_SANDBOX_SHARED_DATA_MOUNT_PATH=/openagents\nDATABASE_URI=postgresql://from-env-file\n",
+        "OPENAGENTS_SANDBOX_BASE_URL=http://127.0.0.1:18080\nOPENAGENTS_SANDBOX_SHARED_DATA_MOUNT_PATH=/openagents\nDATABASE_URI=postgresql://from-env-file\n",
         encoding="utf-8",
     )
     config_path = tmp_path / "langgraph.json"

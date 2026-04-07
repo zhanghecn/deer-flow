@@ -15,11 +15,14 @@ In short:
 
 ## Development Environment Setup
 
-We offer two development environments. **Docker is recommended** for the most consistent and hassle-free experience.
+We offer two development environments. **Docker is recommended** when you want
+the same compose stack locally and in release-style verification.
 
-### Option 1: Docker Development (Recommended)
+### Option 1: Docker Compose (Recommended)
 
-Docker provides a consistent, isolated environment with all dependencies pre-configured. No need to install Node.js, Python, or nginx on your local machine.
+Docker provides a consistent, isolated environment with all dependencies
+pre-configured. This repository now uses one production-style compose file for
+both local Docker runs and release-style deployment checks.
 
 #### Prerequisites
 
@@ -54,29 +57,24 @@ Docker provides a consistent, isolated environment with all dependencies pre-con
    ```
    `make docker-start` reads `config.yaml` and starts `provisioner` only for provisioner/Kubernetes sandbox mode.
 
-   All services will start with hot-reload enabled:
-   - Frontend changes are automatically reloaded
-   - Backend changes trigger automatic restart
-   - LangGraph server supports hot-reload
-
 4. **Access the application**:
-   - Web Interface: http://localhost:2026
-   - API Gateway: http://localhost:2026/api/*
-   - LangGraph: http://localhost:2026/api/langgraph/*
+   - Web Interface: http://localhost:8083
+   - Admin: http://localhost:8081
+   - Sandbox management UI: http://localhost:18080
 
 #### Docker Commands
 
 ```bash
-# Build the custom k3s image (with pre-cached sandbox image)
+# Pull the shared sandbox image
 make docker-init
-# Start Docker services (mode-aware, localhost:2026)
+# Start Docker services (mode-aware, app on localhost:8083)
 make docker-start
-# Stop Docker development services
+# Stop Docker services
 make docker-stop
-# View Docker development logs
+# View Docker logs
 make docker-logs
-# View Docker frontend logs
-make docker-logs-frontend
+# View Docker nginx logs
+make docker-logs-nginx
 # View Docker gateway logs
 make docker-logs-gateway
 ```
@@ -86,20 +84,20 @@ make docker-logs-gateway
 ```
 Host Machine
   ↓
-Docker Compose (openagents-dev)
-  ├→ nginx (port 2026) ← Reverse proxy
-  ├→ frontend (port 3000) ← Vite app with hot-reload
-  ├→ gateway (port 8001) ← Go Gateway (JWT auth, Agent/Skill CRUD, LangGraph proxy)
-  ├→ langgraph (port 2024) ← LangGraph server (deepagents engine)
-  └→ provisioner (optional, port 8002) ← Started only in provisioner/K8s sandbox mode
+Docker Compose (openagents-prod)
+  ├→ nginx (host ports 8083 / 8081) ← User app + admin entrypoint
+  ├→ gateway (internal) ← Go Gateway (JWT auth, Agent/Skill CRUD, LangGraph proxy)
+  ├→ langgraph (internal) ← LangGraph server (deepagents engine)
+  ├→ sandbox-aio (host port 18080) ← Shared sandbox + management UI
+  ├→ onlyoffice (host port 8082) ← Document server for local host-run reuse
+  └→ provisioner (optional) ← Started only in provisioner/K8s sandbox mode
 ```
 
-**Benefits of Docker Development**:
+**Benefits of Docker Compose**:
 - ✅ Consistent environment across different machines
 - ✅ No need to install Node.js, Python, or nginx locally
 - ✅ Isolated dependencies and services
 - ✅ Easy cleanup and reset
-- ✅ Hot-reload for all services
 - ✅ Production-like environment
 
 ### Option 2: Local Development
@@ -193,7 +191,7 @@ openagents/
 │   ├── docker.sh                 # Docker management script
 │   └── cleanup-containers.sh     # Sandbox container cleanup
 ├── docker/
-│   ├── docker-compose-dev.yaml   # Docker Compose configuration
+│   ├── docker-compose-prod.yaml  # Unified Docker Compose configuration
 │   ├── nginx/
 │   │   ├── nginx.conf            # Nginx config for Docker
 │   │   └── nginx.local.conf      # Nginx config for local dev

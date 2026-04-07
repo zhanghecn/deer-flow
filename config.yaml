@@ -11,7 +11,9 @@ runtime:
 
 sandbox:
   use: src.community.aio_sandbox:AioSandboxProvider
-  base_url: http://127.0.0.1:8083
+  # Host-run local development talks to the compose-managed sandbox on 18080,
+  # while in-compose LangGraph still uses the internal `sandbox-aio:8080` URL.
+  base_url: http://127.0.0.1:18080
   shared_data_mount_path: /openagents
   auto_start: false
 

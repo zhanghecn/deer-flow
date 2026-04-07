@@ -217,11 +217,12 @@ Concrete host/container contract:
 - Compose host mount override: `OPENAGENTS_DOCKER_HOST_HOME` (default `../.openagents`)
 - App-container runtime path: fixed `/openagents-home`
 - Shared sandbox mount inside `sandbox-aio`: `/openagents`
-- Fixed compose project name: `openagents-dev`
+- Fixed compose project name: `openagents-prod`
 - Shared app secrets file: repo `.env`
 - `gateway` and `langgraph` both mount the same root `.env` as `/app/.env`
 - Non-secret runtime config stays in `config.yaml` / `gateway.yaml`
 - Compose injects the few container-only fixed URLs inline
+- The same compose file is used for local Docker runs and release-style verification
 - Browser-facing URLs such as `ONLYOFFICE_SERVER_URL` stay host-view because the browser, not the container, dereferences them
 
 This keeps `docker compose` usable directly from the `docker/` directory without

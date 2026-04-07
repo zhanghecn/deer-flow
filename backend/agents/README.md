@@ -249,7 +249,7 @@ secrets in it, such as database DSNs and API keys.
 
 Docker development uses the same root `.env`.
 Containerized LangGraph still uses `backend/agents/langgraph.json`; Docker-only
-URL differences are injected inline by `docker/docker-compose-dev.yaml`.
+URL differences are injected inline by `docker/docker-compose-prod.yaml`.
 
 Important variables:
 

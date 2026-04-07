@@ -28,8 +28,10 @@ sandbox:
   # Host-view sandbox URL for local/dev usage.
   # In Docker production deployments, langgraph should override this with the
   # container-network address, for example `http://sandbox-aio:8080`.
+  # The shared compose stack also exposes the sandbox management UI on host
+  # port 18080 for operators and host-run local development.
   # Browsers should still go through nginx/gateway instead of calling sandbox.
-  base_url: http://127.0.0.1:8083
+  base_url: http://127.0.0.1:18080
   shared_data_mount_path: /openagents
   auto_start: false
   # Add `provisioner_url` only for provisioner/Kubernetes-backed sandboxes.

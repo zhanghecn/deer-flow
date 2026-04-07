@@ -1,12 +1,13 @@
 # Docker Config Layout
 
-For a Chinese review of `docker-compose-dev.yaml` plus recommended production
-release/update flow, see `docs/guides/docker-compose-dev-review-and-release-zh.md`.
+This repository now keeps a single Docker Compose file:
 
-For the single-host production-oriented compose file, see
-`docs/guides/docker-compose-prod-selfhost-zh.md`.
+- `docker/docker-compose-prod.yaml`
 
-For direct production usage, run docker compose from `docker/`:
+Use it for both local Docker runs and release-style single-host deployments.
+For detailed operator notes, see `docs/guides/docker-compose-prod-selfhost-zh.md`.
+
+Run Docker Compose from `docker/`:
 
 ```bash
 docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml build
@@ -22,9 +23,9 @@ This repo now uses:
 - `config.yaml` for LangGraph/runtime non-secret config
 - `backend/gateway/gateway.yaml` for gateway non-secret config
 
-Docker-specific differences are handled in two places only:
+Docker-specific differences are handled in one place:
 
-- fixed container URLs are written directly in `docker/docker-compose-dev.yaml`
+- fixed container URLs are written directly in `docker/docker-compose-prod.yaml`
 - optional compose/provisioner overrides are passed as shell env when needed
 
 Removed on purpose to keep the config surface small:
@@ -57,7 +58,7 @@ For container-only fixed values, compose already owns them:
 - gateway sees `ONLYOFFICE_PUBLIC_APP_URL=http://gateway:8001`
 - gateway/langgraph see `OPENAGENTS_HOME=/openagents-home`
 
-In production compose, do not mount the whole repository into app containers.
+In the unified compose stack, do not mount the whole repository into app containers.
 Mount only the service source directories that need hot updates, keep those
 code mounts read-only, and write runtime scratch data under `OPENAGENTS_HOME`.
 Container logs should stay on stdout/stderr and use Docker log rotation.
@@ -79,7 +80,7 @@ one shared DB address.
 
 ```bash
 cd docker
-docker compose --env-file ../.env -f docker-compose-dev.yaml up --build
+docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml up --build
 ```
 
 or:
@@ -88,11 +89,10 @@ or:
 make docker-start
 ```
 
-`ONLYOFFICE` is part of the default Docker dev stack.
-`SANDBOX_AIO` is also part of the default stack when `config.yaml` uses the AIO sandbox provider.
-In `docker-compose-dev.yaml`, `gateway` now starts with `go run ./cmd/server`
-against the mounted source tree, so normal Go code edits only need a container
-restart instead of a full image rebuild.
+`ONLYOFFICE` and `SANDBOX_AIO` are part of the default unified stack.
+The app entrypoint is `http://127.0.0.1:8083`, the admin entrypoint is
+`http://127.0.0.1:8081`, and the sandbox management UI is exposed on
+`http://127.0.0.1:18080`.
 For host-run local development, start just the shared infra with:
 
 ```bash
@@ -100,20 +100,19 @@ make docker-infra-start
 ```
 
 That starts only `sandbox-aio` and `onlyoffice`.
-`config.yaml` keeps the host-run sandbox URL (`http://127.0.0.1:8083`), and compose overrides the in-container LangGraph URL to `http://sandbox-aio:8080`.
+`config.yaml` keeps the host-run sandbox URL (`http://127.0.0.1:18080`), and compose overrides the in-container LangGraph URL to `http://sandbox-aio:8080`.
 
 ## Optional Compose/Shell Vars
 
 Export these in the shell only when you actually need them:
 
 - `OPENAGENTS_DOCKER_HOST_HOME`
-- `ONLYOFFICE_PORT`
 - `NODE_HOST`
 - `K8S_API_SERVER`
 
 ## Fixed Compose Name
 
-Keep the top-level `name: openagents-dev`.
+Keep the top-level `name: openagents-prod`.
 
 Without that, different `docker compose` invocations can create different
 bridge networks and break service DNS such as `http://langgraph:2024`.

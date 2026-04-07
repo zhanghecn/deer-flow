@@ -73,7 +73,7 @@ psql "$DATABASE_URI" -f migrations/002_seed_data.up.sql
 - 非密钥配置放在 `gateway.yaml` 与项目根 `config.yaml`
 - 技能归档库位于 `storage.base_dir/skills/`，默认即 `.openagents/skills/`
 - 当 `OPENAGENTS_HOME` 或 `storage.base_dir` 使用相对路径时，网关会按项目根目录解析，和 Python runtime 保持一致
-- 若通过 `docker/docker-compose-dev.yaml` 启动容器化开发环境：
+- 若通过 `docker/docker-compose-prod.yaml` 启动容器化环境：
   - 根 `.env` 仍是唯一共享 secrets 文件
   - 容器化 Gateway 通过进程环境运行，不再直接读取根 `.env` 文件
   - Compose 直接负责容器内固定 URL，例如 `http://langgraph:2024`
@@ -176,7 +176,7 @@ go run ./cmd/server
 - 记忆文件固定存储在 `{OPENAGENTS_HOME}/users/{user_id}/agents/{status}/{agent_name}/memory.json`
 - 文档上传转换依赖运行 Gateway 的环境里可执行的 `markitdown`；可用 `OPENAGENTS_MARKITDOWN_BIN` 显式指定二进制路径。
 - Office 文件的 `?preview=pdf` 转换依赖运行 Gateway 的环境内可执行的 `soffice`（LibreOffice）。
-- `docker/docker-compose-dev.yaml` / `docker/docker-compose-prod.yaml` 构建的 Gateway 镜像已内置 LibreOffice；若直接在宿主机运行 Gateway，需要自行安装 `soffice`。
+- `docker/docker-compose-prod.yaml` 构建的 Gateway 镜像已内置 LibreOffice；若直接在宿主机运行 Gateway，需要自行安装 `soffice`。
 - 即使未安装 LibreOffice，工作区内联预览仍可通过 `/api/threads/:id/office-config/*path` 走 ONLYOFFICE 编辑器。
 - `onlyoffice.server_url` 是浏览器访问 Document Server 的地址；在正式环境 compose 中建议走 nginx 同源子路径，例如 `/onlyoffice`。
 - `onlyoffice.public_app_url` 是 Document Server 回调 Gateway 的地址；在 Docker Compose 网络内通常保持 `http://gateway:8001`。

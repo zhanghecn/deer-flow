@@ -267,7 +267,6 @@ export JWT_SECRET="${ONLYOFFICE_JWT_SECRET:-${JWT_SECRET}}"
 
 - `backend/gateway/cmd/server/main.go`
 - `docker/docker-compose-prod.yaml`
-- `docker/docker-compose-dev.yaml`
 
 ## 9. 为什么生产环境要走同源 /onlyoffice
 
@@ -327,7 +326,7 @@ gateway 返回给前端的:
 这要求两件事同时成立：
 
 1. Vite dev server 代理 `/onlyoffice`
-2. dev compose 或本地网关把 `ONLYOFFICE_SERVER_URL` 设成 `/onlyoffice`
+2. 统一 compose 或本地网关把 `ONLYOFFICE_SERVER_URL` 设成 `/onlyoffice`
 
 ## 12. 代码入口索引
 
@@ -344,5 +343,4 @@ gateway 返回给前端的:
 
 - Deploy / Proxy
   - `docker/docker-compose-prod.yaml`
-  - `docker/docker-compose-dev.yaml`
   - `docker/nginx/nginx.prod.conf`

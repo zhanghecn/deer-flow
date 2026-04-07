@@ -13,10 +13,11 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 DOCKER_DIR="$PROJECT_ROOT/docker"
 ROOT_ENV_FILE="$PROJECT_ROOT/.env"
 DEFAULT_SANDBOX_AIO_IMAGE="enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest"
-DEFAULT_SANDBOX_AIO_PORT="8083"
+DEFAULT_SANDBOX_AIO_PORT="18080"
 
-# Docker Compose arguments. Use the shared root `.env` as the single app config.
-COMPOSE_ARGS=(--env-file "$ROOT_ENV_FILE" -p openagents-dev -f docker-compose-dev.yaml)
+# Docker Compose arguments. The repository now uses one production-style
+# compose file for both local Docker runs and release-style deployments.
+COMPOSE_ARGS=(--env-file "$ROOT_ENV_FILE" -p openagents-prod -f docker-compose-prod.yaml)
 
 ensure_root_env_file() {
     if [ -f "$ROOT_ENV_FILE" ]; then
@@ -111,38 +112,6 @@ resolve_openagents_home() {
     export OPENAGENTS_DOCKER_HOST_HOME="$resolved_home"
 }
 
-container_exists_by_name() {
-    local name="$1"
-    [ -n "$(docker ps -aq --filter "name=^/${name}$" 2>/dev/null)" ]
-}
-
-container_running_by_name() {
-    local name="$1"
-    [ -n "$(docker ps -q --filter "name=^/${name}$" 2>/dev/null)" ]
-}
-
-ensure_infra_service() {
-    local service="$1"
-    local container_name="$2"
-
-    if container_running_by_name "$container_name"; then
-        echo -e "${GREEN}Reusing running container: $container_name${NC}"
-        return
-    fi
-
-    if container_exists_by_name "$container_name"; then
-        echo -e "${BLUE}Starting existing container: $container_name${NC}"
-        docker start "$container_name" >/dev/null
-        return
-    fi
-
-    echo -e "${BLUE}Creating container for service: $service${NC}"
-    (
-        cd "$DOCKER_DIR" &&
-        docker compose "${COMPOSE_ARGS[@]}" up --build -d "$service"
-    )
-}
-
 # Cleanup function for Ctrl+C
 cleanup() {
     echo ""
@@ -177,13 +146,13 @@ init() {
     echo -e "${YELLOW}Next step: make docker-start${NC}"
 }
 
-# Start Docker development environment
+# Start the unified Docker Compose stack.
 start() {
     local sandbox_mode
     local -a services
 
     echo "=========================================="
-    echo "  Starting OpenAgents Docker Development"
+    echo "  Starting OpenAgents Docker Stack"
     echo "=========================================="
     echo ""
 
@@ -193,11 +162,9 @@ start() {
 
     if [ "$sandbox_mode" = "provisioner" ]; then
         require_provisioner_env
-        services=(frontend gateway onlyoffice langgraph provisioner nginx)
-    elif [ "$sandbox_mode" = "aio" ]; then
-        services=(sandbox-aio frontend gateway onlyoffice langgraph nginx)
+        services=(sandbox-aio provisioner onlyoffice langgraph gateway nginx)
     else
-        services=(frontend gateway onlyoffice langgraph nginx)
+        services=(sandbox-aio onlyoffice langgraph gateway nginx)
     fi
 
     echo -e "${BLUE}Detected sandbox mode: $sandbox_mode${NC}"
@@ -206,7 +173,7 @@ start() {
     else
         echo -e "${BLUE}Provisioner disabled (not required for this sandbox mode).${NC}"
     fi
-    echo -e "${BLUE}ONLYOFFICE enabled in the Docker dev stack.${NC}"
+    echo -e "${BLUE}Using the unified production-style compose stack for local Docker runs.${NC}"
     echo ""
     
     resolve_openagents_home
@@ -220,9 +187,9 @@ start() {
     echo "  OpenAgents Docker is starting!"
     echo "=========================================="
     echo ""
-    echo "  🌐 Application: http://localhost:2026"
-    echo "  📡 API Gateway: http://localhost:2026/api/*"
-    echo "  🤖 LangGraph:   http://localhost:2026/api/langgraph/*"
+    echo "  🌐 App:         http://127.0.0.1:8083"
+    echo "  🛠 Admin:       http://127.0.0.1:8081"
+    echo "  📦 Sandbox UI:  http://127.0.0.1:${DEFAULT_SANDBOX_AIO_PORT}"
     echo ""
     echo "  📋 View logs: make docker-logs"
     echo "  🛑 Stop:      make docker-stop"
@@ -240,28 +207,27 @@ infra_start() {
     resolve_openagents_home
 
     echo -e "${BLUE}Using OPENAGENTS_DOCKER_HOST_HOME=$OPENAGENTS_DOCKER_HOST_HOME${NC}"
-    echo -e "${BLUE}Starting shared sandbox + ONLYOFFICE only.${NC}"
+    echo -e "${BLUE}Starting sandbox-aio + ONLYOFFICE from the unified compose file.${NC}"
     echo ""
 
-    ensure_infra_service "sandbox-aio" "openagents-aio-sandbox"
-    ensure_infra_service "onlyoffice" "openagents-onlyoffice"
+    cd "$DOCKER_DIR" && docker compose "${COMPOSE_ARGS[@]}" up -d sandbox-aio onlyoffice
 
     echo ""
     echo -e "${GREEN}✓ Local debug infra is starting${NC}"
     echo "  Sandbox AIO: http://127.0.0.1:${DEFAULT_SANDBOX_AIO_PORT}"
-    echo "  ONLYOFFICE:  http://127.0.0.1:${ONLYOFFICE_PORT:-8082}"
+    echo "  ONLYOFFICE:  http://127.0.0.1:8082"
     echo "  Host app:    run 'make dev' separately"
     echo ""
 }
 
-# View Docker development logs
+# View Docker stack logs.
 logs() {
     local service=""
     
     case "$1" in
-        --frontend)
-            service="frontend"
-            echo -e "${BLUE}Viewing frontend logs...${NC}"
+        --langgraph)
+            service="langgraph"
+            echo -e "${BLUE}Viewing langgraph logs...${NC}"
             ;;
         --gateway)
             service="gateway"
@@ -288,7 +254,7 @@ logs() {
             ;;
         *)
             echo -e "${YELLOW}Unknown option: $1${NC}"
-            echo "Usage: $0 logs [--frontend|--gateway|--nginx|--provisioner|--sandbox-aio|--onlyoffice]"
+            echo "Usage: $0 logs [--langgraph|--gateway|--nginx|--provisioner|--sandbox-aio|--onlyoffice]"
             exit 1
             ;;
     esac
@@ -296,9 +262,9 @@ logs() {
     cd "$DOCKER_DIR" && docker compose "${COMPOSE_ARGS[@]}" logs -f $service
 }
 
-# Stop Docker development environment
+# Stop the unified Docker Compose stack.
 stop() {
-    echo "Stopping Docker development services..."
+    echo "Stopping Docker services..."
     cd "$DOCKER_DIR" && docker compose "${COMPOSE_ARGS[@]}" down
     echo -e "${GREEN}✓ Docker services stopped${NC}"
 }
@@ -306,11 +272,11 @@ stop() {
 # Stop only the shared Docker infra used by host-run local development.
 infra_stop() {
     echo "Stopping OpenAgents local debug infra..."
-    docker stop openagents-aio-sandbox openagents-onlyoffice >/dev/null 2>&1 || true
+    cd "$DOCKER_DIR" && docker compose "${COMPOSE_ARGS[@]}" stop sandbox-aio onlyoffice >/dev/null 2>&1 || true
     echo -e "${GREEN}✓ Local debug infra stopped${NC}"
 }
 
-# Restart Docker development environment
+# Restart the unified Docker Compose stack.
 restart() {
     echo "========================================"
     echo "  Restarting OpenAgents Docker Services"
@@ -321,8 +287,9 @@ restart() {
     echo ""
     echo -e "${GREEN}✓ Docker services restarted${NC}"
     echo ""
-    echo "  🌐 Application: http://localhost:2026"
-    echo "  📋 View logs: make docker-dev-logs"
+    echo "  🌐 App:   http://127.0.0.1:8083"
+    echo "  🛠 Admin: http://127.0.0.1:8081"
+    echo "  📋 View logs: make docker-logs"
     echo ""
 }
 
@@ -334,11 +301,11 @@ help() {
     echo ""
     echo "Commands:"
     echo "  init          - Pull the sandbox image (speeds up first Pod startup)"
-    echo "  start         - Start Docker services (auto-detects sandbox mode from startup config)"
+    echo "  start         - Start the unified Docker compose stack"
     echo "  infra-start   - Start local debug infra only (sandbox-aio + onlyoffice)"
     echo "  restart       - Restart all running Docker services"
-    echo "  logs [option] - View Docker development logs"
-    echo "                  --frontend   View frontend logs only"
+    echo "  logs [option] - View Docker stack logs"
+    echo "                  --langgraph  View langgraph logs only"
     echo "                  --gateway    View gateway logs only"
     echo "                  --nginx      View nginx logs only"
     echo "                  --provisioner View provisioner logs only"

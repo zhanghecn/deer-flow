@@ -129,7 +129,7 @@
 
 ## 配置
 
-供应器通过环境变量进行配置（在 [docker-compose-dev.yaml](../docker-compose-dev.yaml) 中设置）：
+供应器通过环境变量进行配置（在 [docker-compose-prod.yaml](../docker-compose-prod.yaml) 中设置）：
 
 | 变量 | 默认值 | 说明 |
 |----------|---------|-------------|
@@ -148,7 +148,7 @@
 **解决方案**：将 `K8S_API_SERVER` 设置为供应器容器可访问的真实主机名、IP 或 DNS 名称：
 
 ```yaml
-# docker-compose-dev.yaml
+# docker-compose-prod.yaml
 provisioner:
   environment:
     - K8S_API_SERVER=https://192.168.1.10:26443  # 替换为真实可达的 API 地址
@@ -185,14 +185,14 @@ kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}'
 
 ### Docker Compose 设置
 
-供应器作为 docker-compose-dev 堆栈的一部分运行：
+供应器作为统一 Docker Compose 堆栈的一部分运行：
 
 ```bash
 # 启动 Docker 服务（当 config.yaml 启用供应器模式时，供应器才会启动）
 make docker-start
 
 # 或仅启动供应器
-docker compose -p openagents-dev -f docker/docker-compose-dev.yaml up -d provisioner
+docker compose --env-file .env -p openagents-prod -f docker/docker-compose-prod.yaml --profile provisioner up -d provisioner
 ```
 
 Compose 文件：
@@ -209,21 +209,21 @@ Compose 文件：
 curl http://localhost:8002/health
 
 # 创建沙箱（通过供应器容器进行内部 DNS 解析）
-docker exec openagents-provisioner curl -X POST http://localhost:8002/api/sandboxes \
+docker compose -p openagents-prod -f docker/docker-compose-prod.yaml exec provisioner curl -X POST http://localhost:8002/api/sandboxes \
   -H "Content-Type: application/json" \
   -d '{"sandbox_id":"test-001","thread_id":"thread-001"}'
 
 # 检查沙箱状态
-docker exec openagents-provisioner curl http://localhost:8002/api/sandboxes/test-001
+docker compose -p openagents-prod -f docker/docker-compose-prod.yaml exec provisioner curl http://localhost:8002/api/sandboxes/test-001
 
 # 列出所有沙箱
-docker exec openagents-provisioner curl http://localhost:8002/api/sandboxes
+docker compose -p openagents-prod -f docker/docker-compose-prod.yaml exec provisioner curl http://localhost:8002/api/sandboxes
 
 # 在 K8s 中验证 Pod 和服务
 kubectl get pod,svc -n openagents -l sandbox-id=test-001
 
 # 删除沙箱
-docker exec openagents-provisioner curl -X DELETE http://localhost:8002/api/sandboxes/test-001
+docker compose -p openagents-prod -f docker/docker-compose-prod.yaml exec provisioner curl -X DELETE http://localhost:8002/api/sandboxes/test-001
 ```
 
 ### 从后端容器验证
@@ -232,10 +232,10 @@ docker exec openagents-provisioner curl -X DELETE http://localhost:8002/api/sand
 
 ```bash
 # 从供应器获取沙箱 URL
-SANDBOX_URL=$(docker exec openagents-provisioner curl -s http://localhost:8002/api/sandboxes/test-001 | jq -r .sandbox_url)
+SANDBOX_URL=$(docker compose -p openagents-prod -f docker/docker-compose-prod.yaml exec -T provisioner curl -s http://localhost:8002/api/sandboxes/test-001 | jq -r .sandbox_url)
 
 # 从 gateway 容器测试
-docker exec openagents-gateway curl -s $SANDBOX_URL/v1/sandbox
+docker compose -p openagents-prod -f docker/docker-compose-prod.yaml exec gateway curl -s $SANDBOX_URL/v1/sandbox
 ```
 
 ## 故障排除
@@ -247,7 +247,7 @@ docker exec openagents-gateway curl -s $SANDBOX_URL/v1/sandbox
 **解决方案**：
 - 确保您主机上的 `~/.kube/config` 存在
 - 运行 `kubectl config view` 进行验证
-- 检查 docker-compose-dev.yaml 中的卷挂载
+- 检查 docker-compose-prod.yaml 中的卷挂载
 
 ### 问题："Kubeconfig path is a directory"（kubeconfig 路径是目录）
 
@@ -257,7 +257,7 @@ docker exec openagents-gateway curl -s $SANDBOX_URL/v1/sandbox
 - 确保 compose 挂载源是文件（例如 `~/.kube/config`）而不是目录
 - 在容器内验证：
   ```bash
-  docker exec openagents-provisioner ls -ld /root/.kube/config
+  docker compose -p openagents-prod -f docker/docker-compose-prod.yaml exec provisioner ls -ld /root/.kube/config
   ```
 - 预期输出应指示常规文件（`-`），而不是目录（`d`）
 
@@ -305,7 +305,7 @@ docker exec openagents-gateway curl -s $SANDBOX_URL/v1/sandbox
 - 验证服务是否存在：`kubectl get svc -n openagents`
 - 从主机测试：`curl http://localhost:NODE_PORT/v1/sandbox`
 - 从后端容器测试配置的地址：
-  `docker exec openagents-gateway curl -s http://$NODE_HOST:NODE_PORT/v1/sandbox`
+  `docker compose -p openagents-prod -f docker/docker-compose-prod.yaml exec gateway curl -s http://$NODE_HOST:NODE_PORT/v1/sandbox`
 - 检查 `NODE_HOST` 是否是后端容器可达的真实地址
 
 ## 安全注意事项

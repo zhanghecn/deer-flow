@@ -1,6 +1,6 @@
 # OpenAgents - Unified Development Environment
 
-.PHONY: help config check install dev stop clean docker-init docker-start docker-infra-start docker-stop docker-infra-stop docker-logs docker-logs-frontend docker-logs-gateway docker-prod-config docker-prod-build docker-prod-start docker-prod-stop docker-prod-restart docker-prod-status docker-prod-logs gateway-build
+.PHONY: help config check install dev stop clean docker-init docker-start docker-infra-start docker-stop docker-infra-stop docker-logs docker-logs-nginx docker-logs-gateway docker-prod-config docker-prod-build docker-prod-start docker-prod-stop docker-prod-restart docker-prod-status docker-prod-logs gateway-build
 
 GO_TOOLCHAIN ?= auto
 HOST_LOG_DIR := $(CURDIR)/.openagents/host-logs
@@ -17,13 +17,13 @@ help:
 	@echo "  make clean           - Clean up processes and temporary files"
 	@echo ""
 	@echo "Docker Development Commands:"
-	@echo "  make docker-init     - Build the custom k3s image (with pre-cached sandbox image)"
-	@echo "  make docker-start    - Start Docker services (mode-aware from config.yaml, localhost:2026)"
+	@echo "  make docker-init     - Pull the shared sandbox image"
+	@echo "  make docker-start    - Start the unified Docker compose stack (app on localhost:8083)"
 	@echo "  make docker-infra-start - Start local debug infra only (sandbox-aio + onlyoffice)"
-	@echo "  make docker-stop     - Stop Docker development services"
+	@echo "  make docker-stop     - Stop Docker services"
 	@echo "  make docker-infra-stop - Stop local debug infra only"
-	@echo "  make docker-logs     - View Docker development logs"
-	@echo "  make docker-logs-frontend - View Docker frontend logs"
+	@echo "  make docker-logs     - View Docker logs"
+	@echo "  make docker-logs-nginx - View Docker nginx logs"
 	@echo "  make docker-logs-gateway - View Docker gateway logs"
 	@echo ""
 	@echo "Docker Production Commands:"
@@ -328,13 +328,13 @@ docker-stop:
 docker-infra-stop:
 	@./scripts/docker.sh infra-stop
 
-# View Docker development logs
+# View Docker logs
 docker-logs:
 	@./scripts/docker.sh logs
 
-# View Docker development logs
-docker-logs-frontend:
-	@./scripts/docker.sh logs --frontend
+# View Docker nginx logs
+docker-logs-nginx:
+	@./scripts/docker.sh logs --nginx
 docker-logs-gateway:
 	@./scripts/docker.sh logs --gateway
 

@@ -129,7 +129,7 @@ List all sandboxes currently managed.
 
 ## Configuration
 
-The provisioner is configured via environment variables (set in [docker-compose-dev.yaml](../docker-compose-dev.yaml)):
+The provisioner is configured via environment variables (set in [docker-compose-prod.yaml](../docker-compose-prod.yaml)):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -149,7 +149,7 @@ If your kubeconfig uses `localhost`, `127.0.0.1`, or `0.0.0.0` as the API server
 **Solution**: Set `K8S_API_SERVER` to a real host/IP/DNS name reachable from the provisioner container:
 
 ```yaml
-# docker-compose-dev.yaml
+# docker-compose-prod.yaml
 provisioner:
   environment:
     - K8S_API_SERVER=https://192.168.1.10:26443  # Replace with your reachable API endpoint
@@ -187,14 +187,14 @@ kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}'
 
 ### Docker Compose Setup
 
-The provisioner runs as part of the docker-compose-dev stack:
+The provisioner runs from the unified Docker Compose stack:
 
 ```bash
 # Start Docker services (provisioner starts only when config.yaml enables provisioner mode)
 make docker-start
 
 # Or start just the provisioner
-docker compose -p openagents-dev -f docker/docker-compose-dev.yaml up -d provisioner
+docker compose --env-file .env -p openagents-prod -f docker/docker-compose-prod.yaml --profile provisioner up -d provisioner
 ```
 
 The compose file:
@@ -211,21 +211,21 @@ The compose file:
 curl http://localhost:8002/health
 
 # Create a sandbox (via provisioner container for internal DNS)
-docker exec openagents-provisioner curl -X POST http://localhost:8002/api/sandboxes \
+docker compose -p openagents-prod -f docker/docker-compose-prod.yaml exec provisioner curl -X POST http://localhost:8002/api/sandboxes \
   -H "Content-Type: application/json" \
   -d '{"sandbox_id":"test-001","thread_id":"thread-001"}'
 
 # Check sandbox status
-docker exec openagents-provisioner curl http://localhost:8002/api/sandboxes/test-001
+docker compose -p openagents-prod -f docker/docker-compose-prod.yaml exec provisioner curl http://localhost:8002/api/sandboxes/test-001
 
 # List all sandboxes
-docker exec openagents-provisioner curl http://localhost:8002/api/sandboxes
+docker compose -p openagents-prod -f docker/docker-compose-prod.yaml exec provisioner curl http://localhost:8002/api/sandboxes
 
 # Verify Pod and Service in K8s
 kubectl get pod,svc -n openagents -l sandbox-id=test-001
 
 # Delete sandbox
-docker exec openagents-provisioner curl -X DELETE http://localhost:8002/api/sandboxes/test-001
+docker compose -p openagents-prod -f docker/docker-compose-prod.yaml exec provisioner curl -X DELETE http://localhost:8002/api/sandboxes/test-001
 ```
 
 ### Verify from Backend Containers
@@ -234,10 +234,10 @@ Once a sandbox is created, the backend containers (gateway, langgraph) can acces
 
 ```bash
 # Get sandbox URL from provisioner
-SANDBOX_URL=$(docker exec openagents-provisioner curl -s http://localhost:8002/api/sandboxes/test-001 | jq -r .sandbox_url)
+SANDBOX_URL=$(docker compose -p openagents-prod -f docker/docker-compose-prod.yaml exec -T provisioner curl -s http://localhost:8002/api/sandboxes/test-001 | jq -r .sandbox_url)
 
 # Test from gateway container
-docker exec openagents-gateway curl -s $SANDBOX_URL/v1/sandbox
+docker compose -p openagents-prod -f docker/docker-compose-prod.yaml exec gateway curl -s $SANDBOX_URL/v1/sandbox
 ```
 
 ## Troubleshooting
@@ -249,7 +249,7 @@ docker exec openagents-gateway curl -s $SANDBOX_URL/v1/sandbox
 **Solution**: 
 - Ensure `~/.kube/config` exists on your host machine
 - Run `kubectl config view` to verify
-- Check the volume mount in docker-compose-dev.yaml
+- Check the volume mount in docker-compose-prod.yaml
 
 ### Issue: "Kubeconfig path is a directory"
 
@@ -259,7 +259,7 @@ docker exec openagents-gateway curl -s $SANDBOX_URL/v1/sandbox
 - Ensure the compose mount source is a file (e.g., `~/.kube/config`) not a directory
 - Verify inside container:
   ```bash
-  docker exec openagents-provisioner ls -ld /root/.kube/config
+  docker compose -p openagents-prod -f docker/docker-compose-prod.yaml exec provisioner ls -ld /root/.kube/config
   ```
 - Expected output should indicate a regular file (`-`), not a directory (`d`)
 
@@ -307,7 +307,7 @@ docker exec openagents-gateway curl -s $SANDBOX_URL/v1/sandbox
 - Verify the Service exists: `kubectl get svc -n openagents`
 - Test from host: `curl http://localhost:NODE_PORT/v1/sandbox`
 - Test from a backend container using the configured address:
-  `docker exec openagents-gateway curl -s http://$NODE_HOST:NODE_PORT/v1/sandbox`
+  `docker compose -p openagents-prod -f docker/docker-compose-prod.yaml exec gateway curl -s http://$NODE_HOST:NODE_PORT/v1/sandbox`
 - Check `NODE_HOST` matches a real address reachable from backend containers
 
 ## Security Considerations

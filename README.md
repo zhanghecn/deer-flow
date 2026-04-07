@@ -54,7 +54,7 @@ make docker-init
 make docker-start
 ```
 
-Open: `http://localhost:2026`
+Open: `http://localhost:8083`
 
 ### 3. Run locally
 
