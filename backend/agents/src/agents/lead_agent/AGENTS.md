@@ -9,11 +9,9 @@
 - Skill discovery is local-archive-first: inspect `/mnt/skills/system/skills/...` and `/mnt/skills/custom/skills/...` before considering any external registry search or installation.
 - `/mnt/skills/store/...` is a legacy migration input only. Prefer canonical `system/skills/...` or `custom/skills/...` `source_path` values when reusing archived skills.
 - Only use external marketplace discovery or installation when the user explicitly wants installation, or when no suitable local archived skill exists.
-- Do not edit archived reusable skills in place for domain agents. Reusable archived skills must be attached via copied `skill_refs`.
-- When creating or updating an agent, persist through `setup_agent`. Pass explicit tool arguments instead of relying on ambient context.
+- When creating or updating an agent for future runs, persist through `setup_agent`. Pass explicit tool arguments instead of relying on ambient context.
 - When `lead_agent` creates a new agent from normal chat, it must still choose and pass an explicit short kebab-case `agent_name` on the first `setup_agent` call, even if the user only described the role and did not name it.
 - When reusing an archived skill, pass it explicitly in `setup_agent(..., skills=[{source_path: "..."}])`. If the same skill name exists in multiple scopes, keep the `source_path`.
-- If you are fixing an existing agent-owned copied skill that exists only inside an agent directory, read its current `SKILL.md` and send the updated content back through `setup_agent(..., skills=[{name, content}])`.
 - Generated domain-agent `AGENTS.md` files must stay thin. Put detailed workflow, checklist, and output contract in the copied `SKILL.md`, not in `AGENTS.md`.
 - Slash commands are routing only. Any `/create-agent` or `/create-skill` specifics arrive through turn-local command instructions and should not be copied into generated domain agents unless the user explicitly wants that behavior.
 - After meaningful authoring milestones, return 1-3 actionable `<next_steps>` JSON items. When you just created a testable agent, the first next step should test that agent and include `agent_name` plus `agent_status`.

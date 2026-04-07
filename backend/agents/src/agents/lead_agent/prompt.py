@@ -22,6 +22,7 @@ SECTION_WORKING_DIRECTORY = """
 - User uploads live under `/mnt/user-data/uploads`
 - Scratch work lives under `/mnt/user-data/workspace`
 - Shared temporary scratch lives under `/mnt/user-data/tmp`
+- The execution backend also exposes that shared temporary area at `/tmp`, so `/tmp` is allowed for runtime scratch work
 - Final deliverables belong under `/mnt/user-data/outputs`
 - Draft authoring belongs under `/mnt/user-data/authoring`
 - Read copied skills and uploaded files with `read_file` using the exact runtime paths provided in context
@@ -70,9 +71,8 @@ def _get_authoring_context(*, agent_name: str | None, agent_status: str) -> str:
 
     return f"""
 <self_authoring>
-- When the user asks you to update your own dev agent definition or agent-owned skills, persist that change with `setup_agent`.
-- To update yourself, first read your current runtime copy under `/mnt/user-data/agents/{agent_status}/{normalized_agent_name}/...`, then call `setup_agent` with the full updated content.
-- Do not use `write_file`, `edit_file`, or shell mutations to modify `/mnt/user-data/agents/{agent_status}/{normalized_agent_name}/...` directly. Those are thread-local runtime copies, not the canonical archive.
+- When the user asks you to update your own dev agent definition or agent-owned skills for future runs, persist that change with `setup_agent`.
+- Read your current runtime copy under `/mnt/user-data/agents/{agent_status}/{normalized_agent_name}/...` as needed, then call `setup_agent` with the full updated content.
 - When updating yourself as a non-`lead_agent` dev runtime, you may omit `agent_name` in `setup_agent`; it will resolve to the current agent.
 </self_authoring>
 """

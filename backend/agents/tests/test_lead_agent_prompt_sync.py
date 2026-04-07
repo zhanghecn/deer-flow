@@ -4,19 +4,18 @@ from pathlib import Path
 def test_archived_lead_agent_prompts_include_runtime_path_guardrails():
     repo_root = Path(__file__).resolve().parents[3]
     prompt_paths = [
-        repo_root / ".openagents" / "agents" / "dev" / "lead_agent" / "AGENTS.md",
-        repo_root / ".openagents" / "agents" / "prod" / "lead_agent" / "AGENTS.md",
+        # Built-in lead_agent archives now live under `.openagents/system/agents`.
+        # Keep this sync test pinned to the canonical archived prompt copies that
+        # runtime materialization reads from for new threads.
+        repo_root / ".openagents" / "system" / "agents" / "dev" / "lead_agent" / "AGENTS.md",
+        repo_root / ".openagents" / "system" / "agents" / "prod" / "lead_agent" / "AGENTS.md",
     ]
     required_snippets = [
-        "only use the runtime-visible `/mnt/user-data/...` contract",
-        "Do not invent sibling directories such as `/mnt/user-data/agentz`",
-        "verify them against the user's explicit checklist",
-        "aim close to that target instead of overshooting it by a large margin",
-        "required keywords, and requested scope",
-        "put each choice into the structured `options` array",
-        "do not search runtime paths to prove the target agent exists before calling `setup_agent`",
-        "inspect exactly `/mnt/user-data/agents/{status}/{target_agent_name}/...`",
-        "omit the `model` argument in `setup_agent`",
+        "Runtime executes against a per-thread materialized copy of the archived agent files.",
+        "Attached copied skills live under `/mnt/user-data/agents/{status}/{agent}/skills/...`.",
+        "When creating or updating an agent for future runs, persist through `setup_agent`.",
+        "When `lead_agent` creates a new agent from normal chat, it must still choose and pass an explicit short kebab-case `agent_name`",
+        "When reusing an archived skill, pass it explicitly in `setup_agent(..., skills=[{source_path: \"...\"}])`.",
     ]
 
     for prompt_path in prompt_paths:

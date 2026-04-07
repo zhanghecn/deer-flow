@@ -56,7 +56,22 @@ def test_apply_prompt_template_includes_self_authoring_context_for_non_lead_dev_
     assert "<self_authoring>" in rendered
     assert "/mnt/user-data/agents/dev/demo-agent/..." in rendered
     assert "persist that change with `setup_agent`" in rendered
-    assert "Do not use `write_file`, `edit_file`, or shell mutations" in rendered
+    assert "for future runs" in rendered
+    assert "read your current runtime copy" in rendered.lower()
+
+
+def test_apply_prompt_template_documents_shared_tmp_alias(monkeypatch):
+    monkeypatch.setattr(
+        prompt_module,
+        "ensure_builtin_agent_archive",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(prompt_module, "load_agents_md", lambda *args, **kwargs: "")
+
+    rendered = prompt_module.apply_prompt_template()
+
+    assert "Shared temporary scratch lives under `/mnt/user-data/tmp`" in rendered
+    assert "The execution backend also exposes that shared temporary area at `/tmp`" in rendered
 
 
 def test_apply_prompt_template_lists_attached_copied_skills(monkeypatch, tmp_path):
