@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildTaskStatusUpdate,
+  collectSupplementalImageArtifacts,
   getSubtaskAggregateLabel,
   getSubtaskAggregateStatus,
 } from "./message-list";
@@ -49,5 +50,22 @@ describe("subtask aggregate state", () => {
     expect(getSubtaskAggregateLabel(["task-1", "task-2"], tasks, t)).toBe(
       "2 个子任务执行失败",
     );
+  });
+
+  it("surfaces sibling output images next to a presented primary artifact", () => {
+    expect(
+      collectSupplementalImageArtifacts(
+        ["/mnt/user-data/outputs/fortune-capsule/index.html"],
+        [
+          "/mnt/user-data/outputs/fortune-capsule/index.html",
+          "/mnt/user-data/outputs/fortune-capsule/aurora-forest.jpg",
+          "/mnt/user-data/outputs/fortune-capsule/crystal-sphere.jpg",
+          "/mnt/user-data/outputs/other-run/skip-me.jpg",
+        ],
+      ),
+    ).toEqual([
+      "/mnt/user-data/outputs/fortune-capsule/aurora-forest.jpg",
+      "/mnt/user-data/outputs/fortune-capsule/crystal-sphere.jpg",
+    ]);
   });
 });

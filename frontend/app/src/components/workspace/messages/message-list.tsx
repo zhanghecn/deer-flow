@@ -1,10 +1,12 @@
 import type { BaseStream } from "@langchain/langgraph-sdk/react";
+import { Loader2Icon } from "lucide-react";
 import { Fragment, memo, useEffect, useMemo, useState } from "react";
 
 import {
   Conversation,
   ConversationContent,
 } from "@/components/ai-elements/conversation";
+import { useArtifactObjectUrl } from "@/core/artifacts/hooks";
 import { useI18n } from "@/core/i18n/hooks";
 import {
   extractContentFromMessage,
@@ -25,9 +27,11 @@ import {
   extractQuestionReplyFromMessages,
   extractQuestionRequestFromMessages,
 } from "@/core/threads/interrupts";
+import { getFileName } from "@/core/utils/files";
 import { cn } from "@/lib/utils";
 
 import { ArtifactFileList } from "../artifacts/artifact-file-list";
+import { useArtifacts } from "../artifacts";
 import { StreamingIndicator } from "../streaming-indicator";
 
 import { MarkdownContent } from "./markdown-content";
@@ -43,6 +47,7 @@ type PersistedSubtaskTurn = {
   taskIds: string[];
 };
 type MessageRendererContext = {
+  artifacts: string[];
   isLoading: boolean;
   rehypePlugins: typeof workspaceMessageRehypePlugins;
   tasks: Record<string, Subtask>;
@@ -246,6 +251,117 @@ function collectPresentFilePaths(group: GroupedMessage) {
   return files;
 }
 
+const INLINE_IMAGE_EXTENSIONS = new Set([
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "svg",
+  "bmp",
+]);
+
+function getArtifactDirectory(filepath: string) {
+  const separatorIndex = filepath.lastIndexOf("/");
+  return separatorIndex > 0 ? filepath.slice(0, separatorIndex) : null;
+}
+
+function isInlineImageArtifact(filepath: string) {
+  const extension = filepath.split(".").pop()?.toLowerCase() ?? "";
+  return INLINE_IMAGE_EXTENSIONS.has(extension);
+}
+
+export function collectSupplementalImageArtifacts(
+  presentedFiles: string[],
+  availableArtifacts: string[],
+) {
+  if (presentedFiles.length === 0 || availableArtifacts.length === 0) {
+    return [];
+  }
+
+  // The chat timeline only knows about explicit `present_files`, while the
+  // artifacts panel also discovers sibling files under `/outputs`. Surface
+  // same-directory images inline so bundled outputs remain visible in the turn
+  // that presented the primary deliverable.
+  const presentedFileSet = new Set(presentedFiles);
+  const presentedDirectories = new Set(
+    presentedFiles
+      .map((filepath) => getArtifactDirectory(filepath))
+      .filter((filepath): filepath is string => Boolean(filepath)),
+  );
+
+  return availableArtifacts.filter((filepath) => {
+    if (presentedFileSet.has(filepath) || !isInlineImageArtifact(filepath)) {
+      return false;
+    }
+
+    const parentDirectory = getArtifactDirectory(filepath);
+    return parentDirectory !== null && presentedDirectories.has(parentDirectory);
+  });
+}
+
+function InlineArtifactImageCard({
+  filepath,
+  threadId,
+}: {
+  filepath: string;
+  threadId: string;
+}) {
+  const { objectUrl, isLoading } = useArtifactObjectUrl({
+    filepath,
+    threadId,
+    enabled: true,
+  });
+  const { select, setOpen } = useArtifacts();
+
+  return (
+    <button
+      type="button"
+      className="border-border/60 bg-background/70 hover:border-border hover:bg-background/90 flex overflow-hidden rounded-xl border text-left transition"
+      onClick={() => {
+        select(filepath);
+        setOpen(true);
+      }}
+    >
+      {isLoading || !objectUrl ? (
+        <div className="bg-muted/20 flex h-40 w-full items-center justify-center">
+          <Loader2Icon className="text-muted-foreground size-4 animate-spin" />
+        </div>
+      ) : (
+        <img
+          src={objectUrl}
+          alt={getFileName(filepath)}
+          className="h-40 w-full object-cover"
+        />
+      )}
+    </button>
+  );
+}
+
+function InlineArtifactImageGallery({
+  filepaths,
+  threadId,
+}: {
+  filepaths: string[];
+  threadId: string;
+}) {
+  if (filepaths.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      {filepaths.map((filepath) => (
+        <InlineArtifactImageCard
+          key={filepath}
+          filepath={filepath}
+          threadId={threadId}
+        />
+      ))}
+    </div>
+  );
+}
+
 function renderPrimaryMessage(group: GroupedMessage, isLoading: boolean) {
   return (
     <MessageListItem
@@ -296,6 +412,10 @@ function renderPresentFilesMessage(
 ) {
   const leadMessage = group.messages[0];
   const files = collectPresentFilePaths(group);
+  const supplementalImageArtifacts = collectSupplementalImageArtifacts(
+    files,
+    renderer.artifacts,
+  );
 
   return (
     <div className="w-full" key={`present-files-${group.id ?? "group"}`}>
@@ -310,6 +430,10 @@ function renderPresentFilesMessage(
         />
       )}
       <ArtifactFileList files={files} threadId={renderer.threadId} />
+      <InlineArtifactImageGallery
+        filepaths={supplementalImageArtifacts}
+        threadId={renderer.threadId}
+      />
     </div>
   );
 }
@@ -511,9 +635,11 @@ const GroupedMessagesContent = memo(function GroupedMessagesContent({
   threadId: string;
 }) {
   const { t } = useI18n();
+  const { artifacts } = useArtifacts();
   const { tasks } = useSubtaskContext();
   const rehypePlugins = workspaceMessageRehypePlugins;
   const renderer: MessageRendererContext = {
+    artifacts,
     isLoading,
     rehypePlugins,
     tasks,
