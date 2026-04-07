@@ -19,3 +19,7 @@ def test_should_retry_for_connection_and_timeout_failures():
     assert should_retry(ConnectionError("Connection error")) is True
     assert should_retry(TimeoutError("Request timed out")) is True
     assert should_retry(RuntimeError("Validation failed")) is False
+
+
+def test_should_retry_for_empty_model_stream_failures():
+    assert should_retry(ValueError("No generations found in stream.")) is True

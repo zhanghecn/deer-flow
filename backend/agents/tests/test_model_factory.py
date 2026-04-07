@@ -80,6 +80,14 @@ def test_create_chat_model_attaches_anthropic_retry_observers(monkeypatch):
     assert len(model._async_client._client.event_hooks["response"]) >= 1
 
 
+def test_resolve_anthropic_timeout_defaults_when_missing():
+    assert factory_module._resolve_anthropic_timeout(None) == factory_module.DEFAULT_ANTHROPIC_CLIENT_TIMEOUT_SECONDS
+
+
+def test_resolve_anthropic_timeout_preserves_explicit_value():
+    assert factory_module._resolve_anthropic_timeout(25.0) == 25.0
+
+
 def test_should_bypass_env_proxy_for_private_base_url():
     assert factory_module._should_bypass_env_proxy_for_base_url("http://localhost:13000") is True
     assert factory_module._should_bypass_env_proxy_for_base_url("http://172.31.18.247:13000") is True
@@ -96,6 +104,8 @@ def test_create_chat_model_bypasses_env_proxy_for_private_anthropic_base_url(mon
 
     sync_calls: list[dict] = []
     async_calls: list[dict] = []
+    sync_client_calls: list[dict] = []
+    async_client_calls: list[dict] = []
 
     class _FakeSyncHttpClient:
         def __init__(self, **kwargs) -> None:
@@ -109,15 +119,75 @@ def test_create_chat_model_bypasses_env_proxy_for_private_anthropic_base_url(mon
 
     monkeypatch.setattr(factory_module.httpx, "Client", _FakeSyncHttpClient)
     monkeypatch.setattr(factory_module.httpx, "AsyncClient", _FakeAsyncHttpClient)
-    monkeypatch.setattr(factory_module.anthropic, "Client", lambda **kwargs: object())
-    monkeypatch.setattr(factory_module.anthropic, "AsyncClient", lambda **kwargs: object())
+    monkeypatch.setattr(
+        factory_module.anthropic,
+        "Client",
+        lambda **kwargs: sync_client_calls.append(kwargs) or object(),
+    )
+    monkeypatch.setattr(
+        factory_module.anthropic,
+        "AsyncClient",
+        lambda **kwargs: async_client_calls.append(kwargs) or object(),
+    )
 
     factory_module.create_chat_model(name="glm-5", thinking_enabled=False)
 
     assert sync_calls
     assert async_calls
+    assert sync_client_calls
+    assert async_client_calls
     assert sync_calls[0]["trust_env"] is False
     assert async_calls[0]["trust_env"] is False
+    assert sync_calls[0]["timeout"] == factory_module.DEFAULT_ANTHROPIC_CLIENT_TIMEOUT_SECONDS
+    assert async_calls[0]["timeout"] == factory_module.DEFAULT_ANTHROPIC_CLIENT_TIMEOUT_SECONDS
+    assert sync_client_calls[0]["timeout"] == factory_module.DEFAULT_ANTHROPIC_CLIENT_TIMEOUT_SECONDS
+    assert async_client_calls[0]["timeout"] == factory_module.DEFAULT_ANTHROPIC_CLIENT_TIMEOUT_SECONDS
+
+
+def test_create_chat_model_preserves_explicit_anthropic_timeout(monkeypatch):
+    monkeypatch.setattr(
+        factory_module,
+        "require_enabled_model",
+        lambda _name: _anthropic_model_config(
+            base_url="http://172.31.18.247:13000",
+            timeout=25.0,
+        ),
+    )
+
+    sync_calls: list[dict] = []
+    async_calls: list[dict] = []
+    sync_client_calls: list[dict] = []
+    async_client_calls: list[dict] = []
+
+    class _FakeSyncHttpClient:
+        def __init__(self, **kwargs) -> None:
+            sync_calls.append(kwargs)
+            self.event_hooks = {"request": [], "response": []}
+
+    class _FakeAsyncHttpClient:
+        def __init__(self, **kwargs) -> None:
+            async_calls.append(kwargs)
+            self.event_hooks = {"request": [], "response": []}
+
+    monkeypatch.setattr(factory_module.httpx, "Client", _FakeSyncHttpClient)
+    monkeypatch.setattr(factory_module.httpx, "AsyncClient", _FakeAsyncHttpClient)
+    monkeypatch.setattr(
+        factory_module.anthropic,
+        "Client",
+        lambda **kwargs: sync_client_calls.append(kwargs) or object(),
+    )
+    monkeypatch.setattr(
+        factory_module.anthropic,
+        "AsyncClient",
+        lambda **kwargs: async_client_calls.append(kwargs) or object(),
+    )
+
+    factory_module.create_chat_model(name="glm-5", thinking_enabled=False)
+
+    assert sync_calls[0]["timeout"] == 25.0
+    assert async_calls[0]["timeout"] == 25.0
+    assert sync_client_calls[0]["timeout"] == 25.0
+    assert async_client_calls[0]["timeout"] == 25.0
 
 
 def test_create_chat_model_defaults_reasoning_effort_when_supported(monkeypatch):

@@ -58,6 +58,7 @@ RETRYABLE_MESSAGE_FRAGMENTS = (
     "temporarily unavailable",
     "timed out",
     "timeout",
+    "no generations found in stream",
     "too many requests",
 )
 

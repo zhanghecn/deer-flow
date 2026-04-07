@@ -25,6 +25,7 @@ from src.agents.middlewares.retry_utils import (
 
 logger = logging.getLogger(__name__)
 DEFAULT_ANTHROPIC_THINKING_MAX_TOKENS = 16384
+DEFAULT_ANTHROPIC_CLIENT_TIMEOUT_SECONDS = 120.0
 DEFAULT_REASONING_EFFORT = "high"
 MINIMAL_REASONING_EFFORT = "minimal"
 ANTHROPIC_CHAT_MODEL_CLASS = "langchain_anthropic:ChatAnthropic"
@@ -193,16 +194,27 @@ def _should_bypass_env_proxy_for_base_url(base_url: object) -> bool:
     return bool(host_ip.is_loopback or host_ip.is_private or host_ip.is_link_local)
 
 
+def _resolve_anthropic_timeout(timeout: object) -> object:
+    # Anthropic-compatible gateways occasionally accept a streaming request and
+    # then stop emitting chunks. Keep the default finite so a stuck provider
+    # call returns to middleware retry logic instead of pinning a worker for the
+    # SDK's much longer implicit timeout. Explicit per-model timeouts still win.
+    if timeout is None:
+        return DEFAULT_ANTHROPIC_CLIENT_TIMEOUT_SECONDS
+    return timeout
+
+
 def _attach_anthropic_http_retry_observers(model_instance: BaseChatModel) -> None:
     if not isinstance(model_instance, ChatAnthropic):
         return
 
     client_params = dict(model_instance._client_params)
+    resolved_timeout = _resolve_anthropic_timeout(client_params.get("timeout"))
+    client_params["timeout"] = resolved_timeout
     http_client_params: dict[str, Any] = {
         "base_url": client_params["base_url"],
+        "timeout": resolved_timeout,
     }
-    if "timeout" in client_params:
-        http_client_params["timeout"] = client_params["timeout"]
     if model_instance.anthropic_proxy:
         http_client_params["proxy"] = model_instance.anthropic_proxy
     bypass_env_proxy = _should_bypass_env_proxy_for_base_url(client_params.get("base_url"))
@@ -220,11 +232,9 @@ def _attach_anthropic_http_retry_observers(model_instance: BaseChatModel) -> Non
         note_provider_retry_response(response.status_code, response.reason_phrase)
 
     if bypass_env_proxy:
-        explicit_timeout = http_client_params.get("timeout")
-        client_timeout = explicit_timeout if explicit_timeout is not None else 600.0
         sync_http_client = httpx.Client(
             base_url=http_client_params["base_url"],
-            timeout=client_timeout,
+            timeout=resolved_timeout,
             follow_redirects=True,
             trust_env=False,
             proxy=http_client_params.get("proxy"),
@@ -235,7 +245,7 @@ def _attach_anthropic_http_retry_observers(model_instance: BaseChatModel) -> Non
         )
         async_http_client = httpx.AsyncClient(
             base_url=http_client_params["base_url"],
-            timeout=client_timeout,
+            timeout=resolved_timeout,
             follow_redirects=True,
             trust_env=False,
             proxy=http_client_params.get("proxy"),

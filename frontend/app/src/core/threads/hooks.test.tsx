@@ -1652,6 +1652,50 @@ describe("useThreadStream", () => {
     });
   });
 
+  it("waits for useStream to retarget before replaying a stored run after switching threads", async () => {
+    apiClient.threads.create.mockImplementation(() => createPendingPromise());
+    const joinThreadIds: Array<string | undefined> = [];
+    streamState = makeThreadState({
+      joinStream: vi.fn().mockImplementation(async () => {
+        joinThreadIds.push(latestUseStreamOptions?.threadId as string | undefined);
+      }),
+    });
+    window.sessionStorage.setItem("openagents:stream-owner:thread-2", "1");
+    window.sessionStorage.setItem("lg:stream:thread-2", "run-resume-2");
+
+    const { rerender } = renderHook(
+      ({ threadId }: { threadId: string }) =>
+        useThreadStream({
+          threadId,
+          skipInitialHistory: true,
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      {
+        initialProps: { threadId: "thread-1" },
+        wrapper: createWrapper(),
+      },
+    );
+
+    await act(async () => {
+      rerender({ threadId: "thread-2" });
+    });
+
+    await waitFor(() => {
+      expect(streamState.joinStream).toHaveBeenCalledWith(
+        "run-resume-2",
+        undefined,
+        {
+          streamMode: ["values", "messages-tuple", "custom"],
+        },
+      );
+    });
+    expect(joinThreadIds).toEqual(["thread-2"]);
+  });
+
   it("suppresses stale run-not-found errors and retries with the hydrated active run id", async () => {
     apiClient.threads.create.mockImplementation(() => createPendingPromise());
     streamState = makeThreadState({
@@ -1719,6 +1763,81 @@ describe("useThreadStream", () => {
     });
 
     expect(result.current[0].isLoading).toBe(true);
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("suppresses stale run-not-found thread errors while rejoining the hydrated active run", async () => {
+    apiClient.threads.create.mockImplementation(() => createPendingPromise());
+    streamState = makeThreadState({
+      joinStream: vi
+        .fn()
+        .mockImplementationOnce(async () => {
+          emitStream({ error: new Error("Run not found") });
+          throw new Error("Run not found");
+        })
+        .mockImplementationOnce(async () => {
+          emitStream({
+            error: undefined,
+            isLoading: true,
+          });
+        }),
+    });
+    apiClient.threads.getState.mockResolvedValueOnce({
+      values: {
+        title: "Thread",
+        messages: [
+          {
+            id: "human-1",
+            type: "human",
+            content: [{ type: "text", text: "hello" }],
+            additional_kwargs: {},
+          },
+        ],
+        artifacts: [],
+      },
+      next: ["tools"],
+      metadata: {
+        run_id: "run-active-3",
+      },
+    });
+    window.sessionStorage.setItem("openagents:stream-owner:thread-1", "1");
+    window.sessionStorage.setItem("lg:stream:thread-1", "run-stale-2");
+
+    renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          skipInitialHistory: true,
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    await waitFor(() => {
+      expect(streamState.joinStream).toHaveBeenNthCalledWith(
+        1,
+        "run-stale-2",
+        undefined,
+        {
+          streamMode: ["values", "messages-tuple", "custom"],
+        },
+      );
+    });
+    await waitFor(() => {
+      expect(streamState.joinStream).toHaveBeenNthCalledWith(
+        2,
+        "run-active-3",
+        undefined,
+        {
+          streamMode: ["values", "messages-tuple", "custom"],
+        },
+      );
+    });
+
     expect(toastError).not.toHaveBeenCalled();
   });
 

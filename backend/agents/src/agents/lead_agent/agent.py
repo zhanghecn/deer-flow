@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import json
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 from threading import Event, Lock
@@ -719,9 +720,55 @@ def _extract_runtime_context(runtime: ServerRuntime | None) -> dict:
     if execution_runtime is None:
         return {}
     context = execution_runtime.context
-    if isinstance(context, dict):
+    if isinstance(context, Mapping):
         return dict(context)
+    dumped = getattr(context, "model_dump", None)
+    if callable(dumped):
+        try:
+            data = dumped(by_alias=True)
+        except TypeError:
+            data = dumped()
+        if isinstance(data, Mapping):
+            return dict(data)
     return {}
+
+
+def _runtime_context_field_name(context: object, key: str) -> str | None:
+    model_fields = getattr(type(context), "model_fields", None)
+    if not isinstance(model_fields, Mapping):
+        return None
+
+    for field_name, field_info in model_fields.items():
+        if field_name == key:
+            return field_name
+        if getattr(field_info, "alias", None) == key:
+            return field_name
+
+    return None
+
+
+def _assign_runtime_context_value(context: object, key: str, value: object) -> None:
+    if isinstance(context, dict):
+        context[key] = value
+        return
+
+    field_name = _runtime_context_field_name(context, key)
+    if field_name is not None:
+        try:
+            setattr(context, field_name, value)
+        except Exception:
+            return
+        return
+
+    extras = getattr(context, "__pydantic_extra__", None)
+    if isinstance(extras, dict):
+        extras[key] = value
+        return
+
+    try:
+        setattr(context, key, value)
+    except Exception:
+        return
 
 
 def _update_runtime_context(runtime: ServerRuntime | None, **values: object) -> None:
@@ -731,10 +778,8 @@ def _update_runtime_context(runtime: ServerRuntime | None, **values: object) -> 
     if execution_runtime is None:
         return
     context = execution_runtime.context
-    if not isinstance(context, dict):
-        return
     for key, value in values.items():
-        context[key] = value
+        _assign_runtime_context_value(context, key, value)
 
 
 def _coerce_optional_str(value: object) -> str | None:

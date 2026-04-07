@@ -23,6 +23,7 @@ def test_apply_prompt_template_keeps_base_prompt_free_of_runtime_command_blocks(
     assert "Never expose raw `/mnt/user-data/...` paths" in rendered
     assert "verify explicit user constraints" in rendered
     assert "If blocking information is missing, call `question`" in rendered
+    assert 'Do not end an execution turn with progress-only text such as "next I will ..."' in rendered
 
 
 def test_apply_prompt_template_keeps_knowledge_base_detail_out_of_base_prompt(monkeypatch):

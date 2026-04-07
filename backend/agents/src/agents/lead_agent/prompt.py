@@ -44,6 +44,7 @@ SECTION_EVIDENCE = """
 SECTION_EXECUTION_CONTRACT = """
 <execution_contract>
 - Finish execution tasks instead of stopping at a plan or research summary unless the user asked for analysis only
+- Do not end an execution turn with progress-only text such as "next I will ..."; do the work, call `question` if blocked, or deliver the completed result
 - Before finalizing, verify explicit user constraints such as filename, format, required sections, ordering, and requested scope
 - Keep intermediate work in `/mnt/user-data/workspace`; only final deliverables belong in `/mnt/user-data/outputs`
 - Never expose raw `/mnt/user-data/...` paths in user-facing prose
@@ -134,19 +135,6 @@ def _skill_runtime_file_path(
     ).as_posix()
 
 
-def _summarize_skill_description(description: str | None, *, max_chars: int = 160) -> str | None:
-    """Keep attached-skill descriptions short so every default skill does not bloat every turn."""
-    if not description:
-        return None
-
-    compact = " ".join(description.split())
-    if len(compact) <= max_chars:
-        return compact
-
-    truncated = compact[: max_chars - 1].rsplit(" ", 1)[0].rstrip()
-    return f"{truncated or compact[: max_chars - 1]}…"
-
-
 def _load_attached_skills_section(
     *,
     agent_name: str | None,
@@ -217,7 +205,7 @@ def _load_attached_skills_section(
                 relative_path=Path(materialized_path),
             )
             if parsed_skill is not None:
-                description = _summarize_skill_description(parsed_skill.description)
+                description = parsed_skill.description
 
         # Keep each attached skill on one line to preserve prompt budget while
         # still exposing the runtime path the model must read before use.

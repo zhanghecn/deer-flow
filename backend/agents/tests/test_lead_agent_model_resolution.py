@@ -526,6 +526,76 @@ def test_make_lead_agent_uses_request_header_model_for_thread_state_reads(monkey
     assert runtime.execution_runtime.context["x-model-name"] == "header-model"
 
 
+def test_make_lead_agent_reads_and_updates_typed_runtime_context(monkeypatch, tmp_path):
+    store = _FakeDBStore(
+        models={"safe-model": _make_model("safe-model", supports_thinking=True)},
+    )
+
+    import src.tools as tools_module
+
+    monkeypatch.setattr(
+        lead_agent_module,
+        "get_paths",
+        lambda: Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / "skills"),
+    )
+    monkeypatch.setattr(lead_agent_module, "get_runtime_db_store", lambda: store)
+    monkeypatch.setattr(tools_module, "get_available_tools", lambda **kwargs: [])
+    monkeypatch.setattr(
+        lead_agent_module,
+        "build_backend",
+        lambda thread_id, agent_name, status="dev", agent_config=None, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        lead_agent_module,
+        "_load_agent_runtime_config",
+        lambda **kwargs: _make_agent_config(),
+    )
+    monkeypatch.setattr(lead_agent_module, "apply_prompt_template", lambda **kwargs: "prompt")
+    monkeypatch.setattr(lead_agent_module, "create_deep_agent", _make_fake_deep_agent_graph)
+
+    captured: dict[str, object] = {}
+
+    def _fake_create_chat_model(*, name, thinking_enabled, reasoning_effort=None, runtime_model_config=None):
+        captured["name"] = name
+        captured["thinking_enabled"] = thinking_enabled
+        return object()
+
+    monkeypatch.setattr(lead_agent_module, "create_chat_model", _fake_create_chat_model)
+
+    class _ExecutionRuntime:
+        def __init__(self, context):
+            self.context = context
+
+    class _Runtime:
+        def __init__(self, context):
+            self.execution_runtime = _ExecutionRuntime(context)
+
+    runtime_context = lead_agent_module.LeadAgentRuntimeContext(
+        model_name="safe-model",
+        thinking_enabled=True,
+        subagent_enabled=False,
+    )
+    runtime = _Runtime(runtime_context)
+
+    asyncio.run(
+        lead_agent_module.make_lead_agent(
+            {
+                "configurable": {
+                    "thread_id": "thread-typed",
+                    "user_id": "user-1",
+                }
+            },
+            runtime=runtime,
+        )
+    )
+
+    assert captured["name"] == "safe-model"
+    assert captured["thinking_enabled"] is True
+    assert runtime_context.thread_id == "thread-typed"
+    assert runtime_context.runtime_thread_id == "thread-typed"
+    assert runtime_context.model_dump(by_alias=True)["x-thread-id"] == "thread-typed"
+
+
 def test_resolve_lead_agent_runtime_uses_persisted_thread_agent_runtime(monkeypatch):
     store = _FakeDBStore(
         models={"safe-model": _make_model("safe-model", supports_thinking=True)},

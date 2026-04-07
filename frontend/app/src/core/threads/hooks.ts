@@ -864,6 +864,25 @@ function isMissingRunReplay(error: unknown): boolean {
   return normalized.includes("run not found");
 }
 
+function shouldSuppressOwnedMissingRunReplay(
+  error: unknown,
+  threadId: string | null | undefined,
+): boolean {
+  if (!threadId || !isMissingRunReplay(error)) {
+    return false;
+  }
+
+  if (!hasLocalActiveRunOwnership(threadId)) {
+    return false;
+  }
+
+  // Local ownership means this tab is already running the thread recovery
+  // flow. A stale run id should quietly fall back to state hydration instead
+  // of surfacing a fake terminal error toast.
+  clearStoredActiveRunId(threadId);
+  return true;
+}
+
 function buildThreadErrorToastId(
   threadId: string | null | undefined,
   message: string,
@@ -1105,6 +1124,13 @@ export function useThreadStream({
   const updateSubtask = useUpdateSubtask();
   const notifyThreadError = useCallback(
     (error: unknown) => {
+      const activeThreadId = streamThreadId ?? threadId;
+      if (shouldSuppressOwnedMissingRunReplay(error, activeThreadId)) {
+        setRetryStatus(null);
+        lastErrorMessageRef.current = null;
+        return null;
+      }
+
       if (shouldIgnoreThreadError(error)) {
         // Query/stream cancellation is local teardown, not a user-visible run
         // failure. Keep the retry banner clear without surfacing a false error.
@@ -1114,7 +1140,6 @@ export function useThreadStream({
       }
 
       const message = normalizeThreadError(error);
-      const activeThreadId = streamThreadId ?? threadId;
       setRetryStatus(null);
       if (lastErrorMessageRef.current === message) {
         return message;
@@ -1343,10 +1368,14 @@ export function useThreadStream({
   }, [thread.isLoading]);
 
   useEffect(() => {
-    if (!threadId || !authenticated || thread.isLoading) {
+    if (!threadId || !authenticated || thread.isLoading || !isThreadReady) {
       return;
     }
 
+    // Route switches reuse the same hook instance for one render while
+    // `useStream` is still bound to the previous thread. Wait until the live
+    // stream target matches the route before replaying stored run metadata, or
+    // the SDK can ask the old thread to resume the new thread's run id.
     if (!hasLocalActiveRunOwnership(threadId)) {
       return;
     }
@@ -1375,7 +1404,13 @@ export function useThreadStream({
       }
       notifyThreadError(error);
     });
-  }, [authenticated, notifyThreadError, thread.isLoading, threadId]);
+  }, [
+    authenticated,
+    isThreadReady,
+    notifyThreadError,
+    thread.isLoading,
+    threadId,
+  ]);
 
   useEffect(() => {
     const shouldRefreshFromActivation =
@@ -1383,7 +1418,7 @@ export function useThreadStream({
     const shouldDeferStateHydration =
       deferStateHydrationRef.current && !historyEnabled;
 
-    if (!threadId || !authenticated || !isWindowActive) {
+    if (!threadId || !authenticated || !isWindowActive || !isThreadReady) {
       return;
     }
 
@@ -1507,6 +1542,7 @@ export function useThreadStream({
     finalizeRecoveredTerminalError,
     hasResolvedModelName,
     historyEnabled,
+    isThreadReady,
     isWindowActive,
     notifyThreadError,
     thread.isLoading,
@@ -1519,6 +1555,7 @@ export function useThreadStream({
       !threadId ||
       !authenticated ||
       historyEnabled ||
+      !isThreadReady ||
       thread.isLoading ||
       !isWindowActive ||
       !hasResolvedModelName
@@ -1597,6 +1634,7 @@ export function useThreadStream({
     finalizeRecoveredRun,
     hasResolvedModelName,
     historyEnabled,
+    isThreadReady,
     isWindowActive,
     thread,
     thread.isLoading,
