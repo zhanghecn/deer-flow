@@ -89,6 +89,7 @@ def test_build_backend_sets_thread_user_data_as_shell_cwd(tmp_path):
     assert "/mnt/skills/" in backend.routes
     assert "/large_tool_results/" in backend.routes
     assert "/conversation_history/" in backend.routes
+    assert "/mnt/user-data/tmp" in backend.routes
 
 
 def test_build_backend_sets_default_user_data_as_shell_cwd_when_thread_missing(tmp_path):
@@ -399,12 +400,14 @@ def test_build_workspace_backend_uses_configured_sandbox_provider(monkeypatch):
             return self.sandbox
 
     provider = DummyProvider()
+    paths = Paths(base_dir="/tmp/openagents", skills_dir="/tmp/openagents")
     monkeypatch.setenv("OPENAGENTS_SANDBOX_PROVIDER", "src.community.aio_sandbox:AioSandboxProvider")
     monkeypatch.setattr("src.runtime_backends.sandbox.get_sandbox_provider", lambda provider_path: provider)
 
     backend = lead_agent_module._build_workspace_backend(
         user_data_dir="/tmp/runtime",
         thread_id="thread-1",
+        paths=paths,
     )
 
     assert isinstance(backend, CompositeBackend)
@@ -412,6 +415,7 @@ def test_build_workspace_backend_uses_configured_sandbox_provider(monkeypatch):
     assert provider.thread_id == "thread-1"
     assert backend.routes["/large_tool_results/"].cwd == Path("/tmp/runtime/outputs/.large_tool_results").resolve()
     assert backend.routes["/conversation_history/"].cwd == Path("/tmp/runtime/outputs/.conversation_history").resolve()
+    assert backend.routes["/mnt/user-data/tmp"].cwd == paths.runtime_tmp_dir.resolve()
 
 
 def test_build_backend_routes_internal_agent_spill_files_into_thread_outputs(tmp_path):

@@ -49,6 +49,7 @@ export interface PathMap {
   runtimeRoot: string
   uploadsRoot: string
   outputsRoot: string
+  tmpRoot: string
   agentsRoot: string
   authoringRoot: string
   userDataRoot: string

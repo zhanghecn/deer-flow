@@ -24,10 +24,14 @@ export async function executeCommand(
     env: {
       ...process.env,
       OPENAGENTS_WORKSPACE: map.workspaceRoot,
+      OPENAGENTS_TMP: map.tmpRoot,
       OPENAGENTS_UPLOADS: map.uploadsRoot,
       OPENAGENTS_OUTPUTS: map.outputsRoot,
       OPENAGENTS_AGENTS: map.agentsRoot,
       OPENAGENTS_RUNTIME_ROOT: map.runtimeRoot,
+      TMPDIR: map.tmpRoot,
+      TMP: map.tmpRoot,
+      TEMP: map.tmpRoot,
     },
   })
 

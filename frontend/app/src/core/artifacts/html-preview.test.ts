@@ -35,6 +35,28 @@ describe("buildHtmlPreviewDocument", () => {
     );
   });
 
+  it("rewrites shared tmp references for html previews", () => {
+    const artifactBaseURL = `${getBackendBaseURL()}/api/threads/thread-1/artifacts`;
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <body>
+          <img src="/tmp/cache/chart.png" alt="chart" />
+        </body>
+      </html>
+    `;
+
+    const result = buildHtmlPreviewDocument({
+      html,
+      filepath: "outputs/demo/index.html",
+      threadId: "thread-1",
+    });
+
+    expect(result).toContain(
+      `src="${artifactBaseURL}/mnt/user-data/tmp/cache/chart.png"`,
+    );
+  });
+
   it("rewrites assets relative to the current html file", () => {
     const artifactBaseURL = `${getBackendBaseURL()}/api/threads/thread-1/artifacts`;
     const html = `

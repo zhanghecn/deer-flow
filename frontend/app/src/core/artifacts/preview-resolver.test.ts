@@ -17,6 +17,12 @@ describe("resolveThreadScopedPath", () => {
     ).toBe("/mnt/user-data/workspace/dragon-constellation.jpg");
   });
 
+  it("resolves shared tmp references from an output artifact", () => {
+    expect(
+      resolveThreadScopedPath("/tmp/cache/chart.png", "outputs/demo/index.html"),
+    ).toBe("/mnt/user-data/tmp/cache/chart.png");
+  });
+
   it("resolves assets relative to the current artifact directory", () => {
     expect(
       resolveThreadScopedPath("./assets/cover.png", "outputs/demo/index.html"),

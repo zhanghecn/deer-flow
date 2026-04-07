@@ -149,6 +149,7 @@ const runtimeRootLabelMap: Record<string, string> = {
   outputs: "output",
   uploads: "upload",
   workspace: "workspace",
+  tmp: "shared tmp",
   authoring: "draft",
   agents: "agent runtime",
 };

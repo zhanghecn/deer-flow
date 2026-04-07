@@ -65,12 +65,20 @@ class AioSandbox(Sandbox):
         base_url: str,
         home_dir: str | None = None,
         runtime_root: str | None = None,
+        shared_tmp_root: str | None = None,
     ):
         super().__init__(sandbox_id=id)
         self._base_url = base_url
         self._client = AioSandboxClient(base_url=base_url, timeout=600)
         self._runtime_root = str(runtime_root).rstrip("/") if runtime_root else None
         self._home_dir = home_dir or self._runtime_root
+        self._shared_tmp_root = (
+            str(shared_tmp_root).rstrip("/")
+            if shared_tmp_root
+            else f"{self._runtime_root}/tmp"
+            if self._runtime_root
+            else f"{VIRTUAL_PATH_PREFIX}/tmp"
+        )
         self._default_timeout = 600
 
     @property
@@ -87,6 +95,10 @@ class AioSandbox(Sandbox):
     @property
     def runtime_root(self) -> str:
         return self._runtime_root or self.home_dir
+
+    @property
+    def shared_tmp_root(self) -> str:
+        return self._shared_tmp_root
 
     @staticmethod
     def _is_absolute_path(path: str) -> bool:
@@ -118,11 +130,21 @@ class AioSandbox(Sandbox):
     def _apply_runtime_alias(self, value: str) -> str:
         normalized = str(value).strip()
         runtime_root = self.runtime_root
+        shared_tmp_root = self.shared_tmp_root
 
         if normalized in {"", "/", "."}:
             return runtime_root
 
+        if normalized == "/tmp" or normalized.startswith("/tmp/"):
+            return f"{shared_tmp_root}{normalized[len('/tmp'):]}"
+        if normalized == f"{VIRTUAL_PATH_PREFIX}/tmp" or normalized.startswith(
+            f"{VIRTUAL_PATH_PREFIX}/tmp/"
+        ):
+            return f"{shared_tmp_root}{normalized[len(f'{VIRTUAL_PATH_PREFIX}/tmp'):]}"
+
         if normalized == runtime_root or normalized.startswith(f"{runtime_root}/"):
+            return normalized
+        if normalized == shared_tmp_root or normalized.startswith(f"{shared_tmp_root}/"):
             return normalized
 
         replacements = {
@@ -148,6 +170,11 @@ class AioSandbox(Sandbox):
     def _to_virtual_runtime_path(self, path: str) -> str:
         normalized = str(path).strip()
         runtime_root = self.runtime_root.rstrip("/")
+        shared_tmp_root = self.shared_tmp_root.rstrip("/")
+        if normalized == shared_tmp_root:
+            return f"{VIRTUAL_PATH_PREFIX}/tmp"
+        if normalized.startswith(f"{shared_tmp_root}/"):
+            return f"{VIRTUAL_PATH_PREFIX}/tmp{normalized[len(shared_tmp_root):]}"
         if normalized == runtime_root:
             return VIRTUAL_PATH_PREFIX
         if normalized.startswith(f"{runtime_root}/"):
@@ -168,8 +195,15 @@ class AioSandbox(Sandbox):
 
     def _command_path_replacements(self, target_root: str) -> dict[str, str]:
         runtime_root = self.runtime_root
+        shared_tmp_target = (
+            f"{VIRTUAL_PATH_PREFIX}/tmp"
+            if target_root == VIRTUAL_PATH_PREFIX
+            else self.shared_tmp_root
+        )
         replacements = {
+            f"{VIRTUAL_PATH_PREFIX}/tmp": shared_tmp_target,
             VIRTUAL_PATH_PREFIX: target_root,
+            "/tmp": shared_tmp_target,
             "/workspace": f"{target_root}/workspace",
             "/uploads": f"{target_root}/uploads",
             "/outputs": f"{target_root}/outputs",
@@ -178,16 +212,20 @@ class AioSandbox(Sandbox):
         }
         if runtime_root != target_root:
             replacements[runtime_root] = target_root
+        if self.shared_tmp_root != shared_tmp_target:
+            replacements[self.shared_tmp_root] = shared_tmp_target
         return replacements
 
     def _rewrite_command_paths(self, command: str, *, target_root: str | None = None) -> str:
         replacements = self._command_path_replacements(target_root or self.runtime_root)
+        ordered_virtual_paths = sorted(replacements, key=len, reverse=True)
+        alternation = "|".join(re.escape(virtual_path) for virtual_path in ordered_virtual_paths)
 
-        rewritten = command
-        for virtual_path, target in sorted(replacements.items(), key=lambda item: len(item[0]), reverse=True):
-            pattern = rf"(?<![A-Za-z0-9_./-]){re.escape(virtual_path)}(?=(/|\b))"
-            rewritten = re.sub(pattern, target, rewritten)
-        return rewritten
+        # Keep command rewriting single-pass so the `/tmp` alias does not
+        # re-consume already-expanded runtime roots that happen to live under
+        # `/tmp/...` on the host.
+        pattern = re.compile(rf"(?<![A-Za-z0-9_./-])({alternation})(?=(/|\b))")
+        return pattern.sub(lambda match: replacements[match.group(1)], command)
 
     @staticmethod
     def _exec_isolation_disabled() -> bool:
@@ -213,17 +251,24 @@ class AioSandbox(Sandbox):
             "/proc",
             "--dev",
             "/dev",
-            "--tmpfs",
-            "/tmp",
             "--bind",
             self.runtime_root,
             VIRTUAL_PATH_PREFIX,
+            "--bind",
+            self.shared_tmp_root,
+            f"{VIRTUAL_PATH_PREFIX}/tmp",
+            "--bind",
+            self.shared_tmp_root,
+            "/tmp",
             "--setenv",
             "HOME",
             "/tmp",
             "--setenv",
             "TMPDIR",
             "/tmp",
+            "--setenv",
+            "OPENAGENTS_TMP",
+            f"{VIRTUAL_PATH_PREFIX}/tmp",
             "--setenv",
             "PATH",
             DEFAULT_EXEC_PATH,
@@ -280,11 +325,15 @@ class AioSandbox(Sandbox):
             "/proc",
             "--dev",
             "/dev",
-            "--tmpfs",
-            "/tmp",
             "--bind",
             bind_source,
             VIRTUAL_PATH_PREFIX,
+            "--bind",
+            self.shared_tmp_root,
+            f"{VIRTUAL_PATH_PREFIX}/tmp",
+            "--bind",
+            self.shared_tmp_root,
+            "/tmp",
             "--setenv",
             "HOME",
             f"{visible_state_root}/home",
@@ -297,6 +346,12 @@ class AioSandbox(Sandbox):
             "--setenv",
             "PATH",
             DEFAULT_EXEC_PATH,
+            "--setenv",
+            "TMPDIR",
+            "/tmp",
+            "--setenv",
+            "OPENAGENTS_TMP",
+            f"{VIRTUAL_PATH_PREFIX}/tmp",
             "--setenv",
             "OPENAGENTS_RUNTIME_ROOT",
             VIRTUAL_PATH_PREFIX,

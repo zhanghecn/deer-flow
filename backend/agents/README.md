@@ -129,6 +129,7 @@ See [../../docs/guides/context-window-and-summarization.md](../../docs/guides/co
 Per-thread isolated execution with a definition/runtime split:
 
 - **Thread workspace**: `/mnt/user-data/{workspace,uploads,outputs}` → thread-specific physical directories
+- **Shared tmp**: `/mnt/user-data/tmp` → runtime-global temporary scratch intentionally shared across agents
 - **Runtime modes**:
   - sandbox disabled in Python config: use `LocalShellBackend` rooted at the thread `user-data` directory
   - sandbox enabled in Python config: resolve the configured provider in Python and acquire a sandbox implementing deepagents `BaseSandbox`

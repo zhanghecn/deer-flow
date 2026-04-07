@@ -116,6 +116,25 @@ def test_aio_sandbox_execute_rewrites_virtual_paths_into_thread_mount(monkeypatc
     assert "/mnt/user-data/outputs/demo.jpg" in command
 
 
+def test_aio_sandbox_execute_binds_shared_tmp_into_jail(monkeypatch):
+    monkeypatch.setattr(aio_sandbox_module, "AioSandboxClient", _DummyClient)
+
+    sandbox = aio_sandbox_module.AioSandbox(
+        id="sb-4tmp",
+        base_url="http://sandbox.test",
+        runtime_root="/openagents/threads/thread-1/user-data",
+        shared_tmp_root="/openagents/runtime/tmp",
+    )
+
+    sandbox.execute("python tool.py --cache-dir /mnt/user-data/tmp/cache")
+
+    command = sandbox._client.shell.last_call["command"]
+    assert "--bind /openagents/runtime/tmp /mnt/user-data/tmp" in command
+    assert "--bind /openagents/runtime/tmp /tmp" in command
+    assert "--setenv OPENAGENTS_TMP /mnt/user-data/tmp" in command
+    assert "/mnt/user-data/tmp/cache" in command
+
+
 def test_aio_sandbox_execute_can_disable_exec_isolation(monkeypatch):
     monkeypatch.setattr(aio_sandbox_module, "AioSandboxClient", _DummyClient)
     monkeypatch.setenv("OPENAGENTS_SANDBOX_EXEC_ISOLATION", "off")
@@ -150,6 +169,22 @@ def test_aio_sandbox_file_api_rewrites_virtual_paths_into_thread_mount(monkeypat
     download_result = sandbox.download_files(["/mnt/user-data/workspace/demo.txt"])
     assert download_result[0].path == "/mnt/user-data/workspace/demo.txt"
     assert download_result[0].content == b"hello"
+
+
+def test_aio_sandbox_file_api_maps_shared_tmp_outside_thread_root(monkeypatch):
+    monkeypatch.setattr(aio_sandbox_module, "AioSandboxClient", _DummyClient)
+
+    sandbox = aio_sandbox_module.AioSandbox(
+        id="sb-5tmp",
+        base_url="http://sandbox.test",
+        runtime_root="/openagents/threads/thread-2/user-data",
+        shared_tmp_root="/openagents/runtime/tmp",
+    )
+
+    upload_result = sandbox.upload_files([("/mnt/user-data/tmp/demo.txt", b"hello")])
+
+    assert upload_result[0].error is None
+    assert "/openagents/runtime/tmp/demo.txt" in sandbox._client.file.uploads
 
 
 def test_aio_sandbox_transport_logs_execute_upload_and_download(monkeypatch, caplog):

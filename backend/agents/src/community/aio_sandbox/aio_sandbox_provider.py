@@ -226,6 +226,7 @@ class AioSandboxProvider(SandboxProvider):
             (str(paths.sandbox_work_dir(thread_id)), f"{VIRTUAL_PATH_PREFIX}/workspace", False),
             (str(paths.sandbox_uploads_dir(thread_id)), f"{VIRTUAL_PATH_PREFIX}/uploads", False),
             (str(paths.sandbox_outputs_dir(thread_id)), f"{VIRTUAL_PATH_PREFIX}/outputs", False),
+            (str(paths.runtime_tmp_dir), f"{VIRTUAL_PATH_PREFIX}/tmp", False),
         ]
 
         return mounts
@@ -264,11 +265,26 @@ class AioSandboxProvider(SandboxProvider):
 
         return f"{shared_mount}/threads/{thread_id}/user-data"
 
+    def _shared_tmp_root(self) -> str:
+        """Return the sandbox-visible shared temp root.
+
+        Shared external sandboxes mount the whole `OPENAGENTS_HOME`, so the
+        cross-agent temp area lives under that mounted runtime tree instead of a
+        thread-local `user-data` directory.
+        """
+
+        base_url = str(self._config.get("base_url", "")).strip()
+        shared_mount = str(self._config.get("shared_data_mount_path", "")).strip().rstrip("/")
+        if base_url and shared_mount:
+            return f"{shared_mount}/runtime/tmp"
+        return f"{VIRTUAL_PATH_PREFIX}/tmp"
+
     def _build_sandbox_instance(self, sandbox_id: str, sandbox_url: str, thread_id: str | None) -> AioSandbox:
         return AioSandbox(
             id=sandbox_id,
             base_url=sandbox_url,
             runtime_root=self._runtime_root_for_thread(thread_id),
+            shared_tmp_root=self._shared_tmp_root(),
         )
 
     # ── Idle timeout management ──────────────────────────────────────────

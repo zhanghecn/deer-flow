@@ -44,11 +44,13 @@ def build_runtime_workspace_backend(
         backend = build_sandbox_workspace_backend(
             thread_id,
             user_data_dir=user_data_dir,
+            shared_tmp_dir=str(paths.runtime_tmp_dir),
             skills_mount=skills_mount,
         )
     else:
         backend = build_local_workspace_backend(
             user_data_dir,
+            shared_tmp_dir=str(paths.runtime_tmp_dir),
             skills_mount=skills_mount,
         )
 

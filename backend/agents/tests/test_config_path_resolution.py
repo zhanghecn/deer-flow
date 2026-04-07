@@ -191,6 +191,7 @@ def test_ensure_thread_dirs_marks_runtime_tree_writable_for_sandbox_processes(tm
     paths.ensure_thread_dirs(thread_id)
 
     runtime_dirs = (
+        paths.runtime_tmp_dir,
         paths.sandbox_user_data_dir(thread_id),
         paths.sandbox_work_dir(thread_id),
         paths.sandbox_uploads_dir(thread_id),
@@ -204,3 +205,15 @@ def test_ensure_thread_dirs_marks_runtime_tree_writable_for_sandbox_processes(tm
     for runtime_dir in runtime_dirs:
         assert runtime_dir.exists()
         assert runtime_dir.stat().st_mode & 0o777 == 0o777
+
+
+def test_resolve_virtual_path_maps_shared_tmp_outside_thread_root(tmp_path: Path):
+    from src.config.paths import Paths
+
+    paths = Paths(base_dir=tmp_path)
+    thread_id = "thread-shared-tmp"
+    paths.ensure_thread_dirs(thread_id)
+
+    resolved = paths.resolve_virtual_path(thread_id, "/mnt/user-data/tmp/demo.txt")
+
+    assert resolved == paths.runtime_tmp_dir / "demo.txt"

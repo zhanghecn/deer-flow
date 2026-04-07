@@ -76,6 +76,7 @@ def build_sandbox_workspace_backend(
     thread_id: str,
     *,
     user_data_dir: str | None = None,
+    shared_tmp_dir: str | None = None,
     skills_mount: tuple[str, str] | None = None,
 ) -> BackendProtocol:
     provider_path = resolve_sandbox_provider()
@@ -89,7 +90,14 @@ def build_sandbox_workspace_backend(
     if not user_data_dir and skills_mount is None:
         return sandbox
 
-    routes = build_internal_runtime_routes(user_data_dir) if user_data_dir else {}
+    routes = (
+        build_internal_runtime_routes(
+            user_data_dir,
+            shared_tmp_dir=shared_tmp_dir,
+        )
+        if user_data_dir
+        else {}
+    )
     if skills_mount is not None:
         skills_dir, route_prefix = skills_mount
         # Keep archived store skill reads on a deterministic server-side

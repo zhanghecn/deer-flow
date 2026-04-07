@@ -9,6 +9,16 @@ describe("getUserVisibleRuntimePath", () => {
     ).toBe("short-intro.md");
   });
 
+  it("labels the shared tmp root when no child path is present", async () => {
+    const { getUserVisibleRuntimePathWithOptions } = await import("./files");
+
+    expect(
+      getUserVisibleRuntimePathWithOptions("/mnt/user-data/tmp", {
+        compact: true,
+      }),
+    ).toBe("shared tmp");
+  });
+
   it("can keep the full virtual runtime path when compact mode is disabled", async () => {
     const { getUserVisibleRuntimePathWithOptions } = await import("./files");
 

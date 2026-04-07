@@ -42,28 +42,47 @@ def resolve_skills_mount(paths: Paths) -> tuple[str, str] | None:
         return None
 
 
-def build_runtime_execute_aliases(user_data_dir: str) -> dict[str, str]:
+def build_runtime_execute_aliases(
+    user_data_dir: str,
+    *,
+    shared_tmp_dir: str | None = None,
+) -> dict[str, str]:
     """Return execute-tool path aliases for the thread runtime tree.
 
     Filesystem tools already treat absolute paths as rooted under the per-thread
     runtime. Shell execution happens on the host, so shorthand runtime paths such
     as `/agents/...` must be rewritten explicitly to the thread's host directory.
+    `/mnt/user-data/tmp` is the shared scratch exception and therefore maps to a
+    runtime-global temp directory instead of the thread-local root.
     """
 
     root = Path(user_data_dir).resolve()
-    return {
+    mappings = {
         "/agents": str(root / "agents"),
         "/authoring": str(root / "authoring"),
     }
+    if shared_tmp_dir:
+        resolved_tmp_dir = str(Path(shared_tmp_dir).resolve())
+        mappings[f"{root}/tmp"] = resolved_tmp_dir
+        mappings["/mnt/user-data/tmp"] = resolved_tmp_dir
+        mappings["/tmp"] = resolved_tmp_dir
+    return mappings
 
 
 def build_local_workspace_backend(
     user_data_dir: str,
     *,
+    shared_tmp_dir: str | None = None,
     skills_mount: tuple[str, str] | None = None,
 ) -> BackendProtocol:
-    execute_path_mappings = build_runtime_execute_aliases(user_data_dir)
-    routes = build_internal_runtime_routes(user_data_dir)
+    execute_path_mappings = build_runtime_execute_aliases(
+        user_data_dir,
+        shared_tmp_dir=shared_tmp_dir,
+    )
+    routes = build_internal_runtime_routes(
+        user_data_dir,
+        shared_tmp_dir=shared_tmp_dir,
+    )
 
     if skills_mount is not None:
         skills_dir, route_prefix = skills_mount

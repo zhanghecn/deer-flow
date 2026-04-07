@@ -7,6 +7,7 @@ export const THREAD_ROOT_PREFIX = "/mnt/user-data";
 const ROOT_SCOPES = [
   "outputs",
   "workspace",
+  "tmp",
   "uploads",
   "agents",
   "authoring",

@@ -410,17 +410,14 @@ class LocalShellBackend(FilesystemBackend, SandboxBackendProtocol):
             "/uploads": str(self.cwd / "uploads"),
         }
         replacements.update(self._execute_path_mappings)
+        ordered_virtual_paths = sorted(replacements, key=len, reverse=True)
+        alternation = "|".join(re.escape(virtual_path) for virtual_path in ordered_virtual_paths)
 
-        rewritten = command
-        for virtual_path, host_path in sorted(
-            replacements.items(),
-            key=lambda item: len(item[0]),
-            reverse=True,
-        ):
-            pattern = rf"(?<![A-Za-z0-9_./-]){re.escape(virtual_path)}(?=(/|\\b))"
-            rewritten = re.sub(pattern, host_path, rewritten)
-
-        return rewritten
+        # Rewrite against the original command in one pass. Chained substitutions
+        # can re-match host paths that happen to start with `/tmp`, which breaks
+        # shared-tmp aliases once another virtual prefix has already expanded.
+        pattern = re.compile(rf"(?<![A-Za-z0-9_./-])({alternation})(?=(/|\b))")
+        return pattern.sub(lambda match: replacements[match.group(1)], command)
 
 
 __all__ = ["DEFAULT_EXECUTE_TIMEOUT", "LocalShellBackend"]

@@ -91,6 +91,7 @@ The agent still sees the normal runtime contract:
 
 ```text
 /mnt/user-data/workspace
+/mnt/user-data/tmp
 /mnt/user-data/uploads
 /mnt/user-data/outputs
 /mnt/user-data/agents
@@ -101,6 +102,7 @@ The agent still sees the normal runtime contract:
 | Virtual Path | Local Path |
 | --- | --- |
 | `/mnt/user-data/workspace` | chosen `--workspace` directory |
+| `/mnt/user-data/tmp` | `<runtime-root>/tmp` |
 | `/mnt/user-data/uploads` | `<runtime-root>/uploads` |
 | `/mnt/user-data/outputs` | `<runtime-root>/outputs` |
 | `/mnt/user-data/agents` | `<runtime-root>/agents` |

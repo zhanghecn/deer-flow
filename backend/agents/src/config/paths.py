@@ -233,6 +233,17 @@ class Paths:
     def sandbox_outputs_dir(self, thread_id: str) -> Path:
         return self.thread_dir(thread_id) / "user-data" / "outputs"
 
+    @property
+    def runtime_tmp_dir(self) -> Path:
+        """Shared runtime temp scratch visible to every agent/backend.
+
+        Unlike `workspace`, `uploads`, and `outputs`, this directory is not
+        thread-bound. It is the intentional cross-agent scratch area behind the
+        virtual `/mnt/user-data/tmp` contract.
+        """
+
+        return self.runtime_dir / "tmp"
+
     def sandbox_agents_dir(self, thread_id: str) -> Path:
         return self.thread_dir(thread_id) / "user-data" / "agents"
 
@@ -266,6 +277,7 @@ class Paths:
     def ensure_thread_dirs(self, thread_id: str) -> None:
         """Create all standard sandbox directories for a thread."""
         runtime_dirs = (
+            self.runtime_tmp_dir,
             self.sandbox_user_data_dir(thread_id),
             self.sandbox_work_dir(thread_id),
             self.sandbox_uploads_dir(thread_id),
@@ -286,8 +298,13 @@ class Paths:
         if stripped != prefix and not stripped.startswith(prefix + "/"):
             raise ValueError(f"Path must start with /{prefix}")
 
-        relative = stripped[len(prefix) :].lstrip("/")
-        base = self.sandbox_user_data_dir(thread_id).resolve()
+        shared_tmp_prefix = f"{prefix}/tmp"
+        if stripped == shared_tmp_prefix or stripped.startswith(f"{shared_tmp_prefix}/"):
+            relative = stripped[len(shared_tmp_prefix) :].lstrip("/")
+            base = self.runtime_tmp_dir.resolve()
+        else:
+            relative = stripped[len(prefix) :].lstrip("/")
+            base = self.sandbox_user_data_dir(thread_id).resolve()
         actual = (base / relative).resolve()
 
         try:

@@ -71,7 +71,7 @@ function rewriteQuotedArtifactPaths(
   rewriteURL: (value: string) => string,
 ) {
   return text.replace(
-    /(["'`])((?:\.{1,2}\/|\/mnt\/user-data\/|outputs\/|workspace\/|uploads\/|agents\/|authoring\/)[^"'`]*?)\1/g,
+    /(["'`])((?:\.{1,2}\/|\/mnt\/user-data\/|outputs\/|workspace\/|tmp\/|uploads\/|agents\/|authoring\/)[^"'`]*?)\1/g,
     (match, quote: string, rawURL: string) => {
       const rewritten = rewriteURL(rawURL);
       if (rewritten === rawURL) {
@@ -161,7 +161,7 @@ function collectResolvedArtifactPaths({
       return;
     }
     element.textContent.replace(
-      /(["'`])((?:\.{1,2}\/|\/mnt\/user-data\/|outputs\/|workspace\/|uploads\/|agents\/|authoring\/)[^"'`]*?)\1/g,
+      /(["'`])((?:\.{1,2}\/|\/mnt\/user-data\/|outputs\/|workspace\/|tmp\/|uploads\/|agents\/|authoring\/)[^"'`]*?)\1/g,
       (_match, _quote: string, rawURL: string) => {
         const resolved = resolveThreadScopedPath(rawURL, filepath);
         if (resolved) {

@@ -259,6 +259,7 @@ Every runtime backend must preserve the same agent-visible paths:
 
 ```text
 /mnt/user-data/workspace
+/mnt/user-data/tmp
 /mnt/user-data/uploads
 /mnt/user-data/outputs
 /mnt/user-data/agents/{status}/{name}/...
@@ -270,6 +271,7 @@ This contract is more important than the host implementation.
 Examples:
 
 - local mode may rewrite these paths to thread-local host directories
+- `/mnt/user-data/tmp` is the shared scratch exception and may map to one runtime-global temp directory visible to multiple agents
 - sandbox mode may mount them into a container
 - remote mode may rewrite them to a CLI session workspace on the user machine
 

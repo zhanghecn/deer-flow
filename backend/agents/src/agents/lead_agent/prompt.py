@@ -21,6 +21,7 @@ SECTION_WORKING_DIRECTORY = """
 - Runtime agent copies and copied skills live under `/mnt/user-data/agents`
 - User uploads live under `/mnt/user-data/uploads`
 - Scratch work lives under `/mnt/user-data/workspace`
+- Shared temporary scratch lives under `/mnt/user-data/tmp`
 - Final deliverables belong under `/mnt/user-data/outputs`
 - Draft authoring belongs under `/mnt/user-data/authoring`
 - Read copied skills and uploaded files with `read_file` using the exact runtime paths provided in context

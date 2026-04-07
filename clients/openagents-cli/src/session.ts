@@ -13,6 +13,7 @@ export function resolveRuntimeRoot(sessionId: string, explicitRoot?: string): st
 
 export function ensureRuntimeRoot(runtimeRoot: string): void {
   mkdirSync(runtimeRoot, { recursive: true })
+  mkdirSync(path.join(runtimeRoot, "tmp"), { recursive: true })
   mkdirSync(path.join(runtimeRoot, "uploads"), { recursive: true })
   mkdirSync(path.join(runtimeRoot, "outputs"), { recursive: true })
   mkdirSync(path.join(runtimeRoot, "agents"), { recursive: true })

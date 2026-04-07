@@ -87,3 +87,15 @@ def test_aio_sandbox_provider_builds_thread_runtime_root_for_shared_existing_san
     runtime_root = AioSandboxProvider._runtime_root_for_thread(provider, "thread-1")
 
     assert runtime_root == "/openagents/threads/thread-1/user-data"
+
+
+def test_aio_sandbox_provider_builds_shared_tmp_root_for_shared_existing_sandbox():
+    provider = object.__new__(AioSandboxProvider)
+    provider._config = {
+        "base_url": "http://sandbox.internal:8080",
+        "shared_data_mount_path": "/openagents",
+    }
+
+    shared_tmp_root = AioSandboxProvider._shared_tmp_root(provider)
+
+    assert shared_tmp_root == "/openagents/runtime/tmp"
