@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeThreadError } from "./error";
+import { normalizeThreadError, shouldIgnoreThreadError } from "./error";
 
 describe("normalizeThreadError", () => {
   it("prefers error messages", () => {
@@ -34,6 +34,18 @@ describe("normalizeThreadError", () => {
         "RateLimitError('Error code: 429 - {\\'error\\': {\\'message\\': \"We\\'re receiving too many requests right now.\"}, \\'type\\': \\'error\\'}')",
       ),
     ).toBe("429 We're receiving too many requests right now.");
+  });
+
+  it("identifies local cancellation errors that should stay silent", () => {
+    expect(shouldIgnoreThreadError(new Error("CancelledError"))).toBe(true);
+    expect(shouldIgnoreThreadError("CancelledError()")).toBe(true);
+    expect(
+      shouldIgnoreThreadError({
+        name: "AbortError",
+        message: "The operation was aborted.",
+      }),
+    ).toBe(true);
+    expect(shouldIgnoreThreadError(new Error("Connection error"))).toBe(false);
   });
 
   it("falls back to a generic message", () => {

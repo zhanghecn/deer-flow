@@ -328,6 +328,38 @@ describe("useThreadStream", () => {
     expect(toastError).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps local cancellation errors silent", async () => {
+    const onError = vi.fn();
+    window.sessionStorage.setItem("openagents:stream-owner:thread-1", "1");
+
+    renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+          onError,
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    act(() => {
+      emitStream({
+        error: "CancelledError()",
+      });
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(toastError).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+  });
+
   it("does not replay the last persisted run error when reopening a thread", async () => {
     streamState = makeThreadState({
       error: "APIConnectionError('Connection error.')",

@@ -21,7 +21,7 @@ import { useUpdateSubtask } from "../tasks/context";
 import type { UploadedFileInfo } from "../uploads";
 import { uploadFiles } from "../uploads";
 
-import { normalizeThreadError } from "./error";
+import { normalizeThreadError, shouldIgnoreThreadError } from "./error";
 import {
   DEFAULT_SUBAGENT_ENABLED,
   getReasoningEffortForMode,
@@ -1105,6 +1105,14 @@ export function useThreadStream({
   const updateSubtask = useUpdateSubtask();
   const notifyThreadError = useCallback(
     (error: unknown) => {
+      if (shouldIgnoreThreadError(error)) {
+        // Query/stream cancellation is local teardown, not a user-visible run
+        // failure. Keep the retry banner clear without surfacing a false error.
+        setRetryStatus(null);
+        lastErrorMessageRef.current = null;
+        return null;
+      }
+
       const message = normalizeThreadError(error);
       const activeThreadId = streamThreadId ?? threadId;
       setRetryStatus(null);

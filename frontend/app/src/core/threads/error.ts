@@ -1,5 +1,6 @@
 const DEFAULT_THREAD_ERROR =
   "Something went wrong while running the conversation.";
+const IGNORED_THREAD_ERROR_NAMES = new Set(["AbortError", "CancelledError"]);
 
 function parsePseudoJsonErrorMessage(input: string) {
   const value = input.trim();
@@ -94,6 +95,39 @@ function extractErrorMessage(error: unknown) {
   }
 
   return null;
+}
+
+function isIgnoredThreadErrorName(value: string | null | undefined) {
+  const normalized = value?.trim();
+  return normalized ? IGNORED_THREAD_ERROR_NAMES.has(normalized) : false;
+}
+
+function extractBareErrorName(input: string) {
+  const match = /^([A-Za-z_][\w.]*)\(\)$/.exec(input.trim());
+  return match?.[1] ?? null;
+}
+
+export function shouldIgnoreThreadError(error: unknown) {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    typeof error.name === "string" &&
+    isIgnoredThreadErrorName(error.name)
+  ) {
+    return true;
+  }
+
+  const message = extractErrorMessage(error);
+  if (!message) {
+    return false;
+  }
+
+  const normalized = unwrapErrorWrapper(message) ?? message;
+  return (
+    isIgnoredThreadErrorName(normalized) ||
+    isIgnoredThreadErrorName(extractBareErrorName(normalized))
+  );
 }
 
 export function normalizeThreadError(error: unknown) {
