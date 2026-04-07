@@ -53,11 +53,11 @@
 
 - 非 `lead_agent` 的 dev agent 自修改自己时，`setup_agent` / `save_agent_to_store` / `push_agent_prod` 可以默认当前 agent
 
-### 4. guard 由 command 状态触发，不由猜测目标触发
+### 4. command 状态只负责路由，不追加 shell/path 拦截
 
-- `/create-agent` 只要命令成立，guard 就生效
-- `/push-*`、`/save-*` 这类 hard command 只要命令成立，direct-authoring guard 就生效
-- guard 不等待“先猜出目标是谁”
+- `/create-agent` 只负责激活对应 prompt 模板与工具暴露
+- `/push-*`、`/save-*` 这类 hard command 只负责显式持久化工作流本身
+- runtime 不再添加基于 shell 文本或路径子串的 authoring guard
 
 ### 5. 结构化解析可以保留，语义猜测必须禁止
 
@@ -107,8 +107,8 @@
 │ 3. RuntimeCommandMiddleware              │
 │    - 把当轮 command 元数据注入 system    │
 │                                          │
-│ 4. AuthoringGuardMiddleware              │
-│    - 阻止错误路径、宿主路径、绕过工具     │
+│ 4. Runtime tools + backend isolation     │
+│    - 依赖显式工具契约与运行时隔离         │
 └──────┬───────────────────────────────────┘
        │
        v
@@ -153,7 +153,7 @@
    - 是否先在 `/mnt/skills/system/skills/...` 与 `/mnt/skills/custom/skills/...` 中找本地 archived skill
    - 如果已经确定具体 archived skill，是否读取对应 `/mnt/skills/<source_path>/SKILL.md`
    - 最后是否 `setup_agent(agent_name=..., skills=[...])`
-5. `AuthoringGuardMiddleware` 阻止它去写错误目录、宿主路径、或绕过 `setup_agent`
+5. 持久化仍然通过显式 authoring tool 完成；runtime 不再增加基于命令文本的 guard 拦截
 
 ### B. 非 `lead_agent` 的 dev agent 自修改
 
@@ -208,11 +208,11 @@
 
 ### E. hard authoring command
 
-`/save-*`、`/push-*` 这类 command 会触发 direct-authoring guard：
+`/save-*`、`/push-*` 这类 command 仍然是显式持久化/发布入口：
 
 - 优先调用对应 authoring tool
-- 不允许转去文件系统 workaround
-- 不允许走 shell + host path 绕过发布/保存流程
+- 不再额外依赖 middleware 对 shell 文本做规则拦截
+- 安全边界来自显式工具契约、缺失参数时报错、以及 runtime/backend 隔离
 
 ### F. `AGENTS.md` 和 `SKILL.md` 的职责分离
 
@@ -275,12 +275,11 @@
 - `backend/agents/src/agents/middlewares/runtime_command_middleware.py`
   - `build_runtime_command_prompt(...)`
 
-### Guard
+### Runtime command injection
 
-- `backend/agents/src/agents/middlewares/authoring_guard_middleware.py`
-  - `/create-agent` guard
-  - self-authoring persistence guard
-  - direct-authoring guard
+- `backend/agents/src/agents/middlewares/runtime_command_middleware.py`
+  - per-turn command metadata injection
+  - command template prompt shaping
 
 ### Skill 装配与去重
 

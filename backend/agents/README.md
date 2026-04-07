@@ -104,7 +104,7 @@ OpenAgents-specific middlewares are combined with deepagents built-ins such as `
 | Layer | Middleware | Purpose |
 |---|---|---|
 | OpenAgents extras | **ArtifactsMiddleware** | Tracks tool-produced artifacts for frontend presentation |
-| OpenAgents extras | **AuthoringGuardMiddleware** + **RuntimeCommandMiddleware** | Constrains direct authoring turns and runtime command handling |
+| OpenAgents extras | **RuntimeCommandMiddleware** | Injects per-turn runtime command metadata without adding shell/path interception rules |
 | OpenAgents extras | **QuestionDisciplineMiddleware** | Forces structured clarification through `question`, batches material blocker questions together, and resumes execution after answers instead of serial follow-up intake |
 | OpenAgents extras | **UploadsMiddleware** | Injects uploaded files into conversation context and prefers generated Markdown companions when available |
 | OpenAgents extras | **KnowledgeContextMiddleware** | Enforces the knowledge-base retrieval protocol and blocks bypass flows |

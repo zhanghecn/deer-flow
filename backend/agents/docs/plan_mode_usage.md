@@ -10,8 +10,8 @@ stack for the main agent and subagents. That means `write_todos` is generally
 available without OpenAgents adding a separate custom todo middleware.
 
 OpenAgents now focuses its custom middleware layer on product-specific behavior
-such as uploads, authoring guards, title persistence, response recovery, and
-telemetry.
+such as uploads, runtime command injection, title persistence, response
+recovery, and telemetry.
 
 ## Runtime Compatibility
 
@@ -61,7 +61,6 @@ make_lead_agent(config)
         |
         +-> OpenAgents middleware layer
               - ArtifactsMiddleware
-              - AuthoringGuardMiddleware
               - RuntimeCommandMiddleware
               - UploadsMiddleware
               - TitleMiddleware

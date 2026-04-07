@@ -16,7 +16,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from src.agents.lead_agent.prompt import apply_prompt_template
 from src.agents.lead_agent.subagents import LoadedSubagentSpecs, load_subagent_specs
 from src.agents.middlewares.artifacts_middleware import ArtifactsMiddleware
-from src.agents.middlewares.authoring_guard_middleware import AuthoringGuardMiddleware
 from src.agents.middlewares.context_window_middleware import ContextWindowMiddleware
 from src.agents.middlewares.knowledge_context_middleware import KnowledgeContextMiddleware
 from src.agents.middlewares.max_tokens_recovery_middleware import MaxTokensRecoveryMiddleware
@@ -525,16 +524,19 @@ def _build_openagents_middlewares(model_config: ModelConfig):
     We only keep OpenAgents-specific middleware where Deep Agents does not
     already provide the behavior:
     - ArtifactsMiddleware: persists presented files in graph state
-    - AuthoringGuardMiddleware + RuntimeCommandMiddleware: constrain direct authoring turns
+    - RuntimeCommandMiddleware: injects per-turn slash-command metadata into the model context
     - UploadsMiddleware: injects uploaded file context into the current user turn
     - TitleMiddleware: persists a local first-turn title without another model call
     - Recovery middlewares: recover provider-specific outputs
     - ContextWindowMiddleware: emit telemetry for the admin console
     - ViewImageMiddleware: injects image content after successful `view_image` tool calls
     """
+    # Authoring turns rely on explicit tool contracts plus backend/runtime
+    # isolation instead of shell/path heuristics. Attached copied skills execute
+    # from `/mnt/user-data/agents/...`, so a middleware that re-interprets
+    # command strings as authoring policy would block legitimate runtime work.
     middlewares = [
         ArtifactsMiddleware(),
-        AuthoringGuardMiddleware(),
         QuestionDisciplineMiddleware(),
         RuntimeCommandMiddleware(),
         UploadsMiddleware(),

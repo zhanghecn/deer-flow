@@ -99,16 +99,19 @@ The only allowed implicit default is self-edit:
 
 `lead_agent` must pass explicit target names.
 
-## Guard Rule
+## Command-State Rule
 
-Authoring guards activate from command state, not inferred targets.
+Slash-command state still matters, but it should shape prompt/tool routing
+without adding another middleware layer that re-interprets filesystem paths or
+shell command text.
 
 Examples:
 
-- `/create-agent` activates the create-agent guard even before a target name has been decided
-- `/push-skill-prod` activates the direct authoring guard because the user explicitly confirmed a publish workflow
+- `/create-agent` can enable `setup_agent` and inject the create-agent command template even before a target name has been decided
+- `/push-skill-prod` can expose the matching publish tool through command metadata, but runtime safety should still come from explicit tool contracts and backend isolation
 
-Guards must not wait for inferred `target_*` fields from free text before they begin protecting the workflow.
+Do not add middleware that scans free-form shell commands or runtime paths to
+guess whether the model is "really" doing authoring work.
 
 ## No-Fallback Rule
 

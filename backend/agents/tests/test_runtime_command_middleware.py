@@ -46,7 +46,7 @@ def test_build_runtime_command_prompt_renders_create_agent_target_runtime_root()
     assert "/mnt/user-data/agentz" in prompt
 
 
-def test_runtime_command_middleware_appends_command_prompt_to_system_message():
+def test_runtime_command_middleware_appends_command_prompt_to_messages():
     middleware = RuntimeCommandMiddleware()
     model = MagicMock()
     model.model = "glm-5"
@@ -77,5 +77,7 @@ def test_runtime_command_middleware_appends_command_prompt_to_system_message():
     middleware.wrap_model_call(request, handler)
 
     assert len(captured) == 1
-    assert "runtime_command" in captured[0].system_message.text
-    assert "create-skill" in captured[0].system_message.text
+    assert captured[0].system_message.text == "You are helpful."
+    assert captured[0].messages[-1].text is not None
+    assert "runtime_command" in captured[0].messages[-1].text
+    assert "create-skill" in captured[0].messages[-1].text
