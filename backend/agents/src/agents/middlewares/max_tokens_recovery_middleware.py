@@ -49,6 +49,27 @@ class MaxTokensRecoveryMiddleware(AgentMiddleware):
             return False
         return not has_visible_response(message)
 
+    def _recovery_failure_message(self, response: ModelResponse[Any]) -> str:
+        """Explain why a max-tokens recovery attempt still failed visibly.
+
+        Some providers return HTTP 200 with an empty or reasoning-only payload.
+        That is not a transport failure, so the retry middleware and trace error
+        hooks never fire unless we surface a concrete runtime error here.
+        """
+
+        message = last_ai_message(response.result)
+        if message is None:
+            return (
+                "Model ended max_tokens recovery without returning any assistant "
+                "message."
+            )
+
+        stop_reason = message_stop_reason(message) or "unknown"
+        return (
+            "Model still produced no visible assistant response after "
+            f"max_tokens recovery (stop_reason={stop_reason})."
+        )
+
     def _retry_request(self, request: ModelRequest[Any]) -> ModelRequest[Any]:
         model_settings = dict(request.model_settings)
         current_max_tokens = model_settings.get("max_tokens", getattr(request.model, "max_tokens", None))
@@ -85,7 +106,15 @@ class MaxTokensRecoveryMiddleware(AgentMiddleware):
             extra={"model": getattr(request.model, "model", None)},
         )
         retry_request = self._retry_request(request)
-        return handler(retry_request)
+        retry_response = handler(retry_request)
+        if self._should_retry(retry_response) or last_ai_message(retry_response.result) is None:
+            message = self._recovery_failure_message(retry_response)
+            logger.warning(
+                message,
+                extra={"model": getattr(request.model, "model", None)},
+            )
+            raise RuntimeError(message)
+        return retry_response
 
     @override
     def wrap_model_call(
@@ -111,4 +140,12 @@ class MaxTokensRecoveryMiddleware(AgentMiddleware):
             extra={"model": getattr(request.model, "model", None)},
         )
         retry_request = self._retry_request(request)
-        return await handler(retry_request)
+        retry_response = await handler(retry_request)
+        if self._should_retry(retry_response) or last_ai_message(retry_response.result) is None:
+            message = self._recovery_failure_message(retry_response)
+            logger.warning(
+                message,
+                extra={"model": getattr(request.model, "model", None)},
+            )
+            raise RuntimeError(message)
+        return retry_response

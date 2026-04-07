@@ -42,19 +42,34 @@ _RECOVERY_SYSTEM_PROMPT = """
 class VisibleResponseRecoveryMiddleware(AgentMiddleware):
     """Retry once when the model ends with invisible reasoning-only output."""
 
+    def _response_gap_reason(
+        self,
+        response: ModelResponse[Any],
+        *,
+        allow_max_tokens: bool,
+    ) -> str | None:
+        message = last_ai_message(response.result)
+        if message is None:
+            return "provider returned no assistant message"
+
+        stop_reason = message_stop_reason(message)
+        if not allow_max_tokens and stop_reason in {"max_tokens", "length"}:
+            return None
+
+        if has_visible_response(message):
+            return None
+
+        normalized_stop_reason = stop_reason or "unknown"
+        return (
+            "assistant message had no visible text or tool call "
+            f"(stop_reason={normalized_stop_reason})"
+        )
+
     def _should_retry(self, request: ModelRequest[Any], response: ModelResponse[Any]) -> bool:
         if _RETRY_TAG in system_message_text(request.system_message):
             return False
 
-        message = last_ai_message(response.result)
-        if message is None:
-            return False
-
-        stop_reason = message_stop_reason(message)
-        if stop_reason in {"max_tokens", "length"}:
-            return False
-
-        return not has_visible_response(message)
+        return self._response_gap_reason(response, allow_max_tokens=False) is not None
 
     def _retry_request(self, request: ModelRequest[Any]) -> ModelRequest[Any]:
         model_settings = dict(request.model_settings)
@@ -82,7 +97,22 @@ class VisibleResponseRecoveryMiddleware(AgentMiddleware):
             "Retrying model call after invisible response with no user-visible output",
             extra={"model": getattr(request.model, "model", None)},
         )
-        return handler(self._retry_request(request))
+        retry_response = handler(self._retry_request(request))
+        remaining_gap = self._response_gap_reason(
+            retry_response,
+            allow_max_tokens=True,
+        )
+        if remaining_gap is not None:
+            message = (
+                "Model produced no visible assistant response after recovery "
+                f"retry: {remaining_gap}."
+            )
+            logger.warning(
+                message,
+                extra={"model": getattr(request.model, "model", None)},
+            )
+            raise RuntimeError(message)
+        return retry_response
 
     @override
     def wrap_model_call(
@@ -107,4 +137,19 @@ class VisibleResponseRecoveryMiddleware(AgentMiddleware):
             "Retrying async model call after invisible response with no user-visible output",
             extra={"model": getattr(request.model, "model", None)},
         )
-        return await handler(self._retry_request(request))
+        retry_response = await handler(self._retry_request(request))
+        remaining_gap = self._response_gap_reason(
+            retry_response,
+            allow_max_tokens=True,
+        )
+        if remaining_gap is not None:
+            message = (
+                "Model produced no visible assistant response after recovery "
+                f"retry: {remaining_gap}."
+            )
+            logger.warning(
+                message,
+                extra={"model": getattr(request.model, "model", None)},
+            )
+            raise RuntimeError(message)
+        return retry_response

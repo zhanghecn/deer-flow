@@ -1620,6 +1620,76 @@ describe("useThreadStream", () => {
     });
   });
 
+  it("suppresses stale run-not-found errors and retries with the hydrated active run id", async () => {
+    apiClient.threads.create.mockImplementation(() => createPendingPromise());
+    streamState = makeThreadState({
+      joinStream: vi
+        .fn()
+        .mockRejectedValueOnce(new Error("Run not found"))
+        .mockImplementationOnce(async () => {
+          emitStream({ isLoading: true });
+        }),
+    });
+    apiClient.threads.getState.mockResolvedValueOnce({
+      values: {
+        title: "Thread",
+        messages: [
+          {
+            id: "human-1",
+            type: "human",
+            content: [{ type: "text", text: "hello" }],
+            additional_kwargs: {},
+          },
+        ],
+        artifacts: [],
+      },
+      next: ["tools"],
+      metadata: {
+        run_id: "run-active-2",
+      },
+    });
+    window.sessionStorage.setItem("openagents:stream-owner:thread-1", "1");
+    window.sessionStorage.setItem("lg:stream:thread-1", "run-stale-1");
+
+    const { result } = renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          skipInitialHistory: true,
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    await waitFor(() => {
+      expect(streamState.joinStream).toHaveBeenNthCalledWith(
+        1,
+        "run-stale-1",
+        undefined,
+        {
+          streamMode: ["values", "messages-tuple", "custom"],
+        },
+      );
+    });
+    await waitFor(() => {
+      expect(streamState.joinStream).toHaveBeenNthCalledWith(
+        2,
+        "run-active-2",
+        undefined,
+        {
+          streamMode: ["values", "messages-tuple", "custom"],
+        },
+      );
+    });
+
+    expect(result.current[0].isLoading).toBe(true);
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
   it("recovers the final assistant state when the live finish event is missed", async () => {
     apiClient.threads.create.mockImplementation(() => createPendingPromise());
     const humanMessage: Message = {

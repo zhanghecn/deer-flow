@@ -93,3 +93,42 @@ def test_wrap_model_call_skips_retry_when_text_is_visible():
 
     assert calls == 1
     assert response.result[0].content == "Partial answer"
+
+
+def test_wrap_model_call_raises_when_max_tokens_recovery_still_has_no_visible_response():
+    middleware = MaxTokensRecoveryMiddleware(retry_max_tokens=8192)
+    model = MagicMock()
+    model.max_tokens = 4096
+    model.thinking = {"type": "enabled"}
+    model.model = "glm-5.1"
+
+    request = ModelRequest(
+        model=model,
+        messages=[HumanMessage(content="Build the artifact")],
+        system_message=SystemMessage(content="You are helpful."),
+        tools=[],
+        runtime=MagicMock(),
+        state={"messages": []},
+    )
+
+    calls: list[ModelRequest] = []
+
+    def handler(next_request: ModelRequest):
+        calls.append(next_request)
+        return ModelResponse(
+            result=[
+                AIMessage(
+                    content=[{"type": "thinking", "thinking": "Long reasoning"}],
+                    response_metadata={"stop_reason": "max_tokens"},
+                )
+            ]
+        )
+
+    try:
+        middleware.wrap_model_call(request, handler)
+    except RuntimeError as exc:
+        assert "no visible assistant response after max_tokens recovery" in str(exc)
+    else:
+        raise AssertionError("Expected recovery failure to raise RuntimeError")
+
+    assert len(calls) == 2

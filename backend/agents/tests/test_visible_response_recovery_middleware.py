@@ -109,3 +109,72 @@ def test_wrap_model_call_skips_retry_when_visible_text_exists():
 
     assert calls == 1
     assert response.result[0].content == "你好"
+
+
+def test_wrap_model_call_retries_when_provider_returns_no_ai_message():
+    middleware = VisibleResponseRecoveryMiddleware()
+    model = MagicMock()
+    model.thinking = {"type": "enabled"}
+    model.model = "glm-5.1"
+
+    request = ModelRequest(
+        model=model,
+        messages=[HumanMessage(content="继续执行")],
+        system_message=SystemMessage(content="You are helpful."),
+        tools=[],
+        runtime=MagicMock(),
+        state={"messages": []},
+    )
+
+    calls: list[ModelRequest] = []
+
+    def handler(next_request: ModelRequest):
+        calls.append(next_request)
+        if len(calls) == 1:
+            return ModelResponse(result=[])
+        return ModelResponse(
+            result=[
+                AIMessage(
+                    content="继续执行中。",
+                    response_metadata={"stop_reason": "stop"},
+                )
+            ]
+        )
+
+    response = middleware.wrap_model_call(request, handler)
+
+    assert len(calls) == 2
+    assert "visible_response_recovery" in calls[1].system_message.text
+    assert response.result[0].content == "继续执行中。"
+
+
+def test_wrap_model_call_raises_when_recovery_retry_still_has_no_visible_response():
+    middleware = VisibleResponseRecoveryMiddleware()
+    model = MagicMock()
+    model.thinking = {"type": "enabled"}
+    model.model = "glm-5.1"
+
+    request = ModelRequest(
+        model=model,
+        messages=[HumanMessage(content="继续执行")],
+        system_message=SystemMessage(content="You are helpful."),
+        tools=[],
+        runtime=MagicMock(),
+        state={"messages": []},
+    )
+
+    calls: list[ModelRequest] = []
+
+    def handler(next_request: ModelRequest):
+        calls.append(next_request)
+        return ModelResponse(result=[])
+
+    try:
+        middleware.wrap_model_call(request, handler)
+    except RuntimeError as exc:
+        assert "no visible assistant response after recovery retry" in str(exc)
+        assert "no assistant message" in str(exc)
+    else:
+        raise AssertionError("Expected recovery failure to raise RuntimeError")
+
+    assert len(calls) == 2

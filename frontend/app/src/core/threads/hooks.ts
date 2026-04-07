@@ -839,6 +839,11 @@ function isTransientConnectionReplay(error: unknown): boolean {
   return /connection error/i.test(normalizeThreadError(error));
 }
 
+function isMissingRunReplay(error: unknown): boolean {
+  const normalized = normalizeThreadError(error).toLowerCase();
+  return normalized.includes("run not found");
+}
+
 function buildThreadErrorToastId(
   threadId: string | null | undefined,
   message: string,
@@ -993,6 +998,7 @@ export function useThreadStream({
   const [threadOverride, setThreadOverride] = useState<ThreadOverride | null>(
     null,
   );
+  const [pendingRecoveryLoading, setPendingRecoveryLoading] = useState(false);
   const [retryStatus, setRetryStatus] = useState<RetryStatus | null>(null);
   const [historyEnabled, setHistoryEnabled] = useState(
     () => !!threadId && !skipInitialHistory,
@@ -1105,6 +1111,7 @@ export function useThreadStream({
       }
 
       terminalStateNotifiedRef.current = true;
+      setPendingRecoveryLoading(false);
       setRetryStatus(null);
       const activeThreadId = resolvedThreadId ?? streamThreadId ?? threadId;
       clearLocalActiveRunOwnership(activeThreadId);
@@ -1211,6 +1218,7 @@ export function useThreadStream({
 
   useEffect(() => {
     setThreadOverride(null);
+    setPendingRecoveryLoading(false);
     setRetryStatus(null);
     joinedRunIdRef.current = null;
     lastHydrationActivationRef.current = null;
@@ -1269,7 +1277,11 @@ export function useThreadStream({
   useEffect(() => {
     if (!thread.isLoading) {
       setRetryStatus(null);
+      return;
     }
+    // Once the SDK reports a live active stream again, the recovery spinner can
+    // hand control back to the real stream state.
+    setPendingRecoveryLoading(false);
   }, [thread.isLoading]);
 
   useEffect(() => {
@@ -1292,10 +1304,17 @@ export function useThreadStream({
     }
 
     joinedRunIdRef.current = activeRunId;
+    setPendingRecoveryLoading(true);
     void joinStream(activeRunId, undefined, {
       streamMode: [...STREAM_MODES],
     }).catch((error: unknown) => {
       joinedRunIdRef.current = null;
+      if (isMissingRunReplay(error)) {
+        // A stale persisted run id should not surface as a user-facing failure.
+        // Keep ownership so state hydration can reconnect to a fresher run id.
+        clearStoredActiveRunId(threadId);
+        return;
+      }
       notifyThreadError(error);
     });
   }, [authenticated, notifyThreadError, thread.isLoading, threadId]);
@@ -1342,6 +1361,13 @@ export function useThreadStream({
             return;
           }
 
+          const allowLocalRunResume = hasLocalActiveRunOwnership(threadId);
+          const hasPendingRun =
+            Array.isArray(state.next) && state.next.length > 0;
+          setPendingRecoveryLoading(
+            allowLocalRunResume && hasPendingRun && !threadLoadingRef.current,
+          );
+
           const nextThreadOverride = buildThreadOverrideFromState(
             "hydration",
             state.values,
@@ -1358,12 +1384,10 @@ export function useThreadStream({
             typeof state.metadata?.run_id === "string"
               ? state.metadata.run_id
               : null;
-          const allowLocalRunResume = hasLocalActiveRunOwnership(threadId);
           const shouldJoinPendingRun =
             allowLocalRunResume &&
             !threadLoadingRef.current &&
-            Array.isArray(state.next) &&
-            state.next.length > 0 &&
+            hasPendingRun &&
             !!activeRunId;
           const joinStream = joinStreamRef.current;
 
@@ -1378,6 +1402,10 @@ export function useThreadStream({
               streamMode: [...STREAM_MODES],
             }).catch((error: unknown) => {
               joinedRunIdRef.current = null;
+              if (isMissingRunReplay(error)) {
+                clearStoredActiveRunId(threadId);
+                return;
+              }
               notifyThreadError(error);
             });
           }
@@ -1447,6 +1475,10 @@ export function useThreadStream({
           if (cancelled) {
             return;
           }
+
+          const hasPendingRun =
+            Array.isArray(state.next) && state.next.length > 0;
+          setPendingRecoveryLoading(hasPendingRun);
 
           const stateMessages = extractThreadMessages(state.values);
           if (stateMessages.length === 0) {
@@ -1736,6 +1768,7 @@ export function useThreadStream({
     const activeRunTarget = resolveActiveRunTarget(threadId, streamThreadId);
     setRetryStatus(null);
     manualHistorySeedRef.current = false;
+    setPendingRecoveryLoading(false);
     const snapshot = buildThreadOverride(
       "snapshot",
       mergedThreadValues,
@@ -1772,6 +1805,7 @@ export function useThreadStream({
       }
 
       if (!activeRunTarget.threadId || !authenticated) {
+        setPendingRecoveryLoading(false);
         setHistoryEnabled(true);
         onStop?.(latestState);
         return;
@@ -1810,6 +1844,7 @@ export function useThreadStream({
         notifyThreadError(error);
       }
 
+      setPendingRecoveryLoading(false);
       setHistoryEnabled(true);
       onStop?.(latestState);
       void invalidateThreadSearchCaches(queryClient);
@@ -1844,6 +1879,7 @@ export function useThreadStream({
         values: effectiveValues,
         messages: effectiveMessages,
         interrupt: effectiveInterrupt,
+        isLoading: mergedThread.isLoading || pendingRecoveryLoading,
         history: historyEnabled
           ? effectiveHistory
           : (threadOverride?.history ?? []),
@@ -1860,6 +1896,7 @@ export function useThreadStream({
       effectiveValues,
       historyEnabled,
       mergedThread,
+      pendingRecoveryLoading,
       stopRun,
       threadOverride?.experimental_branchTree,
       threadOverride?.history,
