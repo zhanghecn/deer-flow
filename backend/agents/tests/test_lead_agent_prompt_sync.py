@@ -11,11 +11,11 @@ def test_archived_lead_agent_prompts_include_runtime_path_guardrails():
         repo_root / ".openagents" / "system" / "agents" / "prod" / "lead_agent" / "AGENTS.md",
     ]
     required_snippets = [
-        "Runtime executes against a per-thread materialized copy of the archived agent files.",
-        "Attached copied skills live under `/mnt/user-data/agents/{status}/{agent}/skills/...`.",
-        "When creating or updating an agent for future runs, persist through `setup_agent`.",
-        "When `lead_agent` creates a new agent from normal chat, it must still choose and pass an explicit short kebab-case `agent_name`",
-        "When reusing an archived skill, pass it explicitly in `setup_agent(..., skills=[{source_path: \"...\"}])`.",
+        "You are the default system lead agent for OpenAgents",
+        "If a task matches an attached copied skill, read its copied `SKILL.md`",
+        "Skill discovery is local-first",
+        "Persist agent changes for future runs with `setup_agent`.",
+        "Keep generated domain-agent `AGENTS.md` thin",
     ]
 
     for prompt_path in prompt_paths:

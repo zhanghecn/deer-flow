@@ -8,43 +8,36 @@ from src.skills.parser import parse_skill_file
 
 SECTION_THINKING_STYLE = """
 <thinking_style>
-- Think concisely and strategically about the user's request BEFORE taking action
-- Break down the task: What is clear? What is ambiguous? What is missing?
-- Never write down your full final answer or report in thinking process, but only outline
-- CRITICAL: After thinking, you MUST provide your actual response to the user. Thinking is for planning, the response is for delivery.
-- Your response must contain the actual answer, not just a reference to what you thought about
+- Think briefly before acting: note what is clear, missing, and risky.
+- Keep thinking as an outline, not a drafted answer.
+- After thinking, provide the actual response.
 </thinking_style>
 """.strip()
 
 SECTION_WORKING_DIRECTORY = """
 <working_directory existed="true">
 - Runtime agent copies and copied skills live under `/mnt/user-data/agents`
-- User uploads live under `/mnt/user-data/uploads`
-- Scratch work lives under `/mnt/user-data/workspace`
-- Shared temporary scratch lives under `/mnt/user-data/tmp`
-- The execution backend also exposes that shared temporary area at `/tmp`, so `/tmp` is allowed for runtime scratch work
-- Final deliverables belong under `/mnt/user-data/outputs`
-- Draft authoring belongs under `/mnt/user-data/authoring`
-- Read copied skills and uploaded files with `read_file` using the exact runtime paths provided in context
-- When an upload has both `Path` and `Original Path`, prefer `Path` first because it is usually the converted companion
-- Use the pagination footer from `read_file` instead of tiny repeated slices
-- If the user specified an output filename or format, use that exact final filename and format
+- User uploads live under `/mnt/user-data/uploads`; scratch work under `/mnt/user-data/workspace`
+- Shared temporary scratch lives under `/mnt/user-data/tmp` and is also available at `/tmp`
+- Final deliverables belong under `/mnt/user-data/outputs`; draft authoring belongs under `/mnt/user-data/authoring`
+- Read copied skills and uploads with the exact runtime paths provided in context
+- When an upload has both `Path` and `Original Path`, prefer `Path` first
+- Use `read_file` pagination for large files
+- If the user specified an output filename or format, use it exactly
 - Present only final deliverables from `/mnt/user-data/outputs` with `present_files`
 </working_directory>
 """.strip()
 
 SECTION_RESPONSE_STYLE = """
 <response_style>
-- Clear and Concise: Avoid over-formatting unless requested
-- Natural Tone: Use paragraphs and prose, not bullet points by default
-- Action-Oriented: Focus on delivering results, not explaining processes
+- Be concise and natural.
+- Prefer prose unless structure materially helps.
 </response_style>
 """.strip()
 
 SECTION_EVIDENCE = """
 <evidence_style>
-- After `web_search`, cite sources with Markdown links when you rely on them
-- If an attached copied skill or middleware defines stricter evidence or citation rules, follow that stricter contract
+- Cite sources after `web_search`; if a copied skill requires stricter evidence rules, follow them.
 </evidence_style>
 """.strip()
 
@@ -53,12 +46,9 @@ SECTION_EXECUTION_CONTRACT = """
 - Finish execution tasks instead of stopping at a plan or research summary unless the user asked for analysis only
 - Before finalizing, verify explicit user constraints such as filename, format, required sections, ordering, and requested scope
 - Keep intermediate work in `/mnt/user-data/workspace`; only final deliverables belong in `/mnt/user-data/outputs`
-- Do not present intermediate analysis files as final deliverables
 - Never expose raw `/mnt/user-data/...` paths in user-facing prose
-- Keep the same language as the user
-- Always provide a visible response after thinking
-- If blocking information is missing, call `question`
-- While waiting on a blocking `question`, do not continue tool work
+- Keep the same language as the user and always provide a visible response
+- If blocking information is missing, call `question` and pause tool work
 - Persist draft agents or skills only through the explicit save/push commands
 </execution_contract>
 """.strip()
@@ -144,6 +134,19 @@ def _skill_runtime_file_path(
     ).as_posix()
 
 
+def _summarize_skill_description(description: str | None, *, max_chars: int = 160) -> str | None:
+    """Keep attached-skill descriptions short so every default skill does not bloat every turn."""
+    if not description:
+        return None
+
+    compact = " ".join(description.split())
+    if len(compact) <= max_chars:
+        return compact
+
+    truncated = compact[: max_chars - 1].rsplit(" ", 1)[0].rstrip()
+    return f"{truncated or compact[: max_chars - 1]}…"
+
+
 def _load_attached_skills_section(
     *,
     agent_name: str | None,
@@ -180,17 +183,14 @@ def _load_attached_skills_section(
         return ""
     entries: list[str] = [
         "<attached_skills>",
-        "- Attached copied skills are not expanded automatically.",
-        "- When the current task matches one of them, read that copied `SKILL.md` first with `read_file`.",
-        "- Treat the copied `SKILL.md` as the detailed workflow contract and resolve any relative `references/`, `scripts/`, or `templates/` paths from its containing directory.",
-        "- If the copied `SKILL.md` explicitly requires a relative reference file for the workflow, read that file before substantive analysis, evidence synthesis, or drafting.",
-        "- After reading a matched copied `SKILL.md`, follow its mode-specific workflow and output contract literally instead of improvising a shorter variant.",
-        "- If the copied skill marks certain evidence, citation, or coverage rules as required, satisfy those rules in the visible answer and in any optional artifact you choose to generate.",
-        "- A bare external repo URL is not, by itself, a request for repository research. If it looks like a skill or capability source, prefer the matching discovery/install workflow unless the user explicitly asked for analysis.",
-        "- Do not generate extra deliverables that the copied skill treats as optional unless the user asked for them or the skill makes them mandatory for the current mode.",
-        "- If the copied skill says chat is the default output unless the user explicitly requested a file, artifact, or report, answer in chat and do not create optional files.",
-        "- Never finish a turn with only presented artifacts or an empty assistant reply. If you create or present any file, you must still provide a substantive visible answer in the same turn.",
-        "- Prefer the copied runtime path below over archived store paths when executing this agent's domain workflow.",
+        "- Attached copied skills are listed below; they are not expanded automatically.",
+        "- When a task matches one, read its copied `SKILL.md` first and resolve relative `references/`, `scripts/`, or `templates/` from that skill directory.",
+        "- If the copied skill requires other files, read them before substantive work.",
+        "- Then follow the skill's workflow/output contract and honor any required evidence or coverage rules.",
+        "- If the skill treats chat as the default output, stay in chat unless the user or the skill explicitly requires a file.",
+        "- If you create a file, still send a substantive visible answer in the same turn.",
+        "- A bare external repo URL is not, by itself, a request for repository research. If it looks like a skill source, prefer discovery/install unless the user explicitly asked for analysis.",
+        "- Prefer the runtime copied path below over archived store paths.",
         "",
         "Available attached skills:",
     ]
@@ -217,15 +217,17 @@ def _load_attached_skills_section(
                 relative_path=Path(materialized_path),
             )
             if parsed_skill is not None:
-                description = parsed_skill.description
+                description = _summarize_skill_description(parsed_skill.description)
 
+        # Keep each attached skill on one line to preserve prompt budget while
+        # still exposing the runtime path the model must read before use.
         line = f"- `{skill_ref.name}`"
         if description:
             line += f": {description}"
-        entries.append(line)
-        entries.append(f"  - read `{runtime_skill_path}`")
+        line += f" Read `{runtime_skill_path}`."
         if skill_ref.source_path:
-            entries.append(f"  - archived source `{skill_ref.source_path}`")
+            line += f" Source `{skill_ref.source_path}`."
+        entries.append(line)
 
     if entries[-1] == "Available attached skills:":
         return ""

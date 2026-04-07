@@ -36,8 +36,8 @@ def test_apply_prompt_template_keeps_knowledge_base_detail_out_of_base_prompt(mo
     rendered = prompt_module.apply_prompt_template()
 
     assert "<evidence_style>" in rendered
-    assert "After `web_search`, cite sources with Markdown links" in rendered
-    assert "stricter evidence or citation rules" in rendered
+    assert "Cite sources after `web_search`" in rendered
+    assert "stricter evidence rules" in rendered
     assert "Knowledge Base Sources" not in rendered
     assert "Knowledge Base Output Contract" not in rendered
     assert "Knowledge Base Tree Window Rule" not in rendered
@@ -71,7 +71,7 @@ def test_apply_prompt_template_documents_shared_tmp_alias(monkeypatch):
     rendered = prompt_module.apply_prompt_template()
 
     assert "Shared temporary scratch lives under `/mnt/user-data/tmp`" in rendered
-    assert "The execution backend also exposes that shared temporary area at `/tmp`" in rendered
+    assert "also available at `/tmp`" in rendered
 
 
 def test_apply_prompt_template_lists_attached_copied_skills(monkeypatch, tmp_path):
@@ -123,9 +123,22 @@ def test_apply_prompt_template_lists_attached_copied_skills(monkeypatch, tmp_pat
     assert "<attached_skills>" in rendered
     assert "contract-review" in rendered
     assert "review contracts with copied workflow" in rendered
-    assert "/mnt/user-data/agents/dev/demo-agent/skills/contract-review/SKILL.md" in rendered
-    assert "system/skills/contract-review" in rendered
-    assert "read that file before substantive analysis" in rendered
+    assert "Read `/mnt/user-data/agents/dev/demo-agent/skills/contract-review/SKILL.md`." in rendered
+    assert "Source `system/skills/contract-review`." in rendered
+    assert "If the copied skill requires other files, read them before substantive work." in rendered
     assert "A bare external repo URL is not, by itself, a request for repository research" in rendered
-    assert "chat is the default output unless the user explicitly requested a file" in rendered
-    assert "Never finish a turn with only presented artifacts" in rendered
+    assert "If the skill treats chat as the default output, stay in chat unless the user or the skill explicitly requires a file." in rendered
+    assert "If you create a file, still send a substantive visible answer in the same turn." in rendered
+
+
+def test_apply_prompt_template_keeps_runtime_prompt_compact(monkeypatch):
+    monkeypatch.setattr(
+        prompt_module,
+        "ensure_builtin_agent_archive",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(prompt_module, "load_agents_md", lambda *args, **kwargs: "")
+    rendered = prompt_module.apply_prompt_template(agent_name="lead_agent", agent_status="dev")
+
+    # The default lead_agent prompt is paid on every turn, so keep a hard budget.
+    assert len(rendered) < 16500
