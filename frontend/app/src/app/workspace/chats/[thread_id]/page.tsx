@@ -214,6 +214,9 @@ export default function ChatPage() {
           });
         }
       },
+      onStop: () => {
+        clearPendingRun();
+      },
     },
   );
 

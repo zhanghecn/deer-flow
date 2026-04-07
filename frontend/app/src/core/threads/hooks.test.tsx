@@ -1764,6 +1764,65 @@ describe("useThreadStream", () => {
     ).toBeNull();
   });
 
+  it("treats persisted task errors as terminal recovery state even when next is stale", async () => {
+    apiClient.threads.create.mockImplementation(() => createPendingPromise());
+    const humanMessage: Message = {
+      id: "human-1",
+      type: "human",
+      content: [{ type: "text", text: "hello" }],
+      additional_kwargs: {},
+    };
+    apiClient.threads.getState.mockResolvedValueOnce({
+      values: {
+        title: "Thread",
+        messages: [humanMessage],
+        artifacts: [],
+      },
+      next: ["model"],
+      tasks: [
+        {
+          id: "task-1",
+          error: 'InternalServerError("503 upstream")',
+        },
+      ],
+      metadata: {
+        run_id: "run-active-1",
+      },
+    });
+    window.sessionStorage.setItem("openagents:stream-owner:thread-1", "1");
+
+    const onStop = vi.fn();
+    const { result } = renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          skipInitialHistory: true,
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+          onStop,
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    await waitFor(() => {
+      expect(onStop).toHaveBeenCalledWith({
+        title: "Thread",
+        messages: [humanMessage],
+        artifacts: [],
+      });
+    });
+    expect(result.current[0].isLoading).toBe(false);
+    expect(toastError).toHaveBeenCalledWith("503 upstream", {
+      id: "thread-error:thread-1:503 upstream",
+    });
+    expect(
+      window.sessionStorage.getItem("openagents:stream-owner:thread-1"),
+    ).toBeNull();
+  });
+
   it("does not join an active run from another tab without local ownership", async () => {
     apiClient.threads.create.mockImplementation(() => createPendingPromise());
     apiClient.threads.getState.mockResolvedValueOnce({

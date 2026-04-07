@@ -69,6 +69,39 @@ tool_groups: []
     assert "get_document_tree_node_detail" not in tool_names
 
 
+def test_get_available_tools_adds_view_image_only_for_vision_models(monkeypatch, tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+models: []
+sandbox:
+  use: src.sandbox.local:LocalSandboxProvider
+tools: []
+tool_groups: []
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("OPENAGENTS_CONFIG_PATH", str(config_path))
+
+    text_tools = get_available_tools(
+        include_mcp=False,
+        model_supports_vision=False,
+    )
+    vision_tools = get_available_tools(
+        include_mcp=False,
+        model_supports_vision=True,
+    )
+
+    text_tool_names = {tool.name for tool in text_tools if hasattr(tool, "name")}
+    vision_tool_names = {tool.name for tool in vision_tools if hasattr(tool, "name")}
+
+    # `view_image` must stay runtime-conditional so non-vision models can still
+    # use the same archived agent manifest without tool-loading failures.
+    assert "view_image" not in text_tool_names
+    assert "view_image" in vision_tool_names
+
+
 def test_get_available_tools_resolves_opt_in_knowledge_compatibility_tool(monkeypatch, tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(

@@ -82,4 +82,3 @@ tool_names:
 - get_document_tree_node_detail
 - list_knowledge_documents
 - present_files
-- view_image

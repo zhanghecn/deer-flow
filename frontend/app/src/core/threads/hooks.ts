@@ -835,6 +835,26 @@ function extractLatestPersistedTaskError(
   return undefined;
 }
 
+function extractLatestTaskError(tasks: unknown): unknown | undefined {
+  if (!Array.isArray(tasks)) {
+    return undefined;
+  }
+
+  for (let index = tasks.length - 1; index >= 0; index -= 1) {
+    const task = tasks[index];
+    if (!task || typeof task !== "object") {
+      continue;
+    }
+
+    const error = (task as { error?: unknown }).error;
+    if (error != null) {
+      return error;
+    }
+  }
+
+  return undefined;
+}
+
 function isTransientConnectionReplay(error: unknown): boolean {
   return /connection error/i.test(normalizeThreadError(error));
 }
@@ -1128,6 +1148,36 @@ export function useThreadStream({
     },
     [onFinish, queryClient, streamThreadId, threadId],
   );
+  const finalizeRecoveredTerminalError = useCallback(
+    (
+      state: AgentThreadState,
+      error: unknown,
+      resolvedThreadId?: string | null,
+    ) => {
+      if (terminalStateNotifiedRef.current) {
+        return;
+      }
+
+      terminalStateNotifiedRef.current = true;
+      setPendingRecoveryLoading(false);
+      setRetryStatus(null);
+      const activeThreadId = resolvedThreadId ?? streamThreadId ?? threadId;
+      clearLocalActiveRunOwnership(activeThreadId);
+      clearStoredActiveRunId(activeThreadId);
+      if (activeThreadId) {
+        // A persisted task error means the backend already finished this run,
+        // even if the last checkpoint still reports a stale `next` step.
+        deferStateHydrationRef.current = false;
+        lastHydrationActivationRef.current = null;
+        manualHistorySeedRef.current = false;
+        setHistoryEnabled(true);
+      }
+      notifyThreadError(error);
+      onStop?.(state);
+      void invalidateThreadSearchCaches(queryClient);
+    },
+    [notifyThreadError, onStop, queryClient, streamThreadId, threadId],
+  );
   const thread = useStream<
     AgentThreadState,
     { InterruptType: AgentInterruptValue }
@@ -1361,24 +1411,30 @@ export function useThreadStream({
             return;
           }
 
-          const allowLocalRunResume = hasLocalActiveRunOwnership(threadId);
-          const hasPendingRun =
-            Array.isArray(state.next) && state.next.length > 0;
-          setPendingRecoveryLoading(
-            allowLocalRunResume && hasPendingRun && !threadLoadingRef.current,
-          );
-
           const nextThreadOverride = buildThreadOverrideFromState(
             "hydration",
             state.values,
             [],
             extractPrimaryInterrupt(state),
           );
-          if (!nextThreadOverride) {
+          if (nextThreadOverride) {
+            setThreadOverride(nextThreadOverride);
+          }
+
+          const taskError = extractLatestTaskError(
+            "tasks" in state ? state.tasks : undefined,
+          );
+          if (taskError != null) {
+            finalizeRecoveredTerminalError(state.values, taskError, threadId);
             return;
           }
 
-          setThreadOverride(nextThreadOverride);
+          const allowLocalRunResume = hasLocalActiveRunOwnership(threadId);
+          const hasPendingRun =
+            Array.isArray(state.next) && state.next.length > 0;
+          setPendingRecoveryLoading(
+            allowLocalRunResume && hasPendingRun && !threadLoadingRef.current,
+          );
 
           const activeRunId =
             typeof state.metadata?.run_id === "string"
@@ -1440,6 +1496,7 @@ export function useThreadStream({
   }, [
     apiClient,
     authenticated,
+    finalizeRecoveredTerminalError,
     hasResolvedModelName,
     historyEnabled,
     isWindowActive,
@@ -1476,15 +1533,6 @@ export function useThreadStream({
             return;
           }
 
-          const hasPendingRun =
-            Array.isArray(state.next) && state.next.length > 0;
-          setPendingRecoveryLoading(hasPendingRun);
-
-          const stateMessages = extractThreadMessages(state.values);
-          if (stateMessages.length === 0) {
-            return;
-          }
-
           const nextThreadOverride = buildThreadOverrideFromState(
             "hydration",
             state.values,
@@ -1494,6 +1542,23 @@ export function useThreadStream({
           );
           if (nextThreadOverride) {
             setThreadOverride(nextThreadOverride);
+          }
+
+          const taskError = extractLatestTaskError(
+            "tasks" in state ? state.tasks : undefined,
+          );
+          if (taskError != null) {
+            finalizeRecoveredTerminalError(state.values, taskError, threadId);
+            return;
+          }
+
+          const hasPendingRun =
+            Array.isArray(state.next) && state.next.length > 0;
+          setPendingRecoveryLoading(hasPendingRun);
+
+          const stateMessages = extractThreadMessages(state.values);
+          if (stateMessages.length === 0) {
+            return;
           }
 
           const isTerminalRun =
@@ -1520,6 +1585,7 @@ export function useThreadStream({
   }, [
     apiClient,
     authenticated,
+    finalizeRecoveredTerminalError,
     finalizeRecoveredRun,
     hasResolvedModelName,
     historyEnabled,

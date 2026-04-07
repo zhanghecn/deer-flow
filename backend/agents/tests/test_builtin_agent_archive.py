@@ -189,3 +189,14 @@ def test_system_lead_agent_prod_manifest_keeps_default_skill_set_in_sync_with_de
     prod_skill_refs = prod_config["skill_refs"]
 
     assert [ref["source_path"] for ref in prod_skill_refs] == [ref["source_path"] for ref in dev_skill_refs]
+
+
+def test_system_lead_agent_manifests_do_not_pin_vision_only_tools():
+    repo_root = Path(__file__).resolve().parents[3]
+    dev_config = yaml.safe_load((repo_root / ".openagents/system/agents/dev/lead_agent/config.yaml").read_text(encoding="utf-8"))
+    prod_config = yaml.safe_load((repo_root / ".openagents/system/agents/prod/lead_agent/config.yaml").read_text(encoding="utf-8"))
+
+    # Vision-only tools are runtime-conditional. Pinning them in static manifests
+    # breaks non-vision models before the agent can even start.
+    assert "view_image" not in dev_config["tool_names"]
+    assert "view_image" not in prod_config["tool_names"]

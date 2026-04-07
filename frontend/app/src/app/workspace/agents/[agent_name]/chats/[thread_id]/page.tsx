@@ -246,6 +246,9 @@ export default function AgentChatPage() {
           });
         }
       },
+      onStop: () => {
+        clearPendingRun();
+      },
     },
   );
 
