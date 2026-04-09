@@ -53,6 +53,28 @@ docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml
 docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml up -d
 ```
 
+如果你希望启动命令在返回前就把关键入口也校验掉，推荐直接用仓库根目录：
+
+```bash
+make docker-start
+```
+
+它会在 compose 启动后继续等待并校验：
+
+- `http://127.0.0.1:8083/health`
+- `http://127.0.0.1:8083/`
+- `http://127.0.0.1:8081/`
+
+日常排查时也建议优先用：
+
+```bash
+make docker-status
+make docker-verify
+```
+
+这样可以直接发现“容器已经创建，但还停在 `Created` / `starting` / 非 healthy”
+这种最容易误判成“已经启动成功”的状态。
+
 数据库结构 SQL 不再由 gateway 或 compose 自动执行。
 如果 `migrations/` 下有变更，请先人工审阅并手工执行，再启动服务。
 
@@ -66,6 +88,12 @@ docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml
 
 ```bash
 docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml ps
+```
+
+或者：
+
+```bash
+make docker-status
 ```
 
 查看日志：
@@ -136,6 +164,10 @@ docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml
   - 重启容器
 - `docker compose ... ps`
   - 看当前容器状态
+- `make docker-status`
+  - 看当前 compose 状态，适合作为日常入口
+- `make docker-verify`
+  - 等待服务 ready，并校验正式入口 HTTP 可达
 - `docker compose ... logs -f`
   - 看日志
 - `docker compose ... down`

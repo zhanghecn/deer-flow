@@ -1,6 +1,6 @@
 # OpenAgents - Unified Development Environment
 
-.PHONY: help config check install dev stop clean docker-init docker-start docker-infra-start docker-stop docker-infra-stop docker-logs docker-logs-nginx docker-logs-gateway docker-prod-config docker-prod-build docker-prod-start docker-prod-stop docker-prod-restart docker-prod-status docker-prod-logs gateway-build
+.PHONY: help config check install dev stop clean docker-init docker-start docker-infra-start docker-stop docker-infra-stop docker-status docker-verify docker-logs docker-logs-nginx docker-logs-gateway docker-prod-config docker-prod-build docker-prod-start docker-prod-stop docker-prod-restart docker-prod-status docker-prod-verify docker-prod-logs gateway-build
 
 GO_TOOLCHAIN ?= auto
 HOST_LOG_DIR := $(CURDIR)/.openagents/host-logs
@@ -22,15 +22,18 @@ help:
 	@echo "  make docker-infra-start - Start local debug infra only (sandbox-aio + onlyoffice)"
 	@echo "  make docker-stop     - Stop Docker services"
 	@echo "  make docker-infra-stop - Stop local debug infra only"
+	@echo "  make docker-status   - Show Docker compose status"
+	@echo "  make docker-verify   - Wait for services and verify HTTP entrypoints"
 	@echo "  make docker-logs     - View Docker logs"
 	@echo "  make docker-logs-nginx - View Docker nginx logs"
 	@echo "  make docker-logs-gateway - View Docker gateway logs"
 	@echo ""
 	@echo "Docker Production Commands:"
 	@echo "  make docker-prod-build   - Direct docker compose build for production"
-	@echo "  make docker-prod-start   - Direct docker compose up for production"
+	@echo "  make docker-prod-start   - Build, start, and verify the production-style stack"
 	@echo "  make docker-prod-stop    - Direct docker compose down for production"
-	@echo "  make docker-prod-status  - Direct docker compose ps for production"
+	@echo "  make docker-prod-status  - Show production-style stack status"
+	@echo "  make docker-prod-verify  - Verify production-style stack readiness"
 	@echo "  make docker-prod-logs    - Direct docker compose logs for production"
 
 config:
@@ -328,6 +331,14 @@ docker-stop:
 docker-infra-stop:
 	@./scripts/docker.sh infra-stop
 
+# Show Docker compose status
+docker-status:
+	@./scripts/docker.sh status
+
+# Verify Docker compose readiness and public entrypoints
+docker-verify:
+	@./scripts/docker.sh verify
+
 # View Docker logs
 docker-logs:
 	@./scripts/docker.sh logs
@@ -345,17 +356,19 @@ docker-prod-build:
 	@cd docker && docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml build nginx gateway langgraph sandbox-aio onlyoffice
 
 docker-prod-start:
-	@cd docker && docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml build nginx gateway langgraph sandbox-aio onlyoffice
-	@cd docker && docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml up -d --remove-orphans
+	@./scripts/docker.sh start
 
 docker-prod-stop:
 	@cd docker && docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml down
 
 docker-prod-restart:
-	@cd docker && docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml restart
+	@./scripts/docker.sh restart
 
 docker-prod-status:
-	@cd docker && docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml ps
+	@./scripts/docker.sh status
+
+docker-prod-verify:
+	@./scripts/docker.sh verify
 
 docker-prod-logs:
 	@cd docker && docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml logs -f

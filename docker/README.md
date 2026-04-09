@@ -89,6 +89,24 @@ or:
 make docker-start
 ```
 
+`make docker-start` now waits for the compose services to be actually ready and
+verifies these public entrypoints before returning success:
+
+- `http://127.0.0.1:8083/health`
+- `http://127.0.0.1:8083/`
+- `http://127.0.0.1:8081/`
+
+Use these shortcuts for ongoing operations:
+
+```bash
+make docker-status
+make docker-verify
+```
+
+This avoids the easy-to-miss case where `docker compose up -d` has created the
+containers, but one or more services are still stuck in `Created` or not yet
+healthy.
+
 `ONLYOFFICE` and `SANDBOX_AIO` are part of the default unified stack.
 The app entrypoint is `http://127.0.0.1:8083`, the admin entrypoint is
 `http://127.0.0.1:8081`, and the sandbox management UI is exposed on
