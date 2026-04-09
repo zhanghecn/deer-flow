@@ -183,8 +183,6 @@ export const zhCN: Translations = {
     deleteSuccess: "智能体已删除",
     publish: "发布",
     publishSuccess: (agentName: string) => `智能体“${agentName}”已发布`,
-    downloadDemo: "下载 Demo",
-    downloadSuccess: (filename: string) => `已下载 ${filename}`,
     ownerBadge: "归属",
     ownedByYou: "由你管理",
     ownedBy: (ownerName: string) => `归属：${ownerName}`,

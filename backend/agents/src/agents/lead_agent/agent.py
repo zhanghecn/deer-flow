@@ -115,6 +115,7 @@ class LeadAgentRuntimeContext(BaseModel):
     )
     thinking_enabled: bool | None = None
     reasoning_effort: Any = None
+    max_output_tokens: int | None = None
     subagent_enabled: bool | None = None
     max_concurrent_subagents: int | None = None
     command_name: str | None = None
@@ -168,6 +169,9 @@ class LeadAgentRequest:
     header_model_name: str | None
     execution_backend: str | None
     remote_session_id: str | None
+    # Keep the northbound token budget override explicit so public `/v1` runs do
+    # not depend on provider-specific naming at the gateway boundary.
+    max_output_tokens: object | None = None
 
     def requires_direct_authoring_tool(self) -> bool:
         """Return whether this turn is an exclusive save/push confirmation.
@@ -1024,6 +1028,7 @@ def _build_run_metadata(
     model_name: str,
     thinking_enabled: object,
     reasoning_effort: object,
+    max_output_tokens: object,
     is_plan_mode: object,
     subagent_enabled: object,
     thread_id: str | None,
@@ -1034,6 +1039,7 @@ def _build_run_metadata(
         "model_name": model_name,
         "thinking_enabled": thinking_enabled,
         "reasoning_effort": reasoning_effort,
+        "max_output_tokens": max_output_tokens,
         "is_plan_mode": is_plan_mode,
         "subagent_enabled": subagent_enabled,
         "thread_id": thread_id,
@@ -1074,6 +1080,7 @@ def _resolve_lead_agent_request(
         header_model_name=_coerce_optional_str(cfg.get("x-model-name")),
         execution_backend=_coerce_optional_str(cfg.get("execution_backend") or cfg.get("x-execution-backend")),
         remote_session_id=_coerce_optional_str(cfg.get("remote_session_id") or cfg.get("x-remote-session-id")),
+        max_output_tokens=cfg.get("max_output_tokens"),
     )
 
 
@@ -1160,6 +1167,7 @@ def _update_request_runtime_context(
             "authoring_actions": list(request.authoring_actions),
             "execution_backend": request.execution_backend,
             "remote_session_id": request.remote_session_id,
+            "max_output_tokens": request.max_output_tokens,
         },
     )
 
@@ -1181,6 +1189,7 @@ def _attach_trace_metadata(
         model_name=model_name,
         thinking_enabled=request.thinking_enabled,
         reasoning_effort=request.reasoning_effort,
+        max_output_tokens=request.max_output_tokens,
         is_plan_mode=request.is_plan_mode,
         subagent_enabled=request.subagent_enabled,
         thread_id=request.thread_id,
@@ -1419,6 +1428,10 @@ def _create_lead_agent(
                 name=resolution.model_name,
                 thinking_enabled=bool(request.thinking_enabled),
                 reasoning_effort=request.reasoning_effort,
+                # The public `/v1` contract exposes `max_output_tokens`. Keep
+                # the runtime field explicit here so the gateway does not need
+                # provider-specific knowledge about `max_tokens`.
+                max_tokens=request.max_output_tokens,
                 runtime_model_config=resolution.model_config,
             ),
             "tools": graph_parts.tools,

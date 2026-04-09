@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 
-	"github.com/openagents/gateway/internal/model"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/openagents/gateway/internal/model"
 )
 
 type APITokenRepo struct {
@@ -20,16 +20,50 @@ func NewAPITokenRepo(pool *pgxpool.Pool) *APITokenRepo {
 
 func (r *APITokenRepo) Create(ctx context.Context, t *model.APIToken) error {
 	_, err := r.pool.Exec(ctx,
-		`INSERT INTO api_tokens (id, user_id, token_hash, name, scopes, expires_at)
-		 VALUES ($1, $2, $3, $4, $5, $6)`,
-		t.ID, t.UserID, t.TokenHash, t.Name, t.Scopes, t.ExpiresAt,
+		`INSERT INTO api_tokens (
+			id,
+			user_id,
+			token_hash,
+			token_prefix,
+			name,
+			scopes,
+			status,
+			allowed_agents,
+			metadata,
+			expires_at,
+			revoked_at
+		)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+		t.ID,
+		t.UserID,
+		t.TokenHash,
+		t.TokenPrefix,
+		t.Name,
+		t.Scopes,
+		t.Status,
+		t.AllowedAgents,
+		t.Metadata,
+		t.ExpiresAt,
+		t.RevokedAt,
 	)
 	return err
 }
 
 func (r *APITokenRepo) ListByUser(ctx context.Context, userID uuid.UUID) ([]model.APIToken, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT id, user_id, name, scopes, last_used, expires_at, created_at
+		`SELECT
+			id,
+			user_id,
+			token_prefix,
+			name,
+			scopes,
+			status,
+			allowed_agents,
+			metadata,
+			last_used,
+			expires_at,
+			revoked_at,
+			created_at
 		 FROM api_tokens WHERE user_id = $1 ORDER BY created_at DESC`, userID,
 	)
 	if err != nil {
@@ -40,7 +74,20 @@ func (r *APITokenRepo) ListByUser(ctx context.Context, userID uuid.UUID) ([]mode
 	var tokens []model.APIToken
 	for rows.Next() {
 		var t model.APIToken
-		if err := rows.Scan(&t.ID, &t.UserID, &t.Name, &t.Scopes, &t.LastUsed, &t.ExpiresAt, &t.CreatedAt); err != nil {
+		if err := rows.Scan(
+			&t.ID,
+			&t.UserID,
+			&t.TokenPrefix,
+			&t.Name,
+			&t.Scopes,
+			&t.Status,
+			&t.AllowedAgents,
+			&t.Metadata,
+			&t.LastUsed,
+			&t.ExpiresAt,
+			&t.RevokedAt,
+			&t.CreatedAt,
+		); err != nil {
 			return nil, err
 		}
 		tokens = append(tokens, t)
@@ -51,18 +98,50 @@ func (r *APITokenRepo) ListByUser(ctx context.Context, userID uuid.UUID) ([]mode
 func (r *APITokenRepo) FindByHash(ctx context.Context, hash string) (*model.APIToken, error) {
 	t := &model.APIToken{}
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, user_id, token_hash, name, scopes, last_used, expires_at, created_at
+		`SELECT
+			id,
+			user_id,
+			token_hash,
+			token_prefix,
+			name,
+			scopes,
+			status,
+			allowed_agents,
+			metadata,
+			last_used,
+			expires_at,
+			revoked_at,
+			created_at
 		 FROM api_tokens WHERE token_hash = $1`, hash,
-	).Scan(&t.ID, &t.UserID, &t.TokenHash, &t.Name, &t.Scopes, &t.LastUsed, &t.ExpiresAt, &t.CreatedAt)
+	).Scan(
+		&t.ID,
+		&t.UserID,
+		&t.TokenHash,
+		&t.TokenPrefix,
+		&t.Name,
+		&t.Scopes,
+		&t.Status,
+		&t.AllowedAgents,
+		&t.Metadata,
+		&t.LastUsed,
+		&t.ExpiresAt,
+		&t.RevokedAt,
+		&t.CreatedAt,
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	return t, err
 }
 
-func (r *APITokenRepo) Delete(ctx context.Context, id uuid.UUID, userID uuid.UUID) error {
+func (r *APITokenRepo) Revoke(ctx context.Context, id uuid.UUID, userID uuid.UUID) error {
 	tag, err := r.pool.Exec(ctx,
-		`DELETE FROM api_tokens WHERE id = $1 AND user_id = $2`, id, userID,
+		`UPDATE api_tokens
+		 SET status = $1, revoked_at = NOW()
+		 WHERE id = $2 AND user_id = $3 AND revoked_at IS NULL`,
+		model.APITokenStatusRevoked,
+		id,
+		userID,
 	)
 	if err != nil {
 		return err

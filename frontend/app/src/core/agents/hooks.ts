@@ -6,9 +6,9 @@ import {
   claimAgent,
   createAgent,
   deleteAgent,
-  downloadAgentReactDemo,
   getAgent,
   getAgentExportDoc,
+  getPublicAgentExportDoc,
   listAgents,
   listToolCatalog,
   publishAgent,
@@ -64,6 +64,18 @@ export function useAgentExportDoc(
     queryKey: ["agents", name, "export-doc"],
     queryFn: () => getAgentExportDoc(name!),
     enabled: authenticated && enabled && !!name,
+  });
+  return { exportDoc: data ?? null, isLoading, error };
+}
+
+export function usePublicAgentExportDoc(
+  name: string | null | undefined,
+  enabled = true,
+) {
+  const { data, isLoading, error } = useQuery<AgentExportDoc>({
+    queryKey: ["public-agents", name, "export-doc"],
+    queryFn: () => getPublicAgentExportDoc(name!),
+    enabled: enabled && !!name,
   });
   return { exportDoc: data ?? null, isLoading, error };
 }
@@ -126,11 +138,5 @@ export function useDeleteAgent() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["agents"] });
     },
-  });
-}
-
-export function useDownloadAgentReactDemo() {
-  return useMutation({
-    mutationFn: (name: string) => downloadAgentReactDemo(name),
   });
 }

@@ -71,23 +71,21 @@ export interface AgentExportEndpoint {
   url: string;
   headers?: Record<string, string>;
   body?: Record<string, unknown>;
+  notes?: string[];
 }
 
 export interface AgentExportDoc {
   agent: string;
   status: AgentStatus;
+  gateway_base_url?: string;
   api_base_url: string;
-  endpoints: {
-    stream: AgentExportEndpoint;
-    chat: AgentExportEndpoint;
-  };
-  demo: {
-    framework: string;
-    method: string;
-    url: string;
-    notes: string[];
-  };
+  model?: string;
+  endpoints: Record<string, AgentExportEndpoint>;
   documentation_url: string;
+  reference_url?: string;
+  playground_url?: string;
+  openapi_url?: string;
+  documentation_json_url?: string;
 }
 
 export interface CreateAgentRequest {

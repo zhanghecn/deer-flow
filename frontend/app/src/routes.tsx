@@ -1,7 +1,9 @@
 import { Suspense, lazy } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 
 import { PromptInputProvider } from "@/components/ai-elements/prompt-input";
+import { Toaster } from "@/components/ui/sonner";
 import { ArtifactsProvider } from "@/components/workspace/artifacts/context";
 import { useAuth } from "@/core/auth/hooks";
 import { SubtasksProvider } from "@/core/tasks/context";
@@ -9,10 +11,21 @@ import { SubtasksProvider } from "@/core/tasks/context";
 // Lazy-load heavy page components
 const LoginPage = lazy(() => import("@/app/login/page"));
 const RegisterPage = lazy(() => import("@/app/register/page"));
+const AgentPublicDocsPage = lazy(
+  () => import("@/app/docs/agents/[agent_name]/page"),
+);
+const AgentPublicReferencePage = lazy(
+  () => import("@/app/docs/agents/[agent_name]/reference/page"),
+);
+const AgentPublicPlaygroundPage = lazy(
+  () => import("@/app/docs/agents/[agent_name]/playground/page"),
+);
 const WorkspaceLayout = lazy(() => import("@/app/workspace/layout"));
 const ChatsPage = lazy(() => import("@/app/workspace/chats/page"));
 const ChatPage = lazy(() => import("@/app/workspace/chats/[thread_id]/page"));
-const KnowledgeLibraryPage = lazy(() => import("@/app/workspace/knowledge/page"));
+const KnowledgeLibraryPage = lazy(
+  () => import("@/app/workspace/knowledge/page"),
+);
 const ThreadKnowledgePage = lazy(
   () => import("@/app/workspace/chats/[thread_id]/knowledge/page"),
 );
@@ -21,6 +34,9 @@ const NewAgentPage = lazy(() => import("@/app/workspace/agents/new/page"));
 const AgentSettingsPage = lazy(
   () => import("@/app/workspace/agents/[agent_name]/settings/page"),
 );
+const AgentPlaygroundPage = lazy(
+  () => import("@/app/workspace/agents/[agent_name]/playground/page"),
+);
 const AgentAuthoringPage = lazy(
   () => import("@/app/workspace/agents/[agent_name]/authoring/page"),
 );
@@ -28,11 +44,12 @@ const SkillAuthoringPage = lazy(
   () => import("@/app/workspace/skills/[skill_name]/authoring/page"),
 );
 const AgentChatPage = lazy(
-  () =>
-    import(
-      "@/app/workspace/agents/[agent_name]/chats/[thread_id]/page"
-    ),
+  () => import("@/app/workspace/agents/[agent_name]/chats/[thread_id]/page"),
 );
+
+// Public docs routes live outside the workspace shell, so they need their own
+// query + toast boundary for export-doc loading, copy actions, and playground UX.
+const publicDocsQueryClient = new QueryClient();
 
 function ChatLayout() {
   return (
@@ -46,11 +63,20 @@ function ChatLayout() {
   );
 }
 
+function PublicDocsLayout() {
+  return (
+    <QueryClientProvider client={publicDocsQueryClient}>
+      <Outlet />
+      <Toaster position="top-center" />
+    </QueryClientProvider>
+  );
+}
+
 function PageSuspense({ children }: { children: React.ReactNode }) {
   return (
     <Suspense
       fallback={
-        <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
+        <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
           Loading...
         </div>
       }
@@ -87,6 +113,38 @@ export function AppRoutes() {
             </PageSuspense>
           }
         />
+        <Route
+          element={
+            <PageSuspense>
+              <PublicDocsLayout />
+            </PageSuspense>
+          }
+        >
+          <Route
+            path="/docs/agents/:agent_name"
+            element={
+              <PageSuspense>
+                <AgentPublicDocsPage />
+              </PageSuspense>
+            }
+          />
+          <Route
+            path="/docs/agents/:agent_name/reference"
+            element={
+              <PageSuspense>
+                <AgentPublicReferencePage />
+              </PageSuspense>
+            }
+          />
+          <Route
+            path="/docs/agents/:agent_name/playground"
+            element={
+              <PageSuspense>
+                <AgentPublicPlaygroundPage />
+              </PageSuspense>
+            }
+          />
+        </Route>
         <Route
           path="/workspace"
           element={
@@ -153,6 +211,14 @@ export function AppRoutes() {
             element={
               <PageSuspense>
                 <AgentSettingsPage />
+              </PageSuspense>
+            }
+          />
+          <Route
+            path="agents/:agent_name/playground"
+            element={
+              <PageSuspense>
+                <AgentPlaygroundPage />
               </PageSuspense>
             }
           />

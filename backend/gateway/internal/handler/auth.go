@@ -4,8 +4,10 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -149,13 +151,27 @@ func (h *AuthHandler) CreateToken(c *gin.Context) {
 	// Generate random token
 	plainToken := generateRandomToken()
 	hash := hashTokenStr(plainToken)
+	metadata, err := model.ValidateAPITokenMetadata(req.Metadata)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
+		return
+	}
+	if req.ExpiresAt != nil && req.ExpiresAt.Before(time.Now().UTC()) {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "expires_at must be in the future"})
+		return
+	}
 
 	apiToken := &model.APIToken{
-		ID:        uuid.New(),
-		UserID:    userID,
-		TokenHash: hash,
-		Name:      req.Name,
-		Scopes:    req.Scopes,
+		ID:            uuid.New(),
+		UserID:        userID,
+		TokenHash:     hash,
+		TokenPrefix:   tokenPrefixFromToken(plainToken),
+		Name:          strings.TrimSpace(req.Name),
+		Scopes:        model.NormalizeAPITokenScopes(req.Scopes),
+		Status:        model.APITokenStatusActive,
+		AllowedAgents: model.NormalizeAPITokenAllowedAgents(req.AllowedAgents),
+		Metadata:      metadata,
+		ExpiresAt:     req.ExpiresAt,
 	}
 
 	if err := h.tokenRepo.Create(c.Request.Context(), apiToken); err != nil {
@@ -178,18 +194,27 @@ func (h *AuthHandler) DeleteToken(c *gin.Context) {
 	}
 
 	userID := middleware.GetUserID(c)
-	if err := h.tokenRepo.Delete(c.Request.Context(), id, userID); err != nil {
+	if err := h.tokenRepo.Revoke(c.Request.Context(), id, userID); err != nil {
 		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "token not found"})
 		return
 	}
 
-	c.JSON(http.StatusOK, model.SuccessResponse{Message: "token deleted"})
+	c.JSON(http.StatusOK, model.SuccessResponse{Message: "token revoked"})
 }
 
 func generateRandomToken() string {
 	b := make([]byte, 32)
 	_, _ = rand.Read(b)
 	return "df_" + hex.EncodeToString(b)
+}
+
+func tokenPrefixFromToken(token string) string {
+	trimmed := strings.TrimSpace(token)
+	if len(trimmed) <= 15 {
+		return trimmed
+	}
+	// The prefix is a non-secret operator hint for logs and key rotation UX.
+	return fmt.Sprintf("%s...", trimmed[:15])
 }
 
 func hashTokenStr(token string) string {

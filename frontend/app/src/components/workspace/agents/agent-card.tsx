@@ -2,7 +2,6 @@ import {
   BotIcon,
   BrainIcon,
   CopyIcon,
-  DownloadIcon,
   Loader2Icon,
   MessageSquareIcon,
   RocketIcon,
@@ -35,7 +34,6 @@ import {
   buildWorkspaceAgentSettingsPath,
   useClaimAgent,
   useDeleteAgent,
-  useDownloadAgentReactDemo,
   usePublishAgent,
 } from "@/core/agents";
 import { buildWorkspaceAgentPath } from "@/core/agents";
@@ -64,7 +62,6 @@ export function AgentCard({ agent }: AgentCardProps) {
   const { user } = useAuth();
   const claimAgent = useClaimAgent();
   const deleteAgent = useDeleteAgent();
-  const downloadDemoMutation = useDownloadAgentReactDemo();
   const publishAgentMutation = usePublishAgent();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const isProd = agent.status === "prod";
@@ -102,15 +99,6 @@ export function AgentCard({ agent }: AgentCardProps) {
     try {
       await publishAgentMutation.mutateAsync(agent.name);
       toast.success(t.agents.publishSuccess(agent.name));
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  async function handleDownloadReactDemo() {
-    try {
-      const filename = await downloadDemoMutation.mutateAsync(agent.name);
-      toast.success(t.agents.downloadSuccess(filename));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err));
     }
@@ -261,22 +249,6 @@ export function AgentCard({ agent }: AgentCardProps) {
                 title={t.agents.publish}
               >
                 <RocketIcon className="h-3.5 w-3.5" />
-              </Button>
-            )}
-            {isProd && canManage && (
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-8 w-8 shrink-0"
-                onClick={handleDownloadReactDemo}
-                disabled={downloadDemoMutation.isPending}
-                title={t.agents.downloadDemo}
-              >
-                {downloadDemoMutation.isPending ? (
-                  <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <DownloadIcon className="h-3.5 w-3.5" />
-                )}
               </Button>
             )}
             {canManage && !isBuiltinLeadAgent && (

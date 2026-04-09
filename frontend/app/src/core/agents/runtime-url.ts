@@ -75,6 +75,47 @@ export function buildWorkspaceAgentSettingsPath(
   return query ? `${pathname}?${query}` : pathname;
 }
 
+export function buildWorkspaceAgentPlaygroundPath(
+  selection: AgentRuntimeSelection,
+): string {
+  const params = new URLSearchParams();
+  const normalizedAgentName = selection.agentName?.trim();
+  const agentName =
+    normalizedAgentName && normalizedAgentName.length > 0
+      ? normalizedAgentName
+      : "lead_agent";
+  const agentStatus = selection.agentStatus ?? "dev";
+
+  // Keep the runtime selection in the query string so the standalone
+  // playground stays bound to the same archived agent variant as Settings.
+  params.set("agent_status", agentStatus);
+  if (selection.executionBackend === "remote") {
+    params.set("execution_backend", "remote");
+  }
+  if (selection.remoteSessionId?.trim()) {
+    params.set("remote_session_id", selection.remoteSessionId.trim());
+  }
+
+  const pathname = `/workspace/agents/${encodeURIComponent(agentName)}/playground`;
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
+}
+
+export function buildPublicAgentDocsPath(agentName: string): string {
+  return `/docs/agents/${encodeURIComponent(agentName.trim())}`;
+}
+
+// Keep the public docs paths centralized because these URLs are shared with
+// external integrators through the export document and should not drift across
+// frontend surfaces.
+export function buildPublicAgentReferencePath(agentName: string): string {
+  return `${buildPublicAgentDocsPath(agentName)}/reference`;
+}
+
+export function buildPublicAgentPlaygroundPath(agentName: string): string {
+  return `${buildPublicAgentDocsPath(agentName)}/playground`;
+}
+
 export function appendWorkspacePromptParams(
   basePath: string,
   {

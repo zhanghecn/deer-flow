@@ -23,34 +23,6 @@ function resolveAPIErrorMessage(
   return payload.details ?? payload.detail ?? payload.error ?? fallback;
 }
 
-function extractFilenameFromDisposition(
-  headerValue: string | null,
-): string | null {
-  if (!headerValue) {
-    return null;
-  }
-
-  const utf8Match = /filename\*=UTF-8''([^;]+)/i.exec(headerValue);
-  if (utf8Match?.[1]) {
-    return decodeURIComponent(utf8Match[1]);
-  }
-
-  const plainMatch = /filename="?([^";]+)"?/i.exec(headerValue);
-  return plainMatch?.[1] ?? null;
-}
-
-function triggerBrowserDownload(blob: Blob, filename: string) {
-  const objectURL = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = objectURL;
-  anchor.download = filename;
-  anchor.style.display = "none";
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(objectURL), 1_000);
-}
-
 export async function listAgents(status?: AgentStatus): Promise<Agent[]> {
   const query = status ? `?status=${encodeURIComponent(status)}` : "";
   const res = await authFetch(`${getBackendBaseURL()}/api/agents${query}`);
@@ -200,27 +172,18 @@ export async function getAgentExportDoc(name: string): Promise<AgentExportDoc> {
   return res.json() as Promise<AgentExportDoc>;
 }
 
-export async function downloadAgentReactDemo(name: string): Promise<string> {
-  const res = await authFetch(
-    `${getBackendBaseURL()}/api/agents/${name}/export/demo`,
-    {
-      method: "POST",
-    },
-  );
+export async function getPublicAgentExportDoc(
+  name: string,
+): Promise<AgentExportDoc> {
+  const res = await fetch(`${getBackendBaseURL()}/open/agents/${name}/export`);
   if (!res.ok) {
     const err = (await res.json().catch(() => ({}))) as APIErrorShape;
     throw new Error(
       resolveAPIErrorMessage(
         err,
-        `Failed to download React demo: ${res.statusText}`,
+        `Failed to load public export document: ${res.statusText}`,
       ),
     );
   }
-
-  const blob = await res.blob();
-  const filename =
-    extractFilenameFromDisposition(res.headers.get("Content-Disposition")) ??
-    `${name}-react-demo.zip`;
-  triggerBrowserDownload(blob, filename);
-  return filename;
+  return res.json() as Promise<AgentExportDoc>;
 }

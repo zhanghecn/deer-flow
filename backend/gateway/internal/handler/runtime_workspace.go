@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -17,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/openagents/gateway/internal/httpx"
 	"github.com/openagents/gateway/internal/middleware"
 	"github.com/openagents/gateway/internal/model"
 	"github.com/openagents/gateway/internal/repository"
@@ -67,9 +67,7 @@ func NewRuntimeWorkspaceHandler(
 	return &RuntimeWorkspaceHandler{
 		repo:         repo,
 		langGraphURL: strings.TrimRight(langGraphURL, "/"),
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+		httpClient:   httpx.NewInternalHTTPClient(30 * time.Second),
 	}
 }
 
@@ -145,20 +143,10 @@ func (h *RuntimeWorkspaceHandler) Proxy() gin.HandlerFunc {
 		}
 
 		proxy := httputil.NewSingleHostReverseProxy(upstreamURL)
-		proxy.Transport = &http.Transport{
-			Proxy: http.ProxyFromEnvironment,
-			DialContext: (&net.Dialer{
-				Timeout:   5 * time.Second,
-				KeepAlive: 30 * time.Second,
-			}).DialContext,
-			ForceAttemptHTTP2:     true,
-			MaxIdleConns:          256,
-			MaxIdleConnsPerHost:   128,
-			IdleConnTimeout:       90 * time.Second,
-			TLSHandshakeTimeout:   5 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
-			ResponseHeaderTimeout: 120 * time.Second,
-		}
+		// Sandbox IDE upstreams are runtime-internal capability URLs returned by
+		// LangGraph, so they must bypass host proxy settings for the same reason
+		// as direct LangGraph calls.
+		proxy.Transport = httpx.NewInternalTransport()
 		proxy.FlushInterval = -1
 		originalDirector := proxy.Director
 		proxy.Director = func(req *http.Request) {

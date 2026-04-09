@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -149,6 +150,61 @@ func (r *AdminObservabilityRepo) ListTraces(
 		items = append(items, item)
 	}
 	return items, nil
+}
+
+func (r *AdminObservabilityRepo) FindLatestByThreadAndUser(
+	ctx context.Context,
+	threadID string,
+	userID uuid.UUID,
+) (*AgentTraceRecord, error) {
+	row := r.pool.QueryRow(
+		ctx,
+		`SELECT
+			trace_id,
+			root_run_id,
+			thread_id,
+			user_id,
+			agent_name,
+			model_name,
+			started_at,
+			finished_at,
+			status,
+			input_tokens,
+			output_tokens,
+			total_tokens,
+			error,
+			metadata
+		FROM agent_traces
+		WHERE thread_id = $1 AND user_id = $2
+		ORDER BY started_at DESC
+		LIMIT 1`,
+		threadID,
+		userID,
+	)
+
+	var item AgentTraceRecord
+	if err := row.Scan(
+		&item.TraceID,
+		&item.RootRunID,
+		&item.ThreadID,
+		&item.UserID,
+		&item.AgentName,
+		&item.ModelName,
+		&item.StartedAt,
+		&item.FinishedAt,
+		&item.Status,
+		&item.InputTokens,
+		&item.OutputTokens,
+		&item.TotalTokens,
+		&item.Error,
+		&item.Metadata,
+	); err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &item, nil
 }
 
 func (r *AdminObservabilityRepo) CountTraces(

@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/openagents/gateway/internal/httpx"
 	"github.com/openagents/gateway/internal/middleware"
 	"github.com/openagents/gateway/internal/model"
 	"github.com/openagents/gateway/internal/repository"
@@ -66,7 +67,7 @@ func NewThreadsHandler(
 	return &ThreadsHandler{
 		repo:         repo,
 		langGraphURL: strings.TrimRight(langGraphURL, "/"),
-		httpClient:   &http.Client{Timeout: 30 * time.Second},
+		httpClient:   httpx.NewInternalHTTPClient(30 * time.Second),
 		fs:           fs,
 	}
 }

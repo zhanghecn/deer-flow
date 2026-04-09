@@ -6,15 +6,14 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/openagents/gateway/internal/httpx"
 	"github.com/openagents/gateway/internal/middleware"
 )
 
@@ -33,6 +32,7 @@ type RouteConfig struct {
 	Auth          string            `yaml:"auth"`           // "jwt", "token", "none"
 	InjectHeaders map[string]string `yaml:"inject_headers"` // headers to forward
 	InjectBody    map[string]string `yaml:"inject_body"`    // fields to inject into JSON body, e.g. {"configurable.user_id": "{{.UserID}}"}
+	DisableProxy  bool              `yaml:"disable_proxy"`
 	Debug         bool
 	LogHeaders    bool
 }
@@ -52,19 +52,12 @@ func NewRoute(cfg RouteConfig) (*Route, error) {
 	}
 
 	rp := httputil.NewSingleHostReverseProxy(target)
-	rp.Transport = &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{
-			Timeout:   5 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
-		ForceAttemptHTTP2:     true,
-		MaxIdleConns:          256,
-		MaxIdleConnsPerHost:   128,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   5 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
-		ResponseHeaderTimeout: 120 * time.Second,
+	if cfg.DisableProxy {
+		// Internal stack routes such as /api/langgraph must stay on the direct
+		// service-to-service path instead of inheriting host proxy variables.
+		rp.Transport = httpx.NewInternalTransport()
+	} else {
+		rp.Transport = http.DefaultTransport
 	}
 
 	originalDirector := rp.Director

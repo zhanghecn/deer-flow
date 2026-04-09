@@ -70,15 +70,25 @@ func main() {
 	threadRepo := repository.NewThreadRepo(pool)
 	knowledgeRepo := repository.NewKnowledgeRepo(pool)
 	adminObservabilityRepo := repository.NewAdminObservabilityRepo(pool)
+	publicAPIInputFileRepo := repository.NewPublicAPIInputFileRepo(pool)
+	publicAPIInvocationRepo := repository.NewPublicAPIInvocationRepo(pool)
 
 	// Services
 	agentSvc := service.NewAgentService(fs)
 	skillSvc := service.NewSkillService(fs)
 	authoringWorkspaceSvc := service.NewAuthoringWorkspaceService(fs)
+	publicAPISvc := service.NewPublicAPIService(
+		modelRepo,
+		publicAPIInputFileRepo,
+		publicAPIInvocationRepo,
+		adminObservabilityRepo,
+		cfg.Upstream.LangGraphURL,
+		fs,
+	)
 
 	// Handlers
 	authH := handler.NewAuthHandler(userRepo, tokenRepo, jwtMgr, fs)
-	agentH := handler.NewAgentHandler(agentSvc, fs, tokenRepo, userRepo)
+	agentH := handler.NewAgentHandler(agentSvc, fs, userRepo)
 	skillH := handler.NewSkillHandler(skillSvc, fs, extensionsConfigPath)
 	authoringWorkspaceH := handler.NewAuthoringWorkspaceHandler(authoringWorkspaceSvc, fs, threadRepo)
 	modelH := handler.NewModelHandler(modelRepo)
@@ -95,9 +105,10 @@ func main() {
 		PublicAppURL:      cfg.OnlyOffice.PublicAppURL,
 		JWTSecret:         resolveOnlyOfficeJWTSecret(),
 	})
-	openAPIH := handler.NewOpenAPIHandler(modelRepo, cfg.Upstream.LangGraphURL, fs)
 	langGraphRuntimeH := handler.NewLangGraphRuntimeHandler()
 	adminH := handler.NewAdminHandler(userRepo, adminObservabilityRepo, modelRepo)
+	publicAPIH := handler.NewPublicAPIHandler(publicAPISvc)
+	publicAPIAuditH := handler.NewPublicAPIAuditHandler(publicAPISvc)
 
 	// Compile proxy routes from gateway.yaml config
 	loggingLevel := strings.ToLower(cfg.Logging.Level)
@@ -116,8 +127,11 @@ func main() {
 			Auth:          rc.Auth,
 			InjectHeaders: rc.InjectHeaders,
 			InjectBody:    injectBody,
-			Debug:         proxyDebug,
-			LogHeaders:    cfg.Logging.ProxyLogHeaders,
+			// LangGraph is an internal runtime hop. Keep it off host HTTP proxies
+			// so private bridge-network addresses do not get misrouted externally.
+			DisableProxy: rc.Prefix == "/api/langgraph",
+			Debug:        proxyDebug,
+			LogHeaders:   cfg.Logging.ProxyLogHeaders,
 		})
 		if err != nil {
 			log.Fatalf("Failed to create proxy route %s: %v", rc.Prefix, err)
@@ -172,6 +186,14 @@ func main() {
 		office.POST("/threads/:id/callback/:head/*tail", onlyOfficeH.Callback)
 	}
 
+	openDocs := r.Group("/open")
+	{
+		// Published-agent documentation is safe to expose publicly because it only
+		// contains the stable northbound contract and externally routable URLs.
+		openDocs.GET("/agents/:name/export", agentH.PublicExport)
+		openDocs.GET("/agents/:name/openapi.json", agentH.PublicOpenAPISpec)
+	}
+
 	// Protected API routes (JWT)
 	api := r.Group("/api")
 	api.Use(middleware.JWTAuth(jwtMgr))
@@ -192,7 +214,6 @@ func main() {
 		api.POST("/agents/:name/claim", agentH.Claim)
 		api.POST("/agents/:name/publish", agentH.Publish)
 		api.GET("/agents/:name/export", agentH.Export)
-		api.POST("/agents/:name/export/demo", agentH.ExportDemo)
 
 		// Skills
 		api.GET("/skills", skillH.List)
@@ -259,6 +280,7 @@ func main() {
 		api.GET("/threads/:id/artifacts/list", artifactsH.List)
 		api.GET("/threads/:id/artifacts/:head/*tail", artifactsH.Serve)
 		api.GET("/threads/:id/office-config/:head/*tail", onlyOfficeH.Config)
+		api.GET("/public-api/invocations", publicAPIAuditH.ListInvocations)
 
 		// Admin
 		admin := api.Group("/admin")
@@ -306,13 +328,17 @@ func main() {
 		}
 	}
 
-	// Open API routes (API Token auth)
-	open := r.Group("/open/v1")
+	// Public API routes (API Token auth)
+	open := r.Group("/v1")
 	open.Use(middleware.APITokenAuth(tokenRepo))
 	{
-		open.POST("/agents/:name/chat", openAPIH.Chat)
-		open.POST("/agents/:name/stream", openAPIH.Stream)
-		open.GET("/agents/:name/threads/:tid/artifacts/:head/*tail", openAPIH.GetArtifact)
+		open.GET("/models", middleware.RequireAPITokenScopes("responses:read"), publicAPIH.ListModels)
+		open.POST("/files", middleware.RequireAPITokenScopes("responses:create"), publicAPIH.CreateFile)
+		open.GET("/files/:id", middleware.RequireAPITokenScopes("artifacts:read"), publicAPIH.GetFile)
+		open.POST("/responses", middleware.RequireAPITokenScopes("responses:create"), publicAPIH.CreateResponse)
+		open.GET("/responses/:id", middleware.RequireAPITokenScopes("responses:read"), publicAPIH.GetResponse)
+		open.POST("/chat/completions", middleware.RequireAPITokenScopes("responses:create"), publicAPIH.ChatCompletions)
+		open.GET("/files/:id/content", middleware.RequireAPITokenScopes("artifacts:read"), publicAPIH.GetFileContent)
 	}
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

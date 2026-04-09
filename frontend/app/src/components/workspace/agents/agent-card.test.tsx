@@ -15,10 +15,6 @@ vi.mock("@/core/agents", () => ({
     mutateAsync: vi.fn(),
     isPending: false,
   }),
-  useDownloadAgentReactDemo: () => ({
-    mutateAsync: vi.fn(),
-    isPending: false,
-  }),
   usePublishAgent: () => ({
     mutateAsync: vi.fn(),
     isPending: false,
@@ -43,12 +39,10 @@ vi.mock("@/core/i18n/hooks", () => ({
         chat: "Chat",
         copyUrl: "Copy URL",
         publish: "Publish",
-        downloadDemo: "Download demo",
         delete: "Delete",
         deleteConfirm: "Delete this agent?",
         deleteSuccess: "Deleted",
         publishSuccess: () => "Published",
-        downloadSuccess: (filename: string) => filename,
         ownerBadge: "owner",
         ownedByYou: "Owned by you",
         ownedBy: (ownerName: string) => `Owned by ${ownerName}`,
@@ -98,7 +92,7 @@ describe("AgentCard", () => {
     expect(screen.getByText("read only")).toBeInTheDocument();
   });
 
-  it("hides demo export actions for non-manageable prod agents", () => {
+  it("hides management actions for non-manageable prod agents", () => {
     render(
       <MemoryRouter>
         <AgentCard
@@ -118,7 +112,6 @@ describe("AgentCard", () => {
     expect(
       screen.queryByRole("button", { name: "Settings" }),
     ).not.toBeInTheDocument();
-    expect(screen.queryByTitle("Download demo")).not.toBeInTheDocument();
     expect(screen.queryByTitle("Delete")).not.toBeInTheDocument();
   });
 

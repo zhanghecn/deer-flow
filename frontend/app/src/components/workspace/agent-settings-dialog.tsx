@@ -8,6 +8,7 @@ import {
   FileTextIcon,
   Link2Icon,
   Loader2Icon,
+  PlayIcon,
   PlusIcon,
   Settings2Icon,
   SlidersHorizontalIcon,
@@ -33,6 +34,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  buildWorkspaceAgentPlaygroundPath,
   buildWorkspaceAgentPath,
   isLeadAgent,
   type Agent,
@@ -42,7 +44,6 @@ import {
   useAgent,
   useAgentExportDoc,
   useToolCatalog,
-  useDownloadAgentReactDemo,
   useUpdateAgent,
 } from "@/core/agents";
 import type { AgentSkillRef } from "@/core/agents";
@@ -407,7 +408,7 @@ export function AgentSettingsDialog({
     error: skillsError,
   } = useSkills();
   const isProdArchive = agentStatus === "prod";
-  const canLoadExportDoc = open && isProdArchive && agent != null && canManage;
+  const canLoadExportDoc = open && isProdArchive && agent != null;
   const {
     exportDoc,
     isLoading: exportDocLoading,
@@ -418,7 +419,6 @@ export function AgentSettingsDialog({
     isLoading: toolCatalogLoading,
     error: toolCatalogError,
   } = useToolCatalog();
-  const downloadDemoMutation = useDownloadAgentReactDemo();
   const updateAgentMutation = useUpdateAgent();
   const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
   const [form, setForm] = useState<AgentSettingsFormState | null>(null);
@@ -427,10 +427,19 @@ export function AgentSettingsDialog({
   );
   const [skillsCategory, setSkillsCategory] =
     useState<SkillScope>(DEFAULT_SKILL_SCOPE);
-
   const launchPath = useMemo(
     () =>
       buildWorkspaceAgentPath({
+        agentName,
+        agentStatus,
+        executionBackend,
+        remoteSessionId,
+      }),
+    [agentName, agentStatus, executionBackend, remoteSessionId],
+  );
+  const playgroundPath = useMemo(
+    () =>
+      buildWorkspaceAgentPlaygroundPath({
         agentName,
         agentStatus,
         executionBackend,
@@ -445,6 +454,11 @@ export function AgentSettingsDialog({
     }
     return `${window.location.origin}${launchPath}`;
   }, [launchPath]);
+  // Keep the host gateway URL separate from the SDK-ready `/v1` base so
+  // operators do not paste the wrong value into OpenAI-compatible clients.
+  const exportGatewayBaseURL =
+    exportDoc?.gateway_base_url ?? exportDoc?.api_base_url ?? "";
+  const exportSDKBaseURL = exportDoc?.api_base_url ?? "";
   const ownerLabel = useMemo(() => {
     if (!agent?.owner_user_id) {
       return t.agents.legacyOwnerless;
@@ -567,19 +581,6 @@ export function AgentSettingsDialog({
 
   async function handleCopyLaunchURL() {
     await handleCopyText(launchURL, text.launchUrlCopied);
-  }
-
-  async function handleDownloadReactDemo() {
-    try {
-      const filename = await downloadDemoMutation.mutateAsync(agentName);
-      toast.success(text.downloadSuccess(filename));
-    } catch (downloadError) {
-      toast.error(
-        downloadError instanceof Error
-          ? downloadError.message
-          : text.downloadFailed,
-      );
-    }
   }
 
   function toggleToolSelection(
@@ -823,90 +824,72 @@ export function AgentSettingsDialog({
   ];
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="border-border/70 bg-background flex h-[88vh] max-h-[calc(100vh-1.5rem)] flex-col overflow-hidden p-0 shadow-2xl sm:max-w-6xl"
-        aria-describedby={undefined}
-      >
-        <div className="border-border/70 border-b px-6 py-5">
-          <DialogHeader className="text-left">
-            <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0">
-                <div className="text-muted-foreground mb-3 flex items-center gap-2 text-[11px] font-medium tracking-[0.22em] uppercase">
-                  <Settings2Icon className="size-3.5" />
-                  {text.headerEyebrow}
-                </div>
-                <DialogTitle className="flex flex-wrap items-center gap-2 text-xl">
-                  <span className="truncate">{agentName}</span>
-                  <Badge variant="outline" className="capitalize">
-                    {agentStatus}
-                  </Badge>
-                  {agent?.can_manage === false && (
-                    <Badge variant="secondary">{text.readOnlyBadge}</Badge>
-                  )}
-                  {executionBackend === "remote" && (
-                    <Badge variant="secondary">{text.remoteCliBadge}</Badge>
-                  )}
-                </DialogTitle>
-                <DialogDescription className="mt-2 max-w-3xl text-sm leading-6">
-                  {text.headerDescription}
-                </DialogDescription>
-              </div>
-              <div className="hidden shrink-0 items-center gap-2 sm:flex">
-                <Button size="sm" variant="outline" asChild>
-                  <Link to={launchPath}>
-                    <ExternalLinkIcon className="size-3.5" />
-                    {text.openWorkspace}
-                  </Link>
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleCopyLaunchURL}
-                >
-                  <CopyIcon className="size-3.5" />
-                  {text.copyUrl}
-                </Button>
-              </div>
-            </div>
-          </DialogHeader>
-        </div>
-
-        <Tabs
-          value={activeTab}
-          onValueChange={(value) => setActiveTab(value as SettingsTab)}
-          orientation="vertical"
-          className="min-h-0 flex-1 gap-0"
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent
+          className="border-border/70 bg-background flex h-[88vh] max-h-[calc(100vh-1.5rem)] flex-col overflow-hidden p-0 shadow-2xl sm:max-w-6xl"
+          aria-describedby={undefined}
         >
-          <div className="border-border/70 border-b px-4 py-3 md:hidden">
-            <TabsList
-              variant="line"
-              className="w-full justify-start gap-1 overflow-x-auto bg-transparent p-0"
-            >
-              {tabItems.map((tab) => (
-                <TabsTrigger
-                  key={tab.value}
-                  value={tab.value}
-                  className="rounded-xl border px-3 py-2"
-                >
-                  {tab.icon}
-                  {tab.label}
-                </TabsTrigger>
-              ))}
-            </TabsList>
+          <div className="border-border/70 border-b px-6 py-5">
+            <DialogHeader className="text-left">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="text-muted-foreground mb-3 flex items-center gap-2 text-[11px] font-medium tracking-[0.22em] uppercase">
+                    <Settings2Icon className="size-3.5" />
+                    {text.headerEyebrow}
+                  </div>
+                  <DialogTitle className="flex flex-wrap items-center gap-2 text-xl">
+                    <span className="truncate">{agentName}</span>
+                    <Badge variant="outline" className="capitalize">
+                      {agentStatus}
+                    </Badge>
+                    {agent?.can_manage === false && (
+                      <Badge variant="secondary">{text.readOnlyBadge}</Badge>
+                    )}
+                    {executionBackend === "remote" && (
+                      <Badge variant="secondary">{text.remoteCliBadge}</Badge>
+                    )}
+                  </DialogTitle>
+                  <DialogDescription className="mt-2 max-w-3xl text-sm leading-6">
+                    {text.headerDescription}
+                  </DialogDescription>
+                </div>
+                <div className="hidden shrink-0 items-center gap-2 sm:flex">
+                  <Button size="sm" variant="outline" asChild>
+                    <Link to={launchPath}>
+                      <ExternalLinkIcon className="size-3.5" />
+                      {text.openWorkspace}
+                    </Link>
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleCopyLaunchURL}
+                  >
+                    <CopyIcon className="size-3.5" />
+                    {text.copyUrl}
+                  </Button>
+                </div>
+              </div>
+            </DialogHeader>
           </div>
 
-          <aside className="bg-sidebar/30 border-border/70 hidden w-[220px] shrink-0 border-r md:block">
-            <div className="p-3">
+          <Tabs
+            value={activeTab}
+            onValueChange={(value) => setActiveTab(value as SettingsTab)}
+            orientation="vertical"
+            className="min-h-0 flex-1 gap-0"
+          >
+            <div className="border-border/70 border-b px-4 py-3 md:hidden">
               <TabsList
                 variant="line"
-                className="h-auto w-full flex-col bg-transparent p-0"
+                className="w-full justify-start gap-1 overflow-x-auto bg-transparent p-0"
               >
                 {tabItems.map((tab) => (
                   <TabsTrigger
                     key={tab.value}
                     value={tab.value}
-                    className="w-full justify-start gap-3 rounded-2xl border px-3 py-2.5"
+                    className="rounded-xl border px-3 py-2"
                   >
                     {tab.icon}
                     {tab.label}
@@ -914,73 +897,1109 @@ export function AgentSettingsDialog({
                 ))}
               </TabsList>
             </div>
-          </aside>
 
-          <div className="min-w-0 flex-1">
-            <ScrollArea className="h-full">
-              <div className="p-4 md:p-6">
-                {isLoading ? (
-                  <div className="text-muted-foreground flex min-h-[420px] items-center justify-center gap-2 text-sm">
-                    <Loader2Icon className="size-4 animate-spin" />
-                    {text.loading}
-                  </div>
-                ) : error ? (
-                  <div className="flex min-h-[420px] items-center justify-center">
-                    <SurfaceCard
-                      eyebrow={<BotIcon className="size-4" />}
-                      title={text.loadErrorTitle}
-                      description={text.loadErrorDescription}
+            <aside className="bg-sidebar/30 border-border/70 hidden w-[220px] shrink-0 border-r md:block">
+              <div className="p-3">
+                <TabsList
+                  variant="line"
+                  className="h-auto w-full flex-col bg-transparent p-0"
+                >
+                  {tabItems.map((tab) => (
+                    <TabsTrigger
+                      key={tab.value}
+                      value={tab.value}
+                      className="w-full justify-start gap-3 rounded-2xl border px-3 py-2.5"
                     >
-                      <p className="text-sm leading-6">
-                        {error instanceof Error
-                          ? error.message
-                          : text.unknownError}
-                      </p>
-                    </SurfaceCard>
-                  </div>
-                ) : !agent || !form ? (
-                  <div className="text-muted-foreground flex min-h-[420px] items-center justify-center text-sm">
-                    {text.selectArchive}
-                  </div>
-                ) : (
-                  <>
-                    {!canManage && (
+                      {tab.icon}
+                      {tab.label}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </div>
+            </aside>
+
+            <div className="min-w-0 flex-1">
+              <ScrollArea className="h-full">
+                <div className="p-4 md:p-6">
+                  {isLoading ? (
+                    <div className="text-muted-foreground flex min-h-[420px] items-center justify-center gap-2 text-sm">
+                      <Loader2Icon className="size-4 animate-spin" />
+                      {text.loading}
+                    </div>
+                  ) : error ? (
+                    <div className="flex min-h-[420px] items-center justify-center">
                       <SurfaceCard
-                        eyebrow={<Settings2Icon className="size-4" />}
-                        title={text.readOnlyTitle}
-                        description={text.readOnlyDescription}
+                        eyebrow={<BotIcon className="size-4" />}
+                        title={text.loadErrorTitle}
+                        description={text.loadErrorDescription}
                       >
                         <p className="text-sm leading-6">
-                          {text.readOnlyFooter}
+                          {error instanceof Error
+                            ? error.message
+                            : text.unknownError}
                         </p>
                       </SurfaceCard>
-                    )}
-                    <TabsContent value="profile" className="m-0 space-y-6">
-                      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_320px]">
-                        <div className="space-y-6">
-                          <SurfaceCard
-                            eyebrow={<BotIcon className="size-4" />}
-                            title={text.identityTitle}
-                            description={text.identityDescription}
-                          >
-                            <div className="grid gap-4 md:grid-cols-2">
-                              <div className="space-y-2">
-                                <FieldLabel>{text.agentName}</FieldLabel>
-                                <div className="bg-muted/35 border-border/70 flex h-11 items-center rounded-2xl border px-3 text-sm font-medium">
-                                  {agent.name}
+                    </div>
+                  ) : !agent || !form ? (
+                    <div className="text-muted-foreground flex min-h-[420px] items-center justify-center text-sm">
+                      {text.selectArchive}
+                    </div>
+                  ) : (
+                    <>
+                      {!canManage && (
+                        <SurfaceCard
+                          eyebrow={<Settings2Icon className="size-4" />}
+                          title={text.readOnlyTitle}
+                          description={text.readOnlyDescription}
+                        >
+                          <p className="text-sm leading-6">
+                            {text.readOnlyFooter}
+                          </p>
+                        </SurfaceCard>
+                      )}
+                      <TabsContent value="profile" className="m-0 space-y-6">
+                        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_320px]">
+                          <div className="space-y-6">
+                            <SurfaceCard
+                              eyebrow={<BotIcon className="size-4" />}
+                              title={text.identityTitle}
+                              description={text.identityDescription}
+                            >
+                              <div className="grid gap-4 md:grid-cols-2">
+                                <div className="space-y-2">
+                                  <FieldLabel>{text.agentName}</FieldLabel>
+                                  <div className="bg-muted/35 border-border/70 flex h-11 items-center rounded-2xl border px-3 text-sm font-medium">
+                                    {agent.name}
+                                  </div>
+                                </div>
+                                <div className="space-y-2">
+                                  <FieldLabel>{text.modelOverride}</FieldLabel>
+                                  <Input
+                                    value={form.model}
+                                    placeholder={text.optionalModelId}
+                                    onChange={(event) =>
+                                      setForm((current) =>
+                                        current
+                                          ? {
+                                              ...current,
+                                              model: event.target.value,
+                                            }
+                                          : current,
+                                      )
+                                    }
+                                    className="h-11 rounded-2xl"
+                                  />
                                 </div>
                               </div>
+
                               <div className="space-y-2">
-                                <FieldLabel>{text.modelOverride}</FieldLabel>
-                                <Input
-                                  value={form.model}
-                                  placeholder={text.optionalModelId}
+                                <FieldLabel>{text.description}</FieldLabel>
+                                <Textarea
+                                  value={form.description}
+                                  placeholder={text.descriptionPlaceholder}
                                   onChange={(event) =>
                                     setForm((current) =>
                                       current
                                         ? {
                                             ...current,
-                                            model: event.target.value,
+                                            description: event.target.value,
+                                          }
+                                        : current,
+                                    )
+                                  }
+                                  className="min-h-28 rounded-3xl px-4 py-3 text-sm leading-6"
+                                />
+                              </div>
+                            </SurfaceCard>
+
+                            <SurfaceCard
+                              eyebrow={<SparklesIcon className="size-4" />}
+                              title={text.capabilitiesTitle}
+                              description={text.capabilitiesDescription}
+                            >
+                              <div className="grid gap-4 md:grid-cols-2">
+                                <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
+                                  <FieldLabel>{text.mainToolsTitle}</FieldLabel>
+                                  <div className="mt-3 flex items-center justify-between gap-3">
+                                    <p className="text-sm font-medium">
+                                      {selectedMainToolNames.length}
+                                    </p>
+                                    <Badge variant="secondary">
+                                      {text.mainToolsTitle}
+                                    </Badge>
+                                  </div>
+                                </div>
+                                <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
+                                  <FieldLabel>
+                                    {text.selectedSkillsTitle}
+                                  </FieldLabel>
+                                  <div className="mt-3 flex items-center justify-between gap-3">
+                                    <p className="text-sm font-medium">
+                                      {form.skillRefs.length}
+                                    </p>
+                                    <Badge variant="secondary">
+                                      {text.copiedSkillsCount(
+                                        form.skillRefs.length,
+                                      )}
+                                    </Badge>
+                                  </div>
+                                </div>
+                                <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
+                                  <FieldLabel>
+                                    {text.customSubagentsTitle}
+                                  </FieldLabel>
+                                  <div className="mt-3 flex items-center justify-between gap-3">
+                                    <p className="text-sm font-medium">
+                                      {form.subagents.length}
+                                    </p>
+                                    <Badge variant="secondary">
+                                      {text.customSubagentsTitle}
+                                    </Badge>
+                                  </div>
+                                </div>
+                                <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
+                                  <FieldLabel>
+                                    {text.generalPurposeSubagentTitle}
+                                  </FieldLabel>
+                                  <div className="mt-3 flex items-center justify-between gap-3">
+                                    <p className="text-sm font-medium">
+                                      {form.generalPurposeEnabled
+                                        ? text.enabledState
+                                        : text.disabledBadge}
+                                    </p>
+                                    <Badge
+                                      variant={
+                                        form.generalPurposeEnabled
+                                          ? "secondary"
+                                          : "outline"
+                                      }
+                                    >
+                                      {text.generalPurposeSubagentTitle}
+                                    </Badge>
+                                  </div>
+                                </div>
+                                <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
+                                  <FieldLabel>{text.memoryTitle}</FieldLabel>
+                                  <div className="mt-3 flex items-center justify-between gap-3">
+                                    <p className="text-sm font-medium">
+                                      {form.memoryEnabled
+                                        ? text.enabledState
+                                        : text.disabledBadge}
+                                    </p>
+                                    <Badge
+                                      variant={
+                                        form.memoryEnabled
+                                          ? "secondary"
+                                          : "outline"
+                                      }
+                                    >
+                                      {text.memoryTitle}
+                                    </Badge>
+                                  </div>
+                                </div>
+                              </div>
+                            </SurfaceCard>
+                          </div>
+
+                          <div className="space-y-6">
+                            <SurfaceCard
+                              eyebrow={<SparklesIcon className="size-4" />}
+                              title={text.archiveContextTitle}
+                              description={text.archiveContextDescription}
+                            >
+                              <div className="flex flex-wrap gap-2">
+                                <Badge variant="outline" className="capitalize">
+                                  {agent.status}
+                                </Badge>
+                                <Badge variant="outline">
+                                  {t.agents.ownerBadge}: {ownerLabel}
+                                </Badge>
+                                {agent.model && (
+                                  <Badge variant="secondary">
+                                    {agent.model}
+                                  </Badge>
+                                )}
+                                <Badge variant="outline">
+                                  {text.copiedSkillsCount(skillNames.length)}
+                                </Badge>
+                              </div>
+
+                              {isLeadAgent(agent.name) && (
+                                <p className="text-muted-foreground border-border/70 bg-muted/25 rounded-2xl border px-4 py-3 text-xs leading-6">
+                                  {text.leadAgentArchiveNote}
+                                </p>
+                              )}
+
+                              <div className="flex flex-wrap gap-2">
+                                {skillNames.length > 0 ? (
+                                  skillNames.map((skillName) => (
+                                    <Badge
+                                      key={skillName}
+                                      variant="secondary"
+                                      className="rounded-full px-2.5 py-1 text-xs"
+                                    >
+                                      {skillName}
+                                    </Badge>
+                                  ))
+                                ) : (
+                                  <p className="text-muted-foreground text-sm">
+                                    {text.noCopiedSkillsAttached}
+                                  </p>
+                                )}
+                              </div>
+                            </SurfaceCard>
+                          </div>
+                        </div>
+                      </TabsContent>
+
+                      <TabsContent value="skills" className="m-0 space-y-6">
+                        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_320px]">
+                          <SurfaceCard
+                            eyebrow={<SparklesIcon className="size-4" />}
+                            title={text.copiedSkillsTitle}
+                            description={
+                              agentStatus === "prod"
+                                ? text.copiedSkillsDescriptionProd
+                                : text.copiedSkillsDescriptionDev
+                            }
+                          >
+                            <div className="flex flex-wrap gap-2">
+                              {availableSkillCategories.map((category) => {
+                                const active = category === skillsCategory;
+                                return (
+                                  <Button
+                                    key={category}
+                                    variant={active ? "secondary" : "outline"}
+                                    className="rounded-full"
+                                    onClick={() => setSkillsCategory(category)}
+                                  >
+                                    {formatSkillScopeLabel(category, locale)}
+                                  </Button>
+                                );
+                              })}
+                            </div>
+
+                            {skillsLoading ? (
+                              <div className="text-muted-foreground flex items-center gap-2 text-sm">
+                                <Loader2Icon className="size-4 animate-spin" />
+                                {text.loadingSkills}
+                              </div>
+                            ) : skillsError ? (
+                              <div className="text-sm">
+                                {skillsError instanceof Error
+                                  ? skillsError.message
+                                  : text.loadSkillsFailed}
+                              </div>
+                            ) : filteredSkills.length === 0 ? (
+                              <div className="text-muted-foreground text-sm">
+                                {text.noSkillsInScope}
+                              </div>
+                            ) : (
+                              <div className="grid gap-3">
+                                {filteredSkills.map((skill) => {
+                                  const nextRef = createSkillRef(skill);
+                                  const selected = isSkillRefSelected(
+                                    form.skillRefs,
+                                    nextRef,
+                                  );
+
+                                  return (
+                                    <button
+                                      key={skillRefKey(nextRef)}
+                                      type="button"
+                                      onClick={() =>
+                                        handleToggleAvailableSkill(skill)
+                                      }
+                                      className={cn(
+                                        "rounded-3xl border p-4 text-left transition-colors",
+                                        selected
+                                          ? "border-primary/50 bg-primary/5"
+                                          : "border-border/70 bg-background/70 hover:bg-muted/30",
+                                      )}
+                                    >
+                                      <div className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                          <p className="text-sm font-medium">
+                                            {skill.name}
+                                          </p>
+                                          <p className="text-muted-foreground mt-1 text-xs leading-5">
+                                            {getLocalizedSkillDescription(
+                                              skill,
+                                              locale,
+                                            )}
+                                          </p>
+                                        </div>
+                                        <div className="flex shrink-0 items-center gap-2">
+                                          {!skill.enabled && (
+                                            <Badge variant="outline">
+                                              {text.disabledBadge}
+                                            </Badge>
+                                          )}
+                                          {selected && (
+                                            <Badge variant="secondary">
+                                              <CheckIcon className="size-3.5" />
+                                              {text.attachedBadge}
+                                            </Badge>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                            {agentStatus === "dev" &&
+                              duplicateSkillNames.size > 0 && (
+                                <div className="text-muted-foreground border-border/70 bg-muted/25 rounded-2xl border px-4 py-3 text-xs leading-6">
+                                  {text.duplicateNameHint(
+                                    duplicateSkillNamesLabel,
+                                  )}
+                                </div>
+                              )}
+                          </SurfaceCard>
+
+                          <div className="space-y-6">
+                            <SurfaceCard
+                              eyebrow={<Settings2Icon className="size-4" />}
+                              title={text.selectedSkillsTitle}
+                              description={text.selectedSkillsDescription}
+                            >
+                              <div className="flex flex-wrap gap-2">
+                                {form.skillRefs.length > 0 ? (
+                                  form.skillRefs.map((skillRef) => (
+                                    <button
+                                      key={skillRefKey(skillRef)}
+                                      type="button"
+                                      className="bg-secondary text-secondary-foreground inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-xs"
+                                      onClick={() =>
+                                        handleRemoveSelectedSkill(skillRef)
+                                      }
+                                    >
+                                      {skillRef.name}
+                                      {normalizeSkillScope(skillRef.category)
+                                        ? ` · ${formatSkillScopeLabel(
+                                            normalizeSkillScope(
+                                              skillRef.category,
+                                            )!,
+                                            locale,
+                                          )}`
+                                        : ""}
+                                      <span className="text-[10px] tracking-[0.12em] uppercase">
+                                        {text.remove}
+                                      </span>
+                                    </button>
+                                  ))
+                                ) : (
+                                  <p className="text-muted-foreground text-sm">
+                                    {text.noSelectedSkills}
+                                  </p>
+                                )}
+                              </div>
+                            </SurfaceCard>
+
+                            <SurfaceCard
+                              eyebrow={<Link2Icon className="size-4" />}
+                              title={text.selectionRulesTitle}
+                              description={text.selectionRulesDescription}
+                            >
+                              {agentStatus === "prod" ? (
+                                <p className="text-muted-foreground text-sm leading-6">
+                                  {text.selectionRulesProd}
+                                </p>
+                              ) : (
+                                <p className="text-muted-foreground text-sm leading-6">
+                                  {text.selectionRulesDev}
+                                </p>
+                              )}
+                            </SurfaceCard>
+                          </div>
+                        </div>
+                      </TabsContent>
+
+                      <TabsContent value="prompt" className="m-0 space-y-6">
+                        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_360px]">
+                          <SurfaceCard
+                            eyebrow={<FileTextIcon className="size-4" />}
+                            title={text.promptTitle}
+                            description={text.promptDescription}
+                          >
+                            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+                              <div className="space-y-2">
+                                <FieldLabel>{text.promptBody}</FieldLabel>
+                                <div className="border-border/70 bg-muted/10 rounded-3xl border p-5">
+                                  <p className="text-muted-foreground text-sm leading-6">
+                                    {text.promptPlaceholder}
+                                  </p>
+                                  <div className="mt-4 flex flex-wrap items-center gap-3">
+                                    <Button asChild>
+                                      <Link
+                                        to={buildWorkspaceAgentAuthoringPath({
+                                          agentName: agent.name,
+                                          agentStatus: agent.status,
+                                        })}
+                                      >
+                                        <ExternalLinkIcon className="size-4" />
+                                        {text.openWorkspace}
+                                      </Link>
+                                    </Button>
+                                    <Badge variant="secondary">
+                                      {text.editableBadge}
+                                    </Badge>
+                                  </div>
+                                  <p className="text-muted-foreground mt-4 text-xs leading-6">
+                                    AGENTS.md authoring now lives in the
+                                    full-width workbench so the archive tree is
+                                    not constrained by this dialog layout.
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="space-y-4">
+                                <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
+                                  <FieldLabel className="mb-2">
+                                    {text.runtimeContract}
+                                  </FieldLabel>
+                                  <p className="text-sm leading-6">
+                                    {text.runtimeContractIntro}
+                                  </p>
+                                  <code className="bg-background border-border/70 mt-3 block rounded-2xl border px-3 py-3 text-xs leading-6 break-all">
+                                    /mnt/user-data/agents/{agent.status}/
+                                    {agent.name}/AGENTS.md
+                                  </code>
+                                </div>
+                                <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
+                                  <FieldLabel className="mb-2">
+                                    {text.editingScope}
+                                  </FieldLabel>
+                                  <p className="text-muted-foreground text-sm leading-6">
+                                    {text.editingScopeDescription}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          </SurfaceCard>
+
+                          <div className="space-y-6">
+                            <SurfaceCard
+                              eyebrow={<Link2Icon className="size-4" />}
+                              title={text.mcpServers}
+                              description={text.mcpServersHint}
+                            >
+                              <div className="space-y-2">
+                                <FieldLabel>{text.mcpServers}</FieldLabel>
+                                <Textarea
+                                  value={form.mcpServers}
+                                  placeholder={text.mcpServersPlaceholder}
+                                  onChange={(event) =>
+                                    setForm((current) =>
+                                      current
+                                        ? {
+                                            ...current,
+                                            mcpServers: event.target.value,
+                                          }
+                                        : current,
+                                    )
+                                  }
+                                  className="min-h-32 rounded-3xl px-4 py-3 text-sm leading-6"
+                                />
+                              </div>
+                            </SurfaceCard>
+
+                            <SurfaceCard
+                              eyebrow={<FileTextIcon className="size-4" />}
+                              title={text.archiveAssetsTitle}
+                              description={text.archiveAssetsDescription}
+                            >
+                              <div className="space-y-3">
+                                <div className="border-border/70 flex items-center justify-between gap-3 rounded-2xl border px-4 py-3">
+                                  <div>
+                                    <p className="text-sm font-medium">
+                                      {text.agentsMd}
+                                    </p>
+                                    <p className="text-muted-foreground text-xs leading-5">
+                                      {text.agentsMdDescription}
+                                    </p>
+                                  </div>
+                                  <Badge variant="secondary">
+                                    {text.editableBadge}
+                                  </Badge>
+                                </div>
+                                <div className="border-border/70 flex items-center justify-between gap-3 rounded-2xl border px-4 py-3">
+                                  <div>
+                                    <p className="text-sm font-medium">
+                                      {text.configYaml}
+                                    </p>
+                                    <p className="text-muted-foreground text-xs leading-5">
+                                      {text.configYamlDescription}
+                                    </p>
+                                  </div>
+                                  <Badge variant="outline">
+                                    {text.structuredBadge}
+                                  </Badge>
+                                </div>
+                                <div className="border-border/70 flex items-center justify-between gap-3 rounded-2xl border px-4 py-3">
+                                  <div>
+                                    <p className="text-sm font-medium">
+                                      {text.skillsDirectory}
+                                    </p>
+                                    <p className="text-muted-foreground text-xs leading-5">
+                                      {text.skillsDirectoryDescription}
+                                    </p>
+                                  </div>
+                                  <Badge variant="outline">
+                                    {skillNames.length}
+                                  </Badge>
+                                </div>
+                              </div>
+                            </SurfaceCard>
+                          </div>
+                        </div>
+                      </TabsContent>
+
+                      <TabsContent value="config" className="m-0 space-y-6">
+                        <div className="grid gap-6 xl:grid-cols-2">
+                          <SurfaceCard
+                            eyebrow={
+                              <SlidersHorizontalIcon className="size-4" />
+                            }
+                            title={text.mainToolsTitle}
+                            description={text.mainToolsDescription}
+                          >
+                            {toolCatalogLoading ? (
+                              <div className="text-muted-foreground flex items-center gap-2 text-sm">
+                                <Loader2Icon className="size-4 animate-spin" />
+                                {text.loadingToolCatalog}
+                              </div>
+                            ) : toolCatalogError ? (
+                              <p className="text-sm leading-6">
+                                {toolCatalogError instanceof Error
+                                  ? toolCatalogError.message
+                                  : text.loadToolCatalogFailed}
+                              </p>
+                            ) : (
+                              <ToolSelectionSection
+                                tools={mainToolOptions}
+                                selectedNames={selectedMainToolNames}
+                                onToggle={(toolName) =>
+                                  toggleToolSelection(toolName, "main")
+                                }
+                                emptyText={text.noConfigurableTools}
+                              />
+                            )}
+                          </SurfaceCard>
+
+                          <SurfaceCard
+                            eyebrow={<BotIcon className="size-4" />}
+                            title={text.generalPurposeSubagentTitle}
+                            description={text.generalPurposeSubagentDescription}
+                          >
+                            <div className="bg-muted/20 border-border/70 flex items-center justify-between rounded-3xl border px-4 py-3">
+                              <div>
+                                <p className="text-sm font-medium">
+                                  {text.enableGeneralPurposeSubagent}
+                                </p>
+                                <p className="text-muted-foreground text-xs leading-5">
+                                  {text.enableGeneralPurposeSubagentDescription}
+                                </p>
+                              </div>
+                              <Switch
+                                checked={form.generalPurposeEnabled}
+                                onCheckedChange={(checked) =>
+                                  setForm((current) =>
+                                    current
+                                      ? {
+                                          ...current,
+                                          generalPurposeEnabled: checked,
+                                        }
+                                      : current,
+                                  )
+                                }
+                              />
+                            </div>
+
+                            {form.generalPurposeEnabled && (
+                              <>
+                                <div className="bg-muted/20 border-border/70 flex items-center justify-between rounded-3xl border px-4 py-3">
+                                  <div>
+                                    <p className="text-sm font-medium">
+                                      {text.inheritMainTools}
+                                    </p>
+                                    <p className="text-muted-foreground text-xs leading-5">
+                                      {text.inheritMainToolsDescription}
+                                    </p>
+                                  </div>
+                                  <Switch
+                                    checked={form.generalPurposeUsesMainTools}
+                                    onCheckedChange={(checked) =>
+                                      setForm((current) => {
+                                        if (!current) {
+                                          return current;
+                                        }
+                                        const inheritedToolNames =
+                                          resolveEffectiveToolNames(
+                                            current,
+                                            mainToolOptions,
+                                            "main",
+                                          ).filter((name) =>
+                                            subagentToolOptions.some(
+                                              (tool) => tool.name === name,
+                                            ),
+                                          );
+                                        return {
+                                          ...current,
+                                          generalPurposeUsesMainTools: checked,
+                                          generalPurposeToolNames:
+                                            !checked &&
+                                            current.generalPurposeToolNames
+                                              .length === 0
+                                              ? inheritedToolNames
+                                              : current.generalPurposeToolNames,
+                                        };
+                                      })
+                                    }
+                                  />
+                                </div>
+
+                                {!form.generalPurposeUsesMainTools &&
+                                  (toolCatalogLoading ? (
+                                    <div className="text-muted-foreground flex items-center gap-2 text-sm">
+                                      <Loader2Icon className="size-4 animate-spin" />
+                                      {text.loadingToolCatalog}
+                                    </div>
+                                  ) : toolCatalogError ? (
+                                    <p className="text-sm leading-6">
+                                      {toolCatalogError instanceof Error
+                                        ? toolCatalogError.message
+                                        : text.loadToolCatalogFailed}
+                                    </p>
+                                  ) : (
+                                    <ToolSelectionSection
+                                      tools={subagentToolOptions}
+                                      selectedNames={
+                                        form.generalPurposeToolNames
+                                      }
+                                      onToggle={(toolName) =>
+                                        toggleToolSelection(
+                                          toolName,
+                                          "general-purpose",
+                                        )
+                                      }
+                                      emptyText={text.noSubagentTools}
+                                    />
+                                  ))}
+                              </>
+                            )}
+                          </SurfaceCard>
+                        </div>
+
+                        <SurfaceCard
+                          eyebrow={<BotIcon className="size-4" />}
+                          title={text.customSubagentsTitle}
+                          description={text.customSubagentsDescription}
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <p className="text-muted-foreground text-sm leading-6">
+                              {text.customSubagentsHint}
+                            </p>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={addSubagent}
+                            >
+                              <PlusIcon className="size-3.5" />
+                              {text.addSubagent}
+                            </Button>
+                          </div>
+
+                          {form.subagents.length === 0 ? (
+                            <p className="text-muted-foreground text-sm leading-6">
+                              {text.noCustomSubagents}
+                            </p>
+                          ) : (
+                            <div className="space-y-4">
+                              {form.subagents.map((subagent, index) => (
+                                <div
+                                  key={subagent.id}
+                                  className="border-border/70 rounded-3xl border p-4"
+                                >
+                                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                                    <div>
+                                      <p className="text-sm font-medium">
+                                        {text.subagentCardTitle(index + 1)}
+                                      </p>
+                                      <p className="text-muted-foreground text-xs leading-5">
+                                        {text.subagentCardDescription}
+                                      </p>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <Switch
+                                        checked={subagent.enabled}
+                                        onCheckedChange={(checked) =>
+                                          setForm((current) =>
+                                            current
+                                              ? {
+                                                  ...current,
+                                                  subagents:
+                                                    current.subagents.map(
+                                                      (item) =>
+                                                        item.id === subagent.id
+                                                          ? {
+                                                              ...item,
+                                                              enabled: checked,
+                                                            }
+                                                          : item,
+                                                    ),
+                                                }
+                                              : current,
+                                          )
+                                        }
+                                      />
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={() =>
+                                          setForm((current) =>
+                                            current
+                                              ? {
+                                                  ...current,
+                                                  subagents:
+                                                    current.subagents.filter(
+                                                      (item) =>
+                                                        item.id !== subagent.id,
+                                                    ),
+                                                }
+                                              : current,
+                                          )
+                                        }
+                                      >
+                                        <Trash2Icon className="size-4" />
+                                      </Button>
+                                    </div>
+                                  </div>
+
+                                  <div className="grid gap-4 lg:grid-cols-2">
+                                    <div className="space-y-2">
+                                      <FieldLabel>
+                                        {text.subagentNameLabel}
+                                      </FieldLabel>
+                                      <Input
+                                        value={subagent.name}
+                                        placeholder={
+                                          text.subagentNamePlaceholder
+                                        }
+                                        onChange={(event) =>
+                                          setForm((current) =>
+                                            current
+                                              ? {
+                                                  ...current,
+                                                  subagents:
+                                                    current.subagents.map(
+                                                      (item) =>
+                                                        item.id === subagent.id
+                                                          ? {
+                                                              ...item,
+                                                              name: event.target
+                                                                .value,
+                                                            }
+                                                          : item,
+                                                    ),
+                                                }
+                                              : current,
+                                          )
+                                        }
+                                        className="h-11 rounded-2xl"
+                                      />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <FieldLabel>
+                                        {text.modelOverride}
+                                      </FieldLabel>
+                                      <Input
+                                        value={subagent.model}
+                                        placeholder={text.optionalModelId}
+                                        onChange={(event) =>
+                                          setForm((current) =>
+                                            current
+                                              ? {
+                                                  ...current,
+                                                  subagents:
+                                                    current.subagents.map(
+                                                      (item) =>
+                                                        item.id === subagent.id
+                                                          ? {
+                                                              ...item,
+                                                              model:
+                                                                event.target
+                                                                  .value,
+                                                            }
+                                                          : item,
+                                                    ),
+                                                }
+                                              : current,
+                                          )
+                                        }
+                                        className="h-11 rounded-2xl"
+                                      />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <FieldLabel>
+                                        {text.description}
+                                      </FieldLabel>
+                                      <Textarea
+                                        value={subagent.description}
+                                        placeholder={
+                                          text.subagentDescriptionPlaceholder
+                                        }
+                                        onChange={(event) =>
+                                          setForm((current) =>
+                                            current
+                                              ? {
+                                                  ...current,
+                                                  subagents:
+                                                    current.subagents.map(
+                                                      (item) =>
+                                                        item.id === subagent.id
+                                                          ? {
+                                                              ...item,
+                                                              description:
+                                                                event.target
+                                                                  .value,
+                                                            }
+                                                          : item,
+                                                    ),
+                                                }
+                                              : current,
+                                          )
+                                        }
+                                        className="min-h-24 rounded-3xl px-4 py-3 text-sm leading-6"
+                                      />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <FieldLabel>
+                                        {text.subagentPromptLabel}
+                                      </FieldLabel>
+                                      <Textarea
+                                        value={subagent.systemPrompt}
+                                        placeholder={
+                                          text.subagentPromptPlaceholder
+                                        }
+                                        onChange={(event) =>
+                                          setForm((current) =>
+                                            current
+                                              ? {
+                                                  ...current,
+                                                  subagents:
+                                                    current.subagents.map(
+                                                      (item) =>
+                                                        item.id === subagent.id
+                                                          ? {
+                                                              ...item,
+                                                              systemPrompt:
+                                                                event.target
+                                                                  .value,
+                                                            }
+                                                          : item,
+                                                    ),
+                                                }
+                                              : current,
+                                          )
+                                        }
+                                        className="min-h-24 rounded-3xl px-4 py-3 text-sm leading-6"
+                                      />
+                                    </div>
+                                  </div>
+
+                                  <div className="mt-4 space-y-4">
+                                    <div className="bg-muted/20 border-border/70 flex items-center justify-between rounded-3xl border px-4 py-3">
+                                      <div>
+                                        <p className="text-sm font-medium">
+                                          {text.explicitSubagentTools}
+                                        </p>
+                                        <p className="text-muted-foreground text-xs leading-5">
+                                          {
+                                            text.explicitSubagentToolsDescription
+                                          }
+                                        </p>
+                                      </div>
+                                      <Switch
+                                        checked={subagent.toolSelectionEnabled}
+                                        onCheckedChange={(checked) =>
+                                          setForm((current) => {
+                                            if (!current) {
+                                              return current;
+                                            }
+                                            const inheritedToolNames =
+                                              resolveEffectiveToolNames(
+                                                current,
+                                                mainToolOptions,
+                                                "main",
+                                              ).filter((name) =>
+                                                subagentToolOptions.some(
+                                                  (tool) => tool.name === name,
+                                                ),
+                                              );
+                                            return {
+                                              ...current,
+                                              subagents: current.subagents.map(
+                                                (item) =>
+                                                  item.id === subagent.id
+                                                    ? {
+                                                        ...item,
+                                                        toolSelectionEnabled:
+                                                          checked,
+                                                        toolNames:
+                                                          checked &&
+                                                          item.toolNames
+                                                            .length === 0
+                                                            ? inheritedToolNames
+                                                            : item.toolNames,
+                                                      }
+                                                    : item,
+                                              ),
+                                            };
+                                          })
+                                        }
+                                      />
+                                    </div>
+
+                                    {subagent.toolSelectionEnabled &&
+                                      (toolCatalogLoading ? (
+                                        <div className="text-muted-foreground flex items-center gap-2 text-sm">
+                                          <Loader2Icon className="size-4 animate-spin" />
+                                          {text.loadingToolCatalog}
+                                        </div>
+                                      ) : toolCatalogError ? (
+                                        <p className="text-sm leading-6">
+                                          {toolCatalogError instanceof Error
+                                            ? toolCatalogError.message
+                                            : text.loadToolCatalogFailed}
+                                        </p>
+                                      ) : (
+                                        <ToolSelectionSection
+                                          tools={subagentToolOptions}
+                                          selectedNames={subagent.toolNames}
+                                          onToggle={(toolName) =>
+                                            toggleToolSelection(
+                                              toolName,
+                                              "subagent",
+                                              subagent.id,
+                                            )
+                                          }
+                                          emptyText={text.noSubagentTools}
+                                        />
+                                      ))}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </SurfaceCard>
+
+                        <div className="grid gap-6 xl:grid-cols-2">
+                          <SurfaceCard
+                            eyebrow={<BrainIcon className="size-4" />}
+                            title={text.memoryTitle}
+                            description={text.memoryDescription}
+                          >
+                            <div className="bg-muted/20 border-border/70 flex items-center justify-between rounded-3xl border px-4 py-3">
+                              <div>
+                                <p className="text-sm font-medium">
+                                  {text.enableMemory}
+                                </p>
+                                <p className="text-muted-foreground text-xs leading-5">
+                                  {text.enableMemoryDescription}
+                                </p>
+                              </div>
+                              <Switch
+                                checked={form.memoryEnabled}
+                                onCheckedChange={(checked) =>
+                                  setForm((current) =>
+                                    current
+                                      ? { ...current, memoryEnabled: checked }
+                                      : current,
+                                  )
+                                }
+                              />
+                            </div>
+
+                            <div className="grid gap-4 md:grid-cols-2">
+                              <div className="space-y-2 md:col-span-2">
+                                <FieldLabel>{text.memoryModel}</FieldLabel>
+                                <Input
+                                  value={form.memoryModel}
+                                  placeholder={text.memoryModelPlaceholder}
+                                  disabled={!form.memoryEnabled}
+                                  onChange={(event) =>
+                                    setForm((current) =>
+                                      current
+                                        ? {
+                                            ...current,
+                                            memoryModel: event.target.value,
+                                          }
+                                        : current,
+                                    )
+                                  }
+                                  className="h-11 rounded-2xl"
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <FieldLabel>{text.debounceSeconds}</FieldLabel>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  max={300}
+                                  value={form.debounceSeconds}
+                                  onChange={(event) =>
+                                    setForm((current) =>
+                                      current
+                                        ? {
+                                            ...current,
+                                            debounceSeconds: event.target.value,
+                                          }
+                                        : current,
+                                    )
+                                  }
+                                  className="h-11 rounded-2xl"
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <FieldLabel>{text.maxFacts}</FieldLabel>
+                                <Input
+                                  type="number"
+                                  min={10}
+                                  max={500}
+                                  value={form.maxFacts}
+                                  onChange={(event) =>
+                                    setForm((current) =>
+                                      current
+                                        ? {
+                                            ...current,
+                                            maxFacts: event.target.value,
+                                          }
+                                        : current,
+                                    )
+                                  }
+                                  className="h-11 rounded-2xl"
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <FieldLabel>
+                                  {text.confidenceThreshold}
+                                </FieldLabel>
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  max={1}
+                                  step="0.01"
+                                  value={form.confidenceThreshold}
+                                  onChange={(event) =>
+                                    setForm((current) =>
+                                      current
+                                        ? {
+                                            ...current,
+                                            confidenceThreshold:
+                                              event.target.value,
                                           }
                                         : current,
                                     )
@@ -989,1002 +2008,52 @@ export function AgentSettingsDialog({
                                 />
                               </div>
                             </div>
+                          </SurfaceCard>
 
-                            <div className="space-y-2">
-                              <FieldLabel>{text.description}</FieldLabel>
-                              <Textarea
-                                value={form.description}
-                                placeholder={text.descriptionPlaceholder}
-                                onChange={(event) =>
+                          <SurfaceCard
+                            eyebrow={
+                              <SlidersHorizontalIcon className="size-4" />
+                            }
+                            title={text.promptInjectionTitle}
+                            description={text.promptInjectionDescription}
+                          >
+                            <div className="bg-muted/20 border-border/70 flex items-center justify-between rounded-3xl border px-4 py-3">
+                              <div>
+                                <p className="text-sm font-medium">
+                                  {text.enableMemoryInjection}
+                                </p>
+                                <p className="text-muted-foreground text-xs leading-5">
+                                  {text.enableMemoryInjectionDescription}
+                                </p>
+                              </div>
+                              <Switch
+                                checked={form.injectionEnabled}
+                                onCheckedChange={(checked) =>
                                   setForm((current) =>
                                     current
                                       ? {
                                           ...current,
-                                          description: event.target.value,
+                                          injectionEnabled: checked,
                                         }
                                       : current,
                                   )
                                 }
-                                className="min-h-28 rounded-3xl px-4 py-3 text-sm leading-6"
                               />
                             </div>
-                          </SurfaceCard>
 
-                          <SurfaceCard
-                            eyebrow={<SparklesIcon className="size-4" />}
-                            title={text.capabilitiesTitle}
-                            description={text.capabilitiesDescription}
-                          >
-                            <div className="grid gap-4 md:grid-cols-2">
-                              <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
-                                <FieldLabel>{text.mainToolsTitle}</FieldLabel>
-                                <div className="mt-3 flex items-center justify-between gap-3">
-                                  <p className="text-sm font-medium">
-                                    {selectedMainToolNames.length}
-                                  </p>
-                                  <Badge variant="secondary">
-                                    {text.mainToolsTitle}
-                                  </Badge>
-                                </div>
-                              </div>
-                              <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
-                                <FieldLabel>
-                                  {text.selectedSkillsTitle}
-                                </FieldLabel>
-                                <div className="mt-3 flex items-center justify-between gap-3">
-                                  <p className="text-sm font-medium">
-                                    {form.skillRefs.length}
-                                  </p>
-                                  <Badge variant="secondary">
-                                    {text.copiedSkillsCount(
-                                      form.skillRefs.length,
-                                    )}
-                                  </Badge>
-                                </div>
-                              </div>
-                              <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
-                                <FieldLabel>
-                                  {text.customSubagentsTitle}
-                                </FieldLabel>
-                                <div className="mt-3 flex items-center justify-between gap-3">
-                                  <p className="text-sm font-medium">
-                                    {form.subagents.length}
-                                  </p>
-                                  <Badge variant="secondary">
-                                    {text.customSubagentsTitle}
-                                  </Badge>
-                                </div>
-                              </div>
-                              <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
-                                <FieldLabel>
-                                  {text.generalPurposeSubagentTitle}
-                                </FieldLabel>
-                                <div className="mt-3 flex items-center justify-between gap-3">
-                                  <p className="text-sm font-medium">
-                                    {form.generalPurposeEnabled
-                                      ? text.enabledState
-                                      : text.disabledBadge}
-                                  </p>
-                                  <Badge
-                                    variant={
-                                      form.generalPurposeEnabled
-                                        ? "secondary"
-                                        : "outline"
-                                    }
-                                  >
-                                    {text.generalPurposeSubagentTitle}
-                                  </Badge>
-                                </div>
-                              </div>
-                              <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
-                                <FieldLabel>{text.memoryTitle}</FieldLabel>
-                                <div className="mt-3 flex items-center justify-between gap-3">
-                                  <p className="text-sm font-medium">
-                                    {form.memoryEnabled
-                                      ? text.enabledState
-                                      : text.disabledBadge}
-                                  </p>
-                                  <Badge
-                                    variant={
-                                      form.memoryEnabled
-                                        ? "secondary"
-                                        : "outline"
-                                    }
-                                  >
-                                    {text.memoryTitle}
-                                  </Badge>
-                                </div>
-                              </div>
-                            </div>
-                          </SurfaceCard>
-                        </div>
-
-                        <div className="space-y-6">
-                          <SurfaceCard
-                            eyebrow={<SparklesIcon className="size-4" />}
-                            title={text.archiveContextTitle}
-                            description={text.archiveContextDescription}
-                          >
-                            <div className="flex flex-wrap gap-2">
-                              <Badge variant="outline" className="capitalize">
-                                {agent.status}
-                              </Badge>
-                              <Badge variant="outline">
-                                {t.agents.ownerBadge}: {ownerLabel}
-                              </Badge>
-                              {agent.model && (
-                                <Badge variant="secondary">{agent.model}</Badge>
-                              )}
-                              <Badge variant="outline">
-                                {text.copiedSkillsCount(skillNames.length)}
-                              </Badge>
-                            </div>
-
-                            {isLeadAgent(agent.name) && (
-                              <p className="text-muted-foreground border-border/70 bg-muted/25 rounded-2xl border px-4 py-3 text-xs leading-6">
-                                {text.leadAgentArchiveNote}
-                              </p>
-                            )}
-
-                            <div className="flex flex-wrap gap-2">
-                              {skillNames.length > 0 ? (
-                                skillNames.map((skillName) => (
-                                  <Badge
-                                    key={skillName}
-                                    variant="secondary"
-                                    className="rounded-full px-2.5 py-1 text-xs"
-                                  >
-                                    {skillName}
-                                  </Badge>
-                                ))
-                              ) : (
-                                <p className="text-muted-foreground text-sm">
-                                  {text.noCopiedSkillsAttached}
-                                </p>
-                              )}
-                            </div>
-                          </SurfaceCard>
-                        </div>
-                      </div>
-                    </TabsContent>
-
-                    <TabsContent value="skills" className="m-0 space-y-6">
-                      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_320px]">
-                        <SurfaceCard
-                          eyebrow={<SparklesIcon className="size-4" />}
-                          title={text.copiedSkillsTitle}
-                          description={
-                            agentStatus === "prod"
-                              ? text.copiedSkillsDescriptionProd
-                              : text.copiedSkillsDescriptionDev
-                          }
-                        >
-                          <div className="flex flex-wrap gap-2">
-                            {availableSkillCategories.map((category) => {
-                              const active = category === skillsCategory;
-                              return (
-                                <Button
-                                  key={category}
-                                  variant={active ? "secondary" : "outline"}
-                                  className="rounded-full"
-                                  onClick={() => setSkillsCategory(category)}
-                                >
-                                  {formatSkillScopeLabel(category, locale)}
-                                </Button>
-                              );
-                            })}
-                          </div>
-
-                          {skillsLoading ? (
-                            <div className="text-muted-foreground flex items-center gap-2 text-sm">
-                              <Loader2Icon className="size-4 animate-spin" />
-                              {text.loadingSkills}
-                            </div>
-                          ) : skillsError ? (
-                            <div className="text-sm">
-                              {skillsError instanceof Error
-                                ? skillsError.message
-                                : text.loadSkillsFailed}
-                            </div>
-                          ) : filteredSkills.length === 0 ? (
-                            <div className="text-muted-foreground text-sm">
-                              {text.noSkillsInScope}
-                            </div>
-                          ) : (
-                            <div className="grid gap-3">
-                              {filteredSkills.map((skill) => {
-                                const nextRef = createSkillRef(skill);
-                                const selected = isSkillRefSelected(
-                                  form.skillRefs,
-                                  nextRef,
-                                );
-
-                                return (
-                                  <button
-                                    key={skillRefKey(nextRef)}
-                                    type="button"
-                                    onClick={() =>
-                                      handleToggleAvailableSkill(skill)
-                                    }
-                                    className={cn(
-                                      "rounded-3xl border p-4 text-left transition-colors",
-                                      selected
-                                        ? "border-primary/50 bg-primary/5"
-                                        : "border-border/70 bg-background/70 hover:bg-muted/30",
-                                    )}
-                                  >
-                                    <div className="flex items-start justify-between gap-3">
-                                      <div className="min-w-0">
-                                        <p className="text-sm font-medium">
-                                          {skill.name}
-                                        </p>
-                                        <p className="text-muted-foreground mt-1 text-xs leading-5">
-                                          {getLocalizedSkillDescription(
-                                            skill,
-                                            locale,
-                                          )}
-                                        </p>
-                                      </div>
-                                      <div className="flex shrink-0 items-center gap-2">
-                                        {!skill.enabled && (
-                                          <Badge variant="outline">
-                                            {text.disabledBadge}
-                                          </Badge>
-                                        )}
-                                        {selected && (
-                                          <Badge variant="secondary">
-                                            <CheckIcon className="size-3.5" />
-                                            {text.attachedBadge}
-                                          </Badge>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          )}
-                          {agentStatus === "dev" &&
-                            duplicateSkillNames.size > 0 && (
-                              <div className="text-muted-foreground border-border/70 bg-muted/25 rounded-2xl border px-4 py-3 text-xs leading-6">
-                                {text.duplicateNameHint(
-                                  duplicateSkillNamesLabel,
-                                )}
-                              </div>
-                            )}
-                        </SurfaceCard>
-
-                        <div className="space-y-6">
-                          <SurfaceCard
-                            eyebrow={<Settings2Icon className="size-4" />}
-                            title={text.selectedSkillsTitle}
-                            description={text.selectedSkillsDescription}
-                          >
-                            <div className="flex flex-wrap gap-2">
-                              {form.skillRefs.length > 0 ? (
-                                form.skillRefs.map((skillRef) => (
-                                  <button
-                                    key={skillRefKey(skillRef)}
-                                    type="button"
-                                    className="bg-secondary text-secondary-foreground inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-xs"
-                                    onClick={() =>
-                                      handleRemoveSelectedSkill(skillRef)
-                                    }
-                                  >
-                                    {skillRef.name}
-                                    {normalizeSkillScope(skillRef.category)
-                                      ? ` · ${formatSkillScopeLabel(
-                                          normalizeSkillScope(
-                                            skillRef.category,
-                                          )!,
-                                          locale,
-                                        )}`
-                                      : ""}
-                                    <span className="text-[10px] tracking-[0.12em] uppercase">
-                                      {text.remove}
-                                    </span>
-                                  </button>
-                                ))
-                              ) : (
-                                <p className="text-muted-foreground text-sm">
-                                  {text.noSelectedSkills}
-                                </p>
-                              )}
-                            </div>
-                          </SurfaceCard>
-
-                          <SurfaceCard
-                            eyebrow={<Link2Icon className="size-4" />}
-                            title={text.selectionRulesTitle}
-                            description={text.selectionRulesDescription}
-                          >
-                            {agentStatus === "prod" ? (
-                              <p className="text-muted-foreground text-sm leading-6">
-                                {text.selectionRulesProd}
-                              </p>
-                            ) : (
-                              <p className="text-muted-foreground text-sm leading-6">
-                                {text.selectionRulesDev}
-                              </p>
-                            )}
-                          </SurfaceCard>
-                        </div>
-                      </div>
-                    </TabsContent>
-
-                    <TabsContent value="prompt" className="m-0 space-y-6">
-                      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_360px]">
-                        <SurfaceCard
-                          eyebrow={<FileTextIcon className="size-4" />}
-                          title={text.promptTitle}
-                          description={text.promptDescription}
-                        >
-                          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
                             <div className="space-y-2">
-                              <FieldLabel>{text.promptBody}</FieldLabel>
-                              <div className="border-border/70 bg-muted/10 rounded-3xl border p-5">
-                                <p className="text-muted-foreground text-sm leading-6">
-                                  {text.promptPlaceholder}
-                                </p>
-                                <div className="mt-4 flex flex-wrap items-center gap-3">
-                                  <Button asChild>
-                                    <Link
-                                      to={buildWorkspaceAgentAuthoringPath({
-                                        agentName: agent.name,
-                                        agentStatus: agent.status,
-                                      })}
-                                    >
-                                      <ExternalLinkIcon className="size-4" />
-                                      {text.openWorkspace}
-                                    </Link>
-                                  </Button>
-                                  <Badge variant="secondary">
-                                    {text.editableBadge}
-                                  </Badge>
-                                </div>
-                                <p className="text-muted-foreground mt-4 text-xs leading-6">
-                                  AGENTS.md authoring now lives in the full-width
-                                  workbench so the archive tree is not constrained
-                                  by this dialog layout.
-                                </p>
-                              </div>
-                            </div>
-
-                            <div className="space-y-4">
-                              <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
-                                <FieldLabel className="mb-2">
-                                  {text.runtimeContract}
-                                </FieldLabel>
-                                <p className="text-sm leading-6">
-                                  {text.runtimeContractIntro}
-                                </p>
-                                <code className="bg-background border-border/70 mt-3 block rounded-2xl border px-3 py-3 text-xs leading-6 break-all">
-                                  /mnt/user-data/agents/{agent.status}/
-                                  {agent.name}/AGENTS.md
-                                </code>
-                              </div>
-                              <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
-                                <FieldLabel className="mb-2">
-                                  {text.editingScope}
-                                </FieldLabel>
-                                <p className="text-muted-foreground text-sm leading-6">
-                                  {text.editingScopeDescription}
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        </SurfaceCard>
-
-                        <div className="space-y-6">
-                          <SurfaceCard
-                            eyebrow={<Link2Icon className="size-4" />}
-                            title={text.mcpServers}
-                            description={text.mcpServersHint}
-                          >
-                            <div className="space-y-2">
-                              <FieldLabel>{text.mcpServers}</FieldLabel>
-                              <Textarea
-                                value={form.mcpServers}
-                                placeholder={text.mcpServersPlaceholder}
-                                onChange={(event) =>
-                                  setForm((current) =>
-                                    current
-                                      ? {
-                                          ...current,
-                                          mcpServers: event.target.value,
-                                        }
-                                      : current,
-                                  )
-                                }
-                                className="min-h-32 rounded-3xl px-4 py-3 text-sm leading-6"
-                              />
-                            </div>
-                          </SurfaceCard>
-
-                          <SurfaceCard
-                            eyebrow={<FileTextIcon className="size-4" />}
-                            title={text.archiveAssetsTitle}
-                            description={text.archiveAssetsDescription}
-                          >
-                            <div className="space-y-3">
-                              <div className="border-border/70 flex items-center justify-between gap-3 rounded-2xl border px-4 py-3">
-                                <div>
-                                  <p className="text-sm font-medium">
-                                    {text.agentsMd}
-                                  </p>
-                                  <p className="text-muted-foreground text-xs leading-5">
-                                    {text.agentsMdDescription}
-                                  </p>
-                                </div>
-                                <Badge variant="secondary">
-                                  {text.editableBadge}
-                                </Badge>
-                              </div>
-                              <div className="border-border/70 flex items-center justify-between gap-3 rounded-2xl border px-4 py-3">
-                                <div>
-                                  <p className="text-sm font-medium">
-                                    {text.configYaml}
-                                  </p>
-                                  <p className="text-muted-foreground text-xs leading-5">
-                                    {text.configYamlDescription}
-                                  </p>
-                                </div>
-                                <Badge variant="outline">
-                                  {text.structuredBadge}
-                                </Badge>
-                              </div>
-                              <div className="border-border/70 flex items-center justify-between gap-3 rounded-2xl border px-4 py-3">
-                                <div>
-                                  <p className="text-sm font-medium">
-                                    {text.skillsDirectory}
-                                  </p>
-                                  <p className="text-muted-foreground text-xs leading-5">
-                                    {text.skillsDirectoryDescription}
-                                  </p>
-                                </div>
-                                <Badge variant="outline">
-                                  {skillNames.length}
-                                </Badge>
-                              </div>
-                            </div>
-                          </SurfaceCard>
-                        </div>
-                      </div>
-                    </TabsContent>
-
-                    <TabsContent value="config" className="m-0 space-y-6">
-                      <div className="grid gap-6 xl:grid-cols-2">
-                        <SurfaceCard
-                          eyebrow={<SlidersHorizontalIcon className="size-4" />}
-                          title={text.mainToolsTitle}
-                          description={text.mainToolsDescription}
-                        >
-                          {toolCatalogLoading ? (
-                            <div className="text-muted-foreground flex items-center gap-2 text-sm">
-                              <Loader2Icon className="size-4 animate-spin" />
-                              {text.loadingToolCatalog}
-                            </div>
-                          ) : toolCatalogError ? (
-                            <p className="text-sm leading-6">
-                              {toolCatalogError instanceof Error
-                                ? toolCatalogError.message
-                                : text.loadToolCatalogFailed}
-                            </p>
-                          ) : (
-                            <ToolSelectionSection
-                              tools={mainToolOptions}
-                              selectedNames={selectedMainToolNames}
-                              onToggle={(toolName) =>
-                                toggleToolSelection(toolName, "main")
-                              }
-                              emptyText={text.noConfigurableTools}
-                            />
-                          )}
-                        </SurfaceCard>
-
-                        <SurfaceCard
-                          eyebrow={<BotIcon className="size-4" />}
-                          title={text.generalPurposeSubagentTitle}
-                          description={text.generalPurposeSubagentDescription}
-                        >
-                          <div className="bg-muted/20 border-border/70 flex items-center justify-between rounded-3xl border px-4 py-3">
-                            <div>
-                              <p className="text-sm font-medium">
-                                {text.enableGeneralPurposeSubagent}
-                              </p>
-                              <p className="text-muted-foreground text-xs leading-5">
-                                {text.enableGeneralPurposeSubagentDescription}
-                              </p>
-                            </div>
-                            <Switch
-                              checked={form.generalPurposeEnabled}
-                              onCheckedChange={(checked) =>
-                                setForm((current) =>
-                                  current
-                                    ? {
-                                        ...current,
-                                        generalPurposeEnabled: checked,
-                                      }
-                                    : current,
-                                )
-                              }
-                            />
-                          </div>
-
-                          {form.generalPurposeEnabled && (
-                            <>
-                              <div className="bg-muted/20 border-border/70 flex items-center justify-between rounded-3xl border px-4 py-3">
-                                <div>
-                                  <p className="text-sm font-medium">
-                                    {text.inheritMainTools}
-                                  </p>
-                                  <p className="text-muted-foreground text-xs leading-5">
-                                    {text.inheritMainToolsDescription}
-                                  </p>
-                                </div>
-                                <Switch
-                                  checked={form.generalPurposeUsesMainTools}
-                                  onCheckedChange={(checked) =>
-                                    setForm((current) => {
-                                      if (!current) {
-                                        return current;
-                                      }
-                                      const inheritedToolNames =
-                                        resolveEffectiveToolNames(
-                                          current,
-                                          mainToolOptions,
-                                          "main",
-                                        ).filter((name) =>
-                                          subagentToolOptions.some(
-                                            (tool) => tool.name === name,
-                                          ),
-                                        );
-                                      return {
-                                        ...current,
-                                        generalPurposeUsesMainTools: checked,
-                                        generalPurposeToolNames:
-                                          !checked &&
-                                          current.generalPurposeToolNames
-                                            .length === 0
-                                            ? inheritedToolNames
-                                            : current.generalPurposeToolNames,
-                                      };
-                                    })
-                                  }
-                                />
-                              </div>
-
-                              {!form.generalPurposeUsesMainTools &&
-                                (toolCatalogLoading ? (
-                                  <div className="text-muted-foreground flex items-center gap-2 text-sm">
-                                    <Loader2Icon className="size-4 animate-spin" />
-                                    {text.loadingToolCatalog}
-                                  </div>
-                                ) : toolCatalogError ? (
-                                  <p className="text-sm leading-6">
-                                    {toolCatalogError instanceof Error
-                                      ? toolCatalogError.message
-                                      : text.loadToolCatalogFailed}
-                                  </p>
-                                ) : (
-                                  <ToolSelectionSection
-                                    tools={subagentToolOptions}
-                                    selectedNames={form.generalPurposeToolNames}
-                                    onToggle={(toolName) =>
-                                      toggleToolSelection(
-                                        toolName,
-                                        "general-purpose",
-                                      )
-                                    }
-                                    emptyText={text.noSubagentTools}
-                                  />
-                                ))}
-                            </>
-                          )}
-                        </SurfaceCard>
-                      </div>
-
-                      <SurfaceCard
-                        eyebrow={<BotIcon className="size-4" />}
-                        title={text.customSubagentsTitle}
-                        description={text.customSubagentsDescription}
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                          <p className="text-muted-foreground text-sm leading-6">
-                            {text.customSubagentsHint}
-                          </p>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={addSubagent}
-                          >
-                            <PlusIcon className="size-3.5" />
-                            {text.addSubagent}
-                          </Button>
-                        </div>
-
-                        {form.subagents.length === 0 ? (
-                          <p className="text-muted-foreground text-sm leading-6">
-                            {text.noCustomSubagents}
-                          </p>
-                        ) : (
-                          <div className="space-y-4">
-                            {form.subagents.map((subagent, index) => (
-                              <div
-                                key={subagent.id}
-                                className="border-border/70 rounded-3xl border p-4"
-                              >
-                                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                                  <div>
-                                    <p className="text-sm font-medium">
-                                      {text.subagentCardTitle(index + 1)}
-                                    </p>
-                                    <p className="text-muted-foreground text-xs leading-5">
-                                      {text.subagentCardDescription}
-                                    </p>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <Switch
-                                      checked={subagent.enabled}
-                                      onCheckedChange={(checked) =>
-                                        setForm((current) =>
-                                          current
-                                            ? {
-                                                ...current,
-                                                subagents:
-                                                  current.subagents.map(
-                                                    (item) =>
-                                                      item.id === subagent.id
-                                                        ? {
-                                                            ...item,
-                                                            enabled: checked,
-                                                          }
-                                                        : item,
-                                                  ),
-                                              }
-                                            : current,
-                                        )
-                                      }
-                                    />
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="icon"
-                                      onClick={() =>
-                                        setForm((current) =>
-                                          current
-                                            ? {
-                                                ...current,
-                                                subagents:
-                                                  current.subagents.filter(
-                                                    (item) =>
-                                                      item.id !== subagent.id,
-                                                  ),
-                                              }
-                                            : current,
-                                        )
-                                      }
-                                    >
-                                      <Trash2Icon className="size-4" />
-                                    </Button>
-                                  </div>
-                                </div>
-
-                                <div className="grid gap-4 lg:grid-cols-2">
-                                  <div className="space-y-2">
-                                    <FieldLabel>
-                                      {text.subagentNameLabel}
-                                    </FieldLabel>
-                                    <Input
-                                      value={subagent.name}
-                                      placeholder={text.subagentNamePlaceholder}
-                                      onChange={(event) =>
-                                        setForm((current) =>
-                                          current
-                                            ? {
-                                                ...current,
-                                                subagents:
-                                                  current.subagents.map(
-                                                    (item) =>
-                                                      item.id === subagent.id
-                                                        ? {
-                                                            ...item,
-                                                            name: event.target
-                                                              .value,
-                                                          }
-                                                        : item,
-                                                  ),
-                                              }
-                                            : current,
-                                        )
-                                      }
-                                      className="h-11 rounded-2xl"
-                                    />
-                                  </div>
-                                  <div className="space-y-2">
-                                    <FieldLabel>
-                                      {text.modelOverride}
-                                    </FieldLabel>
-                                    <Input
-                                      value={subagent.model}
-                                      placeholder={text.optionalModelId}
-                                      onChange={(event) =>
-                                        setForm((current) =>
-                                          current
-                                            ? {
-                                                ...current,
-                                                subagents:
-                                                  current.subagents.map(
-                                                    (item) =>
-                                                      item.id === subagent.id
-                                                        ? {
-                                                            ...item,
-                                                            model:
-                                                              event.target
-                                                                .value,
-                                                          }
-                                                        : item,
-                                                  ),
-                                              }
-                                            : current,
-                                        )
-                                      }
-                                      className="h-11 rounded-2xl"
-                                    />
-                                  </div>
-                                  <div className="space-y-2">
-                                    <FieldLabel>{text.description}</FieldLabel>
-                                    <Textarea
-                                      value={subagent.description}
-                                      placeholder={
-                                        text.subagentDescriptionPlaceholder
-                                      }
-                                      onChange={(event) =>
-                                        setForm((current) =>
-                                          current
-                                            ? {
-                                                ...current,
-                                                subagents:
-                                                  current.subagents.map(
-                                                    (item) =>
-                                                      item.id === subagent.id
-                                                        ? {
-                                                            ...item,
-                                                            description:
-                                                              event.target
-                                                                .value,
-                                                          }
-                                                        : item,
-                                                  ),
-                                              }
-                                            : current,
-                                        )
-                                      }
-                                      className="min-h-24 rounded-3xl px-4 py-3 text-sm leading-6"
-                                    />
-                                  </div>
-                                  <div className="space-y-2">
-                                    <FieldLabel>
-                                      {text.subagentPromptLabel}
-                                    </FieldLabel>
-                                    <Textarea
-                                      value={subagent.systemPrompt}
-                                      placeholder={
-                                        text.subagentPromptPlaceholder
-                                      }
-                                      onChange={(event) =>
-                                        setForm((current) =>
-                                          current
-                                            ? {
-                                                ...current,
-                                                subagents:
-                                                  current.subagents.map(
-                                                    (item) =>
-                                                      item.id === subagent.id
-                                                        ? {
-                                                            ...item,
-                                                            systemPrompt:
-                                                              event.target
-                                                                .value,
-                                                          }
-                                                        : item,
-                                                  ),
-                                              }
-                                            : current,
-                                        )
-                                      }
-                                      className="min-h-24 rounded-3xl px-4 py-3 text-sm leading-6"
-                                    />
-                                  </div>
-                                </div>
-
-                                <div className="mt-4 space-y-4">
-                                  <div className="bg-muted/20 border-border/70 flex items-center justify-between rounded-3xl border px-4 py-3">
-                                    <div>
-                                      <p className="text-sm font-medium">
-                                        {text.explicitSubagentTools}
-                                      </p>
-                                      <p className="text-muted-foreground text-xs leading-5">
-                                        {text.explicitSubagentToolsDescription}
-                                      </p>
-                                    </div>
-                                    <Switch
-                                      checked={subagent.toolSelectionEnabled}
-                                      onCheckedChange={(checked) =>
-                                        setForm((current) => {
-                                          if (!current) {
-                                            return current;
-                                          }
-                                          const inheritedToolNames =
-                                            resolveEffectiveToolNames(
-                                              current,
-                                              mainToolOptions,
-                                              "main",
-                                            ).filter((name) =>
-                                              subagentToolOptions.some(
-                                                (tool) => tool.name === name,
-                                              ),
-                                            );
-                                          return {
-                                            ...current,
-                                            subagents: current.subagents.map(
-                                              (item) =>
-                                                item.id === subagent.id
-                                                  ? {
-                                                      ...item,
-                                                      toolSelectionEnabled:
-                                                        checked,
-                                                      toolNames:
-                                                        checked &&
-                                                        item.toolNames
-                                                          .length === 0
-                                                          ? inheritedToolNames
-                                                          : item.toolNames,
-                                                    }
-                                                  : item,
-                                            ),
-                                          };
-                                        })
-                                      }
-                                    />
-                                  </div>
-
-                                  {subagent.toolSelectionEnabled &&
-                                    (toolCatalogLoading ? (
-                                      <div className="text-muted-foreground flex items-center gap-2 text-sm">
-                                        <Loader2Icon className="size-4 animate-spin" />
-                                        {text.loadingToolCatalog}
-                                      </div>
-                                    ) : toolCatalogError ? (
-                                      <p className="text-sm leading-6">
-                                        {toolCatalogError instanceof Error
-                                          ? toolCatalogError.message
-                                          : text.loadToolCatalogFailed}
-                                      </p>
-                                    ) : (
-                                      <ToolSelectionSection
-                                        tools={subagentToolOptions}
-                                        selectedNames={subagent.toolNames}
-                                        onToggle={(toolName) =>
-                                          toggleToolSelection(
-                                            toolName,
-                                            "subagent",
-                                            subagent.id,
-                                          )
-                                        }
-                                        emptyText={text.noSubagentTools}
-                                      />
-                                    ))}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </SurfaceCard>
-
-                      <div className="grid gap-6 xl:grid-cols-2">
-                        <SurfaceCard
-                          eyebrow={<BrainIcon className="size-4" />}
-                          title={text.memoryTitle}
-                          description={text.memoryDescription}
-                        >
-                          <div className="bg-muted/20 border-border/70 flex items-center justify-between rounded-3xl border px-4 py-3">
-                            <div>
-                              <p className="text-sm font-medium">
-                                {text.enableMemory}
-                              </p>
-                              <p className="text-muted-foreground text-xs leading-5">
-                                {text.enableMemoryDescription}
-                              </p>
-                            </div>
-                            <Switch
-                              checked={form.memoryEnabled}
-                              onCheckedChange={(checked) =>
-                                setForm((current) =>
-                                  current
-                                    ? { ...current, memoryEnabled: checked }
-                                    : current,
-                                )
-                              }
-                            />
-                          </div>
-
-                          <div className="grid gap-4 md:grid-cols-2">
-                            <div className="space-y-2 md:col-span-2">
-                              <FieldLabel>{text.memoryModel}</FieldLabel>
-                              <Input
-                                value={form.memoryModel}
-                                placeholder={text.memoryModelPlaceholder}
-                                disabled={!form.memoryEnabled}
-                                onChange={(event) =>
-                                  setForm((current) =>
-                                    current
-                                      ? {
-                                          ...current,
-                                          memoryModel: event.target.value,
-                                        }
-                                      : current,
-                                  )
-                                }
-                                className="h-11 rounded-2xl"
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <FieldLabel>{text.debounceSeconds}</FieldLabel>
+                              <FieldLabel>{text.maxInjectionTokens}</FieldLabel>
                               <Input
                                 type="number"
-                                min={1}
-                                max={300}
-                                value={form.debounceSeconds}
+                                min={100}
+                                max={8000}
+                                value={form.maxInjectionTokens}
                                 onChange={(event) =>
                                   setForm((current) =>
                                     current
                                       ? {
                                           ...current,
-                                          debounceSeconds: event.target.value,
-                                        }
-                                      : current,
-                                  )
-                                }
-                                className="h-11 rounded-2xl"
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <FieldLabel>{text.maxFacts}</FieldLabel>
-                              <Input
-                                type="number"
-                                min={10}
-                                max={500}
-                                value={form.maxFacts}
-                                onChange={(event) =>
-                                  setForm((current) =>
-                                    current
-                                      ? {
-                                          ...current,
-                                          maxFacts: event.target.value,
-                                        }
-                                      : current,
-                                  )
-                                }
-                                className="h-11 rounded-2xl"
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <FieldLabel>
-                                {text.confidenceThreshold}
-                              </FieldLabel>
-                              <Input
-                                type="number"
-                                min={0}
-                                max={1}
-                                step="0.01"
-                                value={form.confidenceThreshold}
-                                onChange={(event) =>
-                                  setForm((current) =>
-                                    current
-                                      ? {
-                                          ...current,
-                                          confidenceThreshold:
+                                          maxInjectionTokens:
                                             event.target.value,
                                         }
                                       : current,
@@ -1993,103 +2062,60 @@ export function AgentSettingsDialog({
                                 className="h-11 rounded-2xl"
                               />
                             </div>
-                          </div>
-                        </SurfaceCard>
 
-                        <SurfaceCard
-                          eyebrow={<SlidersHorizontalIcon className="size-4" />}
-                          title={text.promptInjectionTitle}
-                          description={text.promptInjectionDescription}
-                        >
-                          <div className="bg-muted/20 border-border/70 flex items-center justify-between rounded-3xl border px-4 py-3">
-                            <div>
-                              <p className="text-sm font-medium">
-                                {text.enableMemoryInjection}
-                              </p>
-                              <p className="text-muted-foreground text-xs leading-5">
-                                {text.enableMemoryInjectionDescription}
+                            <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
+                              <FieldLabel className="mb-2">
+                                {text.whyNoRawYaml}
+                              </FieldLabel>
+                              <p className="text-muted-foreground text-sm leading-6">
+                                {text.whyNoRawYamlDescription}
                               </p>
                             </div>
-                            <Switch
-                              checked={form.injectionEnabled}
-                              onCheckedChange={(checked) =>
-                                setForm((current) =>
-                                  current
-                                    ? { ...current, injectionEnabled: checked }
-                                    : current,
-                                )
-                              }
-                            />
-                          </div>
+                          </SurfaceCard>
+                        </div>
+                      </TabsContent>
 
-                          <div className="space-y-2">
-                            <FieldLabel>{text.maxInjectionTokens}</FieldLabel>
-                            <Input
-                              type="number"
-                              min={100}
-                              max={8000}
-                              value={form.maxInjectionTokens}
-                              onChange={(event) =>
-                                setForm((current) =>
-                                  current
-                                    ? {
-                                        ...current,
-                                        maxInjectionTokens: event.target.value,
-                                      }
-                                    : current,
-                                )
-                              }
-                              className="h-11 rounded-2xl"
-                            />
-                          </div>
-
-                          <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
-                            <FieldLabel className="mb-2">
-                              {text.whyNoRawYaml}
-                            </FieldLabel>
-                            <p className="text-muted-foreground text-sm leading-6">
-                              {text.whyNoRawYamlDescription}
-                            </p>
-                          </div>
-                        </SurfaceCard>
-                      </div>
-                    </TabsContent>
-
-                    <TabsContent value="access" className="m-0 space-y-6">
-                      <div className="grid gap-6 xl:grid-cols-2">
-                        <SurfaceCard
-                          eyebrow={<Link2Icon className="size-4" />}
-                          title={text.launchSurfaceTitle}
-                          description={text.launchSurfaceDescription}
+                      <TabsContent value="access" className="m-0 space-y-6">
+                        <div
+                          className={cn(
+                            "grid gap-6",
+                            isProdArchive
+                              ? "xl:grid-cols-[minmax(280px,0.84fr)_minmax(0,1.16fr)]"
+                              : "xl:grid-cols-2",
+                          )}
                         >
-                          <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
-                            <FieldLabel className="mb-2">
-                              {text.launchUrl}
-                            </FieldLabel>
-                            <code className="bg-background border-border/70 block rounded-2xl border px-3 py-3 text-xs leading-6 break-all">
-                              {launchURL}
-                            </code>
-                          </div>
+                          <SurfaceCard
+                            eyebrow={<Link2Icon className="size-4" />}
+                            title={text.launchSurfaceTitle}
+                            description={text.launchSurfaceDescription}
+                          >
+                            <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
+                              <FieldLabel className="mb-2">
+                                {text.launchUrl}
+                              </FieldLabel>
+                              <code className="bg-background border-border/70 block rounded-2xl border px-3 py-3 text-xs leading-6 break-all">
+                                {launchURL}
+                              </code>
+                            </div>
 
-                          <div className="flex flex-wrap gap-2">
-                            <Button asChild>
-                              <Link to={launchPath}>
-                                <ExternalLinkIcon className="size-3.5" />
-                                {text.openWorkspace}
-                              </Link>
-                            </Button>
-                            <Button
-                              variant="outline"
-                              onClick={handleCopyLaunchURL}
-                            >
-                              <CopyIcon className="size-3.5" />
-                              {text.copyUrl}
-                            </Button>
-                          </div>
-                        </SurfaceCard>
+                            <div className="flex flex-wrap gap-2">
+                              <Button asChild>
+                                <Link to={launchPath}>
+                                  <ExternalLinkIcon className="size-3.5" />
+                                  {text.openWorkspace}
+                                </Link>
+                              </Button>
+                              <Button
+                                variant="outline"
+                                onClick={handleCopyLaunchURL}
+                              >
+                                <CopyIcon className="size-3.5" />
+                                {text.copyUrl}
+                              </Button>
+                            </div>
+                          </SurfaceCard>
 
-                        {isProdArchive ? (
-                          canManage ? (
+                          {isProdArchive ? (
                             <SurfaceCard
                               eyebrow={<DownloadIcon className="size-4" />}
                               title={text.openApiExportTitle}
@@ -2107,166 +2133,193 @@ export function AgentSettingsDialog({
                                     : text.loadExportDocumentFailed}
                                 </p>
                               ) : exportDoc ? (
-                                <div className="space-y-4">
-                                  <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
-                                    <FieldLabel className="mb-2">
-                                      {text.gatewayBase}
-                                    </FieldLabel>
-                                    <code className="bg-background border-border/70 block rounded-2xl border px-3 py-3 text-xs leading-6 break-all">
-                                      {exportDoc.api_base_url}
-                                    </code>
-                                  </div>
-
-                                  {(
-                                    [
-                                      ["chat", exportDoc.endpoints.chat],
-                                      ["stream", exportDoc.endpoints.stream],
-                                    ] as const
-                                  ).map(([endpointName, endpoint]) => (
-                                    <div
-                                      key={endpointName}
-                                      className="border-border/70 rounded-3xl border p-4"
-                                    >
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        <Badge variant="secondary">
-                                          {endpoint.method}
-                                        </Badge>
-                                        <p className="text-sm font-medium capitalize">
-                                          {endpointName}
-                                        </p>
-                                      </div>
-                                      <code className="bg-background border-border/70 mt-3 block rounded-2xl border px-3 py-3 text-xs leading-6 break-all">
-                                        {endpoint.url}
+                                <div className="space-y-5">
+                                  <div className="grid gap-3 md:grid-cols-2">
+                                    <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
+                                      <FieldLabel className="mb-2">
+                                        {text.gatewayBase}
+                                      </FieldLabel>
+                                      <code className="bg-background border-border/70 block rounded-2xl border px-3 py-3 text-xs leading-6 break-all">
+                                        {exportGatewayBaseURL}
                                       </code>
                                     </div>
-                                  ))}
 
-                                  <div className="flex flex-wrap gap-2">
-                                    <Button
-                                      variant="outline"
-                                      onClick={() =>
-                                        handleCopyText(
-                                          exportDoc.endpoints.chat.url,
-                                          text.chatEndpointCopied,
-                                        )
-                                      }
-                                    >
-                                      <CopyIcon className="size-3.5" />
-                                      {text.copyChatEndpoint}
-                                    </Button>
-                                    <Button
-                                      variant="outline"
-                                      onClick={() =>
-                                        handleCopyText(
-                                          exportDoc.endpoints.stream.url,
-                                          text.streamEndpointCopied,
-                                        )
-                                      }
-                                    >
-                                      <CopyIcon className="size-3.5" />
-                                      {text.copyStreamEndpoint}
-                                    </Button>
-                                    <Button
-                                      onClick={handleDownloadReactDemo}
-                                      disabled={downloadDemoMutation.isPending}
-                                    >
-                                      {downloadDemoMutation.isPending && (
-                                        <Loader2Icon className="size-3.5 animate-spin" />
-                                      )}
-                                      {!downloadDemoMutation.isPending && (
-                                        <DownloadIcon className="size-3.5" />
-                                      )}
-                                      {text.downloadReactDemo}
-                                    </Button>
-                                  </div>
-
-                                  <div className="space-y-2">
-                                    <FieldLabel>{text.demoNotes}</FieldLabel>
-                                    <div className="space-y-2">
-                                      {exportDoc.demo.notes.map((note) => (
-                                        <p
-                                          key={note}
-                                          className="text-muted-foreground rounded-2xl border px-4 py-3 text-sm leading-6"
-                                        >
-                                          {note}
-                                        </p>
-                                      ))}
+                                    <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
+                                      <FieldLabel className="mb-2">
+                                        {text.sdkBase}
+                                      </FieldLabel>
+                                      <code className="bg-background border-border/70 block rounded-2xl border px-3 py-3 text-xs leading-6 break-all">
+                                        {exportSDKBaseURL}
+                                      </code>
                                     </div>
                                   </div>
+
+                                  <div className="grid gap-3 md:grid-cols-3">
+                                    {[
+                                      text.openApiCapabilityUploads,
+                                      text.openApiCapabilityEvents,
+                                      text.openApiCapabilityJson,
+                                    ].map((item) => (
+                                      <div
+                                        key={item}
+                                        className="border-border/70 bg-background/70 rounded-3xl border px-4 py-4 text-sm leading-6"
+                                      >
+                                        {item}
+                                      </div>
+                                    ))}
+                                  </div>
+
+                                  <div className="border-border/70 rounded-3xl border p-4">
+                                    <p className="text-sm leading-6">
+                                      {text.openApiPlaygroundDescription}
+                                    </p>
+                                    <div className="mt-4 flex flex-wrap gap-2">
+                                      <Button asChild>
+                                        <Link to={playgroundPath}>
+                                          <PlayIcon className="size-3.5" />
+                                          {text.openApiOpenPlayground}
+                                        </Link>
+                                      </Button>
+                                      <Button
+                                        variant="outline"
+                                        onClick={() =>
+                                          handleCopyText(
+                                            exportGatewayBaseURL,
+                                            text.gatewayBaseCopied,
+                                          )
+                                        }
+                                      >
+                                        <CopyIcon className="size-3.5" />
+                                        {text.copyGatewayBase}
+                                      </Button>
+                                      <Button
+                                        variant="outline"
+                                        onClick={() =>
+                                          handleCopyText(
+                                            exportSDKBaseURL,
+                                            text.sdkBaseCopied,
+                                          )
+                                        }
+                                      >
+                                        <Link2Icon className="size-3.5" />
+                                        {text.copySdkBase}
+                                      </Button>
+                                      <Button variant="outline" asChild>
+                                        <a
+                                          href={exportDoc.documentation_url}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                        >
+                                          <ExternalLinkIcon className="size-3.5" />
+                                          {text.openDocs}
+                                        </a>
+                                      </Button>
+                                      {exportDoc.documentation_json_url ? (
+                                        <Button variant="outline" asChild>
+                                          <a
+                                            href={exportDoc.documentation_json_url}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                          >
+                                            <DownloadIcon className="size-3.5" />
+                                            {text.openRawExport}
+                                          </a>
+                                        </Button>
+                                      ) : null}
+                                    </div>
+                                  </div>
+
+                                  <div className="grid gap-3">
+                                    {Object.entries(exportDoc.endpoints).map(
+                                      ([endpointName, endpoint]) => (
+                                        <div
+                                          key={endpointName}
+                                          className="border-border/70 bg-background/60 rounded-3xl border p-4"
+                                        >
+                                          <div className="flex flex-wrap items-center gap-2">
+                                            <Badge variant="secondary">
+                                              {endpoint.method}
+                                            </Badge>
+                                            <p className="text-sm font-medium capitalize">
+                                              {endpointName.replaceAll(
+                                                "_",
+                                                " ",
+                                              )}
+                                            </p>
+                                          </div>
+                                          <code className="bg-background border-border/70 mt-3 block rounded-2xl border px-3 py-3 text-xs leading-6 break-all">
+                                            {endpoint.url}
+                                          </code>
+                                        </div>
+                                      ),
+                                    )}
+                                  </div>
                                 </div>
-                              ) : null}
+                              ) : (
+                                <p className="text-muted-foreground text-sm leading-6">
+                                  {text.loadExportDocumentFailed}
+                                </p>
+                              )}
                             </SurfaceCard>
                           ) : (
                             <SurfaceCard
-                              eyebrow={<Settings2Icon className="size-4" />}
-                              title={text.readOnlyTitle}
-                              description={text.readOnlyDescription}
+                              eyebrow={<Link2Icon className="size-4" />}
+                              title={text.openApiExportTitle}
+                              description={text.openApiExportUnavailableDescription}
                             >
-                              <p className="text-sm leading-6">
-                                {text.readOnlyFooter}
+                              <p className="text-muted-foreground text-sm leading-6">
+                                {text.publishArchiveFirst}
                               </p>
                             </SurfaceCard>
-                          )
-                        ) : (
-                          <SurfaceCard
-                            eyebrow={<Link2Icon className="size-4" />}
-                            title={text.openApiExportTitle}
-                            description={
-                              text.openApiExportUnavailableDescription
-                            }
-                          >
-                            <p className="text-muted-foreground text-sm leading-6">
-                              {text.publishArchiveFirst}
-                            </p>
-                          </SurfaceCard>
-                        )}
-                      </div>
-                    </TabsContent>
-                  </>
-                )}
-              </div>
-            </ScrollArea>
-          </div>
-        </Tabs>
+                          )}
+                        </div>
+                      </TabsContent>
+                    </>
+                  )}
+                </div>
+              </ScrollArea>
+            </div>
+          </Tabs>
 
-        <div className="border-border/70 bg-background/95 border-t px-6 py-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-sm font-medium">
-                {isDirty ? text.dirtyState : text.cleanState}
-              </p>
-              <p className="text-muted-foreground text-xs leading-5">
-                {canManage
-                  ? text.saveAppliesTo(agentStatus)
-                  : text.readOnlyFooter}
-              </p>
-            </div>
-            <div className="flex items-center justify-end gap-2">
-              <Button
-                variant="ghost"
-                disabled={!isDirty || !form || updateAgentMutation.isPending}
-                onClick={handleReset}
-              >
-                {text.reset}
-              </Button>
-              <Button
-                disabled={
-                  !canManage ||
-                  !isDirty ||
-                  !form ||
-                  updateAgentMutation.isPending
-                }
-                onClick={handleSave}
-              >
-                {updateAgentMutation.isPending && (
-                  <Loader2Icon className="size-4 animate-spin" />
-                )}
-                {text.saveChanges}
-              </Button>
+          <div className="border-border/70 bg-background/95 border-t px-6 py-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-medium">
+                  {isDirty ? text.dirtyState : text.cleanState}
+                </p>
+                <p className="text-muted-foreground text-xs leading-5">
+                  {canManage
+                    ? text.saveAppliesTo(agentStatus)
+                    : text.readOnlyFooter}
+                </p>
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  disabled={!isDirty || !form || updateAgentMutation.isPending}
+                  onClick={handleReset}
+                >
+                  {text.reset}
+                </Button>
+                <Button
+                  disabled={
+                    !canManage ||
+                    !isDirty ||
+                    !form ||
+                    updateAgentMutation.isPending
+                  }
+                  onClick={handleSave}
+                >
+                  {updateAgentMutation.isPending && (
+                    <Loader2Icon className="size-4 animate-spin" />
+                  )}
+                  {text.saveChanges}
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

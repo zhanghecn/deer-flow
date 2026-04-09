@@ -1,6 +1,11 @@
 package model
 
-import "github.com/google/uuid"
+import (
+	"encoding/json"
+	"time"
+
+	"github.com/google/uuid"
+)
 
 // Auth DTOs
 
@@ -21,8 +26,11 @@ type AuthResponse struct {
 }
 
 type CreateAPITokenRequest struct {
-	Name   string   `json:"name" binding:"required,min=1,max=128"`
-	Scopes []string `json:"scopes"`
+	Name          string          `json:"name" binding:"required,min=1,max=128"`
+	Scopes        []string        `json:"scopes"`
+	AllowedAgents []string        `json:"allowed_agents"`
+	ExpiresAt     *time.Time      `json:"expires_at"`
+	Metadata      json.RawMessage `json:"metadata"`
 }
 
 type APITokenResponse struct {
@@ -118,13 +126,6 @@ type SaveAgentAuthoringDraftRequest struct {
 
 type SaveSkillAuthoringDraftRequest struct {
 	ThreadID string `json:"thread_id" binding:"required"`
-}
-
-// Open API DTOs
-
-type OpenAPIChatRequest struct {
-	Message  string `json:"message" binding:"required"`
-	ThreadID string `json:"thread_id"`
 }
 
 // Generic response

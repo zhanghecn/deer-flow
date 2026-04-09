@@ -107,13 +107,21 @@ type AgentSettingsDialogText = {
   openApiExportTitle: string;
   openApiExportDescription: string;
   openApiExportUnavailableDescription: string;
+  openApiPlaygroundDescription: string;
+  openApiOpenPlayground: string;
+  openApiCapabilityUploads: string;
+  openApiCapabilityEvents: string;
+  openApiCapabilityJson: string;
   loadingExportDocument: string;
   loadExportDocumentFailed: string;
   gatewayBase: string;
-  copyChatEndpoint: string;
-  copyStreamEndpoint: string;
-  downloadReactDemo: string;
-  demoNotes: string;
+  sdkBase: string;
+  copyGatewayBase: string;
+  copySdkBase: string;
+  openDocs: string;
+  openRawExport: string;
+  gatewayBaseCopied: string;
+  sdkBaseCopied: string;
   publishArchiveFirst: string;
   archiveAssetsTitle: string;
   archiveAssetsDescription: string;
@@ -125,9 +133,6 @@ type AgentSettingsDialogText = {
   skillsDirectoryDescription: string;
   editableBadge: string;
   structuredBadge: string;
-  exportBehaviorTitle: string;
-  exportBehaviorDescription: string;
-  exportBehaviorBody: string;
   dirtyState: string;
   cleanState: string;
   saveAppliesTo: (status: string) => string;
@@ -146,10 +151,6 @@ type AgentSettingsDialogText = {
   mcpServersHint: string;
   copyFailed: string;
   launchUrlCopied: string;
-  downloadFailed: string;
-  downloadSuccess: (filename: string) => string;
-  chatEndpointCopied: string;
-  streamEndpointCopied: string;
   memoryModelRequired: string;
   enabledState: string;
   subagentNameRequired: (index: number) => string;
@@ -302,20 +303,29 @@ const enUS: AgentSettingsDialogText = {
   launchSurfaceDescription:
     "Use the exact current archive and runtime selection when sharing or testing.",
   launchUrl: "Launch URL",
-  openApiExportTitle: "Open API export",
+  openApiExportTitle: "Developer docs",
   openApiExportDescription:
-    "Published prod agents can be invoked outside the platform and exported as a local React demo.",
+    "Published prod agents expose a shareable OpenAI-compatible developer documentation surface.",
   openApiExportUnavailableDescription:
-    "External invocation and demo download are only available after publishing this agent to prod.",
+    "External invocation is only available after publishing this agent to prod.",
+  openApiPlaygroundDescription:
+    "Open the standalone playground to create a scoped key, upload files, inspect event flow, and validate structured JSON responses.",
+  openApiOpenPlayground: "Open playground",
+  openApiCapabilityUploads: "Real `/v1/files` upload flow",
+  openApiCapabilityEvents: "Request timeline and generated artifacts",
+  openApiCapabilityJson: "Text, JSON object, and JSON schema testing",
   loadingExportDocument: "Loading export document...",
   loadExportDocumentFailed: "Failed to load export document.",
   gatewayBase: "Gateway base",
-  copyChatEndpoint: "Copy chat endpoint",
-  copyStreamEndpoint: "Copy stream endpoint",
-  downloadReactDemo: "Download React demo",
-  demoNotes: "Demo notes",
+  sdkBase: "SDK base (/v1)",
+  copyGatewayBase: "Copy gateway",
+  copySdkBase: "Copy SDK base",
+  openDocs: "Open docs",
+  openRawExport: "Raw export JSON",
+  gatewayBaseCopied: "Gateway base copied",
+  sdkBaseCopied: "SDK base copied",
   publishArchiveFirst:
-    "Publish this archive first if you want a stable `/open/v1/agents/{agentName}` endpoint or a downloadable React demo bundle for local testing.",
+    "Publish this archive first if you want a stable `/v1/responses` contract for external integrations.",
   archiveAssetsTitle: "Archive assets",
   archiveAssetsDescription:
     "A compact map of what this settings dialog can control today.",
@@ -327,11 +337,6 @@ const enUS: AgentSettingsDialogText = {
   skillsDirectoryDescription: "Current copied skills are shown in Profile.",
   editableBadge: "editable",
   structuredBadge: "structured",
-  exportBehaviorTitle: "Export behavior",
-  exportBehaviorDescription:
-    "What the current export workflow does when you download the React demo.",
-  exportBehaviorBody:
-    "The download action calls the protected gateway export endpoint, creates a short-lived API token, and writes the resolved base URL, agent name, and token into the generated Vite project so the demo can run outside this platform.",
   dirtyState: "Unsaved archive changes",
   cleanState: "Archive is up to date",
   saveAppliesTo: (status) =>
@@ -354,10 +359,6 @@ const enUS: AgentSettingsDialogText = {
     "Comma separated. These values are stored in the archived manifest.",
   copyFailed: "Failed to copy text",
   launchUrlCopied: "Agent launch URL copied",
-  downloadFailed: "Failed to download React demo",
-  downloadSuccess: (filename) => `${filename} downloaded`,
-  chatEndpointCopied: "Chat endpoint copied",
-  streamEndpointCopied: "Stream endpoint copied",
   memoryModelRequired: "Memory model is required when memory is enabled.",
   enabledState: "Enabled",
   subagentNameRequired: (index) =>
@@ -504,20 +505,29 @@ const zhCN: AgentSettingsDialogText = {
   launchSurfaceDescription:
     "分享或测试时，直接使用当前归档和运行时选择生成的精确入口。",
   launchUrl: "启动链接",
-  openApiExportTitle: "Open API 导出",
+  openApiExportTitle: "开发者文档",
   openApiExportDescription:
-    "已发布到 prod 的智能体可以在平台外调用，也可以导出为本地 React Demo。",
+    "已发布到 prod 的智能体会暴露一套可直接分享的 OpenAI 兼容开发者文档入口。",
   openApiExportUnavailableDescription:
-    "只有将该智能体发布到 prod 后，才支持外部调用和 Demo 下载。",
+    "只有将该智能体发布到 prod 后，才支持外部调用。",
+  openApiPlaygroundDescription:
+    "打开独立 Playground 页面，创建 scoped key、上传文件、查看事件流，并验证结构化 JSON 返回。",
+  openApiOpenPlayground: "打开 Playground",
+  openApiCapabilityUploads: "真实 `/v1/files` 上传链路",
+  openApiCapabilityEvents: "请求时间线与生成文件",
+  openApiCapabilityJson: "纯文本、JSON 对象、JSON Schema 测试",
   loadingExportDocument: "正在加载导出文档...",
   loadExportDocumentFailed: "加载导出文档失败。",
   gatewayBase: "网关地址",
-  copyChatEndpoint: "复制 chat 接口",
-  copyStreamEndpoint: "复制 stream 接口",
-  downloadReactDemo: "下载 React Demo",
-  demoNotes: "Demo 说明",
+  sdkBase: "SDK 地址（/v1）",
+  copyGatewayBase: "复制网关地址",
+  copySdkBase: "复制 SDK 地址",
+  openDocs: "打开文档",
+  openRawExport: "原始导出 JSON",
+  gatewayBaseCopied: "已复制网关地址",
+  sdkBaseCopied: "已复制 SDK 地址",
   publishArchiveFirst:
-    "如果你需要稳定的 `/open/v1/agents/{agentName}` 接口，或用于本地测试的可下载 React Demo 包，请先发布这个归档。",
+    "如果你需要用于企业接入的稳定 `/v1/responses` 契约，请先发布这个归档。",
   archiveAssetsTitle: "归档资产",
   archiveAssetsDescription: "概览当前设置对话框今天可以控制的内容。",
   agentsMd: "AGENTS.md",
@@ -528,11 +538,6 @@ const zhCN: AgentSettingsDialogText = {
   skillsDirectoryDescription: "当前已复制技能会显示在“资料”页签中。",
   editableBadge: "可编辑",
   structuredBadge: "结构化",
-  exportBehaviorTitle: "导出行为",
-  exportBehaviorDescription:
-    "说明当前下载 React Demo 时，导出流程具体会做什么。",
-  exportBehaviorBody:
-    "下载操作会调用受保护的网关导出接口，创建一个短期有效的 API Token，并把解析后的基础地址、智能体名称和 Token 写入生成的 Vite 项目中，使该 Demo 能在平台外独立运行。",
   dirtyState: "归档有未保存更改",
   cleanState: "归档已是最新状态",
   saveAppliesTo: (status) => `保存只会应用到当前选中的 ${status} 归档。`,
@@ -551,10 +556,6 @@ const zhCN: AgentSettingsDialogText = {
   mcpServersHint: "使用逗号分隔。这些值会存储在归档清单中。",
   copyFailed: "复制文本失败",
   launchUrlCopied: "已复制智能体启动链接",
-  downloadFailed: "下载 React Demo 失败",
-  downloadSuccess: (filename) => `已下载 ${filename}`,
-  chatEndpointCopied: "已复制 chat 接口",
-  streamEndpointCopied: "已复制 stream 接口",
   memoryModelRequired: "启用记忆时必须填写记忆模型。",
   enabledState: "已启用",
   subagentNameRequired: (index) =>

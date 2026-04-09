@@ -189,8 +189,6 @@ export const enUS: Translations = {
     deleteSuccess: "Agent deleted",
     publish: "Publish",
     publishSuccess: (agentName: string) => `Agent "${agentName}" published`,
-    downloadDemo: "Download demo",
-    downloadSuccess: (filename: string) => `Downloaded ${filename}`,
     ownerBadge: "owner",
     ownedByYou: "Owned by you",
     ownedBy: (ownerName: string) => `Owned by ${ownerName}`,

@@ -135,8 +135,6 @@ export interface Translations {
     deleteSuccess: string;
     publish: string;
     publishSuccess: (agentName: string) => string;
-    downloadDemo: string;
-    downloadSuccess: (filename: string) => string;
     ownerBadge: string;
     ownedByYou: string;
     ownedBy: (ownerName: string) => string;

@@ -404,10 +404,18 @@ def test_make_lead_agent_reads_runtime_context_and_persists_thread_runtime(monke
 
     captured: dict[str, object] = {}
 
-    def _fake_create_chat_model(*, name, thinking_enabled, reasoning_effort=None, runtime_model_config=None):
+    def _fake_create_chat_model(
+        *,
+        name,
+        thinking_enabled,
+        reasoning_effort=None,
+        runtime_model_config=None,
+        max_tokens=None,
+    ):
         captured["name"] = name
         captured["thinking_enabled"] = thinking_enabled
         captured["runtime_model_config"] = runtime_model_config
+        captured["max_tokens"] = max_tokens
         return object()
 
     monkeypatch.setattr(lead_agent_module, "create_chat_model", _fake_create_chat_model)
@@ -425,6 +433,7 @@ def test_make_lead_agent_reads_runtime_context_and_persists_thread_runtime(monke
             "model_name": "safe-model",
             "thinking_enabled": True,
             "subagent_enabled": False,
+            "max_output_tokens": 321,
         }
     )
 
@@ -442,6 +451,7 @@ def test_make_lead_agent_reads_runtime_context_and_persists_thread_runtime(monke
 
     assert captured["name"] == "safe-model"
     assert captured["thinking_enabled"] is True
+    assert captured["max_tokens"] == 321
     assert result["model"] is not None
     assert "memory" not in result
     assert result["context_schema"] is lead_agent_module.LeadAgentRuntimeContext
@@ -449,6 +459,7 @@ def test_make_lead_agent_reads_runtime_context_and_persists_thread_runtime(monke
     assert store.saved == [("thread-1", "user-1", "safe-model", LEAD_AGENT_NAME)]
     assert runtime.execution_runtime.context["thread_id"] == "thread-1"
     assert runtime.execution_runtime.context["x-thread-id"] == "thread-1"
+    assert runtime.execution_runtime.context["max_output_tokens"] == 321
     assert "x_thread_id" not in runtime.execution_runtime.context
     assert "x_user_id" not in runtime.execution_runtime.context
 
@@ -482,7 +493,14 @@ def test_make_lead_agent_uses_request_header_model_for_thread_state_reads(monkey
 
     captured: dict[str, object] = {}
 
-    def _fake_create_chat_model(*, name, thinking_enabled, reasoning_effort=None, runtime_model_config=None):
+    def _fake_create_chat_model(
+        *,
+        name,
+        thinking_enabled,
+        reasoning_effort=None,
+        runtime_model_config=None,
+        max_tokens=None,
+    ):
         captured["name"] = name
         captured["thinking_enabled"] = thinking_enabled
         captured["runtime_model_config"] = runtime_model_config
@@ -555,7 +573,14 @@ def test_make_lead_agent_reads_and_updates_typed_runtime_context(monkeypatch, tm
 
     captured: dict[str, object] = {}
 
-    def _fake_create_chat_model(*, name, thinking_enabled, reasoning_effort=None, runtime_model_config=None):
+    def _fake_create_chat_model(
+        *,
+        name,
+        thinking_enabled,
+        reasoning_effort=None,
+        runtime_model_config=None,
+        max_tokens=None,
+    ):
         captured["name"] = name
         captured["thinking_enabled"] = thinking_enabled
         return object()
