@@ -229,7 +229,7 @@ Nginx (port 2026) ← Unified entry point
   ├→ Go Gateway (port 8001) ← /api/* (auth, agents, skills, models, uploads, artifacts)
   │   ├→ JWT/API Token authentication
   │   ├→ Agent/Skill CRUD (PostgreSQL + filesystem dual-write)
-  │   ├→ Open API: /open/v1/agents/:name/* (external API Token auth)
+  │   ├→ Public API: /v1/* (external API Token auth)
   │   └→ Reverse proxy to LangGraph with user_id injection
   └→ LangGraph Server (port 2024) ← /api/langgraph/* (agent execution)
       ├→ deepagents engine (create_deep_agent)

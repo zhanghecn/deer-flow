@@ -19,7 +19,7 @@ Nginx (:2026)
      ├── /api/langgraph/*     → Go Gateway (:8001)   # 反向代理到 LangGraph，注入 user_id
      ├── /api/threads/*/uploads   → Go Gateway       # 文件上传
      ├── /api/threads/*/artifacts → Go Gateway        # 制品访问
-     ├── /open/v1/*           → Go Gateway (:8001)   # 开放式 API (API Token)
+     ├── /v1/*                → Go Gateway (:8001)   # 开放式 API (API Token)
      └── /*                   → Frontend (:3000)
                                      │
                               Go Gateway 内部
@@ -55,6 +55,8 @@ createdb openagents
 # Gateway 不再内置自动迁移命令
 psql "$DATABASE_URI" -f migrations/001_init.up.sql
 psql "$DATABASE_URI" -f migrations/002_seed_data.up.sql
+psql "$DATABASE_URI" -f migrations/003_public_api_hardening.up.sql
+psql "$DATABASE_URI" -f migrations/004_public_api_invocations.up.sql
 ```
 
 ### 2. 配置
@@ -122,6 +124,10 @@ proxy:
       auth: jwt
 ```
 
+说明：
+- Gateway 到 LangGraph 与 sandbox IDE 的内部 hop 会直接绕过宿主机 `HTTP_PROXY` / `HTTPS_PROXY`，避免私有容器地址被错误送进外部代理后表现成误导性的 `502`.
+- Public API 读取运行结果时会先查 thread state；如果 state 为空，会回退到 thread history，并直接透出 LangGraph 的内嵌 run error。
+
 ### 3. 构建和运行
 
 ```bash
@@ -185,9 +191,16 @@ go run ./cmd/server
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/open/v1/agents/:name/chat` | 同步调用 Agent |
-| POST | `/open/v1/agents/:name/stream` | SSE 流式调用 Agent |
-| GET | `/open/v1/agents/:name/threads/:tid/artifacts/*path` | 获取制品 |
+| GET | `/v1/models` | 列出当前 API Token 可见的已发布 Agent |
+| POST | `/v1/responses` | 以 OpenAI Responses 兼容格式同步调用 Agent |
+| GET | `/v1/responses/:id` | 读取当前 API Token 创建的历史响应 |
+| POST | `/v1/chat/completions` | Chat Completions 兼容适配层 |
+| GET | `/v1/files/:id/content` | 下载响应返回的文件 |
+
+补充约束：
+- Public `model` 字段映射为已发布 agent 名称，而不是底层 provider model id。
+- Open API 只允许调用 `prod` agent。
+- 如果 LangGraph `runs/wait` 在 `200` body 中返回 `__error__`，Gateway 会把该运行错误直接映射成 `runtime_error`，避免把失败误报成空响应。
 
 ## 认证机制
 
@@ -221,10 +234,10 @@ curl -X POST http://localhost:8001/api/auth/tokens \
 # 返回: {"token":"df_...","api_token":{...}}
 
 # 使用 API Token 调用开放式 API
-curl -X POST http://localhost:8001/open/v1/agents/my-agent/stream \
+curl -X POST http://localhost:8001/v1/responses \
   -H "Authorization: Bearer df_..." \
   -H "Content-Type: application/json" \
-  -d '{"message":"Hello"}'
+  -d '{"model":"my-agent","input":"Hello"}'
 ```
 
 ## Agent 发布流程
@@ -234,7 +247,7 @@ curl -X POST http://localhost:8001/open/v1/agents/my-agent/stream \
 
 POST /api/agents          # 创建 dev agent
 POST /api/agents/:name/publish  # dev → prod
-POST /open/v1/agents/:name/stream  # 只有 prod agent 可通过 Open API 调用
+POST /v1/responses  # 只有 prod agent 可通过 Open API 调用
 ```
 
 ### 统一协议（ASCII）

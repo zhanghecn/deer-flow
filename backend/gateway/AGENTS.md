@@ -61,7 +61,7 @@ Agent and Skill metadata live in PostgreSQL for querying, while `AGENTS.md` and 
 ### Agent status model
 
 - `dev` is internal-only.
-- `prod` is published and available through `/open/v1/agents/:name/*`.
+- `prod` is published and exposed externally through the `/v1/*` public API surface.
 - Publish copies `agents/dev/{name}/` to `agents/prod/{name}/`. Agent definitions are filesystem-only and do not have companion DB rows.
 
 ## Filesystem Layout
@@ -83,10 +83,12 @@ When the frontend or lead agent creates a new domain agent, slash commands shoul
 ## Working Conventions
 
 - Keep `/api/langgraph/*` policy minimal: pass payload through, inject authenticated identity, leave runtime resolution to Python.
+- Internal Gateway -> LangGraph and Gateway -> sandbox IDE hops are trusted service-to-service calls. They must bypass host `HTTP_PROXY` / `HTTPS_PROXY` so private bridge-network addresses are reached directly.
 - Do not keep legacy fallback execution paths in Gateway once Python owns a business flow. Gateway should proxy or reject, not silently fall back to older subprocess or duplicate-logic branches.
 - Gateway must not execute repository SQL migrations. Schema changes are reviewed and applied manually outside service startup.
 - Preserve the archive-definition-to-runtime-materialization contract.
 - When extending agent-owned assets, add them under `agents/{status}/{name}/...`, copy them during create and publish, and rely on Python startup to seed them into the runtime view.
+- Public API execution should surface LangGraph run failures directly. Do not collapse a concrete runtime error into a vague “missing output” response when history/tasks already explain the failure.
 - Thread uploads live under `threads/{thread_id}/user-data/uploads/`. Go owns upload CRUD there, including auto-generating Markdown companions for convertible documents and keeping delete/list behavior consistent with those companions.
 - Upload conversion should stay best-effort: save the original file first, then attempt Markdown generation without failing the whole upload when conversion tooling is unavailable.
 

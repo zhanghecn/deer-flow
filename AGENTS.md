@@ -10,7 +10,10 @@ Read these docs before changing runtime/backend/sandbox/remote architecture:
 @./docs/testing/knowledge-base/TEST_SPEC.md
 @./docs/testing/knowledge-base/PITFALLS.md
 @./backend/agents/AGENTS.md
+# 注释要求
+您必须写注释
 
+# rules
 Repository-wide runtime architecture rules:
 
 - Documentation boundary rule:

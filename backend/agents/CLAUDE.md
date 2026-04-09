@@ -215,7 +215,7 @@ Configuration priority:
 - See `backend/gateway/CLAUDE.md` for full documentation
 - JWT + API Token auth, PostgreSQL, Agent/Skill CRUD with filesystem sync
 - LangGraph reverse proxy with user_id injection
-- Open API: `POST /open/v1/agents/:name/stream` (SSE, API Token auth, prod agents only)
+- Open API: `GET /v1/models`, `POST /v1/responses`, `POST /v1/chat/completions`, `GET /v1/files/:id/content`
 
 **Python Gateway** (`src/gateway/`, legacy):
 - FastAPI application with health check at `GET /health`
