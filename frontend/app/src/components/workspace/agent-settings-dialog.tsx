@@ -73,7 +73,13 @@ import {
   skillRefKey,
 } from "./agent-skill-refs";
 
-type SettingsTab = "profile" | "skills" | "prompt" | "config" | "access";
+type SettingsTab =
+  | "profile"
+  | "skills"
+  | "prompt"
+  | "config"
+  | "access"
+  | "developer";
 
 type AgentSubagentFormState = {
   id: string;
@@ -407,12 +413,19 @@ export function AgentSettingsDialog({
     error: skillsError,
   } = useSkills();
   const isProdArchive = agentStatus === "prod";
-  const canLoadExportDoc = open && isProdArchive && agent != null;
+  const canLoadExportDoc = open && agent != null;
   const {
     exportDoc,
     isLoading: exportDocLoading,
     error: exportDocError,
   } = useAgentExportDoc(canLoadExportDoc ? agentName : null, canLoadExportDoc);
+  // The external developer contract is always backed by the published prod
+  // archive, even when the operator is currently editing the dev archive in the
+  // settings dialog. Load the export doc whenever the dialog is open so dev
+  // users can still reach the live public surface when a prod publish exists.
+  const exportDocMissing =
+    exportDocError instanceof Error &&
+    /agent not found/i.test(exportDocError.message);
   const {
     tools: toolCatalog,
     isLoading: toolCatalogLoading,
@@ -803,6 +816,11 @@ export function AgentSettingsDialog({
       value: "access",
       label: text.tabs.access,
       icon: <Link2Icon className="size-4" />,
+    },
+    {
+      value: "developer",
+      label: text.tabs.developer,
+      icon: <DownloadIcon className="size-4" />,
     },
   ];
 
@@ -2059,14 +2077,7 @@ export function AgentSettingsDialog({
                       </TabsContent>
 
                       <TabsContent value="access" className="m-0 space-y-6">
-                        <div
-                          className={cn(
-                            "grid gap-6",
-                            isProdArchive
-                              ? "xl:grid-cols-[minmax(280px,0.84fr)_minmax(0,1.16fr)]"
-                              : "xl:grid-cols-2",
-                          )}
-                        >
+                        <div className="grid gap-6 xl:grid-cols-[minmax(320px,0.9fr)_minmax(0,1.1fr)]">
                           <SurfaceCard
                             eyebrow={<Link2Icon className="size-4" />}
                             title={text.launchSurfaceTitle}
@@ -2097,97 +2108,99 @@ export function AgentSettingsDialog({
                               </Button>
                             </div>
                           </SurfaceCard>
+                        </div>
+                      </TabsContent>
 
-                          {isProdArchive ? (
-                            <SurfaceCard
-                              eyebrow={<DownloadIcon className="size-4" />}
-                              title={text.openApiExportTitle}
-                              description={text.openApiExportDescription}
-                            >
-                              {exportDocLoading ? (
-                                <div className="text-muted-foreground flex items-center gap-2 text-sm">
-                                  <Loader2Icon className="size-4 animate-spin" />
-                                  {text.loadingExportDocument}
-                                </div>
-                              ) : exportDocError ? (
-                                <p className="text-sm leading-6">
-                                  {exportDocError instanceof Error
-                                    ? exportDocError.message
-                                    : text.loadExportDocumentFailed}
-                                </p>
-                              ) : exportDoc ? (
-                                <div className="space-y-5">
-                                  <div className="grid gap-3 md:grid-cols-3">
-                                    {[
-                                      text.openApiCapabilityUploads,
-                                      text.openApiCapabilityEvents,
-                                      text.openApiCapabilityJson,
-                                    ].map((item) => (
-                                      <div
-                                        key={item}
-                                        className="border-border/70 bg-background/70 rounded-3xl border px-4 py-4 text-sm leading-6"
-                                      >
-                                        {item}
-                                      </div>
-                                    ))}
+                      <TabsContent value="developer" className="m-0 space-y-6">
+                        <div className="grid gap-6">
+                          <SurfaceCard
+                            eyebrow={<DownloadIcon className="size-4" />}
+                            title={text.openApiExportTitle}
+                            description={text.openApiExportDescription}
+                          >
+                            {exportDocLoading ? (
+                              <div className="text-muted-foreground flex items-center gap-2 text-sm">
+                                <Loader2Icon className="size-4 animate-spin" />
+                                {text.loadingExportDocument}
+                              </div>
+                            ) : exportDoc ? (
+                              <div className="space-y-5">
+                                {!isProdArchive ? (
+                                  <div className="border-border/70 bg-muted/20 rounded-3xl border p-4 text-sm leading-6">
+                                    {text.developerConsolePublishedSource}
                                   </div>
+                                ) : null}
 
-                                  <div className="border-border/70 rounded-3xl border p-4">
-                                    <FieldLabel className="mb-2">
-                                      {text.developerConsoleUrl}
-                                    </FieldLabel>
-                                    <code className="bg-background border-border/70 block rounded-2xl border px-3 py-3 text-xs leading-6 break-all">
-                                      {exportDoc.documentation_url}
-                                    </code>
-                                    <p className="mt-4 text-sm leading-6">
-                                      {text.openApiPlaygroundDescription}
-                                    </p>
-                                    <p className="text-muted-foreground mt-2 text-sm leading-6">
-                                      {text.developerConsoleIncludes}
-                                    </p>
-                                    <div className="mt-4 flex flex-wrap gap-2">
-                                      <Button asChild>
-                                        <a
-                                          href={exportDoc.documentation_url}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                        >
-                                          <PlayIcon className="size-3.5" />
-                                          {text.openApiOpenPlayground}
-                                        </a>
-                                      </Button>
-                                      <Button
-                                        variant="outline"
-                                        onClick={() =>
-                                          handleCopyText(
-                                            exportDoc.documentation_url,
-                                            text.developerConsoleUrlCopied,
-                                          )
-                                        }
-                                      >
-                                        <CopyIcon className="size-3.5" />
-                                        {text.copyUrl}
-                                      </Button>
+                                <div className="grid gap-3 md:grid-cols-3">
+                                  {[
+                                    text.openApiCapabilityUploads,
+                                    text.openApiCapabilityEvents,
+                                    text.openApiCapabilityJson,
+                                  ].map((item) => (
+                                    <div
+                                      key={item}
+                                      className="border-border/70 bg-background/70 rounded-3xl border px-4 py-4 text-sm leading-6"
+                                    >
+                                      {item}
                                     </div>
+                                  ))}
+                                </div>
+
+                                <div className="border-border/70 rounded-3xl border p-4">
+                                  <FieldLabel className="mb-2">
+                                    {text.developerConsoleUrl}
+                                  </FieldLabel>
+                                  <code className="bg-background border-border/70 block rounded-2xl border px-3 py-3 text-xs leading-6 break-all">
+                                    {exportDoc.documentation_url}
+                                  </code>
+                                  <p className="mt-4 text-sm leading-6">
+                                    {text.openApiPlaygroundDescription}
+                                  </p>
+                                  <p className="text-muted-foreground mt-2 text-sm leading-6">
+                                    {text.developerConsoleIncludes}
+                                  </p>
+                                  <div className="mt-4 flex flex-wrap gap-2">
+                                    <Button asChild>
+                                      <a
+                                        href={exportDoc.documentation_url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                      >
+                                        <PlayIcon className="size-3.5" />
+                                        {text.openApiOpenPlayground}
+                                      </a>
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      onClick={() =>
+                                        handleCopyText(
+                                          exportDoc.documentation_url,
+                                          text.developerConsoleUrlCopied,
+                                        )
+                                      }
+                                    >
+                                      <CopyIcon className="size-3.5" />
+                                      {text.copyUrl}
+                                    </Button>
                                   </div>
                                 </div>
-                              ) : (
-                                <p className="text-muted-foreground text-sm leading-6">
-                                  {text.loadExportDocumentFailed}
-                                </p>
-                              )}
-                            </SurfaceCard>
-                          ) : (
-                            <SurfaceCard
-                              eyebrow={<Link2Icon className="size-4" />}
-                              title={text.openApiExportTitle}
-                              description={text.openApiExportUnavailableDescription}
-                            >
+                              </div>
+                            ) : exportDocMissing ? (
                               <p className="text-muted-foreground text-sm leading-6">
                                 {text.publishArchiveFirst}
                               </p>
-                            </SurfaceCard>
-                          )}
+                            ) : exportDocError ? (
+                              <p className="text-sm leading-6">
+                                {exportDocError instanceof Error
+                                  ? exportDocError.message
+                                  : text.loadExportDocumentFailed}
+                              </p>
+                            ) : (
+                              <p className="text-muted-foreground text-sm leading-6">
+                                {text.loadExportDocumentFailed}
+                              </p>
+                            )}
+                          </SurfaceCard>
                         </div>
                       </TabsContent>
                     </>

@@ -21,6 +21,7 @@ type AgentSettingsDialogText = {
     prompt: string;
     config: string;
     access: string;
+    developer: string;
   };
   identityTitle: string;
   identityDescription: string;
@@ -117,6 +118,7 @@ type AgentSettingsDialogText = {
   developerConsoleUrl: string;
   developerConsoleIncludes: string;
   developerConsoleUrlCopied: string;
+  developerConsolePublishedSource: string;
   publishArchiveFirst: string;
   archiveAssetsTitle: string;
   archiveAssetsDescription: string;
@@ -161,7 +163,7 @@ type AgentSettingsDialogText = {
 const enUS: AgentSettingsDialogText = {
   headerEyebrow: "Agent Settings",
   headerDescription:
-    "Adjust how this agent behaves in your workspace, what it can use, and how it can be published. Advanced archive controls live in the last tab.",
+    "Adjust how this agent behaves in your workspace, what it can use, and how it can be published. Advanced archive controls live on the Advanced tab.",
   remoteCliBadge: "remote cli",
   openWorkspace: "Open workspace",
   copyUrl: "Copy URL",
@@ -182,7 +184,8 @@ const enUS: AgentSettingsDialogText = {
     skills: "Skills",
     prompt: "Advanced",
     config: "Config",
-    access: "Share",
+    access: "Launch",
+    developer: "Developer",
   },
   identityTitle: "Identity",
   identityDescription:
@@ -315,6 +318,8 @@ const enUS: AgentSettingsDialogText = {
   developerConsoleIncludes:
     "Base URL, model value, SDK snippets, live `/v1` testing, files, events, and schema browsing all live inside this single console.",
   developerConsoleUrlCopied: "Developer console URL copied",
+  developerConsolePublishedSource:
+    "This developer console always reflects the published prod archive. Draft changes stay internal until you publish again.",
   publishArchiveFirst:
     "Publish this archive first if you want a stable `/v1/responses` contract for external integrations.",
   archiveAssetsTitle: "Archive assets",
@@ -368,7 +373,7 @@ const enUS: AgentSettingsDialogText = {
 const zhCN: AgentSettingsDialogText = {
   headerEyebrow: "智能体设置",
   headerDescription:
-    "调整这个智能体在工作区里的行为、可用能力和发布方式。更底层的归档控制统一收在最后的高级页。",
+    "调整这个智能体在工作区里的行为、可用能力和发布方式。更底层的归档控制统一收在“高级”页签。",
   remoteCliBadge: "远程 CLI",
   openWorkspace: "打开工作区",
   copyUrl: "复制链接",
@@ -387,7 +392,8 @@ const zhCN: AgentSettingsDialogText = {
     skills: "技能",
     prompt: "高级",
     config: "配置",
-    access: "分享",
+    access: "入口",
+    developer: "开发者",
   },
   identityTitle: "身份信息",
   identityDescription: "定义这个归档智能体的定位、描述和目标。",
@@ -513,6 +519,8 @@ const zhCN: AgentSettingsDialogText = {
   developerConsoleIncludes:
     "Base URL、model 取值、SDK 示例、真实 `/v1` 测试、文件、事件和 schema 浏览，全部统一在这个控制台里。",
   developerConsoleUrlCopied: "已复制开发者控制台地址",
+  developerConsolePublishedSource:
+    "这里展示的开发者控制台始终对应已发布的 prod 归档。你在草稿归档里的改动，只有再次发布后才会影响外部契约。",
   publishArchiveFirst:
     "如果你需要用于企业接入的稳定 `/v1/responses` 契约，请先发布这个归档。",
   archiveAssetsTitle: "归档资产",
