@@ -188,9 +188,6 @@ export const zhCN: Translations = {
     ownedBy: (ownerName: string) => `归属：${ownerName}`,
     legacyOwnerless: "历史未认领智能体",
     readOnlyBadge: "只读",
-    claimOwnership: "认领管理权限",
-    claimOwnershipSuccess: (agentName: string) =>
-      `你现在可以管理“${agentName}”了`,
     memoryOff: "记忆已关闭",
     memoryOn: "记忆已启用",
     memoryWithModel: (modelName: string) => `记忆 · ${modelName}`,
@@ -244,6 +241,7 @@ export const zhCN: Translations = {
   // Workspace
   workspace: {
     settingsAndMore: "设置和更多",
+    apiKeys: "API Key",
     userRoleFallback: "用户",
     toggleSidebar: "切换侧边栏",
     artifactsPanelTitle: "文件",

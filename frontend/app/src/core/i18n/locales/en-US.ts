@@ -194,9 +194,6 @@ export const enUS: Translations = {
     ownedBy: (ownerName: string) => `Owned by ${ownerName}`,
     legacyOwnerless: "Unclaimed legacy agent",
     readOnlyBadge: "read only",
-    claimOwnership: "Claim ownership",
-    claimOwnershipSuccess: (agentName: string) =>
-      `You now manage "${agentName}"`,
     memoryOff: "Memory off",
     memoryOn: "Memory on",
     memoryWithModel: (modelName: string) => `Memory · ${modelName}`,
@@ -254,6 +251,7 @@ export const enUS: Translations = {
   // Workspace
   workspace: {
     settingsAndMore: "Settings and more",
+    apiKeys: "API keys",
     userRoleFallback: "User",
     toggleSidebar: "Toggle Sidebar",
     artifactsPanelTitle: "Artifacts",

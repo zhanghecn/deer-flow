@@ -8,9 +8,9 @@ import { motion } from "motion/react";
 import { useMemo } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 
-import { PublicAPIPlaygroundPanel } from "@/components/workspace/public-api-playground-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PublicAPIPlaygroundPanel } from "@/components/workspace/public-api-playground-dialog";
 import {
   buildWorkspaceAgentPath,
   buildWorkspaceAgentSettingsPath,
@@ -162,9 +162,7 @@ export default function AgentPlaygroundPage() {
                 {exportDoc ? (
                   <Button variant="outline" asChild>
                     <a
-                      href={
-                        exportDoc.reference_url ?? exportDoc.documentation_url
-                      }
+                      href={exportDoc.documentation_url}
                       target="_blank"
                       rel="noreferrer"
                     >
@@ -236,9 +234,7 @@ export default function AgentPlaygroundPage() {
               <PublicAPIPlaygroundPanel
                 agentName={runtimeSelection.agentName}
                 defaultBaseURL={exportDoc.api_base_url}
-                documentationURL={
-                  exportDoc.reference_url ?? exportDoc.documentation_url
-                }
+                documentationURL={exportDoc.documentation_url}
               />
             </motion.div>
           </>

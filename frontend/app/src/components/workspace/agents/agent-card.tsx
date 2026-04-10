@@ -2,7 +2,6 @@ import {
   BotIcon,
   BrainIcon,
   CopyIcon,
-  Loader2Icon,
   MessageSquareIcon,
   RocketIcon,
   Settings2Icon,
@@ -32,7 +31,6 @@ import {
 } from "@/components/ui/dialog";
 import {
   buildWorkspaceAgentSettingsPath,
-  useClaimAgent,
   useDeleteAgent,
   usePublishAgent,
 } from "@/core/agents";
@@ -60,7 +58,6 @@ export function AgentCard({ agent }: AgentCardProps) {
   const { t } = useI18n();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const claimAgent = useClaimAgent();
   const deleteAgent = useDeleteAgent();
   const publishAgentMutation = usePublishAgent();
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -109,15 +106,6 @@ export function AgentCard({ agent }: AgentCardProps) {
       await deleteAgent.mutateAsync(agent.name);
       toast.success(t.agents.deleteSuccess);
       setDeleteOpen(false);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  async function handleClaimOwnership() {
-    try {
-      await claimAgent.mutateAsync({ name: agent.name, status: agent.status });
-      toast.success(t.agents.claimOwnershipSuccess(agent.name));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err));
     }
@@ -212,21 +200,6 @@ export function AgentCard({ agent }: AgentCardProps) {
             <Button size="sm" variant="outline" onClick={handleOpenSettings}>
               <Settings2Icon className="mr-1.5 h-3.5 w-3.5" />
               {t.common.settings}
-            </Button>
-          )}
-          {isOwnerlessLegacyAgent && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleClaimOwnership}
-              disabled={claimAgent.isPending}
-            >
-              {claimAgent.isPending ? (
-                <Loader2Icon className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Settings2Icon className="mr-1.5 h-3.5 w-3.5" />
-              )}
-              {t.agents.claimOwnership}
             </Button>
           )}
           <div className="ml-auto flex gap-1">

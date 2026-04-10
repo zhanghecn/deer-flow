@@ -107,13 +107,15 @@ export function buildPublicAgentDocsPath(agentName: string): string {
 
 // Keep the public docs paths centralized because these URLs are shared with
 // external integrators through the export document and should not drift across
-// frontend surfaces.
+// frontend surfaces. The public developer surface is now a single console page,
+// so auxiliary "reference" and "playground" links resolve to anchored sections
+// on that canonical page instead of separate documents.
 export function buildPublicAgentReferencePath(agentName: string): string {
-  return `${buildPublicAgentDocsPath(agentName)}/reference`;
+  return `${buildPublicAgentDocsPath(agentName)}#schema-browser`;
 }
 
 export function buildPublicAgentPlaygroundPath(agentName: string): string {
-  return `${buildPublicAgentDocsPath(agentName)}/playground`;
+  return `${buildPublicAgentDocsPath(agentName)}#live-console`;
 }
 
 export function appendWorkspacePromptParams(

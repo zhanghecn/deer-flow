@@ -114,14 +114,9 @@ type AgentSettingsDialogText = {
   openApiCapabilityJson: string;
   loadingExportDocument: string;
   loadExportDocumentFailed: string;
-  gatewayBase: string;
-  sdkBase: string;
-  copyGatewayBase: string;
-  copySdkBase: string;
-  openDocs: string;
-  openRawExport: string;
-  gatewayBaseCopied: string;
-  sdkBaseCopied: string;
+  developerConsoleUrl: string;
+  developerConsoleIncludes: string;
+  developerConsoleUrlCopied: string;
   publishArchiveFirst: string;
   archiveAssetsTitle: string;
   archiveAssetsDescription: string;
@@ -305,25 +300,21 @@ const enUS: AgentSettingsDialogText = {
   launchUrl: "Launch URL",
   openApiExportTitle: "Developer docs",
   openApiExportDescription:
-    "Published prod agents expose a shareable OpenAI-compatible developer documentation surface.",
+    "External callers only need `base_url`, `api_key`, and `model=<agent_name>`. Published prod agents expose that shareable OpenAI-compatible developer console here.",
   openApiExportUnavailableDescription:
     "External invocation is only available after publishing this agent to prod.",
   openApiPlaygroundDescription:
-    "Open the standalone playground to create a scoped key, upload files, inspect event flow, and validate structured JSON responses.",
-  openApiOpenPlayground: "Open playground",
+    "Open the standalone developer console to create a scoped key, upload files, inspect event flow, and validate structured JSON responses.",
+  openApiOpenPlayground: "Open developer console",
   openApiCapabilityUploads: "Real `/v1/files` upload flow",
   openApiCapabilityEvents: "Request timeline and generated artifacts",
   openApiCapabilityJson: "Text, JSON object, and JSON schema testing",
   loadingExportDocument: "Loading export document...",
   loadExportDocumentFailed: "Failed to load export document.",
-  gatewayBase: "Gateway base",
-  sdkBase: "SDK base (/v1)",
-  copyGatewayBase: "Copy gateway",
-  copySdkBase: "Copy SDK base",
-  openDocs: "Open docs",
-  openRawExport: "Raw export JSON",
-  gatewayBaseCopied: "Gateway base copied",
-  sdkBaseCopied: "SDK base copied",
+  developerConsoleUrl: "Developer console URL",
+  developerConsoleIncludes:
+    "Base URL, model value, SDK snippets, live `/v1` testing, files, events, and schema browsing all live inside this single console.",
+  developerConsoleUrlCopied: "Developer console URL copied",
   publishArchiveFirst:
     "Publish this archive first if you want a stable `/v1/responses` contract for external integrations.",
   archiveAssetsTitle: "Archive assets",
@@ -507,25 +498,21 @@ const zhCN: AgentSettingsDialogText = {
   launchUrl: "启动链接",
   openApiExportTitle: "开发者文档",
   openApiExportDescription:
-    "已发布到 prod 的智能体会暴露一套可直接分享的 OpenAI 兼容开发者文档入口。",
+    "外部调用方只需要 `base_url`、`api_key` 和 `model=<agent_name>`。已发布到 prod 的智能体会在这里暴露可直接分享的 OpenAI 兼容开发者控制台。",
   openApiExportUnavailableDescription:
     "只有将该智能体发布到 prod 后，才支持外部调用。",
   openApiPlaygroundDescription:
-    "打开独立 Playground 页面，创建 scoped key、上传文件、查看事件流，并验证结构化 JSON 返回。",
-  openApiOpenPlayground: "打开 Playground",
+    "打开独立开发者控制台，创建 scoped key、上传文件、查看事件流，并验证结构化 JSON 返回。",
+  openApiOpenPlayground: "打开开发者控制台",
   openApiCapabilityUploads: "真实 `/v1/files` 上传链路",
   openApiCapabilityEvents: "请求时间线与生成文件",
   openApiCapabilityJson: "纯文本、JSON 对象、JSON Schema 测试",
   loadingExportDocument: "正在加载导出文档...",
   loadExportDocumentFailed: "加载导出文档失败。",
-  gatewayBase: "网关地址",
-  sdkBase: "SDK 地址（/v1）",
-  copyGatewayBase: "复制网关地址",
-  copySdkBase: "复制 SDK 地址",
-  openDocs: "打开文档",
-  openRawExport: "原始导出 JSON",
-  gatewayBaseCopied: "已复制网关地址",
-  sdkBaseCopied: "已复制 SDK 地址",
+  developerConsoleUrl: "开发者控制台地址",
+  developerConsoleIncludes:
+    "Base URL、model 取值、SDK 示例、真实 `/v1` 测试、文件、事件和 schema 浏览，全部统一在这个控制台里。",
+  developerConsoleUrlCopied: "已复制开发者控制台地址",
   publishArchiveFirst:
     "如果你需要用于企业接入的稳定 `/v1/responses` 契约，请先发布这个归档。",
   archiveAssetsTitle: "归档资产",

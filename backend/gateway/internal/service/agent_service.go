@@ -728,8 +728,8 @@ func (s *AgentService) syncAgentFilesystem(agent *model.Agent, agentsMD string, 
 		"memory":            agentMemoryPayload(agent.Memory),
 		"subagent_defaults": agentSubagentDefaultsPayload(agent.SubagentDefaults),
 	}
-	// Ownerless archives remain manageable by everyone for backward
-	// compatibility until legacy custom agents have an explicit migration path.
+	// Newly authored agents persist an explicit owner so downstream management
+	// and API-key issuance can follow one owner-of-record contract.
 	if ownerUserID := strings.TrimSpace(agent.OwnerUserID); ownerUserID != "" {
 		config["owner_user_id"] = ownerUserID
 	}

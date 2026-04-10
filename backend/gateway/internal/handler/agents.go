@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -43,10 +42,11 @@ func canManageAgent(c *gin.Context, agent *model.Agent) bool {
 	}
 
 	ownerUserID := strings.TrimSpace(agent.OwnerUserID)
-	// Older custom agents have no persisted owner yet. Keep them manageable by
-	// all authenticated users rather than locking them behind an unknown owner.
 	if ownerUserID == "" {
-		return true
+		// Hard-cut legacy ownerless archives to read-only for normal users. New
+		// agents always persist `owner_user_id`, so silent ownerless manage access
+		// would only preserve ambiguous historical behavior.
+		return false
 	}
 
 	userID := middleware.GetUserID(c)
@@ -234,47 +234,6 @@ func (h *AgentHandler) Publish(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, h.decorateAgentAccess(c, agent))
-}
-
-func (h *AgentHandler) Claim(c *gin.Context) {
-	name := c.Param("name")
-	status := c.DefaultQuery("status", "dev")
-
-	existing, err := agentfs.LoadAgent(h.fs, name, status, false)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
-		return
-	}
-	if existing == nil {
-		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "agent not found"})
-		return
-	}
-	if strings.TrimSpace(existing.OwnerUserID) != "" && !canManageAgent(c, existing) {
-		writeManageAgentForbidden(c)
-		return
-	}
-
-	userID := middleware.GetUserID(c)
-	if userID == uuid.Nil {
-		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "missing user"})
-		return
-	}
-	if err := agentfs.SetAgentOwner(h.fs, name, userID.String()); err != nil {
-		switch {
-		case errors.Is(err, agentfs.ErrAgentAlreadyOwned):
-			writeManageAgentForbidden(c)
-		default:
-			c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
-		}
-		return
-	}
-
-	claimed, err := agentfs.LoadAgent(h.fs, name, status, true)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, h.decorateAgentAccess(c, claimed))
 }
 
 func (h *AgentHandler) CheckName(c *gin.Context) {

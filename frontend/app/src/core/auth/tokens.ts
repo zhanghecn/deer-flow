@@ -21,7 +21,6 @@ export interface CreateAPITokenRequest {
   name: string;
   scopes?: string[];
   allowed_agents?: string[];
-  expires_at?: string | null;
   metadata?: Record<string, unknown>;
 }
 
@@ -74,4 +73,22 @@ export async function createAPIToken(
     );
   }
   return response.json() as Promise<APITokenCreateResponse>;
+}
+
+export async function deleteAPIToken(id: string): Promise<void> {
+  const response = await authFetch(
+    `${getBackendBaseURL()}/api/auth/tokens/${encodeURIComponent(id)}`,
+    {
+      method: "DELETE",
+    },
+  );
+  if (!response.ok) {
+    const error = (await response.json().catch(() => ({}))) as APIErrorShape;
+    throw new Error(
+      resolveAPIErrorMessage(
+        error,
+        `Failed to revoke API token: ${response.statusText}`,
+      ),
+    );
+  }
 }

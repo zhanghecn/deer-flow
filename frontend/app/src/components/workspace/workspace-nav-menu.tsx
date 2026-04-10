@@ -1,5 +1,6 @@
 import {
   ChevronsUpDown,
+  KeyRoundIcon,
   LogOutIcon,
   Settings2Icon,
 } from "lucide-react";
@@ -161,6 +162,18 @@ export function WorkspaceNavMenu() {
                     </p>
                   </div>
                   <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => {
+                      // Update the tab title before route transition so the previous
+                      // chat title does not leak for a frame when jumping into the
+                      // dedicated API key management page from the user menu.
+                      document.title = `${t.workspace.apiKeys} - ${t.pages.appName}`;
+                      void navigate("/workspace/keys");
+                    }}
+                  >
+                    <KeyRoundIcon />
+                    {t.workspace.apiKeys}
+                  </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() => {
                       setSettingsDefaultSection("appearance");

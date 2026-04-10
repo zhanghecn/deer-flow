@@ -1,5 +1,5 @@
-import { Suspense, lazy } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Suspense, lazy } from "react";
 import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 
 import { PromptInputProvider } from "@/components/ai-elements/prompt-input";
@@ -26,6 +26,7 @@ const ChatPage = lazy(() => import("@/app/workspace/chats/[thread_id]/page"));
 const KnowledgeLibraryPage = lazy(
   () => import("@/app/workspace/knowledge/page"),
 );
+const APIKeysPage = lazy(() => import("@/app/workspace/keys/page"));
 const ThreadKnowledgePage = lazy(
   () => import("@/app/workspace/chats/[thread_id]/knowledge/page"),
 );
@@ -274,6 +275,14 @@ export function AppRoutes() {
             element={
               <PageSuspense>
                 <KnowledgeLibraryPage />
+              </PageSuspense>
+            }
+          />
+          <Route
+            path="keys"
+            element={
+              <PageSuspense>
+                <APIKeysPage />
               </PageSuspense>
             }
           />

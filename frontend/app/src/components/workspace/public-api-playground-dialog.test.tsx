@@ -19,24 +19,33 @@ describe("PublicAPIPlaygroundPanel", () => {
         agentName="reviewer"
         defaultBaseURL="http://127.0.0.1:8083/v1"
         accessMode="public"
-        showHero={false}
+        headerMode="hidden"
       />,
     );
 
     const baseURL = screen.getByLabelText("Base URL");
     const userKey = screen.getByLabelText("User Key");
-    const previousResponse = screen.getByLabelText("Previous response ID");
     const prompt = screen.getByLabelText("Prompt");
-    const maxOutputTokens = screen.getByLabelText("Max output tokens");
 
     expect(baseURL).toHaveValue("http://127.0.0.1:8083/v1");
-    expect(previousResponse).toHaveValue("");
-    expect(maxOutputTokens).toHaveValue("");
+    expect(
+      screen.queryByLabelText("Previous response ID"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText("Max output tokens"),
+    ).not.toBeInTheDocument();
 
     await user.type(userKey, "df_test_key");
     await user.type(prompt, "Return ok.");
 
     expect(userKey).toHaveValue("df_test_key");
     expect(prompt).toHaveValue("Return ok.");
+
+    await user.click(
+      screen.getByRole("button", { name: /Advanced controls/i }),
+    );
+
+    expect(screen.getByLabelText("Previous response ID")).toHaveValue("");
+    expect(screen.getByLabelText("Max output tokens")).toHaveValue("");
   });
 });

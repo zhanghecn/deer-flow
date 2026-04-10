@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/openagents/gateway/internal/agentfs"
 	"github.com/openagents/gateway/internal/middleware"
 	"github.com/openagents/gateway/internal/model"
 	"github.com/openagents/gateway/internal/repository"
@@ -147,31 +147,33 @@ func (h *AuthHandler) CreateToken(c *gin.Context) {
 	}
 
 	userID := middleware.GetUserID(c)
-
-	// Generate random token
-	plainToken := generateRandomToken()
-	hash := hashTokenStr(plainToken)
 	metadata, err := model.ValidateAPITokenMetadata(req.Metadata)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return
 	}
-	if req.ExpiresAt != nil && req.ExpiresAt.Before(time.Now().UTC()) {
-		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "expires_at must be in the future"})
+	if req.ExpiresAt != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "expires_at is no longer supported"})
 		return
 	}
 
+	allowedAgents, err := h.validateOwnedPublishedTokenAgents(userID, req.AllowedAgents)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	plainToken := generateRandomToken()
 	apiToken := &model.APIToken{
 		ID:            uuid.New(),
 		UserID:        userID,
-		TokenHash:     hash,
+		TokenHash:     hashTokenStr(plainToken),
 		TokenPrefix:   tokenPrefixFromToken(plainToken),
 		Name:          strings.TrimSpace(req.Name),
 		Scopes:        model.NormalizeAPITokenScopes(req.Scopes),
 		Status:        model.APITokenStatusActive,
-		AllowedAgents: model.NormalizeAPITokenAllowedAgents(req.AllowedAgents),
+		AllowedAgents: allowedAgents,
 		Metadata:      metadata,
-		ExpiresAt:     req.ExpiresAt,
 	}
 
 	if err := h.tokenRepo.Create(c.Request.Context(), apiToken); err != nil {
@@ -183,6 +185,34 @@ func (h *AuthHandler) CreateToken(c *gin.Context) {
 		APIToken:   *apiToken,
 		PlainToken: plainToken,
 	})
+}
+
+func (h *AuthHandler) validateOwnedPublishedTokenAgents(
+	userID uuid.UUID,
+	requestedAgents []string,
+) ([]string, error) {
+	normalizedAgents := model.NormalizeAPITokenAllowedAgents(requestedAgents)
+	if len(normalizedAgents) != 1 {
+		return nil, fmt.Errorf("allowed_agents must contain exactly one published agent")
+	}
+
+	agentName := normalizedAgents[0]
+	// Public API keys now bind to one creator-owned prod agent so inventory,
+	// audit logs, and downstream support work can reason about one credential ->
+	// one agent without legacy broad-access ambiguity.
+	agent, err := agentfs.LoadAgent(h.fs, agentName, "prod", false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load agent %q: %w", agentName, err)
+	}
+	if agent == nil {
+		return nil, fmt.Errorf("published agent %q not found", agentName)
+	}
+
+	if strings.TrimSpace(agent.OwnerUserID) != userID.String() {
+		return nil, fmt.Errorf("you can only create keys for prod agents you own")
+	}
+
+	return normalizedAgents, nil
 }
 
 func (h *AuthHandler) DeleteToken(c *gin.Context) {

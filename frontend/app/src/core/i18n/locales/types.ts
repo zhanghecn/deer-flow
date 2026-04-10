@@ -140,8 +140,6 @@ export interface Translations {
     ownedBy: (ownerName: string) => string;
     legacyOwnerless: string;
     readOnlyBadge: string;
-    claimOwnership: string;
-    claimOwnershipSuccess: (agentName: string) => string;
     memoryOff: string;
     memoryOn: string;
     memoryWithModel: (modelName: string) => string;
@@ -192,6 +190,7 @@ export interface Translations {
   // Workspace
   workspace: {
     settingsAndMore: string;
+    apiKeys: string;
     userRoleFallback: string;
     toggleSidebar: string;
     artifactsPanelTitle: string;

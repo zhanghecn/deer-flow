@@ -2,26 +2,21 @@ import type { Locale } from "@/core/i18n";
 
 type AgentPublicDocsPageText = {
   eyebrow: string;
-  titleSuffix: string;
-  description: string;
-  stableContract: string;
+  heroTitle: string;
+  heroDescription: string;
   baseURL: string;
   modelName: string;
   apiKeyLabel: string;
-  docsHome: string;
-  apiReference: string;
-  debugPlayground: string;
-  rawExport: string;
-  rawOpenAPI: string;
-  openHome: string;
-  quickstartTitle: string;
-  quickstartDescription: string;
-  stepOneTitle: string;
-  stepOneDescription: string;
-  stepTwoTitle: string;
-  stepTwoDescription: string;
-  stepThreeTitle: string;
-  stepThreeDescription: string;
+  navQuickstart: string;
+  navConsole: string;
+  navContract: string;
+  navSchema: string;
+  workflowEyebrow: string;
+  workflowTitle: string;
+  workflowStepBaseURL: string;
+  workflowStepModel: string;
+  workflowStepMode: string;
+  snippetEyebrow: string;
   snippetTitle: string;
   snippetDescription: string;
   jsTab: string;
@@ -29,113 +24,184 @@ type AgentPublicDocsPageText = {
   curlTab: string;
   copy: string;
   copied: string;
-  supportTitle: string;
-  supportDescription: string;
-  supportStreaming: string;
-  supportFiles: string;
-  supportStructured: string;
-  supportArtifacts: string;
+  consoleEyebrow: string;
+  consoleTitle: string;
+  consoleDescription: string;
+  contractEyebrow: string;
+  contractTitle: string;
+  contractDescription: string;
+  versionLabel: string;
+  routesLabel: string;
+  modesLabel: string;
+  modesValue: string;
+  authTitle: string;
+  authDescription: string;
+  authHeaderLabel: string;
+  authValueLabel: string;
+  authScopeLabel: string;
+  authHeaderValue: string;
+  authValueExample: string;
+  authScopeValue: string;
+  endpointsTitle: string;
+  endpointsDescription: string;
+  openInSchema: string;
+  schemaEyebrow: string;
+  schemaTitle: string;
+  schemaDescription: string;
+  openSchema: string;
+  hideSchema: string;
+  rawOpenAPI: string;
+  rawExport: string;
+  loadingSchema: string;
   loadingTitle: string;
   loadingDescription: string;
   loadFailedTitle: string;
   loadFailedDescription: string;
+  openHome: string;
 };
 
 const enUS: AgentPublicDocsPageText = {
-  eyebrow: "Published Agent",
-  titleSuffix: "Developer Docs",
-  description:
-    "External teams only need three inputs to use this agent: the `/v1` base URL, a user-issued API key, and `model=<agent_name>`.",
-  stableContract: "OpenAI-style request surface",
+  eyebrow: "Developer Console",
+  heroTitle: "One surface for docs, testing, and contract inspection.",
+  heroDescription:
+    "External callers only need `base_url`, `api_key`, and `model=<agent_name>`. This console keeps quickstart snippets, live `/v1` calls, files, events, and schema browsing in one place.",
   baseURL: "Base URL",
   modelName: "Model",
   apiKeyLabel: "API Key",
-  docsHome: "Docs home",
-  apiReference: "API reference",
-  debugPlayground: "Debug playground",
-  rawExport: "Raw export JSON",
-  rawOpenAPI: "Raw OpenAPI JSON",
-  openHome: "Open workspace",
-  quickstartTitle: "Quick start",
-  quickstartDescription:
-    "Copy the `/v1` address, use the issued API key, and call the published agent name as the model.",
-  stepOneTitle: "1. Point your OpenAI SDK to the `/v1` base URL",
-  stepOneDescription:
-    "No provider-specific model endpoint is exposed. The published gateway address is the only northbound base URL.",
-  stepTwoTitle: "2. Set `model=<agent_name>`",
-  stepTwoDescription:
-    "The `model` field targets this published agent contract, not the underlying provider model.",
-  stepThreeTitle: "3. Choose blocking or SSE",
-  stepThreeDescription:
-    "Use blocking mode for a final envelope, or SSE when your product needs live agent events and text deltas.",
-  snippetTitle: "SDK snippets",
+  navQuickstart: "Quickstart",
+  navConsole: "Live console",
+  navContract: "Contract",
+  navSchema: "Schema",
+  workflowEyebrow: "Ship the first call",
+  workflowTitle: "Use the published agent like a normal OpenAI-compatible product surface.",
+  workflowStepBaseURL:
+    "Point your client at the published `/v1` base URL, not the private provider endpoint.",
+  workflowStepModel:
+    "Set `model=<agent_name>` so the caller targets the published contract rather than the underlying model.",
+  workflowStepMode:
+    "Pick blocking or SSE based on UX. The same surface also supports files and strict JSON output.",
+  snippetEyebrow: "SDK snippet",
+  snippetTitle: "Start with one successful request",
   snippetDescription:
-    "These examples are the shortest possible path from zero to a working request.",
+    "Use the standard OpenAI client first. After that works, move on to streaming, files, and structured output.",
   jsTab: "JavaScript",
   pythonTab: "Python",
   curlTab: "cURL",
   copy: "Copy",
   copied: "Copied",
-  supportTitle: "What you get",
-  supportDescription:
-    "The published surface stays OpenAI-compatible on input while keeping richer agent execution output available when you need it.",
-  supportStreaming: "Blocking and SSE",
-  supportFiles: "File upload and downloads",
-  supportStructured: "Strict structured output",
-  supportArtifacts: "Generated artifacts and events",
-  loadingTitle: "Loading published contract",
+  consoleEyebrow: "Live console",
+  consoleTitle: "Run the real public contract",
+  consoleDescription:
+    "Compose a request, switch between blocking and SSE, upload files, inspect runtime events, and download generated artifacts without leaving the page.",
+  contractEyebrow: "Contract map",
+  contractTitle: "Authentication and route summary",
+  contractDescription:
+    "Scan the public surface first. Open the schema browser only when you need request or response fields.",
+  versionLabel: "Version",
+  routesLabel: "Routes",
+  modesLabel: "Modes",
+  modesValue: "Blocking / SSE / Files / JSON",
+  authTitle: "Bearer authentication",
+  authDescription:
+    "Every northbound request uses a published-agent API key created by the platform. Contact the agent owner when you need a scoped key for this console.",
+  authHeaderLabel: "Header",
+  authValueLabel: "Value",
+  authScopeLabel: "Scope",
+  authHeaderValue: "Authorization",
+  authValueExample: "Bearer <user_created_key>",
+  authScopeValue:
+    "Applies to `/v1/models`, `/v1/responses`, `/v1/chat/completions`, and `/v1/files`.",
+  endpointsTitle: "Public routes",
+  endpointsDescription:
+    "These operations are the only public northbound surface external developers should integrate against.",
+  openInSchema: "Open in schema",
+  schemaEyebrow: "Schema browser",
+  schemaTitle: "Browse the full OpenAPI contract on demand",
+  schemaDescription:
+    "The detailed request and response schema stays on the same page, but remains collapsed until someone actually needs field-level detail.",
+  openSchema: "Open schema browser",
+  hideSchema: "Hide schema browser",
+  rawOpenAPI: "Raw OpenAPI",
+  rawExport: "Export JSON",
+  loadingSchema: "Loading OpenAPI schema...",
+  loadingTitle: "Loading developer console",
   loadingDescription:
-    "Preparing the public developer entry for this published agent.",
-  loadFailedTitle: "Documentation unavailable",
+    "Preparing the published agent console and live contract metadata.",
+  loadFailedTitle: "Developer console unavailable",
   loadFailedDescription:
     "The published agent export document could not be loaded.",
+  openHome: "Open workspace",
 };
 
 const zhCN: AgentPublicDocsPageText = {
-  eyebrow: "已发布 Agent",
-  titleSuffix: "开发者文档",
-  description:
-    "外部团队接入这个 agent 只需要三项输入：`/v1` Base URL、用户创建的 API key，以及 `model=<agent_name>`。",
-  stableContract: "OpenAI 风格请求面",
+  eyebrow: "开发者控制台",
+  heroTitle: "文档、调试与契约检查统一在一个页面里。",
+  heroDescription:
+    "外部调用方只需要 `base_url`、`api_key` 和 `model=<agent_name>`。这个页面把 quickstart、真实 `/v1` 调用、文件、事件和 schema 浏览统一收进一个 developer console。",
   baseURL: "Base URL",
   modelName: "Model",
   apiKeyLabel: "API Key",
-  docsHome: "文档首页",
-  apiReference: "接口参考",
-  debugPlayground: "调试 Playground",
-  rawExport: "原始导出 JSON",
-  rawOpenAPI: "原始 OpenAPI JSON",
-  openHome: "打开工作台",
-  quickstartTitle: "快速接入",
-  quickstartDescription:
-    "复制 `/v1` 地址，使用发放的 API key，并把已发布 agent 名称作为 model 调用即可。",
-  stepOneTitle: "1. 把 OpenAI SDK 指向 `/v1` Base URL",
-  stepOneDescription:
-    "平台不会暴露任何 provider 专属模型地址。对外唯一入口就是已发布网关的 `/v1` 地址。",
-  stepTwoTitle: "2. 设置 `model=<agent_name>`",
-  stepTwoDescription:
-    "`model` 指向的是这个已发布 agent 契约，而不是底层 provider model。",
-  stepThreeTitle: "3. 选择 blocking 或 SSE",
-  stepThreeDescription:
-    "只要最终结果时用 blocking；需要过程事件和文本增量时用 SSE。",
-  snippetTitle: "最短示例",
-  snippetDescription: "下面这些示例就是从零到成功发起请求的最短路径。",
+  navQuickstart: "快速接入",
+  navConsole: "实时控制台",
+  navContract: "契约",
+  navSchema: "Schema",
+  workflowEyebrow: "第一次接通",
+  workflowTitle: "把已发布 agent 当成标准 OpenAI-compatible 产品面来接入。",
+  workflowStepBaseURL:
+    "客户端应指向公开 `/v1` base URL，而不是底层私有 provider 地址。",
+  workflowStepModel:
+    "设置 `model=<agent_name>`，让调用命中已发布契约，而不是底层模型。",
+  workflowStepMode:
+    "根据体验选择 blocking 或 SSE。同一接口面同时支持文件和严格 JSON 输出。",
+  snippetEyebrow: "SDK 示例",
+  snippetTitle: "先跑通第一条成功请求",
+  snippetDescription:
+    "先用标准 OpenAI 客户端接通。确认成功后，再继续接入流式、文件和结构化输出。",
   jsTab: "JavaScript",
   pythonTab: "Python",
   curlTab: "cURL",
   copy: "复制",
   copied: "已复制",
-  supportTitle: "你能获得什么",
-  supportDescription:
-    "对外请求面保持 OpenAI 兼容，同时在需要时仍能保留更丰富的 agent 执行输出。",
-  supportStreaming: "Blocking 与 SSE",
-  supportFiles: "文件上传与下载",
-  supportStructured: "严格结构化输出",
-  supportArtifacts: "生成文件与执行事件",
-  loadingTitle: "正在加载已发布契约",
-  loadingDescription: "正在准备这个已发布 agent 的公共接入入口。",
-  loadFailedTitle: "文档暂不可用",
-  loadFailedDescription: "当前无法加载该已发布 agent 的导出文档。",
+  consoleEyebrow: "实时控制台",
+  consoleTitle: "直接运行公开契约",
+  consoleDescription:
+    "在同一页里组织请求、切换 blocking 和 SSE、上传文件、观察运行事件，并下载生成产物。",
+  contractEyebrow: "契约地图",
+  contractTitle: "认证方式与路由总览",
+  contractDescription:
+    "先看公开接口面，再在确实需要字段级细节时打开 schema 浏览器。",
+  versionLabel: "版本",
+  routesLabel: "路由数",
+  modesLabel: "支持模式",
+  modesValue: "Blocking / SSE / Files / JSON",
+  authTitle: "Bearer 鉴权",
+  authDescription:
+    "所有北向请求都使用平台创建的已发布 agent API Key。若需要这个控制台可用的 scoped key，请联系 agent 拥有者。",
+  authHeaderLabel: "Header",
+  authValueLabel: "取值",
+  authScopeLabel: "范围",
+  authHeaderValue: "Authorization",
+  authValueExample: "Bearer <user_created_key>",
+  authScopeValue:
+    "适用于 `/v1/models`、`/v1/responses`、`/v1/chat/completions` 和 `/v1/files`。",
+  endpointsTitle: "公开路由",
+  endpointsDescription:
+    "这些操作就是外部开发者应该集成的唯一北向公共接口面。",
+  openInSchema: "打开 Schema",
+  schemaEyebrow: "Schema 浏览器",
+  schemaTitle: "按需查看完整 OpenAPI 契约",
+  schemaDescription:
+    "字段级 request / response schema 仍在同一页中，但默认折叠，只有真正需要时再展开。",
+  openSchema: "打开 Schema 浏览器",
+  hideSchema: "收起 Schema 浏览器",
+  rawOpenAPI: "原始 OpenAPI",
+  rawExport: "导出 JSON",
+  loadingSchema: "正在加载 OpenAPI Schema...",
+  loadingTitle: "正在加载开发者控制台",
+  loadingDescription: "正在准备已发布 agent 的控制台和实时契约元数据。",
+  loadFailedTitle: "开发者控制台暂不可用",
+  loadFailedDescription: "当前无法加载这个已发布 agent 的导出文档。",
+  openHome: "打开工作台",
 };
 
 export function getAgentPublicDocsPageText(locale: Locale) {

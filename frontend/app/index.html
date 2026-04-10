@@ -4,6 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OpenAgents</title>
+    <script>
+      // Pre-bootstrap dedicated page titles that should not flash the generic
+      // app name during hard reload before the React router hydrates.
+      (function () {
+        var localeMatch = document.cookie.match(/(?:^|; )locale=([^;]+)/);
+        var locale = localeMatch ? decodeURIComponent(localeMatch[1]) : "en-US";
+        if (window.location.pathname === "/workspace/keys") {
+          document.title =
+            (locale === "zh-CN" ? "API Key" : "API keys") + " - OpenAgents";
+        }
+      })();
+    </script>
     <meta name="description" content="A LangChain-based framework for building super agents." />
     <link rel="icon" href="/favicon.ico" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />

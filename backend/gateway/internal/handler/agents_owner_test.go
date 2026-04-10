@@ -128,12 +128,12 @@ func TestAgentHandlerPublishRejectsNonOwner(t *testing.T) {
 	}
 }
 
-func TestAgentHandlerClaimAssignsOwnerForLegacyOwnerlessAgent(t *testing.T) {
+func TestAgentHandlerGetMarksLegacyOwnerlessAgentReadOnly(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
 	fsStore := storage.NewFS(t.TempDir())
-	claimerUserID := uuid.New()
+	viewerUserID := uuid.New()
 	if err := fsStore.WriteAgentFiles("reviewer", "dev", "# Agent", map[string]interface{}{
 		"name":           "reviewer",
 		"description":    "Legacy ownerless agent",
@@ -144,10 +144,10 @@ func TestAgentHandlerClaimAssignsOwnerForLegacyOwnerlessAgent(t *testing.T) {
 	}
 
 	handler := NewAgentHandler(service.NewAgentService(fsStore), fsStore, nil)
-	context, recorder := newAuthedAgentContext(http.MethodPost, "/api/agents/reviewer/claim?status=dev", claimerUserID, "user")
+	context, recorder := newAuthedAgentContext(http.MethodGet, "/api/agents/reviewer?status=dev", viewerUserID, "user")
 	context.Params = gin.Params{{Key: "name", Value: "reviewer"}}
 
-	handler.Claim(context)
+	handler.Get(context)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d body=%s", recorder.Code, recorder.Body.String())
@@ -157,11 +157,11 @@ func TestAgentHandlerClaimAssignsOwnerForLegacyOwnerlessAgent(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
-	if payload.OwnerUserID != claimerUserID.String() {
-		t.Fatalf("payload.OwnerUserID = %q, want %q", payload.OwnerUserID, claimerUserID.String())
+	if payload.OwnerUserID != "" {
+		t.Fatalf("payload.OwnerUserID = %q, want empty owner for legacy archive", payload.OwnerUserID)
 	}
-	if !payload.CanManage {
-		t.Fatal("payload.CanManage = false, want true for claimer")
+	if payload.CanManage {
+		t.Fatal("payload.CanManage = true, want false for ownerless legacy archive")
 	}
 }
 

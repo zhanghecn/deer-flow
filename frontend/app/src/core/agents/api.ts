@@ -118,26 +118,6 @@ export async function publishAgent(name: string): Promise<Agent> {
   return res.json() as Promise<Agent>;
 }
 
-export async function claimAgent(
-  name: string,
-  status?: AgentStatus,
-): Promise<Agent> {
-  const query = status ? `?status=${encodeURIComponent(status)}` : "";
-  const res = await authFetch(
-    `${getBackendBaseURL()}/api/agents/${name}/claim${query}`,
-    {
-      method: "POST",
-    },
-  );
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as APIErrorShape;
-    throw new Error(
-      resolveAPIErrorMessage(err, `Failed to claim agent: ${res.statusText}`),
-    );
-  }
-  return res.json() as Promise<Agent>;
-}
-
 export async function checkAgentName(
   name: string,
 ): Promise<{ available: boolean; name: string }> {

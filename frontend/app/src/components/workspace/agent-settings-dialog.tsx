@@ -34,7 +34,6 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  buildWorkspaceAgentPlaygroundPath,
   buildWorkspaceAgentPath,
   isLeadAgent,
   type Agent,
@@ -437,28 +436,12 @@ export function AgentSettingsDialog({
       }),
     [agentName, agentStatus, executionBackend, remoteSessionId],
   );
-  const playgroundPath = useMemo(
-    () =>
-      buildWorkspaceAgentPlaygroundPath({
-        agentName,
-        agentStatus,
-        executionBackend,
-        remoteSessionId,
-      }),
-    [agentName, agentStatus, executionBackend, remoteSessionId],
-  );
-
   const launchURL = useMemo(() => {
     if (typeof window === "undefined") {
       return launchPath;
     }
     return `${window.location.origin}${launchPath}`;
   }, [launchPath]);
-  // Keep the host gateway URL separate from the SDK-ready `/v1` base so
-  // operators do not paste the wrong value into OpenAI-compatible clients.
-  const exportGatewayBaseURL =
-    exportDoc?.gateway_base_url ?? exportDoc?.api_base_url ?? "";
-  const exportSDKBaseURL = exportDoc?.api_base_url ?? "";
   const ownerLabel = useMemo(() => {
     if (!agent?.owner_user_id) {
       return t.agents.legacyOwnerless;
@@ -2134,26 +2117,6 @@ export function AgentSettingsDialog({
                                 </p>
                               ) : exportDoc ? (
                                 <div className="space-y-5">
-                                  <div className="grid gap-3 md:grid-cols-2">
-                                    <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
-                                      <FieldLabel className="mb-2">
-                                        {text.gatewayBase}
-                                      </FieldLabel>
-                                      <code className="bg-background border-border/70 block rounded-2xl border px-3 py-3 text-xs leading-6 break-all">
-                                        {exportGatewayBaseURL}
-                                      </code>
-                                    </div>
-
-                                    <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
-                                      <FieldLabel className="mb-2">
-                                        {text.sdkBase}
-                                      </FieldLabel>
-                                      <code className="bg-background border-border/70 block rounded-2xl border px-3 py-3 text-xs leading-6 break-all">
-                                        {exportSDKBaseURL}
-                                      </code>
-                                    </div>
-                                  </div>
-
                                   <div className="grid gap-3 md:grid-cols-3">
                                     {[
                                       text.openApiCapabilityUploads,
@@ -2170,89 +2133,42 @@ export function AgentSettingsDialog({
                                   </div>
 
                                   <div className="border-border/70 rounded-3xl border p-4">
-                                    <p className="text-sm leading-6">
+                                    <FieldLabel className="mb-2">
+                                      {text.developerConsoleUrl}
+                                    </FieldLabel>
+                                    <code className="bg-background border-border/70 block rounded-2xl border px-3 py-3 text-xs leading-6 break-all">
+                                      {exportDoc.documentation_url}
+                                    </code>
+                                    <p className="mt-4 text-sm leading-6">
                                       {text.openApiPlaygroundDescription}
+                                    </p>
+                                    <p className="text-muted-foreground mt-2 text-sm leading-6">
+                                      {text.developerConsoleIncludes}
                                     </p>
                                     <div className="mt-4 flex flex-wrap gap-2">
                                       <Button asChild>
-                                        <Link to={playgroundPath}>
-                                          <PlayIcon className="size-3.5" />
-                                          {text.openApiOpenPlayground}
-                                        </Link>
-                                      </Button>
-                                      <Button
-                                        variant="outline"
-                                        onClick={() =>
-                                          handleCopyText(
-                                            exportGatewayBaseURL,
-                                            text.gatewayBaseCopied,
-                                          )
-                                        }
-                                      >
-                                        <CopyIcon className="size-3.5" />
-                                        {text.copyGatewayBase}
-                                      </Button>
-                                      <Button
-                                        variant="outline"
-                                        onClick={() =>
-                                          handleCopyText(
-                                            exportSDKBaseURL,
-                                            text.sdkBaseCopied,
-                                          )
-                                        }
-                                      >
-                                        <Link2Icon className="size-3.5" />
-                                        {text.copySdkBase}
-                                      </Button>
-                                      <Button variant="outline" asChild>
                                         <a
                                           href={exportDoc.documentation_url}
                                           target="_blank"
                                           rel="noreferrer"
                                         >
-                                          <ExternalLinkIcon className="size-3.5" />
-                                          {text.openDocs}
+                                          <PlayIcon className="size-3.5" />
+                                          {text.openApiOpenPlayground}
                                         </a>
                                       </Button>
-                                      {exportDoc.documentation_json_url ? (
-                                        <Button variant="outline" asChild>
-                                          <a
-                                            href={exportDoc.documentation_json_url}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                          >
-                                            <DownloadIcon className="size-3.5" />
-                                            {text.openRawExport}
-                                          </a>
-                                        </Button>
-                                      ) : null}
+                                      <Button
+                                        variant="outline"
+                                        onClick={() =>
+                                          handleCopyText(
+                                            exportDoc.documentation_url,
+                                            text.developerConsoleUrlCopied,
+                                          )
+                                        }
+                                      >
+                                        <CopyIcon className="size-3.5" />
+                                        {text.copyUrl}
+                                      </Button>
                                     </div>
-                                  </div>
-
-                                  <div className="grid gap-3">
-                                    {Object.entries(exportDoc.endpoints).map(
-                                      ([endpointName, endpoint]) => (
-                                        <div
-                                          key={endpointName}
-                                          className="border-border/70 bg-background/60 rounded-3xl border p-4"
-                                        >
-                                          <div className="flex flex-wrap items-center gap-2">
-                                            <Badge variant="secondary">
-                                              {endpoint.method}
-                                            </Badge>
-                                            <p className="text-sm font-medium capitalize">
-                                              {endpointName.replaceAll(
-                                                "_",
-                                                " ",
-                                              )}
-                                            </p>
-                                          </div>
-                                          <code className="bg-background border-border/70 mt-3 block rounded-2xl border px-3 py-3 text-xs leading-6 break-all">
-                                            {endpoint.url}
-                                          </code>
-                                        </div>
-                                      ),
-                                    )}
                                   </div>
                                 </div>
                               ) : (

@@ -7,10 +7,6 @@ import { AgentCard } from "./agent-card";
 vi.mock("@/core/agents", () => ({
   buildWorkspaceAgentPath: () => "/workspace/agents/reviewer/chats/new",
   buildWorkspaceAgentSettingsPath: () => "/workspace/agents/reviewer/settings",
-  useClaimAgent: () => ({
-    mutateAsync: vi.fn(),
-    isPending: false,
-  }),
   useDeleteAgent: () => ({
     mutateAsync: vi.fn(),
     isPending: false,
@@ -48,8 +44,6 @@ vi.mock("@/core/i18n/hooks", () => ({
         ownedBy: (ownerName: string) => `Owned by ${ownerName}`,
         legacyOwnerless: "Unclaimed legacy agent",
         readOnlyBadge: "read only",
-        claimOwnership: "Claim ownership",
-        claimOwnershipSuccess: () => "Claimed",
       },
       common: {
         settings: "Settings",
@@ -115,7 +109,7 @@ describe("AgentCard", () => {
     expect(screen.queryByTitle("Delete")).not.toBeInTheDocument();
   });
 
-  it("shows owner metadata and claim action for legacy ownerless agents", () => {
+  it("shows owner metadata for legacy ownerless agents without claim actions", () => {
     render(
       <MemoryRouter>
         <AgentCard
@@ -135,8 +129,8 @@ describe("AgentCard", () => {
       screen.getByText(/owner: Unclaimed legacy agent/i),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Claim ownership" }),
-    ).toBeInTheDocument();
+      screen.queryByRole("button", { name: "Claim ownership" }),
+    ).not.toBeInTheDocument();
   });
 
   it("shows the resolved owner label for claimed agents", () => {
@@ -158,8 +152,5 @@ describe("AgentCard", () => {
     );
 
     expect(screen.getByText(/owner: Owned by Alice/i)).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "Claim ownership" }),
-    ).not.toBeInTheDocument();
   });
 });

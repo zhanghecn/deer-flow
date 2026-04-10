@@ -211,7 +211,6 @@ func main() {
 		api.GET("/agents/:name", agentH.Get)
 		api.PUT("/agents/:name", agentH.Update)
 		api.DELETE("/agents/:name", agentH.Delete)
-		api.POST("/agents/:name/claim", agentH.Claim)
 		api.POST("/agents/:name/publish", agentH.Publish)
 		api.GET("/agents/:name/export", agentH.Export)
 
