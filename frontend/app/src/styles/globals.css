@@ -72,8 +72,9 @@
 
 @theme {
   --font-sans:
-    "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, sans-serif,
-    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    "SF Pro Text", "Segoe UI", "Helvetica Neue", ui-sans-serif, system-ui,
+    -apple-system, BlinkMacSystemFont, sans-serif, "Apple Color Emoji",
+    "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 
   --animate-fade-in: fade-in 1.1s;
   @keyframes fade-in {
