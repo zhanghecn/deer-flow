@@ -23,6 +23,7 @@ const AgentPublicPlaygroundPage = lazy(
 const WorkspaceLayout = lazy(() => import("@/app/workspace/layout"));
 const ChatsPage = lazy(() => import("@/app/workspace/chats/page"));
 const ChatPage = lazy(() => import("@/app/workspace/chats/[thread_id]/page"));
+const NewChatPage = lazy(() => import("@/app/workspace/chats/new/page"));
 const KnowledgeLibraryPage = lazy(
   () => import("@/app/workspace/knowledge/page"),
 );
@@ -46,6 +47,9 @@ const SkillAuthoringPage = lazy(
 );
 const AgentChatPage = lazy(
   () => import("@/app/workspace/agents/[agent_name]/chats/[thread_id]/page"),
+);
+const AgentNewChatPage = lazy(
+  () => import("@/app/workspace/agents/[agent_name]/chats/new/page"),
 );
 
 // Public docs routes live outside the workspace shell, so they need their own
@@ -168,7 +172,7 @@ export function AppRoutes() {
               index
               element={
                 <PageSuspense>
-                  <ChatPage />
+                  <NewChatPage />
                 </PageSuspense>
               }
             />
@@ -244,7 +248,7 @@ export function AppRoutes() {
               index
               element={
                 <PageSuspense>
-                  <AgentChatPage />
+                  <AgentNewChatPage />
                 </PageSuspense>
               }
             />

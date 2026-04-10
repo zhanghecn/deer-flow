@@ -4,13 +4,17 @@ import { groupAgentsByName } from "./directory";
 import type { Agent } from "./types";
 
 function createAgent(overrides: Partial<Agent> & Pick<Agent, "name" | "status">): Agent {
+  // Keep required identity fields explicit so the helper cannot accidentally
+  // shadow them through a later object spread when TypeScript tightens checks.
+  const { name, status, ...rest } = overrides;
+
   return {
     description: "",
     model: null,
     tool_groups: null,
-    name: overrides.name,
-    status: overrides.status,
-    ...overrides,
+    ...rest,
+    name,
+    status,
   };
 }
 
