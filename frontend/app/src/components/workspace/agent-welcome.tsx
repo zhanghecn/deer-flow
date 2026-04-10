@@ -1,6 +1,7 @@
 import { BotIcon } from "lucide-react";
 
 import { type Agent } from "@/core/agents";
+import { useI18n } from "@/core/i18n/hooks";
 import { cn } from "@/lib/utils";
 
 export function AgentWelcome({
@@ -14,6 +15,7 @@ export function AgentWelcome({
   agentName: string;
   agentStatus?: "dev" | "prod";
 }) {
+  const { t } = useI18n();
   const displayName = agent?.name ?? agentName;
   const description = agent?.description;
 
@@ -29,9 +31,9 @@ export function AgentWelcome({
       </div>
       <div className="flex items-center gap-2 text-2xl font-bold">
         <span>{displayName}</span>
-        {agentStatus && (
+        {agentStatus === "dev" && (
           <span className="text-muted-foreground text-xs font-medium uppercase tracking-[0.22em]">
-            {agentStatus}
+            {t.agents.draftBadge}
           </span>
         )}
       </div>

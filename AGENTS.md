@@ -93,6 +93,10 @@ Repository-wide testing index:
 
 - Read `./docs/testing/README.md` before closing any knowledge-base, agent UX, runtime integration, or preview/citation task.
 - Knowledge-base changes are not considered tested by API/unit tests alone.
+- When the user asks for a "real test" or current-code browser verification, default to `docker/docker-compose-prod.yaml`.
+- Use the correct prod entrypoint for the surface under test:
+  - agent management / admin console: `http://127.0.0.1:8081`
+  - user-facing app / workspace flows: `http://127.0.0.1:8083`
 - Required knowledge-base test phases are:
   - headed browser user-flow test on `http://localhost:3000`
   - agent internal audit on `http://localhost:5173`

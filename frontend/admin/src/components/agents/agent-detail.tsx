@@ -20,11 +20,13 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { t } from "@/i18n";
 import { api } from "@/lib/api";
-import type { Agent } from "@/types";
+import type { Agent, AgentStatus } from "@/types";
 
 interface AgentDetailProps {
-  agent: Agent | null;
+  agentName: string | null;
   open: boolean;
+  initialStatus: AgentStatus;
+  availableStatuses: AgentStatus[];
   onOpenChange: (open: boolean) => void;
   onSaved?: () => void;
 }
@@ -78,25 +80,24 @@ function frontendBaseURL() {
     return envURL.replace(/\/+$/, "");
   }
   if (typeof window === "undefined") {
-    return "http://localhost";
+    return "http://localhost:3000";
   }
-  return `${window.location.protocol}//${window.location.hostname}`;
+
+  // Admin and workspace intentionally split onto different ports in both dev
+  // and docker prod, so generate demo links against the user-facing app port.
+  if (window.location.port === "8081") {
+    return `${window.location.protocol}//${window.location.hostname}:8083`;
+  }
+  if (window.location.port === "5173") {
+    return `${window.location.protocol}//${window.location.hostname}:3000`;
+  }
+
+  return window.location.origin;
 }
 
-function buildDemoURL(
-  agentName: string,
-  status: string,
-  executionBackend: "default" | "remote",
-  remoteSessionID: string,
-) {
+function buildDemoURL(agentName: string, status: AgentStatus) {
   const params = new URLSearchParams();
   params.set("agent_status", status);
-  if (executionBackend === "remote") {
-    params.set("execution_backend", "remote");
-  }
-  if (remoteSessionID.trim()) {
-    params.set("remote_session_id", remoteSessionID.trim());
-  }
 
   const pathname =
     agentName === "lead_agent"
@@ -107,8 +108,10 @@ function buildDemoURL(
 }
 
 export function AgentDetail({
-  agent,
+  agentName,
   open,
+  initialStatus,
+  availableStatuses,
   onOpenChange,
   onSaved,
 }: AgentDetailProps) {
@@ -117,18 +120,31 @@ export function AgentDetail({
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
-  const [launchMode, setLaunchMode] = useState<"default" | "remote">("default");
-  const [remoteSessionID, setRemoteSessionID] = useState("");
+  const [selectedStatus, setSelectedStatus] = useState<AgentStatus>(initialStatus);
+  const [versionOptions, setVersionOptions] = useState<AgentStatus[]>(availableStatuses);
 
   useEffect(() => {
-    if (!open || !agent) {
+    if (!open || !agentName) {
+      return;
+    }
+
+    setVersionOptions(availableStatuses);
+    setSelectedStatus(
+      availableStatuses.includes(initialStatus)
+        ? initialStatus
+        : (availableStatuses[0] ?? "dev"),
+    );
+  }, [agentName, availableStatuses, initialStatus, open]);
+
+  useEffect(() => {
+    if (!open || !agentName || !versionOptions.includes(selectedStatus)) {
       return;
     }
 
     let cancelled = false;
     setIsLoading(true);
 
-    void api<Agent>(`/api/agents/${agent.name}?status=${agent.status}`)
+    void api<Agent>(`/api/agents/${agentName}?status=${selectedStatus}`)
       .then((payload) => {
         if (cancelled) {
           return;
@@ -150,21 +166,16 @@ export function AgentDetail({
     return () => {
       cancelled = true;
     };
-  }, [agent, open]);
+  }, [agentName, open, selectedStatus, versionOptions]);
 
   const demoURL = useMemo(() => {
     if (!detail) {
       return "";
     }
-    return buildDemoURL(
-      detail.name,
-      detail.status,
-      launchMode,
-      remoteSessionID,
-    );
-  }, [detail, launchMode, remoteSessionID]);
+    return buildDemoURL(detail.name, detail.status);
+  }, [detail]);
 
-  if (!agent) return null;
+  if (!agentName) return null;
 
   async function handleSave() {
     if (!detail || !form) {
@@ -213,8 +224,8 @@ export function AgentDetail({
       const published = await api<Agent>(`/api/agents/${detail.name}/publish`, {
         method: "POST",
       });
-      setDetail((current) =>
-        current ? { ...current, status: current.status } : current,
+      setVersionOptions((current) =>
+        current.includes("prod") ? current : [...current, "prod"],
       );
       toast.success(t("{name} published", { name: published.name }));
       onSaved?.();
@@ -241,13 +252,13 @@ export function AgentDetail({
       <DialogContent className="sm:max-w-5xl max-h-[90vh]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            {agent.name}
-            <Badge variant={agent.status === "prod" ? "default" : "secondary"}>
-              {t(agent.status)}
+            {agentName}
+            <Badge variant={selectedStatus === "prod" ? "default" : "secondary"}>
+              {t(selectedStatus === "dev" ? "Draft" : "Published")}
             </Badge>
           </DialogTitle>
           <DialogDescription>
-            {t("Edit archived agent metadata, prompt, and launch parameters.")}
+            {t("Manage draft and published agent versions from one dialog.")}
           </DialogDescription>
         </DialogHeader>
 
@@ -259,14 +270,45 @@ export function AgentDetail({
             </div>
           ) : (
             <div className="space-y-6">
+              <div className="space-y-2">
+                <Label>{t("Version")}</Label>
+                <div className="inline-flex rounded-md bg-muted p-1">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={selectedStatus === "dev" ? "secondary" : "ghost"}
+                    disabled={!versionOptions.includes("dev")}
+                    onClick={() => setSelectedStatus("dev")}
+                  >
+                    {t("Draft")}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={selectedStatus === "prod" ? "secondary" : "ghost"}
+                    disabled={!versionOptions.includes("prod")}
+                    onClick={() => setSelectedStatus("prod")}
+                  >
+                    {t("Published")}
+                  </Button>
+                </div>
+              </div>
+
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label>{t("Name")}</Label>
                   <Input value={detail.name} disabled />
                 </div>
                 <div className="space-y-2">
-                  <Label>{t("Status")}</Label>
-                  <Input value={t(detail.status)} disabled />
+                  <Label>{t("Versions")}</Label>
+                  <div className="flex h-9 items-center gap-2 rounded-md border px-3">
+                    <Badge variant={versionOptions.includes("dev") ? "secondary" : "outline"}>
+                      {t(versionOptions.includes("dev") ? "Draft" : "Draft unavailable")}
+                    </Badge>
+                    <Badge variant={versionOptions.includes("prod") ? "default" : "outline"}>
+                      {t(versionOptions.includes("prod") ? "Published" : "Published unavailable")}
+                    </Badge>
+                  </div>
                 </div>
                 <div className="space-y-2 md:col-span-2">
                   <Label>{t("Description")}</Label>
@@ -439,32 +481,8 @@ export function AgentDetail({
                 <div>
                   <h4 className="text-sm font-medium">{t("Demo URL")}</h4>
                   <p className="text-muted-foreground text-xs">
-                    {t("Launch the frontend workspace directly into this agent.")}
+                    {t("Launch the frontend workspace directly into the selected version.")}
                   </p>
-                </div>
-                <div className="grid gap-4 md:grid-cols-[180px_1fr]">
-                  <div className="space-y-2">
-                    <Label>{t("Runtime")}</Label>
-                    <select
-                      value={launchMode}
-                      onChange={(event) =>
-                        setLaunchMode(event.target.value as "default" | "remote")
-                      }
-                      className="border-input bg-background h-9 rounded-md border px-3 text-sm"
-                    >
-                      <option value="default">{t("default runtime")}</option>
-                      <option value="remote">{t("remote cli")}</option>
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>{t("Remote Session ID")}</Label>
-                    <Input
-                      value={remoteSessionID}
-                      onChange={(event) => setRemoteSessionID(event.target.value)}
-                      disabled={launchMode !== "remote"}
-                      placeholder={t("optional when runtime=remote")}
-                    />
-                  </div>
                 </div>
                 <Textarea value={demoURL} readOnly rows={3} className="text-xs" />
                 <div className="flex flex-wrap gap-2">

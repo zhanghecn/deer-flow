@@ -7,21 +7,19 @@ import { AgentCard } from "./agent-card";
 vi.mock("@/core/agents", () => ({
   buildWorkspaceAgentPath: () => "/workspace/agents/reviewer/chats/new",
   buildWorkspaceAgentSettingsPath: () => "/workspace/agents/reviewer/settings",
-  useDeleteAgent: () => ({
-    mutateAsync: vi.fn(),
-    isPending: false,
-  }),
+  getAgentDirectoryDefaultTarget: (agent: { defaultChatStatus: "dev" | "prod" }) =>
+    agent.defaultChatStatus === "dev" ? "draft" : "published",
+  getAgentDirectoryAvailability: (
+    agent: { statuses: Array<"dev" | "prod"> },
+  ) => {
+    if (agent.statuses.includes("dev") && agent.statuses.includes("prod")) {
+      return "publishedReady";
+    }
+    return agent.statuses.includes("dev") ? "draftOnly" : "publishedOnly";
+  },
   usePublishAgent: () => ({
     mutateAsync: vi.fn(),
     isPending: false,
-  }),
-}));
-
-vi.mock("@/core/auth/hooks", () => ({
-  useAuth: () => ({
-    user: {
-      id: "user-1",
-    },
   }),
 }));
 
@@ -29,128 +27,116 @@ vi.mock("@/core/i18n/hooks", () => ({
   useI18n: () => ({
     t: {
       agents: {
-        memoryOff: "Memory off",
-        memoryOn: "Memory on",
-        memoryWithModel: (model: string) => `Memory ${model}`,
-        chat: "Chat",
-        copyUrl: "Copy URL",
-        publish: "Publish",
-        delete: "Delete",
-        deleteConfirm: "Delete this agent?",
-        deleteSuccess: "Deleted",
-        publishSuccess: () => "Published",
-        ownerBadge: "owner",
-        ownedByYou: "Owned by you",
-        ownedBy: (ownerName: string) => `Owned by ${ownerName}`,
-        legacyOwnerless: "Unclaimed legacy agent",
+        coreBadge: "core",
         readOnlyBadge: "read only",
+        defaultDraft: "Draft default",
+        defaultPublished: "Published default",
+        draftOnly: "Draft only",
+        publishedReady: "Published ready",
+        publishedOnly: "Published only",
+        startChatting: "Start chatting",
+        publishToProd: "Publish to prod",
+        publishSuccess: () => "Published",
+        switcher: {
+          builtinDescription: "Built-in orchestration agent",
+        },
       },
       common: {
         settings: "Settings",
-        cancel: "Cancel",
-        delete: "Delete",
-        loading: "Loading",
-      },
-      clipboard: {
-        linkCopied: "Copied",
-        failedToCopyToClipboard: "Copy failed",
       },
     },
   }),
 }));
 
 describe("AgentCard", () => {
-  it("hides management actions for non-manageable dev agents", () => {
+  it("shows one aggregated card with draft-first actions for manageable agents", () => {
     render(
       <MemoryRouter>
         <AgentCard
           agent={{
             name: "reviewer",
-            description: "Review agent",
-            model: null,
-            tool_groups: [],
-            status: "dev",
-            can_manage: false,
+            description: "Review contracts",
+            statuses: ["dev", "prod"],
+            devAgent: {
+              name: "reviewer",
+              description: "Review contracts",
+              model: null,
+              tool_groups: null,
+              status: "dev",
+              can_manage: true,
+            },
+            prodAgent: {
+              name: "reviewer",
+              description: "Review contracts",
+              model: null,
+              tool_groups: null,
+              status: "prod",
+              can_manage: true,
+            },
+            defaultChatStatus: "dev",
+            defaultSettingsStatus: "dev",
+            hasPublishedVersion: true,
+            canManage: true,
           }}
         />
       </MemoryRouter>,
     );
 
-    expect(screen.getByRole("button", { name: "Chat" })).toBeInTheDocument();
+    expect(screen.getByText("Review contracts")).toBeInTheDocument();
+    expect(screen.getByText("Draft default")).toBeInTheDocument();
+    expect(screen.getByText("Published ready")).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Settings" }),
-    ).not.toBeInTheDocument();
-    expect(screen.getByTitle("Copy URL")).toBeInTheDocument();
-    expect(screen.queryByTitle("Publish")).not.toBeInTheDocument();
-    expect(screen.queryByTitle("Delete")).not.toBeInTheDocument();
+      screen.getByRole("button", { name: "Start chatting" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Settings" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Publish to prod" }),
+    ).toBeInTheDocument();
+  });
+
+  it("hides management actions for read-only published agents", () => {
+    render(
+      <MemoryRouter>
+        <AgentCard
+          agent={{
+            name: "reviewer",
+            description: "Review contracts",
+            statuses: ["dev", "prod"],
+            devAgent: {
+              name: "reviewer",
+              description: "Review contracts",
+              model: null,
+              tool_groups: null,
+              status: "dev",
+              can_manage: false,
+            },
+            prodAgent: {
+              name: "reviewer",
+              description: "Review contracts",
+              model: null,
+              tool_groups: null,
+              status: "prod",
+              can_manage: false,
+            },
+            defaultChatStatus: "prod",
+            defaultSettingsStatus: "dev",
+            hasPublishedVersion: true,
+            canManage: false,
+          }}
+        />
+      </MemoryRouter>,
+    );
+
     expect(screen.getByText("read only")).toBeInTheDocument();
-  });
-
-  it("hides management actions for non-manageable prod agents", () => {
-    render(
-      <MemoryRouter>
-        <AgentCard
-          agent={{
-            name: "reviewer",
-            description: "Review agent",
-            model: null,
-            tool_groups: [],
-            status: "prod",
-            can_manage: false,
-          }}
-        />
-      </MemoryRouter>,
-    );
-
-    expect(screen.getByRole("button", { name: "Chat" })).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Settings" }),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByTitle("Delete")).not.toBeInTheDocument();
-  });
-
-  it("shows owner metadata for legacy ownerless agents without claim actions", () => {
-    render(
-      <MemoryRouter>
-        <AgentCard
-          agent={{
-            name: "reviewer",
-            description: "Review agent",
-            model: null,
-            tool_groups: [],
-            status: "dev",
-            can_manage: true,
-          }}
-        />
-      </MemoryRouter>,
-    );
-
-    expect(
-      screen.getByText(/owner: Unclaimed legacy agent/i),
+      screen.getByRole("button", { name: "Start chatting" }),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Claim ownership" }),
+      screen.queryByRole("button", { name: "Settings" }),
     ).not.toBeInTheDocument();
-  });
-
-  it("shows the resolved owner label for claimed agents", () => {
-    render(
-      <MemoryRouter>
-        <AgentCard
-          agent={{
-            name: "reviewer",
-            description: "Review agent",
-            model: null,
-            tool_groups: [],
-            status: "dev",
-            owner_user_id: "user-2",
-            owner_name: "Alice",
-            can_manage: false,
-          }}
-        />
-      </MemoryRouter>,
-    );
-
-    expect(screen.getByText(/owner: Owned by Alice/i)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Publish to prod" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("Published default")).toBeInTheDocument();
   });
 });

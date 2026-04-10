@@ -1,14 +1,24 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { AgentsTable } from "@/components/agents/agents-table";
 import { AgentDetail } from "@/components/agents/agent-detail";
 import { useFetch } from "@/hooks/use-fetch";
 import { t } from "@/i18n";
+import {
+  buildAgentRecords,
+  getAvailableAgentStatuses,
+  getPreferredAgentStatus,
+  type AgentRecord,
+} from "@/lib/agents";
 import type { Agent } from "@/types";
 
 export function AgentsPage() {
   const { data, isLoading, refetch } =
     useFetch<{ agents: Agent[] }>("/api/agents");
-  const [detailAgent, setDetailAgent] = useState<Agent | null>(null);
+  const [detailAgent, setDetailAgent] = useState<AgentRecord | null>(null);
+  const agentRecords = useMemo(
+    () => buildAgentRecords(data?.agents ?? []),
+    [data?.agents],
+  );
 
   return (
     <div className="space-y-6">
@@ -19,13 +29,15 @@ export function AgentsPage() {
         </p>
       </div>
       <AgentsTable
-        agents={data?.agents ?? null}
+        agents={data ? agentRecords : null}
         isLoading={isLoading}
         onRefetch={refetch}
         onViewDetail={setDetailAgent}
       />
       <AgentDetail
-        agent={detailAgent}
+        agentName={detailAgent?.name ?? null}
+        initialStatus={detailAgent ? getPreferredAgentStatus(detailAgent) : "dev"}
+        availableStatuses={detailAgent ? getAvailableAgentStatuses(detailAgent) : []}
         open={!!detailAgent}
         onSaved={refetch}
         onOpenChange={(open) => !open && setDetailAgent(null)}

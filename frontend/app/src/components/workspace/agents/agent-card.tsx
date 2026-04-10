@@ -1,13 +1,9 @@
 import {
   BotIcon,
-  BrainIcon,
-  CopyIcon,
   MessageSquareIcon,
   RocketIcon,
   Settings2Icon,
-  Trash2Icon,
 } from "lucide-react";
-import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -22,74 +18,57 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
+  buildWorkspaceAgentPath,
   buildWorkspaceAgentSettingsPath,
-  useDeleteAgent,
+  getAgentDirectoryAvailability,
+  getAgentDirectoryDefaultTarget,
+  type AgentDirectoryEntry,
   usePublishAgent,
 } from "@/core/agents";
-import { buildWorkspaceAgentPath } from "@/core/agents";
-import type { Agent } from "@/core/agents";
-import { useAuth } from "@/core/auth/hooks";
 import { useI18n } from "@/core/i18n/hooks";
+
 interface AgentCardProps {
-  agent: Agent;
+  agent: AgentDirectoryEntry;
 }
 
-function getAgentMemoryBadgeLabel(
-  agent: Agent,
+function getDefaultStatusLabel(
+  agent: AgentDirectoryEntry,
   t: ReturnType<typeof useI18n>["t"],
-): string {
-  if (!agent.memory?.enabled) {
-    return t.agents.memoryOff;
+) {
+  return getAgentDirectoryDefaultTarget(agent) === "draft"
+    ? t.agents.defaultDraft
+    : t.agents.defaultPublished;
+}
+
+function getAvailabilityLabel(
+  agent: AgentDirectoryEntry,
+  t: ReturnType<typeof useI18n>["t"],
+) {
+  const availability = getAgentDirectoryAvailability(agent);
+  if (availability === "publishedReady") {
+    return t.agents.publishedReady;
   }
-  return agent.memory.model_name
-    ? t.agents.memoryWithModel(agent.memory.model_name)
-    : t.agents.memoryOn;
+  return availability === "draftOnly"
+    ? t.agents.draftOnly
+    : t.agents.publishedOnly;
 }
 
 export function AgentCard({ agent }: AgentCardProps) {
   const { t } = useI18n();
   const navigate = useNavigate();
-  const { user } = useAuth();
-  const deleteAgent = useDeleteAgent();
   const publishAgentMutation = usePublishAgent();
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const isProd = agent.status === "prod";
-  const canManage = agent.can_manage !== false;
-  const memoryEnabled = agent.memory?.enabled ?? false;
-  const memoryLabel = getAgentMemoryBadgeLabel(agent, t);
-  const isBuiltinLeadAgent = agent.name === "lead_agent";
-  const isOwnerlessLegacyAgent = !isBuiltinLeadAgent && !agent.owner_user_id;
-  const ownerLabel = isOwnerlessLegacyAgent
-    ? t.agents.legacyOwnerless
-    : agent.owner_user_id === user?.id
-      ? t.agents.ownedByYou
-      : t.agents.ownedBy(agent.owner_name ?? agent.owner_user_id ?? "");
+  const canPublish = agent.canManage && agent.devAgent != null;
   const launchPath = buildWorkspaceAgentPath({
     agentName: agent.name,
-    agentStatus: agent.status,
+    agentStatus: agent.defaultChatStatus,
+  });
+  const settingsPath = buildWorkspaceAgentSettingsPath({
+    agentName: agent.name,
+    agentStatus: agent.defaultSettingsStatus,
   });
 
   function handleChat() {
     void navigate(launchPath);
-  }
-
-  async function handleCopyLaunchURL() {
-    try {
-      await navigator.clipboard.writeText(
-        `${window.location.origin}${launchPath}`,
-      );
-      toast.success(t.clipboard.linkCopied);
-    } catch {
-      toast.error(t.clipboard.failedToCopyToClipboard);
-    }
   }
 
   async function handlePublish() {
@@ -101,169 +80,74 @@ export function AgentCard({ agent }: AgentCardProps) {
     }
   }
 
-  async function handleDelete() {
-    try {
-      await deleteAgent.mutateAsync(agent.name);
-      toast.success(t.agents.deleteSuccess);
-      setDeleteOpen(false);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
-    }
-  }
-
   function handleOpenSettings() {
-    void navigate(
-      buildWorkspaceAgentSettingsPath({
-        agentName: agent.name,
-        agentStatus: agent.status,
-      }),
-    );
+    void navigate(settingsPath);
   }
 
   return (
-    <>
-      <Card className="group bg-background dark:glass dark:hover:glow-cyan flex flex-col transition-shadow hover:shadow-md">
-        <CardHeader className="pb-3">
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <div className="bg-primary/10 text-primary flex h-9 w-9 shrink-0 items-center justify-center rounded-lg">
-                <BotIcon className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <CardTitle className="truncate text-base">
-                  {agent.name}
-                </CardTitle>
-                <div className="mt-0.5 flex gap-1">
-                  {agent.status && (
-                    <Badge
-                      variant={isProd ? "default" : "outline"}
-                      className={`text-xs ${isProd ? "bg-green-600 text-white" : ""}`}
-                    >
-                      {agent.status}
-                    </Badge>
-                  )}
-                  {agent.model && (
-                    <Badge variant="secondary" className="text-xs">
-                      {agent.model}
-                    </Badge>
-                  )}
-                  {!canManage && (
-                    <Badge variant="outline" className="text-xs">
-                      {t.agents.readOnlyBadge}
-                    </Badge>
-                  )}
-                </div>
-              </div>
-            </div>
+    <Card className="group bg-background dark:glass dark:hover:glow-cyan flex h-full flex-col transition-shadow hover:shadow-md">
+      <CardHeader className="pb-3">
+        <div className="flex items-start gap-3">
+          <div className="bg-primary/10 text-primary flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl">
+            <BotIcon className="h-5 w-5" />
           </div>
-          {agent.description && (
-            <CardDescription className="mt-2 line-clamp-2 text-sm">
-              {agent.description}
-            </CardDescription>
-          )}
-        </CardHeader>
-
-        <CardContent className="space-y-3 pt-0 pb-3">
-          <div className="flex flex-wrap gap-1">
-            <Badge variant="outline" className="text-xs">
-              {t.agents.ownerBadge}: {ownerLabel}
-            </Badge>
-            <Badge
-              variant={memoryEnabled ? "secondary" : "outline"}
-              className="inline-flex items-center gap-1 text-xs"
-            >
-              <BrainIcon className="h-3 w-3" />
-              {memoryLabel}
-            </Badge>
-          </div>
-          {agent.tool_groups && agent.tool_groups.length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {agent.tool_groups.map((group) => (
-                <Badge key={group} variant="outline" className="text-xs">
-                  {group}
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <CardTitle className="truncate text-base">{agent.name}</CardTitle>
+              {agent.name === "lead_agent" && (
+                <Badge variant="outline" className="text-xs">
+                  {t.agents.coreBadge}
                 </Badge>
-              ))}
+              )}
+              {!agent.canManage && (
+                <Badge variant="outline" className="text-xs">
+                  {t.agents.readOnlyBadge}
+                </Badge>
+              )}
             </div>
-          )}
-        </CardContent>
+            <CardDescription className="mt-2 line-clamp-2 text-sm">
+              {agent.description || t.agents.switcher.builtinDescription}
+            </CardDescription>
+          </div>
+        </div>
+      </CardHeader>
 
-        <CardFooter className="mt-auto flex flex-wrap items-center gap-2 pt-3">
-          <Button
-            size="sm"
-            className="min-w-[120px] flex-1"
-            onClick={handleChat}
-          >
-            <MessageSquareIcon className="mr-1.5 h-3.5 w-3.5" />
-            {t.agents.chat}
-          </Button>
-          {canManage && (
-            <Button size="sm" variant="outline" onClick={handleOpenSettings}>
+      <CardContent className="space-y-3 pt-0 pb-4">
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="secondary" className="text-xs">
+            {getDefaultStatusLabel(agent, t)}
+          </Badge>
+          <Badge variant="outline" className="text-xs">
+            {getAvailabilityLabel(agent, t)}
+          </Badge>
+        </div>
+      </CardContent>
+
+      <CardFooter className="mt-auto flex flex-col gap-2 pt-0">
+        <Button className="w-full" onClick={handleChat}>
+          <MessageSquareIcon className="mr-1.5 h-4 w-4" />
+          {t.agents.startChatting}
+        </Button>
+        <div className="flex w-full gap-2">
+          {agent.canManage && (
+            <Button className="flex-1" variant="outline" onClick={handleOpenSettings}>
               <Settings2Icon className="mr-1.5 h-3.5 w-3.5" />
               {t.common.settings}
             </Button>
           )}
-          <div className="ml-auto flex gap-1">
+          {canPublish && (
             <Button
-              size="icon"
-              variant="ghost"
-              className="h-8 w-8 shrink-0"
-              onClick={handleCopyLaunchURL}
-              title={t.agents.copyUrl}
-            >
-              <CopyIcon className="h-3.5 w-3.5" />
-            </Button>
-            {!isProd && canManage && (
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-8 w-8 shrink-0"
-                onClick={handlePublish}
-                disabled={publishAgentMutation.isPending}
-                title={t.agents.publish}
-              >
-                <RocketIcon className="h-3.5 w-3.5" />
-              </Button>
-            )}
-            {canManage && !isBuiltinLeadAgent && (
-              <Button
-                size="icon"
-                variant="ghost"
-                className="text-destructive hover:text-destructive h-8 w-8 shrink-0"
-                onClick={() => setDeleteOpen(true)}
-                title={t.agents.delete}
-              >
-                <Trash2Icon className="h-3.5 w-3.5" />
-              </Button>
-            )}
-          </div>
-        </CardFooter>
-      </Card>
-
-      {/* Delete Confirm */}
-      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t.agents.delete}</DialogTitle>
-            <DialogDescription>{t.agents.deleteConfirm}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
+              className="flex-1"
               variant="outline"
-              onClick={() => setDeleteOpen(false)}
-              disabled={deleteAgent.isPending}
+              onClick={handlePublish}
+              disabled={publishAgentMutation.isPending}
             >
-              {t.common.cancel}
+              <RocketIcon className="mr-1.5 h-3.5 w-3.5" />
+              {t.agents.publishToProd}
             </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={deleteAgent.isPending}
-            >
-              {deleteAgent.isPending ? t.common.loading : t.common.delete}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+          )}
+        </div>
+      </CardFooter>
+    </Card>
   );
 }

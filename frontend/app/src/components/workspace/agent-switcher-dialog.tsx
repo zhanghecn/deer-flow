@@ -45,12 +45,9 @@ export function AgentSwitcherDialog({
         >
           <BotIcon className="text-primary size-4 shrink-0" />
           <span className="max-w-[132px] truncate font-medium">{agentName}</span>
-          <span className="text-muted-foreground text-[11px] uppercase">
-            {selection.agentStatus}
-          </span>
-          {selection.executionBackend === "remote" && (
-            <span className="text-muted-foreground hidden text-[11px] uppercase sm:inline">
-              {t.agents.switcher.remoteRuntime}
+          {selection.agentStatus === "dev" && (
+            <span className="text-muted-foreground text-[11px] uppercase">
+              {t.agents.draftBadge}
             </span>
           )}
           <ChevronDownIcon className="text-muted-foreground size-3.5 shrink-0" />

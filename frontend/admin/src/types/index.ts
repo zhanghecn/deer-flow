@@ -106,13 +106,15 @@ export interface AgentMemoryConfig {
   max_injection_tokens: number;
 }
 
+export type AgentStatus = "dev" | "prod";
+
 export interface Agent {
   name: string;
   description: string;
   model?: string;
   tool_groups?: string[];
   mcp_servers?: string[];
-  status: string;
+  status: AgentStatus;
   memory?: AgentMemoryConfig | null;
   agents_md: string;
   skills?: Array<{

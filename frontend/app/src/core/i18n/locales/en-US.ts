@@ -199,6 +199,14 @@ export const enUS: Translations = {
     memoryWithModel: (modelName: string) => `Memory · ${modelName}`,
     coreBadge: "core",
     currentBadge: "current",
+    draftBadge: "draft",
+    publishedBadge: "published",
+    defaultDraft: "Draft default",
+    defaultPublished: "Published default",
+    draftOnly: "Draft only",
+    publishedReady: "Published ready",
+    publishedOnly: "Published only",
+    publishToProd: "Publish to prod",
     newChat: "New chat",
     createPageTitle: "Design your Agent",
     createPageSubtitle:
@@ -220,16 +228,16 @@ export const enUS: Translations = {
     switcher: {
       title: "Switch agent",
       description:
-        "Change the agent behind this conversation. Use Agent Center for deeper management, publishing, and exports.",
+        "Choose the agent behind this conversation. Use Settings for version-specific changes and deeper archive management.",
       currentAgent: "Current agent",
       currentAgentDescription:
-        "Pick the agent and version that should handle this conversation.",
+        "Version switching stays lightweight here so picking another agent stays fast.",
       builtinDescription: "Built-in orchestration agent",
-      execution: "Execution",
-      remoteSession: "Remote session",
-      defaultRuntime: "Default",
-      remoteRuntime: "Remote",
-      remoteSessionPlaceholder: "Enter remote session ID",
+      version: "Version",
+      versionDescription:
+        "Use draft while iterating, then switch to published when validating the released copy.",
+      draftVersion: "Draft",
+      publishedVersion: "Published",
       chooseAnotherTitle: "Choose another agent",
       chooseAnotherDescription:
         "Search by name or description, then switch this conversation in one click.",
