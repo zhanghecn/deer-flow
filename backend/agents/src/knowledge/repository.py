@@ -2263,10 +2263,6 @@ def format_tree_listing_payload(listing: DocumentTreeListing) -> str:
     return knowledge_formatters.format_tree_listing_payload(listing)
 
 
-def format_documents_payload(documents: list[KnowledgeDocumentRecord]) -> str:
-    return knowledge_formatters.format_documents_payload(documents)
-
-
 def format_node_detail_payload(result: NodeDetailResult) -> str:
     return knowledge_formatters.format_node_detail_payload(result)
 

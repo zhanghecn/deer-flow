@@ -61,7 +61,7 @@
 2. Opened `/observability`.
 3. Selected the trace for thread `da9464bf-c783-4131-9a45-120f91db0f61`.
 4. Verified the tool path shown in the audit UI was:
-   - `list_knowledge_documents`
+   - legacy knowledge-document listing tool
    - `get_document_tree`
    - `get_document_evidence`
 5. Verified the trace did not regress to broad spill behavior first; it narrowed through tree lookup before evidence fetch.

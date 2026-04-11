@@ -111,6 +111,7 @@ describe("NewChatClient", () => {
     const firstCall = inputBoxMock.mock.calls[0]?.[0];
     expect(firstCall).toEqual(
       expect.objectContaining({
+        ensureThreadExists: expect.any(Function),
         threadId: "draft-thread-route",
         isNewThread: true,
       }),

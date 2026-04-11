@@ -250,6 +250,7 @@ export function InputBox({
   isNewThread,
   initialValue,
   onContextChange,
+  ensureThreadExists,
   onSubmit,
   onStop,
   ...props
@@ -265,6 +266,7 @@ export function InputBox({
   isNewThread?: boolean;
   initialValue?: string;
   onContextChange?: (context: InputBoxContext) => void;
+  ensureThreadExists?: () => Promise<void>;
   onSubmit?: (
     message: PromptInputMessage,
     extraContext?: Record<string, unknown>,
@@ -585,6 +587,7 @@ export function InputBox({
         threadId={threadId}
         open={knowledgeUploadOpen}
         onOpenChange={setKnowledgeUploadOpen}
+        ensureThreadExists={ensureThreadExists}
         defaultModelName={
           typeof context.model_name === "string"
             ? context.model_name
@@ -634,6 +637,7 @@ export function InputBox({
           <KnowledgeSelectorDialog
             threadId={threadId}
             disabled={disabled}
+            ensureThreadExists={ensureThreadExists}
           />
           <Tooltip
             content={`${t.inputBox.subagentToggle}: ${t.inputBox.subagentToggleDescription}`}

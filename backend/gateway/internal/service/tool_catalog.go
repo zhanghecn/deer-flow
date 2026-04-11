@@ -41,15 +41,6 @@ var builtinToolCatalog = []model.ToolCatalogItem{
 		ReservedPolicy:           "main_agent_only",
 	},
 	{
-		Name:                     "list_knowledge_documents",
-		Group:                    "knowledge",
-		Label:                    "List Knowledge Documents",
-		Description:              "List the knowledge-base documents available to the current thread.",
-		ConfigurableForMainAgent: true,
-		ConfigurableForSubagent:  true,
-		ReservedPolicy:           "normal",
-	},
-	{
 		Name:                     "get_document_tree",
 		Group:                    "knowledge",
 		Label:                    "Get Document Tree",

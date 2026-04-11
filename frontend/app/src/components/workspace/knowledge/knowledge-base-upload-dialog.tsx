@@ -80,6 +80,7 @@ export function KnowledgeBaseUploadDialog({
   onOpenChange,
   onUploaded,
   defaultModelName,
+  ensureThreadExists,
 }: {
   threadId?: string;
   open: boolean;
@@ -89,6 +90,7 @@ export function KnowledgeBaseUploadDialog({
     knowledgeBaseName: string;
   }) => void;
   defaultModelName?: string;
+  ensureThreadExists?: () => Promise<void>;
 }) {
   const queryClient = useQueryClient();
   const { t } = useI18n();
@@ -142,6 +144,13 @@ export function KnowledgeBaseUploadDialog({
     );
 
     try {
+      if (threadId) {
+        // Thread knowledge uploads define the same persisted attachment scope
+        // that first-turn retrieval depends on, so new-chat drafts must be
+        // materialized before the upload request is sent.
+        await ensureThreadExists?.();
+      }
+
       const response = threadId
         ? await createThreadKnowledgeBase(threadId, {
             name: resolvedName,

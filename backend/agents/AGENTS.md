@@ -95,8 +95,9 @@ Critical agent protocol rules for future work:
 - KB filesystem refs still resolve under `.openagents/knowledge/users/...`, and MinIO/S3 object keys normalize to `users/...` instead of `knowledge/users/...`.
 - If filesystem-backed KB refs are being retired in an environment, migrate the stored `storage_ref` rows and document packages first, then reject remaining stale local refs explicitly.
 - Knowledge Asset Store is application-domain storage, not a runtime backend. Do not mix it with `BackendProtocol`, `SandboxBackendProtocol`, or `SandboxProvider`.
-- The primary agent-facing KB protocol is `list_knowledge_documents` -> `get_document_tree` -> `get_document_evidence`.
-- `get_document_tree_node_detail` and `get_document_image` are compatibility tools only. Keep them working, but do not make new prompts or middleware depend on them as the primary flow.
+- The primary agent-facing KB protocol is middleware-injected `<knowledge_attached_documents>` -> `get_document_tree` -> `get_document_evidence`.
+- `get_document_tree_node_detail` is a compatibility tool only. Keep it working, but do not make new prompts or middleware depend on it as the primary flow.
+- `get_document_image` is a supplemental visual tool. Keep it grounded behind the same KB evidence flow instead of turning it into the primary retrieval step.
 - `get_document_tree` is a bounded window, not a full-tree dump. Root requests may downshift from the requested depth to a top-level overview and return `window_mode=root_overview` / `collapsed_root_overview=true`. Expand the returned `node_id` branches instead of retrying the whole root tree.
 - KB tree traversal stays on the same rule everywhere: root overview first, then branch expansion by `node_id`, then grounded evidence. Do not reintroduce direct full-text retrieval as the default first step.
 - KB knowledge guidance is prompt-first. Do not reintroduce hidden post-answer retries once visible streaming has started.

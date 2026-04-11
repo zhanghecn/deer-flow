@@ -12,26 +12,6 @@ def _runtime_identity(runtime: ToolRuntime[ContextT, ThreadState]) -> tuple[str,
     return resolve_knowledge_runtime_identity(getattr(runtime, "context", None))
 
 
-@tool("list_knowledge_documents", parse_docstring=True)
-def list_knowledge_documents(
-    runtime: ToolRuntime[ContextT, ThreadState],
-) -> str:
-    """List thread-attached knowledge documents and their descriptions.
-
-    Use this tool first when the user asks about uploaded knowledge files, refers to a document by name,
-    or when you need to decide which attached knowledge document to inspect.
-    Prefer copying the returned ASCII document_id values into later knowledge-tool calls instead of
-    retyping long filenames when possible.
-    After choosing a document, continue with the knowledge tools instead of switching to grep, read_file,
-    or shell inspection unless you are explicitly debugging indexing/parsing problems.
-    """
-    user_id, thread_id = _runtime_identity(runtime)
-    return KnowledgeService().list_thread_documents(
-        user_id=user_id,
-        thread_id=thread_id,
-    )
-
-
 @tool("get_document_tree", parse_docstring=True)
 def get_document_tree(
     runtime: ToolRuntime[ContextT, ThreadState],
@@ -42,7 +22,8 @@ def get_document_tree(
 ) -> str:
     """Inspect a document_tree window for one attached knowledge document.
 
-    Use this after list_knowledge_documents to inspect the root tree or a subtree.
+    Use this after choosing a ready document from the middleware-injected
+    <knowledge_attached_documents> prompt block.
     Root and subtree windows are capped at max_depth=2 even if you request a larger number.
     For large documents, the root call may intentionally collapse to a top-level overview only,
     even when you requested max_depth=2. When that happens, the payload reports
@@ -57,8 +38,8 @@ def get_document_tree(
     a narrower node_id instead of using grep/read_file on the spill file.
 
     Args:
-        document_name_or_id: Document id or exact document name from list_knowledge_documents.
-            Prefer the returned ASCII document_id when available.
+        document_name_or_id: Document id or exact document name from the attached knowledge prompt.
+            Prefer the injected ASCII document_id when available.
         node_id: Optional node id whose subtree should be returned. Omit this to inspect the root tree.
         max_depth: Requested nested depth for the subtree window. Values above 2 are clamped to 2.
         root_cursor: Zero-based root overview cursor. Use the next_root_cursor or previous_root_cursor
@@ -95,8 +76,8 @@ def get_document_evidence(
     that an image exists.
 
     Args:
-        document_name_or_id: Document id or exact document name from list_knowledge_documents.
-            Prefer the returned ASCII document_id when available.
+        document_name_or_id: Document id or exact document name from the attached knowledge prompt.
+            Prefer the injected ASCII document_id when available.
         node_ids: One or more node ids separated by commas.
     """
     user_id, thread_id = _runtime_identity(runtime)
@@ -127,8 +108,8 @@ def get_document_tree_node_detail(
     over the same document unless the knowledge index clearly failed to expose the needed content.
 
     Args:
-        document_name_or_id: Document id or exact document name from list_knowledge_documents.
-            Prefer the returned ASCII document_id when available.
+        document_name_or_id: Document id or exact document name from the attached knowledge prompt.
+            Prefer the injected ASCII document_id when available.
         node_ids: One or more node ids separated by commas.
     """
     user_id, thread_id = _runtime_identity(runtime)
@@ -156,8 +137,8 @@ def get_document_image(
     visual inspection; call view_image(image_path=...) first, then answer.
 
     Args:
-        document_name_or_id: Document id or exact document name from list_knowledge_documents.
-            Prefer the returned ASCII document_id when available.
+        document_name_or_id: Document id or exact document name from the attached knowledge prompt.
+            Prefer the injected ASCII document_id when available.
         page_number: 1-based PDF page number to render as an image.
     """
     user_id, thread_id = _runtime_identity(runtime)

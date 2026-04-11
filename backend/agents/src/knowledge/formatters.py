@@ -17,6 +17,8 @@ _MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]+\)")
 _TREE_SUMMARY_FLOOR = 28
 _TREE_SUMMARY_CAP = 120
 _TREE_SUMMARY_BUDGET = 5000
+_INLINE_VISUAL_EVIDENCE_BUDGET = 6
+_VISUAL_EVIDENCE_KINDS = frozenset({"image", "page_image"})
 
 
 def _normalized_summary(*values: str | None) -> str | None:
@@ -25,6 +27,24 @@ def _normalized_summary(*values: str | None) -> str | None:
         if text:
             return text
     return None
+
+
+def _drop_empty_fields(value):
+    """Remove None/empty fields so KB tool payloads do not waste budget on filler."""
+
+    if isinstance(value, dict):
+        compact: dict = {}
+        for key, item in value.items():
+            if item is None:
+                continue
+            normalized = _drop_empty_fields(item)
+            if normalized == [] or normalized == {}:
+                continue
+            compact[key] = normalized
+        return compact
+    if isinstance(value, list):
+        return [_drop_empty_fields(item) for item in value]
+    return value
 
 
 def _tree_node_count(nodes: list[dict]) -> int:
@@ -199,42 +219,6 @@ def format_tree_listing_payload(listing: DocumentTreeListing) -> str:
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
-def format_documents_payload(documents: list[KnowledgeDocumentRecord]) -> str:
-    available = []
-    processing = []
-    for document in documents:
-        entry = {
-            "document_id": document.id,
-            "knowledge_base": document.knowledge_base_name,
-            "document_name": document.display_name,
-            "description": document.doc_description,
-            "file_kind": document.file_kind,
-            "locator_type": document.locator_type,
-            "status": document.status,
-            "build_quality": document.build_quality,
-            "node_count": document.node_count,
-        }
-        if document.latest_build_job is not None:
-            entry["build_job"] = document.latest_build_job.model_dump(mode="json")
-        if document.status in {"ready", "ready_degraded"}:
-            available.append(entry)
-        else:
-            entry["error"] = document.error
-            processing.append(entry)
-    payload = {
-        "available_documents": available,
-        "unavailable_documents": processing,
-        "tool_protocol": [
-            "1. After listing documents, copy one document_id and prefer that ASCII id for every later document_name_or_id=... argument.",
-            "2. Use get_document_tree(document_name_or_id=<document_id>, max_depth=2) to inspect the root tree window.",
-            "3. Use get_document_tree(document_name_or_id=<document_id>, node_id=...) to inspect a deeper subtree when needed.",
-            "4. Use get_document_evidence(document_name_or_id=<document_id>, node_ids=...) to retrieve grounded text, visual evidence blocks, exact citations, and inline image markdown when available.",
-            "5. If a tree response says answer_requires_evidence=true, do not answer yet. Call get_document_evidence(...) first.",
-        ],
-    }
-    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-
-
 def format_node_detail_payload(result: NodeDetailResult) -> str:
     payload = {
         "document": {
@@ -304,6 +288,67 @@ def format_node_detail_payload(result: NodeDetailResult) -> str:
 
 def format_document_evidence_payload(result: DocumentEvidenceResult) -> str:
     include_item_text = result.document.locator_type == "heading"
+    remaining_visual_blocks = _INLINE_VISUAL_EVIDENCE_BUDGET
+    formatted_items: list[dict] = []
+    omitted_visual_block_count = 0
+    included_visual_block_count = 0
+
+    for item in result.items:
+        formatted_blocks: list[dict] = []
+        for block in item.evidence_blocks:
+            is_visual_block = block.kind in _VISUAL_EVIDENCE_KINDS
+            if is_visual_block and remaining_visual_blocks <= 0:
+                omitted_visual_block_count += 1
+                continue
+
+            # Keep answer-facing markdown and citations, but do not expose
+            # internal preview handles or duplicate asset paths. Those fields
+            # add a large amount of spill-prone payload without helping the
+            # model answer or cite the document.
+            block_payload = _drop_empty_fields(
+                {
+                    "evidence_id": block.evidence_id,
+                    "kind": block.kind,
+                    "locator_type": block.locator_type,
+                    "locator_label": block.locator_label,
+                    "page_number": block.page_number,
+                    "line_number": block.line_number,
+                    "heading_slug": block.heading_slug,
+                    "text": block.text,
+                    "caption_text": block.caption_text,
+                    "display_markdown": block.display_markdown,
+                    # When display_markdown is present it already bundles the
+                    # inline image with the matching citation, so repeating
+                    # image_markdown only bloats the tool result.
+                    "image_markdown": None if block.display_markdown else block.image_markdown,
+                    "citation_markdown": block.citation_markdown,
+                }
+            )
+            formatted_blocks.append(block_payload)
+            if is_visual_block:
+                remaining_visual_blocks -= 1
+                included_visual_block_count += 1
+
+        formatted_items.append(
+            _drop_empty_fields(
+                {
+                    "node_id": item.node_id,
+                    "title": item.title,
+                    "summary": item.summary,
+                    "visual_summary": item.visual_summary,
+                    "summary_quality": item.summary_quality,
+                    "citation_markdown": item.citation_markdown,
+                    **({"text": item.text} if include_item_text and item.text else {}),
+                    "evidence_blocks": formatted_blocks,
+                }
+            )
+        )
+
+    next_step_options = list(result.next_steps.options)
+    if omitted_visual_block_count > 0:
+        next_step_options.append(
+            "Inline visual evidence was capped to stay within tool-result budget. If you need an omitted page image, narrow with get_document_tree(document_name_or_id=..., node_id=...) or call get_document_image(document_name_or_id=..., page_number=...)."
+        )
     payload = {
         "document": {
             "document_id": result.document.id,
@@ -316,47 +361,21 @@ def format_document_evidence_payload(result: DocumentEvidenceResult) -> str:
         "requested_node_ids": result.requested_node_ids,
         "returned_pages": result.returned_pages,
         "returned_lines": result.returned_lines,
-        "items": [
+        "items": formatted_items,
+        **(
             {
-                "node_id": item.node_id,
-                "title": item.title,
-                "summary": item.summary,
-                "visual_summary": item.visual_summary,
-                "summary_quality": item.summary_quality,
-                "citation_markdown": item.citation_markdown,
-                **({"text": item.text} if include_item_text and item.text else {}),
-                "evidence_blocks": [
-                    {
-                        "evidence_id": block.evidence_id,
-                        "kind": block.kind,
-                        "locator_type": block.locator_type,
-                        "locator_label": block.locator_label,
-                        "page_number": block.page_number,
-                        "line_number": block.line_number,
-                        "heading_slug": block.heading_slug,
-                        "text": block.text,
-                        "caption_text": block.caption_text,
-                        "image_path": block.image_path,
-                        "image_markdown": block.image_markdown,
-                        "display_markdown": block.display_markdown,
-                        "citation_markdown": block.citation_markdown,
-                        "preview_target": (
-                            block.preview_target.model_dump(mode="json")
-                            if block.preview_target is not None
-                            else None
-                        ),
-                    }
-                    for block in item.evidence_blocks
-                ],
+                "inline_visual_block_count": included_visual_block_count,
+                "omitted_visual_block_count": omitted_visual_block_count,
             }
-            for item in result.items
-        ],
+            if included_visual_block_count > 0 or omitted_visual_block_count > 0
+            else {}
+        ),
         "next_steps": {
             "summary": result.next_steps.summary,
-            "options": result.next_steps.options,
+            "options": next_step_options,
         },
     }
-    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    return json.dumps(_drop_empty_fields(payload), ensure_ascii=False, separators=(",", ":"))
 
 
 def format_document_image_payload(result: DocumentImageResult) -> str:

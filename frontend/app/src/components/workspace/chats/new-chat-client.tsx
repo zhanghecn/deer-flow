@@ -10,6 +10,7 @@ import { AgentSwitcherDialog } from "@/components/workspace/agent-switcher-dialo
 import { useThreadChat } from "@/components/workspace/chats/use-thread-chat";
 import { InputBox } from "@/components/workspace/input-box";
 import { Welcome } from "@/components/workspace/welcome";
+import { getAPIClient } from "@/core/api";
 import {
   buildWorkspaceAgentPath,
   isLeadAgent,
@@ -26,6 +27,8 @@ import { cn } from "@/lib/utils";
 const NewChatSender = lazy(
   () => import("@/components/workspace/chats/new-chat-sender"),
 );
+
+const LEAD_AGENT_ID = "lead_agent";
 
 export default function NewChatClient() {
   const { t } = useI18n();
@@ -80,11 +83,48 @@ export default function NewChatClient() {
       settings.context,
     ],
   );
+  const draftRuntimeIdentity = useMemo(
+    () => ({
+      agent_name:
+        typeof runtimeContext.agent_name === "string"
+          ? runtimeContext.agent_name
+          : undefined,
+      agent_status:
+        runtimeContext.agent_status === "prod"
+          ? ("prod" as const)
+          : runtimeContext.agent_status === "dev"
+            ? ("dev" as const)
+            : undefined,
+      execution_backend:
+        runtimeContext.execution_backend === "remote"
+          ? ("remote" as const)
+          : undefined,
+      remote_session_id:
+        typeof runtimeContext.remote_session_id === "string"
+          ? runtimeContext.remote_session_id
+          : undefined,
+      model_name:
+        typeof runtimeContext.model_name === "string"
+          ? runtimeContext.model_name
+          : undefined,
+    }),
+    [
+      runtimeContext.agent_name,
+      runtimeContext.agent_status,
+      runtimeContext.execution_backend,
+      runtimeContext.model_name,
+      runtimeContext.remote_session_id,
+    ],
+  );
   const selectedModelName =
     typeof runtimeContext.model_name === "string"
       ? runtimeContext.model_name.trim()
       : "";
   const autoSubmitHandledRef = useRef(false);
+  const ensuredDraftThreadRef = useRef<{
+    threadId: string;
+    promise: Promise<void>;
+  } | null>(null);
   const inputInitialValue = useMemo(() => {
     const prefill = searchParams.get("prefill")?.trim();
     if (prefill) {
@@ -104,6 +144,53 @@ export default function NewChatClient() {
     },
     [draftThreadId],
   );
+
+  const ensureDraftThreadExists = useCallback(async () => {
+    if (!draftThreadId) {
+      return;
+    }
+
+    const existing = ensuredDraftThreadRef.current;
+    if (existing?.threadId === draftThreadId) {
+      await existing.promise;
+      return;
+    }
+
+    // Knowledge bindings and thread-scoped knowledge uploads are persisted
+    // against a backend thread record. New-chat routes only start with a local
+    // draft ID, so knowledge actions must materialize that draft thread before
+    // they can safely define retrieval scope for the first run.
+    const promise = getAPIClient(
+      isMock,
+      draftThreadId,
+      draftRuntimeIdentity,
+    ).threads
+      .create({
+        threadId: draftThreadId,
+        ifExists: "do_nothing",
+        graphId: LEAD_AGENT_ID,
+      })
+      .then(() => undefined)
+      .catch((error) => {
+        if (ensuredDraftThreadRef.current?.threadId === draftThreadId) {
+          ensuredDraftThreadRef.current = null;
+        }
+        throw error;
+      });
+
+    ensuredDraftThreadRef.current = {
+      threadId: draftThreadId,
+      promise,
+    };
+    await promise;
+  }, [draftRuntimeIdentity, draftThreadId, isMock]);
+
+  useEffect(() => {
+    if (ensuredDraftThreadRef.current?.threadId === draftThreadId) {
+      return;
+    }
+    ensuredDraftThreadRef.current = null;
+  }, [draftThreadId]);
 
   useEffect(() => {
     if (pinnedModelName) {
@@ -242,6 +329,7 @@ export default function NewChatClient() {
                 }
                 disabled={env.VITE_STATIC_WEBSITE_ONLY === "true"}
                 onContextChange={(context) => setSettings("context", context)}
+                ensureThreadExists={ensureDraftThreadExists}
                 onSubmit={handleSubmit}
               />
               {env.VITE_STATIC_WEBSITE_ONLY === "true" && (

@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 from src.knowledge.formatters import (
     format_document_evidence_payload,
     format_document_image_payload,
-    format_documents_payload,
     format_node_detail_payload,
     format_tree_listing_payload,
 )
@@ -64,20 +63,12 @@ class KnowledgeService:
             return document, None
         return (
             None,
-            f"Error: knowledge document not found or not ready: {document_name_or_id}. Use list_knowledge_documents first.",
+            (
+                "Error: knowledge document not found or not ready: "
+                f"{document_name_or_id}. Use a document_id or exact document name from "
+                "<knowledge_attached_documents> first."
+            ),
         )
-
-    def list_thread_documents(
-        self,
-        *,
-        user_id: str,
-        thread_id: str,
-    ) -> str:
-        documents = self.get_thread_document_records(
-            user_id=user_id,
-            thread_id=thread_id,
-        )
-        return format_documents_payload(documents)
 
     def get_document_tree(
         self,

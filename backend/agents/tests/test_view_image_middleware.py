@@ -46,7 +46,7 @@ def test_view_image_middleware_adds_knowledge_grounding_reminder_for_knowledge_a
     assert "/mnt/user-data/outputs/.knowledge/doc-1/pages/page-0022.png" not in joined
 
 
-def test_view_image_middleware_includes_latest_knowledge_evidence_citations_and_images():
+def test_view_image_middleware_includes_latest_knowledge_evidence_citations_and_visuals():
     middleware = ViewImageMiddleware()
     evidence_payload = {
         "items": [
@@ -55,7 +55,7 @@ def test_view_image_middleware_includes_latest_knowledge_evidence_citations_and_
                 "evidence_blocks": [
                     {
                         "citation_markdown": "[citation:PRML.pdf p.22](kb://citation?x=1)",
-                        "image_markdown": "![PRML.pdf p.22](kb://asset?x=1)",
+                        "display_markdown": "![PRML.pdf p.22](kb://asset?x=1)\n\n[citation:PRML.pdf p.22](kb://citation?x=1)",
                     }
                 ],
             }
@@ -88,4 +88,4 @@ def test_view_image_middleware_includes_latest_knowledge_evidence_citations_and_
     assert "must include at least one exact citation_markdown" in joined
     assert "[citation:PRML.pdf p.22](kb://citation?x=1)" in joined
     assert "![PRML.pdf p.22](kb://asset?x=1)" in joined
-    assert "Do not emit raw /mnt/user-data image paths" in joined
+    assert "Reuse exact display_markdown when present" in joined

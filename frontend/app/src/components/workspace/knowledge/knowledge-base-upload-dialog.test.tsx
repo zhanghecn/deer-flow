@@ -1,12 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { KnowledgeBaseUploadDialog } from "./knowledge-base-upload-dialog";
 
 const createThreadKnowledgeBase = vi.fn();
 const createKnowledgeBase = vi.fn();
+const ensureThreadExists = vi.fn();
 
 vi.mock("sonner", () => ({
   toast: {
@@ -96,6 +97,11 @@ beforeAll(() => {
 });
 
 describe("KnowledgeBaseUploadDialog", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    ensureThreadExists.mockResolvedValue(undefined);
+  });
+
   it("submits the explicitly selected model for thread knowledge creation", async () => {
     const user = userEvent.setup();
     const queryClient = new QueryClient({
@@ -119,6 +125,7 @@ describe("KnowledgeBaseUploadDialog", () => {
           open
           onOpenChange={vi.fn()}
           defaultModelName="kimi-k2.5"
+          ensureThreadExists={ensureThreadExists}
         />
       </QueryClientProvider>,
     );
@@ -142,6 +149,7 @@ describe("KnowledgeBaseUploadDialog", () => {
     await user.click(screen.getByRole("button", { name: "Create" }));
 
     await waitFor(() => {
+      expect(ensureThreadExists).toHaveBeenCalledTimes(1);
       expect(createThreadKnowledgeBase).toHaveBeenCalledWith(
         "thread-1",
         expect.objectContaining({
@@ -156,5 +164,14 @@ describe("KnowledgeBaseUploadDialog", () => {
         }),
       );
     });
+
+    const ensureCallOrder = ensureThreadExists.mock.invocationCallOrder[0];
+    const createCallOrder = createThreadKnowledgeBase.mock.invocationCallOrder[0];
+    expect(ensureCallOrder).toBeDefined();
+    expect(createCallOrder).toBeDefined();
+    if (ensureCallOrder == null || createCallOrder == null) {
+      throw new Error("Expected both ensure and create calls to be recorded.");
+    }
+    expect(ensureCallOrder).toBeLessThan(createCallOrder);
   });
 });

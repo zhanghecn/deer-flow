@@ -168,7 +168,7 @@ The agent uses **deepagents built-in middleware** plus **OpenAgents-specific ext
 1. **ArtifactsMiddleware** — Tracks presented/generated artifacts
 2. **QuestionDisciplineMiddleware** — Keeps clarifications on the structured `question` tool path, bundles blocker questions up front, and resumes execution after answers instead of serial follow-up intake
 3. **UploadsMiddleware** — Tracks and injects uploaded files
-4. **KnowledgeContextMiddleware** — Enforces the KB tool protocol for attached documents
+4. **KnowledgeContextMiddleware** — Injects attached KB metadata into the prompt and reinforces the KB retrieval protocol
 5. **TitleMiddleware** — Auto-generates thread title
 6. **Retry / recovery middlewares** — Normalize provider/tool failures and short-circuit bad visible responses
 7. **ContextWindowMiddleware** — Persists prompt occupancy telemetry

@@ -13,7 +13,6 @@ from src.tools.builtins import (
     get_document_tree,
     get_document_tree_node_detail,
     install_skill_from_registry,
-    list_knowledge_documents,
     present_file_tool,
     push_agent_prod,
     push_skill_prod,
@@ -30,7 +29,6 @@ logger = logging.getLogger(__name__)
 # Only the default slice joins the common runtime surface; compatibility tools
 # remain opt-in via explicit `tool_names=[...]`.
 DEFAULT_KNOWLEDGE_BUILTIN_TOOLS = [
-    list_knowledge_documents,
     get_document_tree,
     get_document_evidence,
     get_document_image,

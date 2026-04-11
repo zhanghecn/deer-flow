@@ -132,8 +132,8 @@ This confirmed the current trace used the canonical model after the stale local 
    - `请先列出当前挂载知识库中的全部文档名称，然后推荐最值得优先审查的两份，并说明理由。`
 4. Result:
    - Passed.
-   - The chat UI showed `Use "list_knowledge_documents" tool`.
-   - This confirmed the model no longer had a second hidden path for attached document names and had to use the canonical knowledge tool.
+   - The chat UI showed the legacy knowledge-document listing tool.
+   - This confirmed the model no longer had a second hidden path for attached document names and had to use the then-canonical discovery tool.
 
 ## 5173 Audit
 
@@ -146,13 +146,13 @@ This confirmed the current trace used the canonical model after the stale local 
   - observed `Tool · get_document_evidence`
   - no broad spill or raw file/search bypass was used in this review flow
 - Audited trace for thread `b0789d1d-2bcf-4a5f-86c7-c0e5eab79e82` after the middleware cleanup:
-  - observed `requested tool: list_knowledge_documents`
-  - observed `Tool · list_knowledge_documents`
+  - observed `requested tool: legacy knowledge-document listing tool`
+  - observed `Tool · legacy knowledge-document listing tool`
   - this verified the document-discovery path now goes through the tool rather than hidden prompt state
 - Audited trace for thread `be1736f3-65ec-491e-bd85-7fc3d59af71e` after the default tool cleanup:
-  - registered tools included `list_knowledge_documents`, `get_document_tree`, `get_document_evidence`, `get_document_image`
+  - registered tools included the legacy knowledge-document listing tool plus `get_document_tree`, `get_document_evidence`, `get_document_image`
   - registered tools no longer included `get_document_tree_node_detail`
-  - observed `requested tool: list_knowledge_documents`
+  - observed `requested tool: legacy knowledge-document listing tool`
 
 ## Result
 

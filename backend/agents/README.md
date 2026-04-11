@@ -107,7 +107,7 @@ OpenAgents-specific middlewares are combined with deepagents built-ins such as `
 | OpenAgents extras | **RuntimeCommandMiddleware** | Injects per-turn runtime command metadata without adding shell/path interception rules |
 | OpenAgents extras | **QuestionDisciplineMiddleware** | Forces structured clarification through `question`, batches material blocker questions together, and resumes execution after answers instead of serial follow-up intake |
 | OpenAgents extras | **UploadsMiddleware** | Injects uploaded files into conversation context and prefers generated Markdown companions when available |
-| OpenAgents extras | **KnowledgeContextMiddleware** | Enforces the knowledge-base retrieval protocol and blocks bypass flows |
+| OpenAgents extras | **KnowledgeContextMiddleware** | Injects thread-bound knowledge metadata as XML prompt context and reinforces the retrieval protocol |
 | OpenAgents extras | **TitleMiddleware** | Auto-generates and persists a lightweight first-turn title |
 | OpenAgents extras | **Retry / recovery middlewares** | Handles model/tool retries, target-length retries, max-token recovery, visible-response recovery, and question-flow recovery |
 | OpenAgents extras | **ContextWindowMiddleware** | Persists current prompt occupancy snapshots into LangGraph state |

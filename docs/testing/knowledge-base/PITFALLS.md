@@ -2,7 +2,9 @@
 
 ## 1. Long-Running Stack May Not Be Current Code
 
-`http://localhost:3000`, `8001`, and `2024` may be old dev processes.
+Default verification should use `http://127.0.0.1:8083` and `http://127.0.0.1:8081`.
+
+`http://localhost:3000`, `8001`, and `2024` may still be old dev processes.
 
 Do not claim a backend/storage fix is verified only because the app UI still works.
 
@@ -23,9 +25,9 @@ Common failures only visible in the real browser:
 - citation click not jumping after repeated clicks
 - upload/build progress UI desynced from backend state
 
-## 3. `5173` Internal Audit Is Mandatory For Agent Claims
+## 3. `8081` Admin Audit Is Mandatory For Agent Claims
 
-If the agent answer quality is under review, inspect `http://localhost:5173`.
+If the agent answer quality is under review, inspect the admin/audit surface on `http://127.0.0.1:8081`.
 
 Do not guess why the agent failed.
 

@@ -9,6 +9,7 @@ from src.knowledge.models import KnowledgeDocumentRecord
 # Parse explicit `@document`-style syntax only. Runtime KB routing must not
 # grow free-text heuristics that guess document targets from arbitrary prose.
 _LOOKUP_NORMALIZE_RE = re.compile(r"[^0-9A-Za-z\u4e00-\u9fff]+")
+_READY_DOCUMENT_STATUSES = frozenset({"ready", "ready_degraded"})
 _BRACKET_REFERENCE_RE = re.compile(
     r"(?:^|[\s([{（【])@(?:knowledge|kb|doc|document)\[([^\]\n]+)\]",
     re.IGNORECASE,
@@ -76,7 +77,7 @@ def resolve_knowledge_document_mentions(
     documents: list[KnowledgeDocumentRecord],
     mentions: tuple[str, ...] | list[str],
 ) -> ResolvedKnowledgeReferences:
-    ready_documents = [document for document in documents if document.status == "ready"]
+    ready_documents = [document for document in documents if document.status in _READY_DOCUMENT_STATUSES]
     if not ready_documents or not mentions:
         return ResolvedKnowledgeReferences(matched=(), unresolved=tuple(mentions))
 

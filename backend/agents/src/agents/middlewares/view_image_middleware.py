@@ -121,7 +121,7 @@ class ViewImageMiddleware(AgentMiddleware[ViewImageMiddlewareState]):
                     "text": (
                         "These images came from the knowledge-base retrieval flow. "
                         "Use the matching current-turn knowledge evidence as the source of truth, "
-                        "copy its exact citation_markdown, include image_markdown in the final answer when the image materially helps, "
+                        "copy its exact citation_markdown, prefer display_markdown when present, otherwise include image_markdown in the final answer when the image materially helps, "
                         "and do not expose raw /mnt/user-data image paths in the visible answer."
                     ),
                 }
@@ -161,9 +161,9 @@ class ViewImageMiddleware(AgentMiddleware[ViewImageMiddlewareState]):
             return None
 
         citations: list[str] = []
-        images: list[str] = []
+        visuals: list[str] = []
         seen_citations: set[str] = set()
-        seen_images: set[str] = set()
+        seen_visuals: set[str] = set()
 
         for item in payload.get("items", []):
             if not isinstance(item, dict):
@@ -180,12 +180,12 @@ class ViewImageMiddleware(AgentMiddleware[ViewImageMiddlewareState]):
                 if citation and citation not in seen_citations and len(citations) < _MAX_EVIDENCE_CITATIONS:
                     seen_citations.add(citation)
                     citations.append(citation)
-                image_markdown = str(block.get("image_markdown") or "").strip()
-                if image_markdown and image_markdown not in seen_images and len(images) < _MAX_EVIDENCE_IMAGES:
-                    seen_images.add(image_markdown)
-                    images.append(image_markdown)
+                visual_markdown = str(block.get("display_markdown") or block.get("image_markdown") or "").strip()
+                if visual_markdown and visual_markdown not in seen_visuals and len(visuals) < _MAX_EVIDENCE_IMAGES:
+                    seen_visuals.add(visual_markdown)
+                    visuals.append(visual_markdown)
 
-        if not citations and not images:
+        if not citations and not visuals:
             return None
 
         lines = ["Current-turn knowledge evidence to reuse exactly:"]
@@ -193,10 +193,12 @@ class ViewImageMiddleware(AgentMiddleware[ViewImageMiddlewareState]):
         if citations:
             lines.append("Citations:")
             lines.extend(f"- {citation}" for citation in citations)
-        if images:
-            lines.append("Inline images:")
-            lines.extend(f"- {image_markdown}" for image_markdown in images)
-        lines.append("Do not emit raw /mnt/user-data image paths. Reuse exact image_markdown when the image is relevant.")
+        if visuals:
+            lines.append("Inline visuals:")
+            lines.extend(f"- {visual_markdown}" for visual_markdown in visuals)
+        lines.append(
+            "Do not emit raw /mnt/user-data image paths. Reuse exact display_markdown when present; otherwise reuse exact image_markdown and keep citation_markdown in the same answer block."
+        )
         return "\n".join(lines)
 
     def _latest_knowledge_evidence_payload(self, messages: list) -> dict | None:

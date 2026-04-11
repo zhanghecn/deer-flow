@@ -39,7 +39,7 @@ tool_groups:
     assert {"use": "tests.fake_tools:fake_tool"} in tools
 
 
-def test_get_available_tools_includes_knowledge_tools(monkeypatch, tmp_path: Path):
+def test_get_available_tools_includes_default_knowledge_retrieval_tools(monkeypatch, tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         """
@@ -62,7 +62,7 @@ tool_groups: []
     tool_names = {tool.name for tool in tools if hasattr(tool, "name")}
 
     assert "question" in tool_names
-    assert "list_knowledge_documents" in tool_names
+    assert "list_knowledge_documents" not in tool_names
     assert "get_document_tree" in tool_names
     assert "get_document_evidence" in tool_names
     assert "get_document_image" in tool_names

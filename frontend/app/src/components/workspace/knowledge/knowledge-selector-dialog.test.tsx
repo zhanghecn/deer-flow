@@ -7,9 +7,27 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@/core/i18n/context";
 
 import {
+  applyKnowledgeBaseBindingDiff,
   KnowledgeSelectorDialog,
   resolveKnowledgeBaseBindingDiff,
 } from "./knowledge-selector-dialog";
+
+const attachKnowledgeBaseToThread = vi.fn();
+const detachKnowledgeBaseFromThread = vi.fn();
+
+vi.mock("sonner", () => ({
+  toast: {
+    success: vi.fn(),
+    error: vi.fn(),
+  },
+}));
+
+vi.mock("@/core/knowledge/api", () => ({
+  attachKnowledgeBaseToThread: (...args: unknown[]) =>
+    attachKnowledgeBaseToThread(...args),
+  detachKnowledgeBaseFromThread: (...args: unknown[]) =>
+    detachKnowledgeBaseFromThread(...args),
+}));
 
 vi.mock("@/core/knowledge/hooks", () => ({
   useKnowledgeLibrary: () => ({
@@ -67,6 +85,8 @@ vi.mock("@/core/knowledge/hooks", () => ({
 describe("KnowledgeSelectorDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    attachKnowledgeBaseToThread.mockResolvedValue({ knowledge_bases: [] });
+    detachKnowledgeBaseFromThread.mockResolvedValue({ knowledge_bases: [] });
   });
 
   it("shows the attached knowledge base count on the trigger", () => {
@@ -135,5 +155,34 @@ describe("KnowledgeSelectorDialog", () => {
       baseIdsToAttach: ["kb-2"],
       baseIdsToDetach: ["kb-1"],
     });
+  });
+
+  it("ensures the draft thread exists before applying thread knowledge bindings", async () => {
+    const ensureThreadExists = vi.fn().mockResolvedValue(undefined);
+
+    await applyKnowledgeBaseBindingDiff({
+      threadId: "draft-thread",
+      attachedBaseIds: ["kb-1"],
+      draftBaseIds: ["kb-1", "kb-2"],
+      ensureThreadExists,
+      attach: attachKnowledgeBaseToThread,
+      detach: detachKnowledgeBaseFromThread,
+    });
+
+    expect(ensureThreadExists).toHaveBeenCalledTimes(1);
+    expect(attachKnowledgeBaseToThread).toHaveBeenCalledWith(
+      "draft-thread",
+      "kb-2",
+    );
+
+    const ensureCallOrder = ensureThreadExists.mock.invocationCallOrder[0];
+    const attachCallOrder =
+      attachKnowledgeBaseToThread.mock.invocationCallOrder[0];
+    expect(ensureCallOrder).toBeDefined();
+    expect(attachCallOrder).toBeDefined();
+    if (ensureCallOrder == null || attachCallOrder == null) {
+      throw new Error("Expected both ensure and attach calls to be recorded.");
+    }
+    expect(ensureCallOrder).toBeLessThan(attachCallOrder);
   });
 });

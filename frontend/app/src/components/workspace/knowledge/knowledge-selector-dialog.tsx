@@ -86,12 +86,56 @@ export function resolveKnowledgeBaseBindingDiff(
   };
 }
 
+export async function applyKnowledgeBaseBindingDiff({
+  threadId,
+  attachedBaseIds,
+  draftBaseIds,
+  ensureThreadExists,
+  attach = attachKnowledgeBaseToThread,
+  detach = detachKnowledgeBaseFromThread,
+}: {
+  threadId: string;
+  attachedBaseIds: string[];
+  draftBaseIds: string[];
+  ensureThreadExists?: () => Promise<void>;
+  attach?: typeof attachKnowledgeBaseToThread;
+  detach?: typeof detachKnowledgeBaseFromThread;
+}) {
+  const { baseIdsToAttach, baseIdsToDetach } = resolveKnowledgeBaseBindingDiff(
+    attachedBaseIds,
+    draftBaseIds,
+  );
+
+  if (baseIdsToAttach.length > 0 || baseIdsToDetach.length > 0) {
+    // New-chat routes start with a client-side draft thread ID. Persist the
+    // backend thread before rewriting thread-scoped KB bindings so the first
+    // run inherits the exact attachment set the user selected here.
+    await ensureThreadExists?.();
+  }
+
+  await Promise.all([
+    ...baseIdsToAttach.map((knowledgeBaseId) =>
+      attach(threadId, knowledgeBaseId),
+    ),
+    ...baseIdsToDetach.map((knowledgeBaseId) =>
+      detach(threadId, knowledgeBaseId),
+    ),
+  ]);
+
+  return {
+    baseIdsToAttach,
+    baseIdsToDetach,
+  };
+}
+
 export function KnowledgeSelectorDialog({
   threadId,
   disabled,
+  ensureThreadExists,
 }: {
   threadId: string;
   disabled?: boolean;
+  ensureThreadExists?: () => Promise<void>;
 }) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
@@ -239,17 +283,12 @@ export function KnowledgeSelectorDialog({
     try {
       // The dialog writes the full attach/detach diff so chat state stays
       // aligned with the persisted thread bindings after refreshes.
-      const { baseIdsToAttach, baseIdsToDetach } =
-        resolveKnowledgeBaseBindingDiff(attachedBaseIds, draftBaseIds);
-
-      await Promise.all([
-        ...baseIdsToAttach.map((knowledgeBaseId) =>
-          attachKnowledgeBaseToThread(threadId, knowledgeBaseId),
-        ),
-        ...baseIdsToDetach.map((knowledgeBaseId) =>
-          detachKnowledgeBaseFromThread(threadId, knowledgeBaseId),
-        ),
-      ]);
+      await applyKnowledgeBaseBindingDiff({
+        threadId,
+        attachedBaseIds,
+        draftBaseIds,
+        ensureThreadExists,
+      });
 
       await Promise.all([
         queryClient.invalidateQueries({
@@ -278,6 +317,7 @@ export function KnowledgeSelectorDialog({
   }, [
     attachedBaseIds,
     draftBaseIds,
+    ensureThreadExists,
     queryClient,
     t,
     threadId,

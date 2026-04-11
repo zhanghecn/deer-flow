@@ -25,7 +25,7 @@ Before browser testing:
 
 Use a headed browser against:
 
-- `http://localhost:3000`
+- `http://127.0.0.1:8083`
 - account: `admin`
 - password: `admin123`
 
@@ -55,23 +55,30 @@ Still from the real app flow:
    - contains grounded citations
    - citations match the returned source
    - image evidence appears naturally when the document meaning depends on images
+   - if a broad evidence response reports omitted visuals, the follow-up narrows by node or uses `get_document_image(...)` instead of opening spill files
+5. In the same KB-attached thread, ask at least one clearly non-KB question.
+6. Verify the non-KB turn:
+   - still answers correctly
+   - does not spuriously call `get_document_tree` / `get_document_evidence`
+   - can still use normal filesystem or shell tools when the task needs them
 
 ### 4. Internal Audit Test
 
 Use:
 
-- `http://localhost:5173`
+- `http://127.0.0.1:8081`
 
 Required audit coverage:
 
 1. Inspect the agent run trace.
 2. Confirm the tool path is reasonable:
-   - `list_knowledge_documents`
    - `get_document_tree`
    - `get_document_evidence`
+   - no preliminary knowledge-document listing tool call is required when the prompt already injected attached document metadata
 3. Confirm it did not regress to broad spill behavior without narrowing.
-4. Confirm the final answer matches the evidence bundle used in the same turn.
-5. If behavior is wrong, record the exact failure mode rather than guessing.
+4. Confirm KB-only guardrails are scoped narrowly enough that a non-KB turn on the same thread is not diverted into KB tools, even when the user did not type an explicit `@document` reference.
+5. Confirm the final answer matches the evidence bundle used in the same turn.
+6. If behavior is wrong, record the exact failure mode rather than guessing.
 
 ### 5. Current-Code Stack Verification
 
@@ -105,5 +112,5 @@ Every completed test pass should record:
 - document names used
 - whether the stack was current-code or long-running shared dev stack
 - result of browser flow
-- result of 5173 internal audit
+- result of 8081 admin/internal audit
 - known gaps

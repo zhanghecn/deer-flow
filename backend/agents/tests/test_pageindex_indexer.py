@@ -478,6 +478,80 @@ def test_format_document_evidence_payload_omits_duplicate_page_text():
 
     assert "text" not in payload["items"][0]
     assert payload["items"][0]["evidence_blocks"][0]["text"] == "Repeated text"
+    assert "preview_target" not in payload["items"][0]["evidence_blocks"][0]
+
+
+def test_format_document_evidence_payload_caps_inline_visual_blocks():
+    document = KnowledgeDocumentRecord(
+        id="doc-1",
+        knowledge_base_id="kb-1",
+        knowledge_base_name="Finance",
+        knowledge_base_description=None,
+        display_name="annual-report.pdf",
+        file_kind="pdf",
+        locator_type="page",
+        status="ready",
+        doc_description="annual report description",
+        error=None,
+        page_count=20,
+        node_count=8,
+        source_storage_path="knowledge/source.pdf",
+        markdown_storage_path=None,
+        preview_storage_path="knowledge/preview.pdf",
+    )
+    item = NodeDetailItem(
+        node_id="0008",
+        title="Monitoring Financial Vulnerabilities",
+        page_start=1,
+        page_end=8,
+        summary="Summary",
+        evidence_blocks=[
+            EvidenceBlock(
+                evidence_id=f"0008-page-image-p{page_number:04d}",
+                kind="page_image",
+                locator_type="page",
+                locator_label=f"annual-report.pdf p.{page_number}",
+                page_number=page_number,
+                image_path=f"/mnt/user-data/outputs/.knowledge/doc-1/pages/page-{page_number:04d}.png",
+                image_markdown=f"![annual-report.pdf p.{page_number}](kb://asset?document_id=doc-1&page={page_number})",
+                display_markdown=(
+                    f"![annual-report.pdf p.{page_number}](kb://asset?document_id=doc-1&page={page_number})\n\n"
+                    f"[citation:annual-report.pdf p.{page_number}](kb://citation?document_id=doc-1&page={page_number})"
+                ),
+                citation_markdown=f"[citation:annual-report.pdf p.{page_number}](kb://citation?document_id=doc-1&page={page_number})",
+                preview_target=EvidencePreviewTarget(
+                    artifact_path="/mnt/user-data/outputs/.knowledge/doc-1/annual-report.pdf",
+                    page=page_number,
+                    locator_label=f"annual-report.pdf p.{page_number}",
+                ),
+            )
+            for page_number in range(1, 9)
+        ],
+    )
+    result = DocumentEvidenceResult(
+        document=document,
+        requested_node_ids=["0008"],
+        items=[item],
+        total_pages=20,
+        returned_pages="1-8",
+        returned_lines=None,
+        next_steps=KnowledgeToolNextSteps(
+            summary="Successfully retrieved evidence for 1 nodes.",
+            options=["Use returned evidence_blocks."],
+        ),
+    )
+
+    payload = json.loads(format_document_evidence_payload(result))
+    blocks = payload["items"][0]["evidence_blocks"]
+
+    assert payload["inline_visual_block_count"] == 6
+    assert payload["omitted_visual_block_count"] == 2
+    assert len(blocks) == 6
+    assert all("image_path" not in block for block in blocks)
+    assert all("preview_target" not in block for block in blocks)
+    assert all("display_markdown" in block for block in blocks)
+    assert all("image_markdown" not in block for block in blocks)
+    assert any("Inline visual evidence was capped" in option for option in payload["next_steps"]["options"])
 
 
 def test_validate_node_detail_request_allows_small_page_root_with_children():

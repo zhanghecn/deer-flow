@@ -31,6 +31,7 @@ def _document(
     *,
     document_id: str,
     knowledge_base_name: str = "Finance",
+    status: str = "ready",
 ) -> KnowledgeDocumentRecord:
     return KnowledgeDocumentRecord(
         id=document_id,
@@ -40,7 +41,7 @@ def _document(
         display_name=name,
         file_kind="pdf",
         locator_type="page",
-        status="ready",
+        status=status,
         doc_description=f"description for {name}",
         error=None,
         page_count=20,
@@ -97,12 +98,13 @@ def test_build_knowledge_context_prompt_uses_thread_binding_fallback(monkeypatch
 
     prompt = build_knowledge_context_prompt({"thread_id": "thread-1"})
 
+    assert "<knowledge_context>" in prompt
     assert "<knowledge_thread_bindings>" in prompt
-    assert "1 ready knowledge document(s) attached across 1 knowledge base(s)" in prompt
-    assert "call `list_knowledge_documents` instead of assuming hidden lists" in prompt
-    assert "list_knowledge_documents" in prompt
-    assert "annual-report.pdf" not in prompt
-    assert "user-from-binding:thread-1" not in prompt
+    assert "1 attached knowledge document(s), 1 ready for retrieval, across 1 knowledge base(s)" in prompt
+    assert "<knowledge_attached_documents>" in prompt
+    assert "<document_id>user-from-binding:thread-1</document_id>" in prompt
+    assert "<display_name>annual-report.pdf</display_name>" in prompt
+    assert "<knowledge_base>Finance</knowledge_base>" in prompt
 
 
 def test_build_knowledge_context_prompt_prioritizes_user_and_agent_document_targets(monkeypatch):
@@ -131,27 +133,85 @@ def test_build_knowledge_context_prompt_prioritizes_user_and_agent_document_targ
 
     assert "<knowledge_document_selection>" in prompt
     assert "<knowledge_tool_protocol>" in prompt
-    assert "User-explicit document targets for this turn" in prompt
-    assert "annual-report.pdf [Finance]" in prompt
-    assert "Treat these explicit targets as the first retrieval choice" in prompt
-    assert "Refresh evidence in the current turn before answering" in prompt
+    assert "<activation_rule>" in prompt
+    assert "<user_targets>" in prompt
+    assert "<document_id>doc-1</document_id>" in prompt
+    assert "<display_name>annual-report.pdf</display_name>" in prompt
+    assert "Treat these explicit targets as the first and authoritative retrieval choice" in prompt
+    assert "Stay inside the attached knowledge toolchain for them" in prompt
+    assert "Do not use generic filesystem or shell tools to locate or inspect document copies" in prompt
+    assert "ignore this block and continue the normal general-purpose workflow" in prompt
+    assert "attached documents already define the retrieval scope" in prompt
+    assert "When this protocol is active, refresh evidence in the current turn before answering" in prompt
     assert "max_depth=2" in prompt
     assert "root_cursor" in prompt
-    assert "prefer the returned ASCII `document_id`" in prompt
-    assert "Do not send placeholder, guessed, or empty `document_name_or_id` values" in prompt
-    assert "AGENTS.md default document targets when relevant" in prompt
-    assert "board-deck-q4.md [Finance]" in prompt
+    assert "When this protocol is active, prefer the injected ASCII" in prompt
+    assert "When this protocol is active, pick one concrete ready document_id" in prompt
+    assert "When this protocol is active, stay with the knowledge tools first" in prompt
+    assert "<agent_default_targets>" in prompt
+    assert "<display_name>board-deck-q4.md</display_name>" in prompt
     assert "get_document_evidence" in prompt
     assert "answer_requires_evidence=true" in prompt
     assert "display_markdown" in prompt
     assert "image_markdown" in prompt
-    assert "For visual questions, retrieve evidence first" in prompt
+    assert "retrieve visual evidence first" in prompt
     assert "instead of opening spill files" in prompt
-    assert "Avoid raw file or shell bypass" in prompt
+    assert "do not inspect indexed knowledge artifacts in runtime outputs directly" in prompt
+    assert "KB retrieval has started, do not switch to grep, glob, read_file, ls, find, execute" in prompt
+    assert "do not inspect /mnt/user-data/outputs/.knowledge or /large_tool_results/... directly" in prompt
+    assert "run_command" not in prompt
     assert "<knowledge_thread_bindings>" in prompt
-    assert "call `list_knowledge_documents` instead of assuming hidden lists" in prompt
-    assert "Attached knowledge bases: Finance." in prompt
-    assert '"document_name"' not in prompt
+    assert "<knowledge_bases>" in prompt
+    assert "<knowledge_base>Finance</knowledge_base>" in prompt
+    assert "<ready_documents>" in prompt
+
+
+def test_build_knowledge_context_prompt_applies_kb_tool_priority_without_explicit_mentions(monkeypatch):
+    monkeypatch.setattr(
+        "src.knowledge.runtime.get_runtime_db_store",
+        lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
+    )
+    _patch_thread_documents(
+        monkeypatch,
+        _document("annual-report.pdf", document_id="doc-1"),
+    )
+
+    prompt = build_knowledge_context_prompt(
+        {
+            "thread_id": "thread-1",
+            "original_user_input": "总结这份已挂载年报里最重要的三项风险。",
+        }
+    )
+
+    assert "<knowledge_document_selection>" not in prompt
+    assert "<knowledge_tool_protocol>" in prompt
+    assert "attached documents already define the retrieval scope" in prompt
+    assert "When this protocol is active, stay with the knowledge tools first" in prompt
+    assert "KB retrieval has started, do not switch to grep, glob, read_file, ls, find, execute" in prompt
+    assert "do not inspect /mnt/user-data/outputs/.knowledge or /large_tool_results/... directly" in prompt
+    assert "ignore this block and continue the normal general-purpose workflow" in prompt
+
+
+def test_build_knowledge_context_prompt_includes_unavailable_attached_documents(monkeypatch):
+    monkeypatch.setattr(
+        "src.knowledge.runtime.get_runtime_db_store",
+        lambda: _FakeDBStore(_FakeBinding("user-from-binding")),
+    )
+    _patch_thread_documents(
+        monkeypatch,
+        _document("annual-report.pdf", document_id="doc-1", status="ready_degraded"),
+        _document("board-deck-q4.md", document_id="doc-2", status="processing"),
+    )
+
+    prompt = build_knowledge_context_prompt({"thread_id": "thread-1"})
+
+    assert "<ready_documents>" in prompt
+    assert "<document_id>doc-1</document_id>" in prompt
+    assert "<status>ready_degraded</status>" in prompt
+    assert "<unavailable_documents>" in prompt
+    assert "<document_id>doc-2</document_id>" in prompt
+    assert "<status>processing</status>" in prompt
+    assert "No attached documents are ready for retrieval" not in prompt
 
 
 def test_knowledge_context_middleware_keeps_model_tool_list_stable_for_attached_document_turns(monkeypatch):

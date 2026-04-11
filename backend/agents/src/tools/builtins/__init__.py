@@ -4,7 +4,6 @@ from .knowledge_tools import (
     get_document_image,
     get_document_tree,
     get_document_tree_node_detail,
-    list_knowledge_documents,
 )
 from .push_agent_prod_tool import push_agent_prod
 from .push_skill_prod_tool import push_skill_prod
@@ -20,7 +19,6 @@ __all__ = [
     "save_agent_to_store",
     "save_skill_to_store",
     "install_skill_from_registry",
-    "list_knowledge_documents",
     "get_document_tree",
     "get_document_evidence",
     "get_document_tree_node_detail",

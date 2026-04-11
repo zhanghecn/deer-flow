@@ -1,6 +1,6 @@
 # Knowledge Base Architecture
 
-Last updated: 2026-03-28
+Last updated: 2026-04-11
 
 ## 1. Scope
 
@@ -273,11 +273,20 @@ Gateway / frontend poll build progress and events
 
 ## 5. Retrieval Contract
 
-当前 Agent 侧主协议暴露 3 个知识工具：
+当前 Agent 侧默认知识主协议暴露 2 个检索工具：
 
-- `list_knowledge_documents`
 - `get_document_tree`
 - `get_document_evidence`
+
+线程挂载文档清单不再通过 listing tool 暴露，而是由 `KnowledgeContextMiddleware`
+直接注入 XML prompt，上下文中会包含：
+
+- attached document `document_id`
+- `display_name`
+- `knowledge_base`
+- `status`
+- 文档描述、页数、节点数等轻量元数据
+- ready / unavailable 分组
 
 补充视觉工具：
 
@@ -290,10 +299,11 @@ Gateway / frontend poll build progress and events
 推荐调用顺序：
 
 ```text
-list_knowledge_documents
-    -> get_document_tree
-        -> get_document_tree(document_name_or_id=..., node_id=...) when a subtree is still broad
-            -> get_document_evidence
+KnowledgeContextMiddleware injects <knowledge_attached_documents>
+    -> choose one ready document_id from the XML prompt
+        -> get_document_tree
+            -> get_document_tree(document_name_or_id=..., node_id=...) when a subtree is still broad
+                -> get_document_evidence
 ```
 
 设计原则：
@@ -305,6 +315,7 @@ list_knowledge_documents
 - 树只给标题、摘要、页范围，不直接给原文
 - Agent 工具返回里对树节点只暴露一个统一的 `summary` 字段，不再同时暴露 `prefix_summary`
 - 真正回答前必须通过 `get_document_evidence` 读取 grounded text / visual blocks / exact citations
+- `get_document_evidence` 的宽范围结果会优先保留 text / citation / `display_markdown`，并限制内联视觉块数量以控制工具结果预算；如果返回提示存在 omitted visuals，应继续缩小 `node_id` 范围或改用 `get_document_image`
 - PDF 多页节点拆成 `page_chunks[]`，优先使用单页 citation
 - 图片不单独再做额外一轮 LLM 描述；图像在摘要阶段随多模态上下文进入树构建，原文里保留 markdown 图片占位符，evidence 中直接返回 `image_markdown`
 - 视觉问题的默认顺序是：`get_document_tree` -> `get_document_evidence` -> 仅在仍需视觉判读时再 `view_image(image_path=...)`；最终答案仍必须带同一轮 evidence 的精确 citation
@@ -328,9 +339,11 @@ list_knowledge_documents
 - 知识库主链路保持为 prompt-first guidance：
   - system prompt
   - `KnowledgeContextMiddleware` 的上下文注入
+- `KnowledgeContextMiddleware` 会把线程挂载文档直接注入为 XML prompt，避免模型为“先看看有哪些知识库文档”再额外调用一次工具
+- 注入的 KB protocol 明确要求“仅在当前 turn 需要 attached-document retrieval 时激活”；thread attachment 本身就是精确范围，显式 `@document` 只是可选增强信号而不是必需前提
 - middleware 不再对 `grep` / `read_file` / `ls` / `execute` / `view_image` 等通用工具做 tool-call 拦截
 - middleware 也不再在答案已开始可见输出后做隐藏重试，因为这会在流式 UI 中追加第二段割裂答案
-- 主链路目标仍然是引导模型优先走 `list_knowledge_documents` -> `get_document_tree` -> `get_document_evidence`
+- 主链路目标仍然是引导模型优先走 `<knowledge_attached_documents>` -> `get_document_tree` -> `get_document_evidence`
 - 是否真正遵循该链路，主要通过 trace 审计与前端真实流测试验证，而不是靠 middleware 在工具层强行兜底
 
 ## 6. Citation and Preview Contract
