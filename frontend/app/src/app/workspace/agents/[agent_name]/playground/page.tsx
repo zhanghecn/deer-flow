@@ -235,6 +235,7 @@ export default function AgentPlaygroundPage() {
                 agentName={runtimeSelection.agentName}
                 defaultBaseURL={exportDoc.api_base_url}
                 documentationURL={exportDoc.documentation_url}
+                apiKeysURL="/workspace/keys"
               />
             </motion.div>
           </>

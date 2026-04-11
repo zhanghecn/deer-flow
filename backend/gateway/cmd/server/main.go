@@ -57,6 +57,10 @@ func main() {
 
 	// Initialize components
 	jwtMgr := jwt.NewManager(cfg.JWT.Secret, cfg.JWT.ExpireHour)
+	apiTokenCipher, err := handler.NewAPITokenCipher(cfg.JWT.Secret)
+	if err != nil {
+		log.Fatalf("Failed to initialize API token cipher: %v", err)
+	}
 	fs := storage.NewFS(baseDir)
 	knowledgeAssetStore, err := knowledgeasset.New(baseDir)
 	if err != nil {
@@ -87,7 +91,7 @@ func main() {
 	)
 
 	// Handlers
-	authH := handler.NewAuthHandler(userRepo, tokenRepo, jwtMgr, fs)
+	authH := handler.NewAuthHandler(userRepo, tokenRepo, jwtMgr, apiTokenCipher, fs)
 	agentH := handler.NewAgentHandler(agentSvc, fs, userRepo)
 	skillH := handler.NewSkillHandler(skillSvc, fs, extensionsConfigPath)
 	authoringWorkspaceH := handler.NewAuthoringWorkspaceHandler(authoringWorkspaceSvc, fs, threadRepo)

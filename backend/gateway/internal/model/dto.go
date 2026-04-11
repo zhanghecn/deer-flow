@@ -33,11 +33,6 @@ type CreateAPITokenRequest struct {
 	Metadata      json.RawMessage `json:"metadata"`
 }
 
-type APITokenResponse struct {
-	APIToken
-	PlainToken string `json:"token,omitempty"`
-}
-
 // Agent DTOs
 
 type CreateAgentRequest struct {

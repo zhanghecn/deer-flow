@@ -31,7 +31,7 @@ const enUS: AgentPlaygroundPageText = {
   eyebrow: "Standalone Playground",
   titleSuffix: "Public API Playground",
   description:
-    "Use the full workspace width to test the published `/v1` contract with real scoped keys, uploads, event flow, and generated files.",
+    "Use the full workspace width to test the published `/v1` contract with a key from the API keys page, uploads, event flow, and generated files.",
   backToSettings: "Back to settings",
   openAgent: "Open agent",
   openDocs: "Open developer docs",
@@ -64,7 +64,7 @@ const zhCN: AgentPlaygroundPageText = {
   eyebrow: "独立 Playground",
   titleSuffix: "公共 API Playground",
   description:
-    "使用完整页面宽度测试已发布的 `/v1` 契约，包括真实 scoped key、文件上传、事件流和生成文件下载。",
+    "使用完整页面宽度测试已发布的 `/v1` 契约，包括独立 API Key 页面签发的 key、文件上传、事件流和生成文件下载。",
   backToSettings: "返回设置",
   openAgent: "打开 Agent",
   openDocs: "打开开发者文档",

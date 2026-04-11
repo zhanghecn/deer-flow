@@ -5,7 +5,9 @@ import { authFetch } from "./fetch";
 export interface APITokenRecord {
   id: string;
   user_id: string;
-  token_prefix: string;
+  // `token` is returned only on owner-authenticated list/create responses so
+  // the workspace key manager can re-copy the full credential when permitted.
+  token?: string | null;
   name: string;
   scopes: string[];
   status: string;
@@ -87,7 +89,7 @@ export async function deleteAPIToken(id: string): Promise<void> {
     throw new Error(
       resolveAPIErrorMessage(
         error,
-        `Failed to revoke API token: ${response.statusText}`,
+        `Failed to delete API token: ${response.statusText}`,
       ),
     );
   }

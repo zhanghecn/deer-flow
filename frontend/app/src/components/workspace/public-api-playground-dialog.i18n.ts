@@ -15,14 +15,7 @@ type PublicAPIPlaygroundText = {
   userKey: string;
   userKeyHint: string;
   publicUserKeyHint: string;
-  createScopedKey: string;
-  creatingKey: string;
-  recentKeys: string;
-  noRecentKeys: string;
-  keyReadyTitle: string;
-  keyReadyDescription: string;
-  keyReadyCopy: string;
-  keyReadyCopied: string;
+  manageKeys: string;
   runEyebrow: string;
   requestTitle: string;
   requestDescription: string;
@@ -81,8 +74,6 @@ type PublicAPIPlaygroundText = {
   invalidSchema: string;
   requestFailed: string;
   copyFailed: string;
-  loadKeysFailed: string;
-  keyCreateFailed: string;
   uploadStarted: (filename: string) => string;
   uploadFinished: (filename: string, fileID: string) => string;
   requestPrepared: string;
@@ -134,18 +125,10 @@ const enUS: PublicAPIPlaygroundText = {
     "Defaults to the current browser origin and appends `/v1`. External integrators can use the same address directly.",
   userKey: "User Key",
   userKeyHint:
-    "Paste an existing key or mint a new key scoped to this published agent.",
+    "Paste a key from the dedicated API keys page that is bound to this published agent.",
   publicUserKeyHint:
     "Paste the API key issued for this published agent. The public page never creates or lists workspace tokens.",
-  createScopedKey: "Create scoped key",
-  creatingKey: "Creating key...",
-  recentKeys: "Recent scoped keys",
-  noRecentKeys: "No scoped keys have been created for this agent yet.",
-  keyReadyTitle: "Scoped key created",
-  keyReadyDescription:
-    "The plaintext key is shown once and stays in the form so you can test immediately.",
-  keyReadyCopy: "Copy key",
-  keyReadyCopied: "Key copied",
+  manageKeys: "Manage API keys",
   runEyebrow: "Request",
   requestTitle: "Compose a run",
   requestDescription:
@@ -215,8 +198,6 @@ const enUS: PublicAPIPlaygroundText = {
   invalidSchema: "Schema must be valid JSON.",
   requestFailed: "Request failed",
   copyFailed: "Copy failed",
-  loadKeysFailed: "Failed to load keys.",
-  keyCreateFailed: "Failed to create scoped key.",
   uploadStarted: (filename) => `Uploading ${filename}`,
   uploadFinished: (filename, fileID) => `${filename} uploaded as ${fileID}`,
   requestPrepared: "Request prepared",
@@ -269,18 +250,10 @@ const zhCN: PublicAPIPlaygroundText = {
     "默认取当前浏览器来源地址并自动追加 `/v1`。外部接入方也可以直接使用这个地址。",
   userKey: "User Key",
   userKeyHint:
-    "可以粘贴已有 key，也可以为当前已发布 agent 新建一个 scoped key。",
+    "请粘贴一个已经在独立 API Key 页面创建、并绑定到当前已发布 agent 的 key。",
   publicUserKeyHint:
     "请粘贴该已发布 agent 对应的 API key。公开页面不会创建或列出工作区 token。",
-  createScopedKey: "创建 Scoped Key",
-  creatingKey: "创建中...",
-  recentKeys: "最近的 Scoped Key",
-  noRecentKeys: "当前 agent 还没有创建过 scoped key。",
-  keyReadyTitle: "Scoped key 已创建",
-  keyReadyDescription:
-    "明文 key 只展示一次，并会直接回填到表单里方便立刻测试。",
-  keyReadyCopy: "复制 Key",
-  keyReadyCopied: "Key 已复制",
+  manageKeys: "管理 API Key",
   runEyebrow: "请求",
   requestTitle: "配置一次运行",
   requestDescription:
@@ -348,8 +321,6 @@ const zhCN: PublicAPIPlaygroundText = {
   invalidSchema: "Schema 必须是合法 JSON。",
   requestFailed: "请求失败",
   copyFailed: "复制失败",
-  loadKeysFailed: "加载 key 失败。",
-  keyCreateFailed: "创建 scoped key 失败。",
   uploadStarted: (filename) => `正在上传 ${filename}`,
   uploadFinished: (filename, fileID) => `${filename} 已上传，file_id=${fileID}`,
   requestPrepared: "请求已准备",

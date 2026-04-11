@@ -24,6 +24,7 @@ func (r *APITokenRepo) Create(ctx context.Context, t *model.APIToken) error {
 			id,
 			user_id,
 			token_hash,
+			token_ciphertext,
 			token_prefix,
 			name,
 			scopes,
@@ -33,10 +34,11 @@ func (r *APITokenRepo) Create(ctx context.Context, t *model.APIToken) error {
 			expires_at,
 			revoked_at
 		)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
 		t.ID,
 		t.UserID,
 		t.TokenHash,
+		t.TokenCiphertext,
 		t.TokenPrefix,
 		t.Name,
 		t.Scopes,
@@ -54,6 +56,7 @@ func (r *APITokenRepo) ListByUser(ctx context.Context, userID uuid.UUID) ([]mode
 		`SELECT
 			id,
 			user_id,
+			token_ciphertext,
 			token_prefix,
 			name,
 			scopes,
@@ -77,6 +80,7 @@ func (r *APITokenRepo) ListByUser(ctx context.Context, userID uuid.UUID) ([]mode
 		if err := rows.Scan(
 			&t.ID,
 			&t.UserID,
+			&t.TokenCiphertext,
 			&t.TokenPrefix,
 			&t.Name,
 			&t.Scopes,
@@ -102,6 +106,7 @@ func (r *APITokenRepo) FindByHash(ctx context.Context, hash string) (*model.APIT
 			id,
 			user_id,
 			token_hash,
+			token_ciphertext,
 			token_prefix,
 			name,
 			scopes,
@@ -117,6 +122,7 @@ func (r *APITokenRepo) FindByHash(ctx context.Context, hash string) (*model.APIT
 		&t.ID,
 		&t.UserID,
 		&t.TokenHash,
+		&t.TokenCiphertext,
 		&t.TokenPrefix,
 		&t.Name,
 		&t.Scopes,

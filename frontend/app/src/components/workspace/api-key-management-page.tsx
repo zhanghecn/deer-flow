@@ -15,6 +15,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { toast } from "sonner";
@@ -37,7 +38,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   WorkspaceBody,
   WorkspaceContainer,
@@ -57,22 +57,15 @@ import { cn } from "@/lib/utils";
 
 import { getAPIKeyManagementPageText } from "./api-key-management-page.i18n";
 
-type KeyFilter = "all" | "active" | "expired" | "revoked";
-type EffectiveTokenStatus = "active" | "expired" | "revoked";
-type InventoryGroup = {
-  id: string;
-  label: string;
-  count: number;
-};
-
 const FIXED_PUBLIC_API_SCOPES = [
   "responses:create",
   "responses:read",
   "artifacts:read",
 ];
-const LEGACY_UNSCOPED_GROUP_ID = "__legacy_unscoped__";
-const LEGACY_MULTI_GROUP_ID = "__legacy_multi__";
+const UNSUPPORTED_GROUP_ID = "__unsupported_contract__";
 const TOKENS_PER_PAGE = 10;
+const TOKEN_DISPLAY_PREFIX = 18;
+const TOKEN_DISPLAY_SUFFIX = 12;
 
 function formatTimestamp(
   timestamp: string | null | undefined,
@@ -97,31 +90,37 @@ function formatTimestamp(
   }).format(parsed);
 }
 
-function resolveEffectiveTokenStatus(token: APITokenRecord): EffectiveTokenStatus {
-  if (token.revoked_at || token.status === "revoked") {
-    return "revoked";
+function isExpiredToken(token: APITokenRecord) {
+  if (!token.expires_at) {
+    return false;
   }
 
-  if (token.expires_at && new Date(token.expires_at).getTime() <= Date.now()) {
-    return "expired";
-  }
-
-  return "active";
+  const expiresAt = new Date(token.expires_at).getTime();
+  return Number.isFinite(expiresAt) && expiresAt <= Date.now();
 }
 
-function statusBadgeClass(status: EffectiveTokenStatus) {
-  switch (status) {
-    case "expired":
-      return "border-amber-200 bg-amber-50 text-amber-950";
-    case "revoked":
-      return "border-rose-200 bg-rose-50 text-rose-950";
-    default:
-      return "border-emerald-200 bg-emerald-50 text-emerald-950";
-  }
+function isActiveToken(token: APITokenRecord) {
+  // New keys no longer support expirations, but older rows may still carry an
+  // expiry timestamp and should not reappear in the active inventory.
+  return (
+    !token.revoked_at && token.status !== "revoked" && !isExpiredToken(token)
+  );
 }
 
 function normalizeSearchValue(value: string) {
   return value.trim().toLowerCase();
+}
+
+function formatTokenDisplay(value: string) {
+  if (value.length <= TOKEN_DISPLAY_PREFIX + TOKEN_DISPLAY_SUFFIX + 3) {
+    return value;
+  }
+
+  // API keys are operational identifiers, so keep both the stable prefix and
+  // a meaningful tail visible while removing the noisy middle segment.
+  return `${value.slice(0, TOKEN_DISPLAY_PREFIX)}...${value.slice(
+    -TOKEN_DISPLAY_SUFFIX,
+  )}`;
 }
 
 function tokenMatchesInventorySearch(token: APITokenRecord, query: string) {
@@ -129,7 +128,7 @@ function tokenMatchesInventorySearch(token: APITokenRecord, query: string) {
     return true;
   }
 
-  return [token.name, token.token_prefix, ...token.allowed_agents]
+  return [token.name, token.token ?? "", ...token.allowed_agents]
     .join("\n")
     .toLowerCase()
     .includes(query);
@@ -142,45 +141,72 @@ function resolveTokenGroupID(token: APITokenRecord) {
       return agentName;
     }
   }
-  if (token.allowed_agents.length === 0) {
-    return LEGACY_UNSCOPED_GROUP_ID;
-  }
-  return LEGACY_MULTI_GROUP_ID;
+  return UNSUPPORTED_GROUP_ID;
 }
 
-function FieldLabel({
-  children,
-  hint,
-}: {
-  children: string;
-  hint?: string;
-}) {
+function FieldLabel({ children, hint }: { children: string; hint?: string }) {
   return (
     <div className="space-y-1.5">
-      <p className="text-sm font-medium text-slate-950">{children}</p>
-      {hint ? (
-        <p className="text-sm leading-6 text-slate-500">{hint}</p>
-      ) : null}
+      <p className="text-sm font-medium text-slate-900">{children}</p>
+      {hint ? <p className="text-sm leading-6 text-slate-500">{hint}</p> : null}
     </div>
   );
 }
 
-function StatMetric({
+function HeroMetric({
   label,
   value,
+  description,
 }: {
   label: string;
   value: number;
+  description: string;
 }) {
   return (
-    <div className="space-y-1 border-t border-slate-200 pt-3 first:border-t-0 first:pt-0 sm:border-t-0 sm:border-l sm:pt-0 sm:pl-4 sm:first:border-l-0 sm:first:pl-0">
-      <dt className="text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
+    <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-3.5 py-3">
+      <p className="text-[11px] font-medium tracking-[0.16em] text-slate-500 uppercase">
         {label}
-      </dt>
-      <dd className="text-2xl font-semibold tracking-[-0.04em] text-slate-950">
-        {value}
-      </dd>
+      </p>
+      <p className="mt-1.5 font-[family-name:'Space_Grotesk'] text-[1.35rem] font-semibold tracking-[-0.04em] text-slate-950">
+        {value.toString().padStart(2, "0")}
+      </p>
+      <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
     </div>
+  );
+}
+
+function InventoryFilterButton({
+  active,
+  label,
+  count,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  count: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex h-8 items-center gap-2 rounded-md border px-2.5 text-xs font-medium transition",
+        active
+          ? "border-emerald-700 bg-emerald-50 text-emerald-950"
+          : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
+      )}
+    >
+      <span>{label}</span>
+      <span
+        className={cn(
+          "rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold",
+          active ? "bg-emerald-100 text-emerald-900" : "text-slate-500",
+        )}
+      >
+        {count}
+      </span>
+    </button>
   );
 }
 
@@ -189,18 +215,20 @@ export function APIKeyManagementPage() {
   const { user } = useAuth();
   const text = getAPIKeyManagementPageText(locale);
   const queryClient = useQueryClient();
+  const createPanelRef = useRef<HTMLElement | null>(null);
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
   const [name, setName] = useState("");
   const [selectedCreateAgent, setSelectedCreateAgent] = useState("");
-  const [filter, setFilter] = useState<KeyFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedInventoryGroup, setSelectedInventoryGroup] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [createdToken, setCreatedToken] = useState("");
+  const [createdTokenID, setCreatedTokenID] = useState<string | null>(null);
   const [copiedPlaintext, setCopiedPlaintext] = useState(false);
   const [copiedTokenID, setCopiedTokenID] = useState<string | null>(null);
-  const [pendingRevokeID, setPendingRevokeID] = useState<string | null>(null);
-  // Defer the free-text filter so inventories remain responsive even when the
-  // current user has accumulated many historical keys.
+  const [pendingDeleteID, setPendingDeleteID] = useState<string | null>(null);
+  // Defer the search string so large inventories stay responsive while the
+  // operator types across long hash-like key values.
   const deferredSearchQuery = useDeferredValue(searchQuery);
 
   const tokensQuery = useQuery({
@@ -266,9 +294,11 @@ export function APIKeyManagementPage() {
     },
     onSuccess: async (token: APITokenCreateResponse) => {
       setCreatedToken(token.token ?? "");
+      setCreatedTokenID(token.id);
       setCopiedPlaintext(false);
+      setCopiedTokenID(null);
       setName("");
-      setPendingRevokeID(null);
+      setPendingDeleteID(null);
       setSearchQuery("");
       setCurrentPage(1);
       if (token.allowed_agents[0]) {
@@ -282,36 +312,44 @@ export function APIKeyManagementPage() {
     },
   });
 
-  const revokeMutation = useMutation({
+  const deleteMutation = useMutation({
     mutationFn: async (tokenID: string) => {
       await deleteAPIToken(tokenID);
       return tokenID;
     },
-    onSuccess: async () => {
-      setPendingRevokeID(null);
-      toast.success(text.revokeSuccess);
+    onSuccess: async (tokenID) => {
+      if (createdTokenID === tokenID) {
+        setCreatedToken("");
+        setCreatedTokenID(null);
+        setCopiedPlaintext(false);
+      }
+      if (copiedTokenID === tokenID) {
+        setCopiedTokenID(null);
+      }
+      setPendingDeleteID(null);
+      toast.success(text.deleteSuccess);
       await queryClient.invalidateQueries({ queryKey: ["auth", "api-tokens"] });
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : text.revokeFailed);
+      toast.error(error instanceof Error ? error.message : text.deleteFailed);
     },
   });
 
-  const filteredTokens = useMemo(() => {
-    const tokens = tokensQuery.data ?? [];
-    return tokens.filter((token) => {
-      const matchesFilter =
-        filter === "all" || resolveEffectiveTokenStatus(token) === filter;
-      return (
-        matchesFilter &&
-        tokenMatchesInventorySearch(token, normalizedSearchQuery)
-      );
-    });
-  }, [filter, normalizedSearchQuery, tokensQuery.data]);
+  const activeTokens = useMemo(
+    () =>
+      [...(tokensQuery.data ?? [])]
+        .filter((token) => isActiveToken(token))
+        .sort(
+          (left, right) =>
+            new Date(right.created_at).getTime() -
+            new Date(left.created_at).getTime(),
+        ),
+    [tokensQuery.data],
+  );
 
   const groupedTokens = useMemo(() => {
     const groups = new Map<string, APITokenRecord[]>();
-    for (const token of filteredTokens) {
+    for (const token of activeTokens) {
       const groupID = resolveTokenGroupID(token);
       const existing = groups.get(groupID);
       if (existing) {
@@ -320,123 +358,66 @@ export function APIKeyManagementPage() {
         groups.set(groupID, [token]);
       }
     }
-    for (const tokens of groups.values()) {
-      tokens.sort(
-        (left, right) =>
-          new Date(right.created_at).getTime() - new Date(left.created_at).getTime(),
-      );
-    }
     return groups;
-  }, [filteredTokens]);
+  }, [activeTokens]);
 
   const inventoryGroups = useMemo(() => {
-    const keyedAgentGroups = new Map<string, InventoryGroup>();
-    // Keep the create form strict to owned prod agents, but let the inventory
-    // show every single-agent key group the account already has so historical
-    // credentials do not disappear just because ownership rules hardened later.
-    for (const [groupID, tokens] of groupedTokens.entries()) {
-      if (
-        groupID === LEGACY_UNSCOPED_GROUP_ID ||
-        groupID === LEGACY_MULTI_GROUP_ID
-      ) {
-        continue;
-      }
-
-      keyedAgentGroups.set(groupID, {
+    const groups = [...groupedTokens.entries()]
+      .map(([groupID, tokens]) => ({
         id: groupID,
-        label: groupID,
+        label:
+          groupID === UNSUPPORTED_GROUP_ID ? text.unsupportedGroup : groupID,
         count: tokens.length,
+      }))
+      .sort((left, right) => {
+        if (left.id === UNSUPPORTED_GROUP_ID) {
+          return 1;
+        }
+        if (right.id === UNSUPPORTED_GROUP_ID) {
+          return -1;
+        }
+        return left.label.localeCompare(right.label);
       });
-    }
-
-    for (const agent of ownedProdAgents) {
-      const existingGroup = keyedAgentGroups.get(agent.name);
-      keyedAgentGroups.set(agent.name, {
-        id: agent.name,
-        label: agent.name,
-        count: existingGroup?.count ?? 0,
-      });
-    }
-
-    const ownedAgentNames = new Set(ownedProdAgents.map((agent) => agent.name));
-    const ownedAgentGroups: InventoryGroup[] = [];
-    const historicalAgentGroups: InventoryGroup[] = [];
-
-    for (const group of keyedAgentGroups.values()) {
-      if (ownedAgentNames.has(group.id)) {
-        ownedAgentGroups.push(group);
-        continue;
-      }
-      historicalAgentGroups.push(group);
-    }
-
-    ownedAgentGroups.sort((left, right) => left.label.localeCompare(right.label));
-    historicalAgentGroups.sort((left, right) =>
-      left.label.localeCompare(right.label),
-    );
-
-    const groups: InventoryGroup[] = [
-      ...ownedAgentGroups,
-      ...historicalAgentGroups,
-    ];
-
-    const legacyUnscopedCount =
-      groupedTokens.get(LEGACY_UNSCOPED_GROUP_ID)?.length ?? 0;
-    if (legacyUnscopedCount > 0) {
-      groups.push({
-        id: LEGACY_UNSCOPED_GROUP_ID,
-        label: text.legacyUnscopedGroup,
-        count: legacyUnscopedCount,
-      });
-    }
-
-    const legacyMultiCount = groupedTokens.get(LEGACY_MULTI_GROUP_ID)?.length ?? 0;
-    if (legacyMultiCount > 0) {
-      groups.push({
-        id: LEGACY_MULTI_GROUP_ID,
-        label: text.legacyMultiGroup,
-        count: legacyMultiCount,
-      });
-    }
-
     return groups;
-  }, [groupedTokens, ownedProdAgents, text.legacyMultiGroup, text.legacyUnscopedGroup]);
+  }, [groupedTokens, text.unsupportedGroup]);
 
   useEffect(() => {
-    if (inventoryGroups.length === 0) {
-      if (selectedInventoryGroup) {
-        setSelectedInventoryGroup("");
-      }
-      return;
-    }
-
-    if (inventoryGroups.some((group) => group.id === selectedInventoryGroup)) {
-      return;
-    }
-
-    const firstNonEmptyGroup =
-      inventoryGroups.find((group) => group.count > 0) ?? inventoryGroups[0];
-    if (firstNonEmptyGroup) {
-      setSelectedInventoryGroup(firstNonEmptyGroup.id);
+    if (
+      selectedInventoryGroup &&
+      !inventoryGroups.some((group) => group.id === selectedInventoryGroup)
+    ) {
+      setSelectedInventoryGroup("");
     }
   }, [inventoryGroups, selectedInventoryGroup]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [filter, normalizedSearchQuery, selectedInventoryGroup]);
+  }, [normalizedSearchQuery, selectedInventoryGroup]);
 
   const selectedGroup = useMemo(
     () =>
-      inventoryGroups.find((group) => group.id === selectedInventoryGroup) ?? null,
+      inventoryGroups.find((group) => group.id === selectedInventoryGroup) ??
+      null,
     [inventoryGroups, selectedInventoryGroup],
   );
-  const selectedGroupTokens = useMemo(
-    () => (selectedGroup ? groupedTokens.get(selectedGroup.id) ?? [] : []),
-    [groupedTokens, selectedGroup],
-  );
+  const filteredTokens = useMemo(() => {
+    const baseTokens = selectedInventoryGroup
+      ? (groupedTokens.get(selectedInventoryGroup) ?? [])
+      : activeTokens;
+
+    return baseTokens.filter((token) =>
+      tokenMatchesInventorySearch(token, normalizedSearchQuery),
+    );
+  }, [
+    activeTokens,
+    groupedTokens,
+    normalizedSearchQuery,
+    selectedInventoryGroup,
+  ]);
+
   const totalPages = Math.max(
     1,
-    Math.ceil(selectedGroupTokens.length / TOKENS_PER_PAGE),
+    Math.ceil(filteredTokens.length / TOKENS_PER_PAGE),
   );
 
   useEffect(() => {
@@ -447,33 +428,13 @@ export function APIKeyManagementPage() {
 
   const paginatedTokens = useMemo(() => {
     const startIndex = (currentPage - 1) * TOKENS_PER_PAGE;
-    return selectedGroupTokens.slice(startIndex, startIndex + TOKENS_PER_PAGE);
-  }, [currentPage, selectedGroupTokens]);
+    return filteredTokens.slice(startIndex, startIndex + TOKENS_PER_PAGE);
+  }, [currentPage, filteredTokens]);
 
-  const activeCount = useMemo(
-    () =>
-      (tokensQuery.data ?? []).filter(
-        (token) => resolveEffectiveTokenStatus(token) === "active",
-      ).length,
-    [tokensQuery.data],
+  const legacyTokenCount = useMemo(
+    () => activeTokens.filter((token) => !token.token).length,
+    [activeTokens],
   );
-
-  const keyedAgentCount = useMemo(() => {
-    const keyedAgents = new Set<string>();
-    for (const token of tokensQuery.data ?? []) {
-      if (token.allowed_agents.length !== 1) {
-        continue;
-      }
-
-      const agentName = token.allowed_agents[0];
-      if (agentName) {
-        keyedAgents.add(agentName);
-      }
-    }
-
-    return keyedAgents.size;
-  }, [tokensQuery.data]);
-
   const viewerIdentity =
     user?.email?.trim() ?? user?.name?.trim() ?? text.title;
 
@@ -492,14 +453,31 @@ export function APIKeyManagementPage() {
     }
     await handleCopy(createdToken, text.tokenReadyCopied);
     setCopiedPlaintext(true);
+    if (createdTokenID) {
+      setCopiedTokenID(createdTokenID);
+    }
   }
 
-  async function handleCopyPrefix(tokenPrefix: string, tokenID: string) {
-    await handleCopy(tokenPrefix, text.copied);
-    setCopiedTokenID(tokenID);
+  async function handleCopyStoredToken(token: APITokenRecord) {
+    if (!token.token) {
+      return;
+    }
+
+    await handleCopy(token.token, text.tokenReadyCopied);
+    setCopiedTokenID(token.id);
+    if (token.id === createdTokenID) {
+      setCopiedPlaintext(true);
+    }
+  }
+
+  function handleFocusCreateComposer() {
+    createPanelRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
     window.setTimeout(() => {
-      setCopiedTokenID((current) => (current === tokenID ? null : current));
-    }, 1500);
+      nameInputRef.current?.focus();
+    }, 120);
   }
 
   useLayoutEffect(() => {
@@ -509,224 +487,174 @@ export function APIKeyManagementPage() {
   return (
     <WorkspaceContainer>
       <WorkspaceHeader />
-      <WorkspaceBody className="items-stretch bg-slate-50">
+      <WorkspaceBody className="items-stretch bg-[#f5f1e9]">
         <section className="min-h-full">
-          <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
-            <section className="flex flex-col gap-5 border-b border-slate-200 pb-5 lg:flex-row lg:items-end lg:justify-between">
-              <div className="space-y-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge
-                    variant="outline"
-                    className="border-cyan-200 bg-cyan-50 text-cyan-900"
-                  >
-                    {text.eyebrow}
-                  </Badge>
-                  <p className="text-sm text-slate-600">
-                    <span className="font-medium text-slate-950">
-                      {text.signedInAs}
+          <div className="mx-auto flex w-full max-w-[96rem] flex-col gap-4 px-4 py-4 sm:px-6 xl:px-8">
+            <section className="overflow-hidden rounded-xl border border-[#ded6c9] bg-[#fcfbf8] shadow-sm">
+              <div className="flex flex-col gap-4 border-b border-[#ece4d8] px-5 py-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="space-y-2.5">
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                    <Badge
+                      variant="outline"
+                      className="rounded-md border-[#d9cfbe] bg-[#f4efe6] px-2 py-0.5 text-[11px] tracking-[0.14em] text-slate-700 uppercase"
+                    >
+                      {text.eyebrow}
+                    </Badge>
+                    <p>
+                      <span className="font-medium text-slate-700">
+                        {text.signedInAs}
+                      </span>
+                      {" · "}
+                      {viewerIdentity}
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <h1 className="font-[family-name:'Space_Grotesk'] text-[1.35rem] font-semibold tracking-[-0.03em] text-slate-950 sm:text-[1.5rem]">
+                      {text.title}
+                    </h1>
+                    <p className="max-w-3xl text-sm leading-6 text-slate-600">
+                      {text.description}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-3 lg:items-end">
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      className="h-9 rounded-md bg-emerald-900 text-white hover:bg-emerald-800"
+                      disabled={ownedProdAgents.length === 0}
+                      onClick={handleFocusCreateComposer}
+                    >
+                      <KeyRoundIcon className="size-4" />
+                      {text.openCreateDialog}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="h-9 rounded-md border-[#d9cfbe] bg-white text-slate-700 hover:bg-[#f7f3ec]"
+                      onClick={() => setSelectedInventoryGroup("")}
+                    >
+                      {text.inventoryAllLabel}
+                    </Button>
+                  </div>
+                  <div className="rounded-lg border border-[#e5ddd1] bg-[#f8f4ed] px-3 py-2 text-xs leading-5 text-slate-600">
+                    <span className="font-medium text-slate-800">
+                      {text.contractTitle}
                     </span>
                     {" · "}
-                    {viewerIdentity}
-                  </p>
-                </div>
-                <div className="space-y-1.5">
-                  <h1 className="text-2xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-3xl">
-                    {text.title}
-                  </h1>
-                  <p className="max-w-3xl text-sm leading-6 text-slate-600">
-                    {text.description}
-                  </p>
+                    {text.contractDescription}
+                  </div>
                 </div>
               </div>
 
-              <dl className="grid w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 sm:grid-cols-3 lg:max-w-xl">
-                <StatMetric label={text.activeKeys} value={activeCount} />
-                <StatMetric label={text.keyedAgents} value={keyedAgentCount} />
-                <StatMetric
-                  label={text.publishedAgents}
+              <div className="grid gap-3 px-5 py-4 md:grid-cols-3">
+                <HeroMetric
+                  label={text.summaryPublishedAgents}
                   value={ownedProdAgents.length}
+                  description={text.summaryPublishedHint}
                 />
-              </dl>
+                <HeroMetric
+                  label={text.summaryActiveKeys}
+                  value={activeTokens.length}
+                  description={text.summaryActiveHint}
+                />
+                <HeroMetric
+                  label={text.summaryRotation}
+                  value={legacyTokenCount}
+                  description={text.summaryRotationHint}
+                />
+              </div>
             </section>
 
-            <div className="grid gap-6 xl:grid-cols-[minmax(19rem,22rem)_minmax(0,1fr)]">
-              <section className="rounded-2xl border border-slate-200 bg-white">
-                <div className="border-b border-slate-200 px-5 py-4">
-                  <p className="text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
-                    {text.createSection}
-                  </p>
-                  <h2 className="mt-1 text-lg font-semibold tracking-[-0.03em] text-slate-950">
-                    {text.createTitle}
-                  </h2>
-                  <p className="mt-1 text-sm leading-6 text-slate-600">
-                    {text.createDescription}
-                  </p>
-                </div>
-
-                <div className="space-y-5 px-5 py-5">
-                  <div className="space-y-3">
-                    <FieldLabel children={text.nameLabel} />
-                    <Input
-                      aria-label={text.nameLabel}
-                      value={name}
-                      onChange={(event) => setName(event.target.value)}
-                      placeholder={text.namePlaceholder}
-                      className="h-10 rounded-xl border-slate-200 bg-slate-50"
-                    />
+            <section className="grid gap-4 xl:grid-cols-[19rem_minmax(0,1fr)]">
+              <div className="space-y-4 xl:sticky xl:top-4 xl:self-start">
+                <section
+                  ref={createPanelRef}
+                  className="overflow-hidden rounded-xl border border-[#ded6c9] bg-white shadow-sm"
+                >
+                  <div className="border-b border-[#ece4d8] px-4 py-3">
+                    <h2 className="font-[family-name:'Space_Grotesk'] text-[1.1rem] font-semibold tracking-[-0.03em] text-slate-950">
+                      {text.createTitle}
+                    </h2>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">
+                      {text.createDescription}
+                    </p>
                   </div>
-
-                  <div className="space-y-3">
-                    <FieldLabel
-                      children={text.targetAgentLabel}
-                      hint={text.targetAgentHint}
-                    />
-                    {loadingAgents ? (
-                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-                        {text.loadingAgents}
-                      </div>
-                    ) : ownedProdAgents.length === 0 ? (
-                      <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-600">
-                        {text.noOwnedPublishedAgents}
-                      </div>
-                    ) : (
-                      <Select
-                        value={selectedCreateAgent}
-                        onValueChange={setSelectedCreateAgent}
-                      >
-                        <SelectTrigger
-                          aria-label={text.targetAgentLabel}
-                          className="h-10 w-full rounded-xl border-slate-200 bg-slate-50"
+                  <div className="space-y-4 px-4 py-4">
+                    {createdToken ? (
+                      <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-950">
+                              {text.tokenReadyTitle}
+                            </p>
+                            <p className="mt-1 text-xs leading-5 text-slate-600">
+                              {text.tokenReadyDescription}
+                            </p>
+                          </div>
+                          <Badge
+                            variant="outline"
+                            className="border-emerald-200 bg-white text-emerald-900"
+                          >
+                            {copiedPlaintext
+                              ? text.tokenReadyCopied
+                              : text.freshStatusLabel}
+                          </Badge>
+                        </div>
+                        <button
+                          type="button"
+                          aria-label={createdToken}
+                          title={createdToken}
+                          onClick={() => {
+                            void handleCopyPlaintext();
+                          }}
+                          className="mt-3 flex w-full items-center justify-between gap-2 rounded-md border border-emerald-200 bg-white px-3 py-2 text-left font-mono text-[12px] text-slate-900 transition hover:border-emerald-300 hover:bg-emerald-50"
                         >
-                          <SelectValue placeholder={text.targetAgentPlaceholder} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {ownedProdAgents.map((agent) => (
-                            <SelectItem key={agent.name} value={agent.name}>
-                              {agent.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </div>
-
-                  <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium text-slate-950">
-                        {text.capabilitiesLabel}
-                      </p>
-                      <p className="text-sm leading-6 text-slate-600">
-                        {text.capabilitiesDescription}
-                      </p>
-                      <p className="text-sm leading-6 text-slate-500">
-                        {text.capabilitiesFootnote}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {FIXED_PUBLIC_API_SCOPES.map((scope) => (
-                        <Badge
-                          key={scope}
-                          variant="outline"
-                          className="border-emerald-200 bg-emerald-50 text-emerald-900"
-                        >
-                          {scope}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-
-                  {createdToken ? (
-                    <div className="space-y-3 rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-4">
-                      <div className="space-y-1">
-                        <p className="text-sm font-medium text-cyan-950">
-                          {text.tokenReadyTitle}
-                        </p>
-                        <p className="text-sm leading-6 text-cyan-900/80">
-                          {text.tokenReadyDescription}
+                          <span className="min-w-0 truncate">
+                            {formatTokenDisplay(createdToken)}
+                          </span>
+                          {copiedPlaintext ? (
+                            <CheckIcon className="size-4 shrink-0 text-emerald-700" />
+                          ) : (
+                            <CopyIcon className="size-4 shrink-0 text-emerald-700" />
+                          )}
+                        </button>
+                        <p className="mt-2 text-xs leading-5 text-slate-500">
+                          {text.tokenReadyHint}
                         </p>
                       </div>
-                      <div className="overflow-x-auto rounded-lg border border-cyan-200 bg-white px-3 py-2 font-mono text-sm text-slate-950">
-                        {createdToken}
-                      </div>
-                      <Button
-                        variant="secondary"
-                        className="h-9 rounded-full bg-slate-950 text-white hover:bg-slate-900"
-                        onClick={() => {
-                          void handleCopyPlaintext();
-                        }}
-                      >
-                        {copiedPlaintext ? (
-                          <CheckIcon className="size-4" />
-                        ) : (
-                          <CopyIcon className="size-4" />
-                        )}
-                        {copiedPlaintext
-                          ? text.tokenReadyCopied
-                          : text.tokenReadyCopy}
-                      </Button>
-                    </div>
-                  ) : null}
+                    ) : null}
 
-                  <Button
-                    className="h-10 w-full rounded-full bg-slate-950 text-white hover:bg-slate-900"
-                    disabled={
-                      createMutation.isPending || ownedProdAgents.length === 0
-                    }
-                    onClick={() => createMutation.mutate()}
-                  >
-                    {createMutation.isPending ? (
-                      <Loader2Icon className="size-4 animate-spin" />
-                    ) : (
-                      <KeyRoundIcon className="size-4" />
-                    )}
-                    {createMutation.isPending
-                      ? text.creatingButton
-                      : text.createButton}
-                  </Button>
-                </div>
-              </section>
-
-              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-                <div className="flex flex-col gap-4 border-b border-slate-200 px-5 py-4">
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                    <div>
-                      <p className="text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
-                        {text.inventorySection}
-                      </p>
-                      <h2 className="mt-1 text-lg font-semibold tracking-[-0.03em] text-slate-950">
-                        {text.inventoryTitle}
-                      </h2>
-                      <p className="mt-1 text-sm leading-6 text-slate-600">
-                        {text.inventoryDescription}
-                      </p>
-                    </div>
-
-                    <div className="grid gap-3 lg:min-w-[32rem] lg:grid-cols-[minmax(0,15rem)_minmax(0,1fr)]">
-                      <div className="space-y-2">
-                        <p className="text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
-                          {text.inventoryAgentLabel}
-                        </p>
-                        {inventoryGroups.length === 0 ? (
-                          <div className="flex h-10 items-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-400">
-                            {text.inventoryAgentPlaceholder}
+                    <div className="space-y-4">
+                      <div className="space-y-2.5">
+                        <FieldLabel
+                          children={text.targetAgentLabel}
+                          hint={text.targetAgentHint}
+                        />
+                        {loadingAgents ? (
+                          <div className="rounded-md border border-[#ded6c9] bg-[#f7f3ec] px-3 py-2 text-sm text-slate-500">
+                            {text.loadingAgents}
+                          </div>
+                        ) : ownedProdAgents.length === 0 ? (
+                          <div className="rounded-md border border-dashed border-[#d6c7b5] bg-[#f7f3ec] px-3 py-3 text-sm leading-6 text-slate-600">
+                            {text.noOwnedPublishedAgents}
                           </div>
                         ) : (
                           <Select
-                            value={selectedInventoryGroup}
-                            onValueChange={setSelectedInventoryGroup}
+                            value={selectedCreateAgent}
+                            onValueChange={setSelectedCreateAgent}
                           >
                             <SelectTrigger
-                              aria-label={text.inventoryAgentLabel}
-                              className="h-10 w-full rounded-xl border-slate-200 bg-slate-50"
+                              aria-label={text.targetAgentLabel}
+                              className="h-10 rounded-md border-[#ded6c9] bg-[#fcfbf8] px-3"
                             >
                               <SelectValue
-                                placeholder={text.inventoryAgentPlaceholder}
+                                placeholder={text.targetAgentPlaceholder}
                               />
                             </SelectTrigger>
                             <SelectContent>
-                              {inventoryGroups.map((group) => (
-                                <SelectItem key={group.id} value={group.id}>
-                                  {group.label}
+                              {ownedProdAgents.map((agent) => (
+                                <SelectItem key={agent.name} value={agent.name}>
+                                  {agent.name}
                                 </SelectItem>
                               ))}
                             </SelectContent>
@@ -734,326 +662,303 @@ export function APIKeyManagementPage() {
                         )}
                       </div>
 
-                      <div className="space-y-2">
-                        <p className="text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
-                          {text.searchLabel}
+                      <div className="space-y-2.5">
+                        <FieldLabel children={text.nameLabel} />
+                        <Input
+                          ref={nameInputRef}
+                          aria-label={text.nameLabel}
+                          value={name}
+                          onChange={(event) => setName(event.target.value)}
+                          placeholder={text.namePlaceholder}
+                          className="h-10 rounded-md border-[#ded6c9] bg-[#fcfbf8] px-3"
+                        />
+                      </div>
+
+                      <div className="rounded-md border border-[#ded6c9] bg-[#f8f4ed] p-3">
+                        <p className="text-sm font-semibold text-slate-900">
+                          {text.capabilitiesLabel}
                         </p>
-                        <div className="relative">
-                          <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" />
-                          <Input
-                            aria-label={text.searchLabel}
-                            value={searchQuery}
-                            onChange={(event) =>
-                              setSearchQuery(event.target.value)
-                            }
-                            placeholder={text.searchPlaceholder}
-                            className="h-10 rounded-xl border-slate-200 bg-slate-50 pl-9"
-                          />
+                        <p className="mt-1 text-xs leading-5 text-slate-600">
+                          {text.capabilitiesDescription}
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {FIXED_PUBLIC_API_SCOPES.map((scope) => (
+                            <span
+                              key={scope}
+                              className="rounded-md border border-[#e5ddd1] bg-white px-2 py-1 font-mono text-[11px] font-medium text-slate-700"
+                            >
+                              {scope}
+                            </span>
+                          ))}
                         </div>
                       </div>
+
+                      <Button
+                        className="h-10 w-full rounded-md bg-emerald-900 text-white hover:bg-emerald-800"
+                        disabled={
+                          createMutation.isPending ||
+                          ownedProdAgents.length === 0
+                        }
+                        onClick={() => createMutation.mutate()}
+                      >
+                        {createMutation.isPending ? (
+                          <Loader2Icon className="size-4 animate-spin" />
+                        ) : (
+                          <KeyRoundIcon className="size-4" />
+                        )}
+                        {createMutation.isPending
+                          ? text.creatingButton
+                          : text.createButton}
+                      </Button>
                     </div>
                   </div>
+                </section>
+              </div>
 
-                  <Tabs
-                    value={filter}
-                    onValueChange={(value) => setFilter(value as KeyFilter)}
-                    className="gap-3"
-                  >
-                    <TabsList className="h-auto w-fit rounded-xl bg-slate-100 p-1">
-                      <TabsTrigger value="all" className="rounded-lg px-3 py-2">
-                        {text.filterAll}
-                      </TabsTrigger>
-                      <TabsTrigger value="active" className="rounded-lg px-3 py-2">
-                        {text.filterActive}
-                      </TabsTrigger>
-                      <TabsTrigger
-                        value="expired"
-                        className="rounded-lg px-3 py-2"
-                      >
-                        {text.filterExpired}
-                      </TabsTrigger>
-                      <TabsTrigger
-                        value="revoked"
-                        className="rounded-lg px-3 py-2"
-                      >
-                        {text.filterRevoked}
-                      </TabsTrigger>
-                    </TabsList>
-                  </Tabs>
+              <section className="overflow-hidden rounded-xl border border-[#ded6c9] bg-white shadow-sm">
+                <div className="flex flex-col gap-3 border-b border-[#ece4d8] px-4 py-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="space-y-1">
+                    <h2 className="font-[family-name:'Space_Grotesk'] text-[1.1rem] font-semibold tracking-[-0.03em] text-slate-950">
+                      {text.inventoryTitle}
+                    </h2>
+                    <p className="max-w-3xl text-sm leading-6 text-slate-600">
+                      {text.inventoryDescription}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <Badge
+                      variant="outline"
+                      className="border-[#d9cfbe] bg-[#f7f3ec] text-slate-700"
+                    >
+                      {text.pageSummary(currentPage, totalPages)}
+                    </Badge>
+                    {legacyTokenCount > 0 ? (
+                      <Badge className="border border-amber-200 bg-amber-50 text-amber-800 shadow-none">
+                        {legacyTokenCount} {text.keyUnavailableTitle}
+                      </Badge>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-3 border-b border-[#ece4d8] bg-[#fcfbf8] px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
+                  <div className="flex flex-wrap gap-2">
+                    <InventoryFilterButton
+                      active={!selectedInventoryGroup}
+                      label={text.inventoryAllLabel}
+                      count={activeTokens.length}
+                      onClick={() => setSelectedInventoryGroup("")}
+                    />
+                    {inventoryGroups.map((group) => (
+                      <InventoryFilterButton
+                        key={group.id}
+                        active={group.id === selectedInventoryGroup}
+                        label={group.label}
+                        count={group.count}
+                        onClick={() => setSelectedInventoryGroup(group.id)}
+                      />
+                    ))}
+                  </div>
+                  <label className="relative flex w-full max-w-sm items-center">
+                    <SearchIcon className="pointer-events-none absolute left-3 size-4 text-slate-400" />
+                    <Input
+                      aria-label={text.searchLabel}
+                      value={searchQuery}
+                      onChange={(event) => setSearchQuery(event.target.value)}
+                      placeholder={text.searchPlaceholder}
+                      className="h-9 rounded-md border-[#ded6c9] bg-white pl-9"
+                    />
+                  </label>
                 </div>
 
                 {tokensQuery.isLoading ? (
-                  <div className="px-5 py-10 text-sm text-slate-500">
+                  <div className="px-4 py-10 text-sm text-slate-500">
                     {text.loadingKeys}
                   </div>
                 ) : tokensQuery.error ? (
-                  <div className="px-5 py-10 text-sm text-rose-700">
+                  <div className="px-4 py-10 text-sm text-rose-700">
                     {tokensQuery.error instanceof Error
                       ? tokensQuery.error.message
                       : text.loadFailed}
                   </div>
-                ) : inventoryGroups.length === 0 ? (
-                  <div className="px-5 py-12">
-                    <h3 className="text-lg font-semibold tracking-[-0.03em] text-slate-950">
-                      {(tokensQuery.data ?? []).length === 0
-                        ? text.emptyTitle
-                        : text.emptyFiltered}
-                    </h3>
-                    {(tokensQuery.data ?? []).length === 0 ? (
-                      <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600">
-                        {text.emptyDescription}
-                      </p>
-                    ) : null}
-                  </div>
-                ) : selectedGroupTokens.length === 0 ? (
-                  <div className="px-5 py-12">
-                    <h3 className="text-lg font-semibold tracking-[-0.03em] text-slate-950">
-                      {text.groupEmptyTitle}
+                ) : activeTokens.length === 0 ? (
+                  <div className="px-4 py-10">
+                    <h3 className="text-base font-semibold text-slate-900">
+                      {text.emptyTitle}
                     </h3>
                     <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600">
-                      {text.groupEmptyDescription}
+                      {text.emptyDescription}
+                    </p>
+                  </div>
+                ) : filteredTokens.length === 0 ? (
+                  <div className="px-4 py-10">
+                    <h3 className="text-base font-semibold text-slate-900">
+                      {normalizedSearchQuery
+                        ? text.emptySearch
+                        : selectedGroup
+                          ? text.groupEmptyTitle
+                          : text.emptyTitle}
+                    </h3>
+                    <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600">
+                      {normalizedSearchQuery
+                        ? text.searchPlaceholder
+                        : selectedGroup
+                          ? text.groupEmptyDescription
+                          : text.emptyDescription}
                     </p>
                   </div>
                 ) : (
                   <>
-                    <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
-                      <div className="flex items-center gap-2">
-                        <Badge
-                          variant="outline"
-                          className="border-slate-200 bg-slate-50 text-slate-700"
-                        >
-                          {selectedGroup?.label}
-                        </Badge>
-                        <p className="text-sm text-slate-500">
-                          {selectedGroup?.count ?? 0}
-                        </p>
-                      </div>
-                      <p className="text-sm text-slate-500">
-                        {text.pageSummary(currentPage, totalPages)}
-                      </p>
-                    </div>
+                    <Table className="min-w-[860px]">
+                      <TableHeader>
+                        <TableRow className="bg-slate-50/80 hover:bg-slate-50/80">
+                          <TableHead className="w-[220px]">
+                            {text.inventoryIdentityHeader}
+                          </TableHead>
+                          <TableHead className="w-[160px]">
+                            {text.inventoryAgentHeader}
+                          </TableHead>
+                          <TableHead>{text.inventorySurfaceHeader}</TableHead>
+                          <TableHead className="w-[170px]">
+                            {text.inventoryCreatedHeader}
+                          </TableHead>
+                          <TableHead className="w-[110px] text-right">
+                            {text.inventoryLifecycleHeader}
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {paginatedTokens.map((token) => {
+                          const isPendingDelete = pendingDeleteID === token.id;
+                          const isDeleting =
+                            deleteMutation.isPending &&
+                            deleteMutation.variables === token.id;
+                          const isLatestToken = createdTokenID === token.id;
 
-                    <div className="px-3 py-3 sm:px-5">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="hover:bg-transparent">
-                            <TableHead className="sticky left-0 z-20 min-w-[17rem] bg-white shadow-[inset_-1px_0_0_0_rgba(226,232,240,1)]">
-                              {text.nameLabel}
-                            </TableHead>
-                            <TableHead className="min-w-[14rem]">
-                              {text.agentBindingLabel}
-                            </TableHead>
-                            <TableHead className="hidden min-w-[14rem] xl:table-cell">
-                              {text.scopesLine}
-                            </TableHead>
-                            <TableHead className="hidden whitespace-nowrap lg:table-cell">
-                              {text.lastUsed}
-                            </TableHead>
-                            <TableHead className="w-[10rem] text-right">
-                              {text.actionsLabel}
-                            </TableHead>
-                          </TableRow>
-                        </TableHeader>
+                          return (
+                            <Fragment key={token.id}>
+                              <TableRow
+                                className={cn(
+                                  token.token ? "bg-white" : "bg-amber-50/40",
+                                )}
+                              >
+                                <TableCell className="py-3">
+                                  <div className="flex items-center gap-2">
+                                    <span className="truncate font-medium text-slate-950">
+                                      {token.name}
+                                    </span>
+                                    {isLatestToken ? (
+                                      <Badge
+                                        variant="outline"
+                                        className="border-emerald-200 bg-emerald-50 text-emerald-900"
+                                      >
+                                        {text.freshStatusLabel}
+                                      </Badge>
+                                    ) : null}
+                                    {!token.token ? (
+                                      <Badge className="border border-amber-200 bg-amber-50 text-amber-800 shadow-none">
+                                        {text.keyUnavailableTitle}
+                                      </Badge>
+                                    ) : null}
+                                  </div>
+                                </TableCell>
+                                <TableCell className="py-3 text-sm text-slate-600">
+                                  {token.allowed_agents[0] ??
+                                    text.unsupportedGroup}
+                                </TableCell>
+                                <TableCell className="py-3">
+                                  {token.token ? (
+                                    <button
+                                      type="button"
+                                      aria-label={token.token}
+                                      title={token.token}
+                                      onClick={() => {
+                                        void handleCopyStoredToken(token);
+                                      }}
+                                      // Full keys stay on one line and remain copyable from
+                                      // the table without introducing horizontal scrollbars.
+                                      className="flex w-full min-w-0 items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-left font-mono text-[12px] text-slate-900 transition hover:border-emerald-300 hover:bg-emerald-50"
+                                    >
+                                      <span className="block min-w-0 truncate">
+                                        {formatTokenDisplay(token.token)}
+                                      </span>
+                                      {copiedTokenID === token.id ? (
+                                        <CheckIcon className="size-4 shrink-0 text-emerald-700" />
+                                      ) : (
+                                        <CopyIcon className="size-4 shrink-0 text-emerald-700" />
+                                      )}
+                                    </button>
+                                  ) : (
+                                    <span className="text-xs font-medium text-amber-800">
+                                      {text.keyUnavailableTitle}
+                                    </span>
+                                  )}
+                                </TableCell>
+                                <TableCell className="py-3 text-sm whitespace-nowrap text-slate-600">
+                                  {formatTimestamp(
+                                    token.created_at,
+                                    locale,
+                                    "—",
+                                  )}
+                                </TableCell>
+                                <TableCell className="py-3 text-right">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 rounded-md border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 hover:text-rose-800"
+                                    onClick={() => setPendingDeleteID(token.id)}
+                                  >
+                                    <Trash2Icon className="size-4" />
+                                    {text.deleteButton}
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
 
-                        <TableBody>
-                          {paginatedTokens.map((token) => {
-                            const status = resolveEffectiveTokenStatus(token);
-                            const isPendingRevoke = pendingRevokeID === token.id;
-                            const isRevoking =
-                              revokeMutation.isPending &&
-                              revokeMutation.variables === token.id;
-
-                            return (
-                              <Fragment key={token.id}>
-                                <TableRow className="group align-top">
-                                  <TableCell className="sticky left-0 z-10 min-w-[17rem] bg-white shadow-[inset_-1px_0_0_0_rgba(226,232,240,1)] group-hover:bg-slate-50">
-                                    <div className="space-y-2">
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        <p className="text-sm font-medium text-slate-950">
-                                          {token.name}
-                                        </p>
-                                        <Badge
-                                          variant="outline"
-                                          className={cn(
-                                            "px-2.5 py-0.5 uppercase",
-                                            statusBadgeClass(status),
-                                          )}
-                                        >
-                                          {status === "active"
-                                            ? text.statusActive
-                                            : status === "expired"
-                                              ? text.statusExpired
-                                              : text.statusRevoked}
-                                        </Badge>
-                                      </div>
-
-                                      <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                                        <span className="rounded-md bg-slate-100 px-2 py-1 font-mono text-[11px] text-slate-700">
-                                          {token.token_prefix}
-                                        </span>
+                              {isPendingDelete ? (
+                                <TableRow className="bg-rose-50/70 hover:bg-rose-50/70">
+                                  <TableCell colSpan={5} className="py-3">
+                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                      <p className="max-w-2xl text-sm leading-6 text-rose-800">
+                                        {text.deleteWarning}
+                                      </p>
+                                      <div className="flex flex-wrap gap-2">
                                         <Button
-                                          variant="ghost"
+                                          variant="outline"
                                           size="sm"
-                                          className="h-7 rounded-md px-2 text-xs text-slate-600"
-                                          onClick={() => {
-                                            void handleCopyPrefix(
-                                              token.token_prefix,
-                                              token.id,
-                                            );
-                                          }}
+                                          onClick={() =>
+                                            setPendingDeleteID(null)
+                                          }
                                         >
-                                          {copiedTokenID === token.id ? (
-                                            <CheckIcon className="size-3.5" />
+                                          {text.deleteCancel}
+                                        </Button>
+                                        <Button
+                                          variant="destructive"
+                                          size="sm"
+                                          disabled={isDeleting}
+                                          onClick={() =>
+                                            deleteMutation.mutate(token.id)
+                                          }
+                                        >
+                                          {isDeleting ? (
+                                            <Loader2Icon className="size-4 animate-spin" />
                                           ) : (
-                                            <CopyIcon className="size-3.5" />
+                                            <Trash2Icon className="size-4" />
                                           )}
-                                          {copiedTokenID === token.id
-                                            ? text.copied
-                                            : text.copy}
+                                          {isDeleting
+                                            ? text.deleting
+                                            : text.deleteConfirm}
                                         </Button>
                                       </div>
-
-                                      <p className="text-xs text-slate-500">
-                                        {text.createdAt}
-                                        {" · "}
-                                        {formatTimestamp(token.created_at, locale, "—")}
-                                      </p>
                                     </div>
-                                  </TableCell>
-
-                                  <TableCell className="min-w-[14rem]">
-                                    <div className="flex flex-wrap gap-1.5">
-                                      {token.allowed_agents.length === 0 ? (
-                                        <Badge
-                                          variant="outline"
-                                          className="border-amber-200 bg-amber-50 text-amber-900"
-                                        >
-                                          {text.legacyUnscopedGroup}
-                                        </Badge>
-                                      ) : token.allowed_agents.length === 1 ? (
-                                        <Badge
-                                          variant="outline"
-                                          className="border-cyan-200 bg-cyan-50 text-cyan-900"
-                                        >
-                                          {token.allowed_agents[0]}
-                                        </Badge>
-                                      ) : (
-                                        token.allowed_agents.map((agentName) => (
-                                          <Badge
-                                            key={`${token.id}-${agentName}`}
-                                            variant="outline"
-                                            className="border-amber-200 bg-amber-50 text-amber-900"
-                                          >
-                                            {agentName}
-                                          </Badge>
-                                        ))
-                                      )}
-                                    </div>
-                                  </TableCell>
-
-                                  <TableCell className="hidden min-w-[14rem] xl:table-cell">
-                                    <div className="flex flex-wrap gap-1.5">
-                                      {token.scopes.map((scope) => (
-                                        <Badge
-                                          key={`${token.id}-${scope}`}
-                                          variant="outline"
-                                          className="border-emerald-200 bg-emerald-50 text-emerald-900"
-                                        >
-                                          {scope}
-                                        </Badge>
-                                      ))}
-                                    </div>
-                                  </TableCell>
-
-                                  <TableCell className="hidden whitespace-nowrap lg:table-cell">
-                                    <div className="space-y-1">
-                                      <p className="text-sm text-slate-950">
-                                        {formatTimestamp(
-                                          token.last_used,
-                                          locale,
-                                          text.neverUsed,
-                                        )}
-                                      </p>
-                                      {token.revoked_at ? (
-                                        <p className="text-xs text-slate-500">
-                                          {text.revokedAt}
-                                          {" · "}
-                                          {formatTimestamp(
-                                            token.revoked_at,
-                                            locale,
-                                            "—",
-                                          )}
-                                        </p>
-                                      ) : null}
-                                    </div>
-                                  </TableCell>
-
-                                  <TableCell className="w-[10rem] text-right">
-                                    {status === "revoked" ? (
-                                      <p className="text-xs text-slate-500">
-                                        {formatTimestamp(token.revoked_at, locale, "—")}
-                                      </p>
-                                    ) : (
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
-                                        onClick={() => setPendingRevokeID(token.id)}
-                                      >
-                                        <Trash2Icon className="size-4" />
-                                        {text.revokeButton}
-                                      </Button>
-                                    )}
                                   </TableCell>
                                 </TableRow>
+                              ) : null}
+                            </Fragment>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
 
-                                {isPendingRevoke ? (
-                                  <TableRow className="bg-rose-50/50">
-                                    <TableCell colSpan={5} className="pt-0">
-                                      <div className="flex flex-col gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-                                        <p className="text-sm leading-6 text-rose-800">
-                                          {text.revokeWarning}
-                                        </p>
-                                        <div className="flex flex-wrap gap-2">
-                                          <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() =>
-                                              setPendingRevokeID(null)
-                                            }
-                                          >
-                                            {text.revokeCancel}
-                                          </Button>
-                                          <Button
-                                            variant="destructive"
-                                            size="sm"
-                                            disabled={isRevoking}
-                                            onClick={() =>
-                                              revokeMutation.mutate(token.id)
-                                            }
-                                          >
-                                            {isRevoking ? (
-                                              <Loader2Icon className="size-4 animate-spin" />
-                                            ) : (
-                                              <Trash2Icon className="size-4" />
-                                            )}
-                                            {isRevoking
-                                              ? text.revoking
-                                              : text.revokeConfirm}
-                                          </Button>
-                                        </div>
-                                      </div>
-                                    </TableCell>
-                                  </TableRow>
-                                ) : null}
-                              </Fragment>
-                            );
-                          })}
-                        </TableBody>
-                      </Table>
-                    </div>
-
-                    <div className="flex items-center justify-between border-t border-slate-200 px-5 py-3">
+                    <div className="flex flex-col gap-3 border-t border-[#ece4d8] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                       <p className="text-sm text-slate-500">
                         {text.pageSummary(currentPage, totalPages)}
                       </p>
@@ -1087,7 +992,7 @@ export function APIKeyManagementPage() {
                   </>
                 )}
               </section>
-            </div>
+            </section>
           </div>
         </section>
       </WorkspaceBody>

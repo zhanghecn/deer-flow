@@ -1,9 +1,7 @@
 import {
-  CheckCircle2Icon,
   ChevronDownIcon,
   CopyIcon,
   DownloadIcon,
-  KeyRoundIcon,
   Loader2Icon,
   PaperclipIcon,
   PlayIcon,
@@ -11,6 +9,7 @@ import {
   WandSparklesIcon,
 } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -33,11 +32,6 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import {
-  createAPIToken,
-  listAPITokens,
-  type APITokenRecord,
-} from "@/core/auth/tokens";
 import { useI18n } from "@/core/i18n/hooks";
 import {
   createPublicAPIResponse,
@@ -85,6 +79,9 @@ interface PublicAPIPlaygroundPanelProps {
   defaultBaseURL?: string | null;
   documentationURL?: string | null;
   accessMode?: "workspace" | "public";
+  // Key lifecycle moved to `/workspace/keys` so the runtime console only
+  // executes published contracts and does not grow a second token manager.
+  apiKeysURL?: string | null;
   // The same playground panel is embedded both as a standalone workspace tool
   // and inside the public docs shell, so the header must be optional instead
   // of forcing every host page to render a second title band.
@@ -553,6 +550,7 @@ export function PublicAPIPlaygroundPanel({
   defaultBaseURL,
   documentationURL,
   accessMode = "workspace",
+  apiKeysURL = null,
   headerMode = "hero",
   hideDocumentationButton = false,
 }: PublicAPIPlaygroundPanelProps) {
@@ -576,10 +574,6 @@ export function PublicAPIPlaygroundPanel({
     resolvePublicAPIBaseURL(defaultBaseURL),
   );
   const [apiToken, setAPIToken] = useState("");
-  const [createdToken, setCreatedToken] = useState("");
-  const [tokens, setTokens] = useState<APITokenRecord[]>([]);
-  const [loadingTokens, setLoadingTokens] = useState(false);
-  const [creatingToken, setCreatingToken] = useState(false);
   const [message, setMessage] = useState("");
   const [queuedFiles, setQueuedFiles] = useState<File[]>([]);
   const [responseMode, setResponseMode] = useState<ResponseMode>("text");
@@ -607,45 +601,7 @@ export function PublicAPIPlaygroundPanel({
 
   useEffect(() => {
     setAPIBaseURL(resolvePublicAPIBaseURL(defaultBaseURL));
-    if (!isWorkspaceMode) {
-      return;
-    }
-
-    let cancelled = false;
-
-    async function loadTokens() {
-      setLoadingTokens(true);
-      try {
-        const items = await listAPITokens();
-        if (!cancelled) {
-          setTokens(items);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          toast.error(
-            error instanceof Error ? error.message : text.loadKeysFailed,
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setLoadingTokens(false);
-        }
-      }
-    }
-
-    void loadTokens();
-    return () => {
-      cancelled = true;
-    };
-  }, [defaultBaseURL, isWorkspaceMode, text.loadKeysFailed]);
-
-  const recentScopedTokens = useMemo(
-    () =>
-      tokens
-        .filter((token) => token.allowed_agents.includes(agentName))
-        .slice(0, 4),
-    [agentName, tokens],
-  );
+  }, [defaultBaseURL]);
 
   const filteredTraceItems = useMemo(() => {
     if (traceFilter === "all") {
@@ -701,33 +657,6 @@ export function PublicAPIPlaygroundPanel({
       toast.success(successMessage);
     } catch {
       toast.error(text.copyFailed);
-    }
-  }
-
-  async function handleCreateScopedKey() {
-    setCreatingToken(true);
-    try {
-      const token = await createAPIToken({
-        name: `${agentName}-playground-${new Date().toISOString().slice(0, 10)}`,
-        scopes: ["responses:create", "responses:read", "artifacts:read"],
-        allowed_agents: [agentName],
-        metadata: {
-          source: "public_api_playground",
-          agent_name: agentName,
-        },
-      });
-
-      if (token.token) {
-        setAPIToken(token.token);
-        setCreatedToken(token.token);
-      }
-      setTokens((current) => [token, ...current]);
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : text.keyCreateFailed,
-      );
-    } finally {
-      setCreatingToken(false);
     }
   }
 
@@ -1096,21 +1025,15 @@ export function PublicAPIPlaygroundPanel({
                         : text.publicCredentialsDescription}
                     </p>
                   </div>
-                  {isWorkspaceMode ? (
+                  {isWorkspaceMode && apiKeysURL ? (
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
                       className="shrink-0 rounded-full"
-                      onClick={handleCreateScopedKey}
-                      disabled={creatingToken}
+                      asChild
                     >
-                      {creatingToken ? (
-                        <Loader2Icon className="size-4 animate-spin" />
-                      ) : (
-                        <KeyRoundIcon className="size-4" />
-                      )}
-                      {creatingToken ? text.creatingKey : text.createScopedKey}
+                      <Link to={apiKeysURL}>{text.manageKeys}</Link>
                     </Button>
                   ) : null}
                 </div>
@@ -1149,67 +1072,6 @@ export function PublicAPIPlaygroundPanel({
                       : text.publicUserKeyHint}
                   </p>
                 </div>
-
-                {isWorkspaceMode && createdToken ? (
-                  <div className="rounded-[22px] border border-emerald-200 bg-emerald-50 px-4 py-4">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <CheckCircle2Icon className="size-4 text-emerald-700" />
-                          <p className="text-sm font-medium text-emerald-950">
-                            {text.keyReadyTitle}
-                          </p>
-                        </div>
-                        <p className="text-xs leading-5 text-emerald-900/80">
-                          {text.keyReadyDescription}
-                        </p>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="rounded-full border-emerald-200 bg-white"
-                        onClick={() =>
-                          handleCopy(createdToken, text.keyReadyCopied)
-                        }
-                      >
-                        <CopyIcon className="size-4" />
-                        {text.keyReadyCopy}
-                      </Button>
-                    </div>
-                  </div>
-                ) : null}
-
-                {isWorkspaceMode ? (
-                  <div className="overflow-hidden rounded-[22px] border border-slate-200 bg-slate-50">
-                    <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-                      <p className="text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
-                        {text.recentKeys}
-                      </p>
-                      {loadingTokens ? (
-                        <Loader2Icon className="size-4 animate-spin text-slate-400" />
-                      ) : null}
-                    </div>
-                    {recentScopedTokens.length === 0 ? (
-                      <p className="px-4 py-4 text-sm leading-6 text-slate-500">
-                        {text.noRecentKeys}
-                      </p>
-                    ) : (
-                      <div className="divide-y divide-slate-200">
-                        {recentScopedTokens.map((token) => (
-                          <div key={token.id} className="px-4 py-3">
-                            <p className="font-mono text-xs text-slate-900">
-                              {token.token_prefix}
-                            </p>
-                            <p className="mt-1 text-xs text-slate-500">
-                              {token.name}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ) : null}
               </section>
 
               <Separator className="bg-slate-200" />

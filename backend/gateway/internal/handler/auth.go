@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -23,13 +24,28 @@ type AuthHandler struct {
 	userRepo  *repository.UserRepo
 	tokenRepo *repository.APITokenRepo
 	jwtMgr    *jwt.Manager
-	fs        *storage.FS
+	// tokenCipher protects the owner-visible copy of API keys that powers the
+	// management UI. Hashes remain the canonical auth check.
+	tokenCipher *APITokenCipher
+	fs          *storage.FS
 }
 
 const authCookieMaxAgeSeconds = 7 * 24 * 60 * 60
 
-func NewAuthHandler(userRepo *repository.UserRepo, tokenRepo *repository.APITokenRepo, jwtMgr *jwt.Manager, fs *storage.FS) *AuthHandler {
-	return &AuthHandler{userRepo: userRepo, tokenRepo: tokenRepo, jwtMgr: jwtMgr, fs: fs}
+func NewAuthHandler(
+	userRepo *repository.UserRepo,
+	tokenRepo *repository.APITokenRepo,
+	jwtMgr *jwt.Manager,
+	tokenCipher *APITokenCipher,
+	fs *storage.FS,
+) *AuthHandler {
+	return &AuthHandler{
+		userRepo:    userRepo,
+		tokenRepo:   tokenRepo,
+		jwtMgr:      jwtMgr,
+		tokenCipher: tokenCipher,
+		fs:          fs,
+	}
 }
 
 func setAuthCookie(c *gin.Context, token string) {
@@ -127,6 +143,11 @@ func (h *AuthHandler) Login(c *gin.Context) {
 }
 
 func (h *AuthHandler) ListTokens(c *gin.Context) {
+	if h.tokenCipher == nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "api token cipher is not configured"})
+		return
+	}
+
 	userID := middleware.GetUserID(c)
 	tokens, err := h.tokenRepo.ListByUser(c.Request.Context(), userID)
 	if err != nil {
@@ -136,10 +157,29 @@ func (h *AuthHandler) ListTokens(c *gin.Context) {
 	if tokens == nil {
 		tokens = []model.APIToken{}
 	}
+	for index := range tokens {
+		// Tokens created before the displayable-key contract only have hashes, so
+		// they cannot be reconstructed here and must be rotated by the operator.
+		if len(tokens[index].TokenCiphertext) == 0 {
+			continue
+		}
+
+		plainToken, err := h.tokenCipher.DecryptToken(tokens[index].TokenCiphertext)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to decrypt token"})
+			return
+		}
+		tokens[index].Token = plainToken
+	}
 	c.JSON(http.StatusOK, tokens)
 }
 
 func (h *AuthHandler) CreateToken(c *gin.Context) {
+	if h.tokenCipher == nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "api token cipher is not configured"})
+		return
+	}
+
 	var req model.CreateAPITokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
@@ -164,16 +204,27 @@ func (h *AuthHandler) CreateToken(c *gin.Context) {
 	}
 
 	plainToken := generateRandomToken()
+	tokenCiphertext, err := h.tokenCipher.EncryptToken(plainToken)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to encrypt token"})
+		return
+	}
 	apiToken := &model.APIToken{
-		ID:            uuid.New(),
-		UserID:        userID,
-		TokenHash:     hashTokenStr(plainToken),
-		TokenPrefix:   tokenPrefixFromToken(plainToken),
-		Name:          strings.TrimSpace(req.Name),
-		Scopes:        model.NormalizeAPITokenScopes(req.Scopes),
-		Status:        model.APITokenStatusActive,
-		AllowedAgents: allowedAgents,
-		Metadata:      metadata,
+		ID:              uuid.New(),
+		UserID:          userID,
+		TokenHash:       hashTokenStr(plainToken),
+		TokenCiphertext: tokenCiphertext,
+		TokenPrefix:     tokenPrefixFromToken(plainToken),
+		Token:           plainToken,
+		Name:            strings.TrimSpace(req.Name),
+		Scopes:          model.NormalizeAPITokenScopes(req.Scopes),
+		Status:          model.APITokenStatusActive,
+		AllowedAgents:   allowedAgents,
+		Metadata:        metadata,
+		// The create response reuses this in-memory row immediately, so stamp the
+		// timestamp here instead of returning the zero time and forcing callers to
+		// refetch before they can display creation metadata.
+		CreatedAt: time.Now().UTC(),
 	}
 
 	if err := h.tokenRepo.Create(c.Request.Context(), apiToken); err != nil {
@@ -181,10 +232,7 @@ func (h *AuthHandler) CreateToken(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, model.APITokenResponse{
-		APIToken:   *apiToken,
-		PlainToken: plainToken,
-	})
+	c.JSON(http.StatusCreated, apiToken)
 }
 
 func (h *AuthHandler) validateOwnedPublishedTokenAgents(
@@ -224,6 +272,8 @@ func (h *AuthHandler) DeleteToken(c *gin.Context) {
 	}
 
 	userID := middleware.GetUserID(c)
+	// Keep token rows for audit and invocation joins even though the northbound
+	// UI presents this action as deletion to the end user.
 	if err := h.tokenRepo.Revoke(c.Request.Context(), id, userID); err != nil {
 		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "token not found"})
 		return

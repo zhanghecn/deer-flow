@@ -21,10 +21,19 @@ type User struct {
 
 // APIToken represents an API access token.
 type APIToken struct {
-	ID            uuid.UUID       `json:"id" db:"id"`
-	UserID        uuid.UUID       `json:"user_id" db:"user_id"`
-	TokenHash     string          `json:"-" db:"token_hash"`
-	TokenPrefix   string          `json:"token_prefix" db:"token_prefix"`
+	ID        uuid.UUID `json:"id" db:"id"`
+	UserID    uuid.UUID `json:"user_id" db:"user_id"`
+	TokenHash string    `json:"-" db:"token_hash"`
+	// TokenCiphertext keeps a reversible server-side copy so the owning user can
+	// retrieve the full key again from the management UI, while auth still relies
+	// on the hash as the canonical verification primitive.
+	TokenCiphertext []byte `json:"-" db:"token_ciphertext"`
+	// TokenPrefix remains stored for operator-side audit context only. The
+	// northbound management UI now renders the full key instead of the prefix.
+	TokenPrefix string `json:"-" db:"token_prefix"`
+	// Token is populated only on authenticated owner-facing responses such as
+	// `/api/auth/tokens`; it is never read from persistence directly.
+	Token         string          `json:"token,omitempty" db:"-"`
 	Name          string          `json:"name" db:"name"`
 	Scopes        []string        `json:"scopes" db:"scopes"`
 	Status        string          `json:"status" db:"status"`
