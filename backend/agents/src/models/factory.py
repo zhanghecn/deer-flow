@@ -25,10 +25,10 @@ from src.agents.middlewares.retry_utils import (
 
 logger = logging.getLogger(__name__)
 DEFAULT_ANTHROPIC_THINKING_MAX_TOKENS = 16384
-DEFAULT_ANTHROPIC_CLIENT_TIMEOUT_SECONDS = 120.0
 DEFAULT_REASONING_EFFORT = "high"
 MINIMAL_REASONING_EFFORT = "minimal"
 ANTHROPIC_CHAT_MODEL_CLASS = "langchain_anthropic:ChatAnthropic"
+KIMI_TOOL_CALLING_STREAMING_PREFIXES = ("kimi-k2.5",)
 MODEL_CONFIG_EXCLUDE_FIELDS = {
     "use",
     "name",
@@ -131,6 +131,44 @@ def _apply_thinking_settings(
         runtime_kwargs.pop("reasoning_effort", None)
 
 
+def _is_kimi_tool_calling_streaming_sensitive(
+    *,
+    name: str,
+    model_config: ModelConfig,
+) -> bool:
+    if model_config.use != ANTHROPIC_CHAT_MODEL_CLASS:
+        return False
+
+    normalized_names = {
+        str(name).strip().lower(),
+        str(model_config.model).strip().lower(),
+    }
+    return any(
+        normalized_name.startswith(prefix)
+        for normalized_name in normalized_names
+        for prefix in KIMI_TOOL_CALLING_STREAMING_PREFIXES
+    )
+
+
+def _apply_streaming_safeguards(
+    *,
+    name: str,
+    model_config: ModelConfig,
+    model_settings: dict[str, Any],
+    runtime_kwargs: dict[str, Any],
+) -> None:
+    if "disable_streaming" in model_settings or "disable_streaming" in runtime_kwargs:
+        return
+
+    if not _is_kimi_tool_calling_streaming_sensitive(name=name, model_config=model_config):
+        return
+
+    # Kimi's Anthropic-compatible tool-call streaming can emit malformed
+    # incremental JSON under long file-edit turns. Only disable streaming when
+    # tools are present so normal text responses keep the existing streaming UX.
+    runtime_kwargs["disable_streaming"] = "tool_calling"
+
+
 def _attach_langsmith_tracing(model_instance: BaseChatModel, name: str) -> None:
     if not is_tracing_enabled():
         return
@@ -185,6 +223,12 @@ def _should_bypass_env_proxy_for_base_url(base_url: object) -> bool:
         return False
     if normalized == "localhost":
         return True
+    # Container and cluster service hops often use single-label DNS names such
+    # as `model-gateway`. Treat them like private addresses so model traffic
+    # stays on the internal bridge network instead of leaking through host
+    # HTTP proxy environment variables.
+    if "." not in normalized:
+        return True
 
     try:
         host_ip = ipaddress.ip_address(normalized)
@@ -195,12 +239,9 @@ def _should_bypass_env_proxy_for_base_url(base_url: object) -> bool:
 
 
 def _resolve_anthropic_timeout(timeout: object) -> object:
-    # Anthropic-compatible gateways occasionally accept a streaming request and
-    # then stop emitting chunks. Keep the default finite so a stuck provider
-    # call returns to middleware retry logic instead of pinning a worker for the
-    # SDK's much longer implicit timeout. Explicit per-model timeouts still win.
-    if timeout is None:
-        return DEFAULT_ANTHROPIC_CLIENT_TIMEOUT_SECONDS
+    # Preserve the configured timeout contract exactly. Leaving the timeout
+    # unset keeps Anthropic-compatible long requests alive instead of forcing a
+    # repo-wide 120s cutoff that can abort legitimate multi-minute model turns.
     return timeout
 
 
@@ -369,6 +410,12 @@ def create_chat_model(
         name=name,
         model_config=model_config,
         thinking_enabled=thinking_enabled,
+        model_settings=model_settings_from_config,
+        runtime_kwargs=runtime_kwargs,
+    )
+    _apply_streaming_safeguards(
+        name=name,
+        model_config=model_config,
         model_settings=model_settings_from_config,
         runtime_kwargs=runtime_kwargs,
     )

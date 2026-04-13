@@ -80,8 +80,8 @@ def test_create_chat_model_attaches_anthropic_retry_observers(monkeypatch):
     assert len(model._async_client._client.event_hooks["response"]) >= 1
 
 
-def test_resolve_anthropic_timeout_defaults_when_missing():
-    assert factory_module._resolve_anthropic_timeout(None) == factory_module.DEFAULT_ANTHROPIC_CLIENT_TIMEOUT_SECONDS
+def test_resolve_anthropic_timeout_keeps_missing_value_unset():
+    assert factory_module._resolve_anthropic_timeout(None) is None
 
 
 def test_resolve_anthropic_timeout_preserves_explicit_value():
@@ -90,6 +90,7 @@ def test_resolve_anthropic_timeout_preserves_explicit_value():
 
 def test_should_bypass_env_proxy_for_private_base_url():
     assert factory_module._should_bypass_env_proxy_for_base_url("http://localhost:13000") is True
+    assert factory_module._should_bypass_env_proxy_for_base_url("http://model-gateway:3000") is True
     assert factory_module._should_bypass_env_proxy_for_base_url("http://172.31.18.247:13000") is True
     assert factory_module._should_bypass_env_proxy_for_base_url("http://127.0.0.1:13000") is True
     assert factory_module._should_bypass_env_proxy_for_base_url("https://example.invalid/anthropic") is False
@@ -99,7 +100,7 @@ def test_create_chat_model_bypasses_env_proxy_for_private_anthropic_base_url(mon
     monkeypatch.setattr(
         factory_module,
         "require_enabled_model",
-        lambda _name: _anthropic_model_config(base_url="http://172.31.18.247:13000"),
+        lambda _name: _anthropic_model_config(base_url="http://model-gateway:3000"),
     )
 
     sync_calls: list[dict] = []
@@ -138,19 +139,21 @@ def test_create_chat_model_bypasses_env_proxy_for_private_anthropic_base_url(mon
     assert async_client_calls
     assert sync_calls[0]["trust_env"] is False
     assert async_calls[0]["trust_env"] is False
-    assert sync_calls[0]["timeout"] == factory_module.DEFAULT_ANTHROPIC_CLIENT_TIMEOUT_SECONDS
-    assert async_calls[0]["timeout"] == factory_module.DEFAULT_ANTHROPIC_CLIENT_TIMEOUT_SECONDS
-    assert sync_client_calls[0]["timeout"] == factory_module.DEFAULT_ANTHROPIC_CLIENT_TIMEOUT_SECONDS
-    assert async_client_calls[0]["timeout"] == factory_module.DEFAULT_ANTHROPIC_CLIENT_TIMEOUT_SECONDS
+    # Missing timeout must stay unset so Anthropic-compatible long requests can
+    # run past the old 120s fallback when the provider legitimately needs it.
+    assert sync_calls[0]["timeout"] is None
+    assert async_calls[0]["timeout"] is None
+    assert sync_client_calls[0]["timeout"] is None
+    assert async_client_calls[0]["timeout"] is None
 
 
-def test_create_chat_model_preserves_explicit_anthropic_timeout(monkeypatch):
+def test_create_chat_model_preserves_explicit_anthropic_timeout_over_120_seconds(monkeypatch):
     monkeypatch.setattr(
         factory_module,
         "require_enabled_model",
         lambda _name: _anthropic_model_config(
-            base_url="http://172.31.18.247:13000",
-            timeout=25.0,
+            base_url="http://model-gateway:3000",
+            timeout=180.0,
         ),
     )
 
@@ -184,10 +187,41 @@ def test_create_chat_model_preserves_explicit_anthropic_timeout(monkeypatch):
 
     factory_module.create_chat_model(name="glm-5", thinking_enabled=False)
 
-    assert sync_calls[0]["timeout"] == 25.0
-    assert async_calls[0]["timeout"] == 25.0
-    assert sync_client_calls[0]["timeout"] == 25.0
-    assert async_client_calls[0]["timeout"] == 25.0
+    assert sync_calls[0]["timeout"] == 180.0
+    assert async_calls[0]["timeout"] == 180.0
+    assert sync_client_calls[0]["timeout"] == 180.0
+    assert async_client_calls[0]["timeout"] == 180.0
+
+
+def test_create_chat_model_disables_streaming_for_kimi_tool_calls(monkeypatch):
+    monkeypatch.setattr(
+        factory_module,
+        "require_enabled_model",
+        lambda _name: _anthropic_model_config(
+            name="kimi-k2.5",
+            model="kimi-k2.5",
+        ),
+    )
+
+    model = factory_module.create_chat_model(name="kimi-k2.5", thinking_enabled=False)
+
+    assert model.disable_streaming == "tool_calling"
+
+
+def test_create_chat_model_preserves_explicit_disable_streaming_override(monkeypatch):
+    monkeypatch.setattr(
+        factory_module,
+        "require_enabled_model",
+        lambda _name: _anthropic_model_config(
+            name="kimi-k2.5",
+            model="kimi-k2.5",
+            disable_streaming=False,
+        ),
+    )
+
+    model = factory_module.create_chat_model(name="kimi-k2.5", thinking_enabled=False)
+
+    assert model.disable_streaming is False
 
 
 def test_create_chat_model_defaults_reasoning_effort_when_supported(monkeypatch):
