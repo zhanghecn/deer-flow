@@ -7,6 +7,7 @@ import { mockApiPlugin } from "./src/mock-server/plugin";
 
 const DEFAULT_GATEWAY_BASE_URL = "http://localhost:8001";
 const DEFAULT_ONLYOFFICE_DEV_SERVER_URL = "http://localhost:8082";
+const DEFAULT_OPENPENCIL_DEV_SERVER_URL = "http://localhost:3001";
 
 function getGatewayBaseURL(rawURL?: string): string {
   const url = rawURL ?? DEFAULT_GATEWAY_BASE_URL;
@@ -18,7 +19,16 @@ function getOnlyOfficeDevServerURL(rawURL?: string): string {
   return url.replace(/\/+$/, "");
 }
 
-function createGatewayProxy(target: string, onlyOfficeTarget: string) {
+function getOpenPencilDevServerURL(rawURL?: string): string {
+  const url = rawURL ?? DEFAULT_OPENPENCIL_DEV_SERVER_URL;
+  return url.replace(/\/+$/, "");
+}
+
+function createGatewayProxy(
+  target: string,
+  onlyOfficeTarget: string,
+  openPencilTarget: string,
+) {
   return {
     "/api": {
       target,
@@ -45,6 +55,14 @@ function createGatewayProxy(target: string, onlyOfficeTarget: string) {
       ws: true,
       rewrite: (path) => path.replace(/^\/onlyoffice/, ""),
     },
+    // Keep OpenPencil under the same-origin `/openpencil` prefix so the
+    // external design board can call back into `/api/design/*` without CORS.
+    "/openpencil": {
+      target: openPencilTarget,
+      changeOrigin: true,
+      ws: true,
+      rewrite: (path) => path.replace(/^\/openpencil/, ""),
+    },
   };
 }
 
@@ -53,6 +71,9 @@ export default defineConfig(({ mode }) => {
   const gatewayBaseURL = getGatewayBaseURL(env.VITE_BACKEND_BASE_URL);
   const onlyOfficeDevServerURL = getOnlyOfficeDevServerURL(
     env.VITE_ONLYOFFICE_DEV_SERVER_URL,
+  );
+  const openPencilDevServerURL = getOpenPencilDevServerURL(
+    env.VITE_OPENPENCIL_DEV_SERVER_URL,
   );
 
   return {
@@ -90,7 +111,11 @@ export default defineConfig(({ mode }) => {
       port: 3000,
       // `vite` 默认使用 development mode，这里按当前 mode 读取
       // `.env.development*` 里的网关地址，只用于开发时的反向代理。
-      proxy: createGatewayProxy(gatewayBaseURL, onlyOfficeDevServerURL),
+      proxy: createGatewayProxy(
+        gatewayBaseURL,
+        onlyOfficeDevServerURL,
+        openPencilDevServerURL,
+      ),
     },
     build: {
       outDir: "dist",

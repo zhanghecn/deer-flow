@@ -54,6 +54,11 @@ sandbox_image_cache.tar
 
 # ignore the legacy `web` folder
 web/
+# Keep the nginx runtime-workspace `vsda` shim tracked even though its leaf
+# directory is named `web`, which would otherwise match the legacy ignore.
+!docker/nginx/static/vsda/rust/web/
+!docker/nginx/static/vsda/rust/web/vsda.js
+!docker/nginx/static/vsda/rust/web/vsda_bg.wasm
 .playwright-cli
 .playwright/
 /server
@@ -92,3 +97,4 @@ dist
 /audit-*.yaml
 /audit-*.yml
 backend/gateway/cmd/server/__debug_bin*
+.omx/

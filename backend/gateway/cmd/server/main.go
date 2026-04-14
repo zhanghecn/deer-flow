@@ -81,6 +81,7 @@ func main() {
 	agentSvc := service.NewAgentService(fs)
 	skillSvc := service.NewSkillService(fs)
 	authoringWorkspaceSvc := service.NewAuthoringWorkspaceService(fs)
+	designBoardSvc := service.NewDesignBoardService(fs)
 	publicAPISvc := service.NewPublicAPIService(
 		modelRepo,
 		publicAPIInputFileRepo,
@@ -95,6 +96,7 @@ func main() {
 	agentH := handler.NewAgentHandler(agentSvc, fs, userRepo)
 	skillH := handler.NewSkillHandler(skillSvc, fs, extensionsConfigPath)
 	authoringWorkspaceH := handler.NewAuthoringWorkspaceHandler(authoringWorkspaceSvc, fs, threadRepo)
+	designBoardH := handler.NewDesignBoardHandler(threadRepo, designBoardSvc, cfg.JWT.Secret, "")
 	modelH := handler.NewModelHandler(modelRepo)
 	memoryH := handler.NewMemoryHandler(fs)
 	mcpH := handler.NewMCPHandler(extensionsConfigPath)
@@ -173,9 +175,13 @@ func main() {
 	)
 
 	// Health check
-	r.GET("/health", func(c *gin.Context) {
+	// Docker/docs commonly probe this with `curl -I`, so keep HEAD aligned with
+	// GET instead of making readiness depend on the caller knowing Gin routing.
+	healthHandler := func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok", "service": "openagents-gateway"})
-	})
+	}
+	r.GET("/health", healthHandler)
+	r.HEAD("/health", healthHandler)
 
 	// Public auth routes
 	auth := r.Group("/api/auth")
@@ -196,6 +202,14 @@ func main() {
 		// contains the stable northbound contract and externally routable URLs.
 		openDocs.GET("/agents/:name/export", agentH.PublicExport)
 		openDocs.GET("/agents/:name/openapi.json", agentH.PublicOpenAPISpec)
+	}
+
+	designAPI := r.Group("/api/design")
+	{
+		// Design board document traffic comes from the proxied OpenPencil app,
+		// which receives a short-lived scoped token instead of the user's JWT.
+		designAPI.GET("/document", designBoardH.ReadDocument)
+		designAPI.PUT("/document", designBoardH.WriteDocument)
 	}
 
 	// Protected API routes (JWT)
@@ -253,6 +267,7 @@ func main() {
 		api.DELETE("/threads/:id", threadsH.Delete)
 		api.GET("/threads/:id/runtime", threadsH.GetRuntime)
 		api.POST("/threads/:id/runtime-workspace/open", runtimeWorkspaceH.Open)
+		api.POST("/threads/:id/design-board/open", designBoardH.Open)
 		api.PATCH("/threads/:id/title", threadsH.UpdateTitle)
 
 		// Uploads
@@ -305,8 +320,11 @@ func main() {
 
 	}
 
-	r.Any("/sandbox-ide/:session_id/:access_token", middleware.JWTAuth(jwtMgr), runtimeWorkspaceH.Proxy())
-	r.Any("/sandbox-ide/:session_id/:access_token/*path", middleware.JWTAuth(jwtMgr), runtimeWorkspaceH.Proxy())
+	// Sandbox IDE tabs are opened as standalone browser navigations, so they
+	// cannot rely on fetch-injected Authorization headers. The time-limited
+	// access token in the URL is the capability secret; JWT is optional here.
+	r.Any("/sandbox-ide/:session_id/:access_token", runtimeWorkspaceH.Proxy())
+	r.Any("/sandbox-ide/:session_id/:access_token/*path", runtimeWorkspaceH.Proxy())
 
 	// Register proxy routes from config (declarative, no code changes needed)
 	for _, route := range proxyRoutes {

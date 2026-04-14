@@ -28,10 +28,11 @@ import {
   extractQuestionRequestFromMessages,
 } from "@/core/threads/interrupts";
 import { getFileName } from "@/core/utils/files";
+import { useOptionalWorkspaceSurface } from "@/core/workspace-surface/context";
 import { cn } from "@/lib/utils";
 
-import { ArtifactFileList } from "../artifacts/artifact-file-list";
 import { useArtifacts } from "../artifacts";
+import { ArtifactFileList } from "../artifacts/artifact-file-list";
 import { StreamingIndicator } from "../streaming-indicator";
 
 import { MarkdownContent } from "./markdown-content";
@@ -40,6 +41,7 @@ import { MessageListItem } from "./message-list-item";
 import { QuestionSummary } from "./question-dock";
 import { MessageListSkeleton } from "./skeleton";
 import { SubtaskCard } from "./subtask-card";
+import { WorkspaceEventCard } from "./workspace-event-card";
 
 type TaskUpdate = Partial<Subtask> & { id: string };
 type PersistedSubtaskTurn = {
@@ -296,7 +298,9 @@ export function collectSupplementalImageArtifacts(
     }
 
     const parentDirectory = getArtifactDirectory(filepath);
-    return parentDirectory !== null && presentedDirectories.has(parentDirectory);
+    return (
+      parentDirectory !== null && presentedDirectories.has(parentDirectory)
+    );
   });
 }
 
@@ -687,6 +691,7 @@ export function MessageList({
   paddingBottom?: number;
 }) {
   const updateSubtask = useUpdateSubtask();
+  const workspaceSurface = useOptionalWorkspaceSurface();
   const messages = thread.messages;
   const isStreamingCurrentTurn = thread.isLoading && !thread.isThreadLoading;
   const lastTurnStartIndex = useMemo(
@@ -739,6 +744,7 @@ export function MessageList({
       (taskId) => !visibleTaskIds.has(taskId),
     );
   }, [persistedSubtaskTurn, visibleCurrentTurnTaskIds]);
+  const workspaceEvents = workspaceSurface?.events ?? [];
 
   useEffect(() => {
     for (const update of subtaskUpdates) {
@@ -807,6 +813,17 @@ export function MessageList({
           }
           threadId={threadId}
         />
+        {workspaceEvents.length > 0 && (
+          <div className="flex w-full flex-col gap-3">
+            {workspaceEvents.map((event) => (
+              <WorkspaceEventCard
+                key={event.id}
+                event={event}
+                threadId={threadId}
+              />
+            ))}
+          </div>
+        )}
         {thread.isLoading && <StreamingIndicator className="my-4" />}
         <div style={{ height: `${paddingBottom}px` }} />
       </ConversationContent>

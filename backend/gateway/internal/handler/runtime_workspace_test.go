@@ -188,6 +188,53 @@ func TestRuntimeWorkspaceProxyResolvesTargetAndRewritesPath(t *testing.T) {
 	}
 }
 
+func TestRuntimeWorkspaceProxyAllowsCapabilityUrlWithoutJWT(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("x-upstream-path", r.URL.Path)
+		_, _ = w.Write([]byte("sandbox-capability"))
+	}))
+	t.Cleanup(upstream.Close)
+
+	langGraph := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get(headerUserID); got != "" {
+			t.Fatalf("expected empty x-user-id header, got %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"session_id":           "sess-cap",
+			"access_token":         "token-cap",
+			"upstream_base_url":    upstream.URL,
+			"upstream_path_prefix": "/proxy/35555",
+			"expires_at":           "2026-04-06T00:00:00Z",
+		})
+	}))
+	t.Cleanup(langGraph.Close)
+
+	handler := NewRuntimeWorkspaceHandler(&fakeRuntimeWorkspaceRepo{}, langGraph.URL)
+	router := gin.New()
+	router.Any("/sandbox-ide/:session_id/:access_token/*path", handler.Proxy())
+
+	server := httptest.NewServer(router)
+	t.Cleanup(server.Close)
+
+	resp, err := http.Get(server.URL + "/sandbox-ide/sess-cap/token-cap/static/app.js")
+	if err != nil {
+		t.Fatalf("proxy request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected status 200, got %d body=%s", resp.StatusCode, string(body))
+	}
+	if got := resp.Header.Get("x-upstream-path"); got != "/proxy/35555/static/app.js" {
+		t.Fatalf("unexpected upstream path %q", got)
+	}
+}
+
 func TestRuntimeWorkspaceProxyRootRouteUsesSandboxRoot(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)

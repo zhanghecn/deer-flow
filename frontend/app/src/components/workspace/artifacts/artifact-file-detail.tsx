@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import { Children, isValidElement } from "react";
 import {
   Code2Icon,
   CopyIcon,
@@ -10,7 +9,15 @@ import {
   SquareArrowOutUpRightIcon,
   XIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Children,
+  isValidElement,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { ComponentProps } from "react";
 import { toast } from "sonner";
 import { Streamdown } from "streamdown";
@@ -36,21 +43,23 @@ import {
   downloadArtifactFile,
   openArtifactInNewWindow,
 } from "@/core/artifacts/actions";
-import { loadHtmlPreviewDocument } from "@/core/artifacts/html-preview";
-import { setPdfPreviewPage } from "@/core/artifacts/pdf";
-import { resolveThreadScopedPath } from "@/core/artifacts/preview-resolver";
 import {
   useArtifactContent,
   useArtifactObjectUrl,
 } from "@/core/artifacts/hooks";
+import { loadHtmlPreviewDocument } from "@/core/artifacts/html-preview";
 import {
   getOnlyOfficeDocumentDescriptor,
   loadOnlyOfficeConfig,
   type OnlyOfficeDocumentDescriptor,
   type OnlyOfficeMode,
 } from "@/core/artifacts/onlyoffice";
+import { setPdfPreviewPage } from "@/core/artifacts/pdf";
+import { resolveThreadScopedPath } from "@/core/artifacts/preview-resolver";
 import { urlOfArtifact } from "@/core/artifacts/utils";
+import { isDesignDocumentPath } from "@/core/design-board/paths";
 import { useI18n } from "@/core/i18n/hooks";
+import { parseKnowledgeCitationHref } from "@/core/knowledge/citations";
 import { installSkill } from "@/core/skills/api";
 import { streamdownPlugins } from "@/core/streamdown";
 import {
@@ -61,10 +70,10 @@ import {
 } from "@/core/utils/files";
 import { env } from "@/env";
 import { cn } from "@/lib/utils";
-import { parseKnowledgeCitationHref } from "@/core/knowledge/citations";
 
 import { CitationLink } from "../citations/citation-link";
 import { useThread } from "../messages/context";
+import { useWorkbenchActions } from "../surfaces/use-workbench-actions";
 import { Tooltip } from "../tooltip";
 
 import { useArtifacts } from "./context";
@@ -94,6 +103,7 @@ export function ArtifactFileDetail({
 }) {
   const { t } = useI18n();
   const { artifacts, setOpen, select, previewTarget } = useArtifacts();
+  const { openDesignWorkbench } = useWorkbenchActions(threadId);
   const isWriteFile = useMemo(() => {
     return filepathFromProps.startsWith("write-file:");
   }, [filepathFromProps]);
@@ -143,7 +153,7 @@ export function ArtifactFileDetail({
   const showPreviewToggle = isSupportPreview && isCodeFile;
   const isBinaryPreview = !isCodeFile && !isOfficeFile;
   const activePreviewTarget = useMemo(() => {
-    if (!previewTarget || previewTarget.filepath !== filepath) {
+    if (previewTarget?.filepath !== filepath) {
       return null;
     }
     return previewTarget;
@@ -203,6 +213,11 @@ export function ArtifactFileDetail({
 
     setIsOpeningArtifact(true);
     try {
+      if (isDesignDocumentPath(filepath)) {
+        await openDesignWorkbench({ targetPath: filepath });
+        return;
+      }
+
       try {
         await openArtifactInNewWindow({
           filepath,
@@ -229,6 +244,7 @@ export function ArtifactFileDetail({
   }, [
     filepath,
     isMock,
+    openDesignWorkbench,
     isOpeningArtifact,
     isWriteFile,
     officePreviewUrl,

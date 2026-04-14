@@ -1,5 +1,4 @@
 import type { Command } from "@langchain/langgraph-sdk";
-import { PlusSquare } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   useParams,
@@ -9,29 +8,25 @@ import {
 } from "react-router-dom";
 
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
-import { Button } from "@/components/ui/button";
-import { AgentSwitcherDialog } from "@/components/workspace/agent-switcher-dialog";
 import { AgentWelcome } from "@/components/workspace/agent-welcome";
-import { ArtifactTrigger } from "@/components/workspace/artifacts/artifact-trigger";
 import { ChatBox } from "@/components/workspace/chats/chat-box";
+import { shouldShowCenteredComposer } from "@/components/workspace/chats/layout-state";
 import { useDockPadding } from "@/components/workspace/chats/use-dock-padding";
 import { useThreadChat } from "@/components/workspace/chats/use-thread-chat";
 import { InputBox } from "@/components/workspace/input-box";
-import { QuestionDock } from "@/components/workspace/messages/question-dock";
 import { ThreadContext } from "@/components/workspace/messages/context";
 import { MessageList } from "@/components/workspace/messages/message-list";
-import { ThreadTitle } from "@/components/workspace/thread-title";
+import { QuestionDock } from "@/components/workspace/messages/question-dock";
+import { ThreadChatHeader } from "@/components/workspace/thread-chat-header";
 import { TodoList } from "@/components/workspace/todo-list";
-import { Tooltip } from "@/components/workspace/tooltip";
 import {
   readAgentRuntimeSelection,
   type ResolvedAgentRuntimeSelection,
   useAgent,
 } from "@/core/agents";
-import { shouldShowCenteredComposer } from "@/components/workspace/chats/layout-state";
 import { useI18n } from "@/core/i18n/hooks";
-import { useModels } from "@/core/models/hooks";
 import { findAvailableModelName } from "@/core/models";
+import { useModels } from "@/core/models/hooks";
 import { useNotification } from "@/core/notification/hooks";
 import { useLocalSettings } from "@/core/settings";
 import { useThreadStream } from "@/core/threads/hooks";
@@ -72,8 +67,7 @@ export default function AgentChatPage() {
     () => readAgentRuntimeSelection(searchParams, agent_name),
     [agent_name, searchParams],
   );
-  const { threadId, setThreadId, isNewThread, setIsNewThread, isMock } =
-    useThreadChat();
+  const { threadId, setThreadId, isNewThread, isMock } = useThreadChat();
   const { data: threadRuntime, isLoading: threadRuntimeLoading } =
     useThreadRuntime(isMock || isNewThread || isPendingRun ? null : threadId);
   const boundThreadRuntime = useMemo(
@@ -192,7 +186,10 @@ export default function AgentChatPage() {
   }, [isMock, navigate, pathname, runtimeSelection, searchParams, threadId]);
 
   useEffect(() => {
-    if (!threadRuntime || isNewThread) {
+    // Route changes can briefly overlap with the previous thread state. Only
+    // rewrite the URL when the fetched runtime binding belongs to the thread
+    // currently shown in the route.
+    if (!threadRuntime || isNewThread || threadRuntime.thread_id !== threadId) {
       return;
     }
 
@@ -361,34 +358,12 @@ export default function AgentChatPage() {
     >
       <ChatBox threadId={threadId}>
         <div className="relative flex size-full min-h-0 justify-between">
-          <header
-            className={cn(
-              "absolute top-0 right-0 left-0 z-30 flex h-12 shrink-0 items-center gap-2 px-4",
-              showCenteredComposer
-                ? "bg-background/0 backdrop-blur-none"
-                : "bg-background/80 shadow-xs backdrop-blur",
-            )}
-          >
-            <AgentSwitcherDialog selection={runtimeSelection} compact />
-
-            <div className="flex w-full items-center text-sm font-medium">
-              <ThreadTitle threadId={threadId} thread={thread} />
-            </div>
-            <div className="mr-4 flex items-center">
-              <Tooltip content={t.agents.newChat}>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => {
-                    void navigate(buildThreadPath(runtimeSelection));
-                  }}
-                >
-                  <PlusSquare /> {t.agents.newChat}
-                </Button>
-              </Tooltip>
-              <ArtifactTrigger />
-            </div>
-          </header>
+          <ThreadChatHeader
+            runtimeSelection={runtimeSelection}
+            showCenteredComposer={showCenteredComposer}
+            thread={thread}
+            threadId={threadId}
+          />
 
           <main className="flex min-h-0 max-w-full grow flex-col">
             <div className="flex size-full justify-center">

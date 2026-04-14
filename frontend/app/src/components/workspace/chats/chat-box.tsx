@@ -1,8 +1,5 @@
-import { FilesIcon, XIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { ConversationEmptyState } from "@/components/ai-elements/conversation";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -20,21 +17,30 @@ import {
   filterLegacyPptPreviewArtifacts,
   mergeVisibleArtifacts,
 } from "@/core/artifacts/utils";
+import {
+  DesignBoardDocumentReadError,
+  readDesignBoardDocument,
+} from "@/core/design-board/api";
+import {
+  clearDesignBoardAutoOpened,
+  publishDesignBoardRemoteMessage,
+} from "@/core/design-board/embed";
+import { isDesignDocumentPath } from "@/core/design-board/paths";
 import { useI18n } from "@/core/i18n/hooks";
 import { getUserVisibleRuntimePath } from "@/core/utils/files";
+import { useWorkspaceSurface } from "@/core/workspace-surface/context";
 import { env } from "@/env";
 import { cn } from "@/lib/utils";
 
-import {
-  ArtifactFileDetail,
-  ArtifactFileList,
-  useArtifacts,
-} from "../artifacts";
+import { ArtifactFileDetail, useArtifacts } from "../artifacts";
 import { useThread } from "../messages/context";
+import { useWorkbenchActions } from "../surfaces/use-workbench-actions";
+import { WorkspaceSurfaceDock } from "../surfaces/workspace-surface-dock";
 
 const CLOSE_MODE = { chat: 100, artifacts: 0 };
 const OPEN_MODE = { chat: 60, artifacts: 40 };
 const FAST_ARTIFACT_DISCOVERY_POLL_MS = 5000;
+const DESIGN_REVISION_SYNC_POLL_MS = 2000;
 const MEDIUM_ARTIFACT_DISCOVERY_POLL_MS = 15000;
 const SLOW_ARTIFACT_DISCOVERY_POLL_MS = 30000;
 const STABLE_DISCOVERY_POLLS_FOR_MEDIUM = 2;
@@ -63,6 +69,13 @@ function getArtifactDiscoveryPollInterval(
   return FAST_ARTIFACT_DISCOVERY_POLL_MS;
 }
 
+export function resolveDesignRefreshOpenIssue(error: unknown) {
+  return error instanceof DesignBoardDocumentReadError &&
+    (error.statusCode === 401 || error.statusCode === 403)
+    ? "session_expired"
+    : "sync_failed";
+}
+
 const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
   children,
   threadId,
@@ -79,6 +92,9 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
     deselect,
     selectedArtifact,
   } = useArtifacts();
+  const workspaceSurface = useWorkspaceSurface();
+  const { openDesignWorkbench } = useWorkbenchActions(threadId);
+  const previousVisibleArtifactsRef = useRef<string[] | null>(null);
 
   const [autoSelectFirstArtifact, setAutoSelectFirstArtifact] = useState(true);
   const [stableDiscoveryPollCount, setStableDiscoveryPollCount] = useState(0);
@@ -98,7 +114,12 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
       (stateArtifacts.length > 0 ||
         thread.messages.length > 0 ||
         (thread.values.messages?.length ?? 0) > 0),
-    [isMock, stateArtifacts.length, thread.messages.length, thread.values.messages],
+    [
+      isMock,
+      stateArtifacts.length,
+      thread.messages.length,
+      thread.values.messages,
+    ],
   );
   const {
     artifacts: discoveredOutputArtifacts,
@@ -167,11 +188,7 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
 
     lastDiscoveredArtifactsKeyRef.current = discoveredArtifactsKey;
     setStableDiscoveryPollCount(0);
-  }, [
-    discoveredArtifactsKey,
-    discoveredArtifactsUpdatedAt,
-    thread.isLoading,
-  ]);
+  }, [discoveredArtifactsKey, discoveredArtifactsUpdatedAt, thread.isLoading]);
 
   const selectedOfficeArtifact = useMemo(() => {
     if (!selectedArtifact) {
@@ -181,12 +198,6 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
       ? selectedArtifact
       : null;
   }, [selectedArtifact]);
-  const selectedPanelArtifact = useMemo(() => {
-    if (!selectedArtifact || selectedOfficeArtifact) {
-      return null;
-    }
-    return selectedArtifact;
-  }, [selectedArtifact, selectedOfficeArtifact]);
   const officeDialogOpen = artifactsOpen && selectedOfficeArtifact !== null;
 
   useEffect(() => {
@@ -226,15 +237,113 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
     setAutoSelectFirstArtifact(true);
   }, [syncThread, threadId]);
 
+  useEffect(() => {
+    const previousArtifacts = previousVisibleArtifactsRef.current;
+    previousVisibleArtifactsRef.current = visibleArtifacts;
+
+    if (previousArtifacts === null || !thread.isLoading) {
+      return;
+    }
+
+    const previousSet = new Set(previousArtifacts);
+    const newlyDiscoveredArtifacts = visibleArtifacts.filter(
+      (artifactPath) => !previousSet.has(artifactPath),
+    );
+
+    if (newlyDiscoveredArtifacts.length === 0) {
+      return;
+    }
+
+    const newlyDiscoveredDesignArtifact = newlyDiscoveredArtifacts.find(
+      isDesignDocumentPath,
+    );
+    if (newlyDiscoveredDesignArtifact) {
+      void openDesignWorkbench({
+        autoOpen: true,
+        targetPath: newlyDiscoveredDesignArtifact,
+      });
+    }
+
+    // Preview cards should reflect artifacts discovered during the active run,
+    // not the initial thread hydration of older outputs.
+    workspaceSurface.notePreviewArtifacts(
+      newlyDiscoveredArtifacts.filter(
+        (artifactPath) => !isDesignDocumentPath(artifactPath),
+      ),
+    );
+  }, [openDesignWorkbench, thread.isLoading, visibleArtifacts, workspaceSurface]);
+
+  useEffect(() => {
+    if (!thread.isLoading || !workspaceSurface.designState.session) {
+      return;
+    }
+
+    let cancelled = false;
+    const session = workspaceSurface.designState.session;
+
+    const syncRevision = async () => {
+      try {
+        const payload = await readDesignBoardDocument(session);
+        if (cancelled) {
+          return;
+        }
+        if (payload.revision === workspaceSurface.designState.revision) {
+          return;
+        }
+
+        workspaceSurface.setDesignStatus("saving", {
+          revision: payload.revision,
+          targetPath: payload.target_path,
+        });
+        publishDesignBoardRemoteMessage(session, {
+          type: "design.remote.revision-available",
+          revision: payload.revision,
+        });
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        const openIssue = resolveDesignRefreshOpenIssue(error);
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Failed to refresh design document";
+        workspaceSurface.setDesignStatus("error", {
+          error: message,
+          targetPath: session.target_path,
+          openIssue,
+        });
+        if (openIssue === "session_expired") {
+          clearDesignBoardAutoOpened(threadId);
+          publishDesignBoardRemoteMessage(session, {
+            type: "design.remote.session-expired",
+            revision: workspaceSurface.designState.revision ?? null,
+          });
+        }
+      }
+    };
+
+    void syncRevision();
+    const timer = window.setInterval(() => {
+      void syncRevision();
+    }, DESIGN_REVISION_SYNC_POLL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [
+    thread.isLoading,
+    threadId,
+    workspaceSurface,
+    workspaceSurface.designState.revision,
+    workspaceSurface.designState.session,
+  ]);
+
   const artifactPanelOpen = useMemo(() => {
-    if (officeDialogOpen) {
-      return false;
-    }
-    if (env.VITE_STATIC_WEBSITE_ONLY === "true") {
-      return artifactsOpen && artifacts?.length > 0;
-    }
-    return artifactsOpen;
-  }, [artifacts, artifactsOpen, officeDialogOpen]);
+    return workspaceSurface.dockState.open;
+  }, [workspaceSurface.dockState.open]);
 
   return (
     <>
@@ -261,53 +370,14 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
         >
           <div
             className={cn(
-              "h-full p-4 transition-transform duration-300 ease-in-out",
+              "h-full transition-transform duration-300 ease-in-out",
               artifactPanelOpen ? "translate-x-0" : "translate-x-full",
             )}
           >
-            {selectedPanelArtifact ? (
-              <ArtifactFileDetail
-                className="size-full"
-                filepath={selectedPanelArtifact}
-                threadId={threadId}
-              />
-            ) : (
-              <div className="relative flex size-full justify-center">
-                <div className="absolute top-1 right-1 z-30">
-                  <Button
-                    size="icon-sm"
-                    variant="ghost"
-                    onClick={() => {
-                      setArtifactsOpen(false);
-                    }}
-                  >
-                    <XIcon />
-                  </Button>
-                </div>
-                {visibleArtifacts.length === 0 ? (
-                  <ConversationEmptyState
-                    icon={<FilesIcon />}
-                    title={t.workspace.noArtifactSelectedTitle}
-                    description={t.workspace.noArtifactSelectedDescription}
-                  />
-                ) : (
-                  <div className="flex size-full max-w-(--container-width-sm) flex-col justify-center p-4 pt-8">
-                    <header className="shrink-0">
-                      <h2 className="text-lg font-medium">
-                        {t.workspace.artifactsPanelTitle}
-                      </h2>
-                    </header>
-                    <main className="min-h-0 grow">
-                      <ArtifactFileList
-                        className="max-w-(--container-width-sm) p-4 pt-12"
-                        files={visibleArtifacts}
-                        threadId={threadId}
-                      />
-                    </main>
-                  </div>
-                )}
-              </div>
-            )}
+            <WorkspaceSurfaceDock
+              threadId={threadId}
+              visibleArtifacts={visibleArtifacts}
+            />
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>

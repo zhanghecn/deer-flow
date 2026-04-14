@@ -8,6 +8,7 @@ import {
 } from "react";
 
 import { useSidebar } from "@/components/ui/sidebar";
+import { useOptionalWorkspaceSurface } from "@/core/workspace-surface/context";
 import { env } from "@/env";
 
 export interface ArtifactPreviewTarget {
@@ -56,6 +57,9 @@ export function ArtifactsProvider({ children }: ArtifactsProviderProps) {
   const [open, setOpen] = useState(env.VITE_STATIC_WEBSITE_ONLY === "true");
   const [autoOpen, setAutoOpen] = useState(true);
   const { setOpen: setSidebarOpen } = useSidebar();
+  const workspaceSurface = useOptionalWorkspaceSurface();
+  const openWorkspaceSurface = workspaceSurface?.openSurface;
+  const syncWorkspaceThread = workspaceSurface?.syncThread;
 
   const select = useCallback(
     (artifact: string, autoSelect = false) => {
@@ -63,6 +67,7 @@ export function ArtifactsProvider({ children }: ArtifactsProviderProps) {
       setPreviewTarget((current) =>
         current?.filepath === artifact ? current : null,
       );
+      openWorkspaceSurface?.("preview");
       if (env.VITE_STATIC_WEBSITE_ONLY !== "true") {
         setSidebarOpen(false);
       }
@@ -70,7 +75,7 @@ export function ArtifactsProvider({ children }: ArtifactsProviderProps) {
         setAutoSelect(false);
       }
     },
-    [setSidebarOpen, setSelectedArtifact, setAutoSelect],
+    [openWorkspaceSurface, setSidebarOpen, setSelectedArtifact, setAutoSelect],
   );
 
   const reveal = useCallback(
@@ -87,13 +92,14 @@ export function ArtifactsProvider({ children }: ArtifactsProviderProps) {
         revealSequence: revealSequenceRef.current,
       });
       setOpen(true);
+      openWorkspaceSurface?.("preview");
       if (env.VITE_STATIC_WEBSITE_ONLY !== "true") {
         setSidebarOpen(false);
       }
       setAutoOpen(false);
       setAutoSelect(false);
     },
-    [setSidebarOpen],
+    [openWorkspaceSurface, setSidebarOpen],
   );
 
   const deselect = useCallback(() => {
@@ -119,15 +125,17 @@ export function ArtifactsProvider({ children }: ArtifactsProviderProps) {
       }
       if (activeThreadIdRef.current === null) {
         activeThreadIdRef.current = normalizedThreadId;
+        syncWorkspaceThread?.(normalizedThreadId);
         return;
       }
       if (activeThreadIdRef.current === normalizedThreadId) {
         return;
       }
       activeThreadIdRef.current = normalizedThreadId;
+      syncWorkspaceThread?.(normalizedThreadId);
       reset();
     },
-    [reset],
+    [reset, syncWorkspaceThread],
   );
 
   const value: ArtifactsContextType = {

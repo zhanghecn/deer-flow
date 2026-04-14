@@ -141,6 +141,12 @@ export function useThreadChat() {
     () => routeIdentity.isNewThread,
   );
   const lastDraftPathRef = useRef<string | null>(routeIdentity.draftThreadPath);
+  // Existing-thread routes must reflect the URL immediately. If we expose the
+  // old state for one render after a sidebar click, thread-runtime effects can
+  // navigate back to the previous conversation before the sync effect runs.
+  const visibleThreadId = routeIdentity.isNewThread
+    ? threadId
+    : (routeIdentity.threadId ?? threadId);
 
   // Sync threadId when route params change (React Router doesn't remount on param change)
   useEffect(() => {
@@ -175,5 +181,11 @@ export function useThreadChat() {
   }, [isNewThread, routeIdentity, threadId]);
 
   const isMock = searchParams.get("mock") === "true";
-  return { threadId, setThreadId, isNewThread, setIsNewThread, isMock };
+  return {
+    threadId: visibleThreadId,
+    setThreadId,
+    isNewThread,
+    setIsNewThread,
+    isMock,
+  };
 }

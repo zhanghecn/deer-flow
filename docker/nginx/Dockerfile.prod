@@ -53,6 +53,10 @@ FROM nginx:alpine
 # - /api、/open、/health 反代到 gateway
 COPY docker/nginx/nginx.prod.conf /etc/nginx/nginx.conf
 
+# Runtime workspace needs a tiny compatibility shim for the optional `vsda`
+# browser asset path that some code-server bundles still request.
+COPY docker/nginx/static /usr/share/nginx/static
+
 # 复制用户前台构建产物到 nginx 静态目录。
 COPY --from=app-builder /build/frontend/app/dist /usr/share/nginx/html/app
 

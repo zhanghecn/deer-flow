@@ -71,6 +71,14 @@ func NewRuntimeWorkspaceHandler(
 	}
 }
 
+func optionalGatewayUserID(c *gin.Context) string {
+	userID := middleware.GetUserID(c)
+	if userID == uuid.Nil {
+		return ""
+	}
+	return userID.String()
+}
+
 func (h *RuntimeWorkspaceHandler) Open(c *gin.Context) {
 	userID := middleware.GetUserID(c)
 	if userID == uuid.Nil {
@@ -117,11 +125,10 @@ func (h *RuntimeWorkspaceHandler) Open(c *gin.Context) {
 
 func (h *RuntimeWorkspaceHandler) Proxy() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userID := middleware.GetUserID(c)
-		if userID == uuid.Nil {
-			c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "unauthorized"})
-			return
-		}
+		// The browser opens `/sandbox-ide/...` as a direct navigation. In that
+		// flow the capability token embedded in the URL is the primary auth
+		// mechanism, while any JWT cookie/header is only an optional owner hint.
+		userID := optionalGatewayUserID(c)
 
 		sessionID := strings.TrimSpace(c.Param("session_id"))
 		accessToken := strings.TrimSpace(c.Param("access_token"))
@@ -214,7 +221,7 @@ func (h *RuntimeWorkspaceHandler) openRuntimeWorkspace(
 
 func (h *RuntimeWorkspaceHandler) resolveRuntimeWorkspaceProxy(
 	ctx context.Context,
-	userID uuid.UUID,
+	userID string,
 	sessionID string,
 	accessToken string,
 ) (*runtimeWorkspaceProxyTarget, int, error) {
@@ -227,7 +234,9 @@ func (h *RuntimeWorkspaceHandler) resolveRuntimeWorkspaceProxy(
 	if err != nil {
 		return nil, http.StatusBadGateway, fmt.Errorf("failed to build sandbox ide proxy request: %w", err)
 	}
-	req.Header.Set(headerUserID, userID.String())
+	if strings.TrimSpace(userID) != "" {
+		req.Header.Set(headerUserID, userID)
+	}
 
 	resp, err := h.httpClient.Do(req)
 	if err != nil {

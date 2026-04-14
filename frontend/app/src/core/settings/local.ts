@@ -5,6 +5,7 @@ import {
   type ThreadMode,
   type ThreadReasoningEffort,
 } from "../threads/mode";
+import type { WorkspaceSurface } from "../workspace-surface/types";
 
 export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   notification: {
@@ -21,6 +22,9 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   },
   layout: {
     sidebar_collapsed: false,
+    workspace_dock_open: false,
+    workspace_dock_active_surface: "preview",
+    workspace_dock_width_ratio: 38,
   },
 };
 
@@ -40,6 +44,9 @@ export interface LocalSettings {
   };
   layout: {
     sidebar_collapsed: boolean;
+    workspace_dock_open?: boolean;
+    workspace_dock_active_surface?: WorkspaceSurface;
+    workspace_dock_width_ratio?: number;
   };
 }
 

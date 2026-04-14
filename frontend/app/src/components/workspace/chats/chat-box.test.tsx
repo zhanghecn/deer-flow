@@ -12,8 +12,10 @@ import type * as WorkspaceArtifacts from "@/components/workspace/artifacts";
 import { ThreadContext } from "@/components/workspace/messages/context";
 import { I18nProvider } from "@/core/i18n/context";
 import type { AgentThreadState } from "@/core/threads";
+import { WorkspaceSurfaceProvider } from "@/core/workspace-surface/context";
 
 import { ChatBox } from "./chat-box";
+import { resolveDesignRefreshOpenIssue } from "./chat-box";
 
 type ThreadOutputArtifactsHookArgs = {
   refreshKey?: string;
@@ -120,13 +122,15 @@ function renderChatBoxShell({
     <QueryClientProvider client={queryClient}>
       <I18nProvider initialLocale="en-US">
         <SidebarProvider>
-          <ThreadContext.Provider value={{ thread: thread as never, isMock }}>
-            <ArtifactsProvider>
-              <ChatBox threadId={threadId}>
-                {children ?? <div>Chat content</div>}
-              </ChatBox>
-            </ArtifactsProvider>
-          </ThreadContext.Provider>
+          <WorkspaceSurfaceProvider>
+            <ThreadContext.Provider value={{ thread: thread as never, isMock }}>
+              <ArtifactsProvider>
+                <ChatBox threadId={threadId}>
+                  {children ?? <div>Chat content</div>}
+                </ChatBox>
+              </ArtifactsProvider>
+            </ThreadContext.Provider>
+          </WorkspaceSurfaceProvider>
         </SidebarProvider>
       </I18nProvider>
     </QueryClientProvider>
@@ -139,9 +143,6 @@ describe("ChatBox", () => {
     useThreadOutputArtifactsMock.mockImplementation(
       defaultThreadOutputArtifactsResult,
     );
-  });
-
-  it("hides virtual runtime paths in the office dialog title", async () => {
     vi.stubGlobal(
       "matchMedia",
       vi.fn().mockImplementation(() => ({
@@ -155,7 +156,9 @@ describe("ChatBox", () => {
         dispatchEvent: vi.fn(),
       })),
     );
+  });
 
+  it("hides virtual runtime paths in the office dialog title", async () => {
     const artifactPath = "/mnt/user-data/outputs/deck.pptx";
     const thread = {
       messages: [],
@@ -192,20 +195,6 @@ describe("ChatBox", () => {
   });
 
   it("resets the preview panel when switching threads", async () => {
-    vi.stubGlobal(
-      "matchMedia",
-      vi.fn().mockImplementation(() => ({
-        matches: false,
-        media: "",
-        onchange: null,
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-        dispatchEvent: vi.fn(),
-      })),
-    );
-
     const artifactPath = "/mnt/user-data/outputs/knowledge-preview.pdf";
     const queryClient = createQueryClient();
 
@@ -317,11 +306,20 @@ describe("ChatBox", () => {
     expect(rerenderCalls.at(-1)?.[0]?.refetchIntervalMs).toBe(5000);
   });
 
+  it("classifies non-expiry design refresh failures as sync issues", () => {
+    expect(resolveDesignRefreshOpenIssue(new Error("temporary failure"))).toBe(
+      "sync_failed",
+    );
+  });
+
   it("backs off artifact polling after repeated identical discovery scans", async () => {
     let lastUpdatedAt = 1;
     let discoveredArtifacts: string[] = [];
     useThreadOutputArtifactsMock.mockImplementation(
-      (_args?: { refreshKey?: string; refetchIntervalMs?: number | false }) => ({
+      (_args?: {
+        refreshKey?: string;
+        refetchIntervalMs?: number | false;
+      }) => ({
         artifacts: discoveredArtifacts,
         isLoading: false,
         error: null,
@@ -361,11 +359,9 @@ describe("ChatBox", () => {
     };
 
     const latestArgs = () =>
-      (
-        useThreadOutputArtifactsMock.mock.calls.at(-1)?.[0] as
-          | { refetchIntervalMs?: number | false }
-          | undefined
-      ) ?? {};
+      (useThreadOutputArtifactsMock.mock.calls.at(-1)?.[0] as
+        | { refetchIntervalMs?: number | false }
+        | undefined) ?? {};
 
     await waitFor(() => {
       expect(latestArgs().refetchIntervalMs).toBe(5000);

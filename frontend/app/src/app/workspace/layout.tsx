@@ -7,6 +7,7 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { WorkspaceSidebar } from "@/components/workspace/workspace-sidebar";
 import { useAuth } from "@/core/auth/hooks";
 import { getLocalSettings, useLocalSettings } from "@/core/settings";
+import { WorkspaceSurfaceProvider } from "@/core/workspace-surface/context";
 
 const queryClient = new QueryClient();
 
@@ -46,16 +47,19 @@ export default function WorkspaceLayout() {
   );
   return (
     <QueryClientProvider client={queryClient}>
-      <SidebarProvider
-        className="h-screen"
-        open={open}
-        onOpenChange={handleOpenChange}
-      >
-        <WorkspaceSidebar />
-        <SidebarInset className="min-w-0">
-          {authenticated || !authChecked ? <Outlet /> : null}
-        </SidebarInset>
-      </SidebarProvider>
+      {/* The sidebar header and chat surfaces both read workspace-dock state. */}
+      <WorkspaceSurfaceProvider>
+        <SidebarProvider
+          className="h-screen"
+          open={open}
+          onOpenChange={handleOpenChange}
+        >
+          <WorkspaceSidebar />
+          <SidebarInset className="min-w-0">
+            {authenticated || !authChecked ? <Outlet /> : null}
+          </SidebarInset>
+        </SidebarProvider>
+      </WorkspaceSurfaceProvider>
       <Toaster position="top-center" />
     </QueryClientProvider>
   );

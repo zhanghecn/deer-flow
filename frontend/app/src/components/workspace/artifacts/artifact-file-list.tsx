@@ -20,7 +20,7 @@ import {
 } from "@/core/utils/files";
 import { cn } from "@/lib/utils";
 
-import { useArtifacts } from "./context";
+import { useWorkbenchActions } from "../surfaces/use-workbench-actions";
 
 export function ArtifactFileList({
   className,
@@ -32,16 +32,15 @@ export function ArtifactFileList({
   threadId: string;
 }) {
   const { t } = useI18n();
-  const { select: selectArtifact, setOpen } = useArtifacts();
+  const { openArtifactWorkspace } = useWorkbenchActions(threadId);
   const [installingFile, setInstallingFile] = useState<string | null>(null);
   const [downloadingFile, setDownloadingFile] = useState<string | null>(null);
 
   const handleClick = useCallback(
     (filepath: string) => {
-      selectArtifact(filepath);
-      setOpen(true);
+      openArtifactWorkspace(filepath);
     },
-    [selectArtifact, setOpen],
+    [openArtifactWorkspace],
   );
 
   const handleInstallSkill = useCallback(

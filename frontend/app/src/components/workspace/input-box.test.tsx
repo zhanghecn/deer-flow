@@ -6,13 +6,60 @@ import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import { PromptInputProvider } from "@/components/ai-elements/prompt-input";
+import type {
+  DesignSelectionContext,
+  DesignSurfaceState,
+  RuntimeSurfaceState,
+  WorkspaceDockState,
+} from "@/core/workspace-surface/types";
 
 import { InputBox } from "./input-box";
+
+const mockWorkspaceSurface = vi.hoisted(
+  (): {
+    designSelection: DesignSelectionContext | null;
+    designState: DesignSurfaceState;
+    dockState: WorkspaceDockState;
+    runtimeState: RuntimeSurfaceState;
+    clearDesignSelection: ReturnType<typeof vi.fn>;
+  } => ({
+    designSelection: null,
+    designState: {
+      session: null,
+      status: "idle",
+      target_path: undefined,
+      revision: null,
+      last_error: null,
+    },
+    dockState: {
+      open: false,
+      activeSurface: "preview",
+      widthRatio: 38,
+    },
+    runtimeState: {
+      session: null,
+      status: "idle",
+      target_path: undefined,
+      last_error: null,
+    },
+    clearDesignSelection: vi.fn(),
+  }),
+);
 
 vi.mock("@/components/ui/confetti-button", () => ({
   ConfettiButton: ({ children, ...props }: ComponentProps<"button">) => (
     <button {...props}>{children}</button>
   ),
+}));
+
+vi.mock("@/components/workspace/artifacts", () => ({
+  useArtifacts: () => ({
+    selectedArtifact: null,
+  }),
+}));
+
+vi.mock("@/core/workspace-surface/context", () => ({
+  useWorkspaceSurface: () => mockWorkspaceSurface,
 }));
 
 vi.mock("./knowledge/knowledge-selector-dialog", () => ({
@@ -316,5 +363,71 @@ describe("InputBox", () => {
 
     expect(onStop).toHaveBeenCalledTimes(1);
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("submits explicit surface and selection context from the design workspace", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    const queryClient = new QueryClient();
+
+    mockWorkspaceSurface.designSelection = {
+      surface: "design",
+      target_path: "/mnt/user-data/outputs/designs/canvas.op",
+      selected_node_ids: ["hero", "cta"],
+      active_node_id: "hero",
+      selected_nodes: [
+        { id: "hero", label: "Hero" },
+        { id: "cta", label: "Primary CTA" },
+      ],
+      selection_summary: "Hero, Primary CTA",
+    };
+    mockWorkspaceSurface.dockState.activeSurface = "design";
+    mockWorkspaceSurface.designState.target_path =
+      "/mnt/user-data/outputs/designs/canvas.op";
+
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <PromptInputProvider>
+            <InputBox
+              threadId="thread-test"
+              context={{
+                model_name: "kimi-k2.5",
+                mode: "pro",
+                subagent_enabled: false,
+                agent_status: "dev",
+              }}
+              onContextChange={vi.fn()}
+              onSubmit={onSubmit}
+            />
+          </PromptInputProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    await user.type(screen.getByPlaceholderText("Ask anything"), "改成深色");
+    await user.keyboard("{Enter}");
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      {
+        text: "改成深色",
+        files: [],
+      },
+      expect.objectContaining({
+        surface_context: {
+          surface: "design",
+          target_path: "/mnt/user-data/outputs/designs/canvas.op",
+        },
+        selection_context: expect.objectContaining({
+          selected_node_ids: ["hero", "cta"],
+          active_node_id: "hero",
+          selection_summary: "Hero, Primary CTA",
+        }),
+      }),
+    );
+
+    mockWorkspaceSurface.designSelection = null;
+    mockWorkspaceSurface.designState.target_path = undefined;
+    mockWorkspaceSurface.dockState.activeSurface = "preview";
   });
 });

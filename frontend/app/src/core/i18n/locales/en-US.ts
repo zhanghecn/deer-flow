@@ -165,7 +165,9 @@ export const enUS: Translations = {
   // Sidebar
   sidebar: {
     newChat: "New chat",
+    workspaceDock: "Workspace",
     runtimeWorkspace: "Runtime workspace",
+    designBoard: "Design board",
     chats: "Chats",
     recentChats: "Recent chats",
     demoChats: "Demo chats",
@@ -263,8 +265,60 @@ export const enUS: Translations = {
     userRoleFallback: "User",
     toggleSidebar: "Toggle Sidebar",
     artifactsPanelTitle: "Artifacts",
+    filesSurfaceTitle: "Files",
+    designSurfaceTitle: "Design",
+    runtimeSurfaceTitle: "Runtime",
+    closeWorkspaceDock: "Close workspace dock",
     noArtifactSelectedTitle: "No artifact selected",
     noArtifactSelectedDescription: "Select an artifact to view its details",
+    noPreviewSelectedTitle: "No preview selected",
+    noPreviewSelectedDescription:
+      "Select a file from Files or reveal an artifact to preview it here.",
+    noDesignSurfaceTitle: "No design session yet",
+    noDesignSurfaceDescription:
+      "Open the design editor to inspect or modify the thread's OpenPencil document.",
+    noRuntimeSurfaceTitle: "No runtime session yet",
+    noRuntimeSurfaceDescription:
+      "Open the runtime workspace to inspect the active environment in a full tab.",
+    noTargetFile: "No target file",
+    designSurfaceDescription:
+      "Design editing stays in a full OpenPencil tab. This dock keeps the current target file, selection, and sync state visible next to chat.",
+    runtimeSurfaceDescription:
+      "Runtime inspection stays in a full workspace tab. This dock keeps the current session status visible next to chat.",
+    openDesignEditor: "Open design editor",
+    reopenDesignEditor: "Reopen editor tab",
+    openRuntimeSurface: "Open runtime workspace",
+    reopenRuntimeSurface: "Reopen runtime tab",
+    selectedNodesLabel: "Selected nodes",
+    designStatusIdle: "Idle",
+    designStatusLoading: "Loading",
+    designStatusReady: "Ready",
+    designStatusDirty: "Dirty",
+    designStatusSaving: "Saving",
+    designStatusSynced: "Synced",
+    designStatusConflict: "Conflict",
+    designStatusError: "Error",
+    designPopupBlockedDescription:
+      "The browser blocked the automatic design tab open. Use the button below to open the editor manually.",
+    designSessionExpiredDescription:
+      "The design session expired. Reopen the editor to resume syncing with Deer Flow.",
+    designOpenFailedDescription:
+      "Deer Flow could not reopen the design editor just now. Try opening it again from this panel.",
+    designSyncFailedDescription:
+      "The open design tab hit a save or sync failure. Keep the editor open and retry the action after checking the error above.",
+    designRevisionLabel: "Revision",
+    designRevisionUnavailable: "Waiting for first sync",
+    designLastActivityLabel: "Last activity",
+    designLastActivityUnavailable: "No activity yet",
+    runtimeStatusIdle: "Idle",
+    runtimeStatusOpening: "Opening",
+    runtimeStatusActive: "Active",
+    runtimeStatusFailed: "Failed",
+    eventDesignSaved: "Design saved",
+    eventRuntimeOpened: "Runtime opened",
+    eventPreviewUpdated: "Preview updated",
+    eventSelectedNodesCount: (count: number) =>
+      `${count} selected node${count === 1 ? "" : "s"}`,
     officePreviewDialogDescription:
       "Preview and edit the selected office document.",
     todoListTitle: "To-dos",

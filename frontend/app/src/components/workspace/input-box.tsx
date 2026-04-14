@@ -44,6 +44,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import { useArtifacts } from "@/components/workspace/artifacts";
 import { getPromptCommands } from "@/core/commands";
 import {
   buildPromptExtraContext,
@@ -64,6 +65,11 @@ import {
   type ThreadMode,
   type ThreadReasoningEffort,
 } from "@/core/threads/mode";
+import { useWorkspaceSurface } from "@/core/workspace-surface/context";
+import type {
+  DesignSelectionContext,
+  SurfaceContextPayload,
+} from "@/core/workspace-surface/types";
 import { cn } from "@/lib/utils";
 
 import {
@@ -275,6 +281,8 @@ export function InputBox({
 }) {
   const { t, locale } = useI18n();
   const [searchParams] = useSearchParams();
+  const { selectedArtifact } = useArtifacts();
+  const { designSelection, dockState, runtimeState } = useWorkspaceSurface();
   const [modelDialogOpen, setModelDialogOpen] = useState(false);
   const { models } = useModels();
   const promptInputController = usePromptInputController();
@@ -319,8 +327,7 @@ export function InputBox({
   }, [context, onContextChange, selectedModel]);
 
   const displayedMode = getResolvedThreadMode(context.mode);
-  const subagentEnabled =
-    context.subagent_enabled ?? DEFAULT_SUBAGENT_ENABLED;
+  const subagentEnabled = context.subagent_enabled ?? DEFAULT_SUBAGENT_ENABLED;
   const submitButtonLabel =
     status === "streaming" ? t.inputBox.stop : t.inputBox.submit;
 
@@ -378,6 +385,51 @@ export function InputBox({
     });
   }, [context, onContextChange, subagentEnabled]);
 
+  const buildSurfaceContext = useCallback(():
+    | SurfaceContextPayload
+    | undefined => {
+    if (designSelection && designSelection.selected_node_ids.length > 0) {
+      return {
+        surface: "design",
+        target_path: designSelection.target_path,
+      };
+    }
+
+    switch (dockState.activeSurface) {
+      case "runtime":
+        return runtimeState.target_path
+          ? {
+              surface: "runtime",
+              target_path: runtimeState.target_path,
+            }
+          : undefined;
+      case "preview":
+      case "files":
+        return selectedArtifact
+          ? {
+              surface: dockState.activeSurface,
+              target_path: selectedArtifact,
+            }
+          : undefined;
+      default:
+        return undefined;
+    }
+  }, [
+    designSelection,
+    dockState.activeSurface,
+    runtimeState.target_path,
+    selectedArtifact,
+  ]);
+
+  const buildSelectionContext = useCallback(():
+    | DesignSelectionContext
+    | undefined => {
+    if (!designSelection || designSelection.selected_node_ids.length === 0) {
+      return undefined;
+    }
+    return designSelection;
+  }, [designSelection]);
+
   const submitMessage = useCallback(
     (message: PromptInputMessage) => {
       if (status === "streaming") {
@@ -392,6 +444,12 @@ export function InputBox({
 
       const mergedExtraContext = {
         ...(buildPromptExtraContext(normalizedText) ?? {}),
+        ...(buildSurfaceContext()
+          ? { surface_context: buildSurfaceContext() }
+          : {}),
+        ...(buildSelectionContext()
+          ? { selection_context: buildSelectionContext() }
+          : {}),
       } as Record<string, unknown>;
 
       onSubmit?.(
@@ -406,6 +464,8 @@ export function InputBox({
       promptInputController.textInput.clear();
     },
     [
+      buildSelectionContext,
+      buildSurfaceContext,
       onSubmit,
       onStop,
       promptInputController,

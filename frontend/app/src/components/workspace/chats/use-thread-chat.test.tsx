@@ -1,6 +1,12 @@
-import { renderHook } from "@testing-library/react";
+import { act, render, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import {
+  createMemoryRouter,
+  MemoryRouter,
+  Route,
+  RouterProvider,
+  Routes,
+} from "react-router-dom";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -82,5 +88,35 @@ describe("useThreadChat", () => {
 
     expect(result.current.isNewThread).toBe(false);
     expect(result.current.threadId).toBe("thread-123");
+  });
+
+  it("switches to the latest existing-thread route immediately", async () => {
+    const observedThreadIds: string[] = [];
+
+    function Probe() {
+      const { threadId } = useThreadChat();
+      observedThreadIds.push(threadId);
+      return null;
+    }
+
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/workspace/agents/:agent_name/chats/:thread_id",
+          element: <Probe />,
+        },
+      ],
+      {
+        initialEntries: ["/workspace/agents/agent-a/chats/thread-a"],
+      },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await act(async () => {
+      await router.navigate("/workspace/agents/agent-b/chats/thread-b");
+    });
+
+    expect(observedThreadIds.at(-1)).toBe("thread-b");
   });
 });

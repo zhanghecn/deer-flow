@@ -4,16 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
 import { type PromptInputMessage } from "@/components/ai-elements/prompt-input";
-import { AgentSwitcherDialog } from "@/components/workspace/agent-switcher-dialog";
-import { ArtifactTrigger } from "@/components/workspace/artifacts/artifact-trigger";
 import { shouldShowCenteredComposer } from "@/components/workspace/chats/layout-state";
 import { useSpecificChatMode } from "@/components/workspace/chats/use-chat-mode";
 import { useDockPadding } from "@/components/workspace/chats/use-dock-padding";
 import { useThreadChat } from "@/components/workspace/chats/use-thread-chat";
 import { InputBox } from "@/components/workspace/input-box";
-import { QuestionDock } from "@/components/workspace/messages/question-dock";
 import { ThreadContext } from "@/components/workspace/messages/context";
-import { ThreadTitle } from "@/components/workspace/thread-title";
+import { QuestionDock } from "@/components/workspace/messages/question-dock";
+import { ThreadChatHeader } from "@/components/workspace/thread-chat-header";
 import { TodoList } from "@/components/workspace/todo-list";
 import { Welcome } from "@/components/workspace/welcome";
 import {
@@ -21,8 +19,8 @@ import {
   type ResolvedAgentRuntimeSelection,
 } from "@/core/agents";
 import { useI18n } from "@/core/i18n/hooks";
-import { useModels } from "@/core/models/hooks";
 import { findAvailableModelName } from "@/core/models";
+import { useModels } from "@/core/models/hooks";
 import { useNotification } from "@/core/notification/hooks";
 import { useLocalSettings } from "@/core/settings";
 import { useThreadStream } from "@/core/threads/hooks";
@@ -73,8 +71,7 @@ export default function ChatPage() {
     setIsPendingRun(routeHasPendingRun);
   }, [routeHasPendingRun]);
 
-  const { threadId, setThreadId, isNewThread, setIsNewThread, isMock } =
-    useThreadChat();
+  const { threadId, setThreadId, isNewThread, isMock } = useThreadChat();
   const { data: threadRuntime, isLoading: threadRuntimeLoading } =
     useThreadRuntime(isMock || isNewThread || isPendingRun ? null : threadId);
   const boundThreadRuntime = useMemo(
@@ -159,7 +156,10 @@ export default function ChatPage() {
   }, [isMock, navigate, pathname, runtimeSelection, searchParams, threadId]);
 
   useEffect(() => {
-    if (!threadRuntime || isNewThread) {
+    // Route changes can briefly overlap with the previous thread state. Only
+    // rewrite the URL when the fetched runtime binding belongs to the thread
+    // currently shown in the route.
+    if (!threadRuntime || isNewThread || threadRuntime.thread_id !== threadId) {
       return;
     }
 
@@ -321,22 +321,12 @@ export default function ChatPage() {
     >
       <ChatBox threadId={threadId}>
         <div className="relative flex size-full min-h-0 justify-between">
-          <header
-            className={cn(
-              "absolute top-0 right-0 left-0 z-30 flex h-12 shrink-0 items-center gap-2 px-4",
-              showCenteredComposer
-                ? "bg-background/0 backdrop-blur-none"
-                : "bg-background/80 shadow-xs backdrop-blur",
-            )}
-          >
-            <AgentSwitcherDialog selection={runtimeSelection} compact />
-            <div className="flex w-full items-center text-sm font-medium">
-              <ThreadTitle threadId={threadId} thread={thread} />
-            </div>
-            <div>
-              <ArtifactTrigger />
-            </div>
-          </header>
+          <ThreadChatHeader
+            runtimeSelection={runtimeSelection}
+            showCenteredComposer={showCenteredComposer}
+            thread={thread}
+            threadId={threadId}
+          />
           <main className="flex min-h-0 max-w-full grow flex-col">
             <div className="flex size-full justify-center">
               <MessageList

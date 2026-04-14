@@ -4,15 +4,16 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SidebarProvider } from "@/components/ui/sidebar";
-import { I18nProvider } from "@/core/i18n/context";
 import { ThreadContext } from "@/components/workspace/messages/context";
+import { I18nProvider } from "@/core/i18n/context";
+import { WorkspaceSurfaceProvider } from "@/core/workspace-surface/context";
 
-import { ArtifactsProvider, useArtifacts } from "./context";
 import {
   ArtifactFileDetail,
   ArtifactFilePreview,
   scrollArtifactMarkdownPreview,
 } from "./artifact-file-detail";
+import { ArtifactsProvider, useArtifacts } from "./context";
 
 const mockUseArtifactObjectUrl = vi.fn();
 const pdfFilepath = "/mnt/user-data/outputs/demo.pdf";
@@ -50,9 +51,7 @@ vi.mock("streamdown", () => {
 });
 
 vi.mock("@/core/artifacts/hooks", async () => {
-  const actual = await vi.importActual<typeof import("@/core/artifacts/hooks")>(
-    "@/core/artifacts/hooks",
-  );
+  const actual = await vi.importActual("@/core/artifacts/hooks");
 
   return {
     ...actual,
@@ -73,13 +72,15 @@ function renderWithProviders(node: ReactNode) {
     <QueryClientProvider client={queryClient}>
       <I18nProvider initialLocale="en-US">
         <SidebarProvider>
-          <ArtifactsProvider>
-            <ThreadContext.Provider
-              value={{ thread: { values: {} } as never, isMock: false }}
-            >
-              {node}
-            </ThreadContext.Provider>
-          </ArtifactsProvider>
+          <WorkspaceSurfaceProvider>
+            <ArtifactsProvider>
+              <ThreadContext.Provider
+                value={{ thread: { values: {} } as never, isMock: false }}
+              >
+                {node}
+              </ThreadContext.Provider>
+            </ArtifactsProvider>
+          </WorkspaceSurfaceProvider>
         </SidebarProvider>
       </I18nProvider>
     </QueryClientProvider>,
@@ -113,7 +114,9 @@ function MarkdownCitationRevealHarness() {
 
   return (
     <>
-      <div data-testid="preview-filepath">{previewTarget?.filepath ?? "none"}</div>
+      <div data-testid="preview-filepath">
+        {previewTarget?.filepath ?? "none"}
+      </div>
       <div data-testid="preview-page">{previewTarget?.page ?? "none"}</div>
       <ArtifactFilePreview
         filepath="/mnt/user-data/outputs/.knowledge/doc-1/canonical.md"
@@ -295,8 +298,10 @@ describe("ArtifactFilePreview", () => {
     const second = document.createElement("h2");
     first.setAttribute("data-heading-slug", "duplicate-heading");
     second.setAttribute("data-heading-slug", "duplicate-heading");
-    first.scrollIntoView = vi.fn();
-    second.scrollIntoView = vi.fn();
+    const firstScrollIntoView = vi.fn();
+    const secondScrollIntoView = vi.fn();
+    first.scrollIntoView = firstScrollIntoView;
+    second.scrollIntoView = secondScrollIntoView;
     container.appendChild(first);
     container.appendChild(second);
     Object.defineProperty(container, "scrollHeight", {
@@ -317,8 +322,8 @@ describe("ArtifactFilePreview", () => {
     });
 
     expect(didReveal).toBe(true);
-    expect(first.scrollIntoView).not.toHaveBeenCalled();
-    expect(second.scrollIntoView).not.toHaveBeenCalled();
+    expect(firstScrollIntoView).not.toHaveBeenCalled();
+    expect(secondScrollIntoView).not.toHaveBeenCalled();
     expect(scrollTo).toHaveBeenCalledWith({
       top: 600,
       behavior: "auto",
