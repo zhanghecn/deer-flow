@@ -1,85 +1,152 @@
 agents_md_path: AGENTS.md
 description: Default system lead agent.
 memory:
-  debounce_seconds: 30
-  enabled: false
-  fact_confidence_threshold: 0.7
-  injection_enabled: true
-  max_facts: 100
-  max_injection_tokens: 2000
+    debounce_seconds: 30
+    enabled: false
+    fact_confidence_threshold: 0.7
+    injection_enabled: true
+    max_facts: 100
+    max_injection_tokens: 2000
 name: lead_agent
 skill_refs:
-- name: bootstrap
-  source_path: system/skills/bootstrap
-- name: web-design-guidelines
-  source_path: system/skills/web-design-guidelines
-- name: video-generation
-  source_path: system/skills/video-generation
-- name: surprise-me
-  source_path: system/skills/surprise-me
-- name: skill-creator
-  source_path: system/skills/skill-creator
-- name: ppt-generation
-  source_path: system/skills/ppt-generation
-- name: podcast-generation
-  source_path: system/skills/podcast-generation
-- name: image-generation
-  source_path: system/skills/image-generation
-- name: github-deep-research
-  source_path: system/skills/github-deep-research
-- name: frontend-design
-  source_path: system/skills/frontend-design
-- name: openpencil-design
-  source_path: custom/skills/openpencil-design
-- name: find-skills
-  source_path: system/skills/find-skills
-- name: deep-research
-  source_path: system/skills/deep-research
-- name: consulting-analysis
-  source_path: system/skills/consulting-analysis
-- name: data-analysis
-  source_path: system/skills/data-analysis
-- name: chart-visualization
-  source_path: system/skills/chart-visualization
-- name: android-native-dev
-  source_path: system/skills/android-native-dev
-- name: flutter-dev
-  source_path: system/skills/flutter-dev
-- name: frontend-dev
-  source_path: system/skills/frontend-dev
-- name: fullstack-dev
-  source_path: system/skills/fullstack-dev
-- name: gif-sticker-maker
-  source_path: system/skills/gif-sticker-maker
-- name: ios-application-dev
-  source_path: system/skills/ios-application-dev
-- name: minimax-docx
-  source_path: system/skills/minimax-docx
-- name: minimax-multimodal-toolkit
-  source_path: system/skills/minimax-multimodal-toolkit
-- name: minimax-pdf
-  source_path: system/skills/minimax-pdf
-- name: minimax-xlsx
-  source_path: system/skills/minimax-xlsx
-- name: pptx-generator
-  source_path: system/skills/pptx-generator
-- name: pr-review
-  source_path: system/skills/pr-review
-- name: react-native-dev
-  source_path: system/skills/react-native-dev
-- name: shader-dev
-  source_path: system/skills/shader-dev
-- name: vision-analysis
-  source_path: system/skills/vision-analysis
-- name: tailwindcss-animations
-  source_path: system/skills/tailwindcss-animations
+    - name: bootstrap
+      category: system
+      source_path: system/skills/bootstrap
+      materialized_path: skills/bootstrap
+    - name: web-design-guidelines
+      category: system
+      source_path: system/skills/web-design-guidelines
+      materialized_path: skills/web-design-guidelines
+    - name: video-generation
+      category: system
+      source_path: system/skills/video-generation
+      materialized_path: skills/video-generation
+    - name: surprise-me
+      category: system
+      source_path: system/skills/surprise-me
+      materialized_path: skills/surprise-me
+    - name: skill-creator
+      category: system
+      source_path: system/skills/skill-creator
+      materialized_path: skills/skill-creator
+    - name: ppt-generation
+      category: system
+      source_path: system/skills/ppt-generation
+      materialized_path: skills/ppt-generation
+    - name: podcast-generation
+      category: system
+      source_path: system/skills/podcast-generation
+      materialized_path: skills/podcast-generation
+    - name: image-generation
+      category: system
+      source_path: system/skills/image-generation
+      materialized_path: skills/image-generation
+    - name: github-deep-research
+      category: system
+      source_path: system/skills/github-deep-research
+      materialized_path: skills/github-deep-research
+    - name: frontend-design
+      category: system
+      source_path: system/skills/frontend-design
+      materialized_path: skills/frontend-design
+    - name: openpencil-design
+      category: custom
+      source_path: custom/skills/openpencil-design
+      materialized_path: skills/openpencil-design
+    - name: find-skills
+      category: system
+      source_path: system/skills/find-skills
+      materialized_path: skills/find-skills
+    - name: deep-research
+      category: system
+      source_path: system/skills/deep-research
+      materialized_path: skills/deep-research
+    - name: consulting-analysis
+      category: system
+      source_path: system/skills/consulting-analysis
+      materialized_path: skills/consulting-analysis
+    - name: data-analysis
+      category: system
+      source_path: system/skills/data-analysis
+      materialized_path: skills/data-analysis
+    - name: chart-visualization
+      category: system
+      source_path: system/skills/chart-visualization
+      materialized_path: skills/chart-visualization
+    - name: android-native-dev
+      category: system
+      source_path: system/skills/android-native-dev
+      materialized_path: skills/android-native-dev
+    - name: flutter-dev
+      category: system
+      source_path: system/skills/flutter-dev
+      materialized_path: skills/flutter-dev
+    - name: frontend-dev
+      category: system
+      source_path: system/skills/frontend-dev
+      materialized_path: skills/frontend-dev
+    - name: fullstack-dev
+      category: system
+      source_path: system/skills/fullstack-dev
+      materialized_path: skills/fullstack-dev
+    - name: gif-sticker-maker
+      category: system
+      source_path: system/skills/gif-sticker-maker
+      materialized_path: skills/gif-sticker-maker
+    - name: ios-application-dev
+      category: system
+      source_path: system/skills/ios-application-dev
+      materialized_path: skills/ios-application-dev
+    - name: minimax-docx
+      category: system
+      source_path: system/skills/minimax-docx
+      materialized_path: skills/minimax-docx
+    - name: minimax-multimodal-toolkit
+      category: system
+      source_path: system/skills/minimax-multimodal-toolkit
+      materialized_path: skills/minimax-multimodal-toolkit
+    - name: minimax-pdf
+      category: system
+      source_path: system/skills/minimax-pdf
+      materialized_path: skills/minimax-pdf
+    - name: minimax-xlsx
+      category: system
+      source_path: system/skills/minimax-xlsx
+      materialized_path: skills/minimax-xlsx
+    - name: pptx-generator
+      category: system
+      source_path: system/skills/pptx-generator
+      materialized_path: skills/pptx-generator
+    - name: pr-review
+      category: system
+      source_path: system/skills/pr-review
+      materialized_path: skills/pr-review
+    - name: react-native-dev
+      category: system
+      source_path: system/skills/react-native-dev
+      materialized_path: skills/react-native-dev
+    - name: shader-dev
+      category: system
+      source_path: system/skills/shader-dev
+      materialized_path: skills/shader-dev
+    - name: vision-analysis
+      category: system
+      source_path: system/skills/vision-analysis
+      materialized_path: skills/vision-analysis
+    - name: tailwindcss-animations
+      category: system
+      source_path: system/skills/tailwindcss-animations
+      materialized_path: skills/tailwindcss-animations
 status: dev
 subagent_defaults:
-  general_purpose_enabled: true
+    general_purpose_enabled: true
 tool_names:
-- question
-- get_document_evidence
-- get_document_image
-- get_document_tree
-- get_document_tree_node_detail
-- present_files
+    - question
+    - get_document_evidence
+    - get_document_image
+    - get_document_tree
+    - get_document_tree_node_detail
+    - present_files
+    - web_search
+    - image_search
+    - web_fetch
