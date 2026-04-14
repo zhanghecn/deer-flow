@@ -29,6 +29,8 @@ skill_refs:
   source_path: system/skills/github-deep-research
 - name: frontend-design
   source_path: system/skills/frontend-design
+- name: openpencil-design
+  source_path: custom/skills/openpencil-design
 - name: find-skills
   source_path: system/skills/find-skills
 - name: deep-research

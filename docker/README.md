@@ -58,6 +58,11 @@ For container-only fixed values, compose already owns them:
 - gateway sees `ONLYOFFICE_PUBLIC_APP_URL=http://gateway:8001`
 - gateway/langgraph see `OPENAGENTS_HOME=/openagents-home`
 
+Externally managed model gateways should join the same Docker bridge network as
+OpenAgents and expose a stable alias such as `model-gateway`. That keeps model
+records on one canonical in-container URL like `http://model-gateway:3000`
+without adding a host-network proxy shim to this compose file.
+
 In the unified compose stack, do not mount the whole repository into app containers.
 Mount only the service source directories that need hot updates, keep those
 code mounts read-only, and write runtime scratch data under `OPENAGENTS_HOME`.
@@ -119,6 +124,22 @@ make docker-infra-start
 
 That starts only `sandbox-aio` and `onlyoffice`.
 `config.yaml` keeps the host-run sandbox URL (`http://127.0.0.1:18080`), and compose overrides the in-container LangGraph URL to `http://sandbox-aio:8080`.
+
+## External Model Gateway
+
+If your model gateway is managed outside this repository, connect that
+container to `openagents-prod_openagents` and give it the `model-gateway`
+alias. For example:
+
+```bash
+make docker-model-gateway-attach MODEL_GATEWAY_CONTAINER=1Panel-new-api-6d1F
+```
+
+After that, point Anthropic-compatible model records such as `kimi-k2.5` at:
+
+```text
+http://model-gateway:3000
+```
 
 ## Optional Compose/Shell Vars
 

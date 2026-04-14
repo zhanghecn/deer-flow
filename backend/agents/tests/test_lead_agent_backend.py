@@ -128,6 +128,20 @@ def test_build_backend_default_agent_seeds_archived_agent_tree_into_thread_runti
     assert b"surprise-me" not in responses[1].content
 
 
+def test_build_backend_seeds_default_design_document_into_thread_runtime(tmp_path):
+    base_dir = tmp_path / ".openagents"
+    _write_archived_skill(base_dir, "bootstrap", body="bootstrap")
+    paths = _make_paths(base_dir)
+
+    with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
+        backend = lead_agent_module.build_backend("thread-1", agent_name=None)
+
+    response = backend.download_files(["/mnt/user-data/outputs/designs/canvas.op"])[0]
+
+    assert response.error is None
+    assert response.content == b'{\n  "version": "1.0.0",\n  "children": []\n}\n'
+
+
 def test_build_backend_routes_shared_skills_into_local_debug_backend(tmp_path):
     base_dir = tmp_path / ".openagents"
     _write_archived_skill(base_dir, "bootstrap", body="bootstrap")
@@ -411,7 +425,8 @@ def test_build_workspace_backend_uses_configured_sandbox_provider(monkeypatch):
     )
 
     assert isinstance(backend, CompositeBackend)
-    assert backend.default is provider.sandbox
+    wrapped_default = getattr(backend.default, "__wrapped_backend__", backend.default)
+    assert wrapped_default is provider.sandbox
     assert provider.thread_id == "thread-1"
     assert backend.routes["/large_tool_results/"].cwd == Path("/tmp/runtime/outputs/.large_tool_results").resolve()
     assert backend.routes["/conversation_history/"].cwd == Path("/tmp/runtime/outputs/.conversation_history").resolve()
@@ -469,7 +484,8 @@ def test_build_backend_uses_remote_backend_when_requested(monkeypatch, tmp_path)
             remote_session_id="remote-session-1",
         )
 
-    assert getattr(backend, "__wrapped_backend__", backend) is remote_backend
+    wrapped_backend = getattr(backend, "__wrapped_backend__", backend)
+    assert getattr(wrapped_backend, "__wrapped_backend__", wrapped_backend) is remote_backend
     assert captured["session_id"] == "remote-session-1"
 
 

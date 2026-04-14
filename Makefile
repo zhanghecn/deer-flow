@@ -1,9 +1,16 @@
 # OpenAgents - Unified Development Environment
 
-.PHONY: help config check install dev stop clean docker-init docker-start docker-infra-start docker-stop docker-infra-stop docker-status docker-verify docker-logs docker-logs-nginx docker-logs-gateway docker-prod-config docker-prod-build docker-prod-start docker-prod-stop docker-prod-restart docker-prod-status docker-prod-verify docker-prod-logs gateway-build
+.PHONY: help config check install dev stop clean docker-init docker-start docker-infra-start docker-stop docker-infra-stop docker-status docker-verify docker-logs docker-logs-nginx docker-logs-gateway docker-prod-config docker-prod-build docker-prod-start docker-prod-stop docker-prod-restart docker-prod-status docker-prod-verify docker-prod-logs docker-model-gateway-attach gateway-build
 
 GO_TOOLCHAIN ?= auto
 HOST_LOG_DIR := $(CURDIR)/.openagents/host-logs
+OPENPENCIL_DIR := $(abspath $(CURDIR)/../openpencil)
+# External model gateways live outside the OpenAgents compose file. Operators
+# can attach one existing container to the shared bridge network and keep a
+# stable in-cluster DNS name for model records such as `http://model-gateway:3000`.
+MODEL_GATEWAY_CONTAINER ?=
+MODEL_GATEWAY_NETWORK ?= openagents-prod_openagents
+MODEL_GATEWAY_ALIAS ?= model-gateway
 
 help:
 	@echo "OpenAgents Development Commands:"
@@ -12,7 +19,7 @@ help:
 	@echo "  make install         - Install all dependencies (frontend app + frontend admin + agents + gateway)"
 	@echo "  make gateway-build   - Build Go gateway binary"
 	@echo "  make setup-sandbox   - Pre-pull sandbox container image (recommended)"
-	@echo "  make dev             - Start all services (frontend + backend + gateway + nginx on localhost:2026)"
+	@echo "  make dev             - Start all services (frontend + backend + gateway + nginx + optional OpenPencil)"
 	@echo "  make stop            - Stop all running services"
 	@echo "  make clean           - Clean up processes and temporary files"
 	@echo ""
@@ -27,6 +34,7 @@ help:
 	@echo "  make docker-logs     - View Docker logs"
 	@echo "  make docker-logs-nginx - View Docker nginx logs"
 	@echo "  make docker-logs-gateway - View Docker gateway logs"
+	@echo "  make docker-model-gateway-attach MODEL_GATEWAY_CONTAINER=<container> - Attach an external model gateway container to the shared Docker network"
 	@echo ""
 	@echo "Docker Production Commands:"
 	@echo "  make docker-prod-build   - Direct docker compose build for production"
@@ -184,7 +192,10 @@ setup-sandbox:
 		exit 1; \
 	fi
 
-# Start all services
+# Start all services.
+# OpenPencil stays optional because not every contributor checks out the sibling
+# repo, but when it is present it must bind 3001 so nginx can preserve the
+# same-origin /openpencil bridge contract.
 dev:
 	@echo "Stopping existing services if any..."
 	@-pkill -f "langgraph dev" 2>/dev/null || true
@@ -192,6 +203,7 @@ dev:
 	@-pkill -f "backend/gateway/bin/gateway" 2>/dev/null || true
 	@-pkill -f "uvicorn src.gateway.app:app" 2>/dev/null || true
 	@-sh -c 'frontend_pids=$$(lsof -ti :3000 2>/dev/null); [ -z "$$frontend_pids" ] || kill $$frontend_pids 2>/dev/null || true'
+	@-sh -c 'openpencil_pids=$$(lsof -ti :3001 2>/dev/null); [ -z "$$openpencil_pids" ] || kill $$openpencil_pids 2>/dev/null || true'
 	@-nginx -c $(PWD)/docker/nginx/nginx.local.conf -p $(PWD) -s quit 2>/dev/null || true
 	@sleep 1
 	@-pkill -9 nginx 2>/dev/null || true
@@ -206,6 +218,7 @@ dev:
 	@echo "  → Backend: LangGraph Server"
 	@echo "  → Gateway: Go Gateway"
 	@echo "  → Frontend: Vite"
+	@echo "  → OpenPencil: Vite (optional sibling repo)"
 	@echo "  → Nginx: Reverse Proxy"
 	@echo ""
 	@cleanup() { \
@@ -217,6 +230,7 @@ dev:
 		pkill -f "backend/gateway/bin/gateway" 2>/dev/null || true; \
 		pkill -f "uvicorn src.gateway.app:app" 2>/dev/null || true; \
 		frontend_pids=$$(lsof -ti :3000 2>/dev/null); [ -z "$$frontend_pids" ] || kill $$frontend_pids 2>/dev/null || true; \
+		openpencil_pids=$$(lsof -ti :3001 2>/dev/null); [ -z "$$openpencil_pids" ] || kill $$openpencil_pids 2>/dev/null || true; \
 		nginx -c $(PWD)/docker/nginx/nginx.local.conf -p $(PWD) -s quit 2>/dev/null || true; \
 		sleep 1; \
 		pkill -9 nginx 2>/dev/null || true; \
@@ -251,6 +265,30 @@ dev:
 	cd $(PWD)/frontend/app && pnpm run dev > $(HOST_LOG_DIR)/frontend.log 2>&1 & \
 	sleep 3; \
 	echo "✓ Frontend started on localhost:3000"; \
+	if [ -d "$(OPENPENCIL_DIR)" ]; then \
+		if command -v bun >/dev/null 2>&1; then \
+			echo "Starting OpenPencil..."; \
+			cd $(OPENPENCIL_DIR) && bun run dev > $(HOST_LOG_DIR)/openpencil.log 2>&1 & \
+			openpencil_started=0; \
+			for _ in 1 2 3 4 5 6; do \
+				sleep 2; \
+				if lsof -i :3001 -sTCP:LISTEN -t >/dev/null 2>&1; then \
+					openpencil_started=1; \
+					break; \
+				fi; \
+			done; \
+			if [ $$openpencil_started -eq 1 ]; then \
+				echo "✓ OpenPencil started on localhost:3001"; \
+			else \
+				echo "! OpenPencil did not start on localhost:3001. See $(HOST_LOG_DIR)/openpencil.log"; \
+				tail -30 $(HOST_LOG_DIR)/openpencil.log 2>/dev/null || true; \
+			fi; \
+		else \
+			echo "! bun not found, skipping optional OpenPencil dev server"; \
+		fi; \
+	else \
+		echo "! $(OPENPENCIL_DIR) not found, skipping optional OpenPencil dev server"; \
+	fi; \
 	if command -v nginx >/dev/null 2>&1; then \
 		echo "Starting Nginx reverse proxy..."; \
 		mkdir -p $(HOST_LOG_DIR) && nginx -g 'daemon off;' -c $(PWD)/docker/nginx/nginx.local.conf -p $(PWD) > $(HOST_LOG_DIR)/nginx.log 2>&1 & \
@@ -278,6 +316,9 @@ dev:
 	echo "     - LangGraph: $(HOST_LOG_DIR)/langgraph.log"; \
 	echo "     - Gateway:   $(HOST_LOG_DIR)/gateway.log"; \
 	echo "     - Frontend:  $(HOST_LOG_DIR)/frontend.log"; \
+	if [ -f "$(HOST_LOG_DIR)/openpencil.log" ]; then \
+		echo "     - OpenPencil: $(HOST_LOG_DIR)/openpencil.log"; \
+	fi; \
 	if command -v nginx >/dev/null 2>&1; then \
 		echo "     - Nginx:     $(HOST_LOG_DIR)/nginx.log"; \
 	fi; \
@@ -293,6 +334,7 @@ stop:
 	@-pkill -f "backend/gateway/bin/gateway" 2>/dev/null || true
 	@-pkill -f "uvicorn src.gateway.app:app" 2>/dev/null || true
 	@-sh -c 'frontend_pids=$$(lsof -ti :3000 2>/dev/null); [ -z "$$frontend_pids" ] || kill $$frontend_pids 2>/dev/null || true'
+	@-sh -c 'openpencil_pids=$$(lsof -ti :3001 2>/dev/null); [ -z "$$openpencil_pids" ] || kill $$openpencil_pids 2>/dev/null || true'
 	@-nginx -c $(PWD)/docker/nginx/nginx.local.conf -p $(PWD) -s quit 2>/dev/null || true
 	@sleep 1
 	@-pkill -9 nginx 2>/dev/null || true
@@ -348,6 +390,29 @@ docker-logs-nginx:
 	@./scripts/docker.sh logs --nginx
 docker-logs-gateway:
 	@./scripts/docker.sh logs --gateway
+
+# External model gateways are managed outside this repo, so the attach step
+# stays explicit instead of hiding docker-socket mutations inside compose.
+docker-model-gateway-attach:
+	@if [ -z "$(MODEL_GATEWAY_CONTAINER)" ]; then \
+		echo "MODEL_GATEWAY_CONTAINER is required, e.g. make docker-model-gateway-attach MODEL_GATEWAY_CONTAINER=1Panel-new-api-6d1F"; \
+		exit 1; \
+	fi
+	@if ! docker inspect "$(MODEL_GATEWAY_CONTAINER)" >/dev/null 2>&1; then \
+		echo "Container not found: $(MODEL_GATEWAY_CONTAINER)"; \
+		exit 1; \
+	fi
+	@if ! docker network inspect "$(MODEL_GATEWAY_NETWORK)" >/dev/null 2>&1; then \
+		echo "Docker network not found: $(MODEL_GATEWAY_NETWORK)"; \
+		exit 1; \
+	fi
+	@if docker inspect "$(MODEL_GATEWAY_CONTAINER)" --format '{{json .NetworkSettings.Networks}}' | grep -q '"$(MODEL_GATEWAY_NETWORK)"'; then \
+		echo "Container $(MODEL_GATEWAY_CONTAINER) is already attached to $(MODEL_GATEWAY_NETWORK)."; \
+	else \
+		docker network connect --alias "$(MODEL_GATEWAY_ALIAS)" "$(MODEL_GATEWAY_NETWORK)" "$(MODEL_GATEWAY_CONTAINER)"; \
+		echo "Attached $(MODEL_GATEWAY_CONTAINER) to $(MODEL_GATEWAY_NETWORK) with alias $(MODEL_GATEWAY_ALIAS)."; \
+	fi
+	@echo "Model records should use base_url=http://$(MODEL_GATEWAY_ALIAS):3000"
 
 docker-prod-config:
 	@cd docker && docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml config

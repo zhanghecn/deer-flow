@@ -143,6 +143,8 @@ def test_setup_agent_tool_exposes_docstring_arg_descriptions():
     schema = setup_agent.args
 
     assert "Full AGENTS.md markdown content" in schema["agents_md"]["description"]
+    assert "When updating an existing archived agent" in schema["agents_md"]["description"]
+    assert "When updating an existing archived agent" in schema["description"]["description"]
     assert "Required when the current runtime" in schema["agent_name"]["description"]
     assert "must still choose one explicitly" in schema["agent_name"]["description"]
     assert "source_path" in schema["skills"]["description"]
@@ -251,6 +253,46 @@ def test_setup_agent_missing_agent_name_uses_structured_target_name_in_recovery_
     assert 'setup_agent(agent_name="contract-review-agent"' in message
 
 
+def test_setup_agent_invalid_source_path_suggests_exact_available_source(monkeypatch):
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.get_paths",
+        lambda: SimpleNamespace(
+            skills_dir=Path("/tmp/skills"),
+            custom_agent_dir=lambda name, status: Path(f"/tmp/{status}/{name}"),
+        ),
+    )
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.load_skills",
+        lambda **kwargs: [SimpleNamespace(name="openpencil-design")],
+    )
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.skill_source_path",
+        lambda skill: "custom/skills/openpencil-design",
+    )
+
+    runtime = SimpleNamespace(
+        context=LeadAgentRuntimeContext(
+            agent_name="lead_agent",
+            agent_status="dev",
+            model_name="kimi-k2.5",
+        ),
+        tool_call_id="tc-invalid-source-path",
+    )
+
+    command = setup_agent.func(
+        agents_md="# OpenPencil Design Agent\n",
+        description="Creates OpenPencil design drafts",
+        runtime=runtime,
+        agent_name="openpencil-design-agent",
+        skills=[{"source_path": "system/skills/openpencil-design"}],
+    )
+
+    message = command.update["messages"][0].content
+    assert "system/skills/openpencil-design" in message
+    assert "custom/skills/openpencil-design" in message
+    assert "Retry with one of those exact values." in message
+
+
 def test_setup_agent_preserves_existing_agent_owned_skill_from_thread_runtime(monkeypatch, tmp_path: Path):
     paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
     runtime_agent_dir = paths.sandbox_agents_dir("thread-1") / "dev" / "landing-copy-agent-0318"
@@ -322,6 +364,448 @@ def test_setup_agent_preserves_existing_agent_owned_skill_from_thread_runtime(mo
             "content": "---\nname: saas-landing-copywriter\ndescription: Writes SaaS landing page copy.\n---\n\n# saas-landing-copywriter\n",
         }
     ]
+
+
+def test_setup_agent_name_only_skill_preserves_existing_source_path(monkeypatch, tmp_path: Path):
+    paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
+    archive_agent_dir = paths.custom_agent_dir("op-design-agent", "dev")
+    archive_skill_dir = archive_agent_dir / "skills" / "openpencil-design"
+    archive_skill_dir.mkdir(parents=True, exist_ok=True)
+    (archive_skill_dir / "SKILL.md").write_text(
+        "---\nname: openpencil-design\ndescription: Copied OpenPencil workflow.\n---\n\n# openpencil-design\n",
+        encoding="utf-8",
+    )
+    (archive_agent_dir / "config.yaml").write_text(
+        yaml.dump(
+            {
+                "name": "op-design-agent",
+                "status": "dev",
+                "agents_md_path": "AGENTS.md",
+                "skill_refs": [
+                    {
+                        "name": "openpencil-design",
+                        "source_path": "custom/skills/openpencil-design",
+                    }
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    calls: dict[str, object] = {}
+
+    def fake_materialize_agent_definition(**kwargs):
+        calls.update(kwargs)
+        return SimpleNamespace(skill_refs=[])
+
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.materialize_agent_definition",
+        fake_materialize_agent_definition,
+    )
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.get_paths",
+        lambda: paths,
+    )
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool._refresh_thread_runtime_materials",
+        lambda **kwargs: None,
+    )
+
+    runtime = SimpleNamespace(
+        context=LeadAgentRuntimeContext(
+            target_agent_name="op-design-agent",
+            agent_status="dev",
+            runtime_thread_id="thread-1",
+            model_name="kimi-k2.5",
+        ),
+        tool_call_id="tc-preserve-source-path",
+    )
+
+    setup_agent.func(
+        agents_md="# OpenPencil Design Agent\n",
+        description="Creates design drafts",
+        runtime=runtime,
+        agent_name="op-design-agent",
+        skills=[{"name": "openpencil-design"}],
+    )
+
+    assert calls["skill_refs"] == [
+        {
+            "name": "openpencil-design",
+            "source_path": "custom/skills/openpencil-design",
+        }
+    ]
+    assert calls["inline_skills"] == []
+
+
+def test_setup_agent_matching_source_path_preserves_runtime_edited_copied_skill(monkeypatch, tmp_path: Path):
+    paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
+    archive_agent_dir = paths.custom_agent_dir("op-design-agent", "dev")
+    archive_skill_dir = archive_agent_dir / "skills" / "openpencil-design"
+    archive_skill_dir.mkdir(parents=True, exist_ok=True)
+    archived_content = (
+        "---\nname: openpencil-design\ndescription: Copied OpenPencil workflow.\n---\n\n# archived-openpencil-design\n"
+    )
+    (archive_skill_dir / "SKILL.md").write_text(archived_content, encoding="utf-8")
+    config_payload = {
+        "name": "op-design-agent",
+        "status": "dev",
+        "agents_md_path": "AGENTS.md",
+        "skill_refs": [
+            {
+                "name": "openpencil-design",
+                "source_path": "custom/skills/openpencil-design",
+            }
+        ],
+    }
+    (archive_agent_dir / "config.yaml").write_text(
+        yaml.dump(config_payload, sort_keys=False),
+        encoding="utf-8",
+    )
+
+    runtime_agent_dir = paths.sandbox_agents_dir("thread-1") / "dev" / "op-design-agent"
+    runtime_skill_dir = runtime_agent_dir / "skills" / "openpencil-design"
+    runtime_skill_dir.mkdir(parents=True, exist_ok=True)
+    edited_content = (
+        "---\nname: openpencil-design\ndescription: Copied OpenPencil workflow.\n---\n\n# edited-openpencil-design\n"
+    )
+    (runtime_skill_dir / "SKILL.md").write_text(edited_content, encoding="utf-8")
+    (runtime_agent_dir / "config.yaml").write_text(
+        yaml.dump(config_payload, sort_keys=False),
+        encoding="utf-8",
+    )
+
+    calls: dict[str, object] = {}
+
+    def fake_materialize_agent_definition(**kwargs):
+        calls.update(kwargs)
+        return SimpleNamespace(skill_refs=[])
+
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.materialize_agent_definition",
+        fake_materialize_agent_definition,
+    )
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.get_paths",
+        lambda: paths,
+    )
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool._refresh_thread_runtime_materials",
+        lambda **kwargs: None,
+    )
+
+    runtime = SimpleNamespace(
+        context=LeadAgentRuntimeContext(
+            target_agent_name="op-design-agent",
+            agent_status="dev",
+            runtime_thread_id="thread-1",
+            model_name="kimi-k2.5",
+        ),
+        tool_call_id="tc-edited-copied-skill",
+    )
+
+    setup_agent.func(
+        agents_md="# OpenPencil Design Agent\n",
+        description="Creates design drafts",
+        runtime=runtime,
+        agent_name="op-design-agent",
+        skills=[{"name": "openpencil-design", "source_path": "custom/skills/openpencil-design"}],
+    )
+
+    assert calls["skill_refs"] == []
+    assert calls["inline_skills"] == [
+        {
+            "name": "openpencil-design",
+            "content": edited_content,
+        }
+    ]
+
+
+def test_setup_agent_duplicate_skill_entries_preserve_runtime_edited_copied_skill(monkeypatch, tmp_path: Path):
+    paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
+    archive_agent_dir = paths.custom_agent_dir("op-design-agent", "dev")
+    archive_skill_dir = archive_agent_dir / "skills" / "openpencil-design"
+    archive_skill_dir.mkdir(parents=True, exist_ok=True)
+    archived_content = (
+        "---\nname: openpencil-design\ndescription: Copied OpenPencil workflow.\n---\n\n# archived-openpencil-design\n"
+    )
+    (archive_skill_dir / "SKILL.md").write_text(archived_content, encoding="utf-8")
+    config_payload = {
+        "name": "op-design-agent",
+        "status": "dev",
+        "agents_md_path": "AGENTS.md",
+        "skill_refs": [
+            {
+                "name": "openpencil-design",
+                "source_path": "custom/skills/openpencil-design",
+            }
+        ],
+    }
+    (archive_agent_dir / "config.yaml").write_text(
+        yaml.dump(config_payload, sort_keys=False),
+        encoding="utf-8",
+    )
+
+    runtime_agent_dir = paths.sandbox_agents_dir("thread-1") / "dev" / "op-design-agent"
+    runtime_skill_dir = runtime_agent_dir / "skills" / "openpencil-design"
+    runtime_skill_dir.mkdir(parents=True, exist_ok=True)
+    edited_content = (
+        "---\nname: openpencil-design\ndescription: Copied OpenPencil workflow.\n---\n\n# edited-openpencil-design\n"
+    )
+    (runtime_skill_dir / "SKILL.md").write_text(edited_content, encoding="utf-8")
+    (runtime_agent_dir / "config.yaml").write_text(
+        yaml.dump(config_payload, sort_keys=False),
+        encoding="utf-8",
+    )
+
+    calls: dict[str, object] = {}
+
+    def fake_materialize_agent_definition(**kwargs):
+        calls.update(kwargs)
+        return SimpleNamespace(skill_refs=[])
+
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.materialize_agent_definition",
+        fake_materialize_agent_definition,
+    )
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.get_paths",
+        lambda: paths,
+    )
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool._refresh_thread_runtime_materials",
+        lambda **kwargs: None,
+    )
+
+    runtime = SimpleNamespace(
+        context=LeadAgentRuntimeContext(
+            target_agent_name="op-design-agent",
+            agent_status="dev",
+            runtime_thread_id="thread-1",
+            model_name="kimi-k2.5",
+        ),
+        tool_call_id="tc-edited-copied-skill-duplicate-entries",
+    )
+
+    setup_agent.func(
+        agents_md="# OpenPencil Design Agent\n",
+        description="Creates design drafts",
+        runtime=runtime,
+        agent_name="op-design-agent",
+        skills=[
+            {"name": "openpencil-design", "source_path": "custom/skills/openpencil-design"},
+            {"name": "openpencil-design"},
+        ],
+    )
+
+    assert calls["skill_refs"] == []
+    assert calls["inline_skills"] == [
+        {
+            "name": "openpencil-design",
+            "content": edited_content,
+        }
+    ]
+
+
+def test_setup_agent_uses_config_thread_id_for_runtime_edited_copied_skill(monkeypatch, tmp_path: Path):
+    paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
+    archive_agent_dir = paths.custom_agent_dir("op-design-agent", "dev")
+    archive_skill_dir = archive_agent_dir / "skills" / "openpencil-design"
+    archive_skill_dir.mkdir(parents=True, exist_ok=True)
+    archived_content = (
+        "---\nname: openpencil-design\ndescription: Copied OpenPencil workflow.\n---\n\n# archived-openpencil-design\n"
+    )
+    (archive_skill_dir / "SKILL.md").write_text(archived_content, encoding="utf-8")
+    config_payload = {
+        "name": "op-design-agent",
+        "status": "dev",
+        "agents_md_path": "AGENTS.md",
+        "skill_refs": [
+            {
+                "name": "openpencil-design",
+                "source_path": "custom/skills/openpencil-design",
+            }
+        ],
+    }
+    (archive_agent_dir / "config.yaml").write_text(
+        yaml.dump(config_payload, sort_keys=False),
+        encoding="utf-8",
+    )
+
+    runtime_agent_dir = paths.sandbox_agents_dir("thread-from-config") / "dev" / "op-design-agent"
+    runtime_skill_dir = runtime_agent_dir / "skills" / "openpencil-design"
+    runtime_skill_dir.mkdir(parents=True, exist_ok=True)
+    edited_content = (
+        "---\nname: openpencil-design\ndescription: Copied OpenPencil workflow.\n---\n\n# edited-openpencil-design\n"
+    )
+    (runtime_skill_dir / "SKILL.md").write_text(edited_content, encoding="utf-8")
+    (runtime_agent_dir / "config.yaml").write_text(
+        yaml.dump(config_payload, sort_keys=False),
+        encoding="utf-8",
+    )
+
+    calls: dict[str, object] = {}
+
+    def fake_materialize_agent_definition(**kwargs):
+        calls.update(kwargs)
+        return SimpleNamespace(skill_refs=[])
+
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.materialize_agent_definition",
+        fake_materialize_agent_definition,
+    )
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.get_paths",
+        lambda: paths,
+    )
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool._refresh_thread_runtime_materials",
+        lambda **kwargs: None,
+    )
+
+    runtime = SimpleNamespace(
+        context=LeadAgentRuntimeContext(
+            target_agent_name="op-design-agent",
+            agent_status="dev",
+            model_name="kimi-k2.5",
+        ),
+        config={"configurable": {"thread_id": "thread-from-config"}},
+        tool_call_id="tc-edited-copied-skill-config-thread-id",
+    )
+
+    setup_agent.func(
+        agents_md="# OpenPencil Design Agent\n",
+        description="Creates design drafts",
+        runtime=runtime,
+        agent_name="op-design-agent",
+        skills=[
+            {"name": "openpencil-design", "source_path": "custom/skills/openpencil-design"},
+            {"name": "openpencil-design", "source_path": "custom/skills/openpencil-design"},
+        ],
+    )
+
+    assert calls["skill_refs"] == []
+    assert calls["inline_skills"] == [
+        {
+            "name": "openpencil-design",
+            "content": edited_content,
+        }
+    ]
+
+
+def test_setup_agent_preserves_existing_agent_manifest_fields_when_omitted(monkeypatch, tmp_path: Path):
+    paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
+    agent_dir = paths.custom_agent_dir("op-design-agent", "dev")
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    (agent_dir / "AGENTS.md").write_text("# Existing Agent\n", encoding="utf-8")
+    (agent_dir / "config.yaml").write_text(
+        yaml.dump(
+            {
+                "name": "op-design-agent",
+                "status": "dev",
+                "description": "Existing description",
+                "model": "kimi-k2.5",
+                "tool_groups": ["design"],
+                "tool_names": ["read_file", "write_file"],
+                "mcp_servers": ["figma"],
+                "memory": {
+                    "enabled": True,
+                    "model_name": "kimi-k2.5",
+                    "debounce_seconds": 15,
+                },
+                "subagent_defaults": {
+                    "general_purpose_enabled": False,
+                    "tool_names": ["read_file"],
+                },
+                "agents_md_path": "AGENTS.md",
+                "skill_refs": [],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    (agent_dir / "subagents.yaml").write_text(
+        yaml.dump(
+            {
+                "version": 1,
+                "subagents": {
+                    "designer-helper": {
+                        "description": "Existing helper",
+                        "system_prompt": "Keep layouts consistent.",
+                        "tool_names": ["read_file"],
+                    }
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    calls: dict[str, object] = {}
+
+    def fake_materialize_agent_definition(**kwargs):
+        calls.update(kwargs)
+        return SimpleNamespace(skill_refs=[], name="op-design-agent")
+
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.materialize_agent_definition",
+        fake_materialize_agent_definition,
+    )
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.get_paths",
+        lambda: paths,
+    )
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool._refresh_thread_runtime_materials",
+        lambda **kwargs: None,
+    )
+
+    runtime = SimpleNamespace(
+        context=LeadAgentRuntimeContext(
+            agent_name="op-design-agent",
+            agent_status="dev",
+            runtime_thread_id="thread-1",
+            model_name="kimi-k2.5",
+        ),
+        tool_call_id="tc-preserve-manifest",
+    )
+
+    setup_agent.func(
+        runtime=runtime,
+        skills=[],
+    )
+
+    assert calls["agents_md"] == "# Existing Agent"
+    assert calls["description"] == "Existing description"
+    assert calls["tool_groups"] == ["design"]
+    assert calls["tool_names"] == ["read_file", "write_file"]
+    assert calls["mcp_servers"] == ["figma"]
+    assert calls["memory"].enabled is True
+    assert calls["memory"].debounce_seconds == 15
+    assert calls["subagent_defaults"].general_purpose_enabled is False
+    assert calls["subagents"][0].name == "designer-helper"
+
+
+def test_setup_agent_requires_agents_md_and_description_for_new_agents():
+    runtime = SimpleNamespace(
+        context=LeadAgentRuntimeContext(
+            agent_name="lead_agent",
+            agent_status="dev",
+            model_name="kimi-k2.5",
+        ),
+        tool_call_id="tc-new-agent-missing-fields",
+    )
+
+    command = setup_agent.func(
+        runtime=runtime,
+        agent_name="new-design-agent",
+        skills=[],
+    )
+
+    message = command.update["messages"][0].content
+    assert "requires non-empty `agents_md` and `description` when creating a new agent" in message
+    assert "existing archived agent update" in message
 
 
 def test_setup_agent_refreshes_thread_runtime_files_after_update(monkeypatch, tmp_path: Path):
@@ -528,6 +1012,84 @@ def test_setup_agent_omitted_skills_preserves_existing_archive_skills(monkeypatc
         }
     ]
     assert calls["inline_skills"] == []
+
+
+def test_setup_agent_omitted_skills_preserves_runtime_edited_copied_skill(monkeypatch, tmp_path: Path):
+    paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
+    archive_agent_dir = paths.custom_agent_dir("op-design-agent", "dev")
+    archive_skill_dir = archive_agent_dir / "skills" / "openpencil-design"
+    archive_skill_dir.mkdir(parents=True, exist_ok=True)
+    archived_content = (
+        "---\nname: openpencil-design\ndescription: Copied OpenPencil workflow.\n---\n\n# archived-openpencil-design\n"
+    )
+    (archive_skill_dir / "SKILL.md").write_text(archived_content, encoding="utf-8")
+    config_payload = {
+        "name": "op-design-agent",
+        "status": "dev",
+        "agents_md_path": "AGENTS.md",
+        "skill_refs": [
+            {
+                "name": "openpencil-design",
+                "source_path": "custom/skills/openpencil-design",
+            }
+        ],
+    }
+    (archive_agent_dir / "config.yaml").write_text(
+        yaml.dump(config_payload, sort_keys=False),
+        encoding="utf-8",
+    )
+
+    runtime_agent_dir = paths.sandbox_agents_dir("thread-1") / "dev" / "op-design-agent"
+    runtime_skill_dir = runtime_agent_dir / "skills" / "openpencil-design"
+    runtime_skill_dir.mkdir(parents=True, exist_ok=True)
+    edited_content = (
+        "---\nname: openpencil-design\ndescription: Copied OpenPencil workflow.\n---\n\n# edited-openpencil-design\n"
+    )
+    (runtime_skill_dir / "SKILL.md").write_text(edited_content, encoding="utf-8")
+    (runtime_agent_dir / "config.yaml").write_text(
+        yaml.dump(config_payload, sort_keys=False),
+        encoding="utf-8",
+    )
+
+    calls: dict[str, object] = {}
+
+    def fake_materialize_agent_definition(**kwargs):
+        calls.update(kwargs)
+        return SimpleNamespace(agents_md_path="AGENTS.md", skill_refs=[])
+
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.materialize_agent_definition",
+        fake_materialize_agent_definition,
+    )
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.get_paths",
+        lambda: paths,
+    )
+
+    runtime = SimpleNamespace(
+        context=LeadAgentRuntimeContext(
+            target_agent_name="op-design-agent",
+            agent_status="dev",
+            runtime_thread_id="thread-1",
+            model_name="kimi-k2.5",
+        ),
+        tool_call_id="tc-preserve-edited-omitted-skills",
+    )
+
+    setup_agent.func(
+        agents_md="# OpenPencil Design Agent\n\nPreserve edited copied skill.\n",
+        description="Creates design drafts",
+        runtime=runtime,
+        agent_name="op-design-agent",
+    )
+
+    assert calls["skill_refs"] == []
+    assert calls["inline_skills"] == [
+        {
+            "name": "openpencil-design",
+            "content": edited_content,
+        }
+    ]
 
 
 def test_setup_agent_forwards_explicit_skill_source_path(monkeypatch):

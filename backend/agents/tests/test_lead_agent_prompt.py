@@ -59,6 +59,12 @@ def test_apply_prompt_template_includes_self_authoring_context_for_non_lead_dev_
     assert "persist that change with `setup_agent`" in rendered
     assert "for future runs" in rendered
     assert "read your current runtime copy" in rendered.lower()
+    assert "/mnt/user-data/agents/dev/demo-agent/config.yaml" in rendered
+    assert "omit `agents_md` and `description`" in rendered
+    assert "Do not read `AGENTS.md` just to re-send it unchanged" in rendered
+    assert "`setup_agent(skills=...)` replaces the target skill set" in rendered
+    assert "edited skill as `{name, content: \"<full updated SKILL.md>\"}`" in rendered
+    assert "omit `skills`" in rendered
 
 
 def test_apply_prompt_template_documents_shared_tmp_alias(monkeypatch):

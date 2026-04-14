@@ -26,6 +26,9 @@
 - `langgraph` 的 inmem 运行时目录固定落在 `.openagents/runtime/langgraph/`
 - `gateway` / `langgraph` 继续输出到容器标准日志，由 Docker 做日志轮转
 - 浏览器访问链路仍然是 `nginx -> gateway -> langgraph -> sandbox-aio`
+- 如果外部模型网关由别的面板/Compose 单独托管，推荐把它直接接入
+  `openagents-prod_openagents` bridge 网络，并在该网络上暴露稳定别名
+  `model-gateway`
 
 这份方案更适合：
 
@@ -43,6 +46,19 @@
 - 后台管理端口：`8081`
 - 持久化目录：仓库根目录 `.openagents/`
 - 根目录 `.env`：唯一 secrets 来源
+
+如果你有外部模型网关容器，例如 1Panel 托管的 `new-api`，推荐把那个容器直接接到
+`openagents-prod_openagents`，然后在模型记录里统一写：
+
+```text
+http://model-gateway:3000
+```
+
+临时接入时可以直接执行：
+
+```bash
+make docker-model-gateway-attach MODEL_GATEWAY_CONTAINER=1Panel-new-api-6d1F
+```
 
 也就是说，正常情况下你不用再猜任何 `VITE_*`、`OPENAGENTS_*` 这类正式环境参数。
 
@@ -233,6 +249,39 @@ docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml
 对外端口：
 
 - 不暴露
+
+### 外部模型网关
+
+职责：
+
+- 提供 OpenAgents 运行时可直接访问的 OpenAI / Anthropic 兼容模型 API
+
+说明：
+
+- 不放进 `docker/docker-compose-prod.yaml`
+- 由你自己的 1Panel / 其他 Compose / 其他面板继续托管
+- 但要接入 `openagents-prod_openagents`，并在该网络上提供 `model-gateway` 别名
+- 模型记录里的 `base_url` 统一写成 `http://model-gateway:3000`
+
+如果你用的是 1Panel `new-api`，更推荐直接在它自己的 compose 里补共享网络，而不是让
+OpenAgents 再起一层 host-network 代理。形态类似：
+
+```yaml
+networks:
+  1panel-network:
+    external: true
+  openagents-runtime:
+    external: true
+    name: openagents-prod_openagents
+
+services:
+  new-api:
+    networks:
+      1panel-network: {}
+      openagents-runtime:
+        aliases:
+          - model-gateway
+```
 
 ### `sandbox-aio`
 

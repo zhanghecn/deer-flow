@@ -148,3 +148,8 @@ def test_create_agent_command_prompt_documents_runtime_update_constraints():
     assert "显式传入 `agent_name`" in command_text
     assert "自己选一个简短 kebab-case 名称" in command_text
     assert "setup_agent" in command_text
+    assert "当前已附加的 copied skill" in command_text
+    assert "优先复用它对应的 archived `source_path`" in command_text
+    assert "attached-skill 列表里显示的精确 `Source ...` 路径原样带进 `setup_agent.skills`" in command_text
+    assert "可独立演化的专属 skill" in command_text
+    assert "brand-new agent" in command_text

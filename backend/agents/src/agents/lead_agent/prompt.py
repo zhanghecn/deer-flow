@@ -64,6 +64,11 @@ def _get_authoring_context(*, agent_name: str | None, agent_status: str) -> str:
 <self_authoring>
 - When the user asks you to update your own dev agent definition or agent-owned skills for future runs, persist that change with `setup_agent`.
 - Read your current runtime copy under `/mnt/user-data/agents/{agent_status}/{normalized_agent_name}/...` as needed, then call `setup_agent` with the full updated content.
+- For skill edits, first read `/mnt/user-data/agents/{agent_status}/{normalized_agent_name}/config.yaml` and the copied `SKILL.md` you plan to change.
+- If you are only changing skills and your archived `AGENTS.md` plus one-line description stay unchanged, you may omit `agents_md` and `description`; `setup_agent` preserves those existing archived values for an update.
+- Do not read `AGENTS.md` just to re-send it unchanged unless you actually need to inspect or edit it.
+- `setup_agent(skills=...)` replaces the target skill set. Preserve every current skill explicitly: keep unchanged archived copied skills with their exact `source_path`, keep unchanged agent-owned skills as `{{name, content}}`, and pass each edited skill as `{{name, content: "<full updated SKILL.md>"}}`.
+- Do not edit only the thread-local copied skill and then omit `skills`; that refreshes from archived sources and loses the skill change.
 - When updating yourself as a non-`lead_agent` dev runtime, you may omit `agent_name` in `setup_agent`; it will resolve to the current agent.
 </self_authoring>
 """

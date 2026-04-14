@@ -6,6 +6,7 @@ from deepagents.backends.protocol import BackendProtocol
 
 from src.config.paths import Paths
 
+from .design_file_guard import wrap_runtime_backend_with_design_file_guard
 from .local import build_local_workspace_backend, resolve_skills_mount
 from .operation_logging import wrap_runtime_backend_with_logging
 from .remote import REMOTE_EXECUTION_BACKEND, build_remote_workspace_backend
@@ -54,8 +55,9 @@ def build_runtime_workspace_backend(
             skills_mount=skills_mount,
         )
 
+    guarded_backend = wrap_runtime_backend_with_design_file_guard(backend)
     return wrap_runtime_backend_with_logging(
-        backend,
+        guarded_backend,
         backend_kind=backend_kind,
         thread_id=thread_id,
     )

@@ -9,9 +9,46 @@ services:
     depends_on:
       gateway:
         condition: service_healthy
+      openpencil:
+        # Wait for the proxied OpenPencil server to finish its Bun/Nitro boot
+        # before exposing the unified 8083 entrypoint, otherwise a fresh
+        # compose recreate can briefly return 502 on /openpencil/*.
+        condition: service_healthy
     ports:
       - "8083:80"
       - "8081:8081"
+    networks:
+      - openagents
+    restart: unless-stopped
+
+  openpencil:
+    image: oven/bun:1-slim
+    # Keep OpenPencil on the same "current source in compose" contract as the
+    # gateway/runtime services so bridge changes are visible without a separate
+    # image build pipeline getting in the way of current-code verification.
+    working_dir: /app
+    command:
+      - /bin/sh
+      - -lc
+      - OPENPENCIL_BASE_PATH=/openpencil bun --bun run build && exec bun run ./out/web/server/index.mjs
+    environment:
+      NODE_ENV: production
+      NITRO_HOST: 0.0.0.0
+      NITRO_PORT: 3000
+    healthcheck:
+      # Probe the actual editor route instead of the bare root so nginx only
+      # starts after the base-path-aware OpenPencil app is serving requests.
+      test:
+        - CMD
+        - bun
+        - -e
+        - fetch("http://127.0.0.1:3000/openpencil/editor").then((response)=>process.exit(response.ok?0:1)).catch(()=>process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    volumes:
+      - ../../openpencil:/app
     networks:
       - openagents
     restart: unless-stopped

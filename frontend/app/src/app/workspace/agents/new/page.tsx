@@ -13,9 +13,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ArtifactsProvider } from "@/components/workspace/artifacts/context";
-import { QuestionDock } from "@/components/workspace/messages/question-dock";
 import { ThreadContext } from "@/components/workspace/messages/context";
 import { MessageList } from "@/components/workspace/messages/message-list";
+import { QuestionDock } from "@/components/workspace/messages/question-dock";
 import type { Agent } from "@/core/agents";
 import { checkAgentName, getAgent } from "@/core/agents/api";
 import {

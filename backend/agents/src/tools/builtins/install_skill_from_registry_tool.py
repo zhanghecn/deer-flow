@@ -233,10 +233,15 @@ def install_skill_from_registry(
     try:
         agent_status = str(runtime_context_value(runtime.context, "agent_status") or "dev").strip() or "dev"
         command_name = str(runtime_context_value(runtime.context, "command_name") or "").strip()
-        explicit_source = _infer_source_from_runtime_message(runtime, source=source)
+        # Normalize the raw tool payload first so embedded JSON shapes keep both
+        # `source` and `skill_name` before any explicit-URL fallback trims the text.
         normalized_source, normalized_skill_name = _normalize_registry_install_request(
-            source=explicit_source,
+            source=source,
             skill_name=skill_name,
+        )
+        normalized_source = _infer_source_from_runtime_message(
+            runtime,
+            source=normalized_source,
         )
         if not normalized_source:
             return (

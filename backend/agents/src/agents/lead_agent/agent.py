@@ -53,9 +53,9 @@ from src.config.builtin_agents import (
 from src.config.commands_config import resolve_runtime_command
 from src.config.model_config import ModelConfig
 from src.config.paths import VIRTUAL_PATH_PREFIX, Paths, get_paths
+from src.config.runtime_db import RuntimeDBStore, ThreadBinding, get_runtime_db_store
 from src.config.runtime_defaults import DEFAULT_SUBAGENT_ENABLED
 from src.config.runtime_limits import DEFAULT_AGENT_RECURSION_LIMIT
-from src.config.runtime_db import RuntimeDBStore, ThreadBinding, get_runtime_db_store
 from src.models import create_chat_model
 from src.observability import create_agent_trace_callback
 from src.runtime_backends import (
@@ -84,6 +84,10 @@ _lead_agent_graph_cache: dict[tuple[object, ...], "LeadAgentGraphCacheEntry"] = 
 _lead_agent_graph_cache_order: list[tuple[object, ...]] = []
 _lead_agent_graph_builds: dict[tuple[object, ...], "LeadAgentGraphBuildState"] = {}
 _lead_agent_graph_cache_lock = Lock()
+_DEFAULT_DESIGN_DOCUMENT_RUNTIME_PATH = f"{VIRTUAL_PATH_PREFIX}/outputs/designs/canvas.op"
+# Keep the seeded `.op` file readable so later design turns can patch the same
+# document with normal file tools instead of reconstructing one minified line.
+_DEFAULT_DESIGN_DOCUMENT_BYTES = b'{\n  "version": "1.0.0",\n  "children": []\n}\n'
 
 
 class LeadAgentRuntimeContext(BaseModel):
@@ -301,6 +305,20 @@ def _effective_thread_id(thread_id: str | None) -> str:
 def _runtime_agent_root(agent_name: str, status: str) -> str:
     return f"{VIRTUAL_PATH_PREFIX}/agents/{status}/{agent_name.lower()}"
 
+
+def _default_thread_output_seed_targets() -> list[tuple[str, bytes]]:
+    """Seed canonical output files that runtime prompts and UIs share.
+
+    The design board bridge and the `openpencil-design` skill both target the
+    same thread-local `.op` document. The canonical design source now lives
+    under `/mnt/user-data/outputs/...` so it is simultaneously editable,
+    visible in artifacts, and downloadable by the user. Seeding it here keeps
+    that artifact contract stable before either side attempts a first read.
+    """
+
+    return [(_DEFAULT_DESIGN_DOCUMENT_RUNTIME_PATH, _DEFAULT_DESIGN_DOCUMENT_BYTES)]
+
+
 def _build_runtime_seed_targets(
     *,
     agent_name: str,
@@ -311,13 +329,16 @@ def _build_runtime_seed_targets(
     request: LeadAgentRequest | None = None,
 ) -> list[tuple[str, bytes]]:
     del request
-    return runtime_seed_targets(
-        agent_name,
-        status=status,
-        target_root=target_root,
-        paths=paths,
-        manifest=agent_config,
-    )
+    return [
+        *runtime_seed_targets(
+            agent_name,
+            status=status,
+            target_root=target_root,
+            paths=paths,
+            manifest=agent_config,
+        ),
+        *_default_thread_output_seed_targets(),
+    ]
 
 
 def _collect_missing_runtime_uploads(

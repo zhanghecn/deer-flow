@@ -1,4 +1,6 @@
 import logging
+from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from langchain_core.messages import ToolMessage
@@ -11,10 +13,10 @@ from src.config.builtin_agents import LEAD_AGENT_NAME, normalize_effective_agent
 from src.config.agent_runtime_seed import runtime_seed_targets
 from src.config.agent_materialization import materialize_agent_definition
 from src.config.agent_skill_preservation import (
-    load_existing_agent_owned_skill_content,
+    load_existing_agent_skill_input,
     load_existing_agent_skill_inputs,
 )
-from src.config.agents_config import AGENT_NAME_PATTERN, AgentConfig
+from src.config.agents_config import AGENT_NAME_PATTERN, AgentConfig, load_agent_config, load_agent_subagents, load_agents_md
 from src.config.paths import get_paths
 from src.runtime_backends import (
     REMOTE_EXECUTION_BACKEND,
@@ -25,6 +27,24 @@ from src.skills import load_skills, skill_source_path
 from src.utils.runtime_context import runtime_context_value
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _ExistingAgentUpdateState:
+    """Archive-backed state used to preserve untouched agent fields on update."""
+
+    config: AgentConfig
+    agents_md: str | None
+    subagents: list[Any]
+
+
+@dataclass
+class _NormalizedSetupAgentSkillEntry:
+    """Single normalized setup_agent skill after duplicate entries are merged."""
+
+    name: str
+    source_path: str | None = None
+    content: str | None = None
 
 
 class SetupAgentSkillInput(BaseModel):
@@ -64,27 +84,41 @@ def _skill_entry_field(skill_entry: SetupAgentSkillInput | dict[str, Any], key: 
 
 def _resolve_archive_skill_name(*, source_path: str, paths: Any) -> str:
     normalized_source_path = str(source_path).strip().strip("/")
+    matching_name = normalized_source_path.rsplit("/", 1)[-1]
+    available_sources_for_name: list[str] = []
+    seen_sources: set[str] = set()
     for archived_skill in load_skills(
         skills_path=paths.skills_dir,
         use_config=False,
         enabled_only=False,
     ):
-        if skill_source_path(archived_skill) != normalized_source_path:
+        resolved_source_path = skill_source_path(archived_skill)
+        if archived_skill.name == matching_name and resolved_source_path not in seen_sources:
+            available_sources_for_name.append(resolved_source_path)
+            seen_sources.add(resolved_source_path)
+        if resolved_source_path != normalized_source_path:
             continue
         return archived_skill.name
+    if available_sources_for_name:
+        available_sources = ", ".join(f"'{candidate}'" for candidate in available_sources_for_name)
+        # Keep the tool strict about the requested source_path, but surface the
+        # exact archived alternatives so the model can retry in the same turn
+        # instead of guessing `system` vs `custom` again.
+        raise ValueError(
+            f"setup_agent skill source_path '{source_path}' was not found. "
+            f"Available source_path for skill '{matching_name}': {available_sources}. "
+            "Retry with one of those exact values."
+        )
     raise ValueError(f"setup_agent skill source_path '{source_path}' was not found.")
 
 
-def _split_skill_inputs(
+def _normalize_setup_agent_skill_inputs(
     skills: list[SetupAgentSkillInput | dict[str, Any]] | None,
     *,
-    agent_name: str | None = None,
-    agent_status: str = "dev",
-    thread_id: str | None = None,
-    paths: Any = None,
-) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
-    copied_skill_refs: list[dict[str, str]] = []
-    inline_skills: list[dict[str, str]] = []
+    paths: Any,
+) -> list[_NormalizedSetupAgentSkillEntry]:
+    normalized_entries: list[_NormalizedSetupAgentSkillEntry] = []
+    entries_by_name: dict[str, _NormalizedSetupAgentSkillEntry] = {}
 
     for skill_entry in skills or []:
         raw_name = _skill_entry_field(skill_entry, "name")
@@ -109,22 +143,21 @@ def _split_skill_inputs(
                 f"setup_agent skill '{name}' cannot provide both `source_path` and `content`."
             )
 
-        if raw_content is None:
-            if source_path is None:
-                existing_content = load_existing_agent_owned_skill_content(
-                    skill_name=name,
-                    agent_name=agent_name,
-                    agent_status=agent_status,
-                    thread_id=thread_id,
-                    paths=paths,
+        existing_entry = entries_by_name.get(name)
+        if existing_entry is None:
+            existing_entry = _NormalizedSetupAgentSkillEntry(name=name)
+            entries_by_name[name] = existing_entry
+            normalized_entries.append(existing_entry)
+
+        if source_path is not None:
+            if existing_entry.source_path is None:
+                existing_entry.source_path = source_path
+            elif existing_entry.source_path != source_path:
+                raise ValueError(
+                    f"setup_agent skill '{name}' duplicates conflicting `source_path` values."
                 )
-                if existing_content is not None:
-                    inline_skills.append({"name": name, "content": existing_content})
-                    continue
-            copied_ref = {"name": name}
-            if source_path is not None:
-                copied_ref["source_path"] = source_path
-            copied_skill_refs.append(copied_ref)
+
+        if raw_content is None:
             continue
 
         content = str(raw_content)
@@ -133,9 +166,167 @@ def _split_skill_inputs(
                 f"setup_agent skill '{name}' provided empty `content`. "
                 "Omit `content` to copy an existing skill, or provide the full SKILL.md."
             )
-        inline_skills.append({"name": name, "content": content})
+        if existing_entry.content is None:
+            existing_entry.content = content
+            continue
+        if existing_entry.content != content:
+            raise ValueError(
+                f"setup_agent skill '{name}' duplicates conflicting `content` values."
+            )
+
+    return normalized_entries
+
+
+def _split_skill_inputs(
+    skills: list[SetupAgentSkillInput | dict[str, Any]] | None,
+    *,
+    agent_name: str | None = None,
+    agent_status: str = "dev",
+    thread_id: str | None = None,
+    paths: Any = None,
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    copied_skill_refs: list[dict[str, str]] = []
+    inline_skills: list[dict[str, str]] = []
+
+    for skill_entry in _normalize_setup_agent_skill_inputs(skills, paths=paths):
+        # Models sometimes retry the same skill twice in one tool call, for
+        # example once with `source_path` and once name-only. Collapse those
+        # duplicates before preservation so a thread-local edited copied skill
+        # can win as one inline update instead of being rematerialized from the
+        # archived reusable source.
+        if skill_entry.content is None:
+            preserved_copied_ref, preserved_inline_skill = load_existing_agent_skill_input(
+                skill_name=skill_entry.name,
+                expected_source_path=skill_entry.source_path,
+                agent_name=agent_name,
+                agent_status=agent_status,
+                thread_id=thread_id,
+                paths=paths,
+            )
+            if preserved_inline_skill is not None:
+                inline_skills.append(preserved_inline_skill)
+                continue
+            if preserved_copied_ref is not None:
+                copied_skill_refs.append(preserved_copied_ref)
+                continue
+            copied_ref = {"name": skill_entry.name}
+            if skill_entry.source_path is not None:
+                copied_ref["source_path"] = skill_entry.source_path
+            copied_skill_refs.append(copied_ref)
+            continue
+
+        inline_skills.append({"name": skill_entry.name, "content": skill_entry.content})
 
     return copied_skill_refs, inline_skills
+
+
+def _normalize_optional_agents_md(agents_md: str | None) -> str | None:
+    if agents_md is None:
+        return None
+    rendered = str(agents_md)
+    if not rendered.strip():
+        raise ValueError("setup_agent `agents_md` cannot be empty.")
+    return rendered
+
+
+def _normalize_optional_description(description: str | None) -> str | None:
+    if description is None:
+        return None
+    rendered = str(description).strip()
+    if not rendered:
+        raise ValueError("setup_agent `description` cannot be empty.")
+    return rendered
+
+
+def _load_existing_agent_update_state(
+    *,
+    agent_name: str,
+    agent_status: str,
+    paths: Any,
+) -> _ExistingAgentUpdateState | None:
+    try:
+        existing_config = load_agent_config(agent_name, status=agent_status, paths=paths)
+    except FileNotFoundError:
+        return None
+
+    existing_agents_md = load_agents_md(agent_name, status=agent_status, paths=paths)
+    existing_subagents = load_agent_subagents(agent_name, status=agent_status, paths=paths)
+    return _ExistingAgentUpdateState(
+        config=existing_config,
+        agents_md=existing_agents_md,
+        subagents=list(existing_subagents.subagents),
+    )
+
+
+def _resolve_manifest_update_inputs(
+    *,
+    agent_name: str,
+    agent_status: str,
+    paths: Any,
+    agents_md: str | None,
+    description: str | None,
+    tool_groups: list[str] | None,
+) -> tuple[
+    _ExistingAgentUpdateState | None,
+    str,
+    str,
+    list[str] | None,
+    list[str] | None,
+    list[str] | None,
+    Any,
+    Any,
+    list[Any] | None,
+]:
+    """Resolve the full manifest inputs expected by materialization.
+
+    `setup_agent` only exposes a subset of agent fields, but updates must keep
+    archive-owned fields such as tool routing, memory, and subagents intact.
+    Otherwise a skill-only edit would silently strip unrelated runtime policy.
+    """
+
+    existing_state = _load_existing_agent_update_state(
+        agent_name=agent_name,
+        agent_status=agent_status,
+        paths=paths,
+    )
+    explicit_agents_md = _normalize_optional_agents_md(agents_md)
+    explicit_description = _normalize_optional_description(description)
+
+    if existing_state is None:
+        if explicit_agents_md is None or explicit_description is None:
+            raise ValueError(
+                "setup_agent requires non-empty `agents_md` and `description` when creating a new agent. "
+                "For an existing archived agent update, you may omit unchanged fields and they will be preserved."
+            )
+        return (
+            None,
+            explicit_agents_md,
+            explicit_description,
+            tool_groups,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+
+    resolved_tool_groups = tool_groups if tool_groups is not None else existing_state.config.tool_groups
+    if explicit_agents_md is None and existing_state.agents_md is None:
+        raise ValueError(
+            f"setup_agent could not load existing AGENTS.md for '{agent_name}'. "
+            "Pass explicit `agents_md` or repair the archived agent definition first."
+        )
+    return (
+        existing_state,
+        explicit_agents_md if explicit_agents_md is not None else existing_state.agents_md,
+        explicit_description if explicit_description is not None else existing_state.config.description,
+        resolved_tool_groups,
+        existing_state.config.tool_names,
+        existing_state.config.mcp_servers,
+        existing_state.config.memory,
+        existing_state.config.subagent_defaults,
+        existing_state.subagents,
+    )
 
 
 def _name_only_skill_names(
@@ -188,9 +379,25 @@ def _runtime_agent_root(*, agent_name: str, agent_status: str) -> str:
     return f"/mnt/user-data/agents/{agent_status}/{agent_name.lower()}"
 
 
-def _runtime_thread_id(runtime_context: object) -> str | None:
+def _runtime_thread_id(runtime: ToolRuntime | None) -> str | None:
+    runtime_context = getattr(runtime, "context", None)
     for key in ("x-thread-id", "thread_id"):
         raw_value = runtime_context_value(runtime_context, key)
+        normalized = str(raw_value or "").strip()
+        if normalized:
+            return normalized
+
+    runtime_config = getattr(runtime, "config", None)
+    configurable = runtime_config.get("configurable") if isinstance(runtime_config, Mapping) else None
+    if not isinstance(configurable, Mapping):
+        return None
+
+    # LangGraph can keep the canonical thread binding in `configurable` even
+    # when the tool runtime context omits it. `setup_agent` must honor that
+    # same thread id so self-edits read the live runtime copied skill instead
+    # of silently falling back to the archived reusable source.
+    for key in ("x-thread-id", "thread_id"):
+        raw_value = configurable.get(key)
         normalized = str(raw_value or "").strip()
         if normalized:
             return normalized
@@ -290,9 +497,9 @@ def _refresh_thread_runtime_materials(
 
 @tool("setup_agent", parse_docstring=True)
 def setup_agent(
-    agents_md: str,
-    description: str,
     runtime: ToolRuntime,
+    agents_md: str | None = None,
+    description: str | None = None,
     agent_name: str | None = None,
     model: str | None = None,
     tool_groups: list[str] | None = None,
@@ -301,9 +508,15 @@ def setup_agent(
     """Create or update a dev agent definition with copied and/or inline skills.
 
     Args:
+        runtime: LangGraph tool runtime injected by the agent harness.
         agents_md: Full AGENTS.md markdown content for the target agent. Pass the actual
-            file body, not a path or a partial diff.
-        description: One-line summary of what the agent does.
+            file body, not a path or a partial diff. Required when creating a new
+            agent. When updating an existing archived agent and AGENTS.md is
+            unchanged, omit this field to preserve the current archived content.
+        description: One-line summary of what the agent does. Required when
+            creating a new agent. When updating an existing archived agent and
+            the description is unchanged, omit this field to preserve the
+            current archived value.
         agent_name: Explicit target agent archive name. Required when the current runtime
             agent is `lead_agent`. When creating a new agent, choose a short kebab-case
             archive name such as `pr-review-agent`. If the user did not provide one,
@@ -337,9 +550,27 @@ def setup_agent(
 
         paths = get_paths()
         agent_status = str(runtime_context_value(runtime.context, "agent_status", "dev")).strip() or "dev"
-        runtime_thread_id = _runtime_thread_id(runtime.context)
+        runtime_thread_id = _runtime_thread_id(runtime)
         execution_backend = str(runtime_context_value(runtime.context, "execution_backend") or "").strip() or None
         remote_session_id = str(runtime_context_value(runtime.context, "remote_session_id") or "").strip() or None
+        (
+            existing_state,
+            resolved_agents_md,
+            resolved_description,
+            resolved_tool_groups,
+            resolved_tool_names,
+            resolved_mcp_servers,
+            resolved_memory,
+            resolved_subagent_defaults,
+            resolved_subagents,
+        ) = _resolve_manifest_update_inputs(
+            agent_name=resolved_agent_name,
+            agent_status=agent_status,
+            paths=paths,
+            agents_md=agents_md,
+            description=description,
+            tool_groups=tool_groups,
+        )
         if skills is None:
             copied_skill_refs, inline_skills = _resolve_default_setup_agent_skills(
                 agent_name=resolved_agent_name,
@@ -356,16 +587,21 @@ def setup_agent(
                 paths=paths,
             )
         agent_dir = paths.custom_agent_dir(resolved_agent_name, agent_status)
-        archive_existed = agent_dir.is_dir()
+        archive_existed = existing_state is not None
         materialized = materialize_agent_definition(
             name=resolved_agent_name,
             status=agent_status,
-            agents_md=agents_md,
-            description=description,
+            agents_md=resolved_agents_md,
+            description=resolved_description,
             model=resolved_model,
-            tool_groups=tool_groups,
+            tool_groups=resolved_tool_groups,
+            tool_names=resolved_tool_names,
+            mcp_servers=resolved_mcp_servers,
             skill_refs=copied_skill_refs,
             inline_skills=inline_skills,
+            memory=resolved_memory,
+            subagent_defaults=resolved_subagent_defaults,
+            subagents=resolved_subagents,
             paths=paths,
         )
         _refresh_thread_runtime_materials(

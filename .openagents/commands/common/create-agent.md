@@ -19,15 +19,18 @@ authoring_actions:
 - 如果当前运行已经提供显式结构化的 `target_agent_name`，不要为了“确认目标 agent 是否存在”去搜索其他路径；如需只读检查，只看 `/mnt/user-data/agents/{status}/{target_agent_name}/...` 这一条规范路径。
 
 skill 选择与装配规则：
+- 如果用户要创建的领域，正好匹配你当前已附加的 copied skill，先读取那个 copied `SKILL.md`，再优先复用它对应的 archived `source_path` 创建 target agent，而不是从零重写一套 workflow。
 - 如果用户要求“找一个现有的 skill”“复用已有 skill”“先找合适的 skill 再创建 agent”，先读取你已附加的 `find-skills` skill（如果当前 agent 已附加它）。
 - skill 查找是 **本地 archived skill library 优先**：先在 `/mnt/skills/system/skills/...` 和 `/mnt/skills/custom/skills/...` 中搜索候选 skill，并读取候选 `SKILL.md` 核对是否匹配。
 - `/mnt/skills/store/...` 只作为迁移期兼容输入；除非你是在处理已有 legacy `source_path`，否则不要再把它当成新的首选来源。
 - 只有在用户明确要求安装外部 skill，或者本地 archived skill library 里没有合适 skill 时，才考虑外部 registry 搜索或安装。
+- 如果你复用的是“当前已附加的 copied skill”，把 attached-skill 列表里显示的精确 `Source ...` 路径原样带进 `setup_agent.skills`；不要自己猜它属于 `system` 还是 `custom`。
 - 一旦选中了本地 archived skill，最终调用 `setup_agent` 时必须把它明确写进 `skills`，并带上精确 `source_path`。不要只在分析里提到 skill 却漏掉装配。
 - 当你决定复用一个现有 archived skill 时，先读取 `/mnt/skills/<source_path>/SKILL.md` 和它引用的文件，再继续写 agent 方案或调用 `setup_agent`。
 - 如果用户明确指定了 skill 来源，或同名 skill 同时存在于多个归档来源，不要只传裸 `{name}`。这时必须显式传 `{source_path}` 或 `{name, source_path}`，例如 `system/skills/bootstrap` 或 `custom/skills/contract-review`。
+- 只有当用户明确要求 target agent 拥有一份可独立演化的专属 skill，或者你正在修复 target agent 现有的 agent-owned copied skill 时，才把 skill 以内联 `{name, content}` 形式传给 `setup_agent`。
 - 如果你是在修复 target agent 已有的 agent 专属 copied skill（它只存在于 `/mnt/user-data/agents/{status}/{target_agent_name}/skills/...`，并不在 store 仓库里），先读取它当前的 `SKILL.md`，再以 `{name, content}` 形式传给 `setup_agent`。
-- 如果省略 `setup_agent.skills`，语义是“保留 target agent 当前已有 skills”，不是“自动继承你本回合刚看过的 archived skill”。
+- 如果省略 `setup_agent.skills`，语义是“保留 target agent 当前已有 skills”，不是“自动继承你本回合刚看过的 archived skill”。对 brand-new agent 来说，这通常就意味着“创建成功但没有任何 skills”。
 
 生成 agent 时：
 - 新 agent 的 `AGENTS.md` 必须保持精简，只描述角色、边界、什么时候读 skill，以及少量非 skill 层运行约束。
