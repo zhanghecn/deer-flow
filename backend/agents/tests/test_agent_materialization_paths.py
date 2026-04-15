@@ -147,6 +147,24 @@ def test_materialize_agent_definition_writes_inline_agent_skills_and_manifest(tm
     assert loaded.skill_refs == config.skill_refs
 
 
+def test_materialize_agent_definition_persists_owner_user_id(tmp_path: Path):
+    base_dir = tmp_path / ".openagents"
+    paths = Paths(base_dir=base_dir, skills_dir=base_dir / "skills")
+
+    materialize_agent_definition(
+        name="owned-agent",
+        status="dev",
+        agents_md="# Owned Agent",
+        owner_user_id="user-123",
+        description="Owned by a specific user",
+        paths=paths,
+    )
+
+    loaded = load_agent_config("owned-agent", "dev", paths=paths)
+    assert loaded is not None
+    assert loaded.owner_user_id == "user-123"
+
+
 def test_materialize_agent_definition_writes_subagent_defaults_and_subagents(tmp_path: Path):
     base_dir = tmp_path / ".openagents"
     paths = Paths(base_dir=base_dir, skills_dir=base_dir / "skills")

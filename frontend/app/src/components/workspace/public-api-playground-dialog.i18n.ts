@@ -79,6 +79,7 @@ type PublicAPIPlaygroundText = {
   requestPrepared: string;
   streamStarted: string;
   requestFinished: (responseID: string) => string;
+  requestIncomplete: (responseID: string) => string;
   artifactReady: (filename: string) => string;
   runCompleted: string;
   assistantMessage: string;
@@ -203,6 +204,8 @@ const enUS: PublicAPIPlaygroundText = {
   requestPrepared: "Request prepared",
   streamStarted: "Streaming `/v1/responses`",
   requestFinished: (responseID) => `Response completed: ${responseID}`,
+  requestIncomplete: (responseID) =>
+    `Response is waiting for user input: ${responseID}`,
   artifactReady: (filename) => `Generated file: ${filename}`,
   runCompleted: "Run completed",
   assistantMessage: "Assistant message",
@@ -326,6 +329,7 @@ const zhCN: PublicAPIPlaygroundText = {
   requestPrepared: "请求已准备",
   streamStarted: "正在流式调用 `/v1/responses`",
   requestFinished: (responseID) => `响应完成：${responseID}`,
+  requestIncomplete: (responseID) => `响应正在等待用户输入：${responseID}`,
   artifactReady: (filename) => `生成文件：${filename}`,
   runCompleted: "运行完成",
   assistantMessage: "助手消息",

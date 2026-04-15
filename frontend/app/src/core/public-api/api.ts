@@ -1,4 +1,5 @@
 import { getBackendBaseURL } from "@/core/config";
+import type { CanonicalRunEvent } from "@/core/events/canonical";
 
 type PublicAPIErrorShape = {
   details?: string;
@@ -31,19 +32,13 @@ export interface PublicAPIResponseUsage {
   total_tokens: number;
 }
 
-export interface PublicAPIOpenAgentsEvent {
-  sequence: number;
-  created_at: number;
-  source_event: string;
-  category: string;
-  payload?: unknown;
-}
+export type PublicAPIRunEvent = CanonicalRunEvent;
 
 export interface PublicAPIResponseOpenAgents {
   thread_id: string;
   trace_id?: string;
   previous_response_id?: string;
-  events?: PublicAPIOpenAgentsEvent[];
+  run_events?: PublicAPIRunEvent[];
 }
 
 export interface PublicAPIResponseOutputItem {
@@ -228,6 +223,33 @@ export async function createPublicAPIResponse(params: {
       extractErrorMessage(
         error,
         `Failed to create response: ${response.statusText}`,
+      ),
+    );
+  }
+  return response.json() as Promise<PublicAPIResponseEnvelope>;
+}
+
+export async function getPublicAPIResponse(params: {
+  baseURL: string;
+  apiToken: string;
+  responseId: string;
+}): Promise<PublicAPIResponseEnvelope> {
+  const response = await publicAPIFetch(
+    params.baseURL,
+    params.apiToken,
+    `./responses/${encodeURIComponent(params.responseId)}`,
+    {
+      method: "GET",
+    },
+  );
+  if (!response.ok) {
+    const error = (await response
+      .json()
+      .catch(() => ({}))) as PublicAPIErrorShape;
+    throw new Error(
+      extractErrorMessage(
+        error,
+        `Failed to fetch response: ${response.statusText}`,
       ),
     );
   }

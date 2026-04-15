@@ -22,7 +22,7 @@ import {
 import { workspaceMessageRehypePlugins } from "@/core/streamdown";
 import type { Subtask } from "@/core/tasks";
 import { useSubtaskContext, useUpdateSubtask } from "@/core/tasks/context";
-import type { AgentThreadState } from "@/core/threads";
+import type { AgentThreadState, ExecutionStatus } from "@/core/threads";
 import {
   extractQuestionReplyFromMessages,
   extractQuestionRequestFromMessages,
@@ -683,11 +683,13 @@ export function MessageList({
   className,
   threadId,
   thread,
+  executionStatus,
   paddingBottom = 240,
 }: {
   className?: string;
   threadId: string;
   thread: BaseStream<AgentThreadState>;
+  executionStatus?: ExecutionStatus | null;
   paddingBottom?: number;
 }) {
   const updateSubtask = useUpdateSubtask();
@@ -745,6 +747,35 @@ export function MessageList({
     );
   }, [persistedSubtaskTurn, visibleCurrentTurnTaskIds]);
   const workspaceEvents = workspaceSurface?.events ?? [];
+  const inlineExecutionLabel = useMemo(() => {
+    if (!executionStatus) {
+      return null;
+    }
+
+    if (executionStatus.event === "retrying") {
+      return executionStatus.tool_name
+        ? `Retrying ${executionStatus.tool_name}`
+        : "Retrying model";
+    }
+    if (executionStatus.event === "failed" || executionStatus.event === "retry_failed") {
+      return executionStatus.error?.trim() || "Run failed";
+    }
+    if (executionStatus.event === "interrupted") {
+      return "Run stopped";
+    }
+    if (executionStatus.event === "completed") {
+      return "Run completed";
+    }
+    if (executionStatus.phase_kind === "tool") {
+      return executionStatus.tool_name
+        ? `Running ${executionStatus.tool_name}`
+        : "Running tool";
+    }
+    if (executionStatus.phase === "thinking_finalize") {
+      return "Finalizing response";
+    }
+    return "Thinking";
+  }, [executionStatus]);
 
   useEffect(() => {
     for (const update of subtaskUpdates) {
@@ -824,6 +855,13 @@ export function MessageList({
             ))}
           </div>
         )}
+        {inlineExecutionLabel ? (
+          <div className="flex w-full justify-center">
+            <div className="w-full border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+              {inlineExecutionLabel}
+            </div>
+          </div>
+        ) : null}
         {thread.isLoading && <StreamingIndicator className="my-4" />}
         <div style={{ height: `${paddingBottom}px` }} />
       </ConversationContent>

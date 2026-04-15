@@ -108,6 +108,7 @@ class AgentConfig(BaseModel):
 
     name: str
     description: str = ""
+    owner_user_id: str | None = None
     model: str | None = None
     tool_groups: list[str] | None = None
     tool_names: list[str] | None = None
@@ -120,6 +121,7 @@ class AgentConfig(BaseModel):
 
     @model_validator(mode="after")
     def normalize_manifest_lists(self) -> "AgentConfig":
+        self.owner_user_id = _normalize_optional_text(self.owner_user_id)
         self.tool_groups = _normalize_optional_string_list(self.tool_groups, field_name="tool_groups")
         self.tool_names = _normalize_optional_string_list(self.tool_names, field_name="tool_names")
         self.mcp_servers = _normalize_optional_string_list(self.mcp_servers, field_name="mcp_servers")

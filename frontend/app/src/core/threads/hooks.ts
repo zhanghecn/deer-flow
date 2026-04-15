@@ -39,8 +39,9 @@ import type {
   AgentInterrupt,
   AgentThread,
   AgentThreadState,
-  RetryStatus,
-  RetryStatusEvent,
+  ExecutionEvent,
+  ExecutionStatus,
+  TaskRunningEvent,
 } from "./types";
 
 export type ToolEndEvent = {
@@ -937,40 +938,140 @@ function areEquivalentMessageLists(left: Message[], right: Message[]): boolean {
   });
 }
 
-function isRetryStatusEvent(event: unknown): event is RetryStatusEvent {
+function isExecutionEvent(event: unknown): event is ExecutionEvent {
   if (!event || typeof event !== "object") {
     return false;
   }
 
   return (
     "type" in event &&
-    event.type === "retry_status" &&
-    "scope" in event &&
-    (event.scope === "model" || event.scope === "tool") &&
-    "status" in event &&
-    (event.status === "retrying" ||
-      event.status === "completed" ||
-      event.status === "failed") &&
-    "retry_count" in event &&
-    typeof event.retry_count === "number" &&
-    "max_retries" in event &&
-    typeof event.max_retries === "number" &&
+    event.type === "execution_event" &&
+    "event" in event &&
+    typeof event.event === "string" &&
     "occurred_at" in event &&
     typeof event.occurred_at === "string"
   );
 }
 
-function toRetryStatus(event: RetryStatusEvent): RetryStatus {
+function isTaskRunningEvent(event: unknown): event is TaskRunningEvent {
+  if (!event || typeof event !== "object") {
+    return false;
+  }
+
+  return (
+    "type" in event &&
+    event.type === "task_running" &&
+    "task_id" in event &&
+    typeof event.task_id === "string" &&
+    "message" in event &&
+    typeof event.message === "object" &&
+    event.message !== null
+  );
+}
+
+function applyExecutionEvent(
+  previous: ExecutionStatus | null,
+  event: ExecutionEvent,
+): ExecutionStatus | null {
+  const runStartedAt =
+    previous?.run_started_at ?? event.started_at ?? event.occurred_at;
+
+  if (event.event === "run_started") {
+    return {
+      event: "run_started",
+      phase_kind: "run",
+      started_at: event.started_at ?? event.occurred_at,
+      run_started_at: event.started_at ?? event.occurred_at,
+      terminal: false,
+    };
+  }
+
+  if (event.event === "phase_started") {
+    return {
+      event: "phase_started",
+      phase: event.phase,
+      phase_kind: event.phase_kind,
+      started_at: event.started_at ?? event.occurred_at,
+      run_started_at: runStartedAt,
+      tool_name: event.tool_name,
+      terminal: false,
+    };
+  }
+
+  if (event.event === "phase_finished") {
+    return {
+      event: "phase_finished",
+      phase: event.phase,
+      phase_kind: event.phase_kind,
+      started_at:
+        event.started_at ?? previous?.started_at ?? event.occurred_at,
+      run_started_at: runStartedAt,
+      finished_at: event.finished_at ?? event.occurred_at,
+      duration_ms: event.duration_ms,
+      tool_name: event.tool_name,
+      error: event.error,
+      error_type: event.error_type,
+      terminal: false,
+    };
+  }
+
+  if (
+    event.event === "retrying" ||
+    event.event === "retry_completed" ||
+    event.event === "retry_failed"
+  ) {
+    return {
+      event: event.event,
+      phase: event.phase ?? "retry_wait",
+      phase_kind: "retry",
+      started_at: event.started_at ?? event.occurred_at,
+      run_started_at: runStartedAt,
+      finished_at: event.finished_at,
+      tool_name: event.tool_name,
+      retry_count: event.retry_count,
+      max_retries: event.max_retries,
+      delay_seconds: event.delay_seconds,
+      error: event.error,
+      error_type: event.error_type,
+      terminal: false,
+    };
+  }
+
+  return previous;
+}
+
+function finalizeExecutionStatus(
+  previous: ExecutionStatus | null,
+  {
+    terminalEvent,
+    error = null,
+  }: {
+    terminalEvent: "completed" | "failed" | "interrupted";
+    error?: unknown;
+  },
+): ExecutionStatus | null {
+  if (!previous) {
+    return null;
+  }
+  if (previous.terminal) {
+    return previous;
+  }
+
+  const finishedAt = new Date().toISOString();
+  const startedAt = new Date(previous.run_started_at);
+  const endAt = new Date(finishedAt);
+  const totalDurationMs = Number.isNaN(startedAt.getTime())
+    ? previous.total_duration_ms
+    : Math.max(0, endAt.getTime() - startedAt.getTime());
+
   return {
-    scope: event.scope,
-    retry_count: event.retry_count,
-    max_retries: event.max_retries,
-    occurred_at: event.occurred_at,
-    next_retry_at: event.next_retry_at,
-    delay_seconds: event.delay_seconds,
-    tool_name: event.tool_name,
-    error: event.error,
-    error_type: event.error_type,
+    ...previous,
+    event: terminalEvent,
+    finished_at: finishedAt,
+    total_duration_ms: totalDurationMs,
+    error:
+      terminalEvent === "failed" ? normalizeThreadError(error) : previous.error,
+    terminal: true,
   };
 }
 
@@ -1038,7 +1139,8 @@ export function useThreadStream({
     null,
   );
   const [pendingRecoveryLoading, setPendingRecoveryLoading] = useState(false);
-  const [retryStatus, setRetryStatus] = useState<RetryStatus | null>(null);
+  const [executionStatus, setExecutionStatus] =
+    useState<ExecutionStatus | null>(null);
   const [historyEnabled, setHistoryEnabled] = useState(
     () => !!threadId && !skipInitialHistory,
   );
@@ -1126,7 +1228,6 @@ export function useThreadStream({
     (error: unknown) => {
       const activeThreadId = streamThreadId ?? threadId;
       if (shouldSuppressOwnedMissingRunReplay(error, activeThreadId)) {
-        setRetryStatus(null);
         lastErrorMessageRef.current = null;
         return null;
       }
@@ -1134,13 +1235,23 @@ export function useThreadStream({
       if (shouldIgnoreThreadError(error)) {
         // Query/stream cancellation is local teardown, not a user-visible run
         // failure. Keep the retry banner clear without surfacing a false error.
-        setRetryStatus(null);
+        setExecutionStatus((current) =>
+          finalizeExecutionStatus(current, {
+            terminalEvent: "interrupted",
+            error,
+          }),
+        );
         lastErrorMessageRef.current = null;
         return null;
       }
 
       const message = normalizeThreadError(error);
-      setRetryStatus(null);
+      setExecutionStatus((current) =>
+        finalizeExecutionStatus(current, {
+          terminalEvent: "failed",
+          error,
+        }),
+      );
       if (lastErrorMessageRef.current === message) {
         return message;
       }
@@ -1165,7 +1276,11 @@ export function useThreadStream({
 
       terminalStateNotifiedRef.current = true;
       setPendingRecoveryLoading(false);
-      setRetryStatus(null);
+      setExecutionStatus((current) =>
+        finalizeExecutionStatus(current, {
+          terminalEvent: "completed",
+        }),
+      );
       const activeThreadId = resolvedThreadId ?? streamThreadId ?? threadId;
       clearLocalActiveRunOwnership(activeThreadId);
       clearStoredActiveRunId(activeThreadId);
@@ -1193,7 +1308,12 @@ export function useThreadStream({
 
       terminalStateNotifiedRef.current = true;
       setPendingRecoveryLoading(false);
-      setRetryStatus(null);
+      setExecutionStatus((current) =>
+        finalizeExecutionStatus(current, {
+          terminalEvent: "failed",
+          error,
+        }),
+      );
       const activeThreadId = resolvedThreadId ?? streamThreadId ?? threadId;
       clearLocalActiveRunOwnership(activeThreadId);
       clearStoredActiveRunId(activeThreadId);
@@ -1251,27 +1371,13 @@ export function useThreadStream({
       }
     },
     onCustomEvent(event: unknown) {
-      if (isRetryStatusEvent(event)) {
-        if (event.status === "retrying") {
-          setRetryStatus(toRetryStatus(event));
-        } else {
-          setRetryStatus(null);
-        }
+      if (isExecutionEvent(event)) {
+        setExecutionStatus((current) => applyExecutionEvent(current, event));
         return;
       }
 
-      if (
-        typeof event === "object" &&
-        event !== null &&
-        "type" in event &&
-        event.type === "task_running"
-      ) {
-        const e = event as {
-          type: "task_running";
-          task_id: string;
-          message: AIMessage;
-        };
-        updateSubtask({ id: e.task_id, latestMessage: e.message });
+      if (isTaskRunningEvent(event)) {
+        updateSubtask({ id: event.task_id, latestMessage: event.message as AIMessage });
       }
     },
     onFinish(state) {
@@ -1302,7 +1408,7 @@ export function useThreadStream({
   useEffect(() => {
     setThreadOverride(null);
     setPendingRecoveryLoading(false);
-    setRetryStatus(null);
+    setExecutionStatus(null);
     joinedRunIdRef.current = null;
     lastHydrationActivationRef.current = null;
     stateHydrationInFlightRef.current = false;
@@ -1359,7 +1465,12 @@ export function useThreadStream({
 
   useEffect(() => {
     if (!thread.isLoading) {
-      setRetryStatus(null);
+      setExecutionStatus((current) =>
+        finalizeExecutionStatus(current, {
+          terminalEvent: thread.error ? "failed" : "completed",
+          error: thread.error,
+        }),
+      );
       return;
     }
     // Once the SDK reports a live active stream again, the recovery spinner can
@@ -1687,7 +1798,7 @@ export function useThreadStream({
       terminalStateNotifiedRef.current = false;
       manualHistorySeedRef.current = false;
       setThreadOverride(null);
-      setRetryStatus(null);
+      setExecutionStatus(null);
       lastErrorMessageRef.current = null;
       previousMessageCountRef.current = thread.messages.length;
       markLocalActiveRunOwnership(runThreadId);
@@ -1820,7 +1931,7 @@ export function useThreadStream({
       terminalStateNotifiedRef.current = false;
       manualHistorySeedRef.current = false;
       setThreadOverride(null);
-      setRetryStatus(null);
+      setExecutionStatus(null);
       lastErrorMessageRef.current = null;
       markLocalActiveRunOwnership(runThreadId);
 
@@ -1878,7 +1989,11 @@ export function useThreadStream({
     }
 
     const activeRunTarget = resolveActiveRunTarget(threadId, streamThreadId);
-    setRetryStatus(null);
+    setExecutionStatus((current) =>
+      finalizeExecutionStatus(current, {
+        terminalEvent: "interrupted",
+      }),
+    );
     manualHistorySeedRef.current = false;
     setPendingRecoveryLoading(false);
     const snapshot = buildThreadOverride(
@@ -2020,6 +2135,6 @@ export function useThreadStream({
     sendMessage,
     resumeInterrupt,
     isThreadReady,
-    retryStatus,
+    executionStatus,
   ] as const;
 }

@@ -177,7 +177,7 @@ def test_builtin_lead_agent_prompt_keeps_skill_discovery_local_first():
     assert "find-skills" in agents_md
     assert "/mnt/skills/system/skills" in agents_md
     assert "/mnt/skills/custom/skills" in agents_md
-    assert "local-archive-first" in agents_md
+    assert "Skill discovery is local-first" in agents_md
 
 
 def test_system_lead_agent_prod_manifest_keeps_default_skill_set_in_sync_with_dev():
@@ -196,7 +196,10 @@ def test_system_lead_agent_manifests_do_not_pin_vision_only_tools():
     dev_config = yaml.safe_load((repo_root / ".openagents/system/agents/dev/lead_agent/config.yaml").read_text(encoding="utf-8"))
     prod_config = yaml.safe_load((repo_root / ".openagents/system/agents/prod/lead_agent/config.yaml").read_text(encoding="utf-8"))
 
-    # Vision-only tools are runtime-conditional. Pinning them in static manifests
-    # breaks non-vision models before the agent can even start.
-    assert "view_image" not in dev_config["tool_names"]
-    assert "view_image" not in prod_config["tool_names"]
+    # Built-in lead_agent should inherit the default runtime tool surface. If
+    # the archive pins an explicit main-tool allowlist, newly added configured
+    # tools silently disappear from prod until someone edits the manifest again.
+    assert "tool_names" not in dev_config
+    assert "tool_names" not in prod_config
+    assert "tool_groups" not in dev_config
+    assert "tool_groups" not in prod_config

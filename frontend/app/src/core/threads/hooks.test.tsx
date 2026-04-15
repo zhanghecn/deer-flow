@@ -569,7 +569,7 @@ describe("useThreadStream", () => {
     );
   });
 
-  it("tracks retry progress from custom stream events and clears it when completed", async () => {
+  it("tracks unified execution progress from custom stream events", async () => {
     const { result } = renderHook(
       () =>
         useThreadStream({
@@ -591,42 +591,83 @@ describe("useThreadStream", () => {
 
     act(() => {
       onCustomEvent({
-        type: "retry_status",
-        scope: "model",
-        status: "retrying",
+        type: "execution_event",
+        event: "phase_started",
+        occurred_at: "2026-03-23T12:00:00Z",
+        started_at: "2026-03-23T12:00:00Z",
+        phase: "thinking_initial",
+        phase_kind: "model",
+      });
+    });
+
+    expect(result.current[4]).toEqual({
+      event: "phase_started",
+      phase: "thinking_initial",
+      phase_kind: "model",
+      started_at: "2026-03-23T12:00:00Z",
+      run_started_at: "2026-03-23T12:00:00Z",
+      tool_name: undefined,
+      terminal: false,
+    });
+
+    act(() => {
+      onCustomEvent({
+        type: "execution_event",
+        event: "retrying",
+        occurred_at: "2026-03-23T12:00:01Z",
+        started_at: "2026-03-23T12:00:01Z",
+        phase: "retry_wait",
+        phase_kind: "retry",
         retry_count: 2,
         max_retries: 5,
-        occurred_at: "2026-03-23T12:00:00Z",
-        next_retry_at: "2026-03-23T12:00:01Z",
         delay_seconds: 1,
         error: "429 Too Many Requests",
       });
     });
 
     expect(result.current[4]).toEqual({
-      scope: "model",
+      event: "retrying",
+      phase: "retry_wait",
+      phase_kind: "retry",
+      started_at: "2026-03-23T12:00:01Z",
+      run_started_at: "2026-03-23T12:00:00Z",
+      finished_at: undefined,
+      tool_name: undefined,
       retry_count: 2,
       max_retries: 5,
-      occurred_at: "2026-03-23T12:00:00Z",
-      next_retry_at: "2026-03-23T12:00:01Z",
       delay_seconds: 1,
       error: "429 Too Many Requests",
       error_type: undefined,
-      tool_name: undefined,
+      terminal: false,
     });
 
     act(() => {
       onCustomEvent({
-        type: "retry_status",
-        scope: "model",
-        status: "completed",
+        type: "execution_event",
+        event: "retry_completed",
         retry_count: 2,
         max_retries: 5,
         occurred_at: "2026-03-23T12:00:02Z",
+        started_at: "2026-03-23T12:00:02Z",
+        phase: "retry_wait",
       });
     });
 
-    expect(result.current[4]).toBeNull();
+    expect(result.current[4]).toEqual({
+      event: "retry_completed",
+      phase: "retry_wait",
+      phase_kind: "retry",
+      started_at: "2026-03-23T12:00:02Z",
+      run_started_at: "2026-03-23T12:00:00Z",
+      finished_at: undefined,
+      tool_name: undefined,
+      retry_count: 2,
+      max_retries: 5,
+      delay_seconds: undefined,
+      error: undefined,
+      error_type: undefined,
+      terminal: false,
+    });
   });
 
   it("surfaces hydrated interrupts from thread state recovery", async () => {
@@ -699,6 +740,50 @@ describe("useThreadStream", () => {
           ],
         },
       });
+    });
+  });
+
+  it("routes task_running custom events through the typed runtime event path", () => {
+    const { result } = renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-task-running",
+          context: {
+            thread_id: "thread-task-running",
+            model_name: "selected-model",
+            mode: "pro",
+            thinking_enabled: true,
+            is_plan_mode: false,
+            subagent_enabled: true,
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    const onCustomEvent = latestUseStreamOptions?.onCustomEvent;
+    expect(typeof onCustomEvent).toBe("function");
+    if (typeof onCustomEvent !== "function") {
+      throw new Error("Expected onCustomEvent callback to be registered.");
+    }
+
+    const message = {
+      type: "ai",
+      id: "ai-task-1",
+      content: "still running",
+    } as Message;
+
+    act(() => {
+      onCustomEvent({
+        type: "task_running",
+        task_id: "task-1",
+        message,
+      });
+    });
+
+    expect(result.current[4]).toBeNull();
+    expect(updateSubtask).toHaveBeenCalledWith({
+      id: "task-1",
+      latestMessage: message,
     });
   });
 

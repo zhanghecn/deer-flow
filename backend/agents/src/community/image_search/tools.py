@@ -119,8 +119,11 @@ def image_search_tool(
     normalized_results = [
         {
             "title": r.get("title", ""),
-            "image_url": r.get("thumbnail", ""),
+            # Preserve the full-size image plus the source page URL because the
+            # workspace UI links the thumbnail card to the originating result.
+            "image_url": r.get("image", ""),
             "thumbnail_url": r.get("thumbnail", ""),
+            "source_url": r.get("url", ""),
         }
         for r in results
     ]

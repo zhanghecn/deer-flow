@@ -16,6 +16,9 @@ type APIErrorShape = {
   error?: string;
 };
 
+const UNPUBLISHED_PUBLIC_AGENT_DOCS_MESSAGE =
+  "Published agent docs are only available after the agent is published to prod.";
+
 function resolveAPIErrorMessage(
   payload: APIErrorShape,
   fallback: string,
@@ -92,10 +95,17 @@ export async function updateAgent(
   return res.json() as Promise<Agent>;
 }
 
-export async function deleteAgent(name: string): Promise<void> {
-  const res = await authFetch(`${getBackendBaseURL()}/api/agents/${name}`, {
-    method: "DELETE",
-  });
+export async function deleteAgent(
+  name: string,
+  status?: AgentStatus,
+): Promise<void> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  const res = await authFetch(
+    `${getBackendBaseURL()}/api/agents/${name}${query}`,
+    {
+      method: "DELETE",
+    },
+  );
   if (!res.ok) {
     const err = (await res.json().catch(() => ({}))) as APIErrorShape;
     throw new Error(
@@ -157,6 +167,9 @@ export async function getPublicAgentExportDoc(
 ): Promise<AgentExportDoc> {
   const res = await fetch(`${getBackendBaseURL()}/open/agents/${name}/export`);
   if (!res.ok) {
+    if (res.status === 404) {
+      throw new Error(UNPUBLISHED_PUBLIC_AGENT_DOCS_MESSAGE);
+    }
     const err = (await res.json().catch(() => ({}))) as APIErrorShape;
     throw new Error(
       resolveAPIErrorMessage(
@@ -167,3 +180,5 @@ export async function getPublicAgentExportDoc(
   }
   return res.json() as Promise<AgentExportDoc>;
 }
+
+export { UNPUBLISHED_PUBLIC_AGENT_DOCS_MESSAGE };

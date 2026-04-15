@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/openagents/gateway/internal/model"
@@ -342,7 +343,7 @@ func TestBuildResponseArtifactsDiscoversThreadOutputsWithoutPresentFiles(t *test
 func TestPublicAPIRunCollectorExtractsTextDeltaFromMessagesEvent(t *testing.T) {
 	t.Parallel()
 
-	collector := newPublicAPIRunCollector()
+	collector := newPublicAPIRunCollector(1)
 	record := collector.consume("messages", []any{
 		map[string]any{
 			"type": "AIMessageChunk",
@@ -359,10 +360,148 @@ func TestPublicAPIRunCollectorExtractsTextDeltaFromMessagesEvent(t *testing.T) {
 		},
 	})
 
-	if record.OpenAgentsEvent.Category != "assistant.message" {
-		t.Fatalf("unexpected category %q", record.OpenAgentsEvent.Category)
+	if len(record.RunEvents) != 1 {
+		t.Fatalf("expected 1 run event, got %#v", record.RunEvents)
 	}
-	if record.TextDelta != " OK" {
-		t.Fatalf("unexpected text delta %q", record.TextDelta)
+	if record.RunEvents[0].Type != "assistant_delta" {
+		t.Fatalf("unexpected run event type %q", record.RunEvents[0].Type)
+	}
+	if record.RunEvents[0].Delta != " OK" {
+		t.Fatalf("unexpected text delta %q", record.RunEvents[0].Delta)
+	}
+}
+
+func TestBuildResponseRunEventsKeepsV1BudgetOrdered(t *testing.T) {
+	t.Parallel()
+
+	invocation := &model.PublicAPIInvocation{
+		ResponseID: "resp_test",
+		CreatedAt:  time.Unix(42, 0).UTC(),
+	}
+	runtimeEvents := []model.PublicAPIRunEvent{
+		{EventIndex: 2, CreatedAt: 43, Type: "tool_started", ResponseID: "resp_test", ToolName: "bash"},
+		{EventIndex: 3, CreatedAt: 44, Type: "tool_finished", ResponseID: "resp_test", ToolName: "bash"},
+	}
+
+	events := buildResponseRunEvents(invocation, runtimeEvents, "done")
+	if len(events) != 5 {
+		t.Fatalf("expected 5 run events, got %#v", events)
+	}
+	if events[0].Type != "run_started" || events[0].EventIndex != 1 {
+		t.Fatalf("unexpected first event %#v", events[0])
+	}
+	if events[3].Type != "assistant_message" || events[3].EventIndex != 4 {
+		t.Fatalf("unexpected assistant terminal event %#v", events[3])
+	}
+	if events[4].Type != "run_completed" || events[4].EventIndex != 5 {
+		t.Fatalf("unexpected completion event %#v", events[4])
+	}
+}
+
+func TestBuildInterruptedRunEventsKeepsRunStartedWithoutTerminalCompletion(t *testing.T) {
+	t.Parallel()
+
+	invocation := &model.PublicAPIInvocation{
+		ResponseID: "resp_test",
+		CreatedAt:  time.Unix(42, 0).UTC(),
+	}
+	runtimeEvents := []model.PublicAPIRunEvent{
+		{EventIndex: 2, CreatedAt: 43, Type: model.PublicAPIToolStarted, ToolName: "question"},
+		{EventIndex: 3, CreatedAt: 44, Type: model.PublicAPIToolFinished, ToolName: "question"},
+		{EventIndex: 4, CreatedAt: 45, Type: model.PublicAPIQuestionRequested, QuestionID: "call_123"},
+	}
+
+	events := buildInterruptedRunEvents(invocation, runtimeEvents)
+	if len(events) != 4 {
+		t.Fatalf("expected 4 run events, got %#v", events)
+	}
+	if events[0].Type != model.PublicAPIRunStarted || events[0].EventIndex != 1 {
+		t.Fatalf("unexpected first event %#v", events[0])
+	}
+	if events[len(events)-1].Type != model.PublicAPIQuestionRequested {
+		t.Fatalf("unexpected final event %#v", events[len(events)-1])
+	}
+}
+
+func TestPublicAPIRunCollectorMapsToolExecutionCustomEvents(t *testing.T) {
+	t.Parallel()
+
+	collector := newPublicAPIRunCollector(1)
+	record := collector.consume("custom", map[string]any{
+		"type":       "execution_event",
+		"event":      "phase_started",
+		"phase_kind": "tool",
+		"tool_name":  "execute",
+	})
+
+	if len(record.RunEvents) != 1 {
+		t.Fatalf("expected 1 run event, got %#v", record.RunEvents)
+	}
+	if record.RunEvents[0].Type != model.PublicAPIToolStarted {
+		t.Fatalf("unexpected run event type %#v", record.RunEvents[0].Type)
+	}
+	if record.RunEvents[0].ToolName != "execute" {
+		t.Fatalf("unexpected tool name %#v", record.RunEvents[0].ToolName)
+	}
+}
+
+func TestPublicAPIRunCollectorMapsInterruptUpdatesToQuestionRequests(t *testing.T) {
+	t.Parallel()
+
+	collector := newPublicAPIRunCollector(1)
+	record := collector.consume("updates", map[string]any{
+		"__interrupt__": []any{
+			map[string]any{
+				"value": map[string]any{
+					"request_id": "question-123",
+				},
+			},
+		},
+	})
+
+	if len(record.RunEvents) != 1 {
+		t.Fatalf("expected 1 run event, got %#v", record.RunEvents)
+	}
+	if record.RunEvents[0].Type != model.PublicAPIQuestionRequested {
+		t.Fatalf("unexpected run event type %#v", record.RunEvents[0].Type)
+	}
+	if record.RunEvents[0].QuestionID != "question-123" {
+		t.Fatalf("unexpected question identifier %#v", record.RunEvents[0].QuestionID)
+	}
+}
+
+func TestPublicAPIRunCollectorDropsDuplicateUnmatchedToolFinish(t *testing.T) {
+	t.Parallel()
+
+	collector := newPublicAPIRunCollector(1)
+
+	started := collector.consume("custom", map[string]any{
+		"type":       "execution_event",
+		"event":      "phase_started",
+		"phase_kind": "tool",
+		"tool_name":  "question",
+	})
+	if len(started.RunEvents) != 1 || started.RunEvents[0].Type != model.PublicAPIToolStarted {
+		t.Fatalf("unexpected started events %#v", started.RunEvents)
+	}
+
+	finished := collector.consume("custom", map[string]any{
+		"type":       "execution_event",
+		"event":      "phase_finished",
+		"phase_kind": "tool",
+		"tool_name":  "question",
+	})
+	if len(finished.RunEvents) != 1 || finished.RunEvents[0].Type != model.PublicAPIToolFinished {
+		t.Fatalf("unexpected finished events %#v", finished.RunEvents)
+	}
+
+	duplicate := collector.consume("custom", map[string]any{
+		"type":       "execution_event",
+		"event":      "phase_finished",
+		"phase_kind": "tool",
+		"tool_name":  "question",
+	})
+	if len(duplicate.RunEvents) != 0 {
+		t.Fatalf("expected duplicate tool finish to be dropped, got %#v", duplicate.RunEvents)
 	}
 }

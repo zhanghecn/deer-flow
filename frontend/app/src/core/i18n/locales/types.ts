@@ -94,6 +94,14 @@ export interface Translations {
     ) => string;
     retryingToolGeneric: (current: number, max: number, time: string) => string;
     retryDelay: (seconds: string) => string;
+    executionThinking: (elapsed?: string) => string;
+    executionRunningTool: (toolName: string | undefined, elapsed?: string) => string;
+    executionFinalizing: (elapsed?: string) => string;
+    executionRetryCompleted: string;
+    executionRetryFailed: string;
+    executionCompleted: (elapsed?: string) => string;
+    executionFailed: (elapsed?: string) => string;
+    executionStopped: (elapsed?: string) => string;
     suggestions: {
       suggestion: string;
       prompt: string;
@@ -135,6 +143,14 @@ export interface Translations {
     delete: string;
     deleteConfirm: string;
     deleteSuccess: string;
+    deleteArchiveTitle: (agentName: string) => string;
+    deleteArchiveDescription: (agentName: string) => string;
+    deleteDraft: string;
+    deletePublished: string;
+    deleteAllArchives: string;
+    deleteDraftSuccess: (agentName: string) => string;
+    deletePublishedSuccess: (agentName: string) => string;
+    deleteAllArchivesSuccess: (agentName: string) => string;
     publish: string;
     publishSuccess: (agentName: string) => string;
     ownerBadge: string;

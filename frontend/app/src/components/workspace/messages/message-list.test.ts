@@ -142,4 +142,29 @@ describe("subtask aggregate state", () => {
     expect(screen.getByText("Design saved")).toBeInTheDocument();
     expect(screen.getByText("canvas.op")).toBeInTheDocument();
   });
+
+  it("renders the inline execution status row when a normalized run status is present", () => {
+    render(
+      React.createElement(MessageList, {
+        threadId: "thread-1",
+        thread: {
+          messages: [],
+          isLoading: true,
+          isThreadLoading: false,
+        } as never,
+        executionStatus: {
+          event: "phase_started",
+          phase: "tool_run",
+          phase_kind: "tool",
+          started_at: "2026-04-14T10:00:00Z",
+          run_started_at: "2026-04-14T10:00:00Z",
+          tool_name: "bash",
+          terminal: false,
+        },
+        paddingBottom: 0,
+      }),
+    );
+
+    expect(screen.getByText("Running bash")).toBeInTheDocument();
+  });
 });

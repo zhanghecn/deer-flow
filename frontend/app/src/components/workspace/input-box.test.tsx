@@ -111,6 +111,20 @@ vi.mock("@/core/i18n/hooks", () => ({
         retryingTool: () => "Retrying tool",
         retryingToolGeneric: () => "Retrying tool",
         retryDelay: () => "Retrying soon",
+        executionThinking: (elapsed?: string) =>
+          `Thinking${elapsed ? ` ${elapsed}` : ""}`,
+        executionRunningTool: (toolName?: string, elapsed?: string) =>
+          `${toolName ? `Running ${toolName}` : "Running tool"}${elapsed ? ` ${elapsed}` : ""}`,
+        executionFinalizing: (elapsed?: string) =>
+          `Finalizing${elapsed ? ` ${elapsed}` : ""}`,
+        executionRetryCompleted: "Retry completed",
+        executionRetryFailed: "Retry failed",
+        executionCompleted: (elapsed?: string) =>
+          elapsed ? `Completed in ${elapsed}` : "Completed",
+        executionFailed: (elapsed?: string) =>
+          elapsed ? `Failed after ${elapsed}` : "Failed",
+        executionStopped: (elapsed?: string) =>
+          elapsed ? `Stopped after ${elapsed}` : "Stopped",
         suggestions: [],
         suggestionsCreate: [],
       },
@@ -363,6 +377,42 @@ describe("InputBox", () => {
 
     expect(onStop).toHaveBeenCalledTimes(1);
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("renders unified execution status in the input footer", () => {
+    const queryClient = new QueryClient();
+
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <PromptInputProvider>
+            <InputBox
+              threadId="thread-test"
+              status="ready"
+              executionStatus={{
+                event: "completed",
+                phase_kind: "run",
+                started_at: "2026-03-23T12:00:00Z",
+                run_started_at: "2026-03-23T12:00:00Z",
+                finished_at: "2026-03-23T12:00:09Z",
+                total_duration_ms: 9600,
+                terminal: true,
+              }}
+              context={{
+                model_name: "kimi-k2.5",
+                mode: "pro",
+                subagent_enabled: false,
+                agent_status: "dev",
+              }}
+              onContextChange={vi.fn()}
+              onSubmit={vi.fn()}
+            />
+          </PromptInputProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Completed in 9.6s")).toBeInTheDocument();
   });
 
   it("submits explicit surface and selection context from the design workspace", async () => {

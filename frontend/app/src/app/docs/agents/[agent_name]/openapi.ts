@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import type { AgentExportDoc } from "@/core/agents";
+import { UNPUBLISHED_PUBLIC_AGENT_DOCS_MESSAGE } from "@/core/agents/api";
 
 export type OpenAPIHttpMethod =
   | "delete"
@@ -502,6 +503,7 @@ export function usePublicAgentOpenAPIDoc(exportDoc: AgentExportDoc | null) {
   const { data, isLoading, error } = useQuery<OpenAPIDocument>({
     queryKey: ["public-agents", exportDoc?.agent, "openapi", openapiURL],
     enabled: Boolean(openapiURL),
+    retry: false,
     queryFn: async () => {
       if (!openapiURL) {
         throw new Error("Missing OpenAPI URL");
@@ -511,6 +513,9 @@ export function usePublicAgentOpenAPIDoc(exportDoc: AgentExportDoc | null) {
       // source of truth, instead of layering UI-specific fallbacks on top.
       const response = await fetch(openapiURL);
       if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error(UNPUBLISHED_PUBLIC_AGENT_DOCS_MESSAGE);
+        }
         throw new Error(`Failed to load OpenAPI document: ${response.status}`);
       }
       return (await response.json()) as OpenAPIDocument;

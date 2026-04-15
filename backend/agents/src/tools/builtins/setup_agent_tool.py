@@ -18,6 +18,7 @@ from src.config.agent_skill_preservation import (
 )
 from src.config.agents_config import AGENT_NAME_PATTERN, AgentConfig, load_agent_config, load_agent_subagents, load_agents_md
 from src.config.paths import get_paths
+from src.config.runtime_db import get_runtime_db_store
 from src.runtime_backends import (
     REMOTE_EXECUTION_BACKEND,
     build_runtime_workspace_backend,
@@ -263,6 +264,7 @@ def _resolve_manifest_update_inputs(
     agent_name: str,
     agent_status: str,
     paths: Any,
+    owner_user_id: str | None,
     agents_md: str | None,
     description: str | None,
     tool_groups: list[str] | None,
@@ -270,6 +272,7 @@ def _resolve_manifest_update_inputs(
     _ExistingAgentUpdateState | None,
     str,
     str,
+    str | None,
     list[str] | None,
     list[str] | None,
     list[str] | None,
@@ -302,6 +305,7 @@ def _resolve_manifest_update_inputs(
             None,
             explicit_agents_md,
             explicit_description,
+            owner_user_id,
             tool_groups,
             None,
             None,
@@ -316,10 +320,12 @@ def _resolve_manifest_update_inputs(
             f"setup_agent could not load existing AGENTS.md for '{agent_name}'. "
             "Pass explicit `agents_md` or repair the archived agent definition first."
         )
+    resolved_owner_user_id = existing_state.config.owner_user_id or owner_user_id
     return (
         existing_state,
         explicit_agents_md if explicit_agents_md is not None else existing_state.agents_md,
         explicit_description if explicit_description is not None else existing_state.config.description,
+        resolved_owner_user_id,
         resolved_tool_groups,
         existing_state.config.tool_names,
         existing_state.config.mcp_servers,
@@ -402,6 +408,22 @@ def _runtime_thread_id(runtime: ToolRuntime | None) -> str | None:
         if normalized:
             return normalized
     return None
+
+
+def _resolve_owner_user_id(*, runtime: ToolRuntime | None, thread_id: str | None) -> str | None:
+    runtime_context = getattr(runtime, "context", None)
+    direct_user_id = str(runtime_context_value(runtime_context, "user_id") or "").strip()
+    if direct_user_id:
+        return direct_user_id
+
+    if not thread_id:
+        return None
+
+    try:
+        owner_user_id = str(get_runtime_db_store().get_thread_owner(thread_id) or "").strip()
+    except Exception:
+        return None
+    return owner_user_id or None
 
 
 def _resolve_setup_agent_name(*, runtime_context: object, explicit_agent_name: str | None) -> str | None:
@@ -551,12 +573,14 @@ def setup_agent(
         paths = get_paths()
         agent_status = str(runtime_context_value(runtime.context, "agent_status", "dev")).strip() or "dev"
         runtime_thread_id = _runtime_thread_id(runtime)
+        owner_user_id = _resolve_owner_user_id(runtime=runtime, thread_id=runtime_thread_id)
         execution_backend = str(runtime_context_value(runtime.context, "execution_backend") or "").strip() or None
         remote_session_id = str(runtime_context_value(runtime.context, "remote_session_id") or "").strip() or None
         (
             existing_state,
             resolved_agents_md,
             resolved_description,
+            resolved_owner_user_id,
             resolved_tool_groups,
             resolved_tool_names,
             resolved_mcp_servers,
@@ -567,6 +591,7 @@ def setup_agent(
             agent_name=resolved_agent_name,
             agent_status=agent_status,
             paths=paths,
+            owner_user_id=owner_user_id,
             agents_md=agents_md,
             description=description,
             tool_groups=tool_groups,
@@ -592,6 +617,7 @@ def setup_agent(
             name=resolved_agent_name,
             status=agent_status,
             agents_md=resolved_agents_md,
+            owner_user_id=resolved_owner_user_id,
             description=resolved_description,
             model=resolved_model,
             tool_groups=resolved_tool_groups,

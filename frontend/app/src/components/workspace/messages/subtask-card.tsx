@@ -13,10 +13,8 @@ import {
   ChainOfThoughtContent,
   ChainOfThoughtStep,
 } from "@/components/ai-elements/chain-of-thought";
-import { Shimmer } from "@/components/ai-elements/shimmer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ShineBorder } from "@/components/ui/shine-border";
 import { useI18n } from "@/core/i18n/hooks";
 import { hasToolCalls } from "@/core/messages/utils";
 import {
@@ -94,28 +92,15 @@ export function SubtaskCard({
   return (
     <ChainOfThought
       className={cn(
-        "relative w-full gap-2 rounded-lg border py-0 shadow-sm",
-        task.status === "completed" && "border-emerald-500/25",
-        task.status === "failed" && "border-red-500/25",
+        "w-full gap-2 rounded-md border bg-background py-0 shadow-none",
+        task.status === "completed" && "border-emerald-500/30",
+        task.status === "failed" && "border-red-500/30",
+        task.status === "in_progress" && "border-border bg-muted/20",
         className,
       )}
       open={!collapsed}
     >
-      <div
-        className={cn(
-          "ambilight z-[-1]",
-          task.status === "in_progress" ? "enabled" : "",
-        )}
-      ></div>
-      {task.status === "in_progress" && (
-        <>
-          <ShineBorder
-            borderWidth={1.5}
-            shineColor={["#A07CFE", "#FE8FB5", "#FFBE7B"]}
-          />
-        </>
-      )}
-      <div className="bg-background/95 flex w-full flex-col rounded-lg">
+      <div className="flex w-full flex-col rounded-md bg-background">
         <div className="flex w-full items-center justify-between p-0.5">
           <Button
             className="h-auto w-full min-w-0 items-start justify-start whitespace-normal px-3 py-2 text-left"
@@ -124,22 +109,15 @@ export function SubtaskCard({
           >
             <div className="flex w-full min-w-0 items-start justify-between gap-2">
               <div className="min-w-0 flex-1">
+                {/* Keep the primary row dense so subtask lists still scan well with many parallel agents. */}
                 <ChainOfThoughtStep
                   className="min-w-0 font-normal"
-                  label={
-                    task.status === "in_progress" ? (
-                      <Shimmer duration={3} spread={3}>
-                        {task.description}
-                      </Shimmer>
-                    ) : (
-                      task.description
-                    )
-                  }
+                  label={task.description}
                   icon={<ClipboardListIcon />}
                 ></ChainOfThoughtStep>
                 {subagentTypeLabel && (
                   <Badge
-                    className="ml-7 mt-1 max-w-fit text-[10px] uppercase tracking-wide"
+                    className="ml-7 mt-1 max-w-fit rounded-sm px-1.5 py-0 text-[10px] font-medium tracking-normal"
                     variant="secondary"
                   >
                     {subagentTypeLabel}
@@ -150,13 +128,13 @@ export function SubtaskCard({
                 {collapsed && (
                   <div
                     className={cn(
-                      "flex items-center gap-1 text-xs font-medium",
+                      "flex max-w-[420px] items-center gap-1 text-xs font-medium",
                       statusMeta.badgeClassName,
                     )}
                   >
                     {statusMeta.icon}
                     <FlipDisplay
-                      className="max-w-[420px] truncate pb-1"
+                      className="truncate pb-1"
                       uniqueKey={task.latestMessage?.id ?? ""}
                     >
                       {task.status === "in_progress" &&
@@ -169,7 +147,7 @@ export function SubtaskCard({
                 )}
                 <ChevronUp
                   className={cn(
-                    "text-muted-foreground size-4",
+                    "text-muted-foreground size-4 shrink-0",
                     !collapsed ? "" : "rotate-180",
                   )}
                 />
@@ -197,6 +175,7 @@ export function SubtaskCard({
                 label={statusMeta.label}
                 icon={<Loader2Icon className="size-4 animate-spin" />}
               >
+                {/* Surface the most recent tool activity directly instead of decorative progress effects. */}
                 {explainLastToolCall(task.latestMessage, t)}
               </ChainOfThoughtStep>
             )}

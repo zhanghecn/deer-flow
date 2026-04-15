@@ -76,10 +76,3 @@ skill_refs:
 status: prod
 subagent_defaults:
   general_purpose_enabled: true
-tool_names:
-- question
-- get_document_evidence
-- get_document_image
-- get_document_tree
-- get_document_tree_node_detail
-- present_files

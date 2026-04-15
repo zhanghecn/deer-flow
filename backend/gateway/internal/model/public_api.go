@@ -106,15 +106,33 @@ type PublicAPIFileObject struct {
 	Status    string  `json:"status,omitempty"`
 }
 
-// PublicAPIOpenAgentsEvent is the stable extension event envelope. The outer
-// fields stay stable while `payload` can mirror richer runtime data as the
-// agent evolves.
-type PublicAPIOpenAgentsEvent struct {
-	Sequence    int    `json:"sequence"`
-	CreatedAt   int64  `json:"created_at"`
-	SourceEvent string `json:"source_event"`
-	Category    string `json:"category"`
-	Payload     any    `json:"payload,omitempty"`
+type PublicAPIRunEventType string
+
+const (
+	PublicAPIRunStarted        PublicAPIRunEventType = "run_started"
+	PublicAPIAssistantDelta    PublicAPIRunEventType = "assistant_delta"
+	PublicAPIAssistantMessage  PublicAPIRunEventType = "assistant_message"
+	PublicAPIToolStarted       PublicAPIRunEventType = "tool_started"
+	PublicAPIToolFinished      PublicAPIRunEventType = "tool_finished"
+	PublicAPIQuestionRequested PublicAPIRunEventType = "question_requested"
+	PublicAPIQuestionAnswered  PublicAPIRunEventType = "question_answered"
+	PublicAPIRunCompleted      PublicAPIRunEventType = "run_completed"
+	PublicAPIRunFailed         PublicAPIRunEventType = "run_failed"
+)
+
+// PublicAPIRunEvent is the stable live event contract for public consumers.
+// Keep this v1 event budget intentionally small so the gateway does not freeze
+// raw LangGraph internals into the long-lived public API surface.
+type PublicAPIRunEvent struct {
+	EventIndex int                   `json:"event_index"`
+	CreatedAt  int64                 `json:"created_at"`
+	Type       PublicAPIRunEventType `json:"type"`
+	ResponseID string                `json:"response_id,omitempty"`
+	Delta      string                `json:"delta,omitempty"`
+	Text       string                `json:"text,omitempty"`
+	ToolName   string                `json:"tool_name,omitempty"`
+	Error      string                `json:"error,omitempty"`
+	QuestionID string                `json:"question_id,omitempty"`
 }
 
 type PublicAPIResponseReasoningSummary struct {
@@ -128,10 +146,10 @@ type PublicAPIResponseReasoning struct {
 }
 
 type PublicAPIResponseOpenAgents struct {
-	ThreadID           string                     `json:"thread_id"`
-	TraceID            string                     `json:"trace_id,omitempty"`
-	PreviousResponseID string                     `json:"previous_response_id,omitempty"`
-	Events             []PublicAPIOpenAgentsEvent `json:"events,omitempty"`
+	ThreadID           string              `json:"thread_id"`
+	TraceID            string              `json:"trace_id,omitempty"`
+	PreviousResponseID string              `json:"previous_response_id,omitempty"`
+	RunEvents          []PublicAPIRunEvent `json:"run_events,omitempty"`
 }
 
 type PublicAPIInvocationFilter struct {

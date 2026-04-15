@@ -320,6 +320,115 @@ async def test_acp_agent_tool_call_chunk_starts_tool_call() -> None:
     }
 
 
+async def test_acp_agent_tool_call_chunk_accumulates_multi_part_write_file_args() -> None:
+    model = GenericFakeChatModel(messages=iter([AIMessage(content="ok")]), stream_delimiter=None)
+    graph = create_deep_agent(model=model, checkpointer=MemorySaver())
+
+    agent = AgentServerACP(agent=graph)
+    client = FakeACPClient()
+    agent.on_connect(client)  # type: ignore[arg-type]
+
+    session = await agent.new_session(cwd="/tmp", mcp_servers=[])
+
+    long_content = "line-1\\nline-2\\nline-3\\nline-4"
+    msg = AIMessageChunk(
+        content="",
+        tool_call_chunks=[
+            {
+                "id": "call_write",
+                "name": "write_file",
+                "args": '{"file_path": "/tmp/x.txt", "content": "line-1\\n',
+                "index": 0,
+            },
+            {
+                "id": "call_write",
+                "name": "write_file",
+                "args": 'line-2\\nline-3\\nline-4"}',
+                "index": 0,
+            },
+        ],
+    )
+
+    active_tool_calls: dict[str, Any] = {}
+    tool_call_accumulator: dict[int, Any] = {}
+
+    await agent._process_tool_call_chunks(
+        session_id=session.session_id,
+        message_chunk=msg,
+        active_tool_calls=active_tool_calls,
+        tool_call_accumulator=tool_call_accumulator,
+    )
+
+    assert active_tool_calls == {
+        "call_write": {
+            "name": "write_file",
+            "args": {
+                "file_path": "/tmp/x.txt",
+                "content": long_content,
+            },
+        }
+    }
+
+
+async def test_acp_agent_tool_call_chunk_keeps_args_when_metadata_arrives_late() -> None:
+    model = GenericFakeChatModel(messages=iter([AIMessage(content="ok")]), stream_delimiter=None)
+    graph = create_deep_agent(model=model, checkpointer=MemorySaver())
+
+    agent = AgentServerACP(agent=graph)
+    client = FakeACPClient()
+    agent.on_connect(client)  # type: ignore[arg-type]
+
+    session = await agent.new_session(cwd="/tmp", mcp_servers=[])
+
+    first_chunk = AIMessageChunk(
+        content="",
+        tool_call_chunks=[
+            {
+                "args": '{"file_path": "/tmp/late.txt", "content": "hello"}',
+                "index": 0,
+            }
+        ],
+    )
+    second_chunk = AIMessageChunk(
+        content="",
+        tool_call_chunks=[
+            {
+                "id": "call_late",
+                "name": "write_file",
+                "index": 0,
+            }
+        ],
+    )
+
+    active_tool_calls: dict[str, Any] = {}
+    tool_call_accumulator: dict[int, Any] = {}
+
+    await agent._process_tool_call_chunks(
+        session_id=session.session_id,
+        message_chunk=first_chunk,
+        active_tool_calls=active_tool_calls,
+        tool_call_accumulator=tool_call_accumulator,
+    )
+    assert active_tool_calls == {}
+
+    await agent._process_tool_call_chunks(
+        session_id=session.session_id,
+        message_chunk=second_chunk,
+        active_tool_calls=active_tool_calls,
+        tool_call_accumulator=tool_call_accumulator,
+    )
+
+    assert active_tool_calls == {
+        "call_late": {
+            "name": "write_file",
+            "args": {
+                "file_path": "/tmp/late.txt",
+                "content": "hello",
+            },
+        }
+    }
+
+
 async def test_acp_agent_tool_result_completes_tool_call() -> None:
     model = GenericFakeChatModel(messages=iter([AIMessage(content="ok")]), stream_delimiter=None)
     graph = create_deep_agent(model=model, checkpointer=MemorySaver())

@@ -285,21 +285,35 @@ class AgentServerACP(ACPAgent):
                 chunk_args = chunk.get("args", "")
                 chunk_index = chunk.get("index", 0)
 
-                # Initialize accumulator for this index if we have id and name
-                is_new_tool_call = (
-                    chunk_index not in tool_call_accumulator
-                    or chunk_id != tool_call_accumulator[chunk_index].get("id")
+                # Providers do not always stream tool-call chunks in a stable
+                # `id/name first, args later` order. Keep a per-index
+                # accumulator alive even when args arrive before the metadata so
+                # long multi-chunk calls do not silently lose early bytes.
+                buffer = tool_call_accumulator.setdefault(
+                    chunk_index,
+                    {
+                        "id": None,
+                        "name": None,
+                        "args_str": "",
+                    },
                 )
-                if chunk_id and chunk_name and is_new_tool_call:
-                    tool_call_accumulator[chunk_index] = {
+
+                # If the provider reuses the same chunk index for a new tool id,
+                # reset the accumulator instead of mixing two different calls.
+                if chunk_id and buffer.get("id") not in {None, chunk_id}:
+                    buffer = {
                         "id": chunk_id,
-                        "name": chunk_name,
+                        "name": None,
                         "args_str": "",
                     }
+                    tool_call_accumulator[chunk_index] = buffer
 
-                # Accumulate args string chunks using index
-                if chunk_args and chunk_index in tool_call_accumulator:
-                    tool_call_accumulator[chunk_index]["args_str"] += chunk_args
+                if chunk_id:
+                    buffer["id"] = chunk_id
+                if chunk_name:
+                    buffer["name"] = chunk_name
+                if chunk_args:
+                    buffer["args_str"] += chunk_args
 
             # After processing chunks, try to start any tool calls with complete args
             for _index, acc in list(tool_call_accumulator.items()):

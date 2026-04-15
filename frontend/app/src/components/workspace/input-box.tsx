@@ -56,7 +56,7 @@ import type { Model } from "@/core/models/types";
 import type {
   AgentThreadContext,
   ContextWindowState,
-  RetryStatus,
+  ExecutionStatus,
 } from "@/core/threads";
 import {
   DEFAULT_SUBAGENT_ENABLED,
@@ -140,47 +140,111 @@ function formatRetryDelay(seconds: number, locale: string) {
   }).format(seconds);
 }
 
-function RetryStatusBadge({
-  retryStatus,
+function formatExecutionDuration(durationMs: number, locale: string) {
+  return `${formatRetryDelay(durationMs / 1000, locale)}s`;
+}
+
+function ExecutionStatusBadge({
+  executionStatus,
   locale,
 }: {
-  retryStatus: RetryStatus;
+  executionStatus: ExecutionStatus;
   locale: string;
 }) {
   const { t } = useI18n();
-  const timeLabel = formatRetryTime(retryStatus.occurred_at, locale);
-  const retryLabel =
-    retryStatus.scope === "tool"
-      ? retryStatus.tool_name
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (executionStatus.terminal || executionStatus.finished_at) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 500);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [executionStatus.event, executionStatus.finished_at, executionStatus.terminal]);
+
+  const startedAt = new Date(executionStatus.started_at);
+  const finishedAt = executionStatus.finished_at
+    ? new Date(executionStatus.finished_at)
+    : null;
+  const liveDurationMs =
+    executionStatus.terminal && typeof executionStatus.total_duration_ms === "number"
+      ? executionStatus.total_duration_ms
+      : finishedAt && !Number.isNaN(finishedAt.getTime()) && !Number.isNaN(startedAt.getTime())
+        ? Math.max(0, finishedAt.getTime() - startedAt.getTime())
+        : !Number.isNaN(startedAt.getTime())
+          ? Math.max(0, nowMs - startedAt.getTime())
+          : executionStatus.duration_ms;
+  const elapsedLabel =
+    typeof liveDurationMs === "number"
+      ? formatExecutionDuration(liveDurationMs, locale)
+      : null;
+  const timeLabel = formatRetryTime(
+    executionStatus.started_at,
+    locale,
+  );
+  const label =
+    executionStatus.event === "retrying"
+      ? executionStatus.tool_name
         ? t.inputBox.retryingTool(
-            retryStatus.tool_name,
-            retryStatus.retry_count,
-            retryStatus.max_retries,
+            executionStatus.tool_name,
+            executionStatus.retry_count ?? 1,
+            executionStatus.max_retries ?? 1,
             timeLabel,
           )
-        : t.inputBox.retryingToolGeneric(
-            retryStatus.retry_count,
-            retryStatus.max_retries,
+        : t.inputBox.retryingModel(
+            executionStatus.retry_count ?? 1,
+            executionStatus.max_retries ?? 1,
             timeLabel,
           )
-      : t.inputBox.retryingModel(
-          retryStatus.retry_count,
-          retryStatus.max_retries,
-          timeLabel,
-        );
+      : executionStatus.event === "retry_completed"
+        ? t.inputBox.executionRetryCompleted
+        : executionStatus.event === "retry_failed"
+          ? t.inputBox.executionRetryFailed
+          : executionStatus.event === "completed"
+            ? t.inputBox.executionCompleted(elapsedLabel ?? undefined)
+            : executionStatus.event === "failed"
+              ? t.inputBox.executionFailed(elapsedLabel ?? undefined)
+              : executionStatus.event === "interrupted"
+                ? t.inputBox.executionStopped(elapsedLabel ?? undefined)
+                : executionStatus.phase_kind === "tool"
+                  ? t.inputBox.executionRunningTool(
+                      executionStatus.tool_name,
+                      elapsedLabel ?? undefined,
+                    )
+                  : executionStatus.phase === "thinking_finalize"
+                    ? t.inputBox.executionFinalizing(elapsedLabel ?? undefined)
+                    : t.inputBox.executionThinking(elapsedLabel ?? undefined);
   const delayLabel =
-    typeof retryStatus.delay_seconds === "number"
+    typeof executionStatus.delay_seconds === "number"
       ? t.inputBox.retryDelay(
-          formatRetryDelay(retryStatus.delay_seconds, locale),
+          formatRetryDelay(executionStatus.delay_seconds, locale),
         )
       : null;
+  const badgeClassName = cn(
+    "text-muted-foreground flex min-w-0 items-center gap-2 overflow-hidden rounded-full border px-3 py-1 text-xs",
+    executionStatus.event === "failed" || executionStatus.event === "retry_failed"
+      ? "border-red-500/20 bg-red-500/10"
+      : executionStatus.event === "completed"
+        ? "border-emerald-500/20 bg-emerald-500/10"
+        : executionStatus.event === "interrupted"
+          ? "border-slate-500/20 bg-slate-500/10"
+          : executionStatus.phase_kind === "retry"
+            ? "border-amber-500/20 bg-amber-500/10"
+            : "border-sky-500/20 bg-sky-500/10",
+  );
 
   return (
-    <div className="text-muted-foreground flex min-w-0 items-center gap-2 overflow-hidden rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-xs">
-      <div className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-amber-500" />
-      <span className="truncate">{retryLabel}</span>
+    <div className={badgeClassName}>
+      <div className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-current" />
+      <span className="truncate">{label}</span>
       {delayLabel ? (
-        <span className="truncate text-[11px] text-amber-700 dark:text-amber-300">
+        <span className="truncate text-[11px]">
           {delayLabel}
         </span>
       ) : null}
@@ -250,7 +314,7 @@ export function InputBox({
   status = "ready",
   threadId,
   context,
-  retryStatus,
+  executionStatus,
   extraHeader,
   contextWindow,
   isNewThread,
@@ -266,7 +330,7 @@ export function InputBox({
   disabled?: boolean;
   threadId: string;
   context: InputBoxContext;
-  retryStatus?: RetryStatus | null;
+  executionStatus?: ExecutionStatus | null;
   extraHeader?: React.ReactNode;
   contextWindow?: ContextWindowState;
   isNewThread?: boolean;
@@ -756,11 +820,14 @@ export function InputBox({
             </PromptInputActionMenuContent>
           </PromptInputActionMenu>
         </PromptInputTools>
-        {(contextWindow ?? retryStatus) && (
+        {(contextWindow ?? executionStatus) && (
           <PromptInputTools className="min-w-0 flex-1 justify-center px-2">
             <div className="flex min-w-0 items-center justify-center gap-2">
-              {retryStatus && status === "streaming" ? (
-                <RetryStatusBadge retryStatus={retryStatus} locale={locale} />
+              {executionStatus ? (
+                <ExecutionStatusBadge
+                  executionStatus={executionStatus}
+                  locale={locale}
+                />
               ) : null}
               {contextWindow ? (
                 <ContextWindowCard contextWindow={contextWindow} />

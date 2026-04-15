@@ -1,5 +1,5 @@
-import logging
 import ipaddress
+import logging
 from typing import Any
 from urllib.parse import urlparse
 
@@ -12,23 +12,22 @@ from langchain_anthropic._client_utils import (
     _SyncHttpxClientWrapper,
 )
 
-from src.config import get_tracing_config, is_tracing_enabled
-from src.config.model_config import ModelConfig
-from src.models.catalog import require_enabled_model
-from src.reflection import resolve_class
 from src.agents.middlewares.retry_utils import (
     DEFAULT_PROVIDER_MAX_RETRIES,
     note_provider_retry_exception,
     note_provider_retry_request,
     note_provider_retry_response,
 )
+from src.config import get_tracing_config, is_tracing_enabled
+from src.config.model_config import ModelConfig
+from src.models.catalog import require_enabled_model
+from src.reflection import resolve_class
 
 logger = logging.getLogger(__name__)
 DEFAULT_ANTHROPIC_THINKING_MAX_TOKENS = 16384
 DEFAULT_REASONING_EFFORT = "high"
 MINIMAL_REASONING_EFFORT = "minimal"
 ANTHROPIC_CHAT_MODEL_CLASS = "langchain_anthropic:ChatAnthropic"
-KIMI_TOOL_CALLING_STREAMING_PREFIXES = ("kimi-k2.5",)
 MODEL_CONFIG_EXCLUDE_FIELDS = {
     "use",
     "name",
@@ -129,45 +128,6 @@ def _apply_thinking_settings(
 
     if not model_config.supports_reasoning_effort:
         runtime_kwargs.pop("reasoning_effort", None)
-
-
-def _is_kimi_tool_calling_streaming_sensitive(
-    *,
-    name: str,
-    model_config: ModelConfig,
-) -> bool:
-    if model_config.use != ANTHROPIC_CHAT_MODEL_CLASS:
-        return False
-
-    normalized_names = {
-        str(name).strip().lower(),
-        str(model_config.model).strip().lower(),
-    }
-    return any(
-        normalized_name.startswith(prefix)
-        for normalized_name in normalized_names
-        for prefix in KIMI_TOOL_CALLING_STREAMING_PREFIXES
-    )
-
-
-def _apply_streaming_safeguards(
-    *,
-    name: str,
-    model_config: ModelConfig,
-    model_settings: dict[str, Any],
-    runtime_kwargs: dict[str, Any],
-) -> None:
-    if "disable_streaming" in model_settings or "disable_streaming" in runtime_kwargs:
-        return
-
-    if not _is_kimi_tool_calling_streaming_sensitive(name=name, model_config=model_config):
-        return
-
-    # Kimi's Anthropic-compatible tool-call streaming can emit malformed
-    # incremental JSON under long file-edit turns. Only disable streaming when
-    # tools are present so normal text responses keep the existing streaming UX.
-    runtime_kwargs["disable_streaming"] = "tool_calling"
-
 
 def _attach_langsmith_tracing(model_instance: BaseChatModel, name: str) -> None:
     if not is_tracing_enabled():
@@ -413,12 +373,9 @@ def create_chat_model(
         model_settings=model_settings_from_config,
         runtime_kwargs=runtime_kwargs,
     )
-    _apply_streaming_safeguards(
-        name=name,
-        model_config=model_config,
-        model_settings=model_settings_from_config,
-        runtime_kwargs=runtime_kwargs,
-    )
+    # Keep model construction free of provider-specific tool-streaming forks.
+    # Unified tool-call streaming behavior now belongs to the runtime event and
+    # chunk-handling layers rather than `disable_streaming` model overrides.
     injected_retry_budget = _apply_default_retry_budget(
         model_settings_from_config,
         runtime_kwargs,

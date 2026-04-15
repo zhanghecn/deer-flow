@@ -36,42 +36,37 @@ import { useI18n } from "@/core/i18n/hooks";
 import {
   createPublicAPIResponse,
   downloadPublicAPIArtifact,
+  getPublicAPIResponse,
   resolvePublicAPIBaseURL,
   streamPublicAPIResponse,
   uploadPublicAPIFile,
   type PublicAPIFileObject,
-  type PublicAPIOpenAgentsEvent,
   type PublicAPIRequestBody,
   type PublicAPIResponseArtifact,
   type PublicAPIResponseEnvelope,
   type PublicAPIStreamEvent,
 } from "@/core/public-api/api";
+import {
+  buildTraceFromRunEvent,
+  normalizePublicAPIStreamEvent,
+  prettyJSON,
+  traceToneClass,
+  traceToneDotClass,
+  type PlaygroundTraceFilter as TraceFilter,
+  type PlaygroundTraceItem,
+  type PlaygroundTraceStage as TraceStage,
+  type PlaygroundTraceText,
+} from "@/core/public-api/events";
 import { cn } from "@/lib/utils";
 
 import { getPublicAPIPlaygroundText } from "./public-api-playground-dialog.i18n";
 
 type ResponseMode = "text" | "json_object" | "json_schema";
 type ReasoningEffort = "minimal" | "low" | "medium" | "high";
-type TraceTone = "system" | "assistant" | "tool" | "artifact" | "error";
-type TraceStage =
-  | "prepare"
-  | "upload"
-  | "run"
-  | "assistant"
-  | "artifact"
-  | "complete"
-  | "error";
-type TraceFilter = "all" | TraceTone;
 type PlaygroundHeaderMode = "hero" | "compact" | "hidden";
 
-type TraceItem = {
+type TraceItem = PlaygroundTraceItem & {
   id: string;
-  stage: TraceStage;
-  tone: TraceTone;
-  title: string;
-  detail?: string;
-  timestamp: number;
-  raw?: unknown;
 };
 
 interface PublicAPIPlaygroundPanelProps {
@@ -106,31 +101,8 @@ function nextTraceID() {
   return `playground-trace-${traceCounter}`;
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-  return value as Record<string, unknown>;
-}
-
 function asString(value: unknown) {
   return typeof value === "string" ? value : "";
-}
-
-function asNumber(value: unknown) {
-  return typeof value === "number" ? value : 0;
-}
-
-function stringifyJSON(value: unknown) {
-  return JSON.stringify(value, null, 2);
-}
-
-function prettyJSON(value: unknown) {
-  try {
-    return stringifyJSON(value);
-  } catch {
-    return String(value);
-  }
 }
 
 function formatTimestamp(timestamp: number, locale: string) {
@@ -141,35 +113,6 @@ function formatTimestamp(timestamp: number, locale: string) {
   }).format(timestamp);
 }
 
-function traceToneClass(tone: TraceTone) {
-  switch (tone) {
-    case "assistant":
-      return "border-cyan-200 bg-cyan-50/85";
-    case "tool":
-      return "border-amber-200 bg-amber-50/85";
-    case "artifact":
-      return "border-emerald-200 bg-emerald-50/85";
-    case "error":
-      return "border-rose-200 bg-rose-50/90";
-    default:
-      return "border-slate-200 bg-white";
-  }
-}
-
-function traceToneDotClass(tone: TraceTone) {
-  switch (tone) {
-    case "assistant":
-      return "bg-cyan-500";
-    case "tool":
-      return "bg-amber-500";
-    case "artifact":
-      return "bg-emerald-500";
-    case "error":
-      return "bg-rose-500";
-    default:
-      return "bg-slate-400";
-  }
-}
 
 function PaneHeader({
   eyebrow,
@@ -184,14 +127,12 @@ function PaneHeader({
 }) {
   return (
     <div className={cn("space-y-2", className)}>
-      <p className="text-muted-foreground text-[11px] font-medium tracking-[0.22em] uppercase">
-        {eyebrow}
-      </p>
       <div>
-        <h2 className="text-[1.02rem] font-semibold tracking-[-0.03em] text-slate-950">
+        <h2 className="text-base font-semibold text-slate-950">
           {title}
         </h2>
-        <p className="text-muted-foreground mt-1 text-sm leading-6">
+        {eyebrow ? <p className="mt-1 text-xs text-slate-500">{eyebrow}</p> : null}
+        <p className="mt-2 text-sm leading-6 text-slate-600">
           {description}
         </p>
       </div>
@@ -209,8 +150,8 @@ function MetaPill({
   mono?: boolean;
 }) {
   return (
-    <div className="min-w-0 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
-      <p className="text-muted-foreground text-[10px] font-medium tracking-[0.18em] uppercase">
+    <div className="min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2">
+      <p className="text-xs font-medium text-slate-500">
         {label}
       </p>
       <p
@@ -234,44 +175,18 @@ function FieldLabel({
   action?: React.ReactNode;
   htmlFor?: string;
 }) {
-  const labelClassName =
-    "text-muted-foreground text-[11px] font-medium tracking-[0.18em] uppercase";
-
   return (
     <div className="flex items-center justify-between gap-3">
       {htmlFor ? (
-        <label htmlFor={htmlFor} className={labelClassName}>
+        <label htmlFor={htmlFor} className="text-sm font-medium text-slate-700">
           {children}
         </label>
       ) : (
-        <p className={labelClassName}>{children}</p>
+        <p className="text-sm font-medium text-slate-700">{children}</p>
       )}
       {action}
     </div>
   );
-}
-
-function buildSnapshotDetail(payload: Record<string, unknown> | null) {
-  if (!payload) {
-    return "";
-  }
-
-  const parts: string[] = [];
-  const title = asString(payload.title);
-  if (title) {
-    parts.push(title);
-  }
-  const newArtifacts = Array.isArray(payload.new_artifacts)
-    ? payload.new_artifacts.map((item) => asString(item)).filter(Boolean)
-    : [];
-  if (newArtifacts.length > 0) {
-    parts.push(`new artifacts: ${newArtifacts.join(", ")}`);
-  }
-  const messageCount = asNumber(payload.message_count);
-  if (messageCount > 0) {
-    parts.push(`messages: ${messageCount}`);
-  }
-  return parts.join(" | ");
 }
 
 function buildResponsesRequestBody(params: {
@@ -375,85 +290,6 @@ function traceStageLabel(
   }
 }
 
-function buildTraceFromOpenAgentsEvent(
-  event: PublicAPIOpenAgentsEvent,
-  text: ReturnType<typeof getPublicAPIPlaygroundText>,
-): Omit<TraceItem, "id"> {
-  const payload = asRecord(event.payload);
-
-  switch (event.category) {
-    case "assistant.message":
-      return {
-        stage: "assistant",
-        tone: "assistant",
-        title: text.assistantMessage,
-        detail: asString(payload?.content),
-        timestamp: event.created_at * 1000,
-        raw: event.payload,
-      };
-    case "assistant.tool_calls":
-      return {
-        stage: "run",
-        tone: "tool",
-        title: text.toolCall,
-        detail: Array.isArray(payload?.tool_calls)
-          ? payload?.tool_calls
-              .map((item) => asString(asRecord(item)?.name))
-              .filter(Boolean)
-              .join(", ")
-          : undefined,
-        timestamp: event.created_at * 1000,
-        raw: event.payload,
-      };
-    case "tool.result":
-      return {
-        stage: "run",
-        tone: "tool",
-        title: payload?.name
-          ? `${text.toolResult}: ${asString(payload.name)}`
-          : text.toolResult,
-        detail: asString(payload?.content),
-        timestamp: event.created_at * 1000,
-        raw: event.payload,
-      };
-    case "state.snapshot":
-      return {
-        stage: "run",
-        tone: "system",
-        title: text.stateSnapshot,
-        detail: buildSnapshotDetail(payload),
-        timestamp: event.created_at * 1000,
-        raw: event.payload,
-      };
-    case "runtime.custom":
-      return {
-        stage: "run",
-        tone: "system",
-        title: text.customEvent,
-        detail: prettyJSON(event.payload),
-        timestamp: event.created_at * 1000,
-        raw: event.payload,
-      };
-    case "run.completed":
-      return {
-        stage: "complete",
-        tone: "system",
-        title: text.runCompleted,
-        timestamp: event.created_at * 1000,
-        raw: event.payload,
-      };
-    default:
-      return {
-        stage: "run",
-        tone: "system",
-        title: event.category,
-        detail: prettyJSON(event.payload),
-        timestamp: event.created_at * 1000,
-        raw: event.payload,
-      };
-  }
-}
-
 function SummaryRow({
   label,
   value,
@@ -463,7 +299,7 @@ function SummaryRow({
 }) {
   return (
     <div className="flex items-start justify-between gap-6 border-b border-slate-200/80 py-3 first:pt-0 last:border-b-0 last:pb-0">
-      <p className="text-muted-foreground text-[11px] font-medium tracking-[0.18em] uppercase">
+      <p className="text-sm text-slate-500">
         {label}
       </p>
       <p className="max-w-[220px] text-right text-sm font-medium break-all text-slate-900">
@@ -487,7 +323,7 @@ function TraceItemCard({
   return (
     <div
       className={cn(
-        "rounded-[22px] border px-4 py-3 shadow-[0_20px_60px_-52px_rgba(15,23,42,0.45)]",
+        "rounded-lg border px-4 py-3",
         traceToneClass(item.tone),
       )}
     >
@@ -500,14 +336,11 @@ function TraceItemCard({
         />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge
-              variant="outline"
-              className="rounded-full border-slate-200 bg-white px-2.5 py-0.5 text-[10px] tracking-[0.14em] uppercase"
-            >
+            <span className="text-xs font-medium text-slate-500">
               {traceStageLabel(item.stage, text)}
-            </Badge>
+            </span>
             <p className="text-sm font-medium text-slate-950">{item.title}</p>
-            <span className="ml-auto shrink-0 text-[10px] tracking-[0.18em] text-slate-500 uppercase">
+            <span className="ml-auto shrink-0 text-xs text-slate-500">
               {formatTimestamp(item.timestamp, locale)}
             </span>
           </div>
@@ -524,14 +357,14 @@ function TraceItemCard({
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="rounded-full px-2 text-xs text-slate-700 hover:bg-white/70"
+                  className="rounded-md px-2 text-xs text-slate-700 hover:bg-white/70"
                 >
                   <ChevronDownIcon className="size-4" />
                   {text.rawPayload}
                 </Button>
               </CollapsibleTrigger>
               <CollapsibleContent className="pt-3">
-                <div className="rounded-[18px] border border-slate-200 bg-white/90 px-3 py-3">
+                <div className="rounded-md border border-slate-200 bg-white px-3 py-3">
                   <pre className="font-mono text-xs leading-6 break-words whitespace-pre-wrap text-slate-800">
                     {rawPayload}
                   </pre>
@@ -651,6 +484,31 @@ export function PublicAPIPlaygroundPanel({
     ]);
   }
 
+  async function hydrateCompletedResponse(responseId: string, apiToken: string) {
+    if (!responseId) {
+      return;
+    }
+    try {
+      const payload = await getPublicAPIResponse({
+        baseURL: apiBaseURL,
+        apiToken,
+        responseId,
+      });
+      setResponse(payload);
+      setPreviousResponseID(payload.id);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      appendTrace({
+        stage: "error",
+        tone: "error",
+        title: text.requestFailed,
+        detail,
+        raw: error,
+      });
+      toast.error(detail);
+    }
+  }
+
   async function handleCopy(value: string, successMessage: string) {
     try {
       await navigator.clipboard.writeText(value);
@@ -718,75 +576,59 @@ export function PublicAPIPlaygroundPanel({
     return uploadedFiles;
   }
 
-  function handleStreamingEvent(event: PublicAPIStreamEvent) {
-    const record = asRecord(event.data);
+  function handleStreamingEvent(event: PublicAPIStreamEvent, trimmedToken: string) {
+    const traceText: PlaygroundTraceText = {
+      assistantMessage: text.assistantMessage,
+      toolCall: text.toolCall,
+      toolResult: text.toolResult,
+      runCompleted: text.runCompleted,
+    };
 
-    if (event.event === "response.created") {
-      appendTrace({
-        stage: "run",
-        tone: "system",
-        title: text.streamStarted,
-        detail: asString(asRecord(record?.response)?.id),
-        raw: event.data,
-      });
-      return;
-    }
-
-    if (event.event === "response.output_text.delta") {
-      const delta = asString(record?.delta);
-      if (delta) {
-        setLiveOutput((current) => `${current}${delta}`);
-      }
-      return;
-    }
-
-    if (event.event === "response.openagents.event") {
-      const openEvent = record?.event as PublicAPIOpenAgentsEvent | undefined;
-      if (!openEvent) {
-        return;
-      }
-      appendTrace(buildTraceFromOpenAgentsEvent(openEvent, text));
-
-      const payload = asRecord(openEvent.payload);
-      const newArtifacts = Array.isArray(payload?.new_artifacts)
-        ? payload?.new_artifacts.map((item) => asString(item)).filter(Boolean)
-        : [];
-      for (const artifact of newArtifacts) {
+    for (const normalizedEvent of normalizePublicAPIStreamEvent(event)) {
+      if (normalizedEvent.kind === "run_started") {
+        if (normalizedEvent.responseId) {
+          setPreviousResponseID(normalizedEvent.responseId);
+        }
         appendTrace({
-          stage: "artifact",
-          tone: "artifact",
-          title: text.artifactReady(artifact.split("/").at(-1) ?? artifact),
-          raw: { path: artifact },
+          stage: "run",
+          tone: "system",
+          title: text.streamStarted,
+          detail: normalizedEvent.responseId,
+          raw: normalizedEvent.raw,
         });
+        continue;
       }
-      return;
-    }
 
-    if (event.event === "response.completed") {
-      const responsePayload = asRecord(record?.response) as unknown as
-        | PublicAPIResponseEnvelope
-        | undefined;
-      if (responsePayload) {
-        setResponse(responsePayload);
-        setPreviousResponseID(responsePayload.id);
+      if (normalizedEvent.kind === "assistant_delta") {
+        setLiveOutput((current) => `${current}${normalizedEvent.delta}`);
+        continue;
+      }
+
+      if (normalizedEvent.kind === "ledger_event") {
+        appendTrace(buildTraceFromRunEvent(normalizedEvent.event, traceText));
+        continue;
+      }
+
+      if (normalizedEvent.kind === "run_completed") {
+        void hydrateCompletedResponse(normalizedEvent.responseId, trimmedToken);
         appendTrace({
           stage: "complete",
           tone: "system",
-          title: text.requestFinished(responsePayload.id),
-          raw: responsePayload,
+          title: text.requestFinished(normalizedEvent.responseId),
+          raw: normalizedEvent.raw,
+        });
+        continue;
+      }
+
+      if (normalizedEvent.kind === "run_failed") {
+        appendTrace({
+          stage: "error",
+          tone: "error",
+          title: text.requestFailed,
+          detail: normalizedEvent.detail,
+          raw: normalizedEvent.raw,
         });
       }
-      return;
-    }
-
-    if (event.event === "error") {
-      appendTrace({
-        stage: "error",
-        tone: "error",
-        title: text.requestFailed,
-        detail: prettyJSON(event.data),
-        raw: event.data,
-      });
     }
   }
 
@@ -848,7 +690,7 @@ export function PublicAPIPlaygroundPanel({
           baseURL: apiBaseURL,
           apiToken: trimmedToken,
           body: requestBody,
-          onEvent: handleStreamingEvent,
+          onEvent: (event) => handleStreamingEvent(event, trimmedToken),
         });
       } else {
         const payload = await createPublicAPIResponse({
@@ -863,15 +705,30 @@ export function PublicAPIPlaygroundPanel({
         // Blocking responses already contain the full public event ledger, so
         // the console replays that ledger into the same grouped trace UI rather
         // than maintaining a second blocking-only presentation.
-        for (const event of payload.openagents?.events ?? []) {
-          appendTrace(buildTraceFromOpenAgentsEvent(event, text));
+        const traceText: PlaygroundTraceText = {
+          assistantMessage: text.assistantMessage,
+          toolCall: text.toolCall,
+          toolResult: text.toolResult,
+          runCompleted: text.runCompleted,
+        };
+        for (const event of payload.openagents?.run_events ?? []) {
+          appendTrace(buildTraceFromRunEvent(event, traceText));
         }
-        appendTrace({
-          stage: "complete",
-          tone: "system",
-          title: text.requestFinished(payload.id),
-          raw: payload,
-        });
+        appendTrace(
+          payload.status === "incomplete"
+            ? {
+                stage: "run",
+                tone: "system" as const,
+                title: text.requestIncomplete(payload.id),
+                raw: payload,
+              }
+            : {
+                stage: "complete",
+                tone: "system" as const,
+                title: text.requestFinished(payload.id),
+                raw: payload,
+              },
+        );
         for (const artifact of payload.artifacts ?? []) {
           appendTrace({
             stage: "artifact",
@@ -1030,7 +887,7 @@ export function PublicAPIPlaygroundPanel({
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="shrink-0 rounded-full"
+                      className="shrink-0 rounded-md"
                       asChild
                     >
                       <Link to={apiKeysURL}>{text.manageKeys}</Link>
@@ -1047,7 +904,7 @@ export function PublicAPIPlaygroundPanel({
                     aria-label={text.baseURL}
                     value={apiBaseURL}
                     onChange={(event) => setAPIBaseURL(event.target.value)}
-                    className="h-11 rounded-2xl border-slate-200 bg-white"
+                    className="h-11 rounded-md border-slate-200 bg-white"
                   />
                   <p className="text-muted-foreground text-xs leading-5">
                     {text.baseURLHint}
@@ -1064,7 +921,7 @@ export function PublicAPIPlaygroundPanel({
                     value={apiToken}
                     onChange={(event) => setAPIToken(event.target.value)}
                     placeholder="df_..."
-                    className="h-11 rounded-2xl border-slate-200 bg-white font-mono"
+                    className="h-11 rounded-md border-slate-200 bg-white font-mono"
                   />
                   <p className="text-muted-foreground text-xs leading-5">
                     {isWorkspaceMode
@@ -1113,7 +970,7 @@ export function PublicAPIPlaygroundPanel({
                     >
                       <SelectTrigger
                         aria-label={text.responseMode}
-                        className="h-11 w-full rounded-2xl border-slate-200 bg-white"
+                        className="h-11 w-full rounded-md border-slate-200 bg-white"
                       >
                         <SelectValue placeholder={text.responseMode} />
                       </SelectTrigger>
@@ -1330,7 +1187,7 @@ export function PublicAPIPlaygroundPanel({
                             setMaxOutputTokens(event.target.value)
                           }
                           placeholder="1024"
-                          className="h-11 rounded-2xl border-slate-200 bg-white"
+                          className="h-11 rounded-md border-slate-200 bg-white"
                         />
                       </div>
 
@@ -1347,7 +1204,7 @@ export function PublicAPIPlaygroundPanel({
                               onChange={(event) =>
                                 setSchemaName(event.target.value)
                               }
-                              className="h-11 rounded-2xl border-slate-200 bg-white"
+                              className="h-11 rounded-md border-slate-200 bg-white"
                             />
                           </div>
                           <div className="space-y-2">
@@ -1361,7 +1218,7 @@ export function PublicAPIPlaygroundPanel({
                               onChange={(event) =>
                                 setSchemaBody(event.target.value)
                               }
-                              className="min-h-[220px] rounded-[24px] border-slate-900 bg-slate-950 font-mono text-xs text-slate-100"
+                              className="min-h-[220px] rounded-md border-slate-900 bg-slate-950 font-mono text-xs text-slate-100"
                             />
                           </div>
                         </div>
@@ -1376,7 +1233,7 @@ export function PublicAPIPlaygroundPanel({
               <div className="flex flex-wrap gap-3">
                 <Button
                   type="button"
-                  className="rounded-full px-5"
+                  className="rounded-md px-5"
                   onClick={handleRun}
                   disabled={submitting}
                 >
@@ -1390,7 +1247,7 @@ export function PublicAPIPlaygroundPanel({
                 <Button
                   type="button"
                   variant="outline"
-                  className="rounded-full bg-white"
+                  className="rounded-md bg-white"
                   onClick={() => {
                     setTraceItems([]);
                     setResponse(null);

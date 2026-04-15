@@ -193,7 +193,7 @@ def test_create_chat_model_preserves_explicit_anthropic_timeout_over_120_seconds
     assert async_client_calls[0]["timeout"] == 180.0
 
 
-def test_create_chat_model_disables_streaming_for_kimi_tool_calls(monkeypatch):
+def test_create_chat_model_does_not_force_disable_streaming_for_kimi_tool_calls(monkeypatch):
     monkeypatch.setattr(
         factory_module,
         "require_enabled_model",
@@ -205,8 +205,7 @@ def test_create_chat_model_disables_streaming_for_kimi_tool_calls(monkeypatch):
 
     model = factory_module.create_chat_model(name="kimi-k2.5", thinking_enabled=False)
 
-    assert model.disable_streaming == "tool_calling"
-
+    assert getattr(model, "disable_streaming", None) != "tool_calling"
 
 def test_create_chat_model_preserves_explicit_disable_streaming_override(monkeypatch):
     monkeypatch.setattr(

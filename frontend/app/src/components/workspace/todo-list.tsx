@@ -41,21 +41,21 @@ export function TodoList({
   return (
     <div
       className={cn(
-        "flex h-fit w-full origin-bottom translate-y-4 flex-col overflow-hidden rounded-t-xl border border-b-0 bg-white backdrop-blur-sm transition-all duration-200 ease-out",
+        "flex h-fit w-full origin-bottom translate-y-3 flex-col overflow-hidden rounded-md border bg-background transition-all duration-200 ease-out",
         hidden ? "pointer-events-none translate-y-8 opacity-0" : "",
         className,
       )}
     >
       <header
         className={cn(
-          "bg-accent flex min-h-8 shrink-0 cursor-pointer items-center justify-between px-4 text-sm transition-all duration-300 ease-out",
+          "border-border/80 bg-muted/40 flex min-h-9 shrink-0 cursor-pointer items-center justify-between border-b px-3 text-sm transition-all duration-300 ease-out",
         )}
         onClick={handleToggle}
       >
-        <div className="text-muted-foreground">
+        <div className="text-foreground">
           <div className="flex items-center justify-center gap-2">
             <ListTodoIcon className="size-4" />
-            <div>{t.workspace.todoListTitle}</div>
+            <div className="font-medium">{t.workspace.todoListTitle}</div>
           </div>
         </div>
         <div>
@@ -69,11 +69,12 @@ export function TodoList({
       </header>
       <main
         className={cn(
-          "bg-accent flex grow px-2 transition-all duration-300 ease-out",
-          collapsed ? "h-0 pb-3" : "h-28 pb-4",
+          "bg-background flex grow px-2 transition-all duration-300 ease-out",
+          collapsed ? "h-0 pb-0" : "h-28 py-2",
         )}
       >
-        <QueueList className="bg-background mt-0 w-full rounded-t-xl">
+        {/* Keep todos visually quiet so they read like a docked queue, not a separate hero card. */}
+        <QueueList className="mt-0 w-full rounded-sm border bg-background">
           {todos.map((todo, i) => (
             <QueueItem key={i + (todo.content ?? "")}>
               <div className="flex items-center gap-2">
@@ -85,7 +86,7 @@ export function TodoList({
                 />
                 <QueueItemContent
                   className={
-                    todo.status === "in_progress" ? "text-primary/70" : ""
+                    todo.status === "in_progress" ? "text-foreground" : ""
                   }
                   completed={todo.status === "completed"}
                 >

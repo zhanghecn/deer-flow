@@ -120,13 +120,16 @@ export function MessageGroup({
 
   return (
     <ChainOfThought
-      className={cn("w-full gap-2 rounded-lg border p-0.5", className)}
+      className={cn(
+        "w-full gap-2 rounded-md border bg-background p-0",
+        className,
+      )}
       open={true}
     >
       {aboveLastToolCallSteps.length > 0 && (
         <Button
           key="above"
-          className="w-full items-start justify-start text-left"
+          className="w-full justify-start rounded-none border-b px-4 py-2 text-left"
           variant="ghost"
           onClick={() => setShowAbove(!showAbove)}
         >
@@ -149,7 +152,7 @@ export function MessageGroup({
           ></ChainOfThoughtStep>
         </Button>
       )}
-      <ChainOfThoughtContent className="px-4 pb-2">
+      <ChainOfThoughtContent className="px-4 py-3">
         {/* Hide older steps behind an explicit toggle so long tool chains do not make the active message column sluggish. */}
         {showAbove &&
           aboveLastToolCallSteps.map((step) =>

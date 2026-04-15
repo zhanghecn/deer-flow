@@ -46,9 +46,9 @@ const enUS: AgentPublicPlaygroundPageText = {
   eyebrow: "Playground",
   title: "Run real public-agent calls on a full-width execution surface",
   description:
-    "Use this page only for live execution: blocking requests, SSE, file upload, event inspection, and generated artifact download. The overview and API reference stay separate so this page can focus on running the contract.",
+    "Use this page only for live execution: blocking requests, SSE, file upload, normalized run timelines, and generated artifact download. The overview and API reference stay separate so this page can focus on exercising the contract.",
   heroFactOneLabel: "What you can verify",
-  heroFactOneValue: "Blocking and SSE behavior, uploaded inputs, generated files, and emitted events.",
+  heroFactOneValue: "Blocking and SSE behavior, uploaded inputs, generated files, and the normalized run timeline.",
   heroFactTwoLabel: "Who this is for",
   heroFactTwoValue: "External integrators, solution engineers, and internal QA validating the published agent before customer rollout.",
   heroFactThreeLabel: "Why it is separate",
@@ -65,7 +65,7 @@ const enUS: AgentPublicPlaygroundPageText = {
     "Switch between text and JSON output, attach files, enable reasoning, and choose blocking or streaming to match the real integration path.",
   stepThreeTitle: "Inspect the full trace before handing the contract out",
   stepThreeDescription:
-    "Use the event stream and artifact download area to confirm the external developer will see the behavior you expect.",
+    "Use the run timeline and artifact download area to confirm the external developer will see the behavior you expect.",
   introNav: "Intro",
   connectNav: "Connect",
   runNav: "Run",
@@ -84,9 +84,9 @@ const zhCN: AgentPublicPlaygroundPageText = {
   eyebrow: "Playground",
   title: "在完整执行面上真实运行公开智能体调用",
   description:
-    "这个页面只用于真实执行：blocking 请求、SSE、文件上传、事件查看和产物下载。概览和 API Reference 独立存在，这里只做运行契约这一件事。",
+    "这个页面只用于真实执行：blocking 请求、SSE、文件上传、归一化运行时间线和产物下载。概览和 API Reference 独立存在，这里只做运行契约这一件事。",
   heroFactOneLabel: "可验证内容",
-  heroFactOneValue: "Blocking 与 SSE 行为、上传输入、生成文件，以及执行过程中产生的事件。",
+  heroFactOneValue: "Blocking 与 SSE 行为、上传输入、生成文件，以及归一化后的运行时间线。",
   heroFactTwoLabel: "适用对象",
   heroFactTwoValue: "对接方开发者、解决方案工程师，以及在客户接入前做最终验收的内部测试人员。",
   heroFactThreeLabel: "为什么独立",
@@ -103,7 +103,7 @@ const zhCN: AgentPublicPlaygroundPageText = {
     "可以切换文本和 JSON 输出、上传文件、启用思考，并选择 blocking 或 streaming，让测试路径与真实接入保持一致。",
   stepThreeTitle: "交付前先检查完整事件过程",
   stepThreeDescription:
-    "通过事件流和产物下载区确认外部开发者最终看到的行为符合预期，再把契约给出去。",
+    "通过运行时间线和产物下载区确认外部开发者最终看到的行为符合预期，再把契约给出去。",
   introNav: "简介",
   connectNav: "连接",
   runNav: "运行",

@@ -9,7 +9,6 @@ import {
 import { useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { getPublicAPIPlaygroundText } from "@/components/workspace/public-api-playground-dialog.i18n";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,45 +28,41 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { getPublicAPIPlaygroundText } from "@/components/workspace/public-api-playground-dialog.i18n";
 import { useI18n } from "@/core/i18n/hooks";
 import {
   createPublicAPIResponse,
   downloadPublicAPIArtifact,
+  getPublicAPIResponse,
   resolvePublicAPIBaseURL,
   streamPublicAPIResponse,
   uploadPublicAPIFile,
   type PublicAPIFileObject,
-  type PublicAPIOpenAgentsEvent,
   type PublicAPIRequestBody,
   type PublicAPIResponseArtifact,
   type PublicAPIResponseEnvelope,
   type PublicAPIStreamEvent,
 } from "@/core/public-api/api";
+import {
+  buildTraceFromRunEvent,
+  normalizePublicAPIStreamEvent,
+  prettyJSON,
+  traceToneClass,
+  traceToneDotClass,
+  type PlaygroundTraceFilter as TraceFilter,
+  type PlaygroundTraceItem,
+  type PlaygroundTraceStage as TraceStage,
+  type PlaygroundTraceText,
+} from "@/core/public-api/events";
 import { cn } from "@/lib/utils";
 
 import { DocsSurface } from "../shared";
 
 type ResponseMode = "text" | "json_object" | "json_schema";
 type ReasoningEffort = "minimal" | "low" | "medium" | "high";
-type TraceTone = "system" | "assistant" | "tool" | "artifact" | "error";
-type TraceStage =
-  | "prepare"
-  | "upload"
-  | "run"
-  | "assistant"
-  | "artifact"
-  | "complete"
-  | "error";
-type TraceFilter = "all" | TraceTone;
 
-type TraceItem = {
+type TraceItem = PlaygroundTraceItem & {
   id: string;
-  stage: TraceStage;
-  tone: TraceTone;
-  title: string;
-  detail?: string;
-  timestamp: number;
-  raw?: unknown;
 };
 
 interface DeveloperPublicAPIPlaygroundProps {
@@ -95,27 +90,8 @@ function nextTraceID() {
   return `docs-playground-trace-${traceCounter}`;
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-  return value as Record<string, unknown>;
-}
-
 function asString(value: unknown) {
   return typeof value === "string" ? value : "";
-}
-
-function asNumber(value: unknown) {
-  return typeof value === "number" ? value : 0;
-}
-
-function prettyJSON(value: unknown) {
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
 }
 
 function formatTimestamp(timestamp: number, locale: string) {
@@ -134,59 +110,6 @@ function formatBytes(bytes: number) {
     return `${(bytes / 1024).toFixed(1)} KB`;
   }
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function traceToneClass(tone: TraceTone) {
-  switch (tone) {
-    case "assistant":
-      return "border-cyan-200 bg-cyan-50/80";
-    case "tool":
-      return "border-amber-200 bg-amber-50/85";
-    case "artifact":
-      return "border-emerald-200 bg-emerald-50/85";
-    case "error":
-      return "border-rose-200 bg-rose-50/90";
-    default:
-      return "border-slate-200 bg-white";
-  }
-}
-
-function traceToneDotClass(tone: TraceTone) {
-  switch (tone) {
-    case "assistant":
-      return "bg-cyan-500";
-    case "tool":
-      return "bg-amber-500";
-    case "artifact":
-      return "bg-emerald-500";
-    case "error":
-      return "bg-rose-500";
-    default:
-      return "bg-slate-400";
-  }
-}
-
-function buildSnapshotDetail(payload: Record<string, unknown> | null) {
-  if (!payload) {
-    return "";
-  }
-
-  const parts: string[] = [];
-  const title = asString(payload.title);
-  if (title) {
-    parts.push(title);
-  }
-  const newArtifacts = Array.isArray(payload.new_artifacts)
-    ? payload.new_artifacts.map((item) => asString(item)).filter(Boolean)
-    : [];
-  if (newArtifacts.length > 0) {
-    parts.push(`new artifacts: ${newArtifacts.join(", ")}`);
-  }
-  const messageCount = asNumber(payload.message_count);
-  if (messageCount > 0) {
-    parts.push(`messages: ${messageCount}`);
-  }
-  return parts.join(" | ");
 }
 
 function buildResponsesRequestBody(params: {
@@ -292,85 +215,6 @@ function traceStageLabel(
   }
 }
 
-function buildTraceFromOpenAgentsEvent(
-  event: PublicAPIOpenAgentsEvent,
-  text: ReturnType<typeof getPublicAPIPlaygroundText>,
-): Omit<TraceItem, "id"> {
-  const payload = asRecord(event.payload);
-
-  switch (event.category) {
-    case "assistant.message":
-      return {
-        stage: "assistant",
-        tone: "assistant",
-        title: text.assistantMessage,
-        detail: asString(payload?.content),
-        timestamp: event.created_at * 1000,
-        raw: event.payload,
-      };
-    case "assistant.tool_calls":
-      return {
-        stage: "run",
-        tone: "tool",
-        title: text.toolCall,
-        detail: Array.isArray(payload?.tool_calls)
-          ? payload.tool_calls
-              .map((item) => asString(asRecord(item)?.name))
-              .filter(Boolean)
-              .join(", ")
-          : undefined,
-        timestamp: event.created_at * 1000,
-        raw: event.payload,
-      };
-    case "tool.result":
-      return {
-        stage: "run",
-        tone: "tool",
-        title: payload?.name
-          ? `${text.toolResult}: ${asString(payload.name)}`
-          : text.toolResult,
-        detail: asString(payload?.content),
-        timestamp: event.created_at * 1000,
-        raw: event.payload,
-      };
-    case "state.snapshot":
-      return {
-        stage: "run",
-        tone: "system",
-        title: text.stateSnapshot,
-        detail: buildSnapshotDetail(payload),
-        timestamp: event.created_at * 1000,
-        raw: event.payload,
-      };
-    case "runtime.custom":
-      return {
-        stage: "run",
-        tone: "system",
-        title: text.customEvent,
-        detail: prettyJSON(event.payload),
-        timestamp: event.created_at * 1000,
-        raw: event.payload,
-      };
-    case "run.completed":
-      return {
-        stage: "complete",
-        tone: "system",
-        title: text.runCompleted,
-        timestamp: event.created_at * 1000,
-        raw: event.payload,
-      };
-    default:
-      return {
-        stage: "run",
-        tone: "system",
-        title: event.category,
-        detail: prettyJSON(event.payload),
-        timestamp: event.created_at * 1000,
-        raw: event.payload,
-      };
-  }
-}
-
 function formatOutputText(
   response: PublicAPIResponseEnvelope | null,
   liveOutput: string,
@@ -431,7 +275,7 @@ function SegmentedButton({
       type="button"
       variant="outline"
       className={cn(
-        "justify-center rounded-full border-slate-200 bg-white text-slate-600",
+        "justify-center rounded-md border-slate-200 bg-white text-slate-600",
         active &&
           "border-slate-950 bg-slate-950 text-white hover:bg-slate-950 hover:text-white",
       )}
@@ -450,8 +294,8 @@ function SummaryTile({
   value: string | number;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-      <p className="text-[10px] font-medium tracking-[0.18em] text-slate-500 uppercase">
+    <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+      <p className="text-xs font-medium text-slate-500">
         {label}
       </p>
       <p className="mt-2 text-sm font-medium break-all text-slate-950">
@@ -475,7 +319,7 @@ function TraceCard({
   return (
     <div
       className={cn(
-        "rounded-2xl border px-4 py-4 shadow-[0_10px_40px_-30px_rgba(15,23,42,0.35)]",
+        "rounded-lg border px-4 py-4",
         traceToneClass(item.tone),
       )}
     >
@@ -488,14 +332,11 @@ function TraceCard({
         />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge
-              variant="outline"
-              className="rounded-full border-slate-200 bg-white px-2.5 py-0.5 text-[10px] tracking-[0.14em] uppercase"
-            >
+            <span className="text-xs font-medium text-slate-500">
               {traceStageLabel(item.stage, text)}
-            </Badge>
+            </span>
             <p className="text-sm font-medium text-slate-950">{item.title}</p>
-            <span className="ml-auto shrink-0 text-[10px] tracking-[0.18em] text-slate-500 uppercase">
+            <span className="ml-auto shrink-0 text-xs text-slate-500">
               {formatTimestamp(item.timestamp, locale)}
             </span>
           </div>
@@ -512,14 +353,14 @@ function TraceCard({
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="rounded-full px-2 text-xs text-slate-700 hover:bg-white/70"
+                  className="rounded-md px-2 text-xs text-slate-700 hover:bg-white/70"
                 >
                   <ChevronDownIcon className="size-4" />
                   {text.rawPayload}
                 </Button>
               </CollapsibleTrigger>
               <CollapsibleContent className="pt-3">
-                <div className="rounded-xl border border-slate-200 bg-white/95 px-3 py-3">
+                <div className="rounded-md border border-slate-200 bg-white px-3 py-3">
                   <pre className="font-mono text-xs leading-6 break-words whitespace-pre-wrap text-slate-800">
                     {rawPayload}
                   </pre>
@@ -593,6 +434,31 @@ export function DeveloperPublicAPIPlayground({
     ]);
   }
 
+  async function hydrateCompletedResponse(responseId: string, apiToken: string) {
+    if (!responseId) {
+      return;
+    }
+    try {
+      const payload = await getPublicAPIResponse({
+        baseURL: apiBaseURL,
+        apiToken,
+        responseId,
+      });
+      setResponse(payload);
+      setPreviousResponseID(payload.id);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      appendTrace({
+        stage: "error",
+        tone: "error",
+        title: text.requestFailed,
+        detail,
+        raw: error,
+      });
+      toast.error(detail);
+    }
+  }
+
   function handleQueueFiles(files: FileList | null) {
     if (!files) {
       return;
@@ -659,79 +525,59 @@ export function DeveloperPublicAPIPlayground({
     return uploadedFiles;
   }
 
-  function handleStreamingEvent(event: PublicAPIStreamEvent) {
-    const record = asRecord(event.data);
+  function handleStreamingEvent(event: PublicAPIStreamEvent, trimmedToken: string) {
+    const traceText: PlaygroundTraceText = {
+      assistantMessage: text.assistantMessage,
+      toolCall: text.toolCall,
+      toolResult: text.toolResult,
+      runCompleted: text.runCompleted,
+    };
 
-    if (event.event === "response.created") {
-      appendTrace({
-        stage: "run",
-        tone: "system",
-        title: text.streamStarted,
-        detail: asString(asRecord(record?.response)?.id),
-        raw: event.data,
-      });
-      return;
-    }
-
-    if (event.event === "response.output_text.delta") {
-      const delta = asString(record?.delta);
-      if (delta) {
-        setLiveOutput((current) => `${current}${delta}`);
-      }
-      return;
-    }
-
-    if (event.event === "response.openagents.event") {
-      const openEvent = record?.event as PublicAPIOpenAgentsEvent | undefined;
-      if (!openEvent) {
-        return;
-      }
-
-      appendTrace(buildTraceFromOpenAgentsEvent(openEvent, text));
-
-      const payload = asRecord(openEvent.payload);
-      const newArtifacts = Array.isArray(payload?.new_artifacts)
-        ? payload.new_artifacts.map((item) => asString(item)).filter(Boolean)
-        : [];
-
-      for (const artifact of newArtifacts) {
+    for (const normalizedEvent of normalizePublicAPIStreamEvent(event)) {
+      if (normalizedEvent.kind === "run_started") {
+        if (normalizedEvent.responseId) {
+          setPreviousResponseID(normalizedEvent.responseId);
+        }
         appendTrace({
-          stage: "artifact",
-          tone: "artifact",
-          title: text.artifactReady(artifact.split("/").at(-1) ?? artifact),
-          raw: { path: artifact },
+          stage: "run",
+          tone: "system",
+          title: text.streamStarted,
+          detail: normalizedEvent.responseId,
+          raw: normalizedEvent.raw,
+        });
+        continue;
+      }
+
+      if (normalizedEvent.kind === "assistant_delta") {
+        setLiveOutput((current) => `${current}${normalizedEvent.delta}`);
+        continue;
+      }
+
+      if (normalizedEvent.kind === "ledger_event") {
+        appendTrace(buildTraceFromRunEvent(normalizedEvent.event, traceText));
+        continue;
+      }
+
+      if (normalizedEvent.kind === "run_completed") {
+        void hydrateCompletedResponse(normalizedEvent.responseId, trimmedToken);
+        appendTrace({
+          stage: "complete",
+          tone: "system",
+          title: text.requestFinished(normalizedEvent.responseId),
+          raw: normalizedEvent.raw,
+        });
+        continue;
+      }
+
+      if (normalizedEvent.kind === "run_failed") {
+        appendTrace({
+          stage: "error",
+          tone: "error",
+          title: text.requestFailed,
+          detail: normalizedEvent.detail,
+          raw: normalizedEvent.raw,
         });
       }
-      return;
-    }
-
-    if (event.event === "response.completed") {
-      const responsePayload = asRecord(record?.response) as
-        | PublicAPIResponseEnvelope
-        | null;
-      if (!responsePayload) {
-        return;
-      }
-
-      setResponse(responsePayload);
-      setPreviousResponseID(responsePayload.id);
-      appendTrace({
-        stage: "complete",
-        tone: "system",
-        title: text.requestFinished(responsePayload.id),
-        raw: responsePayload,
-      });
-      return;
-    }
-
-    if (event.event === "error") {
-      appendTrace({
-        stage: "error",
-        tone: "error",
-        title: text.requestFailed,
-        detail: prettyJSON(event.data),
-        raw: event.data,
-      });
     }
   }
 
@@ -793,7 +639,7 @@ export function DeveloperPublicAPIPlayground({
           baseURL: apiBaseURL,
           apiToken: trimmedToken,
           body: requestBody,
-          onEvent: handleStreamingEvent,
+          onEvent: (event) => handleStreamingEvent(event, trimmedToken),
         });
       } else {
         const payload = await createPublicAPIResponse({
@@ -808,15 +654,30 @@ export function DeveloperPublicAPIPlayground({
 
         // Blocking mode still surfaces the full event ledger. Replay it into
         // the same timeline so the docs page has one consistent trace view.
-        for (const event of payload.openagents?.events ?? []) {
-          appendTrace(buildTraceFromOpenAgentsEvent(event, text));
+        const traceText: PlaygroundTraceText = {
+          assistantMessage: text.assistantMessage,
+          toolCall: text.toolCall,
+          toolResult: text.toolResult,
+          runCompleted: text.runCompleted,
+        };
+        for (const event of payload.openagents?.run_events ?? []) {
+          appendTrace(buildTraceFromRunEvent(event, traceText));
         }
-        appendTrace({
-          stage: "complete",
-          tone: "system",
-          title: text.requestFinished(payload.id),
-          raw: payload,
-        });
+        appendTrace(
+          payload.status === "incomplete"
+            ? {
+                stage: "run",
+                tone: "system" as const,
+                title: text.requestIncomplete(payload.id),
+                raw: payload,
+              }
+            : {
+                stage: "complete",
+                tone: "system" as const,
+                title: text.requestFinished(payload.id),
+                raw: payload,
+              },
+        );
         for (const artifact of payload.artifacts ?? []) {
           appendTrace({
             stage: "artifact",

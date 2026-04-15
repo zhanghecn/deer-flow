@@ -103,7 +103,7 @@ export default function NewAgentPage() {
   // Stable thread ID — all turns belong to the same thread
   const threadId = useMemo(() => uuid(), []);
 
-  const [thread, sendMessage, resumeInterrupt] = useThreadStream({
+  const [thread, sendMessage, resumeInterrupt, , executionStatus] = useThreadStream({
     context: resolvedContext,
     skipInitialHistory: true,
     onToolEnd({ name }) {
@@ -314,6 +314,7 @@ export default function NewAgentPage() {
                 className="size-full pt-10"
                 threadId={threadId}
                 thread={thread}
+                executionStatus={executionStatus}
               />
             </div>
 

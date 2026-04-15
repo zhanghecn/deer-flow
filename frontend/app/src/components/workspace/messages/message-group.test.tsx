@@ -235,4 +235,50 @@ describe("MessageGroup tool display", () => {
       screen.getByText((_, element) => element?.textContent === largeOutput),
     ).not.toHaveAttribute("data-viewport-class");
   });
+
+  it("renders image_search results with source links and thumbnails", () => {
+    render(
+      <MessageGroup
+        messages={[
+          {
+            id: "ai-1",
+            type: "ai",
+            content: "",
+            tool_calls: [
+              {
+                id: "tool-1",
+                name: "image_search",
+                args: {
+                  query: "retro cat",
+                },
+              },
+            ],
+          },
+          {
+            id: "tool-msg-1",
+            type: "tool",
+            tool_call_id: "tool-1",
+            content: JSON.stringify({
+              results: [
+                {
+                  title: "Retro Cat Poster",
+                  source_url: "https://example.com/retro-cat",
+                  thumbnail_url: "https://cdn.example.com/retro-cat-thumb.jpg",
+                  image_url: "https://cdn.example.com/retro-cat-full.jpg",
+                },
+              ],
+            }),
+          },
+        ]}
+      />,
+    );
+
+    expect(
+      screen.getByRole("link", { name: "Retro Cat Poster" }),
+    ).toHaveAttribute("href", "https://example.com/retro-cat");
+    expect(screen.getByRole("img", { name: "Retro Cat Poster" })).toHaveAttribute(
+      "src",
+      "https://cdn.example.com/retro-cat-thumb.jpg",
+    );
+  });
 });

@@ -299,6 +299,129 @@ class TestStream:
         assert len(msg_events) == 1
         assert msg_events[0].data["content"] == "result"
 
+    def test_exposes_custom_runtime_events(self, client):
+        """stream() surfaces custom runtime events from the embedded graph."""
+        chunks = [
+            (
+                (),
+                "custom",
+                {
+                    "type": "execution_event",
+                    "event": "run_started",
+                    "occurred_at": "2026-04-15T00:00:00Z",
+                },
+            ),
+            (
+                (),
+                "values",
+                {
+                    "messages": [AIMessage(content="ok", id="ai-1")],
+                    "artifacts": [],
+                },
+            ),
+        ]
+        agent = _make_agent_mock(chunks)
+
+        with (
+            patch.object(client, "_ensure_agent"),
+            patch.object(client, "_agent", agent),
+        ):
+            events = list(client.stream("hi", thread_id="custom-1"))
+
+        execution_events = [e for e in events if e.type == "execution_event"]
+        assert len(execution_events) == 1
+        assert execution_events[0].data["event"] == "run_started"
+
+
+class TestStreamRunEvents:
+    def test_normalizes_basic_run_lifecycle(self, client):
+        """stream_run_events() yields the canonical run-event budget."""
+        chunks = [
+            (
+                (),
+                "custom",
+                {
+                    "type": "execution_event",
+                    "event": "run_started",
+                    "occurred_at": "2026-04-15T00:00:00Z",
+                },
+            ),
+            (
+                (),
+                "values",
+                {
+                    "messages": [AIMessage(content="Hello!", id="ai-1")],
+                    "artifacts": [],
+                },
+            ),
+        ]
+        agent = _make_agent_mock(chunks)
+
+        with (
+            patch.object(client, "_ensure_agent"),
+            patch.object(client, "_agent", agent),
+        ):
+            events = list(
+                client.stream_run_events(
+                    "hi",
+                    thread_id="sdk-1",
+                    response_id="resp_sdk_1",
+                )
+            )
+
+        assert [event.type for event in events] == [
+            "run_started",
+            "assistant_delta",
+            "assistant_message",
+            "run_completed",
+        ]
+        assert events[0].response_id == "resp_sdk_1"
+        assert events[1].delta == "Hello!"
+        assert events[2].text == "Hello!"
+
+    def test_normalizes_question_requests_from_interrupts(self, client):
+        """stream_run_events() maps update interrupts into question requests."""
+        chunks = [
+            (
+                (),
+                "updates",
+                {
+                    "__interrupt__": [
+                        {
+                            "value": {
+                                "request_id": "question-1",
+                            }
+                        }
+                    ]
+                },
+            ),
+            (
+                (),
+                "values",
+                {
+                    "messages": [AIMessage(content="done", id="ai-1")],
+                    "artifacts": [],
+                },
+            ),
+        ]
+        agent = _make_agent_mock(chunks)
+
+        with (
+            patch.object(client, "_ensure_agent"),
+            patch.object(client, "_agent", agent),
+        ):
+            events = list(
+                client.stream_run_events(
+                    "answer me",
+                    thread_id="sdk-2",
+                    response_id="resp_sdk_2",
+                )
+            )
+
+        question_events = [event for event in events if event.type == "question_requested"]
+        assert len(question_events) == 1
+        assert question_events[0].question_id == "question-1"
+
 
 class TestChat:
     def test_returns_last_message(self, client):

@@ -189,7 +189,7 @@ export default function ChatPage() {
     threadRuntime,
   ]);
 
-  const [thread, sendMessage, resumeInterrupt, , retryStatus] = useThreadStream(
+  const [thread, sendMessage, resumeInterrupt, , executionStatus] = useThreadStream(
     {
       threadId,
       context: runtimeContext,
@@ -333,6 +333,7 @@ export default function ChatPage() {
                 className={cn("size-full", !showCenteredComposer && "pt-10")}
                 threadId={threadId}
                 thread={thread}
+                executionStatus={executionStatus}
                 paddingBottom={showCenteredComposer ? undefined : paddingBottom}
               />
             </div>
@@ -366,7 +367,7 @@ export default function ChatPage() {
                     autoFocus={showCenteredComposer}
                     status={thread.isLoading ? "streaming" : "ready"}
                     context={runtimeContext}
-                    retryStatus={retryStatus}
+                    executionStatus={executionStatus}
                     initialValue={inputInitialValue}
                     contextWindow={
                       showCenteredComposer

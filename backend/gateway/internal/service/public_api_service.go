@@ -107,17 +107,17 @@ type publicAPIRunResult struct {
 	OutputText     string
 	ReasoningText  string
 	ResponseObject map[string]any
+	Incomplete     bool
 }
 
 type publicAPIRuntimeEventRecord struct {
-	OpenAgentsEvent model.PublicAPIOpenAgentsEvent
-	TextDelta       string
+	RunEvents []model.PublicAPIRunEvent
 }
 
 type publicAPIRunCollector struct {
-	events         []model.PublicAPIOpenAgentsEvent
-	sequence       int
-	knownArtifacts map[string]struct{}
+	events                []model.PublicAPIRunEvent
+	sequence              int
+	activeToolPhaseCounts map[string]int
 }
 
 type publicAPIModelRepository interface {
@@ -335,7 +335,7 @@ func (s *PublicAPIService) CreateResponse(
 
 	result, err := s.executeRun(ctx, plan, nil)
 	if err != nil {
-		return nil, s.finishInvocationWithError(ctx, plan.Invocation, err)
+		return nil, s.finishInvocationWithError(ctx, plan.Invocation, err, nil)
 	}
 
 	return &PublicAPIResponseResult{
@@ -345,9 +345,9 @@ func (s *PublicAPIService) CreateResponse(
 	}, nil
 }
 
-// StreamResponse keeps the northbound OpenAI-style surface on `/v1/responses`
-// while still exposing richer agent-process visibility through stable
-// `response.openagents.event` SSE extension events.
+// StreamResponse keeps the northbound `/v1/responses` surface stable while the
+// gateway emits a small normalized run-event contract instead of raw runtime
+// categories. The larger debug trace remains a separate operator lane.
 func (s *PublicAPIService) StreamResponse(
 	ctx context.Context,
 	auth PublicAPIAuthContext,
@@ -360,136 +360,60 @@ func (s *PublicAPIService) StreamResponse(
 	if err != nil {
 		return err
 	}
+	nextEventIndex := 1
+	emittedRunEvents := []model.PublicAPIRunEvent{
+		{
+			EventIndex: nextEventIndex,
+			CreatedAt:  plan.Invocation.CreatedAt.Unix(),
+			Type:       model.PublicAPIRunStarted,
+			ResponseID: plan.ResponseID,
+		},
+	}
 
 	if err := emit(
-		"response.created",
-		buildStreamingResponseCreatedEnvelope(plan),
+		"response.run_event",
+		buildStreamingRunEventEnvelope(
+			emittedRunEvents[0],
+		),
 	); err != nil {
 		return err
 	}
 
-	messageItemID := "msg_" + strings.TrimPrefix(plan.ResponseID, "resp_")
-	textStreamStarted := false
 	result, err := s.executeRun(ctx, plan, func(record publicAPIRuntimeEventRecord) error {
-		if err := emit(
-			"response.openagents.event",
-			map[string]any{
-				"type":        "response.openagents.event",
-				"response_id": plan.ResponseID,
-				"event":       record.OpenAgentsEvent,
-			},
-		); err != nil {
-			return err
-		}
-
-		if strings.TrimSpace(record.TextDelta) == "" {
-			return nil
-		}
-
-		if !textStreamStarted {
-			textStreamStarted = true
-			if err := emit(
-				"response.output_item.added",
-				map[string]any{
-					"type":         "response.output_item.added",
-					"response_id":  plan.ResponseID,
-					"output_index": 0,
-					"item": map[string]any{
-						"id":     messageItemID,
-						"type":   "message",
-						"role":   "assistant",
-						"status": "in_progress",
-						"content": []map[string]any{
-							{
-								"type": "output_text",
-								"text": "",
-							},
-						},
-					},
-				},
-			); err != nil {
-				return err
-			}
-			if err := emit(
-				"response.content_part.added",
-				map[string]any{
-					"type":          "response.content_part.added",
-					"response_id":   plan.ResponseID,
-					"item_id":       messageItemID,
-					"output_index":  0,
-					"content_index": 0,
-					"part": map[string]any{
-						"type": "output_text",
-						"text": "",
-					},
-				},
-			); err != nil {
+		for _, event := range record.RunEvents {
+			nextEventIndex = event.EventIndex
+			emittedRunEvents = append(emittedRunEvents, event)
+			if err := emit("response.run_event", buildStreamingRunEventEnvelope(event)); err != nil {
 				return err
 			}
 		}
-
-		return emit(
-			"response.output_text.delta",
-			map[string]any{
-				"type":          "response.output_text.delta",
-				"response_id":   plan.ResponseID,
-				"item_id":       messageItemID,
-				"output_index":  0,
-				"content_index": 0,
-				"delta":         record.TextDelta,
-			},
-		)
+		return nil
 	})
 	if err != nil {
-		return s.finishInvocationWithError(ctx, plan.Invocation, err)
-	}
-
-	if textStreamStarted {
-		if err := emit(
-			"response.content_part.done",
-			map[string]any{
-				"type":          "response.content_part.done",
-				"response_id":   plan.ResponseID,
-				"item_id":       messageItemID,
-				"output_index":  0,
-				"content_index": 0,
-				"part": map[string]any{
-					"type": "output_text",
-					"text": result.OutputText,
-				},
-			},
-		); err != nil {
-			return err
+		failed := model.PublicAPIRunEvent{
+			EventIndex: nextEventIndex + 1,
+			CreatedAt:  time.Now().UTC().Unix(),
+			Type:       model.PublicAPIRunFailed,
+			ResponseID: plan.ResponseID,
+			Error:      strings.TrimSpace(err.Error()),
 		}
-		if err := emit(
-			"response.output_item.done",
-			map[string]any{
-				"type":         "response.output_item.done",
-				"response_id":  plan.ResponseID,
-				"output_index": 0,
-				"item": map[string]any{
-					"id":     messageItemID,
-					"type":   "message",
-					"role":   "assistant",
-					"status": "completed",
-					"content": []map[string]any{
-						{
-							"type":        "output_text",
-							"text":        result.OutputText,
-							"annotations": []any{},
-						},
-					},
-				},
-			},
-		); err != nil {
-			return err
+		if emitErr := emit("response.run_event", buildStreamingRunEventEnvelope(failed)); emitErr != nil {
+			return emitErr
+		}
+		emittedRunEvents = append(emittedRunEvents, failed)
+		_ = s.finishInvocationWithError(ctx, plan.Invocation, err, emittedRunEvents)
+		return nil
+	}
+	if !result.Incomplete {
+		for _, event := range buildTerminalRunEvents(nextEventIndex, plan.Invocation.ResponseID, result.OutputText) {
+			nextEventIndex = event.EventIndex
+			emittedRunEvents = append(emittedRunEvents, event)
+			if err := emit("response.run_event", buildStreamingRunEventEnvelope(event)); err != nil {
+				return err
+			}
 		}
 	}
-
-	return emit(
-		"response.completed",
-		buildStreamingCompletedEnvelope(plan.ResponseID, result.ResponseObject),
-	)
+	return nil
 }
 
 // StreamChatCompletions keeps the stream wire format identical to standard chat
@@ -511,12 +435,13 @@ func (s *PublicAPIService) StreamChatCompletions(
 	chunkID := "chatcmpl_" + strings.TrimPrefix(plan.ResponseID, "resp_")
 	sentRole := false
 	result, err := s.executeRun(ctx, plan, func(record publicAPIRuntimeEventRecord) error {
-		if strings.TrimSpace(record.TextDelta) == "" {
+		textDelta := assistantDeltaFromRunEvents(record.RunEvents)
+		if strings.TrimSpace(textDelta) == "" {
 			return nil
 		}
 
 		delta := map[string]any{
-			"content": record.TextDelta,
+			"content": textDelta,
 		}
 		if !sentRole {
 			sentRole = true
@@ -538,7 +463,7 @@ func (s *PublicAPIService) StreamChatCompletions(
 		})
 	})
 	if err != nil {
-		return s.finishInvocationWithError(ctx, plan.Invocation, err)
+		return s.finishInvocationWithError(ctx, plan.Invocation, err, nil)
 	}
 
 	if !sentRole {
@@ -706,10 +631,10 @@ func (s *PublicAPIService) prepareRun(
 	}
 
 	if err := s.fs.EnsureThreadDirs(threadID); err != nil {
-		return nil, s.finishInvocationWithError(ctx, invocation, err)
+		return nil, s.finishInvocationWithError(ctx, invocation, err, nil)
 	}
 	if err := s.ensureLangGraphThread(ctx, auth.UserID, threadID); err != nil {
-		return nil, s.finishInvocationWithError(ctx, invocation, err)
+		return nil, s.finishInvocationWithError(ctx, invocation, err, nil)
 	}
 
 	runtimeUploads, err := s.stageInputFilesForThread(
@@ -719,7 +644,7 @@ func (s *PublicAPIService) prepareRun(
 		normalizedInput.FileIDs,
 	)
 	if err != nil {
-		return nil, s.finishInvocationWithError(ctx, invocation, err)
+		return nil, s.finishInvocationWithError(ctx, invocation, err, nil)
 	}
 
 	return &publicAPIRunPlan{
@@ -746,7 +671,9 @@ func (s *PublicAPIService) executeRun(
 	plan *publicAPIRunPlan,
 	onRuntimeEvent func(record publicAPIRuntimeEventRecord) error,
 ) (*publicAPIRunResult, error) {
-	collector := newPublicAPIRunCollector()
+	// Event index 1 is reserved for `run_started`, which is synthesized from the
+	// invocation envelope before runtime stream events begin.
+	collector := newPublicAPIRunCollector(1)
 	if err := s.runAgentTurnStream(ctx, plan, func(sourceEvent string, payload any) error {
 		record := collector.consume(sourceEvent, payload)
 		if onRuntimeEvent == nil {
@@ -755,6 +682,10 @@ func (s *PublicAPIService) executeRun(
 		return onRuntimeEvent(record)
 	}); err != nil {
 		return nil, err
+	}
+
+	if collector.hasQuestionRequest() && !collector.hasAssistantOutput() {
+		return s.finishIncompleteRun(ctx, plan, collector.events)
 	}
 
 	statePayload, err := s.fetchThreadState(
@@ -777,15 +708,8 @@ func (s *PublicAPIService) executeRun(
 		return nil, err
 	}
 
-	traceRecord, err := s.lookupLatestTrace(ctx, plan.ThreadID, plan.Auth.UserID)
-	if err != nil {
+	if err := s.applyTraceUsage(ctx, plan); err != nil {
 		return nil, err
-	}
-	if traceRecord != nil {
-		plan.Invocation.TraceID = &traceRecord.TraceID
-		plan.Invocation.InputTokens = traceRecord.InputTokens
-		plan.Invocation.OutputTokens = traceRecord.OutputTokens
-		plan.Invocation.TotalTokens = traceRecord.TotalTokens
 	}
 
 	responseArtifacts, ledgerArtifacts, err := s.buildResponseArtifacts(plan.Invocation, artifactPaths)
@@ -798,6 +722,83 @@ func (s *PublicAPIService) executeRun(
 		}
 	}
 
+	return s.finishCompletedRun(
+		ctx,
+		plan,
+		outputText,
+		reasoningText,
+		responseArtifacts,
+		buildResponseRunEvents(plan.Invocation, collector.events, outputText),
+	)
+}
+
+func (s *PublicAPIService) applyTraceUsage(
+	ctx context.Context,
+	plan *publicAPIRunPlan,
+) error {
+	traceRecord, err := s.lookupLatestTrace(ctx, plan.ThreadID, plan.Auth.UserID)
+	if err != nil {
+		return err
+	}
+	if traceRecord == nil {
+		return nil
+	}
+
+	plan.Invocation.TraceID = &traceRecord.TraceID
+	plan.Invocation.InputTokens = traceRecord.InputTokens
+	plan.Invocation.OutputTokens = traceRecord.OutputTokens
+	plan.Invocation.TotalTokens = traceRecord.TotalTokens
+	return nil
+}
+
+func (s *PublicAPIService) finishIncompleteRun(
+	ctx context.Context,
+	plan *publicAPIRunPlan,
+	runtimeEvents []model.PublicAPIRunEvent,
+) (*publicAPIRunResult, error) {
+	if err := s.applyTraceUsage(ctx, plan); err != nil {
+		return nil, err
+	}
+
+	plan.Invocation.Status = "incomplete"
+	finishedAt := time.Now().UTC()
+	plan.Invocation.FinishedAt = &finishedAt
+	responseObject := buildResponseEnvelope(
+		plan.Invocation,
+		"",
+		"",
+		[]model.PublicAPIResponseArtifact{},
+		plan.Metadata,
+		plan.PreviousResponseID,
+		buildInterruptedRunEvents(plan.Invocation, runtimeEvents),
+		plan.Reasoning,
+	)
+	responseBody, err := json.Marshal(responseObject)
+	if err != nil {
+		return nil, err
+	}
+	plan.Invocation.ResponseJSON = responseBody
+	if err := s.invocationRepo.Finish(ctx, plan.Invocation); err != nil {
+		return nil, err
+	}
+
+	return &publicAPIRunResult{
+		Body:           responseBody,
+		OutputText:     "",
+		ReasoningText:  "",
+		ResponseObject: responseObject,
+		Incomplete:     true,
+	}, nil
+}
+
+func (s *PublicAPIService) finishCompletedRun(
+	ctx context.Context,
+	plan *publicAPIRunPlan,
+	outputText string,
+	reasoningText string,
+	responseArtifacts []model.PublicAPIResponseArtifact,
+	runEvents []model.PublicAPIRunEvent,
+) (*publicAPIRunResult, error) {
 	plan.Invocation.Status = "completed"
 	finishedAt := time.Now().UTC()
 	plan.Invocation.FinishedAt = &finishedAt
@@ -808,7 +809,7 @@ func (s *PublicAPIService) executeRun(
 		responseArtifacts,
 		plan.Metadata,
 		plan.PreviousResponseID,
-		collector.events,
+		runEvents,
 		plan.Reasoning,
 	)
 	responseBody, err := json.Marshal(responseObject)
@@ -825,58 +826,140 @@ func (s *PublicAPIService) executeRun(
 		OutputText:     outputText,
 		ReasoningText:  reasoningText,
 		ResponseObject: responseObject,
+		Incomplete:     false,
 	}, nil
 }
 
-func newPublicAPIRunCollector() *publicAPIRunCollector {
+func newPublicAPIRunCollector(startIndex int) *publicAPIRunCollector {
 	return &publicAPIRunCollector{
-		events:         make([]model.PublicAPIOpenAgentsEvent, 0, 16),
-		knownArtifacts: map[string]struct{}{},
+		events:                make([]model.PublicAPIRunEvent, 0, 16),
+		sequence:              startIndex,
+		activeToolPhaseCounts: make(map[string]int),
 	}
 }
 
-func (c *publicAPIRunCollector) consume(sourceEvent string, payload any) publicAPIRuntimeEventRecord {
-	category := "runtime.event"
-	textDelta := ""
+func (c *publicAPIRunCollector) hasQuestionRequest() bool {
+	for index := len(c.events) - 1; index >= 0; index-- {
+		if c.events[index].Type == model.PublicAPIQuestionRequested {
+			return true
+		}
+	}
+	return false
+}
 
+func (c *publicAPIRunCollector) hasAssistantOutput() bool {
+	for _, event := range c.events {
+		if event.Type == model.PublicAPIAssistantDelta || event.Type == model.PublicAPIAssistantMessage {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *publicAPIRunCollector) consume(sourceEvent string, payload any) publicAPIRuntimeEventRecord {
+	events := make([]model.PublicAPIRunEvent, 0, 2)
 	switch sourceEvent {
 	case "messages", "messages-tuple":
 		record := extractStreamMessageRecord(payload)
 		messageType := strings.ToLower(strings.TrimSpace(fmt.Sprint(record["type"])))
 		switch {
-		case strings.HasPrefix(messageType, "ai") && hasNonEmptyToolCalls(record["tool_calls"]):
-			category = "assistant.tool_calls"
 		case strings.HasPrefix(messageType, "ai"):
-			category = "assistant.message"
-			textDelta = extractMessageChunkTextDelta(record["content"])
-		case strings.HasPrefix(messageType, "tool"):
-			category = "tool.result"
-		}
-	case "values":
-		category = "state.snapshot"
-		if record, ok := payload.(map[string]any); ok {
-			payload = buildStateSnapshotPayload(record, c.knownArtifacts)
+			if textDelta := extractMessageChunkTextDelta(record["content"]); strings.TrimSpace(textDelta) != "" {
+				events = append(events, c.pushEvent(model.PublicAPIRunEvent{
+					Type:  model.PublicAPIAssistantDelta,
+					Delta: textDelta,
+				}))
+			}
 		}
 	case "custom":
-		category = "runtime.custom"
-	case "end":
-		category = "run.completed"
+		record, ok := payload.(map[string]any)
+		if ok {
+			events = append(events, c.extractRuntimeCustomEvents(record)...)
+		}
+	case "updates":
+		record, ok := payload.(map[string]any)
+		if ok {
+			events = append(events, c.extractInterruptEvents(record)...)
+		}
 	}
-
-	c.sequence++
-	event := model.PublicAPIOpenAgentsEvent{
-		Sequence:    c.sequence,
-		CreatedAt:   time.Now().UTC().Unix(),
-		SourceEvent: sourceEvent,
-		Category:    category,
-		Payload:     payload,
-	}
-	c.events = append(c.events, event)
-
 	return publicAPIRuntimeEventRecord{
-		OpenAgentsEvent: event,
-		TextDelta:       textDelta,
+		RunEvents: events,
 	}
+}
+
+func (c *publicAPIRunCollector) extractRuntimeCustomEvents(payload map[string]any) []model.PublicAPIRunEvent {
+	if strings.TrimSpace(fmt.Sprint(payload["type"])) != "execution_event" {
+		return nil
+	}
+
+	eventName := strings.TrimSpace(fmt.Sprint(payload["event"]))
+	phaseKind := strings.TrimSpace(fmt.Sprint(payload["phase_kind"]))
+	toolName := strings.TrimSpace(fmt.Sprint(payload["tool_name"]))
+
+	// Public `/v1/responses` already synthesizes `run_started` from the response
+	// envelope, so custom runtime events should only add canonical details that
+	// the gateway cannot derive safely from the northbound transport alone.
+	switch {
+	case eventName == "phase_started" && phaseKind == "tool":
+		c.activeToolPhaseCounts[toolName] = c.activeToolPhaseCounts[toolName] + 1
+		return []model.PublicAPIRunEvent{
+			c.pushEvent(model.PublicAPIRunEvent{
+				Type:     model.PublicAPIToolStarted,
+				ToolName: toolName,
+			}),
+		}
+	case eventName == "phase_finished" && phaseKind == "tool":
+		if c.activeToolPhaseCounts[toolName] <= 0 {
+			// Some runtime paths can currently emit a duplicate terminal tool phase
+			// after the first completion. Drop unmatched finishes here so the
+			// canonical public run-event ledger preserves one start/finish pair per
+			// observed tool phase until the runtime-side source is narrowed further.
+			return nil
+		}
+		c.activeToolPhaseCounts[toolName]--
+		return []model.PublicAPIRunEvent{
+			c.pushEvent(model.PublicAPIRunEvent{
+				Type:     model.PublicAPIToolFinished,
+				ToolName: toolName,
+			}),
+		}
+	default:
+		return nil
+	}
+}
+
+func (c *publicAPIRunCollector) extractInterruptEvents(payload map[string]any) []model.PublicAPIRunEvent {
+	interrupts, ok := payload["__interrupt__"].([]any)
+	if !ok || len(interrupts) == 0 {
+		return nil
+	}
+
+	events := make([]model.PublicAPIRunEvent, 0, len(interrupts))
+	for index, rawInterrupt := range interrupts {
+		questionID := fmt.Sprintf("interrupt:%d", index)
+		interrupt, ok := rawInterrupt.(map[string]any)
+		if ok {
+			value, _ := interrupt["value"].(map[string]any)
+			if value != nil {
+				if requestID := strings.TrimSpace(fmt.Sprint(firstNonNil(value["request_id"], value["requestId"]))); requestID != "" {
+					questionID = requestID
+				}
+			}
+		}
+		events = append(events, c.pushEvent(model.PublicAPIRunEvent{
+			Type:       model.PublicAPIQuestionRequested,
+			QuestionID: questionID,
+		}))
+	}
+	return events
+}
+
+func (c *publicAPIRunCollector) pushEvent(event model.PublicAPIRunEvent) model.PublicAPIRunEvent {
+	c.sequence++
+	event.EventIndex = c.sequence
+	event.CreatedAt = time.Now().UTC().Unix()
+	c.events = append(c.events, event)
+	return event
 }
 
 func (s *PublicAPIService) GetResponse(
@@ -1185,7 +1268,10 @@ func (s *PublicAPIService) runAgentTurnStream(
 				"thinking_enabled": plan.Reasoning.ThinkingEnabled,
 			},
 		},
-		"stream_mode": []string{"values", "messages-tuple", "custom"},
+		// Request `updates` alongside `custom` so runtime question/interrupt
+		// signals can enter the same canonical run-event collector instead of
+		// forcing the gateway to infer question state from snapshots later.
+		"stream_mode": []string{"values", "messages-tuple", "custom", "updates"},
 	}
 	configurableMap := requestPayload["config"].(map[string]any)["configurable"].(map[string]any)
 	if strings.TrimSpace(plan.Reasoning.Effort) != "" {
@@ -1584,6 +1670,7 @@ func (s *PublicAPIService) finishInvocationWithError(
 	ctx context.Context,
 	invocation *model.PublicAPIInvocation,
 	cause error,
+	runEvents []model.PublicAPIRunEvent,
 ) error {
 	invocation.Status = "failed"
 	message := strings.TrimSpace(cause.Error())
@@ -1593,6 +1680,7 @@ func (s *PublicAPIService) finishInvocationWithError(
 	invocation.Error = &message
 	finishedAt := time.Now().UTC()
 	invocation.FinishedAt = &finishedAt
+	invocation.ResponseJSON = buildFailedResponseEnvelope(invocation, message, runEvents)
 	if err := s.invocationRepo.Finish(ctx, invocation); err != nil {
 		return err
 	}
@@ -1604,6 +1692,54 @@ func (s *PublicAPIService) finishInvocationWithError(
 		Code:       "runtime_error",
 		Message:    message,
 	}
+}
+
+func buildFailedResponseEnvelope(
+	invocation *model.PublicAPIInvocation,
+	message string,
+	runEvents []model.PublicAPIRunEvent,
+) json.RawMessage {
+	if invocation == nil {
+		return json.RawMessage(`{}`)
+	}
+	if len(runEvents) == 0 {
+		runEvents = []model.PublicAPIRunEvent{
+			{
+				EventIndex: 1,
+				CreatedAt:  time.Now().UTC().Unix(),
+				Type:       model.PublicAPIRunFailed,
+				ResponseID: invocation.ResponseID,
+				Error:      message,
+			},
+		}
+	}
+	payload := map[string]any{
+		"id":           invocation.ResponseID,
+		"object":       "response",
+		"created_at":   invocation.CreatedAt.Unix(),
+		"completed_at": invocation.FinishedAt.Unix(),
+		"status":       invocation.Status,
+		"model":        invocation.RequestModel,
+		"output_text":  "",
+		"usage": map[string]any{
+			"input_tokens":  invocation.InputTokens,
+			"output_tokens": invocation.OutputTokens,
+			"total_tokens":  invocation.TotalTokens,
+		},
+		"artifacts": []any{},
+		"openagents": map[string]any{
+			"thread_id":  invocation.ThreadID,
+			"run_events": runEvents,
+		},
+	}
+	if invocation.TraceID != nil && strings.TrimSpace(*invocation.TraceID) != "" {
+		payload["openagents"].(map[string]any)["trace_id"] = strings.TrimSpace(*invocation.TraceID)
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return json.RawMessage(`{}`)
+	}
+	return encoded
 }
 
 func (s *PublicAPIService) lookupAgentCreatedAt(agentName string) int64 {
@@ -1690,7 +1826,7 @@ func buildResponseEnvelope(
 	artifacts []model.PublicAPIResponseArtifact,
 	requestMetadata map[string]any,
 	previousResponseID string,
-	events []model.PublicAPIOpenAgentsEvent,
+	events []model.PublicAPIRunEvent,
 	reasoning publicAPINormalizedReasoning,
 ) map[string]any {
 	metadata := make(map[string]any, len(requestMetadata)+1)
@@ -1717,23 +1853,25 @@ func buildResponseEnvelope(
 			"summary": reasoningSummary,
 		})
 	}
-	outputItems = append(outputItems, map[string]any{
-		"id":     "msg_" + strings.TrimPrefix(invocation.ResponseID, "resp_"),
-		"type":   "message",
-		"role":   "assistant",
-		"status": "completed",
-		"content": []map[string]any{
-			{
-				"type":        "output_text",
-				"text":        outputText,
-				"annotations": []any{},
+	if strings.TrimSpace(outputText) != "" {
+		outputItems = append(outputItems, map[string]any{
+			"id":     "msg_" + strings.TrimPrefix(invocation.ResponseID, "resp_"),
+			"type":   "message",
+			"role":   "assistant",
+			"status": "completed",
+			"content": []map[string]any{
+				{
+					"type":        "output_text",
+					"text":        outputText,
+					"annotations": []any{},
+				},
 			},
-		},
-	})
+		})
+	}
 
 	openagentsExtension := map[string]any{
-		"thread_id": invocation.ThreadID,
-		"events":    events,
+		"thread_id":  invocation.ThreadID,
+		"run_events": events,
 	}
 	if invocation.TraceID != nil && strings.TrimSpace(*invocation.TraceID) != "" {
 		openagentsExtension["trace_id"] = strings.TrimSpace(*invocation.TraceID)
@@ -1764,34 +1902,106 @@ func buildResponseEnvelope(
 	}
 }
 
-func buildStreamingResponseCreatedEnvelope(plan *publicAPIRunPlan) map[string]any {
+func buildStreamingRunEventEnvelope(event model.PublicAPIRunEvent) map[string]any {
 	return map[string]any{
-		"type": "response.created",
-		"response": map[string]any{
-			"id":                   plan.ResponseID,
-			"object":               "response",
-			"created_at":           plan.Invocation.CreatedAt.Unix(),
-			"status":               "in_progress",
-			"model":                plan.AgentName,
-			"previous_response_id": emptyStringToNil(plan.PreviousResponseID),
-			"reasoning_effort":     emptyStringToNil(plan.Reasoning.Effort),
-			"output":               []any{},
-			"output_text":          "",
-			"metadata": map[string]any{
-				"openagents": map[string]any{
-					"thread_id":            plan.ThreadID,
-					"previous_response_id": emptyStringToNil(plan.PreviousResponseID),
-				},
-			},
-		},
+		"type":  "response.run_event",
+		"event": event,
 	}
 }
 
-func buildStreamingCompletedEnvelope(responseID string, responseObject map[string]any) map[string]any {
-	return map[string]any{
-		"type":     "response.completed",
-		"response": responseObject,
+func buildResponseRunEvents(
+	invocation *model.PublicAPIInvocation,
+	runtimeEvents []model.PublicAPIRunEvent,
+	outputText string,
+) []model.PublicAPIRunEvent {
+	events := make([]model.PublicAPIRunEvent, 0, len(runtimeEvents)+3)
+	events = append(events, model.PublicAPIRunEvent{
+		EventIndex: 1,
+		CreatedAt:  invocation.CreatedAt.Unix(),
+		Type:       model.PublicAPIRunStarted,
+		ResponseID: invocation.ResponseID,
+	})
+	events = append(events, runtimeEvents...)
+	return append(events, buildTerminalRunEvents(lastRunEventIndex(events), invocation.ResponseID, outputText)...)
+}
+
+func buildInterruptedRunEvents(
+	invocation *model.PublicAPIInvocation,
+	runtimeEvents []model.PublicAPIRunEvent,
+) []model.PublicAPIRunEvent {
+	events := make([]model.PublicAPIRunEvent, 0, len(runtimeEvents)+1)
+	events = append(events, model.PublicAPIRunEvent{
+		EventIndex: 1,
+		CreatedAt:  invocation.CreatedAt.Unix(),
+		Type:       model.PublicAPIRunStarted,
+		ResponseID: invocation.ResponseID,
+	})
+	events = append(events, runtimeEvents...)
+	return events
+}
+
+func buildTerminalRunEvents(
+	startIndex int,
+	responseID string,
+	outputText string,
+) []model.PublicAPIRunEvent {
+	events := make([]model.PublicAPIRunEvent, 0, 2)
+	nextIndex := startIndex
+	createdAt := time.Now().UTC().Unix()
+	if strings.TrimSpace(outputText) != "" {
+		nextIndex++
+		events = append(events, model.PublicAPIRunEvent{
+			EventIndex: nextIndex,
+			CreatedAt:  createdAt,
+			Type:       model.PublicAPIAssistantMessage,
+			ResponseID: responseID,
+			Text:       outputText,
+		})
 	}
+	nextIndex++
+	events = append(events, model.PublicAPIRunEvent{
+		EventIndex: nextIndex,
+		CreatedAt:  createdAt,
+		Type:       model.PublicAPIRunCompleted,
+		ResponseID: responseID,
+	})
+	return events
+}
+
+func lastRunEventIndex(events []model.PublicAPIRunEvent) int {
+	if len(events) == 0 {
+		return 0
+	}
+	return events[len(events)-1].EventIndex
+}
+
+func assistantDeltaFromRunEvents(events []model.PublicAPIRunEvent) string {
+	segments := make([]string, 0, len(events))
+	for _, event := range events {
+		if event.Type == model.PublicAPIAssistantDelta && strings.TrimSpace(event.Delta) != "" {
+			segments = append(segments, event.Delta)
+		}
+	}
+	return strings.Join(segments, "")
+}
+
+func extractToolCallNames(value any) []string {
+	items, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	toolNames := make([]string, 0, len(items))
+	for _, item := range items {
+		record, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		name := strings.TrimSpace(fmt.Sprint(record["name"]))
+		if name != "" {
+			toolNames = append(toolNames, name)
+		}
+	}
+	return dedupeStrings(toolNames)
 }
 
 func buildChatCompletionObject(responseID string, responseObject map[string]any) map[string]any {

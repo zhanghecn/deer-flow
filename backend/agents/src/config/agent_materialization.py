@@ -346,6 +346,7 @@ def _write_agent_manifest(
     agent_dir: Path,
     name: str,
     status: str,
+    owner_user_id: str | None,
     description: str,
     model: str | None,
     tool_groups: list[str] | None,
@@ -366,6 +367,10 @@ def _write_agent_manifest(
     }
     if model is not None:
         manifest["model"] = model
+    if owner_user_id is not None and str(owner_user_id).strip():
+        # Agent ownership must survive lead_agent-authored creation flows so the
+        # creating user can later manage, publish, and mint public API keys.
+        manifest["owner_user_id"] = str(owner_user_id).strip()
     if tool_groups is not None:
         manifest["tool_groups"] = tool_groups
     if tool_names is not None:
@@ -397,6 +402,7 @@ def materialize_agent_definition(
     name: str,
     status: str = "dev",
     agents_md: str,
+    owner_user_id: str | None = None,
     description: str = "",
     model: str | None = None,
     tool_groups: list[str] | None = None,
@@ -454,6 +460,7 @@ def materialize_agent_definition(
             agent_dir=staging_dir,
             name=name,
             status=status,
+            owner_user_id=owner_user_id,
             description=description,
             model=model,
             tool_groups=tool_groups,
@@ -481,6 +488,7 @@ def materialize_agent_definition(
         return AgentConfig(
             name=name,
             description=description,
+            owner_user_id=owner_user_id,
             model=model,
             tool_groups=tool_groups,
             tool_names=tool_names,

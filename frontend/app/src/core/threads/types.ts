@@ -54,24 +54,58 @@ export interface AgentThreadState extends Record<string, unknown> {
   context_window?: ContextWindowState;
 }
 
-export type RetryStatusScope = "model" | "tool";
-export type RetryStatusEventState = "retrying" | "completed" | "failed";
+export type ExecutionEventName =
+  | "run_started"
+  | "phase_started"
+  | "phase_finished"
+  | "retrying"
+  | "retry_completed"
+  | "retry_failed";
 
-export interface RetryStatusEvent {
-  type: "retry_status";
-  scope: RetryStatusScope;
-  status: RetryStatusEventState;
-  retry_count: number;
-  max_retries: number;
+export type ExecutionPhaseKind = "model" | "tool" | "retry";
+
+export interface ExecutionEvent {
+  type: "execution_event";
+  event: ExecutionEventName;
   occurred_at: string;
-  next_retry_at?: string;
-  delay_seconds?: number;
+  phase?: string;
+  phase_kind?: ExecutionPhaseKind;
+  started_at?: string;
+  finished_at?: string;
+  duration_ms?: number;
   tool_name?: string;
+  retry_count?: number;
+  max_retries?: number;
+  delay_seconds?: number;
   error?: string;
   error_type?: string;
 }
 
-export type RetryStatus = Omit<RetryStatusEvent, "type" | "status">;
+export interface ExecutionStatus {
+  event: ExecutionEventName | "completed" | "failed" | "interrupted";
+  phase?: string;
+  phase_kind?: ExecutionPhaseKind | "run";
+  started_at: string;
+  run_started_at: string;
+  finished_at?: string;
+  duration_ms?: number;
+  total_duration_ms?: number;
+  tool_name?: string;
+  retry_count?: number;
+  max_retries?: number;
+  delay_seconds?: number;
+  error?: string;
+  error_type?: string;
+  terminal?: boolean;
+}
+
+export interface TaskRunningEvent {
+  type: "task_running";
+  task_id: string;
+  message: Message;
+}
+
+export type ThreadRuntimeEvent = ExecutionEvent | TaskRunningEvent;
 
 export interface ThreadRuntimeBinding {
   agent_name?: string;

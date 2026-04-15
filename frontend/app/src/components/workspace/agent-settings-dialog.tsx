@@ -72,6 +72,7 @@ import {
   toggleSkillRefSelection,
   skillRefKey,
 } from "./agent-skill-refs";
+import { resolveEffectiveToolNames } from "./agent-tool-selection";
 
 type SettingsTab =
   | "profile"
@@ -181,52 +182,6 @@ function createFormState(agent: Agent): AgentSettingsFormState {
     generalPurposeToolNames: agent.subagent_defaults?.tool_names ?? [],
     subagents: (agent.subagents ?? []).map(createSubagentFormState),
   };
-}
-
-function deriveToolNamesFromGroups(
-  groupsCSV: string,
-  catalog: ToolCatalogItem[],
-  capability: "main" | "subagent",
-) {
-  const groups = new Set(
-    (parseCSV(groupsCSV) ?? []).map((group) => group.trim()),
-  );
-  if (groups.size === 0) {
-    return [];
-  }
-  return catalog
-    .filter((tool) =>
-      capability === "main"
-        ? tool.configurable_for_main_agent
-        : tool.configurable_for_subagent,
-    )
-    .filter((tool) => groups.has(tool.group))
-    .map((tool) => tool.name);
-}
-
-function resolveEffectiveToolNames(
-  config: {
-    toolSelectionEnabled: boolean;
-    toolNames: string[];
-    toolGroups: string;
-  },
-  catalog: ToolCatalogItem[],
-  capability: "main" | "subagent",
-) {
-  if (config.toolSelectionEnabled) {
-    return config.toolNames;
-  }
-
-  const derivedFromGroups = deriveToolNamesFromGroups(
-    config.toolGroups,
-    catalog,
-    capability,
-  );
-  if (derivedFromGroups.length > 0) {
-    return derivedFromGroups;
-  }
-
-  return catalog.map((tool) => tool.name);
 }
 
 function isSkillInAllowedScopes(

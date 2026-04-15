@@ -109,6 +109,17 @@ export const zhCN: Translations = {
     retryingToolGeneric: (current, max, time) =>
       `工具重试 ${current}/${max} · ${time}`,
     retryDelay: (seconds) => `${seconds} 秒后再次尝试`,
+    executionThinking: (elapsed) => `思考中${elapsed ? ` ${elapsed}` : ""}`,
+    executionRunningTool: (toolName, elapsed) =>
+      `${toolName ? `执行 ${toolName}` : "执行工具"}${elapsed ? ` ${elapsed}` : ""}`,
+    executionFinalizing: (elapsed) =>
+      `收尾处理中${elapsed ? ` ${elapsed}` : ""}`,
+    executionRetryCompleted: "重试完成",
+    executionRetryFailed: "重试失败",
+    executionCompleted: (elapsed) =>
+      elapsed ? `${elapsed} 内完成` : "已完成",
+    executionFailed: (elapsed) => (elapsed ? `${elapsed} 后失败` : "执行失败"),
+    executionStopped: (elapsed) => (elapsed ? `${elapsed} 后停止` : "已停止"),
     suggestions: [
       {
         suggestion: "写作",
@@ -183,6 +194,18 @@ export const zhCN: Translations = {
     delete: "删除",
     deleteConfirm: "确定要删除该智能体吗？此操作不可撤销。",
     deleteSuccess: "智能体已删除",
+    deleteArchiveTitle: (agentName: string) => `删除“${agentName}”归档`,
+    deleteArchiveDescription: (agentName: string) =>
+      `请选择要删除“${agentName}”的哪个归档版本。删除全部归档会同时移除草稿版和已发布版。`,
+    deleteDraft: "删除草稿版",
+    deletePublished: "删除已发布版",
+    deleteAllArchives: "删除全部归档",
+    deleteDraftSuccess: (agentName: string) =>
+      `已删除“${agentName}”的草稿归档`,
+    deletePublishedSuccess: (agentName: string) =>
+      `已删除“${agentName}”的已发布归档`,
+    deleteAllArchivesSuccess: (agentName: string) =>
+      `已删除“${agentName}”的全部归档`,
     publish: "发布",
     publishSuccess: (agentName: string) => `智能体“${agentName}”已发布`,
     ownerBadge: "归属",

@@ -43,11 +43,17 @@ from src.agents.lead_agent.subagents import load_subagent_specs
 from src.config.agents_config import AgentConfig, load_agent_config
 from src.config.app_config import get_app_config, reload_app_config
 from src.config.builtin_agents import LEAD_AGENT_NAME
-from src.config.extensions_config import ExtensionsConfig, SkillStateConfig, get_extensions_config, reload_extensions_config
+from src.config.extensions_config import (
+    ExtensionsConfig,
+    SkillStateConfig,
+    get_extensions_config,
+    reload_extensions_config,
+)
 from src.config.paths import get_paths
 from src.config.runtime_defaults import DEFAULT_SUBAGENT_ENABLED
 from src.config.runtime_limits import DEFAULT_AGENT_RECURSION_LIMIT
 from src.models import create_chat_model
+from src.query_engine import CanonicalQueryEngine, CanonicalRunEvent
 
 logger = logging.getLogger(__name__)
 
@@ -369,6 +375,83 @@ class OpenAgentsClient:
             return "\n".join(parts) if parts else ""
         return str(content)
 
+    def _iter_legacy_message_events(
+        self,
+        messages: list[Any],
+        *,
+        seen_ids: set[str],
+    ) -> Generator[StreamEvent, None, None]:
+        """Project LangGraph message objects into the legacy embedded event API.
+
+        The embedded client still exposes `messages-tuple` and `values` so
+        older callers remain compatible while the runtime migrates toward the
+        canonical run-event contract. Keep that projection in one place instead
+        of duplicating the same AI/tool branching for every chunk shape.
+        """
+
+        for message in messages:
+            message_id = getattr(message, "id", None)
+            if message_id and message_id in seen_ids:
+                continue
+            if message_id:
+                seen_ids.add(message_id)
+
+            if isinstance(message, AIMessage):
+                if message.tool_calls:
+                    yield StreamEvent(
+                        type="messages-tuple",
+                        data={
+                            "type": "ai",
+                            "content": "",
+                            "id": message_id,
+                            "tool_calls": [
+                                {
+                                    "name": tool_call["name"],
+                                    "args": tool_call["args"],
+                                    "id": tool_call.get("id"),
+                                }
+                                for tool_call in message.tool_calls
+                            ],
+                        },
+                    )
+
+                text = self._extract_text(message.content)
+                if text:
+                    yield StreamEvent(
+                        type="messages-tuple",
+                        data={"type": "ai", "content": text, "id": message_id},
+                    )
+                continue
+
+            if isinstance(message, ToolMessage):
+                yield StreamEvent(
+                    type="messages-tuple",
+                    data={
+                        "type": "tool",
+                        "content": (
+                            message.content
+                            if isinstance(message.content, str)
+                            else str(message.content)
+                        ),
+                        "name": getattr(message, "name", None),
+                        "tool_call_id": getattr(message, "tool_call_id", None),
+                        "id": message_id,
+                    },
+                )
+
+    def _build_values_event(self, payload: dict[str, Any]) -> StreamEvent:
+        """Return the snapshot-style values event for one runtime chunk."""
+
+        messages = payload.get("messages", [])
+        return StreamEvent(
+            type="values",
+            data={
+                "title": payload.get("title"),
+                "messages": [self._serialize_message(message) for message in messages],
+                "artifacts": payload.get("artifacts", []),
+            },
+        )
+
     # ------------------------------------------------------------------
     # Public API — conversation
     # ------------------------------------------------------------------
@@ -386,9 +469,11 @@ class OpenAgentsClient:
         finishes its turn. A ``checkpointer`` must be provided at init time
         for multi-turn context to be preserved across calls.
 
-        Event types align with the LangGraph SSE protocol so that
-        consumers can switch between HTTP streaming and embedded mode
-        without changing their event-handling logic.
+        Event types align with the LangGraph SSE protocol as closely as the
+        embedded runtime allows, including custom runtime events such as
+        ``execution_event``. This keeps the embedded client on the same
+        event-contract path as the HTTP runtime instead of hiding runtime
+        custom events behind a simplified local-only adapter.
 
         Args:
             message: User message text.
@@ -402,6 +487,9 @@ class OpenAgentsClient:
             - type="messages-tuple"  data={"type": "ai", "content": str, "id": str}
             - type="messages-tuple"  data={"type": "ai", "content": "", "id": str, "tool_calls": [...]}
             - type="messages-tuple"  data={"type": "tool", "content": str, "name": str, "tool_call_id": str, "id": str}
+            - type="execution_event" data={...}
+            - type="task_running"    data={...}
+            - type="interrupts"      data={"__interrupt__": [...]}
             - type="end"             data={}
         """
         if thread_id is None:
@@ -415,58 +503,78 @@ class OpenAgentsClient:
 
         seen_ids: set[str] = set()
 
-        for chunk in self._agent.stream(state, config=config, context=context, stream_mode="values"):
-            messages = chunk.get("messages", [])
-
-            for msg in messages:
-                msg_id = getattr(msg, "id", None)
-                if msg_id and msg_id in seen_ids:
+        # Request values/custom/updates together so embedded callers can see the
+        # same runtime-authored event families that the HTTP runtime exposes.
+        # The legacy `messages-tuple` compatibility events are still projected
+        # from the values snapshots below so current consumers keep working.
+        for raw_chunk in self._agent.stream(
+            state,
+            config=config,
+            context=context,
+            stream_mode=["values", "updates", "custom"],
+        ):
+            if isinstance(raw_chunk, tuple) and len(raw_chunk) == 3:
+                namespace, stream_mode, payload = raw_chunk
+                # Keep the top-level client contract focused on the main run.
+                # Sub-agent output will move to explicit canonical events later
+                # instead of leaking nested raw stream namespaces now.
+                if namespace:
                     continue
-                if msg_id:
-                    seen_ids.add(msg_id)
 
-                if isinstance(msg, AIMessage):
-                    if msg.tool_calls:
-                        yield StreamEvent(
-                            type="messages-tuple",
-                            data={
-                                "type": "ai",
-                                "content": "",
-                                "id": msg_id,
-                                "tool_calls": [{"name": tc["name"], "args": tc["args"], "id": tc.get("id")} for tc in msg.tool_calls],
-                            },
-                        )
-
-                    text = self._extract_text(msg.content)
-                    if text:
-                        yield StreamEvent(
-                            type="messages-tuple",
-                            data={"type": "ai", "content": text, "id": msg_id},
-                        )
-
-                elif isinstance(msg, ToolMessage):
-                    yield StreamEvent(
-                        type="messages-tuple",
-                        data={
-                            "type": "tool",
-                            "content": msg.content if isinstance(msg.content, str) else str(msg.content),
-                            "name": getattr(msg, "name", None),
-                            "tool_call_id": getattr(msg, "tool_call_id", None),
-                            "id": msg_id,
-                        },
+                if stream_mode == "values" and isinstance(payload, dict):
+                    messages = payload.get("messages", [])
+                    yield from self._iter_legacy_message_events(
+                        messages,
+                        seen_ids=seen_ids,
                     )
+                    yield self._build_values_event(payload)
+                    continue
 
-            # Emit a values event for each state snapshot
-            yield StreamEvent(
-                type="values",
-                data={
-                    "title": chunk.get("title"),
-                    "messages": [self._serialize_message(m) for m in messages],
-                    "artifacts": chunk.get("artifacts", []),
-                },
-            )
+                if stream_mode == "custom" and isinstance(payload, dict):
+                    custom_type = str(payload.get("type") or "custom").strip() or "custom"
+                    yield StreamEvent(type=custom_type, data=payload)
+                    continue
+
+                if stream_mode == "updates" and isinstance(payload, dict):
+                    if "__interrupt__" in payload:
+                        yield StreamEvent(type="interrupts", data=payload)
+                    else:
+                        yield StreamEvent(type="updates", data=payload)
+                    continue
+
+            elif isinstance(raw_chunk, dict):
+                messages = raw_chunk.get("messages", [])
+                yield from self._iter_legacy_message_events(
+                    messages,
+                    seen_ids=seen_ids,
+                )
+                yield self._build_values_event(raw_chunk)
 
         yield StreamEvent(type="end", data={})
+
+    def stream_run_events(
+        self,
+        message: str,
+        *,
+        thread_id: str | None = None,
+        response_id: str | None = None,
+        **kwargs,
+    ) -> Generator[CanonicalRunEvent, None, None]:
+        """Stream canonical run events from the current embedded runtime.
+
+        This is the first QueryEngine-style SDK lane: it consumes the embedded
+        stream event contract and yields a smaller canonical run-event sequence
+        for SDK or frontend adapters that should not depend on raw stream event
+        families directly.
+        """
+
+        query_engine = CanonicalQueryEngine(response_id=response_id)
+        try:
+            for event in self.stream(message, thread_id=thread_id, **kwargs):
+                yield from query_engine.consume_stream_event(event)
+        except Exception as exc:
+            yield query_engine.fail(exc)
+            raise
 
     def chat(self, message: str, *, thread_id: str | None = None, **kwargs) -> str:
         """Send a message and return the final text response.

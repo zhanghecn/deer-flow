@@ -173,6 +173,7 @@ def test_setup_agent_accepts_typed_runtime_context(monkeypatch):
             agent_name="lead_agent",
             agent_status="dev",
             model_name="glm-5",
+            user_id="user-123",
         ),
         tool_call_id="tc-1",
     )
@@ -193,6 +194,7 @@ def test_setup_agent_accepts_typed_runtime_context(monkeypatch):
 
     assert calls["name"] == "contract-agent"
     assert calls["status"] == "dev"
+    assert calls["owner_user_id"] == "user-123"
     assert calls["description"] == "Reviews contracts"
     assert calls["model"] == "glm-5"
     assert calls["skill_refs"] == [{"name": "bootstrap"}]
@@ -204,6 +206,159 @@ def test_setup_agent_accepts_typed_runtime_context(monkeypatch):
     ]
     assert command.update["created_agent_name"] == "contract-agent"
     assert 'task(subagent_type="contract-agent"' in command.update["messages"][0].content
+
+
+def test_setup_agent_falls_back_to_thread_owner_when_runtime_user_id_is_missing(monkeypatch):
+    calls: dict[str, object] = {}
+
+    def fake_materialize_agent_definition(**kwargs):
+        calls.update(kwargs)
+        return SimpleNamespace(skill_refs=[])
+
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.materialize_agent_definition",
+        fake_materialize_agent_definition,
+    )
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.get_paths",
+        lambda: SimpleNamespace(
+            custom_agent_dir=lambda name, status: Path(f"/tmp/{status}/{name}"),
+        ),
+    )
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.get_runtime_db_store",
+        lambda: SimpleNamespace(get_thread_owner=lambda thread_id: "thread-owner-1"),
+    )
+
+    runtime = SimpleNamespace(
+        context=LeadAgentRuntimeContext(
+            agent_name="lead_agent",
+            agent_status="dev",
+            model_name="glm-5",
+            runtime_thread_id="thread-1",
+        ),
+        tool_call_id="tc-thread-owner-fallback",
+    )
+
+    setup_agent.func(
+        agents_md="# Contract Agent",
+        description="Reviews contracts",
+        runtime=runtime,
+        agent_name="contract-agent",
+    )
+
+    assert calls["owner_user_id"] == "thread-owner-1"
+
+
+def test_setup_agent_preserves_existing_owner_when_runtime_owner_is_missing(monkeypatch, tmp_path: Path):
+    paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
+    agent_dir = paths.custom_agent_dir("owned-agent", "dev")
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    (agent_dir / "AGENTS.md").write_text("# Owned Agent", encoding="utf-8")
+    (agent_dir / "config.yaml").write_text(
+        "name: owned-agent\n"
+        "description: Existing owner\n"
+        "status: dev\n"
+        "owner_user_id: owner-1\n"
+        "agents_md_path: AGENTS.md\n"
+        "skill_refs: []\n"
+        "memory:\n"
+        "  enabled: false\n"
+        "subagent_defaults:\n"
+        "  general_purpose_enabled: true\n",
+        encoding="utf-8",
+    )
+
+    calls: dict[str, object] = {}
+
+    def fake_materialize_agent_definition(**kwargs):
+        calls.update(kwargs)
+        return SimpleNamespace(skill_refs=[])
+
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.materialize_agent_definition",
+        fake_materialize_agent_definition,
+    )
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.get_paths",
+        lambda: paths,
+    )
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.get_runtime_db_store",
+        lambda: SimpleNamespace(get_thread_owner=lambda thread_id: None),
+    )
+
+    runtime = SimpleNamespace(
+        context=LeadAgentRuntimeContext(
+            agent_name="lead_agent",
+            agent_status="dev",
+            model_name="glm-5",
+        ),
+        tool_call_id="tc-preserve-owner",
+    )
+
+    setup_agent.func(
+        agents_md="# Owned Agent",
+        description="Updated description",
+        runtime=runtime,
+        agent_name="owned-agent",
+    )
+
+    assert calls["owner_user_id"] == "owner-1"
+
+
+def test_setup_agent_does_not_overwrite_existing_owner_with_different_runtime_user(monkeypatch, tmp_path: Path):
+    paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
+    agent_dir = paths.custom_agent_dir("owned-agent", "dev")
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    (agent_dir / "AGENTS.md").write_text("# Owned Agent", encoding="utf-8")
+    (agent_dir / "config.yaml").write_text(
+        "name: owned-agent\n"
+        "description: Existing owner\n"
+        "status: dev\n"
+        "owner_user_id: owner-1\n"
+        "agents_md_path: AGENTS.md\n"
+        "skill_refs: []\n"
+        "memory:\n"
+        "  enabled: false\n"
+        "subagent_defaults:\n"
+        "  general_purpose_enabled: true\n",
+        encoding="utf-8",
+    )
+
+    calls: dict[str, object] = {}
+
+    def fake_materialize_agent_definition(**kwargs):
+        calls.update(kwargs)
+        return SimpleNamespace(skill_refs=[])
+
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.materialize_agent_definition",
+        fake_materialize_agent_definition,
+    )
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.get_paths",
+        lambda: paths,
+    )
+
+    runtime = SimpleNamespace(
+        context=LeadAgentRuntimeContext(
+            agent_name="lead_agent",
+            agent_status="dev",
+            model_name="glm-5",
+            user_id="owner-2",
+        ),
+        tool_call_id="tc-keep-existing-owner",
+    )
+
+    setup_agent.func(
+        agents_md="# Owned Agent",
+        description="Updated description",
+        runtime=runtime,
+        agent_name="owned-agent",
+    )
+
+    assert calls["owner_user_id"] == "owner-1"
 
 
 def test_setup_agent_missing_agent_name_returns_recovery_hint():

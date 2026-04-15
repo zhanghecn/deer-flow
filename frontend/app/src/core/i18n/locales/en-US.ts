@@ -111,6 +111,17 @@ export const enUS: Translations = {
     retryingToolGeneric: (current, max, time) =>
       `Retrying tool ${current}/${max} at ${time}`,
     retryDelay: (seconds) => `Next retry in ${seconds}s`,
+    executionThinking: (elapsed) => `Thinking${elapsed ? ` ${elapsed}` : ""}`,
+    executionRunningTool: (toolName, elapsed) =>
+      `${toolName ? `Running ${toolName}` : "Running tool"}${elapsed ? ` ${elapsed}` : ""}`,
+    executionFinalizing: (elapsed) =>
+      `Finalizing${elapsed ? ` ${elapsed}` : ""}`,
+    executionRetryCompleted: "Retry completed",
+    executionRetryFailed: "Retry failed",
+    executionCompleted: (elapsed) =>
+      elapsed ? `Completed in ${elapsed}` : "Completed",
+    executionFailed: (elapsed) => (elapsed ? `Failed after ${elapsed}` : "Failed"),
+    executionStopped: (elapsed) => (elapsed ? `Stopped after ${elapsed}` : "Stopped"),
     suggestions: [
       {
         suggestion: "Write",
@@ -189,6 +200,19 @@ export const enUS: Translations = {
     deleteConfirm:
       "Are you sure you want to delete this agent? This action cannot be undone.",
     deleteSuccess: "Agent deleted",
+    deleteArchiveTitle: (agentName: string) =>
+      `Delete "${agentName}" archives`,
+    deleteArchiveDescription: (agentName: string) =>
+      `Choose which archived copy of "${agentName}" to remove. Deleting all archives removes both draft and published versions.`,
+    deleteDraft: "Delete draft",
+    deletePublished: "Delete published",
+    deleteAllArchives: "Delete all archives",
+    deleteDraftSuccess: (agentName: string) =>
+      `Deleted draft archive for "${agentName}"`,
+    deletePublishedSuccess: (agentName: string) =>
+      `Deleted published archive for "${agentName}"`,
+    deleteAllArchivesSuccess: (agentName: string) =>
+      `Deleted all archives for "${agentName}"`,
     publish: "Publish",
     publishSuccess: (agentName: string) => `Agent "${agentName}" published`,
     ownerBadge: "owner",

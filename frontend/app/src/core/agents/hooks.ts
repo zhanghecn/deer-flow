@@ -75,6 +75,7 @@ export function usePublicAgentExportDoc(
     queryKey: ["public-agents", name, "export-doc"],
     queryFn: () => getPublicAgentExportDoc(name!),
     enabled: enabled && !!name,
+    retry: false,
   });
   return { exportDoc: data ?? null, isLoading, error };
 }
@@ -121,7 +122,13 @@ export function usePublishAgent() {
 export function useDeleteAgent() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (name: string) => deleteAgent(name),
+    mutationFn: ({
+      name,
+      status,
+    }: {
+      name: string;
+      status?: AgentStatus;
+    }) => deleteAgent(name, status),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["agents"] });
     },

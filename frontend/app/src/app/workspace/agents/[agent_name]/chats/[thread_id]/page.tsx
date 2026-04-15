@@ -219,7 +219,7 @@ export default function AgentChatPage() {
     threadRuntime,
   ]);
 
-  const [thread, sendMessage, resumeInterrupt, , retryStatus] = useThreadStream(
+  const [thread, sendMessage, resumeInterrupt, , executionStatus] = useThreadStream(
     {
       threadId,
       context: runtimeContext,
@@ -371,6 +371,7 @@ export default function AgentChatPage() {
                 className={cn("size-full", !showCenteredComposer && "pt-10")}
                 threadId={threadId}
                 thread={thread}
+                executionStatus={executionStatus}
                 paddingBottom={showCenteredComposer ? undefined : paddingBottom}
               />
             </div>
@@ -405,7 +406,7 @@ export default function AgentChatPage() {
                     autoFocus={showCenteredComposer}
                     status={thread.isLoading ? "streaming" : "ready"}
                     context={runtimeContext}
-                    retryStatus={retryStatus}
+                    executionStatus={executionStatus}
                     initialValue={inputInitialValue}
                     contextWindow={
                       showCenteredComposer
