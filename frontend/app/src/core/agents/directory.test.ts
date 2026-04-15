@@ -59,4 +59,18 @@ describe("groupAgentsByName", () => {
       hasPublishedVersion: false,
     });
   });
+
+  it("treats missing can_manage as read-only instead of manageable", () => {
+    const entries = groupAgentsByName([
+      createAgent({ name: "reviewer", status: "dev" }),
+      createAgent({ name: "reviewer", status: "prod" }),
+    ]);
+
+    expect(entries.find((entry) => entry.name === "reviewer")).toMatchObject({
+      defaultChatStatus: "prod",
+      defaultSettingsStatus: "dev",
+      hasPublishedVersion: true,
+      canManage: false,
+    });
+  });
 });

@@ -129,7 +129,7 @@ function finalizeAgentDirectoryEntry(
 function pickDefaultChatStatus(entry: AgentDirectoryEntry): AgentStatus {
   // When authors have a draft archive, new chats should land there by default.
   // Read-only viewers fall back to prod so the workspace opens the published copy.
-  if (entry.devAgent?.can_manage !== false) {
+  if (hasManagePermission(entry.devAgent)) {
     return "dev";
   }
   if (entry.prodAgent) {
@@ -147,12 +147,16 @@ function pickDefaultSettingsStatus(entry: AgentDirectoryEntry): AgentStatus {
 
 function canManageAgentDirectoryEntry(entry: AgentDirectoryEntry) {
   return (
-    entry.devAgent?.can_manage !== false ||
-    entry.prodAgent?.can_manage !== false ||
+    hasManagePermission(entry.devAgent) ||
+    hasManagePermission(entry.prodAgent) ||
     (entry.devAgent == null &&
       entry.prodAgent == null &&
       entry.name === "lead_agent")
   );
+}
+
+function hasManagePermission(agent: Agent | null | undefined) {
+  return agent?.can_manage === true;
 }
 
 function compareAgentDirectoryEntries(
