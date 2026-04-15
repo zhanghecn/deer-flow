@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -7,11 +8,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { formatAgo, formatDateTime, maskString } from "@/lib/format";
+import { formatAgo, formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { JsonMarkdownInspector } from "./json-markdown-inspector";
 import {
+  collectTaskSessionRuns,
   extractRunSections,
+  getTaskSessionId,
   isMiddlewareRun,
   type TraceRunSummary,
 } from "./trace-run-utils";
@@ -21,6 +24,7 @@ interface TraceRunDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   run: TraceRunSummary | null;
+  runs?: TraceRunSummary[];
 }
 
 function metaValue(value: number | string | undefined | null): string {
@@ -68,12 +72,45 @@ export function TraceRunDialog({
   open,
   onOpenChange,
   run,
+  runs = [],
 }: TraceRunDialogProps) {
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
+
+  const dialogRuns = useMemo(
+    () => (runs.length > 0 ? runs : run ? [run] : []),
+    [run, runs],
+  );
+
+  const defaultActiveRunId = useMemo(() => {
+    if (!run) {
+      return null;
+    }
+
+    const taskSessionRuns = collectTaskSessionRuns(run, dialogRuns);
+    const taskSessionId = getTaskSessionId(run);
+    if (taskSessionId && run.runId === taskSessionId) {
+      const firstInternalRun = taskSessionRuns.find(
+        (candidate) => candidate.runId !== taskSessionId,
+      );
+      return firstInternalRun?.runId ?? run.runId;
+    }
+
+    return run.runId;
+  }, [dialogRuns, run]);
+
+  useEffect(() => {
+    setActiveRunId(defaultActiveRunId);
+  }, [defaultActiveRunId]);
+
   if (!run) {
     return null;
   }
 
-  const sections = extractRunSections(run);
+  const activeRun =
+    dialogRuns.find((candidate) => candidate.runId === activeRunId) ?? run;
+  const taskSessionRuns = collectTaskSessionRuns(run, dialogRuns);
+  const taskSessionId = getTaskSessionId(run);
+  const sections = extractRunSections(activeRun);
   const truncatedSectionCount = sections.filter((section) => section.truncated).length;
 
   return (
@@ -81,52 +118,92 @@ export function TraceRunDialog({
       <DialogContent className="sm:max-w-6xl h-[88vh] p-0 overflow-hidden">
         <DialogHeader className="px-6 pt-6 pb-3 border-b">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline">{t(run.runType)}</Badge>
+            <Badge variant="outline">{t(activeRun.runType)}</Badge>
             <Badge
               variant={
-                run.status === "error"
+                activeRun.status === "error"
                   ? "destructive"
-                : run.status === "completed"
+                : activeRun.status === "completed"
                     ? "default"
                     : "secondary"
               }
             >
-              {t(run.status)}
+              {t(activeRun.status)}
             </Badge>
-            {isMiddlewareRun(run) && <Badge variant="secondary">{t("middleware")}</Badge>}
-            {run.taskRunId && <Badge variant="outline">{t("sub-agent")}</Badge>}
+            {isMiddlewareRun(activeRun) && <Badge variant="secondary">{t("middleware")}</Badge>}
+            {getTaskSessionId(activeRun) && <Badge variant="outline">{t("sub-agent")}</Badge>}
           </div>
-          <DialogTitle>{run.label}</DialogTitle>
-          <DialogDescription>{run.summary || t("Run details")}</DialogDescription>
+          <DialogTitle>{activeRun.label}</DialogTitle>
+          <DialogDescription>{activeRun.summary || t("Run details")}</DialogDescription>
         </DialogHeader>
 
         <ScrollArea className="h-full">
           <div className="space-y-4 px-6 py-4">
+            {taskSessionRuns.length > 1 && (
+              <div className="rounded-xl border border-cyan-200/70 bg-cyan-50/40 px-4 py-4 dark:border-cyan-900 dark:bg-cyan-950/20">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline">{t("Sub-agent Session")}</Badge>
+                  <span className="text-sm text-muted-foreground">
+                    {t("{count} internal runs grouped by one task session.", {
+                      count: taskSessionRuns.length,
+                    })}
+                  </span>
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {t("Task Session ID:")}{" "}
+                  <span className="font-mono">{taskSessionId || "-"}</span>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {taskSessionRuns.map((sessionRun) => {
+                    const selected = sessionRun.runId === activeRun.runId;
+                    return (
+                      <button
+                        key={sessionRun.runId}
+                        type="button"
+                        onClick={() => setActiveRunId(sessionRun.runId)}
+                        className={cn(
+                          "rounded-md border px-3 py-2 text-left text-xs transition-colors",
+                          selected
+                            ? "border-cyan-400 bg-cyan-100/80 text-cyan-950 dark:border-cyan-700 dark:bg-cyan-900/50 dark:text-cyan-50"
+                            : "border-border bg-background hover:bg-accent/40",
+                        )}
+                      >
+                        <div className="font-medium">{sessionRun.label}</div>
+                        <div className="mt-1 max-w-[24rem] text-muted-foreground">
+                          {sessionRun.summary || t("Run details")}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <div className="grid gap-2 text-xs text-muted-foreground md:grid-cols-2 xl:grid-cols-3">
               <div>
-                {t("Run ID:")} <span className="font-mono">{maskString(run.runId, 8, 6)}</span>
+                {t("Run ID:")} <span className="font-mono">{activeRun.runId}</span>
               </div>
               <div>
                 {t("Parent:")}{" "}
                 <span className="font-mono">
-                  {run.parentRunId ? maskString(run.parentRunId, 8, 6) : "-"}
+                  {activeRun.parentRunId || "-"}
                 </span>
               </div>
-              <div>{t("Events")}: {run.eventCount}</div>
-              <div>{t("Started:")} {formatDateTime(run.startedAt)}</div>
-              <div>{t("Finished:")} {formatDateTime(run.finishedAt)}</div>
+              <div>{t("Events")}: {activeRun.eventCount}</div>
+              <div>{t("Started:")} {formatDateTime(activeRun.startedAt)}</div>
+              <div>{t("Finished:")} {formatDateTime(activeRun.finishedAt)}</div>
               <div>
-                {t("Relative:")} {run.startedAt ? formatAgo(run.startedAt) : "-"}
+                {t("Relative:")} {activeRun.startedAt ? formatAgo(activeRun.startedAt) : "-"}
               </div>
               <div>
                 {t("Duration:")}{" "}
-                {metaValue(run.durationMs != null ? `${run.durationMs}ms` : null)}
+                {metaValue(activeRun.durationMs != null ? `${activeRun.durationMs}ms` : null)}
               </div>
-              <div>{t("Input Tokens:")} {metaValue(run.inputTokens)}</div>
-              <div>{t("Output Tokens:")} {metaValue(run.outputTokens)}</div>
-              <div>{t("Total Tokens:")} {metaValue(run.totalTokens)}</div>
-              <div>{t("Node:")} {run.nodeName ?? "-"}</div>
-              <div>{t("Tool:")} {run.toolName ?? "-"}</div>
+              <div>{t("Input Tokens:")} {metaValue(activeRun.inputTokens)}</div>
+              <div>{t("Output Tokens:")} {metaValue(activeRun.outputTokens)}</div>
+              <div>{t("Total Tokens:")} {metaValue(activeRun.totalTokens)}</div>
+              <div>{t("Node:")} {activeRun.nodeName ?? "-"}</div>
+              <div>{t("Tool:")} {activeRun.toolName ?? "-"}</div>
             </div>
 
             {truncatedSectionCount > 0 && (

@@ -5,7 +5,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { getCurrentLocale, t } from "@/i18n";
-import { formatDate, maskString } from "@/lib/format";
+import { formatDate } from "@/lib/format";
 import { EventTree } from "./event-tree";
 import { TokenSummary } from "./token-summary";
 import { useFetch } from "@/hooks/use-fetch";
@@ -156,15 +156,13 @@ function TraceDetailContent({
             <div>
               <span className="text-muted-foreground">{t("Trace ID:")}</span>{" "}
               <span className="font-mono text-xs">
-                {maskString(trace.trace_id, 8, 4)}
+                {trace.trace_id}
               </span>
             </div>
             <div>
               <span className="text-muted-foreground">{t("Thread:")}</span>{" "}
               <span className="font-mono text-xs">
-                {trace.thread_id
-                  ? maskString(trace.thread_id, 8, 4)
-                  : "-"}
+                {trace.thread_id || "-"}
               </span>
             </div>
             <div>
@@ -363,11 +361,12 @@ function TraceDetailContent({
             >
               <GalaxyTraceView
                 runs={visibleRuns}
+                allRuns={runs}
                 rootRunId={trace.root_run_id}
               />
             </Suspense>
           ) : (
-            <EventTree runs={visibleRuns} />
+            <EventTree runs={visibleRuns} allRuns={runs} />
           )}
         </div>
       </div>

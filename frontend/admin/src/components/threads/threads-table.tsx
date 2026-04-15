@@ -10,7 +10,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { t } from "@/i18n";
-import { formatAgo, maskString } from "@/lib/format";
+import { formatAgo } from "@/lib/format";
 import type { RuntimeThread } from "@/types";
 
 interface ThreadsTableProps {
@@ -56,10 +56,10 @@ export function ThreadsTable({ threads, isLoading }: ThreadsTableProps) {
           {threads.map((thread) => (
             <TableRow key={thread.thread_id}>
               <TableCell className="font-mono text-xs">
-                {maskString(thread.thread_id, 8, 4)}
+                {thread.thread_id}
               </TableCell>
               <TableCell className="font-mono text-xs text-muted-foreground">
-                {thread.user_id ? maskString(thread.user_id, 6, 4) : "-"}
+                {thread.user_id || "-"}
               </TableCell>
               <TableCell>
                 {thread.agent_name ? (

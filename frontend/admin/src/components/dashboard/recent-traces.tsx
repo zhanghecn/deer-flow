@@ -10,7 +10,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { t } from "@/i18n";
-import { formatAgo, maskString } from "@/lib/format";
+import { formatAgo } from "@/lib/format";
 import type { TraceItem } from "@/types";
 
 interface RecentTracesProps {
@@ -62,7 +62,7 @@ export function RecentTraces({ traces, isLoading }: RecentTracesProps) {
               {items.map((trace) => (
                 <TableRow key={trace.trace_id}>
                   <TableCell className="font-medium">
-                    {trace.agent_name || maskString(trace.trace_id, 6, 0)}
+                    {trace.agent_name || trace.trace_id}
                   </TableCell>
                   <TableCell>
                     <Badge variant={statusVariant(trace.status)}>

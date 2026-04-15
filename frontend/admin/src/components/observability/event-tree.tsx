@@ -9,6 +9,7 @@ import { isMiddlewareRun, type TraceRunSummary } from "./trace-run-utils";
 
 interface EventTreeProps {
   runs: TraceRunSummary[];
+  allRuns?: TraceRunSummary[];
 }
 
 function runTypeIcon(runType: string) {
@@ -36,7 +37,7 @@ function errorText(run: TraceRunSummary): string | null {
   return run.errorEvent?.error ?? null;
 }
 
-export function EventTree({ runs }: EventTreeProps) {
+export function EventTree({ runs, allRuns = runs }: EventTreeProps) {
   const [selectedRun, setSelectedRun] = useState<TraceRunSummary | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
@@ -152,6 +153,7 @@ export function EventTree({ runs }: EventTreeProps) {
         open={isDialogOpen}
         onOpenChange={setIsDialogOpen}
         run={selectedRun}
+        runs={allRuns}
       />
     </>
   );

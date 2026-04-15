@@ -31,6 +31,99 @@ export interface TraceRunSummary {
   hasTruncatedPayload: boolean;
 }
 
+function compareRunsByStart(
+  a: TraceRunSummary,
+  b: TraceRunSummary,
+): number {
+  const aTime = a.startedAt
+    ? new Date(a.startedAt).getTime()
+    : Number.MAX_SAFE_INTEGER;
+  const bTime = b.startedAt
+    ? new Date(b.startedAt).getTime()
+    : Number.MAX_SAFE_INTEGER;
+  if (aTime !== bTime) return aTime - bTime;
+  return a.runId.localeCompare(b.runId);
+}
+
+function sortTraceRunsForTree(
+  runs: TraceRunSummary[],
+  rootRunId?: string,
+): TraceRunSummary[] {
+  const runMap = new Map(runs.map((run) => [run.runId, run]));
+  const childrenByParent = new Map<string | null, TraceRunSummary[]>();
+
+  for (const run of runs) {
+    const parentKey =
+      run.parentRunId && runMap.has(run.parentRunId) ? run.parentRunId : null;
+    const siblings = childrenByParent.get(parentKey) ?? [];
+    siblings.push(run);
+    childrenByParent.set(parentKey, siblings);
+  }
+
+  for (const siblings of childrenByParent.values()) {
+    siblings.sort(compareRunsByStart);
+  }
+
+  const ordered: TraceRunSummary[] = [];
+  const visited = new Set<string>();
+
+  const visit = (run: TraceRunSummary) => {
+    if (visited.has(run.runId)) {
+      return;
+    }
+    visited.add(run.runId);
+    ordered.push(run);
+    for (const child of childrenByParent.get(run.runId) ?? []) {
+      visit(child);
+    }
+  };
+
+  if (rootRunId && runMap.has(rootRunId)) {
+    visit(runMap.get(rootRunId)!);
+  }
+
+  for (const rootRun of childrenByParent.get(null) ?? []) {
+    visit(rootRun);
+  }
+
+  for (const run of [...runs].sort(compareRunsByStart)) {
+    visit(run);
+  }
+
+  return ordered;
+}
+
+export function getTaskSessionId(run: TraceRunSummary): string | null {
+  if (run.taskRunId) {
+    return run.taskRunId;
+  }
+
+  if (run.runType === "tool" && run.toolName === "task") {
+    return run.runId;
+  }
+
+  return null;
+}
+
+export function collectTaskSessionRuns(
+  anchorRun: TraceRunSummary,
+  runs: TraceRunSummary[],
+): TraceRunSummary[] {
+  const taskSessionId = getTaskSessionId(anchorRun);
+  if (!taskSessionId) {
+    return [];
+  }
+
+  // `task_run_id` is the only stable cross-run boundary we persist for a
+  // delegated subagent session, so the admin UI groups runs on that id.
+  const sessionRuns = runs.filter(
+    (candidate) =>
+      candidate.runId === taskSessionId || candidate.taskRunId === taskSessionId,
+  );
+
+  return sortTraceRunsForTree(sessionRuns, taskSessionId);
+}
+
 export interface TracePayloadSection {
   key: string;
   title: string;
@@ -982,16 +1075,7 @@ export function buildTraceRuns(
     run.hasTruncatedPayload = resolveRunTruncation(run);
   }
 
-  return [...runMap.values()].sort((a, b) => {
-    const aTime = a.startedAt
-      ? new Date(a.startedAt).getTime()
-      : Number.MAX_SAFE_INTEGER;
-    const bTime = b.startedAt
-      ? new Date(b.startedAt).getTime()
-      : Number.MAX_SAFE_INTEGER;
-    if (aTime !== bTime) return aTime - bTime;
-    return a.runId.localeCompare(b.runId);
-  });
+  return sortTraceRunsForTree([...runMap.values()], rootRunId);
 }
 
 export function extractRunSections(

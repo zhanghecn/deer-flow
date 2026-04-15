@@ -81,6 +81,22 @@ def test_apply_prompt_template_documents_shared_tmp_alias(monkeypatch):
     assert "also available at `/tmp`" in rendered
 
 
+def test_apply_prompt_template_bounds_large_file_and_external_api_behavior(monkeypatch):
+    monkeypatch.setattr(
+        prompt_module,
+        "ensure_builtin_agent_archive",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(prompt_module, "load_agents_md", lambda *args, **kwargs: "")
+
+    rendered = prompt_module.apply_prompt_template()
+
+    assert "Treat the `read_file` footer as authoritative" in rendered
+    assert "do not recursively split remainders" in rendered
+    assert "Do not inspect environment variables, secrets, or third-party API availability" in rendered
+    assert "Do not route work through ad-hoc external APIs" in rendered
+
+
 def test_apply_prompt_template_lists_attached_copied_skills(monkeypatch, tmp_path):
     monkeypatch.setattr(
         prompt_module,

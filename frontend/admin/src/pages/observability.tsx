@@ -5,7 +5,6 @@ import { TraceDetail } from "@/components/observability/trace-detail";
 import { Button } from "@/components/ui/button";
 import { useFetch } from "@/hooks/use-fetch";
 import { t } from "@/i18n";
-import { maskString } from "@/lib/format";
 import type { PaginatedResponse, TraceItem } from "@/types";
 
 const PAGE_SIZE = 30;
@@ -134,7 +133,7 @@ export function ObservabilityPage() {
                 {selectedTrace.agent_name || t("Unknown Agent")}
               </span>
               <span className="text-xs text-muted-foreground font-mono">
-                {maskString(selectedTrace.trace_id, 8, 6)}
+                {selectedTrace.trace_id}
               </span>
             </div>
             <span className="text-xs text-muted-foreground">

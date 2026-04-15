@@ -9,6 +9,7 @@ import { type TraceRunSummary } from "./trace-run-utils";
 
 interface GalaxyTraceViewProps {
   runs: TraceRunSummary[];
+  allRuns?: TraceRunSummary[];
   rootRunId?: string;
 }
 
@@ -231,7 +232,11 @@ function NodeStars({
   );
 }
 
-export function GalaxyTraceView({ runs, rootRunId }: GalaxyTraceViewProps) {
+export function GalaxyTraceView({
+  runs,
+  allRuns = runs,
+  rootRunId,
+}: GalaxyTraceViewProps) {
   const graph = useMemo(() => buildGraph(runs, rootRunId), [runs, rootRunId]);
   const nodeMap = useMemo(
     () => new Map(graph.nodes.map((node) => [node.runId, node])),
@@ -340,6 +345,7 @@ export function GalaxyTraceView({ runs, rootRunId }: GalaxyTraceViewProps) {
         open={isDialogOpen}
         onOpenChange={setIsDialogOpen}
         run={selectedRun}
+        runs={allRuns}
       />
     </>
   );

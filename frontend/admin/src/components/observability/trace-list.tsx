@@ -4,7 +4,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
-import { formatAgo, formatDateTime, maskString } from "@/lib/format";
+import { formatAgo, formatDateTime } from "@/lib/format";
 import type { TraceItem } from "@/types";
 
 interface TraceListProps {
@@ -80,9 +80,7 @@ export function TraceList({
             </p>
             <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
               <span className="truncate max-w-[120px]">
-                {trace.thread_id
-                  ? maskString(trace.thread_id, 6, 4)
-                  : t("no thread")}
+                {trace.thread_id || t("no thread")}
               </span>
               <span className="truncate">{formatDateTime(trace.started_at)}</span>
             </div>
