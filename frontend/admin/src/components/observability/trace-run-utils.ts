@@ -175,6 +175,17 @@ function toRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
+function toTrimmedRecord(value: unknown): Record<string, unknown> | null {
+  const payload = toRecord(normalizeTraceValue(value));
+  if (!payload) {
+    return null;
+  }
+  const trimmed = Object.fromEntries(
+    Object.entries(payload).filter(([, item]) => hasValue(item)),
+  );
+  return Object.keys(trimmed).length > 0 ? trimmed : null;
+}
+
 function hasValue(value: unknown): boolean {
   if (value == null) return false;
   if (typeof value === "string") return value.trim().length > 0;
@@ -826,6 +837,14 @@ function summarizeToolRun(run: TraceRunSummary): string {
     endPayload?.tool_response ?? endPayload?.output,
   );
   const toolName = run.toolName ?? extractToolField(toolCall, ["name"]);
+  const delegationPayload = toTrimmedRecord(startPayload?.delegation);
+  if (
+    toolName === "task" &&
+    typeof delegationPayload?.brief_summary === "string" &&
+    delegationPayload.brief_summary.trim().length > 0
+  ) {
+    return delegationPayload.brief_summary;
+  }
 
   const path =
     extractToolField(toolCall, TOOL_PATH_KEYS) ||
@@ -1199,6 +1218,38 @@ export function extractRunSections(
       );
     }
   } else if (run.runType === "tool") {
+    const delegationPayload = toTrimmedRecord(startPayload?.delegation);
+    if (hasValue(delegationPayload)) {
+      sections.push(
+        makeSection(
+          "delegation-envelope",
+          t("Delegation Envelope"),
+          t(
+            "Structured launch metadata persisted before a delegated subtask starts running.",
+          ),
+          "state",
+          delegationPayload,
+        ),
+      );
+    }
+
+    const executionPayload = toTrimmedRecord(
+      startPayload?.execution ?? endPayload?.execution,
+    );
+    if (hasValue(executionPayload)) {
+      sections.push(
+        makeSection(
+          "execution-contract",
+          t("Execution Contract"),
+          t(
+            "Structured shell execution metadata such as timeout bounds, launch status, and execution backend.",
+          ),
+          "state",
+          executionPayload,
+        ),
+      );
+    }
+
     if (hasValue(startPayload?.tool_call)) {
       sections.push(
         makeSection(
@@ -1252,6 +1303,21 @@ export function extractRunSections(
         "chain-outputs",
         t("Output Snapshot"),
         endPayload?.outputs,
+      ),
+    );
+  }
+
+  const lineagePayload = toTrimmedRecord(startPayload?.lineage);
+  if (hasValue(lineagePayload)) {
+    sections.push(
+      makeSection(
+        "run-lineage",
+        t("Run Lineage"),
+        t(
+          "Persisted run-lineage metadata used to trace root turn ownership, request identity, and checkpoint lineage.",
+        ),
+        "metadata",
+        lineagePayload,
       ),
     );
   }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import MagicMock
 
 import pytest
 from src.agents.lead_agent import agent as lead_agent_module
@@ -670,6 +671,7 @@ def test_resolve_lead_agent_runtime_uses_persisted_thread_agent_runtime(monkeypa
             agent_status="dev",
             thread_id="thread-1",
             user_id="user-1",
+            original_user_input=None,
             runtime_model_name=None,
             header_model_name=None,
             execution_backend=None,
@@ -1259,6 +1261,7 @@ def test_attach_trace_metadata_keeps_trace_metadata_free_of_precomputed_tool_lis
         agent_status="dev",
         thread_id="thread-1",
         user_id="user-1",
+        original_user_input="translate the uploaded file",
         runtime_model_name=None,
         header_model_name=None,
         execution_backend=None,
@@ -1271,6 +1274,7 @@ def test_attach_trace_metadata_keeps_trace_metadata_free_of_precomputed_tool_lis
         config,
         request=request,
         model_name="safe-model",
+        backend=MagicMock(),
     )
 
     metadata = config["metadata"]
@@ -1278,5 +1282,7 @@ def test_attach_trace_metadata_keeps_trace_metadata_free_of_precomputed_tool_lis
     assert isinstance(metadata, dict)
     assert metadata["model_name"] == "safe-model"
     assert metadata["subagent_enabled"] is True
+    assert metadata["original_user_input_preview"] == "translate the uploaded file"
+    assert isinstance(metadata["original_user_input_digest"], str)
     assert "tool_names" not in metadata
     assert "tool_count" not in metadata

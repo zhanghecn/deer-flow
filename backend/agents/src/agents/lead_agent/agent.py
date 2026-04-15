@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import inspect
 import json
 import logging
 from collections.abc import Mapping
@@ -9,6 +10,7 @@ from threading import Event, Lock
 from typing import Any, Literal
 
 from deepagents import create_deep_agent
+from deepagents.backends import CompositeBackend
 from deepagents.backends.protocol import BackendProtocol
 from langchain_core.runnables import RunnableConfig
 from langgraph_sdk.runtime import ServerRuntime
@@ -40,6 +42,7 @@ from src.agents.middlewares.visible_response_recovery_middleware import (
 from src.config.agent_runtime_seed import runtime_seed_targets
 from src.config.agents_config import (
     AGENTS_MD_FILENAME,
+    SUBAGENTS_FILENAME,
     AgentConfig,
     load_agent_config,
     resolve_authored_agent_dir,
@@ -165,6 +168,7 @@ class LeadAgentRequest:
     agent_status: str
     thread_id: str | None
     user_id: str | None
+    original_user_input: str | None
     runtime_model_name: str | None
     header_model_name: str | None
     execution_backend: str | None
@@ -616,6 +620,7 @@ def _lead_agent_graph_cache_key(
         prepare_runtime_resources,
         _path_mtime_ns(authored_dir / "config.yaml"),
         _path_mtime_ns(authored_dir / AGENTS_MD_FILENAME),
+        _path_mtime_ns(authored_dir / SUBAGENTS_FILENAME),
     )
 
 
@@ -1023,9 +1028,50 @@ def _merge_callbacks(
     return [existing_callbacks, callback]
 
 
+def _unwrap_runtime_backend(backend: BackendProtocol) -> BackendProtocol:
+    current = backend
+    seen: set[int] = set()
+    while True:
+        current_id = id(current)
+        if current_id in seen:
+            return current
+        seen.add(current_id)
+        wrapped = getattr(current, "__wrapped_backend__", None)
+        if wrapped is None:
+            return current
+        current = wrapped
+
+
+def _resolve_execute_timeout_contract(
+    backend: BackendProtocol,
+) -> dict[str, int | None]:
+    unwrapped = _unwrap_runtime_backend(backend)
+    if isinstance(unwrapped, CompositeBackend):
+        unwrapped = _unwrap_runtime_backend(unwrapped.default)
+
+    default_timeout = getattr(unwrapped, "_default_timeout", None)
+    if not isinstance(default_timeout, int):
+        default_timeout = getattr(unwrapped, "_default_timeout_seconds", None)
+    if not isinstance(default_timeout, int):
+        default_timeout = None
+
+    from deepagents.middleware.filesystem import FilesystemMiddleware
+
+    max_timeout = inspect.signature(
+        FilesystemMiddleware.__init__,
+    ).parameters["max_execute_timeout"].default
+    if not isinstance(max_timeout, int):
+        max_timeout = None
+    return {
+        "default_timeout_seconds": default_timeout,
+        "max_timeout_seconds": max_timeout,
+    }
+
+
 def _build_run_metadata(
     *,
     agent_name: str,
+    agent_status: str,
     model_name: str,
     thinking_enabled: object,
     reasoning_effort: object,
@@ -1034,9 +1080,23 @@ def _build_run_metadata(
     subagent_enabled: object,
     thread_id: str | None,
     user_id: str | None,
+    execution_backend: str | None,
+    original_user_input: str | None,
+    execute_timeout_contract: dict[str, int | None],
 ) -> dict[str, object]:
+    original_input_preview = (
+        str(original_user_input).strip()[:240]
+        if original_user_input
+        else None
+    )
+    original_input_digest = (
+        hashlib.sha256(str(original_user_input).strip().encode("utf-8")).hexdigest()
+        if original_user_input
+        else None
+    )
     return {
         "agent_name": agent_name,
+        "agent_status": agent_status,
         "model_name": model_name,
         "thinking_enabled": thinking_enabled,
         "reasoning_effort": reasoning_effort,
@@ -1045,6 +1105,10 @@ def _build_run_metadata(
         "subagent_enabled": subagent_enabled,
         "thread_id": thread_id,
         "user_id": user_id,
+        "execution_backend": execution_backend,
+        "original_user_input_preview": original_input_preview,
+        "original_user_input_digest": original_input_digest,
+        "execute_timeout_contract": execute_timeout_contract,
     }
 
 
@@ -1077,6 +1141,7 @@ def _resolve_lead_agent_request(
         agent_status=_resolve_agent_status(cfg.get("agent_status") or cfg.get("x-agent-status") or "dev"),
         thread_id=_coerce_optional_str(cfg.get("thread_id") or cfg.get("x-thread-id")),
         user_id=_resolve_request_user_id(cfg, runtime),
+        original_user_input=_coerce_optional_str(cfg.get("original_user_input")),
         runtime_model_name=_parse_runtime_model_config(cfg.get("model_config")),
         header_model_name=_coerce_optional_str(cfg.get("x-model-name")),
         execution_backend=_coerce_optional_str(cfg.get("execution_backend") or cfg.get("x-execution-backend")),
@@ -1166,6 +1231,7 @@ def _update_request_runtime_context(
             "command_args": request.command_args,
             "command_prompt": request.command_prompt,
             "authoring_actions": list(request.authoring_actions),
+            "original_user_input": request.original_user_input,
             "execution_backend": request.execution_backend,
             "remote_session_id": request.remote_session_id,
             "max_output_tokens": request.max_output_tokens,
@@ -1178,6 +1244,7 @@ def _attach_trace_metadata(
     *,
     request: LeadAgentRequest,
     model_name: str,
+    backend: BackendProtocol,
 ) -> None:
     if "metadata" not in config:
         config["metadata"] = {}
@@ -1187,6 +1254,7 @@ def _attach_trace_metadata(
     # assembly. Trace metadata here stays limited to stable run identity/config.
     run_metadata = _build_run_metadata(
         agent_name=request.agent_name,
+        agent_status=request.agent_status,
         model_name=model_name,
         thinking_enabled=request.thinking_enabled,
         reasoning_effort=request.reasoning_effort,
@@ -1195,6 +1263,9 @@ def _attach_trace_metadata(
         subagent_enabled=request.subagent_enabled,
         thread_id=request.thread_id,
         user_id=request.user_id,
+        execution_backend=request.execution_backend,
+        original_user_input=request.original_user_input,
+        execute_timeout_contract=_resolve_execute_timeout_contract(backend),
     )
     config["metadata"].update(run_metadata)
 
@@ -1374,6 +1445,11 @@ def _create_lead_agent(
         request,
         resolved_model_name=resolution.model_name,
     )
+    backend = _resolve_agent_backend(
+        request=request,
+        agent_config=resolution.agent_config,
+        prepare_runtime_resources=prepare_runtime_resources,
+    )
     cache_key = _lead_agent_graph_cache_key(
         request=request,
         resolution=resolution,
@@ -1385,6 +1461,7 @@ def _create_lead_agent(
             config,
             request=request,
             model_name=resolution.model_name,
+            backend=backend,
         )
         return cached_entry.graph
     if not should_build:
@@ -1394,6 +1471,7 @@ def _create_lead_agent(
             config,
             request=request,
             model_name=resolution.model_name,
+            backend=backend,
         )
         return cached_entry.graph
 
@@ -1409,11 +1487,6 @@ def _create_lead_agent(
     )
 
     try:
-        backend = _resolve_agent_backend(
-            request=request,
-            agent_config=resolution.agent_config,
-            prepare_runtime_resources=prepare_runtime_resources,
-        )
         graph_parts = _build_graph_parts(
             request=request,
             resolution=resolution,
@@ -1422,6 +1495,7 @@ def _create_lead_agent(
             config,
             request=request,
             model_name=resolution.model_name,
+            backend=backend,
         )
 
         deep_agent_kwargs: dict[str, Any] = {

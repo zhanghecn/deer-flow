@@ -1,8 +1,10 @@
 """Tests for lead agent backend wiring and runtime seeding."""
 
 from concurrent.futures import ThreadPoolExecutor
+import os
 from pathlib import Path
 from threading import Event
+import time
 from unittest.mock import patch
 
 import pytest
@@ -63,6 +65,7 @@ def _make_lead_agent_request(
         agent_status=agent_status,
         thread_id="thread-1",
         user_id=None,
+        original_user_input=None,
         runtime_model_name=None,
         header_model_name=None,
         execution_backend=None,
@@ -243,6 +246,7 @@ def test_create_agent_request_seeds_existing_target_archive_into_thread_runtime(
         agent_status="dev",
         thread_id="thread-1",
         user_id=None,
+        original_user_input=None,
         runtime_model_name=None,
         header_model_name=None,
         execution_backend=None,
@@ -284,6 +288,7 @@ def test_create_agent_request_ignores_missing_target_archive_for_new_agent(tmp_p
         agent_status="dev",
         thread_id="thread-1",
         user_id=None,
+        original_user_input=None,
         runtime_model_name=None,
         header_model_name=None,
         execution_backend=None,
@@ -594,6 +599,62 @@ def test_create_lead_agent_deduplicates_concurrent_graph_builds(tmp_path):
     assert first_graph is second_graph
 
 
+def test_lead_agent_graph_cache_key_changes_when_subagents_yaml_changes(tmp_path):
+    base_dir = tmp_path / ".openagents"
+    _write_archived_skill(base_dir, "bootstrap", body="bootstrap")
+    paths = _make_paths(base_dir)
+    agent_dir = paths.system_agent_dir(LEAD_AGENT_NAME, "dev")
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    (agent_dir / "config.yaml").write_text(
+        "name: lead_agent\nstatus: dev\nagents_md_path: AGENTS.md\n",
+        encoding="utf-8",
+    )
+    (agent_dir / "AGENTS.md").write_text("# Lead Agent\n", encoding="utf-8")
+    subagents_path = agent_dir / "subagents.yaml"
+    subagents_path.write_text(
+        "explore:\n  description: initial\n  system_prompt: initial\n",
+        encoding="utf-8",
+    )
+
+    request = _make_lead_agent_request(agent_status="dev")
+    resolution = lead_agent_module.LeadAgentResolution(
+        agent_config=lead_agent_module.AgentConfig(
+            name=LEAD_AGENT_NAME,
+            status="dev",
+            agents_md_path="AGENTS.md",
+        ),
+        model_name="test-model",
+        model_config=ModelConfig(
+            name="test-model",
+            use="langchain_openai.ChatOpenAI",
+            model="gpt-test",
+        ),
+    )
+
+    with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
+        first_key = lead_agent_module._lead_agent_graph_cache_key(
+            request=request,
+            resolution=resolution,
+            prepare_runtime_resources=False,
+        )
+        subagents_path.write_text(
+            "explore:\n  description: updated\n  system_prompt: updated\n",
+            encoding="utf-8",
+        )
+        current_stat = subagents_path.stat()
+        os.utime(
+            subagents_path,
+            ns=(current_stat.st_atime_ns, current_stat.st_mtime_ns + 1_000_000),
+        )
+        second_key = lead_agent_module._lead_agent_graph_cache_key(
+            request=request,
+            resolution=resolution,
+            prepare_runtime_resources=False,
+        )
+
+    assert first_key != second_key
+
+
 def test_non_lead_dev_request_allows_setup_agent_for_self_updates():
     request = lead_agent_module.LeadAgentRequest(
         thinking_enabled=None,
@@ -612,6 +673,7 @@ def test_non_lead_dev_request_allows_setup_agent_for_self_updates():
         agent_status="dev",
         thread_id="thread-1",
         user_id=None,
+        original_user_input=None,
         runtime_model_name=None,
         header_model_name=None,
         execution_backend=None,
@@ -639,6 +701,7 @@ def test_lead_agent_dev_request_allows_setup_agent_for_generic_authoring():
         agent_status="dev",
         thread_id="thread-1",
         user_id=None,
+        original_user_input=None,
         runtime_model_name=None,
         header_model_name=None,
         execution_backend=None,
@@ -672,6 +735,7 @@ def test_prod_agent_request_does_not_allow_self_setup_agent():
         agent_status="prod",
         thread_id="thread-1",
         user_id=None,
+        original_user_input=None,
         runtime_model_name=None,
         header_model_name=None,
         execution_backend=None,

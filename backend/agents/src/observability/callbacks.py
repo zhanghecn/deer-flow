@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import hashlib
 import threading
 from dataclasses import dataclass
 from typing import Any
@@ -21,6 +22,14 @@ DEFAULT_TRACE_MAX_ITEMS = 128
 LARGE_TRACE_MAX_ITEMS = 256
 TRACE_MAX_DEPTH = 16
 FILE_IO_TOOL_NAMES = {"read_file", "write_file", "edit_file"}
+TRACE_LINEAGE_METADATA_KEYS = (
+    "thread_id",
+    "agent_name",
+    "agent_status",
+    "execution_backend",
+    "original_user_input_preview",
+    "original_user_input_digest",
+)
 
 
 @dataclass
@@ -138,7 +147,11 @@ class AgentTraceCallbackHandler(BaseCallbackHandler):
             run_type="chain",
             node_name=node_name,
             tool_name=None,
-            payload={"inputs": _shrink(inputs), "metadata": _shrink(metadata), "tags": tags or []},
+            payload=_augment_trace_payload(
+                payload={"inputs": _shrink(inputs), "metadata": _shrink(metadata), "tags": tags or []},
+                metadata=metadata,
+                input_value=inputs,
+            ),
         )
 
     def on_chain_end(
@@ -198,21 +211,25 @@ class AgentTraceCallbackHandler(BaseCallbackHandler):
             run_type="llm",
             node_name=node_name,
             tool_name=None,
-            payload={
-                "model_request": _drop_none(
-                    {
-                        "messages": _shrink(
-                            request_messages,
-                            max_string_len=200000,
-                            max_items=256,
-                            max_depth=16,
-                        ),
-                        **request_context,
-                    }
-                ),
-                "metadata": _shrink(metadata),
-                "tags": tags or [],
-            },
+            payload=_augment_trace_payload(
+                payload={
+                    "model_request": _drop_none(
+                        {
+                            "messages": _shrink(
+                                request_messages,
+                                max_string_len=200000,
+                                max_items=256,
+                                max_depth=16,
+                            ),
+                            **request_context,
+                        }
+                    ),
+                    "metadata": _shrink(metadata),
+                    "tags": tags or [],
+                },
+                metadata=metadata,
+                input_value=request_messages,
+            ),
         )
 
     def on_llm_end(
@@ -285,23 +302,40 @@ class AgentTraceCallbackHandler(BaseCallbackHandler):
     ) -> Any:
         tool_name = _resolve_name(serialized)
         parsed_input = _try_parse_json(input_str)
+        payload = {
+            "tool_call": {
+                "name": tool_name,
+                "arguments": self._tool_shrink(parsed_input, tool_name=tool_name),
+                "inputs": self._tool_shrink(inputs, tool_name=tool_name),
+            },
+            "input_str": self._tool_shrink(input_str, tool_name=tool_name),
+            "inputs": self._tool_shrink(inputs, tool_name=tool_name),
+            "metadata": _shrink(metadata),
+            "tags": tags or [],
+        }
+        if tool_name == "task":
+            payload["delegation"] = _build_task_delegation_payload(
+                parsed_input=parsed_input,
+                run_id_text=str(run_id),
+                parent_run_id=parent_run_id,
+            )
+        elif tool_name == "execute":
+            payload["execution"] = _build_execution_payload(
+                parsed_input=parsed_input,
+                metadata=metadata,
+                launch_status="started",
+            )
         self._record_start(
             run_id=run_id,
             parent_run_id=parent_run_id,
             run_type="tool",
             node_name=tool_name,
             tool_name=tool_name,
-            payload={
-                "tool_call": {
-                    "name": tool_name,
-                    "arguments": self._tool_shrink(parsed_input, tool_name=tool_name),
-                    "inputs": self._tool_shrink(inputs, tool_name=tool_name),
-                },
-                "input_str": self._tool_shrink(input_str, tool_name=tool_name),
-                "inputs": self._tool_shrink(inputs, tool_name=tool_name),
-                "metadata": _shrink(metadata),
-                "tags": tags or [],
-            },
+            payload=_augment_trace_payload(
+                payload=payload,
+                metadata=metadata,
+                input_value=parsed_input if parsed_input is not None else inputs,
+            ),
         )
 
     def on_tool_end(
@@ -321,12 +355,16 @@ class AgentTraceCallbackHandler(BaseCallbackHandler):
             run_id=run_id,
             parent_run_id=parent_run_id,
             run_type="tool",
-            payload={
+            payload=_augment_tool_end_payload(
+                tool_name=tool_name,
+                payload={
                 "tool_response": {
                     "output": self._tool_shrink(output, tool_name=tool_name),
                 },
                 "output": self._tool_shrink(output, tool_name=tool_name),
-            },
+                },
+                output=output,
+            ),
         )
 
     def on_tool_error(
@@ -342,6 +380,10 @@ class AgentTraceCallbackHandler(BaseCallbackHandler):
             parent_run_id=parent_run_id,
             run_type="tool",
             error=error,
+            payload=_augment_tool_error_payload(
+                tool_name=_tool_name_for_run(self._runs, run_id),
+                error=error,
+            ),
         )
 
     def _record_start(
@@ -584,6 +626,14 @@ def _resolve_name(serialized: dict[str, Any] | None) -> str | None:
     return None
 
 
+def _tool_name_for_run(
+    runs: dict[str, _RunState],
+    run_id: UUID,
+) -> str | None:
+    state = runs.get(str(run_id))
+    return state.tool_name if state else None
+
+
 def _duration_ms(started_at: Any, finished_at: Any) -> int | None:
     if started_at is None or finished_at is None:
         return None
@@ -621,6 +671,275 @@ def _extract_usage(response: Any) -> tuple[int, int, int]:
         total_tokens = input_tokens + output_tokens
 
     return input_tokens, output_tokens, total_tokens
+
+
+def _truncate_summary_text(value: str, max_len: int = 240) -> str:
+    text = " ".join(value.split()).strip()
+    if len(text) <= max_len:
+        return text
+    return f"{text[: max_len - 3].rstrip()}..."
+
+
+def _extract_text_blocks(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        text_values: list[str] = []
+        direct_text = value.get("text")
+        if isinstance(direct_text, str):
+            text_values.append(direct_text)
+        direct_content = value.get("content")
+        if direct_content is not None:
+            text_values.extend(_extract_text_blocks(direct_content))
+        return text_values
+    if isinstance(value, list | tuple):
+        collected: list[str] = []
+        for item in value:
+            collected.extend(_extract_text_blocks(item))
+        return collected
+    return []
+
+
+def _last_human_input_text(value: Any, depth: int = 0) -> str:
+    if depth > 8 or value is None:
+        return ""
+    if isinstance(value, dict):
+        role = str(value.get("type") or value.get("role") or "").strip().lower()
+        if role == "human":
+            text = "\n".join(
+                part.strip()
+                for part in _extract_text_blocks(value.get("content"))
+                if part.strip()
+            ).strip()
+            if text:
+                return text
+        for nested_key in ("messages", "inputs", "state", "values", "update", "output", "outputs"):
+            if nested_key in value:
+                candidate = _last_human_input_text(value.get(nested_key), depth + 1)
+                if candidate:
+                    return candidate
+        for nested_value in reversed(list(value.values())):
+            candidate = _last_human_input_text(nested_value, depth + 1)
+            if candidate:
+                return candidate
+        return ""
+    if isinstance(value, list | tuple):
+        for item in reversed(value):
+            candidate = _last_human_input_text(item, depth + 1)
+            if candidate:
+                return candidate
+    return ""
+
+
+def _lineage_payload(
+    metadata: dict[str, Any] | None,
+    *,
+    input_value: Any = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    source = metadata if isinstance(metadata, dict) else {}
+    for key in TRACE_LINEAGE_METADATA_KEYS:
+        raw = source.get(key)
+        if raw is None:
+            continue
+        payload[key] = _jsonify(raw)
+
+    for key in ("run_id", "langgraph_request_id", "checkpoint_ns"):
+        raw = source.get(key)
+        if raw is None:
+            continue
+        payload[key] = _jsonify(raw)
+
+    input_text = _last_human_input_text(input_value)
+    if input_text:
+        payload["input_digest"] = hashlib.sha256(input_text.encode("utf-8")).hexdigest()
+        payload["input_preview"] = _truncate_summary_text(input_text)
+
+    return payload
+
+
+def _augment_trace_payload(
+    *,
+    payload: dict[str, Any],
+    metadata: dict[str, Any] | None,
+    input_value: Any = None,
+) -> dict[str, Any]:
+    lineage = _lineage_payload(metadata, input_value=input_value)
+    if lineage:
+        anomaly_flags: list[str] = []
+        root_digest = lineage.get("original_user_input_digest")
+        state_digest = lineage.get("input_digest")
+        if (
+            isinstance(root_digest, str)
+            and root_digest
+            and isinstance(state_digest, str)
+            and state_digest
+            and root_digest != state_digest
+        ):
+            anomaly_flags.append("lineage_input_mismatch")
+        if anomaly_flags:
+            lineage["anomaly_flags"] = anomaly_flags
+        payload["lineage"] = _shrink(lineage)
+    return payload
+
+
+def _coerce_record(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _task_launch_failure_class(parsed_input: dict[str, Any]) -> str | None:
+    if not parsed_input:
+        return "missing_task_arguments"
+    if not str(parsed_input.get("subagent_type") or "").strip():
+        return "missing_subagent_type"
+    if not str(parsed_input.get("description") or "").strip():
+        return "missing_task_description"
+    return None
+
+
+def _build_task_delegation_payload(
+    *,
+    parsed_input: Any,
+    run_id_text: str,
+    parent_run_id: UUID | None,
+) -> dict[str, Any]:
+    task_args = _coerce_record(parsed_input)
+    task_spec = _coerce_record(task_args.get("task_spec"))
+    description = str(task_args.get("description") or "").strip()
+    objective = str(task_spec.get("objective") or task_args.get("objective") or "").strip()
+    brief_source = objective or description
+    subagent_type = str(task_args.get("subagent_type") or "").strip() or None
+    failure_class = _task_launch_failure_class(task_args)
+    expected_return_shape = (
+        str(task_spec.get("expected_output") or task_args.get("expected_output") or "").strip()
+        or "single_result"
+    )
+    mutation_scope = (
+        str(task_spec.get("mutation_scope") or task_args.get("mutation_scope") or "").strip()
+        or None
+    )
+    constraints = (
+        str(task_spec.get("constraints") or task_args.get("constraints") or "").strip()
+        or None
+    )
+    context_text = (
+        str(task_spec.get("context") or task_args.get("context") or "").strip()
+        or None
+    )
+    return {
+        "schema_version": 1,
+        "task_session_id": run_id_text,
+        "parent_run_id": str(parent_run_id) if parent_run_id else None,
+        "effective_agent_mode": (
+            "general-purpose"
+            if subagent_type == "general-purpose"
+            else "named-subagent"
+            if subagent_type
+            else "invalid"
+        ),
+        "effective_agent_name": subagent_type,
+        "brief_summary": _truncate_summary_text(brief_source) if brief_source else None,
+        "expected_return_shape": expected_return_shape,
+        "mutation_scope": mutation_scope,
+        "objective": objective or None,
+        "context": context_text,
+        "constraints": constraints,
+        "validation_status": "valid" if failure_class is None else "invalid",
+        "launch_failure_class": failure_class,
+        "anomaly_flags": [failure_class] if failure_class is not None else [],
+    }
+
+
+def _build_execution_payload(
+    *,
+    parsed_input: Any,
+    metadata: dict[str, Any] | None,
+    launch_status: str,
+    output: Any = None,
+    error: BaseException | None = None,
+) -> dict[str, Any]:
+    execute_args = _coerce_record(parsed_input)
+    execution_backend = None
+    timeout_contract = {}
+    if isinstance(metadata, dict):
+        execution_backend = str(metadata.get("execution_backend") or "").strip() or None
+        timeout_contract = _coerce_record(metadata.get("execute_timeout_contract"))
+    requested_timeout = execute_args.get("timeout")
+    requested_timeout_seconds = requested_timeout if isinstance(requested_timeout, int) else None
+    payload: dict[str, Any] = {
+        "schema_version": 1,
+        "execution_backend": execution_backend,
+        "launch_status": launch_status,
+        "requested_timeout_seconds": requested_timeout_seconds,
+        "max_timeout_seconds": timeout_contract.get("max_timeout_seconds"),
+        "default_timeout_seconds_hint": timeout_contract.get("default_timeout_seconds"),
+        "background_intent": "foreground_only",
+    }
+    if isinstance(output, str):
+        payload["output_truncated"] = "[Output was truncated due to size limits]" in output
+    if error is not None:
+        err_text = str(error)
+        if "exceeds maximum allowed" in err_text:
+            payload["launch_failure_class"] = "timeout_exceeds_max"
+        elif "timeout must be non-negative" in err_text:
+            payload["launch_failure_class"] = "invalid_timeout"
+        else:
+            payload["launch_failure_class"] = "execute_tool_error"
+        payload["anomaly_flags"] = [payload["launch_failure_class"]]
+    return payload
+
+
+def _augment_tool_end_payload(
+    *,
+    tool_name: str | None,
+    payload: dict[str, Any],
+    output: Any,
+) -> dict[str, Any]:
+    if tool_name == "execute":
+        payload["execution"] = _build_execution_payload(
+            parsed_input=None,
+            metadata=None,
+            launch_status="completed",
+            output=output,
+        )
+    return payload
+
+
+def _classify_task_launch_failure(error_text: str) -> str:
+    lowered = error_text.lower()
+    if "subagent_type" in lowered and "required" in lowered:
+        return "missing_subagent_type"
+    if "description" in lowered and "required" in lowered:
+        return "missing_task_description"
+    if "validation error" in lowered:
+        return "invalid_task_arguments"
+    return "task_tool_error"
+
+
+def _augment_tool_error_payload(
+    *,
+    tool_name: str | None,
+    error: BaseException,
+) -> dict[str, Any]:
+    if tool_name == "task":
+        return {
+            "delegation": {
+                "schema_version": 1,
+                "validation_status": "invalid",
+                "launch_failure_class": _classify_task_launch_failure(str(error)),
+                "anomaly_flags": [_classify_task_launch_failure(str(error))],
+            }
+        }
+    if tool_name == "execute":
+        return {
+            "execution": _build_execution_payload(
+                parsed_input=None,
+                metadata=None,
+                launch_status="error",
+                error=error,
+            )
+        }
+    return {}
 
 
 def _extract_chat_messages(messages: list[list[Any]]) -> list[dict[str, Any]]:

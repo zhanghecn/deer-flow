@@ -158,3 +158,103 @@ def test_on_chain_end_records_context_window_system_event_from_direct_output():
     assert payload["last_summary"]["cutoff_index"] == 43
     assert payload["last_summary"]["file_path"] == "/conversation_history/thread-1.md"
     assert payload["last_summary"]["summary_preview"] == "summary text"
+
+
+def test_on_tool_start_persists_structured_task_delegation_envelope():
+    store = MagicMock()
+    run_id = uuid4()
+
+    with patch("src.observability.callbacks.get_trace_store", return_value=store):
+        callback = AgentTraceCallbackHandler(
+            trace_id=str(uuid4()),
+            user_id=None,
+            thread_id="thread-1",
+            agent_name="test",
+            model_name="kimi-k2.5-1",
+            metadata={
+                "thread_id": "thread-1",
+                "execution_backend": "sandbox",
+                "original_user_input_preview": "translate doc",
+                "original_user_input_digest": "digest-1",
+            },
+        )
+
+    callback.on_tool_start(
+        {"name": "task"},
+        input_str='{"description":"Translate /mnt/user-data/workspace/chunk_a.md to English and write the result.","subagent_type":"general-purpose"}',
+        run_id=run_id,
+        metadata={"execution_backend": "sandbox", "langgraph_request_id": "req-1"},
+    )
+
+    payload = store.append_event.call_args.kwargs["payload"]
+    delegation = payload["delegation"]
+    assert delegation["schema_version"] == 1
+    assert delegation["task_session_id"] == str(run_id)
+    assert delegation["effective_agent_mode"] == "general-purpose"
+    assert delegation["effective_agent_name"] == "general-purpose"
+    assert delegation["expected_return_shape"] == "single_result"
+    assert delegation["validation_status"] == "valid"
+    assert payload["lineage"]["execution_backend"] == "sandbox"
+    assert payload["lineage"]["langgraph_request_id"] == "req-1"
+
+
+def test_on_tool_error_persists_task_launch_failure_class():
+    store = MagicMock()
+    run_id = uuid4()
+
+    with patch("src.observability.callbacks.get_trace_store", return_value=store):
+        callback = AgentTraceCallbackHandler(
+            trace_id=str(uuid4()),
+            user_id=None,
+            thread_id="thread-1",
+            agent_name="test",
+            model_name="kimi-k2.5-1",
+        )
+
+    callback.on_tool_start(
+        {"name": "task"},
+        input_str='{"description":"do work","subagent_type":"general-purpose"}',
+        run_id=run_id,
+    )
+    callback.on_tool_error(
+        RuntimeError("1 validation error for task\nsubagent_type\nField required"),
+        run_id=run_id,
+    )
+
+    error_payload = store.append_event.call_args.kwargs["payload"]
+    assert error_payload["delegation"]["validation_status"] == "invalid"
+    assert error_payload["delegation"]["launch_failure_class"] == "missing_subagent_type"
+
+
+def test_on_tool_start_persists_execute_contract_metadata():
+    store = MagicMock()
+    run_id = uuid4()
+
+    with patch("src.observability.callbacks.get_trace_store", return_value=store):
+        callback = AgentTraceCallbackHandler(
+            trace_id=str(uuid4()),
+            user_id=None,
+            thread_id="thread-1",
+            agent_name="test",
+            model_name="kimi-k2.5-1",
+        )
+
+    callback.on_tool_start(
+        {"name": "execute"},
+        input_str='{"command":"pytest -q","timeout":300}',
+        run_id=run_id,
+        metadata={
+            "execution_backend": "sandbox",
+            "execute_timeout_contract": {
+                "default_timeout_seconds": 600,
+                "max_timeout_seconds": 3600,
+            },
+        },
+    )
+
+    payload = store.append_event.call_args.kwargs["payload"]
+    execution = payload["execution"]
+    assert execution["launch_status"] == "started"
+    assert execution["requested_timeout_seconds"] == 300
+    assert execution["max_timeout_seconds"] == 3600
+    assert execution["default_timeout_seconds_hint"] == 600

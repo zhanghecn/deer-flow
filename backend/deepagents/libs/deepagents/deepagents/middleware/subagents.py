@@ -133,6 +133,13 @@ Available agent types and the tools they have access to:
 
 When using the Task tool, you must specify a subagent_type parameter to select which agent type to use.
 
+Prefer to provide the structured delegation fields when they are known:
+- `objective`: the main thing the subagent must accomplish
+- `context`: facts the subagent should assume as already known
+- `constraints`: hard boundaries or non-goals
+- `expected_output`: the return shape you want back
+- `mutation_scope`: allowed write scope when the task may modify files
+
 When NOT to use the Task tool:
 - If you already know the specific file path, use `read_file` directly.
 - If you are doing a quick filename/pattern lookup, use `glob` directly.
@@ -424,12 +431,56 @@ def _build_task_tool(  # noqa: C901
             }
         )
 
-    def _validate_and_prepare_state(subagent_type: str, description: str, runtime: ToolRuntime) -> tuple[Runnable, dict]:
+    def _build_delegated_message(
+        *,
+        description: str,
+        objective: str | None,
+        context: str | None,
+        constraints: str | None,
+        expected_output: str | None,
+        mutation_scope: str | None,
+    ) -> str:
+        sections = []
+        if objective:
+            sections.append(f"Objective:\n{objective.strip()}")
+        if context:
+            sections.append(f"Context:\n{context.strip()}")
+        if constraints:
+            sections.append(f"Constraints:\n{constraints.strip()}")
+        if expected_output:
+            sections.append(f"Expected output:\n{expected_output.strip()}")
+        if mutation_scope:
+            sections.append(f"Allowed mutation scope:\n{mutation_scope.strip()}")
+        sections.append(f"Task description:\n{description.strip()}")
+        return "\n\n".join(section for section in sections if section.strip())
+
+    def _validate_and_prepare_state(
+        subagent_type: str,
+        description: str,
+        runtime: ToolRuntime,
+        *,
+        objective: str | None,
+        context: str | None,
+        constraints: str | None,
+        expected_output: str | None,
+        mutation_scope: str | None,
+    ) -> tuple[Runnable, dict]:
         """Prepare state for invocation."""
         subagent = subagent_graphs[subagent_type]
         # Create a new state dict to avoid mutating the original
         subagent_state = {k: v for k, v in runtime.state.items() if k not in _EXCLUDED_STATE_KEYS}
-        subagent_state["messages"] = [HumanMessage(content=description)]
+        subagent_state["messages"] = [
+            HumanMessage(
+                content=_build_delegated_message(
+                    description=description,
+                    objective=objective,
+                    context=context,
+                    constraints=constraints,
+                    expected_output=expected_output,
+                    mutation_scope=mutation_scope,
+                )
+            )
+        ]
         return subagent, subagent_state
 
     def task(
@@ -439,6 +490,26 @@ def _build_task_tool(  # noqa: C901
         ],
         subagent_type: Annotated[str, "The type of subagent to use. Must be one of the available agent types listed in the tool description."],
         runtime: ToolRuntime,
+        objective: Annotated[
+            str | None,
+            "Optional concise objective for the delegated task. Use this when you can express the goal separately from the full description.",
+        ] = None,
+        context: Annotated[
+            str | None,
+            "Optional relevant context the subagent should treat as already known before it starts working.",
+        ] = None,
+        constraints: Annotated[
+            str | None,
+            "Optional hard constraints, non-goals, or boundaries the subagent must not violate.",
+        ] = None,
+        expected_output: Annotated[
+            str | None,
+            "Optional explicit return shape expected from the subagent, such as summary, patch guidance, or file path.",
+        ] = None,
+        mutation_scope: Annotated[
+            str | None,
+            "Optional explicit write scope when the delegated task may mutate files or other state.",
+        ] = None,
     ) -> str | Command:
         if subagent_type not in subagent_graphs:
             allowed_types = ", ".join([f"`{k}`" for k in subagent_graphs])
@@ -446,7 +517,16 @@ def _build_task_tool(  # noqa: C901
         if not runtime.tool_call_id:
             value_error_msg = "Tool call ID is required for subagent invocation"
             raise ValueError(value_error_msg)
-        subagent, subagent_state = _validate_and_prepare_state(subagent_type, description, runtime)
+        subagent, subagent_state = _validate_and_prepare_state(
+            subagent_type,
+            description,
+            runtime,
+            objective=objective,
+            context=context,
+            constraints=constraints,
+            expected_output=expected_output,
+            mutation_scope=mutation_scope,
+        )
         result = subagent.invoke(subagent_state)
         return _return_command_with_state_update(result, runtime.tool_call_id)
 
@@ -457,6 +537,26 @@ def _build_task_tool(  # noqa: C901
         ],
         subagent_type: Annotated[str, "The type of subagent to use. Must be one of the available agent types listed in the tool description."],
         runtime: ToolRuntime,
+        objective: Annotated[
+            str | None,
+            "Optional concise objective for the delegated task. Use this when you can express the goal separately from the full description.",
+        ] = None,
+        context: Annotated[
+            str | None,
+            "Optional relevant context the subagent should treat as already known before it starts working.",
+        ] = None,
+        constraints: Annotated[
+            str | None,
+            "Optional hard constraints, non-goals, or boundaries the subagent must not violate.",
+        ] = None,
+        expected_output: Annotated[
+            str | None,
+            "Optional explicit return shape expected from the subagent, such as summary, patch guidance, or file path.",
+        ] = None,
+        mutation_scope: Annotated[
+            str | None,
+            "Optional explicit write scope when the delegated task may mutate files or other state.",
+        ] = None,
     ) -> str | Command:
         if subagent_type not in subagent_graphs:
             allowed_types = ", ".join([f"`{k}`" for k in subagent_graphs])
@@ -464,7 +564,16 @@ def _build_task_tool(  # noqa: C901
         if not runtime.tool_call_id:
             value_error_msg = "Tool call ID is required for subagent invocation"
             raise ValueError(value_error_msg)
-        subagent, subagent_state = _validate_and_prepare_state(subagent_type, description, runtime)
+        subagent, subagent_state = _validate_and_prepare_state(
+            subagent_type,
+            description,
+            runtime,
+            objective=objective,
+            context=context,
+            constraints=constraints,
+            expected_output=expected_output,
+            mutation_scope=mutation_scope,
+        )
         result = await subagent.ainvoke(subagent_state)
         return _return_command_with_state_update(result, runtime.tool_call_id)
 

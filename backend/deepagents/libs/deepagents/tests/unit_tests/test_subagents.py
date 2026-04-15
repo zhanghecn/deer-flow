@@ -119,13 +119,67 @@ class TestSubAgents:
         assert "messages" in result, "Result should contain messages key"
         assert len(result["messages"]) > 0, "Result should have at least one message"
 
-        # Find the ToolMessage that contains the subagent's response
-        tool_messages = [msg for msg in result["messages"] if msg.type == "tool"]
-        assert len(tool_messages) > 0, "Should have at least one ToolMessage from subagent"
+    def test_task_structured_fields_are_forwarded_into_child_message(self) -> None:
+        captured_child_message: dict[str, str] = {}
 
-        # Verify the ToolMessage contains the subagent's final response
-        subagent_tool_message = tool_messages[0]
-        assert "The sum of 2 and 3 is 5." in subagent_tool_message.content, "ToolMessage should contain subagent's final message content"
+        def _capture_child_state(state: dict[str, Any]) -> dict[str, Any]:
+            messages = state["messages"]
+            captured_child_message["content"] = messages[0].content
+            return {"messages": [AIMessage(content="done")]}
+
+        parent_chat_model = GenericFakeChatModel(
+            messages=iter(
+                [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "task",
+                                "args": {
+                                    "description": "Translate chunk_a.md to English and write it back.",
+                                    "subagent_type": "general-purpose",
+                                    "objective": "Produce a faithful English translation.",
+                                    "context": "The file is one chunk from a larger document.",
+                                    "constraints": "Preserve Markdown and do not summarize.",
+                                    "expected_output": "single_result summary for parent",
+                                    "mutation_scope": "/mnt/user-data/workspace/chunk_a.md",
+                                },
+                                "id": "call_task_structured",
+                                "type": "tool_call",
+                            }
+                        ],
+                    ),
+                    AIMessage(content="The delegated task has completed."),
+                ]
+            )
+        )
+
+        compiled_subagent = RunnableLambda(_capture_child_state)
+
+        parent_agent = create_deep_agent(
+            model=parent_chat_model,
+            checkpointer=InMemorySaver(),
+            subagents=[
+                CompiledSubAgent(
+                    name="general-purpose",
+                    description="General purpose agent.",
+                    runnable=compiled_subagent,
+                )
+            ],
+        )
+
+        parent_agent.invoke(
+            {"messages": [HumanMessage(content="Translate this file.")]},
+            config={"configurable": {"thread_id": "test_thread_structured_task"}},
+        )
+
+        child_prompt = captured_child_message["content"]
+        assert "Objective:\nProduce a faithful English translation." in child_prompt
+        assert "Context:\nThe file is one chunk from a larger document." in child_prompt
+        assert "Constraints:\nPreserve Markdown and do not summarize." in child_prompt
+        assert "Expected output:\nsingle_result summary for parent" in child_prompt
+        assert "Allowed mutation scope:\n/mnt/user-data/workspace/chunk_a.md" in child_prompt
+        assert "Task description:\nTranslate chunk_a.md to English and write it back." in child_prompt
 
     def test_multiple_subagents_invoked_in_parallel(self) -> None:
         """Test that multiple different subagents can be launched in parallel.
