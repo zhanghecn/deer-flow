@@ -18,7 +18,6 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { usePublicAgentExportDoc } from "@/core/agents";
 import { useI18n } from "@/core/i18n/hooks";
-import { cn } from "@/lib/utils";
 
 import {
   type OpenAPIDocument,
@@ -34,7 +33,6 @@ import {
   resolveSchema,
   usePublicAgentOpenAPIDoc,
 } from "../openapi";
-import { getAgentPublicReferencePageText } from "./page.i18n";
 import {
   CopyableCodeBlock,
   DeveloperDocsShell,
@@ -46,6 +44,8 @@ import {
   PublicDocsPageHeading,
   PublicDocsStatePanel,
 } from "../shared";
+
+import { getAgentPublicReferencePageText } from "./page.i18n";
 
 function renderNotes(notes: string[]) {
   if (notes.length === 0) {
@@ -207,10 +207,10 @@ function ResponsePanel({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600">
+        <span className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600">
           {contentType}
         </span>
-        <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 font-mono text-[11px] text-slate-600">
+        <span className="rounded-md border border-slate-200 bg-white px-2.5 py-1 font-mono text-[11px] text-slate-600">
           {schemaType}
         </span>
       </div>
@@ -237,19 +237,19 @@ function SchemaDisclosure({
   const schemaType = formatOpenAPISchemaType(document, entry.schema);
   const meta = getOpenAPISchemaMetaItems(document, entry.schema);
   const description =
-    entry.description ||
-    (resolveSchema(document, entry.schema) ?? entry.schema).description ||
+    entry.description ??
+    (resolveSchema(document, entry.schema) ?? entry.schema).description ??
     "";
 
   return (
-    <Collapsible className="rounded-xl border border-slate-200 bg-white">
+    <Collapsible className="rounded-lg border border-slate-200 bg-white">
       <CollapsibleTrigger className="group flex w-full items-center justify-between gap-4 px-5 py-4 text-left">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <code className="font-mono text-[13px] text-slate-950">
               {entry.name}
             </code>
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600">
+            <span className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600">
               {schemaType}
             </span>
           </div>
@@ -292,7 +292,7 @@ function OperationSection({
   return (
     <article
       id={operation.anchorId}
-      className="scroll-mt-28 rounded-xl border border-slate-200 bg-white px-6 py-6"
+      className="scroll-mt-28 rounded-lg border border-slate-200 bg-white px-5 py-5"
     >
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-3">
@@ -302,11 +302,11 @@ function OperationSection({
           </code>
         </div>
         <div>
-          <h3 className="text-[1.5rem] leading-[1.08] font-semibold tracking-[-0.04em] text-slate-950">
+          <h3 className="text-[1.25rem] leading-[1.12] font-semibold tracking-[-0.035em] text-slate-950">
             {operation.title}
           </h3>
           {operation.description ? (
-            <p className="mt-3 max-w-3xl text-[15px] leading-7 text-slate-600">
+            <p className="mt-3 max-w-[720px] text-[14px] leading-6 text-slate-600">
               {operation.description}
             </p>
           ) : null}
@@ -315,13 +315,13 @@ function OperationSection({
 
       <Tabs defaultValue={firstStatus || "request"} className="space-y-5">
         <TabsList className="grid h-auto w-full max-w-[420px] grid-cols-3 rounded-lg bg-slate-100 p-1">
-          <TabsTrigger value="request" className="rounded-full">
+          <TabsTrigger value="request" className="rounded-md">
             {text.requestTab}
           </TabsTrigger>
-          <TabsTrigger value="responses" className="rounded-full">
+          <TabsTrigger value="responses" className="rounded-md">
             {text.responseTab}
           </TabsTrigger>
-          <TabsTrigger value="example" className="rounded-full">
+          <TabsTrigger value="example" className="rounded-md">
             {text.exampleTab}
           </TabsTrigger>
         </TabsList>
@@ -368,7 +368,7 @@ function OperationSection({
                             )}
                           </TableCell>
                           <TableCell className="py-3 text-sm text-slate-600">
-                            {parameter.description ||
+                            {parameter.description ??
                               renderNotes(
                                 getOpenAPISchemaMetaItems(
                                   document,
@@ -410,7 +410,7 @@ function OperationSection({
                 <TabsTrigger
                   key={`${operation.anchorId}-${response.status}`}
                   value={response.status}
-                  className="rounded-full"
+                  className="rounded-md"
                 >
                   {response.status}
                 </TabsTrigger>
@@ -424,7 +424,7 @@ function OperationSection({
                 className="space-y-4"
               >
                 <p className="text-sm leading-6 text-slate-600">
-                  {response.response.description || text.responseTab}
+                  {response.response.description ?? text.responseTab}
                 </p>
                 {Object.entries(response.response.content ?? {}).map(
                   ([contentType, mediaType]) => (
@@ -582,11 +582,11 @@ export default function AgentPublicReferencePage() {
               },
               {
                 label: text.summaryVersion,
-                value: openapiDoc.info?.version || "1.0.0",
+                value: openapiDoc.info?.version ?? "1.0.0",
               },
               {
                 label: text.summarySpec,
-                value: openapiDoc.openapi || "OpenAPI",
+                value: openapiDoc.openapi ?? "OpenAPI",
               },
               {
                 label: text.summaryAuth,

@@ -71,19 +71,19 @@ export function PublicDocsStatePanel({
 }) {
   return (
     <div className="min-h-screen bg-white px-4 py-20 text-slate-950 sm:px-6 lg:px-8">
-      <section className="mx-auto max-w-3xl rounded-xl border border-slate-200 bg-white px-8 py-10">
+      <section className="mx-auto max-w-2xl rounded-lg border border-slate-200 bg-white px-7 py-8">
         <p className="text-[11px] font-medium tracking-[0.22em] text-slate-500 uppercase">
           {eyebrow}
         </p>
-        <h1 className="mt-4 text-[clamp(2rem,4vw,2.75rem)] leading-[1.02] font-semibold tracking-[-0.045em] text-slate-950">
+        <h1 className="mt-4 text-[clamp(1.8rem,3vw,2.35rem)] leading-[1.06] font-semibold tracking-[-0.04em] text-slate-950">
           {title}
         </h1>
-        <p className="mt-4 max-w-2xl text-[15px] leading-8 text-slate-600">
+        <p className="mt-4 max-w-xl text-[15px] leading-6 text-slate-600">
           <InlineCodeText value={description} />
         </p>
         {actionLabel && actionHref ? (
           <div className="mt-8">
-            <Button asChild className="rounded-full">
+            <Button asChild className="rounded-md">
               <Link to={actionHref}>{actionLabel}</Link>
             </Button>
           </div>
@@ -103,14 +103,14 @@ export function PublicDocsPageHeading({
   description: string;
 }) {
   return (
-    <div className="max-w-[960px]">
+    <div className="max-w-[760px]">
       <p className="text-[11px] font-medium tracking-[0.22em] text-slate-500 uppercase">
         {eyebrow}
       </p>
-      <h1 className="mt-4 text-[clamp(2rem,3.1vw,3rem)] leading-[1.02] font-semibold tracking-[-0.05em] text-slate-950">
+      <h1 className="mt-3 text-[clamp(1.75rem,2.4vw,2.4rem)] leading-[1.08] font-semibold tracking-[-0.045em] text-slate-950">
         {title}
       </h1>
-      <p className="mt-4 max-w-[900px] text-[16px] leading-8 text-slate-600">
+      <p className="mt-3 max-w-[720px] text-[15px] leading-6 text-slate-600">
         <InlineCodeText value={description} />
       </p>
     </div>
@@ -127,15 +127,15 @@ export function DocsSectionHeading({
   description?: string;
 }) {
   return (
-    <div className="max-w-[920px]">
+    <div className="max-w-[720px]">
       <p className="text-[11px] font-medium tracking-[0.22em] text-slate-500 uppercase">
         {eyebrow}
       </p>
-      <h2 className="mt-3 text-[1.5rem] leading-[1.1] font-semibold tracking-[-0.04em] text-slate-950">
+      <h2 className="mt-3 text-[1.25rem] leading-[1.15] font-semibold tracking-[-0.035em] text-slate-950">
         {title}
       </h2>
       {description ? (
-        <p className="mt-3 max-w-[880px] text-[15px] leading-8 text-slate-600">
+        <p className="mt-3 max-w-[680px] text-[14px] leading-6 text-slate-600">
           <InlineCodeText value={description} />
         </p>
       ) : null}
@@ -152,7 +152,7 @@ export function DocsSurface({
 }) {
   return (
     <section
-      className={cn("rounded-xl border border-slate-200 bg-white", className)}
+      className={cn("rounded-lg border border-slate-200 bg-white", className)}
     >
       {children}
     </section>
@@ -256,7 +256,7 @@ export function CopyableCodeBlock({
   }
 
   return (
-    <DocsSurface className="overflow-hidden rounded-xl border-slate-200 bg-slate-950 text-slate-100">
+    <DocsSurface className="overflow-hidden rounded-lg border-slate-200 bg-slate-950 text-slate-100">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-5 py-4">
         <div className="flex items-center gap-3">
           {title ? (
@@ -270,7 +270,7 @@ export function CopyableCodeBlock({
           type="button"
           variant="outline"
           size="sm"
-          className="rounded-full border-white/10 bg-white/5 text-slate-100 hover:bg-white/10"
+          className="rounded-md border-white/10 bg-white/5 text-slate-100 hover:bg-white/10"
           onClick={handleCopy}
         >
           {isCopied ? (
@@ -282,7 +282,7 @@ export function CopyableCodeBlock({
         </Button>
       </div>
 
-      <ScrollArea className="max-h-[520px] px-5 py-5">
+      <ScrollArea className="max-h-[460px] px-5 py-5">
         <pre className="overflow-x-auto font-mono text-[13px] leading-6 whitespace-pre-wrap text-slate-100">
           {code}
         </pre>
@@ -335,7 +335,7 @@ function SidebarItem({ item }: { item: DeveloperDocsSidebarItem }) {
       <div className="flex items-center justify-between gap-3">
         <span className="text-sm font-medium">{item.label}</span>
         {item.badge ? (
-          <span className="rounded-full bg-slate-200 px-2 py-0.5 font-mono text-[10px] text-slate-600 uppercase">
+          <span className="rounded-md bg-slate-200 px-2 py-0.5 font-mono text-[10px] text-slate-600 uppercase">
             {item.badge}
           </span>
         ) : null}
@@ -407,7 +407,7 @@ export function DeveloperDocsShell({
   return (
     <div className="min-h-screen bg-white text-slate-950">
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto max-w-[1560px] px-4 py-3 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-[1480px] px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0">
               <p className="text-[11px] font-medium tracking-[0.22em] text-slate-500 uppercase">
@@ -437,7 +437,7 @@ export function DeveloperDocsShell({
             </div>
           </div>
         </div>
-        <div className="mx-auto max-w-[1560px] px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-[1480px] px-4 sm:px-6 lg:px-8">
           <nav className="flex gap-6 overflow-x-auto">
             {navigationItems.map((item) => (
               <NavLink
@@ -457,7 +457,7 @@ export function DeveloperDocsShell({
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1600px] px-4 py-8 sm:px-6 lg:grid lg:grid-cols-[256px_minmax(0,1fr)] lg:gap-12 lg:px-8">
+      <main className="mx-auto max-w-[1480px] px-4 py-8 sm:px-6 lg:grid lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-10 lg:px-8">
         {/* Keep the left rail narrow and static so the content column can stay
             wide enough for code, tables, and long endpoint names. */}
         <aside className="hidden lg:block">
@@ -501,10 +501,9 @@ export function DeveloperDocsShell({
           </div>
         </aside>
 
-        {/* The docs surfaces carry wide code blocks, schema tables, and the
-            standalone playground, so keep the main column broader than the
-            default workspace content width. */}
-        <div className="max-w-[1200px] min-w-0">{children}</div>
+        {/* Docs still need room for code blocks and schema tables, but the
+            reading width stays deliberately tighter than the workspace shells. */}
+        <div className="max-w-[1100px] min-w-0">{children}</div>
       </main>
     </div>
   );

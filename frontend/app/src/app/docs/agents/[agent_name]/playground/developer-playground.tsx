@@ -294,7 +294,7 @@ function SummaryTile({
   value: string | number;
 }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+    <div className="rounded-md border border-slate-200 bg-white px-4 py-3">
       <p className="text-xs font-medium text-slate-500">
         {label}
       </p>
@@ -752,35 +752,37 @@ export function DeveloperPublicAPIPlayground({
     { value: "error", label: text.filterError },
   ];
 
+  // Keep the docs playground denser than the workspace console so it reads as
+  // part of the documentation set instead of a separate product surface.
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <DocsSurface className="overflow-hidden border-slate-200 bg-white">
         <div
           id="connect"
-          className="scroll-mt-28 border-b border-slate-200 bg-[radial-gradient(circle_at_top_left,rgba(226,232,240,0.45),transparent_55%),linear-gradient(180deg,#ffffff,#fbfdff)] px-6 py-6 lg:px-8"
+          className="scroll-mt-28 border-b border-slate-200 bg-slate-50/45 px-5 py-5 lg:px-6"
         >
           <div className="flex flex-wrap items-center gap-2">
-            <Badge className="rounded-full bg-slate-950 px-3 py-1 text-[11px] tracking-[0.16em] uppercase text-white hover:bg-slate-950">
+            <Badge className="rounded-md bg-slate-950 px-2.5 py-1 text-[11px] tracking-[0.14em] uppercase text-white hover:bg-slate-950">
               POST /v1/responses
             </Badge>
             <Badge
               variant="outline"
-              className="rounded-full border-slate-200 bg-white px-3 py-1 font-mono text-[11px] tracking-[0.12em]"
+              className="rounded-md border-slate-200 bg-white px-2.5 py-1 font-mono text-[11px] tracking-[0.08em]"
             >
               {agentName}
             </Badge>
           </div>
 
-          <div className="mt-4 max-w-3xl">
-            <h2 className="text-[1.6rem] leading-[1.05] font-semibold tracking-[-0.04em] text-slate-950">
+          <div className="mt-4 max-w-[720px]">
+            <h2 className="text-[1.25rem] leading-[1.14] font-semibold tracking-[-0.03em] text-slate-950">
               {text.requestTitle}
             </h2>
-            <p className="mt-3 text-[15px] leading-7 text-slate-600">
+            <p className="mt-2 text-[14px] leading-6 text-slate-600">
               {text.publicCredentialsDescription}
             </p>
           </div>
 
-          <div className="mt-6 grid gap-5 xl:grid-cols-2">
+          <div className="mt-5 grid gap-4 xl:grid-cols-2">
             <div className="space-y-3">
               <FieldBlock
                 label={text.baseURL}
@@ -791,7 +793,7 @@ export function DeveloperPublicAPIPlayground({
                 id={baseURLInputID}
                 value={apiBaseURL}
                 onChange={(event) => setAPIBaseURL(event.target.value)}
-                className="h-11 rounded-xl border-slate-200 font-mono text-[13px]"
+                className="h-10 rounded-md border-slate-200 font-mono text-[13px]"
                 spellCheck={false}
               />
             </div>
@@ -807,7 +809,7 @@ export function DeveloperPublicAPIPlayground({
                 value={apiToken}
                 onChange={(event) => setAPIToken(event.target.value)}
                 placeholder="sk-..."
-                className="h-11 rounded-xl border-slate-200 font-mono text-[13px]"
+                className="h-10 rounded-md border-slate-200 font-mono text-[13px]"
                 spellCheck={false}
               />
             </div>
@@ -816,7 +818,7 @@ export function DeveloperPublicAPIPlayground({
 
         <div
           id="run"
-          className="scroll-mt-28 grid gap-8 px-6 py-6 lg:px-8 xl:grid-cols-[minmax(0,1fr)_320px]"
+          className="scroll-mt-28 grid gap-6 px-5 py-5 lg:px-6 xl:grid-cols-[minmax(0,1fr)_288px]"
         >
           <div className="space-y-6">
             <div className="space-y-3">
@@ -830,13 +832,13 @@ export function DeveloperPublicAPIPlayground({
                 value={message}
                 onChange={(event) => setMessage(event.target.value)}
                 placeholder={text.messagePlaceholder}
-                className="min-h-[220px] rounded-2xl border-slate-200 px-4 py-3 text-[15px] leading-7 shadow-none"
+                className="min-h-[180px] rounded-lg border-slate-200 px-3 py-2.5 text-[14px] leading-6 shadow-none"
               />
             </div>
 
             <div className="space-y-3">
               <FieldBlock label={text.files} hint={text.filesHint} />
-              <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/70 p-4">
+              <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50/55 p-4">
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -863,7 +865,7 @@ export function DeveloperPublicAPIPlayground({
                   <Button
                     type="button"
                     variant="outline"
-                    className="rounded-full bg-white"
+                    className="rounded-md bg-white"
                     onClick={() => fileInputRef.current?.click()}
                   >
                     <PaperclipIcon className="size-4" />
@@ -876,7 +878,7 @@ export function DeveloperPublicAPIPlayground({
                     {queuedFiles.map((file, index) => (
                       <div
                         key={`${file.name}-${file.lastModified}-${index}`}
-                        className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3"
+                        className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-4 py-3"
                       >
                         <div className="min-w-0">
                           <p className="truncate text-sm font-medium text-slate-950">
@@ -890,7 +892,7 @@ export function DeveloperPublicAPIPlayground({
                           type="button"
                           variant="ghost"
                           size="icon"
-                          className="rounded-full text-slate-500 hover:text-slate-950"
+                          className="rounded-md text-slate-500 hover:text-slate-950"
                           onClick={() => handleRemoveFile(index)}
                         >
                           <Trash2Icon className="size-4" />
@@ -904,7 +906,7 @@ export function DeveloperPublicAPIPlayground({
           </div>
 
           <div className="space-y-5">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+            <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
               <p className="text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
                 {text.streamLabel}
               </p>
@@ -925,7 +927,7 @@ export function DeveloperPublicAPIPlayground({
               </div>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="rounded-lg border border-slate-200 bg-white p-4">
               <FieldBlock label={text.responseMode} hint={text.responseModeHint} />
               <div className="mt-4 grid gap-2">
                 <SegmentedButton
@@ -946,7 +948,7 @@ export function DeveloperPublicAPIPlayground({
               </div>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="rounded-lg border border-slate-200 bg-white p-4">
               <div className="flex items-start justify-between gap-4">
                 <div className="space-y-2">
                   <p className="text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
@@ -971,7 +973,7 @@ export function DeveloperPublicAPIPlayground({
                       setReasoningEffort(value as ReasoningEffort)
                     }
                   >
-                    <SelectTrigger className="rounded-xl border-slate-200 bg-white">
+                    <SelectTrigger className="rounded-md border-slate-200 bg-white">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -985,7 +987,7 @@ export function DeveloperPublicAPIPlayground({
               ) : null}
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="rounded-lg border border-slate-200 bg-white p-4">
               <FieldBlock
                 label={text.previousResponse}
                 hint={text.previousResponseHint}
@@ -996,7 +998,7 @@ export function DeveloperPublicAPIPlayground({
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="rounded-full px-2 text-xs"
+                      className="rounded-md px-2 text-xs"
                       onClick={() => setPreviousResponseID(response.id)}
                     >
                       {text.useLatestResponse}
@@ -1008,7 +1010,7 @@ export function DeveloperPublicAPIPlayground({
                 id={previousResponseInputID}
                 value={previousResponseID}
                 onChange={(event) => setPreviousResponseID(event.target.value)}
-                className="mt-3 rounded-xl border-slate-200 font-mono text-[13px]"
+                className="mt-3 rounded-md border-slate-200 font-mono text-[13px]"
                 spellCheck={false}
               />
             </div>
@@ -1016,7 +1018,7 @@ export function DeveloperPublicAPIPlayground({
             <Collapsible
               open={advancedOpen}
               onOpenChange={setAdvancedOpen}
-              className="rounded-2xl border border-slate-200 bg-white"
+              className="rounded-lg border border-slate-200 bg-white"
             >
               <CollapsibleTrigger className="flex w-full items-center justify-between gap-4 px-4 py-4 text-left">
                 <div>
@@ -1040,7 +1042,7 @@ export function DeveloperPublicAPIPlayground({
                       id={maxOutputTokensInputID}
                       value={maxOutputTokens}
                       onChange={(event) => setMaxOutputTokens(event.target.value)}
-                      className="rounded-xl border-slate-200 font-mono text-[13px]"
+                      className="rounded-md border-slate-200 font-mono text-[13px]"
                       inputMode="numeric"
                     />
                   </div>
@@ -1057,7 +1059,7 @@ export function DeveloperPublicAPIPlayground({
                           id={schemaNameInputID}
                           value={schemaName}
                           onChange={(event) => setSchemaName(event.target.value)}
-                          className="rounded-xl border-slate-200 font-mono text-[13px]"
+                          className="rounded-md border-slate-200 font-mono text-[13px]"
                           spellCheck={false}
                         />
                       </div>
@@ -1071,7 +1073,7 @@ export function DeveloperPublicAPIPlayground({
                           id={schemaBodyInputID}
                           value={schemaBody}
                           onChange={(event) => setSchemaBody(event.target.value)}
-                          className="min-h-[220px] rounded-2xl border-slate-200 font-mono text-[13px] leading-6"
+                          className="min-h-[180px] rounded-lg border-slate-200 font-mono text-[13px] leading-6"
                           spellCheck={false}
                         />
                       </div>
@@ -1084,7 +1086,7 @@ export function DeveloperPublicAPIPlayground({
             <div className="grid gap-3">
               <Button
                 type="button"
-                className="h-11 rounded-full bg-slate-950 text-white hover:bg-slate-900"
+                className="h-10 rounded-md bg-slate-950 text-white hover:bg-slate-900"
                 onClick={handleRun}
                 disabled={submitting}
               >
@@ -1098,7 +1100,7 @@ export function DeveloperPublicAPIPlayground({
               <Button
                 type="button"
                 variant="outline"
-                className="h-11 rounded-full"
+                className="h-10 rounded-md"
                 onClick={handleClearConsole}
               >
                 {text.clear}
@@ -1108,18 +1110,18 @@ export function DeveloperPublicAPIPlayground({
         </div>
       </DocsSurface>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.08fr)_minmax(360px,0.92fr)]">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.04fr)_minmax(320px,0.88fr)]">
         <DocsSurface className="overflow-hidden border-slate-200 bg-white">
-          <div className="border-b border-slate-200 px-6 py-5">
+          <div className="border-b border-slate-200 px-5 py-4">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-              <div className="max-w-3xl">
+              <div className="max-w-[640px]">
                 <p className="text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
                   {text.traceEyebrow}
                 </p>
-                <h3 className="mt-2 text-[1.35rem] leading-tight font-semibold tracking-[-0.03em] text-slate-950">
+                <h3 className="mt-2 text-[1.15rem] leading-tight font-semibold tracking-[-0.03em] text-slate-950">
                   {text.traceTitle}
                 </h3>
-                <p className="mt-2 text-sm leading-7 text-slate-600">
+                <p className="mt-2 text-sm leading-6 text-slate-600">
                   {text.traceDescription}
                 </p>
               </div>
@@ -1132,7 +1134,7 @@ export function DeveloperPublicAPIPlayground({
                     variant="outline"
                     size="sm"
                     className={cn(
-                      "rounded-full border-slate-200 bg-white",
+                      "rounded-md border-slate-200 bg-white",
                       traceFilter === item.value &&
                         "border-slate-950 bg-slate-950 text-white hover:bg-slate-950 hover:text-white",
                     )}
@@ -1145,9 +1147,9 @@ export function DeveloperPublicAPIPlayground({
             </div>
           </div>
 
-          <div className="space-y-5 px-6 py-5">
+          <div className="space-y-4 px-5 py-4">
             {formattedOutputText ? (
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-4">
                 <p className="text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
                   {text.liveOutput}
                 </p>
@@ -1158,7 +1160,7 @@ export function DeveloperPublicAPIPlayground({
             ) : null}
 
             {lastRunMode === "blocking" ? (
-              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-4">
                 <p className="text-sm font-medium text-amber-950">
                   {text.blockingReplayTitle}
                 </p>
@@ -1168,10 +1170,10 @@ export function DeveloperPublicAPIPlayground({
               </div>
             ) : null}
 
-            <ScrollArea className="h-[760px] pr-3">
+            <ScrollArea className="h-[620px] pr-3">
               {groupedTraceItems.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 px-5 py-10 text-center">
-                  <p className="text-sm leading-7 text-slate-500">
+                <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-5 py-10 text-center">
+                  <p className="text-sm leading-6 text-slate-500">
                     {traceItems.length === 0 ? text.noTrace : text.noFilteredTrace}
                   </p>
                 </div>
@@ -1184,7 +1186,7 @@ export function DeveloperPublicAPIPlayground({
                           {traceStageLabel(group.stage, text)}
                         </p>
                         <div className="h-px flex-1 bg-slate-200" />
-                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-medium tracking-[0.16em] text-slate-500 uppercase">
+                        <span className="rounded-md bg-slate-100 px-2.5 py-1 text-[10px] font-medium tracking-[0.16em] text-slate-500 uppercase">
                           {group.items.length}
                         </span>
                       </div>
@@ -1208,14 +1210,14 @@ export function DeveloperPublicAPIPlayground({
         </DocsSurface>
 
         <DocsSurface className="overflow-hidden border-slate-200 bg-white">
-          <div className="border-b border-slate-200 px-6 py-5">
+          <div className="border-b border-slate-200 px-5 py-4">
             <p className="text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
               {text.resultEyebrow}
             </p>
-            <h3 className="mt-2 text-[1.35rem] leading-tight font-semibold tracking-[-0.03em] text-slate-950">
+            <h3 className="mt-2 text-[1.15rem] leading-tight font-semibold tracking-[-0.03em] text-slate-950">
               {text.resultTitle}
             </h3>
-            <p className="mt-2 text-sm leading-7 text-slate-600">
+            <p className="mt-2 text-sm leading-6 text-slate-600">
               {text.resultDescription}
             </p>
 
@@ -1233,23 +1235,23 @@ export function DeveloperPublicAPIPlayground({
             </div>
           </div>
 
-          <div className="px-6 py-5">
+          <div className="px-5 py-4">
             <Tabs defaultValue="output" className="space-y-4">
-              <TabsList className="grid w-full grid-cols-3 rounded-full bg-slate-100 p-1">
-                <TabsTrigger value="output" className="rounded-full">
+              <TabsList className="grid w-full grid-cols-3 rounded-md bg-slate-100 p-1">
+                <TabsTrigger value="output" className="rounded-md">
                   {text.outputTab}
                 </TabsTrigger>
-                <TabsTrigger value="json" className="rounded-full">
+                <TabsTrigger value="json" className="rounded-md">
                   {text.jsonTab}
                 </TabsTrigger>
-                <TabsTrigger value="files" className="rounded-full">
+                <TabsTrigger value="files" className="rounded-md">
                   {text.filesTab}
                 </TabsTrigger>
               </TabsList>
 
               <TabsContent value="output" className="mt-0">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50">
-                  <ScrollArea className="h-[680px] px-4 py-4">
+                <div className="rounded-lg border border-slate-200 bg-slate-50">
+                  <ScrollArea className="h-[520px] px-4 py-4">
                     <pre className="font-mono text-[13px] leading-6 break-words whitespace-pre-wrap text-slate-900">
                       {formattedOutputText || text.noResponse}
                     </pre>
@@ -1258,8 +1260,8 @@ export function DeveloperPublicAPIPlayground({
               </TabsContent>
 
               <TabsContent value="json" className="mt-0">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50">
-                  <ScrollArea className="h-[680px] px-4 py-4">
+                <div className="rounded-lg border border-slate-200 bg-slate-50">
+                  <ScrollArea className="h-[520px] px-4 py-4">
                     <pre className="font-mono text-[13px] leading-6 break-words whitespace-pre-wrap text-slate-900">
                       {formattedResponseJSON || text.noResponse}
                     </pre>
@@ -1270,8 +1272,8 @@ export function DeveloperPublicAPIPlayground({
               <TabsContent value="files" className="mt-0">
                 <div className="space-y-3">
                   {responseArtifacts.length === 0 ? (
-                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 px-5 py-10 text-center">
-                      <p className="text-sm leading-7 text-slate-500">
+                    <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-5 py-10 text-center">
+                      <p className="text-sm leading-6 text-slate-500">
                         {text.noResponse}
                       </p>
                     </div>
@@ -1279,7 +1281,7 @@ export function DeveloperPublicAPIPlayground({
                     responseArtifacts.map((artifact) => (
                       <div
                         key={artifact.id}
-                        className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
+                        className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-slate-50/70 px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
                       >
                         <div className="min-w-0">
                           <p className="truncate text-sm font-medium text-slate-950">
@@ -1293,7 +1295,7 @@ export function DeveloperPublicAPIPlayground({
                         <Button
                           type="button"
                           variant="outline"
-                          className="rounded-full bg-white"
+                          className="rounded-md bg-white"
                           onClick={() => handleDownloadArtifact(artifact)}
                         >
                           <DownloadIcon className="size-4" />

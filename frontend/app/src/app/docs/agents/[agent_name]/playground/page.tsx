@@ -4,8 +4,6 @@ import { usePublicAgentExportDoc } from "@/core/agents";
 import { useI18n } from "@/core/i18n/hooks";
 
 import { usePublicAgentOpenAPIDoc } from "../openapi";
-import { DeveloperPublicAPIPlayground } from "./developer-playground";
-import { getAgentPublicPlaygroundPageText } from "./page.i18n";
 import {
   DeveloperDocsShell,
   type DeveloperDocsSidebarSection,
@@ -14,6 +12,9 @@ import {
   PublicDocsPageHeading,
   PublicDocsStatePanel,
 } from "../shared";
+
+import { DeveloperPublicAPIPlayground } from "./developer-playground";
+import { getAgentPublicPlaygroundPageText } from "./page.i18n";
 
 function StepRow({
   step,
@@ -25,7 +26,7 @@ function StepRow({
   description: string;
 }) {
   return (
-    <div className="grid gap-4 border-t border-slate-200 px-6 py-6 first:border-t-0 lg:grid-cols-[96px_minmax(0,1fr)]">
+    <div className="grid gap-4 border-t border-slate-200 px-5 py-5 first:border-t-0 lg:grid-cols-[72px_minmax(0,1fr)]">
       <p className="font-mono text-[12px] tracking-[0.18em] text-slate-400 uppercase">
         {step}
       </p>
@@ -33,7 +34,7 @@ function StepRow({
         <h3 className="text-[1rem] font-semibold tracking-[-0.03em] text-slate-950">
           {title}
         </h3>
-        <p className="mt-2 text-sm leading-7 text-slate-600">{description}</p>
+        <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
       </div>
     </div>
   );
@@ -110,8 +111,8 @@ export default function AgentPublicPlaygroundPage() {
       exportURL={exportDoc.documentation_json_url}
       sidebarSections={sidebarSections}
     >
-      <div className="space-y-12 pt-2">
-        <section id="intro" className="scroll-mt-28 space-y-8">
+      <div className="space-y-10 pt-2">
+        <section id="intro" className="scroll-mt-28 space-y-6">
           <PublicDocsPageHeading
             eyebrow={text.eyebrow}
             title={text.title}
@@ -124,7 +125,7 @@ export default function AgentPublicPlaygroundPage() {
                 <p className="px-6 pt-6 text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
                   {text.heroFactOneLabel}
                 </p>
-                <p className="px-6 pt-2 pb-6 text-sm leading-7 text-slate-700">
+                <p className="px-6 pt-2 pb-6 text-sm leading-6 text-slate-700">
                   {text.heroFactOneValue}
                 </p>
               </div>
@@ -132,7 +133,7 @@ export default function AgentPublicPlaygroundPage() {
                 <p className="px-6 pt-6 text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
                   {text.heroFactTwoLabel}
                 </p>
-                <p className="px-6 pt-2 pb-6 text-sm leading-7 text-slate-700">
+                <p className="px-6 pt-2 pb-6 text-sm leading-6 text-slate-700">
                   {text.heroFactTwoValue}
                 </p>
               </div>
@@ -140,7 +141,7 @@ export default function AgentPublicPlaygroundPage() {
                 <p className="px-6 pt-6 text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
                   {text.heroFactThreeLabel}
                 </p>
-                <p className="px-6 pt-2 pb-6 text-sm leading-7 text-slate-700">
+                <p className="px-6 pt-2 pb-6 text-sm leading-6 text-slate-700">
                   {text.heroFactThreeValue}
                 </p>
               </div>
@@ -155,7 +156,7 @@ export default function AgentPublicPlaygroundPage() {
 
         <section
           id="workflow"
-          className="scroll-mt-28 space-y-6 border-t border-slate-200 pt-12"
+          className="scroll-mt-28 space-y-5 border-t border-slate-200 pt-10"
         >
           <DocsSectionHeading
             eyebrow={text.stepsEyebrow}

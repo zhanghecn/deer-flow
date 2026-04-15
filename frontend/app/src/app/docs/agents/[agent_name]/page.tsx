@@ -119,7 +119,7 @@ function RouteTable({
                   {route.title}
                 </TableCell>
                 <TableCell className="text-right">
-                  <Button asChild variant="ghost" className="rounded-full">
+                  <Button asChild variant="ghost" className="rounded-md">
                     <Link to={`${referencePath}#${route.anchorId}`}>
                       {openReferenceLabel}
                       <ExternalLinkIcon className="size-4" />
@@ -149,7 +149,7 @@ function NextStepRow({
   actionLabel: string;
 }) {
   return (
-    <div className="grid gap-4 border-t border-slate-200 px-6 py-6 first:border-t-0 lg:grid-cols-[150px_minmax(0,1fr)_170px] lg:items-center">
+    <div className="grid gap-4 border-t border-slate-200 px-5 py-5 first:border-t-0 lg:grid-cols-[124px_minmax(0,1fr)_156px] lg:items-center">
       <p className="text-[11px] font-medium tracking-[0.22em] text-slate-500 uppercase">
         {eyebrow}
       </p>
@@ -157,10 +157,10 @@ function NextStepRow({
         <h3 className="text-[1rem] font-semibold tracking-[-0.03em] text-slate-950">
           {title}
         </h3>
-        <p className="mt-2 text-sm leading-7 text-slate-600">{description}</p>
+        <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
       </div>
       <div className="lg:flex lg:justify-end">
-        <Button asChild variant="outline" className="rounded-full">
+        <Button asChild variant="outline" className="rounded-md">
           <Link to={href}>
             {actionLabel}
             <ExternalLinkIcon className="size-4" />
@@ -257,8 +257,8 @@ export default function AgentPublicDocsPage() {
       exportURL={exportDoc.documentation_json_url}
       sidebarSections={sidebarSections}
     >
-      <div className="space-y-12 pt-2">
-        <section id="overview" className="scroll-mt-28 space-y-8">
+      <div className="space-y-10 pt-2">
+        <section id="overview" className="scroll-mt-28 space-y-6">
           <div className="flex flex-wrap items-center gap-3">
             <DocsMethodBadge method="POST" />
             <code className="rounded-md border border-slate-200 bg-white px-3 py-1 font-mono text-[12px] text-slate-700">
@@ -306,7 +306,7 @@ export default function AgentPublicDocsPage() {
                 <p className="px-6 pt-6 text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
                   {text.heroFactOneLabel}
                 </p>
-                <p className="px-6 pt-2 pb-6 text-sm leading-7 text-slate-700">
+                <p className="px-6 pt-2 pb-6 text-sm leading-6 text-slate-700">
                   {text.heroFactOneValue}
                 </p>
               </div>
@@ -314,7 +314,7 @@ export default function AgentPublicDocsPage() {
                 <p className="px-6 pt-6 text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
                   {text.heroFactTwoLabel}
                 </p>
-                <p className="px-6 pt-2 pb-6 text-sm leading-7 text-slate-700">
+                <p className="px-6 pt-2 pb-6 text-sm leading-6 text-slate-700">
                   {text.heroFactTwoValue}
                 </p>
               </div>
@@ -322,7 +322,7 @@ export default function AgentPublicDocsPage() {
                 <p className="px-6 pt-6 text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
                   {text.heroFactThreeLabel}
                 </p>
-                <p className="px-6 pt-2 pb-6 text-sm leading-7 text-slate-700">
+                <p className="px-6 pt-2 pb-6 text-sm leading-6 text-slate-700">
                   {routes.length} {text.heroFactThreeValue}
                 </p>
               </div>
@@ -332,7 +332,7 @@ export default function AgentPublicDocsPage() {
 
         <section
           id="quickstart"
-          className="scroll-mt-28 space-y-6 border-t border-slate-200 pt-12"
+          className="scroll-mt-28 space-y-5 border-t border-slate-200 pt-10"
         >
           <DocsSectionHeading
             eyebrow={text.quickstartEyebrow}
@@ -341,14 +341,14 @@ export default function AgentPublicDocsPage() {
           />
 
           <Tabs defaultValue="javascript" className="space-y-4">
-            <TabsList className="grid h-auto w-full max-w-[420px] grid-cols-3 rounded-full bg-slate-100 p-1">
-              <TabsTrigger value="javascript" className="rounded-full">
+            <TabsList className="grid h-auto w-full max-w-[420px] grid-cols-3 rounded-md bg-slate-100 p-1">
+              <TabsTrigger value="javascript" className="rounded-md">
                 {text.jsTab}
               </TabsTrigger>
-              <TabsTrigger value="python" className="rounded-full">
+              <TabsTrigger value="python" className="rounded-md">
                 {text.pythonTab}
               </TabsTrigger>
-              <TabsTrigger value="curl" className="rounded-full">
+              <TabsTrigger value="curl" className="rounded-md">
                 {text.curlTab}
               </TabsTrigger>
             </TabsList>
@@ -382,7 +382,7 @@ export default function AgentPublicDocsPage() {
 
         <section
           id="authentication"
-          className="scroll-mt-28 space-y-6 border-t border-slate-200 pt-12"
+          className="scroll-mt-28 space-y-5 border-t border-slate-200 pt-10"
         >
           <DocsSectionHeading
             eyebrow={text.authEyebrow}
@@ -412,7 +412,7 @@ export default function AgentPublicDocsPage() {
 
         <section
           id="routes"
-          className="scroll-mt-28 space-y-6 border-t border-slate-200 pt-12"
+          className="scroll-mt-28 space-y-5 border-t border-slate-200 pt-10"
         >
           <DocsSectionHeading
             eyebrow={text.routesEyebrow}
@@ -433,7 +433,7 @@ export default function AgentPublicDocsPage() {
 
         <section
           id="next-steps"
-          className="scroll-mt-28 space-y-6 border-t border-slate-200 pt-12"
+          className="scroll-mt-28 space-y-5 border-t border-slate-200 pt-10"
         >
           <DocsSectionHeading
             eyebrow={text.nextEyebrow}
