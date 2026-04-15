@@ -766,19 +766,6 @@ def _augment_trace_payload(
 ) -> dict[str, Any]:
     lineage = _lineage_payload(metadata, input_value=input_value)
     if lineage:
-        anomaly_flags: list[str] = []
-        root_digest = lineage.get("original_user_input_digest")
-        state_digest = lineage.get("input_digest")
-        if (
-            isinstance(root_digest, str)
-            and root_digest
-            and isinstance(state_digest, str)
-            and state_digest
-            and root_digest != state_digest
-        ):
-            anomaly_flags.append("lineage_input_mismatch")
-        if anomaly_flags:
-            lineage["anomaly_flags"] = anomaly_flags
         payload["lineage"] = _shrink(lineage)
     return payload
 
