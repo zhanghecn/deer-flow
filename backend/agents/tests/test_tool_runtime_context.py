@@ -205,7 +205,7 @@ def test_setup_agent_accepts_typed_runtime_context(monkeypatch):
         }
     ]
     assert command.update["created_agent_name"] == "contract-agent"
-    assert 'task(subagent_type="contract-agent"' in command.update["messages"][0].content
+    assert 'task(subagent_type="contract-agent", description="short label", prompt="full task briefing")' in command.update["messages"][0].content
 
 
 def test_setup_agent_falls_back_to_thread_owner_when_runtime_user_id_is_missing(monkeypatch):

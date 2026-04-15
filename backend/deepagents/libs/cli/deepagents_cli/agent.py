@@ -280,29 +280,32 @@ def _format_task_description(
 ) -> str:
     """Format task (subagent) tool call for approval prompt.
 
-    The task tool signature is: task(description: str, subagent_type: str)
-    The description contains all instructions that will be sent to the subagent.
+    The task tool signature is: task(description: str, prompt: str, subagent_type?: str)
+    The short description is an operator label. The prompt is the real task
+    briefing that will be sent to the subagent.
 
     Returns:
         Formatted description string for the task tool call.
     """
     args = tool_call["args"]
     description = args.get("description", "unknown")
-    subagent_type = args.get("subagent_type", "unknown")
+    prompt = args.get("prompt", "unknown")
+    subagent_type = args.get("subagent_type", "general-purpose")
 
-    # Truncate description if too long for display
-    description_preview = description
-    if len(description) > 500:  # noqa: PLR2004  # Subagent description length threshold
-        description_preview = description[:500] + "..."
+    # Truncate prompt if too long for display so approvals stay readable.
+    prompt_preview = prompt
+    if len(prompt) > 500:  # noqa: PLR2004  # Subagent prompt preview threshold
+        prompt_preview = prompt[:500] + "..."
 
     glyphs = get_glyphs()
     separator = glyphs.box_horizontal * 40
     warning_msg = "Subagent will have access to file operations and shell commands"
     return (
         f"Subagent Type: {subagent_type}\n\n"
+        f"Task Label: {description}\n\n"
         f"Task Instructions:\n"
         f"{separator}\n"
-        f"{description_preview}\n"
+        f"{prompt_preview}\n"
         f"{separator}\n\n"
         f"{glyphs.warning}  {warning_msg}"
     )

@@ -69,6 +69,7 @@ class TestSubagentMiddleware:
         response = agent.invoke({"messages": [HumanMessage(content="What is the weather in Tokyo?")]})
         assert response["messages"][1].tool_calls[0]["name"] == "task"
         assert response["messages"][1].tool_calls[0]["args"]["subagent_type"] == "general-purpose"
+        assert "prompt" in response["messages"][1].tool_calls[0]["args"]
 
     def test_defined_subagent_tool_calls(self):
         agent = create_agent(
@@ -90,7 +91,14 @@ class TestSubagentMiddleware:
             ],
         )
         expected_tool_calls = [
-            {"name": "task", "args": {"subagent_type": "weather"}},
+            {
+                "name": "task",
+                "args": {
+                    "subagent_type": "weather",
+                    "description": "get weather",
+                    "prompt": "Use the weather subagent to get the weather in Tokyo.",
+                },
+            },
             {"name": "get_weather", "args": {}},
         ]
         assert_expected_subgraph_actions(
@@ -121,7 +129,11 @@ class TestSubagentMiddleware:
         expected_tool_calls = [
             {
                 "name": "task",
-                "args": {"subagent_type": "weather"},
+                "args": {
+                    "subagent_type": "weather",
+                    "description": "get weather",
+                    "prompt": "Use the weather subagent to get the weather in Tokyo.",
+                },
                 "model": "claude-sonnet-4-20250514",
             },
             {"name": "get_weather", "args": {}, "model": "gpt-4.1-2025-04-14"},
@@ -155,7 +167,11 @@ class TestSubagentMiddleware:
         expected_tool_calls = [
             {
                 "name": "task",
-                "args": {"subagent_type": "weather"},
+                "args": {
+                    "subagent_type": "weather",
+                    "description": "get weather",
+                    "prompt": "Use the weather subagent to get the weather in Tokyo.",
+                },
                 "model": "claude-sonnet-4-20250514",
             },
             {"name": "get_weather", "args": {}, "model": "gpt-4.1-2025-04-14"},
@@ -191,7 +207,11 @@ class TestSubagentMiddleware:
         expected_tool_calls = [
             {
                 "name": "task",
-                "args": {"subagent_type": "weather"},
+                "args": {
+                    "subagent_type": "weather",
+                    "description": "get weather",
+                    "prompt": "Use the weather subagent to get the weather in Tokyo.",
+                },
                 "model": "claude-sonnet-4-20250514",
             },
             {"name": "get_weather", "args": {}, "model": "gpt-4.1-2025-04-14"},
@@ -225,7 +245,15 @@ class TestSubagentMiddleware:
             )
         # Verify the custom subagent uses the inherited model
         expected_tool_calls = [
-            {"name": "task", "args": {"subagent_type": "custom"}, "model": "claude-sonnet-4-20250514"},
+            {
+                "name": "task",
+                "args": {
+                    "subagent_type": "custom",
+                    "description": "get weather",
+                    "prompt": "Use the custom subagent to get the weather in Tokyo.",
+                },
+                "model": "claude-sonnet-4-20250514",
+            },
             {"name": "get_weather", "args": {}, "model": "gpt-4.1-2025-04-14"},  # Inherited model
         ]
         assert_expected_subgraph_actions(
@@ -257,7 +285,14 @@ class TestSubagentMiddleware:
             )
         # Verify the custom subagent can use the inherited tools
         expected_tool_calls = [
-            {"name": "task", "args": {"subagent_type": "custom"}},
+            {
+                "name": "task",
+                "args": {
+                    "subagent_type": "custom",
+                    "description": "get weather",
+                    "prompt": "Use the custom subagent to get the weather in Tokyo.",
+                },
+            },
             {"name": "get_weather", "args": {}},  # Inherited tool
         ]
         assert_expected_subgraph_actions(

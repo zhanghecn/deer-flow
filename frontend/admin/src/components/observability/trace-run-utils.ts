@@ -29,10 +29,9 @@ export interface TraceRunSummary {
   hasReasoning: boolean;
   reasoningPreview?: string;
   hasTruncatedPayload: boolean;
-  effectiveAgentMode?: string;
   effectiveAgentName?: string;
-  expectedReturnShape?: string;
-  mutationScope?: string;
+  delegatedDescription?: string;
+  promptPreview?: string;
   launchFailureClass?: string;
   anomalyFlags: string[];
   executionBackend?: string;
@@ -648,10 +647,9 @@ function parseIntegerField(value: unknown): number | undefined {
 }
 
 function resolveDelegationMetadata(run: TraceRunSummary): {
-  effectiveAgentMode?: string;
   effectiveAgentName?: string;
-  expectedReturnShape?: string;
-  mutationScope?: string;
+  delegatedDescription?: string;
+  promptPreview?: string;
   launchFailureClass?: string;
   anomalyFlags: string[];
 } {
@@ -665,21 +663,17 @@ function resolveDelegationMetadata(run: TraceRunSummary): {
     : [];
 
   return {
-    effectiveAgentMode:
-      typeof payload.effective_agent_mode === "string"
-        ? payload.effective_agent_mode
-        : undefined,
     effectiveAgentName:
       typeof payload.effective_agent_name === "string"
         ? payload.effective_agent_name
         : undefined,
-    expectedReturnShape:
-      typeof payload.expected_return_shape === "string"
-        ? payload.expected_return_shape
+    delegatedDescription:
+      typeof payload.description === "string"
+        ? payload.description
         : undefined,
-    mutationScope:
-      typeof payload.mutation_scope === "string"
-        ? payload.mutation_scope
+    promptPreview:
+      typeof payload.prompt_preview === "string"
+        ? payload.prompt_preview
         : undefined,
     launchFailureClass:
       typeof payload.launch_failure_class === "string"
@@ -1207,10 +1201,9 @@ export function buildTraceRuns(
     const delegationMetadata = resolveDelegationMetadata(run);
     const executionMetadata = resolveExecutionMetadata(run);
     const lineageMetadata = resolveLineageMetadata(run);
-    run.effectiveAgentMode = delegationMetadata.effectiveAgentMode;
     run.effectiveAgentName = delegationMetadata.effectiveAgentName;
-    run.expectedReturnShape = delegationMetadata.expectedReturnShape;
-    run.mutationScope = delegationMetadata.mutationScope;
+    run.delegatedDescription = delegationMetadata.delegatedDescription;
+    run.promptPreview = delegationMetadata.promptPreview;
     run.launchFailureClass =
       delegationMetadata.launchFailureClass ?? executionMetadata.launchFailureClass;
     run.executionBackend = executionMetadata.executionBackend;

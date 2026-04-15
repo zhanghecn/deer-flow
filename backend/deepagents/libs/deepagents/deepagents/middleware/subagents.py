@@ -131,14 +131,11 @@ TASK_TOOL_DESCRIPTION = """Launch an ephemeral subagent to handle complex, multi
 Available agent types and the tools they have access to:
 {available_agents}
 
-When using the Task tool, you must specify a subagent_type parameter to select which agent type to use.
-
-Prefer to provide the structured delegation fields when they are known:
-- `objective`: the main thing the subagent must accomplish
-- `context`: facts the subagent should assume as already known
-- `constraints`: hard boundaries or non-goals
-- `expected_output`: the return shape you want back
-- `mutation_scope`: allowed write scope when the task may modify files
+When using the Task tool:
+- `description` is a short 3-5 word label for the delegated task
+- `prompt` is the full task briefing for the subagent
+- `subagent_type` selects a specialized agent when you need one
+- If `subagent_type` is omitted, the general-purpose agent is used
 
 When NOT to use the Task tool:
 - If you already know the specific file path, use `read_file` directly.
@@ -148,11 +145,18 @@ When NOT to use the Task tool:
 ## Usage notes:
 1. Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple tool uses
 2. When the agent is done, it will return a single message back to you. The result returned by the agent is not visible to the user. To show the user the result, you should send a text message back to the user with a concise summary of the result.
-3. Each agent invocation is stateless. You will not be able to send additional messages to the agent, nor will the agent be able to communicate with you outside of its final report. Therefore, your prompt should contain a highly detailed task description for the agent to perform autonomously and you should specify exactly what information the agent should return back to you in its final and only message to you.
+3. Each agent invocation is stateless. You will not be able to send additional messages to the agent, nor will the agent be able to communicate with you outside of its final report. Therefore, your `prompt` should contain a highly detailed task description for the agent to perform autonomously and you should specify exactly what information the agent should return back to you in its final and only message to you.
 4. The agent's outputs should generally be trusted
 5. Clearly tell the agent whether you expect it to create content, perform analysis, or just do research (search, file reads, web fetches, etc.), since it is not aware of the user's intent
 6. If the agent description mentions that it should be used proactively, then you should try your best to use it without the user having to ask for it first. Use your judgement.
 7. When only the general-purpose agent is provided, you should use it for all tasks. It is great for isolating context and token usage, and completing specific, complex tasks, as it has all the same capabilities as the main agent.
+
+## Writing the prompt
+- Brief the subagent like a smart colleague who has not seen this conversation.
+- Explain the goal, why it matters, and what you already know or ruled out.
+- Include exact file paths, commands, or output requirements when they matter.
+- Avoid terse command-only prompts for nuanced work; they usually produce shallow results.
+- Do not push the synthesis step onto the subagent with vague phrasing like "based on your findings, fix it." Write the concrete task you want done.
 
 ### Example usage of the general-purpose agent:
 
@@ -431,54 +435,32 @@ def _build_task_tool(  # noqa: C901
             }
         )
 
-    def _build_delegated_message(
-        *,
-        description: str,
-        objective: str | None,
-        context: str | None,
-        constraints: str | None,
-        expected_output: str | None,
-        mutation_scope: str | None,
-    ) -> str:
-        sections = []
-        if objective:
-            sections.append(f"Objective:\n{objective.strip()}")
-        if context:
-            sections.append(f"Context:\n{context.strip()}")
-        if constraints:
-            sections.append(f"Constraints:\n{constraints.strip()}")
-        if expected_output:
-            sections.append(f"Expected output:\n{expected_output.strip()}")
-        if mutation_scope:
-            sections.append(f"Allowed mutation scope:\n{mutation_scope.strip()}")
-        sections.append(f"Task description:\n{description.strip()}")
-        return "\n\n".join(section for section in sections if section.strip())
+    def _build_delegated_message(*, prompt: str) -> str:
+        """Return the exact child-task briefing seen by the delegated subagent.
+
+        Claude Code keeps task semantics inside one `prompt` field instead of
+        splitting them across multiple optional schema slots. We mirror that
+        contract here so the model only has to choose a short label, a detailed
+        prompt, and an optional agent type.
+        """
+        return prompt.strip()
 
     def _validate_and_prepare_state(
-        subagent_type: str,
-        description: str,
+        subagent_type: str | None,
+        prompt: str,
         runtime: ToolRuntime,
-        *,
-        objective: str | None,
-        context: str | None,
-        constraints: str | None,
-        expected_output: str | None,
-        mutation_scope: str | None,
     ) -> tuple[Runnable, dict]:
         """Prepare state for invocation."""
-        subagent = subagent_graphs[subagent_type]
+        # Claude Code falls back to the general-purpose agent when the caller
+        # omits `subagent_type` outside fork mode. DeepAgents has no fork path
+        # here, so the same fallback preserves the minimal contract.
+        effective_subagent_type = subagent_type or "general-purpose"
+        subagent = subagent_graphs[effective_subagent_type]
         # Create a new state dict to avoid mutating the original
         subagent_state = {k: v for k, v in runtime.state.items() if k not in _EXCLUDED_STATE_KEYS}
         subagent_state["messages"] = [
             HumanMessage(
-                content=_build_delegated_message(
-                    description=description,
-                    objective=objective,
-                    context=context,
-                    constraints=constraints,
-                    expected_output=expected_output,
-                    mutation_scope=mutation_scope,
-                )
+                content=_build_delegated_message(prompt=prompt)
             )
         ]
         return subagent, subagent_state
@@ -486,46 +468,29 @@ def _build_task_tool(  # noqa: C901
     def task(
         description: Annotated[
             str,
-            "A detailed description of the task for the subagent to perform autonomously. Include all necessary context and specify the expected output format.",  # noqa: E501
+            "A short 3-5 word description of the delegated task.",
         ],
-        subagent_type: Annotated[str, "The type of subagent to use. Must be one of the available agent types listed in the tool description."],
+        prompt: Annotated[
+            str,
+            "The full task briefing for the subagent. Include the goal, relevant context, what is already known, and the exact output you want back.",
+        ],
         runtime: ToolRuntime,
-        objective: Annotated[
+        subagent_type: Annotated[
             str | None,
-            "Optional concise objective for the delegated task. Use this when you can express the goal separately from the full description.",
-        ] = None,
-        context: Annotated[
-            str | None,
-            "Optional relevant context the subagent should treat as already known before it starts working.",
-        ] = None,
-        constraints: Annotated[
-            str | None,
-            "Optional hard constraints, non-goals, or boundaries the subagent must not violate.",
-        ] = None,
-        expected_output: Annotated[
-            str | None,
-            "Optional explicit return shape expected from the subagent, such as summary, patch guidance, or file path.",
-        ] = None,
-        mutation_scope: Annotated[
-            str | None,
-            "Optional explicit write scope when the delegated task may mutate files or other state.",
+            "Optional specialized subagent type. If omitted, the general-purpose agent is used.",
         ] = None,
     ) -> str | Command:
-        if subagent_type not in subagent_graphs:
+        effective_subagent_type = subagent_type or "general-purpose"
+        if effective_subagent_type not in subagent_graphs:
             allowed_types = ", ".join([f"`{k}`" for k in subagent_graphs])
-            return f"We cannot invoke subagent {subagent_type} because it does not exist, the only allowed types are {allowed_types}"
+            return f"We cannot invoke subagent {effective_subagent_type} because it does not exist, the only allowed types are {allowed_types}"
         if not runtime.tool_call_id:
             value_error_msg = "Tool call ID is required for subagent invocation"
             raise ValueError(value_error_msg)
         subagent, subagent_state = _validate_and_prepare_state(
-            subagent_type,
-            description,
+            effective_subagent_type,
+            prompt,
             runtime,
-            objective=objective,
-            context=context,
-            constraints=constraints,
-            expected_output=expected_output,
-            mutation_scope=mutation_scope,
         )
         result = subagent.invoke(subagent_state)
         return _return_command_with_state_update(result, runtime.tool_call_id)
@@ -533,46 +498,29 @@ def _build_task_tool(  # noqa: C901
     async def atask(
         description: Annotated[
             str,
-            "A detailed description of the task for the subagent to perform autonomously. Include all necessary context and specify the expected output format.",  # noqa: E501
+            "A short 3-5 word description of the delegated task.",
         ],
-        subagent_type: Annotated[str, "The type of subagent to use. Must be one of the available agent types listed in the tool description."],
+        prompt: Annotated[
+            str,
+            "The full task briefing for the subagent. Include the goal, relevant context, what is already known, and the exact output you want back.",
+        ],
         runtime: ToolRuntime,
-        objective: Annotated[
+        subagent_type: Annotated[
             str | None,
-            "Optional concise objective for the delegated task. Use this when you can express the goal separately from the full description.",
-        ] = None,
-        context: Annotated[
-            str | None,
-            "Optional relevant context the subagent should treat as already known before it starts working.",
-        ] = None,
-        constraints: Annotated[
-            str | None,
-            "Optional hard constraints, non-goals, or boundaries the subagent must not violate.",
-        ] = None,
-        expected_output: Annotated[
-            str | None,
-            "Optional explicit return shape expected from the subagent, such as summary, patch guidance, or file path.",
-        ] = None,
-        mutation_scope: Annotated[
-            str | None,
-            "Optional explicit write scope when the delegated task may mutate files or other state.",
+            "Optional specialized subagent type. If omitted, the general-purpose agent is used.",
         ] = None,
     ) -> str | Command:
-        if subagent_type not in subagent_graphs:
+        effective_subagent_type = subagent_type or "general-purpose"
+        if effective_subagent_type not in subagent_graphs:
             allowed_types = ", ".join([f"`{k}`" for k in subagent_graphs])
-            return f"We cannot invoke subagent {subagent_type} because it does not exist, the only allowed types are {allowed_types}"
+            return f"We cannot invoke subagent {effective_subagent_type} because it does not exist, the only allowed types are {allowed_types}"
         if not runtime.tool_call_id:
             value_error_msg = "Tool call ID is required for subagent invocation"
             raise ValueError(value_error_msg)
         subagent, subagent_state = _validate_and_prepare_state(
-            subagent_type,
-            description,
+            effective_subagent_type,
+            prompt,
             runtime,
-            objective=objective,
-            context=context,
-            constraints=constraints,
-            expected_output=expected_output,
-            mutation_scope=mutation_scope,
         )
         result = await subagent.ainvoke(subagent_state)
         return _return_command_with_state_update(result, runtime.tool_call_id)

@@ -228,7 +228,8 @@ def test_format_task_description():
         {
             "name": "task",
             "args": {
-                "description": "Analyze code structure and identify main components.",
+                "description": "code audit",
+                "prompt": "Analyze code structure and identify main components.",
                 "subagent_type": "general-purpose",
             },
             "id": "call-9",
@@ -240,6 +241,7 @@ def test_format_task_description():
     )
 
     assert "Subagent Type: general-purpose" in description
+    assert "Task Label: code audit" in description
     assert "Task Instructions:" in description
     assert "Analyze code structure and identify main components." in description
     warning = get_glyphs().warning
@@ -257,7 +259,8 @@ def test_format_task_description_truncates_long_description():
         {
             "name": "task",
             "args": {
-                "description": long_description,
+                "description": "long task",
+                "prompt": long_description,
                 "subagent_type": "general-purpose",
             },
             "id": "call-10",
@@ -269,8 +272,9 @@ def test_format_task_description_truncates_long_description():
     )
 
     assert "Subagent Type: general-purpose" in description
+    assert "Task Label: long task" in description
     assert "..." in description
-    # Description should be truncated to 500 chars + "..."
+    # Prompt should be truncated to 500 chars + "..."
     assert len(description) < len(long_description) + 300
 
 

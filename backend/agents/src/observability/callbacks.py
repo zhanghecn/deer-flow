@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import ast
 import json
 import logging
 import hashlib
 import threading
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID, uuid4
@@ -313,15 +315,16 @@ class AgentTraceCallbackHandler(BaseCallbackHandler):
             "metadata": _shrink(metadata),
             "tags": tags or [],
         }
+        normalized_tool_input = parsed_input if parsed_input is not None else inputs
         if tool_name == "task":
             payload["delegation"] = _build_task_delegation_payload(
-                parsed_input=parsed_input,
+                parsed_input=normalized_tool_input,
                 run_id_text=str(run_id),
                 parent_run_id=parent_run_id,
             )
         elif tool_name == "execute":
             payload["execution"] = _build_execution_payload(
-                parsed_input=parsed_input,
+                parsed_input=normalized_tool_input,
                 metadata=metadata,
                 launch_status="started",
             )
@@ -771,16 +774,20 @@ def _augment_trace_payload(
 
 
 def _coerce_record(value: Any) -> dict[str, Any]:
-    return value if isinstance(value, dict) else {}
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, Mapping):
+        return dict(value)
+    return {}
 
 
 def _task_launch_failure_class(parsed_input: dict[str, Any]) -> str | None:
     if not parsed_input:
         return "missing_task_arguments"
-    if not str(parsed_input.get("subagent_type") or "").strip():
-        return "missing_subagent_type"
     if not str(parsed_input.get("description") or "").strip():
         return "missing_task_description"
+    if not str(parsed_input.get("prompt") or "").strip():
+        return "missing_task_prompt"
     return None
 
 
@@ -791,46 +798,23 @@ def _build_task_delegation_payload(
     parent_run_id: UUID | None,
 ) -> dict[str, Any]:
     task_args = _coerce_record(parsed_input)
-    task_spec = _coerce_record(task_args.get("task_spec"))
     description = str(task_args.get("description") or "").strip()
-    objective = str(task_spec.get("objective") or task_args.get("objective") or "").strip()
-    brief_source = objective or description
-    subagent_type = str(task_args.get("subagent_type") or "").strip() or None
+    prompt = str(task_args.get("prompt") or "").strip()
+    brief_source = description or prompt
+    # Claude Code defaults omitted `subagent_type` to general-purpose when the
+    # caller is not using the fork path. Deer Flow mirrors that minimal
+    # contract, so observability records the effective type rather than
+    # treating omission as invalid input.
+    subagent_type = str(task_args.get("subagent_type") or "").strip() or "general-purpose"
     failure_class = _task_launch_failure_class(task_args)
-    expected_return_shape = (
-        str(task_spec.get("expected_output") or task_args.get("expected_output") or "").strip()
-        or "single_result"
-    )
-    mutation_scope = (
-        str(task_spec.get("mutation_scope") or task_args.get("mutation_scope") or "").strip()
-        or None
-    )
-    constraints = (
-        str(task_spec.get("constraints") or task_args.get("constraints") or "").strip()
-        or None
-    )
-    context_text = (
-        str(task_spec.get("context") or task_args.get("context") or "").strip()
-        or None
-    )
     return {
         "schema_version": 1,
         "task_session_id": run_id_text,
         "parent_run_id": str(parent_run_id) if parent_run_id else None,
-        "effective_agent_mode": (
-            "general-purpose"
-            if subagent_type == "general-purpose"
-            else "named-subagent"
-            if subagent_type
-            else "invalid"
-        ),
         "effective_agent_name": subagent_type,
         "brief_summary": _truncate_summary_text(brief_source) if brief_source else None,
-        "expected_return_shape": expected_return_shape,
-        "mutation_scope": mutation_scope,
-        "objective": objective or None,
-        "context": context_text,
-        "constraints": constraints,
+        "description": description or None,
+        "prompt_preview": _truncate_summary_text(prompt, max_len=400) if prompt else None,
         "validation_status": "valid" if failure_class is None else "invalid",
         "launch_failure_class": failure_class,
         "anomaly_flags": [failure_class] if failure_class is not None else [],
@@ -894,10 +878,10 @@ def _augment_tool_end_payload(
 
 def _classify_task_launch_failure(error_text: str) -> str:
     lowered = error_text.lower()
-    if "subagent_type" in lowered and "required" in lowered:
-        return "missing_subagent_type"
     if "description" in lowered and "required" in lowered:
         return "missing_task_description"
+    if "prompt" in lowered and "required" in lowered:
+        return "missing_task_prompt"
     if "validation error" in lowered:
         return "invalid_task_arguments"
     return "task_tool_error"
@@ -1263,7 +1247,15 @@ def _try_parse_json(value: Any) -> Any:
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        return value
+        # LangChain often passes tool input strings as Python-style repr dicts
+        # with single quotes. Accept that shape so trace payloads stay grounded
+        # on the real tool arguments instead of falling back to string-only
+        # error classification.
+        try:
+            parsed = ast.literal_eval(text)
+        except (SyntaxError, ValueError):
+            return value
+        return _jsonify(parsed)
 
 
 def _as_non_empty_str(value: Any) -> str | None:

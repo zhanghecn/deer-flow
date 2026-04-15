@@ -181,7 +181,7 @@ def test_on_tool_start_persists_structured_task_delegation_envelope():
 
     callback.on_tool_start(
         {"name": "task"},
-        input_str='{"description":"Translate /mnt/user-data/workspace/chunk_a.md to English and write the result.","subagent_type":"general-purpose"}',
+        input_str='{"description":"translate chunk","prompt":"Translate /mnt/user-data/workspace/chunk_a.md to English and write the result.","subagent_type":"general-purpose"}',
         run_id=run_id,
         metadata={"execution_backend": "sandbox", "langgraph_request_id": "req-1"},
     )
@@ -190,9 +190,9 @@ def test_on_tool_start_persists_structured_task_delegation_envelope():
     delegation = payload["delegation"]
     assert delegation["schema_version"] == 1
     assert delegation["task_session_id"] == str(run_id)
-    assert delegation["effective_agent_mode"] == "general-purpose"
     assert delegation["effective_agent_name"] == "general-purpose"
-    assert delegation["expected_return_shape"] == "single_result"
+    assert delegation["description"] == "translate chunk"
+    assert "Translate /mnt/user-data/workspace/chunk_a.md" in delegation["prompt_preview"]
     assert delegation["validation_status"] == "valid"
     assert payload["lineage"]["execution_backend"] == "sandbox"
     assert payload["lineage"]["langgraph_request_id"] == "req-1"
@@ -217,13 +217,13 @@ def test_on_tool_error_persists_task_launch_failure_class():
         run_id=run_id,
     )
     callback.on_tool_error(
-        RuntimeError("1 validation error for task\nsubagent_type\nField required"),
+        RuntimeError("1 validation error for task\nprompt\nField required"),
         run_id=run_id,
     )
 
     error_payload = store.append_event.call_args.kwargs["payload"]
     assert error_payload["delegation"]["validation_status"] == "invalid"
-    assert error_payload["delegation"]["launch_failure_class"] == "missing_subagent_type"
+    assert error_payload["delegation"]["launch_failure_class"] == "missing_task_prompt"
 
 
 def test_on_tool_start_persists_execute_contract_metadata():

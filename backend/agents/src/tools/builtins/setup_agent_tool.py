@@ -649,7 +649,7 @@ def setup_agent(
         if current_runtime_agent != resolved_agent_name:
             parts.append(
                 "If the user's same-turn request still needs this new agent to do real work now, "
-                f"delegate with `task(subagent_type=\"{resolved_agent_name}\", description=\"...\")` "
+                f"delegate with `task(subagent_type=\"{resolved_agent_name}\", description=\"short label\", prompt=\"full task briefing\")` "
                 "instead of continuing in assistant prose as if you already switched agents."
             )
 

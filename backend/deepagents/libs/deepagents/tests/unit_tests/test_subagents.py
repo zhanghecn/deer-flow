@@ -71,6 +71,7 @@ class TestSubAgents:
                                 "name": "task",
                                 "args": {
                                     "description": "Calculate the sum of 2 and 3",
+                                    "prompt": "Calculate the sum of 2 and 3 and return only the answer.",
                                     "subagent_type": "general-purpose",
                                 },
                                 "id": "call_calculate_sum",
@@ -119,7 +120,7 @@ class TestSubAgents:
         assert "messages" in result, "Result should contain messages key"
         assert len(result["messages"]) > 0, "Result should have at least one message"
 
-    def test_task_structured_fields_are_forwarded_into_child_message(self) -> None:
+    def test_task_prompt_is_forwarded_into_child_message(self) -> None:
         captured_child_message: dict[str, str] = {}
 
         def _capture_child_state(state: dict[str, Any]) -> dict[str, Any]:
@@ -136,13 +137,13 @@ class TestSubAgents:
                             {
                                 "name": "task",
                                 "args": {
-                                    "description": "Translate chunk_a.md to English and write it back.",
+                                    "description": "translate chunk",
+                                    "prompt": (
+                                        "Translate chunk_a.md to English and write it back. "
+                                        "Preserve Markdown and do not summarize. "
+                                        "Return a concise completion report for the parent."
+                                    ),
                                     "subagent_type": "general-purpose",
-                                    "objective": "Produce a faithful English translation.",
-                                    "context": "The file is one chunk from a larger document.",
-                                    "constraints": "Preserve Markdown and do not summarize.",
-                                    "expected_output": "single_result summary for parent",
-                                    "mutation_scope": "/mnt/user-data/workspace/chunk_a.md",
                                 },
                                 "id": "call_task_structured",
                                 "type": "tool_call",
@@ -174,12 +175,11 @@ class TestSubAgents:
         )
 
         child_prompt = captured_child_message["content"]
-        assert "Objective:\nProduce a faithful English translation." in child_prompt
-        assert "Context:\nThe file is one chunk from a larger document." in child_prompt
-        assert "Constraints:\nPreserve Markdown and do not summarize." in child_prompt
-        assert "Expected output:\nsingle_result summary for parent" in child_prompt
-        assert "Allowed mutation scope:\n/mnt/user-data/workspace/chunk_a.md" in child_prompt
-        assert "Task description:\nTranslate chunk_a.md to English and write it back." in child_prompt
+        assert child_prompt == (
+            "Translate chunk_a.md to English and write it back. "
+            "Preserve Markdown and do not summarize. "
+            "Return a concise completion report for the parent."
+        )
 
     def test_multiple_subagents_invoked_in_parallel(self) -> None:
         """Test that multiple different subagents can be launched in parallel.
@@ -208,6 +208,7 @@ class TestSubAgents:
                                 "name": "task",
                                 "args": {
                                     "description": "Calculate the sum of 5 and 7",
+                                    "prompt": "Calculate the sum of 5 and 7 and return the exact answer.",
                                     "subagent_type": "math-adder",
                                 },
                                 "id": "call_addition",
@@ -217,6 +218,7 @@ class TestSubAgents:
                                 "name": "task",
                                 "args": {
                                     "description": "Calculate the product of 4 and 6",
+                                    "prompt": "Calculate the product of 4 and 6 and return the exact answer.",
                                     "subagent_type": "math-multiplier",
                                 },
                                 "id": "call_multiplication",
@@ -390,6 +392,7 @@ class TestSubAgents:
                                 "name": "task",
                                 "args": {
                                     "description": "Research the history of Python programming language",
+                                    "prompt": "Research the history of the Python programming language and return a concise factual summary.",
                                     "subagent_type": "python-researcher",
                                 },
                                 "id": "call_research_python",
@@ -399,6 +402,7 @@ class TestSubAgents:
                                 "name": "task",
                                 "args": {
                                     "description": "Research the history of JavaScript programming language",
+                                    "prompt": "Research the history of the JavaScript programming language and return a concise factual summary.",
                                     "subagent_type": "javascript-researcher",
                                 },
                                 "id": "call_research_javascript",
@@ -616,6 +620,7 @@ class TestSubAgents:
                                 "name": "task",
                                 "args": {
                                     "description": "Get weather information for Tokyo",
+                                    "prompt": "Get weather information for Tokyo and return the structured weather result.",
                                     "subagent_type": "weather-analyzer",
                                 },
                                 "id": "call_weather",
@@ -625,6 +630,7 @@ class TestSubAgents:
                                 "name": "task",
                                 "args": {
                                     "description": "Get population statistics for Tokyo",
+                                    "prompt": "Get population statistics for Tokyo and return the structured population result.",
                                     "subagent_type": "population-analyzer",
                                 },
                                 "id": "call_population",
@@ -773,7 +779,11 @@ class TestSubAgents:
                         tool_calls=[
                             {
                                 "name": "task",
-                                "args": {"description": "Do task", "subagent_type": "worker"},
+                                "args": {
+                                    "description": "Do task",
+                                    "prompt": "Do task and return the result.",
+                                    "subagent_type": "worker",
+                                },
                                 "id": "call_worker",
                                 "type": "tool_call",
                             }
@@ -838,7 +848,11 @@ class TestSubAgents:
                         tool_calls=[
                             {
                                 "name": "task",
-                                "args": {"description": "Do something", "subagent_type": "lambda-agent"},
+                                "args": {
+                                    "description": "Do something",
+                                    "prompt": "Do something and return the result.",
+                                    "subagent_type": "lambda-agent",
+                                },
                                 "id": "call_lambda",
                                 "type": "tool_call",
                             }
@@ -883,7 +897,11 @@ class TestSubAgents:
                         tool_calls=[
                             {
                                 "name": "task",
-                                "args": {"description": "Use capture_context", "subagent_type": "ctx-agent"},
+                                "args": {
+                                    "description": "Use capture_context",
+                                    "prompt": "Use capture_context and return the observed runtime details.",
+                                    "subagent_type": "ctx-agent",
+                                },
                                 "id": "call_ctx",
                                 "type": "tool_call",
                             }
@@ -963,6 +981,7 @@ class TestSubAgents:
                                 "name": "task",
                                 "args": {
                                     "description": "Process something",
+                                    "prompt": "Process something and return the result.",
                                     "subagent_type": "custom-processor",
                                 },
                                 "id": "call_custom",
@@ -1052,6 +1071,7 @@ class TestSubAgents:
                                 "name": "task",
                                 "args": {
                                     "description": "Do custom work",
+                                    "prompt": "Do custom work and invoke the custom subagent tools.",
                                     "subagent_type": "custom-worker",
                                 },
                                 "id": "call_custom",
@@ -1125,6 +1145,7 @@ class TestSubAgents:
                                 "name": "task",
                                 "args": {
                                     "description": "Process this request",
+                                    "prompt": "Process this request using the skills-enabled subagent and return the result.",
                                     "subagent_type": "skills-agent",
                                 },
                                 "id": "call_skills_agent",
@@ -1240,6 +1261,7 @@ class TestSubAgents:
                                 "name": "task",
                                 "args": {
                                     "description": "Call capture_gp_state tool to check state",
+                                    "prompt": "Call capture_gp_state tool to check state and report what you observed.",
                                     "subagent_type": "general-purpose",
                                 },
                                 "id": "call_gp",
@@ -1353,6 +1375,7 @@ class TestSubAgents:
                                 "name": "task",
                                 "args": {
                                     "description": "Do custom work with skills",
+                                    "prompt": "Do custom work with skills and invoke the capture tool.",
                                     "subagent_type": "skilled-worker",
                                 },
                                 "id": "call_custom",
@@ -1469,6 +1492,7 @@ class TestSubAgents:
                                 "name": "task",
                                 "args": {
                                     "description": "Do work",
+                                    "prompt": "Do work and invoke the capture tool.",
                                     "subagent_type": "multi-skills-worker",
                                 },
                                 "id": "call_task",
@@ -1564,6 +1588,7 @@ class TestSubAgents:
                                 "name": "task",
                                 "args": {
                                     "description": "Do work",
+                                    "prompt": "Do work and invoke the capture tool.",
                                     "subagent_type": "no-skills-worker",
                                 },
                                 "id": "call_task",

@@ -107,6 +107,26 @@ Operational rules:
   - domain agents whose behavior is governed by copied skills should default to direct execution unless the UI explicitly opts into planner mode
   - reasoning/delegation toggles are runtime-behavior inputs, not a place to smuggle frontend policy into every agent run
 
+## Subagent Delegation Contract
+
+The runtime subagent delegation contract follows the Claude Code shape, not a
+Deer Flow-specific structured task envelope.
+
+- The model-visible `task` tool contract is:
+  - `description`
+  - `prompt`
+  - `subagent_type` optional
+- `description` is a short operator label, not the full task payload.
+- `prompt` carries the full delegated task briefing and expected return shape.
+- Omitting `subagent_type` falls back to the `general-purpose` subagent unless
+  a future fork-style runtime path explicitly replaces that behavior.
+- Do not reintroduce model-visible task fields such as `objective`, `context`,
+  `constraints`, `expected_output`, or `mutation_scope` as part of the default
+  runtime contract.
+
+Observability may persist derived summaries or validation flags, but the
+runtime/tool contract must stay on the minimal Claude Code shape above.
+
 ## Why The Provider Exists
 
 This is the part that usually causes confusion.

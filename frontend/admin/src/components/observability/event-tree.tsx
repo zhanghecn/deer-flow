@@ -5,7 +5,6 @@ import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { formatAgo, formatDateTime } from "@/lib/format";
 import { TraceRunDialog } from "./trace-run-dialog";
-import { sanitizeVirtualPath } from "./json-inspector-utils";
 import { isMiddlewareRun, type TraceRunSummary } from "./trace-run-utils";
 
 interface EventTreeProps {
@@ -93,14 +92,9 @@ export function EventTree({ runs, allRuns = runs }: EventTreeProps) {
                         {t("sub-agent")}
                       </Badge>
                     )}
-                    {run.effectiveAgentMode && (
+                    {run.effectiveAgentName && (
                       <Badge variant="outline" className="text-xs px-1.5 py-0">
-                        {t("{mode} mode", { mode: run.effectiveAgentMode })}
-                      </Badge>
-                    )}
-                    {run.expectedReturnShape && (
-                      <Badge variant="outline" className="text-xs px-1.5 py-0">
-                        {run.expectedReturnShape}
+                        {t("agent type: {name}", { name: run.effectiveAgentName })}
                       </Badge>
                     )}
                     {run.launchFailureClass && (
@@ -143,19 +137,17 @@ export function EventTree({ runs, allRuns = runs }: EventTreeProps) {
                       {t("Reasoning: {preview}", { preview: run.reasoningPreview })}
                     </p>
                   )}
-                  {(run.effectiveAgentName || run.mutationScope || run.executionBackend) && (
+                  {(run.delegatedDescription || run.executionBackend || run.promptPreview) && (
                     <p className="mt-1 break-words text-xs text-muted-foreground">
                       {[
-                        run.effectiveAgentName
-                          ? t("agent: {name}", { name: run.effectiveAgentName })
+                        run.delegatedDescription
+                          ? t("task: {name}", { name: run.delegatedDescription })
                           : null,
                         run.executionBackend
                           ? t("backend: {name}", { name: run.executionBackend })
                           : null,
-                        run.mutationScope
-                          ? t("scope: {scope}", {
-                              scope: sanitizeVirtualPath(run.mutationScope),
-                            })
+                        run.promptPreview
+                          ? t("prompt: {preview}", { preview: run.promptPreview })
                           : null,
                       ]
                         .filter((value): value is string => Boolean(value))
