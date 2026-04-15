@@ -29,6 +29,16 @@ export interface TraceRunSummary {
   hasReasoning: boolean;
   reasoningPreview?: string;
   hasTruncatedPayload: boolean;
+  effectiveAgentMode?: string;
+  effectiveAgentName?: string;
+  expectedReturnShape?: string;
+  mutationScope?: string;
+  launchFailureClass?: string;
+  anomalyFlags: string[];
+  executionBackend?: string;
+  requestedTimeoutSeconds?: number;
+  maxTimeoutSeconds?: number;
+  defaultTimeoutSeconds?: number;
 }
 
 function compareRunsByStart(
@@ -624,6 +634,109 @@ function humanizeNodeName(nodeName?: string): string {
   return nodeName;
 }
 
+function parseIntegerField(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isNaN(parsed)) {
+      return parsed;
+    }
+  }
+  return undefined;
+}
+
+function resolveDelegationMetadata(run: TraceRunSummary): {
+  effectiveAgentMode?: string;
+  effectiveAgentName?: string;
+  expectedReturnShape?: string;
+  mutationScope?: string;
+  launchFailureClass?: string;
+  anomalyFlags: string[];
+} {
+  const payload = toTrimmedRecord(run.startEvent?.payload && toRecord(run.startEvent.payload)?.delegation);
+  if (!payload) {
+    return { anomalyFlags: [] };
+  }
+
+  const rawFlags = Array.isArray(payload.anomaly_flags)
+    ? payload.anomaly_flags.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+
+  return {
+    effectiveAgentMode:
+      typeof payload.effective_agent_mode === "string"
+        ? payload.effective_agent_mode
+        : undefined,
+    effectiveAgentName:
+      typeof payload.effective_agent_name === "string"
+        ? payload.effective_agent_name
+        : undefined,
+    expectedReturnShape:
+      typeof payload.expected_return_shape === "string"
+        ? payload.expected_return_shape
+        : undefined,
+    mutationScope:
+      typeof payload.mutation_scope === "string"
+        ? payload.mutation_scope
+        : undefined,
+    launchFailureClass:
+      typeof payload.launch_failure_class === "string"
+        ? payload.launch_failure_class
+        : undefined,
+    anomalyFlags: rawFlags,
+  };
+}
+
+function resolveExecutionMetadata(run: TraceRunSummary): {
+  executionBackend?: string;
+  requestedTimeoutSeconds?: number;
+  maxTimeoutSeconds?: number;
+  defaultTimeoutSeconds?: number;
+  anomalyFlags: string[];
+  launchFailureClass?: string;
+} {
+  const startPayload = toRecord(run.startEvent?.payload);
+  const endPayload = toRecord(run.endEvent?.payload ?? run.errorEvent?.payload);
+  const payload = toTrimmedRecord(startPayload?.execution ?? endPayload?.execution);
+  if (!payload) {
+    return { anomalyFlags: [] };
+  }
+
+  const rawFlags = Array.isArray(payload.anomaly_flags)
+    ? payload.anomaly_flags.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+
+  return {
+    executionBackend:
+      typeof payload.execution_backend === "string"
+        ? payload.execution_backend
+        : undefined,
+    requestedTimeoutSeconds: parseIntegerField(payload.requested_timeout_seconds),
+    maxTimeoutSeconds: parseIntegerField(payload.max_timeout_seconds),
+    defaultTimeoutSeconds: parseIntegerField(payload.default_timeout_seconds_hint),
+    launchFailureClass:
+      typeof payload.launch_failure_class === "string"
+        ? payload.launch_failure_class
+        : undefined,
+    anomalyFlags: rawFlags,
+  };
+}
+
+function resolveLineageMetadata(run: TraceRunSummary): {
+  anomalyFlags: string[];
+} {
+  const payload = toTrimmedRecord(run.startEvent?.payload && toRecord(run.startEvent.payload)?.lineage);
+  if (!payload) {
+    return { anomalyFlags: [] };
+  }
+  const rawFlags = Array.isArray(payload.anomaly_flags)
+    ? payload.anomaly_flags.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+  return { anomalyFlags: rawFlags };
+}
+
 function resolveEventNodeName(event: TraceEvent): string | undefined {
   if (event.node_name) return event.node_name;
   const payload = toRecord(event.payload);
@@ -944,6 +1057,9 @@ function summarizeSystemRun(run: TraceRunSummary): string {
 
 function resolveRunLabel(run: TraceRunSummary): string {
   if (run.runType === "tool") {
+    if (run.toolName === "task" && run.effectiveAgentName) {
+      return t("Task · {name}", { name: run.effectiveAgentName });
+    }
     return run.toolName
       ? t("Tool · {name}", { name: run.toolName })
       : t("Tool");
@@ -1049,6 +1165,7 @@ export function buildTraceRuns(
       summary: "",
       hasReasoning: false,
       hasTruncatedPayload: false,
+      anomalyFlags: [],
     };
 
     run.parentRunId = run.parentRunId ?? event.parent_run_id ?? null;
@@ -1087,6 +1204,26 @@ export function buildTraceRuns(
       depthCache,
       new Set(),
     );
+    const delegationMetadata = resolveDelegationMetadata(run);
+    const executionMetadata = resolveExecutionMetadata(run);
+    const lineageMetadata = resolveLineageMetadata(run);
+    run.effectiveAgentMode = delegationMetadata.effectiveAgentMode;
+    run.effectiveAgentName = delegationMetadata.effectiveAgentName;
+    run.expectedReturnShape = delegationMetadata.expectedReturnShape;
+    run.mutationScope = delegationMetadata.mutationScope;
+    run.launchFailureClass =
+      delegationMetadata.launchFailureClass ?? executionMetadata.launchFailureClass;
+    run.executionBackend = executionMetadata.executionBackend;
+    run.requestedTimeoutSeconds = executionMetadata.requestedTimeoutSeconds;
+    run.maxTimeoutSeconds = executionMetadata.maxTimeoutSeconds;
+    run.defaultTimeoutSeconds = executionMetadata.defaultTimeoutSeconds;
+    // Multiple payload sections can report the same anomaly flag, so dedupe
+    // before surfacing badges and summary text in the admin UI.
+    run.anomalyFlags = [...new Set([
+      ...delegationMetadata.anomalyFlags,
+      ...executionMetadata.anomalyFlags,
+      ...lineageMetadata.anomalyFlags,
+    ])];
     run.label = resolveRunLabel(run);
     run.summary = resolveRunSummary(run);
     run.reasoningPreview = resolveRunReasoningPreview(run) || undefined;

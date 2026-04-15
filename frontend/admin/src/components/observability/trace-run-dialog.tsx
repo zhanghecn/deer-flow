@@ -204,6 +204,16 @@ export function TraceRunDialog({
               <div>{t("Total Tokens:")} {metaValue(activeRun.totalTokens)}</div>
               <div>{t("Node:")} {activeRun.nodeName ?? "-"}</div>
               <div>{t("Tool:")} {activeRun.toolName ?? "-"}</div>
+              <div>{t("Agent Mode:")} {activeRun.effectiveAgentMode ?? "-"}</div>
+              <div>{t("Agent Name:")} {activeRun.effectiveAgentName ?? "-"}</div>
+              <div>{t("Expected Output:")} {activeRun.expectedReturnShape ?? "-"}</div>
+              <div>{t("Mutation Scope:")} {activeRun.mutationScope ?? "-"}</div>
+              <div>{t("Launch Failure:")} {activeRun.launchFailureClass ?? "-"}</div>
+              <div>{t("Execution Backend:")} {activeRun.executionBackend ?? "-"}</div>
+              <div>{t("Requested Timeout:")} {metaValue(activeRun.requestedTimeoutSeconds != null ? `${activeRun.requestedTimeoutSeconds}s` : null)}</div>
+              <div>{t("Default Timeout:")} {metaValue(activeRun.defaultTimeoutSeconds != null ? `${activeRun.defaultTimeoutSeconds}s` : null)}</div>
+              <div>{t("Max Timeout:")} {metaValue(activeRun.maxTimeoutSeconds != null ? `${activeRun.maxTimeoutSeconds}s` : null)}</div>
+              <div>{t("Anomalies:")} {activeRun.anomalyFlags.length > 0 ? activeRun.anomalyFlags.join(", ") : "-"}</div>
             </div>
 
             {truncatedSectionCount > 0 && (

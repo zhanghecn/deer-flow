@@ -5,6 +5,7 @@ import { t } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { formatAgo, formatDateTime } from "@/lib/format";
 import { TraceRunDialog } from "./trace-run-dialog";
+import { sanitizeVirtualPath } from "./json-inspector-utils";
 import { isMiddlewareRun, type TraceRunSummary } from "./trace-run-utils";
 
 interface EventTreeProps {
@@ -92,6 +93,29 @@ export function EventTree({ runs, allRuns = runs }: EventTreeProps) {
                         {t("sub-agent")}
                       </Badge>
                     )}
+                    {run.effectiveAgentMode && (
+                      <Badge variant="outline" className="text-xs px-1.5 py-0">
+                        {t("{mode} mode", { mode: run.effectiveAgentMode })}
+                      </Badge>
+                    )}
+                    {run.expectedReturnShape && (
+                      <Badge variant="outline" className="text-xs px-1.5 py-0">
+                        {run.expectedReturnShape}
+                      </Badge>
+                    )}
+                    {run.launchFailureClass && (
+                      <Badge
+                        variant="outline"
+                        className="border-red-300 px-1.5 py-0 text-xs text-red-700 dark:border-red-800 dark:text-red-300"
+                      >
+                        {run.launchFailureClass}
+                      </Badge>
+                    )}
+                    {run.requestedTimeoutSeconds != null && (
+                      <Badge variant="outline" className="text-xs px-1.5 py-0">
+                        {t("timeout {seconds}s", { seconds: run.requestedTimeoutSeconds })}
+                      </Badge>
+                    )}
                     {run.hasReasoning && (
                       <Badge
                         variant="outline"
@@ -117,6 +141,30 @@ export function EventTree({ runs, allRuns = runs }: EventTreeProps) {
                   {run.reasoningPreview && (
                     <p className="mt-1 break-words text-xs text-amber-700 dark:text-amber-300">
                       {t("Reasoning: {preview}", { preview: run.reasoningPreview })}
+                    </p>
+                  )}
+                  {(run.effectiveAgentName || run.mutationScope || run.executionBackend) && (
+                    <p className="mt-1 break-words text-xs text-muted-foreground">
+                      {[
+                        run.effectiveAgentName
+                          ? t("agent: {name}", { name: run.effectiveAgentName })
+                          : null,
+                        run.executionBackend
+                          ? t("backend: {name}", { name: run.executionBackend })
+                          : null,
+                        run.mutationScope
+                          ? t("scope: {scope}", {
+                              scope: sanitizeVirtualPath(run.mutationScope),
+                            })
+                          : null,
+                      ]
+                        .filter((value): value is string => Boolean(value))
+                        .join(" · ")}
+                    </p>
+                  )}
+                  {run.anomalyFlags.length > 0 && (
+                    <p className="mt-1 break-words text-xs text-red-600 dark:text-red-400">
+                      {t("anomalies: {flags}", { flags: run.anomalyFlags.join(", ") })}
                     </p>
                   )}
 
