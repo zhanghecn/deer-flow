@@ -244,7 +244,10 @@ elif remaining_lines > 0:
         f'{{remaining_lines}} lines remaining. Use offset={{end_idx}} to continue.)'
     )
 else:
-    print(f'(End of file - total {{total_lines}} lines)')
+    print(
+        f'(End of file - total {{total_lines}} lines. '
+        'No additional lines exist for this path beyond this point.)'
+    )
 " <<'__DEEPAGENTS_EOF__'
 {payload_b64}
 __DEEPAGENTS_EOF__"""

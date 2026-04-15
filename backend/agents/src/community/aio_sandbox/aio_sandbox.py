@@ -670,7 +670,13 @@ class AioSandbox(Sandbox):
                 f"(Showing lines {start_idx + 1}-{end_idx} of {total_lines}. "
                 f"{remaining_lines} lines remaining. Use offset={end_idx} to continue.)"
             )
-        return f"(End of file - total {total_lines} lines)"
+        # Match the shared filesystem-tool EOF contract so runtime agents do not
+        # keep paginating past the real end just because the last section looks
+        # semantically incomplete.
+        return (
+            f"(End of file - total {total_lines} lines. "
+            "No additional lines exist for this path beyond this point.)"
+        )
 
     def read(
         self,

@@ -23,8 +23,6 @@ SECTION_WORKING_DIRECTORY = """
 - Read copied skills and uploads with the exact runtime paths provided in context
 - When an upload has both `Path` and `Original Path`, prefer `Path` first
 - Use `read_file` pagination for large files
-- Treat the `read_file` footer as authoritative: if it says `(End of file - total N lines)`, do not invent more content or keep paginating past EOF
-- If you must process a large file in chunks, pick one bounded chunking plan up front; do not recursively split remainders into smaller and smaller files unless the user explicitly asks for that workflow
 - If the user specified an output filename or format, use it exactly
 - Present only final deliverables from `/mnt/user-data/outputs` with `present_files`
 </working_directory>
@@ -53,8 +51,6 @@ SECTION_EXECUTION_CONTRACT = """
 - Keep the same language as the user and always provide a visible response
 - If blocking information is missing, call `question` and pause tool work
 - Persist draft agents or skills only through the explicit save/push commands
-- Do not inspect environment variables, secrets, or third-party API availability unless the user explicitly asked for that external system or provided credentials/instructions to use it
-- Do not route work through ad-hoc external APIs just because credentials happen to exist in the runtime environment
 </execution_contract>
 """.strip()
 

@@ -930,7 +930,7 @@ class TestFilesystemMiddleware:
         assert "   2.2\t" in lines[3]
         assert lines[3].count("z") == 5000
         assert "     3\tthird line" in lines[4]
-        assert lines[-1] == "(End of file - total 3 lines)"
+        assert lines[-1] == "(End of file - total 3 lines. No additional lines exist for this path beyond this point.)"
 
     def test_read_file_with_offset_and_long_lines(self):
         """Test that read_file with offset handles long lines correctly."""
@@ -946,7 +946,7 @@ class TestFilesystemMiddleware:
         assert "   3.2\t" in lines[2]
         assert lines[2].count("m") == 2000
         assert "     4\tline4" in lines[3]
-        assert lines[-1] == "(End of file - total 4 lines)"
+        assert lines[-1] == "(End of file - total 4 lines. No additional lines exist for this path beyond this point.)"
 
     def test_intercept_short_toolmessage(self):
         """Test that small ToolMessages pass through unchanged."""

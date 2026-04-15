@@ -82,3 +82,12 @@ class TestFilesystemToolSchemas:
                 f"Sync schema: {sync_schema}\n"
                 f"Async schema: {async_schema}"
             )
+
+    def test_read_file_description_mentions_explicit_eof_contract(self) -> None:
+        """The read_file tool should teach EOF semantics at the tool layer."""
+        backend = StateBackend(None)  # type: ignore[arg-type]
+        middleware = FilesystemMiddleware(backend=backend)
+        tool_map = {tool.name: tool for tool in middleware.tools}
+
+        read_file_tool = tool_map["read_file"]
+        assert "If the footer says `End of file`, that path has no more lines to read" in read_file_tool.description

@@ -198,6 +198,7 @@ Usage:
 - By default, returns up to 2000 lines.
 - `offset` is 0-indexed in this runtime. Use `offset` + `limit` for pagination.
 - Output includes line numbers and pagination metadata (shown range, total lines, remaining lines, next offset).
+- If the footer says `End of file`, that path has no more lines to read. If the content still looks incomplete, that usually reflects the file itself or an upstream chunk boundary, not hidden extra lines.
 - Use `grep` to find specific text and `glob` to find likely files first.
 - Call `read_file` in parallel when multiple files are likely relevant.
 - Avoid tiny repeated slices unless you need a narrow precision edit. Use windows large enough to understand the surrounding structure.

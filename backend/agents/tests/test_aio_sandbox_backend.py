@@ -83,6 +83,17 @@ def test_aio_sandbox_execute_supports_nested_shell_response(monkeypatch):
     assert result.exit_code == 0
 
 
+def test_aio_sandbox_read_footer_makes_eof_explicit(monkeypatch):
+    monkeypatch.setattr(aio_sandbox_module, "AioSandboxClient", _DummyClient)
+
+    sandbox = aio_sandbox_module.AioSandbox(id="sb-read", base_url="http://sandbox.test")
+
+    sandbox.upload_files([("/tmp/footer.txt", b"line1\nline2")])
+    read_result = sandbox.read("/tmp/footer.txt")
+
+    assert "(End of file - total 2 lines. No additional lines exist for this path beyond this point.)" in read_result
+
+
 def test_aio_sandbox_execute_rewrites_runtime_alias_paths(monkeypatch):
     monkeypatch.setattr(aio_sandbox_module, "AioSandboxClient", _DummyClient)
 

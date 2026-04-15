@@ -207,7 +207,13 @@ def format_read_pagination_footer(*, start_idx: int, end_idx: int, total_lines: 
             f"{remaining_lines} lines remaining. Use offset={end_idx} to continue.)"
         )
 
-    return f"(End of file - total {total_lines} lines)"
+    # The footer is part of the read_file contract. Make EOF explicit so agents
+    # do not keep paginating just because the last visible sentence or section
+    # looks semantically incomplete.
+    return (
+        f"(End of file - total {total_lines} lines. "
+        "No additional lines exist for this path beyond this point.)"
+    )
 
 
 def perform_string_replacement(
