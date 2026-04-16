@@ -1,0 +1,1790 @@
+[
+  {
+    "prompt": "案例库里有哪些文件？请直接列出文件名，不要编造。",
+    "response_id": "resp_dc37374b2fca4648918465bf5b302f36",
+    "output_text": "案例库中共有 **4 个文件**：\n\n1. `Final_子平八字案例训练集.md`\n2. `Final_盲派八字案例训练集.md`\n3. `子平新派八字全矩阵训练集_Final.md`\n4. `盲派八字全知识点训练集.md`",
+    "run_events": [
+      {
+        "type": "run_started",
+        "tool_name": null
+      },
+      {
+        "type": "tool_started",
+        "tool_name": "list_files"
+      },
+      {
+        "type": "tool_finished",
+        "tool_name": "list_files"
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_message",
+        "tool_name": null
+      },
+      {
+        "type": "run_completed",
+        "tool_name": null
+      }
+    ]
+  },
+  {
+    "prompt": "请读取《盲派八字全知识点训练集.md》的第一页，并告诉我这个文件的标题。",
+    "response_id": "resp_cef643b0fd544b7e8358463ea54e0701",
+    "output_text": "该文件的标题是：\n\n**《盲派八字真实案例训练集（全知识点版）》**\n\n文件说明中注明：\n- 专为盲派命理打造，严格摒弃旺衰体系。\n- 收录了夏仲奇、杨清娟、段建业等盲派名家的真实断命案例。\n- **总计收录 461 个结构化真实案例**。\n- 知识点目录包括：象法体系（248个）、刑冲合害穿断法（31个）、流年大运应期断法（7个）、综合案例实战（175个）。",
+    "run_events": [
+      {
+        "type": "run_started",
+        "tool_name": null
+      },
+      {
+        "type": "tool_started",
+        "tool_name": "glob_files"
+      },
+      {
+        "type": "tool_finished",
+        "tool_name": "glob_files"
+      },
+      {
+        "type": "tool_started",
+        "tool_name": "list_files"
+      },
+      {
+        "type": "tool_finished",
+        "tool_name": "list_files"
+      },
+      {
+        "type": "tool_started",
+        "tool_name": "read_file_page"
+      },
+      {
+        "type": "tool_finished",
+        "tool_name": "read_file_page"
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_message",
+        "tool_name": null
+      },
+      {
+        "type": "run_completed",
+        "tool_name": null
+      }
+    ]
+  },
+  {
+    "prompt": "请只列出文件名以 Final_ 开头的案例文件。",
+    "response_id": "resp_b48737c73aae498e9a3e88000272ccbc",
+    "output_text": "以下是以 `Final_` 开头的案例文件：\n\n1. `Final_子平八字案例训练集.md`\n2. `Final_盲派八字案例训练集.md`\n\n共 2 个文件。",
+    "run_events": [
+      {
+        "type": "run_started",
+        "tool_name": null
+      },
+      {
+        "type": "tool_started",
+        "tool_name": "glob_files"
+      },
+      {
+        "type": "tool_finished",
+        "tool_name": "glob_files"
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_message",
+        "tool_name": null
+      },
+      {
+        "type": "run_completed",
+        "tool_name": null
+      }
+    ]
+  },
+  {
+    "prompt": "请搜索案例库中包含“夏仲奇”的文件，并告诉我出现在哪些文件。",
+    "response_id": "resp_29a7a78ca14241d3b3713fa6b9c2190d",
+    "output_text": "\"夏仲奇\"出现在以下 **3 个文件**中：\n\n| 序号 | 文件名 | 出现次数 | 简要说明 |\n|------|--------|----------|----------|\n| 1 | `Final_盲派八字案例训练集.md` | 约 5 处 | 提及夏仲奇为盲派代表人物，以及他断亿万富翁案例、未知女性案例等 |\n| 2 | `子平新派八字全矩阵训练集_Final.md` | 约 1 处（大段） | 邢女士案例中引用夏仲奇的断语及新派子平对比分析 |\n| 3 | `盲派八字全知识点训练集.md` | 约 30+ 处 | 大量引用夏仲奇《盲派命理轶理集》案例，包括其自批八字、邢女士、五妻之命男、亿万富翁、女儿患癌等多个经典案例 |",
+    "run_events": [
+      {
+        "type": "run_started",
+        "tool_name": null
+      },
+      {
+        "type": "tool_started",
+        "tool_name": "grep_files"
+      },
+      {
+        "type": "tool_finished",
+        "tool_name": "grep_files"
+      },
+      {
+        "type": "tool_started",
+        "tool_name": "grep_files"
+      },
+      {
+        "type": "tool_finished",
+        "tool_name": "grep_files"
+      },
+      {
+        "type": "tool_started",
+        "tool_name": "grep_files"
+      },
+      {
+        "type": "tool_finished",
+        "tool_name": "grep_files"
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_delta",
+        "tool_name": null
+      },
+      {
+        "type": "assistant_message",
+        "tool_name": null
+      },
+      {
+        "type": "run_completed",
+        "tool_name": null
+      }
+    ]
+  }
+]

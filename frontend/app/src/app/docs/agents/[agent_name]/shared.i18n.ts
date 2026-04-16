@@ -6,6 +6,7 @@ type AgentPublicDocsShellText = {
   pagesLabel: string;
   currentPageLabel: string;
   tabOverview: string;
+  tabSupport: string;
   tabPlayground: string;
   tabReference: string;
   rawOpenAPI: string;
@@ -18,6 +19,7 @@ const enUS: AgentPublicDocsShellText = {
   pagesLabel: "Pages",
   currentPageLabel: "Current",
   tabOverview: "Overview",
+  tabSupport: "Support Demo",
   tabPlayground: "Playground",
   tabReference: "API Reference",
   rawOpenAPI: "Raw OpenAPI",
@@ -30,6 +32,7 @@ const zhCN: AgentPublicDocsShellText = {
   pagesLabel: "页面",
   currentPageLabel: "当前",
   tabOverview: "概览",
+  tabSupport: "客服演示",
   tabPlayground: "调试台",
   tabReference: "API 参考",
   rawOpenAPI: "原始 OpenAPI",

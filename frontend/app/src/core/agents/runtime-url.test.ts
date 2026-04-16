@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildPublicAgentSupportPath,
   buildWorkspaceAgentPath,
   buildWorkspaceAgentPlaygroundPath,
   buildWorkspaceAgentSettingsPath,
@@ -49,5 +50,11 @@ describe("agent runtime urls", () => {
         agentStatus: "dev",
       }),
     ).toBe("/workspace/agents/reviewer/chats/new?agent_status=dev");
+  });
+
+  it("builds the public support demo path for published agents", () => {
+    expect(buildPublicAgentSupportPath("support-cases-agent")).toBe(
+      "/docs/agents/support-cases-agent/support",
+    );
   });
 });

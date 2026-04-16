@@ -117,6 +117,10 @@ export function buildPublicAgentPlaygroundPath(agentName: string): string {
   return `${buildPublicAgentDocsPath(agentName)}/playground`;
 }
 
+export function buildPublicAgentSupportPath(agentName: string): string {
+  return `${buildPublicAgentDocsPath(agentName)}/support`;
+}
+
 export function appendWorkspacePromptParams(
   basePath: string,
   {

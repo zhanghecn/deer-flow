@@ -9,13 +9,14 @@ import {
   buildPublicAgentDocsPath,
   buildPublicAgentPlaygroundPath,
   buildPublicAgentReferencePath,
+  buildPublicAgentSupportPath,
 } from "@/core/agents";
 import { useI18n } from "@/core/i18n/hooks";
 import { cn } from "@/lib/utils";
 
 import { getAgentPublicDocsShellText } from "./shared.i18n";
 
-type PublicDocsTab = "overview" | "playground" | "reference";
+type PublicDocsTab = "overview" | "support" | "playground" | "reference";
 
 export interface DeveloperDocsSidebarItem {
   label: string;
@@ -391,6 +392,11 @@ export function DeveloperDocsShell({
         href: buildPublicAgentDocsPath(agentName),
       },
       {
+        id: "support" as const,
+        label: text.tabSupport,
+        href: buildPublicAgentSupportPath(agentName),
+      },
+      {
         id: "playground" as const,
         label: text.tabPlayground,
         href: buildPublicAgentPlaygroundPath(agentName),
@@ -401,7 +407,13 @@ export function DeveloperDocsShell({
         href: buildPublicAgentReferencePath(agentName),
       },
     ],
-    [agentName, text.tabOverview, text.tabPlayground, text.tabReference],
+    [
+      agentName,
+      text.tabOverview,
+      text.tabSupport,
+      text.tabPlayground,
+      text.tabReference,
+    ],
   );
 
   return (

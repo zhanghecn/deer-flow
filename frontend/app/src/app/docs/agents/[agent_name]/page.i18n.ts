@@ -52,6 +52,10 @@ type AgentPublicDocsPageText = {
   nextEyebrow: string;
   nextTitle: string;
   nextDescription: string;
+  supportEyebrow: string;
+  supportTitle: string;
+  supportDescription: string;
+  openSupport: string;
   playgroundEyebrow: string;
   playgroundTitle: string;
   playgroundDescription: string;
@@ -129,6 +133,11 @@ const enUS: AgentPublicDocsPageText = {
   nextTitle: "Choose the right surface for the next job",
   nextDescription:
     "The docs homepage stays compact on purpose. Use the playground for real execution and the API reference for field-level schema work.",
+  supportEyebrow: "Support demo",
+  supportTitle: "Open the customer-style chat demo",
+  supportDescription:
+    "Use the dedicated support page to validate browser-side SDK calls, multi-turn context, and tool-backed answers in a simpler chat UI.",
+  openSupport: "Open support demo",
   playgroundEyebrow: "Playground",
   playgroundTitle: "Run the contract end to end",
   playgroundDescription:
@@ -206,6 +215,11 @@ const zhCN: AgentPublicDocsPageText = {
   nextTitle: "按任务进入正确页面",
   nextDescription:
     "概览页故意保持精简。真实跑契约去 Playground，看字段细节去 API Reference。",
+  supportEyebrow: "客服演示",
+  supportTitle: "打开客户视角的聊天演示页",
+  supportDescription:
+    "进入独立的 support 页面，验证浏览器侧 SDK 调用、多轮上下文续接，以及由工具支撑的回答过程。",
+  openSupport: "打开客服演示",
   playgroundEyebrow: "Playground",
   playgroundTitle: "把契约真实跑起来",
   playgroundDescription:
