@@ -86,15 +86,6 @@ export function TraceRunDialog({
       return null;
     }
 
-    const taskSessionRuns = collectTaskSessionRuns(run, dialogRuns);
-    const taskSessionId = getTaskSessionId(run);
-    if (taskSessionId && run.runId === taskSessionId) {
-      const firstInternalRun = taskSessionRuns.find(
-        (candidate) => candidate.runId !== taskSessionId,
-      );
-      return firstInternalRun?.runId ?? run.runId;
-    }
-
     return run.runId;
   }, [dialogRuns, run]);
 
