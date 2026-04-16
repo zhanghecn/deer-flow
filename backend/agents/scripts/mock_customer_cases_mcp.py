@@ -17,6 +17,7 @@ import fnmatch
 import json
 import os
 import re
+import sys
 from pathlib import Path, PurePosixPath
 
 from mcp.server.fastmcp import FastMCP
@@ -29,6 +30,8 @@ ROOT = Path(
 ).resolve()
 
 mcp = FastMCP("customer-cases")
+mcp.settings.host = os.getenv("CUSTOMER_CASES_MCP_HOST", "127.0.0.1")
+mcp.settings.port = int(os.getenv("CUSTOMER_CASES_MCP_PORT", "8000"))
 
 
 def _safe_relative_path(value: str) -> Path:
@@ -141,4 +144,19 @@ def glob_files(pattern: str = "*.md", path: str = "") -> str:
 
 
 if __name__ == "__main__":
-    mcp.run("stdio")
+    transport = os.getenv("CUSTOMER_CASES_MCP_TRANSPORT", "stdio").strip().lower()
+    if len(sys.argv) > 1 and sys.argv[1].strip():
+        transport = sys.argv[1].strip().lower()
+
+    if transport == "http":
+        transport = "streamable-http"
+
+    if transport not in {"stdio", "sse", "streamable-http"}:
+        raise ValueError(
+            "CUSTOMER_CASES_MCP_TRANSPORT must be one of: stdio, sse, streamable-http, http"
+        )
+
+    # FastMCP uses `streamable-http` internally while Deer Flow's canonical
+    # profile JSON uses `type: "http"`. Accept both at the launcher boundary
+    # so the same tool module can back local stdio and Docker-published HTTP.
+    mcp.run(transport)

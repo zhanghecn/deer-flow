@@ -13,14 +13,15 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { MarkdownContent } from "@/components/workspace/messages/markdown-content";
 import { useI18n } from "@/core/i18n/hooks";
+import { type PublicAPIResponseEnvelope } from "@/core/public-api/api";
+import { type PlaygroundTraceItem } from "@/core/public-api/events";
 import {
-  type PublicAPIRunEvent,
-  type PublicAPIResponseEnvelope,
-} from "@/core/public-api/api";
-import {
-  buildTraceFromRunEvent,
-  type PlaygroundTraceItem,
-} from "@/core/public-api/events";
+  applyNormalizedPublicAPIRunEvent,
+  applyPublicAPIResponseEnvelope,
+  buildPublicAPIReasoningRequest,
+  createPublicAPIRunReadModel,
+  type PublicAPIReasoningEffort,
+} from "@/core/public-api/run-session";
 import {
   coercePublicAPIResponse,
   createBrowserPublicAPIClient,
@@ -39,14 +40,11 @@ type DemoMessage = {
   responseId?: string;
   activity?: PlaygroundTraceItem[];
   toolCallCount?: number;
+  reasoningSummary?: string;
 };
 
 function nextMessageID() {
   return crypto.randomUUID();
-}
-
-function asString(value: unknown) {
-  return typeof value === "string" ? value : "";
 }
 
 function truncate(value: string, limit = 18) {
@@ -54,26 +52,6 @@ function truncate(value: string, limit = 18) {
     return "—";
   }
   return value.length <= limit ? value : `${value.slice(0, limit)}…`;
-}
-
-function countToolCalls(events: PublicAPIRunEvent[]) {
-  return events.filter((event) => event.type === "tool_started").length;
-}
-
-function buildActivity(
-  events: PublicAPIRunEvent[],
-  labels: {
-    assistantMessage: string;
-    toolCall: string;
-    toolResult: string;
-    runCompleted: string;
-  },
-) {
-  return events
-    .filter((event) => event.type !== "assistant_delta")
-    .map((event) =>
-      buildTraceFromRunEvent(event, labels),
-    );
 }
 
 export function SupportSDKChatDemo({
@@ -96,6 +74,9 @@ export function SupportSDKChatDemo({
     null,
   );
   const [previousResponseID, setPreviousResponseID] = useState("");
+  const [reasoningEnabled, setReasoningEnabled] = useState(false);
+  const [reasoningEffort, setReasoningEffort] =
+    useState<PublicAPIReasoningEffort>("medium");
   const [runState, setRunState] = useState<"ready" | "streaming" | "failed" | "waiting">(
     "ready",
   );
@@ -165,6 +146,7 @@ export function SupportSDKChatDemo({
         status: "streaming",
         activity: [],
         toolCallCount: 0,
+        reasoningSummary: "",
       },
     ]);
 
@@ -175,16 +157,27 @@ export function SupportSDKChatDemo({
       });
 
       let terminalResponseID = "";
+      let runModel = createPublicAPIRunReadModel();
+      const traceText = {
+        assistantMessage: text.assistantReplyTitle,
+        toolCall: text.toolStartedTitle,
+        toolResult: text.toolFinishedTitle,
+        runCompleted: text.runCompleted,
+      };
 
       const stream = await client.responses.create(
         {
           model: agentName,
-          input: prompt,
+          input: [{ role: "user", content: [{ type: "input_text", text: prompt }] }],
           previous_response_id: previousResponseID || undefined,
           metadata: {
             source: "docs_support_sdk_demo",
             surface: "support_demo",
           },
+          reasoning: buildPublicAPIReasoningRequest(
+            reasoningEnabled,
+            reasoningEffort,
+          ),
           stream: true,
         },
         {
@@ -197,50 +190,24 @@ export function SupportSDKChatDemo({
       // into the same normalized vocabulary the internal playground uses.
       for await (const rawEvent of stream) {
         for (const normalizedEvent of normalizeSDKResponseEvent(rawEvent)) {
-          if (normalizedEvent.kind === "assistant_delta") {
-            replaceMessage(assistantMessageID, (message) => ({
-              ...message,
-              content: `${message.content}${normalizedEvent.delta}`,
-            }));
-            continue;
-          }
+          runModel = applyNormalizedPublicAPIRunEvent({
+            current: runModel,
+            event: normalizedEvent,
+            traceText,
+          });
+          terminalResponseID = runModel.responseId || terminalResponseID;
 
-          if (normalizedEvent.kind === "run_started") {
-            terminalResponseID = normalizedEvent.responseId || terminalResponseID;
-            continue;
-          }
+          replaceMessage(assistantMessageID, (message) => ({
+            ...message,
+            content: runModel.liveOutput || message.content,
+            activity: runModel.traceItems,
+            toolCallCount: runModel.toolCallCount,
+            responseId: runModel.responseId || message.responseId,
+            status: runModel.phase === "failed" ? "error" : message.status,
+          }));
 
-          if (normalizedEvent.kind === "run_completed") {
-            terminalResponseID = normalizedEvent.responseId || terminalResponseID;
-            continue;
-          }
-
-          if (normalizedEvent.kind === "ledger_event") {
-            if (normalizedEvent.event.type === "assistant_message") {
-              replaceMessage(assistantMessageID, (message) => ({
-                ...message,
-                content:
-                  asString(
-                    (
-                      normalizedEvent.event as PublicAPIRunEvent & {
-                        text?: unknown;
-                      }
-                    ).text,
-                  ) || message.content,
-              }));
-            }
-            continue;
-          }
-
-          if (normalizedEvent.kind === "run_failed") {
+          if (runModel.phase === "failed") {
             setRunState("failed");
-            replaceMessage(assistantMessageID, (message) => ({
-              ...message,
-              content:
-                message.content ||
-                `${text.requestFailed}: ${normalizedEvent.detail}`,
-              status: "error",
-            }));
           }
         }
       }
@@ -269,28 +236,25 @@ export function SupportSDKChatDemo({
 
       setLastResponse(finalizedResponse);
       setPreviousResponseID(finalizedResponse.id);
-
-      const finalText = finalizedResponse.output_text?.trim();
+      runModel = applyPublicAPIResponseEnvelope({
+        current: runModel,
+        response: finalizedResponse,
+        traceText,
+      });
+      const finalText = finalizedResponse.output_text?.trim() || runModel.liveOutput;
       replaceMessage(assistantMessageID, (message) => ({
         ...message,
         content: finalText || message.content || text.responseWaiting,
         status:
-          finalizedResponse.status === "completed" ? "done" : "error",
-      }));
-
-      const runEvents = finalizedResponse.openagents?.run_events ?? [];
-      const activity = buildActivity(runEvents, {
-        assistantMessage: text.assistantReplyTitle,
-        toolCall: text.toolStartedTitle,
-        toolResult: text.toolFinishedTitle,
-        runCompleted: text.runCompleted,
-      });
-      const toolCallCount = countToolCalls(runEvents);
-      replaceMessage(assistantMessageID, (message) => ({
-        ...message,
-        responseId: finalizedResponse.id,
-        activity,
-        toolCallCount,
+          finalizedResponse.status === "completed"
+            ? "done"
+            : finalizedResponse.status === "incomplete"
+              ? "done"
+              : "error",
+        responseId: runModel.responseId || finalizedResponse.id,
+        activity: runModel.traceItems,
+        toolCallCount: runModel.toolCallCount,
+        reasoningSummary: runModel.reasoningSummary,
       }));
 
       if (finalizedResponse.status === "incomplete") {
@@ -340,6 +304,7 @@ export function SupportSDKChatDemo({
     .reverse()
     .find((message) => message.role === "assistant");
   const latestActivity = latestAssistantMessage?.activity ?? [];
+  const latestReasoningSummary = latestAssistantMessage?.reasoningSummary ?? "";
 
   return (
     <section
@@ -480,6 +445,47 @@ export function SupportSDKChatDemo({
               </div>
             </section>
 
+            <section className="space-y-3 border-t border-stone-200 pt-5">
+              <div>
+                <h2 className="text-base font-semibold text-stone-950">
+                  {text.reasoningLabel}
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-stone-600">
+                  {text.reasoningHint}
+                </p>
+              </div>
+              <label className="flex items-center justify-between gap-3 text-sm font-medium text-stone-800">
+                <span>{text.reasoningLabel}</span>
+                <input
+                  type="checkbox"
+                  checked={reasoningEnabled}
+                  onChange={(event) =>
+                    setReasoningEnabled(event.target.checked)
+                  }
+                />
+              </label>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-stone-800">
+                  {text.reasoningEffortLabel}
+                </label>
+                <select
+                  value={reasoningEffort}
+                  disabled={!reasoningEnabled}
+                  onChange={(event) =>
+                    setReasoningEffort(
+                      event.target.value as PublicAPIReasoningEffort,
+                    )
+                  }
+                  className="w-full border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900 disabled:cursor-not-allowed disabled:bg-stone-100"
+                >
+                  <option value="minimal">minimal</option>
+                  <option value="low">low</option>
+                  <option value="medium">medium</option>
+                  <option value="high">high</option>
+                </select>
+              </div>
+            </section>
+
             <section className="space-y-2 border-t border-stone-200 pt-5">
               <h2 className="text-base font-semibold text-stone-950">
                 {text.securityTitle}
@@ -603,6 +609,14 @@ export function SupportSDKChatDemo({
                               </p>
                             )}
                           </div>
+                          <div className="mt-4 border-t border-stone-200 pt-3">
+                            <div className="flex items-center gap-3 text-xs text-stone-500">
+                              <span>{text.reasoningSummaryLabel}</span>
+                            </div>
+                            <p className="mt-2 text-sm leading-6 whitespace-pre-wrap text-stone-700">
+                              {message.reasoningSummary || text.reasoningSummaryEmpty}
+                            </p>
+                          </div>
                         </>
                       ) : (
                         <p className="text-sm leading-7 whitespace-pre-wrap">
@@ -700,6 +714,14 @@ export function SupportSDKChatDemo({
                     </div>
                   )}
                 </ScrollArea>
+                <div className="mt-4 border-t border-stone-200 pt-4">
+                  <h3 className="text-sm font-medium text-stone-950">
+                    {text.reasoningSummaryLabel}
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 whitespace-pre-wrap text-stone-600">
+                    {latestReasoningSummary || text.reasoningSummaryEmpty}
+                  </p>
+                </div>
               </div>
             </div>
           </div>

@@ -50,6 +50,7 @@ backend/gateway/server
 
 # pnpm
 .pnpm-store
+node_modules/
 sandbox_image_cache.tar
 
 # ignore the legacy `web` folder

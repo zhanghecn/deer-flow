@@ -24,6 +24,11 @@ export type SupportSDKChatDemoText = {
   statusFailed: string;
   statusWaiting: string;
   toolsLabel: string;
+  reasoningLabel: string;
+  reasoningEffortLabel: string;
+  reasoningHint: string;
+  reasoningSummaryLabel: string;
+  reasoningSummaryEmpty: string;
   newSession: string;
   promptsTitle: string;
   promptsDescription: string;
@@ -78,6 +83,12 @@ const enUS: SupportSDKChatDemoText = {
   statusFailed: "Failed",
   statusWaiting: "Waiting for input",
   toolsLabel: "Tool calls",
+  reasoningLabel: "Enable thinking",
+  reasoningEffortLabel: "Reasoning effort",
+  reasoningHint:
+    "The public contract exposes the final reasoning summary when thinking is enabled.",
+  reasoningSummaryLabel: "Reasoning summary",
+  reasoningSummaryEmpty: "Reasoning summary appears here after the run completes.",
   newSession: "New session",
   promptsTitle: "Starter prompts",
   promptsDescription:
@@ -158,6 +169,11 @@ const zhCN: SupportSDKChatDemoText = {
   statusFailed: "失败",
   statusWaiting: "等待用户输入",
   toolsLabel: "工具调用数",
+  reasoningLabel: "开启思考",
+  reasoningEffortLabel: "思考强度",
+  reasoningHint: "开启后，会在响应完成后显示公开可见的思考摘要。",
+  reasoningSummaryLabel: "思考摘要",
+  reasoningSummaryEmpty: "运行完成后，会在这里显示公开可见的思考摘要。",
   newSession: "新会话",
   promptsTitle: "起手问题",
   promptsDescription:

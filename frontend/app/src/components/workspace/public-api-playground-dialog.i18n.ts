@@ -58,6 +58,7 @@ type PublicAPIPlaygroundText = {
   resultDescription: string;
   noResponse: string;
   outputTab: string;
+  reasoningTab: string;
   jsonTab: string;
   filesTab: string;
   responseID: string;
@@ -183,6 +184,7 @@ const enUS: PublicAPIPlaygroundText = {
     "Inspect the final text, the raw response envelope, and any files produced by the published agent.",
   noResponse: "Run a request to inspect the public response envelope.",
   outputTab: "Output",
+  reasoningTab: "Reasoning summary",
   jsonTab: "Response JSON",
   filesTab: "Files",
   responseID: "Response",
@@ -308,6 +310,7 @@ const zhCN: PublicAPIPlaygroundText = {
     "这里集中查看最终文本、原始响应 envelope，以及运行期间生成的文件。",
   noResponse: "执行一次请求后，这里会展示最终 public response。",
   outputTab: "输出",
+  reasoningTab: "思考摘要",
   jsonTab: "响应 JSON",
   filesTab: "文件",
   responseID: "响应",

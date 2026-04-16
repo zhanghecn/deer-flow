@@ -239,6 +239,34 @@ services:
       - openagents
     restart: unless-stopped
 
+  # 本地 customer-cases HTTP MCP：
+  # - 复用现有 FastMCP 工具定义
+  # - 通过 streamable HTTP 暴露给 Deer Flow 的 `type: http` profile
+  # - 数据默认读取 .openagents/runtime/customer-cases
+  customer-cases-mcp-http:
+    build:
+      context: ..
+      dockerfile: backend/agents/Dockerfile
+    working_dir: /app/backend/agents
+    command: ["python", "scripts/mock_customer_cases_mcp.py", "http"]
+    environment:
+      CUSTOMER_CASES_MCP_TRANSPORT: http
+      CUSTOMER_CASES_MCP_HOST: 0.0.0.0
+      CUSTOMER_CASES_MCP_PORT: 8000
+      CUSTOMER_CASES_ROOT: /openagents-home/runtime/customer-cases
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONPATH: /app/backend/agents
+    ports:
+      - "8090:8000"
+    volumes:
+      - ../backend/agents:/app/backend/agents:ro
+      - ../backend/deepagents:/app/backend/deepagents:ro
+      - ../.env:/app/.env:ro
+      - ../.openagents:/openagents-home
+    networks:
+      - openagents
+    restart: unless-stopped
+
 networks:
   # 单机 bridge 网络，服务之间通过服务名互相访问。
   openagents:

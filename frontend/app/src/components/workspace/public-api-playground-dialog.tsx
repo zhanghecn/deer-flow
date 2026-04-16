@@ -57,6 +57,10 @@ import {
   type PlaygroundTraceStage as TraceStage,
   type PlaygroundTraceText,
 } from "@/core/public-api/events";
+import {
+  extractPublicAPIReasoningSummary,
+  formatPublicAPIOutputText,
+} from "@/core/public-api/run-session";
 import { cn } from "@/lib/utils";
 
 import { getPublicAPIPlaygroundText } from "./public-api-playground-dialog.i18n";
@@ -457,17 +461,14 @@ export function PublicAPIPlaygroundPanel({
     [response],
   );
 
-  const formattedOutputText = useMemo(() => {
-    if (!response?.output_text) {
-      return liveOutput;
-    }
-    try {
-      const parsed = JSON.parse(response.output_text);
-      return JSON.stringify(parsed, null, 2);
-    } catch {
-      return response.output_text;
-    }
-  }, [liveOutput, response?.output_text]);
+  const formattedOutputText = useMemo(
+    () => formatPublicAPIOutputText(response, liveOutput),
+    [liveOutput, response],
+  );
+  const reasoningSummary = useMemo(
+    () => extractPublicAPIReasoningSummary(response),
+    [response],
+  );
 
   function appendTrace(
     item: Omit<TraceItem, "id" | "timestamp"> & {
@@ -1392,6 +1393,24 @@ export function PublicAPIPlaygroundPanel({
                       <pre className="font-mono text-xs leading-6 whitespace-pre-wrap text-slate-100">
                         {formattedOutputText || text.noResponse}
                       </pre>
+                    </ScrollArea>
+                  </div>
+                </section>
+
+                <section className="space-y-3">
+                  <div>
+                    <p className="text-sm font-medium text-slate-950">
+                      {text.reasoningTab}
+                    </p>
+                    <p className="text-muted-foreground mt-1 text-sm leading-6">
+                      {text.reasoningDescription}
+                    </p>
+                  </div>
+                  <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white">
+                    <ScrollArea className="h-[180px] px-4 py-4">
+                      <p className="text-sm leading-6 whitespace-pre-wrap text-slate-700">
+                        {reasoningSummary || text.noResponse}
+                      </p>
                     </ScrollArea>
                   </div>
                 </section>
