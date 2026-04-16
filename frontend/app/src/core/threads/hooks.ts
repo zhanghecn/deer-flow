@@ -1051,7 +1051,26 @@ function finalizeExecutionStatus(
   },
 ): ExecutionStatus | null {
   if (!previous) {
-    return null;
+    if (terminalEvent !== "failed") {
+      return null;
+    }
+
+    const finishedAt = new Date().toISOString();
+    // Reopened threads can surface persisted task failures without replaying
+    // the earlier live execution events. Synthesize a terminal run status so
+    // the chat timeline can render a durable error card instead of only a
+    // transient toast.
+    return {
+      event: "failed",
+      phase: "run_terminal",
+      phase_kind: "run",
+      started_at: finishedAt,
+      run_started_at: finishedAt,
+      finished_at: finishedAt,
+      total_duration_ms: 0,
+      error: normalizeThreadError(error),
+      terminal: true,
+    };
   }
   if (previous.terminal) {
     return previous;

@@ -23,3 +23,14 @@ def test_should_retry_for_connection_and_timeout_failures():
 
 def test_should_retry_for_empty_model_stream_failures():
     assert should_retry(ValueError("No generations found in stream.")) is True
+
+
+def test_should_retry_for_structured_multilingual_transient_provider_errors():
+    assert (
+        should_retry(
+            RuntimeError(
+                "{'type': 'error', 'error': {'message': '网络错误，错误id：202604162004385dab114c4ec9494e，请稍后重试', 'code': '1234'}, 'request_id': '202604162004385dab114c4ec9494e'}"
+            )
+        )
+        is True
+    )

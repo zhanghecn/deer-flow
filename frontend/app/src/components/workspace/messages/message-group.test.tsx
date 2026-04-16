@@ -148,7 +148,7 @@ describe("MessageGroup tool display", () => {
     );
   });
 
-  it("allows older tool steps to stay collapsed until expanded", () => {
+  it("keeps older tool steps visible until the user collapses them", () => {
     render(
       <MessageGroup
         messages={[
@@ -190,9 +190,13 @@ describe("MessageGroup tool display", () => {
     );
 
     expect(
+      screen.getByText("/mnt/user-data/project/README.md"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("pwd")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Less steps"));
+    expect(
       screen.queryByText("/mnt/user-data/project/README.md"),
     ).not.toBeInTheDocument();
-    expect(screen.getByText("pwd")).toBeInTheDocument();
     fireEvent.click(screen.getByText("1 more steps"));
     expect(
       screen.getByText("/mnt/user-data/project/README.md"),
@@ -280,5 +284,42 @@ describe("MessageGroup tool display", () => {
       "src",
       "https://cdn.example.com/retro-cat-thumb.jpg",
     );
+  });
+
+  it("shows structured call arguments for generic tool steps", () => {
+    render(
+      <MessageGroup
+        messages={[
+          {
+            id: "ai-1",
+            type: "ai",
+            content: "",
+            tool_calls: [
+              {
+                id: "tool-1",
+                name: "grep_files",
+                args: {
+                  pattern: "壬寅",
+                  path: "cases",
+                  glob_pattern: "*.md",
+                  cursor: 0,
+                  limit: 20,
+                },
+              },
+            ],
+          },
+          {
+            id: "tool-msg-1",
+            type: "tool",
+            tool_call_id: "tool-1",
+            content: "{\"items\":[]}",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText(/"pattern": "壬寅"/)).toBeInTheDocument();
+    expect(screen.getByText(/"glob_pattern": "\*\.md"/)).toBeInTheDocument();
+    expect(screen.getByText(/"limit": 20/)).toBeInTheDocument();
   });
 });

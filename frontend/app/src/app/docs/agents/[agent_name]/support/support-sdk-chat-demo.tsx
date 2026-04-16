@@ -36,6 +36,9 @@ type DemoMessage = {
   role: "user" | "assistant";
   content: string;
   status: "streaming" | "done" | "error";
+  responseId?: string;
+  activity?: PlaygroundTraceItem[];
+  toolCallCount?: number;
 };
 
 function nextMessageID() {
@@ -89,7 +92,6 @@ export function SupportSDKChatDemo({
   const [apiToken, setAPIToken] = useState("");
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<DemoMessage[]>([]);
-  const [activity, setActivity] = useState<PlaygroundTraceItem[]>([]);
   const [lastResponse, setLastResponse] = useState<PublicAPIResponseEnvelope | null>(
     null,
   );
@@ -123,7 +125,6 @@ export function SupportSDKChatDemo({
     abortRef.current?.abort();
     abortRef.current = null;
     setMessages([]);
-    setActivity([]);
     setLastResponse(null);
     setPreviousResponseID("");
     setRunState("ready");
@@ -149,7 +150,6 @@ export function SupportSDKChatDemo({
 
     setDraft("");
     setRunState("streaming");
-    setActivity([]);
     setMessages((current) => [
       ...current,
       {
@@ -163,6 +163,8 @@ export function SupportSDKChatDemo({
         role: "assistant",
         content: "",
         status: "streaming",
+        activity: [],
+        toolCallCount: 0,
       },
     ]);
 
@@ -277,14 +279,19 @@ export function SupportSDKChatDemo({
       }));
 
       const runEvents = finalizedResponse.openagents?.run_events ?? [];
-      setActivity(
-        buildActivity(runEvents, {
-          assistantMessage: text.assistantReplyTitle,
-          toolCall: text.toolStartedTitle,
-          toolResult: text.toolFinishedTitle,
-          runCompleted: text.runCompleted,
-        }),
-      );
+      const activity = buildActivity(runEvents, {
+        assistantMessage: text.assistantReplyTitle,
+        toolCall: text.toolStartedTitle,
+        toolResult: text.toolFinishedTitle,
+        runCompleted: text.runCompleted,
+      });
+      const toolCallCount = countToolCalls(runEvents);
+      replaceMessage(assistantMessageID, (message) => ({
+        ...message,
+        responseId: finalizedResponse.id,
+        activity,
+        toolCallCount,
+      }));
 
       if (finalizedResponse.status === "incomplete") {
         setRunState("waiting");
@@ -311,12 +318,28 @@ export function SupportSDKChatDemo({
         ...message,
         content: `${text.requestFailed}: ${detail}`,
         status: "error",
+        activity: [
+          {
+            stage: "error",
+            tone: "error",
+            title: text.requestFailed,
+            detail,
+            timestamp: Date.now(),
+          },
+        ],
       }));
       toast.error(detail);
     } finally {
       abortRef.current = null;
     }
   }
+
+  // Keep the latest run summary in the side rail while each assistant message
+  // retains its own per-turn step history inside the transcript.
+  const latestAssistantMessage = [...messages]
+    .reverse()
+    .find((message) => message.role === "assistant");
+  const latestActivity = latestAssistantMessage?.activity ?? [];
 
   return (
     <section
@@ -417,7 +440,7 @@ export function SupportSDKChatDemo({
                 <div className="flex items-start justify-between gap-4">
                   <dt className="text-stone-500">{text.toolsLabel}</dt>
                   <dd className="font-medium text-stone-900">
-                    {countToolCalls(lastResponse?.openagents?.run_events ?? [])}
+                    {latestAssistantMessage?.toolCallCount ?? 0}
                   </dd>
                 </div>
               </dl>
@@ -525,12 +548,62 @@ export function SupportSDKChatDemo({
                         ) : null}
                       </div>
                       {message.role === "assistant" ? (
-                        <MarkdownContent
-                          content={message.content}
-                          isLoading={message.status === "streaming"}
-                          rehypePlugins={workspaceMessageRehypePlugins}
-                          className="text-sm leading-7"
-                        />
+                        <>
+                          <MarkdownContent
+                            content={message.content}
+                            isLoading={message.status === "streaming"}
+                            rehypePlugins={workspaceMessageRehypePlugins}
+                            className="text-sm leading-7"
+                          />
+                          <div className="mt-4 border-t border-stone-200 pt-3">
+                            <div className="flex flex-wrap items-center gap-3 text-xs text-stone-500">
+                              <span>{text.stepsTitle}</span>
+                              {message.responseId ? (
+                                <span>
+                                  {text.responseMetaLabel}:{" "}
+                                  <span className="font-mono text-[11px] text-stone-700">
+                                    {truncate(message.responseId, 28)}
+                                  </span>
+                                </span>
+                              ) : null}
+                              <span>
+                                {text.toolCallsMetaLabel}: {message.toolCallCount ?? 0}
+                              </span>
+                            </div>
+                            {message.activity && message.activity.length > 0 ? (
+                              <div className="mt-3 space-y-2">
+                                {message.activity.map((item, index) => (
+                                  <div
+                                    key={`${message.id}-${item.title}-${item.timestamp}-${index}`}
+                                    className="border border-stone-200 bg-white px-3 py-2"
+                                  >
+                                    <div className="flex items-start justify-between gap-3">
+                                      <p className="text-sm font-medium text-stone-900">
+                                        {item.title}
+                                      </p>
+                                      <span className="text-xs text-stone-500">
+                                        {new Intl.DateTimeFormat(locale, {
+                                          hour: "2-digit",
+                                          minute: "2-digit",
+                                          second: "2-digit",
+                                        }).format(item.timestamp)}
+                                      </span>
+                                    </div>
+                                    {item.detail ? (
+                                      <p className="mt-1 text-sm leading-6 text-stone-600">
+                                        {item.detail}
+                                      </p>
+                                    ) : null}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="mt-2 text-sm leading-6 text-stone-500">
+                                {text.stepsEmpty}
+                              </p>
+                            )}
+                          </div>
+                        </>
                       ) : (
                         <p className="text-sm leading-7 whitespace-pre-wrap">
                           {message.content}
@@ -594,13 +667,13 @@ export function SupportSDKChatDemo({
                   {text.activityTitle}
                 </h2>
                 <ScrollArea className="mt-3 h-[176px]">
-                  {activity.length === 0 ? (
+                  {latestActivity.length === 0 ? (
                     <p className="text-sm leading-6 text-stone-500">
                       {text.activityEmpty}
                     </p>
                   ) : (
                     <div className="space-y-2">
-                      {activity.map((item, index) => (
+                      {latestActivity.map((item, index) => (
                         <div
                           key={`${item.title}-${item.timestamp}-${index}`}
                           className="border border-stone-200 px-3 py-2"

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import ast
 import errno
+import json
 import logging
 import time
+import weakref
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -62,6 +65,20 @@ RETRYABLE_MESSAGE_FRAGMENTS = (
     "no generations found in stream",
     "too many requests",
 )
+RETRYABLE_MESSAGE_FRAGMENTS_ZH = (
+    "网络错误",
+    "连接错误",
+    "连接异常",
+    "连接超时",
+    "请求超时",
+    "服务不可用",
+    "服务暂时不可用",
+    "暂时不可用",
+    "限流",
+    "请求过多",
+    "稍后重试",
+    "稍后再试",
+)
 _MAX_EXECUTION_STREAM_STATES = 512
 
 
@@ -102,8 +119,11 @@ _provider_retry_context: ContextVar[ProviderRetryContext | None] = ContextVar(
     "provider_retry_context",
     default=None,
 )
-_execution_stream_states: dict[int, ExecutionStreamState] = {}
-_execution_stream_state_order: list[int] = []
+_execution_stream_states_weak: weakref.WeakKeyDictionary[Any, ExecutionStreamState] = (
+    weakref.WeakKeyDictionary()
+)
+_execution_stream_states_fallback: dict[tuple[int, int] | int, ExecutionStreamState] = {}
+_execution_stream_state_order: list[tuple[int, int] | int] = []
 _execution_stream_states_lock = Lock()
 
 
@@ -118,29 +138,50 @@ def _resolve_stream_writer(runtime: Runtime[Any] | None) -> Any:
     return getattr(runtime, "stream_writer", None)
 
 
-def _stream_writer_key(stream_writer: Any) -> int | None:
+def _stream_writer_key(stream_writer: Any) -> tuple[int, int] | int | None:
     if not callable(stream_writer):
         return None
+
+    # Bound methods get recreated on attribute access, so `id(stream_writer)`
+    # alone can leak phase state across logically distinct runs when Python
+    # reuses object ids. Prefer the owning object + function pair when present.
+    owner = getattr(stream_writer, "__self__", None)
+    function = getattr(stream_writer, "__func__", None)
+    if owner is not None and function is not None:
+        return (id(owner), id(function))
+
     return id(stream_writer)
 
 
 def _get_execution_stream_state(stream_writer: Any) -> ExecutionStreamState | None:
-    stream_key = _stream_writer_key(stream_writer)
-    if stream_key is None:
-        return None
-
     with _execution_stream_states_lock:
-        state = _execution_stream_states.get(stream_key)
-        if state is not None:
-            return state
+        # Prefer weak-key storage so finished runs release their phase state as
+        # soon as the runtime drops the writer object, avoiding cross-run leaks
+        # from Python object-id reuse.
+        try:
+            state = _execution_stream_states_weak.get(stream_writer)
+            if state is not None:
+                return state
 
-        state = ExecutionStreamState()
-        _execution_stream_states[stream_key] = state
-        _execution_stream_state_order.append(stream_key)
-        if len(_execution_stream_state_order) > _MAX_EXECUTION_STREAM_STATES:
-            evicted_key = _execution_stream_state_order.pop(0)
-            _execution_stream_states.pop(evicted_key, None)
-        return state
+            state = ExecutionStreamState()
+            _execution_stream_states_weak[stream_writer] = state
+            return state
+        except TypeError:
+            stream_key = _stream_writer_key(stream_writer)
+            if stream_key is None:
+                return None
+
+            state = _execution_stream_states_fallback.get(stream_key)
+            if state is not None:
+                return state
+
+            state = ExecutionStreamState()
+            _execution_stream_states_fallback[stream_key] = state
+            _execution_stream_state_order.append(stream_key)
+            if len(_execution_stream_state_order) > _MAX_EXECUTION_STREAM_STATES:
+                evicted_key = _execution_stream_state_order.pop(0)
+                _execution_stream_states_fallback.pop(evicted_key, None)
+            return state
 
 
 def _emit_execution_event(
@@ -468,11 +509,94 @@ def _extract_status_code(exc: BaseException) -> int | None:
 
 
 def _message_looks_retryable(exc: BaseException) -> bool:
-    message = str(exc).strip().lower()
-    if not message:
-        return False
+    for message in _iter_retryable_messages(exc):
+        lowered = message.lower()
+        if any(fragment in lowered for fragment in RETRYABLE_MESSAGE_FRAGMENTS):
+            return True
+        if any(fragment in message for fragment in RETRYABLE_MESSAGE_FRAGMENTS_ZH):
+            return True
 
-    return any(fragment in message for fragment in RETRYABLE_MESSAGE_FRAGMENTS)
+    return False
+
+
+def _parse_structured_error_payload(value: Any) -> Any | None:
+    if isinstance(value, (dict, list, tuple)):
+        return value
+    if not isinstance(value, str):
+        return None
+
+    normalized = value.strip()
+    if not normalized or normalized[0] not in "{[":
+        return None
+
+    # Provider SDKs mix JSON and Python-literal dict reprs. Parse both so
+    # retry detection can stay provider-agnostic and language-agnostic.
+    for loader in (json.loads, ast.literal_eval):
+        try:
+            return loader(normalized)
+        except Exception:
+            continue
+    return None
+
+
+def _iter_structured_error_strings(value: Any) -> list[str]:
+    strings: list[str] = []
+
+    if isinstance(value, str):
+        normalized = value.strip()
+        if normalized:
+            strings.append(normalized)
+        structured = _parse_structured_error_payload(value)
+        if structured is not None and structured is not value:
+            strings.extend(_iter_structured_error_strings(structured))
+        return strings
+
+    if isinstance(value, dict):
+        preferred_keys = ("message", "detail", "error", "type")
+        for key in preferred_keys:
+            if key in value:
+                strings.extend(_iter_structured_error_strings(value[key]))
+        for item_key, item_value in value.items():
+            if item_key in preferred_keys:
+                continue
+            strings.extend(_iter_structured_error_strings(item_value))
+        return strings
+
+    if isinstance(value, (list, tuple, set)):
+        for item in value:
+            strings.extend(_iter_structured_error_strings(item))
+        return strings
+
+    return strings
+
+
+def _iter_retryable_messages(exc: BaseException) -> list[str]:
+    values: list[Any] = [str(exc)]
+
+    for arg in getattr(exc, "args", ()):
+        values.append(arg)
+
+    for attr in ("body", "response_body", "error", "detail", "details"):
+        attr_value = getattr(exc, attr, None)
+        if attr_value is not None:
+            values.append(attr_value)
+
+    response = getattr(exc, "response", None)
+    if response is not None:
+        for attr in ("text", "content", "reason_phrase"):
+            attr_value = getattr(response, attr, None)
+            if attr_value is not None:
+                values.append(attr_value)
+
+    messages: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        for candidate in _iter_structured_error_strings(value):
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            messages.append(candidate)
+    return messages
 
 
 def should_retry(exc: BaseException) -> bool:
@@ -486,6 +610,9 @@ def should_retry(exc: BaseException) -> bool:
     if isinstance(exc, OSError) and exc.errno in RETRYABLE_ERRNOS:
         return True
 
+    # HTTP status remains the primary retry contract. This text fallback exists
+    # only for provider SDK paths that sometimes drop the status code during
+    # streaming and leave the transient signal inside a structured error body.
     if _message_looks_retryable(exc):
         return True
 

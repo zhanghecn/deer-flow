@@ -405,6 +405,19 @@ describe("useThreadStream", () => {
     const rateLimitError =
       "RateLimitError('Error code: 429 - {\\'error\\': {\\'message\\': \"We\\'re receiving too many requests right now.\"}, \\'type\\': \\'error\\'}')";
 
+    const { result } = renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
     streamState = makeThreadState({
       history: [
         {
@@ -428,18 +441,9 @@ describe("useThreadStream", () => {
       ],
     });
 
-    renderHook(
-      () =>
-        useThreadStream({
-          threadId: "thread-1",
-          context: {
-            model_name: "kimi-k2.5",
-            mode: "pro",
-            agent_status: "dev",
-          },
-        }),
-      { wrapper: createWrapper() },
-    );
+    act(() => {
+      emitStream(streamState);
+    });
 
     await act(async () => {
       await Promise.resolve();
@@ -451,6 +455,12 @@ describe("useThreadStream", () => {
         id: expect.stringContaining("thread-1"),
       }),
     );
+    expect(result.current[4]).toMatchObject({
+      event: "failed",
+      phase_kind: "run",
+      error: "429 We're receiving too many requests right now.",
+      terminal: true,
+    });
   });
 
   it("does not replay the same persisted actionable error twice while hydration is loading", async () => {

@@ -583,6 +583,61 @@ function renderGroupedMessage(
   }
 }
 
+function ExecutionStatusBanner({
+  executionStatus,
+}: {
+  executionStatus: ExecutionStatus;
+}) {
+  const isFailure =
+    executionStatus.event === "failed" ||
+    executionStatus.event === "retry_failed";
+  const isCompleted = executionStatus.event === "completed";
+  const isInterrupted = executionStatus.event === "interrupted";
+
+  const label =
+    executionStatus.event === "retrying"
+      ? executionStatus.tool_name
+        ? `Retrying ${executionStatus.tool_name}`
+        : "Retrying model"
+      : executionStatus.event === "retry_failed"
+        ? "Retry failed"
+        : executionStatus.event === "failed"
+          ? "Run failed"
+          : executionStatus.event === "interrupted"
+            ? "Run stopped"
+            : executionStatus.event === "completed"
+              ? "Run completed"
+              : executionStatus.phase_kind === "tool"
+                ? executionStatus.tool_name
+                  ? `Running ${executionStatus.tool_name}`
+                  : "Running tool"
+                : executionStatus.phase === "thinking_finalize"
+                  ? "Finalizing response"
+                  : "Thinking";
+
+  const detail = executionStatus.error?.trim();
+  const toneClassName = isFailure
+    ? "border-rose-200 bg-rose-50 text-rose-950"
+    : isCompleted
+      ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+      : isInterrupted
+        ? "border-slate-300 bg-slate-100 text-slate-900"
+        : executionStatus.phase_kind === "retry"
+          ? "border-amber-200 bg-amber-50 text-amber-950"
+          : "border-slate-200 bg-white text-slate-700";
+
+  return (
+    <div className="flex w-full justify-center">
+      <div className={cn("w-full border px-4 py-3", toneClassName)}>
+        <p className="text-sm font-medium">{label}</p>
+        {detail && detail !== label ? (
+          <p className="mt-1 text-sm leading-6 break-words">{detail}</p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function useStreamingMessagePartitions(
   messages: AgentThreadState["messages"],
   isThreadStreaming: boolean,
@@ -758,7 +813,7 @@ export function MessageList({
         : "Retrying model";
     }
     if (executionStatus.event === "failed" || executionStatus.event === "retry_failed") {
-      return executionStatus.error?.trim() || "Run failed";
+      return executionStatus.error?.trim() ?? "Run failed";
     }
     if (executionStatus.event === "interrupted") {
       return "Run stopped";
@@ -855,7 +910,9 @@ export function MessageList({
             ))}
           </div>
         )}
-        {inlineExecutionLabel ? (
+        {executionStatus ? (
+          <ExecutionStatusBanner executionStatus={executionStatus} />
+        ) : inlineExecutionLabel ? (
           <div className="flex w-full justify-center">
             <div className="w-full border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
               {inlineExecutionLabel}

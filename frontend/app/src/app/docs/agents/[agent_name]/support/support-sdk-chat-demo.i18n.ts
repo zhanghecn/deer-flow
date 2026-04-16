@@ -41,6 +41,10 @@ export type SupportSDKChatDemoText = {
   toolFinishedTitle: string;
   activityTitle: string;
   activityEmpty: string;
+  stepsTitle: string;
+  stepsEmpty: string;
+  responseMetaLabel: string;
+  toolCallsMetaLabel: string;
   composerLabel: string;
   composerPlaceholder: string;
   send: string;
@@ -95,6 +99,10 @@ const enUS: SupportSDKChatDemoText = {
   activityTitle: "Last run activity",
   activityEmpty:
     "Tool calls and terminal events for the latest run will appear here after the agent answers.",
+  stepsTitle: "Run steps",
+  stepsEmpty: "Run steps will appear here after this reply finishes.",
+  responseMetaLabel: "Response",
+  toolCallsMetaLabel: "Tool calls",
   composerLabel: "Ask the published support agent",
   composerPlaceholder:
     "Ask about file names, read a page, filter with glob, or search with grep.",
@@ -169,6 +177,10 @@ const zhCN: SupportSDKChatDemoText = {
   toolFinishedTitle: "工具结束",
   activityTitle: "最近一次运行活动",
   activityEmpty: "智能体回答后，这里会展示最近一次运行的工具调用与结束事件。",
+  stepsTitle: "运行步骤",
+  stepsEmpty: "这条回复完成后，会在这里显示对应的运行步骤。",
+  responseMetaLabel: "响应",
+  toolCallsMetaLabel: "工具调用",
   composerLabel: "向已发布客服智能体提问",
   composerPlaceholder: "你可以问文件列表、分页读文件、glob 过滤或 grep 搜索。",
   send: "发送",

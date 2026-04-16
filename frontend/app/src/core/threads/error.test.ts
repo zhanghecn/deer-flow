@@ -34,6 +34,12 @@ describe("normalizeThreadError", () => {
         "RateLimitError('Error code: 429 - {\\'error\\': {\\'message\\': \"We\\'re receiving too many requests right now.\"}, \\'type\\': \\'error\\'}')",
       ),
     ).toBe("429 We're receiving too many requests right now.");
+
+    expect(
+      normalizeThreadError(
+        "{'type': 'error', 'error': {'message': '网络错误，错误id：202604162004385dab114c4ec9494e，请稍后重试', 'code': '1234'}, 'request_id': '202604162004385dab114c4ec9494e'}",
+      ),
+    ).toBe("网络错误，错误id：202604162004385dab114c4ec9494e，请稍后重试");
   });
 
   it("identifies local cancellation errors that should stay silent", () => {

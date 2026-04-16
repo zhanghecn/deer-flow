@@ -32,7 +32,6 @@ import { workspaceMessageRehypePlugins } from "@/core/streamdown";
 import { extractQuestionRequestFromArgs } from "@/core/threads/interrupts";
 import { getUserVisibleRuntimePathWithOptions } from "@/core/utils/files";
 import { extractTitleFromMarkdown } from "@/core/utils/markdown";
-import { env } from "@/env";
 import { cn } from "@/lib/utils";
 
 import { useArtifacts } from "../artifacts";
@@ -69,6 +68,48 @@ function getToolDisplayPath(path: string) {
   return getUserVisibleRuntimePathWithOptions(path, { compact: false });
 }
 
+function normalizeToolArgs(
+  value: unknown,
+): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const filtered = Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).filter(
+      ([key, entryValue]) => key !== "description" && entryValue !== undefined,
+    ),
+  );
+
+  if (Object.keys(filtered).length === 0) {
+    return null;
+  }
+
+  return JSON.stringify(filtered, null, 2);
+}
+
+function ToolArgsBlock({
+  args,
+}: {
+  args: Record<string, unknown>;
+}) {
+  const normalizedArgs = normalizeToolArgs(args);
+  if (!normalizedArgs) {
+    return null;
+  }
+
+  return (
+    <CodeBlock
+      className="mx-0 overflow-hidden border-border/60 px-0 shadow-sm"
+      showLineNumbers={false}
+      language="json"
+      code={normalizedArgs}
+      renderMode="highlight"
+      wrapLongLines={true}
+    />
+  );
+}
+
 export function MessageGroup({
   className,
   messages,
@@ -81,9 +122,7 @@ export function MessageGroup({
   showTrailingReasoning?: boolean;
 }) {
   const { t } = useI18n();
-  const [showAbove, setShowAbove] = useState(
-    env.VITE_STATIC_WEBSITE_ONLY === "true",
-  );
+  const [showAbove, setShowAbove] = useState(true);
   const steps = useMemo(() => convertToSteps(messages), [messages]);
   const lastToolCallStep = useMemo(() => {
     const filteredSteps = steps.filter((step) => step.type === "toolCall");
@@ -153,7 +192,9 @@ export function MessageGroup({
         </Button>
       )}
       <ChainOfThoughtContent className="px-4 py-3">
-        {/* Hide older steps behind an explicit toggle so long tool chains do not make the active message column sluggish. */}
+        {/* Keep completed steps visible by default so reopened threads and long
+            tool chains still preserve their full reasoning trail unless the
+            user explicitly collapses them. */}
         {showAbove &&
           aboveLastToolCallSteps.map((step) =>
             step.type === "reasoning" ? (
@@ -327,6 +368,7 @@ function ToolCall({
             {getToolDisplayPath(path)}
           </ChainOfThoughtSearchResult>
         )}
+        <ToolArgsBlock args={args} />
       </ChainOfThoughtStep>
     );
   } else if (name === "read_file") {
@@ -350,6 +392,7 @@ function ToolCall({
             offset={offset ?? 0}, limit={limit ?? 2000}
           </ChainOfThoughtSearchResult>
         )}
+        <ToolArgsBlock args={args} />
       </ChainOfThoughtStep>
     );
   } else if (
@@ -408,6 +451,7 @@ function ToolCall({
             {getToolDisplayPath(path)}
           </ChainOfThoughtSearchResult>
         )}
+        <ToolArgsBlock args={args} />
       </ChainOfThoughtStep>
     );
   } else if (name === "bash" || name === "execute") {
@@ -441,6 +485,7 @@ function ToolCall({
               wrapLongLines={false}
             />
           )}
+          <ToolArgsBlock args={args} />
         </div>
       </ChainOfThoughtStep>
     );
@@ -482,6 +527,7 @@ function ToolCall({
             output_mode: {outputMode}
           </ChainOfThoughtSearchResult>
         )}
+        <ToolArgsBlock args={args} />
       </ChainOfThoughtStep>
     );
   } else if (name === "glob") {
@@ -510,6 +556,7 @@ function ToolCall({
             path: {getToolDisplayPath(path)}
           </ChainOfThoughtSearchResult>
         )}
+        <ToolArgsBlock args={args} />
       </ChainOfThoughtStep>
     );
   } else if (name === "question") {
@@ -544,7 +591,9 @@ function ToolCall({
         key={id}
         label={description ?? t.toolCalls.useTool(name)}
         icon={WrenchIcon}
-      ></ChainOfThoughtStep>
+      >
+        <ToolArgsBlock args={args} />
+      </ChainOfThoughtStep>
     );
   }
 }

@@ -181,3 +181,40 @@ def test_execution_events_classify_model_tool_model_sequence():
         "tool_running",
         "thinking_finalize",
     ]
+
+
+def test_model_retry_middleware_retries_structured_multilingual_provider_errors():
+    events: list[dict[str, object]] = []
+    stream_writer = events.append
+    middleware = build_model_retry_middleware(max_retries=2)
+    middleware.initial_delay = 0.0
+    middleware.max_delay = 0.0
+    middleware.jitter = False
+    attempts = 0
+
+    request = ModelRequest(
+        model=object(),
+        messages=[],
+        state={"messages": []},
+        runtime=Runtime(context=None, store=None, stream_writer=stream_writer),
+    )
+
+    def handler(_request: ModelRequest[object]) -> ModelResponse[object]:
+        nonlocal attempts
+        if attempts == 0:
+            attempts += 1
+            raise RuntimeError(
+                "{'type': 'error', 'error': {'message': '网络错误，错误id：202604162004385dab114c4ec9494e，请稍后重试', 'code': '1234'}, 'request_id': '202604162004385dab114c4ec9494e'}"
+            )
+        return ModelResponse(result=[AIMessage(content="ok")])
+
+    response = middleware.wrap_model_call(request, handler)
+
+    assert response.result[0].content == "ok"
+    assert [event["event"] for event in events] == [
+        "run_started",
+        "phase_started",
+        "retrying",
+        "retry_completed",
+        "phase_finished",
+    ]

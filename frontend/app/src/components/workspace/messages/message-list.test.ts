@@ -167,4 +167,33 @@ describe("subtask aggregate state", () => {
 
     expect(screen.getByText("Running bash")).toBeInTheDocument();
   });
+
+  it("renders a persistent failure card when execution status reports an error", () => {
+    render(
+      React.createElement(MessageList, {
+        threadId: "thread-1",
+        thread: {
+          messages: [],
+          isLoading: false,
+          isThreadLoading: false,
+        } as never,
+        executionStatus: {
+          event: "failed",
+          phase: "thinking_initial",
+          phase_kind: "run",
+          started_at: "2026-04-14T10:00:00Z",
+          run_started_at: "2026-04-14T10:00:00Z",
+          finished_at: "2026-04-14T10:00:04Z",
+          error: "网络错误，错误id：202604162004385dab114c4ec9494e，请稍后重试",
+          terminal: true,
+        },
+        paddingBottom: 0,
+      }),
+    );
+
+    expect(screen.getByText("Run failed")).toBeInTheDocument();
+    expect(
+      screen.getByText("网络错误，错误id：202604162004385dab114c4ec9494e，请稍后重试"),
+    ).toBeInTheDocument();
+  });
 });
