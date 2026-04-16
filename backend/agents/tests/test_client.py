@@ -11,6 +11,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage  # noqa
 
 from src.agents.lead_agent.agent import LeadAgentRuntimeContext
 from src.client import OpenAgentsClient
+from src.config.paths import Paths
 from src.config.runtime_defaults import DEFAULT_SUBAGENT_ENABLED
 from src.config.runtime_limits import DEFAULT_AGENT_RECURSION_LIMIT
 from src.gateway.routers.mcp import McpConfigResponse
@@ -132,6 +133,64 @@ class TestConfigQueries:
             result = client.get_memory(user_id="user-1", agent_name="analyst")
             mock_mem.assert_called_once_with(user_id="user-1", agent_name="analyst", agent_status="dev")
         assert result == memory
+
+    def test_list_mcp_profiles(self, client, tmp_path):
+        paths = Paths(base_dir=tmp_path, skills_dir=tmp_path / "skills")
+        (paths.custom_mcp_profiles_dir).mkdir(parents=True, exist_ok=True)
+        profile_file = paths.custom_mcp_profiles_dir / "customer-docs.json"
+        profile_file.write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "customer-docs": {
+                            "type": "http",
+                            "url": "https://customer.example.com/mcp",
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with patch("src.client.get_paths", return_value=paths):
+            result = client.list_mcp_profiles()
+
+        assert result["profiles"][0]["source_path"] == "custom/mcp-profiles/customer-docs.json"
+        assert result["profiles"][0]["server_name"] == "customer-docs"
+
+    def test_create_update_and_delete_mcp_profile(self, client, tmp_path):
+        paths = Paths(base_dir=tmp_path, skills_dir=tmp_path / "skills")
+
+        with patch("src.client.get_paths", return_value=paths):
+            created = client.create_mcp_profile(
+                "customer-docs",
+                {
+                    "mcpServers": {
+                        "customer-docs": {
+                            "type": "http",
+                            "url": "https://customer.example.com/mcp",
+                        }
+                    }
+                },
+            )
+            assert created["source_path"] == "custom/mcp-profiles/customer-docs.json"
+
+            updated = client.update_mcp_profile(
+                "customer-docs",
+                {
+                    "mcpServers": {
+                        "customer-docs": {
+                            "type": "http",
+                            "url": "https://customer.example.com/updated",
+                        }
+                    }
+                },
+            )
+            assert updated["config_json"]["mcpServers"]["customer-docs"]["url"] == "https://customer.example.com/updated"
+
+            client.delete_mcp_profile("customer-docs")
+
+        assert not paths.custom_mcp_profile_file("customer-docs.json").exists()
 
 
 class TestRunnableConfig:

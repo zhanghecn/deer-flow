@@ -942,6 +942,122 @@ def test_setup_agent_preserves_existing_agent_manifest_fields_when_omitted(monke
     assert calls["subagents"][0].name == "designer-helper"
 
 
+def test_setup_agent_allows_explicit_mcp_binding_override(monkeypatch, tmp_path: Path):
+    paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
+    agent_dir = paths.custom_agent_dir("support-agent", "dev")
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    (agent_dir / "AGENTS.md").write_text("# Support Agent\n", encoding="utf-8")
+    (agent_dir / "config.yaml").write_text(
+        yaml.dump(
+            {
+                "name": "support-agent",
+                "status": "dev",
+                "description": "Existing description",
+                "mcp_servers": ["custom/mcp-profiles/old.json"],
+                "agents_md_path": "AGENTS.md",
+                "skill_refs": [],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    calls: dict[str, object] = {}
+
+    def fake_materialize_agent_definition(**kwargs):
+        calls.update(kwargs)
+        return SimpleNamespace(skill_refs=[], name="support-agent")
+
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.materialize_agent_definition",
+        fake_materialize_agent_definition,
+    )
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.get_paths",
+        lambda: paths,
+    )
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool._refresh_thread_runtime_materials",
+        lambda **kwargs: None,
+    )
+
+    runtime = SimpleNamespace(
+        context=LeadAgentRuntimeContext(
+            agent_name="support-agent",
+            agent_status="dev",
+            runtime_thread_id="thread-1",
+            model_name="kimi-k2.5",
+        ),
+        tool_call_id="tc-explicit-mcp-override",
+    )
+
+    setup_agent.func(
+        runtime=runtime,
+        mcp_servers=["custom/mcp-profiles/customer-docs.json"],
+        skills=[],
+    )
+
+    assert calls["mcp_servers"] == ["custom/mcp-profiles/customer-docs.json"]
+
+
+def test_setup_agent_writes_mcp_profile_and_binds_it(monkeypatch, tmp_path: Path):
+    paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
+
+    calls: dict[str, object] = {}
+
+    def fake_materialize_agent_definition(**kwargs):
+        calls.update(kwargs)
+        return SimpleNamespace(skill_refs=[], name="support-agent")
+
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.materialize_agent_definition",
+        fake_materialize_agent_definition,
+    )
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.get_paths",
+        lambda: paths,
+    )
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool._refresh_thread_runtime_materials",
+        lambda **kwargs: None,
+    )
+
+    runtime = SimpleNamespace(
+        context=LeadAgentRuntimeContext(
+            agent_name="lead_agent",
+            agent_status="dev",
+            runtime_thread_id="thread-1",
+            model_name="kimi-k2.5",
+        ),
+        tool_call_id="tc-create-mcp-profile-and-bind",
+    )
+
+    setup_agent.func(
+        runtime=runtime,
+        agent_name="support-agent",
+        agents_md="# Support Agent\n",
+        description="Answers customer questions",
+        mcp_profiles=[
+            {
+                "name": "customer-docs",
+                "config_json": {
+                    "mcpServers": {
+                        "customer-docs": {
+                            "type": "http",
+                            "url": "https://customer.example.com/mcp",
+                        }
+                    }
+                },
+            }
+        ],
+        skills=[],
+    )
+
+    profile_file = paths.custom_mcp_profile_file("customer-docs.json")
+    assert profile_file.exists()
+    assert calls["mcp_servers"] == ["custom/mcp-profiles/customer-docs.json"]
+
+
 def test_setup_agent_requires_agents_md_and_description_for_new_agents():
     runtime = SimpleNamespace(
         context=LeadAgentRuntimeContext(

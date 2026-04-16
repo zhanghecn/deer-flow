@@ -576,7 +576,7 @@ export const zhCN: Translations = {
     description: "根据你的偏好调整 OpenAgents 的界面和行为。",
     sections: {
       appearance: "外观",
-      tools: "工具",
+      tools: "MCP",
       skills: "技能",
       notification: "通知",
       about: "关于",
@@ -595,10 +595,19 @@ export const zhCN: Translations = {
     },
     tools: {
       title: "工具",
-      description: "管理 MCP 工具的配置和启用状态。",
+      description: "管理可供智能体绑定的全局 MCP Library。",
       loadError: (message: string) =>
         message ? `加载工具失败：${message}` : "加载工具失败",
-      emptyState: "当前还没有配置 MCP 工具。",
+      emptyState: "当前还没有配置 MCP Profile。",
+      createProfile: "新建 MCP",
+      editProfile: "编辑 MCP",
+      profileCreated: "MCP Profile 已创建",
+      profileUpdated: "MCP Profile 已更新",
+      profileDeleted: "MCP Profile 已删除",
+      profileName: "Profile 名称",
+      profileConfig: "标准 mcpServers JSON",
+      saveProfile: "保存 MCP Profile",
+      saveError: "保存 MCP Profile 失败",
     },
     skills: {
       title: "技能",

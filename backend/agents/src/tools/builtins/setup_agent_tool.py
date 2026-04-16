@@ -1,6 +1,8 @@
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
+import json
+from pathlib import Path
 from typing import Any
 
 from langchain_core.messages import ToolMessage
@@ -18,6 +20,7 @@ from src.config.agent_skill_preservation import (
 )
 from src.config.agents_config import AGENT_NAME_PATTERN, AgentConfig, load_agent_config, load_agent_subagents, load_agents_md
 from src.config.paths import get_paths
+from src.mcp.library import normalize_mcp_profile_name, write_mcp_profile
 from src.config.runtime_db import get_runtime_db_store
 from src.runtime_backends import (
     REMOTE_EXECUTION_BACKEND,
@@ -57,6 +60,25 @@ class SetupAgentSkillInput(BaseModel):
             "Skill name. When copying an existing archived store skill, use the existing skill name. "
             "When creating a brand-new agent-owned skill, use the target local skill name."
         )
+    )
+
+
+class SetupAgentMCPProfileInput(BaseModel):
+    """Single MCP library item for setup_agent."""
+
+    name: str = Field(
+        ...,
+        description=(
+            "Target reusable MCP profile name, for example `customer-docs` or "
+            "`support/customer-docs.json`. This writes to the custom MCP library."
+        ),
+    )
+    config_json: dict[str, object] = Field(
+        ...,
+        description=(
+            "Canonical MCP profile JSON using the Claude Code-style `mcpServers` "
+            "shape. The payload must define exactly one server entry."
+        ),
     )
     source_path: str | None = Field(
         default=None,
@@ -239,6 +261,63 @@ def _normalize_optional_description(description: str | None) -> str | None:
     return rendered
 
 
+def _merge_mcp_server_bindings(*binding_sets: list[str] | None) -> list[str] | None:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for values in binding_sets:
+        for raw_value in values or []:
+            value = str(raw_value or "").strip()
+            if not value or value in seen:
+                continue
+            merged.append(value)
+            seen.add(value)
+    return merged or None
+
+
+def _write_requested_mcp_profiles(
+    *,
+    mcp_profiles: list[SetupAgentMCPProfileInput | dict[str, Any]] | None,
+    paths: Any,
+) -> tuple[list[str], list[tuple[Path, bytes | None]]]:
+    """Write custom MCP library items requested by setup_agent.
+
+    Returns the canonical profile refs that should be bound to the target agent
+    plus rollback data for any files touched in this call.
+    """
+
+    written_refs: list[str] = []
+    rollback_items: list[tuple[Path, bytes | None]] = []
+
+    for raw_entry in mcp_profiles or []:
+        parsed = (
+            raw_entry
+            if isinstance(raw_entry, SetupAgentMCPProfileInput)
+            else SetupAgentMCPProfileInput.model_validate(raw_entry)
+        )
+        normalized_name = normalize_mcp_profile_name(parsed.name)
+        target_file = paths.custom_mcp_profile_file(normalized_name)
+        previous_content = target_file.read_bytes() if target_file.exists() else None
+        rollback_items.append((target_file, previous_content))
+        source_path = write_mcp_profile(
+            scope="custom",
+            name=normalized_name,
+            config_json=parsed.config_json,
+            paths=paths,
+        )
+        written_refs.append(source_path)
+
+    return written_refs, rollback_items
+
+
+def _rollback_mcp_profile_writes(rollback_items: list[tuple[Path, bytes | None]]) -> None:
+    for profile_file, previous_content in reversed(rollback_items):
+        if previous_content is None:
+            profile_file.unlink(missing_ok=True)
+            continue
+        profile_file.parent.mkdir(parents=True, exist_ok=True)
+        profile_file.write_bytes(previous_content)
+
+
 def _load_existing_agent_update_state(
     *,
     agent_name: str,
@@ -268,6 +347,7 @@ def _resolve_manifest_update_inputs(
     agents_md: str | None,
     description: str | None,
     tool_groups: list[str] | None,
+    mcp_servers: list[str] | None,
 ) -> tuple[
     _ExistingAgentUpdateState | None,
     str,
@@ -308,13 +388,14 @@ def _resolve_manifest_update_inputs(
             owner_user_id,
             tool_groups,
             None,
-            None,
+            mcp_servers,
             None,
             None,
             None,
         )
 
     resolved_tool_groups = tool_groups if tool_groups is not None else existing_state.config.tool_groups
+    resolved_mcp_servers = mcp_servers if mcp_servers is not None else existing_state.config.mcp_servers
     if explicit_agents_md is None and existing_state.agents_md is None:
         raise ValueError(
             f"setup_agent could not load existing AGENTS.md for '{agent_name}'. "
@@ -328,7 +409,7 @@ def _resolve_manifest_update_inputs(
         resolved_owner_user_id,
         resolved_tool_groups,
         existing_state.config.tool_names,
-        existing_state.config.mcp_servers,
+        resolved_mcp_servers,
         existing_state.config.memory,
         existing_state.config.subagent_defaults,
         existing_state.subagents,
@@ -525,6 +606,8 @@ def setup_agent(
     agent_name: str | None = None,
     model: str | None = None,
     tool_groups: list[str] | None = None,
+    mcp_servers: list[str] | None = None,
+    mcp_profiles: list[SetupAgentMCPProfileInput] | None = None,
     skills: list[SetupAgentSkillInput] | None = None,
 ) -> Command:
     """Create or update a dev agent definition with copied and/or inline skills.
@@ -547,6 +630,14 @@ def setup_agent(
         model: Optional model override for the agent (e.g. "openai/gpt-4o").
             When omitted, setup_agent persists the current runtime model selection.
         tool_groups: Optional list of runtime tool groups to enable for the agent.
+        mcp_servers: Optional list of MCP library refs or legacy MCP names to bind to
+            the agent. Canonical refs look like `custom/mcp-profiles/customer-docs.json`
+            or `system/mcp-profiles/slack.json`. When omitted, preserve the existing
+            archived agent MCP bindings.
+        mcp_profiles: Optional custom MCP library items to create or update before
+            binding. Each entry uses canonical `mcpServers` JSON and is written into
+            the custom MCP library. Newly written profile refs are automatically bound
+            to the target agent for this call.
         skills: Optional list of skill entries. Use a skill `source_path` or existing
             skill `name` to copy an archived skill. Use both a new skill `name` and full
             `content` to create or replace an agent-owned skill.
@@ -571,6 +662,10 @@ def setup_agent(
             raise ValueError(_missing_agent_name_error(runtime_context=runtime.context))
 
         paths = get_paths()
+        written_mcp_refs, rollback_mcp_profile_items = _write_requested_mcp_profiles(
+            mcp_profiles=mcp_profiles,
+            paths=paths,
+        )
         agent_status = str(runtime_context_value(runtime.context, "agent_status", "dev")).strip() or "dev"
         runtime_thread_id = _runtime_thread_id(runtime)
         owner_user_id = _resolve_owner_user_id(runtime=runtime, thread_id=runtime_thread_id)
@@ -595,6 +690,7 @@ def setup_agent(
             agents_md=agents_md,
             description=description,
             tool_groups=tool_groups,
+            mcp_servers=_merge_mcp_server_bindings(mcp_servers, written_mcp_refs),
         )
         if skills is None:
             copied_skill_refs, inline_skills = _resolve_default_setup_agent_skills(
@@ -667,6 +763,8 @@ def setup_agent(
         )
 
     except Exception as e:
+        if "rollback_mcp_profile_items" in locals():
+            _rollback_mcp_profile_writes(rollback_mcp_profile_items)
         error_message = str(e)
         unresolved_name_only_skills = _name_only_skill_names(skills)
         if "not found in allowed scopes:" in error_message and unresolved_name_only_skills:

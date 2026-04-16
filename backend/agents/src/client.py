@@ -50,6 +50,7 @@ from src.config.extensions_config import (
     reload_extensions_config,
 )
 from src.config.paths import get_paths
+from src.mcp.library import load_mcp_profile, resolve_mcp_profile_file, write_mcp_profile
 from src.config.runtime_defaults import DEFAULT_SUBAGENT_ENABLED
 from src.config.runtime_limits import DEFAULT_AGENT_RECURSION_LIMIT
 from src.models import create_chat_model
@@ -730,6 +731,113 @@ class OpenAgentsClient:
         self._agent = None
         reloaded = reload_extensions_config()
         return {"mcp_servers": {name: server.model_dump() for name, server in reloaded.mcp_servers.items()}}
+
+    # ------------------------------------------------------------------
+    # Public API — MCP profile library
+    # ------------------------------------------------------------------
+
+    def list_mcp_profiles(self) -> dict:
+        """List reusable MCP library items.
+
+        Returns:
+            Dict with `profiles` array matching the Gateway MCP profile list
+            shape.
+        """
+        paths = get_paths()
+        profiles: list[dict[str, Any]] = []
+        for scope, root in (
+            ("system", paths.system_mcp_profiles_dir),
+            ("custom", paths.custom_mcp_profiles_dir),
+        ):
+            if not root.exists():
+                continue
+            for profile_file in sorted(root.rglob("*.json")):
+                relative_path = profile_file.relative_to(root).as_posix()
+                source_path = f"{scope}/mcp-profiles/{relative_path}"
+                server_name, _config = load_mcp_profile(source_path, paths=paths)
+                with open(profile_file, encoding="utf-8") as handle:
+                    payload = json.load(handle)
+                profiles.append(
+                    {
+                        "name": profile_file.stem,
+                        "server_name": server_name,
+                        "category": scope,
+                        "source_path": source_path,
+                        "can_edit": scope == "custom",
+                        "config_json": payload,
+                    }
+                )
+        return {"profiles": profiles}
+
+    def get_mcp_profile(self, name: str, source_path: str | None = None) -> dict:
+        """Get one MCP library item by source path or visible name."""
+        normalized_source_path = str(source_path or "").strip()
+        if normalized_source_path:
+            resolved_file = resolve_mcp_profile_file(normalized_source_path, paths=get_paths())
+            with open(resolved_file, encoding="utf-8") as handle:
+                payload = json.load(handle)
+            server_name, _config = load_mcp_profile(normalized_source_path, paths=get_paths())
+            scope = normalized_source_path.split("/", 1)[0]
+            return {
+                "name": resolved_file.stem,
+                "server_name": server_name,
+                "category": scope,
+                "source_path": normalized_source_path,
+                "can_edit": scope == "custom",
+                "config_json": payload,
+            }
+
+        listed = self.list_mcp_profiles()["profiles"]
+        lowered_name = str(name).strip().lower()
+        matches = [profile for profile in listed if str(profile.get("name", "")).strip().lower() == lowered_name]
+        if not matches:
+            raise ValueError(f"MCP profile '{name}' not found")
+        if len(matches) > 1:
+            scopes = ", ".join(str(profile["source_path"]) for profile in matches)
+            raise ValueError(f"MCP profile '{name}' is ambiguous across: {scopes}")
+        return matches[0]
+
+    def create_mcp_profile(self, name: str, config_json: dict[str, Any]) -> dict:
+        """Create a custom MCP library item from canonical mcpServers JSON."""
+        normalized_name = str(name or "").strip()
+        if not normalized_name:
+            raise ValueError("MCP profile name is required")
+        paths = get_paths()
+        profile_file = paths.custom_mcp_profile_file(normalized_name)
+        if profile_file.exists():
+            raise FileExistsError(f"MCP profile '{normalized_name}' already exists")
+
+        source_path = write_mcp_profile(
+            scope="custom",
+            name=normalized_name,
+            config_json=config_json,
+            paths=paths,
+        )
+        return self.get_mcp_profile(profile_file.stem, source_path)
+
+    def update_mcp_profile(self, name: str, config_json: dict[str, Any], source_path: str | None = None) -> dict:
+        """Update an existing custom MCP library item."""
+        profile = self.get_mcp_profile(name, source_path)
+        if profile["category"] != "custom":
+            raise ValueError(f"MCP profile '{name}' is read-only")
+        paths = get_paths()
+        source_path_value = str(profile["source_path"])
+        resolved_file = resolve_mcp_profile_file(source_path_value, paths=paths)
+        write_mcp_profile(
+            scope="custom",
+            name=resolved_file.name,
+            config_json=config_json,
+            paths=paths,
+        )
+        return self.get_mcp_profile(resolved_file.stem, str(profile["source_path"]))
+
+    def delete_mcp_profile(self, name: str, source_path: str | None = None) -> None:
+        """Delete an editable custom MCP library item."""
+        profile = self.get_mcp_profile(name, source_path)
+        if profile["category"] != "custom":
+            raise ValueError(f"MCP profile '{name}' is read-only")
+        resolved_file = resolve_mcp_profile_file(str(profile["source_path"]), paths=get_paths())
+        resolved_file.unlink()
 
     # ------------------------------------------------------------------
     # Public API — skills management

@@ -604,7 +604,7 @@ export const enUS: Translations = {
     description: "Adjust how OpenAgents looks and behaves for you.",
     sections: {
       appearance: "Appearance",
-      tools: "Tools",
+      tools: "MCP",
       skills: "Skills",
       notification: "Notification",
       about: "About",
@@ -624,10 +624,19 @@ export const enUS: Translations = {
     },
     tools: {
       title: "Tools",
-      description: "Manage the configuration and enabled status of MCP tools.",
+      description: "Manage the global MCP library that agents can bind to.",
       loadError: (message: string) =>
         message ? `Failed to load tools: ${message}` : "Failed to load tools",
-      emptyState: "No MCP tools are configured yet.",
+      emptyState: "No MCP profiles are configured yet.",
+      createProfile: "Create MCP",
+      editProfile: "Edit MCP",
+      profileCreated: "MCP profile created",
+      profileUpdated: "MCP profile updated",
+      profileDeleted: "MCP profile deleted",
+      profileName: "Profile name",
+      profileConfig: "Canonical mcpServers JSON",
+      saveProfile: "Save MCP profile",
+      saveError: "Failed to save MCP profile",
     },
     skills: {
       title: "Agent Skills",

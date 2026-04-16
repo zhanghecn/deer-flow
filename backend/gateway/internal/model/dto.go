@@ -41,7 +41,7 @@ type CreateAgentRequest struct {
 	Model            *string                `json:"model"`
 	ToolGroups       []string               `json:"tool_groups"`
 	ToolNames        []string               `json:"tool_names"`
-	McpServers       []string               `json:"mcp_servers"`
+	McpServers       []string               `json:"mcp_servers"` // Stable MCP library refs bound to the agent
 	Memory           *AgentMemoryConfig     `json:"memory"`
 	SubagentDefaults *AgentSubagentDefaults `json:"subagent_defaults"`
 	Subagents        []AgentSubagent        `json:"subagents"`
@@ -55,7 +55,7 @@ type UpdateAgentRequest struct {
 	Model            *string                `json:"model"`
 	ToolGroups       []string               `json:"tool_groups"`
 	ToolNames        []string               `json:"tool_names"`
-	McpServers       []string               `json:"mcp_servers"`
+	McpServers       []string               `json:"mcp_servers"` // Stable MCP library refs bound to the agent
 	Memory           *AgentMemoryConfig     `json:"memory"`
 	SubagentDefaults *AgentSubagentDefaults `json:"subagent_defaults"`
 	Subagents        []AgentSubagent        `json:"subagents"`
@@ -86,6 +86,17 @@ type UpdateSkillRequest struct {
 	Description     *string            `json:"description"`
 	DescriptionI18n *map[string]string `json:"description_i18n"`
 	SkillMD         *string            `json:"skill_md"`
+}
+
+// MCP library DTOs
+
+type CreateMCPProfileRequest struct {
+	Name       string          `json:"name" binding:"required,min=1,max=128"`
+	ConfigJSON json.RawMessage `json:"config_json" binding:"required"`
+}
+
+type UpdateMCPProfileRequest struct {
+	ConfigJSON json.RawMessage `json:"config_json" binding:"required"`
 }
 
 type CreateAgentAuthoringDraftRequest struct {

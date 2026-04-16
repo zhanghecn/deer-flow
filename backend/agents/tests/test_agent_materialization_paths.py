@@ -220,6 +220,43 @@ def test_materialize_agent_definition_rejects_store_dev_skills_for_prod_agents(t
         )
 
 
+def test_materialize_agent_definition_accepts_canonical_mcp_profile_refs(tmp_path: Path):
+    base_dir = tmp_path / ".openagents"
+    paths = Paths(base_dir=base_dir, skills_dir=base_dir / "skills")
+    profile_file = paths.custom_mcp_profile_file("customer-docs.json")
+    profile_file.parent.mkdir(parents=True, exist_ok=True)
+    profile_file.write_text(
+        '{\n  "mcpServers": {\n    "customer-docs": {\n      "type": "http",\n      "url": "https://customer.example.com/mcp"\n    }\n  }\n}\n',
+        encoding="utf-8",
+    )
+
+    config = materialize_agent_definition(
+        name="support-agent",
+        status="dev",
+        agents_md="# Support Agent",
+        description="Answers customer questions",
+        mcp_servers=["custom/mcp-profiles/customer-docs.json"],
+        paths=paths,
+    )
+
+    assert config.mcp_servers == ["custom/mcp-profiles/customer-docs.json"]
+
+
+def test_materialize_agent_definition_rejects_missing_canonical_mcp_profile_refs(tmp_path: Path):
+    base_dir = tmp_path / ".openagents"
+    paths = Paths(base_dir=base_dir, skills_dir=base_dir / "skills")
+
+    with pytest.raises(FileNotFoundError, match="MCP profile not found"):
+        materialize_agent_definition(
+            name="support-agent",
+            status="dev",
+            agents_md="# Support Agent",
+            description="Answers customer questions",
+            mcp_servers=["custom/mcp-profiles/missing.json"],
+            paths=paths,
+        )
+
+
 def test_materialize_agent_definition_does_not_mutate_existing_archive_when_resolution_fails(tmp_path: Path):
     base_dir = tmp_path / ".openagents"
     _write_skill(base_dir, "store/dev", "bootstrap", "bootstrap")

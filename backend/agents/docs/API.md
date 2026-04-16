@@ -205,63 +205,58 @@ GET /api/models/{model_name}
 }
 ```
 
-### MCP Configuration
+### MCP Library
 
-#### Get MCP Config
+#### List MCP Profiles
 
-Get current MCP server configurations.
+List reusable MCP library entries.
 
 ```http
-GET /api/mcp/config
+GET /api/mcp/profiles
 ```
 
 **Response:**
 ```json
 {
-  "mcpServers": {
-    "github": {
-      "enabled": true,
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-github"],
-      "env": {
-        "GITHUB_TOKEN": "***"
-      },
-      "description": "GitHub operations"
-    },
-    "filesystem": {
-      "enabled": false,
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem"],
-      "description": "File system access"
+  "profiles": [
+    {
+      "name": "customer-docs",
+      "server_name": "customer-docs",
+      "category": "custom",
+      "source_path": "custom/mcp-profiles/customer-docs.json",
+      "can_edit": true,
+      "config_json": {
+        "mcpServers": {
+          "customer-docs": {
+            "type": "http",
+            "url": "https://customer.example.com/mcp"
+          }
+        }
+      }
     }
-  }
+  ]
 }
 ```
 
-#### Update MCP Config
+#### Create MCP Profile
 
-Update MCP server configurations.
+Create a reusable MCP profile using canonical `mcpServers` JSON.
 
 ```http
-PUT /api/mcp/config
+POST /api/mcp/profiles
 Content-Type: application/json
 ```
 
 **Request Body:**
 ```json
 {
-  "mcpServers": {
-    "github": {
-      "enabled": true,
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-github"],
-      "env": {
-        "GITHUB_TOKEN": "$GITHUB_TOKEN"
-      },
-      "description": "GitHub operations"
+  "name": "customer-docs",
+  "config_json": {
+    "mcpServers": {
+      "customer-docs": {
+        "type": "http",
+        "url": "https://customer.example.com/mcp"
+      }
     }
   }
 }
@@ -270,10 +265,32 @@ Content-Type: application/json
 **Response:**
 ```json
 {
-  "success": true,
-  "message": "MCP configuration updated"
+  "name": "customer-docs",
+  "server_name": "customer-docs",
+  "category": "custom",
+  "source_path": "custom/mcp-profiles/customer-docs.json",
+  "can_edit": true,
+  "config_json": {
+    "mcpServers": {
+      "customer-docs": {
+        "type": "http",
+        "url": "https://customer.example.com/mcp"
+      }
+    }
+  }
 }
 ```
+
+#### Legacy MCP Config
+
+The old global MCP config route remains available during migration:
+
+```http
+GET /api/mcp/config
+PUT /api/mcp/config
+```
+
+Treat it as a legacy/debug surface rather than the primary product entrypoint.
 
 ### Skills
 

@@ -94,6 +94,44 @@ func TestStoreProdSkillsDirUsesOpenAgentsStoreProdScope(t *testing.T) {
 	}
 }
 
+func TestGlobalMCPProfileFileUsesSystemAndCustomRoots(t *testing.T) {
+	t.Parallel()
+
+	projectDir := t.TempDir()
+	baseDir := filepath.Join(projectDir, ".openagents")
+	fs := NewFS(baseDir)
+
+	gotSystem, err := fs.GlobalMCPProfileFile("system", "github")
+	if err != nil {
+		t.Fatalf("GlobalMCPProfileFile(system) error = %v", err)
+	}
+	wantSystem := filepath.Join(baseDir, "system", "mcp-profiles", "github.json")
+	if gotSystem != wantSystem {
+		t.Fatalf("GlobalMCPProfileFile(system) = %q, want %q", gotSystem, wantSystem)
+	}
+
+	gotCustom, err := fs.GlobalMCPProfileFile("custom", "customer-docs.json")
+	if err != nil {
+		t.Fatalf("GlobalMCPProfileFile(custom) error = %v", err)
+	}
+	wantCustom := filepath.Join(baseDir, "custom", "mcp-profiles", "customer-docs.json")
+	if gotCustom != wantCustom {
+		t.Fatalf("GlobalMCPProfileFile(custom) = %q, want %q", gotCustom, wantCustom)
+	}
+}
+
+func TestGlobalMCPProfileFileRejectsTraversal(t *testing.T) {
+	t.Parallel()
+
+	projectDir := t.TempDir()
+	baseDir := filepath.Join(projectDir, ".openagents")
+	fs := NewFS(baseDir)
+
+	if _, err := fs.GlobalMCPProfileFile("custom", "../agents/dev/lead_agent/config.yaml"); err == nil {
+		t.Fatal("expected traversal error")
+	}
+}
+
 func TestResolveBaseDirUsesProjectRootForRelativePaths(t *testing.T) {
 	projectDir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(projectDir, ".openagents", "skills"), 0755); err != nil {

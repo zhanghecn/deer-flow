@@ -384,9 +384,17 @@ Provider note:
 - `models[*].use` references provider classes by module path (for example `langchain_openai:ChatOpenAI`).
 - If a provider module is missing, OpenAgents now returns an actionable error with install guidance (for example `uv add langchain-google-genai`).
 
-### Extensions Configuration (`extensions_config.json`)
+### Legacy Extensions Configuration (`extensions_config.json`)
 
-MCP servers and skill states in a single file:
+This file remains available for backward compatibility and debugging.
+
+Primary MCP behavior now uses:
+
+- reusable MCP Library profiles under `.openagents/{system,custom}/mcp-profiles/*.json`
+- agent-bound `mcp_servers` refs that point at those profiles
+
+The old `extensions_config.json` path is no longer the main user-facing MCP
+configuration surface. Legacy shape:
 
 ```json
 {
@@ -420,7 +428,7 @@ MCP servers and skill states in a single file:
 ### Environment Variables
 
 - `OPENAGENTS_CONFIG_PATH` - Override config.yaml location
-- `OPENAGENTS_EXTENSIONS_CONFIG_PATH` - Override extensions_config.json location
+- `OPENAGENTS_EXTENSIONS_CONFIG_PATH` - Override legacy extensions_config.json location
 - Model API keys: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, etc.
 - Tool API keys: `EXA_API_KEY`, `GITHUB_TOKEN`, etc.
 

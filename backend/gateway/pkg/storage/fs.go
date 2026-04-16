@@ -116,6 +116,14 @@ func (f *FS) CustomSkillsDir() string {
 	return filepath.Join(f.CustomDir(), "skills")
 }
 
+func (f *FS) SystemMCPProfilesDir() string {
+	return filepath.Join(f.SystemDir(), "mcp-profiles")
+}
+
+func (f *FS) CustomMCPProfilesDir() string {
+	return filepath.Join(f.CustomDir(), "mcp-profiles")
+}
+
 func (f *FS) StoreDevSkillsDir() string {
 	return filepath.Join(f.SkillsDir(), "store", "dev")
 }
@@ -146,6 +154,51 @@ func (f *FS) GlobalSkillSourcePath(scope, relativeDir string) string {
 		return path.Join(cleanScope, "skills", cleanRelativeDir)
 	default:
 		return path.Join(cleanScope, cleanRelativeDir)
+	}
+}
+
+func normalizeMCPProfileRelativePath(profileName string) (string, error) {
+	cleanName := strings.Trim(strings.TrimSpace(profileName), "/")
+	if cleanName == "" {
+		return "", fmt.Errorf("mcp profile name is required")
+	}
+	normalized := path.Clean(cleanName)
+	if normalized == "." || normalized == "" || normalized == ".." || strings.HasPrefix(normalized, "../") {
+		return "", fmt.Errorf("mcp profile name must stay inside the MCP profile library")
+	}
+	if strings.HasPrefix(normalized, "/") {
+		return "", fmt.Errorf("mcp profile name must stay inside the MCP profile library")
+	}
+	if !strings.HasSuffix(strings.ToLower(normalized), ".json") {
+		normalized += ".json"
+	}
+	return normalized, nil
+}
+
+// NormalizeMCPProfileRelativePathForGateway validates one MCP profile filename
+// using the same invariant as the Python MCP library path parser: the profile
+// path must stay inside the MCP library root and cannot use absolute or parent
+// traversal segments.
+func NormalizeMCPProfileRelativePathForGateway(profileName string) (string, error) {
+	return normalizeMCPProfileRelativePath(profileName)
+}
+
+// GlobalMCPProfileFile returns the canonical JSON file path for one reusable
+// MCP library item. MCP profiles stay aligned to the Claude Code-style
+// `mcpServers` JSON shape, but Deer Flow stores them as one profile per file so
+// agents can bind them independently.
+func (f *FS) GlobalMCPProfileFile(scope, profileName string) (string, error) {
+	cleanName, err := normalizeMCPProfileRelativePath(profileName)
+	if err != nil {
+		return "", err
+	}
+	switch strings.Trim(strings.TrimSpace(scope), "/") {
+	case "system":
+		return filepath.Join(f.SystemMCPProfilesDir(), filepath.FromSlash(cleanName)), nil
+	case "custom":
+		return filepath.Join(f.CustomMCPProfilesDir(), filepath.FromSlash(cleanName)), nil
+	default:
+		return filepath.Join(f.baseDir, filepath.FromSlash(scope), filepath.FromSlash(cleanName)), nil
 	}
 }
 

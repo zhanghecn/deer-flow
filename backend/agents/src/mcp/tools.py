@@ -69,6 +69,38 @@ async def get_mcp_tools() -> list[BaseTool]:
         return []
 
 
+async def get_mcp_tools_for_extensions_config(
+    extensions_config: ExtensionsConfig,
+    *,
+    server_names: list[str] | None = None,
+) -> list[BaseTool]:
+    """Resolve MCP tools from an explicit config object.
+
+    This bypasses the workspace-global config singleton and is used for the new
+    agent-scoped MCP subset path where the active agent binds reusable MCP
+    library refs.
+    """
+
+    client, servers_config = await _build_client(extensions_config)
+    if client is None:
+        return []
+
+    requested_server_names = server_names
+    if requested_server_names is None:
+        requested_server_names = list(servers_config)
+
+    resolved: list[BaseTool] = []
+    for server_name in requested_server_names:
+        if server_name not in servers_config:
+            logger.warning("Explicit MCP server '%s' was not present in the resolved config", server_name)
+            continue
+        try:
+            resolved.extend(await client.get_tools(server_name=server_name))
+        except Exception as e:
+            logger.error("Failed to load tools from MCP server '%s': %s", server_name, e, exc_info=True)
+    return resolved
+
+
 async def get_mcp_tools_by_server() -> dict[str, list[BaseTool]]:
     """Get tools from enabled MCP servers, grouped by server name.
 

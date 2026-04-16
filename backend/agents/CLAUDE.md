@@ -199,9 +199,16 @@ Configuration priority:
 
 Config values starting with `$` are resolved as environment variables (e.g., `$OPENAI_API_KEY`).
 
-**Extensions Configuration** (`extensions_config.json`):
+**Legacy Extensions Configuration** (`extensions_config.json`):
 
-MCP servers and skills are configured together in `extensions_config.json` in project root:
+The old global MCP config file remains available for backward compatibility and
+debugging. Primary MCP behavior now comes from:
+
+- MCP Library profiles under `.openagents/{system,custom}/mcp-profiles/*.json`
+- agent-bound `mcp_servers` refs stored in agent manifests
+
+The legacy file still carries skill enablement state and may still be used by
+compatibility/debug flows:
 
 Configuration priority:
 1. Explicit `config_path` argument
@@ -224,7 +231,7 @@ Configuration priority:
 |--------|-----------|
 | **Agents** (`/api/agents`) | `GET /` - list (optional `status` filter); `POST /` - create dev agent from `AGENTS.md` + selected skills; `GET /{name}` - details (`status=dev|prod`); `PUT /{name}` - update selected status; `DELETE /{name}` - delete one status or all; `POST /{name}/publish` - publish dev→prod |
 | **Models** (`/api/models`) | `GET /` - list models; `GET /{name}` - model details |
-| **MCP** (`/api/mcp`) | `GET /config` - get config; `PUT /config` - update config (saves to extensions_config.json) |
+| **MCP** (`/api/mcp`) | `GET /config` - legacy/debug config; `PUT /config` - legacy/debug update; `GET /profiles` - list MCP Library; `POST /profiles` - create MCP Library item; `GET/PUT/DELETE /profiles/{name}` - MCP Library CRUD |
 | **Skills** (`/api/skills`) | `GET /` - list skills; `GET /{name}` - details; `PUT /{name}` - update enabled; `POST /install` - install from .skill archive |
 | **Memory** (`/api/memory`) | `GET /?user_id&agent_name&agent_status` - memory data; `POST /reload?user_id&agent_name&agent_status` - reload; `GET /config?agent_name&agent_status` - per-agent policy; `GET /status?user_id&agent_name&agent_status` - policy + data |
 | **Uploads** (`/api/threads/{id}/uploads`) | `POST /` - upload files (auto-converts PDF/PPT/Excel/Word); `GET /list` - list; `DELETE /{filename}` - delete |
@@ -278,7 +285,7 @@ The lead agent uses `deepagents.create_deep_agent()` which provides:
 - **Cache invalidation**: Detects config file changes via mtime comparison
 - **Transports**: stdio (command-based), SSE, HTTP
 - **OAuth (HTTP/SSE)**: Supports token endpoint flows (`client_credentials`, `refresh_token`) with automatic token refresh + Authorization header injection
-- **Runtime updates**: Gateway API saves to extensions_config.json; LangGraph detects via mtime
+- **Runtime updates**: Primary MCP behavior should flow through MCP Library profiles plus agent-bound refs. `extensions_config.json` remains a legacy/debug surface.
 
 ### Skills System (`src/skills/`)
 

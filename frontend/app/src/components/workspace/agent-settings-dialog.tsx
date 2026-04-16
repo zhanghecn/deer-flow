@@ -49,6 +49,8 @@ import type { AgentSkillRef } from "@/core/agents";
 import { useAuth } from "@/core/auth/hooks";
 import { buildWorkspaceAgentAuthoringPath } from "@/core/authoring";
 import { useI18n } from "@/core/i18n/hooks";
+import { useMCPProfiles } from "@/core/mcp/hooks";
+import type { MCPProfile } from "@/core/mcp/types";
 import { getLocalizedSkillDescription } from "@/core/skills";
 import { useSkills } from "@/core/skills/hooks";
 import {
@@ -99,7 +101,7 @@ type AgentSettingsFormState = {
   toolGroups: string;
   toolSelectionEnabled: boolean;
   toolNames: string[];
-  mcpServers: string;
+  mcpServers: string[];
   skillRefs: AgentSkillRef[];
   agentsMd: string;
   memoryEnabled: boolean;
@@ -166,7 +168,7 @@ function createFormState(agent: Agent): AgentSettingsFormState {
     toolGroups: toCSV(agent.tool_groups),
     toolSelectionEnabled: agent.tool_names != null,
     toolNames: agent.tool_names ?? [],
-    mcpServers: toCSV(agent.mcp_servers),
+    mcpServers: agent.mcp_servers ?? [],
     skillRefs: agent.skills ?? [],
     agentsMd: agent.agents_md ?? "",
     memoryEnabled: agent.memory?.enabled ?? false,
@@ -367,6 +369,11 @@ export function AgentSettingsDialog({
     isLoading: skillsLoading,
     error: skillsError,
   } = useSkills();
+  const {
+    profiles: mcpProfiles,
+    isLoading: mcpProfilesLoading,
+    error: mcpProfilesError,
+  } = useMCPProfiles();
   const isProdArchive = agentStatus === "prod";
   const canLoadExportDoc = open && agent != null;
   const {
@@ -394,6 +401,7 @@ export function AgentSettingsDialog({
   );
   const [skillsCategory, setSkillsCategory] =
     useState<SkillScope>(DEFAULT_SKILL_SCOPE);
+  const [mcpProfileQuery, setMcpProfileQuery] = useState("");
   const launchPath = useMemo(
     () =>
       buildWorkspaceAgentPath({
@@ -465,6 +473,23 @@ export function AgentSettingsDialog({
     () => filterSkillsByScope(selectableSkills, skillsCategory),
     [selectableSkills, skillsCategory],
   );
+  const filteredMCPProfiles = useMemo(() => {
+    const query = mcpProfileQuery.trim().toLowerCase();
+    if (!query) {
+      return mcpProfiles;
+    }
+    return mcpProfiles.filter((profile) =>
+      [
+        profile.name,
+        profile.server_name,
+        profile.source_path ?? "",
+        profile.category ?? "",
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(query),
+    );
+  }, [mcpProfileQuery, mcpProfiles]);
   const mainToolOptions = useMemo(
     () =>
       toolCatalog.filter(
@@ -662,7 +687,7 @@ export function AgentSettingsDialog({
           tool_names: shouldPersistExplicitMainTools
             ? [...effectiveMainToolNames]
             : null,
-          mcp_servers: parseCSV(form.mcpServers),
+          mcp_servers: form.mcpServers.length > 0 ? [...form.mcpServers] : null,
           skill_refs: form.skillRefs.map(serializeSkillRefForRequest),
           agents_md: form.agentsMd,
           subagent_defaults: {
@@ -740,6 +765,24 @@ export function AgentSettingsDialog({
 
   function handleRemoveSelectedSkill(skillRef: AgentSkillRef) {
     updateSkillRefs((skillRefs) => removeSkillRef(skillRefs, skillRef));
+  }
+
+  function toggleMCPServer(profile: MCPProfile) {
+    setForm((current) => {
+      if (!current) {
+        return current;
+      }
+      const ref = profile.source_path?.trim();
+      if (!ref) {
+        return current;
+      }
+      return {
+        ...current,
+        mcpServers: current.mcpServers.includes(ref)
+          ? current.mcpServers.filter((value) => value !== ref)
+          : [...current.mcpServers, ref],
+      };
+    });
   }
 
   const tabItems: Array<{
@@ -1337,31 +1380,6 @@ export function AgentSettingsDialog({
 
                           <div className="space-y-6">
                             <SurfaceCard
-                              eyebrow={<Link2Icon className="size-4" />}
-                              title={text.mcpServers}
-                              description={text.mcpServersHint}
-                            >
-                              <div className="space-y-2">
-                                <FieldLabel>{text.mcpServers}</FieldLabel>
-                                <Textarea
-                                  value={form.mcpServers}
-                                  placeholder={text.mcpServersPlaceholder}
-                                  onChange={(event) =>
-                                    setForm((current) =>
-                                      current
-                                        ? {
-                                            ...current,
-                                            mcpServers: event.target.value,
-                                          }
-                                        : current,
-                                    )
-                                  }
-                                  className="min-h-32 rounded-3xl px-4 py-3 text-sm leading-6"
-                                />
-                              </div>
-                            </SurfaceCard>
-
-                            <SurfaceCard
                               eyebrow={<FileTextIcon className="size-4" />}
                               title={text.archiveAssetsTitle}
                               description={text.archiveAssetsDescription}
@@ -1547,6 +1565,92 @@ export function AgentSettingsDialog({
                             )}
                           </SurfaceCard>
                         </div>
+
+                        <SurfaceCard
+                          eyebrow={<Link2Icon className="size-4" />}
+                          title={text.mcpServers}
+                          description={text.mcpServersHint}
+                        >
+                          <div className="space-y-4">
+                            <div className="space-y-2">
+                              <FieldLabel>{text.mcpServers}</FieldLabel>
+                              <Input
+                                value={mcpProfileQuery}
+                                placeholder={text.mcpServersPlaceholder}
+                                onChange={(event) =>
+                                  setMcpProfileQuery(event.target.value)
+                                }
+                              />
+                            </div>
+                            {mcpProfilesLoading ? (
+                              <p className="text-muted-foreground text-sm">
+                                {text.loadingMcpProfiles}
+                              </p>
+                            ) : mcpProfilesError ? (
+                              <p className="text-sm text-destructive">
+                                {mcpProfilesError.message}
+                              </p>
+                            ) : filteredMCPProfiles.length === 0 ? (
+                              <p className="text-muted-foreground text-sm">
+                                {text.noMcpProfiles}
+                              </p>
+                            ) : (
+                              <div className="grid gap-3">
+                                {filteredMCPProfiles.map((profile) => {
+                                  const ref = profile.source_path ?? profile.name;
+                                  const selected = form.mcpServers.includes(ref);
+                                  return (
+                                    <button
+                                      key={ref}
+                                      type="button"
+                                      role="checkbox"
+                                      aria-checked={selected}
+                                      onClick={() => toggleMCPServer(profile)}
+                                      className={cn(
+                                        "flex items-start gap-3 rounded-3xl border px-4 py-3 text-left transition-colors",
+                                        selected
+                                          ? "border-primary/50 bg-primary/5"
+                                          : "border-border/70 bg-background/70 hover:bg-muted/30",
+                                      )}
+                                    >
+                                      <span
+                                        className={cn(
+                                          "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border",
+                                          selected
+                                            ? "border-primary bg-primary text-primary-foreground"
+                                            : "border-border/70 bg-background",
+                                        )}
+                                      >
+                                        {selected && (
+                                          <CheckIcon className="size-3.5" />
+                                        )}
+                                      </span>
+                                      <span className="min-w-0">
+                                        <span className="block text-sm font-medium">
+                                          {profile.name}
+                                        </span>
+                                        <span className="text-muted-foreground mt-1 block text-xs leading-5">
+                                          {profile.server_name}
+                                          {profile.category
+                                            ? ` · ${profile.category}`
+                                            : ""}
+                                        </span>
+                                        {profile.source_path ? (
+                                          <code className="text-muted-foreground mt-2 block text-[11px] break-all">
+                                            {profile.source_path}
+                                          </code>
+                                        ) : null}
+                                      </span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                            <p className="text-muted-foreground text-xs leading-5">
+                              {text.mcpServersSelected(form.mcpServers.length)}
+                            </p>
+                          </div>
+                        </SurfaceCard>
 
                         <SurfaceCard
                           eyebrow={<BotIcon className="size-4" />}

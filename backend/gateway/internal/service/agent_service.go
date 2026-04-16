@@ -137,6 +137,31 @@ func normalizeOptionalStringList(values []string) []string {
 	return normalizeStringList(values)
 }
 
+func looksLikeMCPProfileRef(value string) bool {
+	normalized := strings.Trim(strings.TrimSpace(value), "/")
+	return strings.HasPrefix(normalized, "system/mcp-profiles/") || strings.HasPrefix(normalized, "custom/mcp-profiles/")
+}
+
+func (s *AgentService) validateMCPBindings(values []string) ([]string, error) {
+	normalized := normalizeOptionalStringList(values)
+	if normalized == nil {
+		return nil, nil
+	}
+	profileSvc := NewMCPProfileService(s.fs)
+	for _, value := range normalized {
+		if !looksLikeMCPProfileRef(value) {
+			continue
+		}
+		if _, err := parseMCPProfileSourcePath(value); err != nil {
+			return nil, err
+		}
+		if _, err := profileSvc.Get(context.Background(), "", value); err != nil {
+			return nil, err
+		}
+	}
+	return normalized, nil
+}
+
 func normalizeToolNames(values []string) []string {
 	return normalizeOptionalStringList(values)
 }
@@ -332,11 +357,15 @@ func (s *AgentService) Create(_ context.Context, req model.CreateAgentRequest, u
 		Model:            req.Model,
 		ToolGroups:       normalizeOptionalStringList(req.ToolGroups),
 		ToolNames:        mainToolNames,
-		McpServers:       normalizeOptionalStringList(req.McpServers),
+		McpServers:       nil,
 		Status:           "dev",
 		Memory:           &memoryConfig,
 		SubagentDefaults: &subagentDefaults,
 		Subagents:        subagents,
+	}
+	agent.McpServers, err = s.validateMCPBindings(req.McpServers)
+	if err != nil {
+		return nil, err
 	}
 	if userID != uuid.Nil {
 		agent.OwnerUserID = userID.String()
@@ -372,7 +401,10 @@ func (s *AgentService) Update(_ context.Context, name string, status string, req
 		}
 	}
 	if req.McpServers != nil {
-		existing.McpServers = normalizeOptionalStringList(req.McpServers)
+		existing.McpServers, err = s.validateMCPBindings(req.McpServers)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if req.Memory != nil {
 		memoryConfig, err := normalizeAgentMemoryConfig(req.Memory)

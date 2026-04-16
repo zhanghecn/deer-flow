@@ -115,7 +115,7 @@ type Agent struct {
 	Model            *string                `json:"model"`
 	ToolGroups       []string               `json:"tool_groups"`
 	ToolNames        []string               `json:"tool_names,omitempty"`
-	McpServers       []string               `json:"mcp_servers"`
+	McpServers       []string               `json:"mcp_servers"` // Stable MCP library refs selected for this agent
 	Status           string                 `json:"status"`
 	OwnerUserID      string                 `json:"owner_user_id,omitempty"`
 	OwnerName        string                 `json:"owner_name,omitempty"`
@@ -171,6 +171,20 @@ type Skill struct {
 	CanEdit         bool              `json:"can_edit"`
 	Status          string            `json:"status"`
 	SkillMD         string            `json:"skill_md"`
+}
+
+// MCPProfile is a filesystem-backed reusable MCP library item.
+//
+// The stored file keeps the canonical Claude Code-style `mcpServers` JSON
+// shape. Deer Flow phase 1 constrains one profile file to exactly one
+// `mcpServers` entry so agents can bind library refs independently.
+type MCPProfile struct {
+	Name       string          `json:"name"`
+	ServerName string          `json:"server_name"`
+	Category   string          `json:"category,omitempty"`
+	SourcePath string          `json:"source_path,omitempty"`
+	CanEdit    bool            `json:"can_edit"`
+	ConfigJSON json.RawMessage `json:"config_json"`
 }
 
 type AuthoringFileEntry struct {

@@ -76,6 +76,31 @@ def _normalize_copied_skill_refs(
     return normalized
 
 
+def _validate_mcp_server_refs(
+    *,
+    mcp_servers: list[str] | None,
+    paths: Paths,
+) -> list[str] | None:
+    """Validate canonical MCP profile refs while tolerating legacy bare names.
+
+    Phase 1 keeps old bare-name bindings readable for compatibility, but any
+    ref-shaped entry must resolve through the new MCP profile library so agent
+    creation fails fast on typos instead of deferring the error into runtime.
+    """
+
+    from src.mcp.library import build_extensions_config_for_profile_refs, is_mcp_profile_ref
+
+    normalized = _dedupe_skill_names(mcp_servers)
+    if not normalized:
+        return None
+
+    ref_like = [value for value in normalized if is_mcp_profile_ref(value)]
+    if ref_like:
+        build_extensions_config_for_profile_refs(ref_like, paths=paths)
+
+    return normalized
+
+
 def _allowed_skill_scopes_for_agent(
     *,
     target_status: str,
@@ -456,6 +481,11 @@ def materialize_agent_definition(
         subagent_defaults_config = subagent_defaults if isinstance(subagent_defaults, AgentSubagentDefaults) else AgentSubagentDefaults.model_validate(subagent_defaults or {})
         subagent_configs = [item if isinstance(item, AgentSubagentConfig) else AgentSubagentConfig.model_validate(item) for item in (subagents or [])]
 
+        normalized_mcp_servers = _validate_mcp_server_refs(
+            mcp_servers=mcp_servers,
+            paths=paths,
+        )
+
         _write_agent_manifest(
             agent_dir=staging_dir,
             name=name,
@@ -465,7 +495,7 @@ def materialize_agent_definition(
             model=model,
             tool_groups=tool_groups,
             tool_names=tool_names,
-            mcp_servers=mcp_servers,
+            mcp_servers=normalized_mcp_servers,
             skill_refs=skill_refs,
             memory=memory_config,
             subagent_defaults=subagent_defaults_config,
@@ -492,7 +522,7 @@ def materialize_agent_definition(
             model=model,
             tool_groups=tool_groups,
             tool_names=tool_names,
-            mcp_servers=mcp_servers,
+            mcp_servers=normalized_mcp_servers,
             status=status,
             agents_md_path=AGENTS_MD_FILENAME,
             skill_refs=skill_refs,

@@ -80,6 +80,7 @@ func main() {
 	// Services
 	agentSvc := service.NewAgentService(fs)
 	skillSvc := service.NewSkillService(fs)
+	mcpProfileSvc := service.NewMCPProfileService(fs)
 	authoringWorkspaceSvc := service.NewAuthoringWorkspaceService(fs)
 	designBoardSvc := service.NewDesignBoardService(fs)
 	publicAPISvc := service.NewPublicAPIService(
@@ -95,6 +96,7 @@ func main() {
 	authH := handler.NewAuthHandler(userRepo, tokenRepo, jwtMgr, apiTokenCipher, fs)
 	agentH := handler.NewAgentHandler(agentSvc, fs, userRepo)
 	skillH := handler.NewSkillHandler(skillSvc, fs, extensionsConfigPath)
+	mcpProfileH := handler.NewMCPProfileHandler(mcpProfileSvc)
 	authoringWorkspaceH := handler.NewAuthoringWorkspaceHandler(authoringWorkspaceSvc, fs, threadRepo)
 	designBoardH := handler.NewDesignBoardHandler(threadRepo, designBoardSvc, cfg.JWT.Secret, "")
 	modelH := handler.NewModelHandler(modelRepo)
@@ -260,6 +262,11 @@ func main() {
 		// MCP
 		api.GET("/mcp/config", mcpH.Get)
 		api.PUT("/mcp/config", mcpH.Update)
+		api.GET("/mcp/profiles", mcpProfileH.List)
+		api.GET("/mcp/profiles/:name", mcpProfileH.Get)
+		api.POST("/mcp/profiles", mcpProfileH.Create)
+		api.PUT("/mcp/profiles/:name", mcpProfileH.Update)
+		api.DELETE("/mcp/profiles/:name", mcpProfileH.Delete)
 
 		// Threads index (database-backed source of truth for sidebar/search)
 		api.POST("/threads/search", threadsH.Search)

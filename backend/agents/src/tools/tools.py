@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from collections.abc import Sequence
 from typing import Any
 
@@ -68,6 +69,26 @@ AUTHORING_TOOL_REGISTRY = {
 MAIN_AGENT_ONLY_TOOL_NAMES = frozenset({"question"})
 
 
+def _run_async_tool_loader(coro) -> list[BaseTool]:
+    """Run a small MCP-loading coroutine from sync code.
+
+    Tool assembly still happens on synchronous code paths. When the caller is
+    already inside an event loop, fall back to a short-lived worker thread so
+    the explicit agent-scoped MCP subset path can still initialize tools
+    without reviving the global singleton cache.
+    """
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        return executor.submit(asyncio.run, coro).result()
+
+
 def _normalize_requested_tool_names(tool_names: Sequence[str] | None) -> list[str] | None:
     if tool_names is None:
         return None
@@ -114,16 +135,54 @@ def _load_mcp_tool_items(
 
     try:
         from src.config.extensions_config import ExtensionsConfig
+        from src.mcp.library import build_extensions_config_for_profile_refs, is_mcp_profile_ref
         from src.mcp.cache import get_cached_mcp_tools
+        from src.mcp.tools import get_mcp_tools_for_extensions_config
+
+        normalized_servers = [str(server).strip() for server in (mcp_servers or []) if str(server).strip()]
+        profile_refs = [server for server in normalized_servers if is_mcp_profile_ref(server)]
+        legacy_server_names = [server for server in normalized_servers if not is_mcp_profile_ref(server)]
+
+        explicit_tools: list[BaseTool] = []
+        if profile_refs:
+            # Agent-scoped MCP bindings now prefer canonical library refs. Those refs
+            # describe the active runtime subset directly, so they must bypass the
+            # legacy global-config cache instead of reconnecting every globally
+            # enabled server and filtering afterward.
+            explicit_config = build_extensions_config_for_profile_refs(profile_refs)
+            if explicit_config.get_enabled_mcp_servers():
+                explicit_tools = _run_async_tool_loader(
+                    get_mcp_tools_for_extensions_config(explicit_config)
+                )
 
         extensions_config = ExtensionsConfig.from_file()
-        if not extensions_config.get_enabled_mcp_servers():
+        cached_tools: list[BaseTool] = []
+        if extensions_config.get_enabled_mcp_servers():
+            requested_cached_names = legacy_server_names if normalized_servers else None
+            cached_tools = get_cached_mcp_tools(server_names=requested_cached_names)
+            if cached_tools:
+                server_desc = (
+                    f"from legacy servers {legacy_server_names}"
+                    if legacy_server_names
+                    else "from all servers"
+                )
+                logger.info("Using %s cached MCP tool(s) %s", len(cached_tools), server_desc)
+
+        if not explicit_tools and not cached_tools:
             return []
 
-        mcp_tools = get_cached_mcp_tools(server_names=list(mcp_servers) if mcp_servers is not None else None)
+        mcp_tools = [*explicit_tools, *cached_tools]
         if mcp_tools:
-            server_desc = f"from servers {list(mcp_servers)}" if mcp_servers is not None else "from all servers"
-            logger.info("Using %s cached MCP tool(s) %s", len(mcp_tools), server_desc)
+            server_desc = (
+                f"from profile refs {profile_refs} and legacy servers {legacy_server_names}"
+                if profile_refs and legacy_server_names
+                else f"from profile refs {profile_refs}"
+                if profile_refs
+                else f"from servers {list(mcp_servers)}"
+                if mcp_servers is not None
+                else "from all servers"
+            )
+            logger.info("Resolved %s MCP tool(s) %s", len(mcp_tools), server_desc)
         return [(tool.name, tool) for tool in mcp_tools]
     except ImportError:
         logger.warning("MCP module not available. Install 'langchain-mcp-adapters' package to enable MCP tools.")

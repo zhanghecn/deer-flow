@@ -146,6 +146,9 @@ type AgentSettingsDialogText = {
   toolGroupsHint: string;
   mcpServersPlaceholder: string;
   mcpServersHint: string;
+  loadingMcpProfiles: string;
+  noMcpProfiles: string;
+  mcpServersSelected: (count: number) => string;
   copyFailed: string;
   launchUrlCopied: string;
   memoryModelRequired: string;
@@ -343,16 +346,19 @@ const enUS: AgentSettingsDialogText = {
   modelOverride: "Model override",
   description: "Description",
   toolGroups: "Tool groups",
-  mcpServers: "MCP servers",
+  mcpServers: "MCP library bindings",
   optionalModelId: "Optional model id",
   descriptionPlaceholder:
     "Summarize what this agent owns and what it should optimize for.",
   toolGroupsPlaceholder: "browser, filesystem, office",
   toolGroupsHint:
     "Comma separated. Leave blank to keep the current unrestricted default.",
-  mcpServersPlaceholder: "notion, github, slack",
+  mcpServersPlaceholder: "Search MCP profiles",
   mcpServersHint:
-    "Comma separated. These values are stored in the archived manifest.",
+    "Select which MCP library profiles this agent can use. Stored as archived refs in the manifest.",
+  loadingMcpProfiles: "Loading MCP profiles...",
+  noMcpProfiles: "No MCP profiles match the current search.",
+  mcpServersSelected: (count) => `${count} MCP profile(s) selected`,
   copyFailed: "Failed to copy text",
   launchUrlCopied: "Agent launch URL copied",
   memoryModelRequired: "Memory model is required when memory is enabled.",
@@ -542,13 +548,16 @@ const zhCN: AgentSettingsDialogText = {
   modelOverride: "模型覆盖",
   description: "描述",
   toolGroups: "工具组",
-  mcpServers: "MCP 服务",
+  mcpServers: "MCP Library 绑定",
   optionalModelId: "可选模型 ID",
   descriptionPlaceholder: "概括这个智能体负责什么，以及它应该优先优化什么。",
   toolGroupsPlaceholder: "browser, filesystem, office",
   toolGroupsHint: "使用逗号分隔。留空则保留当前默认的无限制行为。",
-  mcpServersPlaceholder: "notion, github, slack",
-  mcpServersHint: "使用逗号分隔。这些值会存储在归档清单中。",
+  mcpServersPlaceholder: "搜索 MCP Profile",
+  mcpServersHint: "选择这个智能体可使用的 MCP Library Profile。它们会以归档 ref 的形式存储在 manifest 中。",
+  loadingMcpProfiles: "正在加载 MCP Profile...",
+  noMcpProfiles: "没有匹配当前搜索的 MCP Profile。",
+  mcpServersSelected: (count) => `已选择 ${count} 个 MCP Profile`,
   copyFailed: "复制文本失败",
   launchUrlCopied: "已复制智能体启动链接",
   memoryModelRequired: "启用记忆时必须填写记忆模型。",

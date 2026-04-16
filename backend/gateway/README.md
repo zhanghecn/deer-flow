@@ -168,7 +168,9 @@ go run ./cmd/server
 | POST | `/api/skills/:name/publish` | 发布 Skill |
 | GET | `/api/models` | 模型列表（读取 PostgreSQL `models` 表） |
 | GET/POST | `/api/memory?agent_name=:name&agent_status=dev|prod` | 读取/写入当前用户在指定 Agent 下的记忆 |
-| GET/PUT | `/api/mcp` | MCP 配置 |
+| GET/PUT | `/api/mcp` | 旧 MCP 配置（迁移期兼容） |
+| GET/POST | `/api/mcp/profiles` | MCP Library 列表/创建 |
+| GET/PUT/DELETE | `/api/mcp/profiles/:name` | MCP Library CRUD |
 | POST | `/api/threads/:id/uploads` | 文件上传；对 PDF/PPT/Excel/Word 生成 Markdown companion |
 | GET | `/api/threads/:id/uploads/list` | 上传文件列表（折叠自动生成的 Markdown companion） |
 | DELETE | `/api/threads/:id/uploads/:filename` | 删除上传文件；原文件的 Markdown companion 会一并删除 |

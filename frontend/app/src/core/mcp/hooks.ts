@@ -2,47 +2,60 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useAuth } from "@/core/auth/hooks";
 
-import { loadMCPConfig, updateMCPConfig } from "./api";
+import {
+  createMCPProfile,
+  deleteMCPProfile,
+  listMCPProfiles,
+  updateMCPProfile,
+} from "./api";
+import type {
+  CreateMCPProfileRequest,
+  UpdateMCPProfileRequest,
+} from "./types";
 
-export function useMCPConfig() {
+export function useMCPProfiles() {
   const { authenticated } = useAuth();
   const { data, isLoading, error } = useQuery({
-    queryKey: ["mcpConfig"],
-    queryFn: () => loadMCPConfig(),
+    queryKey: ["mcpProfiles"],
+    queryFn: () => listMCPProfiles(),
     enabled: authenticated,
   });
-  return { config: data, isLoading, error };
+  return { profiles: data ?? [], isLoading, error };
 }
 
-export function useEnableMCPServer() {
+export function useCreateMCPProfile() {
   const queryClient = useQueryClient();
-  const { config } = useMCPConfig();
+  return useMutation({
+    mutationFn: async (request: CreateMCPProfileRequest) =>
+      createMCPProfile(request),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["mcpProfiles"] });
+    },
+  });
+}
+
+export function useUpdateMCPProfile() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({
-      serverName,
-      enabled,
+      name,
+      request,
     }: {
-      serverName: string;
-      enabled: boolean;
-    }) => {
-      if (!config) {
-        throw new Error("MCP config not found");
-      }
-      if (!config.mcp_servers[serverName]) {
-        throw new Error(`MCP server ${serverName} not found`);
-      }
-      await updateMCPConfig({
-        mcp_servers: {
-          ...config.mcp_servers,
-          [serverName]: {
-            ...config.mcp_servers[serverName],
-            enabled,
-          },
-        },
-      });
-    },
+      name: string;
+      request: UpdateMCPProfileRequest;
+    }) => updateMCPProfile(name, request),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["mcpConfig"] });
+      void queryClient.invalidateQueries({ queryKey: ["mcpProfiles"] });
+    },
+  });
+}
+
+export function useDeleteMCPProfile() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (name: string) => deleteMCPProfile(name),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["mcpProfiles"] });
     },
   });
 }

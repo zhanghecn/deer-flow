@@ -227,10 +227,12 @@ Runtime then copies archived agent files into `/mnt/user-data/...`.
 
 ## Models, MCP, And Secrets
 
-Model and extension settings remain unchanged:
+Model settings remain unchanged. MCP settings now use the MCP Library first:
 
 - model definitions live in `config.yaml`
-- MCP and skill enablement live in `extensions_config.json`
+- reusable MCP profiles live under `.openagents/{system,custom}/mcp-profiles/*.json`
+- agent manifests bind those profiles through `mcp_servers`
+- `extensions_config.json` remains a legacy/debug MCP surface and still carries skill enablement state
 - secrets should come from environment variables
 
 ## Best Practices

@@ -517,6 +517,15 @@ export interface Translations {
       description: string;
       loadError: (message: string) => string;
       emptyState: string;
+      createProfile: string;
+      editProfile: string;
+      profileCreated: string;
+      profileUpdated: string;
+      profileDeleted: string;
+      profileName: string;
+      profileConfig: string;
+      saveProfile: string;
+      saveError: string;
     };
     skills: {
       title: string;

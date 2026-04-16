@@ -54,7 +54,7 @@ export interface Agent {
   model: string | null;
   tool_groups: string[] | null;
   tool_names?: string[] | null;
-  mcp_servers?: string[] | null;
+  mcp_servers?: string[] | null; // Stable MCP library refs bound to this agent
   status: AgentStatus;
   owner_user_id?: string | null;
   owner_name?: string | null;
@@ -94,7 +94,7 @@ export interface CreateAgentRequest {
   model?: string | null;
   tool_groups?: string[] | null;
   tool_names?: string[] | null;
-  mcp_servers?: string[] | null;
+  mcp_servers?: string[] | null; // Stable MCP library refs selected for this agent
   memory?: AgentMemoryConfig;
   subagent_defaults?: AgentSubagentDefaults | null;
   subagents?: AgentSubagent[];
@@ -108,7 +108,7 @@ export interface UpdateAgentRequest {
   model?: string | null;
   tool_groups?: string[] | null;
   tool_names?: string[] | null;
-  mcp_servers?: string[] | null;
+  mcp_servers?: string[] | null; // Stable MCP library refs selected for this agent
   memory?: AgentMemoryConfig;
   subagent_defaults?: AgentSubagentDefaults | null;
   subagents?: AgentSubagent[];
