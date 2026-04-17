@@ -1,5 +1,4 @@
 import { getBackendBaseURL } from "@/core/config";
-import type { CanonicalRunEvent } from "@/core/events/canonical";
 
 type PublicAPIErrorShape = {
   details?: string;
@@ -17,7 +16,7 @@ export interface PublicAPIFileObject {
   status?: string;
 }
 
-export interface PublicAPIResponseArtifact {
+export interface PublicAPITurnArtifact {
   id: string;
   object: string;
   filename: string;
@@ -26,58 +25,47 @@ export interface PublicAPIResponseArtifact {
   download_url: string;
 }
 
-export interface PublicAPIResponseUsage {
+export interface PublicAPITurnUsage {
   input_tokens: number;
   output_tokens: number;
   total_tokens: number;
 }
 
-export type PublicAPIRunEvent = CanonicalRunEvent;
+export type PublicAPITurnEventType =
+  | "turn.started"
+  | "assistant.message.started"
+  | "assistant.text.delta"
+  | "assistant.reasoning.delta"
+  | "tool.call.started"
+  | "tool.call.completed"
+  | "turn.requires_input"
+  | "assistant.message.completed"
+  | "turn.completed"
+  | "turn.failed";
 
-export interface PublicAPIResponseOpenAgents {
-  thread_id: string;
-  trace_id?: string;
-  previous_response_id?: string;
-  run_events?: PublicAPIRunEvent[];
-}
-
-export interface PublicAPIResponseOutputItem {
-  id: string;
-  type: string;
-  role?: string;
-  status?: string;
-  summary?: Array<{
-    type: string;
-    text: string;
-  }>;
-  content?: Array<{
-    type: string;
-    text?: string;
-    annotations?: unknown[];
-  }>;
-}
-
-export interface PublicAPIResponseEnvelope {
-  id: string;
-  object: string;
+export interface PublicAPITurnEvent {
+  sequence: number;
   created_at: number;
-  completed_at?: number;
-  status: string;
-  model: string;
-  output_text: string;
-  output?: PublicAPIResponseOutputItem[];
-  previous_response_id?: string | null;
-  reasoning_effort?: string | null;
-  usage?: PublicAPIResponseUsage;
-  metadata?: Record<string, unknown>;
-  artifacts?: PublicAPIResponseArtifact[];
-  openagents?: PublicAPIResponseOpenAgents;
+  turn_id: string;
+  type: PublicAPITurnEventType;
+  message_id?: string;
+  tool_call_id?: string;
+  tool_name?: string;
+  delta?: string;
+  text?: string;
+  reasoning?: string;
+  error?: string;
+  tool_arguments?: unknown;
+  tool_output?: unknown;
 }
 
-export interface PublicAPIRequestBody {
-  model: string;
-  input: unknown;
-  previous_response_id?: string;
+export interface PublicAPITurnRequestBody {
+  agent: string;
+  input: {
+    text: string;
+    file_ids?: string[];
+  };
+  previous_turn_id?: string;
   stream?: boolean;
   text?: {
     format?: {
@@ -87,15 +75,33 @@ export interface PublicAPIRequestBody {
       strict?: boolean;
     };
   };
-  reasoning?: {
+  thinking?: {
+    enabled: boolean;
     effort?: string;
-    summary?: string;
   };
   max_output_tokens?: number;
   metadata?: Record<string, unknown>;
 }
 
-export interface PublicAPIStreamEvent {
+export interface PublicAPITurnSnapshot {
+  id: string;
+  object: "turn";
+  status: string;
+  agent: string;
+  thread_id: string;
+  trace_id?: string;
+  previous_turn_id?: string;
+  output_text: string;
+  reasoning_text: string;
+  artifacts?: PublicAPITurnArtifact[];
+  usage: PublicAPITurnUsage;
+  metadata?: Record<string, unknown>;
+  events: PublicAPITurnEvent[];
+  created_at: number;
+  completed_at?: number;
+}
+
+export interface PublicAPITurnStreamEvent {
   event: string;
   data: unknown;
 }
@@ -200,44 +206,36 @@ export async function uploadPublicAPIFile(params: {
   return response.json() as Promise<PublicAPIFileObject>;
 }
 
-export async function createPublicAPIResponse(params: {
+export async function createPublicAPITurn(params: {
   baseURL: string;
   apiToken: string;
-  body: PublicAPIRequestBody;
-}): Promise<PublicAPIResponseEnvelope> {
-  const response = await publicAPIFetch(
-    params.baseURL,
-    params.apiToken,
-    "./responses",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(params.body),
-    },
-  );
+  body: PublicAPITurnRequestBody;
+}): Promise<PublicAPITurnSnapshot> {
+  const response = await publicAPIFetch(params.baseURL, params.apiToken, "./turns", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params.body),
+  });
   if (!response.ok) {
     const error = (await response
       .json()
       .catch(() => ({}))) as PublicAPIErrorShape;
     throw new Error(
-      extractErrorMessage(
-        error,
-        `Failed to create response: ${response.statusText}`,
-      ),
+      extractErrorMessage(error, `Failed to create turn: ${response.statusText}`),
     );
   }
-  return response.json() as Promise<PublicAPIResponseEnvelope>;
+  return response.json() as Promise<PublicAPITurnSnapshot>;
 }
 
-export async function getPublicAPIResponse(params: {
+export async function getPublicAPITurn(params: {
   baseURL: string;
   apiToken: string;
-  responseId: string;
-}): Promise<PublicAPIResponseEnvelope> {
+  turnId: string;
+}): Promise<PublicAPITurnSnapshot> {
   const response = await publicAPIFetch(
     params.baseURL,
     params.apiToken,
-    `./responses/${encodeURIComponent(params.responseId)}`,
+    `./turns/${encodeURIComponent(params.turnId)}`,
     {
       method: "GET",
     },
@@ -247,47 +245,36 @@ export async function getPublicAPIResponse(params: {
       .json()
       .catch(() => ({}))) as PublicAPIErrorShape;
     throw new Error(
-      extractErrorMessage(
-        error,
-        `Failed to fetch response: ${response.statusText}`,
-      ),
+      extractErrorMessage(error, `Failed to fetch turn: ${response.statusText}`),
     );
   }
-  return response.json() as Promise<PublicAPIResponseEnvelope>;
+  return response.json() as Promise<PublicAPITurnSnapshot>;
 }
 
-export async function streamPublicAPIResponse(params: {
+export async function streamPublicAPITurn(params: {
   baseURL: string;
   apiToken: string;
-  body: PublicAPIRequestBody;
-  onEvent: (event: PublicAPIStreamEvent) => void;
+  body: PublicAPITurnRequestBody;
+  onEvent: (event: PublicAPITurnStreamEvent) => void;
 }): Promise<void> {
-  const response = await publicAPIFetch(
-    params.baseURL,
-    params.apiToken,
-    "./responses",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "text/event-stream",
-      },
-      body: JSON.stringify({ ...params.body, stream: true }),
+  const response = await publicAPIFetch(params.baseURL, params.apiToken, "./turns", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
     },
-  );
+    body: JSON.stringify({ ...params.body, stream: true }),
+  });
   if (!response.ok) {
     const error = (await response
       .json()
       .catch(() => ({}))) as PublicAPIErrorShape;
     throw new Error(
-      extractErrorMessage(
-        error,
-        `Failed to stream response: ${response.statusText}`,
-      ),
+      extractErrorMessage(error, `Failed to stream turn: ${response.statusText}`),
     );
   }
   if (!response.body) {
-    throw new Error("Streaming response body is unavailable.");
+    throw new Error("Streaming turn response body is unavailable.");
   }
 
   const reader = response.body.getReader();
@@ -311,7 +298,7 @@ export async function streamPublicAPIResponse(params: {
 export async function downloadPublicAPIArtifact(params: {
   baseURL: string;
   apiToken: string;
-  artifact: PublicAPIResponseArtifact;
+  artifact: PublicAPITurnArtifact;
 }): Promise<string> {
   const response = await publicAPIFetch(
     params.baseURL,
@@ -344,7 +331,7 @@ export async function downloadPublicAPIArtifact(params: {
 
 function flushSSEBuffer(
   input: string,
-  onEvent: (event: PublicAPIStreamEvent) => void,
+  onEvent: (event: PublicAPITurnStreamEvent) => void,
 ) {
   let buffer = input;
   while (true) {
@@ -363,7 +350,7 @@ function flushSSEBuffer(
   }
 }
 
-function parseSSEEvent(rawEvent: string): PublicAPIStreamEvent | null {
+function parseSSEEvent(rawEvent: string): PublicAPITurnStreamEvent | null {
   const lines = rawEvent
     .split("\n")
     .map((line) => line.replace(/\r$/, ""))

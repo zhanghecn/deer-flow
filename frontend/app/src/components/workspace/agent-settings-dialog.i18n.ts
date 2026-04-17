@@ -510,7 +510,7 @@ const zhCN: AgentSettingsDialogText = {
   launchUrl: "启动链接",
   openApiExportTitle: "开发者文档",
   openApiExportDescription:
-    "外部调用方只需要 `base_url`、`api_key` 和 `model=<agent_name>`。已发布到 prod 的智能体会在这里暴露可直接分享的 OpenAI 兼容开发者控制台。",
+    "外部调用方只需要 `base_url`、`api_key` 和 `agent=<agent_name>`。已发布到 prod 的智能体会在这里暴露可直接分享的开发者控制台。",
   openApiExportUnavailableDescription:
     "只有将该智能体发布到 prod 后，才支持外部调用。",
   openApiPlaygroundDescription:
@@ -528,7 +528,7 @@ const zhCN: AgentSettingsDialogText = {
   developerConsolePublishedSource:
     "这里展示的开发者控制台始终对应已发布的 prod 归档。你在草稿归档里的改动，只有再次发布后才会影响外部契约。",
   publishArchiveFirst:
-    "如果你需要用于企业接入的稳定 `/v1/responses` 契约，请先发布这个归档。",
+    "如果你需要用于企业接入的稳定 `/v1/turns` 契约，请先发布这个归档。",
   archiveAssetsTitle: "归档资产",
   archiveAssetsDescription: "概览当前设置对话框今天可以控制的内容。",
   agentsMd: "AGENTS.md",

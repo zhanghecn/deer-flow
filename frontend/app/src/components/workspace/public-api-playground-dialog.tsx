@@ -35,17 +35,17 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { MarkdownContent } from "@/components/workspace/messages/markdown-content";
 import { useI18n } from "@/core/i18n/hooks";
 import {
-  createPublicAPIResponse,
+  createPublicAPITurn,
   downloadPublicAPIArtifact,
-  getPublicAPIResponse,
+  getPublicAPITurn,
   resolvePublicAPIBaseURL,
-  streamPublicAPIResponse,
+  streamPublicAPITurn,
   uploadPublicAPIFile,
   type PublicAPIFileObject,
-  type PublicAPIRequestBody,
-  type PublicAPIResponseArtifact,
-  type PublicAPIResponseEnvelope,
-  type PublicAPIStreamEvent,
+  type PublicAPITurnArtifact,
+  type PublicAPITurnRequestBody,
+  type PublicAPITurnSnapshot,
+  type PublicAPITurnStreamEvent,
 } from "@/core/public-api/api";
 import {
   buildTraceFromRunEvent,
@@ -195,7 +195,7 @@ function FieldLabel({
   );
 }
 
-function buildResponsesRequestBody(params: {
+function buildTurnRequestBody(params: {
   agentName: string;
   message: string;
   uploadedFiles: PublicAPIFileObject[];
@@ -204,33 +204,29 @@ function buildResponsesRequestBody(params: {
   schemaBody: string;
   reasoningEnabled: boolean;
   reasoningEffort: ReasoningEffort;
-  previousResponseID: string;
+  previousTurnID: string;
   maxOutputTokens: string;
-}): PublicAPIRequestBody {
-  const content: Array<Record<string, unknown>> = [];
-  if (params.message.trim()) {
-    content.push({ type: "input_text", text: params.message.trim() });
-  }
-  for (const file of params.uploadedFiles) {
-    content.push({ type: "input_file", file_id: file.id });
-  }
-
-  const requestBody: PublicAPIRequestBody = {
-    model: params.agentName,
-    input: [{ role: "user", content }],
+}): PublicAPITurnRequestBody {
+  const fileIDs = params.uploadedFiles.map((file) => file.id);
+  const requestBody: PublicAPITurnRequestBody = {
+    agent: params.agentName,
+    input: {
+      text: params.message.trim(),
+      file_ids: fileIDs.length > 0 ? fileIDs : undefined,
+    },
     metadata: {
       source: "workspace_public_api_playground",
       surface: "playground_page",
     },
   };
 
-  if (params.previousResponseID.trim()) {
-    requestBody.previous_response_id = params.previousResponseID.trim();
+  if (params.previousTurnID.trim()) {
+    requestBody.previous_turn_id = params.previousTurnID.trim();
   }
   if (params.reasoningEnabled) {
-    requestBody.reasoning = {
+    requestBody.thinking = {
+      enabled: true,
       effort: params.reasoningEffort,
-      summary: "detailed",
     };
   }
   if (params.maxOutputTokens.trim()) {
@@ -407,7 +403,7 @@ export function PublicAPIPlaygroundPanel({
   // verification target the same labels real users rely on.
   const baseURLInputID = useId();
   const apiTokenInputID = useId();
-  const previousResponseInputID = useId();
+  const previousTurnInputID = useId();
   const messageInputID = useId();
   const fileInputID = useId();
   const maxOutputTokensInputID = useId();
@@ -429,16 +425,17 @@ export function PublicAPIPlaygroundPanel({
   const [reasoningEnabled, setReasoningEnabled] = useState(false);
   const [reasoningEffort, setReasoningEffort] =
     useState<ReasoningEffort>("medium");
-  const [previousResponseID, setPreviousResponseID] = useState("");
+  const [previousTurnID, setPreviousTurnID] = useState("");
   const [maxOutputTokens, setMaxOutputTokens] = useState("");
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [traceFilter, setTraceFilter] = useState<TraceFilter>("all");
   const [submitting, setSubmitting] = useState(false);
   const [traceItems, setTraceItems] = useState<TraceItem[]>([]);
-  const [response, setResponse] = useState<PublicAPIResponseEnvelope | null>(
+  const [turn, setTurn] = useState<PublicAPITurnSnapshot | null>(
     null,
   );
   const [liveOutput, setLiveOutput] = useState("");
+  const [liveReasoning, setLiveReasoning] = useState("");
   const [lastRunMode, setLastRunMode] = useState<"stream" | "blocking" | null>(
     null,
   );
@@ -464,17 +461,17 @@ export function PublicAPIPlaygroundPanel({
   );
 
   const formattedResponseJSON = useMemo(
-    () => (response ? prettyJSON(response) : ""),
-    [response],
+    () => (turn ? prettyJSON(turn) : ""),
+    [turn],
   );
 
   const formattedOutputText = useMemo(
-    () => formatPublicAPIOutputText(response, liveOutput),
-    [liveOutput, response],
+    () => formatPublicAPIOutputText(turn, liveOutput),
+    [liveOutput, turn],
   );
   const reasoningSummary = useMemo(
-    () => extractPublicAPIReasoningSummary(response),
-    [response],
+    () => extractPublicAPIReasoningSummary(turn) || liveReasoning,
+    [liveReasoning, turn],
   );
 
   function appendTrace(
@@ -492,18 +489,20 @@ export function PublicAPIPlaygroundPanel({
     ]);
   }
 
-  async function hydrateCompletedResponse(responseId: string, apiToken: string) {
-    if (!responseId) {
+  async function hydrateCompletedTurn(turnId: string, apiToken: string) {
+    if (!turnId) {
       return;
     }
     try {
-      const payload = await getPublicAPIResponse({
+      const payload = await getPublicAPITurn({
         baseURL: apiBaseURL,
         apiToken,
-        responseId,
+        turnId,
       });
-      setResponse(payload);
-      setPreviousResponseID(payload.id);
+      setTurn(payload);
+      setPreviousTurnID(payload.id);
+      setLiveOutput(payload.output_text);
+      setLiveReasoning(payload.reasoning_text);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       appendTrace({
@@ -584,31 +583,45 @@ export function PublicAPIPlaygroundPanel({
     return uploadedFiles;
   }
 
-  function handleStreamingEvent(event: PublicAPIStreamEvent, trimmedToken: string) {
+  function handleStreamingEvent(
+    event: PublicAPITurnStreamEvent,
+    trimmedToken: string,
+  ) {
     const traceText: PlaygroundTraceText = {
       assistantMessage: text.assistantMessage,
+      assistantThinking: text.reasoningTab,
       toolCall: text.toolCall,
       toolResult: text.toolResult,
-      runCompleted: text.runCompleted,
+      turnCompleted: text.runCompleted,
+      turnStarted: text.turnStartedTitle,
+      turnWaiting: text.turnWaitingTitle,
+      turnFailed: text.turnFailedTitle,
     };
 
     for (const normalizedEvent of normalizePublicAPIStreamEvent(event)) {
-      if (normalizedEvent.kind === "run_started") {
-        if (normalizedEvent.responseId) {
-          setPreviousResponseID(normalizedEvent.responseId);
+      if (normalizedEvent.kind === "turn_started") {
+        if (normalizedEvent.turnId) {
+          setPreviousTurnID(normalizedEvent.turnId);
         }
         appendTrace({
           stage: "run",
           tone: "system",
           title: text.streamStarted,
-          detail: normalizedEvent.responseId,
+          detail: normalizedEvent.turnId,
           raw: normalizedEvent.raw,
         });
         continue;
       }
 
-      if (normalizedEvent.kind === "assistant_delta") {
+      if (normalizedEvent.kind === "assistant_text_delta") {
         setLiveOutput((current) => `${current}${normalizedEvent.delta}`);
+        continue;
+      }
+
+      if (normalizedEvent.kind === "assistant_reasoning_delta") {
+        setLiveReasoning((current) =>
+          `${current}${normalizedEvent.delta}`.trim(),
+        );
         continue;
       }
 
@@ -617,18 +630,18 @@ export function PublicAPIPlaygroundPanel({
         continue;
       }
 
-      if (normalizedEvent.kind === "run_completed") {
-        void hydrateCompletedResponse(normalizedEvent.responseId, trimmedToken);
+      if (normalizedEvent.kind === "turn_completed") {
+        void hydrateCompletedTurn(normalizedEvent.turnId, trimmedToken);
         appendTrace({
           stage: "complete",
           tone: "system",
-          title: text.requestFinished(normalizedEvent.responseId),
+          title: text.requestFinished(normalizedEvent.turnId),
           raw: normalizedEvent.raw,
         });
         continue;
       }
 
-      if (normalizedEvent.kind === "run_failed") {
+      if (normalizedEvent.kind === "turn_failed") {
         appendTrace({
           stage: "error",
           tone: "error",
@@ -661,9 +674,10 @@ export function PublicAPIPlaygroundPanel({
     }
 
     setSubmitting(true);
-    setResponse(null);
+    setTurn(null);
     setTraceItems([]);
     setLiveOutput("");
+    setLiveReasoning("");
     setLastRunMode(streamMode ? "stream" : "blocking");
 
     appendTrace({
@@ -672,7 +686,7 @@ export function PublicAPIPlaygroundPanel({
       title: text.requestPrepared,
       detail: `${streamMode ? text.sseMode : text.blockingMode} · ${responseModeLabel(responseMode, text)}`,
       raw: {
-        model: agentName,
+        agent: agentName,
         response_mode: responseMode,
         stream: streamMode,
       },
@@ -680,7 +694,7 @@ export function PublicAPIPlaygroundPanel({
 
     try {
       const uploadedFiles = await uploadQueuedFiles(trimmedToken);
-      const requestBody = buildResponsesRequestBody({
+      const requestBody = buildTurnRequestBody({
         agentName,
         message,
         uploadedFiles,
@@ -689,41 +703,46 @@ export function PublicAPIPlaygroundPanel({
         schemaBody,
         reasoningEnabled,
         reasoningEffort,
-        previousResponseID,
+        previousTurnID,
         maxOutputTokens,
       });
 
       if (streamMode) {
-        await streamPublicAPIResponse({
+        await streamPublicAPITurn({
           baseURL: apiBaseURL,
           apiToken: trimmedToken,
           body: requestBody,
           onEvent: (event) => handleStreamingEvent(event, trimmedToken),
         });
       } else {
-        const payload = await createPublicAPIResponse({
+        const payload = await createPublicAPITurn({
           baseURL: apiBaseURL,
           apiToken: trimmedToken,
           body: requestBody,
         });
-        setResponse(payload);
-        setPreviousResponseID(payload.id);
+        setTurn(payload);
+        setPreviousTurnID(payload.id);
         setLiveOutput(payload.output_text);
+        setLiveReasoning(payload.reasoning_text);
 
-        // Blocking responses already contain the full public event ledger, so
-        // the console replays that ledger into the same grouped trace UI rather
-        // than maintaining a second blocking-only presentation.
+        // Blocking turns already contain the full event ledger, so the console
+        // replays that ledger into the same grouped trace UI instead of
+        // maintaining a second blocking-only presentation.
         const traceText: PlaygroundTraceText = {
           assistantMessage: text.assistantMessage,
+          assistantThinking: text.reasoningTab,
           toolCall: text.toolCall,
           toolResult: text.toolResult,
-          runCompleted: text.runCompleted,
+          turnCompleted: text.runCompleted,
+          turnStarted: text.turnStartedTitle,
+          turnWaiting: text.turnWaitingTitle,
+          turnFailed: text.turnFailedTitle,
         };
-        for (const event of payload.openagents?.run_events ?? []) {
+        for (const event of payload.events ?? []) {
           appendTrace(buildTraceFromRunEvent(event, traceText));
         }
         appendTrace(
-          payload.status === "incomplete"
+          payload.status === "requires_input"
             ? {
                 stage: "run",
                 tone: "system" as const,
@@ -763,7 +782,7 @@ export function PublicAPIPlaygroundPanel({
     }
   }
 
-  async function handleDownloadArtifact(artifact: PublicAPIResponseArtifact) {
+  async function handleDownloadArtifact(artifact: PublicAPITurnArtifact) {
     try {
       const filename = await downloadPublicAPIArtifact({
         baseURL: apiBaseURL,
@@ -790,12 +809,12 @@ export function PublicAPIPlaygroundPanel({
     { value: "error", label: text.filterError },
   ];
 
-  const currentResponseID = response?.id ?? "—";
-  const currentTraceID = asString(response?.openagents?.trace_id) || "—";
+  const currentResponseID = turn?.id ?? "—";
+  const currentTraceID = asString(turn?.trace_id) || "—";
   const currentStatus =
-    response?.status ?? (submitting ? text.statusRunning : text.statusIdle);
-  const currentTokenCount = response?.usage?.total_tokens ?? "—";
-  const responseArtifacts = response?.artifacts ?? [];
+    turn?.status ?? (submitting ? text.statusRunning : text.statusIdle);
+  const currentTokenCount = turn?.usage?.total_tokens ?? "—";
+  const responseArtifacts = turn?.artifacts ?? [];
   const showHeader = headerMode !== "hidden";
   const showHero = headerMode === "hero";
 
@@ -1150,17 +1169,15 @@ export function PublicAPIPlaygroundPanel({
 
                       <div className="space-y-2">
                         <FieldLabel
-                          htmlFor={previousResponseInputID}
+                          htmlFor={previousTurnInputID}
                           action={
-                            response?.id ? (
+                            turn?.id ? (
                               <Button
                                 type="button"
                                 variant="ghost"
                                 size="sm"
                                 className="rounded-full px-2"
-                                onClick={() =>
-                                  setPreviousResponseID(response.id)
-                                }
+                                onClick={() => setPreviousTurnID(turn.id)}
                               >
                                 {text.useLatestResponse}
                               </Button>
@@ -1170,12 +1187,10 @@ export function PublicAPIPlaygroundPanel({
                           {text.previousResponse}
                         </FieldLabel>
                         <Input
-                          id={previousResponseInputID}
+                          id={previousTurnInputID}
                           aria-label={text.previousResponse}
-                          value={previousResponseID}
-                          onChange={(event) =>
-                            setPreviousResponseID(event.target.value)
-                          }
+                          value={previousTurnID}
+                          onChange={(event) => setPreviousTurnID(event.target.value)}
                           className="h-11 rounded-2xl border-slate-200 bg-white font-mono"
                         />
                         <p className="text-muted-foreground text-xs leading-5">
@@ -1258,8 +1273,9 @@ export function PublicAPIPlaygroundPanel({
                   className="rounded-md bg-white"
                   onClick={() => {
                     setTraceItems([]);
-                    setResponse(null);
+                    setTurn(null);
                     setLiveOutput("");
+                    setLiveReasoning("");
                     setLastRunMode(null);
                   }}
                 >
@@ -1302,7 +1318,7 @@ export function PublicAPIPlaygroundPanel({
                 </ToggleGroup>
               </div>
 
-              {lastRunMode === "blocking" && response ? (
+              {lastRunMode === "blocking" && turn ? (
                 <div className="mt-4 rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-4">
                   <p className="text-sm font-medium text-amber-950">
                     {text.blockingReplayTitle}

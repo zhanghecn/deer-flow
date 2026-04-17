@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { PublicAPIStreamEvent } from "./api";
+import type { PublicAPITurnStreamEvent } from "./api";
 import {
   buildTraceFromRunEvent,
   normalizePublicAPIStreamEvent,
@@ -8,58 +8,55 @@ import {
 
 const traceText = {
   assistantMessage: "Assistant message",
+  assistantThinking: "Assistant thinking",
   toolCall: "Tool call",
   toolResult: "Tool result",
-  runCompleted: "Run completed",
+  turnCompleted: "Turn completed",
+  turnStarted: "Turn started",
+  turnWaiting: "Turn waiting",
+  turnFailed: "Turn failed",
 };
 
 describe("normalizePublicAPIStreamEvent", () => {
-  it("normalizes the streaming lifecycle into a smaller run event set", () => {
-    const events: PublicAPIStreamEvent[] = [
+  it("normalizes the native turns streaming lifecycle", () => {
+    const events: PublicAPITurnStreamEvent[] = [
       {
-        event: "response.run_event",
+        event: "turn.started",
         data: {
-          event: {
-            event_index: 1,
-            created_at: 1,
-            type: "run_started",
-            response_id: "resp_123",
-          },
+          sequence: 1,
+          created_at: 1,
+          type: "turn.started",
+          turn_id: "turn_123",
         },
       },
       {
-        event: "response.run_event",
+        event: "assistant.text.delta",
         data: {
-          event: {
-            event_index: 2,
-            created_at: 2,
-            type: "assistant_delta",
-            delta: "hello",
-            response_id: "resp_123",
-          },
+          sequence: 2,
+          created_at: 2,
+          type: "assistant.text.delta",
+          turn_id: "turn_123",
+          delta: "hello",
         },
       },
       {
-        event: "response.run_event",
+        event: "tool.call.started",
         data: {
-          event: {
-            event_index: 2,
-            created_at: 1,
-            type: "tool_started",
-            tool_name: "bash",
-            tool_arguments: { cmd: "echo hi" },
-          },
+          sequence: 3,
+          created_at: 3,
+          type: "tool.call.started",
+          turn_id: "turn_123",
+          tool_name: "bash",
+          tool_arguments: { cmd: "echo hi" },
         },
       },
       {
-        event: "response.run_event",
+        event: "turn.completed",
         data: {
-          event: {
-            event_index: 4,
-            created_at: 4,
-            type: "run_completed",
-            response_id: "resp_123",
-          },
+          sequence: 4,
+          created_at: 4,
+          type: "turn.completed",
+          turn_id: "turn_123",
         },
       },
     ];
@@ -69,47 +66,27 @@ describe("normalizePublicAPIStreamEvent", () => {
     expect(normalized).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          kind: "run_started",
-          responseId: "resp_123",
+          kind: "turn_started",
+          turnId: "turn_123",
         }),
         expect.objectContaining({
-          kind: "assistant_delta",
+          kind: "assistant_text_delta",
           delta: "hello",
         }),
         expect.objectContaining({
           kind: "ledger_event",
           event: expect.objectContaining({
-            type: "tool_started",
+            type: "tool.call.started",
             tool_name: "bash",
             tool_arguments: { cmd: "echo hi" },
           }),
         }),
         expect.objectContaining({
-          kind: "run_completed",
-          responseId: "resp_123",
+          kind: "turn_completed",
+          turnId: "turn_123",
         }),
       ]),
     );
-  });
-
-  it("keeps legacy response.completed payloads readable during the cutover", () => {
-    const normalized = normalizePublicAPIStreamEvent({
-      event: "response.completed",
-      data: {
-        response: {
-          id: "resp_legacy",
-          object: "response",
-          created_at: 1,
-          status: "completed",
-          model: "demo-agent",
-          output_text: "done",
-        },
-      },
-    });
-
-    expect(normalized).toMatchObject([
-      { kind: "run_completed", responseId: "resp_legacy" },
-    ]);
   });
 
   it("turns error payloads into a terminal failure event", () => {
@@ -120,7 +97,7 @@ describe("normalizePublicAPIStreamEvent", () => {
 
     expect(normalized).toHaveLength(1);
     expect(normalized[0]).toMatchObject({
-      kind: "run_failed",
+      kind: "turn_failed",
     });
   });
 });
@@ -129,9 +106,10 @@ describe("buildTraceFromRunEvent", () => {
   it("maps assistant tool calls into a readable trace entry", () => {
     const trace = buildTraceFromRunEvent(
       {
-        event_index: 2,
+        sequence: 2,
         created_at: 10,
-        type: "tool_started",
+        type: "tool.call.started",
+        turn_id: "turn_1",
         tool_name: "bash",
         tool_arguments: { cmd: "echo hi" },
       },
@@ -148,13 +126,14 @@ describe("buildTraceFromRunEvent", () => {
     expect(trace.detail).toContain("```json");
   });
 
-  it("maps question events into system trace entries", () => {
+  it("maps requires-input events into system trace entries", () => {
     const trace = buildTraceFromRunEvent(
       {
-        event_index: 3,
+        sequence: 3,
         created_at: 11,
-        type: "question_requested",
-        question_id: "question-1",
+        type: "turn.requires_input",
+        turn_id: "turn_1",
+        text: "question-1",
       },
       traceText,
     );
@@ -162,7 +141,7 @@ describe("buildTraceFromRunEvent", () => {
     expect(trace).toMatchObject({
       stage: "run",
       tone: "system",
-      title: "Question requested",
+      title: "Turn waiting",
       detail: "question-1",
       timestamp: 11000,
     });

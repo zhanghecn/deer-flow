@@ -1,7 +1,4 @@
-import type {
-  PublicAPIResponseEnvelope,
-  PublicAPIRunEvent,
-} from "./api";
+import type { PublicAPITurnEvent, PublicAPITurnSnapshot } from "./api";
 import {
   buildTraceFromRunEvent,
   type PlaygroundTraceItem,
@@ -13,16 +10,14 @@ export type PublicAPIRunPhase = "ready" | "streaming" | "failed" | "waiting";
 
 export type PublicAPIRunReadModel = {
   liveOutput: string;
+  liveReasoning: string;
   traceItems: PlaygroundTraceItem[];
   toolCallCount: number;
-  responseId: string;
-  response: PublicAPIResponseEnvelope | null;
-  reasoningSummary: string;
+  turnId: string;
+  turn: PublicAPITurnSnapshot | null;
   phase: PublicAPIRunPhase;
   seenEventKeys: string[];
 };
-
-export type PublicAPIReasoningEffort = "minimal" | "low" | "medium" | "high";
 
 function buildFailedTraceItem(
   detail: string,
@@ -31,49 +26,49 @@ function buildFailedTraceItem(
   return {
     stage: "error",
     tone: "error",
-    title: detail || "Run failed",
+    title: detail || "Turn failed",
     detail: detail || undefined,
     timestamp: Date.now(),
     raw,
   };
 }
 
-function eventKey(event: PublicAPIRunEvent) {
-  return `${event.type}:${event.event_index}`;
+function eventKey(event: PublicAPITurnEvent) {
+  return `${event.type}:${event.sequence}`;
 }
 
-function shouldSkipLedgerTrace(event: PublicAPIRunEvent) {
-  // Assistant deltas can arrive twice on the public SSE surface:
-  // once as the OpenAI-compatible `response.output_text.delta`, and again
-  // inside the canonical `response.run_event` ledger. The UI wants one
-  // growing assistant block, not two parallel delta streams.
-  return event.type === "assistant_delta";
+function shouldSkipLedgerTrace(event: PublicAPITurnEvent) {
+  // Streaming assistant text/reasoning deltas are rendered as one growing card.
+  // Replaying those same deltas again from the ledger would fragment the UI.
+  return (
+    event.type === "assistant.text.delta" ||
+    event.type === "assistant.reasoning.delta"
+  );
 }
 
-function upsertAssistantDeltaTrace(
+function upsertTrace(
   current: PublicAPIRunReadModel,
-  delta: string,
-  traceText: PlaygroundTraceText,
+  params: {
+    stage: "assistant";
+    title: string;
+    detail: string;
+    raw: unknown;
+  },
 ) {
-  const nextDetail = `${current.liveOutput}${delta}`;
-  const nextTimestamp = Date.now();
   const previous = current.traceItems[current.traceItems.length - 1];
-
+  const nextTimestamp = Date.now();
   if (
     previous &&
-    previous.stage === "assistant" &&
+    previous.stage === params.stage &&
     previous.tone === "assistant" &&
-    previous.title === traceText.assistantMessage
+    previous.title === params.title
   ) {
     const nextTraceItems = [...current.traceItems];
     nextTraceItems[nextTraceItems.length - 1] = {
       ...previous,
-      detail: nextDetail,
+      detail: params.detail,
       timestamp: nextTimestamp,
-      raw: {
-        kind: "assistant_delta_stream",
-        text: nextDetail,
-      },
+      raw: params.raw,
     };
     return nextTraceItems;
   }
@@ -81,22 +76,19 @@ function upsertAssistantDeltaTrace(
   return [
     ...current.traceItems,
     {
-      stage: "assistant" as const,
+      stage: params.stage,
       tone: "assistant" as const,
-      title: traceText.assistantMessage,
-      detail: nextDetail,
+      title: params.title,
+      detail: params.detail,
       timestamp: nextTimestamp,
-      raw: {
-        kind: "assistant_delta_stream",
-        text: nextDetail,
-      },
+      raw: params.raw,
     },
   ];
 }
 
 function pushTraceItemIfNeeded(
   current: PublicAPIRunReadModel,
-  event: PublicAPIRunEvent,
+  event: PublicAPITurnEvent,
   traceText: PlaygroundTraceText,
 ): PublicAPIRunReadModel {
   if (shouldSkipLedgerTrace(event)) {
@@ -113,7 +105,7 @@ function pushTraceItemIfNeeded(
     traceItems: [...current.traceItems, buildTraceFromRunEvent(event, traceText)],
     seenEventKeys: [...current.seenEventKeys, key],
     toolCallCount:
-      event.type === "tool_started"
+      event.type === "tool.call.started"
         ? current.toolCallCount + 1
         : current.toolCallCount,
   };
@@ -122,68 +114,35 @@ function pushTraceItemIfNeeded(
 export function createPublicAPIRunReadModel(): PublicAPIRunReadModel {
   return {
     liveOutput: "",
+    liveReasoning: "",
     traceItems: [],
     toolCallCount: 0,
-    responseId: "",
-    response: null,
-    reasoningSummary: "",
+    turnId: "",
+    turn: null,
     phase: "ready",
     seenEventKeys: [],
   };
 }
 
-export function buildPublicAPIReasoningRequest(
-  reasoningEnabled: boolean,
-  reasoningEffort: PublicAPIReasoningEffort,
-) {
-  if (!reasoningEnabled) {
-    return undefined;
-  }
-
-  return {
-    effort: reasoningEffort,
-    summary: "detailed" as const,
-  };
-}
-
 export function extractPublicAPIReasoningSummary(
-  response: PublicAPIResponseEnvelope | null | undefined,
+  turn: PublicAPITurnSnapshot | null | undefined,
 ) {
-  if (!response?.output?.length) {
-    return "";
-  }
-
-  const segments: string[] = [];
-  for (const item of response.output) {
-    if (item.type !== "reasoning" || !Array.isArray(item.summary)) {
-      continue;
-    }
-    for (const summaryItem of item.summary) {
-      if (summaryItem.type !== "summary_text") {
-        continue;
-      }
-      const text = summaryItem.text?.trim();
-      if (text) {
-        segments.push(text);
-      }
-    }
-  }
-  return segments.join("\n\n").trim();
+  return turn?.reasoning_text?.trim() ?? "";
 }
 
 export function formatPublicAPIOutputText(
-  response: PublicAPIResponseEnvelope | null,
+  turn: PublicAPITurnSnapshot | null,
   liveOutput: string,
 ) {
-  if (!response?.output_text) {
+  if (!turn?.output_text) {
     return liveOutput;
   }
 
   try {
-    const parsed = JSON.parse(response.output_text);
+    const parsed = JSON.parse(turn.output_text);
     return JSON.stringify(parsed, null, 2);
   } catch {
-    return response.output_text;
+    return turn.output_text;
   }
 }
 
@@ -195,51 +154,82 @@ export function applyNormalizedPublicAPIRunEvent(params: {
   const { current, event, traceText } = params;
 
   switch (event.kind) {
-    case "run_started":
+    case "turn_started":
       return {
         ...current,
-        responseId: event.responseId || current.responseId,
+        turnId: event.turnId || current.turnId,
+        phase: "streaming",
       };
-    case "assistant_delta":
+    case "assistant_text_delta":
       return {
         ...current,
         liveOutput: `${current.liveOutput}${event.delta}`,
-        traceItems: upsertAssistantDeltaTrace(
-          current,
-          event.delta,
-          traceText,
-        ),
+        traceItems: upsertTrace(current, {
+          stage: "assistant",
+          title: traceText.assistantMessage,
+          detail: `${current.liveOutput}${event.delta}`,
+          raw: {
+            kind: "assistant_text_stream",
+            text: `${current.liveOutput}${event.delta}`,
+          },
+        }),
+      };
+    case "assistant_reasoning_delta":
+      return {
+        ...current,
+        liveReasoning: `${current.liveReasoning}${event.delta}`.trim(),
+        traceItems: upsertTrace(current, {
+          stage: "assistant",
+          title: traceText.assistantThinking,
+          detail: `${current.liveReasoning}${event.delta}`.trim(),
+          raw: {
+            kind: "assistant_reasoning_stream",
+            text: `${current.liveReasoning}${event.delta}`.trim(),
+          },
+        }),
       };
     case "ledger_event": {
       let next = pushTraceItemIfNeeded(current, event.event, traceText);
-      if (event.event.type === "assistant_message" && event.event.text?.trim()) {
+      if (event.event.turn_id?.trim()) {
         next = {
           ...next,
-          liveOutput: event.event.text.trim(),
+          turnId: event.event.turn_id.trim(),
         };
       }
-      if (event.event.response_id?.trim()) {
+      if (event.event.type === "assistant.message.completed") {
         next = {
           ...next,
-          responseId: event.event.response_id.trim(),
+          liveOutput: event.event.text?.trim() || next.liveOutput,
+          liveReasoning: event.event.reasoning?.trim() || next.liveReasoning,
         };
       }
-      if (event.event.type === "run_failed") {
+      if (event.event.type === "turn.requires_input") {
+        next = {
+          ...next,
+          phase: "waiting",
+        };
+      }
+      if (event.event.type === "turn.failed") {
         next = {
           ...next,
           phase: "failed",
         };
       }
+      if (event.event.type === "turn.completed") {
+        next = {
+          ...next,
+          phase: "ready",
+        };
+      }
       return next;
     }
-    case "run_completed":
+    case "turn_completed":
       return {
         ...current,
-        responseId: event.responseId || current.responseId,
+        turnId: event.turnId || current.turnId,
+        phase: "ready",
       };
-    case "run_failed":
-      // Some streaming paths surface only the normalized failure and omit a
-      // matching ledger event, so synthesize one visible terminal trace item.
+    case "turn_failed":
       return {
         ...current,
         phase: "failed",
@@ -248,40 +238,29 @@ export function applyNormalizedPublicAPIRunEvent(params: {
   }
 }
 
-export function applyPublicAPIResponseEnvelope(params: {
+export function applyPublicAPITurnSnapshot(params: {
   current: PublicAPIRunReadModel;
-  response: PublicAPIResponseEnvelope;
+  turn: PublicAPITurnSnapshot;
   traceText: PlaygroundTraceText;
 }): PublicAPIRunReadModel {
   let next: PublicAPIRunReadModel = {
     ...params.current,
-    response: params.response,
-    responseId: params.response.id,
-    reasoningSummary: extractPublicAPIReasoningSummary(params.response),
+    turn: params.turn,
+    turnId: params.turn.id,
+    liveOutput: params.turn.output_text || params.current.liveOutput,
+    liveReasoning:
+      params.turn.reasoning_text || params.current.liveReasoning,
+    phase:
+      params.turn.status === "requires_input"
+        ? "waiting"
+        : params.turn.status === "failed"
+          ? "failed"
+          : "ready",
   };
 
-  // Final response hydration may include the same run ledger the live stream
-  // already carried. Keep the trace stable by only appending unseen events.
-  for (const event of params.response.openagents?.run_events ?? []) {
+  for (const event of params.turn.events) {
     next = pushTraceItemIfNeeded(next, event, params.traceText);
   }
-
-  if (params.response.output_text?.trim()) {
-    next = {
-      ...next,
-      liveOutput: params.response.output_text.trim(),
-    };
-  }
-
-  next = {
-    ...next,
-    phase:
-      params.response.status === "incomplete"
-        ? "waiting"
-        : params.response.status === "completed"
-          ? "ready"
-          : params.current.phase,
-  };
 
   return next;
 }

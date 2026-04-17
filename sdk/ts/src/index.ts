@@ -10,6 +10,16 @@ export type OpenAgentsTurnRequest = {
     file_ids?: string[];
   };
   previous_turn_id?: string;
+  // Native turns keeps the same structured-output shape as the compatibility
+  // routes so callers do not need a second request vocabulary for JSON schema.
+  text?: {
+    format?: {
+      type: string;
+      name?: string;
+      schema?: unknown;
+      strict?: boolean;
+    };
+  };
   metadata?: Record<string, unknown>;
   stream?: boolean;
   thinking?: OpenAgentsThinkingConfig;

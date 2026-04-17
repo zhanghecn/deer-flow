@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 
-import { resolvePublicAPIBaseURL, type PublicAPIResponseEnvelope } from "./api";
+import { resolvePublicAPIBaseURL, type PublicAPITurnSnapshot } from "./api";
 import {
   normalizePublicAPIStreamEvent,
   type PublicAPINormalizedRunEvent,
@@ -13,9 +13,8 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
-// The public docs support demo deliberately uses the official browser SDK
-// against Deer Flow's published `/v1` contract so customer-side compatibility
-// gets validated without routing through workspace-only helpers.
+// The docs surface still offers an OpenAI client example for compatibility
+// routes, but the first-party runtime contract now centers on `/v1/turns`.
 export function createBrowserPublicAPIClient(params: {
   apiToken: string;
   baseURL?: string | null;
@@ -27,30 +26,30 @@ export function createBrowserPublicAPIClient(params: {
   });
 }
 
-// Deer Flow streams a small OpenAI-compatible event envelope plus
-// `response.run_event` extensions. Reuse the existing normalization path so the
-// SDK demo and internal playground stay aligned on one event vocabulary.
 export function normalizeSDKResponseEvent(
   rawEvent: unknown,
 ): PublicAPINormalizedRunEvent[] {
   const record = asRecord(rawEvent);
   const eventName = typeof record?.type === "string" ? record.type : "message";
-  return normalizePublicAPIStreamEvent({ event: eventName, data: rawEvent });
+  const payload = "event" in (record ?? {}) ? record?.event : rawEvent;
+  return normalizePublicAPIStreamEvent({ event: eventName, data: payload });
 }
 
-// The official SDK types do not know Deer Flow's `openagents` extension, so
-// the support demo narrows the retrieved payload locally before reading it.
-export function coercePublicAPIResponse(
-  rawResponse: unknown,
-): PublicAPIResponseEnvelope | null {
-  const record = asRecord(rawResponse);
+export function coercePublicAPITurn(
+  rawTurn: unknown,
+): PublicAPITurnSnapshot | null {
+  const record = asRecord(rawTurn);
   if (!record) {
     return null;
   }
 
-  if (typeof record.id !== "string" || typeof record.status !== "string") {
+  if (
+    typeof record.id !== "string" ||
+    typeof record.status !== "string" ||
+    record.object !== "turn"
+  ) {
     return null;
   }
 
-  return record as unknown as PublicAPIResponseEnvelope;
+  return record as unknown as PublicAPITurnSnapshot;
 }

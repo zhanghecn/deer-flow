@@ -1,32 +1,38 @@
 import type {
-  PublicAPIRunEvent,
-  PublicAPIResponseEnvelope,
-  PublicAPIStreamEvent,
+  PublicAPITurnEvent,
+  PublicAPITurnEventType,
+  PublicAPITurnSnapshot,
+  PublicAPITurnStreamEvent,
 } from "./api";
 
 export type PublicAPINormalizedRunEvent =
   | {
-      kind: "run_started";
-      responseId: string;
+      kind: "turn_started";
+      turnId: string;
       raw: unknown;
     }
   | {
-      kind: "assistant_delta";
+      kind: "assistant_text_delta";
+      delta: string;
+      raw: unknown;
+    }
+  | {
+      kind: "assistant_reasoning_delta";
       delta: string;
       raw: unknown;
     }
   | {
       kind: "ledger_event";
-      event: PublicAPIRunEvent;
+      event: PublicAPITurnEvent;
       raw: unknown;
     }
   | {
-      kind: "run_completed";
-      responseId: string;
+      kind: "turn_completed";
+      turnId: string;
       raw: unknown;
     }
   | {
-      kind: "run_failed";
+      kind: "turn_failed";
       detail: string;
       raw: unknown;
     };
@@ -60,9 +66,13 @@ export type PlaygroundTraceItem = {
 
 export type PlaygroundTraceText = {
   assistantMessage: string;
+  assistantThinking: string;
   toolCall: string;
   toolResult: string;
-  runCompleted: string;
+  turnCompleted: string;
+  turnStarted: string;
+  turnWaiting: string;
+  turnFailed: string;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -74,10 +84,6 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 function asString(value: unknown) {
   return typeof value === "string" ? value : "";
-}
-
-function asNumber(value: unknown) {
-  return typeof value === "number" ? value : 0;
 }
 
 function formatJSONCodeBlock(value: unknown) {
@@ -111,193 +117,191 @@ export function buildSnapshotDetail(payload: Record<string, unknown> | null) {
   if (newArtifacts.length > 0) {
     parts.push(`new artifacts: ${newArtifacts.join(", ")}`);
   }
-  const messageCount = asNumber(payload.message_count);
+  const messageCount =
+    typeof payload.message_count === "number" ? payload.message_count : 0;
   if (messageCount > 0) {
     parts.push(`messages: ${messageCount}`);
   }
   return parts.join(" | ");
 }
 
-// The playgrounds still receive the legacy public SSE surface today. Normalize
-// that transport into a smaller first-party event stream before the UI renders
-// timelines so the eventual SDKMessage contract has one frontend entry point.
+function isTurnEventType(value: string): value is PublicAPITurnEventType {
+  return [
+    "turn.started",
+    "assistant.message.started",
+    "assistant.text.delta",
+    "assistant.reasoning.delta",
+    "tool.call.started",
+    "tool.call.completed",
+    "turn.requires_input",
+    "assistant.message.completed",
+    "turn.completed",
+    "turn.failed",
+  ].includes(value);
+}
+
 export function normalizePublicAPIStreamEvent(
-  event: PublicAPIStreamEvent,
+  event: PublicAPITurnStreamEvent,
 ): PublicAPINormalizedRunEvent[] {
-  const record = asRecord(event.data);
-
-  if (event.event === "response.created") {
-    const responseId = asString(asRecord(record?.response)?.id);
-    return responseId
-      ? [{ kind: "run_started", responseId, raw: event.data }]
-      : [];
+  if (event.event === "done") {
+    return [];
   }
 
-  if (event.event === "response.output_text.delta") {
-    const delta = asString(record?.delta);
-    return delta ? [{ kind: "assistant_delta", delta, raw: event.data }] : [];
-  }
-
-  if (event.event === "response.run_event") {
-    const runEvent = record?.event as PublicAPIRunEvent | undefined;
-    if (!runEvent) {
-      return [];
+  const payload = asRecord(event.data);
+  const eventType = event.event.trim();
+  if (!isTurnEventType(eventType) || !payload) {
+    if (event.event === "error") {
+      return [
+        {
+          kind: "turn_failed",
+          detail: prettyJSON(event.data),
+          raw: event.data,
+        },
+      ];
     }
-
-    const normalized: PublicAPINormalizedRunEvent[] = [];
-    switch (runEvent.type) {
-      case "run_started":
-        normalized.push({
-          kind: "run_started",
-          responseId: asString(runEvent.response_id),
-          raw: event.data,
-        });
-        break;
-      case "assistant_delta":
-        normalized.push({
-          kind: "assistant_delta",
-          delta: asString(runEvent.delta),
-          raw: event.data,
-        });
-        break;
-      case "run_completed":
-        normalized.push({
-          kind: "run_completed",
-          responseId: asString(runEvent.response_id),
-          raw: event.data,
-        });
-        break;
-      case "run_failed":
-        normalized.push({
-          kind: "run_failed",
-          detail: asString(runEvent.error),
-          raw: event.data,
-        });
-        break;
-    }
-    normalized.push({ kind: "ledger_event", event: runEvent, raw: event.data });
-    return normalized;
+    return [];
   }
 
-  if (event.event === "response.completed") {
-    const responsePayload = asRecord(record?.response) as PublicAPIResponseEnvelope | null;
-    return responsePayload
-      ? [{ kind: "run_completed", responseId: responsePayload.id, raw: event.data }]
-      : [];
-  }
+  const turnEvent = payload as unknown as PublicAPITurnEvent;
+  const normalized: PublicAPINormalizedRunEvent[] = [];
 
-  if (event.event === "error") {
-    return [
-      {
-        kind: "run_failed",
-        detail: prettyJSON(event.data),
+  switch (turnEvent.type) {
+    case "turn.started":
+      normalized.push({
+        kind: "turn_started",
+        turnId: asString(turnEvent.turn_id),
         raw: event.data,
-      },
-    ];
+      });
+      break;
+    case "assistant.text.delta":
+      normalized.push({
+        kind: "assistant_text_delta",
+        delta: asString(turnEvent.delta),
+        raw: event.data,
+      });
+      break;
+    case "assistant.reasoning.delta":
+      normalized.push({
+        kind: "assistant_reasoning_delta",
+        delta: asString(turnEvent.delta),
+        raw: event.data,
+      });
+      break;
+    case "turn.completed":
+      normalized.push({
+        kind: "turn_completed",
+        turnId: asString(turnEvent.turn_id),
+        raw: event.data,
+      });
+      break;
+    case "turn.failed":
+      normalized.push({
+        kind: "turn_failed",
+        detail: asString(turnEvent.error),
+        raw: event.data,
+      });
+      break;
   }
 
-  return [];
+  normalized.push({ kind: "ledger_event", event: turnEvent, raw: event.data });
+  return normalized;
 }
 
 export function buildTraceFromRunEvent(
-  event: PublicAPIRunEvent,
+  event: PublicAPITurnEvent,
   text: PlaygroundTraceText,
 ): PlaygroundTraceItem {
   switch (event.type) {
-    case "assistant_delta":
+    case "assistant.text.delta":
+    case "assistant.message.completed":
       return {
         stage: "assistant",
         tone: "assistant",
         title: text.assistantMessage,
-        detail: asString(event.delta),
+        detail: asString(event.text || event.delta),
         timestamp: event.created_at * 1000,
         raw: event,
       };
-    case "assistant_message":
+    case "assistant.reasoning.delta":
       return {
         stage: "assistant",
         tone: "assistant",
-        title: text.assistantMessage,
-        detail: asString(event.text),
+        title: text.assistantThinking,
+        detail: asString(event.reasoning || event.delta),
         timestamp: event.created_at * 1000,
         raw: event,
       };
-    case "tool_started":
-      {
-        const parts = [
-          `**方法**：\`${asString(event.tool_name)}\``,
-        ];
-        if ("tool_arguments" in event && event.tool_arguments !== undefined) {
-          parts.push("**参数**");
-          parts.push(formatJSONCodeBlock(event.tool_arguments));
-        }
-        return {
-          stage: "run",
-          tone: "tool",
-          title: text.toolCall,
-          detail: parts.join("\n\n"),
-          timestamp: event.created_at * 1000,
-          raw: event,
-        };
+    case "tool.call.started": {
+      const parts = [`**方法**：\`${asString(event.tool_name)}\``];
+      if (event.tool_arguments !== undefined) {
+        parts.push("**参数**");
+        parts.push(formatJSONCodeBlock(event.tool_arguments));
       }
-    case "tool_finished":
-      {
-        const parts: string[] = [];
-        const toolName = asString(event.tool_name);
-        if (toolName) {
-          parts.push(`**方法**：\`${toolName}\``);
-        }
-        if ("tool_output" in event && event.tool_output !== undefined) {
-          parts.push("**返回**");
-          if (typeof event.tool_output === "string") {
-            parts.push(event.tool_output.trim() ? event.tool_output : "```text\n\n```");
-          } else {
-            parts.push(formatJSONCodeBlock(event.tool_output));
-          }
-        }
-        return {
-          stage: "run",
-          tone: "tool",
-          title: event.tool_name
-            ? `${text.toolResult}: ${asString(event.tool_name)}`
-            : text.toolResult,
-          detail: parts.join("\n\n") || undefined,
-          timestamp: event.created_at * 1000,
-          raw: event,
-        };
+      return {
+        stage: "run",
+        tone: "tool",
+        title: text.toolCall,
+        detail: parts.join("\n\n"),
+        timestamp: event.created_at * 1000,
+        raw: event,
+      };
+    }
+    case "tool.call.completed": {
+      const parts: string[] = [];
+      const toolName = asString(event.tool_name);
+      if (toolName) {
+        parts.push(`**方法**：\`${toolName}\``);
       }
-    case "question_requested":
+      if (event.tool_output !== undefined) {
+        parts.push("**返回**");
+        if (typeof event.tool_output === "string") {
+          parts.push(event.tool_output.trim() ? event.tool_output : "```text\n\n```");
+        } else {
+          parts.push(formatJSONCodeBlock(event.tool_output));
+        }
+      }
+      return {
+        stage: "run",
+        tone: "tool",
+        title: text.toolResult,
+        detail: parts.join("\n\n"),
+        timestamp: event.created_at * 1000,
+        raw: event,
+      };
+    }
+    case "turn.started":
       return {
         stage: "run",
         tone: "system",
-        title: "Question requested",
-        detail: asString(event.question_id),
+        title: text.turnStarted,
+        detail: asString(event.turn_id),
         timestamp: event.created_at * 1000,
         raw: event,
       };
-    case "question_answered":
+    case "turn.requires_input":
       return {
         stage: "run",
         tone: "system",
-        title: "Question answered",
-        detail: asString(event.question_id),
+        title: text.turnWaiting,
+        detail: asString(event.text || event.message_id),
         timestamp: event.created_at * 1000,
         raw: event,
       };
-    case "run_completed":
+    case "turn.completed":
       return {
         stage: "complete",
         tone: "system",
-        title: text.runCompleted,
+        title: text.turnCompleted,
+        detail: asString(event.turn_id),
         timestamp: event.created_at * 1000,
         raw: event,
       };
-    case "run_failed":
+    case "turn.failed":
       return {
         stage: "error",
         tone: "error",
-        title: event.error ?? "Run failed",
-        detail: event.error,
+        title: text.turnFailed,
+        detail: asString(event.error),
         timestamp: event.created_at * 1000,
         raw: event,
       };
@@ -306,7 +310,7 @@ export function buildTraceFromRunEvent(
         stage: "run",
         tone: "system",
         title: event.type,
-        detail: prettyJSON(event),
+        detail: buildSnapshotDetail(asRecord(event)),
         timestamp: event.created_at * 1000,
         raw: event,
       };
@@ -316,29 +320,41 @@ export function buildTraceFromRunEvent(
 export function traceToneClass(tone: PlaygroundTraceTone) {
   switch (tone) {
     case "assistant":
-      return "border-emerald-200 bg-emerald-50/80";
+      return "border-emerald-200 bg-emerald-50/70";
     case "tool":
       return "border-amber-200 bg-amber-50/80";
     case "artifact":
-      return "border-stone-300 bg-stone-50";
+      return "border-sky-200 bg-sky-50";
     case "error":
-      return "border-rose-200 bg-rose-50/90";
+      return "border-rose-200 bg-rose-50";
     default:
-      return "border-slate-200 bg-white";
+      return "border-slate-200 bg-slate-50/70";
   }
 }
 
 export function traceToneDotClass(tone: PlaygroundTraceTone) {
   switch (tone) {
     case "assistant":
-      return "bg-emerald-600";
+      return "bg-emerald-500";
     case "tool":
-      return "bg-amber-600";
+      return "bg-amber-500";
     case "artifact":
-      return "bg-stone-500";
+      return "bg-sky-500";
     case "error":
-      return "bg-rose-600";
+      return "bg-rose-500";
     default:
       return "bg-slate-400";
   }
+}
+
+export function isPublicAPITurnSnapshot(
+  value: unknown,
+): value is PublicAPITurnSnapshot {
+  const record = asRecord(value);
+  return (
+    record !== null &&
+    record.object === "turn" &&
+    typeof record.id === "string" &&
+    Array.isArray(record.events)
+  );
 }

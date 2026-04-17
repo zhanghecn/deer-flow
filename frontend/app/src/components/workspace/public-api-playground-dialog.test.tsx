@@ -6,20 +6,20 @@ import { describe, expect, it, vi } from "vitest";
 import { PublicAPIPlaygroundPanel } from "./public-api-playground-dialog";
 
 const {
-  createPublicAPIResponseMock,
-  streamPublicAPIResponseMock,
+  createPublicAPITurnMock,
+  streamPublicAPITurnMock,
 } = vi.hoisted(() => ({
-  createPublicAPIResponseMock: vi.fn(),
-  streamPublicAPIResponseMock: vi.fn(),
+  createPublicAPITurnMock: vi.fn(),
+  streamPublicAPITurnMock: vi.fn(),
 }));
 
 vi.mock("@/core/public-api/api", () => ({
-  createPublicAPIResponse: createPublicAPIResponseMock,
+  createPublicAPITurn: createPublicAPITurnMock,
   downloadPublicAPIArtifact: vi.fn(),
-  getPublicAPIResponse: vi.fn(),
+  getPublicAPITurn: vi.fn(),
   resolvePublicAPIBaseURL: (explicitBaseURL?: string | null) =>
     explicitBaseURL ?? "http://127.0.0.1:8083/v1",
-  streamPublicAPIResponse: streamPublicAPIResponseMock,
+  streamPublicAPITurn: streamPublicAPITurnMock,
   uploadPublicAPIFile: vi.fn(),
 }));
 
@@ -47,9 +47,7 @@ describe("PublicAPIPlaygroundPanel", () => {
     const prompt = screen.getByLabelText("Prompt");
 
     expect(baseURL).toHaveValue("http://127.0.0.1:8083/v1");
-    expect(
-      screen.queryByLabelText("Previous response ID"),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Previous turn ID")).not.toBeInTheDocument();
     expect(
       screen.queryByLabelText("Max output tokens"),
     ).not.toBeInTheDocument();
@@ -64,7 +62,7 @@ describe("PublicAPIPlaygroundPanel", () => {
       screen.getByRole("button", { name: /Advanced controls/i }),
     );
 
-    expect(screen.getByLabelText("Previous response ID")).toHaveValue("");
+    expect(screen.getByLabelText("Previous turn ID")).toHaveValue("");
     expect(screen.getByLabelText("Max output tokens")).toHaveValue("");
   });
 
@@ -94,33 +92,32 @@ describe("PublicAPIPlaygroundPanel", () => {
     expect(screen.queryByText("Recent scoped keys")).not.toBeInTheDocument();
   });
 
-  it("renders incomplete blocking responses as waiting for input instead of completed", async () => {
+  it("renders blocking turns waiting for input instead of completed", async () => {
     const user = userEvent.setup();
-    createPublicAPIResponseMock.mockResolvedValueOnce({
-      id: "resp_incomplete",
-      object: "response",
+    createPublicAPITurnMock.mockResolvedValueOnce({
+      id: "turn_waiting",
+      object: "turn",
       created_at: 1,
-      status: "incomplete",
-      model: "reviewer",
+      status: "requires_input",
+      agent: "reviewer",
+      thread_id: "thread-1",
       output_text: "",
-      output: [],
-      openagents: {
-        thread_id: "thread-1",
-        run_events: [
-          {
-            event_index: 1,
-            created_at: 1,
-            type: "run_started",
-            response_id: "resp_incomplete",
-          },
-          {
-            event_index: 2,
-            created_at: 2,
-            type: "question_requested",
-            question_id: "question-1",
-          },
-        ],
-      },
+      reasoning_text: "",
+      events: [
+        {
+          sequence: 1,
+          created_at: 1,
+          type: "turn.started",
+          turn_id: "turn_waiting",
+        },
+        {
+          sequence: 2,
+          created_at: 2,
+          type: "turn.requires_input",
+          turn_id: "turn_waiting",
+          text: "question-1",
+        },
+      ],
       artifacts: [],
       usage: {
         input_tokens: 1,
@@ -146,12 +143,10 @@ describe("PublicAPIPlaygroundPanel", () => {
     await user.click(screen.getByRole("switch", { name: "Use SSE stream" }));
     await user.click(screen.getByRole("button", { name: "Run published agent" }));
 
-    expect(createPublicAPIResponseMock).toHaveBeenCalledTimes(1);
+    expect(createPublicAPITurnMock).toHaveBeenCalledTimes(1);
     expect(
-      await screen.findByText(
-        "Response is waiting for user input: resp_incomplete",
-      ),
+      await screen.findByText("Turn is waiting for user input: turn_waiting"),
     ).toBeInTheDocument();
-    expect(screen.queryByText("Response completed: resp_incomplete")).not.toBeInTheDocument();
+    expect(screen.queryByText("Turn completed: turn_waiting")).not.toBeInTheDocument();
   });
 });

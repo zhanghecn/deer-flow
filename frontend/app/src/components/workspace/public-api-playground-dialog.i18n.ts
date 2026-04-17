@@ -83,6 +83,9 @@ type PublicAPIPlaygroundText = {
   requestIncomplete: (responseID: string) => string;
   artifactReady: (filename: string) => string;
   runCompleted: string;
+  turnStartedTitle: string;
+  turnWaitingTitle: string;
+  turnFailedTitle: string;
   assistantMessage: string;
   toolCall: string;
   toolResult: string;
@@ -137,15 +140,15 @@ const enUS: PublicAPIPlaygroundText = {
     "Keep the first screen focused on the inputs you need most often. Advanced controls stay collapsed until you need them.",
   streamLabel: "Use SSE stream",
   streamDescription:
-    "Turn this off when you only need the completed envelope and a replay of the final run timeline.",
+    "Turn this off when you only need the completed turn snapshot and a replay of the final run timeline.",
   reasoningLabel: "Enable thinking",
   reasoningDescription:
     "Thinking stays opt-in at the control level. The runtime still exposes the resulting events and files.",
   reasoningEffort: "Reasoning effort",
-  previousResponse: "Previous response ID",
+  previousResponse: "Previous turn ID",
   previousResponseHint:
-    "Reuse the last response ID to continue the same public conversation thread.",
-  useLatestResponse: "Use latest response",
+    "Reuse the last turn ID to continue the same public conversation thread.",
+  useLatestResponse: "Use latest turn",
   message: "Prompt",
   messagePlaceholder:
     "Ask for a report, workflow, transformation, or strict JSON result.",
@@ -179,15 +182,15 @@ const enUS: PublicAPIPlaygroundText = {
   noTrace: "No run has been sent yet.",
   noFilteredTrace: "No events match the current filter.",
   resultEyebrow: "Result",
-  resultTitle: "Final response",
+  resultTitle: "Final turn",
   resultDescription:
-    "Inspect the final text, the raw response envelope, and any files produced by the published agent.",
-  noResponse: "Run a request to inspect the public response envelope.",
+    "Inspect the final text, the raw turn snapshot, and any files produced by the published agent.",
+  noResponse: "Run a request to inspect the public turn snapshot.",
   outputTab: "Output",
   reasoningTab: "Reasoning summary",
-  jsonTab: "Response JSON",
+  jsonTab: "Turn JSON",
   filesTab: "Files",
-  responseID: "Response",
+  responseID: "Turn",
   traceID: "Trace",
   finalStatus: "Status",
   totalTokens: "Tokens",
@@ -204,12 +207,15 @@ const enUS: PublicAPIPlaygroundText = {
   uploadStarted: (filename) => `Uploading ${filename}`,
   uploadFinished: (filename, fileID) => `${filename} uploaded as ${fileID}`,
   requestPrepared: "Request prepared",
-  streamStarted: "Streaming `/v1/responses`",
-  requestFinished: (responseID) => `Response completed: ${responseID}`,
-  requestIncomplete: (responseID) =>
-    `Response is waiting for user input: ${responseID}`,
+  streamStarted: "Streaming `/v1/turns`",
+  requestFinished: (turnID) => `Turn completed: ${turnID}`,
+  requestIncomplete: (turnID) =>
+    `Turn is waiting for user input: ${turnID}`,
   artifactReady: (filename) => `Generated file: ${filename}`,
   runCompleted: "Run completed",
+  turnStartedTitle: "Turn started",
+  turnWaitingTitle: "Waiting for user input",
+  turnFailedTitle: "Turn failed",
   assistantMessage: "Assistant message",
   toolCall: "Tool calls",
   toolResult: "Tool result",
@@ -265,15 +271,15 @@ const zhCN: PublicAPIPlaygroundText = {
     "首屏只保留最常用输入项，高级参数折叠起来，避免第一次调试就被大量选项淹没。",
   streamLabel: "使用 SSE 流式",
   streamDescription:
-    "关闭后将返回完整最终 envelope，并在下方回放本次运行的事件时间线。",
+    "关闭后将返回完整最终 turn 快照，并在下方回放本次运行的事件时间线。",
   reasoningLabel: "开启思考",
   reasoningDescription:
     "思考能力仍然是显式选项，但最终产生的事件和文件会继续完整暴露。",
   reasoningEffort: "思考强度",
-  previousResponse: "上一轮 response ID",
+  previousResponse: "上一轮 turn ID",
   previousResponseHint:
-    "复用上一轮 response ID，可以继续同一个 public thread。",
-  useLatestResponse: "使用上一轮响应",
+    "复用上一轮 turn ID，可以继续同一个 public thread。",
+  useLatestResponse: "使用上一轮 turn",
   message: "提示词",
   messagePlaceholder: "可以要求报告、流程、转换，也可以要求严格返回 JSON。",
   files: "文件",
@@ -305,15 +311,15 @@ const zhCN: PublicAPIPlaygroundText = {
   noTrace: "还没有发出任何请求。",
   noFilteredTrace: "当前筛选条件下没有事件。",
   resultEyebrow: "结果",
-  resultTitle: "最终响应",
+  resultTitle: "最终 turn",
   resultDescription:
-    "这里集中查看最终文本、原始响应 envelope，以及运行期间生成的文件。",
-  noResponse: "执行一次请求后，这里会展示最终 public response。",
+    "这里集中查看最终文本、原始 turn 快照，以及运行期间生成的文件。",
+  noResponse: "执行一次请求后，这里会展示最终 public turn。",
   outputTab: "输出",
   reasoningTab: "思考摘要",
-  jsonTab: "响应 JSON",
+  jsonTab: "Turn JSON",
   filesTab: "文件",
-  responseID: "响应",
+  responseID: "Turn",
   traceID: "Trace",
   finalStatus: "状态",
   totalTokens: "Tokens",
@@ -330,11 +336,14 @@ const zhCN: PublicAPIPlaygroundText = {
   uploadStarted: (filename) => `正在上传 ${filename}`,
   uploadFinished: (filename, fileID) => `${filename} 已上传，file_id=${fileID}`,
   requestPrepared: "请求已准备",
-  streamStarted: "正在流式调用 `/v1/responses`",
-  requestFinished: (responseID) => `响应完成：${responseID}`,
-  requestIncomplete: (responseID) => `响应正在等待用户输入：${responseID}`,
+  streamStarted: "正在流式调用 `/v1/turns`",
+  requestFinished: (turnID) => `Turn 完成：${turnID}`,
+  requestIncomplete: (turnID) => `Turn 正在等待用户输入：${turnID}`,
   artifactReady: (filename) => `生成文件：${filename}`,
   runCompleted: "运行完成",
+  turnStartedTitle: "Turn 已开始",
+  turnWaitingTitle: "等待用户输入",
+  turnFailedTitle: "Turn 失败",
   assistantMessage: "助手消息",
   toolCall: "工具调用",
   toolResult: "工具结果",

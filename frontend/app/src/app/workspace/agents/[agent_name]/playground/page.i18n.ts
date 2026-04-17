@@ -39,7 +39,7 @@ const enUS: AgentPlaygroundPageText = {
   currentArchive: "Current archive",
   gatewayBase: "Gateway base",
   contracts: "Contracts",
-  contractsValue: "responses, files, artifacts, structured JSON",
+  contractsValue: "turns, files, artifacts, structured JSON",
   referenceTitle: "Reference",
   referenceDescription:
     "Share this stable gateway base and documentation URL with external integrators.",
@@ -72,7 +72,7 @@ const zhCN: AgentPlaygroundPageText = {
   currentArchive: "当前归档",
   gatewayBase: "网关地址",
   contracts: "能力契约",
-  contractsValue: "responses、files、artifacts、结构化 JSON",
+  contractsValue: "turns、files、artifacts、结构化 JSON",
   referenceTitle: "接口参考",
   referenceDescription:
     "这里提供稳定的网关地址和文档入口，方便直接发给外部接入方。",

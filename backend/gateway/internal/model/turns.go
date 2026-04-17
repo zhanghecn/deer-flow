@@ -31,13 +31,17 @@ type TurnInput struct {
 }
 
 type TurnCreateRequest struct {
-	Agent           string              `json:"agent" binding:"required"`
-	Input           TurnInput           `json:"input" binding:"required"`
-	PreviousTurnID  string              `json:"previous_turn_id,omitempty"`
-	Metadata        json.RawMessage     `json:"metadata,omitempty"`
-	Stream          bool                `json:"stream,omitempty"`
-	Thinking        *TurnThinkingConfig `json:"thinking,omitempty"`
-	MaxOutputTokens *int                `json:"max_output_tokens,omitempty"`
+	Agent          string          `json:"agent" binding:"required"`
+	Input          TurnInput       `json:"input" binding:"required"`
+	PreviousTurnID string          `json:"previous_turn_id,omitempty"`
+	Metadata       json.RawMessage `json:"metadata,omitempty"`
+	Stream         bool            `json:"stream,omitempty"`
+	// Reuse the existing public text format contract so native `/v1/turns`
+	// keeps structured-output parity with the compatibility surfaces instead of
+	// quietly dropping JSON schema requests in the workspace console or SDKs.
+	Text            *PublicAPITextOptions `json:"text,omitempty"`
+	Thinking        *TurnThinkingConfig   `json:"thinking,omitempty"`
+	MaxOutputTokens *int                  `json:"max_output_tokens,omitempty"`
 }
 
 type TurnUsage struct {

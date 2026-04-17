@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import type { PublicAPIResponseEnvelope } from "./api";
+import type { PublicAPITurnSnapshot } from "./api";
 import {
   applyNormalizedPublicAPIRunEvent,
-  applyPublicAPIResponseEnvelope,
-  buildPublicAPIReasoningRequest,
+  applyPublicAPITurnSnapshot,
   createPublicAPIRunReadModel,
   extractPublicAPIReasoningSummary,
   formatPublicAPIOutputText,
@@ -12,46 +11,35 @@ import {
 
 const traceText = {
   assistantMessage: "Assistant message",
+  assistantThinking: "Assistant thinking",
   toolCall: "Tool call",
   toolResult: "Tool result",
-  runCompleted: "Run completed",
+  turnCompleted: "Turn completed",
+  turnStarted: "Turn started",
+  turnWaiting: "Turn waiting",
+  turnFailed: "Turn failed",
 };
 
-describe("buildPublicAPIReasoningRequest", () => {
-  it("returns undefined when reasoning is disabled", () => {
-    expect(buildPublicAPIReasoningRequest(false, "medium")).toBeUndefined();
-  });
-
-  it("builds the expected public reasoning payload", () => {
-    expect(buildPublicAPIReasoningRequest(true, "high")).toEqual({
-      effort: "high",
-      summary: "detailed",
-    });
-  });
-});
-
 describe("extractPublicAPIReasoningSummary", () => {
-  it("joins reasoning summary blocks from the response output", () => {
-    const response = {
-      id: "resp_1",
-      object: "response",
+  it("returns native turn reasoning text", () => {
+    const turn = {
+      id: "turn_1",
+      object: "turn",
       created_at: 1,
       status: "completed",
-      model: "demo-agent",
+      agent: "demo-agent",
+      thread_id: "thread-1",
       output_text: "done",
-      output: [
-        {
-          id: "rs_1",
-          type: "reasoning",
-          summary: [
-            { type: "summary_text", text: "First step" },
-            { type: "summary_text", text: "Second step" },
-          ],
-        },
-      ],
-    } as PublicAPIResponseEnvelope;
+      reasoning_text: "First step\n\nSecond step",
+      events: [],
+      usage: {
+        input_tokens: 1,
+        output_tokens: 1,
+        total_tokens: 2,
+      },
+    } as PublicAPITurnSnapshot;
 
-    expect(extractPublicAPIReasoningSummary(response)).toBe(
+    expect(extractPublicAPIReasoningSummary(turn)).toBe(
       "First step\n\nSecond step",
     );
   });
@@ -62,8 +50,8 @@ describe("applyNormalizedPublicAPIRunEvent", () => {
     const started = applyNormalizedPublicAPIRunEvent({
       current: createPublicAPIRunReadModel(),
       event: {
-        kind: "run_started",
-        responseId: "resp_1",
+        kind: "turn_started",
+        turnId: "turn_1",
         raw: {},
       },
       traceText,
@@ -71,7 +59,7 @@ describe("applyNormalizedPublicAPIRunEvent", () => {
     const withDelta = applyNormalizedPublicAPIRunEvent({
       current: started,
       event: {
-        kind: "assistant_delta",
+        kind: "assistant_text_delta",
         delta: "hello",
         raw: {},
       },
@@ -82,9 +70,10 @@ describe("applyNormalizedPublicAPIRunEvent", () => {
       event: {
         kind: "ledger_event",
         event: {
-          event_index: 2,
+          sequence: 2,
           created_at: 2,
-          type: "tool_started",
+          type: "tool.call.started",
+          turn_id: "turn_1",
           tool_name: "grep_files",
         },
         raw: {},
@@ -96,9 +85,10 @@ describe("applyNormalizedPublicAPIRunEvent", () => {
       event: {
         kind: "ledger_event",
         event: {
-          event_index: 2,
+          sequence: 2,
           created_at: 2,
-          type: "tool_started",
+          type: "tool.call.started",
+          turn_id: "turn_1",
           tool_name: "grep_files",
         },
         raw: {},
@@ -106,7 +96,7 @@ describe("applyNormalizedPublicAPIRunEvent", () => {
       traceText,
     });
 
-    expect(dedupedTool.responseId).toBe("resp_1");
+    expect(dedupedTool.turnId).toBe("turn_1");
     expect(dedupedTool.liveOutput).toBe("hello");
     expect(dedupedTool.traceItems).toHaveLength(2);
     expect(dedupedTool.traceItems[0]).toMatchObject({
@@ -116,18 +106,37 @@ describe("applyNormalizedPublicAPIRunEvent", () => {
     });
     expect(dedupedTool.toolCallCount).toBe(1);
   });
+
+  it("accumulates reasoning deltas into one visible stream", () => {
+    const next = applyNormalizedPublicAPIRunEvent({
+      current: createPublicAPIRunReadModel(),
+      event: {
+        kind: "assistant_reasoning_delta",
+        delta: "thinking...",
+        raw: {},
+      },
+      traceText,
+    });
+
+    expect(next.liveReasoning).toBe("thinking...");
+    expect(next.traceItems[0]).toMatchObject({
+      title: "Assistant thinking",
+      detail: "thinking...",
+    });
+  });
 });
 
-describe("applyPublicAPIResponseEnvelope", () => {
-  it("hydrates the final response without duplicating seen run events", () => {
+describe("applyPublicAPITurnSnapshot", () => {
+  it("hydrates the final turn without duplicating seen events", () => {
     const current = applyNormalizedPublicAPIRunEvent({
       current: createPublicAPIRunReadModel(),
       event: {
         kind: "ledger_event",
         event: {
-          event_index: 1,
+          sequence: 1,
           created_at: 1,
-          type: "tool_started",
+          type: "tool.call.started",
+          turn_id: "turn_2",
           tool_name: "list_files",
         },
         raw: {},
@@ -135,38 +144,38 @@ describe("applyPublicAPIResponseEnvelope", () => {
       traceText,
     });
 
-    const hydrated = applyPublicAPIResponseEnvelope({
+    const hydrated = applyPublicAPITurnSnapshot({
       current,
-      response: {
-        id: "resp_2",
-        object: "response",
+      turn: {
+        id: "turn_2",
+        object: "turn",
         created_at: 2,
         status: "completed",
-        model: "demo-agent",
+        agent: "demo-agent",
+        thread_id: "thread-1",
         output_text: "done",
-        output: [
+        reasoning_text: "Projected summary",
+        events: [
           {
-            id: "rs_2",
-            type: "reasoning",
-            summary: [{ type: "summary_text", text: "Projected summary" }],
+            sequence: 1,
+            created_at: 1,
+            type: "tool.call.started",
+            turn_id: "turn_2",
+            tool_name: "list_files",
+          },
+          {
+            sequence: 2,
+            created_at: 2,
+            type: "turn.completed",
+            turn_id: "turn_2",
+            text: "done",
+            reasoning: "Projected summary",
           },
         ],
-        openagents: {
-          thread_id: "thread-1",
-          run_events: [
-            {
-              event_index: 1,
-              created_at: 1,
-              type: "tool_started",
-              tool_name: "list_files",
-            },
-            {
-              event_index: 2,
-              created_at: 2,
-              type: "run_completed",
-              response_id: "resp_2",
-            },
-          ],
+        usage: {
+          input_tokens: 1,
+          output_tokens: 1,
+          total_tokens: 2,
         },
       },
       traceText,
@@ -174,7 +183,7 @@ describe("applyPublicAPIResponseEnvelope", () => {
 
     expect(hydrated.traceItems).toHaveLength(2);
     expect(hydrated.toolCallCount).toBe(1);
-    expect(hydrated.reasoningSummary).toBe("Projected summary");
+    expect(hydrated.liveReasoning).toBe("Projected summary");
     expect(hydrated.liveOutput).toBe("done");
     expect(hydrated.phase).toBe("ready");
   });
@@ -185,13 +194,21 @@ describe("formatPublicAPIOutputText", () => {
     expect(
       formatPublicAPIOutputText(
         {
-          id: "resp_3",
-          object: "response",
+          id: "turn_3",
+          object: "turn",
           created_at: 3,
           status: "completed",
-          model: "demo-agent",
+          agent: "demo-agent",
+          thread_id: "thread-1",
           output_text: '{"ok":true}',
-        } as PublicAPIResponseEnvelope,
+          reasoning_text: "",
+          events: [],
+          usage: {
+            input_tokens: 1,
+            output_tokens: 1,
+            total_tokens: 2,
+          },
+        } as PublicAPITurnSnapshot,
         "",
       ),
     ).toBe('{\n  "ok": true\n}');

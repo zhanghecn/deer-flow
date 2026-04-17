@@ -333,6 +333,7 @@ func translateTurnRequest(request model.TurnCreateRequest) (model.PublicAPIRespo
 		PreviousResponseID: strings.TrimSpace(request.PreviousTurnID),
 		Metadata:           request.Metadata,
 		Stream:             request.Stream,
+		Text:               request.Text,
 		Reasoning:          reasoning,
 		MaxOutputTokens:    request.MaxOutputTokens,
 	}, nil
