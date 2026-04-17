@@ -2520,15 +2520,24 @@ func extractAssistantResultFromState(payload []byte) (string, string, []string, 
 	artifactPaths := extractStringList(values["artifacts"])
 	taskError := extractLatestTaskError(payload)
 	messages, _ := values["messages"].([]any)
+	reasoningSegments := make([]string, 0, len(messages))
+	assistantText := ""
 	for index := len(messages) - 1; index >= 0; index-- {
 		messageMap, ok := messages[index].(map[string]any)
 		if !ok || !isAssistantMessage(messageMap) {
 			continue
 		}
 		text, reasoning := extractMessageParts(messageMap["content"])
-		if strings.TrimSpace(text) != "" || strings.TrimSpace(reasoning) != "" {
-			return text, reasoning, artifactPaths, nil
+		if trimmedReasoning := strings.TrimSpace(reasoning); trimmedReasoning != "" {
+			reasoningSegments = append(reasoningSegments, trimmedReasoning)
 		}
+		if trimmedText := strings.TrimSpace(text); trimmedText != "" && assistantText == "" {
+			assistantText = trimmedText
+		}
+	}
+	if assistantText != "" || len(reasoningSegments) > 0 {
+		slices.Reverse(reasoningSegments)
+		return assistantText, strings.TrimSpace(strings.Join(dedupeStrings(reasoningSegments), "\n\n")), artifactPaths, nil
 	}
 	if taskError != "" {
 		return "", "", artifactPaths, fmt.Errorf("runtime task failed: %s", taskError)
@@ -2653,12 +2662,19 @@ func extractMessageParts(content any) (string, string) {
 				}
 			case map[string]any:
 				blockType := strings.ToLower(strings.TrimSpace(fmt.Sprint(block["type"])))
-				if text, ok := block["text"].(string); ok && strings.TrimSpace(text) != "" {
-					if blockType == "thinking" || blockType == "reasoning" {
-						reasoning = append(reasoning, strings.TrimSpace(text))
-					} else {
-						segments = append(segments, strings.TrimSpace(text))
-					}
+				blockText := strings.TrimSpace(firstNonEmptyString(
+					block["text"],
+					block["thinking"],
+					block["reasoning"],
+					block["reasoning_content"],
+				))
+				if blockText == "" {
+					continue
+				}
+				if blockType == "thinking" || blockType == "reasoning" {
+					reasoning = append(reasoning, blockText)
+				} else {
+					segments = append(segments, blockText)
 				}
 			}
 		}
@@ -2666,6 +2682,15 @@ func extractMessageParts(content any) (string, string) {
 	default:
 		return "", ""
 	}
+}
+
+func firstNonEmptyString(values ...any) string {
+	for _, value := range values {
+		if text, ok := value.(string); ok && strings.TrimSpace(text) != "" {
+			return text
+		}
+	}
+	return ""
 }
 
 func extractStringList(value any) []string {

@@ -226,6 +226,52 @@ func TestFetchThreadStateFallsBackToHistoryWhenStateIsEmpty(t *testing.T) {
 	}
 }
 
+func TestExtractAssistantResultFromStateCombinesEarlierReasoningWithFinalText(t *testing.T) {
+	t.Parallel()
+
+	payload := []byte(`{
+		"values": {
+			"messages": [
+				{
+					"type": "human",
+					"content": [{"type": "text", "text": "question"}]
+				},
+				{
+					"type": "ai",
+					"content": [
+						{"type": "thinking", "thinking": "先搜索案例库。"},
+						{"type": "tool_use", "name": "grep_files"}
+					]
+				},
+				{
+					"type": "tool",
+					"content": [{"type": "text", "text": "{\"items\":[]}"}]
+				},
+				{
+					"type": "ai",
+					"content": [{"type": "text", "text": "最终答案"}]
+				}
+			],
+			"artifacts": ["/mnt/user-data/outputs/demo.txt"]
+		},
+		"tasks": []
+	}`)
+
+	text, reasoning, artifacts, err := extractAssistantResultFromState(payload)
+	if err != nil {
+		t.Fatalf("extractAssistantResultFromState: %v", err)
+	}
+	if text != "最终答案" {
+		t.Fatalf("text = %q, want %q", text, "最终答案")
+	}
+	if reasoning != "先搜索案例库。" {
+		t.Fatalf("reasoning = %q, want %q", reasoning, "先搜索案例库。")
+	}
+	if len(artifacts) != 1 || artifacts[0] != "/mnt/user-data/outputs/demo.txt" {
+		t.Fatalf("unexpected artifacts %#v", artifacts)
+	}
+}
+
 func TestNormalizeStructuredOutputTextAcceptsValidJSONInsideMarkdownFence(t *testing.T) {
 	t.Parallel()
 

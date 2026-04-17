@@ -9,7 +9,11 @@
 
 当前这两个问题都已经修复，并且重新做过 API + 浏览器验证。
 
-在本次后续回归中，又针对“原生聊天正文偶发丢失”和“/v1 调试台 assistant delta 碎片化显示”重新跑过一次浏览器验收，因此 `01`、`02`、`03`、`07` 这几张截图已经刷新为当前代码结果。
+在本次后续回归中，又针对以下问题重新跑过一次 API + 浏览器验收，因此 `01`、`02`、`03`、`07` 这几张截图已经刷新为当前代码结果：
+
+1. 原生聊天正文偶发丢失。
+2. `/v1` 调试台 assistant delta 碎片化显示。
+3. `/v1` 调试台没有把 LangGraph state 里较早 assistant message 的 `thinking/reasoning` 摘要带回最终 response。
 
 ## 我实际验证了什么
 
@@ -32,7 +36,11 @@
    - `8083` 公开客服页
    - `8084` 独立 SDK demo
    - `8083` 的 `lead_agent` 创建入口
-7. 把 HTTP MCP 测试链路单独拆到了独立 compose：
+7. 重新用真实 `/v1/responses` + 浏览器页面核对：
+   - `workspace playground` 的“思考摘要”现在非空
+   - `8083` 公开客服页可显示最终答案和 `grep_files` 调用参数
+   - `8084` 独立 demo 可显示最终答案和 reasoning summary
+8. 把 HTTP MCP 测试链路单独拆到了独立 compose：
    - `docker/docker-compose-support-demo.yaml`
    - `8090` = HTTP MCP mock
    - `8084` = 外部 SDK demo
@@ -105,6 +113,7 @@
 - 两者都能在客服 agent 中真实调用客户案例数据，而不是先导入 Deer Flow 知识库
 - `8084` 独立 React + Tailwind SDK demo 已经能作为外部接入示例使用
 - `8083` 工作区 published agent playground 现在也能显示时间线式步骤、工具名、工具参数，以及最终 response JSON
+- `8083` 工作区 published agent playground 现在也能把 Deer Flow 对外公开的 reasoning summary 正确显示到“思考摘要”面板
 - 原生工作区聊天页已经重新验证：带工具调用的同一条 AI message 现在仍会显示最终回答，不再只剩步骤而吞掉正文
 - 当前构建与目标单测通过：
   - `pnpm --dir frontend/app typecheck`
