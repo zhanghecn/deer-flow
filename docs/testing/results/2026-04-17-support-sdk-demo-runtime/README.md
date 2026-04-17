@@ -9,6 +9,8 @@
 
 当前这两个问题都已经修复，并且重新做过 API + 浏览器验证。
 
+在本次后续回归中，又针对“原生聊天正文偶发丢失”和“/v1 调试台 assistant delta 碎片化显示”重新跑过一次浏览器验收，因此 `01`、`02`、`03`、`07` 这几张截图已经刷新为当前代码结果。
+
 ## 我实际验证了什么
 
 1. 把 `/root/project/ai/ai-numerology/backend/agents/examples/案例大全` staging 到 Deer Flow 本地运行目录：
