@@ -47,6 +47,7 @@
 - [05-standalone-demo-current.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/05-standalone-demo-current.png)
 - [06-standalone-demo-timeline.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/06-standalone-demo-timeline.png)
 - [07-workspace-playground-current.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/07-workspace-playground-current.png)
+- [08-native-chat-current.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/08-native-chat-current.png)
 - [04-lead-agent-create.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/04-lead-agent-create.png)
 - [lead-agent-created.json](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/lead-agent-created.json)
   - 本次通过 `lead_agent` 真实创建出来的 agent 名
@@ -61,6 +62,8 @@
    - `http://127.0.0.1:8084`
 4. 工作区 published agent 调试台：
    - `http://127.0.0.1:8083/workspace/agents/support-cases-http-demo/playground?agent_status=prod`
+5. 原生工作区聊天页：
+   - `http://127.0.0.1:8083/workspace/agents/support-cases-http-demo/chats/new?agent_status=prod`
 
 ## 你作为用户怎么直接试
 
@@ -100,6 +103,7 @@
 - 两者都能在客服 agent 中真实调用客户案例数据，而不是先导入 Deer Flow 知识库
 - `8084` 独立 React + Tailwind SDK demo 已经能作为外部接入示例使用
 - `8083` 工作区 published agent playground 现在也能显示时间线式步骤、工具名、工具参数，以及最终 response JSON
+- 原生工作区聊天页已经重新验证：带工具调用的同一条 AI message 现在仍会显示最终回答，不再只剩步骤而吞掉正文
 - 当前构建与目标单测通过：
   - `pnpm --dir frontend/app typecheck`
   - `pnpm --dir frontend/app exec vitest run src/core/public-api/run-session.test.ts`

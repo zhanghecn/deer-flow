@@ -108,7 +108,12 @@ describe("applyNormalizedPublicAPIRunEvent", () => {
 
     expect(dedupedTool.responseId).toBe("resp_1");
     expect(dedupedTool.liveOutput).toBe("hello");
-    expect(dedupedTool.traceItems).toHaveLength(1);
+    expect(dedupedTool.traceItems).toHaveLength(2);
+    expect(dedupedTool.traceItems[0]).toMatchObject({
+      stage: "assistant",
+      tone: "assistant",
+      detail: "hello",
+    });
     expect(dedupedTool.toolCallCount).toBe(1);
   });
 });

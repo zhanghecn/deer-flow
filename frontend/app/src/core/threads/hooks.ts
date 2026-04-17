@@ -65,8 +65,11 @@ export type ThreadStreamOptions = {
 };
 
 const LEAD_AGENT_ID = "lead_agent";
-const FLASH_STREAM_THROTTLE = 96;
-const DEFAULT_STREAM_THROTTLE = 192;
+// The native workspace chat should feel closer to the raw SSE cadence that the
+// public SDK demos expose. The older throttle made long reasoning runs appear
+// to stall between updates, especially while Markdown blocks were re-rendering.
+const FLASH_STREAM_THROTTLE = 48;
+const DEFAULT_STREAM_THROTTLE = 96;
 const HISTORY_PAGE_SIZE = 1;
 const STATE_HYDRATION_DELAY_MS = process.env.NODE_ENV === "test" ? 0 : 1500;
 const PENDING_RUN_RECOVERY_POLL_MS =

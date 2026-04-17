@@ -115,7 +115,7 @@ export function SupportSDKChatDemo({
     null,
   );
   const [previousResponseID, setPreviousResponseID] = useState("");
-  const [reasoningEnabled, setReasoningEnabled] = useState(false);
+  const [reasoningEnabled, setReasoningEnabled] = useState(true);
   const [reasoningEffort, setReasoningEffort] =
     useState<PublicAPIReasoningEffort>("medium");
   const [runState, setRunState] = useState<"ready" | "streaming" | "failed" | "waiting">(

@@ -322,4 +322,37 @@ describe("MessageGroup tool display", () => {
     expect(screen.getByText(/"glob_pattern": "\*\.md"/)).toBeInTheDocument();
     expect(screen.getByText(/"limit": 20/)).toBeInTheDocument();
   });
+
+  it("merges adjacent streamed reasoning updates into one visible thought", () => {
+    render(
+      <MessageGroup
+        messages={[
+          {
+            id: "ai-1",
+            type: "ai",
+            content: [
+              {
+                type: "thinking",
+                thinking: "先检查案例目录。",
+              },
+            ],
+          },
+          {
+            id: "ai-2",
+            type: "ai",
+            content: [
+              {
+                type: "thinking",
+                thinking: "先检查案例目录。\n再确认关键词是否命中。",
+              },
+            ],
+          },
+        ] as never}
+      />,
+    );
+
+    expect(screen.getByText("Thinking")).toBeInTheDocument();
+    expect(screen.getAllByText(/先检查案例目录/)).toHaveLength(1);
+    expect(screen.getByText(/再确认关键词是否命中/)).toBeInTheDocument();
+  });
 });

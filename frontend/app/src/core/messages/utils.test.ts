@@ -91,6 +91,42 @@ describe("groupMessages", () => {
     ]);
     expect(groups[0]?.messages).toHaveLength(2);
   });
+
+  it("keeps the final assistant text visible when the same ai message also carries tool calls", () => {
+    const groups = groupMessages(
+      [
+        {
+          id: "ai-1",
+          type: "ai",
+          content: "最终结论：命盘偏财旺。",
+          tool_calls: [
+            {
+              id: "grep-1",
+              name: "grep",
+              args: {
+                pattern: "偏财",
+                path: "/mnt/user-data/cases",
+              },
+            },
+          ],
+        },
+        {
+          id: "tool-1",
+          type: "tool",
+          name: "grep",
+          tool_call_id: "grep-1",
+          content: "matched",
+        },
+      ] as never,
+      (group) => group,
+    );
+
+    expect(groups.map((group) => group.type)).toEqual([
+      "assistant:processing",
+      "assistant",
+    ]);
+    expect(groups[1]?.messages[0]?.content).toBe("最终结论：命盘偏财旺。");
+  });
 });
 
 describe("extractNextStepsFromText", () => {

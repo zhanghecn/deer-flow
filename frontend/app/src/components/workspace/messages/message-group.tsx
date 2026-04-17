@@ -616,6 +616,37 @@ interface CoTToolCallStep extends GenericCoTStep<"toolCall"> {
 
 type CoTStep = CoTReasoningStep | CoTToolCallStep;
 
+function appendReasoningStep(steps: CoTStep[], step: CoTReasoningStep) {
+  const previous = steps[steps.length - 1];
+  if (!previous || previous.type !== "reasoning") {
+    steps.push(step);
+    return;
+  }
+
+  const previousReasoning = previous.reasoning?.trim() ?? "";
+  const nextReasoning = step.reasoning?.trim() ?? "";
+  if (!nextReasoning) {
+    return;
+  }
+
+  // Streamed reasoning often re-emits the full accumulated thought in a fresh
+  // AI chunk. Replace the prior adjacent reasoning step when the new chunk is
+  // a strict extension so the UI shows one growing thought instead of a stack
+  // of near-duplicate thinking boxes.
+  if (nextReasoning.startsWith(previousReasoning)) {
+    previous.reasoning = nextReasoning;
+    previous.id = step.id;
+    previous.messageId = step.messageId;
+    return;
+  }
+
+  if (previousReasoning.startsWith(nextReasoning)) {
+    return;
+  }
+
+  steps.push(step);
+}
+
 export function shouldShowTrailingReasoning(
   nextGroupType: string | undefined,
   isLoading: boolean,
@@ -658,7 +689,7 @@ function convertToSteps(messages: Message[]): CoTStep[] {
           type: "reasoning",
           reasoning,
         };
-        steps.push(step);
+        appendReasoningStep(steps, step);
       }
       for (const tool_call of message.tool_calls ?? []) {
         if (tool_call.name === "task") {

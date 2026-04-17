@@ -42,11 +42,67 @@ function eventKey(event: PublicAPIRunEvent) {
   return `${event.type}:${event.event_index}`;
 }
 
+function shouldSkipLedgerTrace(event: PublicAPIRunEvent) {
+  // Assistant deltas can arrive twice on the public SSE surface:
+  // once as the OpenAI-compatible `response.output_text.delta`, and again
+  // inside the canonical `response.run_event` ledger. The UI wants one
+  // growing assistant block, not two parallel delta streams.
+  return event.type === "assistant_delta";
+}
+
+function upsertAssistantDeltaTrace(
+  current: PublicAPIRunReadModel,
+  delta: string,
+  traceText: PlaygroundTraceText,
+) {
+  const nextDetail = `${current.liveOutput}${delta}`;
+  const nextTimestamp = Date.now();
+  const previous = current.traceItems[current.traceItems.length - 1];
+
+  if (
+    previous &&
+    previous.stage === "assistant" &&
+    previous.tone === "assistant" &&
+    previous.title === traceText.assistantMessage
+  ) {
+    const nextTraceItems = [...current.traceItems];
+    nextTraceItems[nextTraceItems.length - 1] = {
+      ...previous,
+      detail: nextDetail,
+      timestamp: nextTimestamp,
+      raw: {
+        kind: "assistant_delta_stream",
+        text: nextDetail,
+      },
+    };
+    return nextTraceItems;
+  }
+
+  return [
+    ...current.traceItems,
+    {
+      stage: "assistant" as const,
+      tone: "assistant" as const,
+      title: traceText.assistantMessage,
+      detail: nextDetail,
+      timestamp: nextTimestamp,
+      raw: {
+        kind: "assistant_delta_stream",
+        text: nextDetail,
+      },
+    },
+  ];
+}
+
 function pushTraceItemIfNeeded(
   current: PublicAPIRunReadModel,
   event: PublicAPIRunEvent,
   traceText: PlaygroundTraceText,
 ): PublicAPIRunReadModel {
+  if (shouldSkipLedgerTrace(event)) {
+    return current;
+  }
+
   const key = eventKey(event);
   if (current.seenEventKeys.includes(key)) {
     return current;
@@ -148,6 +204,11 @@ export function applyNormalizedPublicAPIRunEvent(params: {
       return {
         ...current,
         liveOutput: `${current.liveOutput}${event.delta}`,
+        traceItems: upsertAssistantDeltaTrace(
+          current,
+          event.delta,
+          traceText,
+        ),
       };
     case "ledger_event": {
       let next = pushTraceItemIfNeeded(current, event.event, traceText);

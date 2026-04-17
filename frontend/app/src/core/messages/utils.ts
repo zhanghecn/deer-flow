@@ -163,7 +163,11 @@ export function groupMessages<T>(
           }
         }
       }
-      if (hasContent(message) && !hasToolCalls(message)) {
+      if (hasContent(message)) {
+        // Some runtimes keep the final answer text on the same AI message that
+        // also carries tool calls or reasoning. The transcript must still
+        // render that visible answer instead of treating the turn as
+        // processing-only and hiding the assistant's final content.
         groups.push({
           id: message.id,
           type: "assistant",
