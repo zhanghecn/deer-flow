@@ -24,8 +24,7 @@
     /* Path Aliases */
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"],
-      "@openagents/sdk": ["../../sdk/ts/src/index.ts"]
+      "@/*": ["./src/*"]
     }
   },
   "include": [

@@ -11,7 +11,7 @@ import {
 } from "../shared";
 
 import { getAgentPublicSupportPageText } from "./page.i18n";
-import { SupportSDKChatDemo } from "./support-sdk-chat-demo";
+import { SupportHTTPChatDemo } from "./support-sdk-chat-demo";
 
 export default function AgentPublicSupportPage() {
   const { locale } = useI18n();
@@ -91,7 +91,7 @@ export default function AgentPublicSupportPage() {
           <p className="text-sm leading-7 text-slate-600">{text.description}</p>
         </section>
 
-        <SupportSDKChatDemo
+        <SupportHTTPChatDemo
           agentName={exportDoc.agent}
           defaultBaseURL={exportDoc.api_base_url}
         />

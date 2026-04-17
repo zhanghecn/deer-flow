@@ -1,6 +1,7 @@
-import { ExternalLinkIcon, SparklesIcon } from "lucide-react";
+import { DownloadIcon, ExternalLinkIcon, SparklesIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -33,6 +34,7 @@ import { getAuthoringWorkbenchText } from "@/components/workspace/authoring/auth
 import { buildWorkspaceSkillAuthoringPath } from "@/core/authoring";
 import { useI18n } from "@/core/i18n/hooks";
 import { getLocalizedSkillDescription } from "@/core/skills";
+import { downloadSkill } from "@/core/skills/api";
 import { useEnableSkill, useSkills } from "@/core/skills/hooks";
 import {
   DEFAULT_SKILL_SCOPE,
@@ -121,6 +123,19 @@ function SkillSettingsList({
     );
   }, [navigate, newSkillName, onClose]);
 
+  const handleDownloadSkill = useCallback(async (skill: Skill) => {
+    try {
+      const filename = await downloadSkill({
+        skillName: skill.name,
+        sourcePath: skill.source_path ?? undefined,
+      });
+      toast.success(t.settings.skills.downloadSuccess(filename));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "";
+      toast.error(t.settings.skills.downloadFailed(detail));
+    }
+  }, [t.settings.skills]);
+
   const categoryLabel = useCallback(
     (category: SkillScope) => formatSkillScopeLabel(category, locale),
     [locale],
@@ -186,6 +201,14 @@ function SkillSettingsList({
                 >
                   <ExternalLinkIcon className="size-4" />
                   {workbenchText.openWorkbench}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void handleDownloadSkill(skill)}
+                >
+                  <DownloadIcon className="size-4" />
+                  {t.settings.skills.downloadSkill}
                 </Button>
                 <Switch
                   checked={skill.enabled}

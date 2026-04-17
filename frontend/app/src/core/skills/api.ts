@@ -149,6 +149,59 @@ export async function deleteSkill(skillName: string): Promise<void> {
   }
 }
 
+function extractFilenameFromDisposition(headerValue: string | null) {
+  if (!headerValue) {
+    return null;
+  }
+  const utf8Match = /filename\*=UTF-8''([^;]+)/i.exec(headerValue);
+  if (utf8Match?.[1]) {
+    return decodeURIComponent(utf8Match[1]);
+  }
+  const plainMatch = /filename=\"?([^\";]+)\"?/i.exec(headerValue);
+  return plainMatch?.[1] ?? null;
+}
+
+function triggerBrowserDownload(blob: Blob, filename: string) {
+  const objectURL = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectURL;
+  anchor.download = filename;
+  anchor.style.display = "none";
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectURL), 1_000);
+}
+
+export async function downloadSkill(params: {
+  skillName: string;
+  sourcePath?: string | null;
+}): Promise<string> {
+  const query = params.sourcePath?.trim()
+    ? `?source_path=${encodeURIComponent(params.sourcePath.trim())}`
+    : "";
+  const response = await authFetch(
+    `${getBackendBaseURL()}/api/skills/${encodeURIComponent(params.skillName)}/download${query}`,
+  );
+  if (!response.ok) {
+    const err = (await response.json().catch(() => ({}))) as APIErrorShape;
+    throw new Error(
+      resolveAPIErrorMessage(
+        err,
+        `Failed to download skill: ${response.statusText}`,
+      ),
+    );
+  }
+
+  const blob = await response.blob();
+  const filename =
+    extractFilenameFromDisposition(
+      response.headers.get("Content-Disposition"),
+    ) ?? `${params.skillName}.skill`;
+  triggerBrowserDownload(blob, filename);
+  return filename;
+}
+
 export interface InstallSkillRequest {
   thread_id: string;
   path: string;

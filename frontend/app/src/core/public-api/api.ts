@@ -31,6 +31,12 @@ export interface PublicAPITurnUsage {
   total_tokens: number;
 }
 
+export type PublicAPIReasoningEffort =
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high";
+
 export type PublicAPITurnEventType =
   | "turn.started"
   | "assistant.message.started"
@@ -77,7 +83,7 @@ export interface PublicAPITurnRequestBody {
   };
   thinking?: {
     enabled: boolean;
-    effort?: string;
+    effort?: PublicAPIReasoningEffort;
   };
   max_output_tokens?: number;
   metadata?: Record<string, unknown>;
@@ -210,11 +216,13 @@ export async function createPublicAPITurn(params: {
   baseURL: string;
   apiToken: string;
   body: PublicAPITurnRequestBody;
+  signal?: AbortSignal;
 }): Promise<PublicAPITurnSnapshot> {
   const response = await publicAPIFetch(params.baseURL, params.apiToken, "./turns", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(params.body),
+    signal: params.signal,
   });
   if (!response.ok) {
     const error = (await response
@@ -231,6 +239,7 @@ export async function getPublicAPITurn(params: {
   baseURL: string;
   apiToken: string;
   turnId: string;
+  signal?: AbortSignal;
 }): Promise<PublicAPITurnSnapshot> {
   const response = await publicAPIFetch(
     params.baseURL,
@@ -238,6 +247,7 @@ export async function getPublicAPITurn(params: {
     `./turns/${encodeURIComponent(params.turnId)}`,
     {
       method: "GET",
+      signal: params.signal,
     },
   );
   if (!response.ok) {
@@ -256,6 +266,7 @@ export async function streamPublicAPITurn(params: {
   apiToken: string;
   body: PublicAPITurnRequestBody;
   onEvent: (event: PublicAPITurnStreamEvent) => void;
+  signal?: AbortSignal;
 }): Promise<void> {
   const response = await publicAPIFetch(params.baseURL, params.apiToken, "./turns", {
     method: "POST",
@@ -264,6 +275,7 @@ export async function streamPublicAPITurn(params: {
       Accept: "text/event-stream",
     },
     body: JSON.stringify({ ...params.body, stream: true }),
+    signal: params.signal,
   });
   if (!response.ok) {
     const error = (await response
@@ -299,6 +311,7 @@ export async function downloadPublicAPIArtifact(params: {
   baseURL: string;
   apiToken: string;
   artifact: PublicAPITurnArtifact;
+  signal?: AbortSignal;
 }): Promise<string> {
   const response = await publicAPIFetch(
     params.baseURL,
@@ -306,6 +319,7 @@ export async function downloadPublicAPIArtifact(params: {
     params.artifact.download_url,
     {
       method: "GET",
+      signal: params.signal,
     },
   );
   if (!response.ok) {

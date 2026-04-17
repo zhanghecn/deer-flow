@@ -17,22 +17,18 @@ WORKDIR /app
 COPY frontend/demo/package.json frontend/demo/pnpm-lock.yaml /app/frontend/demo/
 RUN /bin/sh -lc "cd /app/frontend/demo && pnpm install --frozen-lockfile"
 
-# The demo resolves shared runtime helpers through ../app/src aliases and the
-# standalone OpenAgents TS SDK source, so both trees must exist inside the
-# container for the dev server and screenshots to reflect the real SDK path.
+# The demo resolves shared runtime helpers through ../app/src aliases, so both
+# trees must exist inside the container for the dev server and screenshots to
+# reflect the real native HTTP integration path.
 COPY frontend/demo /app/frontend/demo
 COPY frontend/app/src /app/frontend/app/src
-COPY sdk/ts/src /app/sdk/ts/src
 
 # The standalone demo intentionally reuses slices of `frontend/app/src`.
-# Node resolution for files under `/app/frontend/app/src` and `/app/sdk/ts/src`
-# walks upward through their own parent directories, not `/app/frontend/demo`,
-# so provide each borrowed tree a stable module path instead of duplicating
-# extra installs.
+# Node resolution for files under `/app/frontend/app/src` walks upward through
+# its own parent directories, not `/app/frontend/demo`, so provide that borrowed
+# tree a stable module path instead of duplicating extra installs.
 RUN mkdir -p /app/frontend/app \
- && mkdir -p /app/sdk/ts \
- && ln -s /app/frontend/demo/node_modules /app/frontend/app/node_modules \
- && ln -s /app/frontend/demo/node_modules /app/sdk/ts/node_modules
+ && ln -s /app/frontend/demo/node_modules /app/frontend/app/node_modules
 
 WORKDIR /app/frontend/demo
 

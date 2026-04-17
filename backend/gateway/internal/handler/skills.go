@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -60,6 +61,20 @@ func (h *SkillHandler) Get(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, skill)
+}
+
+func (h *SkillHandler) Download(c *gin.Context) {
+	name := c.Param("name")
+	sourcePath := c.Query("source_path")
+	filename, data, err := h.svc.Export(c.Request.Context(), name, sourcePath)
+	if err != nil {
+		writeSkillServiceError(c, err, http.StatusNotFound)
+		return
+	}
+
+	c.Header("Content-Type", "application/zip")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	c.Data(http.StatusOK, "application/zip", data)
 }
 
 func (h *SkillHandler) Create(c *gin.Context) {

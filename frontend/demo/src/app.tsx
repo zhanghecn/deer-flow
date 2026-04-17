@@ -11,14 +11,11 @@ import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 
 import {
-  OpenAgentsClient,
-  applyTurnEvent,
-  createTurnReadModel,
-  type OpenAgentsTurnEvent,
-  type OpenAgentsTurnSnapshot,
-} from "@openagents/sdk";
-
-type OpenAgentsReasoningEffort = "minimal" | "low" | "medium" | "high";
+  type PublicAPIReasoningEffort,
+  type PublicAPITurnEvent,
+  type PublicAPITurnSnapshot,
+} from "@/core/public-api/api";
+import { runStreamedPublicAPITurn } from "@/core/public-api/turn-runner";
 
 type DemoActivityItem = {
   title: string;
@@ -44,7 +41,7 @@ const DEFAULT_BASE_URL =
 const DEFAULT_API_KEY = import.meta.env.VITE_DEMO_PUBLIC_API_KEY?.trim() || "";
 const DEFAULT_AGENT_NAME =
   import.meta.env.VITE_DEMO_DEFAULT_AGENT_NAME?.trim() ||
-  "support-cases-sdk-demo";
+  "support-cases-http-demo";
 const DEFAULT_STDIO_API_KEY =
   import.meta.env.VITE_DEMO_STDIO_API_KEY?.trim() || "";
 const DEFAULT_HTTP_API_KEY =
@@ -121,7 +118,51 @@ function getTimelineAccent(item: DemoActivityItem) {
   }
 }
 
-function buildActivityItem(event: OpenAgentsTurnEvent): DemoActivityItem | null {
+function getTimelineBadge(item: DemoActivityItem) {
+  switch (item.tone) {
+    case "tool":
+      return "工具";
+    case "error":
+      return "错误";
+    default:
+      return "系统";
+  }
+}
+
+function StreamSafeMarkdown({
+  content,
+  isStreaming,
+  empty,
+  className,
+}: {
+  content: string;
+  isStreaming: boolean;
+  empty?: string;
+  className?: string;
+}) {
+  const resolved = content || empty || "";
+  if (!resolved) {
+    return null;
+  }
+
+  if (isStreaming) {
+    return (
+      <div className={className}>
+        <pre className="whitespace-pre-wrap break-words font-inherit text-inherit">
+          {resolved}
+        </pre>
+      </div>
+    );
+  }
+
+  return (
+    <div className={className}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{resolved}</ReactMarkdown>
+    </div>
+  );
+}
+
+function buildActivityItem(event: PublicAPITurnEvent): DemoActivityItem | null {
   const timestamp = event.created_at * 1000;
   switch (event.type) {
     case "turn.started":
@@ -187,14 +228,25 @@ export function App() {
   const [agentName, setAgentName] = useState(DEFAULT_AGENT_NAME);
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<DemoMessage[]>([]);
-  const [lastTurn, setLastTurn] = useState<OpenAgentsTurnSnapshot | null>(null);
+  const [lastTurn, setLastTurn] = useState<PublicAPITurnSnapshot | null>(null);
   const [previousTurnID, setPreviousTurnID] = useState("");
   const [reasoningEnabled, setReasoningEnabled] = useState(true);
   const [reasoningEffort, setReasoningEffort] =
-    useState<OpenAgentsReasoningEffort>("medium");
+    useState<PublicAPIReasoningEffort>("medium");
   const [runState, setRunState] = useState<"ready" | "streaming" | "failed" | "waiting">(
     "ready",
   );
+
+  const traceText = {
+    assistantMessage: "助手回复",
+    assistantThinking: "思考内容",
+    toolCall: "工具调用",
+    toolResult: "工具结果",
+    turnCompleted: "运行完成",
+    turnStarted: "turn.started",
+    turnWaiting: "等待用户输入",
+    turnFailed: "turn.failed",
+  };
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({
@@ -272,50 +324,50 @@ export function App() {
     ]);
 
     try {
-      const client = new OpenAgentsClient({
-        apiKey: trimmedKey,
+      const result = await runStreamedPublicAPITurn({
         baseURL: apiBaseURL,
+        apiToken: trimmedKey,
+        signal: controller.signal,
+        traceText,
+        body: {
+          agent: trimmedAgent,
+          input: { text: prompt },
+          previous_turn_id: previousTurnID || undefined,
+          metadata: {
+            source: "frontend_demo_support",
+            surface: "standalone_demo",
+          },
+          thinking: {
+            enabled: reasoningEnabled,
+            effort: reasoningEffort,
+          },
+        },
+        onUpdate: ({ event, readModel }) => {
+          const nextActivity =
+            event.kind === "ledger_event"
+              ? buildActivityItem(event.event)
+              : null;
+          replaceMessage(assistantMessageID, (message) => ({
+            ...message,
+            content: readModel.liveOutput || message.content,
+            reasoningText: readModel.liveReasoning || message.reasoningText,
+            activity: nextActivity
+              ? [...(message.activity ?? []), nextActivity]
+              : message.activity,
+            toolCallCount: readModel.toolCallCount,
+            turnId: readModel.turnId || message.turnId,
+            status: readModel.phase === "failed" ? "error" : message.status,
+          }));
+
+          if (readModel.phase === "failed") {
+            setRunState("failed");
+          } else if (readModel.phase === "waiting") {
+            setRunState("waiting");
+          }
+        },
       });
 
-      let currentTurnID = "";
-      let readModel = createTurnReadModel();
-
-      for await (const event of client.streamTurn({
-        agent: trimmedAgent,
-        input: { text: prompt },
-        previous_turn_id: previousTurnID || undefined,
-        metadata: {
-          source: "frontend_demo_support",
-          surface: "standalone_demo",
-        },
-        thinking: {
-          enabled: reasoningEnabled,
-          effort: reasoningEffort,
-        },
-      })) {
-        readModel = applyTurnEvent(readModel, event);
-        currentTurnID = readModel.turnId || currentTurnID;
-        const nextActivity = buildActivityItem(event);
-        replaceMessage(assistantMessageID, (message) => ({
-          ...message,
-          content: readModel.outputText || message.content,
-          reasoningText: readModel.reasoningText || message.reasoningText,
-          activity: nextActivity
-            ? [...(message.activity ?? []), nextActivity]
-            : message.activity,
-          toolCallCount: readModel.toolCallCount,
-          turnId: readModel.turnId || message.turnId,
-          status: readModel.status === "failed" ? "error" : message.status,
-        }));
-
-        if (readModel.status === "failed") {
-          setRunState("failed");
-        } else if (readModel.status === "requires_input") {
-          setRunState("waiting");
-        }
-      }
-
-      if (!currentTurnID) {
+      if (!result.turn) {
         setRunState("ready");
         replaceMessage(assistantMessageID, (message) => ({
           ...message,
@@ -324,18 +376,23 @@ export function App() {
         return;
       }
 
-      const finalizedTurn = await client.getTurn(currentTurnID);
+      const finalizedTurn = result.turn;
       setLastTurn(finalizedTurn);
       setPreviousTurnID(finalizedTurn.id);
       replaceMessage(assistantMessageID, (message) => ({
         ...message,
         content: finalizedTurn.output_text?.trim() || message.content,
-        status: finalizedTurn.status === "completed" ? "done" : "error",
+        status:
+          finalizedTurn.status === "completed" ||
+          finalizedTurn.status === "requires_input"
+            ? "done"
+            : "error",
         turnId: finalizedTurn.id,
         toolCallCount: finalizedTurn.events.filter(
           (event) => event.type === "tool.call.started",
         ).length,
-        reasoningText: finalizedTurn.reasoning_text,
+        reasoningText:
+          result.readModel.liveReasoning || finalizedTurn.reasoning_text,
       }));
 
       if (finalizedTurn.status === "requires_input") {
@@ -349,6 +406,11 @@ export function App() {
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
         setRunState("ready");
+        replaceMessage(assistantMessageID, (message) => ({
+          ...message,
+          status: message.content ? "done" : "error",
+          content: message.content || "请求已停止。",
+        }));
         return;
       }
 
@@ -385,8 +447,8 @@ export function App() {
                 </div>
               </div>
               <p className="text-sm leading-6 text-stone-600">
-                这是一个独立于主应用的外部接入示例。它直接走官方 OpenAgents
-                TS SDK，对接 OpenAgents 原生 `/v1/turns` 契约。
+                这是一个独立于主应用的外部接入示例。它直接通过原生 HTTP
+                调用 OpenAgents `/v1/turns` 契约。
               </p>
             </div>
 
@@ -486,7 +548,7 @@ export function App() {
                   disabled={!reasoningEnabled}
                   onChange={(event) =>
                     setReasoningEffort(
-                      event.target.value as OpenAgentsReasoningEffort,
+                      event.target.value as PublicAPIReasoningEffort,
                     )
                   }
                   className="w-full border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900 disabled:cursor-not-allowed disabled:bg-stone-100"
@@ -592,27 +654,32 @@ export function App() {
                           </div>
                           {message.role === "assistant" ? (
                             <div className="space-y-4">
-                              <div className="prose prose-stone max-w-none text-sm leading-7">
-                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                  {message.content || "处理中..."}
-                                </ReactMarkdown>
-                              </div>
+                              <StreamSafeMarkdown
+                                content={message.content || "处理中..."}
+                                isStreaming={message.status === "streaming"}
+                                className="prose prose-stone max-w-none text-sm leading-7 text-stone-900"
+                              />
                               {message.reasoningText?.trim() ? (
-                                <div className="border border-sky-200 bg-sky-50/80 px-3 py-3">
-                                  <div className="flex items-center justify-between gap-3">
+                                <details
+                                  className="border border-sky-200 bg-sky-50/80 px-3 py-3"
+                                  open={message.status === "streaming"}
+                                >
+                                  <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
                                     <p className="text-xs font-medium tracking-[0.14em] text-sky-900 uppercase">
                                       思考内容
                                     </p>
                                     <span className="text-xs text-sky-700">
-                                      turn reasoning
+                                      {message.status === "streaming"
+                                        ? "streaming"
+                                        : "turn reasoning"}
                                     </span>
-                                  </div>
-                                  <div className="prose prose-stone mt-2 max-w-none text-sm leading-6 text-stone-700">
-                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                      {message.reasoningText}
-                                    </ReactMarkdown>
-                                  </div>
-                                </div>
+                                  </summary>
+                                  <StreamSafeMarkdown
+                                    content={message.reasoningText}
+                                    isStreaming={message.status === "streaming"}
+                                    className="prose prose-stone mt-3 max-w-none text-sm leading-6 text-stone-700"
+                                  />
+                                </details>
                               ) : null}
                               <div className="border-t border-stone-200 pt-4">
                                 <div className="flex flex-wrap items-center gap-4 text-xs text-stone-500">
@@ -632,9 +699,14 @@ export function App() {
                                         className={`border px-3 py-3 ${getTimelineAccent(item)}`}
                                       >
                                         <div className="flex items-start justify-between gap-3">
-                                          <p className="text-sm font-medium text-stone-900">
-                                            {item.title}
-                                          </p>
+                                          <div className="space-y-1">
+                                            <span className="inline-flex items-center border border-stone-300 bg-white px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-stone-600">
+                                              {getTimelineBadge(item)}
+                                            </span>
+                                            <p className="text-sm font-medium text-stone-900">
+                                              {item.title}
+                                            </p>
+                                          </div>
                                           <span className="text-xs text-stone-500">
                                             {formatTime(item.timestamp)}
                                           </span>
@@ -701,12 +773,19 @@ export function App() {
                     <p className="text-xs font-medium uppercase tracking-[0.14em] text-stone-500">
                       Reasoning
                     </p>
-                    <div className="prose prose-stone mt-2 max-w-none text-sm leading-6 text-stone-700">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {latestAssistant?.reasoningText ||
-                          "运行完成后，这里会显示最近一次 turn reasoning 文本。"}
-                      </ReactMarkdown>
-                    </div>
+                    <details className="mt-2" open={runState === "streaming"}>
+                      <summary className="cursor-pointer text-sm text-stone-500">
+                        {runState === "streaming" ? "展开中途思考" : "查看最近一次思考"}
+                      </summary>
+                      <StreamSafeMarkdown
+                        content={
+                          latestAssistant?.reasoningText ||
+                          "运行完成后，这里会显示最近一次 turn reasoning 文本。"
+                        }
+                        isStreaming={runState === "streaming"}
+                        className="prose prose-stone mt-3 max-w-none text-sm leading-6 text-stone-700"
+                      />
+                    </details>
                   </div>
                 </div>
               </aside>
@@ -731,7 +810,7 @@ export function App() {
               <div className="mt-4 flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3 text-sm text-stone-500">
                   <NetworkIcon className="size-4" />
-                  <span>Official OpenAgents TS SDK {"->"} OpenAgents /v1/turns</span>
+                  <span>Native HTTP {"->"} OpenAgents /v1/turns</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <button

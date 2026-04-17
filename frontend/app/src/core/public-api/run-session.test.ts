@@ -7,6 +7,7 @@ import {
   createPublicAPIRunReadModel,
   extractPublicAPIReasoningSummary,
   formatPublicAPIOutputText,
+  mergeStreamingText,
 } from "./run-session";
 
 const traceText = {
@@ -123,6 +124,64 @@ describe("applyNormalizedPublicAPIRunEvent", () => {
       title: "Assistant thinking",
       detail: "thinking...",
     });
+  });
+
+  it("preserves streamed reasoning whitespace instead of trimming it away", () => {
+    const first = applyNormalizedPublicAPIRunEvent({
+      current: createPublicAPIRunReadModel(),
+      event: {
+        kind: "assistant_reasoning_delta",
+        delta: "First line\n",
+        raw: {},
+      },
+      traceText,
+    });
+
+    const second = applyNormalizedPublicAPIRunEvent({
+      current: first,
+      event: {
+        kind: "assistant_reasoning_delta",
+        delta: "\nSecond line",
+        raw: {},
+      },
+      traceText,
+    });
+
+    expect(second.liveReasoning).toBe("First line\n\nSecond line");
+    expect(second.traceItems[0]).toMatchObject({
+      title: "Assistant thinking",
+      detail: "First line\n\nSecond line",
+    });
+  });
+});
+
+describe("mergeStreamingText", () => {
+  it("inserts spaces between ascii word tokens when the stream omits them", () => {
+    expect(mergeStreamingText("The", "user")).toBe("The user");
+    expect(mergeStreamingText("The user", "wants")).toBe("The user wants");
+    expect(mergeStreamingText("\"夏仲奇\".", "Let")).toBe("\"夏仲奇\". Let");
+    expect(mergeStreamingText("containing", "\"夏仲奇\"")).toBe(
+      "containing \"夏仲奇\"",
+    );
+  });
+
+  it("replaces token-joined text when a later cumulative delta arrives", () => {
+    const tokenized = [
+      "The",
+      "user",
+      "wants",
+      "me",
+      "to",
+      "search",
+    ].reduce((current, delta) => mergeStreamingText(current, delta), "");
+
+    expect(tokenized).toBe("The user wants me to search");
+    expect(
+      mergeStreamingText(
+        tokenized,
+        "The user wants me to search the case library.",
+      ),
+    ).toBe("The user wants me to search the case library.");
   });
 });
 

@@ -1,80 +1,142 @@
-# SDKMessage-First Event Contract
+# Message-First `/v1/turns` Event Contract
 
-This note defines the frontend-facing direction for Deer Flow's event refactor.
+This note defines the frontend-facing contract for the OpenAgents event
+refactor.
+
+The filename is historical. The canonical northbound contract is no longer a
+product-specific `SDKMessage` schema. The canonical first-party integration
+surface is native HTTP `POST /v1/turns` plus SSE events plus
+`GET /v1/turns/{id}` snapshots.
 
 ## Decision
 
-Deer Flow should adopt a Claude Code style event spine, but the first stable
-contract should be a gateway-owned `SDKMessage` wire shape instead of a new
-runtime-wide event bus.
+OpenAgents aligns to Claude Code at the architectural split, not at the public
+wire type:
+
+- Claude Code reference for internal split:
+  - `/root/project/ai/claude-code/src/query.ts`
+  - `/root/project/ai/claude-code/src/QueryEngine.ts`
+  - `/root/project/ai/claude-code/src/entrypoints/sdk/coreSchemas.ts`
+- OpenAgents public contract:
+  - native `/v1/turns`
+  - stable SSE event names
+  - turn snapshot finalization via `GET /v1/turns/{id}`
+
+If OpenAgents later ships TypeScript, Python, or Java helpers, they must be
+thin wrappers over `/v1/turns`. They must not invent a second public event
+vocabulary.
 
 ## Why
 
-- The current live UX depends on fragmented sources:
+- The live UX was previously split across:
   - LangGraph `values.messages`
   - custom stream events
-  - workspace surface events
-  - public `/v1/responses` trace ledger
-- The previous oversized event design is unpublished and can be deleted.
-- Frontend and docs need one live contract before runtime internals gain a new
-  canonical event bus.
+  - workspace-only runtime events
+  - public replay ledgers
+  - page-specific adapters
+- That fragmentation caused duplicated reshaping, whitespace bugs, broken
+  streaming Markdown, and inconsistent tool and reasoning rendering.
+- Real customer integration should target one stable HTTP contract instead of a
+  repo-local SDK abstraction.
 
-## Boundaries
+## Contract Planes
 
-Three planes remain distinct:
+Keep these planes distinct:
 
 1. Snapshot / recovery plane
-   - Source: persisted thread state
-   - Purpose: reopen threads, recover from stream loss, hydrate history
+   - Source: `GET /v1/turns/{id}`
+   - Purpose: reopen turns, recover after stream loss, hydrate history
 
 2. Live contract plane
-   - Source: gateway-normalized `SDKMessage`
-   - Purpose: streaming UI, SDK consumers, replay-after-reconnect
+   - Source: `POST /v1/turns` SSE events
+   - Purpose: streaming UI, external clients, reconnect continuation
 
 3. Observability plane
-   - Source: raw traces and operator debug ledgers
-   - Purpose: debugging, audits, deep inspection
+   - Source: traces, audits, operator ledgers
+   - Purpose: debugging and investigation
 
-The frontend must not treat raw LangGraph chunks or debug trace payloads as the
-primary live contract once the normalized stream exists.
+Frontend and public consumers must not treat raw LangGraph chunks or
+observability payloads as the primary live contract.
 
-## V1 Event Budget
+## V1 Live Event Budget
 
-The first public live contract must stay small:
+The public live contract stays intentionally small and message-first:
 
-- `run_started`
-- `assistant_delta`
-- `assistant_message`
-- `tool_started`
-- `tool_finished`
-- `run_completed`
-- `run_failed`
+- `turn.started`
+- `assistant.message.started`
+- `assistant.text.delta`
+- `assistant.reasoning.delta`
+- `tool.call.started`
+- `tool.call.completed`
+- `turn.requires_input`
+- `assistant.message.completed`
+- `turn.completed`
+- `turn.failed`
 
-Everything else stays deferred, snapshot-driven, or debug-only until the gap is
-proven by a real consumer.
+Anything outside this budget must remain:
+
+- snapshot-only
+- projection-only
+- debug-only
+
+## Client Read-Model Rules
+
+All streaming consumers must follow the same merge rules:
+
+1. Preserve incoming whitespace. Do not call `trim()` on text or reasoning
+   deltas before merging.
+2. Merge deltas intelligently instead of raw append:
+   - if the new delta is a cumulative replay that already contains the current
+     text, replace the current text
+   - if the current text already contains the new delta, keep the current text
+   - otherwise append with minimal separator inference for split ASCII words
+3. Apply the same rule set to assistant answer text and reasoning text.
+4. On `assistant.message.completed`, replace live text with the server-provided
+   final `text` and `reasoning` when present.
+5. After the stream ends, finalize from `GET /v1/turns/{id}`.
+
+These rules exist because model providers and middleware may emit a mix of
+token-like deltas and cumulative replays in the same turn.
+
+## Rendering Rules
+
+Streaming clients must separate incomplete transport text from finalized rich
+rendering:
+
+- While streaming, render assistant text and reasoning with plain-text-safe
+  accumulation.
+- Do not parse incomplete Markdown as final rich content while the stream is
+  still open.
+- After `assistant.message.completed` or snapshot recovery, render finalized
+  Markdown or structured output.
+- Tool calls should render as step items that show method name and serialized
+  arguments or output.
 
 ## Replay Rules
 
-- The persisted gateway run-event ledger is the source of truth for live-event
-  replay.
-- Ordering uses a per-run monotonically increasing `event_index`.
-- Reconnect uses snapshot-plus-tail replay:
-  - latest snapshot for recovery
-  - normalized events after the last seen `event_index` for live continuity
-- Replay should not re-emit stale deltas before the replay cursor.
+- The persisted turn-event ledger is the source of truth for replay.
+- Ordering uses per-turn monotonically increasing `sequence`.
+- Reconnect uses snapshot plus tail replay:
+  - snapshot for current finalized state
+  - normalized events after the last seen sequence for live continuity
+- Reconnect must not re-fragment already accumulated text into separate cards.
 
 ## Explicit Non-Goals
 
-- Do not freeze raw `messages-tuple`, `values`, or `custom` payloads into the
-  public contract.
-- Do not move workspace-specific side effects into the v1 `SDKMessage` union.
-- Do not make raw trace payloads the primary frontend integration surface.
+- Do not publish raw `messages-tuple`, `values`, or `custom` payloads as the
+  external contract.
+- Do not expose workspace-only side effects as part of the native turns
+  protocol.
+- Do not make a hand-maintained product SDK the source of truth for event
+  semantics.
+- Do not parse free-form observability output to rebuild the live transcript.
 
 ## Hard Deletes
 
 When migration is complete, remove:
 
-- unpublished oversized event payloads
-- duplicated event reshaping in both gateway and frontend
-- frontend concepts that depend directly on fragmented raw live sources as the
-  primary contract
+- unpublished oversized event payload designs
+- duplicate event reshaping in both gateway and frontend for the same live
+  signal
+- frontend code that treats fragmented raw live sources as the primary contract
+- any wrapper that silently diverges from `/v1/turns`

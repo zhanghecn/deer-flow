@@ -645,9 +645,13 @@ export const enUS: Translations = {
       loadError: (message: string) =>
         message ? `Failed to load skills: ${message}` : "Failed to load skills",
       createSkill: "Create skill",
+      downloadSkill: "Download .skill",
+      downloadSuccess: (filename: string) => `Downloaded ${filename}`,
+      downloadFailed: (message: string) =>
+        message ? `Failed to download skill: ${message}` : "Failed to download skill",
       emptyTitle: "No agent skill yet",
       emptyDescription:
-        "Create or save skills into `.openagents/skills/store/dev`, then promote them through the store lifecycle when ready.",
+        "Create skills in `.openagents/custom/skills`, iterate in the workbench, then export or attach them when ready.",
       emptyButton: "Create Your First Skill",
     },
     notification: {

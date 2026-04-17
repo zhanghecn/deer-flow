@@ -6,7 +6,7 @@ type SupportPrompt = {
   prompt: string;
 };
 
-export type SupportSDKChatDemoText = {
+export type SupportHTTPChatDemoText = {
   connectionTitle: string;
   connectionDescription: string;
   baseURLLabel: string;
@@ -68,7 +68,7 @@ export type SupportSDKChatDemoText = {
   prompts: SupportPrompt[];
 };
 
-const enUS: SupportSDKChatDemoText = {
+const enUS: SupportHTTPChatDemoText = {
   connectionTitle: "Connection",
   connectionDescription:
     "Paste the published base URL and a scoped user key. This page keeps the key in memory only.",
@@ -101,12 +101,12 @@ const enUS: SupportSDKChatDemoText = {
   usePrompt: "Use prompt",
   securityTitle: "Why this console exists",
   securityDescription:
-    "It validates browser-side SDK compatibility against the published contract. It is for testing and demos, not for shipping a public site with an exposed key.",
+    "It validates browser-side HTTP integration against the published contract. It is for testing and demos, not for shipping a public site with an exposed key.",
   chatTitle: "Debug console",
   chatEmptyTitle: "No messages yet",
   chatEmptyDescription:
     "Choose one of the starter prompts or write your own question about the private case library.",
-  sdkLabel: "Official OpenAgents TS SDK -> OpenAgents /v1/turns",
+  sdkLabel: "Native HTTP -> OpenAgents /v1/turns",
   userLabel: "User",
   assistantLabel: "Assistant",
   assistantReplyTitle: "Assistant reply",
@@ -159,7 +159,7 @@ const enUS: SupportSDKChatDemoText = {
   ],
 };
 
-const zhCN: SupportSDKChatDemoText = {
+const zhCN: SupportHTTPChatDemoText = {
   connectionTitle: "连接信息",
   connectionDescription:
     "填入已发布智能体的 Base URL 和作用域用户 Key。这个页面只在内存里保存 Key。",
@@ -191,11 +191,11 @@ const zhCN: SupportSDKChatDemoText = {
   usePrompt: "使用这个问题",
   securityTitle: "这个调试台的用途",
   securityDescription:
-    "它用来验证浏览器侧 SDK 与已发布契约的兼容性，并观察真实运行步骤。适合验收和调试，不适合把带密钥的调用直接公开上线。",
+    "它用来验证浏览器侧 HTTP 接入与已发布契约的兼容性，并观察真实运行步骤。适合验收和调试，不适合把带密钥的调用直接公开上线。",
   chatTitle: "调试台",
   chatEmptyTitle: "还没有消息",
   chatEmptyDescription: "从左侧选择一个起手问题，或者直接输入你自己的案例库问题。",
-  sdkLabel: "Official OpenAgents TS SDK -> OpenAgents /v1/turns",
+  sdkLabel: "Native HTTP -> OpenAgents /v1/turns",
   userLabel: "用户",
   assistantLabel: "助手",
   assistantReplyTitle: "助手回复",
@@ -246,6 +246,6 @@ const zhCN: SupportSDKChatDemoText = {
   ],
 };
 
-export function getSupportSDKChatDemoText(locale: Locale) {
+export function getSupportHTTPChatDemoText(locale: Locale) {
   return locale === "zh-CN" ? zhCN : enUS;
 }

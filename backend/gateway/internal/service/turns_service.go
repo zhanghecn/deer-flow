@@ -139,7 +139,7 @@ func (c *turnCollector) consumeAssistantRecord(record map[string]any) []model.Tu
 		}))
 	}
 
-	if textDelta := strings.TrimSpace(extractMessageChunkTextDelta(record["content"])); textDelta != "" {
+	if textDelta := extractMessageChunkTextDelta(record["content"]); strings.TrimSpace(textDelta) != "" {
 		events = append(events, c.push(model.TurnEvent{
 			Type:      model.TurnEventAssistantTextDelta,
 			MessageID: messageID,
@@ -147,7 +147,7 @@ func (c *turnCollector) consumeAssistantRecord(record map[string]any) []model.Tu
 		}))
 	}
 
-	if reasoningDelta := strings.TrimSpace(c.extractReasoningDelta(messageID, record["content"])); reasoningDelta != "" {
+	if reasoningDelta := c.extractReasoningDelta(messageID, record["content"]); strings.TrimSpace(reasoningDelta) != "" {
 		events = append(events, c.push(model.TurnEvent{
 			Type:      model.TurnEventAssistantReasoningDelta,
 			MessageID: messageID,
@@ -234,11 +234,11 @@ func (c *turnCollector) consumeToolRecord(record map[string]any) []model.TurnEve
 }
 
 func (c *turnCollector) extractReasoningDelta(messageID string, content any) string {
-	current := strings.TrimSpace(extractReasoningFromContentBlocks(content))
-	if current == "" {
+	current := extractReasoningFromContentBlocks(content)
+	if strings.TrimSpace(current) == "" {
 		return ""
 	}
-	previous := strings.TrimSpace(c.lastReasoningByMsgID[messageID])
+	previous := c.lastReasoningByMsgID[messageID]
 	switch {
 	case previous == "":
 		c.lastReasoningByMsgID[messageID] = current
@@ -246,7 +246,7 @@ func (c *turnCollector) extractReasoningDelta(messageID string, content any) str
 	case current == previous:
 		return ""
 	case strings.HasPrefix(current, previous):
-		delta := strings.TrimSpace(current[len(previous):])
+		delta := current[len(previous):]
 		c.lastReasoningByMsgID[messageID] = current
 		return delta
 	case strings.HasPrefix(previous, current):
@@ -272,13 +272,13 @@ func extractReasoningFromContentBlocks(content any) string {
 		if blockType != "thinking" && blockType != "reasoning" {
 			continue
 		}
-		text := strings.TrimSpace(firstNonEmptyString(
+		text := firstNonEmptyString(
 			block["thinking"],
 			block["reasoning"],
 			block["reasoning_content"],
 			block["text"],
-		))
-		if text != "" {
+		)
+		if strings.TrimSpace(text) != "" {
 			segments = append(segments, text)
 		}
 	}

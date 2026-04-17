@@ -34,40 +34,52 @@ import {
 } from "./shared";
 
 function buildJavaScriptSnippet(baseURL: string, agentName: string) {
-  return `import { OpenAgentsClient } from "@openagents/sdk";
-
-const client = new OpenAgentsClient({
-  apiKey: process.env.OPENAGENTS_API_KEY,
-  baseURL: "${baseURL}",
-});
-
-const turn = await client.createTurn({
-  agent: "${agentName}",
-  input: {
-    text: "Review the uploaded materials and summarize the next actions.",
+  return `const response = await fetch("${baseURL}/turns", {
+  method: "POST",
+  headers: {
+    "Authorization": \`Bearer \${process.env.OPENAGENTS_API_KEY}\`,
+    "Content-Type": "application/json",
   },
+  body: JSON.stringify({
+    agent: "${agentName}",
+    input: {
+      text: "Review the uploaded materials and summarize the next actions.",
+    },
+  }),
 });
 
+if (!response.ok) {
+  throw new Error(await response.text());
+}
+
+const turn = await response.json();
 console.log(turn.output_text);`;
 }
 
 function buildPythonSnippet(baseURL: string, agentName: string) {
-  return `import os
-from openagents_sdk import OpenAgentsClient
+  return `import json
+import os
+import urllib.request
 
-client = OpenAgentsClient(
-    api_key=os.environ["OPENAGENTS_API_KEY"],
-    base_url="${baseURL}",
+request = urllib.request.Request(
+    "${baseURL}/turns",
+    data=json.dumps(
+        {
+            "agent": "${agentName}",
+            "input": {
+                "text": "Review the uploaded materials and summarize the next actions."
+            },
+        }
+    ).encode("utf-8"),
+    headers={
+        "Authorization": f"Bearer {os.environ['OPENAGENTS_API_KEY']}",
+        "Content-Type": "application/json",
+    },
+    method="POST",
 )
 
-turn = client.create_turn(
-    {
-        "agent": "${agentName}",
-        "input": {
-            "text": "Review the uploaded materials and summarize the next actions.",
-        },
-    }
-)
+with urllib.request.urlopen(request) as response:
+    turn = json.loads(response.read().decode("utf-8"))
 
 print(turn["output_text"])`;
 }

@@ -12,7 +12,6 @@ export default defineConfig({
     alias: {
       "@": path.resolve(rootDir, "../app/src"),
       "@demo": path.resolve(rootDir, "./src"),
-      "@openagents/sdk": path.resolve(rootDir, "../../sdk/ts/src/index.ts"),
     },
     dedupe: ["react", "react-dom"],
   },

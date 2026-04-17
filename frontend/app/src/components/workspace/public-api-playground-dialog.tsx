@@ -61,6 +61,7 @@ import {
 import {
   extractPublicAPIReasoningSummary,
   formatPublicAPIOutputText,
+  mergeStreamingText,
 } from "@/core/public-api/run-session";
 import { workspaceMessageRehypePlugins } from "@/core/streamdown";
 import { cn } from "@/lib/utils";
@@ -614,13 +615,15 @@ export function PublicAPIPlaygroundPanel({
       }
 
       if (normalizedEvent.kind === "assistant_text_delta") {
-        setLiveOutput((current) => `${current}${normalizedEvent.delta}`);
+        setLiveOutput((current) =>
+          mergeStreamingText(current, normalizedEvent.delta),
+        );
         continue;
       }
 
       if (normalizedEvent.kind === "assistant_reasoning_delta") {
         setLiveReasoning((current) =>
-          `${current}${normalizedEvent.delta}`.trim(),
+          mergeStreamingText(current, normalizedEvent.delta),
         );
         continue;
       }

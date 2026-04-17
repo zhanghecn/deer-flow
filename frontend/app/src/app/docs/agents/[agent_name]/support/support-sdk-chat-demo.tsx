@@ -13,19 +13,16 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { MarkdownContent } from "@/components/workspace/messages/markdown-content";
 import { useI18n } from "@/core/i18n/hooks";
+import {
+  type PublicAPIReasoningEffort,
+  type PublicAPITurnEvent,
+  type PublicAPITurnSnapshot,
+} from "@/core/public-api/api";
+import { runStreamedPublicAPITurn } from "@/core/public-api/turn-runner";
 import { workspaceMessageRehypePlugins } from "@/core/streamdown";
 import { cn } from "@/lib/utils";
-import {
-  OpenAgentsClient,
-  applyTurnEvent,
-  createTurnReadModel,
-  type OpenAgentsTurnEvent,
-  type OpenAgentsTurnSnapshot,
-} from "@openagents/sdk";
 
-import { getSupportSDKChatDemoText } from "./support-sdk-chat-demo.i18n";
-
-type OpenAgentsReasoningEffort = "minimal" | "low" | "medium" | "high";
+import { getSupportHTTPChatDemoText } from "./support-sdk-chat-demo.i18n";
 
 type DemoActivityItem = {
   title: string;
@@ -66,7 +63,7 @@ function formatTimestamp(locale: string, timestamp: number) {
 
 function formatActivityTitle(
   title: string,
-  text: ReturnType<typeof getSupportSDKChatDemoText>,
+  text: ReturnType<typeof getSupportHTTPChatDemoText>,
 ) {
   if (title === "tool.call.started") {
     return text.toolStartedTitle;
@@ -105,8 +102,8 @@ function formatToolDetail(params: {
 }
 
 function buildActivityItem(
-  event: OpenAgentsTurnEvent,
-  text: ReturnType<typeof getSupportSDKChatDemoText>,
+  event: PublicAPITurnEvent,
+  text: ReturnType<typeof getSupportHTTPChatDemoText>,
 ): DemoActivityItem | null {
   const timestamp = event.created_at * 1000;
   switch (event.type) {
@@ -169,7 +166,7 @@ function TimelineItems({
 }: {
   items: DemoActivityItem[];
   locale: string;
-  text: ReturnType<typeof getSupportSDKChatDemoText>;
+  text: ReturnType<typeof getSupportHTTPChatDemoText>;
   empty: string;
   className?: string;
 }) {
@@ -208,7 +205,7 @@ function TimelineItems({
   );
 }
 
-export function SupportSDKChatDemo({
+export function SupportHTTPChatDemo({
   agentName,
   defaultBaseURL,
 }: {
@@ -216,7 +213,7 @@ export function SupportSDKChatDemo({
   defaultBaseURL: string;
 }) {
   const { locale } = useI18n();
-  const text = getSupportSDKChatDemoText(locale);
+  const text = getSupportHTTPChatDemoText(locale);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -224,16 +221,27 @@ export function SupportSDKChatDemo({
   const [apiToken, setAPIToken] = useState("");
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<DemoMessage[]>([]);
-  const [lastTurn, setLastTurn] = useState<OpenAgentsTurnSnapshot | null>(
+  const [lastTurn, setLastTurn] = useState<PublicAPITurnSnapshot | null>(
     null,
   );
   const [previousTurnID, setPreviousTurnID] = useState("");
   const [reasoningEnabled, setReasoningEnabled] = useState(true);
   const [reasoningEffort, setReasoningEffort] =
-    useState<OpenAgentsReasoningEffort>("medium");
+    useState<PublicAPIReasoningEffort>("medium");
   const [runState, setRunState] = useState<"ready" | "streaming" | "failed" | "waiting">(
     "ready",
   );
+
+  const traceText = {
+    assistantMessage: text.assistantReplyTitle,
+    assistantThinking: text.reasoningSummaryLabel,
+    toolCall: text.toolStartedTitle,
+    toolResult: text.toolFinishedTitle,
+    turnCompleted: text.runCompleted,
+    turnStarted: text.turnStartedTitle,
+    turnWaiting: text.responseWaiting,
+    turnFailed: text.turnFailedTitle,
+  };
 
   useEffect(() => {
     setAPIBaseURL(defaultBaseURL);
@@ -305,50 +313,51 @@ export function SupportSDKChatDemo({
     ]);
 
     try {
-      const client = new OpenAgentsClient({
-        apiKey: trimmedToken,
+      const result = await runStreamedPublicAPITurn({
         baseURL: apiBaseURL,
+        apiToken: trimmedToken,
+        signal: controller.signal,
+        traceText,
+        body: {
+          agent: agentName,
+          input: { text: prompt },
+          previous_turn_id: previousTurnID || undefined,
+          metadata: {
+            source: "docs_support_http_demo",
+            surface: "support_demo",
+          },
+          thinking: {
+            enabled: reasoningEnabled,
+            effort: reasoningEffort,
+          },
+        },
+        onUpdate: ({ event, readModel }) => {
+          const nextActivity =
+            event.kind === "ledger_event"
+              ? buildActivityItem(event.event, text)
+              : null;
+
+          replaceMessage(assistantMessageID, (message) => ({
+            ...message,
+            content: readModel.liveOutput || message.content,
+            activity: nextActivity
+              ? [...(message.activity ?? []), nextActivity]
+              : message.activity,
+            toolCallCount: readModel.toolCallCount,
+            turnId: readModel.turnId || message.turnId,
+            reasoningText: readModel.liveReasoning || message.reasoningText,
+            status: readModel.phase === "failed" ? "error" : message.status,
+          }));
+
+          if (readModel.phase === "failed") {
+            setRunState("failed");
+          } else if (readModel.phase === "waiting") {
+            setRunState("waiting");
+          }
+        },
       });
 
-      let currentTurnID = "";
-      let readModel = createTurnReadModel();
-      for await (const event of client.streamTurn({
-        agent: agentName,
-        input: { text: prompt },
-        previous_turn_id: previousTurnID || undefined,
-        metadata: {
-          source: "docs_support_sdk_demo",
-          surface: "support_demo",
-        },
-        thinking: {
-          enabled: reasoningEnabled,
-          effort: reasoningEffort,
-        },
-      })) {
-        readModel = applyTurnEvent(readModel, event);
-        currentTurnID = readModel.turnId || currentTurnID;
-        const nextActivity = buildActivityItem(event, text);
-
-        replaceMessage(assistantMessageID, (message) => ({
-          ...message,
-          content: readModel.outputText || message.content,
-          activity: nextActivity
-            ? [...(message.activity ?? []), nextActivity]
-            : message.activity,
-          toolCallCount: readModel.toolCallCount,
-          turnId: readModel.turnId || message.turnId,
-          reasoningText: readModel.reasoningText || message.reasoningText,
-          status: readModel.status === "failed" ? "error" : message.status,
-        }));
-
-        if (readModel.status === "failed") {
-          setRunState("failed");
-        } else if (readModel.status === "requires_input") {
-          setRunState("waiting");
-        }
-      }
-
-      if (!currentTurnID) {
+      if (!result.turn) {
         setRunState("ready");
         replaceMessage(assistantMessageID, (message) => ({
           ...message,
@@ -357,7 +366,7 @@ export function SupportSDKChatDemo({
         return;
       }
 
-      const finalizedTurn = await client.getTurn(currentTurnID);
+      const finalizedTurn = result.turn;
       setLastTurn(finalizedTurn);
       setPreviousTurnID(finalizedTurn.id);
       replaceMessage(assistantMessageID, (message) => ({
@@ -373,7 +382,8 @@ export function SupportSDKChatDemo({
         toolCallCount: finalizedTurn.events.filter(
           (turnEvent) => turnEvent.type === "tool.call.started",
         ).length,
-        reasoningText: finalizedTurn.reasoning_text,
+        reasoningText:
+          result.readModel.liveReasoning || finalizedTurn.reasoning_text,
       }));
 
       if (finalizedTurn.status === "requires_input") {
@@ -591,7 +601,7 @@ export function SupportSDKChatDemo({
                   disabled={!reasoningEnabled}
                   onChange={(event) =>
                     setReasoningEffort(
-                      event.target.value as OpenAgentsReasoningEffort,
+                      event.target.value as PublicAPIReasoningEffort,
                     )
                   }
                   className="w-full border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900 disabled:cursor-not-allowed disabled:bg-stone-100"
@@ -782,7 +792,7 @@ export function SupportSDKChatDemo({
                   <div className="mt-2 rounded-md border border-stone-200 bg-stone-50 px-3 py-2">
                     <MarkdownContent
                       content={latestReasoningText || text.reasoningSummaryEmpty}
-                      isLoading={false}
+                      isLoading={runState === "streaming"}
                       rehypePlugins={workspaceMessageRehypePlugins}
                       className="text-sm leading-6 text-stone-600"
                     />

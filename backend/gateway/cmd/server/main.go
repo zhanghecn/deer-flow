@@ -238,6 +238,7 @@ func main() {
 		// Skills
 		api.GET("/skills", skillH.List)
 		api.GET("/skills/:name", skillH.Get)
+		api.GET("/skills/:name/download", skillH.Download)
 		api.POST("/skills", skillH.Create)
 		api.POST("/skills/install", skillH.Install)
 		api.PUT("/skills/:name", skillH.Update)

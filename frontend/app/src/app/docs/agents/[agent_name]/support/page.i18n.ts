@@ -18,7 +18,7 @@ type AgentPublicSupportPageText = {
 const enUS: AgentPublicSupportPageText = {
   loadingTitle: "Loading support demo",
   loadingDescription:
-    "Preparing the published agent contract and the customer-style SDK surface.",
+    "Preparing the published agent contract and the customer-style HTTP integration surface.",
   loadFailedTitle: "Support demo unavailable",
   loadFailedDescription:
     "The published agent export document could not be loaded.",
@@ -28,7 +28,7 @@ const enUS: AgentPublicSupportPageText = {
   openHome: "Open workspace",
   title: "Customer support demo",
   description:
-    "This page is a separate browser-side chat surface that calls the published agent through the native OpenAgents TS SDK and `/v1/turns`. Use it to validate the exact external integration path before handing the contract to a customer team.",
+    "This page is a separate browser-side chat surface that calls the published agent through native HTTP and `/v1/turns`. Use it to validate the exact external integration path before handing the contract to a customer team.",
   introNav: "Intro",
   consoleNav: "Console",
   activityNav: "Activity",
@@ -36,7 +36,7 @@ const enUS: AgentPublicSupportPageText = {
 
 const zhCN: AgentPublicSupportPageText = {
   loadingTitle: "正在加载客服演示",
-  loadingDescription: "正在准备已发布智能体契约和客户视角的 SDK 页面。",
+  loadingDescription: "正在准备已发布智能体契约和客户视角的 HTTP 接入页。",
   loadFailedTitle: "客服演示暂不可用",
   loadFailedDescription: "当前无法加载这个已发布智能体的导出文档。",
   referenceFailedTitle: "OpenAPI 契约暂不可用",
@@ -45,7 +45,7 @@ const zhCN: AgentPublicSupportPageText = {
   openHome: "打开工作台",
   title: "客服演示",
   description:
-    "这是一个独立的浏览器侧聊天页，通过原生 OpenAgents TS SDK 和 `/v1/turns` 调用已发布智能体。用它验证真实外部接入链路，再把契约交给客户团队。",
+    "这是一个独立的浏览器侧聊天页，通过原生 HTTP 和 `/v1/turns` 调用已发布智能体。用它验证真实外部接入链路，再把契约交给客户团队。",
   introNav: "说明",
   consoleNav: "控制台",
   activityNav: "活动",

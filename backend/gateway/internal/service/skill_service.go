@@ -1,12 +1,15 @@
 package service
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"slices"
 	"strings"
 
@@ -154,6 +157,33 @@ func (s *SkillService) Get(_ context.Context, name string, sourcePath string) (*
 	return s.loadSkillFromLocation(location)
 }
 
+func (s *SkillService) Export(_ context.Context, name string, sourcePath string) (string, []byte, error) {
+	location, err := s.resolveSkillLocation(name, sourcePath)
+	if err != nil {
+		return "", nil, err
+	}
+
+	skill, err := s.loadSkillFromLocation(location)
+	if err != nil {
+		return "", nil, err
+	}
+
+	skillDir := s.fs.GlobalSkillDir(location.scope, location.relativeDir)
+	archiveRoot := exportArchiveBaseName(strings.TrimSpace(skill.Name))
+	if archiveRoot == "" {
+		archiveRoot = exportArchiveBaseName(filepath.Base(location.relativeDir))
+	}
+	if archiveRoot == "" {
+		archiveRoot = "skill"
+	}
+
+	data, err := packageSkillArchive(skillDir, archiveRoot)
+	if err != nil {
+		return "", nil, err
+	}
+	return archiveRoot + ".skill", data, nil
+}
+
 func (s *SkillService) findSkillScopes(name string) []string {
 	locations, err := s.findSkillLocationsByName(name)
 	if err != nil {
@@ -194,6 +224,24 @@ func (s *SkillService) locateEditableSkillLocation(name string) (skillLocation, 
 		return skillLocation{}, fmt.Errorf("skill %q not found", name)
 	}
 	return skillLocation{}, fmt.Errorf("%w: skill %q is read-only in %s", ErrSkillReadOnly, name, strings.Join(scopes, ", "))
+}
+
+func (s *SkillService) resolveSkillLocation(name string, sourcePath string) (skillLocation, error) {
+	if trimmedSourcePath := strings.TrimSpace(sourcePath); trimmedSourcePath != "" {
+		location, err := parseSkillDocumentSourcePath(trimmedSourcePath)
+		if err != nil {
+			return skillLocation{}, fmt.Errorf("%w: %v", ErrSkillInvalidSourcePath, err)
+		}
+		skill, err := s.loadSkillFromLocation(location)
+		if err != nil {
+			return skillLocation{}, err
+		}
+		if strings.TrimSpace(skill.Name) != strings.TrimSpace(name) {
+			return skillLocation{}, fmt.Errorf("skill %q not found at %s", name, trimmedSourcePath)
+		}
+		return location, nil
+	}
+	return s.locateUniqueSkillLocation(name)
 }
 
 func (s *SkillService) loadSkillFromLocation(location skillLocation) (*model.Skill, error) {
@@ -385,6 +433,70 @@ func ensureSkillFrontmatter(name string, description string, skillMD string) (st
 		return fmt.Sprintf("---\n%s---\n", string(data)), nil
 	}
 	return fmt.Sprintf("---\n%s---\n\n%s", string(data), content), nil
+}
+
+func exportArchiveBaseName(name string) string {
+	normalized := strings.TrimSpace(name)
+	normalized = strings.ReplaceAll(normalized, "/", "-")
+	normalized = strings.ReplaceAll(normalized, "\\", "-")
+	return strings.Trim(strings.TrimSpace(normalized), "-")
+}
+
+func packageSkillArchive(skillDir string, archiveRoot string) ([]byte, error) {
+	var buffer bytes.Buffer
+	writer := zip.NewWriter(&buffer)
+
+	files := make([]string, 0, 8)
+	if err := filepath.WalkDir(skillDir, func(currentPath string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			return nil
+		}
+		files = append(files, currentPath)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	sort.Strings(files)
+
+	for _, currentPath := range files {
+		relativePath, err := filepath.Rel(skillDir, currentPath)
+		if err != nil {
+			return nil, err
+		}
+		archivePath := filepath.ToSlash(filepath.Join(archiveRoot, relativePath))
+		fileInfo, err := os.Stat(currentPath)
+		if err != nil {
+			return nil, err
+		}
+		header, err := zip.FileInfoHeader(fileInfo)
+		if err != nil {
+			return nil, err
+		}
+		// The installer accepts either a wrapped root directory or a flat skill
+		// archive. Packaging with one stable root keeps download/install behavior
+		// deterministic and avoids collisions when users unpack locally.
+		header.Name = archivePath
+		header.Method = zip.Deflate
+		entryWriter, err := writer.CreateHeader(header)
+		if err != nil {
+			return nil, err
+		}
+		content, err := os.ReadFile(currentPath)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := entryWriter.Write(content); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := writer.Close(); err != nil {
+		return nil, err
+	}
+	return buffer.Bytes(), nil
 }
 
 func splitSkillFrontmatter(skillMD string) (map[string]interface{}, string, bool, error) {

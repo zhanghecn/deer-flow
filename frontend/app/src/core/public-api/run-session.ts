@@ -19,6 +19,101 @@ export type PublicAPIRunReadModel = {
   seenEventKeys: string[];
 };
 
+function compactWhitespace(value: string) {
+  return value.replace(/\s+/g, "");
+}
+
+function isAsciiWordChar(value: string) {
+  return /[A-Za-z0-9]/.test(value);
+}
+
+function isSentenceBoundary(value: string) {
+  return /[.!?;:]/.test(value);
+}
+
+function isTightPunctuation(value: string) {
+  return /[.,!?;:，。！？；：)\]}>%”"'`]/.test(value);
+}
+
+function isOpenPunctuation(value: string) {
+  return /[(\[{<“"'`]/.test(value);
+}
+
+function inferStreamingSeparator(current: string, delta: string) {
+  if (!current || !delta) {
+    return "";
+  }
+
+  const last = current.slice(-1);
+  const first = delta[0];
+
+  if (!last || !first || /\s/.test(last) || /\s/.test(first)) {
+    return "";
+  }
+
+  if (last === "-" || first === "-" || last === "/" || first === "/") {
+    return "";
+  }
+
+  if (isAsciiWordChar(last) && isOpenPunctuation(first)) {
+    return " ";
+  }
+
+  if (isTightPunctuation(first) || isOpenPunctuation(last)) {
+    return "";
+  }
+
+  if (isAsciiWordChar(last) && isAsciiWordChar(first)) {
+    return " ";
+  }
+
+  if ((isSentenceBoundary(last) || last === '"' || last === "”") && isAsciiWordChar(first)) {
+    return " ";
+  }
+
+  return "";
+}
+
+export function mergeStreamingText(current: string, delta: string) {
+  if (!delta) {
+    return current;
+  }
+
+  if (!current) {
+    return delta;
+  }
+
+  if (delta.startsWith(current)) {
+    return delta;
+  }
+
+  if (current.startsWith(delta)) {
+    return current;
+  }
+
+  const compactCurrent = compactWhitespace(current);
+  const compactDelta = compactWhitespace(delta);
+
+  if (compactDelta && compactCurrent) {
+    if (
+      compactDelta === compactCurrent &&
+      delta.length >= current.length
+    ) {
+      return delta;
+    }
+
+    if (compactDelta.startsWith(compactCurrent)) {
+      return delta;
+    }
+
+    if (compactCurrent.startsWith(compactDelta)) {
+      return current;
+    }
+  }
+
+  return `${current}${inferStreamingSeparator(current, delta)}${delta}`;
+}
+
 function buildFailedTraceItem(
   detail: string,
   raw: unknown,
@@ -161,30 +256,38 @@ export function applyNormalizedPublicAPIRunEvent(params: {
         phase: "streaming",
       };
     case "assistant_text_delta":
+      const nextOutput = mergeStreamingText(current.liveOutput, event.delta);
       return {
         ...current,
-        liveOutput: `${current.liveOutput}${event.delta}`,
+        liveOutput: nextOutput,
         traceItems: upsertTrace(current, {
           stage: "assistant",
           title: traceText.assistantMessage,
-          detail: `${current.liveOutput}${event.delta}`,
+          detail: nextOutput,
           raw: {
             kind: "assistant_text_stream",
-            text: `${current.liveOutput}${event.delta}`,
+            text: nextOutput,
           },
         }),
       };
     case "assistant_reasoning_delta":
+      // Preserve the streamed reasoning text verbatim. Trimming each chunk
+      // destroys meaningful spaces/newlines and makes the intermediate UI look
+      // corrupted until the final turn snapshot replaces it.
+      const nextReasoning = mergeStreamingText(
+        current.liveReasoning,
+        event.delta,
+      );
       return {
         ...current,
-        liveReasoning: `${current.liveReasoning}${event.delta}`.trim(),
+        liveReasoning: nextReasoning,
         traceItems: upsertTrace(current, {
           stage: "assistant",
           title: traceText.assistantThinking,
-          detail: `${current.liveReasoning}${event.delta}`.trim(),
+          detail: nextReasoning,
           raw: {
             kind: "assistant_reasoning_stream",
-            text: `${current.liveReasoning}${event.delta}`.trim(),
+            text: nextReasoning,
           },
         }),
       };
@@ -199,8 +302,8 @@ export function applyNormalizedPublicAPIRunEvent(params: {
       if (event.event.type === "assistant.message.completed") {
         next = {
           ...next,
-          liveOutput: event.event.text?.trim() || next.liveOutput,
-          liveReasoning: event.event.reasoning?.trim() || next.liveReasoning,
+          liveOutput: event.event.text || next.liveOutput,
+          liveReasoning: event.event.reasoning || next.liveReasoning,
         };
       }
       if (event.event.type === "turn.requires_input") {
@@ -248,8 +351,7 @@ export function applyPublicAPITurnSnapshot(params: {
     turn: params.turn,
     turnId: params.turn.id,
     liveOutput: params.turn.output_text || params.current.liveOutput,
-    liveReasoning:
-      params.turn.reasoning_text || params.current.liveReasoning,
+    liveReasoning: params.turn.reasoning_text || params.current.liveReasoning,
     phase:
       params.turn.status === "requires_input"
         ? "waiting"

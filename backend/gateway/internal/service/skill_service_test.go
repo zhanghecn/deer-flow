@@ -1,6 +1,8 @@
 package service
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -257,5 +259,67 @@ func TestSkillServiceGetLoadsAliasedSkillBySourcePath(t *testing.T) {
 	}
 	if skill.CanEdit {
 		t.Fatal("skill.CanEdit = true, want false")
+	}
+}
+
+func TestSkillServiceExportPackagesSkillDirectory(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	skillDir := filepath.Join(baseDir, "custom", "skills", "sdk-helper")
+	if err := os.MkdirAll(filepath.Join(skillDir, "references"), 0o755); err != nil {
+		t.Fatalf("mkdir references: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(skillDir, "scripts"), 0o755); err != nil {
+		t.Fatalf("mkdir scripts: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(skillDir, "SKILL.md"),
+		[]byte("---\nname: sdk-helper\ndescription: Helps integrate SDKs\n---\n\nbody"),
+		0o644,
+	); err != nil {
+		t.Fatalf("write SKILL.md: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(skillDir, "references", "contract.md"),
+		[]byte("contract"),
+		0o644,
+	); err != nil {
+		t.Fatalf("write contract.md: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(skillDir, "scripts", "check.sh"),
+		[]byte("#!/bin/sh\necho ok\n"),
+		0o755,
+	); err != nil {
+		t.Fatalf("write check.sh: %v", err)
+	}
+
+	svc := NewSkillService(storage.NewFS(baseDir))
+	filename, archive, err := svc.Export(context.Background(), "sdk-helper", "custom/skills/sdk-helper")
+	if err != nil {
+		t.Fatalf("Export() error = %v", err)
+	}
+	if filename != "sdk-helper.skill" {
+		t.Fatalf("filename = %q, want %q", filename, "sdk-helper.skill")
+	}
+
+	reader, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
+	if err != nil {
+		t.Fatalf("zip.NewReader() error = %v", err)
+	}
+
+	entries := make(map[string]struct{}, len(reader.File))
+	for _, file := range reader.File {
+		entries[file.Name] = struct{}{}
+	}
+	for _, expected := range []string{
+		"sdk-helper/SKILL.md",
+		"sdk-helper/references/contract.md",
+		"sdk-helper/scripts/check.sh",
+	} {
+		if _, ok := entries[expected]; !ok {
+			t.Fatalf("archive missing %q; entries=%v", expected, entries)
+		}
 	}
 }

@@ -615,9 +615,13 @@ export const zhCN: Translations = {
       loadError: (message: string) =>
         message ? `加载技能失败：${message}` : "加载技能失败",
       createSkill: "新建技能",
+      downloadSkill: "下载 .skill",
+      downloadSuccess: (filename: string) => `已下载 ${filename}`,
+      downloadFailed: (message: string) =>
+        message ? `下载技能失败：${message}` : "下载技能失败",
       emptyTitle: "还没有技能",
       emptyDescription:
-        "将新的 skill 创建或保存到 `.openagents/skills/store/dev`，验证后再继续推送和共享。",
+        "将新的 skill 创建在 `.openagents/custom/skills`，在工作台里迭代完成后再导出或挂载使用。",
       emptyButton: "创建你的第一个技能",
     },
     notification: {

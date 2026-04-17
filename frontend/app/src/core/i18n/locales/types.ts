@@ -532,6 +532,9 @@ export interface Translations {
       description: string;
       loadError: (message: string) => string;
       createSkill: string;
+      downloadSkill: string;
+      downloadSuccess: (filename: string) => string;
+      downloadFailed: (message: string) => string;
       emptyTitle: string;
       emptyDescription: string;
       emptyButton: string;

@@ -87,7 +87,7 @@ const enUS: AgentPublicDocsPageText = {
   heroDescription:
     "External callers use `base_url`, `api_key`, and `agent=<agent_name>` to call the native `/v1/turns` contract. Use this page to copy the exact connection values, confirm the public routes, and then move into the live console or field-level reference.",
   heroFactOneLabel: "Client shape",
-  heroFactOneValue: "Raw HTTP, QA scripts, and internal SDK adapters can all start from the same published contract.",
+  heroFactOneValue: "Raw HTTP, QA scripts, and customer-side integrations can all start from the same published contract.",
   heroFactTwoLabel: "Response modes",
   heroFactTwoValue: "Blocking, SSE, file upload, and structured JSON stay on the same published agent surface.",
   heroFactThreeLabel: "Public routes",
@@ -136,7 +136,7 @@ const enUS: AgentPublicDocsPageText = {
   supportEyebrow: "Support demo",
   supportTitle: "Open the customer-style chat demo",
   supportDescription:
-    "Use the dedicated support page to validate browser-side SDK calls, multi-turn context, and tool-backed answers in a simpler chat UI.",
+    "Use the dedicated support page to validate browser-side HTTP calls, multi-turn context, and tool-backed answers in a simpler chat UI.",
   openSupport: "Open support demo",
   playgroundEyebrow: "Playground",
   playgroundTitle: "Run the contract end to end",
@@ -169,7 +169,7 @@ const zhCN: AgentPublicDocsPageText = {
   heroDescription:
     "外部调用方使用 `base_url`、`api_key` 和 `agent=<agent_name>` 即可直接接入原生 `/v1/turns`。这里负责给出准确接入值、确认公开路由，然后再进入实时控制台或字段级 API Reference。",
   heroFactOneLabel: "接入形态",
-  heroFactOneValue: "原始 HTTP、测试脚本和内部 SDK 适配器都可以从同一份已发布契约开始接入。",
+  heroFactOneValue: "原始 HTTP、测试脚本和客户侧接入实现都可以从同一份已发布契约开始接入。",
   heroFactTwoLabel: "响应模式",
   heroFactTwoValue: "Blocking、SSE、文件上传和结构化 JSON 都在同一个已发布智能体接口面上完成。",
   heroFactThreeLabel: "公开路由",
@@ -218,7 +218,7 @@ const zhCN: AgentPublicDocsPageText = {
   supportEyebrow: "客服演示",
   supportTitle: "打开客户视角的聊天演示页",
   supportDescription:
-    "进入独立的 support 页面，验证浏览器侧 SDK 调用、多轮上下文续接，以及由工具支撑的回答过程。",
+    "进入独立的 support 页面，验证浏览器侧 HTTP 调用、多轮上下文续接，以及由工具支撑的回答过程。",
   openSupport: "打开客服演示",
   playgroundEyebrow: "Playground",
   playgroundTitle: "把契约真实跑起来",
