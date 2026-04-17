@@ -28,7 +28,7 @@ const enUS: AgentPublicSupportPageText = {
   openHome: "Open workspace",
   title: "Customer support demo",
   description:
-    "This page is a separate browser-side chat surface that calls the published agent through the official OpenAI-compatible SDK. Use it to validate the exact external integration path before handing the contract to a customer team.",
+    "This page is a separate browser-side chat surface that calls the published agent through the native OpenAgents TS SDK and `/v1/turns`. Use it to validate the exact external integration path before handing the contract to a customer team.",
   introNav: "Intro",
   consoleNav: "Console",
   activityNav: "Activity",
@@ -45,7 +45,7 @@ const zhCN: AgentPublicSupportPageText = {
   openHome: "打开工作台",
   title: "客服演示",
   description:
-    "这是一个独立的浏览器侧聊天页，通过官方 OpenAI 兼容 SDK 调用已发布智能体。用它验证真实外部接入链路，再把契约交给客户团队。",
+    "这是一个独立的浏览器侧聊天页，通过原生 OpenAgents TS SDK 和 `/v1/turns` 调用已发布智能体。用它验证真实外部接入链路，再把契约交给客户团队。",
   introNav: "说明",
   consoleNav: "控制台",
   activityNav: "活动",

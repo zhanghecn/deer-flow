@@ -185,7 +185,7 @@ func NormalizeMCPProfileRelativePathForGateway(profileName string) (string, erro
 
 // GlobalMCPProfileFile returns the canonical JSON file path for one reusable
 // MCP library item. MCP profiles stay aligned to the Claude Code-style
-// `mcpServers` JSON shape, but Deer Flow stores them as one profile per file so
+// `mcpServers` JSON shape, but OpenAgents stores them as one profile per file so
 // agents can bind them independently.
 func (f *FS) GlobalMCPProfileFile(scope, profileName string) (string, error) {
 	cleanName, err := normalizeMCPProfileRelativePath(profileName)

@@ -15,6 +15,25 @@
 2. `/v1` 调试台 assistant delta 碎片化显示。
 3. `/v1` 调试台没有把 LangGraph state 里较早 assistant message 的 `thinking/reasoning` 摘要带回最终 response。
 
+## 当前可复现入口
+
+1. 先确保 current-code 后端已经运行在：
+   - `http://127.0.0.1:8083`
+2. 运行 setup 脚本，重建 support demo 所需 fixture：
+   - `python scripts/setup_support_demo_runtime.py`
+   - 如果案例目录不在默认位置，先设置：
+     - `export OPENAGENTS_SUPPORT_CASES_SOURCE=/your/customer/cases`
+3. 这个脚本会：
+   - 把 `OPENAGENTS_SUPPORT_CASES_SOURCE` 指向的案例目录同步到 `.openagents/runtime/customer-cases`
+   - 登录或注册测试用户
+   - upsert 两个 MCP profile
+   - upsert 并 publish 两个客服 agent
+   - 复用或创建两个 scoped API key
+   - 刷新 `frontend/demo/.env.local`
+   - 写出 `setup-summary.runtime.json`
+4. 然后运行真实浏览器验收：
+   - `node frontend/app/e2e/support-demo-real-browser.mjs`
+
 ## 我实际验证了什么
 
 1. 把 `/root/project/ai/ai-numerology/backend/agents/examples/案例大全` staging 到 Deer Flow 本地运行目录：
@@ -26,21 +45,16 @@
    - `support-cases-stdio-demo`
    - `support-cases-http-demo`
 4. 为两个已发布 agent 真实创建了作用域 API key。
-5. 用 `/v1/responses` 跑了 4 类客户验收问题：
-   - 列文件
-   - 分页读文件
-   - glob 过滤
-   - grep 搜索
-6. 用真实浏览器截图验证了：
+5. 用真实浏览器断言式验证了原生 `turns` SDK 链路：
    - `8083` 工作区 agents 列表
    - `8083` 公开客服页
-   - `8084` 独立 SDK demo
-   - `8083` 的 `lead_agent` 创建入口
-7. 重新用真实 `/v1/responses` + 浏览器页面核对：
-   - `workspace playground` 的“思考摘要”现在非空
-   - `8083` 公开客服页可显示最终答案和 `grep_files` 调用参数
-   - `8084` 独立 demo 可显示最终答案和 reasoning summary
-8. 把 HTTP MCP 测试链路单独拆到了独立 compose：
+   - `8084` 独立 SDK demo 的 `stdio` agent
+   - `8084` 独立 SDK demo 的 `http` agent
+   - `8083` 工作区 published agent playground
+6. 浏览器脚本现在不再只靠截图，而是会断言：
+   - `grep_files` 工具名可见
+   - `盲派八字全知识点训练集` 命中文件可见
+7. 把 HTTP MCP 测试链路单独拆到了独立 compose：
    - `docker/docker-compose-support-demo.yaml`
    - `8090` = HTTP MCP mock
    - `8084` = 外部 SDK demo
@@ -48,12 +62,15 @@
 ## 结果文件
 
 - [setup-summary.json](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/setup-summary.json)
-  - 本次创建的测试用户、profile、agent、token
+  - 作为期望 fixture 的基线摘要
+- [setup-summary.runtime.json](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/setup-summary.runtime.json)
+  - setup 脚本本次真实重放后的用户、profile、agent、token
 - [mcp-smoke-results.json](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/mcp-smoke-results.json)
-  - 两套 transport 的真实 `/v1/responses` 结果
+  - 两套 transport 的历史 API smoke 结果，作为回归参考保留
 - [01-workspace-agents.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/01-workspace-agents.png)
 - [02-docs-support-http.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/02-docs-support-http.png)
 - [03-standalone-demo-stdio.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/03-standalone-demo-stdio.png)
+- [05-standalone-demo-http.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/05-standalone-demo-http.png)
 - [05-standalone-demo-current.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/05-standalone-demo-current.png)
 - [06-standalone-demo-timeline.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/06-standalone-demo-timeline.png)
 - [07-workspace-playground-current.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/07-workspace-playground-current.png)
@@ -112,6 +129,7 @@
 - `http` MCP 可用
 - 两者都能在客服 agent 中真实调用客户案例数据，而不是先导入 Deer Flow 知识库
 - `8084` 独立 React + Tailwind SDK demo 已经能作为外部接入示例使用
+- `8084` 已经真实验证 `stdio` 与 `http` 两种 transport 都能走原生 `/v1/turns`
 - `8083` 工作区 published agent playground 现在也能显示时间线式步骤、工具名、工具参数，以及最终 response JSON
 - `8083` 工作区 published agent playground 现在也能把 Deer Flow 对外公开的 reasoning summary 正确显示到“思考摘要”面板
 - 原生工作区聊天页已经重新验证：带工具调用的同一条 AI message 现在仍会显示最终回答，不再只剩步骤而吞掉正文

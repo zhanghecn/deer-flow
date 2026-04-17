@@ -117,6 +117,7 @@ func main() {
 	adminH := handler.NewAdminHandler(userRepo, adminObservabilityRepo, modelRepo)
 	publicAPIH := handler.NewPublicAPIHandler(publicAPISvc)
 	publicAPIAuditH := handler.NewPublicAPIAuditHandler(publicAPISvc)
+	turnsH := handler.NewTurnsHandler(publicAPISvc)
 
 	// Compile proxy routes from gateway.yaml config
 	loggingLevel := strings.ToLower(cfg.Logging.Level)
@@ -363,6 +364,8 @@ func main() {
 		open.GET("/models", middleware.RequireAPITokenScopes("responses:read"), publicAPIH.ListModels)
 		open.POST("/files", middleware.RequireAPITokenScopes("responses:create"), publicAPIH.CreateFile)
 		open.GET("/files/:id", middleware.RequireAPITokenScopes("artifacts:read"), publicAPIH.GetFile)
+		open.POST("/turns", middleware.RequireAPITokenScopes("responses:create"), turnsH.Create)
+		open.GET("/turns/:id", middleware.RequireAPITokenScopes("responses:read"), turnsH.Get)
 		open.POST("/responses", middleware.RequireAPITokenScopes("responses:create"), publicAPIH.CreateResponse)
 		open.GET("/responses/:id", middleware.RequireAPITokenScopes("responses:read"), publicAPIH.GetResponse)
 		open.POST("/chat/completions", middleware.RequireAPITokenScopes("responses:create"), publicAPIH.ChatCompletions)

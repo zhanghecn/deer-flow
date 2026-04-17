@@ -1,0 +1,5 @@
+[project]
+name = "openagents-sdk"
+version = "0.1.0"
+description = "Native OpenAgents SDK for the canonical /v1/turns contract"
+requires-python = ">=3.10"

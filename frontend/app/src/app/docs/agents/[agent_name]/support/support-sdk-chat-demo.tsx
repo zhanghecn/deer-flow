@@ -13,34 +13,36 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { MarkdownContent } from "@/components/workspace/messages/markdown-content";
 import { useI18n } from "@/core/i18n/hooks";
-import { type PublicAPIResponseEnvelope } from "@/core/public-api/api";
-import { type PlaygroundTraceItem } from "@/core/public-api/events";
-import {
-  applyNormalizedPublicAPIRunEvent,
-  applyPublicAPIResponseEnvelope,
-  buildPublicAPIReasoningRequest,
-  createPublicAPIRunReadModel,
-  type PublicAPIReasoningEffort,
-} from "@/core/public-api/run-session";
-import {
-  coercePublicAPIResponse,
-  createBrowserPublicAPIClient,
-  normalizeSDKResponseEvent,
-} from "@/core/public-api/sdk-compat";
 import { workspaceMessageRehypePlugins } from "@/core/streamdown";
 import { cn } from "@/lib/utils";
+import {
+  OpenAgentsClient,
+  applyTurnEvent,
+  createTurnReadModel,
+  type OpenAgentsTurnEvent,
+  type OpenAgentsTurnSnapshot,
+} from "@openagents/sdk";
 
 import { getSupportSDKChatDemoText } from "./support-sdk-chat-demo.i18n";
+
+type OpenAgentsReasoningEffort = "minimal" | "low" | "medium" | "high";
+
+type DemoActivityItem = {
+  title: string;
+  detail?: string;
+  timestamp: number;
+  tone: "system" | "tool" | "error";
+};
 
 type DemoMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
   status: "streaming" | "done" | "error";
-  responseId?: string;
-  activity?: PlaygroundTraceItem[];
+  turnId?: string;
+  activity?: DemoActivityItem[];
   toolCallCount?: number;
-  reasoningSummary?: string;
+  reasoningText?: string;
 };
 
 function nextMessageID() {
@@ -54,45 +56,156 @@ function truncate(value: string, limit = 18) {
   return value.length <= limit ? value : `${value.slice(0, limit)}…`;
 }
 
-function formatActivityTitle(title: string) {
-  if (title === "Tool started") {
-    return "工具调用";
+function formatTimestamp(locale: string, timestamp: number) {
+  return new Intl.DateTimeFormat(locale, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(timestamp);
+}
+
+function formatActivityTitle(
+  title: string,
+  text: ReturnType<typeof getSupportSDKChatDemoText>,
+) {
+  if (title === "tool.call.started") {
+    return text.toolStartedTitle;
   }
-  if (title.startsWith("Tool finished")) {
-    return "工具结果";
+  if (title === "tool.call.completed") {
+    return text.toolFinishedTitle;
   }
   return title;
 }
 
-function buildAssistantTimeline(message: DemoMessage) {
-  const timeline = [...(message.activity ?? [])];
-  if (message.reasoningSummary?.trim()) {
-    const anchorTimestamp =
-      timeline.length > 0
-        ? timeline[timeline.length - 1]?.timestamp ?? Date.now()
-        : Date.now();
-    timeline.push({
-      stage: "assistant",
-      tone: "assistant",
-      title: "思考摘要",
-      detail: message.reasoningSummary.trim(),
-      timestamp: anchorTimestamp + 1,
-    });
-  }
-  return timeline;
-}
-
-function getTimelineAccent(item: PlaygroundTraceItem) {
+function getTimelineAccent(item: DemoActivityItem) {
   switch (item.tone) {
     case "tool":
       return "border-amber-300 bg-amber-50/80";
     case "error":
       return "border-rose-300 bg-rose-50";
-    case "assistant":
-      return "border-sky-300 bg-sky-50/80";
     default:
       return "border-stone-300 bg-stone-50";
   }
+}
+
+function formatToolDetail(params: {
+  label: string;
+  jsonLabel: string;
+  toolName: string;
+  payload: unknown;
+}) {
+  return [
+    `**${params.label}**：\`${params.toolName}\``,
+    params.payload === undefined
+      ? ""
+      : `**${params.jsonLabel}**\n\n\`\`\`json\n${JSON.stringify(params.payload, null, 2)}\n\`\`\``,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function buildActivityItem(
+  event: OpenAgentsTurnEvent,
+  text: ReturnType<typeof getSupportSDKChatDemoText>,
+): DemoActivityItem | null {
+  const timestamp = event.created_at * 1000;
+  switch (event.type) {
+    case "turn.started":
+      return {
+        title: text.turnStartedTitle,
+        timestamp,
+        tone: "system",
+        detail: event.turn_id,
+      };
+    case "tool.call.started":
+      return {
+        title: "tool.call.started",
+        timestamp,
+        tone: "tool",
+        detail: formatToolDetail({
+          label: text.toolMethodLabel,
+          jsonLabel: text.toolArgumentsLabel,
+          toolName: event.tool_name ?? "tool",
+          payload: event.tool_arguments,
+        }),
+      };
+    case "tool.call.completed":
+      return {
+        title: "tool.call.completed",
+        timestamp,
+        tone: "tool",
+        detail: formatToolDetail({
+          label: text.toolMethodLabel,
+          jsonLabel: text.toolOutputLabel,
+          toolName: event.tool_name ?? "tool",
+          payload: event.tool_output,
+        }),
+      };
+    case "turn.requires_input":
+      return {
+        title: text.responseWaiting,
+        timestamp,
+        tone: "system",
+        detail: event.text,
+      };
+    case "turn.failed":
+      return {
+        title: text.turnFailedTitle,
+        timestamp,
+        tone: "error",
+        detail: event.error,
+      };
+    default:
+      return null;
+  }
+}
+
+function TimelineItems({
+  items,
+  locale,
+  text,
+  empty,
+  className,
+}: {
+  items: DemoActivityItem[];
+  locale: string;
+  text: ReturnType<typeof getSupportSDKChatDemoText>;
+  empty: string;
+  className?: string;
+}) {
+  if (items.length === 0) {
+    return <p className="text-sm leading-6 text-stone-500">{empty}</p>;
+  }
+
+  return (
+    <div className={cn("space-y-3", className)}>
+      {items.map((item, index) => (
+        <div
+          key={`${item.title}-${item.timestamp}-${index}`}
+          className={cn("rounded-md border px-3 py-3", getTimelineAccent(item))}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <p className="text-sm font-medium text-stone-900">
+              {formatActivityTitle(item.title, text)}
+            </p>
+            <span className="text-xs text-stone-500">
+              {formatTimestamp(locale, item.timestamp)}
+            </span>
+          </div>
+          {item.detail ? (
+            <div className="mt-2 rounded-sm bg-white/70 px-3 py-2">
+              <MarkdownContent
+                content={item.detail}
+                isLoading={false}
+                rehypePlugins={workspaceMessageRehypePlugins}
+                className="text-sm leading-6 text-stone-700"
+              />
+            </div>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function SupportSDKChatDemo({
@@ -111,13 +224,13 @@ export function SupportSDKChatDemo({
   const [apiToken, setAPIToken] = useState("");
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<DemoMessage[]>([]);
-  const [lastResponse, setLastResponse] = useState<PublicAPIResponseEnvelope | null>(
+  const [lastTurn, setLastTurn] = useState<OpenAgentsTurnSnapshot | null>(
     null,
   );
-  const [previousResponseID, setPreviousResponseID] = useState("");
+  const [previousTurnID, setPreviousTurnID] = useState("");
   const [reasoningEnabled, setReasoningEnabled] = useState(true);
   const [reasoningEffort, setReasoningEffort] =
-    useState<PublicAPIReasoningEffort>("medium");
+    useState<OpenAgentsReasoningEffort>("medium");
   const [runState, setRunState] = useState<"ready" | "streaming" | "failed" | "waiting">(
     "ready",
   );
@@ -147,8 +260,8 @@ export function SupportSDKChatDemo({
     abortRef.current?.abort();
     abortRef.current = null;
     setMessages([]);
-    setLastResponse(null);
-    setPreviousResponseID("");
+    setLastTurn(null);
+    setPreviousTurnID("");
     setRunState("ready");
   }
 
@@ -187,73 +300,55 @@ export function SupportSDKChatDemo({
         status: "streaming",
         activity: [],
         toolCallCount: 0,
-        reasoningSummary: "",
+        reasoningText: "",
       },
     ]);
 
     try {
-      const client = createBrowserPublicAPIClient({
-        apiToken: trimmedToken,
+      const client = new OpenAgentsClient({
+        apiKey: trimmedToken,
         baseURL: apiBaseURL,
       });
 
-      let terminalResponseID = "";
-      let runModel = createPublicAPIRunReadModel();
-      const traceText = {
-        assistantMessage: text.assistantReplyTitle,
-        toolCall: text.toolStartedTitle,
-        toolResult: text.toolFinishedTitle,
-        runCompleted: text.runCompleted,
-      };
-
-      const stream = await client.responses.create(
-        {
-          model: agentName,
-          input: [{ role: "user", content: [{ type: "input_text", text: prompt }] }],
-          previous_response_id: previousResponseID || undefined,
-          metadata: {
-            source: "docs_support_sdk_demo",
-            surface: "support_demo",
-          },
-          reasoning: buildPublicAPIReasoningRequest(
-            reasoningEnabled,
-            reasoningEffort,
-          ),
-          stream: true,
+      let currentTurnID = "";
+      let readModel = createTurnReadModel();
+      for await (const event of client.streamTurn({
+        agent: agentName,
+        input: { text: prompt },
+        previous_turn_id: previousTurnID || undefined,
+        metadata: {
+          source: "docs_support_sdk_demo",
+          surface: "support_demo",
         },
-        {
-          signal: controller.signal,
+        thinking: {
+          enabled: reasoningEnabled,
+          effort: reasoningEffort,
         },
-      );
+      })) {
+        readModel = applyTurnEvent(readModel, event);
+        currentTurnID = readModel.turnId || currentTurnID;
+        const nextActivity = buildActivityItem(event, text);
 
-      // The SDK yields parsed SSE payloads, but Deer Flow still emits
-      // `response.run_event` as the canonical live signal. Adapt those events
-      // into the same normalized vocabulary the internal playground uses.
-      for await (const rawEvent of stream) {
-        for (const normalizedEvent of normalizeSDKResponseEvent(rawEvent)) {
-          runModel = applyNormalizedPublicAPIRunEvent({
-            current: runModel,
-            event: normalizedEvent,
-            traceText,
-          });
-          terminalResponseID = runModel.responseId || terminalResponseID;
+        replaceMessage(assistantMessageID, (message) => ({
+          ...message,
+          content: readModel.outputText || message.content,
+          activity: nextActivity
+            ? [...(message.activity ?? []), nextActivity]
+            : message.activity,
+          toolCallCount: readModel.toolCallCount,
+          turnId: readModel.turnId || message.turnId,
+          reasoningText: readModel.reasoningText || message.reasoningText,
+          status: readModel.status === "failed" ? "error" : message.status,
+        }));
 
-          replaceMessage(assistantMessageID, (message) => ({
-            ...message,
-            content: runModel.liveOutput || message.content,
-            activity: runModel.traceItems,
-            toolCallCount: runModel.toolCallCount,
-            responseId: runModel.responseId || message.responseId,
-            status: runModel.phase === "failed" ? "error" : message.status,
-          }));
-
-          if (runModel.phase === "failed") {
-            setRunState("failed");
-          }
+        if (readModel.status === "failed") {
+          setRunState("failed");
+        } else if (readModel.status === "requires_input") {
+          setRunState("waiting");
         }
       }
 
-      if (!terminalResponseID) {
+      if (!currentTurnID) {
         setRunState("ready");
         replaceMessage(assistantMessageID, (message) => ({
           ...message,
@@ -262,43 +357,26 @@ export function SupportSDKChatDemo({
         return;
       }
 
-      const finalizedResponse = coercePublicAPIResponse(
-        await client.responses.retrieve(
-          terminalResponseID,
-          undefined,
-          {
-            signal: controller.signal,
-          },
-        ),
-      );
-      if (!finalizedResponse) {
-        throw new Error("Retrieved response payload is invalid.");
-      }
-
-      setLastResponse(finalizedResponse);
-      setPreviousResponseID(finalizedResponse.id);
-      runModel = applyPublicAPIResponseEnvelope({
-        current: runModel,
-        response: finalizedResponse,
-        traceText,
-      });
-      const finalText = finalizedResponse.output_text?.trim() || runModel.liveOutput;
+      const finalizedTurn = await client.getTurn(currentTurnID);
+      setLastTurn(finalizedTurn);
+      setPreviousTurnID(finalizedTurn.id);
       replaceMessage(assistantMessageID, (message) => ({
         ...message,
-        content: finalText || message.content || text.responseWaiting,
+        content:
+          finalizedTurn.output_text?.trim() || message.content || text.responseWaiting,
         status:
-          finalizedResponse.status === "completed"
+          finalizedTurn.status === "completed" ||
+          finalizedTurn.status === "requires_input"
             ? "done"
-            : finalizedResponse.status === "incomplete"
-              ? "done"
-              : "error",
-        responseId: runModel.responseId || finalizedResponse.id,
-        activity: runModel.traceItems,
-        toolCallCount: runModel.toolCallCount,
-        reasoningSummary: runModel.reasoningSummary,
+            : "error",
+        turnId: finalizedTurn.id,
+        toolCallCount: finalizedTurn.events.filter(
+          (turnEvent) => turnEvent.type === "tool.call.started",
+        ).length,
+        reasoningText: finalizedTurn.reasoning_text,
       }));
 
-      if (finalizedResponse.status === "incomplete") {
+      if (finalizedTurn.status === "requires_input") {
         setRunState("waiting");
         toast.message(text.responseWaiting);
         return;
@@ -325,7 +403,6 @@ export function SupportSDKChatDemo({
         status: "error",
         activity: [
           {
-            stage: "error",
             tone: "error",
             title: text.requestFailed,
             detail,
@@ -345,7 +422,7 @@ export function SupportSDKChatDemo({
     .reverse()
     .find((message) => message.role === "assistant");
   const latestActivity = latestAssistantMessage?.activity ?? [];
-  const latestReasoningSummary = latestAssistantMessage?.reasoningSummary ?? "";
+  const latestReasoningText = latestAssistantMessage?.reasoningText ?? "";
 
   return (
     <section
@@ -420,7 +497,7 @@ export function SupportSDKChatDemo({
                 <div className="flex items-start justify-between gap-4">
                   <dt className="text-stone-500">{text.responseIdLabel}</dt>
                   <dd className="font-mono text-[12px] text-stone-900">
-                    {truncate(lastResponse?.id ?? "")}
+                    {truncate(lastTurn?.id ?? "")}
                   </dd>
                 </div>
                 <div className="flex items-start justify-between gap-4">
@@ -428,7 +505,7 @@ export function SupportSDKChatDemo({
                     {text.previousResponseIdLabel}
                   </dt>
                   <dd className="font-mono text-[12px] text-stone-900">
-                    {truncate(previousResponseID)}
+                    {truncate(previousTurnID)}
                   </dd>
                 </div>
                 <div className="flex items-start justify-between gap-4">
@@ -514,7 +591,7 @@ export function SupportSDKChatDemo({
                   disabled={!reasoningEnabled}
                   onChange={(event) =>
                     setReasoningEffort(
-                      event.target.value as PublicAPIReasoningEffort,
+                      event.target.value as OpenAgentsReasoningEffort,
                     )
                   }
                   className="w-full border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900 disabled:cursor-not-allowed disabled:bg-stone-100"
@@ -605,11 +682,11 @@ export function SupportSDKChatDemo({
                           <div className="mt-4 border-t border-stone-200 pt-3">
                             <div className="flex flex-wrap items-center gap-3 text-xs text-stone-500">
                               <span>{text.stepsTitle}</span>
-                              {message.responseId ? (
+                              {message.turnId ? (
                                 <span>
                                   {text.responseMetaLabel}:{" "}
                                   <span className="font-mono text-[11px] text-stone-700">
-                                    {truncate(message.responseId, 28)}
+                                    {truncate(message.turnId, 28)}
                                   </span>
                                 </span>
                               ) : null}
@@ -617,46 +694,14 @@ export function SupportSDKChatDemo({
                                 {text.toolCallsMetaLabel}: {message.toolCallCount ?? 0}
                               </span>
                             </div>
-                            {buildAssistantTimeline(message).length > 0 ? (
-                              <div className="mt-3 space-y-3">
-                                {buildAssistantTimeline(message).map((item, index) => (
-                                  <div
-                                    key={`${message.id}-${item.title}-${item.timestamp}-${index}`}
-                                    className={cn(
-                                      "rounded-md border px-3 py-3",
-                                      getTimelineAccent(item),
-                                    )}
-                                  >
-                                    <div className="flex items-start justify-between gap-3">
-                                      <p className="text-sm font-medium text-stone-900">
-                                        {formatActivityTitle(item.title)}
-                                      </p>
-                                      <span className="text-xs text-stone-500">
-                                        {new Intl.DateTimeFormat(locale, {
-                                          hour: "2-digit",
-                                          minute: "2-digit",
-                                          second: "2-digit",
-                                        }).format(item.timestamp)}
-                                      </span>
-                                    </div>
-                                    {item.detail ? (
-                                      <div className="mt-2 rounded-sm bg-white/70 px-3 py-2">
-                                        <MarkdownContent
-                                          content={item.detail}
-                                          isLoading={false}
-                                          rehypePlugins={workspaceMessageRehypePlugins}
-                                          className="text-sm leading-6 text-stone-700"
-                                        />
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <p className="mt-2 text-sm leading-6 text-stone-500">
-                                {text.stepsEmpty}
-                              </p>
-                            )}
+                            <div className="mt-3">
+                              <TimelineItems
+                                items={message.activity ?? []}
+                                locale={locale}
+                                text={text}
+                                empty={text.stepsEmpty}
+                              />
+                            </div>
                           </div>
                         </>
                       ) : (
@@ -722,46 +767,13 @@ export function SupportSDKChatDemo({
                   {text.activityTitle}
                 </h2>
                 <ScrollArea className="mt-3 h-[176px]">
-                  {latestActivity.length === 0 ? (
-                    <p className="text-sm leading-6 text-stone-500">
-                      {text.activityEmpty}
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {latestActivity.map((item, index) => (
-                        <div
-                          key={`${item.title}-${item.timestamp}-${index}`}
-                          className={cn(
-                            "rounded-md border px-3 py-3",
-                            getTimelineAccent(item),
-                          )}
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <p className="text-sm font-medium text-stone-900">
-                              {formatActivityTitle(item.title)}
-                            </p>
-                            <span className="text-xs text-stone-500">
-                              {new Intl.DateTimeFormat(locale, {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                                second: "2-digit",
-                              }).format(item.timestamp)}
-                            </span>
-                          </div>
-                          {item.detail ? (
-                            <div className="mt-2 rounded-sm bg-white/70 px-3 py-2">
-                              <MarkdownContent
-                                content={item.detail}
-                                isLoading={false}
-                                rehypePlugins={workspaceMessageRehypePlugins}
-                                className="text-sm leading-6 text-stone-700"
-                              />
-                            </div>
-                          ) : null}
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  <TimelineItems
+                    items={latestActivity}
+                    locale={locale}
+                    text={text}
+                    empty={text.activityEmpty}
+                    className="space-y-2"
+                  />
                 </ScrollArea>
                 <div className="mt-4 border-t border-stone-200 pt-4">
                   <h3 className="text-sm font-medium text-stone-950">
@@ -769,7 +781,7 @@ export function SupportSDKChatDemo({
                   </h3>
                   <div className="mt-2 rounded-md border border-stone-200 bg-stone-50 px-3 py-2">
                     <MarkdownContent
-                      content={latestReasoningSummary || text.reasoningSummaryEmpty}
+                      content={latestReasoningText || text.reasoningSummaryEmpty}
                       isLoading={false}
                       rehypePlugins={workspaceMessageRehypePlugins}
                       className="text-sm leading-6 text-stone-600"

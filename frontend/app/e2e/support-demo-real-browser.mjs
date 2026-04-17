@@ -10,11 +10,31 @@ const resultsDir = path.join(
   "docs/testing/results/2026-04-17-support-sdk-demo-runtime",
 );
 const summaryPath = path.join(resultsDir, "setup-summary.json");
+const runtimeSummaryPath = path.join(resultsDir, "setup-summary.runtime.json");
 
-async function waitForRunSnapshot(page) {
-  // Real model latency varies. A bounded settle window is enough here because
-  // the API smoke test separately verifies exact MCP event payloads.
-  await page.waitForTimeout(20_000);
+async function loadSummary() {
+  const baseSummary = JSON.parse(await fs.readFile(summaryPath, "utf8"));
+  try {
+    const runtimeSummary = JSON.parse(await fs.readFile(runtimeSummaryPath, "utf8"));
+    return {
+      ...baseSummary,
+      ...runtimeSummary,
+      user: {
+        ...baseSummary.user,
+        ...runtimeSummary.user,
+      },
+    };
+  } catch {
+    return baseSummary;
+  }
+}
+
+async function waitForRunSnapshot(page, expectedAnswerText) {
+  await page.waitForFunction(
+    (needle) => document.body.innerText.includes(needle),
+    expectedAnswerText,
+    { timeout: 90_000 },
+  );
 }
 
 async function waitForWorkspacePlayground(page) {
@@ -37,8 +57,54 @@ function publishedAgentButton(page) {
   });
 }
 
+async function runStandaloneDemoTurn(page, params) {
+  const {
+    token,
+    agentName,
+    prompt,
+    expectedToolName,
+    expectedAnswerText,
+    screenshotName,
+  } = params;
+
+  await page.goto("http://127.0.0.1:8084", {
+    waitUntil: "networkidle",
+  });
+  const resetSessionButton = page.getByRole("button", {
+    name: /重置会话|New session/,
+  });
+  if (await resetSessionButton.count()) {
+    await resetSessionButton.click();
+  }
+  await page.getByLabel(/User Key|用户 Key/).fill(token);
+  await page.getByLabel(/Agent/).fill(agentName);
+  await page
+    .getByPlaceholder(
+      /直接问已发布的客服 Agent，或使用左侧预置问题。|Ask the published support agent directly, or use one of the prompts./,
+    )
+    .fill(prompt);
+  await page.getByRole("button", { name: /发送|Send/ }).click();
+
+  await waitForRunSnapshot(page, expectedAnswerText);
+  await page.waitForFunction(
+    (toolName) => document.body.innerText.includes(toolName),
+    expectedToolName,
+    { timeout: 90_000 },
+  );
+  await page.waitForFunction(
+    () => document.body.innerText.includes("工具调用"),
+    undefined,
+    { timeout: 90_000 },
+  );
+
+  await page.screenshot({
+    path: path.join(resultsDir, screenshotName),
+    fullPage: true,
+  });
+}
+
 async function run() {
-  const summary = JSON.parse(await fs.readFile(summaryPath, "utf8"));
+  const summary = await loadSummary();
   const httpToken = summary.tokens.find((item) =>
     item.allowed_agents.includes("support-cases-http-demo"),
   );
@@ -105,28 +171,29 @@ async function run() {
     .getByPlaceholder("你可以问文件列表、分页读文件、glob 过滤或 grep 搜索。")
     .fill("请搜索案例库中包含“夏仲奇”的文件，并告诉我出现在哪些文件。");
   await page.getByRole("button", { name: "发送" }).click();
-  await waitForRunSnapshot(page);
+  await waitForRunSnapshot(page, "盲派八字全知识点训练集");
   console.log("docs support run finished");
   await page.screenshot({
     path: path.join(resultsDir, "02-docs-support-http.png"),
     fullPage: true,
   });
 
-  await page.goto("http://127.0.0.1:8084", {
-    waitUntil: "networkidle",
-  });
   console.log("standalone demo ready");
-  await page.getByLabel("用户 Key").fill(stdioToken.token);
-  await page.getByLabel("Agent").fill("support-cases-stdio-demo");
-  await page
-    .getByPlaceholder("直接问已发布的客服 Agent，或使用左侧预置问题。")
-    .fill("请搜索案例库中包含“夏仲奇”的文件，并告诉我出现在哪些文件。");
-  await page.getByRole("button", { name: "发送" }).click();
-  await waitForRunSnapshot(page);
-  console.log("standalone demo run finished");
-  await page.screenshot({
-    path: path.join(resultsDir, "03-standalone-demo-stdio.png"),
-    fullPage: true,
+  await runStandaloneDemoTurn(page, {
+    token: stdioToken.token,
+    agentName: "support-cases-stdio-demo",
+    prompt: "请搜索案例库中包含“夏仲奇”的文件，并告诉我出现在哪些文件。",
+    expectedToolName: "grep_files",
+    expectedAnswerText: "盲派八字全知识点训练集",
+    screenshotName: "03-standalone-demo-stdio.png",
+  });
+  await runStandaloneDemoTurn(page, {
+    token: httpToken.token,
+    agentName: "support-cases-http-demo",
+    prompt: "请搜索案例库中包含“夏仲奇”的文件，并告诉我出现在哪些文件。",
+    expectedToolName: "grep_files",
+    expectedAnswerText: "盲派八字全知识点训练集",
+    screenshotName: "05-standalone-demo-http.png",
   });
 
   await page.goto(
@@ -144,6 +211,13 @@ async function run() {
   await fillWorkspacePlayground(page, httpToken.token, workspacePrompt);
   await publishedAgentButton(page).click();
   await waitForWorkspacePlayground(page);
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("grep_files") &&
+      document.body.innerText.includes("盲派八字全知识点训练集"),
+    undefined,
+    { timeout: 90_000 },
+  );
   console.log("workspace playground run finished");
   await page.screenshot({
     path: path.join(resultsDir, "07-workspace-playground-current.png"),

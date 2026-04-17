@@ -34,45 +34,53 @@ import {
 } from "./shared";
 
 function buildJavaScriptSnippet(baseURL: string, agentName: string) {
-  return `import OpenAI from "openai";
+  return `import { OpenAgentsClient } from "@openagents/sdk";
 
-const client = new OpenAI({
+const client = new OpenAgentsClient({
   apiKey: process.env.OPENAGENTS_API_KEY,
   baseURL: "${baseURL}",
 });
 
-const response = await client.responses.create({
-  model: "${agentName}",
-  input: "Review the uploaded materials and summarize the next actions.",
+const turn = await client.createTurn({
+  agent: "${agentName}",
+  input: {
+    text: "Review the uploaded materials and summarize the next actions.",
+  },
 });
 
-console.log(response.output_text);`;
+console.log(turn.output_text);`;
 }
 
 function buildPythonSnippet(baseURL: string, agentName: string) {
   return `import os
-from openai import OpenAI
+from openagents_sdk import OpenAgentsClient
 
-client = OpenAI(
+client = OpenAgentsClient(
     api_key=os.environ["OPENAGENTS_API_KEY"],
     base_url="${baseURL}",
 )
 
-response = client.responses.create(
-    model="${agentName}",
-    input="Review the uploaded materials and summarize the next actions.",
+turn = client.create_turn(
+    {
+        "agent": "${agentName}",
+        "input": {
+            "text": "Review the uploaded materials and summarize the next actions.",
+        },
+    }
 )
 
-print(response.output_text)`;
+print(turn["output_text"])`;
 }
 
 function buildCurlSnippet(baseURL: string, agentName: string) {
-  return `curl -X POST "${baseURL}/responses" \\
+  return `curl -X POST "${baseURL}/turns" \\
   -H "Authorization: Bearer <user_created_key>" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "model": "${agentName}",
-    "input": "Review the uploaded materials and summarize the next actions."
+    "agent": "${agentName}",
+    "input": {
+      "text": "Review the uploaded materials and summarize the next actions."
+    }
   }'`;
 }
 
@@ -264,10 +272,10 @@ export default function AgentPublicDocsPage() {
           <div className="flex flex-wrap items-center gap-3">
             <DocsMethodBadge method="POST" />
             <code className="rounded-md border border-slate-200 bg-white px-3 py-1 font-mono text-[12px] text-slate-700">
-              /v1/responses
+              /v1/turns
             </code>
             <code className="rounded-md border border-slate-200 bg-white px-3 py-1 font-mono text-[12px] text-slate-700">
-              {`model=${exportDoc.agent}`}
+              {`agent=${exportDoc.agent}`}
             </code>
           </div>
 

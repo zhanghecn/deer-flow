@@ -85,7 +85,7 @@ const enUS: AgentPublicDocsPageText = {
   heroEyebrow: "Overview",
   heroTitle: "A published agent with one public contract and one live console",
   heroDescription:
-    "External callers still use `base_url`, `api_key`, and `model=<agent_name>`, but this page is no longer framed around one compatibility story. Use it to copy the exact connection values, confirm the public routes, and then move into the live console or field-level reference.",
+    "External callers use `base_url`, `api_key`, and `agent=<agent_name>` to call the native `/v1/turns` contract. Use this page to copy the exact connection values, confirm the public routes, and then move into the live console or field-level reference.",
   heroFactOneLabel: "Client shape",
   heroFactOneValue: "Raw HTTP, QA scripts, and internal SDK adapters can all start from the same published contract.",
   heroFactTwoLabel: "Response modes",
@@ -105,7 +105,7 @@ const enUS: AgentPublicDocsPageText = {
   quickstartEyebrow: "Quickstart",
   quickstartTitle: "Start with one successful request",
   quickstartDescription:
-    "Start with one simple blocking request against the published contract. After that works, move to the playground for live timelines, file upload, and generated artifacts.",
+    "Start with one simple blocking turn against the published contract. After that works, move to the playground for live timelines, file upload, and generated artifacts.",
   jsTab: "JavaScript",
   pythonTab: "Python",
   curlTab: "cURL",
@@ -114,7 +114,7 @@ const enUS: AgentPublicDocsPageText = {
   routesEyebrow: "Routes",
   routesTitle: "Public API surface",
   routesDescription:
-    "These are the routes external developers should integrate against. Field-level request and response details live on the dedicated API reference page.",
+    "These are the routes external developers should integrate against. `/v1/turns` is the native first-party path; field-level request and response details live on the dedicated API reference page.",
   routeMethodColumn: "Method",
   routePathColumn: "Path",
   routeSummaryColumn: "Summary",
@@ -123,12 +123,12 @@ const enUS: AgentPublicDocsPageText = {
   authEyebrow: "Authentication",
   authTitle: "Send the published-agent key on every request",
   authDescription:
-    "Every public route uses the same bearer key. There is no separate compatibility credential for `models`, `responses`, `chat/completions`, or `files`.",
+    "Every public route uses the same bearer key. There is no separate compatibility credential for `models`, `turns`, `responses`, `chat/completions`, or `files`.",
   authHeaderLabel: "Header",
   authValueLabel: "Value",
   authScopeLabel: "Scope",
   authScopeValue:
-    "Applies to `/v1/models`, `/v1/responses`, `/v1/chat/completions`, and `/v1/files`.",
+    "Applies to `/v1/models`, `/v1/turns`, `/v1/responses`, `/v1/chat/completions`, and `/v1/files`.",
   nextEyebrow: "Next",
   nextTitle: "Choose the right surface for the next job",
   nextDescription:
@@ -167,7 +167,7 @@ const zhCN: AgentPublicDocsPageText = {
   heroEyebrow: "概览",
   heroTitle: "一个同时提供公开契约和实时控制台的已发布智能体",
   heroDescription:
-    "外部调用方仍然使用 `base_url`、`api_key` 和 `model=<agent_name>`，但这个页面不再把产品叙事绑死在某一种兼容层上。这里负责给出准确接入值、确认公开路由，然后再进入实时控制台或字段级 API Reference。",
+    "外部调用方使用 `base_url`、`api_key` 和 `agent=<agent_name>` 即可直接接入原生 `/v1/turns`。这里负责给出准确接入值、确认公开路由，然后再进入实时控制台或字段级 API Reference。",
   heroFactOneLabel: "接入形态",
   heroFactOneValue: "原始 HTTP、测试脚本和内部 SDK 适配器都可以从同一份已发布契约开始接入。",
   heroFactTwoLabel: "响应模式",
@@ -187,7 +187,7 @@ const zhCN: AgentPublicDocsPageText = {
   quickstartEyebrow: "快速开始",
   quickstartTitle: "先跑通一条成功请求",
   quickstartDescription:
-    "先用已发布契约跑通一条最简单的 blocking 请求。确认成功后，再去 Playground 验证实时时间线、文件上传和生成产物。",
+    "先用已发布契约跑通一条最简单的 blocking turn。确认成功后，再去 Playground 验证实时时间线、文件上传和生成产物。",
   jsTab: "JavaScript",
   pythonTab: "Python",
   curlTab: "cURL",
@@ -196,7 +196,7 @@ const zhCN: AgentPublicDocsPageText = {
   routesEyebrow: "路由",
   routesTitle: "公开 API 面",
   routesDescription:
-    "这些就是外部开发者应直接集成的公开路由。字段级 request / response 细节放在独立的 API Reference 页面。",
+    "这些就是外部开发者应直接集成的公开路由。其中 `/v1/turns` 是原生一等路径；字段级 request / response 细节放在独立的 API Reference 页面。",
   routeMethodColumn: "方法",
   routePathColumn: "路径",
   routeSummaryColumn: "说明",
@@ -205,12 +205,12 @@ const zhCN: AgentPublicDocsPageText = {
   authEyebrow: "鉴权",
   authTitle: "所有公开请求都使用同一把已发布 Key",
   authDescription:
-    "所有公开路由都使用同一把 Bearer Key，不存在针对 `models`、`responses`、`chat/completions` 或 `files` 的另一套兼容层凭证。",
+    "所有公开路由都使用同一把 Bearer Key，不存在针对 `models`、`turns`、`responses`、`chat/completions` 或 `files` 的另一套兼容层凭证。",
   authHeaderLabel: "Header",
   authValueLabel: "取值",
   authScopeLabel: "范围",
   authScopeValue:
-    "适用于 `/v1/models`、`/v1/responses`、`/v1/chat/completions` 和 `/v1/files`。",
+    "适用于 `/v1/models`、`/v1/turns`、`/v1/responses`、`/v1/chat/completions` 和 `/v1/files`。",
   nextEyebrow: "下一步",
   nextTitle: "按任务进入正确页面",
   nextDescription:

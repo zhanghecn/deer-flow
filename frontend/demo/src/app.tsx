@@ -10,30 +10,32 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 
-import { type PublicAPIResponseEnvelope } from "@/core/public-api/api";
-import { type PlaygroundTraceItem } from "@/core/public-api/events";
 import {
-  coercePublicAPIResponse,
-  createBrowserPublicAPIClient,
-  normalizeSDKResponseEvent,
-} from "@/core/public-api/sdk-compat";
-import {
-  applyNormalizedPublicAPIRunEvent,
-  applyPublicAPIResponseEnvelope,
-  buildPublicAPIReasoningRequest,
-  createPublicAPIRunReadModel,
-  type PublicAPIReasoningEffort,
-} from "@/core/public-api/run-session";
+  OpenAgentsClient,
+  applyTurnEvent,
+  createTurnReadModel,
+  type OpenAgentsTurnEvent,
+  type OpenAgentsTurnSnapshot,
+} from "@openagents/sdk";
+
+type OpenAgentsReasoningEffort = "minimal" | "low" | "medium" | "high";
+
+type DemoActivityItem = {
+  title: string;
+  detail?: string;
+  timestamp: number;
+  tone: "system" | "tool" | "error";
+};
 
 type DemoMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
   status: "streaming" | "done" | "error";
-  responseId?: string;
+  turnId?: string;
   toolCallCount?: number;
-  reasoningSummary?: string;
-  activity?: PlaygroundTraceItem[];
+  reasoningText?: string;
+  activity?: DemoActivityItem[];
 };
 
 const DEFAULT_BASE_URL =
@@ -104,44 +106,75 @@ function SectionTitle({
   );
 }
 
-function formatActivityTitle(title: string) {
-  if (title === "Tool started") {
-    return "工具调用";
-  }
-  if (title.startsWith("Tool finished")) {
-    return "工具结果";
-  }
-  return title;
-}
-
 function buildAssistantTimeline(message: DemoMessage) {
-  const timeline = [...(message.activity ?? [])];
-  if (message.reasoningSummary?.trim()) {
-    const anchorTimestamp =
-      timeline.length > 0
-        ? timeline[timeline.length - 1]?.timestamp ?? Date.now()
-        : Date.now();
-    timeline.push({
-      stage: "assistant",
-      tone: "assistant",
-      title: "思考摘要",
-      detail: message.reasoningSummary.trim(),
-      timestamp: anchorTimestamp + 1,
-    });
-  }
-  return timeline;
+  return message.activity ?? [];
 }
 
-function getTimelineAccent(item: PlaygroundTraceItem) {
+function getTimelineAccent(item: DemoActivityItem) {
   switch (item.tone) {
     case "tool":
       return "border-amber-300 bg-amber-50/80";
     case "error":
       return "border-rose-300 bg-rose-50";
-    case "assistant":
-      return "border-sky-300 bg-sky-50/80";
     default:
       return "border-stone-300 bg-stone-50";
+  }
+}
+
+function buildActivityItem(event: OpenAgentsTurnEvent): DemoActivityItem | null {
+  const timestamp = event.created_at * 1000;
+  switch (event.type) {
+    case "turn.started":
+      return {
+        title: "turn.started",
+        timestamp,
+        tone: "system",
+        detail: event.turn_id,
+      };
+    case "tool.call.started":
+      return {
+        title: "工具调用",
+        timestamp,
+        tone: "tool",
+        detail: [
+          `**方法**：\`${event.tool_name ?? "tool"}\``,
+          event.tool_arguments === undefined
+            ? ""
+            : `**参数**\n\n\`\`\`json\n${JSON.stringify(event.tool_arguments, null, 2)}\n\`\`\``,
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+      };
+    case "tool.call.completed":
+      return {
+        title: `工具结果: ${event.tool_name ?? "tool"}`,
+        timestamp,
+        tone: "tool",
+        detail: [
+          `**方法**：\`${event.tool_name ?? "tool"}\``,
+          event.tool_output === undefined
+            ? ""
+            : `**返回**\n\n\`\`\`json\n${JSON.stringify(event.tool_output, null, 2)}\n\`\`\``,
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+      };
+    case "turn.requires_input":
+      return {
+        title: "等待用户输入",
+        timestamp,
+        tone: "system",
+        detail: event.text,
+      };
+    case "turn.failed":
+      return {
+        title: "turn.failed",
+        timestamp,
+        tone: "error",
+        detail: event.error,
+      };
+    default:
+      return null;
   }
 }
 
@@ -154,13 +187,11 @@ export function App() {
   const [agentName, setAgentName] = useState(DEFAULT_AGENT_NAME);
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<DemoMessage[]>([]);
-  const [lastResponse, setLastResponse] = useState<PublicAPIResponseEnvelope | null>(
-    null,
-  );
-  const [previousResponseID, setPreviousResponseID] = useState("");
+  const [lastTurn, setLastTurn] = useState<OpenAgentsTurnSnapshot | null>(null);
+  const [previousTurnID, setPreviousTurnID] = useState("");
   const [reasoningEnabled, setReasoningEnabled] = useState(true);
   const [reasoningEffort, setReasoningEffort] =
-    useState<PublicAPIReasoningEffort>("medium");
+    useState<OpenAgentsReasoningEffort>("medium");
   const [runState, setRunState] = useState<"ready" | "streaming" | "failed" | "waiting">(
     "ready",
   );
@@ -191,8 +222,8 @@ export function App() {
     abortRef.current?.abort();
     abortRef.current = null;
     setMessages([]);
-    setLastResponse(null);
-    setPreviousResponseID("");
+    setLastTurn(null);
+    setPreviousTurnID("");
     setRunState("ready");
   }
 
@@ -236,70 +267,55 @@ export function App() {
         status: "streaming",
         activity: [],
         toolCallCount: 0,
-        reasoningSummary: "",
+        reasoningText: "",
       },
     ]);
 
     try {
-      const client = createBrowserPublicAPIClient({
-        apiToken: trimmedKey,
+      const client = new OpenAgentsClient({
+        apiKey: trimmedKey,
         baseURL: apiBaseURL,
       });
 
-      let terminalResponseID = "";
-      let runModel = createPublicAPIRunReadModel();
-      const traceText = {
-        assistantMessage: "助手回复",
-        toolCall: "工具开始",
-        toolResult: "工具结束",
-        runCompleted: "运行完成",
-      };
+      let currentTurnID = "";
+      let readModel = createTurnReadModel();
 
-      const stream = await client.responses.create(
-        {
-          model: trimmedAgent,
-          input: [{ role: "user", content: [{ type: "input_text", text: prompt }] }],
-          previous_response_id: previousResponseID || undefined,
-          metadata: {
-            source: "frontend_demo_support",
-            surface: "standalone_demo",
-          },
-          reasoning: buildPublicAPIReasoningRequest(
-            reasoningEnabled,
-            reasoningEffort,
-          ),
-          stream: true,
+      for await (const event of client.streamTurn({
+        agent: trimmedAgent,
+        input: { text: prompt },
+        previous_turn_id: previousTurnID || undefined,
+        metadata: {
+          source: "frontend_demo_support",
+          surface: "standalone_demo",
         },
-        {
-          signal: controller.signal,
+        thinking: {
+          enabled: reasoningEnabled,
+          effort: reasoningEffort,
         },
-      );
+      })) {
+        readModel = applyTurnEvent(readModel, event);
+        currentTurnID = readModel.turnId || currentTurnID;
+        const nextActivity = buildActivityItem(event);
+        replaceMessage(assistantMessageID, (message) => ({
+          ...message,
+          content: readModel.outputText || message.content,
+          reasoningText: readModel.reasoningText || message.reasoningText,
+          activity: nextActivity
+            ? [...(message.activity ?? []), nextActivity]
+            : message.activity,
+          toolCallCount: readModel.toolCallCount,
+          turnId: readModel.turnId || message.turnId,
+          status: readModel.status === "failed" ? "error" : message.status,
+        }));
 
-      for await (const rawEvent of stream) {
-        for (const normalizedEvent of normalizeSDKResponseEvent(rawEvent)) {
-          runModel = applyNormalizedPublicAPIRunEvent({
-            current: runModel,
-            event: normalizedEvent,
-            traceText,
-          });
-          terminalResponseID = runModel.responseId || terminalResponseID;
-
-          replaceMessage(assistantMessageID, (message) => ({
-            ...message,
-            content: runModel.liveOutput || message.content,
-            activity: runModel.traceItems,
-            toolCallCount: runModel.toolCallCount,
-            responseId: runModel.responseId || message.responseId,
-            status: runModel.phase === "failed" ? "error" : message.status,
-          }));
-
-          if (runModel.phase === "failed") {
-            setRunState("failed");
-          }
+        if (readModel.status === "failed") {
+          setRunState("failed");
+        } else if (readModel.status === "requires_input") {
+          setRunState("waiting");
         }
       }
 
-      if (!terminalResponseID) {
+      if (!currentTurnID) {
         setRunState("ready");
         replaceMessage(assistantMessageID, (message) => ({
           ...message,
@@ -308,42 +324,21 @@ export function App() {
         return;
       }
 
-      const finalizedResponse = coercePublicAPIResponse(
-        await client.responses.retrieve(terminalResponseID, undefined, {
-          signal: controller.signal,
-        }),
-      );
-      if (!finalizedResponse) {
-        throw new Error("响应内容无效。");
-      }
-
-      setLastResponse(finalizedResponse);
-      setPreviousResponseID(finalizedResponse.id);
-      runModel = applyPublicAPIResponseEnvelope({
-        current: runModel,
-        response: finalizedResponse,
-        traceText,
-      });
-
+      const finalizedTurn = await client.getTurn(currentTurnID);
+      setLastTurn(finalizedTurn);
+      setPreviousTurnID(finalizedTurn.id);
       replaceMessage(assistantMessageID, (message) => ({
         ...message,
-        content:
-          finalizedResponse.output_text?.trim() ||
-          runModel.liveOutput ||
-          message.content,
-        status:
-          finalizedResponse.status === "completed"
-            ? "done"
-            : finalizedResponse.status === "incomplete"
-              ? "done"
-              : "error",
-        responseId: runModel.responseId || finalizedResponse.id,
-        toolCallCount: runModel.toolCallCount,
-        reasoningSummary: runModel.reasoningSummary,
-        activity: runModel.traceItems,
+        content: finalizedTurn.output_text?.trim() || message.content,
+        status: finalizedTurn.status === "completed" ? "done" : "error",
+        turnId: finalizedTurn.id,
+        toolCallCount: finalizedTurn.events.filter(
+          (event) => event.type === "tool.call.started",
+        ).length,
+        reasoningText: finalizedTurn.reasoning_text,
       }));
 
-      if (finalizedResponse.status === "incomplete") {
+      if (finalizedTurn.status === "requires_input") {
         setRunState("waiting");
         toast.message("响应正在等待用户输入。");
         return;
@@ -390,9 +385,8 @@ export function App() {
                 </div>
               </div>
               <p className="text-sm leading-6 text-stone-600">
-                这是一个独立于主应用的外部接入示例。它直接走官方 OpenAI
-                JavaScript SDK，对接 Deer Flow 已发布 Agent 的 `/v1/responses`
-                契约。
+                这是一个独立于主应用的外部接入示例。它直接走官方 OpenAgents
+                TS SDK，对接 OpenAgents 原生 `/v1/turns` 契约。
               </p>
             </div>
 
@@ -469,7 +463,7 @@ export function App() {
             <section className="space-y-3 border-t border-stone-300 pt-6">
               <SectionTitle
                 title="运行偏好"
-                description="开启后，会在最终响应里显示 Deer Flow 公开暴露的 reasoning summary。"
+                description="开启后，会在 turn 中显式暴露 reasoning 文本。"
               />
               <label className="flex items-center justify-between gap-3">
                 <span className="text-sm font-medium text-stone-800">
@@ -492,7 +486,7 @@ export function App() {
                   disabled={!reasoningEnabled}
                   onChange={(event) =>
                     setReasoningEffort(
-                      event.target.value as PublicAPIReasoningEffort,
+                      event.target.value as OpenAgentsReasoningEffort,
                     )
                   }
                   className="w-full border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900 disabled:cursor-not-allowed disabled:bg-stone-100"
@@ -547,7 +541,7 @@ export function App() {
                   </h2>
                 </div>
                 <div className="flex items-center gap-3 text-sm text-stone-600">
-                  <span>响应链：{previousResponseID || "新会话"}</span>
+                  <span>上一轮 Turn：{previousTurnID || "新会话"}</span>
                   <span>
                     状态：
                     {runState === "streaming"
@@ -572,8 +566,8 @@ export function App() {
                           这里会真实显示客服对话和 MCP 步骤。
                         </p>
                         <p className="mt-3 text-sm leading-7 text-stone-600">
-                          选一个验收问题，或者直接发问。和之前 docs 里的示例不同，
-                          这里会在流式过程中持续显示工具步骤，而不是等答案结束后才补出来。
+                          选一个验收问题，或者直接发问。这里直接消费 OpenAgents
+                          原生 turn 流，不再依赖旧的 OpenAI 兼容层去拼步骤。
                         </p>
                       </div>
                     </div>
@@ -603,13 +597,30 @@ export function App() {
                                   {message.content || "处理中..."}
                                 </ReactMarkdown>
                               </div>
+                              {message.reasoningText?.trim() ? (
+                                <div className="border border-sky-200 bg-sky-50/80 px-3 py-3">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <p className="text-xs font-medium tracking-[0.14em] text-sky-900 uppercase">
+                                      思考内容
+                                    </p>
+                                    <span className="text-xs text-sky-700">
+                                      turn reasoning
+                                    </span>
+                                  </div>
+                                  <div className="prose prose-stone mt-2 max-w-none text-sm leading-6 text-stone-700">
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                      {message.reasoningText}
+                                    </ReactMarkdown>
+                                  </div>
+                                </div>
+                              ) : null}
                               <div className="border-t border-stone-200 pt-4">
                                 <div className="flex flex-wrap items-center gap-4 text-xs text-stone-500">
-                                  <span>步骤</span>
+                                  <span>运行事件</span>
                                   <span>工具调用：{message.toolCallCount ?? 0}</span>
-                                  {message.responseId ? (
+                                  {message.turnId ? (
                                     <span className="font-mono text-[11px] text-stone-700">
-                                      {message.responseId}
+                                      {message.turnId}
                                     </span>
                                   ) : null}
                                 </div>
@@ -622,7 +633,7 @@ export function App() {
                                       >
                                         <div className="flex items-start justify-between gap-3">
                                           <p className="text-sm font-medium text-stone-900">
-                                            {formatActivityTitle(item.title)}
+                                            {item.title}
                                           </p>
                                           <span className="text-xs text-stone-500">
                                             {formatTime(item.timestamp)}
@@ -640,7 +651,7 @@ export function App() {
                                   </div>
                                 ) : (
                                   <p className="mt-3 text-sm leading-6 text-stone-500">
-                                    运行步骤会在这里持续出现。
+                                    这里按顺序显示工具调用和系统事件。
                                   </p>
                                 )}
                               </div>
@@ -662,20 +673,20 @@ export function App() {
                 <div className="space-y-5">
                   <SectionTitle
                     title="最近一次运行"
-                    description="这里保留最近一条助手回复的响应 ID、步骤计数和 reasoning summary。"
+                    description="这里保留最近一条助手回复的 turn ID、步骤计数和 reasoning 文本。"
                   />
                   <div className="border border-stone-300 bg-white px-4 py-4">
                     <div className="space-y-3 text-sm">
                       <div className="flex items-start justify-between gap-4">
-                        <span className="text-stone-500">Response</span>
+                        <span className="text-stone-500">Turn</span>
                         <span className="max-w-[180px] break-all text-right font-medium text-stone-900">
-                          {lastResponse?.id || "—"}
+                          {lastTurn?.id || "—"}
                         </span>
                       </div>
                       <div className="flex items-start justify-between gap-4">
                         <span className="text-stone-500">状态</span>
                         <span className="text-right font-medium text-stone-900">
-                          {lastResponse?.status || "—"}
+                          {lastTurn?.status || "—"}
                         </span>
                       </div>
                       <div className="flex items-start justify-between gap-4">
@@ -688,12 +699,12 @@ export function App() {
                   </div>
                   <div className="border border-stone-300 bg-white px-4 py-4">
                     <p className="text-xs font-medium uppercase tracking-[0.14em] text-stone-500">
-                      Reasoning summary
+                      Reasoning
                     </p>
                     <div className="prose prose-stone mt-2 max-w-none text-sm leading-6 text-stone-700">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {latestAssistant?.reasoningSummary ||
-                          "运行完成后，这里会显示最近一次公开 reasoning summary。"}
+                        {latestAssistant?.reasoningText ||
+                          "运行完成后，这里会显示最近一次 turn reasoning 文本。"}
                       </ReactMarkdown>
                     </div>
                   </div>
@@ -720,7 +731,7 @@ export function App() {
               <div className="mt-4 flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3 text-sm text-stone-500">
                   <NetworkIcon className="size-4" />
-                  <span>Official OpenAI JS SDK {"->"} Deer Flow /v1/responses</span>
+                  <span>Official OpenAgents TS SDK {"->"} OpenAgents /v1/turns</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <button

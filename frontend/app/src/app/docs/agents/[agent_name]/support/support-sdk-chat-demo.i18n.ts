@@ -42,8 +42,13 @@ export type SupportSDKChatDemoText = {
   userLabel: string;
   assistantLabel: string;
   assistantReplyTitle: string;
+  turnStartedTitle: string;
+  turnFailedTitle: string;
   toolStartedTitle: string;
   toolFinishedTitle: string;
+  toolMethodLabel: string;
+  toolArgumentsLabel: string;
+  toolOutputLabel: string;
   activityTitle: string;
   activityEmpty: string;
   stepsTitle: string;
@@ -75,8 +80,8 @@ const enUS: SupportSDKChatDemoText = {
     "Use a key bound to this published agent. For production customer sites, proxy requests from your server instead of exposing the key in the browser.",
   sessionTitle: "Session",
   agentLabel: "Agent",
-  responseIdLabel: "Last response",
-  previousResponseIdLabel: "Context chain",
+  responseIdLabel: "Last turn",
+  previousResponseIdLabel: "Previous turn",
   statusLabel: "Run state",
   statusReady: "Ready",
   statusStreaming: "Streaming",
@@ -86,9 +91,9 @@ const enUS: SupportSDKChatDemoText = {
   reasoningLabel: "Enable thinking",
   reasoningEffortLabel: "Reasoning effort",
   reasoningHint:
-    "The public contract exposes the final reasoning summary when thinking is enabled.",
-  reasoningSummaryLabel: "Reasoning summary",
-  reasoningSummaryEmpty: "Reasoning summary appears here after the run completes.",
+    "The native turns contract streams reasoning text while the run is active.",
+  reasoningSummaryLabel: "Reasoning text",
+  reasoningSummaryEmpty: "Reasoning text appears here when the run emits it.",
   newSession: "New session",
   promptsTitle: "Starter prompts",
   promptsDescription:
@@ -101,18 +106,23 @@ const enUS: SupportSDKChatDemoText = {
   chatEmptyTitle: "No messages yet",
   chatEmptyDescription:
     "Choose one of the starter prompts or write your own question about the private case library.",
-  sdkLabel: "Official OpenAI JS SDK -> Deer Flow /v1/responses",
+  sdkLabel: "Official OpenAgents TS SDK -> OpenAgents /v1/turns",
   userLabel: "User",
   assistantLabel: "Assistant",
   assistantReplyTitle: "Assistant reply",
+  turnStartedTitle: "Turn started",
+  turnFailedTitle: "Turn failed",
   toolStartedTitle: "Tool started",
   toolFinishedTitle: "Tool finished",
+  toolMethodLabel: "Method",
+  toolArgumentsLabel: "Arguments",
+  toolOutputLabel: "Output",
   activityTitle: "Current run timeline",
   activityEmpty:
-    "Tool calls and terminal events for the latest run will appear here after the agent answers.",
+    "Tool calls and terminal events for the latest run appear here while the turn is streaming.",
   stepsTitle: "Run steps",
-  stepsEmpty: "Run steps will appear here after this reply finishes.",
-  responseMetaLabel: "Response",
+  stepsEmpty: "Run steps appear here as the turn streams.",
+  responseMetaLabel: "Turn",
   toolCallsMetaLabel: "Tool calls",
   composerLabel: "Run the published agent",
   composerPlaceholder:
@@ -161,8 +171,8 @@ const zhCN: SupportSDKChatDemoText = {
     "请使用绑定到当前已发布智能体的 Key。真正上线到客户站点时，应该由客户服务端代理请求，而不是把 Key 直接暴露在浏览器里。",
   sessionTitle: "会话状态",
   agentLabel: "Agent",
-  responseIdLabel: "最近响应",
-  previousResponseIdLabel: "上下文链",
+  responseIdLabel: "最近 Turn",
+  previousResponseIdLabel: "上一个 Turn",
   statusLabel: "运行状态",
   statusReady: "就绪",
   statusStreaming: "流式输出中",
@@ -171,9 +181,9 @@ const zhCN: SupportSDKChatDemoText = {
   toolsLabel: "工具调用数",
   reasoningLabel: "开启思考",
   reasoningEffortLabel: "思考强度",
-  reasoningHint: "开启后，会在响应完成后显示公开可见的思考摘要。",
-  reasoningSummaryLabel: "思考摘要",
-  reasoningSummaryEmpty: "运行完成后，会在这里显示公开可见的思考摘要。",
+  reasoningHint: "开启后，会在 turn 流式执行期间持续显示思考文本。",
+  reasoningSummaryLabel: "思考内容",
+  reasoningSummaryEmpty: "当 turn 输出思考文本时，会在这里持续累积显示。",
   newSession: "新会话",
   promptsTitle: "起手问题",
   promptsDescription:
@@ -185,17 +195,22 @@ const zhCN: SupportSDKChatDemoText = {
   chatTitle: "调试台",
   chatEmptyTitle: "还没有消息",
   chatEmptyDescription: "从左侧选择一个起手问题，或者直接输入你自己的案例库问题。",
-  sdkLabel: "Official OpenAI JS SDK -> Deer Flow /v1/responses",
+  sdkLabel: "Official OpenAgents TS SDK -> OpenAgents /v1/turns",
   userLabel: "用户",
   assistantLabel: "助手",
   assistantReplyTitle: "助手回复",
+  turnStartedTitle: "Turn 开始",
+  turnFailedTitle: "Turn 失败",
   toolStartedTitle: "工具开始",
   toolFinishedTitle: "工具结束",
+  toolMethodLabel: "方法",
+  toolArgumentsLabel: "参数",
+  toolOutputLabel: "返回",
   activityTitle: "当前运行时间线",
-  activityEmpty: "智能体回答后，这里会展示最近一次运行的工具调用与结束事件。",
+  activityEmpty: "turn 流式执行期间，这里会实时展示最近一次运行的工具调用与结束事件。",
   stepsTitle: "运行步骤",
-  stepsEmpty: "这条回复完成后，会在这里显示对应的运行步骤。",
-  responseMetaLabel: "响应",
+  stepsEmpty: "这条回复流式输出时，会在这里持续显示对应的运行步骤。",
+  responseMetaLabel: "Turn",
   toolCallsMetaLabel: "工具调用",
   composerLabel: "直接运行已发布 Agent",
   composerPlaceholder: "你可以问文件列表、分页读文件、glob 过滤或 grep 搜索。",

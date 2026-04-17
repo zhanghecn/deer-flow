@@ -81,6 +81,7 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),
+        "@openagents/sdk": path.resolve(__dirname, "../../sdk/ts/src/index.ts"),
       },
       dedupe: ["react", "react-dom"],
     },

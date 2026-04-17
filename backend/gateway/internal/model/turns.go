@@ -1,0 +1,81 @@
+package model
+
+import "encoding/json"
+
+type TurnEventType string
+
+const (
+	TurnEventTurnStarted               TurnEventType = "turn.started"
+	TurnEventAssistantMessageStarted   TurnEventType = "assistant.message.started"
+	TurnEventAssistantTextDelta        TurnEventType = "assistant.text.delta"
+	TurnEventAssistantReasoningDelta   TurnEventType = "assistant.reasoning.delta"
+	TurnEventToolCallStarted           TurnEventType = "tool.call.started"
+	TurnEventToolCallCompleted         TurnEventType = "tool.call.completed"
+	TurnEventTurnRequiresInput         TurnEventType = "turn.requires_input"
+	TurnEventAssistantMessageCompleted TurnEventType = "assistant.message.completed"
+	TurnEventTurnCompleted             TurnEventType = "turn.completed"
+	TurnEventTurnFailed                TurnEventType = "turn.failed"
+)
+
+type TurnThinkingConfig struct {
+	Enabled bool   `json:"enabled"`
+	Effort  string `json:"effort,omitempty"`
+}
+
+// TurnInput keeps the public SDK payload small and explicit: plain text plus
+// optional uploaded file ids. Search/file access belongs in MCP tools, not in
+// the northbound API shape.
+type TurnInput struct {
+	Text    string   `json:"text"`
+	FileIDs []string `json:"file_ids,omitempty"`
+}
+
+type TurnCreateRequest struct {
+	Agent           string              `json:"agent" binding:"required"`
+	Input           TurnInput           `json:"input" binding:"required"`
+	PreviousTurnID  string              `json:"previous_turn_id,omitempty"`
+	Metadata        json.RawMessage     `json:"metadata,omitempty"`
+	Stream          bool                `json:"stream,omitempty"`
+	Thinking        *TurnThinkingConfig `json:"thinking,omitempty"`
+	MaxOutputTokens *int                `json:"max_output_tokens,omitempty"`
+}
+
+type TurnUsage struct {
+	InputTokens  int64 `json:"input_tokens"`
+	OutputTokens int64 `json:"output_tokens"`
+	TotalTokens  int64 `json:"total_tokens"`
+}
+
+type TurnEvent struct {
+	Sequence      int           `json:"sequence"`
+	CreatedAt     int64         `json:"created_at"`
+	TurnID        string        `json:"turn_id"`
+	Type          TurnEventType `json:"type"`
+	MessageID     string        `json:"message_id,omitempty"`
+	ToolCallID    string        `json:"tool_call_id,omitempty"`
+	ToolName      string        `json:"tool_name,omitempty"`
+	Delta         string        `json:"delta,omitempty"`
+	Text          string        `json:"text,omitempty"`
+	Reasoning     string        `json:"reasoning,omitempty"`
+	Error         string        `json:"error,omitempty"`
+	ToolArguments any           `json:"tool_arguments,omitempty"`
+	ToolOutput    any           `json:"tool_output,omitempty"`
+}
+
+type TurnSnapshot struct {
+	ID             string                      `json:"id"`
+	Object         string                      `json:"object"`
+	Status         string                      `json:"status"`
+	Agent          string                      `json:"agent"`
+	ThreadID       string                      `json:"thread_id"`
+	TraceID        string                      `json:"trace_id,omitempty"`
+	PreviousTurnID string                      `json:"previous_turn_id,omitempty"`
+	OutputText     string                      `json:"output_text"`
+	ReasoningText  string                      `json:"reasoning_text"`
+	Artifacts      []PublicAPIResponseArtifact `json:"artifacts,omitempty"`
+	Usage          TurnUsage                   `json:"usage"`
+	Metadata       map[string]any              `json:"metadata,omitempty"`
+	Events         []TurnEvent                 `json:"events"`
+	CreatedAt      int64                       `json:"created_at"`
+	CompletedAt    int64                       `json:"completed_at,omitempty"`
+}

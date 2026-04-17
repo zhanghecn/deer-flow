@@ -176,7 +176,7 @@ type Skill struct {
 // MCPProfile is a filesystem-backed reusable MCP library item.
 //
 // The stored file keeps the canonical Claude Code-style `mcpServers` JSON
-// shape. Deer Flow phase 1 constrains one profile file to exactly one
+// shape. OpenAgents phase 1 constrains one profile file to exactly one
 // `mcpServers` entry so agents can bind library refs independently.
 type MCPProfile struct {
 	Name       string          `json:"name"`

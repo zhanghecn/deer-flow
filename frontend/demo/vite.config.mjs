@@ -1,14 +1,18 @@
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+
+const rootDir = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "../app/src"),
-      "@demo": path.resolve(__dirname, "./src"),
+      "@": path.resolve(rootDir, "../app/src"),
+      "@demo": path.resolve(rootDir, "./src"),
+      "@openagents/sdk": path.resolve(rootDir, "../../sdk/ts/src/index.ts"),
     },
     dedupe: ["react", "react-dom"],
   },
@@ -16,7 +20,7 @@ export default defineConfig({
     host: "127.0.0.1",
     port: 8084,
     fs: {
-      allow: [path.resolve(__dirname, "..")],
+      allow: [path.resolve(rootDir, "../..")],
     },
   },
   preview: {
