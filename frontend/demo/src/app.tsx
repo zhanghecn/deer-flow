@@ -11,6 +11,7 @@ import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 
 import { type PublicAPIResponseEnvelope } from "@/core/public-api/api";
+import { type PlaygroundTraceItem } from "@/core/public-api/events";
 import {
   coercePublicAPIResponse,
   createBrowserPublicAPIClient,
@@ -32,11 +33,7 @@ type DemoMessage = {
   responseId?: string;
   toolCallCount?: number;
   reasoningSummary?: string;
-  activity?: Array<{
-    title: string;
-    detail?: string;
-    timestamp: number;
-  }>;
+  activity?: PlaygroundTraceItem[];
 };
 
 const DEFAULT_BASE_URL =
@@ -108,7 +105,44 @@ function SectionTitle({
 }
 
 function formatActivityTitle(title: string) {
-  return title === "Tool started" ? "工具开始" : title;
+  if (title === "Tool started") {
+    return "工具调用";
+  }
+  if (title.startsWith("Tool finished")) {
+    return "工具结果";
+  }
+  return title;
+}
+
+function buildAssistantTimeline(message: DemoMessage) {
+  const timeline = [...(message.activity ?? [])];
+  if (message.reasoningSummary?.trim()) {
+    const anchorTimestamp =
+      timeline.length > 0
+        ? timeline[timeline.length - 1]?.timestamp ?? Date.now()
+        : Date.now();
+    timeline.push({
+      stage: "assistant",
+      tone: "assistant",
+      title: "思考摘要",
+      detail: message.reasoningSummary.trim(),
+      timestamp: anchorTimestamp + 1,
+    });
+  }
+  return timeline;
+}
+
+function getTimelineAccent(item: PlaygroundTraceItem) {
+  switch (item.tone) {
+    case "tool":
+      return "border-amber-300 bg-amber-50/80";
+    case "error":
+      return "border-rose-300 bg-rose-50";
+    case "assistant":
+      return "border-sky-300 bg-sky-50/80";
+    default:
+      return "border-stone-300 bg-stone-50";
+  }
 }
 
 export function App() {
@@ -253,11 +287,7 @@ export function App() {
           replaceMessage(assistantMessageID, (message) => ({
             ...message,
             content: runModel.liveOutput || message.content,
-            activity: runModel.traceItems.map((item) => ({
-              title: item.title,
-              detail: item.detail,
-              timestamp: item.timestamp,
-            })),
+            activity: runModel.traceItems,
             toolCallCount: runModel.toolCallCount,
             responseId: runModel.responseId || message.responseId,
             status: runModel.phase === "failed" ? "error" : message.status,
@@ -310,11 +340,7 @@ export function App() {
         responseId: runModel.responseId || finalizedResponse.id,
         toolCallCount: runModel.toolCallCount,
         reasoningSummary: runModel.reasoningSummary,
-        activity: runModel.traceItems.map((item) => ({
-          title: item.title,
-          detail: item.detail,
-          timestamp: item.timestamp,
-        })),
+        activity: runModel.traceItems,
       }));
 
       if (finalizedResponse.status === "incomplete") {
@@ -587,12 +613,12 @@ export function App() {
                                     </span>
                                   ) : null}
                                 </div>
-                                {message.activity?.length ? (
-                                  <div className="mt-3 space-y-2">
-                                    {message.activity.map((item, index) => (
+                                {buildAssistantTimeline(message).length ? (
+                                  <div className="mt-3 space-y-3">
+                                    {buildAssistantTimeline(message).map((item, index) => (
                                       <div
                                         key={`${message.id}-${item.title}-${item.timestamp}-${index}`}
-                                        className="border border-stone-200 bg-stone-50 px-3 py-3"
+                                        className={`border px-3 py-3 ${getTimelineAccent(item)}`}
                                       >
                                         <div className="flex items-start justify-between gap-3">
                                           <p className="text-sm font-medium text-stone-900">
@@ -603,9 +629,11 @@ export function App() {
                                           </span>
                                         </div>
                                         {item.detail ? (
-                                          <p className="mt-1 text-sm leading-6 text-stone-600">
-                                            {item.detail}
-                                          </p>
+                                          <div className="prose prose-stone mt-2 max-w-none text-sm leading-6">
+                                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                              {item.detail}
+                                            </ReactMarkdown>
+                                          </div>
                                         ) : null}
                                       </div>
                                     ))}
@@ -615,15 +643,6 @@ export function App() {
                                     运行步骤会在这里持续出现。
                                   </p>
                                 )}
-                              </div>
-                              <div className="border-t border-stone-200 pt-4">
-                                <p className="text-xs font-medium uppercase tracking-[0.14em] text-stone-500">
-                                  Reasoning summary
-                                </p>
-                                <p className="mt-2 text-sm leading-6 whitespace-pre-wrap text-stone-700">
-                                  {message.reasoningSummary ||
-                                    "开启思考后，会在响应完成后显示公开可见的思考摘要。"}
-                                </p>
                               </div>
                             </div>
                           ) : (
@@ -671,10 +690,12 @@ export function App() {
                     <p className="text-xs font-medium uppercase tracking-[0.14em] text-stone-500">
                       Reasoning summary
                     </p>
-                    <p className="mt-2 text-sm leading-6 whitespace-pre-wrap text-stone-700">
-                      {latestAssistant?.reasoningSummary ||
-                        "运行完成后，这里会显示最近一次公开 reasoning summary。"}
-                    </p>
+                    <div className="prose prose-stone mt-2 max-w-none text-sm leading-6 text-stone-700">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {latestAssistant?.reasoningSummary ||
+                          "运行完成后，这里会显示最近一次公开 reasoning summary。"}
+                      </ReactMarkdown>
+                    </div>
                   </div>
                 </div>
               </aside>

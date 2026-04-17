@@ -32,6 +32,7 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { MarkdownContent } from "@/components/workspace/messages/markdown-content";
 import { useI18n } from "@/core/i18n/hooks";
 import {
   createPublicAPIResponse,
@@ -61,6 +62,7 @@ import {
   extractPublicAPIReasoningSummary,
   formatPublicAPIOutputText,
 } from "@/core/public-api/run-session";
+import { workspaceMessageRehypePlugins } from "@/core/streamdown";
 import { cn } from "@/lib/utils";
 
 import { getPublicAPIPlaygroundText } from "./public-api-playground-dialog.i18n";
@@ -349,9 +351,14 @@ function TraceItemCard({
             </span>
           </div>
           {item.detail ? (
-            <p className="mt-2 text-sm leading-6 break-words text-slate-700">
-              {item.detail}
-            </p>
+            <div className="mt-2 rounded-md bg-white/70 px-3 py-3">
+              <MarkdownContent
+                content={item.detail}
+                isLoading={false}
+                rehypePlugins={workspaceMessageRehypePlugins}
+                className="text-sm leading-6 break-words text-slate-700"
+              />
+            </div>
           ) : null}
 
           {rawPayload ? (
@@ -1390,9 +1397,12 @@ export function PublicAPIPlaygroundPanel({
                   </div>
                   <div className="overflow-hidden rounded-[24px] border border-slate-900 bg-slate-950">
                     <ScrollArea className="h-[260px] px-4 py-4">
-                      <pre className="font-mono text-xs leading-6 whitespace-pre-wrap text-slate-100">
-                        {formattedOutputText || text.noResponse}
-                      </pre>
+                      <MarkdownContent
+                        content={formattedOutputText || text.noResponse}
+                        isLoading={false}
+                        rehypePlugins={workspaceMessageRehypePlugins}
+                        className="text-sm leading-7 text-slate-100"
+                      />
                     </ScrollArea>
                   </div>
                 </section>
@@ -1408,9 +1418,12 @@ export function PublicAPIPlaygroundPanel({
                   </div>
                   <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white">
                     <ScrollArea className="h-[180px] px-4 py-4">
-                      <p className="text-sm leading-6 whitespace-pre-wrap text-slate-700">
-                        {reasoningSummary || text.noResponse}
-                      </p>
+                      <MarkdownContent
+                        content={reasoningSummary || text.noResponse}
+                        isLoading={false}
+                        rehypePlugins={workspaceMessageRehypePlugins}
+                        className="text-sm leading-6 text-slate-700"
+                      />
                     </ScrollArea>
                   </div>
                 </section>

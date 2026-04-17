@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -434,14 +435,163 @@ func TestPublicAPIRunCollectorMapsToolExecutionCustomEvents(t *testing.T) {
 		"tool_name":  "execute",
 	})
 
-	if len(record.RunEvents) != 1 {
-		t.Fatalf("expected 1 run event, got %#v", record.RunEvents)
+	if len(record.RunEvents) != 0 {
+		t.Fatalf("expected no public run event for execution-only tool phase, got %#v", record.RunEvents)
 	}
-	if record.RunEvents[0].Type != model.PublicAPIToolStarted {
-		t.Fatalf("unexpected run event type %#v", record.RunEvents[0].Type)
+}
+
+func TestPublicAPIRunCollectorExtractsToolArgumentsAndOutputFromMessages(t *testing.T) {
+	t.Parallel()
+
+	collector := newPublicAPIRunCollector(1)
+	startRecord := collector.consume("messages", []any{
+		map[string]any{
+			"type":    "AIMessageChunk",
+			"content": []any{},
+			"tool_calls": []any{
+				map[string]any{
+					"id":   "call_123",
+					"name": "grep_files",
+					"args": map[string]any{
+						"pattern": "夏仲奇",
+					},
+				},
+			},
+		},
+		map[string]any{
+			"thread_id": "thread-1",
+		},
+	})
+	if len(startRecord.RunEvents) != 1 {
+		t.Fatalf("expected 1 tool-start event, got %#v", startRecord.RunEvents)
 	}
-	if record.RunEvents[0].ToolName != "execute" {
-		t.Fatalf("unexpected tool name %#v", record.RunEvents[0].ToolName)
+	if startRecord.RunEvents[0].Type != model.PublicAPIToolStarted {
+		t.Fatalf("unexpected tool-start event %#v", startRecord.RunEvents[0])
+	}
+	if args, ok := startRecord.RunEvents[0].ToolArgs.(map[string]any); !ok || fmt.Sprint(args["pattern"]) != "夏仲奇" {
+		t.Fatalf("unexpected tool args %#v", startRecord.RunEvents[0].ToolArgs)
+	}
+
+	finishRecord := collector.consume("messages", []any{
+		map[string]any{
+			"type":         "tool",
+			"name":         "grep_files",
+			"tool_call_id": "call_123",
+			"content":      "{\"items\":[{\"path\":\"a.md\"}]}",
+		},
+		map[string]any{
+			"thread_id": "thread-1",
+		},
+	})
+	if len(finishRecord.RunEvents) != 1 {
+		t.Fatalf("expected 1 tool-finished event, got %#v", finishRecord.RunEvents)
+	}
+	if finishRecord.RunEvents[0].Type != model.PublicAPIToolFinished {
+		t.Fatalf("unexpected tool-finished event %#v", finishRecord.RunEvents[0])
+	}
+	if fmt.Sprint(finishRecord.RunEvents[0].ToolOutput) != "{\"items\":[{\"path\":\"a.md\"}]}" {
+		t.Fatalf("unexpected tool output %#v", finishRecord.RunEvents[0].ToolOutput)
+	}
+}
+
+func TestPublicAPIRunCollectorRecoversToolArgumentsFromToolUsePartialJSON(t *testing.T) {
+	t.Parallel()
+
+	collector := newPublicAPIRunCollector(1)
+	startRecord := collector.consume("messages", []any{
+		map[string]any{
+			"type": "AIMessageChunk",
+			"content": []any{
+				map[string]any{
+					"type":         "tool_use",
+					"id":           "call_456",
+					"name":         "grep_files",
+					"input":        map[string]any{},
+					"partial_json": `{"limit":50,"pattern":"夏仲奇"}`,
+				},
+			},
+			"tool_calls": []any{
+				map[string]any{
+					"id":        "call_456",
+					"name":      "grep_files",
+					"arguments": map[string]any{},
+				},
+			},
+		},
+		map[string]any{
+			"thread_id": "thread-1",
+		},
+	})
+	if len(startRecord.RunEvents) != 1 {
+		t.Fatalf("expected 1 tool-start event, got %#v", startRecord.RunEvents)
+	}
+	if startRecord.RunEvents[0].Type != model.PublicAPIToolStarted {
+		t.Fatalf("unexpected tool-start event %#v", startRecord.RunEvents[0])
+	}
+	args, ok := startRecord.RunEvents[0].ToolArgs.(map[string]any)
+	if !ok {
+		t.Fatalf("expected recovered tool args map, got %#v", startRecord.RunEvents[0].ToolArgs)
+	}
+	if fmt.Sprint(args["pattern"]) != "夏仲奇" || fmt.Sprint(args["limit"]) != "50" {
+		t.Fatalf("unexpected recovered tool args %#v", startRecord.RunEvents[0].ToolArgs)
+	}
+}
+
+func TestPublicAPIRunCollectorDefersEmptyToolArgsUntilValuesSnapshot(t *testing.T) {
+	t.Parallel()
+
+	collector := newPublicAPIRunCollector(1)
+	startRecord := collector.consume("messages", []any{
+		map[string]any{
+			"type": "AIMessageChunk",
+			"content": []any{
+				map[string]any{
+					"type":  "tool_use",
+					"id":    "call_789",
+					"name":  "grep_files",
+					"input": map[string]any{},
+				},
+			},
+			"tool_calls": []any{
+				map[string]any{
+					"id":   "call_789",
+					"name": "grep_files",
+					"args": map[string]any{},
+				},
+			},
+		},
+	})
+	if len(startRecord.RunEvents) != 0 {
+		t.Fatalf("expected no tool-start event before values snapshot, got %#v", startRecord.RunEvents)
+	}
+
+	valuesRecord := collector.consume("values", map[string]any{
+		"messages": []any{
+			map[string]any{
+				"type":    "ai",
+				"content": []any{},
+				"tool_calls": []any{
+					map[string]any{
+						"id":   "call_789",
+						"name": "grep_files",
+						"args": map[string]any{
+							"pattern": "夏仲奇",
+							"limit":   50,
+						},
+					},
+				},
+			},
+		},
+	})
+	if len(valuesRecord.RunEvents) != 1 {
+		t.Fatalf("expected values snapshot to emit tool-start event, got %#v", valuesRecord.RunEvents)
+	}
+	args, ok := valuesRecord.RunEvents[0].ToolArgs.(map[string]any)
+	if !ok {
+		t.Fatalf("expected recovered values tool args map, got %#v", valuesRecord.RunEvents[0].ToolArgs)
+	}
+	if fmt.Sprint(args["pattern"]) != "夏仲奇" || fmt.Sprint(args["limit"]) != "50" {
+		t.Fatalf("unexpected values tool args %#v", valuesRecord.RunEvents[0].ToolArgs)
 	}
 }
 
@@ -481,8 +631,8 @@ func TestPublicAPIRunCollectorDropsDuplicateUnmatchedToolFinish(t *testing.T) {
 		"phase_kind": "tool",
 		"tool_name":  "question",
 	})
-	if len(started.RunEvents) != 1 || started.RunEvents[0].Type != model.PublicAPIToolStarted {
-		t.Fatalf("unexpected started events %#v", started.RunEvents)
+	if len(started.RunEvents) != 0 {
+		t.Fatalf("expected tool phase start to stay internal, got %#v", started.RunEvents)
 	}
 
 	finished := collector.consume("custom", map[string]any{
@@ -491,8 +641,8 @@ func TestPublicAPIRunCollectorDropsDuplicateUnmatchedToolFinish(t *testing.T) {
 		"phase_kind": "tool",
 		"tool_name":  "question",
 	})
-	if len(finished.RunEvents) != 1 || finished.RunEvents[0].Type != model.PublicAPIToolFinished {
-		t.Fatalf("unexpected finished events %#v", finished.RunEvents)
+	if len(finished.RunEvents) != 0 {
+		t.Fatalf("expected tool phase finish to stay internal, got %#v", finished.RunEvents)
 	}
 
 	duplicate := collector.consume("custom", map[string]any{

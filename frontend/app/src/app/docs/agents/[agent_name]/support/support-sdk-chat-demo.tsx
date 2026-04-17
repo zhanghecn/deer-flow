@@ -54,6 +54,47 @@ function truncate(value: string, limit = 18) {
   return value.length <= limit ? value : `${value.slice(0, limit)}…`;
 }
 
+function formatActivityTitle(title: string) {
+  if (title === "Tool started") {
+    return "工具调用";
+  }
+  if (title.startsWith("Tool finished")) {
+    return "工具结果";
+  }
+  return title;
+}
+
+function buildAssistantTimeline(message: DemoMessage) {
+  const timeline = [...(message.activity ?? [])];
+  if (message.reasoningSummary?.trim()) {
+    const anchorTimestamp =
+      timeline.length > 0
+        ? timeline[timeline.length - 1]?.timestamp ?? Date.now()
+        : Date.now();
+    timeline.push({
+      stage: "assistant",
+      tone: "assistant",
+      title: "思考摘要",
+      detail: message.reasoningSummary.trim(),
+      timestamp: anchorTimestamp + 1,
+    });
+  }
+  return timeline;
+}
+
+function getTimelineAccent(item: PlaygroundTraceItem) {
+  switch (item.tone) {
+    case "tool":
+      return "border-amber-300 bg-amber-50/80";
+    case "error":
+      return "border-rose-300 bg-rose-50";
+    case "assistant":
+      return "border-sky-300 bg-sky-50/80";
+    default:
+      return "border-stone-300 bg-stone-50";
+  }
+}
+
 export function SupportSDKChatDemo({
   agentName,
   defaultBaseURL,
@@ -576,16 +617,19 @@ export function SupportSDKChatDemo({
                                 {text.toolCallsMetaLabel}: {message.toolCallCount ?? 0}
                               </span>
                             </div>
-                            {message.activity && message.activity.length > 0 ? (
-                              <div className="mt-3 space-y-2">
-                                {message.activity.map((item, index) => (
+                            {buildAssistantTimeline(message).length > 0 ? (
+                              <div className="mt-3 space-y-3">
+                                {buildAssistantTimeline(message).map((item, index) => (
                                   <div
                                     key={`${message.id}-${item.title}-${item.timestamp}-${index}`}
-                                    className="border border-stone-200 bg-white px-3 py-2"
+                                    className={cn(
+                                      "rounded-md border px-3 py-3",
+                                      getTimelineAccent(item),
+                                    )}
                                   >
                                     <div className="flex items-start justify-between gap-3">
                                       <p className="text-sm font-medium text-stone-900">
-                                        {item.title}
+                                        {formatActivityTitle(item.title)}
                                       </p>
                                       <span className="text-xs text-stone-500">
                                         {new Intl.DateTimeFormat(locale, {
@@ -596,9 +640,14 @@ export function SupportSDKChatDemo({
                                       </span>
                                     </div>
                                     {item.detail ? (
-                                      <p className="mt-1 text-sm leading-6 text-stone-600">
-                                        {item.detail}
-                                      </p>
+                                      <div className="mt-2 rounded-sm bg-white/70 px-3 py-2">
+                                        <MarkdownContent
+                                          content={item.detail}
+                                          isLoading={false}
+                                          rehypePlugins={workspaceMessageRehypePlugins}
+                                          className="text-sm leading-6 text-stone-700"
+                                        />
+                                      </div>
                                     ) : null}
                                   </div>
                                 ))}
@@ -608,14 +657,6 @@ export function SupportSDKChatDemo({
                                 {text.stepsEmpty}
                               </p>
                             )}
-                          </div>
-                          <div className="mt-4 border-t border-stone-200 pt-3">
-                            <div className="flex items-center gap-3 text-xs text-stone-500">
-                              <span>{text.reasoningSummaryLabel}</span>
-                            </div>
-                            <p className="mt-2 text-sm leading-6 whitespace-pre-wrap text-stone-700">
-                              {message.reasoningSummary || text.reasoningSummaryEmpty}
-                            </p>
                           </div>
                         </>
                       ) : (
@@ -690,11 +731,14 @@ export function SupportSDKChatDemo({
                       {latestActivity.map((item, index) => (
                         <div
                           key={`${item.title}-${item.timestamp}-${index}`}
-                          className="border border-stone-200 px-3 py-2"
+                          className={cn(
+                            "rounded-md border px-3 py-3",
+                            getTimelineAccent(item),
+                          )}
                         >
                           <div className="flex items-start justify-between gap-3">
                             <p className="text-sm font-medium text-stone-900">
-                              {item.title}
+                              {formatActivityTitle(item.title)}
                             </p>
                             <span className="text-xs text-stone-500">
                               {new Intl.DateTimeFormat(locale, {
@@ -705,9 +749,14 @@ export function SupportSDKChatDemo({
                             </span>
                           </div>
                           {item.detail ? (
-                            <p className="mt-1 text-sm leading-6 text-stone-600">
-                              {item.detail}
-                            </p>
+                            <div className="mt-2 rounded-sm bg-white/70 px-3 py-2">
+                              <MarkdownContent
+                                content={item.detail}
+                                isLoading={false}
+                                rehypePlugins={workspaceMessageRehypePlugins}
+                                className="text-sm leading-6 text-stone-700"
+                              />
+                            </div>
                           ) : null}
                         </div>
                       ))}
@@ -718,9 +767,14 @@ export function SupportSDKChatDemo({
                   <h3 className="text-sm font-medium text-stone-950">
                     {text.reasoningSummaryLabel}
                   </h3>
-                  <p className="mt-2 text-sm leading-6 whitespace-pre-wrap text-stone-600">
-                    {latestReasoningSummary || text.reasoningSummaryEmpty}
-                  </p>
+                  <div className="mt-2 rounded-md border border-stone-200 bg-stone-50 px-3 py-2">
+                    <MarkdownContent
+                      content={latestReasoningSummary || text.reasoningSummaryEmpty}
+                      isLoading={false}
+                      rehypePlugins={workspaceMessageRehypePlugins}
+                      className="text-sm leading-6 text-stone-600"
+                    />
+                  </div>
                 </div>
               </div>
             </div>

@@ -80,6 +80,13 @@ function asNumber(value: unknown) {
   return typeof value === "number" ? value : 0;
 }
 
+function formatJSONCodeBlock(value: unknown) {
+  if (value === undefined) {
+    return "";
+  }
+  return ["```json", prettyJSON(value), "```"].join("\n");
+}
+
 export function prettyJSON(value: unknown) {
   try {
     return JSON.stringify(value, null, 2);
@@ -216,25 +223,49 @@ export function buildTraceFromRunEvent(
         raw: event,
       };
     case "tool_started":
-      return {
-        stage: "run",
-        tone: "tool",
-        title: text.toolCall,
-        detail: asString(event.tool_name),
-        timestamp: event.created_at * 1000,
-        raw: event,
-      };
+      {
+        const parts = [
+          `**方法**：\`${asString(event.tool_name)}\``,
+        ];
+        if ("tool_arguments" in event && event.tool_arguments !== undefined) {
+          parts.push("**参数**");
+          parts.push(formatJSONCodeBlock(event.tool_arguments));
+        }
+        return {
+          stage: "run",
+          tone: "tool",
+          title: text.toolCall,
+          detail: parts.join("\n\n"),
+          timestamp: event.created_at * 1000,
+          raw: event,
+        };
+      }
     case "tool_finished":
-      return {
-        stage: "run",
-        tone: "tool",
-        title: event.tool_name
-          ? `${text.toolResult}: ${asString(event.tool_name)}`
-          : text.toolResult,
-        detail: undefined,
-        timestamp: event.created_at * 1000,
-        raw: event,
-      };
+      {
+        const parts: string[] = [];
+        const toolName = asString(event.tool_name);
+        if (toolName) {
+          parts.push(`**方法**：\`${toolName}\``);
+        }
+        if ("tool_output" in event && event.tool_output !== undefined) {
+          parts.push("**返回**");
+          if (typeof event.tool_output === "string") {
+            parts.push(event.tool_output.trim() ? event.tool_output : "```text\n\n```");
+          } else {
+            parts.push(formatJSONCodeBlock(event.tool_output));
+          }
+        }
+        return {
+          stage: "run",
+          tone: "tool",
+          title: event.tool_name
+            ? `${text.toolResult}: ${asString(event.tool_name)}`
+            : text.toolResult,
+          detail: parts.join("\n\n") || undefined,
+          timestamp: event.created_at * 1000,
+          raw: event,
+        };
+      }
     case "question_requested":
       return {
         stage: "run",

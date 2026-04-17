@@ -2,6 +2,13 @@
 
 这次是真实 current-code 验证，不是静态分析。
 
+本目录在 2026-04-17 再次回归过一次，修正了两个之前会误导结论的问题：
+
+1. `support-cases-http-demo` 一度因为 HTTP MCP 服务拒绝 `Host: customer-cases-mcp-http:8000` 而退化成 shell fallback。
+2. `8084` 一度虽然有容器，但页面实际是空白页，因为 demo 容器缺少给共享 `frontend/app/src` 使用的模块解析路径。
+
+当前这两个问题都已经修复，并且重新做过 API + 浏览器验证。
+
 ## 我实际验证了什么
 
 1. 把 `/root/project/ai/ai-numerology/backend/agents/examples/案例大全` staging 到 Deer Flow 本地运行目录：
@@ -23,6 +30,10 @@
    - `8083` 公开客服页
    - `8084` 独立 SDK demo
    - `8083` 的 `lead_agent` 创建入口
+7. 把 HTTP MCP 测试链路单独拆到了独立 compose：
+   - `docker/docker-compose-support-demo.yaml`
+   - `8090` = HTTP MCP mock
+   - `8084` = 外部 SDK demo
 
 ## 结果文件
 
@@ -33,6 +44,9 @@
 - [01-workspace-agents.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/01-workspace-agents.png)
 - [02-docs-support-http.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/02-docs-support-http.png)
 - [03-standalone-demo-stdio.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/03-standalone-demo-stdio.png)
+- [05-standalone-demo-current.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/05-standalone-demo-current.png)
+- [06-standalone-demo-timeline.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/06-standalone-demo-timeline.png)
+- [07-workspace-playground-current.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/07-workspace-playground-current.png)
 - [04-lead-agent-create.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/04-lead-agent-create.png)
 - [lead-agent-created.json](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/lead-agent-created.json)
   - 本次通过 `lead_agent` 真实创建出来的 agent 名
@@ -45,6 +59,8 @@
    - `http://127.0.0.1:8083/docs/agents/support-cases-http-demo/support`
 3. 独立 SDK demo：
    - `http://127.0.0.1:8084`
+4. 工作区 published agent 调试台：
+   - `http://127.0.0.1:8083/workspace/agents/support-cases-http-demo/playground?agent_status=prod`
 
 ## 你作为用户怎么直接试
 
@@ -83,8 +99,16 @@
 - `http` MCP 可用
 - 两者都能在客服 agent 中真实调用客户案例数据，而不是先导入 Deer Flow 知识库
 - `8084` 独立 React + Tailwind SDK demo 已经能作为外部接入示例使用
+- `8083` 工作区 published agent playground 现在也能显示时间线式步骤、工具名、工具参数，以及最终 response JSON
 - 当前构建与目标单测通过：
   - `pnpm --dir frontend/app typecheck`
   - `pnpm --dir frontend/app exec vitest run src/core/public-api/run-session.test.ts`
   - `pnpm --dir frontend/demo typecheck`
   - `pnpm --dir frontend/demo build`
+
+## 当前额外确认
+
+- `docker/docker-compose-prod.yaml` 不再承载测试用 HTTP MCP。
+- `docker/docker-compose-support-demo.yaml` 单独承载 `8084` 和 `8090`，更贴近真实客户外部接入。
+- `support-cases-http-demo` 现在已真实走 HTTP MCP，不再出现“没有可用 customer-cases MCP 工具”的错误回答。
+- `8084` 现在不是假通，而是可渲染、可输入、可调用 SDK API 的真实页面。

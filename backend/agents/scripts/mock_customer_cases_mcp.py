@@ -29,9 +29,16 @@ ROOT = Path(
     )
 ).resolve()
 
-mcp = FastMCP("customer-cases")
-mcp.settings.host = os.getenv("CUSTOMER_CASES_MCP_HOST", "127.0.0.1")
-mcp.settings.port = int(os.getenv("CUSTOMER_CASES_MCP_PORT", "8000"))
+MCP_HOST = os.getenv("CUSTOMER_CASES_MCP_HOST", "127.0.0.1")
+MCP_PORT = int(os.getenv("CUSTOMER_CASES_MCP_PORT", "8000"))
+
+# Pass the published host/port into FastMCP at construction time. FastMCP
+# auto-enables localhost-only DNS rebinding protection when initialized with
+# 127.0.0.1/localhost, and mutating `settings.host` afterward does not relax
+# that transport-security policy. Our Docker HTTP demo is intentionally served
+# on 0.0.0.0 and reached via the compose service name, so late mutation causes
+# the server to reject valid `Host: customer-cases-mcp-http:8000` requests.
+mcp = FastMCP("customer-cases", host=MCP_HOST, port=MCP_PORT)
 
 
 def _safe_relative_path(value: str) -> Path:

@@ -39,11 +39,13 @@ export type CanonicalAssistantMessageEvent = CanonicalRunEventBase & {
 export type CanonicalToolStartedEvent = CanonicalRunEventBase & {
   type: "tool_started";
   tool_name: string;
+  tool_arguments?: unknown;
 };
 
 export type CanonicalToolFinishedEvent = CanonicalRunEventBase & {
   type: "tool_finished";
   tool_name?: string;
+  tool_output?: unknown;
 };
 
 export type CanonicalQuestionRequestedEvent = CanonicalRunEventBase & {

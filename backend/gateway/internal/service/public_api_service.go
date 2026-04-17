@@ -114,10 +114,18 @@ type publicAPIRuntimeEventRecord struct {
 	RunEvents []model.PublicAPIRunEvent
 }
 
+type pendingPublicAPIToolCall struct {
+	ToolName string
+	ToolArgs any
+}
+
 type publicAPIRunCollector struct {
 	events                []model.PublicAPIRunEvent
 	sequence              int
 	activeToolPhaseCounts map[string]int
+	activeToolCallKeys    map[string]int
+	pendingToolCallKeys   map[string]pendingPublicAPIToolCall
+	startedToolCallKeys   map[string]struct{}
 }
 
 type publicAPIModelRepository interface {
@@ -835,6 +843,9 @@ func newPublicAPIRunCollector(startIndex int) *publicAPIRunCollector {
 		events:                make([]model.PublicAPIRunEvent, 0, 16),
 		sequence:              startIndex,
 		activeToolPhaseCounts: make(map[string]int),
+		activeToolCallKeys:    make(map[string]int),
+		pendingToolCallKeys:   make(map[string]pendingPublicAPIToolCall),
+		startedToolCallKeys:   make(map[string]struct{}),
 	}
 }
 
@@ -864,12 +875,26 @@ func (c *publicAPIRunCollector) consume(sourceEvent string, payload any) publicA
 		messageType := strings.ToLower(strings.TrimSpace(fmt.Sprint(record["type"])))
 		switch {
 		case strings.HasPrefix(messageType, "ai"):
+			if toolEvents := c.extractToolCallEventsFromMessage(record); len(toolEvents) > 0 {
+				events = append(events, toolEvents...)
+			}
 			if textDelta := extractMessageChunkTextDelta(record["content"]); strings.TrimSpace(textDelta) != "" {
 				events = append(events, c.pushEvent(model.PublicAPIRunEvent{
 					Type:  model.PublicAPIAssistantDelta,
 					Delta: textDelta,
 				}))
 			}
+		case messageType == "tool":
+			if pendingStart := c.flushPendingToolCallFromResult(record); pendingStart != nil {
+				events = append(events, *pendingStart)
+			}
+			if toolEvent := c.extractToolResultEventFromMessage(record); toolEvent != nil {
+				events = append(events, *toolEvent)
+			}
+		}
+	case "values":
+		if toolEvents := c.extractToolCallEventsFromValues(payload); len(toolEvents) > 0 {
+			events = append(events, toolEvents...)
 		}
 	case "custom":
 		record, ok := payload.(map[string]any)
@@ -902,12 +927,7 @@ func (c *publicAPIRunCollector) extractRuntimeCustomEvents(payload map[string]an
 	switch {
 	case eventName == "phase_started" && phaseKind == "tool":
 		c.activeToolPhaseCounts[toolName] = c.activeToolPhaseCounts[toolName] + 1
-		return []model.PublicAPIRunEvent{
-			c.pushEvent(model.PublicAPIRunEvent{
-				Type:     model.PublicAPIToolStarted,
-				ToolName: toolName,
-			}),
-		}
+		return nil
 	case eventName == "phase_finished" && phaseKind == "tool":
 		if c.activeToolPhaseCounts[toolName] <= 0 {
 			// Some runtime paths can currently emit a duplicate terminal tool phase
@@ -917,15 +937,144 @@ func (c *publicAPIRunCollector) extractRuntimeCustomEvents(payload map[string]an
 			return nil
 		}
 		c.activeToolPhaseCounts[toolName]--
-		return []model.PublicAPIRunEvent{
-			c.pushEvent(model.PublicAPIRunEvent{
-				Type:     model.PublicAPIToolFinished,
-				ToolName: toolName,
-			}),
-		}
+		return nil
 	default:
 		return nil
 	}
+}
+
+func (c *publicAPIRunCollector) extractToolCallEventsFromMessage(record map[string]any) []model.PublicAPIRunEvent {
+	rawCalls, ok := record["tool_calls"].([]any)
+	if !ok || len(rawCalls) == 0 {
+		return nil
+	}
+
+	events := make([]model.PublicAPIRunEvent, 0, len(rawCalls))
+	for index, rawCall := range rawCalls {
+		call, ok := rawCall.(map[string]any)
+		if !ok {
+			continue
+		}
+		toolName := strings.TrimSpace(fmt.Sprint(call["name"]))
+		if toolName == "" {
+			continue
+		}
+		toolKey := strings.TrimSpace(fmt.Sprint(firstNonNil(call["id"], fmt.Sprintf("%s:%d", toolName, index))))
+		if toolKey != "" {
+			if _, ok := c.startedToolCallKeys[toolKey]; ok {
+				continue
+			}
+			if c.activeToolCallKeys[toolKey] > 0 {
+				continue
+			}
+		}
+		toolArgs := firstNonNil(call["args"], call["arguments"])
+		if isEmptyStructuredValue(toolArgs) {
+			// Some LangGraph message chunks expose the real tool payload only in
+			// Anthropic-style `tool_use` content blocks (`partial_json` / `input`)
+			// while the top-level `tool_calls[].args` placeholder remains `{}`.
+			// Recover the public SDK-facing arguments from that richer block so the
+			// customer timeline shows the actual MCP call parameters.
+			toolArgs = extractToolArgsFromContent(record["content"], toolName, toolKey)
+		}
+		if isEmptyStructuredValue(toolArgs) {
+			// The chunk-level tool-call placeholder often arrives before the richer
+			// `values` snapshot that contains parsed arguments. Defer emission until
+			// that snapshot lands so streaming clients see real parameters instead
+			// of `{}`. If no richer snapshot appears, the pending start is flushed
+			// right before the matching tool result.
+			c.pendingToolCallKeys[toolKey] = pendingPublicAPIToolCall{
+				ToolName: toolName,
+				ToolArgs: toolArgs,
+			}
+			continue
+		}
+		if toolKey != "" {
+			delete(c.pendingToolCallKeys, toolKey)
+			c.startedToolCallKeys[toolKey] = struct{}{}
+		}
+		c.activeToolCallKeys[toolKey] = 1
+		events = append(events, c.pushEvent(model.PublicAPIRunEvent{
+			Type:     model.PublicAPIToolStarted,
+			ToolName: toolName,
+			ToolArgs: toolArgs,
+		}))
+	}
+	return events
+}
+
+func (c *publicAPIRunCollector) extractToolResultEventFromMessage(record map[string]any) *model.PublicAPIRunEvent {
+	toolName := strings.TrimSpace(fmt.Sprint(record["name"]))
+	if toolName == "" {
+		return nil
+	}
+
+	toolKey := strings.TrimSpace(fmt.Sprint(firstNonNil(record["tool_call_id"], record["id"], toolName)))
+	if toolKey != "" {
+		if c.activeToolCallKeys[toolKey] <= 0 {
+			// The message stream can repeat tool-result snapshots. Preserve one
+			// public finish event per tool call so the customer-facing timeline
+			// stays stable across stream replays and final response hydration.
+			return nil
+		}
+		c.activeToolCallKeys[toolKey]--
+	}
+
+	event := c.pushEvent(model.PublicAPIRunEvent{
+		Type:       model.PublicAPIToolFinished,
+		ToolName:   toolName,
+		ToolOutput: record["content"],
+	})
+	return &event
+}
+
+func (c *publicAPIRunCollector) extractToolCallEventsFromValues(payload any) []model.PublicAPIRunEvent {
+	values, ok := extractStreamValues(payload)
+	if !ok {
+		return nil
+	}
+	messages, ok := values["messages"].([]any)
+	if !ok || len(messages) == 0 {
+		return nil
+	}
+
+	events := make([]model.PublicAPIRunEvent, 0, 2)
+	for _, rawMessage := range messages {
+		record, ok := rawMessage.(map[string]any)
+		if !ok {
+			continue
+		}
+		messageType := strings.ToLower(strings.TrimSpace(fmt.Sprint(record["type"])))
+		if strings.HasPrefix(messageType, "ai") {
+			events = append(events, c.extractToolCallEventsFromMessage(record)...)
+		}
+	}
+	return events
+}
+
+func (c *publicAPIRunCollector) flushPendingToolCallFromResult(record map[string]any) *model.PublicAPIRunEvent {
+	toolName := strings.TrimSpace(fmt.Sprint(record["name"]))
+	if toolName == "" {
+		return nil
+	}
+	toolKey := strings.TrimSpace(fmt.Sprint(firstNonNil(record["tool_call_id"], record["id"], toolName)))
+	if toolKey == "" {
+		return nil
+	}
+
+	pending, ok := c.pendingToolCallKeys[toolKey]
+	if !ok {
+		return nil
+	}
+	delete(c.pendingToolCallKeys, toolKey)
+	c.startedToolCallKeys[toolKey] = struct{}{}
+	c.activeToolCallKeys[toolKey] = 1
+	event := c.pushEvent(model.PublicAPIRunEvent{
+		Type:     model.PublicAPIToolStarted,
+		ToolName: pending.ToolName,
+		ToolArgs: pending.ToolArgs,
+	})
+	return &event
 }
 
 func (c *publicAPIRunCollector) extractInterruptEvents(payload map[string]any) []model.PublicAPIRunEvent {
@@ -2669,23 +2818,52 @@ func extractStreamMessageRecord(payload any) map[string]any {
 	case map[string]any:
 		return typed
 	case []any:
+		merged := map[string]any{}
 		for _, item := range typed {
 			record, ok := item.(map[string]any)
 			if !ok {
 				continue
 			}
-			// LangGraph `messages` events currently stream the message chunk first
-			// and a metadata envelope second. Only the message chunk carries the
-			// `type/content/tool_calls` fields needed for SDK-compatible deltas.
-			if _, ok := record["content"]; ok {
-				return record
+			if merged["type"] == nil && record["type"] != nil {
+				merged["type"] = record["type"]
 			}
-			if _, ok := record["tool_calls"]; ok {
-				return record
+			if merged["name"] == nil && record["name"] != nil {
+				merged["name"] = record["name"]
 			}
+			if merged["id"] == nil && record["id"] != nil {
+				merged["id"] = record["id"]
+			}
+			if merged["tool_call_id"] == nil && record["tool_call_id"] != nil {
+				merged["tool_call_id"] = record["tool_call_id"]
+			}
+			if content, ok := record["content"]; ok && scoreMessageContent(content) >= scoreMessageContent(merged["content"]) {
+				merged["content"] = content
+			}
+			if toolCalls, ok := record["tool_calls"]; ok && scoreToolCalls(toolCalls) >= scoreToolCalls(merged["tool_calls"]) {
+				merged["tool_calls"] = toolCalls
+			}
+		}
+		if len(merged) > 0 {
+			return merged
 		}
 	}
 	return map[string]any{}
+}
+
+func extractStreamValues(payload any) (map[string]any, bool) {
+	record, ok := payload.(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	if _, ok := record["messages"].([]any); ok {
+		return record, true
+	}
+	values, ok := record["values"].(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	_, hasMessages := values["messages"].([]any)
+	return values, hasMessages
 }
 
 func extractMessageChunkTextDelta(content any) string {
@@ -2712,6 +2890,89 @@ func extractMessageChunkTextDelta(content any) string {
 	default:
 		return ""
 	}
+}
+
+func extractToolArgsFromContent(content any, toolName string, toolKey string) any {
+	items, ok := content.([]any)
+	if !ok {
+		return nil
+	}
+
+	trimmedName := strings.TrimSpace(toolName)
+	trimmedKey := strings.TrimSpace(toolKey)
+	for _, item := range items {
+		block, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if strings.ToLower(strings.TrimSpace(fmt.Sprint(block["type"]))) != "tool_use" {
+			continue
+		}
+		blockName := strings.TrimSpace(fmt.Sprint(block["name"]))
+		blockID := strings.TrimSpace(fmt.Sprint(block["id"]))
+		if trimmedName != "" && blockName != "" && blockName != trimmedName {
+			continue
+		}
+		if trimmedKey != "" && blockID != "" && blockID != trimmedKey {
+			continue
+		}
+		if input := block["input"]; !isEmptyStructuredValue(input) {
+			return input
+		}
+		partialJSON := strings.TrimSpace(fmt.Sprint(block["partial_json"]))
+		if partialJSON == "" {
+			continue
+		}
+		var decoded any
+		if err := json.Unmarshal([]byte(partialJSON), &decoded); err == nil && !isEmptyStructuredValue(decoded) {
+			return decoded
+		}
+	}
+	return nil
+}
+
+func scoreToolCalls(value any) int {
+	items, ok := value.([]any)
+	if !ok || len(items) == 0 {
+		return 0
+	}
+	score := len(items)
+	for _, item := range items {
+		call, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if !isEmptyStructuredValue(firstNonNil(call["args"], call["arguments"])) {
+			score += 10
+		}
+	}
+	return score
+}
+
+func scoreMessageContent(value any) int {
+	score := 0
+	if strings.TrimSpace(extractMessageChunkTextDelta(value)) != "" {
+		score += 5
+	}
+	if !isEmptyStructuredValue(extractToolArgsFromContent(value, "", "")) {
+		score += 10
+	}
+	return score
+}
+
+func isEmptyStructuredValue(value any) bool {
+	if value == nil {
+		return true
+	}
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed) == ""
+	case map[string]any:
+		return len(typed) == 0
+	case []any:
+		return len(typed) == 0
+	}
+	return false
 }
 
 func buildStateSnapshotPayload(

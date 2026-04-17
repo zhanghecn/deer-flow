@@ -47,6 +47,7 @@ describe("normalizePublicAPIStreamEvent", () => {
             created_at: 1,
             type: "tool_started",
             tool_name: "bash",
+            tool_arguments: { cmd: "echo hi" },
           },
         },
       },
@@ -80,6 +81,7 @@ describe("normalizePublicAPIStreamEvent", () => {
           event: expect.objectContaining({
             type: "tool_started",
             tool_name: "bash",
+            tool_arguments: { cmd: "echo hi" },
           }),
         }),
         expect.objectContaining({
@@ -131,6 +133,7 @@ describe("buildTraceFromRunEvent", () => {
         created_at: 10,
         type: "tool_started",
         tool_name: "bash",
+        tool_arguments: { cmd: "echo hi" },
       },
       traceText,
     );
@@ -139,9 +142,10 @@ describe("buildTraceFromRunEvent", () => {
       stage: "run",
       tone: "tool",
       title: "Tool call",
-      detail: "bash",
+      detail: expect.stringContaining("`bash`"),
       timestamp: 10000,
     });
+    expect(trace.detail).toContain("```json");
   });
 
   it("maps question events into system trace entries", () => {

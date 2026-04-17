@@ -17,6 +17,26 @@ async function waitForRunSnapshot(page) {
   await page.waitForTimeout(20_000);
 }
 
+async function waitForWorkspacePlayground(page) {
+  // The workspace playground renders the public timeline incrementally and
+  // can take longer than the lightweight demos to settle on slower runs.
+  await page.waitForTimeout(45_000);
+}
+
+async function fillWorkspacePlayground(page, token, prompt) {
+  // Labels are locale-dependent, so accept both the zh-CN and English forms
+  // that the same component renders in tests and browser verification.
+  await page.waitForSelector("textarea", { timeout: 60_000 });
+  await page.getByLabel(/User Key|用户 Key/).fill(token);
+  await page.getByLabel(/Prompt|提示词/).fill(prompt);
+}
+
+function publishedAgentButton(page) {
+  return page.getByRole("button", {
+    name: /Run published agent|运行已发布 Agent/,
+  });
+}
+
 async function run() {
   const summary = JSON.parse(await fs.readFile(summaryPath, "utf8"));
   const httpToken = summary.tokens.find((item) =>
@@ -96,8 +116,8 @@ async function run() {
     waitUntil: "networkidle",
   });
   console.log("standalone demo ready");
-  await page.locator("input").nth(1).fill(stdioToken.token);
-  await page.locator("input").nth(2).fill("support-cases-stdio-demo");
+  await page.getByLabel("用户 Key").fill(stdioToken.token);
+  await page.getByLabel("Agent").fill("support-cases-stdio-demo");
   await page
     .getByPlaceholder("直接问已发布的客服 Agent，或使用左侧预置问题。")
     .fill("请搜索案例库中包含“夏仲奇”的文件，并告诉我出现在哪些文件。");
@@ -106,6 +126,27 @@ async function run() {
   console.log("standalone demo run finished");
   await page.screenshot({
     path: path.join(resultsDir, "03-standalone-demo-stdio.png"),
+    fullPage: true,
+  });
+
+  await page.goto(
+    "http://127.0.0.1:8083/workspace/agents/support-cases-http-demo/playground?agent_status=prod",
+    {
+      waitUntil: "networkidle",
+    },
+  );
+  console.log("workspace playground ready");
+  const workspacePrompt =
+    "请搜索案例库中包含“夏仲奇”的文件，并告诉我出现在哪些文件。";
+  console.log(
+    `workspace playground body: ${(await page.locator("body").innerText()).slice(0, 600)}`,
+  );
+  await fillWorkspacePlayground(page, httpToken.token, workspacePrompt);
+  await publishedAgentButton(page).click();
+  await waitForWorkspacePlayground(page);
+  console.log("workspace playground run finished");
+  await page.screenshot({
+    path: path.join(resultsDir, "07-workspace-playground-current.png"),
     fullPage: true,
   });
 

@@ -131,6 +131,8 @@ type PublicAPIRunEvent struct {
 	Delta      string                `json:"delta,omitempty"`
 	Text       string                `json:"text,omitempty"`
 	ToolName   string                `json:"tool_name,omitempty"`
+	ToolArgs   any                   `json:"tool_arguments,omitempty"`
+	ToolOutput any                   `json:"tool_output,omitempty"`
 	Error      string                `json:"error,omitempty"`
 	QuestionID string                `json:"question_id,omitempty"`
 }
