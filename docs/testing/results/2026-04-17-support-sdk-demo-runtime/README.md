@@ -1,4 +1,4 @@
-# 2026-04-17 Support SDK Demo Runtime Test
+# 2026-04-17 Public Integration Runtime Test
 
 这次是真实 current-code 验证，不是静态分析。
 
@@ -19,7 +19,7 @@
 
 1. 先确保 current-code 后端已经运行在：
    - `http://127.0.0.1:8083`
-2. 运行 setup 脚本，重建 support demo 所需 fixture：
+2. 运行 setup 脚本，重建外部接入验收所需 fixture：
    - `python scripts/setup_support_demo_runtime.py`
    - 如果案例目录不在默认位置，先设置：
      - `export OPENAGENTS_SUPPORT_CASES_SOURCE=/your/customer/cases`
@@ -32,7 +32,7 @@
    - 刷新 `frontend/demo/.env.local`
    - 写出 `setup-summary.runtime.json`
 4. 然后运行真实浏览器验收：
-   - `node frontend/app/e2e/support-demo-real-browser.mjs`
+   - `node frontend/app/e2e/public-integration-real-browser.mjs`
 
 ## 我实际验证了什么
 
@@ -45,9 +45,9 @@
    - `support-cases-stdio-demo`
    - `support-cases-http-demo`
 4. 为两个已发布 agent 真实创建了作用域 API key。
-5. 用真实浏览器断言式验证了原生 `turns` session helper 链路：
+5. 用真实浏览器断言式验证了唯一接入面：
    - `8083` 工作区 agents 列表
-   - `8083` 公开客服页
+   - `8083` 已发布 agent 文档概览
    - `8084` 独立调试台的 `stdio` agent
    - `8084` 独立调试台的 `http` agent
    - `8083` 工作区 published agent playground
@@ -68,15 +68,13 @@
 - [mcp-smoke-results.json](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/mcp-smoke-results.json)
   - 两套 transport 的历史 API smoke 结果，作为回归参考保留
 - [01-workspace-agents.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/01-workspace-agents.png)
-- [02-docs-support-http.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/02-docs-support-http.png)
+- [02-docs-overview-current.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/02-docs-overview-current.png)
 - [03-standalone-demo-stdio.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/03-standalone-demo-stdio.png)
 - [05-standalone-demo-http.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/05-standalone-demo-http.png)
 - [05-standalone-demo-current.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/05-standalone-demo-current.png)
 - [06-standalone-demo-timeline.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/06-standalone-demo-timeline.png)
 - [07-workspace-playground-current.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/07-workspace-playground-current.png)
 - [08-native-chat-current.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/08-native-chat-current.png)
-- [09-docs-support-http-session.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/09-docs-support-http-session.png)
-  - 本次 session helper 路线下的公开客服页回归截图
 - [10-standalone-demo-session.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/10-standalone-demo-session.png)
   - 本次 session helper 路线下的 8084 独立调试台截图
 - [11-observability-session.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/11-observability-session.png)
@@ -89,8 +87,8 @@
 
 1. 工作区 agent 列表：
    - `http://127.0.0.1:8083/workspace/agents`
-2. HTTP MCP 的公开客服页：
-   - `http://127.0.0.1:8083/docs/agents/support-cases-http-demo/support`
+2. 已发布 agent 文档概览页：
+   - `http://127.0.0.1:8083/docs/agents/support-cases-http-demo`
 3. 独立调试台：
    - `http://127.0.0.1:8084`
 4. 工作区 published agent 调试台：
@@ -115,19 +113,15 @@
 
 如果 8084 页面已经开着，请刷新一次让新的 `.env.local` 生效。
 
-### 8083 公开客服页
+### 8083 平台内页
 
-手动填：
+`8083` 里只保留：
 
-- `Base URL`: `http://127.0.0.1:8083/v1`
-- `用户 Key`: 看 `setup-summary.json` 里 `support-cases-http-demo` 对应 token
+1. 已发布 agent 文档概览
+2. 平台内 Playground
+3. 原生工作区聊天页
 
-推荐直接问这 4 句：
-
-1. `案例库里有哪些文件？请直接列出文件名，不要编造。`
-2. `请读取《盲派八字全知识点训练集.md》的第一页，并告诉我这个文件的标题。`
-3. `请只列出文件名以 Final_ 开头的案例文件。`
-4. `请搜索案例库中包含“夏仲奇”的文件，并告诉我出现在哪些文件。`
+客户视角的外部接入验收，不再通过 `app` 内单独的 support 页完成。
 
 ## 本次测试结论
 
@@ -136,6 +130,7 @@
 - 两者都能在客服 agent 中真实调用客户案例数据，而不是先导入 Deer Flow 知识库
 - `8084` 独立 React + Tailwind 调试台已经能作为外部接入示例使用
 - `8084` 已经真实验证 `stdio` 与 `http` 两种 transport 都能走原生 `/v1/turns`
+- `8083` 已删除重复的 support demo 页面，平台内只保留 docs 概览和 Playground
 - `8083` 工作区 published agent playground 现在也能显示时间线式步骤、工具名、工具参数，以及最终 response JSON
 - `8083` 工作区 published agent playground 现在也能把 Deer Flow 对外公开的 reasoning summary 正确显示到“思考摘要”面板
 - 原生工作区聊天页已经重新验证：带工具调用的同一条 AI message 现在仍会显示最终回答，不再只剩步骤而吞掉正文

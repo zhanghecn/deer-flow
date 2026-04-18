@@ -149,24 +149,21 @@ async function run() {
   });
 
   await page.goto(
-    "http://127.0.0.1:8083/docs/agents/support-cases-http-demo/support",
+    "http://127.0.0.1:8083/docs/agents/support-cases-http-demo",
     {
       waitUntil: "networkidle",
     },
   );
-  console.log("docs support ready");
-  await page.getByPlaceholder("https://gateway.example.com/v1").fill(
-    "http://127.0.0.1:8083/v1",
+  console.log("docs overview ready");
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("Playground") &&
+      document.body.innerText.includes("API Reference"),
+    undefined,
+    { timeout: 60_000 },
   );
-  await page.getByPlaceholder("df_live_xxx").fill(httpToken.token);
-  await page
-    .getByPlaceholder("你可以问文件列表、分页读文件、glob 过滤或 grep 搜索。")
-    .fill("请搜索案例库中包含“夏仲奇”的文件，并告诉我出现在哪些文件。");
-  await page.getByRole("button", { name: "发送" }).click();
-  await waitForRunSnapshot(page, "盲派八字全知识点训练集");
-  console.log("docs support run finished");
   await page.screenshot({
-    path: path.join(resultsDir, "02-docs-support-http.png"),
+    path: path.join(resultsDir, "02-docs-overview-current.png"),
     fullPage: true,
   });
 

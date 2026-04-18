@@ -20,9 +20,6 @@ const AgentPublicReferencePage = lazy(
 const AgentPublicPlaygroundPage = lazy(
   () => import("@/app/docs/agents/[agent_name]/playground/page"),
 );
-const AgentPublicSupportPage = lazy(
-  () => import("@/app/docs/agents/[agent_name]/support/page"),
-);
 const WorkspaceLayout = lazy(() => import("@/app/workspace/layout"));
 const ChatsPage = lazy(() => import("@/app/workspace/chats/page"));
 const ChatPage = lazy(() => import("@/app/workspace/chats/[thread_id]/page"));
@@ -141,14 +138,6 @@ export function AppRoutes() {
             element={
               <PageSuspense>
                 <AgentPublicReferencePage />
-              </PageSuspense>
-            }
-          />
-          <Route
-            path="/docs/agents/:agent_name/support"
-            element={
-              <PageSuspense>
-                <AgentPublicSupportPage />
               </PageSuspense>
             }
           />

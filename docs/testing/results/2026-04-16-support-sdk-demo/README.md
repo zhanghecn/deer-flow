@@ -2,7 +2,8 @@
 
 > 说明：这份记录保留为 2026-04-16 的历史结果。当前仓库已经硬切到
 > “原生 `/v1/turns` + session helper” 路线，不再把官方 `openai`
-> JavaScript SDK 作为一等接入标准。
+> JavaScript SDK 作为一等接入标准；同时 `app` 内的 `/docs/.../support`
+> 页面也已经删除，外部客服接入验收统一放在 `frontend/demo`。
 
 日期：2026-04-16
 

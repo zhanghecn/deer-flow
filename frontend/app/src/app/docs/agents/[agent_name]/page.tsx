@@ -14,7 +14,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   buildPublicAgentPlaygroundPath,
   buildPublicAgentReferencePath,
-  buildPublicAgentSupportPath,
   usePublicAgentExportDoc,
 } from "@/core/agents";
 import { useI18n } from "@/core/i18n/hooks";
@@ -246,7 +245,6 @@ export default function AgentPublicDocsPage() {
 
   const routes = listReferenceOperations(openapiDoc);
   const referencePath = buildPublicAgentReferencePath(exportDoc.agent);
-  const supportPath = buildPublicAgentSupportPath(exportDoc.agent);
   const playgroundPath = buildPublicAgentPlaygroundPath(exportDoc.agent);
   const javascriptSnippet = buildJavaScriptSnippet(
     exportDoc.api_base_url,
@@ -464,13 +462,6 @@ export default function AgentPublicDocsPage() {
           />
 
           <DocsSurface className="overflow-hidden">
-            <NextStepRow
-              eyebrow={text.supportEyebrow}
-              title={text.supportTitle}
-              description={text.supportDescription}
-              href={supportPath}
-              actionLabel={text.openSupport}
-            />
             <NextStepRow
               eyebrow={text.playgroundEyebrow}
               title={text.playgroundTitle}
