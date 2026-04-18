@@ -29,35 +29,12 @@ import {
   usePublishAgent,
 } from "@/core/agents";
 import { useI18n } from "@/core/i18n/hooks";
-import { cn } from "@/lib/utils";
 
 interface AgentCardProps {
   agent: AgentDirectoryEntry;
 }
 
 type DeleteTarget = AgentStatus | "all";
-
-function getDefaultStatusLabel(
-  agent: AgentDirectoryEntry,
-  t: ReturnType<typeof useI18n>["t"],
-) {
-  return getAgentDirectoryDefaultTarget(agent) === "draft"
-    ? t.agents.defaultDraft
-    : t.agents.defaultPublished;
-}
-
-function getAvailabilityLabel(
-  agent: AgentDirectoryEntry,
-  t: ReturnType<typeof useI18n>["t"],
-) {
-  const availability = getAgentDirectoryAvailability(agent);
-  if (availability === "publishedReady") {
-    return t.agents.publishedReady;
-  }
-  return availability === "draftOnly"
-    ? t.agents.draftOnly
-    : t.agents.publishedOnly;
-}
 
 export function AgentCard({ agent }: AgentCardProps) {
   const { t } = useI18n();
@@ -74,6 +51,8 @@ export function AgentCard({ agent }: AgentCardProps) {
     (agent.devAgent != null || agent.prodAgent != null);
   const hasDraftArchive = agent.devAgent != null;
   const hasPublishedArchive = agent.prodAgent != null;
+  const availability = getAgentDirectoryAvailability(agent);
+  const defaultTarget = getAgentDirectoryDefaultTarget(agent);
   const launchPath = buildWorkspaceAgentPath({
     agentName: agent.name,
     agentStatus: agent.defaultChatStatus,
@@ -116,8 +95,6 @@ export function AgentCard({ agent }: AgentCardProps) {
     try {
       await deleteAgentMutation.mutateAsync({
         name: agent.name,
-        // The gallery card represents multiple archives, so the delete dialog
-        // must pass an explicit status when removing only one side.
         status: target === "all" ? undefined : target,
       });
       toast.success(getDeleteSuccessMessage(target));
@@ -131,117 +108,92 @@ export function AgentCard({ agent }: AgentCardProps) {
 
   return (
     <>
-      <article className="grid gap-4 rounded-md border bg-background px-4 py-4 transition-colors hover:border-border/90 sm:grid-cols-[minmax(0,1.6fr)_minmax(0,0.9fr)] xl:grid-cols-[minmax(0,1.6fr)_minmax(0,0.8fr)_minmax(220px,0.9fr)]">
-        <div className="flex min-w-0 items-start gap-3">
-          <div className="bg-muted text-foreground flex h-10 w-10 shrink-0 items-center justify-center rounded-md border">
-            <BotIcon className="h-4.5 w-4.5" />
+      <article className="group flex flex-col rounded-lg border bg-background transition-all hover:shadow-md hover:border-border/80">
+        {/* Header */}
+        <div className="flex items-start gap-3 p-4 pb-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary/15 to-primary/5 text-primary">
+            <BotIcon className="h-5 w-5" />
           </div>
-          <div className="min-w-0 space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="truncate text-base font-semibold">{agent.name}</h2>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <h3 className="truncate text-sm font-semibold">{agent.name}</h3>
               {agent.name === "lead_agent" && (
-                <Badge variant="outline" className="rounded-sm text-[10px]">
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
                   {t.agents.coreBadge}
                 </Badge>
               )}
               {!agent.canManage && (
-                <Badge variant="outline" className="rounded-sm text-[10px]">
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0">
                   {t.agents.readOnlyBadge}
                 </Badge>
               )}
             </div>
-            <p className="text-muted-foreground line-clamp-2 text-sm leading-6">
+            <p className="text-muted-foreground mt-1 line-clamp-2 text-xs leading-relaxed">
               {agent.description || t.agents.switcher.builtinDescription}
             </p>
           </div>
         </div>
 
-        {/* Keep status metadata in a compact facts column so the page reads
-            like a directory, not a card mosaic. */}
-        <dl className="grid gap-2 text-sm sm:grid-cols-2 xl:grid-cols-1">
-          <div className="rounded-sm border bg-muted/20 px-3 py-2">
-            <dt className="text-muted-foreground text-[11px] uppercase tracking-[0.14em]">
-              Default
-            </dt>
-            <dd className="mt-1 font-medium">{getDefaultStatusLabel(agent, t)}</dd>
-          </div>
-          <div className="rounded-sm border bg-muted/20 px-3 py-2">
-            <dt className="text-muted-foreground text-[11px] uppercase tracking-[0.14em]">
-              Availability
-            </dt>
-            <dd className="mt-1 font-medium">
-              {getAvailabilityLabel(agent, t)}
-            </dd>
-          </div>
-          <div className="rounded-sm border bg-muted/20 px-3 py-2">
-            <dt className="text-muted-foreground text-[11px] uppercase tracking-[0.14em]">
-              Draft
-            </dt>
-            <dd className="mt-1 font-medium">
-              {agent.devAgent ? "Available" : "Missing"}
-            </dd>
-          </div>
-          <div className="rounded-sm border bg-muted/20 px-3 py-2">
-            <dt className="text-muted-foreground text-[11px] uppercase tracking-[0.14em]">
-              Published
-            </dt>
-            <dd className="mt-1 font-medium">
-              {agent.prodAgent ? "Available" : "Missing"}
-            </dd>
-          </div>
-        </dl>
-
-        <div className="flex flex-col gap-2 border-t pt-3 sm:border-t-0 sm:pt-0 xl:border-l xl:pl-4">
-          <Button className="w-full" onClick={handleChat}>
-            <MessageSquareIcon className="mr-1.5 h-4 w-4" />
-            {t.agents.startChatting}
-          </Button>
-          {(agent.canManage || canPublish || canDelete) && (
-            <div className="grid w-full gap-2">
-              <div
-                className={cn(
-                  "grid gap-2",
-                  agent.canManage && canPublish ? "grid-cols-2" : "grid-cols-1",
-                )}
-              >
-                {agent.canManage && (
-                  <Button
-                    className="justify-start"
-                    variant="outline"
-                    onClick={handleOpenSettings}
-                  >
-                    <Settings2Icon className="mr-1.5 h-3.5 w-3.5" />
-                    {t.common.settings}
-                  </Button>
-                )}
-                {canPublish && (
-                  <Button
-                    className="justify-start"
-                    variant="outline"
-                    onClick={handlePublish}
-                    disabled={publishAgentMutation.isPending}
-                  >
-                    <RocketIcon className="mr-1.5 h-3.5 w-3.5" />
-                    {t.agents.publishToProd}
-                  </Button>
-                )}
-              </div>
-              {canDelete && (
-                <div className="flex w-full justify-end pt-1">
-                  <Button
-                    className={cn(
-                      "border-destructive/25 text-destructive hover:bg-destructive/5 hover:text-destructive",
-                    )}
-                    variant="outline"
-                    onClick={() => setDeleteOpen(true)}
-                  >
-                    <Trash2Icon className="mr-1.5 h-4 w-4" />
-                    {t.agents.delete}
-                  </Button>
-                </div>
-              )}
-            </div>
+        {/* Status pills */}
+        <div className="flex flex-wrap items-center gap-1.5 px-4 pb-3">
+          {hasDraftArchive && (
+            <span className="inline-flex items-center rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+              {t.agents.draftBadge}
+            </span>
           )}
+          {hasPublishedArchive && (
+            <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+              {t.agents.publishedBadge}
+            </span>
+          )}
+          <span className="text-muted-foreground text-[10px]">
+            {availability === "publishedReady"
+              ? t.agents.publishedReady
+              : availability === "draftOnly"
+                ? t.agents.draftOnly
+                : t.agents.publishedOnly}
+          </span>
+          <span className="text-muted-foreground/40">·</span>
+          <span className="text-muted-foreground text-[10px]">
+            {defaultTarget === "draft"
+              ? t.agents.defaultDraft
+              : t.agents.defaultPublished}
+          </span>
+        </div>
+
+        {/* Actions */}
+        <div className="mt-auto border-t px-4 py-3">
+          <div className="flex items-center gap-2">
+            <Button size="sm" className="flex-1" onClick={handleChat}>
+              <MessageSquareIcon className="mr-1.5 h-3.5 w-3.5" />
+              {t.agents.startChatting}
+            </Button>
+            {agent.canManage && (
+              <Button size="sm" variant="ghost" onClick={handleOpenSettings}>
+                <Settings2Icon className="h-4 w-4" />
+              </Button>
+            )}
+            {canPublish && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handlePublish}
+                disabled={publishAgentMutation.isPending}
+              >
+                <RocketIcon className="h-4 w-4" />
+              </Button>
+            )}
+            {canDelete && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-muted-foreground hover:text-destructive"
+                onClick={() => setDeleteOpen(true)}
+              >
+                <Trash2Icon className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
         </div>
       </article>
 
