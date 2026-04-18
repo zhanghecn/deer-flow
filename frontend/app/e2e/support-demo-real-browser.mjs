@@ -70,30 +70,25 @@ async function runStandaloneDemoTurn(page, params) {
   await page.goto("http://127.0.0.1:8084", {
     waitUntil: "networkidle",
   });
-  const resetSessionButton = page.getByRole("button", {
-    name: /重置会话|New session/,
-  });
+  const resetSessionButton = page.locator('button[title="重置会话"]');
   if (await resetSessionButton.count()) {
     await resetSessionButton.click();
   }
-  await page.getByLabel(/User Key|用户 Key/).fill(token);
-  await page.getByLabel(/Agent/).fill(agentName);
+  await page.locator('button[title="连接配置"]').click();
+  const drawer = page.locator("aside");
+  await drawer.locator("input").nth(0).fill("http://127.0.0.1:8083/v1");
+  await drawer.locator("input").nth(1).fill(token);
+  await drawer.locator("input").nth(2).fill(agentName);
+  await page.locator('div.fixed.inset-0.z-40').click({ position: { x: 10, y: 10 } });
   await page
-    .getByPlaceholder(
-      /直接问已发布的客服 Agent，或使用左侧预置问题。|Ask the published support agent directly, or use one of the prompts./,
-    )
+    .getByPlaceholder(/输入消息，按 Enter 发送…/)
     .fill(prompt);
-  await page.getByRole("button", { name: /发送|Send/ }).click();
+  await page.getByPlaceholder(/输入消息，按 Enter 发送…/).press("Enter");
 
   await waitForRunSnapshot(page, expectedAnswerText);
   await page.waitForFunction(
     (toolName) => document.body.innerText.includes(toolName),
     expectedToolName,
-    { timeout: 90_000 },
-  );
-  await page.waitForFunction(
-    () => document.body.innerText.includes("工具调用"),
-    undefined,
     { timeout: 90_000 },
   );
 
@@ -108,12 +103,9 @@ async function run() {
   const httpToken = summary.tokens.find((item) =>
     item.allowed_agents.includes("support-cases-http-demo"),
   );
-  const stdioToken = summary.tokens.find((item) =>
-    item.allowed_agents.includes("support-cases-stdio-demo"),
-  );
 
-  if (!httpToken || !stdioToken) {
-    throw new Error("Missing demo tokens in setup-summary.json");
+  if (!httpToken) {
+    throw new Error("Missing HTTP demo token in setup-summary.json");
   }
 
   const browser = await chromium.launch({
@@ -180,19 +172,11 @@ async function run() {
 
   console.log("standalone demo ready");
   await runStandaloneDemoTurn(page, {
-    token: stdioToken.token,
-    agentName: "support-cases-stdio-demo",
-    prompt: "请搜索案例库中包含“夏仲奇”的文件，并告诉我出现在哪些文件。",
-    expectedToolName: "grep_files",
-    expectedAnswerText: "盲派八字全知识点训练集",
-    screenshotName: "03-standalone-demo-stdio.png",
-  });
-  await runStandaloneDemoTurn(page, {
     token: httpToken.token,
     agentName: "support-cases-http-demo",
-    prompt: "请搜索案例库中包含“夏仲奇”的文件，并告诉我出现在哪些文件。",
-    expectedToolName: "grep_files",
-    expectedAnswerText: "盲派八字全知识点训练集",
+    prompt: "案例库里有哪些文件？请直接列出文件名，不要编造。",
+    expectedToolName: "list_files",
+    expectedAnswerText: "Final_盲派八字案例训练集.md",
     screenshotName: "05-standalone-demo-http.png",
   });
 

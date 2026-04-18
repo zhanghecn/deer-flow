@@ -18,7 +18,7 @@ import {
   type PublicAPITurnEvent,
   type PublicAPITurnSnapshot,
 } from "@/core/public-api/api";
-import { runStreamedPublicAPITurn } from "@/core/public-api/turn-runner";
+import { createPublicAPISession } from "@/core/public-api/session";
 import { workspaceMessageRehypePlugins } from "@/core/streamdown";
 import { cn } from "@/lib/utils";
 
@@ -216,6 +216,10 @@ export function SupportHTTPChatDemo({
   const text = getSupportHTTPChatDemoText(locale);
   const transcriptEndRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const sessionRef = useRef<ReturnType<typeof createPublicAPISession> | null>(
+    null,
+  );
+  const sessionConfigKeyRef = useRef("");
 
   const [apiBaseURL, setAPIBaseURL] = useState(defaultBaseURL);
   const [apiToken, setAPIToken] = useState("");
@@ -253,6 +257,20 @@ export function SupportHTTPChatDemo({
     });
   }, [messages]);
 
+  function ensureSession() {
+    const configKey = [apiBaseURL.trim(), apiToken.trim(), agentName.trim()].join("\n");
+    if (!sessionRef.current || sessionConfigKeyRef.current !== configKey) {
+      sessionRef.current = createPublicAPISession({
+        baseURL: apiBaseURL,
+        apiToken: apiToken.trim(),
+        agent: agentName.trim(),
+        traceText,
+      });
+      sessionConfigKeyRef.current = configKey;
+    }
+    return sessionRef.current;
+  }
+
   function replaceMessage(
     messageID: string,
     updater: (message: DemoMessage) => DemoMessage,
@@ -267,6 +285,7 @@ export function SupportHTTPChatDemo({
   function resetSession() {
     abortRef.current?.abort();
     abortRef.current = null;
+    sessionRef.current?.reset();
     setMessages([]);
     setLastTurn(null);
     setPreviousTurnID("");
@@ -313,23 +332,17 @@ export function SupportHTTPChatDemo({
     ]);
 
     try {
-      const result = await runStreamedPublicAPITurn({
-        baseURL: apiBaseURL,
-        apiToken: trimmedToken,
+      const session = ensureSession();
+      const result = await session.prompt({
+        text: prompt,
         signal: controller.signal,
-        traceText,
-        body: {
-          agent: agentName,
-          input: { text: prompt },
-          previous_turn_id: previousTurnID || undefined,
-          metadata: {
-            source: "docs_support_http_demo",
-            surface: "support_demo",
-          },
-          thinking: {
-            enabled: reasoningEnabled,
-            effort: reasoningEffort,
-          },
+        metadata: {
+          source: "docs_support_http_demo",
+          surface: "support_demo",
+        },
+        thinking: {
+          enabled: reasoningEnabled,
+          effort: reasoningEffort,
         },
         onUpdate: ({ event, readModel }) => {
           const nextActivity =
@@ -368,7 +381,7 @@ export function SupportHTTPChatDemo({
 
       const finalizedTurn = result.turn;
       setLastTurn(finalizedTurn);
-      setPreviousTurnID(finalizedTurn.id);
+      setPreviousTurnID(session.getPreviousTurnId());
       replaceMessage(assistantMessageID, (message) => ({
         ...message,
         content:

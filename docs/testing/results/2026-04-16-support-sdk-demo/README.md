@@ -1,5 +1,9 @@
 # Support SDK Demo Real Test
 
+> 说明：这份记录保留为 2026-04-16 的历史结果。当前仓库已经硬切到
+> “原生 `/v1/turns` + session helper” 路线，不再把官方 `openai`
+> JavaScript SDK 作为一等接入标准。
+
 日期：2026-04-16
 
 ## 这次验证了什么
@@ -8,7 +12,7 @@
 
 1. Deer Flow 中存在一个已发布的客服 agent
 2. 客户私有案例库不进入 Deer Flow 知识库，而是通过 MCP 按需读取
-3. 外部页面通过官方 `openai` JavaScript SDK 调 Deer Flow 的公开契约
+3. 外部页面当时通过官方 `openai` JavaScript SDK 调公开契约
 4. 这个外部页面能像一个正常客服聊天页一样工作，而不是开发者调试台
 
 ## 这次使用的真实对象
@@ -97,7 +101,7 @@ MCP Profile 使用的标准 `mcpServers` JSON：
 - `Support Demo`
   - 面向客户视角
   - 正常客服聊天 UI
-  - 使用官方 `openai` JS SDK
+  - 这条历史记录当时使用官方 `openai` JS SDK，现已被原生 session helper 路线取代
 - `Playground`
   - 面向开发调试
   - 更偏接口验证和调试台
@@ -108,5 +112,5 @@ MCP Profile 使用的标准 `mcpServers` JSON：
 
 1. 支持把客户私有案例库通过 MCP 暴露给 Deer Flow，而不是导入知识库
 2. 已发布客服 agent 能真实调用这些 MCP 能力回答问题
-3. 官方 `openai` JavaScript SDK 可以直接对接 Deer Flow 的公开契约
+3. 当时的官方 `openai` JavaScript SDK 兼容路径可以打通，但现行标准已经改为原生 `/v1/turns` session helper
 4. 新的 `Support Demo` 页面已经能作为客户侧客服聊天页的演示实现

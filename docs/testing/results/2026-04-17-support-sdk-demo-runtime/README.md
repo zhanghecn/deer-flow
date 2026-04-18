@@ -45,11 +45,11 @@
    - `support-cases-stdio-demo`
    - `support-cases-http-demo`
 4. 为两个已发布 agent 真实创建了作用域 API key。
-5. 用真实浏览器断言式验证了原生 `turns` SDK 链路：
+5. 用真实浏览器断言式验证了原生 `turns` session helper 链路：
    - `8083` 工作区 agents 列表
    - `8083` 公开客服页
-   - `8084` 独立 SDK demo 的 `stdio` agent
-   - `8084` 独立 SDK demo 的 `http` agent
+   - `8084` 独立调试台的 `stdio` agent
+   - `8084` 独立调试台的 `http` agent
    - `8083` 工作区 published agent playground
 6. 浏览器脚本现在不再只靠截图，而是会断言：
    - `grep_files` 工具名可见
@@ -57,7 +57,7 @@
 7. 把 HTTP MCP 测试链路单独拆到了独立 compose：
    - `docker/docker-compose-support-demo.yaml`
    - `8090` = HTTP MCP mock
-   - `8084` = 外部 SDK demo
+   - `8084` = 外部调试台
 
 ## 结果文件
 
@@ -75,6 +75,12 @@
 - [06-standalone-demo-timeline.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/06-standalone-demo-timeline.png)
 - [07-workspace-playground-current.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/07-workspace-playground-current.png)
 - [08-native-chat-current.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/08-native-chat-current.png)
+- [09-docs-support-http-session.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/09-docs-support-http-session.png)
+  - 本次 session helper 路线下的公开客服页回归截图
+- [10-standalone-demo-session.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/10-standalone-demo-session.png)
+  - 本次 session helper 路线下的 8084 独立调试台截图
+- [11-observability-session.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/11-observability-session.png)
+  - 本次对应 trace 在 8081 observability 中的截图
 - [04-lead-agent-create.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/04-lead-agent-create.png)
 - [lead-agent-created.json](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/lead-agent-created.json)
   - 本次通过 `lead_agent` 真实创建出来的 agent 名
@@ -85,7 +91,7 @@
    - `http://127.0.0.1:8083/workspace/agents`
 2. HTTP MCP 的公开客服页：
    - `http://127.0.0.1:8083/docs/agents/support-cases-http-demo/support`
-3. 独立 SDK demo：
+3. 独立调试台：
    - `http://127.0.0.1:8084`
 4. 工作区 published agent 调试台：
    - `http://127.0.0.1:8083/workspace/agents/support-cases-http-demo/playground?agent_status=prod`
@@ -128,7 +134,7 @@
 - `stdio` MCP 可用
 - `http` MCP 可用
 - 两者都能在客服 agent 中真实调用客户案例数据，而不是先导入 Deer Flow 知识库
-- `8084` 独立 React + Tailwind SDK demo 已经能作为外部接入示例使用
+- `8084` 独立 React + Tailwind 调试台已经能作为外部接入示例使用
 - `8084` 已经真实验证 `stdio` 与 `http` 两种 transport 都能走原生 `/v1/turns`
 - `8083` 工作区 published agent playground 现在也能显示时间线式步骤、工具名、工具参数，以及最终 response JSON
 - `8083` 工作区 published agent playground 现在也能把 Deer Flow 对外公开的 reasoning summary 正确显示到“思考摘要”面板
@@ -144,4 +150,4 @@
 - `docker/docker-compose-prod.yaml` 不再承载测试用 HTTP MCP。
 - `docker/docker-compose-support-demo.yaml` 单独承载 `8084` 和 `8090`，更贴近真实客户外部接入。
 - `support-cases-http-demo` 现在已真实走 HTTP MCP，不再出现“没有可用 customer-cases MCP 工具”的错误回答。
-- `8084` 现在不是假通，而是可渲染、可输入、可调用 SDK API 的真实页面。
+- `8084` 现在不是假通，而是可渲染、可输入、可调用原生 `/v1/turns` session helper 的真实页面。

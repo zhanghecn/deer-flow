@@ -22,9 +22,9 @@ wire type:
   - stable SSE event names
   - turn snapshot finalization via `GET /v1/turns/{id}`
 
-If OpenAgents later ships TypeScript, Python, or Java helpers, they must be
-thin wrappers over `/v1/turns`. They must not invent a second public event
-vocabulary.
+If OpenAgents ships helper libraries, they must be thin wrappers over
+`/v1/turns`. They must not invent a second public event vocabulary or make
+callers resend the full transcript on every turn.
 
 ## Why
 
@@ -97,6 +97,25 @@ All streaming consumers must follow the same merge rules:
 
 These rules exist because model providers and middleware may emit a mix of
 token-like deltas and cumulative replays in the same turn.
+
+## Session Helper Shape
+
+Claude Code alignment matters at the public SDK shape, not at the wire format.
+
+- Claude Code public callers send `prompt` into a long-lived session.
+- Claude Code does not ask external callers to keep sending `messages[]`.
+- OpenAgents should do the same on top of native `/v1/turns`:
+  - caller creates a session helper
+  - caller invokes `session.prompt({ text, ... })`
+  - helper stores `previous_turn_id` internally
+  - helper streams SSE from `/v1/turns`
+  - helper finalizes from `GET /v1/turns/{id}`
+
+That means:
+
+- canonical wire contract: `/v1/turns`
+- canonical helper shape: `session.prompt(...)`
+- explicit non-goal: public `messages[]` replay as the primary integration path
 
 ## Rendering Rules
 

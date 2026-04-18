@@ -18,9 +18,16 @@ type turnCollector struct {
 	sequence             int
 	activeToolCallKeys   map[string]int
 	pendingToolCallKeys  map[string]pendingPublicAPIToolCall
+	replayedMessageIDs   map[string]struct{}
+	replayedToolCallIDs  map[string]struct{}
 	startedToolCallKeys  map[string]struct{}
 	startedAssistantIDs  map[string]struct{}
 	lastReasoningByMsgID map[string]string
+}
+
+type turnReplayBoundary struct {
+	messageIDs  map[string]struct{}
+	toolCallIDs map[string]struct{}
 }
 
 func newTurnCollector(turnID string) *turnCollector {
@@ -29,9 +36,27 @@ func newTurnCollector(turnID string) *turnCollector {
 		events:               make([]model.TurnEvent, 0, 24),
 		activeToolCallKeys:   make(map[string]int),
 		pendingToolCallKeys:  make(map[string]pendingPublicAPIToolCall),
+		replayedMessageIDs:   make(map[string]struct{}),
+		replayedToolCallIDs:  make(map[string]struct{}),
 		startedToolCallKeys:  make(map[string]struct{}),
 		startedAssistantIDs:  make(map[string]struct{}),
 		lastReasoningByMsgID: make(map[string]string),
+	}
+}
+
+func newTurnReplayBoundary() turnReplayBoundary {
+	return turnReplayBoundary{
+		messageIDs:  make(map[string]struct{}),
+		toolCallIDs: make(map[string]struct{}),
+	}
+}
+
+func (c *turnCollector) primeReplayBoundary(boundary turnReplayBoundary) {
+	for messageID := range boundary.messageIDs {
+		c.replayedMessageIDs[messageID] = struct{}{}
+	}
+	for toolCallID := range boundary.toolCallIDs {
+		c.replayedToolCallIDs[toolCallID] = struct{}{}
 	}
 }
 
@@ -128,6 +153,12 @@ func (c *turnCollector) consumeMessageRecord(record map[string]any) []model.Turn
 func (c *turnCollector) consumeAssistantRecord(record map[string]any) []model.TurnEvent {
 	events := make([]model.TurnEvent, 0, 4)
 	messageID := strings.TrimSpace(fmt.Sprint(record["id"]))
+	if _, isHistorical := c.replayedMessageIDs[messageID]; isHistorical {
+		// LangGraph can replay thread history at the start of a streamed run.
+		// Drop already-persisted assistant chunks so `/v1/turns` only exposes the
+		// current turn instead of restating prior answers.
+		return nil
+	}
 	if messageID == "" {
 		messageID = fmt.Sprintf("assistant:%d", len(c.startedAssistantIDs)+1)
 	}
@@ -167,6 +198,9 @@ func (c *turnCollector) consumeAssistantRecord(record map[string]any) []model.Tu
 			continue
 		}
 		toolKey := strings.TrimSpace(fmt.Sprint(firstNonNil(call["id"], fmt.Sprintf("%s:%d", toolName, index))))
+		if _, isHistorical := c.replayedToolCallIDs[toolKey]; isHistorical {
+			continue
+		}
 		if toolKey != "" {
 			if _, ok := c.startedToolCallKeys[toolKey]; ok || c.activeToolCallKeys[toolKey] > 0 {
 				continue
@@ -206,6 +240,9 @@ func (c *turnCollector) consumeToolRecord(record map[string]any) []model.TurnEve
 		return nil
 	}
 	toolKey := strings.TrimSpace(fmt.Sprint(firstNonNil(record["tool_call_id"], record["id"], toolName)))
+	if _, isHistorical := c.replayedToolCallIDs[toolKey]; isHistorical {
+		return nil
+	}
 	events := make([]model.TurnEvent, 0, 2)
 	if pending, ok := c.pendingToolCallKeys[toolKey]; ok {
 		delete(c.pendingToolCallKeys, toolKey)
@@ -283,6 +320,49 @@ func extractReasoningFromContentBlocks(content any) string {
 		}
 	}
 	return strings.Join(segments, "\n\n")
+}
+
+func extractTurnReplayBoundaryFromState(payload []byte) turnReplayBoundary {
+	boundary := newTurnReplayBoundary()
+	values, err := extractStateValues(payload)
+	if err != nil {
+		return boundary
+	}
+
+	rawMessages, ok := values["messages"].([]any)
+	if !ok {
+		return boundary
+	}
+
+	for _, rawMessage := range rawMessages {
+		record, ok := rawMessage.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		if messageID := strings.TrimSpace(fmt.Sprint(record["id"])); messageID != "" {
+			boundary.messageIDs[messageID] = struct{}{}
+		}
+
+		if toolResultID := strings.TrimSpace(fmt.Sprint(firstNonNil(record["tool_call_id"], record["id"]))); toolResultID != "" {
+			if strings.EqualFold(strings.TrimSpace(fmt.Sprint(record["type"])), "tool") {
+				boundary.toolCallIDs[toolResultID] = struct{}{}
+			}
+		}
+
+		rawCalls, _ := record["tool_calls"].([]any)
+		for _, rawCall := range rawCalls {
+			call, ok := rawCall.(map[string]any)
+			if !ok {
+				continue
+			}
+			if toolCallID := strings.TrimSpace(fmt.Sprint(call["id"])); toolCallID != "" {
+				boundary.toolCallIDs[toolCallID] = struct{}{}
+			}
+		}
+	}
+
+	return boundary
 }
 
 func translateTurnRequest(request model.TurnCreateRequest) (model.PublicAPIResponsesRequest, error) {
@@ -387,6 +467,21 @@ func (s *PublicAPIService) executeTurn(
 	collector *turnCollector,
 	onEvent func(event model.TurnEvent) error,
 ) (*model.TurnSnapshot, error) {
+	if strings.TrimSpace(plan.PreviousResponseID) != "" {
+		// Seed the collector with the thread's pre-run message/tool identifiers so
+		// a history replay from LangGraph does not leak the previous answer into
+		// the new `/v1/turns` SSE stream.
+		if statePayload, err := s.fetchThreadState(
+			ctx,
+			plan.Auth.UserID,
+			plan.ThreadID,
+			plan.AgentName,
+			plan.ModelName,
+		); err == nil {
+			collector.primeReplayBoundary(extractTurnReplayBoundaryFromState(statePayload))
+		}
+	}
+
 	started := collector.push(model.TurnEvent{Type: model.TurnEventTurnStarted})
 	if onEvent != nil {
 		if err := onEvent(started); err != nil {

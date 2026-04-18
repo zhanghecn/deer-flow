@@ -1,10 +1,9 @@
 @import "tailwindcss";
 
 :root {
-  color: #1f2937;
-  background:
-    radial-gradient(circle at top left, rgba(245, 158, 11, 0.1), transparent 28%),
-    linear-gradient(180deg, #f7f2ea 0%, #f3eee6 48%, #ece6db 100%);
+  color-scheme: dark;
+  color: #e4e4e7;
+  background: #0a0b10;
   font-family:
     "IBM Plex Sans",
     "PingFang SC",
@@ -16,14 +15,33 @@
 body {
   margin: 0;
   min-height: 100vh;
-  color: #1f2937;
-  background: transparent;
+  color: #e4e4e7;
+  background: #0a0b10;
 }
 
 #root {
+  height: 100vh;
   min-height: 100vh;
 }
 
 * {
   box-sizing: border-box;
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #52525b;
 }
