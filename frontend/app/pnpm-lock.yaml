@@ -164,9 +164,6 @@ importers:
       ogl:
         specifier: ^1.0.11
         version: 1.0.11
-      openai:
-        specifier: 6.34.0
-        version: 6.34.0(ws@8.19.0)(zod@3.25.76)
       react:
         specifier: ^19.0.0
         version: 19.2.4
@@ -10172,6 +10169,7 @@ snapshots:
     optionalDependencies:
       ws: 8.19.0
       zod: 3.25.76
+    optional: true
 
   optionator@0.9.4:
     dependencies:
