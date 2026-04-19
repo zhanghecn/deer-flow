@@ -19,8 +19,8 @@ Use this skill when the user wants a real integration plan or a working project 
 Before giving instructions or generating code, identify:
 
 1. The published `agent` name
-2. The `base_url`
-3. How the caller gets the bearer `api_key`
+2. The user-provided `base_url`
+3. The user-provided bearer `user_key`
 4. Whether they need blocking, streaming, or both
 5. Whether they need browser UI, backend service code, or a mixed architecture
 6. Whether they need file upload, structured output, follow-up turns, or artifact download
@@ -34,9 +34,12 @@ Before giving instructions or generating code, identify:
 
 ## How to answer
 
+- Treat `base_url` and `user_key` as required inputs for runnable integration guidance.
+- If either `base_url` or `user_key` is missing, ask the user to provide it before generating production-ready code.
+- Do not invent deployment URLs, default hosts, demo credentials, or placeholder secrets as if they are known environment values.
 - Start from the smallest successful path:
   - one published agent
-  - one bearer key
+  - one user-provided bearer key
   - one blocking or streaming request to `/v1/turns`
 - When the task includes a browser page, acceptance console, support chat UI, or any user-facing frontend deliverable:
   - apply the `frontend-design` skill expectations as well as this HTTP integration skill
@@ -46,6 +49,7 @@ Before giving instructions or generating code, identify:
   - a single integration module for HTTP calls
   - clear rendering for assistant text, reasoning, and tool-call steps
   - a short usage note in the code comments if needed
+  - keep deployment addresses configurable; never hardcode a host, port, or environment-specific admin URL into generated customer code
   - normalize `base_url` into one canonical API root so both `http://host` and `http://host/v1` work correctly
   - build endpoint helpers that always call `/v1/turns` and `/v1/turns/{id}` explicitly instead of concatenating ad hoc strings
   - keep HTML valid and input labels obvious enough for a customer tester to use without reading the code
@@ -88,6 +92,8 @@ When giving integration guidance, prefer this structure:
 When generating a runnable demo project, make these checks part of the implementation instead of leaving them implicit:
 
 - `base_url` input must accept both `http://host` and `http://host/v1`
+- `base_url` and `user_key` must come from explicit user input, config, or environment before the demo is considered runnable
+- deployment origin must come from user input, config, or environment; use the provided `base_url` as the source of truth instead of hardcoding any fallback host
 - the request builder must resolve to a canonical API root before appending `/turns`
 - the UI must surface HTTP failures before a turn exists
 - the UI must surface `turn.failed` and `turn.requires_input` after streaming starts

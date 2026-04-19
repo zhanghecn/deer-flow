@@ -1,6 +1,7 @@
 # HTTP Examples
 
 Use these examples as starting points. Keep the payload fields identical to the native `/v1/turns` contract.
+Treat `base_url` and `user_key` as required user-supplied inputs. If either is missing, ask for it instead of guessing.
 
 ## JavaScript `fetch`
 
@@ -10,17 +11,24 @@ function resolveApiRoot(rawBaseUrl) {
   return trimmed.endsWith("/v1") ? trimmed : `${trimmed}/v1`;
 }
 
-const apiRoot = resolveApiRoot("http://127.0.0.1:8083");
-const response = await fetch("http://127.0.0.1:8083/v1/turns", {
+const baseUrl = window.OPENAGENTS_BASE_URL;
+if (!baseUrl) {
+  throw new Error("Missing OPENAGENTS_BASE_URL");
+}
+const userKey = window.OPENAGENTS_USER_KEY;
+if (!userKey) {
+  throw new Error("Missing OPENAGENTS_USER_KEY");
+}
+const apiRoot = resolveApiRoot(baseUrl);
+const response = await fetch(`${apiRoot}/turns`, {
   method: "POST",
   headers: {
-    "Authorization": `Bearer ${apiKey}`,
+    "Authorization": `Bearer ${userKey}`,
     "Content-Type": "application/json",
   },
   // Prefer one canonical API root, then append /turns explicitly.
-  // This keeps both `http://host` and `http://host/v1` inputs working.
-  // Example:
-  // fetch(`${apiRoot}/turns`, { ... })
+  // This keeps both `https://host` and `https://host/v1` inputs working.
+  // Replace `window.OPENAGENTS_BASE_URL` with your own required config source when needed.
   body: JSON.stringify({
     agent: "support-agent",
     input: { text: "请帮我查一下退款规则" },
@@ -39,11 +47,19 @@ console.log(turn.output_text);
 ## JavaScript SSE streaming
 
 ```js
-const apiRoot = resolveApiRoot("http://127.0.0.1:8083");
+const baseUrl = window.OPENAGENTS_BASE_URL;
+if (!baseUrl) {
+  throw new Error("Missing OPENAGENTS_BASE_URL");
+}
+const userKey = window.OPENAGENTS_USER_KEY;
+if (!userKey) {
+  throw new Error("Missing OPENAGENTS_USER_KEY");
+}
+const apiRoot = resolveApiRoot(baseUrl);
 const response = await fetch(`${apiRoot}/turns`, {
   method: "POST",
   headers: {
-    "Authorization": `Bearer ${apiKey}`,
+    "Authorization": `Bearer ${userKey}`,
     "Content-Type": "application/json",
     "Accept": "text/event-stream",
   },
@@ -84,7 +100,7 @@ while (true) {
 }
 
 const finalTurn = await fetch(`${apiRoot}/turns/${turnId}`, {
-  headers: { Authorization: `Bearer ${apiKey}` },
+  headers: { Authorization: `Bearer ${userKey}` },
 }).then((res) => res.json());
 ```
 
@@ -95,8 +111,8 @@ The repository keeps one Python demo under `sdk/python/http_turn_demo.py`. Use t
 ## cURL
 
 ```bash
-curl -X POST "http://127.0.0.1:8083/v1/turns" \
-  -H "Authorization: Bearer <user_created_key>" \
+curl -X POST "<base_url>/v1/turns" \
+  -H "Authorization: Bearer <user_key>" \
   -H "Content-Type: application/json" \
   -d '{
     "agent": "support-agent",
