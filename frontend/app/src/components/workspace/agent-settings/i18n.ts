@@ -46,12 +46,17 @@ export type AgentSettingsPageText = {
   loadingSkills: string;
   loadSkillsFailed: string;
   noSkillsInScope: string;
+  searchSkills: string;
+  noSkillsMatchSearch: string;
   disabledBadge: string;
   attachedBadge: string;
   duplicateNameHint: (names: string) => string;
   selectedSkills: string;
   noSelectedSkills: string;
   remove: string;
+  previousPage: string;
+  nextPage: string;
+  pageStatus: (from: number, to: number, total: number) => string;
   toolsTitle: string;
   toolsDescription: string;
   editLabel: string;
@@ -61,6 +66,11 @@ export type AgentSettingsPageText = {
   loadingTools: string;
   loadToolsFailed: string;
   noConfigurableTools: string;
+  selectableToolsTitle: string;
+  runtimeToolsTitle: string;
+  runtimeToolsDescription: string;
+  noRuntimeTools: string;
+  runtimeInjectedBadge: string;
   subagentsTitle: string;
   subagentsDescription: string;
   generalPurposeTitle: string;
@@ -150,6 +160,11 @@ export type AgentSettingsPageText = {
   launchUrlCopied: string;
   saveSuccess: (name: string, status: string) => string;
   saveFailed: string;
+  selectModel: string;
+  inheritWorkspaceModel: string;
+  useMainAgentModel: string;
+  unavailableModel: (name: string) => string;
+  loadModelsFailed: string;
   memoryModelRequired: string;
   subagentNameRequired: (index: number) => string;
   duplicateSubagentName: (name: string) => string;
@@ -178,19 +193,22 @@ const enUS: AgentSettingsPageText = {
   restrictedDescription:
     "You can use this agent, but only its creator or an admin can change settings.",
   identityTitle: "Identity",
-  identityDescription: "Define how this archived agent should be described and targeted.",
+  identityDescription:
+    "Define how this archived agent should be described and targeted.",
   agentName: "Agent name",
   modelOverride: "Model override",
   optionalModelId: "Optional model ID",
   description: "Description",
-  descriptionPlaceholder: "Summarize what this agent owns and what it should optimize for.",
+  descriptionPlaceholder:
+    "Summarize what this agent owns and what it should optimize for.",
   overviewTitle: "Overview",
   skillsLabel: "Skills",
   toolsLabel: "Tools",
   subagentsLabel: "Subagents",
   mcpLabel: "MCP",
   archiveContextTitle: "Current version",
-  archiveContextDescription: "A quick read on the version you are editing right now.",
+  archiveContextDescription:
+    "A quick read on the version you are editing right now.",
   ownerBadge: "Owner",
   leadAgentNote:
     "This is the lead agent — its archive is the entry point for the workspace.",
@@ -203,6 +221,8 @@ const enUS: AgentSettingsPageText = {
   loadingSkills: "Loading skill catalog...",
   loadSkillsFailed: "Failed to load skills.",
   noSkillsInScope: "No skills available in this scope.",
+  searchSkills: "Search skills...",
+  noSkillsMatchSearch: "No skills match the current search.",
   disabledBadge: "disabled",
   attachedBadge: "attached",
   duplicateNameHint: (names) =>
@@ -210,6 +230,9 @@ const enUS: AgentSettingsPageText = {
   selectedSkills: "Selected skills",
   noSelectedSkills: "No skills selected.",
   remove: "remove",
+  previousPage: "Previous",
+  nextPage: "Next",
+  pageStatus: (from, to, total) => `${from}-${to} of ${total}`,
   toolsTitle: "Tools",
   toolsDescription: "Main agent tool selection.",
   editLabel: "Edit",
@@ -219,6 +242,12 @@ const enUS: AgentSettingsPageText = {
   loadingTools: "Loading tools...",
   loadToolsFailed: "Failed to load tools.",
   noConfigurableTools: "No configurable tools available.",
+  selectableToolsTitle: "Archive-selectable tools",
+  runtimeToolsTitle: "Runtime-injected tools",
+  runtimeToolsDescription:
+    "These tools are scanned from the active runtime middleware stack. They remain visible for audit, but archive tool_names do not filter them.",
+  noRuntimeTools: "No runtime-injected tools found.",
+  runtimeInjectedBadge: "runtime",
   subagentsTitle: "Subagents",
   subagentsDescription: "General-purpose and custom subagent configuration.",
   generalPurposeTitle: "General Purpose Subagent",
@@ -247,27 +276,30 @@ const enUS: AgentSettingsPageText = {
   noMcpProfiles: "No MCP profiles found.",
   mcpSelected: (count) => `${count} server(s) selected`,
   promptTitle: "System Prompt",
-  promptDescription: "Edit the agent's AGENTS.md system prompt in the full workbench.",
+  promptDescription:
+    "Edit the agent's AGENTS.md system prompt in the full workbench.",
   promptHint:
     "AGENTS.md authoring lives in the full-width workbench so the archive tree is not constrained.",
   openWorkspace: "Open workspace",
   editableBadge: "editable",
   runtimeContract: "Runtime path",
-  runtimeContractIntro: "The system prompt is loaded from this path at runtime.",
+  runtimeContractIntro:
+    "The system prompt is loaded from this path at runtime.",
   editingScope: "Editing scope",
-  editingScopeDescription:
-    `Changes are applied to the current archive. Use the workbench for full editing capabilities.`,
+  editingScopeDescription: `Changes are applied to the current archive. Use the workbench for full editing capabilities.`,
   memoryTitle: "Memory",
   memoryDescription: "Configure long-term memory for this agent.",
   enableMemory: "Enable Memory",
-  enableMemoryDescription: "Allow the agent to store and recall facts across conversations.",
+  enableMemoryDescription:
+    "Allow the agent to store and recall facts across conversations.",
   memoryModel: "Memory Model",
   memoryModelPlaceholder: "Model ID for memory extraction",
   debounceSeconds: "Debounce Seconds",
   maxFacts: "Max Facts",
   confidenceThreshold: "Confidence Threshold",
   injectionTitle: "Prompt Injection",
-  injectionDescription: "Control how memory facts are injected into the system prompt.",
+  injectionDescription:
+    "Control how memory facts are injected into the system prompt.",
   enableInjection: "Enable Memory Injection",
   enableInjectionDescription:
     "Automatically inject recalled memory facts into the agent context.",
@@ -314,11 +346,18 @@ const enUS: AgentSettingsPageText = {
   launchUrlCopied: "Launch URL copied",
   saveSuccess: (name, status) => `${name} (${status}) saved`,
   saveFailed: "Save failed",
+  selectModel: "Select a model",
+  inheritWorkspaceModel: "Inherit workspace default model",
+  useMainAgentModel: "Use main agent model",
+  unavailableModel: (name) => `${name} (currently unavailable)`,
+  loadModelsFailed: "Failed to load models.",
   memoryModelRequired: "Memory model is required when memory is enabled.",
   subagentNameRequired: (index) => `Subagent ${index}: name is required`,
   duplicateSubagentName: (name) => `Duplicate subagent name: ${name}`,
-  subagentDescriptionRequired: (name) => `Subagent "${name}": description is required`,
-  subagentPromptRequired: (name) => `Subagent "${name}": system prompt is required`,
+  subagentDescriptionRequired: (name) =>
+    `Subagent "${name}": description is required`,
+  subagentPromptRequired: (name) =>
+    `Subagent "${name}": system prompt is required`,
   mustBeInteger: (label) => `${label} must be an integer.`,
   mustBeNumber: (label) => `${label} must be a number.`,
 };
@@ -366,6 +405,8 @@ const zhCN: AgentSettingsPageText = {
   loadingSkills: "正在加载技能目录...",
   loadSkillsFailed: "加载技能失败。",
   noSkillsInScope: "当前范围内没有可用技能。",
+  searchSkills: "搜索技能...",
+  noSkillsMatchSearch: "没有技能匹配当前搜索条件。",
   disabledBadge: "已禁用",
   attachedBadge: "已挂载",
   duplicateNameHint: (names) =>
@@ -373,6 +414,9 @@ const zhCN: AgentSettingsPageText = {
   selectedSkills: "已选技能",
   noSelectedSkills: "未选择任何技能。",
   remove: "移除",
+  previousPage: "上一页",
+  nextPage: "下一页",
+  pageStatus: (from, to, total) => `第 ${from}-${to} 项，共 ${total} 项`,
   toolsTitle: "工具",
   toolsDescription: "主智能体工具选择。",
   editLabel: "编辑",
@@ -382,6 +426,12 @@ const zhCN: AgentSettingsPageText = {
   loadingTools: "正在加载工具...",
   loadToolsFailed: "加载工具失败。",
   noConfigurableTools: "当前没有可配置的工具。",
+  selectableToolsTitle: "可配置工具",
+  runtimeToolsTitle: "运行时注入工具",
+  runtimeToolsDescription:
+    "这些工具来自运行时 middleware 扫描结果，主要用于审计可见性。归档里的 tool_names 无法过滤掉它们。",
+  noRuntimeTools: "当前未发现运行时注入工具。",
+  runtimeInjectedBadge: "运行时",
   subagentsTitle: "子代理",
   subagentsDescription: "通用子代理和自定义子代理配置。",
   generalPurposeTitle: "通用子代理",
@@ -397,7 +447,8 @@ const zhCN: AgentSettingsPageText = {
   subagentNameLabel: "名称",
   subagentNamePlaceholder: "researcher / reviewer / explorer",
   descriptionLabel: "描述",
-  subagentDescriptionPlaceholder: "说明主智能体应该在什么场景下把工作委派给它。",
+  subagentDescriptionPlaceholder:
+    "说明主智能体应该在什么场景下把工作委派给它。",
   subagentPromptLabel: "系统提示词",
   subagentPromptPlaceholder: "填写这个子代理在隔离上下文里执行时应遵循的指令。",
   mcpTitle: "MCP 服务器",
@@ -416,8 +467,7 @@ const zhCN: AgentSettingsPageText = {
   runtimeContract: "运行时路径",
   runtimeContractIntro: "系统提示词在运行时从此路径加载。",
   editingScope: "编辑范围",
-  editingScopeDescription:
-    "更改会应用到当前归档。请使用工作区进行完整编辑。",
+  editingScopeDescription: "更改会应用到当前归档。请使用工作区进行完整编辑。",
   memoryTitle: "记忆",
   memoryDescription: "配置智能体的长期记忆。",
   enableMemory: "启用记忆",
@@ -471,6 +521,11 @@ const zhCN: AgentSettingsPageText = {
   launchUrlCopied: "已复制启动链接",
   saveSuccess: (name, status) => `${name}（${status}）已保存`,
   saveFailed: "保存失败",
+  selectModel: "选择模型",
+  inheritWorkspaceModel: "继承工作区默认模型",
+  useMainAgentModel: "使用主智能体模型",
+  unavailableModel: (name) => `${name}（当前不可用）`,
+  loadModelsFailed: "加载模型失败。",
   memoryModelRequired: "启用记忆时必须填写记忆模型。",
   subagentNameRequired: (index) => `第 ${index} 个子代理：名称为必填项`,
   duplicateSubagentName: (name) => `子代理名称"${name}"重复`,

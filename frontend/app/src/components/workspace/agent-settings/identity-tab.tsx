@@ -7,12 +7,13 @@ import {
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { Agent, AgentStatus } from "@/core/agents";
 import { isLeadAgent } from "@/core/agents";
+import type { Model } from "@/core/models/types";
 
 import type { AgentSettingsPageText } from "./i18n";
+import { ModelSelect } from "./model-select";
 import { FieldLabel, SectionCard, StatCard } from "./shared";
 import type { AgentSettingsFormState, SettingsTab } from "./types";
 
@@ -20,8 +21,13 @@ interface IdentityTabProps {
   agent: Agent;
   form: AgentSettingsFormState;
   agentStatus: AgentStatus;
+  models: Model[];
+  modelsLoading: boolean;
+  modelsError: unknown;
   selectedMainToolNames: string[];
-  onFormChange: (updater: (prev: AgentSettingsFormState) => AgentSettingsFormState | null) => void;
+  onFormChange: (
+    updater: (prev: AgentSettingsFormState) => AgentSettingsFormState | null,
+  ) => void;
   onTabChange: (tab: SettingsTab) => void;
   ownerLabel: string;
   skillNames: string[];
@@ -33,6 +39,9 @@ export function IdentityTab({
   agent,
   form,
   agentStatus,
+  models,
+  modelsLoading,
+  modelsError,
   selectedMainToolNames,
   onFormChange,
   onTabChange,
@@ -79,17 +88,27 @@ export function IdentityTab({
           </div>
           <div className="space-y-2">
             <FieldLabel>{text.modelOverride}</FieldLabel>
-            <Input
+            <ModelSelect
               value={form.model}
-              placeholder={text.optionalModelId}
-              onChange={(event) =>
+              models={models}
+              isLoading={modelsLoading}
+              placeholder={text.selectModel}
+              emptyLabel={text.inheritWorkspaceModel}
+              unavailableLabel={text.unavailableModel}
+              onChange={(nextValue) =>
                 onFormChange((current) => ({
                   ...current,
-                  model: event.target.value,
+                  model: nextValue,
                 }))
               }
-              className="h-11 rounded-2xl"
             />
+            {modelsError ? (
+              <p className="text-destructive text-xs leading-5">
+                {modelsError instanceof Error
+                  ? modelsError.message
+                  : text.loadModelsFailed}
+              </p>
+            ) : null}
           </div>
         </div>
 
@@ -146,9 +165,7 @@ export function IdentityTab({
           <Badge variant="outline">
             {text.ownerBadge}: {ownerLabel}
           </Badge>
-          {agent.model && (
-            <Badge variant="secondary">{agent.model}</Badge>
-          )}
+          {agent.model && <Badge variant="secondary">{agent.model}</Badge>}
           <Badge variant="outline">
             {form.skillRefs.length} {text.skillsLabel}
           </Badge>

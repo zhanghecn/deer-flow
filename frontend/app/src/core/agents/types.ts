@@ -45,7 +45,13 @@ export interface ToolCatalogItem {
   description: string;
   configurable_for_main_agent: boolean;
   configurable_for_subagent: boolean;
-  reserved_policy: "normal" | "main_agent_only" | "runtime_only";
+  reserved_policy:
+    | "normal"
+    | "main_agent_only"
+    | "runtime_only"
+    | "middleware_injected";
+  source?: "builtin" | "config" | "middleware";
+  read_only_reason?: string | null;
 }
 
 export interface Agent {

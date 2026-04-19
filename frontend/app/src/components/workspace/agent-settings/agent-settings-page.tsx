@@ -18,7 +18,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   type Agent,
   type AgentStatus,
-  type ToolCatalogItem,
   useAgent,
   useAgentExportDoc,
   useToolCatalog,
@@ -27,6 +26,7 @@ import {
 import { useAuth } from "@/core/auth/hooks";
 import { useI18n } from "@/core/i18n/hooks";
 import { useMCPProfiles } from "@/core/mcp/hooks";
+import { useModels } from "@/core/models/hooks";
 import { useSkills } from "@/core/skills/hooks";
 import { cn } from "@/lib/utils";
 
@@ -89,7 +89,8 @@ function createFormState(agent: Agent): AgentSettingsFormState {
     confidenceThreshold: String(agent.memory?.fact_confidence_threshold ?? 0.7),
     injectionEnabled: agent.memory?.injection_enabled ?? true,
     maxInjectionTokens: String(agent.memory?.max_injection_tokens ?? 2000),
-    generalPurposeEnabled: agent.subagent_defaults?.general_purpose_enabled ?? true,
+    generalPurposeEnabled:
+      agent.subagent_defaults?.general_purpose_enabled ?? true,
     generalPurposeUsesMainTools: agent.subagent_defaults?.tool_names == null,
     generalPurposeToolNames: agent.subagent_defaults?.tool_names ?? [],
     subagents: (agent.subagents ?? []).map((sub, idx) => ({
@@ -107,10 +108,26 @@ function createFormState(agent: Agent): AgentSettingsFormState {
 
 function buildNavItems(text: AgentSettingsPageText) {
   return [
-    { value: "identity" as const, label: text.tabIdentity, icon: <BotIcon className="size-4" /> },
-    { value: "capabilities" as const, label: text.tabCapabilities, icon: <SparklesIcon className="size-4" /> },
-    { value: "behavior" as const, label: text.tabBehavior, icon: <BrainIcon className="size-4" /> },
-    { value: "integration" as const, label: text.tabIntegration, icon: <Link2Icon className="size-4" /> },
+    {
+      value: "identity" as const,
+      label: text.tabIdentity,
+      icon: <BotIcon className="size-4" />,
+    },
+    {
+      value: "capabilities" as const,
+      label: text.tabCapabilities,
+      icon: <SparklesIcon className="size-4" />,
+    },
+    {
+      value: "behavior" as const,
+      label: text.tabBehavior,
+      icon: <BrainIcon className="size-4" />,
+    },
+    {
+      value: "integration" as const,
+      label: text.tabIntegration,
+      icon: <Link2Icon className="size-4" />,
+    },
   ];
 }
 
@@ -139,14 +156,13 @@ export function AgentSettingsPageView({
   } = useMCPProfiles();
 
   const canLoadExportDoc = agent != null;
+  const { models, isLoading: modelsLoading, error: modelsError } = useModels();
+
   const {
     exportDoc,
     isLoading: exportDocLoading,
     error: exportDocError,
-  } = useAgentExportDoc(
-    canLoadExportDoc ? agentName : null,
-    canLoadExportDoc,
-  );
+  } = useAgentExportDoc(canLoadExportDoc ? agentName : null, canLoadExportDoc);
   const exportDocMissing =
     exportDocError instanceof Error &&
     /agent not found/i.test(exportDocError.message);
@@ -161,7 +177,9 @@ export function AgentSettingsPageView({
 
   const [activeTab, setActiveTab] = useState<SettingsTab>("identity");
   const [form, setForm] = useState<AgentSettingsFormState | null>(null);
-  const [savedForm, setSavedForm] = useState<AgentSettingsFormState | null>(null);
+  const [savedForm, setSavedForm] = useState<AgentSettingsFormState | null>(
+    null,
+  );
   const [mcpProfileQuery, setMcpProfileQuery] = useState("");
 
   const mainToolOptions = useMemo(
@@ -187,7 +205,11 @@ export function AgentSettingsPageView({
     () =>
       form
         ? resolveEffectiveToolNames(
-            { toolSelectionEnabled: form.toolSelectionEnabled, toolNames: form.toolNames, toolGroups: form.toolGroups },
+            {
+              toolSelectionEnabled: form.toolSelectionEnabled,
+              toolNames: form.toolNames,
+              toolGroups: form.toolGroups,
+            },
             mainToolOptions,
             "main",
           )
@@ -224,7 +246,7 @@ export function AgentSettingsPageView({
   function handleFormChange(
     updater: (prev: AgentSettingsFormState) => AgentSettingsFormState | null,
   ) {
-    setForm((current) => (current ? updater(current) ?? current : current));
+    setForm((current) => (current ? (updater(current) ?? current) : current));
   }
 
   async function handleSave() {
@@ -242,16 +264,20 @@ export function AgentSettingsPageView({
         normalizedSubagentNames.add(lowered);
 
         const description = subagent.description.trim();
-        if (!description) throw new Error(`Subagent "${name}": description is required`);
+        if (!description)
+          throw new Error(`Subagent "${name}": description is required`);
         const systemPrompt = subagent.systemPrompt.trim();
-        if (!systemPrompt) throw new Error(`Subagent "${name}": system prompt is required`);
+        if (!systemPrompt)
+          throw new Error(`Subagent "${name}": system prompt is required`);
 
         return {
           name,
           description,
           system_prompt: systemPrompt,
           model: subagent.model.trim() || null,
-          tool_names: subagent.toolSelectionEnabled ? [...subagent.toolNames] : null,
+          tool_names: subagent.toolSelectionEnabled
+            ? [...subagent.toolNames]
+            : null,
           enabled: subagent.enabled,
         };
       });
@@ -261,7 +287,11 @@ export function AgentSettingsPageView({
       }
 
       const effectiveMainToolNames = resolveEffectiveToolNames(
-        { toolSelectionEnabled: form.toolSelectionEnabled, toolNames: form.toolNames, toolGroups: form.toolGroups },
+        {
+          toolSelectionEnabled: form.toolSelectionEnabled,
+          toolNames: form.toolNames,
+          toolGroups: form.toolGroups,
+        },
         mainToolOptions,
         "main",
       );
@@ -272,14 +302,20 @@ export function AgentSettingsPageView({
         request: {
           description: form.description.trim(),
           model: form.model.trim() || null,
-          tool_groups: form.toolSelectionEnabled ? null : parseCSV(form.toolGroups),
-          tool_names: form.toolSelectionEnabled ? [...effectiveMainToolNames] : null,
+          tool_groups: form.toolSelectionEnabled
+            ? null
+            : parseCSV(form.toolGroups),
+          tool_names: form.toolSelectionEnabled
+            ? [...effectiveMainToolNames]
+            : null,
           mcp_servers: form.mcpServers.length > 0 ? [...form.mcpServers] : null,
           skill_refs: form.skillRefs.map(serializeSkillRefForRequest),
           agents_md: form.agentsMd,
           subagent_defaults: {
             general_purpose_enabled: form.generalPurposeEnabled,
-            tool_names: form.generalPurposeUsesMainTools ? null : [...form.generalPurposeToolNames],
+            tool_names: form.generalPurposeUsesMainTools
+              ? null
+              : [...form.generalPurposeToolNames],
           },
           subagents: normalizedSubagents,
           memory: {
@@ -287,7 +323,9 @@ export function AgentSettingsPageView({
             model_name: form.memoryModel.trim() || null,
             debounce_seconds: parseIntegerInput(form.debounceSeconds),
             max_facts: parseIntegerInput(form.maxFacts),
-            fact_confidence_threshold: parseFloatInput(form.confidenceThreshold),
+            fact_confidence_threshold: parseFloatInput(
+              form.confidenceThreshold,
+            ),
             injection_enabled: form.injectionEnabled,
             max_injection_tokens: parseIntegerInput(form.maxInjectionTokens),
           },
@@ -299,7 +337,9 @@ export function AgentSettingsPageView({
       setSavedForm(nextForm);
       toast.success(text.saveSuccess(updated.name, updated.status));
     } catch (saveError) {
-      toast.error(saveError instanceof Error ? saveError.message : text.saveFailed);
+      toast.error(
+        saveError instanceof Error ? saveError.message : text.saveFailed,
+      );
     }
   }
 
@@ -343,9 +383,7 @@ export function AgentSettingsPageView({
                 {isDirty ? text.unsavedChanges : text.allSaved}
               </p>
               <p className="text-muted-foreground text-xs">
-                {canManage
-                  ? text.appliesToArchive(agentStatus)
-                  : text.readOnly}
+                {canManage ? text.appliesToArchive(agentStatus) : text.readOnly}
               </p>
             </div>
             <Button
@@ -389,7 +427,7 @@ export function AgentSettingsPageView({
                         "flex w-full items-center gap-3 rounded-2xl border px-3 py-2.5 text-left text-sm transition-colors",
                         active
                           ? "border-primary/50 bg-primary/5 font-medium"
-                          : "border-transparent text-muted-foreground hover:bg-muted/30",
+                          : "text-muted-foreground hover:bg-muted/30 border-transparent",
                       )}
                     >
                       {item.icon}
@@ -421,10 +459,12 @@ export function AgentSettingsPageView({
                     {text.noAgent}
                   </div>
                 ) : !canManage ? (
-                  <div className="text-muted-foreground rounded-3xl border border-border/70 bg-background/95 p-5 text-sm">
+                  <div className="text-muted-foreground border-border/70 bg-background/95 rounded-3xl border p-5 text-sm">
                     <div className="flex items-center gap-2">
                       <Settings2Icon className="size-4" />
-                      <span className="font-medium">{text.restrictedTitle}</span>
+                      <span className="font-medium">
+                        {text.restrictedTitle}
+                      </span>
                     </div>
                     <p className="mt-2 text-xs leading-5">
                       {text.restrictedDescription}
@@ -437,6 +477,9 @@ export function AgentSettingsPageView({
                         agent={agent}
                         form={form}
                         agentStatus={agentStatus}
+                        models={models}
+                        modelsLoading={modelsLoading}
+                        modelsError={modelsError}
                         selectedMainToolNames={selectedMainToolNames}
                         text={text}
                         onFormChange={handleFormChange}
@@ -450,6 +493,9 @@ export function AgentSettingsPageView({
                       <CapabilitiesTab
                         form={form}
                         agentStatus={agentStatus}
+                        models={models}
+                        modelsLoading={modelsLoading}
+                        modelsError={modelsError}
                         onFormChange={handleFormChange}
                         text={text}
                         availableSkills={availableSkills}
@@ -461,6 +507,7 @@ export function AgentSettingsPageView({
                         selectedMainToolNames={selectedMainToolNames}
                         toolCatalogLoading={toolCatalogLoading}
                         toolCatalogError={toolCatalogError}
+                        fullToolCatalog={toolCatalog}
                         mcpProfiles={mcpProfiles}
                         mcpProfilesLoading={mcpProfilesLoading}
                         mcpProfilesError={mcpProfilesError}
@@ -473,6 +520,9 @@ export function AgentSettingsPageView({
                         agentName={agentName}
                         agentStatus={agentStatus}
                         form={form}
+                        models={models}
+                        modelsLoading={modelsLoading}
+                        modelsError={modelsError}
                         skillNames={skillNames}
                         text={text}
                         onFormChange={handleFormChange}

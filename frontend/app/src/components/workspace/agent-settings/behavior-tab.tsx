@@ -12,8 +12,10 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import type { AgentStatus } from "@/core/agents";
 import { buildWorkspaceAgentAuthoringPath } from "@/core/authoring";
+import type { Model } from "@/core/models/types";
 
 import type { AgentSettingsPageText } from "./i18n";
+import { ModelSelect } from "./model-select";
 import { FieldLabel, SectionCard } from "./shared";
 import type { AgentSettingsFormState } from "./types";
 
@@ -21,15 +23,23 @@ interface BehaviorTabProps {
   agentName: string;
   agentStatus: AgentStatus;
   form: AgentSettingsFormState;
+  models: Model[];
+  modelsLoading: boolean;
+  modelsError: unknown;
   skillNames: string[];
   text: AgentSettingsPageText;
-  onFormChange: (updater: (prev: AgentSettingsFormState) => AgentSettingsFormState | null) => void;
+  onFormChange: (
+    updater: (prev: AgentSettingsFormState) => AgentSettingsFormState | null,
+  ) => void;
 }
 
 export function BehaviorTab({
   agentName,
   agentStatus,
   form,
+  models,
+  modelsLoading,
+  modelsError,
   skillNames,
   text,
   onFormChange,
@@ -65,9 +75,7 @@ export function BehaviorTab({
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="border-border/70 bg-muted/20 rounded-3xl border p-4">
             <FieldLabel className="mb-2">{text.runtimeContract}</FieldLabel>
-            <p className="text-sm leading-6">
-              {text.runtimeContractIntro}
-            </p>
+            <p className="text-sm leading-6">{text.runtimeContractIntro}</p>
             <code className="bg-background border-border/70 mt-3 block rounded-2xl border px-3 py-3 text-xs leading-6 break-all">
               /mnt/user-data/agents/{agentStatus}/{agentName}/AGENTS.md
             </code>
@@ -107,17 +115,26 @@ export function BehaviorTab({
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2 md:col-span-2">
             <FieldLabel>{text.memoryModel}</FieldLabel>
-            <Input
+            <ModelSelect
               value={form.memoryModel}
-              placeholder={text.memoryModelPlaceholder}
+              models={models}
+              isLoading={modelsLoading}
               disabled={!form.memoryEnabled}
-              onChange={(event) =>
+              placeholder={text.selectModel}
+              unavailableLabel={text.unavailableModel}
+              onChange={(nextValue) =>
                 onFormChange((current) =>
-                  current ? { ...current, memoryModel: event.target.value } : current,
+                  current ? { ...current, memoryModel: nextValue } : current,
                 )
               }
-              className="h-11 rounded-2xl"
             />
+            {modelsError ? (
+              <p className="text-destructive text-xs leading-5">
+                {modelsError instanceof Error
+                  ? modelsError.message
+                  : text.loadModelsFailed}
+              </p>
+            ) : null}
           </div>
           <div className="space-y-2">
             <FieldLabel>{text.debounceSeconds}</FieldLabel>
@@ -129,7 +146,9 @@ export function BehaviorTab({
               disabled={!form.memoryEnabled}
               onChange={(event) =>
                 onFormChange((current) =>
-                  current ? { ...current, debounceSeconds: event.target.value } : current,
+                  current
+                    ? { ...current, debounceSeconds: event.target.value }
+                    : current,
                 )
               }
               className="h-11 rounded-2xl"
@@ -145,7 +164,9 @@ export function BehaviorTab({
               disabled={!form.memoryEnabled}
               onChange={(event) =>
                 onFormChange((current) =>
-                  current ? { ...current, maxFacts: event.target.value } : current,
+                  current
+                    ? { ...current, maxFacts: event.target.value }
+                    : current,
                 )
               }
               className="h-11 rounded-2xl"
@@ -162,7 +183,9 @@ export function BehaviorTab({
               disabled={!form.memoryEnabled}
               onChange={(event) =>
                 onFormChange((current) =>
-                  current ? { ...current, confidenceThreshold: event.target.value } : current,
+                  current
+                    ? { ...current, confidenceThreshold: event.target.value }
+                    : current,
                 )
               }
               className="h-11 rounded-2xl"
@@ -204,7 +227,9 @@ export function BehaviorTab({
             disabled={!form.injectionEnabled}
             onChange={(event) =>
               onFormChange((current) =>
-                current ? { ...current, maxInjectionTokens: event.target.value } : current,
+                current
+                  ? { ...current, maxInjectionTokens: event.target.value }
+                  : current,
               )
             }
             className="h-11 rounded-2xl"

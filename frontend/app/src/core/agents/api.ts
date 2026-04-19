@@ -1,5 +1,5 @@
 import { authFetch } from "@/core/auth/fetch";
-import { getBackendBaseURL } from "@/core/config";
+import { getBackendBaseURL, getLangGraphBaseURL } from "@/core/config";
 
 import type {
   Agent,
@@ -35,7 +35,7 @@ export async function listAgents(status?: AgentStatus): Promise<Agent[]> {
 }
 
 export async function listToolCatalog(): Promise<ToolCatalogItem[]> {
-  const res = await authFetch(`${getBackendBaseURL()}/api/tools/catalog`);
+  const res = await authFetch(`${getLangGraphBaseURL()}/api/tools/catalog`);
   if (!res.ok)
     throw new Error(`Failed to load tool catalog: ${res.statusText}`);
   const data = (await res.json()) as { tools: ToolCatalogItem[] };

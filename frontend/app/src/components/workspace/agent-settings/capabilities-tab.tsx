@@ -29,6 +29,7 @@ import {
 } from "@/components/workspace/agent-skill-refs";
 import { resolveEffectiveToolNames } from "@/components/workspace/agent-tool-selection";
 import type { MCPProfile } from "@/core/mcp/types";
+import type { Model } from "@/core/models/types";
 import { getLocalizedSkillDescription } from "@/core/skills";
 import type { Skill } from "@/core/skills/type";
 import {
@@ -43,20 +44,32 @@ import {
 import { cn } from "@/lib/utils";
 
 import type { AgentSettingsPageText } from "./i18n";
+import { ModelSelect } from "./model-select";
 import { FieldLabel, SectionCard } from "./shared";
+import {
+  filterSkillsByQuery,
+  paginateItems,
+  SKILLS_PAGE_SIZE,
+} from "./skills-query";
 import type { AgentSettingsFormState, AgentSubagentFormState } from "./types";
 
 interface CapabilitiesTabProps {
   form: AgentSettingsFormState;
   agentStatus: AgentStatus;
-  onFormChange: (updater: (prev: AgentSettingsFormState) => AgentSettingsFormState | null) => void;
+  onFormChange: (
+    updater: (prev: AgentSettingsFormState) => AgentSettingsFormState | null,
+  ) => void;
   text: AgentSettingsPageText;
+  models: Model[];
+  modelsLoading: boolean;
+  modelsError: unknown;
   // Skills
   availableSkills: Skill[];
   skillsLoading: boolean;
   skillsError: unknown;
   locale: "en-US" | "zh-CN";
   // Tools
+  fullToolCatalog: ToolCatalogItem[];
   mainToolOptions: ToolCatalogItem[];
   subagentToolOptions: ToolCatalogItem[];
   selectedMainToolNames: string[];
@@ -81,10 +94,14 @@ export function CapabilitiesTab({
   agentStatus,
   onFormChange,
   text,
+  models,
+  modelsLoading,
+  modelsError,
   availableSkills,
   skillsLoading,
   skillsError,
   locale,
+  fullToolCatalog,
   mainToolOptions,
   subagentToolOptions,
   selectedMainToolNames,
@@ -126,12 +143,17 @@ export function CapabilitiesTab({
         selectedMainToolNames={selectedMainToolNames}
         toolCatalogLoading={toolCatalogLoading}
         toolCatalogError={toolCatalogError}
+        fullToolCatalog={fullToolCatalog}
         text={text}
         onToggleTool={(toolName) =>
           onFormChange((current) => {
             if (!current) return current;
             const resolved = resolveEffectiveToolNames(
-              { toolSelectionEnabled: current.toolSelectionEnabled, toolNames: current.toolNames, toolGroups: current.toolGroups },
+              {
+                toolSelectionEnabled: current.toolSelectionEnabled,
+                toolNames: current.toolNames,
+                toolGroups: current.toolGroups,
+              },
               mainToolOptions,
               "main",
             );
@@ -156,6 +178,9 @@ export function CapabilitiesTab({
         subagentToolOptions={subagentToolOptions}
         toolCatalogLoading={toolCatalogLoading}
         toolCatalogError={toolCatalogError}
+        models={models}
+        modelsLoading={modelsLoading}
+        modelsError={modelsError}
         text={text}
         onFormChange={onFormChange}
       />
@@ -197,14 +222,25 @@ function SkillsSection({
   availableSkillCategories: SkillScope[];
   locale: "en-US" | "zh-CN";
   text: AgentSettingsPageText;
-  onFormChange: (updater: (prev: AgentSettingsFormState) => AgentSettingsFormState | null) => void;
+  onFormChange: (
+    updater: (prev: AgentSettingsFormState) => AgentSettingsFormState | null,
+  ) => void;
 }) {
-  const duplicateSkillNames = getDuplicateSkillNames(availableSkills, allowedSkillScopes);
+  const duplicateSkillNames = getDuplicateSkillNames(
+    availableSkills,
+    allowedSkillScopes,
+  );
   const duplicateSkillNamesLabel = [...duplicateSkillNames].sort().join(", ");
-  const [skillsCategory, setSkillsCategory] = useState<SkillScope>(DEFAULT_SKILL_SCOPE);
+  const [skillsCategory, setSkillsCategory] =
+    useState<SkillScope>(DEFAULT_SKILL_SCOPE);
+  const [skillsQuery, setSkillsQuery] = useState("");
+  const [skillsPage, setSkillsPage] = useState(1);
 
   useEffect(() => {
-    if (availableSkillCategories.length > 0 && !availableSkillCategories.includes(skillsCategory)) {
+    if (
+      availableSkillCategories.length > 0 &&
+      !availableSkillCategories.includes(skillsCategory)
+    ) {
       setSkillsCategory(availableSkillCategories[0]!);
     }
   }, [availableSkillCategories, skillsCategory]);
@@ -213,20 +249,36 @@ function SkillsSection({
     const scope = normalizeSkillScope(skill.category);
     return scope != null && allowedSkillScopes.includes(scope);
   });
-  const filteredSkills = filterSkillsByScope(selectableSkills, skillsCategory);
+  const scopedSkills = filterSkillsByScope(selectableSkills, skillsCategory);
+  const filteredSkills = filterSkillsByQuery(scopedSkills, skillsQuery, locale);
+  const paginatedSkills = paginateItems(
+    filteredSkills,
+    skillsPage,
+    SKILLS_PAGE_SIZE,
+  );
+
+  useEffect(() => {
+    setSkillsPage(1);
+  }, [skillsCategory, skillsQuery]);
 
   function handleToggleSkill(skill: Skill) {
     const nextRef = createSkillRef(skill);
     onFormChange((current) => {
       if (!current) return current;
-      return { ...current, skillRefs: toggleSkillRefSelection(current.skillRefs, nextRef) };
+      return {
+        ...current,
+        skillRefs: toggleSkillRefSelection(current.skillRefs, nextRef),
+      };
     });
   }
 
   function handleRemoveSkill(skillRef: AgentSkillRef) {
     onFormChange((current) => {
       if (!current) return current;
-      return { ...current, skillRefs: removeSkillRef(current.skillRefs, skillRef) };
+      return {
+        ...current,
+        skillRefs: removeSkillRef(current.skillRefs, skillRef),
+      };
     });
   }
 
@@ -257,6 +309,15 @@ function SkillsSection({
         })}
       </div>
 
+      <div className="space-y-2">
+        <FieldLabel>{text.searchSkills}</FieldLabel>
+        <Input
+          value={skillsQuery}
+          placeholder={text.searchSkills}
+          onChange={(event) => setSkillsQuery(event.target.value)}
+        />
+      </div>
+
       {skillsLoading ? (
         <div className="text-muted-foreground flex items-center gap-2 text-sm">
           <Loader2Icon className="size-4 animate-spin" />
@@ -264,49 +325,94 @@ function SkillsSection({
         </div>
       ) : skillsError ? (
         <div className="text-sm">
-          {skillsError instanceof Error ? skillsError.message : text.loadSkillsFailed}
+          {skillsError instanceof Error
+            ? skillsError.message
+            : text.loadSkillsFailed}
         </div>
       ) : filteredSkills.length === 0 ? (
-        <div className="text-muted-foreground text-sm">{text.noSkillsInScope}</div>
+        <div className="text-muted-foreground text-sm">
+          {skillsQuery.trim() ? text.noSkillsMatchSearch : text.noSkillsInScope}
+        </div>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {filteredSkills.map((skill) => {
-            const nextRef = createSkillRef(skill);
-            const selected = isSkillRefSelected(form.skillRefs, nextRef);
-            return (
-              <button
-                key={skillRefKey(nextRef)}
-                type="button"
-                onClick={() => handleToggleSkill(skill)}
-                className={cn(
-                  "rounded-3xl border p-4 text-left transition-colors",
-                  selected
-                    ? "border-primary/50 bg-primary/5"
-                    : "border-border/70 bg-background/70 hover:bg-muted/30",
+        <div className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            {paginatedSkills.pageItems.map((skill) => {
+              const nextRef = createSkillRef(skill);
+              const selected = isSkillRefSelected(form.skillRefs, nextRef);
+              return (
+                <button
+                  key={skillRefKey(nextRef)}
+                  type="button"
+                  onClick={() => handleToggleSkill(skill)}
+                  className={cn(
+                    "rounded-3xl border p-4 text-left transition-colors",
+                    selected
+                      ? "border-primary/50 bg-primary/5"
+                      : "border-border/70 bg-background/70 hover:bg-muted/30",
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">{skill.name}</p>
+                      <p className="text-muted-foreground mt-1 text-xs leading-5">
+                        {getLocalizedSkillDescription(skill, locale)}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {!skill.enabled && (
+                        <Badge variant="outline">{text.disabledBadge}</Badge>
+                      )}
+                      {selected && (
+                        <Badge variant="secondary">
+                          <CheckIcon className="size-3.5" />
+                          {text.attachedBadge}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          {filteredSkills.length > SKILLS_PAGE_SIZE ? (
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-muted-foreground text-xs">
+                {text.pageStatus(
+                  paginatedSkills.startIndex + 1,
+                  paginatedSkills.endIndex,
+                  filteredSkills.length,
                 )}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium">{skill.name}</p>
-                    <p className="text-muted-foreground mt-1 text-xs leading-5">
-                      {getLocalizedSkillDescription(skill, locale)}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    {!skill.enabled && (
-                      <Badge variant="outline">{text.disabledBadge}</Badge>
-                    )}
-                    {selected && (
-                      <Badge variant="secondary">
-                        <CheckIcon className="size-3.5" />
-                        {text.attachedBadge}
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              </button>
-            );
-          })}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={paginatedSkills.currentPage <= 1}
+                  onClick={() =>
+                    setSkillsPage((currentPage) => Math.max(1, currentPage - 1))
+                  }
+                >
+                  {text.previousPage}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={
+                    paginatedSkills.currentPage >= paginatedSkills.totalPages
+                  }
+                  onClick={() =>
+                    setSkillsPage((currentPage) =>
+                      Math.min(paginatedSkills.totalPages, currentPage + 1),
+                    )
+                  }
+                >
+                  {text.nextPage}
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
 
@@ -330,11 +436,15 @@ function SkillsSection({
               {normalizeSkillScope(skillRef.category)
                 ? ` · ${formatSkillScopeLabel(normalizeSkillScope(skillRef.category)!, locale)}`
                 : ""}
-              <span className="text-[10px] tracking-[0.12em] uppercase">{text.remove}</span>
+              <span className="text-[10px] tracking-[0.12em] uppercase">
+                {text.remove}
+              </span>
             </button>
           ))
         ) : (
-          <p className="text-muted-foreground text-sm">{text.noSelectedSkills}</p>
+          <p className="text-muted-foreground text-sm">
+            {text.noSelectedSkills}
+          </p>
         )}
       </div>
     </SectionCard>
@@ -347,6 +457,7 @@ function ToolsSection({
   selectedMainToolNames,
   toolCatalogLoading,
   toolCatalogError,
+  fullToolCatalog,
   text,
   onToggleTool,
 }: {
@@ -354,10 +465,20 @@ function ToolsSection({
   selectedMainToolNames: string[];
   toolCatalogLoading: boolean;
   toolCatalogError: unknown;
+  fullToolCatalog: ToolCatalogItem[];
   text: AgentSettingsPageText;
   onToggleTool: (toolName: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const runtimeInjectedTools = useMemo(
+    () =>
+      fullToolCatalog.filter(
+        (tool) =>
+          tool.source === "middleware" ||
+          tool.reserved_policy === "middleware_injected",
+      ),
+    [fullToolCatalog],
+  );
 
   if (!expanded) {
     return (
@@ -370,12 +491,18 @@ function ToolsSection({
         <div className="flex flex-wrap gap-2">
           {selectedMainToolNames.length > 0 ? (
             selectedMainToolNames.slice(0, 5).map((name) => (
-              <Badge key={name} variant="secondary" className="rounded-full text-xs">
+              <Badge
+                key={name}
+                variant="secondary"
+                className="rounded-full text-xs"
+              >
                 {name}
               </Badge>
             ))
           ) : (
-            <span className="text-muted-foreground text-sm">{text.noToolsSelected}</span>
+            <span className="text-muted-foreground text-sm">
+              {text.noToolsSelected}
+            </span>
           )}
           {selectedMainToolNames.length > 5 && (
             <Badge variant="outline" className="text-xs">
@@ -403,20 +530,79 @@ function ToolsSection({
         </div>
       ) : toolCatalogError ? (
         <p className="text-sm">
-          {toolCatalogError instanceof Error ? toolCatalogError.message : text.loadToolsFailed}
+          {toolCatalogError instanceof Error
+            ? toolCatalogError.message
+            : text.loadToolsFailed}
         </p>
       ) : (
-        <ToolSelectionList
-          tools={mainToolOptions}
-          selectedNames={selectedMainToolNames}
-          onToggle={onToggleTool}
-          emptyText={text.noConfigurableTools}
-        />
+        <div className="space-y-5">
+          <div className="space-y-3">
+            <FieldLabel>{text.selectableToolsTitle}</FieldLabel>
+            <ToolSelectionList
+              tools={mainToolOptions}
+              selectedNames={selectedMainToolNames}
+              onToggle={onToggleTool}
+              emptyText={text.noConfigurableTools}
+            />
+          </div>
+          <div className="space-y-3">
+            <FieldLabel>{text.runtimeToolsTitle}</FieldLabel>
+            <p className="text-muted-foreground text-xs leading-5">
+              {text.runtimeToolsDescription}
+            </p>
+            {runtimeInjectedTools.length === 0 ? (
+              <p className="text-muted-foreground text-sm">
+                {text.noRuntimeTools}
+              </p>
+            ) : (
+              <RuntimeToolList tools={runtimeInjectedTools} text={text} />
+            )}
+          </div>
+        </div>
       )}
       <Button variant="ghost" size="sm" onClick={() => setExpanded(false)}>
         {text.collapseLabel}
       </Button>
     </SectionCard>
+  );
+}
+
+function RuntimeToolList({
+  tools,
+  text,
+}: {
+  tools: ToolCatalogItem[];
+  text: AgentSettingsPageText;
+}) {
+  return (
+    <div className="grid gap-3">
+      {tools.map((tool) => (
+        <div
+          key={tool.name}
+          className="border-border/70 bg-muted/15 rounded-3xl border px-4 py-3"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-medium">{tool.label}</p>
+                <Badge variant="outline">{text.runtimeInjectedBadge}</Badge>
+              </div>
+              <p className="text-muted-foreground mt-1 text-xs leading-5">
+                {tool.description}
+              </p>
+            </div>
+            <code className="text-muted-foreground shrink-0 text-[11px]">
+              {tool.name}
+            </code>
+          </div>
+          {tool.read_only_reason ? (
+            <p className="text-muted-foreground mt-3 text-xs leading-5">
+              {tool.read_only_reason}
+            </p>
+          ) : null}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -442,7 +628,9 @@ function ToolSelectionList({
     existing.push(tool);
     groups.set(tool.group, existing);
   }
-  const sortedGroups = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const sortedGroups = [...groups.entries()].sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
 
   return (
     <div className="space-y-4">
@@ -477,7 +665,9 @@ function ToolSelectionList({
                     {selected && <CheckIcon className="size-3.5" />}
                   </span>
                   <span className="min-w-0">
-                    <span className="block text-sm font-medium">{tool.label}</span>
+                    <span className="block text-sm font-medium">
+                      {tool.label}
+                    </span>
                     <span className="text-muted-foreground mt-1 block text-xs leading-5">
                       {tool.description}
                     </span>
@@ -502,6 +692,9 @@ function SubagentsSection({
   subagentToolOptions,
   toolCatalogLoading,
   toolCatalogError,
+  models,
+  modelsLoading,
+  modelsError,
   text,
   onFormChange,
 }: {
@@ -510,8 +703,13 @@ function SubagentsSection({
   subagentToolOptions: ToolCatalogItem[];
   toolCatalogLoading: boolean;
   toolCatalogError: unknown;
+  models: Model[];
+  modelsLoading: boolean;
+  modelsError: unknown;
   text: AgentSettingsPageText;
-  onFormChange: (updater: (prev: AgentSettingsFormState) => AgentSettingsFormState | null) => void;
+  onFormChange: (
+    updater: (prev: AgentSettingsFormState) => AgentSettingsFormState | null,
+  ) => void;
 }) {
   function addSubagent() {
     onFormChange((current) => {
@@ -547,14 +745,18 @@ function SubagentsSection({
         <div>
           <p className="text-sm font-medium">{text.generalPurposeTitle}</p>
           <p className="text-muted-foreground text-xs leading-5">
-            {form.generalPurposeEnabled ? text.enabledState : text.disabledState}
+            {form.generalPurposeEnabled
+              ? text.enabledState
+              : text.disabledState}
           </p>
         </div>
         <Switch
           checked={form.generalPurposeEnabled}
           onCheckedChange={(checked) =>
             onFormChange((current) =>
-              current ? { ...current, generalPurposeEnabled: checked } : current,
+              current
+                ? { ...current, generalPurposeEnabled: checked }
+                : current,
             )
           }
         />
@@ -574,7 +776,11 @@ function SubagentsSection({
               onFormChange((current) => {
                 if (!current) return current;
                 const inheritedToolNames = resolveEffectiveToolNames(
-                  { toolSelectionEnabled: current.toolSelectionEnabled, toolNames: current.toolNames, toolGroups: current.toolGroups },
+                  {
+                    toolSelectionEnabled: current.toolSelectionEnabled,
+                    toolNames: current.toolNames,
+                    toolGroups: current.toolGroups,
+                  },
                   mainToolOptions,
                   "main",
                 ).filter((name) =>
@@ -594,8 +800,9 @@ function SubagentsSection({
         </div>
       )}
 
-      {form.generalPurposeEnabled && !form.generalPurposeUsesMainTools && (
-        toolCatalogLoading ? (
+      {form.generalPurposeEnabled &&
+        !form.generalPurposeUsesMainTools &&
+        (toolCatalogLoading ? (
           <div className="text-muted-foreground flex items-center gap-2 text-sm">
             <Loader2Icon className="size-4 animate-spin" />
             {text.loadingTools}
@@ -613,13 +820,17 @@ function SubagentsSection({
                   values.includes(toolName)
                     ? values.filter((v) => v !== toolName)
                     : [...values, toolName];
-                return { ...current, generalPurposeToolNames: toggle(current.generalPurposeToolNames) };
+                return {
+                  ...current,
+                  generalPurposeToolNames: toggle(
+                    current.generalPurposeToolNames,
+                  ),
+                };
               })
             }
             emptyText={text.noConfigurableTools}
           />
-        )
-      )}
+        ))}
 
       {/* Custom Subagents */}
       <div className="flex items-center justify-between gap-3 pt-2">
@@ -631,7 +842,9 @@ function SubagentsSection({
       </div>
 
       {form.subagents.length === 0 ? (
-        <p className="text-muted-foreground text-sm">{text.noCustomSubagents}</p>
+        <p className="text-muted-foreground text-sm">
+          {text.noCustomSubagents}
+        </p>
       ) : (
         <div className="space-y-4">
           {form.subagents.map((subagent, index) => (
@@ -643,6 +856,9 @@ function SubagentsSection({
               mainToolOptions={mainToolOptions}
               toolCatalogLoading={toolCatalogLoading}
               toolCatalogError={toolCatalogError}
+              models={models}
+              modelsLoading={modelsLoading}
+              modelsError={modelsError}
               form={form}
               text={text}
               onFormChange={onFormChange}
@@ -661,6 +877,9 @@ function SubagentCard({
   mainToolOptions,
   toolCatalogLoading,
   toolCatalogError,
+  models,
+  modelsLoading,
+  modelsError,
   form,
   text,
   onFormChange,
@@ -671,9 +890,14 @@ function SubagentCard({
   mainToolOptions: ToolCatalogItem[];
   toolCatalogLoading: boolean;
   toolCatalogError: unknown;
+  models: Model[];
+  modelsLoading: boolean;
+  modelsError: unknown;
   form: AgentSettingsFormState;
   text: AgentSettingsPageText;
-  onFormChange: (updater: (prev: AgentSettingsFormState) => AgentSettingsFormState | null) => void;
+  onFormChange: (
+    updater: (prev: AgentSettingsFormState) => AgentSettingsFormState | null,
+  ) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -699,7 +923,9 @@ function SubagentCard({
             {subagent.name || `${text.subagentNameLabel} ${index + 1}`}
           </p>
           {subagent.model && (
-            <Badge variant="outline" className="text-xs">{subagent.model}</Badge>
+            <Badge variant="outline" className="text-xs">
+              {subagent.model}
+            </Badge>
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -717,7 +943,9 @@ function SubagentCard({
                 current
                   ? {
                       ...current,
-                      subagents: current.subagents.filter((item) => item.id !== subagent.id),
+                      subagents: current.subagents.filter(
+                        (item) => item.id !== subagent.id,
+                      ),
                     }
                   : current,
               )
@@ -725,7 +953,11 @@ function SubagentCard({
           >
             <Trash2Icon className="size-4" />
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => setExpanded((v) => !v)}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setExpanded((v) => !v)}
+          >
             {expanded ? text.subagentCollapse : text.subagentExpand}
           </Button>
         </div>
@@ -744,19 +976,31 @@ function SubagentCard({
           </div>
           <div className="space-y-2">
             <FieldLabel>{text.modelOverride}</FieldLabel>
-            <Input
+            <ModelSelect
               value={subagent.model}
-              placeholder={text.optionalModelId}
-              onChange={(event) => patchSubagent({ model: event.target.value })}
-              className="h-11 rounded-2xl"
+              models={models}
+              isLoading={modelsLoading}
+              placeholder={text.selectModel}
+              emptyLabel={text.useMainAgentModel}
+              unavailableLabel={text.unavailableModel}
+              onChange={(nextValue) => patchSubagent({ model: nextValue })}
             />
+            {modelsError ? (
+              <p className="text-destructive text-xs leading-5">
+                {modelsError instanceof Error
+                  ? modelsError.message
+                  : text.loadModelsFailed}
+              </p>
+            ) : null}
           </div>
           <div className="space-y-2">
             <FieldLabel>{text.descriptionLabel}</FieldLabel>
             <Textarea
               value={subagent.description}
               placeholder={text.subagentDescriptionPlaceholder}
-              onChange={(event) => patchSubagent({ description: event.target.value })}
+              onChange={(event) =>
+                patchSubagent({ description: event.target.value })
+              }
               className="min-h-24 rounded-3xl px-4 py-3 text-sm leading-6"
             />
           </div>
@@ -765,7 +1009,9 @@ function SubagentCard({
             <Textarea
               value={subagent.systemPrompt}
               placeholder={text.subagentPromptPlaceholder}
-              onChange={(event) => patchSubagent({ systemPrompt: event.target.value })}
+              onChange={(event) =>
+                patchSubagent({ systemPrompt: event.target.value })
+              }
               className="min-h-24 rounded-3xl px-4 py-3 text-sm leading-6"
             />
           </div>
@@ -793,13 +1039,20 @@ function MCPSection({
   mcpProfileQuery: string;
   onMcpProfileQueryChange: (query: string) => void;
   text: AgentSettingsPageText;
-  onFormChange: (updater: (prev: AgentSettingsFormState) => AgentSettingsFormState | null) => void;
+  onFormChange: (
+    updater: (prev: AgentSettingsFormState) => AgentSettingsFormState | null,
+  ) => void;
 }) {
   const filteredProfiles = useMemo(() => {
     const query = mcpProfileQuery.trim().toLowerCase();
     if (!query) return mcpProfiles;
     return mcpProfiles.filter((profile) =>
-      [profile.name, profile.server_name, profile.source_path ?? "", profile.category ?? ""]
+      [
+        profile.name,
+        profile.server_name,
+        profile.source_path ?? "",
+        profile.category ?? "",
+      ]
         .join(" ")
         .toLowerCase()
         .includes(query),
@@ -825,8 +1078,10 @@ function MCPSection({
       {mcpProfilesLoading ? (
         <p className="text-muted-foreground text-sm">{text.loadingMcp}</p>
       ) : mcpProfilesError ? (
-        <p className="text-sm text-destructive">
-          {mcpProfilesError instanceof Error ? mcpProfilesError.message : text.loadMcpFailed}
+        <p className="text-destructive text-sm">
+          {mcpProfilesError instanceof Error
+            ? mcpProfilesError.message
+            : text.loadMcpFailed}
         </p>
       ) : filteredProfiles.length === 0 ? (
         <p className="text-muted-foreground text-sm">{text.noMcpProfiles}</p>
@@ -870,7 +1125,9 @@ function MCPSection({
                   {selected && <CheckIcon className="size-3.5" />}
                 </span>
                 <span className="min-w-0">
-                  <span className="block text-sm font-medium">{profile.name}</span>
+                  <span className="block text-sm font-medium">
+                    {profile.name}
+                  </span>
                   <span className="text-muted-foreground mt-1 block text-xs leading-5">
                     {profile.server_name}
                     {profile.category ? ` · ${profile.category}` : ""}
