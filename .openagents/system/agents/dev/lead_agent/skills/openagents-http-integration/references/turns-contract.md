@@ -13,11 +13,8 @@ libraries exist, they must preserve this contract instead of redefining it.
 - Preferred integration path: raw HTTP against `/v1/turns`
 - Claude Code alignment is internal architecture inspiration, not a public wire
   dependency
-- TypeScript or Python helpers are optional thin clients only
+- TypeScript, Python, or Java helpers are optional thin clients only
 - Customers should not need a product-specific SDK to achieve full fidelity
-- If a helper is used, its public shape should be session-based
-  (`session.prompt(...)`) instead of requiring the caller to keep sending
-  `messages[]`
 
 ## Base URL and auth
 
@@ -234,28 +231,3 @@ Continue the same conversation by sending the previous turn id:
   "previous_turn_id": "turn_abc123"
 }
 ```
-
-If you ship a helper, hide this field behind session state:
-
-```ts
-const session = createOpenAgentsSession({
-  baseURL,
-  apiKey,
-  agent: "support-agent",
-});
-
-await session.prompt({
-  text: "案例库里有哪些文件？",
-  thinking: { enabled: true, effort: "medium" },
-});
-
-await session.prompt({
-  text: "继续读取第一页。",
-});
-```
-
-That helper shape matches Claude Code's public usage model more closely:
-
-- caller sends prompts into a session
-- helper owns continuation state
-- wire contract remains native `/v1/turns`
