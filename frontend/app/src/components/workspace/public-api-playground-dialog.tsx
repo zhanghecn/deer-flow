@@ -133,16 +133,14 @@ function PaneHeader({
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-2", className)}>
-      <div>
-        <h2 className="text-base font-semibold text-slate-950">
-          {title}
-        </h2>
-        {eyebrow ? <p className="mt-1 text-xs text-slate-500">{eyebrow}</p> : null}
-        <p className="mt-2 text-sm leading-6 text-slate-600">
-          {description}
-        </p>
-      </div>
+    <div className={cn("space-y-1", className)}>
+      <p className="text-primary text-[10px] font-semibold tracking-wider uppercase">{eyebrow}</p>
+      <h2 className="text-sm font-semibold">
+        {title}
+      </h2>
+      <p className="text-muted-foreground text-xs leading-4">
+        {description}
+      </p>
     </div>
   );
 }
@@ -157,13 +155,13 @@ function MetaPill({
   mono?: boolean;
 }) {
   return (
-    <div className="min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2">
-      <p className="text-xs font-medium text-slate-500">
+    <div className="min-w-0 rounded-xl border border-border/70 bg-muted/20 px-3 py-2">
+      <p className="text-muted-foreground text-[10px] font-semibold tracking-wider uppercase">
         {label}
       </p>
       <p
         className={cn(
-          "mt-1 max-w-[320px] truncate text-sm font-medium text-slate-900",
+          "mt-0.5 max-w-[320px] truncate text-sm font-medium",
           mono && "font-mono text-[12px]",
         )}
       >
@@ -185,11 +183,11 @@ function FieldLabel({
   return (
     <div className="flex items-center justify-between gap-3">
       {htmlFor ? (
-        <label htmlFor={htmlFor} className="text-sm font-medium text-slate-700">
+        <label htmlFor={htmlFor} className="text-sm font-medium text-muted-foreground">
           {children}
         </label>
       ) : (
-        <p className="text-sm font-medium text-slate-700">{children}</p>
+        <p className="text-sm font-medium text-muted-foreground">{children}</p>
       )}
       {action}
     </div>
@@ -301,11 +299,11 @@ function SummaryRow({
   value: string | number;
 }) {
   return (
-    <div className="flex items-start justify-between gap-6 border-b border-slate-200/80 py-3 first:pt-0 last:border-b-0 last:pb-0">
-      <p className="text-sm text-slate-500">
+    <div className="flex items-start justify-between gap-6 border-b border-border/70 py-3 first:pt-0 last:border-b-0 last:pb-0">
+      <p className="text-sm text-muted-foreground">
         {label}
       </p>
-      <p className="max-w-[220px] text-right text-sm font-medium break-all text-slate-900">
+      <p className="max-w-[220px] text-right text-sm font-medium break-all text-foreground">
         {value}
       </p>
     </div>
@@ -339,21 +337,21 @@ function TraceItemCard({
         />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-medium text-slate-500">
+            <span className="text-xs font-medium text-muted-foreground">
               {traceStageLabel(item.stage, text)}
             </span>
-            <p className="text-sm font-medium text-slate-950">{item.title}</p>
-            <span className="ml-auto shrink-0 text-xs text-slate-500">
+            <p className="text-sm font-medium text-foreground">{item.title}</p>
+            <span className="ml-auto shrink-0 text-xs text-muted-foreground">
               {formatTimestamp(item.timestamp, locale)}
             </span>
           </div>
           {item.detail ? (
-            <div className="mt-2 rounded-md bg-white/70 px-3 py-3">
+            <div className="mt-2 rounded-md bg-muted/20 px-3 py-3">
               <MarkdownContent
                 content={item.detail}
                 isLoading={false}
                 rehypePlugins={workspaceMessageRehypePlugins}
-                className="text-sm leading-6 break-words text-slate-700"
+                className="text-sm leading-6 break-words text-muted-foreground"
               />
             </div>
           ) : null}
@@ -365,15 +363,15 @@ function TraceItemCard({
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="rounded-md px-2 text-xs text-slate-700 hover:bg-white/70"
+                  className="rounded-md px-2 text-xs text-muted-foreground hover:bg-muted/20"
                 >
                   <ChevronDownIcon className="size-4" />
                   {text.rawPayload}
                 </Button>
               </CollapsibleTrigger>
               <CollapsibleContent className="pt-3">
-                <div className="rounded-md border border-slate-200 bg-white px-3 py-3">
-                  <pre className="font-mono text-xs leading-6 break-words whitespace-pre-wrap text-slate-800">
+                <div className="rounded-md border border-border/70 bg-background px-3 py-3">
+                  <pre className="font-mono text-xs leading-6 break-words whitespace-pre-wrap text-muted-foreground">
                     {rawPayload}
                   </pre>
                 </div>
@@ -822,52 +820,31 @@ export function PublicAPIPlaygroundPanel({
   const showHero = headerMode === "hero";
 
   return (
-    <section className="relative overflow-hidden rounded-[32px] border border-slate-200 bg-[linear-gradient(180deg,#ffffff,#faf8f1)] shadow-[0_32px_120px_-72px_rgba(15,23,42,0.45)]">
+    <section className={cn(
+      "relative overflow-hidden rounded-xl bg-background",
+      isWorkspaceMode && "border border-border/70 shadow-sm",
+    )}>
       {showHeader ? (
-        <div className="border-b border-slate-200 bg-white/92">
-          <div className="flex flex-col gap-5 px-5 py-5 lg:px-6 xl:flex-row xl:items-start xl:justify-between">
-            <div className="max-w-4xl min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge
-                  variant="outline"
-                  className="rounded-full px-3 py-1 text-[11px] tracking-[0.22em] uppercase"
-                >
-                  {text.heroEyebrow}
-                </Badge>
-                <Badge
-                  variant="secondary"
-                  className="rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-[11px] tracking-[0.18em] text-slate-700 uppercase"
-                >
-                  {streamMode ? text.sseMode : text.blockingMode}
-                </Badge>
-              </div>
-              <h1
-                className={cn(
-                  "mt-4 font-semibold tracking-[-0.06em] text-slate-950",
-                  showHero
-                    ? "text-[clamp(1.95rem,4vw,3.25rem)] leading-[0.95]"
-                    : "text-[clamp(1.45rem,2.6vw,2rem)] leading-none",
-                )}
+        <div className="border-b border-border/70 bg-muted/10">
+          <div className="flex flex-col gap-3 px-4 py-3 lg:px-5 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge
+                variant="outline"
+                className="rounded-full px-2.5 py-0.5 text-[10px] font-semibold tracking-wider uppercase"
               >
-                {agentName}
-              </h1>
-              {showHero ? (
-                <div className="mt-3 max-w-3xl space-y-2">
-                  <p className="text-base leading-7 text-slate-900">
-                    {text.heroTitle}
-                  </p>
-                  <p className="text-sm leading-7 text-slate-600">
-                    {text.heroDescription}
-                  </p>
-                </div>
-              ) : (
-                <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
-                  {text.requestDescription}
-                </p>
+                {text.heroEyebrow}
+              </Badge>
+              <Badge
+                variant="secondary"
+                className="rounded-full px-2.5 py-0.5 text-[10px] font-semibold tracking-wider uppercase"
+              >
+                {streamMode ? text.sseMode : text.blockingMode}
+              </Badge>
+              {showHero && (
+                <h1 className="ml-2 text-lg font-bold tracking-tight">{agentName}</h1>
               )}
             </div>
-
-            <div className="flex flex-wrap items-center gap-2 xl:max-w-[46%] xl:justify-end">
+            <div className="flex flex-wrap items-center gap-2">
               <MetaPill label={text.baseURL} value={apiBaseURL} mono />
               <MetaPill label={text.agentLabel} value={agentName} mono />
               <MetaPill
@@ -878,10 +855,11 @@ export function PublicAPIPlaygroundPanel({
                 <Button
                   type="button"
                   variant="outline"
-                  className="rounded-full bg-white"
+                  size="sm"
+                  className="rounded-full text-xs"
                   onClick={() => window.open(documentationURL, "_blank")}
                 >
-                  <WandSparklesIcon className="size-4" />
+                  <WandSparklesIcon className="size-3.5" />
                   {text.openReference}
                 </Button>
               ) : null}
@@ -890,23 +868,23 @@ export function PublicAPIPlaygroundPanel({
         </div>
       ) : null}
 
-      <div className="grid xl:grid-cols-[360px_minmax(0,1fr)_360px]">
-        <aside className="border-b border-slate-200 px-5 py-5 lg:px-6 xl:border-r xl:border-b-0">
-          <div className="flex h-full min-h-[720px] flex-col">
+      <div className="grid xl:grid-cols-[340px_minmax(0,1fr)_340px]">
+        <aside className="border-b border-border/70 bg-muted/5 px-4 py-4 lg:px-5 xl:border-r xl:border-b-0">
+          <div className="flex h-full min-h-[680px] flex-col">
             <PaneHeader
               eyebrow={text.runEyebrow}
               title={text.requestTitle}
               description={text.requestDescription}
             />
 
-            <div className="mt-6 space-y-6">
-              <section className="space-y-4">
+            <div className="mt-4 space-y-4">
+              <section className="space-y-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-slate-950">
+                    <p className="text-sm font-medium">
                       {text.credentialsTitle}
                     </p>
-                    <p className="text-muted-foreground mt-1 text-sm leading-6">
+                    <p className="text-muted-foreground mt-0.5 text-xs leading-4">
                       {isWorkspaceMode
                         ? text.credentialsDescription
                         : text.publicCredentialsDescription}
@@ -934,7 +912,7 @@ export function PublicAPIPlaygroundPanel({
                     aria-label={text.baseURL}
                     value={apiBaseURL}
                     onChange={(event) => setAPIBaseURL(event.target.value)}
-                    className="h-11 rounded-md border-slate-200 bg-white"
+                    className="h-10 rounded-xl"
                   />
                   <p className="text-muted-foreground text-xs leading-5">
                     {text.baseURLHint}
@@ -951,7 +929,7 @@ export function PublicAPIPlaygroundPanel({
                     value={apiToken}
                     onChange={(event) => setAPIToken(event.target.value)}
                     placeholder="df_..."
-                    className="h-11 rounded-md border-slate-200 bg-white font-mono"
+                    className="h-11 rounded-md border-border/70 bg-background font-mono"
                   />
                   <p className="text-muted-foreground text-xs leading-5">
                     {isWorkspaceMode
@@ -963,15 +941,15 @@ export function PublicAPIPlaygroundPanel({
 
               <Separator className="bg-slate-200" />
 
-              <section className="space-y-4">
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1">
-                  <div className="rounded-[22px] border border-slate-200 bg-white px-4 py-4">
-                    <div className="flex items-start justify-between gap-4">
+              <section className="space-y-3">
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1">
+                  <div className="rounded-xl border border-border/70 bg-muted/10 px-3 py-3">
+                    <div className="flex items-center justify-between gap-3">
                       <div>
-                        <p className="text-sm font-medium text-slate-950">
+                        <p className="text-[13px] font-medium">
                           {text.streamLabel}
                         </p>
-                        <p className="text-muted-foreground mt-1 text-xs leading-5">
+                        <p className="text-muted-foreground mt-0.5 text-[11px] leading-4">
                           {text.streamDescription}
                         </p>
                       </div>
@@ -1000,7 +978,7 @@ export function PublicAPIPlaygroundPanel({
                     >
                       <SelectTrigger
                         aria-label={text.responseMode}
-                        className="h-11 w-full rounded-md border-slate-200 bg-white"
+                        className="h-11 w-full rounded-md border-border/70 bg-background"
                       >
                         <SelectValue placeholder={text.responseMode} />
                       </SelectTrigger>
@@ -1032,7 +1010,7 @@ export function PublicAPIPlaygroundPanel({
                     value={message}
                     onChange={(event) => setMessage(event.target.value)}
                     placeholder={text.messagePlaceholder}
-                    className="min-h-[190px] rounded-[24px] border-slate-200 bg-white"
+                    className="min-h-[160px] rounded-xl"
                   />
                 </div>
 
@@ -1062,21 +1040,21 @@ export function PublicAPIPlaygroundPanel({
                     className="hidden"
                     onChange={(event) => handleQueueFiles(event.target.files)}
                   />
-                  <div className="rounded-[24px] border border-dashed border-slate-200 bg-slate-50 p-3">
+                  <div className="rounded-xl border border-dashed border-border/70 bg-muted/10 p-3">
                     {queuedFiles.length === 0 ? (
-                      <p className="text-sm text-slate-500">{text.noFiles}</p>
+                      <p className="text-sm text-muted-foreground">{text.noFiles}</p>
                     ) : (
                       <div className="space-y-2">
                         {queuedFiles.map((file, index) => (
                           <div
                             key={`${file.name}:${file.size}:${file.lastModified}`}
-                            className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3"
+                            className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-background px-3 py-3"
                           >
                             <div className="min-w-0">
-                              <p className="truncate text-sm font-medium text-slate-950">
+                              <p className="truncate text-sm font-medium text-foreground">
                                 {file.name}
                               </p>
-                              <p className="text-xs text-slate-500">
+                              <p className="text-xs text-muted-foreground">
                                 {file.size} bytes
                               </p>
                             </div>
@@ -1103,18 +1081,18 @@ export function PublicAPIPlaygroundPanel({
               <Separator className="bg-slate-200" />
 
               <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-                <div className="rounded-[24px] border border-slate-200 bg-slate-50">
+                <div className="rounded-xl border border-border/70 bg-muted/10">
                   <CollapsibleTrigger asChild>
                     <Button
                       type="button"
                       variant="ghost"
-                      className="flex h-auto w-full items-center justify-between rounded-[24px] px-4 py-4"
+                      className="flex h-auto w-full items-center justify-between rounded-xl px-3 py-3"
                     >
                       <div className="text-left">
-                        <p className="text-sm font-medium text-slate-950">
+                        <p className="text-[13px] font-medium">
                           {text.advancedTitle}
                         </p>
-                        <p className="text-muted-foreground mt-1 text-xs leading-5">
+                        <p className="text-muted-foreground mt-0.5 text-[11px] leading-4">
                           {text.advancedDescription}
                         </p>
                       </div>
@@ -1127,15 +1105,15 @@ export function PublicAPIPlaygroundPanel({
                     </Button>
                   </CollapsibleTrigger>
 
-                  <CollapsibleContent className="border-t border-slate-200 px-4 py-4">
-                    <div className="grid gap-4">
-                      <div className="rounded-[22px] border border-slate-200 bg-white px-4 py-4">
-                        <div className="flex items-start justify-between gap-3">
+                  <CollapsibleContent className="border-t border-border/70 px-4 py-4">
+                    <div className="grid gap-3">
+                      <div className="rounded-xl border border-border/70 bg-muted/10 px-3 py-3">
+                        <div className="flex items-center justify-between gap-3">
                           <div>
-                            <p className="text-sm font-medium text-slate-950">
+                            <p className="text-[13px] font-medium">
                               {text.reasoningLabel}
                             </p>
-                            <p className="text-muted-foreground mt-1 text-xs leading-5">
+                            <p className="text-muted-foreground mt-0.5 text-[11px] leading-4">
                               {text.reasoningDescription}
                             </p>
                           </div>
@@ -1156,7 +1134,7 @@ export function PublicAPIPlaygroundPanel({
                           >
                             <SelectTrigger
                               aria-label={text.reasoningEffort}
-                              className="h-11 w-full rounded-2xl border-slate-200 bg-white"
+                              className="h-11 w-full rounded-xl border-border/70 bg-background"
                             >
                               <SelectValue placeholder={text.reasoningEffort} />
                             </SelectTrigger>
@@ -1194,7 +1172,7 @@ export function PublicAPIPlaygroundPanel({
                           aria-label={text.previousResponse}
                           value={previousTurnID}
                           onChange={(event) => setPreviousTurnID(event.target.value)}
-                          className="h-11 rounded-2xl border-slate-200 bg-white font-mono"
+                          className="h-10 rounded-xl font-mono"
                         />
                         <p className="text-muted-foreground text-xs leading-5">
                           {text.previousResponseHint}
@@ -1213,7 +1191,7 @@ export function PublicAPIPlaygroundPanel({
                             setMaxOutputTokens(event.target.value)
                           }
                           placeholder="1024"
-                          className="h-11 rounded-md border-slate-200 bg-white"
+                          className="h-10 rounded-xl"
                         />
                       </div>
 
@@ -1230,7 +1208,7 @@ export function PublicAPIPlaygroundPanel({
                               onChange={(event) =>
                                 setSchemaName(event.target.value)
                               }
-                              className="h-11 rounded-md border-slate-200 bg-white"
+                              className="h-10 rounded-xl"
                             />
                           </div>
                           <div className="space-y-2">
@@ -1244,7 +1222,7 @@ export function PublicAPIPlaygroundPanel({
                               onChange={(event) =>
                                 setSchemaBody(event.target.value)
                               }
-                              className="min-h-[220px] rounded-md border-slate-900 bg-slate-950 font-mono text-xs text-slate-100"
+                              className="min-h-[220px] rounded-md border-foreground bg-foreground font-mono text-xs text-background"
                             />
                           </div>
                         </div>
@@ -1255,11 +1233,11 @@ export function PublicAPIPlaygroundPanel({
               </Collapsible>
             </div>
 
-            <div className="mt-auto border-t border-slate-200 pt-5">
-              <div className="flex flex-wrap gap-3">
+            <div className="mt-auto border-t border-border/70 pt-4">
+              <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"
-                  className="rounded-md px-5"
+                  className="rounded-xl px-5"
                   onClick={handleRun}
                   disabled={submitting}
                 >
@@ -1273,7 +1251,8 @@ export function PublicAPIPlaygroundPanel({
                 <Button
                   type="button"
                   variant="outline"
-                  className="rounded-md bg-white"
+                  size="sm"
+                  className="rounded-xl"
                   onClick={() => {
                     setTraceItems([]);
                     setTurn(null);
@@ -1289,10 +1268,10 @@ export function PublicAPIPlaygroundPanel({
           </div>
         </aside>
 
-        <main className="border-b border-slate-200 px-5 py-5 lg:px-6 xl:border-r xl:border-b-0">
-          <div className="flex h-full min-h-[720px] flex-col">
-            <div className="border-b border-slate-200 pb-5">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <main className="border-b border-border/70 px-4 py-4 lg:px-5 xl:border-r xl:border-b-0">
+          <div className="flex h-full min-h-[680px] flex-col">
+            <div className="border-b border-border/70 pb-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                 <PaneHeader
                   eyebrow={text.traceEyebrow}
                   title={text.traceTitle}
@@ -1307,13 +1286,13 @@ export function PublicAPIPlaygroundPanel({
                       setTraceFilter(value as TraceFilter);
                     }
                   }}
-                  className="flex-wrap justify-start rounded-2xl bg-slate-100 p-1"
+                  className="flex-wrap justify-start rounded-xl bg-muted/20 p-0.5"
                 >
                   {traceFilterOptions.map((option) => (
                     <ToggleGroupItem
                       key={option.value}
                       value={option.value}
-                      className="rounded-[14px] border-0 px-3 text-xs"
+                      className="rounded-lg border-0 px-2.5 text-[11px]"
                     >
                       {option.label}
                     </ToggleGroupItem>
@@ -1322,7 +1301,7 @@ export function PublicAPIPlaygroundPanel({
               </div>
 
               {lastRunMode === "blocking" && turn ? (
-                <div className="mt-4 rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-4">
+                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-4">
                   <p className="text-sm font-medium text-amber-950">
                     {text.blockingReplayTitle}
                   </p>
@@ -1333,10 +1312,10 @@ export function PublicAPIPlaygroundPanel({
               ) : null}
             </div>
 
-            <ScrollArea className="mt-5 min-h-0 flex-1 pr-3 xl:h-[760px]">
+            <ScrollArea className="mt-5 min-h-0 flex-1 pr-3 xl:h-[680px]">
               <div className="space-y-6 pb-1">
                 {groupedTraceItems.length === 0 ? (
-                  <div className="rounded-[24px] border border-dashed border-slate-200 bg-white px-4 py-6 text-sm text-slate-500">
+                  <div className="rounded-xl border border-dashed border-border/70 bg-background px-4 py-6 text-sm text-muted-foreground">
                     {traceItems.length === 0
                       ? text.noTrace
                       : text.noFilteredTrace}
@@ -1347,11 +1326,11 @@ export function PublicAPIPlaygroundPanel({
                       <div className="flex items-center gap-3">
                         <Badge
                           variant="secondary"
-                          className="rounded-full border border-slate-200 bg-slate-100 text-slate-700"
+                          className="rounded-full border border-border/70 bg-muted/30 text-muted-foreground"
                         >
                           {traceStageLabel(group.stage, text)}
                         </Badge>
-                        <span className="text-xs text-slate-500">
+                        <span className="text-xs text-muted-foreground">
                           {group.items.length}
                         </span>
                         <div className="h-px flex-1 bg-slate-200" />
@@ -1374,17 +1353,17 @@ export function PublicAPIPlaygroundPanel({
           </div>
         </main>
 
-        <aside className="px-5 py-5 lg:px-6">
-          <div className="flex h-full min-h-[720px] flex-col">
+        <aside className="bg-muted/5 px-4 py-4 lg:px-5">
+          <div className="flex h-full min-h-[680px] flex-col">
             <PaneHeader
               eyebrow={text.resultEyebrow}
               title={text.resultTitle}
               description={text.resultDescription}
             />
 
-            <ScrollArea className="mt-6 min-h-0 flex-1 pr-1 xl:h-[760px]">
-              <div className="space-y-6 pb-1">
-                <section className="rounded-[24px] border border-slate-200 bg-white px-4 py-4">
+            <ScrollArea className="mt-4 min-h-0 flex-1 pr-1 xl:h-[680px]">
+              <div className="space-y-4 pb-1">
+                <section className="rounded-xl border border-border/70 bg-muted/10 px-3 py-3">
                   <SummaryRow
                     label={text.responseID}
                     value={currentResponseID}
@@ -1414,13 +1393,13 @@ export function PublicAPIPlaygroundPanel({
                       {text.copy}
                     </Button>
                   </div>
-                  <div className="overflow-hidden rounded-[24px] border border-slate-900 bg-slate-950">
+                  <div className="overflow-hidden rounded-xl border border-foreground bg-foreground">
                     <ScrollArea className="h-[260px] px-4 py-4">
                       <MarkdownContent
                         content={formattedOutputText || text.noResponse}
                         isLoading={false}
                         rehypePlugins={workspaceMessageRehypePlugins}
-                        className="text-sm leading-7 text-slate-100"
+                        className="text-sm leading-7 text-background"
                       />
                     </ScrollArea>
                   </div>
@@ -1428,20 +1407,20 @@ export function PublicAPIPlaygroundPanel({
 
                 <section className="space-y-3">
                   <div>
-                    <p className="text-sm font-medium text-slate-950">
+                    <p className="text-sm font-medium text-foreground">
                       {text.reasoningTab}
                     </p>
                     <p className="text-muted-foreground mt-1 text-sm leading-6">
                       {text.reasoningDescription}
                     </p>
                   </div>
-                  <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white">
+                  <div className="overflow-hidden rounded-xl border border-border/70 bg-background">
                     <ScrollArea className="h-[180px] px-4 py-4">
                       <MarkdownContent
                         content={reasoningSummary || text.noResponse}
                         isLoading={false}
                         rehypePlugins={workspaceMessageRehypePlugins}
-                        className="text-sm leading-6 text-slate-700"
+                        className="text-sm leading-6 text-muted-foreground"
                       />
                     </ScrollArea>
                   </div>
@@ -1450,7 +1429,7 @@ export function PublicAPIPlaygroundPanel({
                 <section className="space-y-3">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-medium text-slate-950">
+                      <p className="text-sm font-medium text-foreground">
                         {text.jsonTab}
                       </p>
                       <p className="text-muted-foreground mt-1 text-sm leading-6">
@@ -1461,7 +1440,7 @@ export function PublicAPIPlaygroundPanel({
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="rounded-full bg-white"
+                      className="rounded-full bg-background"
                       disabled={!formattedResponseJSON}
                       onClick={() =>
                         handleCopy(formattedResponseJSON, text.copied)
@@ -1471,9 +1450,9 @@ export function PublicAPIPlaygroundPanel({
                       {text.copy}
                     </Button>
                   </div>
-                  <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white">
+                  <div className="overflow-hidden rounded-xl border border-border/70 bg-background">
                     <ScrollArea className="h-[260px] px-4 py-4">
-                      <pre className="font-mono text-xs leading-6 whitespace-pre-wrap text-slate-800">
+                      <pre className="font-mono text-xs leading-6 whitespace-pre-wrap text-muted-foreground">
                         {formattedResponseJSON || text.noResponse}
                       </pre>
                     </ScrollArea>
@@ -1482,7 +1461,7 @@ export function PublicAPIPlaygroundPanel({
 
                 <section className="space-y-3">
                   <div>
-                    <p className="text-sm font-medium text-slate-950">
+                    <p className="text-sm font-medium text-foreground">
                       {text.filesTab}
                     </p>
                     <p className="text-muted-foreground mt-1 text-sm leading-6">
@@ -1490,7 +1469,7 @@ export function PublicAPIPlaygroundPanel({
                     </p>
                   </div>
                   {responseArtifacts.length === 0 ? (
-                    <div className="rounded-[24px] border border-dashed border-slate-200 bg-white px-4 py-6 text-sm text-slate-500">
+                    <div className="rounded-xl border border-dashed border-border/70 bg-background px-4 py-6 text-sm text-muted-foreground">
                       {text.noResponse}
                     </div>
                   ) : (
@@ -1498,13 +1477,13 @@ export function PublicAPIPlaygroundPanel({
                       {responseArtifacts.map((artifact) => (
                         <div
                           key={artifact.id}
-                          className="flex items-start justify-between gap-4 rounded-[22px] border border-slate-200 bg-white px-4 py-4"
+                          className="flex items-start justify-between gap-4 rounded-xl border border-border/70 bg-background px-4 py-4"
                         >
                           <div className="min-w-0">
-                            <p className="truncate text-sm font-medium text-slate-950">
+                            <p className="truncate text-sm font-medium text-foreground">
                               {artifact.filename}
                             </p>
-                            <p className="mt-1 text-xs break-all text-slate-500">
+                            <p className="mt-1 text-xs break-all text-muted-foreground">
                               {artifact.id}
                             </p>
                           </div>
@@ -1512,7 +1491,7 @@ export function PublicAPIPlaygroundPanel({
                             type="button"
                             variant="outline"
                             size="sm"
-                            className="shrink-0 rounded-full bg-white"
+                            className="shrink-0 rounded-full bg-background"
                             onClick={() => handleDownloadArtifact(artifact)}
                           >
                             <DownloadIcon className="size-4" />

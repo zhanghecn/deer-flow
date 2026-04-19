@@ -6,17 +6,15 @@ import { useI18n } from "@/core/i18n/hooks";
 import { usePublicAgentOpenAPIDoc } from "../openapi";
 import {
   DeveloperDocsShell,
-  type DeveloperDocsSidebarSection,
-  DocsSectionHeading,
-  DocsSurface,
   PublicDocsPageHeading,
   PublicDocsStatePanel,
+  type DeveloperDocsSidebarSection,
 } from "../shared";
 
 import { DeveloperPublicAPIPlayground } from "./developer-playground";
 import { getAgentPublicPlaygroundPageText } from "./page.i18n";
 
-function StepRow({
+function StepItem({
   step,
   title,
   description,
@@ -26,15 +24,15 @@ function StepRow({
   description: string;
 }) {
   return (
-    <div className="grid gap-4 border-t border-slate-200 px-5 py-5 first:border-t-0 lg:grid-cols-[72px_minmax(0,1fr)]">
-      <p className="font-mono text-[12px] tracking-[0.18em] text-slate-400 uppercase">
+    <div className="flex gap-4 py-3 first:pt-0 last:pb-0">
+      <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-zinc-900 font-mono text-[11px] font-bold text-white">
         {step}
-      </p>
+      </span>
       <div>
-        <h3 className="text-[1rem] font-semibold tracking-[-0.03em] text-slate-950">
-          {title}
-        </h3>
-        <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
+        <h3 className="text-[13.5px] font-semibold text-zinc-900">{title}</h3>
+        <p className="mt-0.5 text-[13px] leading-5 text-zinc-500">
+          {description}
+        </p>
       </div>
     </div>
   );
@@ -111,76 +109,82 @@ export default function AgentPublicPlaygroundPage() {
       exportURL={exportDoc.documentation_json_url}
       sidebarSections={sidebarSections}
     >
-      <div className="space-y-10 pt-2">
-        <section id="intro" className="scroll-mt-28 space-y-6">
+      <div className="space-y-8">
+        <section id="intro" className="scroll-mt-20 space-y-4">
           <PublicDocsPageHeading
             eyebrow={text.eyebrow}
             title={text.title}
             description={text.description}
           />
 
-          <DocsSurface className="overflow-hidden">
-            <div className="grid gap-0 divide-y divide-slate-200 lg:grid-cols-3 lg:divide-x lg:divide-y-0">
-              <div>
-                <p className="px-6 pt-6 text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
-                  {text.heroFactOneLabel}
-                </p>
-                <p className="px-6 pt-2 pb-6 text-sm leading-6 text-slate-700">
-                  {text.heroFactOneValue}
-                </p>
-              </div>
-              <div>
-                <p className="px-6 pt-6 text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
-                  {text.heroFactTwoLabel}
-                </p>
-                <p className="px-6 pt-2 pb-6 text-sm leading-6 text-slate-700">
-                  {text.heroFactTwoValue}
-                </p>
-              </div>
-              <div>
-                <p className="px-6 pt-6 text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
-                  {text.heroFactThreeLabel}
-                </p>
-                <p className="px-6 pt-2 pb-6 text-sm leading-6 text-slate-700">
-                  {text.heroFactThreeValue}
-                </p>
-              </div>
+          <div className="grid gap-0 divide-y divide-zinc-100 rounded-lg border border-zinc-200 bg-white lg:grid-cols-3 lg:divide-x lg:divide-y-0">
+            <div className="px-4 py-3">
+              <p className="text-[10px] font-semibold tracking-[0.14em] text-zinc-400 uppercase">
+                {text.heroFactOneLabel}
+              </p>
+              <p className="mt-1 text-[13px] leading-5 text-zinc-600">
+                {text.heroFactOneValue}
+              </p>
             </div>
-          </DocsSurface>
+            <div className="px-4 py-3">
+              <p className="text-[10px] font-semibold tracking-[0.14em] text-zinc-400 uppercase">
+                {text.heroFactTwoLabel}
+              </p>
+              <p className="mt-1 text-[13px] leading-5 text-zinc-600">
+                {text.heroFactTwoValue}
+              </p>
+            </div>
+            <div className="px-4 py-3">
+              <p className="text-[10px] font-semibold tracking-[0.14em] text-zinc-400 uppercase">
+                {text.heroFactThreeLabel}
+              </p>
+              <p className="mt-1 text-[13px] leading-5 text-zinc-600">
+                {text.heroFactThreeValue}
+              </p>
+            </div>
+          </div>
         </section>
 
-        <DeveloperPublicAPIPlayground
-          agentName={exportDoc.agent}
-          defaultBaseURL={exportDoc.api_base_url}
-        />
+        <section id="connect" className="scroll-mt-20">
+          <DeveloperPublicAPIPlayground
+            agentName={exportDoc.agent}
+            defaultBaseURL={exportDoc.api_base_url}
+          />
+        </section>
 
         <section
           id="workflow"
-          className="scroll-mt-28 space-y-5 border-t border-slate-200 pt-10"
+          className="scroll-mt-20 space-y-4 border-t border-zinc-100 pt-10"
         >
-          <DocsSectionHeading
-            eyebrow={text.stepsEyebrow}
-            title={text.stepsTitle}
-            description={text.stepsDescription}
-          />
+          <div>
+            <p className="text-[11px] font-semibold tracking-[0.18em] text-zinc-400 uppercase">
+              {text.stepsEyebrow}
+            </p>
+            <h2 className="mt-1.5 text-[18px] font-semibold tracking-tight text-zinc-900">
+              {text.stepsTitle}
+            </h2>
+            <p className="mt-2 text-[13.5px] leading-6 text-zinc-500">
+              {text.stepsDescription}
+            </p>
+          </div>
 
-          <DocsSurface className="overflow-hidden">
-            <StepRow
+          <div className="divide-y divide-zinc-100 rounded-lg border border-zinc-200 bg-white px-5 py-4">
+            <StepItem
               step="01"
               title={text.stepOneTitle}
               description={text.stepOneDescription}
             />
-            <StepRow
+            <StepItem
               step="02"
               title={text.stepTwoTitle}
               description={text.stepTwoDescription}
             />
-            <StepRow
+            <StepItem
               step="03"
               title={text.stepThreeTitle}
               description={text.stepThreeDescription}
             />
-          </DocsSurface>
+          </div>
         </section>
       </div>
     </DeveloperDocsShell>

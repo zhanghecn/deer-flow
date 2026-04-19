@@ -7,14 +7,6 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { usePublicAgentExportDoc } from "@/core/agents";
 import { useI18n } from "@/core/i18n/hooks";
@@ -36,22 +28,16 @@ import {
 import {
   CopyableCodeBlock,
   DeveloperDocsShell,
-  type DeveloperDocsSidebarSection,
-  DocsKeyValueGrid,
   DocsMethodBadge,
-  DocsSectionHeading,
-  DocsSurface,
   PublicDocsPageHeading,
   PublicDocsStatePanel,
+  type DeveloperDocsSidebarSection,
 } from "../shared";
 
 import { getAgentPublicReferencePageText } from "./page.i18n";
 
 function renderNotes(notes: string[]) {
-  if (notes.length === 0) {
-    return "—";
-  }
-
+  if (notes.length === 0) return null;
   return notes.join(" · ");
 }
 
@@ -67,9 +53,7 @@ function buildOperationRequestExample(
   operation: ReferenceOperation,
 ) {
   const mediaEntry = getPrimaryMediaType(operation);
-  if (!mediaEntry) {
-    return "";
-  }
+  if (!mediaEntry) return "";
 
   const [contentType, mediaType] = mediaEntry;
   if (contentType === "multipart/form-data") {
@@ -118,17 +102,17 @@ function buildOperationCurlSnippet(
         ? `  -F "${row.path}=@./example.bin"`
         : `  -F "${row.path}=example"`,
     );
-
     return [requestLine, authLine, ...formLines].join(" \\\n");
   }
 
-  return `${requestLine} \\
-${authLine} \\
-  -H "Content-Type: ${contentType}" \\
+  return `${requestLine} \
+${authLine} \
+  -H "Content-Type: ${contentType}" \
   -d '${buildOperationRequestExample(document, operation)}'`;
 }
 
-function FieldTable({
+/** Flat parameter listing — NewAPI style: name + type inline, description + constraints below */
+function ParamList({
   rows,
   text,
 }: {
@@ -137,55 +121,94 @@ function FieldTable({
 }) {
   if (rows.length === 0) {
     return (
-      <DocsSurface className="px-5 py-5">
-        <p className="text-sm leading-6 text-slate-500">{text.noFields}</p>
-      </DocsSurface>
+      <p className="py-3 text-[13px] text-zinc-400">{text.noFields}</p>
     );
   }
 
   return (
-    <DocsSurface className="overflow-hidden">
-      <div className="overflow-x-auto">
-        <Table className="min-w-[860px]">
-          <TableHeader>
-            <TableRow className="bg-slate-50/80">
-              <TableHead className="w-[300px]">{text.fieldColumn}</TableHead>
-              <TableHead className="w-[190px]">{text.typeColumn}</TableHead>
-              <TableHead className="w-[110px]">{text.requiredColumn}</TableHead>
-              <TableHead>{text.detailsColumn}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map((row) => (
-              <TableRow key={row.path}>
-                <TableCell className="py-3">
-                  <div
-                    className="font-mono text-[13px] text-slate-950"
-                    style={{ paddingLeft: `${row.level * 18}px` }}
-                  >
-                    {row.path}
-                  </div>
-                </TableCell>
-                <TableCell className="py-3 font-mono text-[12px] text-slate-600">
-                  {row.type}
-                </TableCell>
-                <TableCell className="py-3 text-sm text-slate-600">
-                  {row.required ? text.requiredYes : text.requiredNo}
-                </TableCell>
-                <TableCell className="py-3 text-sm text-slate-600">
-                  <div className="space-y-1">
-                    {row.description ? <p>{row.description}</p> : null}
-                    <p className="text-[12px] text-slate-500">
-                      {renderNotes(row.notes)}
-                    </p>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-    </DocsSurface>
+    <div className="divide-y divide-zinc-100">
+      {rows.map((row) => (
+        <div
+          key={row.path}
+          className="py-3"
+          style={{ paddingLeft: `${row.level * 20}px` }}
+        >
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <code className="font-mono text-[13px] font-medium text-zinc-900">
+              {row.path}
+            </code>
+            {row.required ? (
+              <span className="text-blue-500">*</span>
+            ) : (
+              <span className="text-zinc-300">?</span>
+            )}
+            <span className="font-mono text-[12px] text-zinc-400">
+              {row.type}
+            </span>
+          </div>
+          {row.description ? (
+            <p className="mt-0.5 text-[13px] leading-5 text-zinc-500">
+              {row.description}
+            </p>
+          ) : null}
+          {row.notes.length > 0 ? (
+            <div className="mt-1 flex flex-wrap gap-2">
+              {row.notes.map((note, i) => (
+                <span
+                  key={i}
+                  className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-[10.5px] text-zinc-500"
+                >
+                  {note}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Flat parameter listing for URL/query parameters */
+function ParamFlatList({
+  parameters,
+  document,
+}: {
+  parameters: ReferenceOperation["parameters"];
+  document: OpenAPIDocument;
+}) {
+  if (parameters.length === 0) return null;
+
+  return (
+    <div className="divide-y divide-zinc-100">
+      {parameters.map((param) => {
+        const meta = getOpenAPISchemaMetaItems(document, param.schema);
+        return (
+          <div key={param.name} className="py-3">
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <code className="font-mono text-[13px] font-medium text-zinc-900">
+                {param.name}
+              </code>
+              <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-500">
+                {param.in}
+              </span>
+              <span className="font-mono text-[12px] text-zinc-400">
+                {formatOpenAPISchemaType(document, param.schema)}
+              </span>
+            </div>
+            {param.description ? (
+              <p className="mt-0.5 text-[13px] leading-5 text-zinc-500">
+                {param.description}
+              </p>
+            ) : meta.length > 0 ? (
+              <p className="mt-0.5 text-[13px] leading-5 text-zinc-500">
+                {meta.join(" · ")}
+              </p>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -205,21 +228,21 @@ function ResponsePanel({
   const meta = getOpenAPISchemaMetaItems(document, mediaType.schema);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600">
+        <span className="rounded bg-zinc-100 px-2 py-0.5 text-[10.5px] font-medium text-zinc-600">
           {contentType}
         </span>
-        <span className="rounded-md border border-slate-200 bg-white px-2.5 py-1 font-mono text-[11px] text-slate-600">
-          {schemaType}
-        </span>
+        <span className="font-mono text-[11px] text-zinc-400">{schemaType}</span>
       </div>
 
       {meta.length > 0 ? (
-        <p className="text-sm leading-6 text-slate-500">{renderNotes(meta)}</p>
+        <p className="text-[13px] leading-5 text-zinc-500">
+          {renderNotes(meta)}
+        </p>
       ) : null}
 
-      <FieldTable rows={fieldRows} text={text} />
+      <ParamList rows={fieldRows} text={text} />
     </div>
   );
 }
@@ -242,32 +265,34 @@ function SchemaDisclosure({
     "";
 
   return (
-    <Collapsible className="rounded-lg border border-slate-200 bg-white">
-      <CollapsibleTrigger className="group flex w-full items-center justify-between gap-4 px-5 py-4 text-left">
+    <Collapsible className="rounded-lg border border-zinc-200 bg-white">
+      <CollapsibleTrigger className="group flex w-full items-center justify-between gap-3 px-5 py-3.5 text-left">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <code className="font-mono text-[13px] text-slate-950">
-              {entry.name}
-            </code>
-            <span className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600">
+            <code className="font-mono text-[13px] font-medium text-zinc-900">{entry.name}</code>
+            <span className="rounded bg-zinc-100 px-2 py-0.5 text-[10.5px] font-medium text-zinc-500">
               {schemaType}
             </span>
           </div>
           {description ? (
-            <p className="mt-2 text-sm leading-6 [overflow-wrap:anywhere] break-words text-slate-600">
+            <p className="mt-1 text-[13px] leading-5 text-zinc-500 [overflow-wrap:anywhere] break-words">
               {description}
             </p>
           ) : null}
           {meta.length > 0 ? (
-            <p className="mt-2 text-[12px] leading-5 text-slate-500">
-              {renderNotes(meta)}
-            </p>
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {meta.map((m, i) => (
+                <span key={i} className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">
+                  {m}
+                </span>
+              ))}
+            </div>
           ) : null}
         </div>
-        <ChevronDownIcon className="size-4 shrink-0 text-slate-400 transition-transform group-data-[state=open]:rotate-180" />
+        <ChevronDownIcon className="size-3.5 shrink-0 text-zinc-400 transition-transform group-data-[state=open]:rotate-180" />
       </CollapsibleTrigger>
-      <CollapsibleContent className="border-t border-slate-200 px-5 py-5">
-        <FieldTable rows={rows} text={text} />
+      <CollapsibleContent className="border-t border-zinc-100 px-5 py-4">
+        <ParamList rows={rows} text={text} />
       </CollapsibleContent>
     </Collapsible>
   );
@@ -292,110 +317,78 @@ function OperationSection({
   return (
     <article
       id={operation.anchorId}
-      className="scroll-mt-28 rounded-lg border border-slate-200 bg-white px-5 py-5"
+      className="scroll-mt-20 space-y-5"
     >
-      <div className="space-y-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <DocsMethodBadge method={operation.method} />
-          <code className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1 font-mono text-[12px] text-slate-700">
-            {operation.path}
-          </code>
-        </div>
-        <div>
-          <h3 className="text-[1.25rem] leading-[1.12] font-semibold tracking-[-0.035em] text-slate-950">
-            {operation.title}
-          </h3>
-          {operation.description ? (
-            <p className="mt-3 max-w-[720px] text-[14px] leading-6 text-slate-600">
-              {operation.description}
-            </p>
-          ) : null}
-        </div>
+      {/* Endpoint hero: method + path */}
+      <div className="flex items-center gap-2.5">
+        <DocsMethodBadge method={operation.method} />
+        <code className="rounded-md bg-zinc-50 px-3 py-1.5 font-mono text-[13px] text-zinc-800">
+          {operation.path}
+        </code>
       </div>
 
-      <Tabs defaultValue={firstStatus || "request"} className="space-y-5">
-        <TabsList className="grid h-auto w-full max-w-[420px] grid-cols-3 rounded-lg bg-slate-100 p-1">
-          <TabsTrigger value="request" className="rounded-md">
+      <div>
+        <h3 className="text-[16px] font-semibold tracking-tight text-zinc-900">
+          {operation.title}
+        </h3>
+        {operation.description ? (
+          <p className="mt-1 max-w-[720px] text-[13.5px] leading-5 text-zinc-500">
+            {operation.description}
+          </p>
+        ) : null}
+      </div>
+
+      {/* Tabs: Request / Response / Example */}
+      <Tabs defaultValue={firstStatus || "request"} className="space-y-4">
+        <TabsList className="h-9 rounded-md border border-zinc-200 bg-transparent p-0.5">
+          <TabsTrigger
+            value="request"
+            className="rounded-md px-4 text-[12px] data-[state=active]:bg-zinc-900 data-[state=active]:text-white"
+          >
             {text.requestTab}
           </TabsTrigger>
-          <TabsTrigger value="responses" className="rounded-md">
+          <TabsTrigger
+            value="responses"
+            className="rounded-md px-4 text-[12px] data-[state=active]:bg-zinc-900 data-[state=active]:text-white"
+          >
             {text.responseTab}
           </TabsTrigger>
-          <TabsTrigger value="example" className="rounded-md">
+          <TabsTrigger
+            value="example"
+            className="rounded-md px-4 text-[12px] data-[state=active]:bg-zinc-900 data-[state=active]:text-white"
+          >
             {text.exampleTab}
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="request" className="space-y-6">
+        {/* Request tab */}
+        <TabsContent value="request" className="space-y-5">
           {operation.parameters.length > 0 ? (
-            <div className="space-y-4">
-              <DocsSectionHeading
-                eyebrow={text.parametersEyebrow}
-                title={text.parametersTitle}
+            <div className="space-y-2">
+              <h4 className="text-[12px] font-semibold tracking-[0.1em] text-zinc-400 uppercase">
+                {text.parametersTitle}
+              </h4>
+              <ParamFlatList
+                parameters={operation.parameters}
+                document={document}
               />
-              <DocsSurface className="overflow-hidden">
-                <div className="overflow-x-auto">
-                  <Table className="min-w-[780px]">
-                    <TableHeader>
-                      <TableRow className="bg-slate-50/80">
-                        <TableHead className="w-[220px]">
-                          {text.fieldColumn}
-                        </TableHead>
-                        <TableHead className="w-[130px]">
-                          {text.locationColumn}
-                        </TableHead>
-                        <TableHead className="w-[190px]">
-                          {text.typeColumn}
-                        </TableHead>
-                        <TableHead>{text.detailsColumn}</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {operation.parameters.map((parameter) => (
-                        <TableRow
-                          key={`${operation.anchorId}-${parameter.name}`}
-                        >
-                          <TableCell className="py-3 font-mono text-[13px] text-slate-950">
-                            {parameter.name}
-                          </TableCell>
-                          <TableCell className="py-3 text-sm text-slate-600">
-                            {parameter.in}
-                          </TableCell>
-                          <TableCell className="py-3 font-mono text-[12px] text-slate-600">
-                            {formatOpenAPISchemaType(
-                              document,
-                              parameter.schema,
-                            )}
-                          </TableCell>
-                          <TableCell className="py-3 text-sm text-slate-600">
-                            {parameter.description ??
-                              renderNotes(
-                                getOpenAPISchemaMetaItems(
-                                  document,
-                                  parameter.schema,
-                                ),
-                              )}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </DocsSurface>
             </div>
           ) : null}
 
           {requestMediaEntries.map(([contentType, mediaType]) => (
             <div
               key={`${operation.anchorId}-${contentType}`}
-              className="space-y-4"
+              className="space-y-2"
             >
-              <DocsSectionHeading
-                eyebrow={text.requestEyebrow}
-                title={text.requestTitle}
-                description={contentType}
-              />
-              <FieldTable
+              <div className="flex items-center gap-2">
+                <h4 className="text-[12px] font-semibold tracking-[0.1em] text-zinc-400 uppercase">
+                  {text.requestTitle}
+                </h4>
+                <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-500">
+                  {contentType}
+                </span>
+              </div>
+              <ParamList
                 rows={listOpenAPISchemaFieldRows(document, mediaType.schema)}
                 text={text}
               />
@@ -403,14 +396,15 @@ function OperationSection({
           ))}
         </TabsContent>
 
-        <TabsContent value="responses" className="space-y-5">
-          <Tabs defaultValue={firstStatus} className="space-y-4">
-            <TabsList className="flex h-auto flex-wrap rounded-lg bg-slate-100 p-1">
+        {/* Responses tab */}
+        <TabsContent value="responses" className="space-y-4">
+          <Tabs defaultValue={firstStatus} className="space-y-3">
+            <TabsList className="flex h-8 flex-wrap rounded-md border border-zinc-200 bg-transparent p-0.5">
               {operation.responses.map((response) => (
                 <TabsTrigger
                   key={`${operation.anchorId}-${response.status}`}
                   value={response.status}
-                  className="rounded-md"
+                  className="rounded-md px-3 text-[12px] data-[state=active]:bg-zinc-900 data-[state=active]:text-white"
                 >
                   {response.status}
                 </TabsTrigger>
@@ -421,9 +415,9 @@ function OperationSection({
               <TabsContent
                 key={`${operation.anchorId}-${response.status}-panel`}
                 value={response.status}
-                className="space-y-4"
+                className="space-y-3"
               >
-                <p className="text-sm leading-6 text-slate-600">
+                <p className="text-[13px] leading-5 text-zinc-500">
                   {response.response.description ?? text.responseTab}
                 </p>
                 {Object.entries(response.response.content ?? {}).map(
@@ -442,7 +436,8 @@ function OperationSection({
           </Tabs>
         </TabsContent>
 
-        <TabsContent value="example" className="space-y-4">
+        {/* Example tab */}
+        <TabsContent value="example" className="space-y-3">
           <CopyableCodeBlock
             title="cURL"
             code={buildOperationCurlSnippet(document, baseURL, operation)}
@@ -479,17 +474,11 @@ export default function AgentPublicReferencePage() {
   const schemas = openapiDoc ? listReferenceSchemas(openapiDoc) : [];
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
+    if (typeof window === "undefined") return;
 
     const targetId = decodeURIComponent(window.location.hash.replace(/^#/, ""));
-    if (!targetId) {
-      return;
-    }
+    if (!targetId) return;
 
-    // Contract sections mount after the OpenAPI document resolves, so hash
-    // navigation needs one post-render pass to land on the final element.
     const frameID = window.requestAnimationFrame(() => {
       document.getElementById(targetId)?.scrollIntoView({ block: "start" });
     });
@@ -565,49 +554,50 @@ export default function AgentPublicReferencePage() {
       exportURL={exportDoc.documentation_json_url}
       sidebarSections={sidebarSections}
     >
-      <div className="space-y-12 pt-2">
-        <section id="reference" className="scroll-mt-28 space-y-8">
+      <div className="space-y-8">
+        {/* Page heading */}
+        <section id="reference" className="scroll-mt-20 space-y-4">
           <PublicDocsPageHeading
             eyebrow={text.eyebrow}
             title={text.title}
             description={text.description}
           />
 
-          <DocsKeyValueGrid
-            items={[
-              {
-                label: text.summaryBaseURL,
-                value: exportDoc.api_base_url,
-                mono: true,
-              },
-              {
-                label: text.summaryVersion,
-                value: openapiDoc.info?.version ?? "1.0.0",
-              },
-              {
-                label: text.summarySpec,
-                value: openapiDoc.openapi ?? "OpenAPI",
-              },
-              {
-                label: text.summaryAuth,
-                value: "Bearer <user_created_key>",
-                mono: true,
-              },
-            ]}
-          />
+          <div className="grid gap-0 divide-y divide-zinc-100 rounded-lg border border-zinc-200 bg-white lg:grid-cols-2 lg:divide-x lg:divide-y-0">
+            <div className="px-4 py-3">
+              <p className="text-[10px] font-semibold tracking-[0.14em] text-zinc-400 uppercase">
+                {text.summaryBaseURL}
+              </p>
+              <p className="mt-1 font-mono text-[12px] text-zinc-800">
+                {exportDoc.api_base_url}
+              </p>
+            </div>
+            <div className="px-4 py-3">
+              <p className="text-[10px] font-semibold tracking-[0.14em] text-zinc-400 uppercase">
+                {text.summaryAuth}
+              </p>
+              <p className="mt-1 font-mono text-[12px] text-zinc-800">
+                Bearer &lt;user_created_key&gt;
+              </p>
+            </div>
+          </div>
         </section>
 
+        {/* Operations */}
         <section
           id="operations"
-          className="scroll-mt-28 space-y-8 border-t border-slate-200 pt-12"
+          className="scroll-mt-20 space-y-6 border-t border-zinc-100 pt-8"
         >
-          <DocsSectionHeading
-            eyebrow={text.operationsEyebrow}
-            title={text.operationsTitle}
-            description={text.operationsDescription}
-          />
+          <div>
+            <p className="text-[11px] font-semibold tracking-[0.18em] text-zinc-400 uppercase">
+              {text.operationsEyebrow}
+            </p>
+            <h2 className="mt-1 text-[18px] font-semibold tracking-tight text-zinc-900">
+              {text.operationsTitle}
+            </h2>
+          </div>
 
-          <div className="space-y-8">
+          <div className="space-y-8 divide-y divide-zinc-100">
             {operations.map((operation) => (
               <OperationSection
                 key={operation.anchorId}
@@ -620,22 +610,26 @@ export default function AgentPublicReferencePage() {
           </div>
         </section>
 
+        {/* Schemas */}
         <section
           id="schemas"
-          className="scroll-mt-28 space-y-6 border-t border-slate-200 pt-12"
+          className="scroll-mt-20 space-y-4 border-t border-zinc-100 pt-8"
         >
-          <DocsSectionHeading
-            eyebrow={text.schemasEyebrow}
-            title={text.schemasTitle}
-            description={text.schemasDescription}
-          />
+          <div>
+            <p className="text-[11px] font-semibold tracking-[0.18em] text-zinc-400 uppercase">
+              {text.schemasEyebrow}
+            </p>
+            <h2 className="mt-1 text-[18px] font-semibold tracking-tight text-zinc-900">
+              {text.schemasTitle}
+            </h2>
+          </div>
 
-          <div className="space-y-4">
+          <div className="space-y-3">
             {schemas.map((schema) => (
               <div
                 id={schema.anchorId}
                 key={schema.anchorId}
-                className="scroll-mt-28"
+                className="scroll-mt-20"
               >
                 <SchemaDisclosure
                   document={openapiDoc}

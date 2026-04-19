@@ -2,14 +2,6 @@ import { ExternalLinkIcon } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   buildPublicAgentPlaygroundPath,
@@ -23,13 +15,10 @@ import { getAgentPublicDocsPageText } from "./page.i18n";
 import {
   CopyableCodeBlock,
   DeveloperDocsShell,
-  type DeveloperDocsSidebarSection,
-  DocsKeyValueGrid,
   DocsMethodBadge,
-  DocsSectionHeading,
-  DocsSurface,
   PublicDocsPageHeading,
   PublicDocsStatePanel,
+  type DeveloperDocsSidebarSection,
 } from "./shared";
 
 function buildJavaScriptSnippet(baseURL: string, agentName: string) {
@@ -95,98 +84,38 @@ function buildCurlSnippet(baseURL: string, agentName: string) {
   }'`;
 }
 
-function RouteTable({
+/** Flat route listing — one row per route, no table borders */
+function RouteList({
   routes,
   referencePath,
   openReferenceLabel,
-  methodColumn,
-  pathColumn,
-  summaryColumn,
-  docsColumn,
 }: {
   routes: ReturnType<typeof listReferenceOperations>;
   referencePath: string;
   openReferenceLabel: string;
-  methodColumn: string;
-  pathColumn: string;
-  summaryColumn: string;
-  docsColumn: string;
 }) {
   return (
-    <DocsSurface className="overflow-hidden">
-      <div className="overflow-x-auto">
-        <Table className="min-w-[820px]">
-          <TableHeader>
-            <TableRow className="bg-slate-50/80">
-              <TableHead className="w-[110px]">{methodColumn}</TableHead>
-              <TableHead>{pathColumn}</TableHead>
-              <TableHead className="w-[300px]">{summaryColumn}</TableHead>
-              <TableHead className="w-[140px] text-right">
-                {docsColumn}
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {routes.map((route) => (
-              <TableRow key={route.anchorId}>
-                <TableCell>
-                  <DocsMethodBadge method={route.method} />
-                </TableCell>
-                <TableCell className="font-mono text-[13px] [overflow-wrap:anywhere] text-slate-950">
-                  {route.path}
-                </TableCell>
-                <TableCell className="text-sm text-slate-600">
-                  {route.title}
-                </TableCell>
-                <TableCell className="text-right">
-                  <Button asChild variant="ghost" className="rounded-md">
-                    <Link to={`${referencePath}#${route.anchorId}`}>
-                      {openReferenceLabel}
-                      <ExternalLinkIcon className="size-4" />
-                    </Link>
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-    </DocsSurface>
-  );
-}
-
-function NextStepRow({
-  eyebrow,
-  title,
-  description,
-  href,
-  actionLabel,
-}: {
-  eyebrow: string;
-  title: string;
-  description: string;
-  href: string;
-  actionLabel: string;
-}) {
-  return (
-    <div className="grid gap-4 border-t border-slate-200 px-5 py-5 first:border-t-0 lg:grid-cols-[124px_minmax(0,1fr)_156px] lg:items-center">
-      <p className="text-[11px] font-medium tracking-[0.22em] text-slate-500 uppercase">
-        {eyebrow}
-      </p>
-      <div>
-        <h3 className="text-[1rem] font-semibold tracking-[-0.03em] text-slate-950">
-          {title}
-        </h3>
-        <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
-      </div>
-      <div className="lg:flex lg:justify-end">
-        <Button asChild variant="outline" className="rounded-md">
-          <Link to={href}>
-            {actionLabel}
-            <ExternalLinkIcon className="size-4" />
-          </Link>
-        </Button>
-      </div>
+    <div className="divide-y divide-zinc-100 rounded-lg border border-zinc-200 bg-white">
+      {routes.map((route) => (
+        <div
+          key={route.anchorId}
+          className="flex items-center gap-3 px-4 py-3"
+        >
+          <DocsMethodBadge method={route.method} />
+          <code className="font-mono text-[13px] text-zinc-700">
+            {route.path}
+          </code>
+          <span className="text-[13px] text-zinc-500">{route.title}</span>
+          <div className="ml-auto">
+            <Button asChild variant="ghost" size="sm" className="h-7 text-[11px]">
+              <Link to={`${referencePath}#${route.anchorId}`}>
+                {openReferenceLabel}
+                <ExternalLinkIcon className="size-3" />
+              </Link>
+            </Button>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -277,16 +206,17 @@ export default function AgentPublicDocsPage() {
       exportURL={exportDoc.documentation_json_url}
       sidebarSections={sidebarSections}
     >
-      <div className="space-y-10 pt-2">
-        <section id="overview" className="scroll-mt-28 space-y-6">
-          <div className="flex flex-wrap items-center gap-3">
+      <div className="space-y-10">
+        {/* Overview */}
+        <section id="overview" className="scroll-mt-20 space-y-5">
+          <div className="flex items-center gap-2.5">
             <DocsMethodBadge method="POST" />
-            <code className="rounded-md border border-slate-200 bg-white px-3 py-1 font-mono text-[12px] text-slate-700">
+            <code className="rounded-md bg-zinc-50 px-3 py-1.5 font-mono text-[13px] text-zinc-800">
               /v1/turns
             </code>
-            <code className="rounded-md border border-slate-200 bg-white px-3 py-1 font-mono text-[12px] text-slate-700">
+            <span className="rounded-md bg-zinc-100 px-2 py-1 font-mono text-[11px] text-zinc-500">
               {`agent=${exportDoc.agent}`}
-            </code>
+            </span>
           </div>
 
           <PublicDocsPageHeading
@@ -295,85 +225,90 @@ export default function AgentPublicDocsPage() {
             description={text.heroDescription}
           />
 
-          <DocsKeyValueGrid
-            items={[
-              {
-                label: text.baseURL,
-                value: exportDoc.api_base_url,
-                mono: true,
-                description: text.baseURLNote,
-              },
-              {
-                label: text.modelName,
-                value: exportDoc.agent,
-                mono: true,
-              },
-              {
-                label: text.apiKeyLabel,
-                value: text.apiKeyExample,
-                mono: true,
-              },
-              {
-                label: text.modesLabel,
-                value: text.modesValue,
-              },
-            ]}
-          />
-
-          <DocsSurface className="overflow-hidden">
-            <div className="grid gap-0 divide-y divide-slate-200 lg:grid-cols-3 lg:divide-x lg:divide-y-0">
-              <div>
-                <p className="px-6 pt-6 text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
-                  {text.heroFactOneLabel}
+          {/* Info grid */}
+          <div className="divide-y divide-zinc-100 rounded-lg border border-zinc-200 bg-white">
+            <div className="grid gap-0 divide-y divide-zinc-100 lg:grid-cols-2 lg:divide-x lg:divide-y-0">
+              <div className="px-4 py-3">
+                <p className="text-[10px] font-semibold tracking-[0.14em] text-zinc-400 uppercase">
+                  {text.baseURL}
                 </p>
-                <p className="px-6 pt-2 pb-6 text-sm leading-6 text-slate-700">
-                  {text.heroFactOneValue}
+                <p className="mt-1 font-mono text-[12px] text-zinc-800">
+                  {exportDoc.api_base_url}
+                </p>
+                <p className="mt-0.5 text-[11px] text-zinc-400">
+                  {text.baseURLNote}
                 </p>
               </div>
-              <div>
-                <p className="px-6 pt-6 text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
-                  {text.heroFactTwoLabel}
+              <div className="px-4 py-3">
+                <p className="text-[10px] font-semibold tracking-[0.14em] text-zinc-400 uppercase">
+                  {text.apiKeyLabel}
                 </p>
-                <p className="px-6 pt-2 pb-6 text-sm leading-6 text-slate-700">
-                  {text.heroFactTwoValue}
-                </p>
-              </div>
-              <div>
-                <p className="px-6 pt-6 text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
-                  {text.heroFactThreeLabel}
-                </p>
-                <p className="px-6 pt-2 pb-6 text-sm leading-6 text-slate-700">
-                  {routes.length} {text.heroFactThreeValue}
+                <p className="mt-1 font-mono text-[12px] text-zinc-800">
+                  {text.apiKeyExample}
                 </p>
               </div>
             </div>
-          </DocsSurface>
+            <div className="grid gap-0 divide-y divide-zinc-100 lg:grid-cols-2 lg:divide-x lg:divide-y-0">
+              <div className="px-4 py-3">
+                <p className="text-[10px] font-semibold tracking-[0.14em] text-zinc-400 uppercase">
+                  {text.modelName}
+                </p>
+                <p className="mt-1 font-mono text-[12px] text-zinc-800">
+                  {exportDoc.agent}
+                </p>
+              </div>
+              <div className="px-4 py-3">
+                <p className="text-[10px] font-semibold tracking-[0.14em] text-zinc-400 uppercase">
+                  {text.modesLabel}
+                </p>
+                <p className="mt-1 text-[12px] text-zinc-600">
+                  {text.modesValue}
+                </p>
+              </div>
+            </div>
+          </div>
         </section>
 
+        {/* Quickstart */}
         <section
           id="quickstart"
-          className="scroll-mt-28 space-y-5 border-t border-slate-200 pt-10"
+          className="scroll-mt-20 space-y-4 border-t border-zinc-100 pt-10"
         >
-          <DocsSectionHeading
-            eyebrow={text.quickstartEyebrow}
-            title={text.quickstartTitle}
-            description={text.quickstartDescription}
-          />
+          <div>
+            <p className="text-[11px] font-semibold tracking-[0.18em] text-zinc-400 uppercase">
+              {text.quickstartEyebrow}
+            </p>
+            <h2 className="mt-1.5 text-[18px] font-semibold tracking-tight text-zinc-900">
+              {text.quickstartTitle}
+            </h2>
+            <p className="mt-2 text-[13.5px] leading-6 text-zinc-500">
+              {text.quickstartDescription}
+            </p>
+          </div>
 
-          <Tabs defaultValue="javascript" className="space-y-4">
-            <TabsList className="grid h-auto w-full max-w-[420px] grid-cols-3 rounded-md bg-slate-100 p-1">
-              <TabsTrigger value="javascript" className="rounded-md">
+          <Tabs defaultValue="javascript">
+            <TabsList className="h-9 rounded-md border border-zinc-200 bg-transparent p-0.5">
+              <TabsTrigger
+                value="javascript"
+                className="rounded-md px-4 text-[12px] data-[state=active]:bg-zinc-900 data-[state=active]:text-white"
+              >
                 {text.jsTab}
               </TabsTrigger>
-              <TabsTrigger value="python" className="rounded-md">
+              <TabsTrigger
+                value="python"
+                className="rounded-md px-4 text-[12px] data-[state=active]:bg-zinc-900 data-[state=active]:text-white"
+              >
                 {text.pythonTab}
               </TabsTrigger>
-              <TabsTrigger value="curl" className="rounded-md">
+              <TabsTrigger
+                value="curl"
+                className="rounded-md px-4 text-[12px] data-[state=active]:bg-zinc-900 data-[state=active]:text-white"
+              >
                 {text.curlTab}
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="javascript">
+            <TabsContent value="javascript" className="mt-3">
               <CopyableCodeBlock
                 title="JavaScript"
                 code={javascriptSnippet}
@@ -381,7 +316,7 @@ export default function AgentPublicDocsPage() {
                 copiedLabel={text.copied}
               />
             </TabsContent>
-            <TabsContent value="python">
+            <TabsContent value="python" className="mt-3">
               <CopyableCodeBlock
                 title="Python"
                 code={pythonSnippet}
@@ -389,7 +324,7 @@ export default function AgentPublicDocsPage() {
                 copiedLabel={text.copied}
               />
             </TabsContent>
-            <TabsContent value="curl">
+            <TabsContent value="curl" className="mt-3">
               <CopyableCodeBlock
                 title="cURL"
                 code={curlSnippet}
@@ -400,83 +335,130 @@ export default function AgentPublicDocsPage() {
           </Tabs>
         </section>
 
+        {/* Authentication */}
         <section
           id="authentication"
-          className="scroll-mt-28 space-y-5 border-t border-slate-200 pt-10"
+          className="scroll-mt-20 space-y-4 border-t border-zinc-100 pt-10"
         >
-          <DocsSectionHeading
-            eyebrow={text.authEyebrow}
-            title={text.authTitle}
-            description={text.authDescription}
-          />
+          <div>
+            <p className="text-[11px] font-semibold tracking-[0.18em] text-zinc-400 uppercase">
+              {text.authEyebrow}
+            </p>
+            <h2 className="mt-1.5 text-[18px] font-semibold tracking-tight text-zinc-900">
+              {text.authTitle}
+            </h2>
+            <p className="mt-2 text-[13.5px] leading-6 text-zinc-500">
+              {text.authDescription}
+            </p>
+          </div>
 
-          <DocsKeyValueGrid
-            columns={3}
-            items={[
-              {
-                label: text.authHeaderLabel,
-                value: "Authorization",
-              },
-              {
-                label: text.authValueLabel,
-                value: "Bearer <user_created_key>",
-                mono: true,
-              },
-              {
-                label: text.authScopeLabel,
-                value: text.authScopeValue,
-              },
-            ]}
-          />
+          <div className="divide-y divide-zinc-100 rounded-lg border border-zinc-200 bg-white">
+            <div className="grid gap-0 divide-y divide-zinc-100 lg:grid-cols-3 lg:divide-x lg:divide-y-0">
+              <div className="px-4 py-3">
+                <p className="text-[10px] font-semibold tracking-[0.14em] text-zinc-400 uppercase">
+                  {text.authHeaderLabel}
+                </p>
+                <p className="mt-1 text-[13px] font-medium text-zinc-800">
+                  Authorization
+                </p>
+              </div>
+              <div className="px-4 py-3">
+                <p className="text-[10px] font-semibold tracking-[0.14em] text-zinc-400 uppercase">
+                  {text.authValueLabel}
+                </p>
+                <p className="mt-1 font-mono text-[12px] text-zinc-800">
+                  Bearer &lt;user_created_key&gt;
+                </p>
+              </div>
+              <div className="px-4 py-3">
+                <p className="text-[10px] font-semibold tracking-[0.14em] text-zinc-400 uppercase">
+                  {text.authScopeLabel}
+                </p>
+                <p className="mt-1 text-[13px] text-zinc-600">
+                  {text.authScopeValue}
+                </p>
+              </div>
+            </div>
+          </div>
         </section>
 
+        {/* Routes */}
         <section
           id="routes"
-          className="scroll-mt-28 space-y-5 border-t border-slate-200 pt-10"
+          className="scroll-mt-20 space-y-4 border-t border-zinc-100 pt-10"
         >
-          <DocsSectionHeading
-            eyebrow={text.routesEyebrow}
-            title={text.routesTitle}
-            description={text.routesDescription}
-          />
+          <div>
+            <p className="text-[11px] font-semibold tracking-[0.18em] text-zinc-400 uppercase">
+              {text.routesEyebrow}
+            </p>
+            <h2 className="mt-1.5 text-[18px] font-semibold tracking-tight text-zinc-900">
+              {text.routesTitle}
+            </h2>
+            <p className="mt-2 text-[13.5px] leading-6 text-zinc-500">
+              {text.routesDescription}
+            </p>
+          </div>
 
-          <RouteTable
+          <RouteList
             routes={routes}
             referencePath={referencePath}
             openReferenceLabel={text.openReference}
-            methodColumn={text.routeMethodColumn}
-            pathColumn={text.routePathColumn}
-            summaryColumn={text.routeSummaryColumn}
-            docsColumn={text.routeDocsColumn}
           />
         </section>
 
+        {/* Next Steps */}
         <section
           id="next-steps"
-          className="scroll-mt-28 space-y-5 border-t border-slate-200 pt-10"
+          className="scroll-mt-20 space-y-4 border-t border-zinc-100 pt-10"
         >
-          <DocsSectionHeading
-            eyebrow={text.nextEyebrow}
-            title={text.nextTitle}
-            description={text.nextDescription}
-          />
+          <div>
+            <p className="text-[11px] font-semibold tracking-[0.18em] text-zinc-400 uppercase">
+              {text.nextEyebrow}
+            </p>
+            <h2 className="mt-1.5 text-[18px] font-semibold tracking-tight text-zinc-900">
+              {text.nextTitle}
+            </h2>
+            <p className="mt-2 text-[13.5px] leading-6 text-zinc-500">
+              {text.nextDescription}
+            </p>
+          </div>
 
-          <DocsSurface className="overflow-hidden">
-            <NextStepRow
-              eyebrow={text.playgroundEyebrow}
-              title={text.playgroundTitle}
-              description={text.playgroundDescription}
-              href={playgroundPath}
-              actionLabel={text.openPlayground}
-            />
-            <NextStepRow
-              eyebrow={text.referenceEyebrow}
-              title={text.referenceTitle}
-              description={text.referenceDescription}
-              href={referencePath}
-              actionLabel={text.openReferencePage}
-            />
-          </DocsSurface>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="rounded-lg border border-zinc-200 bg-white px-5 py-5">
+              <p className="text-[10px] font-semibold tracking-[0.14em] text-zinc-400 uppercase">
+                {text.playgroundEyebrow}
+              </p>
+              <h3 className="mt-2 text-[14px] font-semibold text-zinc-900">
+                {text.playgroundTitle}
+              </h3>
+              <p className="mt-1 text-[13px] leading-5 text-zinc-500">
+                {text.playgroundDescription}
+              </p>
+              <Button asChild variant="outline" size="sm" className="mt-4 h-8 rounded-md text-[12px]">
+                <Link to={playgroundPath}>
+                  {text.openPlayground}
+                  <ExternalLinkIcon className="size-3.5" />
+                </Link>
+              </Button>
+            </div>
+            <div className="rounded-lg border border-zinc-200 bg-white px-5 py-5">
+              <p className="text-[10px] font-semibold tracking-[0.14em] text-zinc-400 uppercase">
+                {text.referenceEyebrow}
+              </p>
+              <h3 className="mt-2 text-[14px] font-semibold text-zinc-900">
+                {text.referenceTitle}
+              </h3>
+              <p className="mt-1 text-[13px] leading-5 text-zinc-500">
+                {text.referenceDescription}
+              </p>
+              <Button asChild variant="outline" size="sm" className="mt-4 h-8 rounded-md text-[12px]">
+                <Link to={referencePath}>
+                  {text.openReferencePage}
+                  <ExternalLinkIcon className="size-3.5" />
+                </Link>
+              </Button>
+            </div>
+          </div>
         </section>
       </div>
     </DeveloperDocsShell>

@@ -44,7 +44,7 @@ export function InlineCodeText({
         index % 2 === 1 ? (
           <code
             key={`${part}-${index}`}
-            className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[0.92em] text-slate-900"
+            className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-[0.92em] text-zinc-800"
           >
             {part}
           </code>
@@ -70,15 +70,15 @@ export function PublicDocsStatePanel({
   actionHref?: string;
 }) {
   return (
-    <div className="min-h-screen bg-white px-4 py-20 text-slate-950 sm:px-6 lg:px-8">
-      <section className="mx-auto max-w-2xl rounded-lg border border-slate-200 bg-white px-7 py-8">
-        <p className="text-[11px] font-medium tracking-[0.22em] text-slate-500 uppercase">
+    <div className="min-h-screen bg-white px-4 py-20 text-zinc-900 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-2xl rounded-lg border border-zinc-200 bg-white px-7 py-8">
+        <p className="text-[11px] font-medium tracking-[0.2em] text-zinc-400 uppercase">
           {eyebrow}
         </p>
-        <h1 className="mt-4 text-[clamp(1.8rem,3vw,2.35rem)] leading-[1.06] font-semibold tracking-[-0.04em] text-slate-950">
+        <h1 className="mt-4 text-[clamp(1.8rem,3vw,2.35rem)] leading-[1.06] font-semibold tracking-tight text-zinc-900">
           {title}
         </h1>
-        <p className="mt-4 max-w-xl text-[15px] leading-6 text-slate-600">
+        <p className="mt-4 max-w-xl text-[15px] leading-6 text-zinc-500">
           <InlineCodeText value={description} />
         </p>
         {actionLabel && actionHref ? (
@@ -104,13 +104,13 @@ export function PublicDocsPageHeading({
 }) {
   return (
     <div className="max-w-[760px]">
-      <p className="text-[11px] font-medium tracking-[0.22em] text-slate-500 uppercase">
+      <p className="text-[11px] font-medium tracking-[0.2em] text-zinc-400 uppercase">
         {eyebrow}
       </p>
-      <h1 className="mt-3 text-[clamp(1.75rem,2.4vw,2.4rem)] leading-[1.08] font-semibold tracking-[-0.045em] text-slate-950">
+      <h1 className="mt-2 text-[clamp(1.75rem,2.4vw,2.4rem)] leading-[1.08] font-semibold tracking-tight text-zinc-900">
         {title}
       </h1>
-      <p className="mt-3 max-w-[720px] text-[15px] leading-6 text-slate-600">
+      <p className="mt-2 max-w-[720px] text-[15px] leading-6 text-zinc-500">
         <InlineCodeText value={description} />
       </p>
     </div>
@@ -128,14 +128,14 @@ export function DocsSectionHeading({
 }) {
   return (
     <div className="max-w-[720px]">
-      <p className="text-[11px] font-medium tracking-[0.22em] text-slate-500 uppercase">
+      <p className="text-[11px] font-medium tracking-[0.2em] text-zinc-400 uppercase">
         {eyebrow}
       </p>
-      <h2 className="mt-3 text-[1.25rem] leading-[1.15] font-semibold tracking-[-0.035em] text-slate-950">
+      <h2 className="mt-1.5 text-[1.15rem] leading-[1.2] font-semibold tracking-tight text-zinc-900">
         {title}
       </h2>
       {description ? (
-        <p className="mt-3 max-w-[680px] text-[14px] leading-6 text-slate-600">
+        <p className="mt-2 max-w-[680px] text-[13.5px] leading-6 text-zinc-500">
           <InlineCodeText value={description} />
         </p>
       ) : null}
@@ -151,11 +151,14 @@ export function DocsSurface({
   children: React.ReactNode;
 }) {
   return (
-    <section
-      className={cn("rounded-lg border border-slate-200 bg-white", className)}
+    <div
+      className={cn(
+        "rounded-lg border border-zinc-200 bg-white",
+        className,
+      )}
     >
       {children}
-    </section>
+    </div>
   );
 }
 
@@ -163,7 +166,7 @@ export function DocsMethodBadge({ method }: { method: string }) {
   return (
     <span
       className={cn(
-        "inline-flex h-7 min-w-[64px] items-center justify-center rounded-md border px-3 font-mono text-[11px] font-semibold tracking-[0.16em] uppercase",
+        "inline-flex h-6 min-w-[52px] items-center justify-center rounded-md px-2.5 font-mono text-[10.5px] font-bold tracking-[0.08em] uppercase",
         getMethodToneClass(method),
       )}
     >
@@ -188,27 +191,27 @@ export function DocsKeyValueGrid({
     <DocsSurface className="overflow-hidden">
       <div
         className={cn(
-          "grid divide-y divide-slate-200 lg:divide-x lg:divide-y-0",
+          "grid divide-y divide-zinc-100 lg:divide-x lg:divide-y-0",
           columns === 2 && "lg:grid-cols-2",
           columns === 3 && "lg:grid-cols-3",
           columns === 4 && "lg:grid-cols-2 xl:grid-cols-4",
         )}
       >
         {items.map((item) => (
-          <div key={item.label} className="px-5 py-5">
-            <p className="text-[11px] font-medium tracking-[0.18em] text-slate-500 uppercase">
+          <div key={item.label} className="px-5 py-4">
+            <p className="text-[10.5px] font-medium tracking-[0.16em] text-zinc-400 uppercase">
               {item.label}
             </p>
             <p
               className={cn(
-                "mt-2 text-sm leading-6 font-medium text-slate-950",
-                item.mono && "font-mono text-[13px] [overflow-wrap:anywhere]",
+                "mt-1.5 text-[13px] leading-6 font-medium text-zinc-900",
+                item.mono && "font-mono text-[12px] [overflow-wrap:anywhere]",
               )}
             >
               {item.value}
             </p>
             {item.description ? (
-              <p className="mt-2 text-sm leading-6 text-slate-500">
+              <p className="mt-1 text-[12px] leading-5 text-zinc-400">
                 {item.description}
               </p>
             ) : null}
@@ -256,11 +259,11 @@ export function CopyableCodeBlock({
   }
 
   return (
-    <DocsSurface className="overflow-hidden rounded-lg border-slate-200 bg-slate-950 text-slate-100">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-5 py-4">
+    <div className="overflow-hidden rounded-lg border border-zinc-800 bg-[#0d1117]">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-700/60 px-4 py-2.5">
         <div className="flex items-center gap-3">
           {title ? (
-            <p className="font-mono text-[12px] tracking-[0.18em] text-slate-400 uppercase">
+            <p className="font-mono text-[11px] tracking-[0.14em] text-zinc-400 uppercase">
               {title}
             </p>
           ) : null}
@@ -268,26 +271,26 @@ export function CopyableCodeBlock({
 
         <Button
           type="button"
-          variant="outline"
+          variant="ghost"
           size="sm"
-          className="rounded-md border-white/10 bg-white/5 text-slate-100 hover:bg-white/10"
+          className="h-7 rounded-md text-zinc-400 hover:bg-zinc-700/50 hover:text-zinc-200"
           onClick={handleCopy}
         >
           {isCopied ? (
-            <CheckIcon className="size-4" />
+            <CheckIcon className="size-3.5" />
           ) : (
-            <CopyIcon className="size-4" />
+            <CopyIcon className="size-3.5" />
           )}
           {isCopied ? copiedLabel : copyLabel}
         </Button>
       </div>
 
-      <ScrollArea className="max-h-[460px] px-5 py-5">
-        <pre className="overflow-x-auto font-mono text-[13px] leading-6 whitespace-pre-wrap text-slate-100">
+      <ScrollArea className="max-h-[460px] px-4 py-4">
+        <pre className="overflow-x-auto font-mono text-[12.5px] leading-6 whitespace-pre-wrap text-zinc-200">
           {code}
         </pre>
       </ScrollArea>
-    </DocsSurface>
+    </div>
   );
 }
 
@@ -297,10 +300,10 @@ function HeaderLink({ href, label }: { href: string; label: string }) {
       href={href}
       target="_blank"
       rel="noreferrer"
-      className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-600 transition-colors hover:text-slate-950"
+      className="inline-flex items-center gap-1.5 text-[13px] text-zinc-400 transition-colors hover:text-zinc-600"
     >
       {label}
-      <ExternalLinkIcon className="size-4" />
+      <ExternalLinkIcon className="size-3.5" />
     </a>
   );
 }
@@ -314,7 +317,7 @@ function SidebarHrefActive(href: string, pathname: string, hash: string) {
   return pathname === url.pathname && (!url.hash || hash === url.hash);
 }
 
-function SidebarItem({ item }: { item: DeveloperDocsSidebarItem }) {
+function SidebarItem({ item, dark }: { item: DeveloperDocsSidebarItem; dark?: boolean }) {
   const location = useLocation();
   const isActive = SidebarHrefActive(
     item.href,
@@ -322,26 +325,59 @@ function SidebarItem({ item }: { item: DeveloperDocsSidebarItem }) {
     location.hash,
   );
 
+  if (dark) {
+    return (
+      <a
+        href={item.href}
+        className={cn(
+          "block rounded-md px-3 py-2 text-[13px] transition-colors",
+          isActive
+            ? "bg-white/10 text-white"
+            : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200",
+        )}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <span className="font-medium">{item.label}</span>
+          {item.badge ? (
+            <span
+              className={cn(
+                "rounded px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase",
+                getMethodBadgeDarkClass(item.badge),
+              )}
+            >
+              {item.badge}
+            </span>
+          ) : null}
+        </div>
+        {item.helper ? (
+          <p className="mt-0.5 font-mono text-[10.5px] leading-4 text-zinc-500">
+            {item.helper}
+          </p>
+        ) : null}
+      </a>
+    );
+  }
+
   return (
     <a
       href={item.href}
       className={cn(
-        "block rounded-lg border border-transparent px-3 py-2.5 transition-colors",
+        "block rounded-md px-3 py-2 text-[13px] transition-colors",
         isActive
-          ? "border-slate-200 bg-slate-50 text-slate-950"
-          : "text-slate-600 hover:bg-slate-50 hover:text-slate-950",
+          ? "bg-zinc-100 text-zinc-900"
+          : "text-zinc-500 hover:bg-zinc-50 hover:text-zinc-700",
       )}
     >
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-sm font-medium">{item.label}</span>
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-medium">{item.label}</span>
         {item.badge ? (
-          <span className="rounded-md bg-slate-200 px-2 py-0.5 font-mono text-[10px] text-slate-600 uppercase">
+          <span className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-[9px] font-bold text-zinc-600 uppercase">
             {item.badge}
           </span>
         ) : null}
       </div>
       {item.helper ? (
-        <p className="mt-1.5 font-mono text-[11px] leading-5 [overflow-wrap:anywhere] text-slate-500">
+        <p className="mt-0.5 font-mono text-[10.5px] leading-4 text-zinc-400">
           {item.helper}
         </p>
       ) : null}
@@ -352,16 +388,32 @@ function SidebarItem({ item }: { item: DeveloperDocsSidebarItem }) {
 function getMethodToneClass(method: string) {
   switch (method.toUpperCase()) {
     case "POST":
-      return "border-slate-950 bg-slate-950 text-white";
+      return "bg-blue-600 text-white";
     case "GET":
-      return "border-emerald-200 bg-emerald-50 text-emerald-900";
+      return "bg-emerald-600 text-white";
     case "DELETE":
-      return "border-rose-200 bg-rose-50 text-rose-900";
+      return "bg-red-500 text-white";
     case "PUT":
     case "PATCH":
-      return "border-amber-200 bg-amber-50 text-amber-900";
+      return "bg-amber-500 text-white";
     default:
-      return "border-slate-200 bg-slate-100 text-slate-900";
+      return "bg-zinc-500 text-white";
+  }
+}
+
+function getMethodBadgeDarkClass(method: string) {
+  switch (method.toUpperCase()) {
+    case "POST":
+      return "bg-blue-500/20 text-blue-300";
+    case "GET":
+      return "bg-emerald-500/20 text-emerald-300";
+    case "DELETE":
+      return "bg-red-500/20 text-red-300";
+    case "PUT":
+    case "PATCH":
+      return "bg-amber-500/20 text-amber-300";
+    default:
+      return "bg-zinc-500/20 text-zinc-300";
   }
 }
 
@@ -410,106 +462,83 @@ export function DeveloperDocsShell({
   );
 
   return (
-    <div className="min-h-screen bg-white text-slate-950">
-      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto max-w-[1480px] px-4 py-3 sm:px-6 lg:px-8">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="min-w-0">
-              <p className="text-[11px] font-medium tracking-[0.22em] text-slate-500 uppercase">
-                {text.eyebrow}
-              </p>
-              <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-2 text-sm">
-                <Link
-                  to={buildPublicAgentDocsPath(agentName)}
-                  className="font-medium text-slate-950"
-                >
-                  {text.homeLabel}
-                </Link>
-                <span className="text-slate-300">/</span>
-                <p className="truncate font-mono text-[13px] text-slate-600">
-                  {agentName}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-              {openapiURL ? (
-                <HeaderLink href={openapiURL} label={text.rawOpenAPI} />
-              ) : null}
-              {exportURL ? (
-                <HeaderLink href={exportURL} label={text.rawExport} />
-              ) : null}
-            </div>
+    <div className="min-h-screen bg-white text-zinc-900">
+      {/* Top header bar */}
+      <header className="sticky top-0 z-40 border-b border-zinc-200 bg-white/95 backdrop-blur">
+        <div className="mx-auto flex h-14 max-w-[1600px] items-center justify-between px-4 sm:px-6 lg:px-8">
+          <div className="flex min-w-0 items-center gap-2">
+            <Link
+              to={buildPublicAgentDocsPath(agentName)}
+              className="text-[13px] font-medium text-zinc-900 hover:text-zinc-600"
+            >
+              {text.homeLabel}
+            </Link>
+            <span className="text-zinc-300">/</span>
+            <p className="truncate font-mono text-[12px] text-zinc-500">
+              {agentName}
+            </p>
           </div>
-        </div>
-        <div className="mx-auto max-w-[1480px] px-4 sm:px-6 lg:px-8">
-          <nav className="flex gap-6 overflow-x-auto">
-            {navigationItems.map((item) => (
-              <NavLink
-                key={item.id}
-                to={item.href}
-                className={cn(
-                  "border-b-2 py-3 text-sm font-medium whitespace-nowrap transition-colors",
-                  activeTab === item.id
-                    ? "border-slate-950 text-slate-950"
-                    : "border-transparent text-slate-500 hover:text-slate-950",
-                )}
-              >
-                {item.label}
-              </NavLink>
-            ))}
-          </nav>
+
+          <div className="flex items-center gap-4">
+            {openapiURL ? (
+              <HeaderLink href={openapiURL} label={text.rawOpenAPI} />
+            ) : null}
+            {exportURL ? (
+              <HeaderLink href={exportURL} label={text.rawExport} />
+            ) : null}
+          </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1480px] px-4 py-8 sm:px-6 lg:grid lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-10 lg:px-8">
-        {/* Keep the left rail narrow and static so the content column can stay
-            wide enough for code, tables, and long endpoint names. */}
-        <aside className="hidden lg:block">
-          <div className="sticky top-28 pr-8">
-            <ScrollArea className="h-[calc(100vh-8rem)]">
-              <div className="space-y-8 border-r border-slate-200 pr-8">
-                <section>
-                  <p className="px-3 text-[11px] font-medium tracking-[0.22em] text-slate-500 uppercase">
-                    {text.pagesLabel}
+      <div className="mx-auto max-w-[1600px] lg:flex">
+        {/* Dark sidebar */}
+        <aside className="hidden w-[260px] shrink-0 lg:block">
+          <div className="sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto border-r border-zinc-800 bg-[#111827]">
+            <div className="px-4 pt-6 pb-4">
+              {/* Tab nav inside sidebar */}
+              <nav className="space-y-0.5">
+                {navigationItems.map((item) => (
+                  <NavLink
+                    key={item.id}
+                    to={item.href}
+                    className={cn(
+                      "flex items-center gap-2 rounded-md px-3 py-2 text-[13px] font-medium transition-colors",
+                      activeTab === item.id
+                        ? "bg-white/10 text-white"
+                        : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200",
+                    )}
+                  >
+                    {item.label}
+                  </NavLink>
+                ))}
+              </nav>
+
+              {/* Sidebar sections */}
+              {sidebarSections.map((section) => (
+                <div key={section.title} className="mt-6">
+                  <p className="px-3 text-[10px] font-semibold tracking-[0.16em] text-zinc-500 uppercase">
+                    {section.title}
                   </p>
-                  <div className="mt-2 space-y-1">
-                    {navigationItems.map((item) => (
+                  <div className="mt-2 space-y-0.5">
+                    {section.items.map((item) => (
                       <SidebarItem
-                        key={item.id}
-                        item={{
-                          label: item.label,
-                          href: item.href,
-                        }}
+                        key={`${section.title}-${item.href}`}
+                        item={item}
+                        dark
                       />
                     ))}
                   </div>
-                </section>
-
-                {sidebarSections.map((section) => (
-                  <section key={section.title}>
-                    <p className="px-3 text-[11px] font-medium tracking-[0.22em] text-slate-500 uppercase">
-                      {section.title}
-                    </p>
-                    <div className="mt-2 space-y-1">
-                      {section.items.map((item) => (
-                        <SidebarItem
-                          key={`${section.title}-${item.href}`}
-                          item={item}
-                        />
-                      ))}
-                    </div>
-                  </section>
-                ))}
-              </div>
-            </ScrollArea>
+                </div>
+              ))}
+            </div>
           </div>
         </aside>
 
-        {/* Docs still need room for code blocks and schema tables, but the
-            reading width stays deliberately tighter than the workspace shells. */}
-        <div className="max-w-[1100px] min-w-0">{children}</div>
-      </main>
+        {/* Content */}
+        <main className="min-w-0 flex-1 px-4 py-8 sm:px-6 lg:px-10">
+          <div className="mx-auto max-w-[960px]">{children}</div>
+        </main>
+      </div>
     </div>
   );
 }

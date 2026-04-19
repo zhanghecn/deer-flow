@@ -1,6 +1,4 @@
-import { PublicAPIPlaygroundPanel } from "@/components/workspace/public-api-playground-dialog";
-
-import { DocsSurface } from "../shared";
+import { ChatPlayground } from "./chat-playground";
 
 interface DeveloperPublicAPIPlaygroundProps {
   agentName: string;
@@ -12,16 +10,11 @@ export function DeveloperPublicAPIPlayground({
   defaultBaseURL,
 }: DeveloperPublicAPIPlaygroundProps) {
   return (
-    <div id="connect" className="scroll-mt-28">
-      <DocsSurface className="px-0 py-0">
-        <PublicAPIPlaygroundPanel
-          agentName={agentName}
-          defaultBaseURL={defaultBaseURL}
-          accessMode="public"
-          headerMode="compact"
-          hideDocumentationButton
-        />
-      </DocsSurface>
+    <div id="connect" className="scroll-mt-4">
+      <ChatPlayground
+        agentName={agentName}
+        defaultBaseURL={defaultBaseURL}
+      />
     </div>
   );
 }
