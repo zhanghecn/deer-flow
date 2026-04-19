@@ -22,8 +22,14 @@ CREATE TABLE api_tokens (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     token_hash VARCHAR(255) NOT NULL,
+    token_ciphertext BYTEA,
+    token_prefix VARCHAR(32) NOT NULL,
     name VARCHAR(128) NOT NULL,
     scopes TEXT[] DEFAULT '{}',
+    status VARCHAR(32) NOT NULL DEFAULT 'active',
+    allowed_agents TEXT[] NOT NULL DEFAULT '{}',
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    revoked_at TIMESTAMPTZ,
     last_used TIMESTAMPTZ,
     expires_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW()
@@ -31,6 +37,78 @@ CREATE TABLE api_tokens (
 
 CREATE INDEX idx_api_tokens_hash ON api_tokens(token_hash);
 CREATE INDEX idx_api_tokens_user ON api_tokens(user_id);
+CREATE INDEX idx_api_tokens_status ON api_tokens(status);
+
+-- Public API usage is gateway-owned operational state, so these tables live in
+-- the schema baseline instead of a separate historical migration chain.
+CREATE TABLE public_api_invocations (
+    id UUID PRIMARY KEY,
+    response_id VARCHAR(128) NOT NULL UNIQUE,
+    surface VARCHAR(32) NOT NULL,
+    api_token_id UUID NOT NULL REFERENCES api_tokens(id),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    agent_name VARCHAR(128) NOT NULL,
+    thread_id VARCHAR(128) NOT NULL,
+    trace_id VARCHAR(64),
+    request_model VARCHAR(128) NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    input_tokens BIGINT NOT NULL DEFAULT 0,
+    output_tokens BIGINT NOT NULL DEFAULT 0,
+    total_tokens BIGINT NOT NULL DEFAULT 0,
+    error TEXT,
+    request_json JSONB NOT NULL,
+    response_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    client_ip TEXT,
+    user_agent TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    finished_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_public_api_invocations_user_created
+    ON public_api_invocations(user_id, created_at DESC);
+CREATE INDEX idx_public_api_invocations_token_created
+    ON public_api_invocations(api_token_id, created_at DESC);
+CREATE INDEX idx_public_api_invocations_agent_created
+    ON public_api_invocations(agent_name, created_at DESC);
+CREATE INDEX idx_public_api_invocations_thread_created
+    ON public_api_invocations(thread_id, created_at DESC);
+
+CREATE TABLE public_api_artifacts (
+    id UUID PRIMARY KEY,
+    invocation_id UUID NOT NULL REFERENCES public_api_invocations(id) ON DELETE CASCADE,
+    response_id VARCHAR(128) NOT NULL,
+    file_id VARCHAR(128) NOT NULL UNIQUE,
+    virtual_path TEXT NOT NULL,
+    storage_ref TEXT NOT NULL,
+    mime_type TEXT,
+    size_bytes BIGINT,
+    sha256 VARCHAR(64),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_public_api_artifacts_invocation
+    ON public_api_artifacts(invocation_id, created_at ASC);
+CREATE INDEX idx_public_api_artifacts_response
+    ON public_api_artifacts(response_id, created_at ASC);
+
+CREATE TABLE public_api_input_files (
+    id UUID PRIMARY KEY,
+    file_id VARCHAR(128) NOT NULL UNIQUE,
+    api_token_id UUID NOT NULL REFERENCES api_tokens(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    purpose VARCHAR(64) NOT NULL,
+    filename TEXT NOT NULL,
+    storage_ref TEXT NOT NULL,
+    mime_type TEXT,
+    size_bytes BIGINT NOT NULL,
+    sha256 VARCHAR(64),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_public_api_input_files_token_created
+    ON public_api_input_files(api_token_id, created_at DESC);
+CREATE INDEX idx_public_api_input_files_user_created
+    ON public_api_input_files(user_id, created_at DESC);
 
 CREATE TABLE models (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

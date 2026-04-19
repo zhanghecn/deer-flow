@@ -55,8 +55,6 @@ createdb openagents
 # Gateway 不再内置自动迁移命令
 psql "$DATABASE_URI" -f migrations/001_init.up.sql
 psql "$DATABASE_URI" -f migrations/002_seed_data.up.sql
-psql "$DATABASE_URI" -f migrations/003_public_api_hardening.up.sql
-psql "$DATABASE_URI" -f migrations/004_public_api_invocations.up.sql
 ```
 
 ### 2. 配置

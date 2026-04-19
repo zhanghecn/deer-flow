@@ -98,7 +98,8 @@ Handler → Service → Repository → Database
 ### 数据库迁移
 
 - 迁移文件放在项目根目录 `migrations/` 目录
-- 文件名格式：`{序号}_{描述}.up.sql`（如 `002_seed_data.up.sql`）
+- 根基线固定为两份 SQL：`001_init.up.sql`（结构）和 `002_seed_data.up.sql`（数据）
+- 新的结构或数据变更应直接折叠回这两份基线文件，而不是继续追加根目录 stepwise SQL
 - 每个迁移文件包裹在 `BEGIN; ... COMMIT;` 事务中
 - 使用 `IF NOT EXISTS` 保证幂等性
 - 不要通过 Gateway 服务或启动脚本自动执行这些 SQL

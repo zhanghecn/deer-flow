@@ -12,6 +12,9 @@ The active baseline is intentionally squashed into two files:
 
 - `users`
 - `api_tokens`
+- `public_api_invocations`
+- `public_api_artifacts`
+- `public_api_input_files`
 - `models`
 - `thread_bindings`
 - `agent_traces`
@@ -42,7 +45,7 @@ not database rows.
 Runtime/user-generated rows in `users`, thread tables, observability tables, and
 knowledge-base tables are intentionally excluded from migrations.
 
-Historical stepwise migrations (`003` through `011`) have been squashed into the
-current `001` / `002` pair. Databases that were created from the historical
-chain should be kept as-is or rebuilt before re-bootstrap; do not expect the new
-baseline files to backfill a partially migrated older database.
+Historical stepwise migrations have been squashed into the current `001` / `002`
+pair. Databases that were created from the historical chain should be kept as-is
+or rebuilt before re-bootstrap; do not expect the new baseline files to backfill
+a partially migrated older database.
