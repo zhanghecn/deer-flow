@@ -1,6 +1,6 @@
-import { ChevronDownIcon } from "lucide-react";
+import { ChevronDownIcon, ExternalLinkIcon } from "lucide-react";
 import { useEffect } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 
 import {
   Collapsible,
@@ -8,7 +8,10 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { usePublicAgentExportDoc } from "@/core/agents";
+import {
+  buildPublicAgentPlaygroundPath,
+  usePublicAgentExportDoc,
+} from "@/core/agents";
 import { useI18n } from "@/core/i18n/hooks";
 
 import {
@@ -29,8 +32,10 @@ import {
   CopyableCodeBlock,
   DeveloperDocsShell,
   DocsMethodBadge,
+  OperationNavPills,
   PublicDocsPageHeading,
   PublicDocsStatePanel,
+  SchemaTypeBadge,
   type DeveloperDocsSidebarSection,
 } from "../shared";
 
@@ -138,13 +143,15 @@ function ParamList({
               {row.path}
             </code>
             {row.required ? (
-              <span className="text-blue-500">*</span>
+              <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-600">
+                {text.requiredBadge}
+              </span>
             ) : (
-              <span className="text-zinc-300">?</span>
+              <span className="rounded bg-zinc-50 px-1.5 py-0.5 text-[10px] text-zinc-400">
+                {text.optionalBadge}
+              </span>
             )}
-            <span className="font-mono text-[12px] text-zinc-400">
-              {row.type}
-            </span>
+            <SchemaTypeBadge type={row.type} />
           </div>
           {row.description ? (
             <p className="mt-0.5 text-[13px] leading-5 text-zinc-500">
@@ -192,9 +199,7 @@ function ParamFlatList({
               <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-500">
                 {param.in}
               </span>
-              <span className="font-mono text-[12px] text-zinc-400">
-                {formatOpenAPISchemaType(document, param.schema)}
-              </span>
+              <SchemaTypeBadge type={formatOpenAPISchemaType(document, param.schema)} />
             </div>
             {param.description ? (
               <p className="mt-0.5 text-[13px] leading-5 text-zinc-500">
@@ -303,28 +308,40 @@ function OperationSection({
   operation,
   baseURL,
   text,
+  agentName,
 }: {
   document: OpenAPIDocument;
   operation: ReferenceOperation;
   baseURL: string;
   text: ReturnType<typeof getAgentPublicReferencePageText>;
+  agentName: string;
 }) {
   const requestMediaEntries = Object.entries(
     operation.requestBody?.content ?? {},
   );
   const firstStatus = operation.responses[0]?.status ?? "";
+  const playgroundPath = buildPublicAgentPlaygroundPath(agentName);
 
   return (
     <article
       id={operation.anchorId}
       className="scroll-mt-20 space-y-5"
     >
-      {/* Endpoint hero: method + path */}
-      <div className="flex items-center gap-2.5">
-        <DocsMethodBadge method={operation.method} />
-        <code className="rounded-md bg-zinc-50 px-3 py-1.5 font-mono text-[13px] text-zinc-800">
-          {operation.path}
-        </code>
+      {/* Endpoint hero: method + path + try-it */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <DocsMethodBadge method={operation.method} />
+          <code className="rounded-md bg-zinc-50 px-3 py-1.5 font-mono text-[13px] text-zinc-800">
+            {operation.path}
+          </code>
+        </div>
+        <Link
+          to={playgroundPath}
+          className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 px-3 py-1.5 text-[12px] font-medium text-zinc-600 transition-colors hover:border-zinc-300 hover:bg-zinc-50"
+        >
+          {text.tryItLabel}
+          <ExternalLinkIcon className="size-3" />
+        </Link>
       </div>
 
       <div>
@@ -452,6 +469,23 @@ function OperationSection({
               copiedLabel={text.copied}
             />
           ) : null}
+          {(() => {
+            const successResp = operation.responses.find((r) =>
+              r.status.startsWith("2"),
+            );
+            const mediaEntries = Object.entries(successResp?.response.content ?? {});
+            if (mediaEntries.length === 0) return null;
+            const [, mediaType] = mediaEntries[0]!;
+            const sample = inferOpenAPISampleValue(document, mediaType.schema);
+            return (
+              <CopyableCodeBlock
+                title={`${text.responseExampleTitle} (${successResp!.status})`}
+                code={JSON.stringify(sample, null, 2)}
+                copyLabel={text.copy}
+                copiedLabel={text.copied}
+              />
+            );
+          })()}
         </TabsContent>
       </Tabs>
     </article>
@@ -563,7 +597,7 @@ export default function AgentPublicReferencePage() {
             description={text.description}
           />
 
-          <div className="grid gap-0 divide-y divide-zinc-100 rounded-lg border border-zinc-200 bg-white lg:grid-cols-2 lg:divide-x lg:divide-y-0">
+          <div className={`grid gap-0 divide-y divide-zinc-100 rounded-lg border border-zinc-200 bg-white ${openapiDoc.info?.version ? 'lg:grid-cols-3' : 'lg:grid-cols-2'} lg:divide-x lg:divide-y-0`}>
             <div className="px-4 py-3">
               <p className="text-[10px] font-semibold tracking-[0.14em] text-zinc-400 uppercase">
                 {text.summaryBaseURL}
@@ -580,6 +614,16 @@ export default function AgentPublicReferencePage() {
                 Bearer &lt;user_created_key&gt;
               </p>
             </div>
+            {openapiDoc.info?.version && (
+              <div className="px-4 py-3">
+                <p className="text-[10px] font-semibold tracking-[0.14em] text-zinc-400 uppercase">
+                  {text.versionLabel}
+                </p>
+                <p className="mt-1 font-mono text-[12px] text-zinc-800">
+                  {openapiDoc.info.version}
+                </p>
+              </div>
+            )}
           </div>
         </section>
 
@@ -597,6 +641,8 @@ export default function AgentPublicReferencePage() {
             </h2>
           </div>
 
+          <OperationNavPills operations={operations} />
+
           <div className="space-y-8 divide-y divide-zinc-100">
             {operations.map((operation) => (
               <OperationSection
@@ -605,6 +651,7 @@ export default function AgentPublicReferencePage() {
                 operation={operation}
                 baseURL={exportDoc.api_base_url}
                 text={text}
+                agentName={exportDoc.agent}
               />
             ))}
           </div>

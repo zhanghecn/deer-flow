@@ -10,14 +10,17 @@ import {
 } from "@/core/agents";
 import { useI18n } from "@/core/i18n/hooks";
 
-import { listReferenceOperations, usePublicAgentOpenAPIDoc } from "./openapi";
+import { extractCommonErrors, listReferenceOperations, usePublicAgentOpenAPIDoc } from "./openapi";
 import { getAgentPublicDocsPageText } from "./page.i18n";
 import {
   CopyableCodeBlock,
   DeveloperDocsShell,
   DocsMethodBadge,
+  EndpointHeroCard,
+  ErrorResponseTable,
   PublicDocsPageHeading,
   PublicDocsStatePanel,
+  QuickstartPrerequisites,
   type DeveloperDocsSidebarSection,
 } from "./shared";
 
@@ -184,6 +187,8 @@ export default function AgentPublicDocsPage() {
     exportDoc.agent,
   );
   const curlSnippet = buildCurlSnippet(exportDoc.api_base_url, exportDoc.agent);
+  const commonErrors = extractCommonErrors(openapiDoc);
+  const apiVersion = openapiDoc.info?.version;
 
   const sidebarSections: DeveloperDocsSidebarSection[] = [
     {
@@ -192,6 +197,7 @@ export default function AgentPublicDocsPage() {
         { label: text.navOverview, href: "#overview" },
         { label: text.navQuickstart, href: "#quickstart" },
         { label: text.navAuth, href: "#authentication" },
+        { label: text.navErrors, href: "#errors" },
         { label: text.navRoutes, href: "#routes" },
         { label: text.navNext, href: "#next-steps" },
       ],
@@ -209,15 +215,14 @@ export default function AgentPublicDocsPage() {
       <div className="space-y-10">
         {/* Overview */}
         <section id="overview" className="scroll-mt-20 space-y-5">
-          <div className="flex items-center gap-2.5">
-            <DocsMethodBadge method="POST" />
-            <code className="rounded-md bg-zinc-50 px-3 py-1.5 font-mono text-[13px] text-zinc-800">
-              /v1/turns
-            </code>
-            <span className="rounded-md bg-zinc-100 px-2 py-1 font-mono text-[11px] text-zinc-500">
-              {`agent=${exportDoc.agent}`}
-            </span>
-          </div>
+          <EndpointHeroCard
+            method="POST"
+            baseURL={exportDoc.api_base_url}
+            path="/v1/turns"
+            agentParam={`agent=${exportDoc.agent}`}
+            copyLabel={text.copy}
+            copiedLabel={text.copied}
+          />
 
           <PublicDocsPageHeading
             eyebrow={text.heroEyebrow}
@@ -248,7 +253,7 @@ export default function AgentPublicDocsPage() {
                 </p>
               </div>
             </div>
-            <div className="grid gap-0 divide-y divide-zinc-100 lg:grid-cols-2 lg:divide-x lg:divide-y-0">
+            <div className={`grid gap-0 divide-y divide-zinc-100 ${apiVersion ? 'lg:grid-cols-3' : 'lg:grid-cols-2'} lg:divide-x lg:divide-y-0`}>
               <div className="px-4 py-3">
                 <p className="text-[10px] font-semibold tracking-[0.14em] text-zinc-400 uppercase">
                   {text.modelName}
@@ -265,6 +270,16 @@ export default function AgentPublicDocsPage() {
                   {text.modesValue}
                 </p>
               </div>
+              {apiVersion && (
+                <div className="px-4 py-3">
+                  <p className="text-[10px] font-semibold tracking-[0.14em] text-zinc-400 uppercase">
+                    {text.versionLabel}
+                  </p>
+                  <p className="mt-1 font-mono text-[12px] text-zinc-800">
+                    {apiVersion}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -285,6 +300,14 @@ export default function AgentPublicDocsPage() {
               {text.quickstartDescription}
             </p>
           </div>
+
+          <QuickstartPrerequisites
+            items={[
+              { label: text.prerequisiteNode.split("+")[0] ?? "", value: text.prerequisiteNode },
+              { label: text.prerequisitePython.split("+")[0] ?? "", value: text.prerequisitePython },
+              { label: text.prerequisiteCurl.split("+")[0] ?? "", value: text.prerequisiteCurl },
+            ]}
+          />
 
           <Tabs defaultValue="javascript">
             <TabsList className="h-9 rounded-md border border-zinc-200 bg-transparent p-0.5">
@@ -380,6 +403,26 @@ export default function AgentPublicDocsPage() {
               </div>
             </div>
           </div>
+        </section>
+
+        {/* Common Errors */}
+        <section
+          id="errors"
+          className="scroll-mt-20 space-y-4 border-t border-zinc-100 pt-10"
+        >
+          <div>
+            <p className="text-[11px] font-semibold tracking-[0.18em] text-zinc-400 uppercase">
+              {text.errorsEyebrow}
+            </p>
+            <h2 className="mt-1.5 text-[18px] font-semibold tracking-tight text-zinc-900">
+              {text.errorsTitle}
+            </h2>
+            <p className="mt-2 text-[13.5px] leading-6 text-zinc-500">
+              {text.errorsDescription}
+            </p>
+          </div>
+
+          <ErrorResponseTable errors={commonErrors} />
         </section>
 
         {/* Routes */}

@@ -1,10 +1,15 @@
-import { CheckIcon, CopyIcon, ExternalLinkIcon } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { CheckIcon, CopyIcon, ExternalLinkIcon, Menu } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Sheet,
+  SheetContent,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import {
   buildPublicAgentDocsPath,
   buildPublicAgentPlaygroundPath,
@@ -222,6 +227,197 @@ export function DocsKeyValueGrid({
   );
 }
 
+export function EndpointHeroCard({
+  method,
+  baseURL,
+  path,
+  agentParam,
+  copyLabel,
+  copiedLabel,
+}: {
+  method: string;
+  baseURL: string;
+  path: string;
+  agentParam: string;
+  copyLabel: string;
+  copiedLabel: string;
+}) {
+  const fullURL = `${baseURL.replace(/\/+$/, "")}${path}`;
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!copied) return;
+    const id = window.setTimeout(() => setCopied(false), 1400);
+    return () => window.clearTimeout(id);
+  }, [copied]);
+
+  const handleCopy = useCallback(() => {
+    void navigator.clipboard.writeText(fullURL).then(() => {
+      setCopied(true);
+      toast.success(copiedLabel);
+    });
+  }, [fullURL, copiedLabel]);
+
+  const borderAccent =
+    method.toUpperCase() === "POST"
+      ? "border-l-blue-600"
+      : method.toUpperCase() === "GET"
+        ? "border-l-emerald-600"
+        : method.toUpperCase() === "DELETE"
+          ? "border-l-red-500"
+          : "border-l-zinc-400";
+
+  return (
+    <DocsSurface className={`border-l-4 ${borderAccent}`}>
+      <div className="flex flex-wrap items-center gap-3 px-5 py-4">
+        <DocsMethodBadge method={method} />
+        <code className="min-w-0 flex-1 font-mono text-[13.5px] text-zinc-800 [overflow-wrap:anywhere]">
+          {fullURL}
+        </code>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 rounded-md text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600"
+          onClick={handleCopy}
+        >
+          {copied ? (
+            <CheckIcon className="size-3.5" />
+          ) : (
+            <CopyIcon className="size-3.5" />
+          )}
+          {copied ? copiedLabel : copyLabel}
+        </Button>
+      </div>
+      {agentParam && (
+        <div className="border-t border-zinc-100 px-5 py-2.5">
+          <span className="rounded-md bg-zinc-100 px-2 py-1 font-mono text-[11px] text-zinc-500">
+            {agentParam}
+          </span>
+        </div>
+      )}
+    </DocsSurface>
+  );
+}
+
+export function SchemaTypeBadge({ type }: { type: string }) {
+  const isCollection = /^(array|object|map<)/.test(type);
+  return (
+    <span
+      className={cn(
+        "rounded px-1.5 py-0.5 font-mono text-[10.5px] font-medium",
+        isCollection
+          ? "bg-violet-50 text-violet-600"
+          : "bg-zinc-100 text-zinc-600",
+      )}
+    >
+      {type}
+    </span>
+  );
+}
+
+export function OperationNavPills({
+  operations,
+}: {
+  operations: Array<{ method: string; path: string; anchorId: string }>;
+}) {
+  if (operations.length <= 1) return null;
+
+  return (
+    <div className="sticky top-14 z-10 -mx-4 overflow-x-auto border-b border-zinc-100 bg-white/95 px-4 pb-3 backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-10 lg:px-10">
+      <div className="flex gap-1.5 pt-1">
+        {operations.map((op) => (
+          <a
+            key={op.anchorId}
+            href={`#${op.anchorId}`}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-[12px] text-zinc-600 transition-colors hover:border-zinc-300 hover:bg-zinc-50"
+          >
+            <span
+              className={cn(
+                "rounded px-1 py-0.5 font-mono text-[9px] font-bold uppercase",
+                op.method.toUpperCase() === "POST"
+                  ? "bg-blue-100 text-blue-700"
+                  : op.method.toUpperCase() === "GET"
+                    ? "bg-emerald-100 text-emerald-700"
+                    : op.method.toUpperCase() === "DELETE"
+                      ? "bg-red-100 text-red-700"
+                      : "bg-zinc-100 text-zinc-600",
+              )}
+            >
+              {op.method.toUpperCase()}
+            </span>
+            <span className="font-mono text-zinc-500">
+              {op.path.replace(/^\/v1/, "") || "/"}
+            </span>
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function ErrorResponseTable({
+  errors,
+}: {
+  errors: Array<{ status: string; title: string; description: string }>;
+}) {
+  return (
+    <DocsSurface className="overflow-hidden">
+      <div className="divide-y divide-zinc-100">
+        {errors.map((err) => (
+          <div key={err.status} className="flex items-start gap-3 px-5 py-3">
+            <span
+              className={cn(
+                "shrink-0 rounded px-2 py-0.5 font-mono text-[11px] font-bold",
+                err.status.startsWith("5")
+                  ? "bg-red-100 text-red-700"
+                  : "bg-amber-100 text-amber-700",
+              )}
+            >
+              {err.status}
+            </span>
+            <div className="min-w-0">
+              <p className="text-[13px] font-medium text-zinc-800">
+                {err.title}
+              </p>
+              {err.description && (
+                <p className="mt-0.5 text-[12.5px] leading-5 text-zinc-500">
+                  {err.description}
+                </p>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </DocsSurface>
+  );
+}
+
+export function QuickstartPrerequisites({
+  items,
+}: {
+  items: Array<{ label: string; value: string }>;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      {items.map((item, i) => (
+        <span
+          key={item.label}
+          className="inline-flex items-center gap-1.5 text-[12px] text-zinc-500"
+        >
+          <span className="font-medium text-zinc-600">{item.label}</span>
+          <span className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-[11px] text-zinc-500">
+            {item.value}
+          </span>
+          {i < items.length - 1 && (
+            <span className="ml-1.5 text-zinc-300">|</span>
+          )}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export function CopyableCodeBlock({
   code,
   copyLabel,
@@ -434,6 +630,7 @@ export function DeveloperDocsShell({
 }) {
   const { locale } = useI18n();
   const text = getAgentPublicDocsShellText(locale);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   const navigationItems = useMemo(
     () => [
@@ -461,12 +658,60 @@ export function DeveloperDocsShell({
     ],
   );
 
+  const activeTabLabel =
+    navigationItems.find((item) => item.id === activeTab)?.label ?? "";
+
+  const renderSidebarContent = () => (
+    <div className="px-4 pt-6 pb-4">
+      <nav className="space-y-0.5">
+        {navigationItems.map((item) => (
+          <NavLink
+            key={item.id}
+            to={item.href}
+            onClick={() => setMobileOpen(false)}
+            className={cn(
+              "flex items-center gap-2 rounded-md px-3 py-2 text-[13px] font-medium transition-colors",
+              activeTab === item.id
+                ? "bg-white/10 text-white"
+                : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200",
+            )}
+          >
+            {item.label}
+          </NavLink>
+        ))}
+      </nav>
+
+      {sidebarSections.map((section) => (
+        <div key={section.title} className="mt-6">
+          <p className="px-3 text-[10px] font-semibold tracking-[0.16em] text-zinc-500 uppercase">
+            {section.title}
+          </p>
+          <div className="mt-2 space-y-0.5">
+            {section.items.map((item) => (
+              <SidebarItem
+                key={`${section.title}-${item.href}`}
+                item={item}
+                dark
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-white text-zinc-900">
-      {/* Top header bar */}
       <header className="sticky top-0 z-40 border-b border-zinc-200 bg-white/95 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-[1600px] items-center justify-between px-4 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setMobileOpen(true)}
+              className="rounded p-1 text-zinc-500 hover:bg-zinc-100 lg:hidden"
+            >
+              <Menu className="size-5" />
+            </button>
             <Link
               to={buildPublicAgentDocsPath(agentName)}
               className="text-[13px] font-medium text-zinc-900 hover:text-zinc-600"
@@ -476,6 +721,10 @@ export function DeveloperDocsShell({
             <span className="text-zinc-300">/</span>
             <p className="truncate font-mono text-[12px] text-zinc-500">
               {agentName}
+            </p>
+            <span className="text-zinc-300">/</span>
+            <p className="text-[13px] font-medium text-zinc-700">
+              {activeTabLabel}
             </p>
           </div>
 
@@ -490,51 +739,21 @@ export function DeveloperDocsShell({
         </div>
       </header>
 
+      {/* Mobile sidebar */}
+      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+        <SheetContent side="left" className="w-[280px] border-r-0 bg-[#111827] p-0 text-white">
+          <SheetTitle className="sr-only">{text.homeLabel}</SheetTitle>
+          {renderSidebarContent()}
+        </SheetContent>
+      </Sheet>
+
       <div className="mx-auto max-w-[1600px] lg:flex">
-        {/* Dark sidebar */}
         <aside className="hidden w-[260px] shrink-0 lg:block">
           <div className="sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto border-r border-zinc-800 bg-[#111827]">
-            <div className="px-4 pt-6 pb-4">
-              {/* Tab nav inside sidebar */}
-              <nav className="space-y-0.5">
-                {navigationItems.map((item) => (
-                  <NavLink
-                    key={item.id}
-                    to={item.href}
-                    className={cn(
-                      "flex items-center gap-2 rounded-md px-3 py-2 text-[13px] font-medium transition-colors",
-                      activeTab === item.id
-                        ? "bg-white/10 text-white"
-                        : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200",
-                    )}
-                  >
-                    {item.label}
-                  </NavLink>
-                ))}
-              </nav>
-
-              {/* Sidebar sections */}
-              {sidebarSections.map((section) => (
-                <div key={section.title} className="mt-6">
-                  <p className="px-3 text-[10px] font-semibold tracking-[0.16em] text-zinc-500 uppercase">
-                    {section.title}
-                  </p>
-                  <div className="mt-2 space-y-0.5">
-                    {section.items.map((item) => (
-                      <SidebarItem
-                        key={`${section.title}-${item.href}`}
-                        item={item}
-                        dark
-                      />
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
+            {renderSidebarContent()}
           </div>
         </aside>
 
-        {/* Content */}
         <main className="min-w-0 flex-1 px-4 py-8 sm:px-6 lg:px-10">
           <div className="mx-auto max-w-[960px]">{children}</div>
         </main>

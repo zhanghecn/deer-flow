@@ -498,6 +498,54 @@ export function listReferenceSchemas(
     }));
 }
 
+export interface CommonErrorEntry {
+  status: string;
+  title: string;
+  description: string;
+}
+
+const DEFAULT_ERRORS: CommonErrorEntry[] = [
+  { status: "401", title: "Unauthorized", description: "Missing or invalid API key in the Authorization header." },
+  { status: "404", title: "Not Found", description: "The requested resource or agent does not exist." },
+  { status: "422", title: "Validation Error", description: "The request body failed schema validation." },
+  { status: "500", title: "Internal Server Error", description: "An unexpected error occurred on the server." },
+];
+
+export function extractCommonErrors(
+  document: OpenAPIDocument,
+): CommonErrorEntry[] {
+  const seen = new Map<string, CommonErrorEntry>();
+
+  for (const pathItem of Object.values(document.paths ?? {})) {
+    for (const method of OPENAPI_HTTP_METHODS) {
+      const operation = pathItem[method];
+      if (!operation?.responses) continue;
+
+      for (const [status, response] of Object.entries(operation.responses)) {
+        if (!status.startsWith("4") && !status.startsWith("5")) continue;
+        if (seen.has(status)) continue;
+
+        const resolved = resolveResponse(document, response);
+        seen.set(status, {
+          status,
+          title: resolved?.description?.trim() || `${status} Error`,
+          description: resolved?.description?.trim() || "",
+        });
+      }
+    }
+  }
+
+  if (seen.size === 0) return DEFAULT_ERRORS;
+
+  for (const fallback of DEFAULT_ERRORS) {
+    if (!seen.has(fallback.status)) {
+      seen.set(fallback.status, fallback);
+    }
+  }
+
+  return Array.from(seen.values()).sort((a, b) => a.status.localeCompare(b.status));
+}
+
 export function usePublicAgentOpenAPIDoc(exportDoc: AgentExportDoc | null) {
   const openapiURL = exportDoc ? resolvePublicAgentOpenAPIURL(exportDoc) : null;
   const { data, isLoading, error } = useQuery<OpenAPIDocument>({

@@ -37,6 +37,11 @@ type AgentPublicReferencePageText = {
   requestExampleTitle: string;
   copy: string;
   copied: string;
+  requiredBadge: string;
+  optionalBadge: string;
+  tryItLabel: string;
+  responseExampleTitle: string;
+  versionLabel: string;
 };
 
 const enUS: AgentPublicReferencePageText = {
@@ -80,6 +85,11 @@ const enUS: AgentPublicReferencePageText = {
   requestExampleTitle: "Request Body",
   copy: "Copy",
   copied: "Copied",
+  requiredBadge: "required",
+  optionalBadge: "optional",
+  tryItLabel: "Try in Playground",
+  responseExampleTitle: "Response Body",
+  versionLabel: "Version",
 };
 
 const zhCN: AgentPublicReferencePageText = {
@@ -122,6 +132,11 @@ const zhCN: AgentPublicReferencePageText = {
   requestExampleTitle: "请求体",
   copy: "复制",
   copied: "已复制",
+  requiredBadge: "必填",
+  optionalBadge: "可选",
+  tryItLabel: "在 Playground 中测试",
+  responseExampleTitle: "响应体",
+  versionLabel: "版本",
 };
 
 export function getAgentPublicReferencePageText(locale: Locale) {

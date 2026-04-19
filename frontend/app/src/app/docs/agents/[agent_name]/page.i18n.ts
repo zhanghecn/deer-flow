@@ -63,8 +63,17 @@ type AgentPublicDocsPageText = {
   navOverview: string;
   navQuickstart: string;
   navAuth: string;
+  navErrors: string;
   navRoutes: string;
   navNext: string;
+  errorsEyebrow: string;
+  errorsTitle: string;
+  errorsDescription: string;
+  prerequisitesLabel: string;
+  prerequisiteNode: string;
+  prerequisitePython: string;
+  prerequisiteCurl: string;
+  versionLabel: string;
 };
 
 const enUS: AgentPublicDocsPageText = {
@@ -142,8 +151,18 @@ const enUS: AgentPublicDocsPageText = {
   navOverview: "Overview",
   navQuickstart: "Quickstart",
   navAuth: "Auth",
+  navErrors: "Errors",
   navRoutes: "Routes",
   navNext: "Next",
+  errorsEyebrow: "Errors",
+  errorsTitle: "Common error responses",
+  errorsDescription:
+    "These are the most common error codes returned by the published API. All error responses follow a consistent JSON shape.",
+  prerequisitesLabel: "Prerequisites",
+  prerequisiteNode: "Node.js 18+",
+  prerequisitePython: "Python 3.8+",
+  prerequisiteCurl: "curl 7.68+",
+  versionLabel: "Version",
 };
 
 const zhCN: AgentPublicDocsPageText = {
@@ -219,8 +238,18 @@ const zhCN: AgentPublicDocsPageText = {
   navOverview: "概览",
   navQuickstart: "快速开始",
   navAuth: "鉴权",
+  navErrors: "错误",
   navRoutes: "路由",
   navNext: "下一步",
+  errorsEyebrow: "错误码",
+  errorsTitle: "常见错误响应",
+  errorsDescription:
+    "这些是已发布 API 最常见的错误码。所有错误响应都遵循统一的 JSON 格式。",
+  prerequisitesLabel: "环境要求",
+  prerequisiteNode: "Node.js 18+",
+  prerequisitePython: "Python 3.8+",
+  prerequisiteCurl: "curl 7.68+",
+  versionLabel: "版本",
 };
 
 export function getAgentPublicDocsPageText(locale: Locale) {
