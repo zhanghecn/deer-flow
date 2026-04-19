@@ -14,8 +14,12 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
+
+import { useAuth } from "@/core/auth/hooks";
+import { listAPITokens, type APITokenRecord } from "@/core/auth/tokens";
 
 import {
   type PublicAPITurnArtifact,
@@ -358,6 +362,8 @@ function ConfigDrawer({
   setReasoningEnabled,
   reasoningEffort,
   setReasoningEffort,
+  matchingTokens,
+  authenticated,
 }: {
   open: boolean;
   onClose: () => void;
@@ -367,8 +373,14 @@ function ConfigDrawer({
   setReasoningEnabled: (v: boolean) => void;
   reasoningEffort: ReasoningEffort;
   setReasoningEffort: (v: ReasoningEffort) => void;
+  matchingTokens: APITokenRecord[];
+  authenticated: boolean;
 }) {
   if (!open) return null;
+
+  const matchedToken = matchingTokens.find((t) => t.token === apiKey);
+  const showSelector = authenticated && matchingTokens.length > 0;
+
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" onClick={onClose} />
@@ -386,13 +398,39 @@ function ConfigDrawer({
         <div className="flex-1 space-y-4 overflow-y-auto p-4">
           <label className="block space-y-1.5">
             <span className="text-xs font-medium text-zinc-400">API Key</span>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setAPIKey(e.target.value)}
-              placeholder="df_..."
-              className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 font-mono text-xs text-zinc-200 focus:border-cyan-500/50 focus:outline-none"
-            />
+            {showSelector ? (
+              <select
+                value={apiKey}
+                onChange={(e) => setAPIKey(e.target.value)}
+                className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 font-mono text-xs text-zinc-200"
+              >
+                {matchingTokens.map((t) => (
+                  <option key={t.id} value={t.token ?? ""}>
+                    {t.name || t.id}
+                  </option>
+                ))}
+                <option value="">— Manual input —</option>
+              </select>
+            ) : (
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => setAPIKey(e.target.value)}
+                placeholder="df_..."
+                className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 font-mono text-xs text-zinc-200 focus:border-cyan-500/50 focus:outline-none"
+              />
+            )}
+            {matchedToken && (
+              <p className="text-[11px] text-zinc-500">
+                {matchedToken.name || matchedToken.id} · created{" "}
+                {new Date(matchedToken.created_at).toLocaleDateString()}
+              </p>
+            )}
+            {!authenticated && (
+              <p className="text-[11px] text-cyan-400/70">
+                Login to auto-fill your API key
+              </p>
+            )}
           </label>
           <hr className="border-zinc-800" />
           <label className="flex items-center justify-between">
@@ -441,6 +479,30 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
   const [apiKey, setAPIKey] = useState("");
   const [reasoningEnabled, setReasoningEnabled] = useState(true);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("medium");
+
+  // Key auto-fetch
+  const { authenticated } = useAuth();
+  const tokensQuery = useQuery({
+    queryKey: ["auth", "api-tokens"],
+    queryFn: listAPITokens,
+    enabled: authenticated,
+  });
+
+  const matchingTokens = useMemo(() => {
+    const tokens = tokensQuery.data ?? [];
+    return tokens.filter(
+      (t) =>
+        t.allowed_agents.includes(agentName) &&
+        t.token &&
+        t.status !== "revoked",
+    );
+  }, [tokensQuery.data, agentName]);
+
+  useEffect(() => {
+    if (apiKey || matchingTokens.length === 0) return;
+    const first = matchingTokens[0];
+    if (first?.token) setAPIKey(first.token);
+  }, [matchingTokens, apiKey]);
 
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
@@ -770,6 +832,17 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
           <span className="hidden text-[10px] uppercase tracking-wider text-zinc-500 sm:inline">
             Dev Console
           </span>
+          {apiKey && matchingTokens.length > 0 && (
+            <span className="hidden items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-400 sm:inline-flex">
+              <span className="inline-block size-1.5 rounded-full bg-emerald-400" />
+              Key auto-filled
+            </span>
+          )}
+          {!authenticated && (
+            <span className="hidden items-center gap-1 rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-500 sm:inline-flex">
+              Login for auto-fill
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1.5">
           {previousTurnIdRef.current && (
@@ -999,6 +1072,8 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
         setReasoningEnabled={setReasoningEnabled}
         reasoningEffort={reasoningEffort}
         setReasoningEffort={setReasoningEffort}
+        matchingTokens={matchingTokens}
+        authenticated={authenticated}
       />
     </div>
   );
