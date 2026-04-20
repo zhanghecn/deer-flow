@@ -37,7 +37,7 @@
 
 我实现了一个最小 mock customer MCP server：
 
-- [backend/agents/scripts/mock_customer_cases_mcp.py](/root/project/ai/deer-flow/backend/agents/scripts/mock_customer_cases_mcp.py)
+- [frontend/demo/mcp-file-service/run_mcp.py](/root/project/ai/deer-flow/frontend/demo/mcp-file-service/run_mcp.py)
 
 能力：
 
@@ -84,7 +84,7 @@ Profile 配置使用 stdio mock server：
   "mcpServers": {
     "customer-cases": {
       "command": "python",
-      "args": ["/app/backend/agents/scripts/mock_customer_cases_mcp.py"],
+      "args": ["/app/frontend/demo/mcp-file-service/run_mcp.py"],
       "env": {
         "CUSTOMER_CASES_ROOT": "/openagents-home/runtime/mock-customer-data/cases"
       }

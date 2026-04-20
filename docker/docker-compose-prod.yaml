@@ -1,5 +1,20 @@
 name: openagents-prod
 
+x-openagents-env-file: &openagents_env_file
+  - ${OPENAGENTS_ENV_FILE:-../.env}
+
+x-json-logging: &json_logging
+  # Keep application logs on stdout/stderr and let Docker rotate them.
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-host-docker-internal: &host_docker_internal
+  # Containers may need to reach host-managed services such as PostgreSQL or MinIO
+  # when the shared root `.env` uses `host.docker.internal`.
+  - "host.docker.internal:host-gateway"
+
 services:
   # 统一托管用户前台和后台管理页面。
   nginx:
@@ -10,31 +25,26 @@ services:
       gateway:
         condition: service_healthy
       openpencil:
-        # Wait for the proxied OpenPencil server to finish its Bun/Nitro boot
-        # before exposing the unified 8083 entrypoint, otherwise a fresh
-        # compose recreate can briefly return 502 on /openpencil/*.
+        # Wait for the proxied OpenPencil server to finish booting before
+        # exposing the unified app entrypoint, otherwise a fresh recreate can
+        # briefly return 502 on /openpencil/*.
         condition: service_healthy
     ports:
-      - "8083:80"
-      - "8081:8081"
+      - "${OPENAGENTS_APP_PORT:-8083}:80"
+      - "${OPENAGENTS_ADMIN_PORT:-8081}:8081"
     networks:
       - openagents
     restart: unless-stopped
 
   openpencil:
-    image: oven/bun:1-slim
-    # Keep OpenPencil on the same "current source in compose" contract as the
-    # gateway/runtime services so bridge changes are visible without a separate
-    # image build pipeline getting in the way of current-code verification.
-    working_dir: /app
-    command:
-      - /bin/sh
-      - -lc
-      - OPENPENCIL_BASE_PATH=/openpencil bun --bun run build && exec bun run ./out/web/server/index.mjs
+    # Use a prebuilt image by default so production deploys do not depend on a
+    # sibling `../openpencil` checkout or on-container builds during startup.
+    image: ${OPENPENCIL_IMAGE:-ghcr.io/zseven-w/openpencil:latest}
     environment:
       NODE_ENV: production
       NITRO_HOST: 0.0.0.0
       NITRO_PORT: 3000
+      OPENPENCIL_BASE_PATH: /openpencil
     healthcheck:
       # Probe the actual editor route instead of the bare root so nginx only
       # starts after the base-path-aware OpenPencil app is serving requests.
@@ -47,8 +57,6 @@ services:
       timeout: 5s
       retries: 12
       start_period: 20s
-    volumes:
-      - ../../openpencil:/app
     networks:
       - openagents
     restart: unless-stopped
@@ -87,22 +95,15 @@ services:
       timeout: 5s
       retries: 6
       start_period: 20s
-    extra_hosts:
-      # 让容器里也能使用 .env 里的 host.docker.internal 数据库地址。
-      - "host.docker.internal:host-gateway"
-    logging:
-      # 日志继续走 docker logs，并由 Docker 自己轮转。
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "5"
+    extra_hosts: *host_docker_internal
+    logging: *json_logging
     volumes:
       # 只挂自己需要热更新的代码和配置。
       - ../backend/gateway:/app/backend/gateway:ro
-      - ../.env:/app/.env:ro
+      - ${OPENAGENTS_ENV_FILE:-../.env}:/app/.env:ro
       # 网关也要读取仓库根 config.yaml，保证工具目录与 runtime 配置一致。
       - ../config.yaml:/app/config.yaml:ro
-      - ../.openagents:/openagents-home
+      - ${OPENAGENTS_DOCKER_HOST_HOME:-../.openagents}:/openagents-home
     networks:
       - openagents
     restart: unless-stopped
@@ -116,9 +117,8 @@ services:
     # Host-run local development still reuses this compose-managed ONLYOFFICE
     # service, so keep a stable host port instead of forcing a second compose file.
     ports:
-      - "8082:80"
-    env_file:
-      - ../.env
+      - "${OPENAGENTS_ONLYOFFICE_PORT:-8082}:80"
+    env_file: *openagents_env_file
     entrypoint:
       - /bin/bash
       - -lc
@@ -144,12 +144,11 @@ services:
       args:
         BASE_IMAGE: enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest
     image: openagents-sandbox-aio:prod
-    env_file:
-      - ../.env
+    env_file: *openagents_env_file
     ports:
       # Expose the sandbox admin/management UI to the host without changing the
       # in-network contract used by LangGraph and other containers.
-      - "18080:8080"
+      - "${OPENAGENTS_SANDBOX_PORT:-18080}:8080"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/v1/sandbox"]
       interval: 15s
@@ -164,7 +163,7 @@ services:
       - systempaths=unconfined
     volumes:
       # 运行时线程目录、产物、缓存都写到仓库根目录的 .openagents 下。
-      - ../.openagents:/openagents
+      - ${OPENAGENTS_DOCKER_HOST_HOME:-../.openagents}:/openagents
     networks:
       - openagents
     restart: unless-stopped
@@ -223,18 +222,14 @@ services:
       # src.langgraph_dev 在 /app/backend/agents 这棵源码下面。
       PYTHONPATH: /app/backend/agents
     extra_hosts:
-      - "host.docker.internal:host-gateway"
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "5"
+      *host_docker_internal
+    logging: *json_logging
     volumes:
       - ../backend/agents:/app/backend/agents:ro
       - ../backend/deepagents:/app/backend/deepagents:ro
-      - ../.env:/app/.env:ro
+      - ${OPENAGENTS_ENV_FILE:-../.env}:/app/.env:ro
       - ../config.yaml:/app/config.yaml:ro
-      - ../.openagents:/openagents-home
+      - ${OPENAGENTS_DOCKER_HOST_HOME:-../.openagents}:/openagents-home
     networks:
       - openagents
     restart: unless-stopped

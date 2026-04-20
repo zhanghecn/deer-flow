@@ -31,7 +31,7 @@ MCP Profile 使用的标准 `mcpServers` JSON：
   "mcpServers": {
     "customer-cases-sdk-demo": {
       "command": "python",
-      "args": ["/app/backend/agents/scripts/mock_customer_cases_mcp.py"],
+      "args": ["/app/frontend/demo/mcp-file-service/run_mcp.py"],
       "env": {
         "CUSTOMER_CASES_ROOT": "/openagents-home/runtime/mock-customer-data/cases"
       }

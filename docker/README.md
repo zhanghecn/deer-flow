@@ -10,8 +10,8 @@ For detailed operator notes, see `docs/guides/docker-compose-prod-selfhost-zh.md
 Run Docker Compose from `docker/`:
 
 ```bash
-docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml build
-docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml up -d
+docker compose -f docker-compose-prod.yaml build
+docker compose -f docker-compose-prod.yaml up -d
 ```
 
 Gateway no longer executes repository SQL migrations.
@@ -33,6 +33,41 @@ Removed on purpose to keep the config surface small:
 - a separate Docker-only env file
 - a separate Docker-only LangGraph config file
 - an ONLYOFFICE compose profile
+
+## Defaults And Overrides
+
+The compose file now carries production-safe defaults directly in
+`docker/docker-compose-prod.yaml`. A plain `docker compose -f docker-compose-prod.yaml up -d`
+works from `docker/` as long as the repo root `.env` exists.
+
+Override only when you need a different deployment shape:
+
+- `OPENAGENTS_ENV_FILE`
+  - default: `../.env`
+  - use when secrets live somewhere other than the repo root `.env`
+- `OPENAGENTS_DOCKER_HOST_HOME`
+  - default: `../.openagents`
+  - use when runtime data should live on another host path
+- `OPENAGENTS_APP_PORT`
+  - default: `8083`
+- `OPENAGENTS_ADMIN_PORT`
+  - default: `8081`
+- `OPENAGENTS_ONLYOFFICE_PORT`
+  - default: `8082`
+- `OPENAGENTS_SANDBOX_PORT`
+  - default: `18080`
+- `OPENPENCIL_IMAGE`
+  - default: `ghcr.io/zseven-w/openpencil:latest`
+  - use when you want to pin or mirror the OpenPencil image
+
+Example:
+
+```bash
+OPENAGENTS_APP_PORT=80 \
+OPENAGENTS_ADMIN_PORT=8081 \
+OPENPENCIL_IMAGE=registry.example.com/openpencil:v0.6.0 \
+docker compose -f docker-compose-prod.yaml up -d
+```
 
 ## Recommended Mental Model
 
@@ -85,7 +120,7 @@ one shared DB address.
 
 ```bash
 cd docker
-docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml up --build
+docker compose -f docker-compose-prod.yaml up --build
 ```
 
 or:
@@ -145,7 +180,13 @@ http://model-gateway:3000
 
 Export these in the shell only when you actually need them:
 
+- `OPENAGENTS_ENV_FILE`
 - `OPENAGENTS_DOCKER_HOST_HOME`
+- `OPENAGENTS_APP_PORT`
+- `OPENAGENTS_ADMIN_PORT`
+- `OPENAGENTS_ONLYOFFICE_PORT`
+- `OPENAGENTS_SANDBOX_PORT`
+- `OPENPENCIL_IMAGE`
 - `NODE_HOST`
 - `K8S_API_SERVER`
 

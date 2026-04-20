@@ -14,6 +14,7 @@
 - 两个前端都先构建产物，再由一个 Nginx 容器托管
 - `gateway` 和 `langgraph` 不对外暴露端口
 - `sandbox-aio` 和 `onlyoffice` 作为基础能力常驻
+- `openpencil` 默认使用预构建镜像，不再要求宿主机额外存在兄弟源码仓库
 - `gateway` / `langgraph` 只挂各自需要热更新的源码目录与显式配置文件
 - Python 依赖保留在镜像里的 `/opt/venv`，代码更新只需要重启容器，不会因为源码挂载而反复安装
 
@@ -38,14 +39,27 @@
 
 ## 最省事的用法
 
-这套正式环境现在不依赖额外的 compose 参数文件，也不依赖 sh 脚本。
+这套正式环境现在不依赖额外的 docker 专用 env 文件，也不依赖 sh 脚本。
 
-固定值我已经直接写死：
+默认值直接写在 compose 里：
 
-- 用户前台端口：`80`
+- 用户前台端口：`8083`
 - 后台管理端口：`8081`
+- ONLYOFFICE 暴露端口：`8082`
+- sandbox 管理端口：`18080`
 - 持久化目录：仓库根目录 `.openagents/`
-- 根目录 `.env`：唯一 secrets 来源
+- secrets 文件：仓库根目录 `.env`
+- OpenPencil 镜像：`ghcr.io/zseven-w/openpencil:latest`
+
+只有你确实要改部署形态时，才需要覆写这些变量：
+
+- `OPENAGENTS_ENV_FILE`
+- `OPENAGENTS_DOCKER_HOST_HOME`
+- `OPENAGENTS_APP_PORT`
+- `OPENAGENTS_ADMIN_PORT`
+- `OPENAGENTS_ONLYOFFICE_PORT`
+- `OPENAGENTS_SANDBOX_PORT`
+- `OPENPENCIL_IMAGE`
 
 如果你有外部模型网关容器，例如 1Panel 托管的 `new-api`，推荐把那个容器直接接到
 `openagents-prod_openagents`，然后在模型记录里统一写：
@@ -65,8 +79,17 @@ make docker-model-gateway-attach MODEL_GATEWAY_CONTAINER=1Panel-new-api-6d1F
 推荐直接在 `docker/` 目录执行：
 
 ```bash
-docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml build
-docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml up -d
+docker compose -f docker-compose-prod.yaml build
+docker compose -f docker-compose-prod.yaml up -d
+```
+
+如果你要自定义端口、数据目录或 `.env` 路径，可以在同一条命令前加环境变量：
+
+```bash
+OPENAGENTS_APP_PORT=80 \
+OPENAGENTS_DOCKER_HOST_HOME=/srv/openagents \
+OPENPENCIL_IMAGE=registry.example.com/openpencil:v0.6.0 \
+docker compose -f docker-compose-prod.yaml up -d
 ```
 
 如果你希望启动命令在返回前就把关键入口也校验掉，推荐直接用仓库根目录：
@@ -97,13 +120,13 @@ make docker-verify
 查看当前生效参数：
 
 ```bash
-docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml config
+docker compose -f docker-compose-prod.yaml config
 ```
 
 查看状态：
 
 ```bash
-docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml ps
+docker compose -f docker-compose-prod.yaml ps
 ```
 
 或者：
@@ -115,14 +138,14 @@ make docker-status
 查看日志：
 
 ```bash
-docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml logs -f
+docker compose -f docker-compose-prod.yaml logs -f
 ```
 
 ## 速查表
 
 ### 1. compose 里的 `env_file` 是什么
 
-- `env_file: ../.env`
+- `env_file: ${OPENAGENTS_ENV_FILE:-../.env}`
 - 作用：把仓库根目录 `.env` 里的 secrets 注入给容器进程
 - 你正常只需要维护这一份 `.env`
 - 这里适合放：
@@ -156,6 +179,9 @@ docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml
 - `nginx`
   - 托管用户前台和管理后台静态页面
   - 反向代理 `/api`、`/open`、`/health` 到 gateway
+- `openpencil`
+  - 设计编辑器服务
+  - 通过 nginx 同源代理到 `/openpencil/*`
 - `gateway`
   - 统一 API 入口
   - 管登录、Agent/Skill/Thread/Knowledge 相关接口
@@ -395,6 +421,11 @@ cp config.example.yaml config.yaml
 也就是仓库根目录下的 `.openagents`。
 
 如果你想把正式数据放到别的位置，直接修改 `docker/docker-compose-prod.yaml` 里的 `../.openagents` 挂载路径。
+更推荐直接在启动命令前覆写：
+
+```bash
+OPENAGENTS_DOCKER_HOST_HOME=/srv/openagents docker compose -f docker-compose-prod.yaml up -d
+```
 
 ### 3. 准备数据库
 
@@ -409,8 +440,8 @@ cp config.example.yaml config.yaml
 
 ```bash
 cd docker
-docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml build
-docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml up -d
+docker compose -f docker-compose-prod.yaml build
+docker compose -f docker-compose-prod.yaml up -d
 ```
 
 默认行为已经固定好：
@@ -448,7 +479,7 @@ docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml
 
 ```bash
 cd docker
-docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml restart gateway langgraph
+docker compose -f docker-compose-prod.yaml restart gateway langgraph
 ```
 
 如果你改了前端代码，则需要重新 build `nginx` 镜像，因为前端产物是在镜像构建阶段生成的。
@@ -467,7 +498,7 @@ git pull
 
 ```bash
 cd docker
-docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml build nginx gateway langgraph sandbox-aio onlyoffice
+docker compose -f docker-compose-prod.yaml build nginx gateway langgraph sandbox-aio onlyoffice
 ```
 
 ### 3. 人工执行 SQL（如有）
@@ -478,7 +509,7 @@ docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml
 ### 4. 重启到新版本
 
 ```bash
-docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml up -d --remove-orphans
+docker compose -f docker-compose-prod.yaml up -d --remove-orphans
 ```
 
 ## 最小更新策略
@@ -489,24 +520,24 @@ docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml
 
 ```bash
 cd docker
-docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml build nginx
-docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml up -d nginx
+docker compose -f docker-compose-prod.yaml build nginx
+docker compose -f docker-compose-prod.yaml up -d nginx
 ```
 
 ### 只改 Gateway
 
 ```bash
 cd docker
-docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml build gateway
-docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml up -d gateway nginx
+docker compose -f docker-compose-prod.yaml build gateway
+docker compose -f docker-compose-prod.yaml up -d gateway nginx
 ```
 
 ### 只改 LangGraph
 
 ```bash
 cd docker
-docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml build langgraph
-docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml up -d langgraph gateway nginx
+docker compose -f docker-compose-prod.yaml build langgraph
+docker compose -f docker-compose-prod.yaml up -d langgraph gateway nginx
 ```
 
 ## 发布前建议备份
