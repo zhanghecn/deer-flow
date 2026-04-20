@@ -30,7 +30,7 @@ class TestTitleMiddlewareCoreLogic:
     def teardown_method(self):
         set_title_config(self._original)
 
-    def test_should_generate_title_for_first_complete_exchange(self):
+    def test_should_generate_title_from_first_user_turn(self):
         _set_test_title_config(enabled=True)
         middleware = TitleMiddleware()
         state = {
@@ -139,6 +139,103 @@ class TestTitleMiddlewareCoreLogic:
         title = middleware._generate_title(state)
 
         assert title == "帮我总结这份设计文档"
+
+    def test_generate_title_skips_role_only_prefix_line(self):
+        _set_test_title_config(max_chars=40)
+        middleware = TitleMiddleware()
+        state = {
+            "messages": [
+                HumanMessage(content="User:\n为什么登录失败"),
+                AIMessage(content="我先排查"),
+            ]
+        }
+
+        title = middleware._generate_title(state)
+
+        assert title == "为什么登录失败"
+
+    def test_generate_title_strips_inline_role_prefix(self):
+        _set_test_title_config(max_chars=40)
+        middleware = TitleMiddleware()
+        state = {
+            "messages": [
+                HumanMessage(content="User: 帮我修复支付回调"),
+                AIMessage(content="收到"),
+            ]
+        }
+
+        title = middleware._generate_title(state)
+
+        assert title == "帮我修复支付回调"
+
+    def test_generate_title_unescapes_newline_sequences_after_role_prefix(self):
+        _set_test_title_config(max_chars=40)
+        middleware = TitleMiddleware()
+        state = {
+            "messages": [
+                HumanMessage(content=r"User:\n标题前缀验收"),
+                AIMessage(content="收到"),
+            ]
+        }
+
+        title = middleware._generate_title(state)
+
+        assert title == "标题前缀验收"
+
+    def test_generate_title_unescapes_double_escaped_newline_sequences(self):
+        _set_test_title_config(max_chars=40)
+        middleware = TitleMiddleware()
+        state = {
+            "messages": [
+                HumanMessage(content=r"User:\\n标题前缀验收"),
+                AIMessage(content="收到"),
+            ]
+        }
+
+        title = middleware._generate_title(state)
+
+        assert title == "标题前缀验收"
+
+    def test_before_agent_generates_title_on_first_user_turn(self, monkeypatch):
+        middleware = TitleMiddleware()
+        persisted: dict[str, str] = {}
+
+        class StubStore:
+            def save_thread_title(self, *, thread_id: str, user_id: str, title: str):
+                persisted["thread_id"] = thread_id
+                persisted["user_id"] = user_id
+                persisted["title"] = title
+
+        monkeypatch.setattr(
+            "src.agents.middlewares.title_middleware.get_runtime_db_store",
+            lambda: StubStore(),
+        )
+        monkeypatch.setattr(
+            "src.agents.middlewares.title_middleware.get_config",
+            lambda: {"configurable": {}, "metadata": {}},
+        )
+
+        @dataclass
+        class RuntimeContext:
+            thread_id: str
+            user_id: str
+
+        runtime = MagicMock()
+        runtime.context = RuntimeContext(thread_id="thread-early", user_id="user-early")
+
+        result = middleware.before_agent(
+            {
+                "messages": [HumanMessage(content="User:\n立即生成标题")],
+            },
+            runtime=runtime,
+        )
+
+        assert result == {"title": "立即生成标题"}
+        assert persisted == {
+            "thread_id": "thread-early",
+            "user_id": "user-early",
+            "title": "立即生成标题",
+        }
 
     def test_after_agent_returns_title_only_when_needed(self, monkeypatch):
         middleware = TitleMiddleware()

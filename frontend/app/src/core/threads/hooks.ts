@@ -77,6 +77,9 @@ const PENDING_RUN_RECOVERY_POLL_MS =
 const STREAM_MODES = ["values", "messages-tuple", "custom"] as const;
 const ACTIVE_RUN_OWNER_STORAGE_PREFIX = "openagents:stream-owner:";
 const ACTIVE_RUN_METADATA_STORAGE_PREFIX = "lg:stream:";
+const PROVISIONAL_THREAD_TITLE_MAX_CHARS = 80;
+const ESCAPED_WHITESPACE_RE = /\\+(?:r\\n|n|r|t)/g;
+const ROLE_PREFIX_LINE_RE = /^(user|assistant|human|system)\s*:\s*(.*)$/i;
 type ThreadOverride = {
   source: "hydration" | "snapshot";
   values: AgentThreadState;
@@ -411,13 +414,27 @@ function buildOptimisticMessages(
   return optimisticMessages;
 }
 
+function normalizeProvisionalTitleLine(line: string) {
+  const roleMatch = ROLE_PREFIX_LINE_RE.exec(line);
+  const candidate = roleMatch ? (roleMatch[2] ?? "").trim() : line.trim();
+  return candidate.replace(/\s+/g, " ");
+}
+
 function buildProvisionalThreadTitle(text: string) {
-  const normalized = text.trim().replace(/\s+/g, " ");
-  if (!normalized) {
-    return "Untitled";
+  const lines = text
+    .replace(ESCAPED_WHITESPACE_RE, "\n")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    const normalized = normalizeProvisionalTitleLine(line);
+    if (normalized) {
+      return normalized.slice(0, PROVISIONAL_THREAD_TITLE_MAX_CHARS);
+    }
   }
 
-  return normalized.slice(0, 80);
+  return "Untitled";
 }
 
 function buildPendingThreadRecord(

@@ -851,6 +851,135 @@ describe("useThreadStream", () => {
     });
   });
 
+  it("strips role prefixes from the pending thread title", async () => {
+    const wrapper = createWrapper();
+    wrapper.queryClient.setQueryData(
+      buildThreadSearchQueryKey(DEFAULT_THREAD_SEARCH_PARAMS),
+      [],
+    );
+    streamState.submit.mockImplementation(() => createPendingPromise<void>());
+
+    const { result } = renderHook(
+      () =>
+        useThreadStream({
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      void result.current[1]("thread-prefixed", {
+        text: "User:\n修复标题生成",
+        files: [],
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      const cachedThreads = wrapper.queryClient.getQueryData<AgentThread[]>(
+        buildThreadSearchQueryKey(DEFAULT_THREAD_SEARCH_PARAMS),
+      );
+      expect(cachedThreads).toMatchObject([
+        {
+          thread_id: "thread-prefixed",
+          values: {
+            title: "修复标题生成",
+          },
+        },
+      ]);
+    });
+  });
+
+  it("normalizes escaped newlines in the pending thread title", async () => {
+    const wrapper = createWrapper();
+    wrapper.queryClient.setQueryData(
+      buildThreadSearchQueryKey(DEFAULT_THREAD_SEARCH_PARAMS),
+      [],
+    );
+    streamState.submit.mockImplementation(() => createPendingPromise<void>());
+
+    const { result } = renderHook(
+      () =>
+        useThreadStream({
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      void result.current[1]("thread-escaped-prefix", {
+        text: String.raw`User:\n修复标题生成`,
+        files: [],
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      const cachedThreads = wrapper.queryClient.getQueryData<AgentThread[]>(
+        buildThreadSearchQueryKey(DEFAULT_THREAD_SEARCH_PARAMS),
+      );
+      expect(cachedThreads).toMatchObject([
+        {
+          thread_id: "thread-escaped-prefix",
+          values: {
+            title: "修复标题生成",
+          },
+        },
+      ]);
+    });
+  });
+
+  it("normalizes double-escaped newlines in the pending thread title", async () => {
+    const wrapper = createWrapper();
+    wrapper.queryClient.setQueryData(
+      buildThreadSearchQueryKey(DEFAULT_THREAD_SEARCH_PARAMS),
+      [],
+    );
+    streamState.submit.mockImplementation(() => createPendingPromise<void>());
+
+    const { result } = renderHook(
+      () =>
+        useThreadStream({
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      void result.current[1]("thread-double-escaped-prefix", {
+        text: String.raw`User:\\n修复标题生成`,
+        files: [],
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      const cachedThreads = wrapper.queryClient.getQueryData<AgentThread[]>(
+        buildThreadSearchQueryKey(DEFAULT_THREAD_SEARCH_PARAMS),
+      );
+      expect(cachedThreads).toMatchObject([
+        {
+          thread_id: "thread-double-escaped-prefix",
+          values: {
+            title: "修复标题生成",
+          },
+        },
+      ]);
+    });
+  });
+
   it("does not invalidate sidebar search while a new run is still in flight", async () => {
     const wrapper = createWrapper();
     const invalidateQueriesSpy = vi.spyOn(

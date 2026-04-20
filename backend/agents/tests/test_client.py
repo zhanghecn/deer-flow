@@ -305,6 +305,34 @@ class TestStream:
         assert values_events[-1].data["title"] == "Greeting"
         assert "messages" in values_events[-1].data
 
+    def test_values_event_surfaces_first_turn_title_before_assistant_reply(self, client):
+        """stream() exposes the early title chunk that SDK consumers render immediately."""
+        chunks = [
+            {
+                "messages": [HumanMessage(content="User:\n修复标题生成", id="h-1")],
+                "title": "修复标题生成",
+            },
+            {
+                "messages": [
+                    HumanMessage(content="User:\n修复标题生成", id="h-1"),
+                    AIMessage(content="收到", id="ai-1"),
+                ],
+                "title": "修复标题生成",
+            },
+        ]
+        agent = _make_agent_mock(chunks)
+
+        with (
+            patch.object(client, "_ensure_agent"),
+            patch.object(client, "_agent", agent),
+        ):
+            events = list(client.stream("User:\n修复标题生成", thread_id="t-early-title"))
+
+        values_events = [e for e in events if e.type == "values"]
+        assert len(values_events) == 2
+        assert values_events[0].data["title"] == "修复标题生成"
+        assert values_events[0].data["messages"][0]["content"] == "User:\n修复标题生成"
+
     def test_deduplication(self, client):
         """Messages with the same id are not emitted twice."""
         ai = AIMessage(content="Hello!", id="ai-1")

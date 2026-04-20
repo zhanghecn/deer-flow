@@ -68,8 +68,8 @@ class TitleConfig(BaseModel):
             "\"look at @config.json\" -> Config review\n"
             "\"@App.tsx add dark mode toggle\" -> Dark mode toggle in App\n"
             "</examples>\n\n"
-            "User: {user_msg}\n"
-            "Assistant: {assistant_msg}\n\n"
+            "<user_message>\n{user_msg}\n</user_message>\n"
+            "<assistant_message>\n{assistant_msg}\n</assistant_message>\n\n"
             "Title:"
         ),
         description="Legacy prompt template retained for backward compatibility.",

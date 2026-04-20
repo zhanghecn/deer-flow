@@ -7,6 +7,7 @@ from typing import NotRequired, override
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
+from langchain_core.runnables import RunnableConfig
 from langgraph.config import get_config
 from langgraph.runtime import Runtime
 
@@ -17,6 +18,8 @@ logger = logging.getLogger(__name__)
 
 _UPLOADED_FILES_BLOCK_RE = re.compile(r"<uploaded_files>[\s\S]*?</uploaded_files>\s*", re.IGNORECASE)
 _WHITESPACE_RE = re.compile(r"\s+")
+_ESCAPED_WHITESPACE_RE = re.compile(r"\\+(?:r\\n|n|r|t)")
+_ROLE_PREFIX_RE = re.compile(r"^(user|assistant|human|system)\s*:\s*(.*)$", re.IGNORECASE)
 
 
 class TitleMiddlewareState(AgentState):
@@ -26,7 +29,7 @@ class TitleMiddlewareState(AgentState):
 
 
 class TitleMiddleware(AgentMiddleware[TitleMiddlewareState]):
-    """Persist a compact title after the first complete exchange.
+    """Persist a compact title from the first real user turn.
 
     Deep Agents already spends model budget on the actual user task. Title
     generation stays local and deterministic so opening a new thread does not
@@ -87,21 +90,39 @@ class TitleMiddleware(AgentMiddleware[TitleMiddlewareState]):
         return user_message or "New Conversation"
 
     @staticmethod
-    def _clean_user_message_for_title(user_message: str) -> str:
+    def _normalize_title_line(line: str) -> str:
+        # SDK and transcript-like callers sometimes wrap the first prompt as
+        # `User: ...` or `User:\n...`. Titles should follow the actual task
+        # content, not the wrapper label.
+        if line.startswith("#"):
+            line = line.lstrip("#").strip()
+
+        role_match = _ROLE_PREFIX_RE.match(line)
+        if role_match is not None:
+            line = role_match.group(2).strip()
+            if not line:
+                return ""
+
+        return _WHITESPACE_RE.sub(" ", line).strip()
+
+    @classmethod
+    def _clean_user_message_for_title(cls, user_message: str) -> str:
         cleaned = _UPLOADED_FILES_BLOCK_RE.sub("", user_message)
+        # Some SDK/demo callers serialize control characters into the text form
+        # (`\\n`, `\\t`) before the first prompt reaches title generation.
+        # Normalize those escapes so titles follow the real sentence instead of
+        # preserving transport artifacts.
+        cleaned = _ESCAPED_WHITESPACE_RE.sub("\n", cleaned)
         cleaned = cleaned.strip().strip('"').strip("'")
         if not cleaned:
             return ""
 
         lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
-        if not lines:
-            return ""
-
-        first_line = lines[0]
-        if first_line.startswith("#"):
-            first_line = first_line.lstrip("#").strip()
-
-        return _WHITESPACE_RE.sub(" ", first_line).strip()
+        for line in lines:
+            normalized = cls._normalize_title_line(line)
+            if normalized:
+                return normalized
+        return ""
 
     @classmethod
     def _truncate_title(cls, title: str, *, max_words: int, max_chars: int) -> str:
@@ -147,17 +168,11 @@ class TitleMiddleware(AgentMiddleware[TitleMiddlewareState]):
         if state.get("title"):
             return False
 
-        # Check if this is the first turn (has at least one user message and one assistant response)
         messages = state.get("messages", [])
-        if len(messages) < 2:
-            return False
-
-        # Count user and assistant messages
         user_messages = [m for m in messages if m.type == "human"]
-        assistant_messages = [m for m in messages if m.type == "ai"]
-
-        # Generate title after first complete exchange
-        return len(user_messages) == 1 and len(assistant_messages) >= 1
+        # Generate once from the first user turn so SSE/SDK consumers can show
+        # a stable title immediately instead of waiting for the first reply.
+        return len(user_messages) == 1
 
     @staticmethod
     def _stringify_message_content(content: object) -> str:
@@ -192,15 +207,27 @@ class TitleMiddleware(AgentMiddleware[TitleMiddlewareState]):
         )
         return generated or self._fallback_title(user_msg, config.max_chars)
 
-    @override
-    def after_agent(self, state: TitleMiddlewareState, runtime: Runtime) -> dict | None:
-        """Generate and set thread title after the first agent response."""
+    def _maybe_generate_title(self, state: TitleMiddlewareState, runtime: Runtime) -> dict | None:
         if not self._should_generate_title(state):
             return None
 
         title = self._generate_title(state)
         logger.info("Generated thread title: %s", title)
         self._persist_title(runtime, title)
-
-        # Store title in state (will be persisted by checkpointer if configured)
         return {"title": title}
+
+    @override
+    def before_agent(
+        self,
+        state: TitleMiddlewareState,
+        runtime: Runtime,
+        config: RunnableConfig | None = None,
+    ) -> dict | None:  # ty: ignore[invalid-method-override]
+        """Generate the first-turn title before model execution starts."""
+        del config
+        return self._maybe_generate_title(state, runtime)
+
+    @override
+    def after_agent(self, state: TitleMiddlewareState, runtime: Runtime) -> dict | None:
+        """Fallback for runtimes that only surface post-agent state updates."""
+        return self._maybe_generate_title(state, runtime)
