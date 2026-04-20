@@ -2,6 +2,15 @@
 
 Use this reference when the user needs architecture recommendations, a project skeleton, or feature guidance.
 
+## Required inputs
+
+Obtain these inputs before producing runnable integration code:
+
+- `base_url`
+- `user_key`
+
+Do not hardcode them, infer them from prior examples, or silently replace them with guessed defaults or sample secrets. Use the user-provided `base_url` as the source of truth.
+
 ## Recommended integration shapes
 
 ### 1. Server-side proxy
@@ -62,6 +71,7 @@ Do not leave the final artifact only under another ad hoc `/mnt/user-data/<name>
 
 When you generate a runnable demo or starter project, preserve these contracts in code:
 
+- require `base_url` and `user_key` from explicit user input, config, or environment before treating the project as runnable
 - normalize `base_url` once so both `http://host` and `http://host/v1` resolve to one canonical API root
 - build `/turns` and `/turns/{id}` from that canonical root instead of concatenating conditionally in multiple places
 - keep one accumulating assistant answer block and one accumulating reasoning block

@@ -209,10 +209,11 @@ UI rule:
 “Real test” for `/v1/turns` integration means all of the following:
 
 1. Trigger the run from the OpenAgents user-facing product surface on
-   `http://127.0.0.1:8083`, or from a standalone external page that calls the
-   same published `/v1/turns` contract.
+   the actual user-facing app origin for the current environment, or from a
+   standalone external page that calls the same published `/v1/turns`
+   contract.
 2. Verify the matching run is visible in admin observability on
-   `http://127.0.0.1:8081/observability`.
+   the matching admin/observability origin for that same environment.
 3. Verify the result is previewable or interactable in product UI, not just in
    host-side scripts.
 4. Use a real published agent key and the actual customer-facing integration
