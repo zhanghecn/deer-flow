@@ -4,8 +4,8 @@
 
 本目录在 2026-04-17 再次回归过一次，修正了两个之前会误导结论的问题：
 
-1. `support-cases-http-demo` 一度因为 HTTP MCP 服务拒绝 `Host: customer-cases-mcp-http:8000` 而退化成 shell fallback。
-2. `8084` 一度虽然有容器，但页面实际是空白页，因为 demo 容器缺少给共享 `frontend/app/src` 使用的模块解析路径。
+1. `support-cases-http-demo` 一度因为 HTTP MCP 服务拒绝错误 host 而退化成 shell fallback。
+2. `8084` 一度虽然有容器，但页面实际是空白页，因为 demo 容器缺少稳定的独立运行路径。
 
 当前这两个问题都已经修复，并且重新做过 API + 浏览器验证。
 
@@ -15,65 +15,70 @@
 2. `/v1` 调试台 assistant delta 碎片化显示。
 3. `/v1` 调试台没有把 LangGraph state 里较早 assistant message 的 `thinking/reasoning` 摘要带回最终 response。
 
+在 2026-04-20 的最新回归中，又进一步把 `8084` 重构为纯 MCP 文件调试台，
+重点验证了三件事：
+
+1. 上传器支持目录作为分类来源，并保留 `relativePath`。
+2. `8084` 不再混合客服聊天，而是直接展示 MCP 规范、参数表单、调用历史和 JSON 返回。
+3. 浏览器可真实执行 `fs_ls`、`fs_read`、`fs_glob`、`fs_grep` 等文件型 MCP 工具，并看到参数和返回。
+
+同一天又补做了一次 UI 回归，确认文件区已经切换为基于 `react-arborist`
+的 VS Code 风格 Explorer，而不是旧的平铺按钮列表；浏览器脚本也同步改成了
+树节点选择路径，避免旧断言误报失败。
+
 ## 当前可复现入口
 
 1. 先确保 current-code 后端已经运行在：
    - `http://127.0.0.1:8083`
-2. 运行 setup 脚本，重建外部接入验收所需 fixture：
+2. 运行 setup 脚本，重建外部接入验收所需 workbench 配置：
    - `python scripts/setup_support_demo_runtime.py`
-   - 如果案例目录不在默认位置，先设置：
-     - `export OPENAGENTS_SUPPORT_CASES_SOURCE=/your/customer/cases`
 3. 这个脚本会：
-   - 把 `OPENAGENTS_SUPPORT_CASES_SOURCE` 指向的案例目录同步到 `.openagents/runtime/customer-cases`
    - 登录或注册测试用户
-   - upsert 两个 MCP profile
-   - upsert 并 publish 两个客服 agent
-   - 复用或创建两个 scoped API key
-   - 刷新 `frontend/demo/.env.local`
-   - 写出 `setup-summary.runtime.json`
+   - upsert 独立 demo 使用的 HTTP MCP profile
+   - upsert 并 publish 客服 agent
+   - 复用或创建 scoped API key
+   - 写出本地 `.env.local` 供 demo workbench 复用
 4. 然后运行真实浏览器验收：
    - `node frontend/app/e2e/public-integration-real-browser.mjs`
 
 ## 我实际验证了什么
 
-1. 把 `/root/project/ai/ai-numerology/backend/agents/examples/案例大全` staging 到 Deer Flow 本地运行目录：
-   - `.openagents/runtime/customer-cases`
-2. 用同一套案例数据发布两种 MCP transport：
-   - `custom/mcp-profiles/customer-cases-stdio-demo.json`
+1. 用独立 demo workbench 服务发布 HTTP MCP：
    - `custom/mcp-profiles/customer-cases-http-demo.json`
-3. 真实创建并发布两个客服 agent：
-   - `support-cases-stdio-demo`
+2. 真实创建并发布客服 agent：
    - `support-cases-http-demo`
-4. 为两个已发布 agent 真实创建了作用域 API key。
-5. 用真实浏览器断言式验证了唯一接入面：
-   - `8083` 工作区 agents 列表
-   - `8083` 已发布 agent 文档概览
-   - `8084` 独立调试台的 `stdio` agent
-   - `8084` 独立调试台的 `http` agent
-   - `8083` 工作区 published agent playground
-6. 浏览器脚本现在不再只靠截图，而是会断言：
-   - `grep_files` 工具名可见
-   - `盲派八字全知识点训练集` 命中文件可见
-7. 把 HTTP MCP 测试链路单独拆到了独立 compose：
-   - `docker/docker-compose-support-demo.yaml`
-   - `8090` = HTTP MCP mock
-   - `8084` = 外部调试台
+3. 为已发布 agent 真实创建了作用域 API key。
+4. 用真实浏览器断言式验证了 `8084` 纯 MCP 工作台。
+5. 浏览器脚本现在不再只靠截图，而是会断言：
+   - 目录上传后 `案例大全 · 4` 分类摘要可见
+   - `fs_ls` 工具名、参数、返回值在新工作台里可见
+   - 返回 JSON 中包含根目录下的 `案例大全` 目录项
+6. 把 demo 文件服务和调试台都收敛到了独立 demo 工程：
+   - `frontend/demo/compose.yaml`
+   - `frontend/demo/mcp-file-service`
+   - `8090` = HTTP MCP file service
+   - `8084` = MCP 文件调试台
+7. 把 `8084` 上传区收敛进 Explorer：
+   - 文件和文件夹都直接从 Explorer 工具栏或拖拽进入
+   - `relativePath` 会映射到文件服务上传接口
+   - 第一层文件夹会显示为目录摘要，例如 `案例大全 · 4`
 
 ## 结果文件
 
 - [setup-summary.json](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/setup-summary.json)
-  - 作为期望 fixture 的基线摘要
-- [setup-summary.runtime.json](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/setup-summary.runtime.json)
-  - setup 脚本本次真实重放后的用户、profile、agent、token
+  - 作为期望 workbench 配置的基线摘要
 - [mcp-smoke-results.json](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/mcp-smoke-results.json)
   - 两套 transport 的历史 API smoke 结果，作为回归参考保留
 - [01-workspace-agents.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/01-workspace-agents.png)
 - [02-docs-overview-current.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/02-docs-overview-current.png)
-- [03-standalone-demo-stdio.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/03-standalone-demo-stdio.png)
 - [05-standalone-demo-http.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/05-standalone-demo-http.png)
 - [05-standalone-demo-current.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/05-standalone-demo-current.png)
 - [06-standalone-demo-timeline.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/06-standalone-demo-timeline.png)
 - [07-workspace-playground-current.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/07-workspace-playground-current.png)
+- [08-acceptance-console-uploaded.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/08-acceptance-console-uploaded.png)
+  - `8084` 最新上传态；展示 Explorer 上传、文件列表、MCP 地址
+- [09-acceptance-console-complete.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/09-acceptance-console-complete.png)
+  - `8084` 最新完成态；展示 `fs_ls` 工具调用、参数、返回和调用记录
 - [08-native-chat-current.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/08-native-chat-current.png)
 - [10-standalone-demo-session.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/10-standalone-demo-session.png)
   - 本次 session helper 路线下的 8084 独立调试台截图
@@ -89,7 +94,7 @@
    - `http://127.0.0.1:8083/workspace/agents`
 2. 已发布 agent 文档概览页：
    - `http://127.0.0.1:8083/docs/agents/support-cases-http-demo`
-3. 独立调试台：
+3. MCP 文件调试台：
    - `http://127.0.0.1:8084`
 4. 工作区 published agent 调试台：
    - `http://127.0.0.1:8083/workspace/agents/support-cases-http-demo/playground?agent_status=prod`
@@ -98,20 +103,13 @@
 
 ## 你作为用户怎么直接试
 
-### 8084 独立 demo
-
-我已经生成了本地专用预填配置：
-
-- `frontend/demo/.env.local`
+### 8084 MCP 文件调试台
 
 当前行为：
 
-- 默认 `Base URL = http://127.0.0.1:8083/v1`
-- 默认 `Agent = support-cases-http-demo`
-- 默认已经带上可用 `User Key`
-- 点击 `切到 stdio Agent` / `切到 HTTP Agent` 时，会自动切换到对应 agent，并自动替换成对应 key
-
-如果 8084 页面已经开着，请刷新一次让新的 `.env.local` 生效。
+- 默认 `Workbench Base URL = http://127.0.0.1:8084`
+- 默认展示 MCP URL、工具目录、文件管理、工具参数表单、调用历史
+- 不再混合 `/v1/turns` 客服聊天
 
 ### 8083 平台内页
 
@@ -125,11 +123,10 @@
 
 ## 本次测试结论
 
-- `stdio` MCP 可用
 - `http` MCP 可用
-- 两者都能在客服 agent 中真实调用客户案例数据，而不是先导入 Deer Flow 知识库
-- `8084` 独立 React + Tailwind 调试台已经能作为外部接入示例使用
-- `8084` 已经真实验证 `stdio` 与 `http` 两种 transport 都能走原生 `/v1/turns`
+- 客服 agent 仍可真实调用客户案例数据，而不是先导入 Deer Flow 知识库
+- `8084` 独立 React + Tailwind 调试台已经收敛为 MCP 文件调试台
+- `8084` 已真实验证 HTTP MCP 文件服务的工具可直接手动执行
 - `8083` 已删除重复的 support demo 页面，平台内只保留 docs 概览和 Playground
 - `8083` 工作区 published agent playground 现在也能显示时间线式步骤、工具名、工具参数，以及最终 response JSON
 - `8083` 工作区 published agent playground 现在也能把 Deer Flow 对外公开的 reasoning summary 正确显示到“思考摘要”面板
@@ -143,6 +140,7 @@
 ## 当前额外确认
 
 - `docker/docker-compose-prod.yaml` 不再承载测试用 HTTP MCP。
-- `docker/docker-compose-support-demo.yaml` 单独承载 `8084` 和 `8090`，更贴近真实客户外部接入。
+- `frontend/demo/compose.yaml` 单独承载 `8084` 和 `8090`，更贴近真实客户外部接入。
 - `support-cases-http-demo` 现在已真实走 HTTP MCP，不再出现“没有可用 customer-cases MCP 工具”的错误回答。
-- `8084` 现在不是假通，而是可渲染、可输入、可调用原生 `/v1/turns` session helper 的真实页面。
+- `8084` 现在不是假通，而是可渲染、可上传目录、可执行 MCP 工具并查看 JSON 返回的真实页面。
+- `8084` 最新上传区已经并入 Explorer，目录上传会保留分类层级，并支持直接拖拽到文件树。

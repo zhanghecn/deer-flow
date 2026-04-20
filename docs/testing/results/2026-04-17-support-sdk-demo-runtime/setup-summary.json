@@ -7,26 +7,6 @@
   "auth_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiNTdlNDY2N2QtNzdlNy00M2YwLWFmMzgtNmJiNjczMDc5ZjM1Iiwicm9sZSI6InVzZXIiLCJpc3MiOiJvcGVuYWdlbnRzIiwiZXhwIjoxNzc2NjIxMDgwLCJpYXQiOjE3NzYzNjE4ODB9.vVFiLBXk4DqFUB5RDuoQZeF43oh4AI6lt4Jv20f-sjw",
   "profiles": [
     {
-      "name": "customer-cases-stdio-demo",
-      "server_name": "customer-cases",
-      "category": "custom",
-      "source_path": "custom/mcp-profiles/customer-cases-stdio-demo.json",
-      "can_edit": true,
-      "config_json": {
-        "mcpServers": {
-          "customer-cases": {
-            "command": "python",
-            "args": [
-              "/app/backend/agents/scripts/mock_customer_cases_mcp.py"
-            ],
-            "env": {
-              "CUSTOMER_CASES_ROOT": "/openagents-home/runtime/customer-cases"
-            }
-          }
-        }
-      }
-    },
-    {
       "name": "customer-cases-http-demo",
       "server_name": "customer-cases",
       "category": "custom",
@@ -36,38 +16,13 @@
         "mcpServers": {
           "customer-cases": {
             "type": "http",
-            "url": "http://customer-cases-mcp-http:8000/mcp"
+            "url": "http://mcp-file-service:8090/mcp-http/mcp"
           }
         }
       }
     }
   ],
   "agents": [
-    {
-      "name": "support-cases-stdio-demo",
-      "description": "Answer 命理 customer service questions by searching the private case library, citing evidence, and replying in concise Chinese.",
-      "model": "GLM-5.1",
-      "tool_groups": null,
-      "mcp_servers": [
-        "custom/mcp-profiles/customer-cases-stdio-demo.json"
-      ],
-      "status": "dev",
-      "owner_user_id": "57e4667d-77e7-43f0-af38-6bb673079f35",
-      "owner_name": "supportdemo_1776361880",
-      "can_manage": true,
-      "memory": {
-        "enabled": false,
-        "debounce_seconds": 30,
-        "max_facts": 100,
-        "fact_confidence_threshold": 0.7,
-        "injection_enabled": true,
-        "max_injection_tokens": 2000
-      },
-      "subagent_defaults": {
-        "general_purpose_enabled": true
-      },
-      "agents_md": "**Identity**\n\nsupport-cases-agent — a case-library specialist for 命理 customer service, not a generic chatbot. Goal: deliver accurate, evidence-backed answers to customer inquiries by searching and citing the case library. Handle case lookups, evidence extraction, and concise replies so the support team focuses on complex escalations.\n\n**Core Traits**\n\n- Search the case library before forming any answer — never fabricate or guess from memory.\n- Read source documents in full (paginate when needed) before summarizing; cite the exact file or passage.\n- When no matching case or evidence exists, say \"I don't know\" explicitly — no hedging, no hallucination.\n- Treat all customer data as private — never log, store, or expose personally identifiable information into any knowledge base or output artifact.\n- Keep every reply in Chinese and as concise as the question allows — short is correct.\n\n**Communication**\n\nDirect and factual. Default language: Chinese (Simplified). No filler, no pleasantries unless the user initiates. Structure: evidence first, answer second, confidence level if ambiguous.\n\n**Growth**\n\nLearn the support team's common question patterns and case library structure through every conversation. Over time, anticipate follow-up questions and surface relevant cases faster. Early stage: flag gaps in the case library so coverage improves.\n\n**Lessons Learned**\n\n_(Mistakes and insights recorded here to avoid repeating them.)_\n\n**MCP Retrieval Rule**\n\n- For customer case-library retrieval, always use the bound `customer-cases` MCP tools first: `list_files`, `read_file_page`, `grep_files`, `glob_files`.\n- Do not use local filesystem shell tools as the primary retrieval path for case-library questions when the MCP tools can answer the question.\n- Use `glob_files` for filename-pattern filtering, `grep_files` for content search, and `read_file_page` for page-based reading.\n"
-    },
     {
       "name": "support-cases-http-demo",
       "description": "Answer 命理 customer service questions by searching the private case library, citing evidence, and replying in concise Chinese.",
@@ -95,28 +50,6 @@
     }
   ],
   "tokens": [
-    {
-      "id": "66d13c44-f59d-49f8-8fc8-9eeb3cf0707f",
-      "user_id": "57e4667d-77e7-43f0-af38-6bb673079f35",
-      "token": "df_92a60cd016dae76c1fe97733bbf8a1307b450bffbcb3beaf46ba9a63964ece5a",
-      "name": "support-cases-stdio-demo-key",
-      "scopes": [
-        "artifacts:read",
-        "responses:create",
-        "responses:read"
-      ],
-      "status": "active",
-      "allowed_agents": [
-        "support-cases-stdio-demo"
-      ],
-      "metadata": {
-        "source": "support-demo-real-test"
-      },
-      "last_used": null,
-      "expires_at": null,
-      "revoked_at": null,
-      "created_at": "2026-04-16T17:51:20.753667203Z"
-    },
     {
       "id": "4fba11c0-44df-469a-a62f-5a7341a41faf",
       "user_id": "57e4667d-77e7-43f0-af38-6bb673079f35",

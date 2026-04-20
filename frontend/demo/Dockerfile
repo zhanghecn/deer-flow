@@ -1,8 +1,3 @@
-# Standalone customer-support demo container.
-#
-# This image intentionally stays separate from the main app image so real-user
-# SDK testing can run on :8084 without being coupled to the workspace/frontend
-# deploy path.
 FROM node:22-alpine
 
 ARG PNPM_STORE_PATH=/root/.local/share/pnpm/store
@@ -12,23 +7,10 @@ RUN pnpm config set store-dir ${PNPM_STORE_PATH}
 
 WORKDIR /app
 
-# Install only the demo package dependencies first so rebuilds reuse the layer
-# while the shared app source continues to be copied in the next step.
 COPY frontend/demo/package.json frontend/demo/pnpm-lock.yaml /app/frontend/demo/
 RUN /bin/sh -lc "cd /app/frontend/demo && pnpm install --frozen-lockfile"
 
-# The demo resolves shared runtime helpers through ../app/src aliases, so both
-# trees must exist inside the container for the dev server and screenshots to
-# reflect the real native HTTP integration path.
 COPY frontend/demo /app/frontend/demo
-COPY frontend/app/src /app/frontend/app/src
-
-# The standalone demo intentionally reuses slices of `frontend/app/src`.
-# Node resolution for files under `/app/frontend/app/src` walks upward through
-# its own parent directories, not `/app/frontend/demo`, so provide that borrowed
-# tree a stable module path instead of duplicating extra installs.
-RUN mkdir -p /app/frontend/app \
- && ln -s /app/frontend/demo/node_modules /app/frontend/app/node_modules
 
 WORKDIR /app/frontend/demo
 

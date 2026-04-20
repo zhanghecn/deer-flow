@@ -10,7 +10,6 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      "@": path.resolve(rootDir, "../app/src"),
       "@demo": path.resolve(rootDir, "./src"),
     },
     dedupe: ["react", "react-dom"],

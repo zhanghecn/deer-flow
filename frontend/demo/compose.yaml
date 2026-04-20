@@ -1,0 +1,51 @@
+name: openagents-mcp-workbench
+
+services:
+  mcp-file-service:
+    build:
+      context: ../..
+      dockerfile: frontend/demo/mcp-file-service/Dockerfile
+    environment:
+      MCP_WORKBENCH_HOST: 0.0.0.0
+      MCP_WORKBENCH_PORT: 8090
+      MCP_WORKBENCH_PUBLIC_BASE_URL: http://127.0.0.1:8084
+      MCP_WORKBENCH_DATA_DIR: /data/files
+      MCP_WORKBENCH_ALLOWED_ORIGINS: http://127.0.0.1:8084,http://localhost:8084
+    volumes:
+      - mcp_workbench_data:/data
+    restart: unless-stopped
+    networks:
+      - openagents
+
+  mcp-workbench-ui:
+    build:
+      context: ../..
+      dockerfile: frontend/demo/Dockerfile
+    env_file:
+      - ./.env.local
+    environment:
+      VITE_DEMO_WORKBENCH_BASE_URL: http://127.0.0.1:8084
+    restart: unless-stopped
+    networks:
+      - openagents
+
+  mcp-workbench-gateway:
+    image: nginx:1.27-alpine
+    depends_on:
+      - mcp-file-service
+      - mcp-workbench-ui
+    ports:
+      - "8084:8084"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: unless-stopped
+    networks:
+      - openagents
+
+volumes:
+  mcp_workbench_data:
+
+networks:
+  openagents:
+    external: true
+    name: openagents-prod_openagents

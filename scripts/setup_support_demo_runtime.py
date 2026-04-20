@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""Recreate the customer-support demo fixtures against a running OpenAgents stack.
+"""Recreate the support demo workbench setup against a running OpenAgents stack.
 
 This script turns the checked-in support-demo summary into reproducible API
 calls instead of depending on ignored local state. It:
 
-- stages the external customer cases into `.openagents/runtime/customer-cases`
 - logs into or registers the demo user
-- upserts the stdio + HTTP MCP profiles
-- upserts and publishes the support agents
-- creates or reuses scoped public API keys
+- upserts the standalone demo HTTP MCP profile
+- upserts and publishes the support agent
+- creates or reuses a scoped public API key
 - writes `frontend/demo/.env.local`
 - writes a fresh runtime summary for browser/e2e verification
 """
@@ -17,7 +16,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,13 +28,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BASE_URL = "http://127.0.0.1:8083"
 DEFAULT_SUMMARY = REPO_ROOT / "docs/testing/results/2026-04-17-support-sdk-demo-runtime/setup-summary.json"
 DEFAULT_RUNTIME_SUMMARY = REPO_ROOT / "docs/testing/results/2026-04-17-support-sdk-demo-runtime/setup-summary.runtime.json"
-DEFAULT_CASES_SOURCE = Path(
-    os.getenv(
-        "OPENAGENTS_SUPPORT_CASES_SOURCE",
-        "/root/project/ai/ai-numerology/backend/agents/examples/案例大全",
-    )
-)
-DEFAULT_CASES_TARGET = REPO_ROOT / ".openagents/runtime/customer-cases"
 DEFAULT_DEMO_ENV = REPO_ROOT / "frontend/demo/.env.local"
 
 
@@ -88,13 +79,6 @@ def request_json(
             parsed = {}
         detail = parsed.get("details") or parsed.get("error") or payload or exc.reason
         raise APIError(f"{method} {path} failed: {detail}") from exc
-
-
-def stage_cases(source: Path, target: Path) -> None:
-    if not source.is_dir():
-        raise FileNotFoundError(f"customer cases source was not found: {source}")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(source, target, dirs_exist_ok=True)
 
 
 def login_or_register(base_url: str, summary: dict[str, Any]) -> AuthContext:
@@ -212,10 +196,9 @@ def write_demo_env(
     path: Path,
     *,
     base_url: str,
-    stdio_agent: str,
     http_agent: str,
-    stdio_token: str,
     http_token: str,
+    workbench_base_url: str,
 ) -> None:
     ensure_parent(path)
     content = "\n".join(
@@ -223,10 +206,9 @@ def write_demo_env(
             f"VITE_DEMO_PUBLIC_API_BASE_URL={base_url.rstrip('/')}/v1",
             f"VITE_DEMO_PUBLIC_API_KEY={http_token}",
             f"VITE_DEMO_DEFAULT_AGENT_NAME={http_agent}",
-            f"VITE_DEMO_STDIO_AGENT_NAME={stdio_agent}",
-            f"VITE_DEMO_STDIO_API_KEY={stdio_token}",
             f"VITE_DEMO_HTTP_AGENT_NAME={http_agent}",
             f"VITE_DEMO_HTTP_API_KEY={http_token}",
+            f"VITE_DEMO_WORKBENCH_BASE_URL={workbench_base_url}",
             "",
         ]
     )
@@ -241,8 +223,6 @@ def main() -> int:
     desired = read_json(summary_path)
     auth = login_or_register(base_url, desired)
 
-    stage_cases(DEFAULT_CASES_SOURCE, DEFAULT_CASES_TARGET)
-
     profiles = [upsert_profile(base_url, auth, profile) for profile in desired.get("profiles", [])]
     agents = []
     for desired_agent in desired.get("agents", []):
@@ -256,15 +236,13 @@ def main() -> int:
         for agent_name in token.get("allowed_agents", [])
     }
 
-    stdio_agent = next(agent["name"] for agent in agents if agent["name"].endswith("stdio-demo"))
     http_agent = next(agent["name"] for agent in agents if agent["name"].endswith("http-demo"))
     write_demo_env(
         DEFAULT_DEMO_ENV,
         base_url=base_url,
-        stdio_agent=stdio_agent,
         http_agent=http_agent,
-        stdio_token=token_by_agent[stdio_agent]["token"],
         http_token=token_by_agent[http_agent]["token"],
+        workbench_base_url="http://127.0.0.1:8084",
     )
 
     runtime_summary = {
@@ -273,8 +251,6 @@ def main() -> int:
         "profiles": profiles,
         "agents": agents,
         "tokens": tokens,
-        "cases_source": str(DEFAULT_CASES_SOURCE),
-        "cases_target": str(DEFAULT_CASES_TARGET),
         "demo_env": str(DEFAULT_DEMO_ENV),
     }
     ensure_parent(runtime_summary_path)
