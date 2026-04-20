@@ -2,12 +2,14 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/openagents/gateway/internal/middleware"
 	"github.com/openagents/gateway/internal/model"
 	"github.com/openagents/gateway/pkg/storage"
@@ -32,8 +34,36 @@ func normalizeMemoryAgentStatus(raw string) (string, bool) {
 	return status, true
 }
 
+func resolveMemoryUserID(c *gin.Context) (string, error) {
+	currentUserID := middleware.GetUserID(c)
+	if currentUserID == uuid.Nil {
+		return "", fmt.Errorf("unauthorized")
+	}
+	if !middleware.IsAdmin(c) {
+		return currentUserID.String(), nil
+	}
+
+	targetUserID := strings.TrimSpace(c.Query("user_id"))
+	if targetUserID == "" {
+		return currentUserID.String(), nil
+	}
+	parsedTargetUserID, err := uuid.Parse(targetUserID)
+	if err != nil {
+		return "", fmt.Errorf("invalid user_id")
+	}
+	return parsedTargetUserID.String(), nil
+}
+
 func (h *MemoryHandler) Get(c *gin.Context) {
-	userID := middleware.GetUserID(c)
+	userID, err := resolveMemoryUserID(c)
+	if err != nil {
+		statusCode := http.StatusUnauthorized
+		if err.Error() == "invalid user_id" {
+			statusCode = http.StatusBadRequest
+		}
+		c.JSON(statusCode, model.ErrorResponse{Error: err.Error()})
+		return
+	}
 	agentName := strings.TrimSpace(c.Query("agent_name"))
 	if agentName == "" {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "missing agent_name"})
@@ -44,7 +74,7 @@ func (h *MemoryHandler) Get(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "invalid agent_status"})
 		return
 	}
-	memPath := filepath.Join(h.fs.UserDir(userID.String()), "agents", agentStatus, agentName, "memory.json")
+	memPath := filepath.Join(h.fs.UserDir(userID), "agents", agentStatus, agentName, "memory.json")
 
 	data, err := os.ReadFile(memPath)
 	if err != nil {
@@ -65,7 +95,15 @@ func (h *MemoryHandler) Get(c *gin.Context) {
 }
 
 func (h *MemoryHandler) Update(c *gin.Context) {
-	userID := middleware.GetUserID(c)
+	userID, err := resolveMemoryUserID(c)
+	if err != nil {
+		statusCode := http.StatusUnauthorized
+		if err.Error() == "invalid user_id" {
+			statusCode = http.StatusBadRequest
+		}
+		c.JSON(statusCode, model.ErrorResponse{Error: err.Error()})
+		return
+	}
 	agentName := strings.TrimSpace(c.Query("agent_name"))
 	if agentName == "" {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "missing agent_name"})
@@ -89,7 +127,7 @@ func (h *MemoryHandler) Update(c *gin.Context) {
 		return
 	}
 
-	dir := filepath.Join(h.fs.UserDir(userID.String()), "agents", agentStatus, agentName)
+	dir := filepath.Join(h.fs.UserDir(userID), "agents", agentStatus, agentName)
 	_ = os.MkdirAll(dir, 0755)
 	memPath := filepath.Join(dir, "memory.json")
 

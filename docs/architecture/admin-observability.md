@@ -112,6 +112,11 @@ Thread metadata itself is sourced from LangGraph `threads` storage/APIs, not fro
 - Require JWT + `role=admin`
 - Non-admin users are blocked at middleware
 - Bootstrap rule: first registered account is automatically assigned `admin`
+- Admin operators can manage per-user public API keys through
+  `/api/admin/users/:user_id/tokens`
+- Admin thread inspection reuses the thread owner's persisted binding when
+  opening runtime workspace or design board sessions, so debug reads land in
+  the real tenant-scoped runtime instead of the admin operator's own context
 
 ## Current UI Tabs
 
@@ -122,6 +127,8 @@ Thread metadata itself is sourced from LangGraph `threads` storage/APIs, not fro
 - Run detail panels prioritize readable blocks (messages, tool cards, request config, outputs)
   and keep raw JSON in collapsed advanced inspectors
 - `Checkpoint / Threads`: checkpoint table status + runtime thread list
+- Thread-level debug flows may escalate from trace review into runtime workspace
+  or design-board inspection while still honoring the original thread owner
 - `管理账号`: grant/revoke admin role
 
 ## Context Window Semantics

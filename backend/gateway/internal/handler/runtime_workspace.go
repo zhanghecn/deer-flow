@@ -28,6 +28,10 @@ type runtimeWorkspaceRepository interface {
 		userID uuid.UUID,
 		threadID string,
 	) (*repository.ThreadRuntimeRecord, error)
+	GetOwnerByThreadID(
+		ctx context.Context,
+		threadID string,
+	) (uuid.UUID, error)
 }
 
 type RuntimeWorkspaceHandler struct {
@@ -92,7 +96,17 @@ func (h *RuntimeWorkspaceHandler) Open(c *gin.Context) {
 		return
 	}
 
-	runtimeRecord, err := h.repo.GetRuntimeByUser(c.Request.Context(), userID, threadID)
+	effectiveUserID, err := resolveEffectiveThreadUserID(c.Request.Context(), c, h.repo, threadID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "thread not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to resolve thread owner"})
+		return
+	}
+
+	runtimeRecord, err := h.repo.GetRuntimeByUser(c.Request.Context(), effectiveUserID, threadID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "thread not found"})
@@ -114,7 +128,7 @@ func (h *RuntimeWorkspaceHandler) Open(c *gin.Context) {
 		payload.TargetPath = &targetPath
 	}
 
-	response, statusCode, err := h.openRuntimeWorkspace(c.Request.Context(), userID, payload)
+	response, statusCode, err := h.openRuntimeWorkspace(c.Request.Context(), effectiveUserID, payload)
 	if err != nil {
 		c.JSON(statusCode, model.ErrorResponse{Error: err.Error()})
 		return

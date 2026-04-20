@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -11,18 +13,18 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/openagents/gateway/internal/agentfs"
 	"github.com/openagents/gateway/internal/middleware"
 	"github.com/openagents/gateway/internal/model"
-	"github.com/openagents/gateway/internal/repository"
 	"github.com/openagents/gateway/pkg/jwt"
 	"github.com/openagents/gateway/pkg/storage"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type AuthHandler struct {
-	userRepo  *repository.UserRepo
-	tokenRepo *repository.APITokenRepo
+	userRepo  authUserRepository
+	tokenRepo authTokenRepository
 	jwtMgr    *jwt.Manager
 	// tokenCipher protects the owner-visible copy of API keys that powers the
 	// management UI. Hashes remain the canonical auth check.
@@ -30,11 +32,31 @@ type AuthHandler struct {
 	fs          *storage.FS
 }
 
+type authUserRepository interface {
+	FindByEmail(ctx context.Context, email string) (*model.User, error)
+	FindByName(ctx context.Context, name string) (*model.User, error)
+	FindByID(ctx context.Context, userID uuid.UUID) (*model.User, error)
+	Count(ctx context.Context) (int64, error)
+	Create(ctx context.Context, user *model.User) error
+}
+
+type authTokenRepository interface {
+	Create(ctx context.Context, token *model.APIToken) error
+	ListByUser(ctx context.Context, userID uuid.UUID) ([]model.APIToken, error)
+	Revoke(ctx context.Context, id uuid.UUID, userID uuid.UUID) error
+}
+
 const authCookieMaxAgeSeconds = 7 * 24 * 60 * 60
 
+var (
+	errManagedTokenUnauthorized = errors.New("unauthorized")
+	errInvalidManagedTokenUser  = errors.New("invalid user id")
+	errLoadManagedTokenUser     = errors.New("failed to load user")
+)
+
 func NewAuthHandler(
-	userRepo *repository.UserRepo,
-	tokenRepo *repository.APITokenRepo,
+	userRepo authUserRepository,
+	tokenRepo authTokenRepository,
 	jwtMgr *jwt.Manager,
 	tokenCipher *APITokenCipher,
 	fs *storage.FS,
@@ -142,13 +164,60 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	c.JSON(http.StatusOK, model.AuthResponse{Token: token, User: *user})
 }
 
-func (h *AuthHandler) ListTokens(c *gin.Context) {
+func (h *AuthHandler) resolveManagedTokenUserID(c *gin.Context) (uuid.UUID, error) {
+	userID := middleware.GetUserID(c)
+	if userID == uuid.Nil {
+		return uuid.Nil, errManagedTokenUnauthorized
+	}
+	if !middleware.IsAdmin(c) {
+		return userID, nil
+	}
+
+	targetUserIDText := strings.TrimSpace(c.Param("user_id"))
+	if targetUserIDText == "" {
+		targetUserIDText = strings.TrimSpace(c.Param("id"))
+	}
+	if targetUserIDText == "" {
+		return userID, nil
+	}
+
+	targetUserID, err := uuid.Parse(targetUserIDText)
+	if err != nil {
+		return uuid.Nil, errInvalidManagedTokenUser
+	}
+
+	// Admin-managed keys still belong to a real persisted user row so audit and
+	// revoke paths stay on the same single-source-of-truth tables as self-serve keys.
+	targetUser, err := h.userRepo.FindByID(c.Request.Context(), targetUserID)
+	if err != nil {
+		return uuid.Nil, errLoadManagedTokenUser
+	}
+	if targetUser == nil {
+		return uuid.Nil, pgx.ErrNoRows
+	}
+
+	return targetUserID, nil
+}
+
+func writeManagedTokenUserError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "user not found"})
+	case errors.Is(err, errInvalidManagedTokenUser):
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
+	case errors.Is(err, errLoadManagedTokenUser):
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
+	default:
+		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: err.Error()})
+	}
+}
+
+func (h *AuthHandler) listTokensForUser(c *gin.Context, userID uuid.UUID) {
 	if h.tokenCipher == nil {
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "api token cipher is not configured"})
 		return
 	}
 
-	userID := middleware.GetUserID(c)
 	tokens, err := h.tokenRepo.ListByUser(c.Request.Context(), userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to list tokens"})
@@ -174,7 +243,16 @@ func (h *AuthHandler) ListTokens(c *gin.Context) {
 	c.JSON(http.StatusOK, tokens)
 }
 
-func (h *AuthHandler) CreateToken(c *gin.Context) {
+func (h *AuthHandler) ListTokens(c *gin.Context) {
+	userID, err := h.resolveManagedTokenUserID(c)
+	if err != nil {
+		writeManagedTokenUserError(c, err)
+		return
+	}
+	h.listTokensForUser(c, userID)
+}
+
+func (h *AuthHandler) createTokenForUser(c *gin.Context, userID uuid.UUID) {
 	if h.tokenCipher == nil {
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "api token cipher is not configured"})
 		return
@@ -186,7 +264,6 @@ func (h *AuthHandler) CreateToken(c *gin.Context) {
 		return
 	}
 
-	userID := middleware.GetUserID(c)
 	metadata, err := model.ValidateAPITokenMetadata(req.Metadata)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
@@ -235,6 +312,15 @@ func (h *AuthHandler) CreateToken(c *gin.Context) {
 	c.JSON(http.StatusCreated, apiToken)
 }
 
+func (h *AuthHandler) CreateToken(c *gin.Context) {
+	userID, err := h.resolveManagedTokenUserID(c)
+	if err != nil {
+		writeManagedTokenUserError(c, err)
+		return
+	}
+	h.createTokenForUser(c, userID)
+}
+
 func (h *AuthHandler) validateOwnedPublishedTokenAgents(
 	userID uuid.UUID,
 	requestedAgents []string,
@@ -264,14 +350,23 @@ func (h *AuthHandler) validateOwnedPublishedTokenAgents(
 }
 
 func (h *AuthHandler) DeleteToken(c *gin.Context) {
-	idStr := c.Param("id")
+	// Admin routes use `/users/:id/tokens/:token_id`, so prefer the explicit
+	// token parameter instead of accidentally parsing the managed user ID.
+	idStr := c.Param("token_id")
+	if idStr == "" {
+		idStr = c.Param("id")
+	}
 	id, err := uuid.Parse(idStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "invalid token id"})
 		return
 	}
 
-	userID := middleware.GetUserID(c)
+	userID, err := h.resolveManagedTokenUserID(c)
+	if err != nil {
+		writeManagedTokenUserError(c, err)
+		return
+	}
 	// Keep token rows for audit and invocation joins even though the northbound
 	// UI presents this action as deletion to the end user.
 	if err := h.tokenRepo.Revoke(c.Request.Context(), id, userID); err != nil {

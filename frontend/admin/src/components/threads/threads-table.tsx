@@ -1,5 +1,6 @@
-import { MessagesSquare } from "lucide-react";
+import { ExternalLink, MessagesSquare } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -9,9 +10,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { t } from "@/i18n";
+import { api } from "@/lib/api";
 import { formatAgo } from "@/lib/format";
 import type { RuntimeThread } from "@/types";
+import { toast } from "sonner";
 
 interface ThreadsTableProps {
   threads: RuntimeThread[] | null;
@@ -19,6 +27,19 @@ interface ThreadsTableProps {
 }
 
 export function ThreadsTable({ threads, isLoading }: ThreadsTableProps) {
+  async function handleOpenRuntime(threadID: string) {
+    try {
+      const session = await api<{ relative_url: string }>(
+        `/api/threads/${threadID}/runtime-workspace/open`,
+        { method: "POST" },
+      );
+      const url = new URL(session.relative_url, window.location.origin);
+      window.open(url.toString(), "_blank", "noopener,noreferrer");
+    } catch {
+      toast.error(t("Failed to open runtime workspace"));
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="space-y-2">
@@ -50,6 +71,7 @@ export function ThreadsTable({ threads, isLoading }: ThreadsTableProps) {
             <TableHead>{t("Assistant")}</TableHead>
             <TableHead>{t("Created")}</TableHead>
             <TableHead>{t("Updated")}</TableHead>
+            <TableHead className="text-right">{t("Actions")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -79,6 +101,20 @@ export function ThreadsTable({ threads, isLoading }: ThreadsTableProps) {
               </TableCell>
               <TableCell className="text-muted-foreground">
                 {formatAgo(thread.updated_at)}
+              </TableCell>
+              <TableCell className="text-right">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => void handleOpenRuntime(thread.thread_id)}
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t("Open runtime workspace")}</TooltipContent>
+                </Tooltip>
               </TableCell>
             </TableRow>
           ))}

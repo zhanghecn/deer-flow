@@ -17,8 +17,10 @@ import (
 )
 
 type fakeRuntimeWorkspaceRepo struct {
-	record *repository.ThreadRuntimeRecord
-	err    error
+	record   *repository.ThreadRuntimeRecord
+	err      error
+	ownerID  uuid.UUID
+	ownerErr error
 }
 
 func (f *fakeRuntimeWorkspaceRepo) GetRuntimeByUser(
@@ -30,6 +32,16 @@ func (f *fakeRuntimeWorkspaceRepo) GetRuntimeByUser(
 		return nil, f.err
 	}
 	return f.record, nil
+}
+
+func (f *fakeRuntimeWorkspaceRepo) GetOwnerByThreadID(
+	_ context.Context,
+	_ string,
+) (uuid.UUID, error) {
+	if f.ownerErr != nil {
+		return uuid.Nil, f.ownerErr
+	}
+	return f.ownerID, nil
 }
 
 func TestRuntimeWorkspaceOpenReturnsSandboxSessionDescriptor(t *testing.T) {
@@ -127,6 +139,56 @@ func TestRuntimeWorkspaceOpenRejectsRemoteRuntime(t *testing.T) {
 
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("expected status 409, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRuntimeWorkspaceOpenUsesThreadOwnerForAdminInspection(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	ownerID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	langGraph := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get(headerUserID); got != ownerID.String() {
+			t.Fatalf("expected owner x-user-id header, got %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"session_id":       "sess-admin",
+			"access_token":     "token-admin",
+			"mode":             "runtime",
+			"target_path":      "/mnt/user-data/workspace",
+			"relative_url":     "/sandbox-ide/sess-admin/token-admin/?folder=%2Fmnt%2Fuser-data%2Fworkspace",
+			"public_base_path": "/sandbox-ide/sess-admin/token-admin",
+			"expires_at":       "2026-04-06T00:00:00Z",
+		})
+	}))
+	t.Cleanup(langGraph.Close)
+
+	handler := NewRuntimeWorkspaceHandler(
+		&fakeRuntimeWorkspaceRepo{
+			record: &repository.ThreadRuntimeRecord{
+				ThreadID:    "thread-admin",
+				AgentStatus: "dev",
+			},
+			ownerID: ownerID,
+		},
+		langGraph.URL,
+	)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware.UserIDKey), uuid.MustParse("11111111-1111-1111-1111-111111111111"))
+		c.Set(string(middleware.RoleKey), "admin")
+		c.Next()
+	})
+	router.POST("/api/threads/:id/runtime-workspace/open", handler.Open)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/threads/thread-admin/runtime-workspace/open", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

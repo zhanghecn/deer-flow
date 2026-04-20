@@ -23,6 +23,8 @@ type fakeThreadRepo struct {
 	items            []repository.ThreadSearchRecord
 	runtimeRecord    *repository.ThreadRuntimeRecord
 	runtimeErr       error
+	ownerID          uuid.UUID
+	ownerErr         error
 	err              error
 	threadIDs        []string
 	deleteErr        error
@@ -54,6 +56,16 @@ func (f *fakeThreadRepo) GetRuntimeByUser(
 		return nil, f.runtimeErr
 	}
 	return f.runtimeRecord, nil
+}
+
+func (f *fakeThreadRepo) GetOwnerByThreadID(
+	_ context.Context,
+	_ string,
+) (uuid.UUID, error) {
+	if f.ownerErr != nil {
+		return uuid.Nil, f.ownerErr
+	}
+	return f.ownerID, nil
 }
 
 func (f *fakeThreadRepo) UpdateTitle(

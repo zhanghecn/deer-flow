@@ -24,8 +24,10 @@ import (
 )
 
 type stubDesignBoardRepo struct {
-	record *repository.ThreadRuntimeRecord
-	err    error
+	record   *repository.ThreadRuntimeRecord
+	err      error
+	ownerID  uuid.UUID
+	ownerErr error
 }
 
 func (s *stubDesignBoardRepo) GetRuntimeByUser(
@@ -40,6 +42,16 @@ func (s *stubDesignBoardRepo) GetRuntimeByUser(
 		return nil, nil
 	}
 	return s.record, nil
+}
+
+func (s *stubDesignBoardRepo) GetOwnerByThreadID(
+	_ context.Context,
+	_ string,
+) (uuid.UUID, error) {
+	if s.ownerErr != nil {
+		return uuid.Nil, s.ownerErr
+	}
+	return s.ownerID, nil
 }
 
 func newDesignAuthedContext(
@@ -269,6 +281,56 @@ func TestDesignBoardDocumentRoundTripAndRevisionConflict(t *testing.T) {
 	router.ServeHTTP(conflictRecorder, conflictRequest)
 	if conflictRecorder.Code != http.StatusConflict {
 		t.Fatalf("conflict status = %d body=%s", conflictRecorder.Code, conflictRecorder.Body.String())
+	}
+}
+
+func TestDesignBoardOpenUsesThreadOwnerForAdminInspection(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	fsStore := storage.NewFS(t.TempDir())
+	adminID := uuid.New()
+	ownerID := uuid.New()
+	threadID := "thread-design-admin"
+
+	handler := NewDesignBoardHandler(
+		&stubDesignBoardRepo{
+			record:  &repository.ThreadRuntimeRecord{ThreadID: threadID},
+			ownerID: ownerID,
+		},
+		service.NewDesignBoardService(fsStore),
+		"design-secret",
+		"",
+	)
+
+	context, recorder := newDesignAuthedContext(
+		http.MethodPost,
+		"/api/threads/"+threadID+"/design-board/open",
+		"",
+		adminID,
+	)
+	context.Params = gin.Params{{Key: "id", Value: threadID}}
+	context.Set(string(middleware.RoleKey), "admin")
+
+	handler.Open(context)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var payload struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	claims, err := handler.parseSessionToken(payload.AccessToken)
+	if err != nil {
+		t.Fatalf("parse session token: %v", err)
+	}
+	if claims.UserID != ownerID.String() {
+		t.Fatalf("session token user id = %q, want %q", claims.UserID, ownerID.String())
 	}
 }
 

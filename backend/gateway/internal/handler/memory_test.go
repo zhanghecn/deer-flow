@@ -65,3 +65,70 @@ func TestMemoryHandlerReadsUserAgentPath(t *testing.T) {
 		t.Fatalf("expected status 200, got %d, body=%s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestMemoryHandlerAdminCanReadAnotherUsersMemory(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	baseDir := t.TempDir()
+	fs := storage.NewFS(baseDir)
+	h := NewMemoryHandler(fs)
+
+	targetUserID := "22222222-2222-2222-2222-222222222222"
+	memDir := fs.UserDir(targetUserID) + "/agents/dev/reviewer"
+	if err := os.MkdirAll(memDir, 0o755); err != nil {
+		t.Fatalf("mkdir memory dir: %v", err)
+	}
+	if err := os.WriteFile(memDir+"/memory.json", []byte(`{"facts":["support-debug"]}`), 0o644); err != nil {
+		t.Fatalf("write memory file: %v", err)
+	}
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware.UserIDKey), uuid.MustParse("11111111-1111-1111-1111-111111111111"))
+		c.Set(string(middleware.RoleKey), "admin")
+		c.Next()
+	})
+	router.GET("/api/memory", h.Get)
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/memory?agent_name=reviewer&agent_status=dev&user_id="+targetUserID,
+		nil,
+	)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if body := rec.Body.String(); body == "" || body == "{}" {
+		t.Fatalf("expected target user memory payload, got %q", body)
+	}
+}
+
+func TestMemoryHandlerRejectsInvalidAdminUserID(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	h := NewMemoryHandler(storage.NewFS(t.TempDir()))
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware.UserIDKey), uuid.MustParse("11111111-1111-1111-1111-111111111111"))
+		c.Set(string(middleware.RoleKey), "admin")
+		c.Next()
+	})
+	router.GET("/api/memory", h.Get)
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/memory?agent_name=reviewer&user_id=../../escape",
+		nil,
+	)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}

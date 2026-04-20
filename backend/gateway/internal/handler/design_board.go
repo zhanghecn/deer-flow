@@ -31,6 +31,10 @@ type designBoardRepository interface {
 		userID uuid.UUID,
 		threadID string,
 	) (*repository.ThreadRuntimeRecord, error)
+	GetOwnerByThreadID(
+		ctx context.Context,
+		threadID string,
+	) (uuid.UUID, error)
 }
 
 type DesignBoardHandler struct {
@@ -96,7 +100,17 @@ func (h *DesignBoardHandler) Open(c *gin.Context) {
 		return
 	}
 
-	if _, err := h.repo.GetRuntimeByUser(c.Request.Context(), userID, threadID); err != nil {
+	effectiveUserID, err := resolveEffectiveThreadUserID(c.Request.Context(), c, h.repo, threadID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "thread not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to resolve thread owner"})
+		return
+	}
+
+	if _, err := h.repo.GetRuntimeByUser(c.Request.Context(), effectiveUserID, threadID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "thread not found"})
 			return
@@ -119,7 +133,7 @@ func (h *DesignBoardHandler) Open(c *gin.Context) {
 	// broadcast tuples without needing a separate persisted counter in v1.
 	sessionGeneration := now.UnixNano()
 	token, err := h.issueSessionToken(
-		userID,
+		effectiveUserID,
 		threadID,
 		sessionID,
 		sessionGeneration,

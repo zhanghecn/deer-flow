@@ -38,6 +38,10 @@ type threadSearchRepository interface {
 		userID uuid.UUID,
 		threadID string,
 	) (*repository.ThreadRuntimeRecord, error)
+	GetOwnerByThreadID(
+		ctx context.Context,
+		threadID string,
+	) (uuid.UUID, error)
 	UpdateTitle(
 		ctx context.Context,
 		userID uuid.UUID,
@@ -239,7 +243,17 @@ func (h *ThreadsHandler) GetRuntime(c *gin.Context) {
 		return
 	}
 
-	record, err := h.repo.GetRuntimeByUser(c.Request.Context(), userID, threadID)
+	effectiveUserID, err := resolveEffectiveThreadUserID(c.Request.Context(), c, h.repo, threadID)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "thread not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to resolve thread owner"})
+		return
+	}
+
+	record, err := h.repo.GetRuntimeByUser(c.Request.Context(), effectiveUserID, threadID)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "thread not found"})

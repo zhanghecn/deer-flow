@@ -37,7 +37,7 @@ func canManageAgent(c *gin.Context, agent *model.Agent) bool {
 	if agent == nil {
 		return false
 	}
-	if middleware.GetRole(c) == "admin" {
+	if middleware.IsAdmin(c) {
 		return true
 	}
 

@@ -16,6 +16,19 @@ export interface AdminUser {
   updated_at: string;
 }
 
+export interface AdminAPIToken {
+  id: string;
+  user_id: string;
+  token?: string;
+  name: string;
+  scopes: string[];
+  status: string;
+  allowed_agents: string[];
+  last_used?: string | null;
+  revoked_at?: string | null;
+  created_at: string;
+}
+
 export interface TraceItem {
   trace_id: string;
   root_run_id: string;

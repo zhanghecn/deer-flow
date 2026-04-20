@@ -237,7 +237,7 @@ func (h *AuthoringWorkspaceHandler) ensureThreadAccess(c *gin.Context, threadID 
 			ownerID, ownerErr := h.threadRepo.GetOwnerByThreadID(c.Request.Context(), normalizedThreadID)
 			switch ownerErr {
 			case nil:
-				if ownerID != userID {
+				if ownerID != userID && !middleware.IsAdmin(c) {
 					c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "thread not found"})
 					return false
 				}
