@@ -101,7 +101,7 @@ func APITokenAllowsAgent(c *gin.Context, agentName string) bool {
 // JWTAuth middleware validates JWT tokens from Authorization header.
 func JWTAuth(jwtMgr *jwt.Manager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		token := extractBearerToken(c.Request)
+		token := ExtractBearerToken(c.Request)
 		if token == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing authorization token"})
 			return
@@ -122,7 +122,7 @@ func JWTAuth(jwtMgr *jwt.Manager) gin.HandlerFunc {
 // APITokenAuth middleware validates API tokens (for open API endpoints).
 func APITokenAuth(tokenRepo *repository.APITokenRepo) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		token := extractBearerToken(c.Request)
+		token := ExtractBearerToken(c.Request)
 		if token == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing api token"})
 			return
@@ -175,7 +175,10 @@ func RequireAPITokenScopes(required ...string) gin.HandlerFunc {
 	}
 }
 
-func extractBearerToken(r *http.Request) string {
+// ExtractBearerToken preserves one auth contract for both browser and API
+// callers: prefer the explicit Authorization header, then fall back to the
+// browser session cookie when the request is initiated by the UI.
+func ExtractBearerToken(r *http.Request) string {
 	auth := strings.TrimSpace(r.Header.Get("Authorization"))
 	if strings.HasPrefix(auth, "Bearer ") {
 		token := strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))

@@ -92,7 +92,11 @@ function PageSuspense({ children }: { children: React.ReactNode }) {
 }
 
 function RootEntryRoute() {
-  const { authenticated } = useAuth();
+  const { authenticated, ready } = useAuth();
+
+  if (!ready) {
+    return null;
+  }
 
   return <Navigate to={authenticated ? "/workspace" : "/login"} replace />;
 }

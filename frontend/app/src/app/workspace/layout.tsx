@@ -13,10 +13,9 @@ const queryClient = new QueryClient();
 
 export default function WorkspaceLayout() {
   const navigate = useNavigate();
-  const { authenticated } = useAuth();
+  const { authenticated, ready } = useAuth();
   const [settings, setSettings] = useLocalSettings();
   const [open, setOpen] = useState(false); // SSR default: open (matches server render)
-  const [authChecked, setAuthChecked] = useState(false);
 
   useLayoutEffect(() => {
     // Runs synchronously before first paint on the client — no visual flash
@@ -28,15 +27,11 @@ export default function WorkspaceLayout() {
   }, [settings.layout.sidebar_collapsed]);
 
   useEffect(() => {
-    setAuthChecked(true);
-  }, []);
-
-  useEffect(() => {
-    if (!authChecked || authenticated) {
+    if (!ready || authenticated) {
       return;
     }
     void navigate("/login", { replace: true });
-  }, [authChecked, authenticated, navigate]);
+  }, [authenticated, navigate, ready]);
 
   const handleOpenChange = useCallback(
     (open: boolean) => {
@@ -56,7 +51,7 @@ export default function WorkspaceLayout() {
         >
           <WorkspaceSidebar />
           <SidebarInset className="min-w-0">
-            {authenticated || !authChecked ? <Outlet /> : null}
+            {ready && authenticated ? <Outlet /> : null}
           </SidebarInset>
         </SidebarProvider>
       </WorkspaceSurfaceProvider>

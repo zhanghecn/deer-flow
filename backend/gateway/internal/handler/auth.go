@@ -164,6 +164,35 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	c.JSON(http.StatusOK, model.AuthResponse{Token: token, User: *user})
 }
 
+func (h *AuthHandler) GetSession(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	if userID == uuid.Nil {
+		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "unauthorized"})
+		return
+	}
+
+	user, err := h.userRepo.FindByID(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to load user"})
+		return
+	}
+	if user == nil {
+		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "user not found"})
+		return
+	}
+
+	token := middleware.ExtractBearerToken(c.Request)
+	if token == "" {
+		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "missing authorization token"})
+		return
+	}
+
+	// Refresh the browser session cookie so auth restoration and manual page
+	// refreshes keep following the same single session lifetime contract.
+	setAuthCookie(c, token)
+	c.JSON(http.StatusOK, model.AuthResponse{Token: token, User: *user})
+}
+
 func (h *AuthHandler) resolveManagedTokenUserID(c *gin.Context) (uuid.UUID, error) {
 	userID := middleware.GetUserID(c)
 	if userID == uuid.Nil {

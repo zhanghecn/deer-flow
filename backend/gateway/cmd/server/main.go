@@ -220,6 +220,7 @@ func main() {
 	api.Use(middleware.JWTAuth(jwtMgr))
 	{
 		// Token management
+		api.GET("/auth/session", authH.GetSession)
 		api.GET("/auth/tokens", authH.ListTokens)
 		api.POST("/auth/tokens", authH.CreateToken)
 		api.DELETE("/auth/tokens/:id", authH.DeleteToken)

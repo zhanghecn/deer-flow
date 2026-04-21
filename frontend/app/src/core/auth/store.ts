@@ -11,6 +11,10 @@ interface AuthState {
   user: AuthUser | null;
 }
 
+interface AuthSnapshot extends AuthState {
+  ready: boolean;
+}
+
 const AUTH_STORAGE_KEY = "openagents-auth";
 
 function loadState(): AuthState {
@@ -36,7 +40,25 @@ function saveState(state: AuthState) {
 }
 
 let _state = loadState();
+// Browser auth is dual-sourced during bootstrap: the UI may have no local
+// token yet even though the HttpOnly session cookie is still valid.
+let _ready = _state.token !== null && _state.user !== null;
+let _snapshot: AuthSnapshot = {
+  token: _state.token,
+  user: _state.user,
+  ready: _ready,
+};
 const _listeners = new Set<() => void>();
+
+function refreshSnapshot() {
+  // useSyncExternalStore expects referential stability when the store has not
+  // changed; rebuilding only on writes prevents infinite re-render loops.
+  _snapshot = {
+    token: _state.token,
+    user: _state.user,
+    ready: _ready,
+  };
+}
 
 function notify() {
   for (const fn of _listeners) fn();
@@ -51,18 +73,39 @@ export function getAuthUser(): AuthUser | null {
 }
 
 export function isAuthenticated(): boolean {
-  return _state.token !== null;
+  return _state.token !== null && _state.user !== null;
+}
+
+export function isAuthReady(): boolean {
+  return _ready;
+}
+
+export function getAuthSnapshot(): AuthSnapshot {
+  return _snapshot;
 }
 
 export function setAuth(token: string, user: AuthUser) {
   _state = { token, user };
+  _ready = true;
+  refreshSnapshot();
   saveState(_state);
   notify();
 }
 
 export function clearAuth() {
   _state = { token: null, user: null };
+  _ready = true;
+  refreshSnapshot();
   saveState(_state);
+  notify();
+}
+
+export function markAuthHydrated() {
+  if (_ready) {
+    return;
+  }
+  _ready = true;
+  refreshSnapshot();
   notify();
 }
 

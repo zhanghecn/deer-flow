@@ -1,34 +1,39 @@
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 
+import { restoreAuthSession } from "./api";
 import {
   type AuthUser,
   clearAuth,
-  getAuthToken,
-  getAuthUser,
-  isAuthenticated,
+  getAuthSnapshot,
   subscribeAuth,
 } from "./store";
 
 export function useAuth() {
-  const token = useSyncExternalStore(
+  const snapshot = useSyncExternalStore(
     subscribeAuth,
-    getAuthToken,
-    () => null,
+    getAuthSnapshot,
+    () => ({
+      token: null,
+      user: null as AuthUser | null,
+      ready: false,
+    }),
   );
-  const user = useSyncExternalStore(
-    subscribeAuth,
-    getAuthUser,
-    () => null as AuthUser | null,
-  );
-  const authenticated = useSyncExternalStore(
-    subscribeAuth,
-    isAuthenticated,
-    () => false,
-  );
+
+  useEffect(() => {
+    if (!snapshot.ready) {
+      void restoreAuthSession();
+    }
+  }, [snapshot.ready]);
 
   const logout = useCallback(() => {
     clearAuth();
   }, []);
 
-  return { token, user, authenticated, logout };
+  return {
+    token: snapshot.token,
+    user: snapshot.user,
+    authenticated: snapshot.token !== null && snapshot.user !== null,
+    ready: snapshot.ready,
+    logout,
+  };
 }

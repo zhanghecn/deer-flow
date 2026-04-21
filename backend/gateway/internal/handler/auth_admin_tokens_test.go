@@ -282,3 +282,59 @@ func TestAuthHandlerAdminSelfDeleteTokenUsesAuthenticatedUser(t *testing.T) {
 		t.Fatalf("revoked user id = %s, want %s", tokenRepo.revokedUser, adminUserID)
 	}
 }
+
+func TestAuthHandlerGetSessionRestoresAuthenticatedUser(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	userID := uuid.New()
+	user := &model.User{
+		ID:    userID,
+		Name:  "admin",
+		Email: "admin@example.com",
+		Role:  "admin",
+	}
+	cipher, err := NewAPITokenCipher("test-secret")
+	if err != nil {
+		t.Fatalf("build token cipher: %v", err)
+	}
+	handler := NewAuthHandler(
+		&stubAuthUserRepo{
+			usersByID: map[uuid.UUID]*model.User{
+				userID: user,
+			},
+		},
+		&stubAuthTokenRepo{},
+		nil,
+		cipher,
+		storage.NewFS(t.TempDir()),
+	)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware.UserIDKey), userID)
+		c.Set(string(middleware.RoleKey), "admin")
+		c.Next()
+	})
+	router.GET("/api/auth/session", handler.GetSession)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/session", nil)
+	req.AddCookie(&http.Cookie{Name: middleware.AuthCookieName, Value: "cookie-session-token"})
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload model.AuthResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.Token != "cookie-session-token" {
+		t.Fatalf("session token = %q, want %q", payload.Token, "cookie-session-token")
+	}
+	if payload.User.ID != userID {
+		t.Fatalf("session user id = %s, want %s", payload.User.ID, userID)
+	}
+}
