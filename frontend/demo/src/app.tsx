@@ -26,7 +26,10 @@ import {
   fetchWorkbenchHealth,
   fetchWorkbenchToolCatalog,
   invokeWorkbenchTool,
+  scanWorkbenchMcp,
   resetWorkbenchFiles,
+  type McpDiscoveredTool,
+  type McpScanResponse,
   uploadWorkbenchFiles,
   type StoredFileRow,
   type ToolCatalogEntry,
@@ -50,7 +53,11 @@ type InvocationRecord = {
   arguments: Record<string, unknown>;
   status: "running" | "succeeded" | "failed";
   executedAt: number | null;
+  transport?: string;
+  sessionId?: string | null;
+  latencyMs?: number | null;
   result?: unknown;
+  rawResult?: unknown;
   errorText?: string;
 };
 
@@ -122,6 +129,35 @@ function formatClock(value: number | null) {
     minute: "2-digit",
     second: "2-digit",
   }).format(value);
+}
+
+function formatLatency(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "耗时未知";
+  }
+  return `${value.toFixed(value >= 100 ? 0 : 1)} ms`;
+}
+
+function describeMcpState(scan: McpScanResponse | null) {
+  if (!scan) {
+    return {
+      label: "未扫描",
+      tone: "warn" as const,
+      detail: "尚未执行 MCP 协议探测",
+    };
+  }
+  if (!scan.reachable) {
+    return {
+      label: "探测失败",
+      tone: "danger" as const,
+      detail: scan.error ?? "MCP 端点不可用",
+    };
+  }
+  return {
+    label: `发现 ${scan.tool_count} 个工具`,
+    tone: "ok" as const,
+    detail: `${scan.server_info?.name ?? "MCP server"} · ${formatLatency(scan.latency_ms)}`,
+  };
 }
 
 function prettyJSON(value: unknown, maxLength = 10000) {
@@ -461,8 +497,10 @@ export function App() {
   const [workbenchBaseURL, setWorkbenchBaseURL] = useState(DEFAULT_WORKBENCH_BASE_URL);
   const [workbenchHealth, setWorkbenchHealth] = useState<WorkbenchHealth | null>(null);
   const [toolCatalog, setToolCatalog] = useState<ToolCatalogEntry[]>([]);
+  const [mcpScan, setMcpScan] = useState<McpScanResponse | null>(null);
   const [storedFiles, setStoredFiles] = useState<StoredFileRow[]>([]);
   const [workbenchLoading, setWorkbenchLoading] = useState(true);
+  const [scanPending, setScanPending] = useState(false);
   const [uploadPending, setUploadPending] = useState(false);
   const [isExplorerDragActive, setIsExplorerDragActive] = useState(false);
   const [selectedFilePath, setSelectedFilePath] = useState("");
@@ -497,6 +535,11 @@ export function App() {
     () => toolCatalog.find((tool) => tool.name === selectedToolName) ?? null,
     [toolCatalog, selectedToolName],
   );
+  const selectedDiscoveredTool = useMemo(
+    () => mcpScan?.tools.find((tool) => tool.name === selectedToolName) ?? null,
+    [mcpScan, selectedToolName],
+  );
+  const mcpState = useMemo(() => describeMcpState(mcpScan), [mcpScan]);
 
   const selectedInvocation = useMemo(
     () => invocations.find((item) => item.id === selectedInvocationId) ?? invocations[0] ?? null,
@@ -561,8 +604,44 @@ export function App() {
     }
   }
 
+  async function scanMcp(options?: { silent?: boolean }) {
+    setScanPending(true);
+    try {
+      const scanResult = await scanWorkbenchMcp(workbenchBaseURL);
+      setMcpScan(scanResult);
+      if (!options?.silent) {
+        if (scanResult.reachable) {
+          toast.success(`MCP 探测完成，发现 ${scanResult.tool_count} 个工具`);
+        } else {
+          toast.error(scanResult.error ?? "MCP 探测失败");
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "MCP 探测失败";
+      setMcpScan({
+        reachable: false,
+        transport: "streamable_http",
+        scanned_at: new Date().toISOString(),
+        latency_ms: null,
+        session_id: null,
+        protocol_version: null,
+        server_info: null,
+        capabilities: null,
+        tool_count: 0,
+        tools: [],
+        error: message,
+      });
+      if (!options?.silent) {
+        toast.error(message);
+      }
+    } finally {
+      setScanPending(false);
+    }
+  }
+
   useEffect(() => {
     void refreshWorkbench();
+    void scanMcp({ silent: true });
   }, [workbenchBaseURL]);
 
   useEffect(() => {
@@ -762,12 +841,17 @@ export function App() {
                 // so one bad response field cannot crash the entire acceptance console.
                 executedAt:
                   parseInvocationTimestamp(response.executed_at) ?? item.executedAt,
+                transport: response.transport,
+                sessionId: response.session_id ?? null,
+                latencyMs: response.latency_ms ?? null,
                 result: response.result,
+                rawResult: response.raw_result,
               }
             : item,
         ),
       );
-      toast.success(`${selectedTool.name} 执行完成`);
+      toast.success(`${selectedTool.name} 已通过 MCP 执行`);
+      await scanMcp({ silent: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : "工具执行失败";
       if (invocationRecord) {
@@ -775,11 +859,12 @@ export function App() {
           current.map((item) =>
             item.id === invocationRecord!.id
               ? {
-                  ...item,
-                  status: "failed",
-                  errorText: message,
-                }
-              : item,
+                ...item,
+                status: "failed",
+                transport: "streamable_http",
+                errorText: message,
+              }
+            : item,
           ),
         );
       }
@@ -809,9 +894,10 @@ export function App() {
               label={workbenchHealth ? `${workbenchHealth.file_count} 文件` : "未连接"}
               tone={workbenchHealth ? "ok" : "danger"}
             />
+            <StatusBadge label={mcpState.label} tone={mcpState.tone} />
             <StatusBadge
-              label={invokePending ? "工具执行中" : "空闲"}
-              tone={invokePending ? "info" : "ok"}
+              label={scanPending ? "探测中" : invokePending ? "工具执行中" : "空闲"}
+              tone={scanPending || invokePending ? "info" : "ok"}
             />
             <GhostButton
               tone="accent"
@@ -833,12 +919,26 @@ export function App() {
         <div className="space-y-4">
           <Panel
             title="连接信息"
-            description="当前服务只管理本地磁盘文件和 HTTP MCP 地址。"
+            description="当前页面负责文件库维护、MCP 地址分发、协议扫描和工具联调。"
             actions={
-              <GhostButton onClick={() => void refreshWorkbench({ preserveSelection: true })}>
-                <RefreshCcw className="size-3.5" />
-                刷新
-              </GhostButton>
+              <div className="flex items-center gap-2">
+                <GhostButton
+                  tone="accent"
+                  disabled={scanPending}
+                  onClick={() => void scanMcp()}
+                >
+                  {scanPending ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <Wrench className="size-3.5" />
+                  )}
+                  扫描 MCP
+                </GhostButton>
+                <GhostButton onClick={() => void refreshWorkbench({ preserveSelection: true })}>
+                  <RefreshCcw className="size-3.5" />
+                  刷新
+                </GhostButton>
+              </div>
             }
           >
             <div className="space-y-3">
@@ -867,6 +967,37 @@ export function App() {
                 <p className="mt-1 break-all font-mono text-xs text-cyan-300">
                   {workbenchHealth?.mcp_url ?? defaultMcpURL}
                 </p>
+              </div>
+              <div className="rounded-md border border-[var(--border)] bg-zinc-950 px-3 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
+                      <Wrench className="size-3.5" />
+                      MCP 探测状态
+                    </div>
+                    <p className="mt-1 text-sm text-[var(--text)]">{mcpState.detail}</p>
+                  </div>
+                  <StatusBadge label={mcpState.label} tone={mcpState.tone} />
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <div className="rounded-md border border-[var(--border)] bg-zinc-900 px-3 py-2">
+                    <p className="text-[11px] text-[var(--muted)]">上次扫描</p>
+                    <p className="mt-1 text-xs text-[var(--text-soft)]">
+                      {mcpScan ? formatClock(Date.parse(mcpScan.scanned_at)) : "尚未扫描"}
+                    </p>
+                  </div>
+                  <div className="rounded-md border border-[var(--border)] bg-zinc-900 px-3 py-2">
+                    <p className="text-[11px] text-[var(--muted)]">协议/耗时</p>
+                    <p className="mt-1 text-xs text-[var(--text-soft)]">
+                      {mcpScan?.protocol_version ?? "未知"} · {formatLatency(mcpScan?.latency_ms)}
+                    </p>
+                  </div>
+                </div>
+                {mcpScan?.error ? (
+                  <div className="mt-3 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs leading-5 text-rose-200">
+                    {mcpScan.error}
+                  </div>
+                ) : null}
               </div>
             </div>
           </Panel>
@@ -1082,13 +1213,14 @@ export function App() {
         <div className="space-y-4">
           <Panel
             title="工具工作台"
-            description="这里直接按 MCP 工具规范填写参数并执行。"
+            description="参数表单来自静态规范，但执行和验收都走真实 MCP transport。"
             actions={
               <div className="flex items-center gap-2">
                 <StatusBadge
                   label={selectedTool ? selectedTool.name : "未选择"}
                   tone="info"
                 />
+                <StatusBadge label={mcpState.label} tone={mcpState.tone} />
               </div>
             }
           >
@@ -1116,6 +1248,9 @@ export function App() {
                     <p className="font-mono text-sm text-[var(--text)]">{selectedTool.name}</p>
                     <p className="mt-2 text-sm leading-6 text-[var(--text-soft)]">
                       {selectedTool.summary}
+                    </p>
+                    <p className="mt-2 text-xs text-cyan-300">
+                      当前执行链路：{"HTTP MCP `initialize -> tools/call`"}
                     </p>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {(TOOL_PRESETS[selectedTool.name] ?? []).map((preset) => (
@@ -1187,7 +1322,7 @@ export function App() {
                   <div className="flex flex-wrap gap-2">
                     <GhostButton
                       tone="accent"
-                      disabled={invokePending}
+                      disabled={invokePending || scanPending}
                       onClick={() => void handleInvokeTool()}
                     >
                       {invokePending ? (
@@ -1195,7 +1330,14 @@ export function App() {
                       ) : (
                         <Play className="size-3.5" />
                       )}
-                      执行工具
+                      通过 MCP 执行
+                    </GhostButton>
+                    <GhostButton
+                      disabled={scanPending}
+                      onClick={() => void scanMcp()}
+                    >
+                      <RefreshCcw className="size-3.5" />
+                      重新扫描
                     </GhostButton>
                     <GhostButton
                       onClick={() =>
@@ -1263,8 +1405,67 @@ export function App() {
 
         <div className="space-y-4">
           <Panel
+            title="MCP 扫描结果"
+            description="参考 Claude Code 的发现流程，展示真实 `tools/list` 返回，而不是静态配置。"
+          >
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-md border border-[var(--border)] bg-zinc-950 px-3 py-3">
+                  <p className="text-xs text-[var(--muted)]">Server</p>
+                  <p className="mt-2 text-sm text-[var(--text)]">
+                    {mcpScan?.server_info?.name ?? "未探测"}
+                  </p>
+                  <p className="mt-1 text-[11px] text-[var(--muted)]">
+                    {mcpScan?.server_info?.version ?? "版本未知"}
+                  </p>
+                </div>
+                <div className="rounded-md border border-[var(--border)] bg-zinc-950 px-3 py-3">
+                  <p className="text-xs text-[var(--muted)]">Session / Transport</p>
+                  <p className="mt-2 break-all font-mono text-xs text-[var(--text-soft)]">
+                    {mcpScan?.session_id ?? "未建立会话"}
+                  </p>
+                  <p className="mt-1 text-[11px] text-[var(--muted)]">
+                    {mcpScan?.transport ?? "streamable_http"}
+                  </p>
+                </div>
+              </div>
+
+              {mcpScan?.tools.length ? (
+                <div className="space-y-2">
+                  {mcpScan.tools.map((tool: McpDiscoveredTool) => (
+                    <button
+                      key={tool.name}
+                      type="button"
+                      onClick={() => setSelectedToolName(tool.name)}
+                      className={`w-full rounded-md border px-3 py-3 text-left transition ${
+                        selectedToolName === tool.name
+                          ? "border-cyan-500/40 bg-cyan-500/10"
+                          : "border-[var(--border)] bg-zinc-950 hover:border-zinc-600"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <code className="text-xs text-cyan-300">{tool.name}</code>
+                        <span className="text-[11px] text-[var(--muted)]">
+                          {tool.inputSchema ? "schema 已发现" : "无 schema"}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-sm leading-6 text-[var(--text-soft)]">
+                        {tool.description || "该工具未返回描述。"}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-[var(--muted)]">
+                  {scanPending ? "正在扫描 MCP 工具…" : "尚未拿到 `tools/list` 结果。"}
+                </p>
+              )}
+            </div>
+          </Panel>
+
+          <Panel
             title="当前工具规范"
-            description="只展示 MCP 规范本身：方法名、参数、返回语义。"
+            description="左边是本地表单规范，右边对照 MCP 实际返回的 input/output schema。"
           >
             {selectedTool ? (
               <div className="space-y-4">
@@ -1314,6 +1515,22 @@ export function App() {
                     {selectedTool.returns}
                   </div>
                 </div>
+                {selectedDiscoveredTool ? (
+                  <>
+                    <div>
+                      <p className="mb-2 text-xs text-[var(--muted)]">MCP inputSchema</p>
+                      <JsonBlock value={selectedDiscoveredTool.inputSchema ?? {}} />
+                    </div>
+                    <div>
+                      <p className="mb-2 text-xs text-[var(--muted)]">MCP outputSchema</p>
+                      <JsonBlock value={selectedDiscoveredTool.outputSchema ?? {}} />
+                    </div>
+                  </>
+                ) : (
+                  <div className="rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-3 text-sm text-amber-100">
+                    当前工具还没有对应的真实扫描结果，请先执行 MCP 扫描。
+                  </div>
+                )}
               </div>
             ) : (
               <p className="text-sm text-[var(--muted)]">暂无工具规范。</p>
@@ -1349,7 +1566,7 @@ export function App() {
                       </span>
                     </div>
                     <p className="mt-1 text-[11px] text-[var(--muted)]">
-                      {formatClock(item.executedAt)} ·{" "}
+                      {formatClock(item.executedAt)} · {formatLatency(item.latencyMs)} ·{" "}
                       {item.status === "failed"
                         ? item.errorText
                         : summarizeResult(item.result)}
@@ -1371,8 +1588,15 @@ export function App() {
                     {selectedInvocation.toolName}
                   </p>
                   <p className="mt-2 text-[11px] text-[var(--muted)]">
-                    {formatClock(selectedInvocation.executedAt)}
+                    {formatClock(selectedInvocation.executedAt)} ·{" "}
+                    {selectedInvocation.transport ?? "streamable_http"} ·{" "}
+                    {formatLatency(selectedInvocation.latencyMs)}
                   </p>
+                  {selectedInvocation.sessionId ? (
+                    <p className="mt-2 break-all font-mono text-[11px] text-cyan-300">
+                      session: {selectedInvocation.sessionId}
+                    </p>
+                  ) : null}
                 </div>
                 <div>
                   <p className="mb-2 text-xs text-[var(--muted)]">参数</p>
@@ -1388,6 +1612,12 @@ export function App() {
                     <JsonBlock value={selectedInvocation.result ?? { status: "running" }} />
                   )}
                 </div>
+                {selectedInvocation.rawResult ? (
+                  <div>
+                    <p className="mb-2 text-xs text-[var(--muted)]">原始 MCP 返回</p>
+                    <JsonBlock value={selectedInvocation.rawResult} />
+                  </div>
+                ) : null}
               </div>
             ) : (
               <p className="text-sm text-[var(--muted)]">选择一条调用记录查看细节。</p>

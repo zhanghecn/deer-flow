@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createMCPProfile,
   deleteMCPProfile,
+  discoverMCPProfiles,
   getMCPProfile,
   listMCPProfiles,
   updateMCPProfile,
@@ -12,6 +13,34 @@ vi.mock("@/core/auth/fetch", () => ({
   authFetch: vi.fn(async (_url: string, init?: RequestInit) => {
     const url = String(_url);
     const method = init?.method ?? "GET";
+    if (url.includes("/api/langgraph/api/tools/mcp/discover")) {
+      return {
+        json: async () => ({
+          results: [
+            {
+              ref: "custom/mcp-profiles/customer-docs.json",
+              profile_name: "customer-docs",
+              server_name: "customer-docs",
+              reachable: true,
+              latency_ms: 48.3,
+              tool_count: 1,
+              tools: [
+                {
+                  name: "search_files",
+                  description: "Search files by glob pattern.",
+                  input_schema: {
+                    type: "object",
+                    properties: {
+                      pattern: { type: "string" },
+                    },
+                  },
+                },
+              ],
+            },
+          ],
+        }),
+      };
+    }
     if (method === "POST") {
       return {
         json: async () => ({
@@ -98,5 +127,17 @@ describe("mcp profile api", () => {
     const profile = await getMCPProfile("customer-docs");
     expect(profile.name).toBe("customer-docs");
     await expect(deleteMCPProfile("customer-docs")).resolves.toBeUndefined();
+  });
+
+  it("discovers tools for selected profiles", async () => {
+    const results = await discoverMCPProfiles([
+      {
+        ref: "custom/mcp-profiles/customer-docs.json",
+        profile_name: "customer-docs",
+        config_json: { mcpServers: {} },
+      },
+    ]);
+    expect(results[0]?.reachable).toBe(true);
+    expect(results[0]?.tools[0]?.name).toBe("search_files");
   });
 });

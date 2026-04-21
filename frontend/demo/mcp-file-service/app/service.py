@@ -6,15 +6,21 @@ import fnmatch
 import json
 import mimetypes
 import os
+import re
 import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from fastapi import UploadFile
+if TYPE_CHECKING:
+    from fastapi import UploadFile
 
 EMPTY_CONTENT_WARNING = "System reminder: File exists but has empty contents"
+VIRTUAL_UPLOAD_ROOTS = (
+    PurePosixPath("/mnt/user-data/uploads"),
+    PurePosixPath("/mnt/user-data"),
+)
 
 
 @dataclass(frozen=True)
@@ -68,13 +74,13 @@ def build_tool_catalog() -> list[dict[str, Any]]:
         ),
         ToolDescriptor(
             name="fs_grep",
-            summary="Search file contents by literal text and optional glob filter.",
-            returns="JSON payload with matches and optional files-with-matches mode.",
+            summary="Search file contents by text or regex pattern and optional glob filter.",
+            returns="JSON payload with matches, files-with-matches, or per-file counts.",
             arguments=(
-                ToolArgument("pattern", "string", True, "Literal text to search for."),
+                ToolArgument("pattern", "string", True, "Text or regex-like pattern to search for."),
                 ToolArgument("path", "string", False, "Relative directory to search under."),
                 ToolArgument("glob", "string", False, "File glob filter such as *.md or **/*.txt.", default="*"),
-                ToolArgument("output_mode", "string", False, "Either content or files_with_matches.", default="content"),
+                ToolArgument("output_mode", "string", False, "One of content, files_with_matches, or count.", default="content"),
                 ToolArgument("cursor", "integer", False, "Zero-based pagination cursor.", default=0),
                 ToolArgument("limit", "integer", False, "Maximum number of matches to return.", default=20),
             ),
@@ -128,7 +134,25 @@ class FileMcpService:
         shutil.copytree(self.seed_root, self.root, dirs_exist_ok=True)
 
     def _safe_relative_path(self, value: str) -> Path:
-        normalized = str(value or "").strip().strip("/")
+        raw_value = str(value or "").strip()
+        normalized_path = PurePosixPath(raw_value or ".")
+
+        # Real OpenAgents runs often expose uploaded knowledge files through the
+        # virtual `/mnt/user-data/uploads/...` contract. Agents may echo that
+        # absolute-looking path back into MCP calls, so strip only the known
+        # virtual prefixes and keep every other path subject to the normal
+        # in-root safety check.
+        for virtual_root in VIRTUAL_UPLOAD_ROOTS:
+            if normalized_path == virtual_root:
+                normalized_path = PurePosixPath(".")
+                break
+            try:
+                normalized_path = normalized_path.relative_to(virtual_root)
+                break
+            except ValueError:
+                continue
+
+        normalized = normalized_path.as_posix().strip("/")
         if not normalized:
             return Path(".")
         relative = PurePosixPath(normalized)
@@ -145,9 +169,33 @@ class FileMcpService:
 
     def _resolve_existing_path(self, value: str) -> Path:
         resolved = self._resolve_path(value)
-        if not resolved.exists():
-            raise FileNotFoundError(f"path not found: {value}")
-        return resolved
+        if resolved.exists():
+            return resolved
+
+        relative = self._safe_relative_path(value)
+
+        # OpenAgents runtime paths can include extra virtual prefixes such as
+        # `/mnt/user-data/agents/dev/<agent>/...` even though this demo service
+        # only stores the uploaded knowledge root. When that happens, recover by
+        # scanning suffixes until one matches a real uploaded path. This keeps
+        # the MCP contract tolerant to runtime-specific absolute paths without
+        # exposing host filesystem access.
+        parts = relative.parts
+        for index in range(1, len(parts)):
+            fallback = (self.root / Path(*parts[index:])).resolve()
+            if fallback.exists() and (fallback == self.root or self.root in fallback.parents):
+                return fallback
+
+        if str(relative) in {".", "agents"}:
+            return self.root
+
+        # Some runtime prompts still ask the MCP server to inspect
+        # `/mnt/user-data/agents[/dev|/prod|/<agent>]` even though this service
+        # only exposes the uploaded knowledge tree. Treat that whole namespace
+        # as an alias for the uploaded root instead of failing the call.
+        if parts and parts[0] == "agents":
+            return self.root
+        raise FileNotFoundError(f"path not found: {value}")
 
     def _file_row(self, file_path: Path) -> dict[str, Any]:
         stat = file_path.stat()
@@ -298,6 +346,61 @@ class FileMcpService:
             "content": text[start:end],
         }
 
+    @staticmethod
+    def _normalize_grep_output_mode(output_mode: str) -> tuple[str, str]:
+        """Coerce model-generated grep modes into a stable canonical contract.
+
+        Real model traces occasionally send close-but-not-exact values such as
+        `count`, `files`, or other grep-style aliases. The MCP layer should be
+        tolerant here because the intent is still unambiguous, and a hard 400
+        turns a recoverable tool-call mismatch into a failed user run.
+        """
+
+        requested_mode = str(output_mode or "").strip()
+        normalized = requested_mode.lower().replace("-", "_").replace(" ", "_")
+        if not normalized:
+            return "content", requested_mode
+
+        alias_map = {
+            "content": "content",
+            "matches": "content",
+            "match_content": "content",
+            "files_with_matches": "files_with_matches",
+            "file_with_matches": "files_with_matches",
+            "files": "files_with_matches",
+            "file": "files_with_matches",
+            "filenames": "files_with_matches",
+            "paths": "files_with_matches",
+            "count": "count",
+            "counts": "count",
+            "summary": "count",
+            "stats": "count",
+            "totals": "count",
+        }
+        return alias_map.get(normalized, "content"), requested_mode
+
+    @staticmethod
+    def _line_matches_pattern(*, line: str, normalized_pattern: str, raw_pattern: str) -> bool:
+        """Match grep input as literal text first, then regex when clearly intended.
+
+        LLMs often generate grep-style alternations such as `foo|bar`. Literal
+        matching keeps simple terms cheap and predictable, while the regex
+        fallback preserves those broader grep queries without forcing the model
+        to learn a second MCP-specific search dialect.
+        """
+
+        lowered_line = line.lower()
+        if normalized_pattern in lowered_line:
+            return True
+
+        if not any(token in raw_pattern for token in ("|", "\\", "[", "]", "(", ")", "{", "}", "^", "$", ".", "*", "+", "?")):
+            return False
+
+        try:
+            return re.search(raw_pattern, line, flags=re.IGNORECASE) is not None
+        except re.error:
+            return False
+
     def grep_payload(
         self,
         *,
@@ -311,16 +414,26 @@ class FileMcpService:
         """Search the uploaded files by literal match and optional file glob filter."""
 
         base = self._resolve_existing_path(path) if path else self.root
-        if not base.is_dir():
-            raise ValueError(f"path is not a directory: {path}")
         safe_cursor = max(cursor, 0)
         safe_limit = min(max(limit, 1), 200)
         normalized_pattern = pattern.strip().lower()
         if not normalized_pattern:
             raise ValueError("pattern is required")
+        resolved_output_mode, requested_output_mode = self._normalize_grep_output_mode(output_mode)
+
+        # Agents naturally pass the exact file path they just discovered from
+        # `fs_ls` or `fs_glob`. Accept both a directory scope and a single-file
+        # scope so MCP usage matches operator intuition instead of forcing the
+        # model to normalize paths manually before every grep call.
+        if base.is_file():
+            candidates = [base]
+        elif base.is_dir():
+            candidates = sorted(base.rglob("*"))
+        else:
+            raise ValueError(f"path is not a file or directory: {path}")
 
         matches: list[dict[str, Any]] = []
-        for candidate in sorted(base.rglob("*")):
+        for candidate in candidates:
             if not candidate.is_file():
                 continue
             relative = candidate.relative_to(self.root).as_posix()
@@ -328,7 +441,11 @@ class FileMcpService:
                 continue
             text = candidate.read_text(encoding="utf-8", errors="ignore")
             for line_number, line in enumerate(text.splitlines(), start=1):
-                if normalized_pattern in line.lower():
+                if self._line_matches_pattern(
+                    line=line,
+                    normalized_pattern=normalized_pattern,
+                    raw_pattern=pattern,
+                ):
                     matches.append(
                         {
                             "path": relative,
@@ -337,10 +454,12 @@ class FileMcpService:
                         }
                     )
 
-        if output_mode not in {"content", "files_with_matches"}:
-            raise ValueError("output_mode must be content or files_with_matches")
+        response_metadata = {
+            "output_mode": resolved_output_mode,
+            "requested_output_mode": requested_output_mode,
+        }
 
-        if output_mode == "files_with_matches":
+        if resolved_output_mode == "files_with_matches":
             unique_files = sorted({item["path"] for item in matches})
             next_cursor = safe_cursor + safe_limit
             return {
@@ -350,7 +469,27 @@ class FileMcpService:
                 "total": len(unique_files),
                 "has_more": next_cursor < len(unique_files),
                 "next_cursor": next_cursor if next_cursor < len(unique_files) else None,
-                "output_mode": output_mode,
+                **response_metadata,
+            }
+
+        if resolved_output_mode == "count":
+            file_counts: dict[str, int] = {}
+            for item in matches:
+                file_counts[item["path"]] = file_counts.get(item["path"], 0) + 1
+            rows = [
+                {"path": path_name, "match_count": count}
+                for path_name, count in sorted(file_counts.items())
+            ]
+            next_cursor = safe_cursor + safe_limit
+            return {
+                "items": rows[safe_cursor:next_cursor],
+                "cursor": safe_cursor,
+                "limit": safe_limit,
+                "total": len(rows),
+                "total_matches": len(matches),
+                "has_more": next_cursor < len(rows),
+                "next_cursor": next_cursor if next_cursor < len(rows) else None,
+                **response_metadata,
             }
 
         next_cursor = safe_cursor + safe_limit
@@ -361,7 +500,7 @@ class FileMcpService:
             "total": len(matches),
             "has_more": next_cursor < len(matches),
             "next_cursor": next_cursor if next_cursor < len(matches) else None,
-            "output_mode": output_mode,
+            **response_metadata,
         }
 
     def glob_payload(self, *, pattern: str = "*", path: str = "") -> dict[str, Any]:
@@ -380,42 +519,6 @@ class FileMcpService:
             "items": items,
             "total": len(items),
         }
-
-    def invoke_tool(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        """Execute one file-service-backed MCP tool for the standalone debug console."""
-
-        normalized_name = tool_name.strip()
-        if normalized_name == "fs_ls":
-            return self.ls_payload(
-                path=str(arguments.get("path", "")),
-                cursor=int(arguments.get("cursor", 0) or 0),
-                limit=int(arguments.get("limit", 20) or 20),
-            )
-        if normalized_name == "fs_read":
-            file_path = str(arguments.get("file_path", "")).strip()
-            if not file_path:
-                raise ValueError("file_path is required")
-            return self.read_file_payload(
-                file_path=file_path,
-                offset=int(arguments.get("offset", 0) or 0),
-                limit=int(arguments.get("limit", 2000) or 2000),
-            )
-        if normalized_name == "fs_grep":
-            pattern = str(arguments.get("pattern", "")).strip()
-            return self.grep_payload(
-                pattern=pattern,
-                path=str(arguments.get("path", "")),
-                glob=str(arguments.get("glob", "*") or "*"),
-                output_mode=str(arguments.get("output_mode", "content") or "content"),
-                cursor=int(arguments.get("cursor", 0) or 0),
-                limit=int(arguments.get("limit", 20) or 20),
-            )
-        if normalized_name == "fs_glob":
-            return self.glob_payload(
-                pattern=str(arguments.get("pattern", "*") or "*"),
-                path=str(arguments.get("path", "")),
-            )
-        raise ValueError(f"unknown tool: {tool_name}")
 
     async def store_uploads(
         self,

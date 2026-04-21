@@ -6,11 +6,15 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 import json
 import os
+import time
 from typing import Annotated, Any
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 
 from fastapi import Body, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from mcp.server.fastmcp import FastMCP
+from starlette.concurrency import run_in_threadpool
 
 from .service import build_workbench_service_from_env
 
@@ -21,6 +25,16 @@ PUBLIC_BASE_URL = (
     os.getenv("MCP_WORKBENCH_PUBLIC_BASE_URL", "").strip()
     or f"http://127.0.0.1:{PORT}"
 )
+LOCAL_MCP_URL = os.getenv(
+    "MCP_WORKBENCH_LOCAL_MCP_URL",
+    f"http://127.0.0.1:{PORT}/mcp-http/mcp",
+).strip() or f"http://127.0.0.1:{PORT}/mcp-http/mcp"
+MCP_REQUEST_TIMEOUT_SECONDS = float(os.getenv("MCP_WORKBENCH_TIMEOUT_SECONDS", "10"))
+STREAMABLE_HTTP_ACCEPT = "application/json, text/event-stream"
+MCP_CLIENT_INFO = {
+    "name": "openagents-mcp-workbench",
+    "version": "0.1.0",
+}
 ALLOWED_ORIGINS = [
     item.strip()
     for item in os.getenv(
@@ -49,6 +63,169 @@ def _translate_error(exc: Exception) -> HTTPException:
     if isinstance(exc, ValueError):
         return HTTPException(status_code=400, detail=str(exc))
     return HTTPException(status_code=500, detail=str(exc))
+
+
+def _parse_sse_payload(payload: str) -> dict[str, Any]:
+    """Extract the JSON-RPC message from FastMCP's SSE envelope."""
+
+    data_lines: list[str] = []
+    for raw_line in payload.splitlines():
+        if raw_line.startswith("data:"):
+            data_lines.append(raw_line.removeprefix("data:").strip())
+    if not data_lines:
+        raise ValueError("MCP endpoint returned no JSON payload")
+    return json.loads("\n".join(data_lines))
+
+
+def _post_mcp_request(
+    *,
+    method: str,
+    params: dict[str, Any] | None,
+    request_id: int,
+    session_id: str | None = None,
+) -> tuple[dict[str, Any], str | None]:
+    """Send one streamable HTTP JSON-RPC request to the colocated MCP app."""
+
+    headers = {
+        "content-type": "application/json",
+        "accept": STREAMABLE_HTTP_ACCEPT,
+    }
+    if session_id:
+        headers["mcp-session-id"] = session_id
+
+    request_body = {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "method": method,
+        "params": params or {},
+    }
+    request = urllib_request.Request(
+        LOCAL_MCP_URL,
+        data=json.dumps(request_body).encode("utf-8"),
+        headers=headers,
+    )
+
+    try:
+        with urllib_request.urlopen(
+            request,
+            timeout=MCP_REQUEST_TIMEOUT_SECONDS,
+        ) as response:
+            payload = _parse_sse_payload(response.read().decode("utf-8"))
+            return payload, response.headers.get("mcp-session-id") or session_id
+    except urllib_error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore").strip()
+        raise RuntimeError(
+            f"MCP request failed with HTTP {exc.code}: {detail or exc.reason}"
+        ) from exc
+
+
+def _initialize_mcp_session() -> tuple[dict[str, Any], str | None]:
+    """Start one MCP session with the same handshake used by real clients."""
+
+    return _post_mcp_request(
+        method="initialize",
+        params={
+            "protocolVersion": "2025-03-26",
+            "capabilities": {},
+            "clientInfo": MCP_CLIENT_INFO,
+        },
+        request_id=1,
+    )
+
+
+def _unwrap_mcp_result(payload: dict[str, Any]) -> dict[str, Any]:
+    """Raise protocol errors early so the UI can display one clean message."""
+
+    if "error" in payload:
+        error = payload["error"]
+        if isinstance(error, dict):
+            message = str(error.get("message", "unknown MCP error"))
+        else:
+            message = str(error)
+        raise RuntimeError(message)
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        raise RuntimeError("MCP endpoint returned an invalid result payload")
+    return result
+
+
+def _coerce_json_text(value: Any) -> Any:
+    """Decode JSON-shaped text blocks so the workbench can render structured output."""
+
+    if not isinstance(value, str):
+        return value
+    candidate = value.strip()
+    if not candidate:
+        return value
+    if candidate[0] not in "{[":
+        return value
+    try:
+        return json.loads(candidate)
+    except json.JSONDecodeError:
+        return value
+
+
+def _scan_mcp_server() -> dict[str, Any]:
+    """Probe the colocated MCP server using the same discovery steps as real clients."""
+
+    started_at = time.perf_counter()
+    initialize_payload, session_id = _initialize_mcp_session()
+    initialize_result = _unwrap_mcp_result(initialize_payload)
+
+    tools_payload, session_id = _post_mcp_request(
+        method="tools/list",
+        params={},
+        request_id=2,
+        session_id=session_id,
+    )
+    tools_result = _unwrap_mcp_result(tools_payload)
+    raw_tools = tools_result.get("tools")
+    tools = raw_tools if isinstance(raw_tools, list) else []
+
+    return {
+        "reachable": True,
+        "transport": "streamable_http",
+        "scanned_at": datetime.now(tz=UTC).isoformat(),
+        "latency_ms": round((time.perf_counter() - started_at) * 1000, 2),
+        "session_id": session_id,
+        "protocol_version": initialize_result.get("protocolVersion"),
+        "server_info": initialize_result.get("serverInfo"),
+        "capabilities": initialize_result.get("capabilities"),
+        "tool_count": len(tools),
+        "tools": tools,
+    }
+
+
+def _call_mcp_tool(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    """Execute one tool through the MCP transport instead of calling the service directly."""
+
+    started_at = time.perf_counter()
+    _, session_id = _initialize_mcp_session()
+    call_payload, session_id = _post_mcp_request(
+        method="tools/call",
+        params={"name": tool_name, "arguments": arguments},
+        request_id=2,
+        session_id=session_id,
+    )
+    call_result = _unwrap_mcp_result(call_payload)
+    structured_content = call_result.get("structuredContent")
+    result_payload = (
+        structured_content.get("result")
+        if isinstance(structured_content, dict) and "result" in structured_content
+        else None
+    )
+    normalized_result = _coerce_json_text(result_payload)
+
+    return {
+        "tool_name": tool_name,
+        "arguments": arguments,
+        "transport": "streamable_http",
+        "session_id": session_id,
+        "latency_ms": round((time.perf_counter() - started_at) * 1000, 2),
+        "result": normalized_result if normalized_result is not None else structured_content,
+        "raw_result": call_result,
+        "executed_at": datetime.now(tz=UTC).isoformat(),
+    }
 
 
 @mcp.tool()
@@ -82,7 +259,7 @@ def fs_grep(
     cursor: int = 0,
     limit: int = 20,
 ) -> str:
-    """Search uploaded files by literal text and optional file glob."""
+    """Search uploaded files by text or regex-like pattern and optional file glob."""
 
     payload = service.grep_payload(
         pattern=pattern,
@@ -150,24 +327,40 @@ async def tool_catalog() -> dict[str, Any]:
     return {"tools": service.health_payload(base_url=PUBLIC_BASE_URL)["tool_catalog"]}
 
 
+@app.post("/api/mcp/scan")
+async def scan_mcp() -> dict[str, Any]:
+    """Actively probe the mounted MCP endpoint and return discovered tools."""
+
+    try:
+        return await run_in_threadpool(_scan_mcp_server)
+    except Exception as exc:  # noqa: BLE001 - return probe failure details to the browser
+        return {
+            "reachable": False,
+            "transport": "streamable_http",
+            "scanned_at": datetime.now(tz=UTC).isoformat(),
+            "latency_ms": None,
+            "session_id": None,
+            "protocol_version": None,
+            "server_info": None,
+            "capabilities": None,
+            "tool_count": 0,
+            "tools": [],
+            "error": str(exc),
+        }
+
+
 @app.post("/api/tools/{tool_name}/invoke")
 async def invoke_tool(
     tool_name: str,
     body: dict[str, Any] = Body(default_factory=dict),
 ) -> dict[str, Any]:
-    """Execute one MCP tool with JSON arguments for the browser workbench."""
+    """Execute one MCP tool over streamable HTTP for the browser workbench."""
 
     try:
         arguments = body.get("arguments", body)
         if not isinstance(arguments, dict):
             raise ValueError("arguments must be a JSON object")
-        result = service.invoke_tool(tool_name, arguments)
-        return {
-            "tool_name": tool_name,
-            "arguments": arguments,
-            "result": result,
-            "executed_at": datetime.now(tz=UTC).isoformat(),
-        }
+        return await run_in_threadpool(_call_mcp_tool, tool_name, arguments)
     except Exception as exc:  # noqa: BLE001 - convert workbench errors into API details
         raise _translate_error(exc) from exc
 

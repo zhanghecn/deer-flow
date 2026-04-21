@@ -1,8 +1,10 @@
 import { authFetch } from "@/core/auth/fetch";
-import { getBackendBaseURL } from "@/core/config";
+import { getBackendBaseURL, getLangGraphBaseURL } from "@/core/config";
 
 import type {
   CreateMCPProfileRequest,
+  MCPProfileDiscoveryRequestItem,
+  MCPProfileDiscoveryResult,
   MCPProfile,
   UpdateMCPProfileRequest,
 } from "./types";
@@ -34,6 +36,43 @@ function normalizeMCPProfiles(payload: unknown): MCPProfile[] {
     return [];
   }
   return rawProfiles.map((item) => normalizeMCPProfile(item));
+}
+
+function normalizeDiscoveredTool(payload: unknown) {
+  const record =
+    payload && typeof payload === "object"
+      ? (payload as Record<string, unknown>)
+      : {};
+  return {
+    name: typeof record.name === "string" ? record.name : "",
+    description: typeof record.description === "string" ? record.description : "",
+    input_schema:
+      record.input_schema && typeof record.input_schema === "object"
+        ? (record.input_schema as Record<string, unknown>)
+        : {},
+  };
+}
+
+function normalizeDiscoveryResult(payload: unknown): MCPProfileDiscoveryResult {
+  const record =
+    payload && typeof payload === "object"
+      ? (payload as Record<string, unknown>)
+      : {};
+  return {
+    ref: typeof record.ref === "string" ? record.ref : "",
+    profile_name:
+      typeof record.profile_name === "string" ? record.profile_name : "",
+    server_name:
+      typeof record.server_name === "string" ? record.server_name : undefined,
+    reachable: record.reachable === true,
+    latency_ms:
+      typeof record.latency_ms === "number" ? record.latency_ms : undefined,
+    tool_count: typeof record.tool_count === "number" ? record.tool_count : 0,
+    tools: Array.isArray(record.tools)
+      ? record.tools.map((item) => normalizeDiscoveredTool(item))
+      : [],
+    error: typeof record.error === "string" ? record.error : undefined,
+  };
 }
 
 export async function listMCPProfiles() {
@@ -88,4 +127,25 @@ export async function deleteMCPProfile(name: string): Promise<void> {
   await authFetch(`${getBackendBaseURL()}/api/mcp/profiles/${encodeURIComponent(name)}`, {
     method: "DELETE",
   });
+}
+
+export async function discoverMCPProfiles(
+  profiles: MCPProfileDiscoveryRequestItem[],
+): Promise<MCPProfileDiscoveryResult[]> {
+  const response = await authFetch(`${getLangGraphBaseURL()}/api/tools/mcp/discover`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ profiles }),
+  });
+  const payload = await response.json();
+  if (!payload || typeof payload !== "object") {
+    return [];
+  }
+  const rawResults = (payload as Record<string, unknown>).results;
+  if (!Array.isArray(rawResults)) {
+    return [];
+  }
+  return rawResults.map((item) => normalizeDiscoveryResult(item));
 }

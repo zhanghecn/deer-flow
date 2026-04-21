@@ -30,8 +30,37 @@ export type WorkbenchHealth = {
 export type ToolInvocation = {
   tool_name: string;
   arguments: Record<string, unknown>;
+  transport: string;
+  session_id?: string | null;
+  latency_ms?: number | null;
   result: unknown;
+  raw_result?: unknown;
   executed_at: string;
+};
+
+export type McpDiscoveredTool = {
+  name: string;
+  description?: string;
+  inputSchema?: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
+  annotations?: Record<string, unknown>;
+};
+
+export type McpScanResponse = {
+  reachable: boolean;
+  transport: string;
+  scanned_at: string;
+  latency_ms: number | null;
+  session_id: string | null;
+  protocol_version: string | null;
+  server_info: {
+    name?: string;
+    version?: string;
+  } | null;
+  capabilities: Record<string, unknown> | null;
+  tool_count: number;
+  tools: McpDiscoveredTool[];
+  error?: string;
 };
 
 export type FileListResponse = {
@@ -100,6 +129,16 @@ export async function fetchWorkbenchToolCatalog(baseURL: string) {
   return readJSON<ToolCatalogResponse>(
     response,
     "Failed to load workbench tool catalog.",
+  );
+}
+
+export async function scanWorkbenchMcp(baseURL: string) {
+  const response = await fetch(buildWorkbenchURL(baseURL, "./api/mcp/scan"), {
+    method: "POST",
+  });
+  return readJSON<McpScanResponse>(
+    response,
+    "Failed to scan MCP endpoint.",
   );
 }
 
