@@ -189,6 +189,9 @@ export const zhCN: Translations = {
     newAgent: "新建智能体",
     emptyTitle: "还没有自定义智能体",
     emptyDescription: "创建你的第一个自定义智能体，设置专属系统提示词。",
+    gallerySummary: (total, published, draft) =>
+      `${total} 个智能体 · ${published} 个已发布 · ${draft} 个草稿`,
+    galleryEmptySearchDescription: "试试其他名称或关键词。",
     chat: "对话",
     copyUrl: "复制链接",
     delete: "删除",
@@ -355,6 +358,15 @@ export const zhCN: Translations = {
     modelPlaceholder: "选择一个模型",
     namePlaceholder: "知识库名称",
     descriptionPlaceholder: "给 agent 的可选描述",
+    supportedFormatsHint: "支持的格式：PDF、DOC、DOCX、MD、Markdown。",
+    unsupportedFilesSelected: (count: number) =>
+      `${count} 个已选文件不支持知识库索引。`,
+    selectedFileCount: (count: number) => `${count} 个文件待上传`,
+    rejectedFileCount: (count: number) => `${count} 个文件已拒绝`,
+    uploadNextStepThread:
+      "上传后，可在聊天里的已挂载知识区打开详情并持续查看索引进度。",
+    uploadNextStepLibrary:
+      "上传后，可在知识库列表中打开对应条目，查看索引进度和解析结果。",
     managerTitle: "知识库管理",
     managerDescription:
       "按用户浏览共享知识库，查看构建进度，并审查持久化的 PageTree 索引和 canonical 原文。",
@@ -377,6 +389,7 @@ export const zhCN: Translations = {
     readyCount: (count: number) => `${count} 个可用`,
     activeCount: (count: number) => `${count} 个构建中`,
     attachedBaseCount: (count: number) => `${count} 个已挂载知识库`,
+    viewDetails: "查看详情",
     backToChat: "返回对话",
     backToAgents: "返回智能体",
     visibilityShared: "共享",
@@ -469,6 +482,17 @@ export const zhCN: Translations = {
     clearAll: "清空全部对话",
     clearAllConfirm: "确定要删除当前账号下的全部对话吗？此操作不可撤销。",
     clearAllSuccess: "已清空全部对话",
+    emptyTitle: "还没有对话",
+    emptyDescription: "从一个新对话开始，之后这里会沉淀你的历史记录。",
+    emptyAction: "开始新对话",
+    emptyPageTitle: "这一页没有对话",
+    emptyPageDescription: "你已经翻到了没有记录的页码，可以返回更新的一页继续查看。",
+    noResultsTitle: "没有匹配的对话",
+    noResultsDescription: "试试其他标题关键词，或清空当前筛选条件。",
+    pageLabel: (page: number, totalPages: number, totalThreads: number) =>
+      `第 ${page} / ${totalPages} 页 · 共 ${totalThreads} 个对话`,
+    newerPage: "更新的",
+    olderPage: "更早的",
   },
 
   // Auth
@@ -483,7 +507,7 @@ export const zhCN: Translations = {
     badge: "v2.0 认证",
     signInTab: "登录",
     registerTab: "注册",
-    accountLabel: "账号",
+    accountLabel: "账号或邮箱",
     emailLabel: "邮箱",
     passwordLabel: "密码",
     nameLabel: "名称",
@@ -502,6 +526,7 @@ export const zhCN: Translations = {
     createAccountLink: "立即注册",
     alreadyHaveAccount: "已有账号？",
     signInLink: "去登录",
+    restoringSession: "正在恢复你的工作区...",
     passwordMismatchError: "两次输入的密码不一致。",
     passwordTooShortError: "密码至少需要 8 个字符。",
     loginFailed: "登录失败",

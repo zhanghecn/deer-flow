@@ -63,7 +63,7 @@ function NavMenuButtonContent({
     <div className="border-sidebar-border/60 bg-sidebar-accent/35 flex w-full items-center gap-2 rounded-lg border p-1.5 text-left">
       <Avatar className="size-8 rounded-lg">
         <AvatarImage src={avatarURL ?? undefined} alt={displayName} />
-        <AvatarFallback className="rounded-lg bg-cyan-200/85 text-xs font-semibold text-cyan-950">
+        <AvatarFallback className="rounded-lg bg-primary/15 text-xs font-semibold text-primary">
           {initials}
         </AvatarFallback>
       </Avatar>
@@ -81,7 +81,7 @@ function NavMenuButtonContent({
     <div className="flex size-full items-center justify-center">
       <Avatar className="size-7 rounded-md">
         <AvatarImage src={avatarURL ?? undefined} alt={displayName} />
-        <AvatarFallback className="rounded-md bg-cyan-200/85 text-[10px] font-semibold text-cyan-950">
+        <AvatarFallback className="rounded-md bg-primary/15 text-[10px] font-semibold text-primary">
           {initials}
         </AvatarFallback>
       </Avatar>
@@ -129,7 +129,7 @@ export function WorkspaceNavMenu() {
           defaultSection={settingsDefaultSection}
         />
       )}
-      <SidebarMenu className="w-full">
+      <SidebarMenu className="w-full px-2 pb-2">
         <SidebarMenuItem>
           {mounted ? (
             <DropdownMenu>
@@ -164,14 +164,11 @@ export function WorkspaceNavMenu() {
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onClick={() => {
-                      // Update the tab title before route transition so the previous
-                      // chat title does not leak for a frame when jumping into the
-                      // dedicated API key management page from the user menu.
                       document.title = `${t.workspace.apiKeys} - ${t.pages.appName}`;
                       void navigate("/workspace/keys");
                     }}
                   >
-                    <KeyRoundIcon />
+                    <KeyRoundIcon className="size-4" />
                     {t.workspace.apiKeys}
                   </DropdownMenuItem>
                   <DropdownMenuItem
@@ -180,7 +177,7 @@ export function WorkspaceNavMenu() {
                       setSettingsOpen(true);
                     }}
                   >
-                    <Settings2Icon />
+                    <Settings2Icon className="size-4" />
                     {t.common.settings}
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
@@ -189,7 +186,7 @@ export function WorkspaceNavMenu() {
                   className="text-destructive focus:text-destructive"
                   onClick={handleLogout}
                 >
-                  <LogOutIcon />
+                  <LogOutIcon className="size-4" />
                   {t.common.logout}
                 </DropdownMenuItem>
               </DropdownMenuContent>

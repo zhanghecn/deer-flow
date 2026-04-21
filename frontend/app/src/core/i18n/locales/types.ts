@@ -138,6 +138,12 @@ export interface Translations {
     newAgent: string;
     emptyTitle: string;
     emptyDescription: string;
+    gallerySummary: (
+      total: number,
+      published: number,
+      draft: number,
+    ) => string;
+    galleryEmptySearchDescription: string;
     chat: string;
     copyUrl: string;
     delete: string;
@@ -285,6 +291,12 @@ export interface Translations {
     modelPlaceholder: string;
     namePlaceholder: string;
     descriptionPlaceholder: string;
+    supportedFormatsHint: string;
+    unsupportedFilesSelected: (count: number) => string;
+    selectedFileCount: (count: number) => string;
+    rejectedFileCount: (count: number) => string;
+    uploadNextStepThread: string;
+    uploadNextStepLibrary: string;
     managerTitle: string;
     managerDescription: string;
     managerTitleGlobal: string;
@@ -302,6 +314,7 @@ export interface Translations {
     readyCount: (count: number) => string;
     activeCount: (count: number) => string;
     attachedBaseCount: (count: number) => string;
+    viewDetails: string;
     backToChat: string;
     backToAgents: string;
     visibilityShared: string;
@@ -389,6 +402,16 @@ export interface Translations {
     clearAll: string;
     clearAllConfirm: string;
     clearAllSuccess: string;
+    emptyTitle: string;
+    emptyDescription: string;
+    emptyAction: string;
+    emptyPageTitle: string;
+    emptyPageDescription: string;
+    noResultsTitle: string;
+    noResultsDescription: string;
+    pageLabel: (page: number, totalPages: number, totalThreads: number) => string;
+    newerPage: string;
+    olderPage: string;
   };
 
   // Auth
@@ -421,6 +444,7 @@ export interface Translations {
     createAccountLink: string;
     alreadyHaveAccount: string;
     signInLink: string;
+    restoringSession: string;
     passwordMismatchError: string;
     passwordTooShortError: string;
     loginFailed: string;

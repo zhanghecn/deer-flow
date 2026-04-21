@@ -37,44 +37,54 @@ export function WorkspaceHeader({ className }: { className?: string }) {
 
   return (
     <>
+      {/* Clean header — no glass effects, just subtle separation */}
       <div
         className={cn(
-          "group/workspace-header dark:glass flex h-12 flex-col justify-center",
-          // Light mode: clean flat header, no glass
+          "flex h-12 flex-col justify-center",
           className,
         )}
       >
         {state === "collapsed" ? (
-          <div className="group-has-data-[collapsible=icon]/sidebar-wrapper:-translate-y flex w-full cursor-pointer items-center justify-center">
-            <div className="text-foreground dark:text-primary block pt-1 font-serif group-hover/workspace-header:hidden">
+          <div className="flex w-full cursor-pointer items-center justify-center">
+            <div className="text-foreground block pt-1 font-serif group-hover/workspace-header:hidden">
               {APP_INITIALS}
             </div>
             <SidebarTrigger className="hidden pl-2 group-hover/workspace-header:block" />
           </div>
         ) : (
           <div className="flex flex-col gap-1">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center justify-between gap-2 px-2">
               {env.VITE_STATIC_WEBSITE_ONLY === "true" ? (
                 <Link
                   to="/"
-                  className="text-foreground dark:text-primary dark:text-glow ml-2 font-serif"
+                  className="text-foreground ml-1 font-serif text-sm tracking-tight hover:opacity-80 transition-opacity"
                 >
                   {APP_NAME}
                 </Link>
               ) : (
-                <div className="text-foreground dark:text-primary dark:text-glow ml-2 cursor-default font-serif">
+                <div className="text-foreground ml-1 cursor-default font-serif text-sm tracking-tight">
                   {APP_NAME}
                 </div>
               )}
-              <SidebarTrigger />
+              <SidebarTrigger className="h-7 w-7" />
             </div>
           </div>
         )}
       </div>
-      <SidebarMenu>
+      {/* "New Chat" promoted to a clear primary action within the sidebar */}
+      <SidebarMenu className="px-2 py-1">
         <SidebarMenuItem>
-          <SidebarMenuButton isActive={pathname.endsWith("/chats/new")} asChild>
-            <Link className="text-muted-foreground" to={newChatPath}>
+          <SidebarMenuButton
+            isActive={pathname.endsWith("/chats/new")}
+            asChild
+            className={cn(
+              "h-9 rounded-md transition-colors",
+              pathname.endsWith("/chats/new")
+                ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                : "text-foreground hover:bg-accent",
+            )}
+          >
+            <Link className="gap-2 font-medium" to={newChatPath}>
               <MessageSquarePlus size={16} />
               <span>{t.sidebar.newChat}</span>
             </Link>

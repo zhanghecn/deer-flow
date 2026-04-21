@@ -11,7 +11,8 @@ export default function HomePage() {
       <Header />
       <main className="relative overflow-x-hidden">
         <Hero />
-        <div className="relative z-10 space-y-24 pb-24">
+        {/* Calmer section spacing — more breathing room */}
+        <div className="relative z-10 space-y-32 pb-32">
           <WhatsNewSection />
           <SkillsSection />
           <SandboxSection />

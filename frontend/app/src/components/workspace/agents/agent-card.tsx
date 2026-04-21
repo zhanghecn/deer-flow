@@ -108,22 +108,23 @@ export function AgentCard({ agent }: AgentCardProps) {
 
   return (
     <>
-      <article className="group flex flex-col rounded-lg border bg-background transition-all hover:shadow-md hover:border-border/80">
+      {/* Card — minimal shadow, calmer hover, tighter spacing */}
+      <article className="group flex flex-col rounded-lg border bg-background transition-colors hover:border-border hover:bg-accent/30">
         {/* Header */}
         <div className="flex items-start gap-3 p-4 pb-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary/15 to-primary/5 text-primary">
-            <BotIcon className="h-5 w-5" />
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+            <BotIcon className="h-4 w-4" />
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <h3 className="truncate text-sm font-semibold">{agent.name}</h3>
               {agent.name === "lead_agent" && (
-                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
                   {t.agents.coreBadge}
                 </Badge>
               )}
               {!agent.canManage && (
-                <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">
                   {t.agents.readOnlyBadge}
                 </Badge>
               )}
@@ -134,42 +135,42 @@ export function AgentCard({ agent }: AgentCardProps) {
           </div>
         </div>
 
-        {/* Status pills */}
+        {/* Status pills — smaller, calmer */}
         <div className="flex flex-wrap items-center gap-1.5 px-4 pb-3">
           {hasDraftArchive && (
-            <span className="inline-flex items-center rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+            <span className="inline-flex items-center rounded-full bg-amber-500/8 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
               {t.agents.draftBadge}
             </span>
           )}
           {hasPublishedArchive && (
-            <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+            <span className="inline-flex items-center rounded-full bg-emerald-500/8 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
               {t.agents.publishedBadge}
             </span>
           )}
-          <span className="text-muted-foreground text-[10px]">
+          <span className="text-muted-foreground/70 text-[10px]">
             {availability === "publishedReady"
               ? t.agents.publishedReady
               : availability === "draftOnly"
                 ? t.agents.draftOnly
                 : t.agents.publishedOnly}
           </span>
-          <span className="text-muted-foreground/40">·</span>
-          <span className="text-muted-foreground text-[10px]">
+          <span className="text-muted-foreground/30">·</span>
+          <span className="text-muted-foreground/70 text-[10px]">
             {defaultTarget === "draft"
               ? t.agents.defaultDraft
               : t.agents.defaultPublished}
           </span>
         </div>
 
-        {/* Actions */}
-        <div className="mt-auto border-t px-4 py-3">
-          <div className="flex items-center gap-2">
-            <Button size="sm" className="flex-1" onClick={handleChat}>
-              <MessageSquareIcon className="mr-1.5 h-3.5 w-3.5" />
+        {/* Actions — primary chat button stands out, secondary actions are ghost */}
+        <div className="mt-auto border-t px-4 py-2.5">
+          <div className="flex items-center gap-1.5">
+            <Button size="sm" className="flex-1 h-8 text-xs" onClick={handleChat}>
+              <MessageSquareIcon className="mr-1 h-3.5 w-3.5" />
               {t.agents.startChatting}
             </Button>
             {agent.canManage && (
-              <Button size="sm" variant="ghost" onClick={handleOpenSettings}>
+              <Button size="sm" variant="ghost" className="h-8 w-8 p-0" onClick={handleOpenSettings}>
                 <Settings2Icon className="h-4 w-4" />
               </Button>
             )}
@@ -177,6 +178,7 @@ export function AgentCard({ agent }: AgentCardProps) {
               <Button
                 size="sm"
                 variant="ghost"
+                className="h-8 w-8 p-0"
                 onClick={handlePublish}
                 disabled={publishAgentMutation.isPending}
               >
@@ -187,7 +189,7 @@ export function AgentCard({ agent }: AgentCardProps) {
               <Button
                 size="sm"
                 variant="ghost"
-                className="text-muted-foreground hover:text-destructive"
+                className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
                 onClick={() => setDeleteOpen(true)}
               >
                 <Trash2Icon className="h-4 w-4" />
@@ -198,9 +200,9 @@ export function AgentCard({ agent }: AgentCardProps) {
       </article>
 
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <DialogContent>
+        <DialogContent className="gap-4">
           <DialogHeader>
-            <DialogTitle>{t.agents.deleteArchiveTitle(agent.name)}</DialogTitle>
+            <DialogTitle className="text-base">{t.agents.deleteArchiveTitle(agent.name)}</DialogTitle>
             <DialogDescription>
               {t.agents.deleteArchiveDescription(agent.name)}
             </DialogDescription>
@@ -209,6 +211,7 @@ export function AgentCard({ agent }: AgentCardProps) {
             {hasDraftArchive && (
               <Button
                 variant="destructive"
+                size="sm"
                 onClick={() => void handleDelete("dev")}
                 disabled={pendingDeleteTarget != null}
               >
@@ -221,6 +224,7 @@ export function AgentCard({ agent }: AgentCardProps) {
             {hasPublishedArchive && (
               <Button
                 variant="destructive"
+                size="sm"
                 onClick={() => void handleDelete("prod")}
                 disabled={pendingDeleteTarget != null}
               >
@@ -233,6 +237,7 @@ export function AgentCard({ agent }: AgentCardProps) {
             {hasDraftArchive && hasPublishedArchive && (
               <Button
                 variant="destructive"
+                size="sm"
                 onClick={() => void handleDelete("all")}
                 disabled={pendingDeleteTarget != null}
               >
@@ -245,6 +250,7 @@ export function AgentCard({ agent }: AgentCardProps) {
           </div>
           <Button
             variant="outline"
+            size="sm"
             onClick={() => setDeleteOpen(false)}
             disabled={pendingDeleteTarget != null}
           >

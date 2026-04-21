@@ -156,10 +156,6 @@ export default function NewChatClient() {
       return;
     }
 
-    // Knowledge bindings and thread-scoped knowledge uploads are persisted
-    // against a backend thread record. New-chat routes only start with a local
-    // draft ID, so knowledge actions must materialize that draft thread before
-    // they can safely define retrieval scope for the first run.
     const promise = getAPIClient(
       isMock,
       draftThreadId,
@@ -308,32 +304,35 @@ export default function NewChatClient() {
   return (
     <PromptInputProvider initialInput={inputInitialValue}>
       <div className="relative flex size-full min-h-0 justify-between">
-        <main className="flex min-h-0 max-w-full grow flex-col">
+        <main className="flex min-h-0 max-w-full grow flex-col items-center">
+          {/* Agent switcher — positioned top-right, compact */}
           <div className="absolute top-4 right-4 z-30">
             <AgentSwitcherDialog selection={runtimeSelection} compact />
           </div>
-          <div className="pointer-events-none absolute right-0 bottom-0 left-0 z-30 flex justify-center px-4">
-            <div className="pointer-events-auto relative w-full max-w-(--container-width-sm) -translate-y-[calc(50vh-96px)]">
+
+          {/* Centered content: welcome above, input below */}
+          <div className="flex w-full max-w-(--container-width-sm) flex-1 flex-col items-center justify-center px-4 pb-8">
+            <div className="w-full">
+              <Welcome mode={runtimeContext.mode} />
+            </div>
+
+            {/* Input box anchored near bottom-center */}
+            <div className="relative mt-8 w-full">
               <InputBox
-                className={cn("bg-background/5 w-full -translate-y-4")}
+                className={cn("w-full")}
                 threadId={draftThreadId}
                 isNewThread
                 autoFocus
                 status="ready"
                 context={runtimeContext}
                 initialValue={inputInitialValue}
-                extraHeader={
-                  <div className="mx-auto w-full max-w-(--container-width-md) px-2">
-                    <Welcome mode={runtimeContext.mode} />
-                  </div>
-                }
                 disabled={env.VITE_STATIC_WEBSITE_ONLY === "true"}
                 onContextChange={(context) => setSettings("context", context)}
                 ensureThreadExists={ensureDraftThreadExists}
                 onSubmit={handleSubmit}
               />
               {env.VITE_STATIC_WEBSITE_ONLY === "true" && (
-                <div className="text-muted-foreground/67 w-full translate-y-12 text-center text-xs">
+                <div className="text-muted-foreground/50 mt-3 w-full text-center text-xs">
                   {t.common.notAvailableInDemoMode}
                 </div>
               )}

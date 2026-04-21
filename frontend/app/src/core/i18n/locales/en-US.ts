@@ -194,6 +194,9 @@ export const enUS: Translations = {
     emptyTitle: "No custom agents yet",
     emptyDescription:
       "Create your first custom agent with a specialized system prompt.",
+    gallerySummary: (total, published, draft) =>
+      `${total} agents · ${published} published · ${draft} drafts`,
+    galleryEmptySearchDescription: "Try a different name or keyword.",
     chat: "Chat",
     copyUrl: "Copy URL",
     delete: "Delete",
@@ -369,6 +372,18 @@ export const enUS: Translations = {
     modelPlaceholder: "Select a model",
     namePlaceholder: "Knowledge base name",
     descriptionPlaceholder: "Optional description for the agent",
+    supportedFormatsHint:
+      "Supported formats: PDF, DOC, DOCX, MD, and Markdown.",
+    unsupportedFilesSelected: (count: number) =>
+      `${count} selected file${count === 1 ? " is" : "s are"} not supported for knowledge indexing.`,
+    selectedFileCount: (count: number) =>
+      `${count} file${count === 1 ? "" : "s"} ready to upload`,
+    rejectedFileCount: (count: number) =>
+      `${count} file${count === 1 ? "" : "s"} rejected`,
+    uploadNextStepThread:
+      "After upload, use the attached knowledge section in chat to open details and monitor indexing.",
+    uploadNextStepLibrary:
+      "After upload, open the knowledge library entry to monitor indexing progress and inspect the parsed result.",
     managerTitle: "Knowledge Library",
     managerDescription:
       "Browse shared knowledge by owner, inspect build progress, and review the stored PageTree index and canonical text.",
@@ -393,6 +408,7 @@ export const enUS: Translations = {
     activeCount: (count: number) => `${count} active`,
     attachedBaseCount: (count: number) =>
       `${count} attached base${count === 1 ? "" : "s"}`,
+    viewDetails: "View details",
     backToChat: "Back to chat",
     backToAgents: "Back to agents",
     visibilityShared: "Shared",
@@ -492,6 +508,20 @@ export const enUS: Translations = {
     clearAllConfirm:
       "Are you sure you want to delete all of your chats? This action cannot be undone.",
     clearAllSuccess: "All chats deleted",
+    emptyTitle: "No chats yet",
+    emptyDescription:
+      "Start a new conversation to build your history and return here later.",
+    emptyAction: "Start a new chat",
+    emptyPageTitle: "No chats on this page",
+    emptyPageDescription:
+      "You've reached a page without any saved conversations. Go back to a newer page to keep browsing.",
+    noResultsTitle: "No chats match this search",
+    noResultsDescription:
+      "Try a different title keyword or clear the current filter.",
+    pageLabel: (page: number, totalPages: number, totalThreads: number) =>
+      `Page ${page} of ${totalPages} · ${totalThreads} chats`,
+    newerPage: "Newer",
+    olderPage: "Older",
   },
 
   // Auth
@@ -507,7 +537,7 @@ export const enUS: Translations = {
     badge: "v2.0 Auth",
     signInTab: "Sign in",
     registerTab: "Register",
-    accountLabel: "Account",
+    accountLabel: "Account or email",
     emailLabel: "Email",
     passwordLabel: "Password",
     nameLabel: "Name",
@@ -526,6 +556,7 @@ export const enUS: Translations = {
     createAccountLink: "Create an account",
     alreadyHaveAccount: "Already have an account?",
     signInLink: "Sign in",
+    restoringSession: "Restoring your workspace...",
     passwordMismatchError: "Passwords do not match.",
     passwordTooShortError: "Password must be at least 8 characters.",
     loginFailed: "Login failed",

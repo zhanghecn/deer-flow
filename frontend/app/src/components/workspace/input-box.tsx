@@ -38,7 +38,6 @@ import {
   usePromptInputAttachments,
   type PromptInputMessage,
 } from "@/components/ai-elements/prompt-input";
-import { ConfettiButton } from "@/components/ui/confetti-button";
 import {
   DropdownMenuGroup,
   DropdownMenuLabel,
@@ -449,9 +448,7 @@ export function InputBox({
     });
   }, [context, onContextChange, subagentEnabled]);
 
-  const buildSurfaceContext = useCallback(():
-    | SurfaceContextPayload
-    | undefined => {
+  const buildSurfaceContext = useCallback((): SurfaceContextPayload | undefined => {
     if (designSelection && designSelection.selected_node_ids.length > 0) {
       return {
         surface: "design",
@@ -485,9 +482,7 @@ export function InputBox({
     selectedArtifact,
   ]);
 
-  const buildSelectionContext = useCallback(():
-    | DesignSelectionContext
-    | undefined => {
+  const buildSelectionContext = useCallback((): DesignSelectionContext | undefined => {
     if (!designSelection || designSelection.selected_node_ids.length === 0) {
       return undefined;
     }
@@ -698,7 +693,10 @@ export function InputBox({
   return (
     <PromptInput
       className={cn(
-        "border-border bg-background dark:glass dark:border-primary/20 dark:bg-background/85 rounded-2xl border transition-all duration-300 ease-out *:data-[slot='input-group']:rounded-2xl dark:backdrop-blur-sm",
+        /* Cleaner border: stronger in light, subtle in dark. No glass/blur overload. */
+        "border-border bg-background rounded-xl border shadow-sm transition-all duration-200 ease-out *:data-[slot='input-group']:rounded-xl",
+        "dark:border-white/10 dark:bg-[#0c1220]/80",
+        "focus-within:border-ring focus-within:shadow-md focus-within:ring-1 focus-within:ring-ring/20",
         className,
       )}
       disabled={disabled}
@@ -730,32 +728,28 @@ export function InputBox({
       </PromptInputAttachments>
       <PromptInputBody className="absolute top-0 right-0 left-0 z-3">
         <PromptInputTextarea
-          className={cn("dark:placeholder:text-primary/30 size-full")}
+          className={cn(
+            "size-full placeholder:text-muted-foreground/50",
+            "dark:placeholder:text-white/20",
+          )}
           disabled={disabled}
           placeholder={t.inputBox.placeholder}
           autoFocus={autoFocus}
           onKeyDown={handleTextareaKeyDown}
         />
       </PromptInputBody>
-      <PromptInputFooter className="flex">
-        <PromptInputTools>
-          {/* TODO: Add more connectors here
-          <PromptInputActionMenu>
-            <PromptInputActionMenuTrigger className="px-2!" />
-            <PromptInputActionMenuContent>
-              <PromptInputActionAddAttachments
-                label={t.inputBox.addAttachments}
-              />
-            </PromptInputActionMenuContent>
-          </PromptInputActionMenu> */}
-          <AddAttachmentsButton className="px-2!" />
+      {/* Footer — clear left/right separation: secondary tools | primary submit */}
+      <PromptInputFooter className="flex items-center px-2 py-1.5">
+        <PromptInputTools className="gap-0.5">
+          {/* Secondary controls: smaller, ghost style, muted colors */}
+          <AddAttachmentsButton className="h-7 w-7 p-0 text-muted-foreground/70 hover:text-foreground" />
           <Tooltip content={t.knowledge.uploadButton}>
             <PromptInputButton
-              className="px-2!"
+              className="h-7 w-7 p-0 text-muted-foreground/70 hover:text-foreground"
               disabled={disabled}
               onClick={() => setKnowledgeUploadOpen(true)}
             >
-              <UploadIcon className="size-3" />
+              <UploadIcon className="size-3.5" />
             </PromptInputButton>
           </Tooltip>
           <KnowledgeSelectorDialog
@@ -769,10 +763,10 @@ export function InputBox({
             <PromptInputButton
               aria-pressed={subagentEnabled}
               className={cn(
-                "gap-1 px-2! text-xs font-normal",
+                "h-7 gap-1 px-2 text-[11px] font-normal",
                 subagentEnabled
-                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                  : "text-muted-foreground",
+                  ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20"
+                  : "text-muted-foreground/60 hover:text-foreground",
               )}
               onClick={handleSubagentToggle}
             >
@@ -780,25 +774,19 @@ export function InputBox({
               <span>{t.inputBox.subagentToggle}</span>
             </PromptInputButton>
           </Tooltip>
+          {/* Mode selector — compact, minimal */}
           <PromptInputActionMenu>
             <ModeHoverGuide mode={displayedMode}>
-              <PromptInputActionMenuTrigger className="gap-1! px-2!">
-                <div>
-                  <selectedModeOption.icon
-                    className={cn(
-                      "size-3",
-                      displayedMode === "pro" && "text-[#dabb5e]",
-                    )}
-                  />
-                </div>
-                <div
-                  className={cn(
-                    "text-xs font-normal",
-                    displayedMode === "pro" ? "golden-text" : "",
-                  )}
-                >
-                  {selectedModeOption.label}
-                </div>
+              <PromptInputActionMenuTrigger
+                className={cn(
+                  "h-7 gap-1 px-2 text-[11px] font-normal",
+                  displayedMode === "pro"
+                    ? "text-amber-600 dark:text-amber-400"
+                    : "text-muted-foreground/60 hover:text-foreground",
+                )}
+              >
+                <selectedModeOption.icon className="size-3" />
+                <span>{selectedModeOption.label}</span>
               </PromptInputActionMenuTrigger>
             </ModeHoverGuide>
             <PromptInputActionMenuContent className="w-80">
@@ -835,14 +823,15 @@ export function InputBox({
             </div>
           </PromptInputTools>
         )}
-        <PromptInputTools>
+        <PromptInputTools className="gap-1">
+          {/* Model selector — small, muted, right side */}
           <ModelSelector
             open={modelDialogOpen}
             onOpenChange={setModelDialogOpen}
           >
             <ModelSelectorTrigger asChild>
-              <PromptInputButton>
-                <ModelSelectorName className="text-xs font-normal">
+              <PromptInputButton className="h-7 px-2 text-[11px] text-muted-foreground/60 hover:text-foreground">
+                <ModelSelectorName className="font-normal">
                   {selectedModel?.display_name}
                 </ModelSelectorName>
               </PromptInputButton>
@@ -867,19 +856,25 @@ export function InputBox({
               </ModelSelectorList>
             </ModelSelectorContent>
           </ModelSelector>
+          {/* Submit button — primary visual anchor, filled style */}
           <PromptInputSubmit
             aria-label={submitButtonLabel}
             title={submitButtonLabel}
-            className={cn("rounded-full", status === "streaming" && "px-3")}
+            className={cn(
+              "h-8 w-8 rounded-lg",
+              status === "streaming"
+                ? "px-3 w-auto gap-1.5"
+                : "bg-primary text-primary-foreground hover:bg-primary/90 border-0",
+            )}
             disabled={disabled}
             size={status === "streaming" ? "sm" : "icon-sm"}
-            variant={status === "streaming" ? "default" : "outline"}
+            variant={status === "streaming" ? "default" : "default"}
             status={status}
           >
             {status === "streaming" ? (
               <>
-                <SquareIcon className="size-4" />
-                <span>{submitButtonLabel}</span>
+                <SquareIcon className="size-3.5" />
+                <span className="text-xs">{submitButtonLabel}</span>
               </>
             ) : undefined}
           </PromptInputSubmit>
@@ -896,8 +891,9 @@ export function InputBox({
           />
         </div>
       )}
+      {/* Suggestions — tighter, calmer, below the input */}
       {isNewThread && searchParams.get("mode") !== "skill" && (
-        <div className="absolute right-0 -bottom-20 left-0 z-0 flex items-center justify-center">
+        <div className="absolute right-0 -bottom-14 left-0 z-0 flex items-center justify-center">
           <SuggestionList
             onInsertPrompt={applyInputText}
             onSubmitPrompt={submitPromptText}
@@ -944,17 +940,17 @@ function SuggestionList({
     [onInsertPrompt, onSubmitPrompt],
   );
   return (
-    <Suggestions className="min-h-16 w-fit items-start">
-      <ConfettiButton
-        className="text-muted-foreground cursor-pointer rounded-full px-4 text-xs font-normal"
-        variant="outline"
-        size="sm"
+    /* Tighter, more compact suggestion row */
+    <Suggestions className="min-h-10 w-fit items-center gap-1.5">
+      <button
+        className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-muted-foreground/25 px-3 py-1 text-xs text-muted-foreground/70 transition-colors hover:border-muted-foreground/40 hover:text-foreground"
         onClick={() =>
           handleSuggestionClick(t.inputBox.surpriseMePrompt, { submit: true })
         }
       >
-        <SparklesIcon className="size-4" /> {t.inputBox.surpriseMe}
-      </ConfettiButton>
+        <SparklesIcon className="size-3" />
+        {t.inputBox.surpriseMe}
+      </button>
       {t.inputBox.suggestions.map((suggestion) => (
         <Suggestion
           key={suggestion.suggestion}
@@ -965,9 +961,12 @@ function SuggestionList({
       ))}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Suggestion icon={PlusIcon} suggestion={t.common.create} />
+          <button className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-muted-foreground/25 px-3 py-1 text-xs text-muted-foreground/70 transition-colors hover:border-muted-foreground/40 hover:text-foreground">
+            <PlusIcon className="size-3" />
+            {t.common.create}
+          </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start">
+        <DropdownMenuContent align="start" className="text-sm">
           <DropdownMenuGroup>
             {t.inputBox.suggestionsCreate.map((suggestion, index) =>
               "type" in suggestion && suggestion.type === "separator" ? (
@@ -978,7 +977,7 @@ function SuggestionList({
                     key={suggestion.suggestion}
                     onClick={() => handleSuggestionClick(suggestion.prompt)}
                   >
-                    {suggestion.icon && <suggestion.icon className="size-4" />}
+                    {suggestion.icon && <suggestion.icon className="size-3.5 mr-1.5" />}
                     {suggestion.suggestion}
                   </DropdownMenuItem>
                 )
@@ -997,10 +996,10 @@ function AddAttachmentsButton({ className }: { className?: string }) {
   return (
     <Tooltip content={t.inputBox.addAttachments}>
       <PromptInputButton
-        className={cn("px-2!", className)}
+        className={cn(className)}
         onClick={() => attachments.openFileDialog()}
       >
-        <PaperclipIcon className="size-3" />
+        <PaperclipIcon className="size-3.5" />
       </PromptInputButton>
     </Tooltip>
   );

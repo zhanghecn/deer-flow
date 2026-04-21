@@ -331,9 +331,9 @@ export function KnowledgeSelectorDialog({
         size="sm"
         disabled={disabled}
         className={cn(
-          "border-border/70 bg-background/70 hover:bg-background/85 gap-2 rounded-full px-3 shadow-sm",
+          "border-border bg-background hover:bg-accent/40 gap-2 rounded-md px-3 shadow-sm",
           selectedCount > 0 &&
-            "border-primary/30 bg-primary/6 text-foreground hover:bg-primary/10",
+            "border-primary/30 bg-primary/5 text-foreground hover:bg-primary/10",
         )}
         onClick={() => setOpen(true)}
       >
@@ -346,18 +346,18 @@ export function KnowledgeSelectorDialog({
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="border-border/70 bg-background/95 flex max-h-[min(92vh,860px)] flex-col overflow-hidden p-0 sm:max-w-4xl">
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.1),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.08),transparent_28%)]" />
+        <DialogContent className="border-border bg-background flex max-h-[min(92vh,860px)] flex-col overflow-hidden p-0 sm:max-w-4xl">
+          <div className="pointer-events-none absolute inset-0 bg-muted/30" />
 
           <div className="relative flex min-h-0 flex-1 flex-col">
-            <DialogHeader className="border-border/60 border-b px-6 py-6">
+            <DialogHeader className="border-border border-b px-6 py-6">
               <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                 <div className="space-y-3">
                   <div className={sectionLabelClassName}>
                     {t.knowledge.sectionTitle}
                   </div>
                   <div className="space-y-2">
-                    <DialogTitle className="font-serif text-2xl font-semibold tracking-tight md:text-3xl">
+                    <DialogTitle className="text-2xl font-semibold tracking-tight md:text-3xl">
                       {t.knowledge.selector.title}
                     </DialogTitle>
                     <DialogDescription className="max-w-2xl text-sm leading-7">
@@ -367,16 +367,16 @@ export function KnowledgeSelectorDialog({
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="border-border/70 bg-background/75 flex items-center gap-3 rounded-[20px] border px-4 py-3 shadow-sm">
-                    <div className="bg-primary/10 text-primary flex size-10 items-center justify-center rounded-2xl">
+                  <div className="border-border bg-background flex items-center gap-3 rounded-lg border px-4 py-3">
+                    <div className="bg-primary/10 text-primary flex size-10 items-center justify-center rounded-lg">
                       <FilesIcon className="size-4" />
                     </div>
                     <div className="text-sm font-medium">
                       {t.knowledge.documentCount(totalDocumentCount)}
                     </div>
                   </div>
-                  <div className="border-border/70 bg-background/75 flex items-center gap-3 rounded-[20px] border px-4 py-3 shadow-sm">
-                    <div className="bg-primary/10 text-primary flex size-10 items-center justify-center rounded-2xl">
+                  <div className="border-border bg-background flex items-center gap-3 rounded-lg border px-4 py-3">
+                    <div className="bg-primary/10 text-primary flex size-10 items-center justify-center rounded-lg">
                       <CheckCircle2Icon className="size-4" />
                     </div>
                     <div className="text-sm font-medium">
@@ -403,7 +403,7 @@ export function KnowledgeSelectorDialog({
                   <CommandGroup
                     key={group.ownerName}
                     heading={group.ownerName}
-                    className="border-border/60 bg-background/55 mb-4 rounded-[22px] border p-2 last:mb-0 [&_[cmdk-group-heading]]:flex [&_[cmdk-group-heading]]:items-center [&_[cmdk-group-heading]]:gap-2 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:tracking-[0.2em] [&_[cmdk-group-heading]]:uppercase"
+                    className="border-border bg-background mb-4 rounded-lg border p-2 last:mb-0 [&_[cmdk-group-heading]]:flex [&_[cmdk-group-heading]]:items-center [&_[cmdk-group-heading]]:gap-2 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:tracking-[0.2em] [&_[cmdk-group-heading]]:uppercase"
                   >
                     {group.bases.map((base) => {
                       const selected = draftBaseIds.includes(base.knowledgeBaseId);
@@ -428,16 +428,16 @@ export function KnowledgeSelectorDialog({
                             // persisted knowledge-base selection. Keep that
                             // focus state neutral so it cannot masquerade as a
                             // checked attachment.
-                            "mb-2 cursor-pointer rounded-[18px] border border-transparent bg-transparent px-3 py-3 last:mb-0",
+                            "mb-2 cursor-pointer rounded-lg border border-transparent bg-transparent px-3 py-3 last:mb-0",
                             selected
-                              ? "border-primary/30 bg-primary/6 data-[selected=true]:border-primary/30 data-[selected=true]:bg-primary/10"
-                              : "hover:bg-background/90 data-[selected=true]:border-border/60 data-[selected=true]:bg-background/85",
+                              ? "border-primary/30 bg-primary/5 data-[selected=true]:border-primary/30 data-[selected=true]:bg-primary/10"
+                              : "hover:bg-accent/40 data-[selected=true]:border-border data-[selected=true]:bg-accent/40",
                           )}
                         >
                           <div className="flex min-w-0 flex-1 items-start gap-3">
                             <div
                               className={cn(
-                                "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border",
+                                "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border",
                                 selected
                                   ? "border-primary bg-primary text-primary-foreground"
                                   : "border-border bg-background",
@@ -454,7 +454,7 @@ export function KnowledgeSelectorDialog({
                                   {base.knowledgeBaseName}
                                 </div>
                                 {base.attachedToThread ? (
-                                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                                  <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
                                     <BookOpenTextIcon className="size-3" />
                                     {t.knowledge.attached}
                                   </span>
@@ -496,7 +496,7 @@ export function KnowledgeSelectorDialog({
               </CommandList>
             </Command>
 
-            <DialogFooter className="border-border/60 flex shrink-0 items-center justify-between border-t px-6 py-4">
+            <DialogFooter className="border-border flex shrink-0 items-center justify-between border-t px-6 py-4">
               <div className="text-muted-foreground flex items-center gap-2 text-xs">
                 <BookOpenTextIcon className="size-4" />
                 <span>
@@ -506,7 +506,7 @@ export function KnowledgeSelectorDialog({
               <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
-                  className="rounded-full"
+                  className="rounded-md"
                   onClick={() => setOpen(false)}
                 >
                   {t.common.cancel}
@@ -514,7 +514,7 @@ export function KnowledgeSelectorDialog({
                 <Button
                   onClick={handleApply}
                   disabled={applying}
-                  className="rounded-full"
+                  className="rounded-md"
                 >
                   {applying ? (
                     <LoaderIcon className="mr-2 size-4 animate-spin" />

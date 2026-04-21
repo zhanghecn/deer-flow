@@ -1,12 +1,8 @@
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { useI18n } from "@/core/i18n/hooks";
 import { cn } from "@/lib/utils";
-
-import { AuroraText } from "../ui/aurora-text";
-
-let waved = false;
 
 export function Welcome({
   className,
@@ -18,38 +14,37 @@ export function Welcome({
   const { t } = useI18n();
   const [searchParams] = useSearchParams();
   const isPro = useMemo(() => mode === "pro", [mode]);
-  const colors = useMemo(() => {
-    if (isPro) {
-      return ["#efefbb", "#e9c665", "#e3a812"];
-    }
-    return ["var(--color-foreground)"];
-  }, [isPro]);
-  useEffect(() => {
-    waved = true;
-  }, []);
+
   return (
     <div
       className={cn(
-        "mx-auto flex w-full flex-col items-center justify-center gap-2 px-8 py-4 text-center",
+        "mx-auto flex w-full flex-col items-center justify-center gap-2 px-6 py-6 text-center",
         className,
       )}
     >
-      <div className="text-2xl font-bold text-foreground dark:text-primary dark:text-glow">
+      <div className="text-2xl font-semibold tracking-tight text-foreground">
         {searchParams.get("mode") === "skill" ? (
-          `✨ ${t.welcome.createYourOwnSkill} ✨`
+          t.welcome.createYourOwnSkill
         ) : (
-          <div className="flex items-center gap-2">
-            <div className={cn("inline-block", !waved ? "animate-wave" : "")}>
-              {isPro ? "🚀" : "👋"}
-            </div>
-            <AuroraText colors={colors}>{t.welcome.greeting}</AuroraText>
-          </div>
+          <span className="inline-flex items-center gap-2">
+            <span>{isPro ? "🚀" : "👋"}</span>
+            {/* Solid color text replaces animated aurora for calmer hierarchy */}
+            <span
+              className={cn(
+                isPro
+                  ? "text-amber-500 dark:text-amber-400"
+                  : "text-foreground dark:text-foreground/90",
+              )}
+            >
+              {t.welcome.greeting}
+            </span>
+          </span>
         )}
       </div>
       {searchParams.get("mode") === "skill" ? (
-        <div className="text-muted-foreground text-sm">
+        <div className="text-muted-foreground max-w-md text-sm leading-relaxed">
           {t.welcome.createYourOwnSkillDescription.includes("\n") ? (
-            <pre className="font-sans whitespace-pre">
+            <pre className="font-sans whitespace-pre-wrap">
               {t.welcome.createYourOwnSkillDescription}
             </pre>
           ) : (
@@ -57,9 +52,11 @@ export function Welcome({
           )}
         </div>
       ) : (
-        <div className="text-muted-foreground text-sm dark:text-muted-foreground/80">
+        <div className="text-muted-foreground max-w-lg text-sm leading-relaxed">
           {t.welcome.description.includes("\n") ? (
-            <pre className="whitespace-pre">{t.welcome.description}</pre>
+            <pre className="font-sans whitespace-pre-wrap">
+              {t.welcome.description}
+            </pre>
           ) : (
             <p>{t.welcome.description}</p>
           )}
