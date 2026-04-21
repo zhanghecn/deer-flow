@@ -5,10 +5,10 @@ import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { PromptInputProvider } from "@/components/ai-elements/prompt-input";
 import { Toaster } from "@/components/ui/sonner";
 import { ArtifactsProvider } from "@/components/workspace/artifacts/context";
-import { useAuth } from "@/core/auth/hooks";
 import { SubtasksProvider } from "@/core/tasks/context";
 
 // Lazy-load heavy page components
+const HomePage = lazy(() => import("@/app/page"));
 const LoginPage = lazy(() => import("@/app/login/page"));
 const RegisterPage = lazy(() => import("@/app/register/page"));
 const AgentPublicDocsPage = lazy(
@@ -81,8 +81,12 @@ function PageSuspense({ children }: { children: React.ReactNode }) {
   return (
     <Suspense
       fallback={
-        <div className="text-muted-foreground flex h-full items-center justify-center text-sm">
-          Loading...
+        // Unified loading state — minimal spinner, no decorative noise
+        <div className="flex h-full items-center justify-center">
+          <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+            <span>Loading...</span>
+          </div>
         </div>
       }
     >
@@ -91,21 +95,20 @@ function PageSuspense({ children }: { children: React.ReactNode }) {
   );
 }
 
-function RootEntryRoute() {
-  const { authenticated, ready } = useAuth();
-
-  if (!ready) {
-    return null;
-  }
-
-  return <Navigate to={authenticated ? "/workspace" : "/login"} replace />;
-}
-
 export function AppRoutes() {
   return (
     <PageSuspense>
       <Routes>
-        <Route path="/" element={<RootEntryRoute />} />
+        {/* Keep the public landing page reachable so first-time users can
+            understand the product before the auth flow takes over. */}
+        <Route
+          path="/"
+          element={
+            <PageSuspense>
+              <HomePage />
+            </PageSuspense>
+          }
+        />
         <Route
           path="/login"
           element={

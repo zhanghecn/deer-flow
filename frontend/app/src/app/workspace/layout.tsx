@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { useNavigate, Outlet } from "react-router-dom";
 import { Toaster } from "sonner";
 
+import { AuthLoadingScreen } from "@/components/auth/auth-loading-screen";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { WorkspaceSidebar } from "@/components/workspace/workspace-sidebar";
 import { useAuth } from "@/core/auth/hooks";
@@ -44,16 +45,20 @@ export default function WorkspaceLayout() {
     <QueryClientProvider client={queryClient}>
       {/* The sidebar header and chat surfaces both read workspace-dock state. */}
       <WorkspaceSurfaceProvider>
-        <SidebarProvider
-          className="h-screen"
-          open={open}
-          onOpenChange={handleOpenChange}
-        >
-          <WorkspaceSidebar />
-          <SidebarInset className="min-w-0">
-            {ready && authenticated ? <Outlet /> : null}
-          </SidebarInset>
-        </SidebarProvider>
+        {ready && authenticated ? (
+          <SidebarProvider
+            className="h-screen"
+            open={open}
+            onOpenChange={handleOpenChange}
+          >
+            <WorkspaceSidebar />
+            <SidebarInset className="min-w-0">
+              <Outlet />
+            </SidebarInset>
+          </SidebarProvider>
+        ) : (
+          <AuthLoadingScreen />
+        )}
       </WorkspaceSurfaceProvider>
       <Toaster position="top-center" />
     </QueryClientProvider>

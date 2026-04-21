@@ -2,6 +2,7 @@ import {
   ArrowRightIcon,
   CheckCircle2Icon,
   LockKeyholeIcon,
+  Loader2Icon,
   UserRoundPlusIcon,
 } from "lucide-react";
 import { lazy, type FormEvent, useEffect, useState } from "react";
@@ -20,7 +21,6 @@ type AuthTab = "login" | "register";
 const FlickeringGrid = lazy(
   () => import("@/components/ui/flickering-grid").then((m) => ({ default: m.FlickeringGrid })),
 );
-const Galaxy = lazy(() => import("@/components/ui/galaxy"));
 
 export function AuthScreen() {
   const navigate = useNavigate();
@@ -54,8 +54,7 @@ export function AuthScreen() {
   }, []);
 
   useEffect(() => {
-    // Defer heavy canvas/WebGL effects so the auth form hydrates and becomes
-    // interactive before decorative visuals start consuming the main thread.
+    // Defer decorative visuals until form is interactive
     const timer = window.setTimeout(() => {
       setShowVisualEffects(true);
     }, 300);
@@ -113,107 +112,111 @@ export function AuthScreen() {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#04060b] text-white">
+      {/* Reduced-intensity background — single subtle gradient, no heavy canvas */}
       {showVisualEffects ? (
-        <>
-          <div className="pointer-events-none absolute inset-0 z-0 bg-black/30">
-            <Galaxy
-              mouseRepulsion={false}
-              starSpeed={0.15}
-              density={0.45}
-              glowIntensity={0.25}
-              twinkleIntensity={0.28}
-              speed={0.45}
-            />
-          </div>
-          <FlickeringGrid
-            className="pointer-events-none absolute inset-0 z-0 opacity-30"
-            squareSize={4}
-            gridGap={5}
-            color="#00D1FF"
-            maxOpacity={0.22}
-            flickerChance={0.22}
-          />
-        </>
+        <FlickeringGrid
+          className="pointer-events-none absolute inset-0 z-0 opacity-[0.04]"
+          squareSize={4}
+          gridGap={5}
+          color="#ffffff"
+          maxOpacity={0.15}
+          flickerChance={0.15}
+        />
       ) : null}
-      <div className="absolute inset-0 z-0 bg-[radial-gradient(120%_120%_at_80%_0%,rgba(109,141,255,0.24)_0%,rgba(4,6,11,0)_55%),radial-gradient(120%_120%_at_0%_100%,rgba(25,211,178,0.2)_0%,rgba(4,6,11,0)_48%)]" />
+      <div className="absolute inset-0 z-0 bg-[radial-gradient(120%_120%_at_80%_0%,rgba(60,80,120,0.12)_0%,rgba(4,6,11,0)_55%)]" />
 
-      <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-6xl items-center px-4 py-10 sm:px-6 lg:px-8">
-        <div className="grid w-full gap-6 lg:grid-cols-[1.05fr_0.95fr]">
-          <section className="hidden rounded-3xl border border-white/15 bg-black/35 p-8 backdrop-blur-md lg:flex lg:flex-col lg:justify-between">
+      <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-5xl items-center px-4 py-10 sm:px-6 lg:px-8">
+        <div className="grid w-full gap-8 lg:grid-cols-[1fr_1fr]">
+          {/* Left: Brand panel — calmer, more trustworthy */}
+          <section className="hidden flex-col justify-between lg:flex">
             <div>
-              <p className="inline-flex items-center gap-2 rounded-full border border-cyan-300/30 bg-cyan-300/10 px-3 py-1 text-xs font-medium tracking-[0.18em] text-cyan-100 uppercase">
-                {APP_NAME}
-              </p>
-              <h1 className="mt-6 text-4xl leading-tight font-semibold text-white">
+              <Link to="/" className="inline-block">
+                <span className="font-serif text-2xl tracking-tight text-white/90">
+                  {APP_NAME}
+                </span>
+              </Link>
+              <h1 className="mt-8 text-3xl leading-tight font-semibold tracking-tight text-white/90">
                 {t.auth.heroTitle}
               </h1>
-              <p className="mt-5 max-w-lg text-base leading-relaxed text-white/70">
+              <p className="mt-4 max-w-md text-sm leading-relaxed text-white/50">
                 {t.auth.heroDescription}
               </p>
             </div>
 
-            <ul className="space-y-4 text-sm text-white/80">
+            {/* Feature list — tighter, calmer */}
+            <ul className="space-y-3 text-sm text-white/60">
               {[
                 t.auth.heroFeatureThreads,
                 t.auth.heroFeatureSkills,
                 t.auth.heroFeatureJwt,
               ].map((item) => (
-                <li key={item} className="flex items-start gap-3">
-                  <CheckCircle2Icon className="mt-0.5 size-4 shrink-0 text-cyan-200" />
+                <li key={item} className="flex items-start gap-2.5">
+                  <CheckCircle2Icon className="mt-0.5 size-4 shrink-0 text-white/30" />
                   <span>{item}</span>
                 </li>
               ))}
             </ul>
           </section>
 
-          <section className="rounded-3xl border border-white/15 bg-[#0d1322]/82 p-6 shadow-[0_24px_80px_rgba(3,8,18,0.65)] backdrop-blur-md sm:p-8 dark:glass dark:glow-cyan">
-            <div className="mb-8 flex items-start justify-between gap-4">
+          {/* Right: Form panel — elevated but not glowing */}
+          <section className="rounded-xl border border-white/8 bg-[#0a0f1a]/90 p-6 shadow-2xl shadow-black/40 backdrop-blur-md sm:p-8">
+            {/* Mobile brand header */}
+            <div className="mb-8 flex items-start justify-between gap-4 lg:hidden">
               <div>
                 <Link
                   to="/"
-                  className="text-3xl font-semibold tracking-tight"
+                  className="text-2xl font-semibold tracking-tight text-white/90"
                 >
                   {APP_NAME}
                 </Link>
-                <p className="mt-2 text-sm text-white/60">
+                <p className="mt-1 text-sm text-white/50">
                   {t.auth.panelSubtitle}
                 </p>
               </div>
-              <span className="rounded-full border border-emerald-300/30 bg-emerald-300/10 px-3 py-1 text-xs font-medium text-emerald-100">
+            </div>
+
+            {/* Desktop form header */}
+            <div className="mb-6 hidden items-center justify-between lg:flex">
+              <p className="text-sm text-white/50">
+                {t.auth.panelSubtitle}
+              </p>
+              <span className="rounded-full border border-white/8 bg-white/5 px-2.5 py-0.5 text-[10px] font-medium tracking-wider text-white/40 uppercase">
                 {t.auth.badge}
               </span>
             </div>
 
             <Tabs value={activeTab} onValueChange={updateTab}>
-              <TabsList className="grid h-11 w-full grid-cols-2 rounded-xl bg-white/5 p-1">
+              <TabsList className="grid h-10 w-full grid-cols-2 rounded-lg bg-white/5 p-1">
                 <TabsTrigger
                   value="login"
                   disabled={!authControlsReady}
                   className={cn(
-                    "h-9 rounded-lg text-white/70",
-                    "data-[state=active]:border-white/20 data-[state=active]:bg-white/10 data-[state=active]:text-white",
+                    "h-8 rounded-md text-sm text-white/50 transition-colors",
+                    "data-[state=active]:bg-white/10 data-[state=active]:text-white data-[state=active]:shadow-none",
                   )}
                 >
-                  <LockKeyholeIcon className="size-4" />
+                  <LockKeyholeIcon className="mr-1.5 size-3.5" />
                   {t.auth.signInTab}
                 </TabsTrigger>
                 <TabsTrigger
                   value="register"
                   disabled={!authControlsReady}
                   className={cn(
-                    "h-9 rounded-lg text-white/70",
-                    "data-[state=active]:border-white/20 data-[state=active]:bg-white/10 data-[state=active]:text-white",
+                    "h-8 rounded-md text-sm text-white/50 transition-colors",
+                    "data-[state=active]:bg-white/10 data-[state=active]:text-white data-[state=active]:shadow-none",
                   )}
                 >
-                  <UserRoundPlusIcon className="size-4" />
+                  <UserRoundPlusIcon className="mr-1.5 size-3.5" />
                   {t.auth.registerTab}
                 </TabsTrigger>
               </TabsList>
 
-              <TabsContent value="login" className="mt-6">
+              <TabsContent value="login" className="mt-5">
                 <form onSubmit={handleLoginSubmit} className="space-y-4">
                   {loginError && (
-                    <div className="rounded-lg border border-red-300/30 bg-red-300/10 px-3 py-2 text-sm text-red-100">
+                    /* Clearer error — more contrast, structured */
+                    <div className="flex items-start gap-2 rounded-md border border-red-400/20 bg-red-400/8 px-3 py-2.5 text-sm text-red-300">
+                      <span className="mt-0.5 size-1.5 shrink-0 rounded-full bg-red-400" />
                       {loginError}
                     </div>
                   )}
@@ -221,7 +224,7 @@ export function AuthScreen() {
                   <div>
                     <label
                       htmlFor="login-account"
-                      className="mb-2 block text-sm text-white/75"
+                      className="mb-1.5 block text-xs font-medium text-white/60"
                     >
                       {t.auth.accountLabel}
                     </label>
@@ -230,18 +233,18 @@ export function AuthScreen() {
                       type="text"
                       autoComplete="username"
                       required
-                      disabled={!authControlsReady}
+                      disabled={!authControlsReady || isLoginLoading}
                       value={loginAccount}
                       onChange={(e) => setLoginAccount(e.target.value)}
-                      placeholder="admin"
-                      className="h-11 rounded-lg border-white/20 bg-white/5 text-white placeholder:text-white/40 focus-visible:border-white/35 focus-visible:ring-white/20"
+                      placeholder={t.auth.loginEmailPlaceholder}
+                      className="h-10 rounded-md border-white/10 bg-white/[0.03] text-sm text-white placeholder:text-white/25 focus-visible:border-white/25 focus-visible:ring-white/10"
                     />
                   </div>
 
                   <div>
                     <label
                       htmlFor="login-password"
-                      className="mb-2 block text-sm text-white/75"
+                      className="mb-1.5 block text-xs font-medium text-white/60"
                     >
                       {t.auth.passwordLabel}
                     </label>
@@ -250,41 +253,46 @@ export function AuthScreen() {
                       type="password"
                       autoComplete="current-password"
                       required
-                      disabled={!authControlsReady}
+                      disabled={!authControlsReady || isLoginLoading}
                       value={loginPassword}
                       onChange={(e) => setLoginPassword(e.target.value)}
                       placeholder={t.auth.loginPasswordPlaceholder}
-                      className="h-11 rounded-lg border-white/20 bg-white/5 text-white placeholder:text-white/40 focus-visible:border-white/35 focus-visible:ring-white/20"
+                      className="h-10 rounded-md border-white/10 bg-white/[0.03] text-sm text-white placeholder:text-white/25 focus-visible:border-white/25 focus-visible:ring-white/10"
                     />
                   </div>
 
                   <Button
                     type="submit"
                     disabled={!authControlsReady || isLoginLoading}
-                    className="mt-2 h-11 w-full rounded-lg bg-white text-black hover:bg-white/90"
+                    className="mt-1 h-10 w-full rounded-md bg-white text-sm font-medium text-black hover:bg-white/90"
                   >
+                    {isLoginLoading ? (
+                      <Loader2Icon className="mr-2 size-4 animate-spin" />
+                    ) : (
+                      <ArrowRightIcon className="mr-2 size-4" />
+                    )}
                     {isLoginLoading ? t.auth.signingIn : t.auth.signInAction}
-                    <ArrowRightIcon className="size-4" />
                   </Button>
                 </form>
 
-                <p className="mt-4 text-center text-sm text-white/60">
+                <p className="mt-4 text-center text-sm text-white/40">
                   {t.auth.newHere}{" "}
                   <button
                     type="button"
-                    disabled={!authControlsReady}
+                    disabled={!authControlsReady || isLoginLoading}
                     onClick={() => updateTab("register")}
-                    className="cursor-pointer font-medium text-cyan-200 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="cursor-pointer font-medium text-white/70 hover:text-white transition-colors disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {t.auth.createAccountLink}
                   </button>
                 </p>
               </TabsContent>
 
-              <TabsContent value="register" className="mt-6">
+              <TabsContent value="register" className="mt-5">
                 <form onSubmit={handleRegisterSubmit} className="space-y-4">
                   {registerError && (
-                    <div className="rounded-lg border border-red-300/30 bg-red-300/10 px-3 py-2 text-sm text-red-100">
+                    <div className="flex items-start gap-2 rounded-md border border-red-400/20 bg-red-400/8 px-3 py-2.5 text-sm text-red-300">
+                      <span className="mt-0.5 size-1.5 shrink-0 rounded-full bg-red-400" />
                       {registerError}
                     </div>
                   )}
@@ -292,7 +300,7 @@ export function AuthScreen() {
                   <div>
                     <label
                       htmlFor="register-name"
-                      className="mb-2 block text-sm text-white/75"
+                      className="mb-1.5 block text-xs font-medium text-white/60"
                     >
                       {t.auth.nameLabel}
                     </label>
@@ -301,18 +309,18 @@ export function AuthScreen() {
                       type="text"
                       autoComplete="name"
                       required
-                      disabled={!authControlsReady}
+                      disabled={!authControlsReady || isRegisterLoading}
                       value={registerName}
                       onChange={(e) => setRegisterName(e.target.value)}
                       placeholder={t.auth.registerNamePlaceholder}
-                      className="h-11 rounded-lg border-white/20 bg-white/5 text-white placeholder:text-white/40 focus-visible:border-white/35 focus-visible:ring-white/20"
+                      className="h-10 rounded-md border-white/10 bg-white/[0.03] text-sm text-white placeholder:text-white/25 focus-visible:border-white/25 focus-visible:ring-white/10"
                     />
                   </div>
 
                   <div>
                     <label
                       htmlFor="register-email"
-                      className="mb-2 block text-sm text-white/75"
+                      className="mb-1.5 block text-xs font-medium text-white/60"
                     >
                       {t.auth.emailLabel}
                     </label>
@@ -321,18 +329,18 @@ export function AuthScreen() {
                       type="email"
                       autoComplete="email"
                       required
-                      disabled={!authControlsReady}
+                      disabled={!authControlsReady || isRegisterLoading}
                       value={registerEmail}
                       onChange={(e) => setRegisterEmail(e.target.value)}
                       placeholder={t.auth.registerEmailPlaceholder}
-                      className="h-11 rounded-lg border-white/20 bg-white/5 text-white placeholder:text-white/40 focus-visible:border-white/35 focus-visible:ring-white/20"
+                      className="h-10 rounded-md border-white/10 bg-white/[0.03] text-sm text-white placeholder:text-white/25 focus-visible:border-white/25 focus-visible:ring-white/10"
                     />
                   </div>
 
                   <div>
                     <label
                       htmlFor="register-password"
-                      className="mb-2 block text-sm text-white/75"
+                      className="mb-1.5 block text-xs font-medium text-white/60"
                     >
                       {t.auth.passwordLabel}
                     </label>
@@ -341,18 +349,18 @@ export function AuthScreen() {
                       type="password"
                       autoComplete="new-password"
                       required
-                      disabled={!authControlsReady}
+                      disabled={!authControlsReady || isRegisterLoading}
                       value={registerPassword}
                       onChange={(e) => setRegisterPassword(e.target.value)}
                       placeholder={t.auth.registerPasswordPlaceholder}
-                      className="h-11 rounded-lg border-white/20 bg-white/5 text-white placeholder:text-white/40 focus-visible:border-white/35 focus-visible:ring-white/20"
+                      className="h-10 rounded-md border-white/10 bg-white/[0.03] text-sm text-white placeholder:text-white/25 focus-visible:border-white/25 focus-visible:ring-white/10"
                     />
                   </div>
 
                   <div>
                     <label
                       htmlFor="confirm-password"
-                      className="mb-2 block text-sm text-white/75"
+                      className="mb-1.5 block text-xs font-medium text-white/60"
                     >
                       {t.auth.confirmPasswordLabel}
                     </label>
@@ -361,33 +369,37 @@ export function AuthScreen() {
                       type="password"
                       autoComplete="new-password"
                       required
-                      disabled={!authControlsReady}
+                      disabled={!authControlsReady || isRegisterLoading}
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
                       placeholder={t.auth.confirmPasswordPlaceholder}
-                      className="h-11 rounded-lg border-white/20 bg-white/5 text-white placeholder:text-white/40 focus-visible:border-white/35 focus-visible:ring-white/20"
+                      className="h-10 rounded-md border-white/10 bg-white/[0.03] text-sm text-white placeholder:text-white/25 focus-visible:border-white/25 focus-visible:ring-white/10"
                     />
                   </div>
 
                   <Button
                     type="submit"
                     disabled={!authControlsReady || isRegisterLoading}
-                    className="mt-2 h-11 w-full rounded-lg bg-cyan-300 text-[#041422] hover:bg-cyan-200"
+                    className="mt-1 h-10 w-full rounded-md bg-white text-sm font-medium text-black hover:bg-white/90"
                   >
+                    {isRegisterLoading ? (
+                      <Loader2Icon className="mr-2 size-4 animate-spin" />
+                    ) : (
+                      <ArrowRightIcon className="mr-2 size-4" />
+                    )}
                     {isRegisterLoading
                       ? t.auth.creatingAccount
                       : t.auth.createAccountAction}
-                    <ArrowRightIcon className="size-4" />
                   </Button>
                 </form>
 
-                <p className="mt-4 text-center text-sm text-white/60">
+                <p className="mt-4 text-center text-sm text-white/40">
                   {t.auth.alreadyHaveAccount}{" "}
                   <button
                     type="button"
-                    disabled={!authControlsReady}
+                    disabled={!authControlsReady || isRegisterLoading}
                     onClick={() => updateTab("login")}
-                    className="cursor-pointer font-medium text-cyan-200 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="cursor-pointer font-medium text-white/70 hover:text-white transition-colors disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {t.auth.signInLink}
                   </button>
