@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import {
   BotIcon,
   CheckIcon,
@@ -13,13 +14,16 @@ import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  type AgentSkillRef,
-  type AgentStatus,
-  type ToolCatalogItem,
-} from "@/core/agents";
 import {
   createSkillRef,
   isSkillRefSelected,
@@ -28,10 +32,18 @@ import {
   skillRefKey,
 } from "@/components/workspace/agent-skill-refs";
 import { resolveEffectiveToolNames } from "@/components/workspace/agent-tool-selection";
-import type { MCPProfile } from "@/core/mcp/types";
+import {
+  type AgentSkillRef,
+  type AgentStatus,
+  type ToolCatalogItem,
+} from "@/core/agents";
+import { discoverMCPProfiles } from "@/core/mcp/api";
+import type {
+  MCPProfile,
+  MCPProfileDiscoveryResult,
+} from "@/core/mcp/types";
 import type { Model } from "@/core/models/types";
 import { getLocalizedSkillDescription } from "@/core/skills";
-import type { Skill } from "@/core/skills/type";
 import {
   DEFAULT_SKILL_SCOPE,
   filterSkillsByScope,
@@ -41,6 +53,7 @@ import {
   normalizeSkillScope,
   type SkillScope,
 } from "@/core/skills/scope";
+import type { Skill } from "@/core/skills/type";
 import { cn } from "@/lib/utils";
 
 import type { AgentSettingsPageText } from "./i18n";
@@ -873,14 +886,14 @@ function SubagentsSection({
 function SubagentCard({
   subagent,
   index,
-  subagentToolOptions,
-  mainToolOptions,
-  toolCatalogLoading,
-  toolCatalogError,
+  subagentToolOptions: _subagentToolOptions,
+  mainToolOptions: _mainToolOptions,
+  toolCatalogLoading: _toolCatalogLoading,
+  toolCatalogError: _toolCatalogError,
   models,
   modelsLoading,
   modelsError,
-  form,
+  form: _form,
   text,
   onFormChange,
 }: {
@@ -1043,6 +1056,10 @@ function MCPSection({
     updater: (prev: AgentSettingsFormState) => AgentSettingsFormState | null,
   ) => void;
 }) {
+  const selectedProfileRefs = form.mcpServers;
+  const [inspectedProfileRef, setInspectedProfileRef] = useState<string | null>(
+    null,
+  );
   const filteredProfiles = useMemo(() => {
     const query = mcpProfileQuery.trim().toLowerCase();
     if (!query) return mcpProfiles;
@@ -1058,6 +1075,87 @@ function MCPSection({
         .includes(query),
     );
   }, [mcpProfileQuery, mcpProfiles]);
+
+  const selectedProfiles = useMemo(() => {
+    const profileByRef = new Map(
+      mcpProfiles.map((profile) => [profile.source_path ?? profile.name, profile]),
+    );
+
+    // Preserve the persisted selection order so the discovery panel mirrors the
+    // exact MCP stack the operator attached to the agent.
+    return selectedProfileRefs.map((ref) => {
+      const profile = profileByRef.get(ref);
+      if (!profile) {
+        return {
+          ref,
+          profile_name: ref,
+          source_path: ref,
+          server_name: null,
+          category: undefined,
+          config_json: {},
+          missing: true,
+        };
+      }
+      return {
+        ref,
+        profile_name: profile.name,
+        source_path: profile.source_path ?? ref,
+        server_name: profile.server_name,
+        category: profile.category,
+        config_json: profile.config_json,
+        missing: false,
+      };
+    });
+  }, [mcpProfiles, selectedProfileRefs]);
+
+  const discoverableProfiles = useMemo(
+    () => selectedProfiles.filter((profile) => !profile.missing),
+    [selectedProfiles],
+  );
+
+  const {
+    data: discoveredProfiles,
+    isLoading: discoveryLoading,
+    isFetching: discoveryFetching,
+    error: discoveryError,
+    refetch: refetchDiscovery,
+  } = useQuery({
+    queryKey: [
+      "mcpProfileDiscovery",
+      discoverableProfiles.map((profile) => ({
+        ref: profile.ref,
+        profile_name: profile.profile_name,
+        config_json: profile.config_json,
+      })),
+    ],
+    enabled: discoverableProfiles.length > 0,
+    refetchOnWindowFocus: false,
+    queryFn: () =>
+      discoverMCPProfiles(
+        discoverableProfiles.map((profile) => ({
+          ref: profile.ref,
+          profile_name: profile.profile_name,
+          config_json: profile.config_json,
+        })),
+      ),
+  });
+
+  const discoveredProfileMap = useMemo(
+    () =>
+      new Map(
+        (discoveredProfiles ?? []).map((profile) => [profile.ref, profile]),
+      ),
+    [discoveredProfiles],
+  );
+  const inspectedProfile = useMemo(
+    () =>
+      selectedProfiles.find((profile) => profile.ref === inspectedProfileRef) ??
+      null,
+    [inspectedProfileRef, selectedProfiles],
+  );
+  const inspectedDiscovery = inspectedProfile
+    ? discoveredProfileMap.get(inspectedProfile.ref)
+    : undefined;
 
   return (
     <SectionCard
@@ -1146,6 +1244,252 @@ function MCPSection({
       <p className="text-muted-foreground text-xs leading-5">
         {text.mcpSelected(form.mcpServers.length)}
       </p>
+
+      <div className="space-y-2 rounded-3xl border border-border/70 bg-muted/15 p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <p className="text-sm font-medium">{text.selectedMcpTitle}</p>
+            <p className="text-muted-foreground text-xs leading-5">
+              {text.selectedMcpDescription}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0 rounded-full"
+            disabled={discoverableProfiles.length === 0 || discoveryFetching}
+            onClick={() => {
+              void refetchDiscovery();
+            }}
+          >
+            {discoveryFetching ? (
+              <>
+                <Loader2Icon className="mr-2 size-4 animate-spin" />
+                {text.scanningMcp}
+              </>
+            ) : discoveredProfiles ? (
+              text.refreshMcpScan
+            ) : (
+              text.scanSelectedMcp
+            )}
+          </Button>
+        </div>
+
+        {selectedProfiles.length === 0 ? (
+          <p className="text-muted-foreground text-sm">{text.noSelectedMcp}</p>
+        ) : discoveryLoading ? (
+          <div className="text-muted-foreground flex items-center gap-2 text-sm">
+            <Loader2Icon className="size-4 animate-spin" />
+            {text.scanningMcp}
+          </div>
+        ) : discoveryError ? (
+          <p className="text-destructive text-sm">
+            {discoveryError instanceof Error
+              ? discoveryError.message
+              : text.loadMcpFailed}
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {selectedProfiles.map((profile) => {
+              const discovery = discoveredProfileMap.get(profile.ref);
+              return (
+                <SelectedMCPProfileCard
+                  key={profile.ref}
+                  profile={profile}
+                  discovery={discovery}
+                  text={text}
+                  onInspect={() => setInspectedProfileRef(profile.ref)}
+                />
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <MCPToolsSheet
+        open={inspectedProfile != null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setInspectedProfileRef(null);
+          }
+        }}
+        profile={inspectedProfile}
+        discovery={inspectedDiscovery}
+        text={text}
+      />
     </SectionCard>
+  );
+}
+
+type SelectedMCPProfile = {
+  ref: string;
+  profile_name: string;
+  source_path: string;
+  server_name: string | null;
+  category?: string;
+  missing: boolean;
+};
+
+function isProfileReachable(
+  profile: Pick<SelectedMCPProfile, "missing">,
+  discovery?: MCPProfileDiscoveryResult,
+): boolean {
+  return !profile.missing && (discovery?.reachable ?? false);
+}
+
+function SelectedMCPProfileCard({
+  profile,
+  discovery,
+  text,
+  onInspect,
+}: {
+  profile: SelectedMCPProfile;
+  discovery?: MCPProfileDiscoveryResult;
+  text: AgentSettingsPageText;
+  onInspect: () => void;
+}) {
+  const reachable = isProfileReachable(profile, discovery);
+
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-border/70 bg-background/80 px-3 py-2">
+      <span
+        className={cn(
+          "mt-px size-2 shrink-0 rounded-full",
+          reachable ? "bg-emerald-500" : "bg-muted-foreground/40",
+        )}
+      />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium leading-5 truncate">
+          {profile.profile_name || text.mcpUnknownProfile}
+        </p>
+        <p className="text-muted-foreground truncate text-[11px] leading-4">
+          {profile.server_name ?? discovery?.server_name ?? profile.ref}
+          {profile.category ? ` · ${profile.category}` : ""}
+          {" · "}
+          <code>{profile.source_path}</code>
+        </p>
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5">
+        {typeof discovery?.latency_ms === "number" ? (
+          <span className="text-muted-foreground tabular-nums text-[11px]">
+            {text.mcpLatency(discovery.latency_ms)}
+          </span>
+        ) : null}
+        <Badge variant="outline" className="px-1.5 text-[10px]">
+          {text.mcpToolCount(discovery?.tool_count ?? 0)}
+        </Badge>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1 text-xs"
+          onClick={onInspect}
+        >
+          {text.mcpViewTools}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function MCPToolsSheet({
+  open,
+  onOpenChange,
+  profile,
+  discovery,
+  text,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  profile: SelectedMCPProfile | null;
+  discovery?: MCPProfileDiscoveryResult;
+  text: AgentSettingsPageText;
+}) {
+  const reachable = profile ? isProfileReachable(profile, discovery) : false;
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="sm:max-w-2xl gap-0 overflow-hidden">
+        <SheetHeader className="shrink-0 border-b border-border/70 px-6 py-5">
+          <SheetTitle className="text-base">
+            {profile?.profile_name ?? text.mcpUnknownProfile}
+          </SheetTitle>
+          <SheetDescription>{text.mcpDialogDescription}</SheetDescription>
+        </SheetHeader>
+
+        {profile && (
+          <div className="flex shrink-0 items-center gap-2 border-b border-border/70 px-6 py-2.5">
+            <span
+              className={cn(
+                "size-2 shrink-0 rounded-full",
+                reachable ? "bg-emerald-500" : "bg-muted-foreground/40",
+              )}
+            />
+            <p className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
+              {profile.server_name ?? discovery?.server_name ?? profile.ref}
+              {profile.category ? ` · ${profile.category}` : ""}
+            </p>
+            <code className="text-muted-foreground shrink-0 text-[11px]">
+              {profile.source_path}
+            </code>
+            {typeof discovery?.latency_ms === "number" ? (
+              <Badge variant="outline" className="px-1.5 text-[10px]">
+                {text.mcpLatency(discovery.latency_ms)}
+              </Badge>
+            ) : null}
+            <Badge variant="outline" className="px-1.5 text-[10px]">
+              {text.mcpToolCount(discovery?.tool_count ?? 0)}
+            </Badge>
+          </div>
+        )}
+
+        <div className="min-h-0 flex-1">
+          <ScrollArea className="h-full">
+            <div className="space-y-4 px-6 py-5">
+              {profile?.missing ? (
+                <p className="text-destructive text-sm">{text.mcpProfileMissing}</p>
+              ) : discovery?.error ? (
+                <p className="text-destructive text-sm">{discovery.error}</p>
+              ) : discovery && discovery.tools.length > 0 ? (
+                <div className="space-y-3">
+                  <p className="text-muted-foreground text-[11px] font-medium tracking-[0.14em] uppercase">
+                    {text.mcpAvailableTools}
+                  </p>
+                  {discovery.tools.map((tool) => (
+                    <div
+                      key={`${profile?.ref ?? "unknown"}:${tool.name}`}
+                      className="space-y-2 rounded-xl border border-border/70 bg-background/90 p-4"
+                    >
+                      <Badge
+                        variant="secondary"
+                        className="rounded-full px-2.5 text-xs"
+                      >
+                        {tool.name}
+                      </Badge>
+                      <p className="text-muted-foreground text-sm leading-6">
+                        {tool.description || text.mcpNoDescription}
+                      </p>
+                      <div className="space-y-1.5">
+                        <p className="text-muted-foreground text-[10px] font-medium tracking-[0.14em] uppercase">
+                          {text.mcpInputSchema}
+                        </p>
+                        <pre className="overflow-x-auto rounded-lg bg-slate-950/95 p-3 text-[11px] leading-5 text-slate-100">
+                          {JSON.stringify(tool.input_schema ?? {}, null, 2)}
+                        </pre>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : discovery ? (
+                <p className="text-muted-foreground text-sm">
+                  {text.mcpNoDiscoveredTools}
+                </p>
+              ) : null}
+            </div>
+          </ScrollArea>
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }

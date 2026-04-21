@@ -96,6 +96,24 @@ export type AgentSettingsPageText = {
   loadMcpFailed: string;
   noMcpProfiles: string;
   mcpSelected: (count: number) => string;
+  selectedMcpTitle: string;
+  selectedMcpDescription: string;
+  scanSelectedMcp: string;
+  refreshMcpScan: string;
+  scanningMcp: string;
+  noSelectedMcp: string;
+  mcpReachable: string;
+  mcpUnreachable: string;
+  mcpLatency: (latencyMs: number) => string;
+  mcpToolCount: (count: number) => string;
+  mcpNoDiscoveredTools: string;
+  mcpAvailableTools: string;
+  mcpInputSchema: string;
+  mcpUnknownProfile: string;
+  mcpProfileMissing: string;
+  mcpNoDescription: string;
+  mcpViewTools: string;
+  mcpDialogDescription: string;
   // Behavior tab
   promptTitle: string;
   promptDescription: string;
@@ -275,6 +293,26 @@ const enUS: AgentSettingsPageText = {
   loadMcpFailed: "Failed to load MCP profiles.",
   noMcpProfiles: "No MCP profiles found.",
   mcpSelected: (count) => `${count} server(s) selected`,
+  selectedMcpTitle: "Selected MCP servers",
+  selectedMcpDescription:
+    "The selected profiles are probed through the runtime so you can see the real tool surface before saving.",
+  scanSelectedMcp: "Scan selected MCP",
+  refreshMcpScan: "Refresh scan",
+  scanningMcp: "Scanning selected MCP profiles...",
+  noSelectedMcp: "Select at least one MCP profile to inspect its tools.",
+  mcpReachable: "reachable",
+  mcpUnreachable: "unreachable",
+  mcpLatency: (latencyMs) => `${latencyMs.toFixed(0)} ms`,
+  mcpToolCount: (count) => `${count} tool(s)`,
+  mcpNoDiscoveredTools: "No tools discovered from this MCP profile.",
+  mcpAvailableTools: "Available tools",
+  mcpInputSchema: "Input schema",
+  mcpUnknownProfile: "Unknown profile",
+  mcpProfileMissing: "This selected profile was not found in the current MCP library.",
+  mcpNoDescription: "No description provided by the MCP server.",
+  mcpViewTools: "View tools",
+  mcpDialogDescription:
+    "Inspect the tools and input schema exposed by this MCP profile without stretching the settings page.",
   promptTitle: "System Prompt",
   promptDescription:
     "Edit the agent's AGENTS.md system prompt in the full workbench.",
@@ -458,6 +496,26 @@ const zhCN: AgentSettingsPageText = {
   loadMcpFailed: "加载 MCP 配置失败。",
   noMcpProfiles: "未找到 MCP 配置。",
   mcpSelected: (count) => `已选择 ${count} 个服务器`,
+  selectedMcpTitle: "已选 MCP 服务器",
+  selectedMcpDescription:
+    "这里会通过运行时真实探测已选 profile，方便你在保存前确认 MCP 实际暴露了哪些工具。",
+  scanSelectedMcp: "扫描已选 MCP",
+  refreshMcpScan: "重新扫描",
+  scanningMcp: "正在扫描已选 MCP 配置...",
+  noSelectedMcp: "请至少选择一个 MCP 配置后再查看工具。",
+  mcpReachable: "可连接",
+  mcpUnreachable: "不可连接",
+  mcpLatency: (latencyMs) => `${latencyMs.toFixed(0)} 毫秒`,
+  mcpToolCount: (count) => `${count} 个工具`,
+  mcpNoDiscoveredTools: "当前 MCP 配置未发现任何工具。",
+  mcpAvailableTools: "可用工具",
+  mcpInputSchema: "输入 Schema",
+  mcpUnknownProfile: "未知配置",
+  mcpProfileMissing: "当前选中的 profile 不在 MCP 配置库中。",
+  mcpNoDescription: "MCP 服务器未提供描述。",
+  mcpViewTools: "查看工具",
+  mcpDialogDescription:
+    "在独立面板里查看这个 MCP profile 暴露的工具和输入 schema，避免设置页被内容撑长。",
   promptTitle: "系统提示词",
   promptDescription: "在完整工作区中编辑智能体的 AGENTS.md 系统提示词。",
   promptHint:
