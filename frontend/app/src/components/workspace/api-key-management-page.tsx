@@ -213,6 +213,7 @@ function InventoryFilterButton({
 export function APIKeyManagementPage() {
   const { locale, t } = useI18n();
   const { user } = useAuth();
+  const isAdmin = user?.role?.trim().toLowerCase() === "admin";
   const text = getAPIKeyManagementPageText(locale);
   const queryClient = useQueryClient();
   const createPanelRef = useRef<HTMLElement | null>(null);
@@ -237,17 +238,19 @@ export function APIKeyManagementPage() {
   });
   const { agents: prodAgents, isLoading: loadingAgents } = useAgents("prod");
 
-  const ownedProdAgents = useMemo(
+  const creatableProdAgents = useMemo(
     () =>
       prodAgents
         .filter(
           (agent) =>
+            // Admin self-service can issue keys against any published prod
+            // agent, while non-admin users stay limited to their own agents.
             agent.status === "prod" &&
-            agent.owner_user_id === user?.id &&
+            (isAdmin || agent.owner_user_id === user?.id) &&
             agent.name.trim().length > 0,
         )
         .sort((left, right) => left.name.localeCompare(right.name)),
-    [prodAgents, user?.id],
+    [isAdmin, prodAgents, user?.id],
   );
   const normalizedSearchQuery = useMemo(
     () => normalizeSearchValue(deferredSearchQuery),
@@ -255,20 +258,20 @@ export function APIKeyManagementPage() {
   );
 
   useEffect(() => {
-    if (ownedProdAgents.length === 0) {
+    if (creatableProdAgents.length === 0) {
       if (selectedCreateAgent) {
         setSelectedCreateAgent("");
       }
       return;
     }
 
-    if (!ownedProdAgents.some((agent) => agent.name === selectedCreateAgent)) {
-      const firstOwnedAgent = ownedProdAgents[0];
-      if (firstOwnedAgent) {
-        setSelectedCreateAgent(firstOwnedAgent.name);
+    if (!creatableProdAgents.some((agent) => agent.name === selectedCreateAgent)) {
+      const firstCreatableAgent = creatableProdAgents[0];
+      if (firstCreatableAgent) {
+        setSelectedCreateAgent(firstCreatableAgent.name);
       }
     }
-  }, [ownedProdAgents, selectedCreateAgent]);
+  }, [creatableProdAgents, selectedCreateAgent]);
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -522,7 +525,7 @@ export function APIKeyManagementPage() {
                   <div className="flex flex-wrap gap-2">
                     <Button
                       className="h-9 rounded-md bg-emerald-900 text-white hover:bg-emerald-800"
-                      disabled={ownedProdAgents.length === 0}
+                      disabled={creatableProdAgents.length === 0}
                       onClick={handleFocusCreateComposer}
                     >
                       <KeyRoundIcon className="size-4" />
@@ -549,7 +552,7 @@ export function APIKeyManagementPage() {
               <div className="grid gap-3 px-5 py-4 md:grid-cols-3">
                 <HeroMetric
                   label={text.summaryPublishedAgents}
-                  value={ownedProdAgents.length}
+                  value={creatableProdAgents.length}
                   description={text.summaryPublishedHint}
                 />
                 <HeroMetric
@@ -634,7 +637,7 @@ export function APIKeyManagementPage() {
                           <div className="rounded-md border border-[#ded6c9] bg-[#f7f3ec] px-3 py-2 text-sm text-slate-500">
                             {text.loadingAgents}
                           </div>
-                        ) : ownedProdAgents.length === 0 ? (
+                        ) : creatableProdAgents.length === 0 ? (
                           <div className="rounded-md border border-dashed border-[#d6c7b5] bg-[#f7f3ec] px-3 py-3 text-sm leading-6 text-slate-600">
                             {text.noOwnedPublishedAgents}
                           </div>
@@ -652,7 +655,7 @@ export function APIKeyManagementPage() {
                               />
                             </SelectTrigger>
                             <SelectContent>
-                              {ownedProdAgents.map((agent) => (
+                              {creatableProdAgents.map((agent) => (
                                 <SelectItem key={agent.name} value={agent.name}>
                                   {agent.name}
                                 </SelectItem>
@@ -697,7 +700,7 @@ export function APIKeyManagementPage() {
                         className="h-10 w-full rounded-md bg-emerald-900 text-white hover:bg-emerald-800"
                         disabled={
                           createMutation.isPending ||
-                          ownedProdAgents.length === 0
+                          creatableProdAgents.length === 0
                         }
                         onClick={() => createMutation.mutate()}
                       >

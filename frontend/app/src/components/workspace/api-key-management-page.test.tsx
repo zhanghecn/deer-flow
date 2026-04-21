@@ -52,6 +52,7 @@ const useAuthMock = vi.fn<
       id: string;
       email: string;
       name: string;
+      role?: string;
     };
   }
 >();
@@ -233,6 +234,7 @@ describe("APIKeyManagementPage", () => {
         id: "user-1",
         email: "reviewer@example.com",
         name: "Reviewer",
+        role: "user",
       },
     });
   });
@@ -318,5 +320,50 @@ describe("APIKeyManagementPage", () => {
       expect(screen.queryByText("fresh-reviewer-key")).not.toBeInTheDocument();
     });
     expect(screen.queryByText("Plaintext key ready")).not.toBeInTheDocument();
+  });
+
+  it("lets admin create keys for published agents owned by other users", async () => {
+    const user = userEvent.setup();
+
+    useAgentsMock.mockReturnValue({
+      agents: [
+        {
+          name: "foreign-reviewer",
+          status: "prod",
+          owner_user_id: "user-2",
+        },
+        {
+          name: "owned-reviewer",
+          status: "prod",
+          owner_user_id: "admin-1",
+        },
+      ],
+      isLoading: false,
+    });
+    useAuthMock.mockReturnValue({
+      user: {
+        id: "admin-1",
+        email: "admin@example.com",
+        name: "Admin",
+        role: "admin",
+      },
+    });
+
+    renderPage();
+
+    const createButton = await screen.findByRole("button", { name: "Create key" });
+    expect(createButton).toBeEnabled();
+
+    await user.type(screen.getByLabelText("Key name"), "admin-foreign-key");
+    await user.click(createButton);
+
+    await waitFor(() => {
+      expect(createAPITokenMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "admin-foreign-key",
+          allowed_agents: ["foreign-reviewer"],
+        }),
+      );
+    });
   });
 });

@@ -232,3 +232,53 @@ func TestAuthHandlerAdminDeleteTokenUsesTokenRouteParam(t *testing.T) {
 		t.Fatalf("revoked user id = %s, want %s", tokenRepo.revokedUser, targetUserID)
 	}
 }
+
+func TestAuthHandlerAdminSelfDeleteTokenUsesAuthenticatedUser(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	adminUserID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	tokenID := uuid.New()
+	tokenRepo := &stubAuthTokenRepo{}
+	cipher, err := NewAPITokenCipher("test-secret")
+	if err != nil {
+		t.Fatalf("build token cipher: %v", err)
+	}
+	handler := NewAuthHandler(
+		&stubAuthUserRepo{
+			usersByID: map[uuid.UUID]*model.User{
+				adminUserID: {ID: adminUserID, Name: "admin-user"},
+			},
+		},
+		tokenRepo,
+		nil,
+		cipher,
+		storage.NewFS(t.TempDir()),
+	)
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware.UserIDKey), adminUserID)
+		c.Set(string(middleware.RoleKey), "admin")
+		c.Next()
+	})
+	router.DELETE("/api/auth/tokens/:id", handler.DeleteToken)
+
+	req := httptest.NewRequest(
+		http.MethodDelete,
+		"/api/auth/tokens/"+tokenID.String(),
+		nil,
+	)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if tokenRepo.revokedID != tokenID {
+		t.Fatalf("revoked token id = %s, want %s", tokenRepo.revokedID, tokenID)
+	}
+	if tokenRepo.revokedUser != adminUserID {
+		t.Fatalf("revoked user id = %s, want %s", tokenRepo.revokedUser, adminUserID)
+	}
+}

@@ -77,7 +77,7 @@ const enUS: APIKeyManagementPageText = {
   eyebrow: "API keys",
   title: "API key management",
   description:
-    "Create, copy, and revoke keys for the published agents you own. Each key is bound to exactly one prod agent.",
+    "Create, copy, and revoke keys for published agents available to this account. Each key is bound to exactly one prod agent.",
   signedInAs: "Signed in as",
   contractTitle: "Contract",
   contractDescription: "One key maps to one published prod agent.",
@@ -99,10 +99,10 @@ const enUS: APIKeyManagementPageText = {
   targetAgentLabel: "Published agent",
   targetAgentPlaceholder: "Select a published prod agent",
   targetAgentHint:
-    "API keys bind to exactly one published prod agent owned by this account.",
+    "API keys bind to exactly one published prod agent that this account can manage.",
   loadingAgents: "Loading published agents...",
   noOwnedPublishedAgents:
-    "This account does not own any published prod agents yet. Publish one first to issue a key.",
+    "This account cannot manage any published prod agents yet. Publish one first or expand its permissions before issuing a key.",
   capabilitiesLabel: "Baseline contract",
   capabilitiesDescription: "All new keys include the fixed public API scopes.",
   createButton: "Create key",
@@ -164,7 +164,7 @@ const zhCN: APIKeyManagementPageText = {
   eyebrow: "API Key",
   title: "API Key 管理",
   description:
-    "为你已发布的智能体创建、复制和删除集成 Key。每个 Key 只绑定一个 prod agent。",
+    "为当前账号可管理的已发布智能体创建、复制和删除集成 Key。每个 Key 只绑定一个 prod agent。",
   signedInAs: "当前账号",
   contractTitle: "契约",
   contractDescription: "一个 Key 只映射到一个已发布 prod 智能体。",
@@ -182,10 +182,10 @@ const zhCN: APIKeyManagementPageText = {
   namePlaceholder: "例如 contract-reviewer-prod",
   targetAgentLabel: "已发布智能体",
   targetAgentPlaceholder: "选择一个已发布 prod 智能体",
-  targetAgentHint: "API Key 必须绑定到当前账号拥有的单个已发布 prod 智能体。",
+  targetAgentHint: "API Key 必须绑定到当前账号可管理的单个已发布 prod 智能体。",
   loadingAgents: "正在加载已发布智能体...",
   noOwnedPublishedAgents:
-    "当前账号还没有自己拥有的已发布 prod 智能体。请先发布一个智能体再签发 Key。",
+    "当前账号还没有可管理的已发布 prod 智能体。请先发布智能体，或为当前账号授予相应权限后再签发 Key。",
   capabilitiesLabel: "基线契约",
   capabilitiesDescription: "新建 Key 默认包含固定的公开 API 权限。",
   createButton: "创建 Key",

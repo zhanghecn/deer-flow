@@ -173,10 +173,7 @@ func (h *AuthHandler) resolveManagedTokenUserID(c *gin.Context) (uuid.UUID, erro
 		return userID, nil
 	}
 
-	targetUserIDText := strings.TrimSpace(c.Param("user_id"))
-	if targetUserIDText == "" {
-		targetUserIDText = strings.TrimSpace(c.Param("id"))
-	}
+	targetUserIDText := managedTokenTargetUserParam(c)
 	if targetUserIDText == "" {
 		return userID, nil
 	}
@@ -274,7 +271,11 @@ func (h *AuthHandler) createTokenForUser(c *gin.Context, userID uuid.UUID) {
 		return
 	}
 
-	allowedAgents, err := h.validateOwnedPublishedTokenAgents(userID, req.AllowedAgents)
+	allowedAgents, err := h.validateOwnedPublishedTokenAgents(
+		userID,
+		req.AllowedAgents,
+		canCreateTokenForAnyPublishedAgent(c, userID),
+	)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return
@@ -324,6 +325,7 @@ func (h *AuthHandler) CreateToken(c *gin.Context) {
 func (h *AuthHandler) validateOwnedPublishedTokenAgents(
 	userID uuid.UUID,
 	requestedAgents []string,
+	allowForeignOwned bool,
 ) ([]string, error) {
 	normalizedAgents := model.NormalizeAPITokenAllowedAgents(requestedAgents)
 	if len(normalizedAgents) != 1 {
@@ -342,11 +344,46 @@ func (h *AuthHandler) validateOwnedPublishedTokenAgents(
 		return nil, fmt.Errorf("published agent %q not found", agentName)
 	}
 
-	if strings.TrimSpace(agent.OwnerUserID) != userID.String() {
+	if !allowForeignOwned && strings.TrimSpace(agent.OwnerUserID) != userID.String() {
 		return nil, fmt.Errorf("you can only create keys for prod agents you own")
 	}
 
 	return normalizedAgents, nil
+}
+
+func canCreateTokenForAnyPublishedAgent(c *gin.Context, tokenUserID uuid.UUID) bool {
+	if !middleware.IsAdmin(c) {
+		return false
+	}
+
+	targetUserIDText := managedTokenTargetUserParam(c)
+	if targetUserIDText == "" {
+		return true
+	}
+
+	targetUserID, err := uuid.Parse(targetUserIDText)
+	if err != nil {
+		return false
+	}
+
+	// Self-service admin key creation can target any published prod agent, but
+	// admin-managed keys for another user must stay bound to that user's agents.
+	return targetUserID == tokenUserID && targetUserID == middleware.GetUserID(c)
+}
+
+func managedTokenTargetUserParam(c *gin.Context) string {
+	fullPath := strings.TrimSpace(c.FullPath())
+	switch fullPath {
+	case "/api/admin/users/:user_id/tokens":
+		return strings.TrimSpace(c.Param("user_id"))
+	case "/api/admin/users/:id/tokens/:token_id":
+		return strings.TrimSpace(c.Param("id"))
+	default:
+		// Workspace self-service routes such as `/api/auth/tokens/:id` use `:id`
+		// for the token row, not a managed user. Keep that namespace split so
+		// admin self-service flows do not misread token IDs as user IDs.
+		return ""
+	}
 }
 
 func (h *AuthHandler) DeleteToken(c *gin.Context) {
