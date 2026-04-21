@@ -75,9 +75,13 @@ const RecentChatItem = memo(function RecentChatItem({
 }: RecentChatItemProps) {
   return (
     <SidebarMenuItem className="group/side-menu-item">
-      <SidebarMenuButton isActive={isActive} asChild className="min-w-0">
+      <SidebarMenuButton
+        isActive={isActive}
+        asChild
+        className="min-w-0 h-9 text-sm"
+      >
         <Link
-          className="text-muted-foreground block w-full truncate"
+          className="text-muted-foreground block w-full truncate leading-5"
           to={href}
           onMouseEnter={() => onPrefetch(href)}
           onFocus={() => onPrefetch(href)}
@@ -91,29 +95,29 @@ const RecentChatItem = memo(function RecentChatItem({
           <DropdownMenuTrigger asChild>
             <SidebarMenuAction
               showOnHover
-              className="bg-background/65 hover:bg-background"
+              className="bg-background/65 hover:bg-background h-7 w-7"
             >
-              <MoreHorizontal />
+              <MoreHorizontal className="size-3.5" />
               <span className="sr-only">{moreLabel}</span>
             </SidebarMenuAction>
           </DropdownMenuTrigger>
           <DropdownMenuContent
-            className="w-48 rounded-lg"
+            className="w-44 rounded-lg"
             side="right"
             align="start"
           >
             <DropdownMenuItem onSelect={() => onRenameClick(threadId, title)}>
-              <Pencil className="text-muted-foreground" />
-              <span>{renameLabel}</span>
+              <Pencil className="text-muted-foreground size-3.5" />
+              <span className="text-sm">{renameLabel}</span>
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={onShare}>
-              <Share2 className="text-muted-foreground" />
-              <span>{shareLabel}</span>
+              <Share2 className="text-muted-foreground size-3.5" />
+              <span className="text-sm">{shareLabel}</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => void onDelete(threadId)}>
-              <Trash2 className="text-muted-foreground" />
-              <span>{deleteLabel}</span>
+              <Trash2 className="text-muted-foreground size-3.5" />
+              <span className="text-sm">{deleteLabel}</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -127,7 +131,8 @@ export function RecentChatList() {
   const navigate = useNavigate();
   const pathname = useLocation().pathname;
   const { thread_id: threadIdFromPath } = useParams<{ thread_id: string }>();
-  const { data: threads = [] } = useThreads();
+  const { data } = useThreads();
+  const threads = data?.items ?? [];
   const { mutateAsync: deleteThread } = useDeleteThread();
   const { mutate: renameThread } = useRenameThread();
 
@@ -214,15 +219,15 @@ export function RecentChatList() {
 
   return (
     <>
-      <SidebarGroup className="flex min-h-0 flex-1 flex-col pt-0">
-        <SidebarGroupLabel>
+      <SidebarGroup className="flex min-h-0 flex-1 flex-col pt-0 px-2">
+        <SidebarGroupLabel className="text-[11px] font-medium text-muted-foreground/60 uppercase tracking-wider">
           {env.VITE_STATIC_WEBSITE_ONLY !== "true"
             ? t.sidebar.recentChats
             : t.sidebar.demoChats}
         </SidebarGroupLabel>
         <SidebarGroupContent className="min-h-0 flex-1 overflow-hidden group-data-[collapsible=icon]:pointer-events-none group-data-[collapsible=icon]:-mt-8 group-data-[collapsible=icon]:opacity-0">
           <ScrollArea className="h-full pr-1">
-            <SidebarMenu className="gap-1">
+            <SidebarMenu className="gap-0.5">
               {threadItems.map((thread) => (
                 <RecentChatItem
                   key={thread.threadId}
@@ -246,15 +251,16 @@ export function RecentChatList() {
       </SidebarGroup>
 
       <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-[400px] gap-4">
           <DialogHeader>
-            <DialogTitle>{t.common.rename}</DialogTitle>
+            <DialogTitle className="text-base">{t.common.rename}</DialogTitle>
           </DialogHeader>
-          <div className="py-4">
+          <div className="py-2">
             <Input
               value={renameValue}
               onChange={(e) => setRenameValue(e.target.value)}
               placeholder={t.common.rename}
+              className="h-9"
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   handleRenameSubmit();
@@ -262,18 +268,16 @@ export function RecentChatList() {
               }}
             />
           </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setRenameDialogOpen(false)}
-            >
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => setRenameDialogOpen(false)}>
               {t.common.cancel}
             </Button>
-            <Button onClick={handleRenameSubmit}>{t.common.save}</Button>
+            <Button size="sm" onClick={handleRenameSubmit}>
+              {t.common.save}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
     </>
   );
 }

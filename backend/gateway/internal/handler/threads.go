@@ -32,7 +32,7 @@ type threadSearchRepository interface {
 		ctx context.Context,
 		userID uuid.UUID,
 		opts repository.ThreadSearchOptions,
-	) ([]repository.ThreadSearchRecord, error)
+	) ([]repository.ThreadSearchRecord, int, error)
 	GetRuntimeByUser(
 		ctx context.Context,
 		userID uuid.UUID,
@@ -79,6 +79,7 @@ func NewThreadsHandler(
 type threadSearchRequest struct {
 	Limit     int      `json:"limit"`
 	Offset    int      `json:"offset"`
+	Query     string   `json:"query"`
 	SortBy    string   `json:"sort_by"`
 	SortOrder string   `json:"sort_order"`
 	Select    []string `json:"select"`
@@ -105,12 +106,13 @@ func (h *ThreadsHandler) Search(c *gin.Context) {
 		return
 	}
 
-	items, err := h.repo.SearchByUser(
+	items, total, err := h.repo.SearchByUser(
 		c.Request.Context(),
 		userID,
 		repository.ThreadSearchOptions{
 			Limit:     req.Limit,
 			Offset:    req.Offset,
+			Query:     req.Query,
 			SortBy:    req.SortBy,
 			SortOrder: req.SortOrder,
 		},
@@ -126,6 +128,7 @@ func (h *ThreadsHandler) Search(c *gin.Context) {
 	if items == nil {
 		items = []repository.ThreadSearchRecord{}
 	}
+	c.Header("X-Pagination-Total", fmt.Sprintf("%d", total))
 	c.JSON(http.StatusOK, items)
 }
 

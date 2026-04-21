@@ -33,8 +33,37 @@ import {
 } from "@/core/models/selection";
 import { getLocalSettings } from "@/core/settings";
 
+const SUPPORTED_KNOWLEDGE_EXTENSIONS = new Set([
+  ".pdf",
+  ".doc",
+  ".docx",
+  ".md",
+  ".markdown",
+]);
+
 function stripFileExtension(filename: string) {
   return filename.replace(/\.[^.]+$/, "").trim();
+}
+
+function fileExtensionOf(filename: string) {
+  const normalized = filename.trim().toLowerCase();
+  const dotIndex = normalized.lastIndexOf(".");
+  return dotIndex >= 0 ? normalized.slice(dotIndex) : "";
+}
+
+function splitKnowledgeFiles(files: File[]) {
+  const acceptedFiles: File[] = [];
+  const rejectedFiles: File[] = [];
+
+  files.forEach((file) => {
+    if (SUPPORTED_KNOWLEDGE_EXTENSIONS.has(fileExtensionOf(file.name))) {
+      acceptedFiles.push(file);
+      return;
+    }
+    rejectedFiles.push(file);
+  });
+
+  return { acceptedFiles, rejectedFiles };
 }
 
 function resolveKnowledgeBaseName(
@@ -98,6 +127,7 @@ export function KnowledgeBaseUploadDialog({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [files, setFiles] = useState<File[]>([]);
+  const [rejectedFiles, setRejectedFiles] = useState<File[]>([]);
   const [selectedModelName, setSelectedModelName] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -108,6 +138,7 @@ export function KnowledgeBaseUploadDialog({
     setName("");
     setDescription("");
     setFiles([]);
+    setRejectedFiles([]);
     setSelectedModelName("");
     setSubmitting(false);
   }, [open]);
@@ -246,11 +277,32 @@ export function KnowledgeBaseUploadDialog({
             multiple
             accept=".pdf,.doc,.docx,.md,.markdown"
             onChange={(event) => {
-              setFiles(Array.from(event.target.files ?? []));
+              const nextFiles = Array.from(event.target.files ?? []);
+              const { acceptedFiles, rejectedFiles: nextRejectedFiles } =
+                splitKnowledgeFiles(nextFiles);
+
+              // Browser accept filters are only advisory; keep a client-side
+              // guard so unsupported files fail early with actionable feedback.
+              setFiles(acceptedFiles);
+              setRejectedFiles(nextRejectedFiles);
+
+              if (nextRejectedFiles.length > 0) {
+                toast.error(
+                  t.knowledge.unsupportedFilesSelected(
+                    nextRejectedFiles.length,
+                  ),
+                );
+              }
             }}
           />
+          <p className="text-muted-foreground text-xs leading-5">
+            {t.knowledge.supportedFormatsHint}
+          </p>
           {files.length > 0 ? (
-            <div className="space-y-1 text-xs">
+            <div className="space-y-1 rounded-lg border px-3 py-2 text-xs">
+              <div className="font-medium">
+                {t.knowledge.selectedFileCount(files.length)}
+              </div>
               {files.map((file) => (
                 <div
                   key={`${file.name}:${file.size}`}
@@ -261,6 +313,26 @@ export function KnowledgeBaseUploadDialog({
               ))}
             </div>
           ) : null}
+          {rejectedFiles.length > 0 ? (
+            <div className="space-y-1 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs">
+              <div className="font-medium text-red-600 dark:text-red-400">
+                {t.knowledge.rejectedFileCount(rejectedFiles.length)}
+              </div>
+              {rejectedFiles.map((file) => (
+                <div
+                  key={`${file.name}:${file.size}:rejected`}
+                  className="truncate text-red-600/80 dark:text-red-400/80"
+                >
+                  {file.name}
+                </div>
+              ))}
+            </div>
+          ) : null}
+          <p className="text-muted-foreground text-xs leading-5">
+            {threadId
+              ? t.knowledge.uploadNextStepThread
+              : t.knowledge.uploadNextStepLibrary}
+          </p>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>

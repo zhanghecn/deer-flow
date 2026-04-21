@@ -206,7 +206,28 @@ export function mockApiPlugin(): Plugin {
 
           // POST /mock/api/threads/search
           if (url === "/mock/api/threads/search" && req.method === "POST") {
-            return sendJson(res, []);
+            const body = parseJson(await readBody(req)) as { query?: string };
+            const query = body.query?.trim().toLowerCase() ?? "";
+            const items = Object.entries(MOCK_THREADS)
+              .map(([threadId, fixture]) => ({
+                thread_id: threadId,
+                updated_at: fixture.created_at ?? new Date().toISOString(),
+                values:
+                  typeof fixture.values.title === "string" &&
+                  fixture.values.title.trim().length > 0
+                    ? { title: fixture.values.title.trim() }
+                    : {},
+              }))
+              .filter((item) => {
+                if (!query) {
+                  return true;
+                }
+                const title =
+                  typeof item.values?.title === "string" ? item.values.title : "";
+                return title.toLowerCase().includes(query);
+              });
+            res.setHeader("x-pagination-total", String(items.length));
+            return sendJson(res, items);
           }
 
           // Match /mock/api/threads/:thread_id/...

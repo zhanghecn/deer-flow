@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { BookOpenTextIcon, LoaderIcon } from "lucide-react";
 import { useCallback, useState } from "react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -102,6 +103,31 @@ function summarizeAttachedKnowledgeBase(
   };
 }
 
+function resolveKnowledgeFocusDocument(knowledgeBase: KnowledgeBase) {
+  return (
+    knowledgeBase.documents.find((document) =>
+      isKnowledgeDocumentBuildActive(document),
+    ) ??
+    knowledgeBase.documents.find(
+      (document) => getKnowledgeDocumentStatus(document) === "error",
+    ) ??
+    knowledgeBase.documents[0] ??
+    null
+  );
+}
+
+function buildKnowledgeDetailPath(threadId: string, knowledgeBase: KnowledgeBase) {
+  const params = new URLSearchParams();
+  params.set("base", knowledgeBase.id);
+
+  const focusDocument = resolveKnowledgeFocusDocument(knowledgeBase);
+  if (focusDocument) {
+    params.set("document", focusDocument.id);
+  }
+
+  return `/workspace/chats/${threadId}/knowledge?${params.toString()}`;
+}
+
 export function ThreadKnowledgeAttachmentStrip({
   threadId,
   className,
@@ -147,7 +173,7 @@ export function ThreadKnowledgeAttachmentStrip({
   }
 
   return (
-    <div className={cn("border-border/60 border-t px-3 py-2", className)}>
+    <div className={cn("border-border border-t px-3 py-2", className)}>
       <div className="text-muted-foreground mb-2 flex items-center gap-2 text-xs">
         {isLoading && knowledgeBases.length === 0 ? (
           <LoaderIcon className="size-3.5 animate-spin" />
@@ -166,14 +192,15 @@ export function ThreadKnowledgeAttachmentStrip({
           {knowledgeBases.map((knowledgeBase) => {
             const summary = summarizeAttachedKnowledgeBase(knowledgeBase);
             const isBusy = busyBaseId === knowledgeBase.id;
+            const detailPath = buildKnowledgeDetailPath(threadId, knowledgeBase);
 
             return (
               <div
                 key={knowledgeBase.id}
-                className="border-border/60 bg-background/70 min-w-[220px] flex-1 rounded-2xl border px-3 py-2"
+                className="border-border bg-background min-w-[220px] flex-1 rounded-lg border px-3 py-2"
               >
                 <div className="flex min-w-0 items-start gap-2">
-                  <div className="bg-primary/10 text-primary mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-2xl">
+                  <div className="bg-primary/10 text-primary mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg">
                     <BookOpenTextIcon className="size-3.5" />
                   </div>
                   <div className="min-w-0 flex-1">
@@ -183,7 +210,7 @@ export function ThreadKnowledgeAttachmentStrip({
                       </div>
                       <span
                         className={cn(
-                          "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
+                          "inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium",
                           knowledgeStatusClassName(summary.status),
                         )}
                       >
@@ -210,7 +237,7 @@ export function ThreadKnowledgeAttachmentStrip({
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="rounded-full"
+                    className="rounded-md"
                     disabled={isBusy}
                     onClick={() => void handleDetach(knowledgeBase)}
                   >
@@ -227,6 +254,18 @@ export function ThreadKnowledgeAttachmentStrip({
                     <Progress value={summary.progress} />
                   </div>
                 ) : null}
+
+                <div className="mt-2 flex justify-end">
+                  <Button
+                    asChild
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="rounded-md"
+                  >
+                    <Link to={detailPath}>{t.knowledge.viewDetails}</Link>
+                  </Button>
+                </div>
               </div>
             );
           })}

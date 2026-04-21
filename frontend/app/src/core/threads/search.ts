@@ -1,6 +1,7 @@
 export type ThreadSearchParams = {
   limit?: number;
   offset?: number;
+  query?: string;
   sortBy?: string;
   sortOrder?: string;
   select?: string[];
@@ -12,6 +13,7 @@ export const THREAD_RUNTIME_QUERY_KEY = ["threads", "runtime"] as const;
 export const DEFAULT_THREAD_SEARCH_PARAMS: Required<ThreadSearchParams> = {
   limit: 50,
   offset: 0,
+  query: "",
   sortBy: "updated_at",
   sortOrder: "desc",
   select: ["thread_id", "updated_at", "values"],
@@ -23,6 +25,7 @@ export function resolveThreadSearchParams(
   return {
     limit: params.limit ?? DEFAULT_THREAD_SEARCH_PARAMS.limit,
     offset: params.offset ?? DEFAULT_THREAD_SEARCH_PARAMS.offset,
+    query: params.query?.trim() ?? DEFAULT_THREAD_SEARCH_PARAMS.query,
     sortBy: params.sortBy ?? DEFAULT_THREAD_SEARCH_PARAMS.sortBy,
     sortOrder: params.sortOrder ?? DEFAULT_THREAD_SEARCH_PARAMS.sortOrder,
     select: params.select ?? DEFAULT_THREAD_SEARCH_PARAMS.select,

@@ -1,11 +1,7 @@
+import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRightIcon,
-  BookOpenTextIcon,
   ChevronRightIcon,
-  Code2Icon,
-  type LucideIcon,
-  EyeIcon,
-  ExternalLinkIcon,
   FileTextIcon,
   FolderIcon,
   HouseIcon,
@@ -15,39 +11,8 @@ import {
   UploadIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
-
-import { openArtifactInNewWindow } from "@/core/artifacts/actions";
-import { useArtifactObjectUrl } from "@/core/artifacts/hooks";
-import { setPdfPreviewPage } from "@/core/artifacts/pdf";
-import { useAuth } from "@/core/auth/hooks";
-import {
-  attachKnowledgeBaseToThread,
-  clearKnowledgeBases,
-  deleteKnowledgeBase,
-  detachKnowledgeBaseFromThread,
-  updateKnowledgeBaseSettings,
-} from "@/core/knowledge/api";
-import {
-  getKnowledgeDocumentProgress,
-  getKnowledgeDocumentStatus,
-  isKnowledgeDocumentBuildActive,
-} from "@/core/knowledge/documents";
-import {
-  useKnowledgeDocumentDebug,
-  useKnowledgeLibrary,
-  useVisibleKnowledgeDocumentObjectUrl,
-  useVisibleKnowledgeDocumentBuildEvents,
-  useVisibleKnowledgeDocumentTree,
-} from "@/core/knowledge/hooks";
-import type {
-  KnowledgeBase,
-  KnowledgeDocument,
-  KnowledgeTreeNode,
-} from "@/core/knowledge/types";
-import { useI18n } from "@/core/i18n/hooks";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -75,11 +40,42 @@ import {
   WorkspaceContainer,
   WorkspaceHeader,
 } from "@/components/workspace/workspace-container";
+import { useAuth } from "@/core/auth/hooks";
+import { useI18n } from "@/core/i18n/hooks";
+import {
+  attachKnowledgeBaseToThread,
+  clearKnowledgeBases,
+  deleteKnowledgeBase,
+  detachKnowledgeBaseFromThread,
+  updateKnowledgeBaseSettings,
+} from "@/core/knowledge/api";
+import {
+  getKnowledgeDocumentProgress,
+  getKnowledgeDocumentStatus,
+  isKnowledgeDocumentBuildActive,
+} from "@/core/knowledge/documents";
+import {
+  useKnowledgeDocumentDebug,
+  useKnowledgeLibrary,
+  useVisibleKnowledgeDocumentBuildEvents,
+  useVisibleKnowledgeDocumentTree,
+} from "@/core/knowledge/hooks";
+import type {
+  KnowledgeBase,
+  KnowledgeDocument,
+  KnowledgeTreeNode,
+} from "@/core/knowledge/types";
 import { cn } from "@/lib/utils";
 
+import { JsonInspector } from "./json-inspector";
 import { KnowledgeBaseUploadDialog } from "./knowledge-base-upload-dialog";
+import {
+  ExplorerEmptyState,
+  KnowledgePreviewPanel,
+} from "./knowledge-preview-panel";
+import { locatorLabel, TreeNodeView } from "./tree-node-view";
 
-type LibraryDocumentView = KnowledgeDocument & {
+export type LibraryDocumentView = KnowledgeDocument & {
   owner_id: string;
   owner_name: string;
   knowledge_base_id: string;
@@ -102,9 +98,9 @@ type KnowledgeClearTarget = {
   baseCount: number;
 };
 
-type KnowledgePreviewMode = "preview" | "canonical";
+export type KnowledgePreviewMode = "preview" | "canonical";
 
-type KnowledgePreviewFocus = {
+export type KnowledgePreviewFocus = {
   nodeId?: string;
   title?: string;
   locatorLabel?: string;
@@ -182,48 +178,6 @@ function formatTimestamp(value: string | undefined) {
   return parsed.toLocaleString();
 }
 
-function formatElapsed(startedAt?: string, finishedAt?: string) {
-  if (!startedAt) {
-    return "";
-  }
-  const start = new Date(startedAt).getTime();
-  const end = finishedAt ? new Date(finishedAt).getTime() : Date.now();
-  if (Number.isNaN(start) || Number.isNaN(end)) {
-    return "";
-  }
-  const totalSeconds = Math.max(0, Math.round((end - start) / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  if (minutes === 0) {
-    return `${seconds}s`;
-  }
-  return `${minutes}m ${seconds}s`;
-}
-
-function locatorLabel(
-  node: Pick<
-    KnowledgeTreeNode,
-    "locator_type" | "page_start" | "page_end" | "line_start" | "line_end"
-  >,
-  t: ReturnType<typeof useI18n>["t"],
-) {
-  if (node.locator_type === "page") {
-    if (node.page_start && node.page_end && node.page_end !== node.page_start) {
-      return `${t.knowledge.pageLabel} ${node.page_start}-${node.page_end}`;
-    }
-    if (node.page_start) {
-      return `${t.knowledge.pageLabel} ${node.page_start}`;
-    }
-  }
-  if (node.line_start && node.line_end && node.line_end !== node.line_start) {
-    return `${t.knowledge.lineLabel} ${node.line_start}-${node.line_end}`;
-  }
-  if (node.line_start) {
-    return `${t.knowledge.lineLabel} ${node.line_start}`;
-  }
-  return node.locator_type;
-}
-
 function toLibraryDocumentView(
   knowledgeBase: KnowledgeBase,
   document: KnowledgeDocument,
@@ -239,75 +193,6 @@ function toLibraryDocumentView(
     visibility: knowledgeBase.visibility,
     preview_enabled: knowledgeBase.preview_enabled,
   };
-}
-
-function slugifyHeading(text: string) {
-  return text
-    .toLowerCase()
-    .replace(/[^0-9a-z\u4e00-\u9fff]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-function basenameOfPath(filepath: string) {
-  const segments = filepath.split("/");
-  return segments[segments.length - 1] ?? filepath;
-}
-
-function isRuntimeArtifactPath(filepath: string | null | undefined) {
-  return typeof filepath === "string" && filepath.startsWith("/mnt/user-data/");
-}
-
-function toKnowledgeRuntimeArtifactPath(
-  document: KnowledgeDocument | null,
-  filepath: string | null | undefined,
-) {
-  if (!document || !filepath) {
-    return null;
-  }
-  if (isRuntimeArtifactPath(filepath)) {
-    return filepath;
-  }
-  return `/mnt/user-data/outputs/.knowledge/${document.id}/${basenameOfPath(filepath)}`;
-}
-
-function stripMarkdownPrefix(line: string) {
-  return line
-    .replace(/^\s{0,3}(#{1,6}\s*|>\s*|\d+\.\s+|[-*+]\s+)/, "")
-    .replace(/[`*_~[\]()]/g, " ")
-    .trim();
-}
-
-function documentBinaryPreviewPath(document: KnowledgeDocument | null) {
-  if (document == null) {
-    return null;
-  }
-  if (document.locator_type !== "page") {
-    return null;
-  }
-  return toKnowledgeRuntimeArtifactPath(
-    document,
-    document.preview_storage_path ?? document.source_storage_path ?? null,
-  );
-}
-
-function documentTextPreviewPath(document: KnowledgeDocument | null) {
-  if (document == null) {
-    return null;
-  }
-  const candidate =
-    document.markdown_storage_path ??
-    document.canonical_storage_path ??
-    document.source_storage_path ??
-    null;
-  return (isRuntimeArtifactPath(candidate) ? candidate : null) ?? null;
-}
-
-function isPdfPreviewDocument(document: KnowledgeDocument | null) {
-  const filepath = documentBinaryPreviewPath(document)?.toLowerCase();
-  if (!filepath) {
-    return false;
-  }
-  return filepath.endsWith(".pdf");
 }
 
 function buildPreviewFocusFromNode(
@@ -326,663 +211,12 @@ function buildPreviewFocusFromNode(
   };
 }
 
-function findFocusLineIndex(
-  lines: string[],
-  focus: KnowledgePreviewFocus | null,
-) {
-  if (lines.length === 0) {
-    return 0;
-  }
-  if (focus?.line && focus.line > 0) {
-    return Math.min(lines.length - 1, Math.max(0, focus.line - 1));
-  }
-  if (focus?.heading) {
-    const index = lines.findIndex(
-      (line) => slugifyHeading(stripMarkdownPrefix(line)) === focus.heading,
-    );
-    if (index >= 0) {
-      return index;
-    }
-  }
-  if (focus?.page && focus.page > 0) {
-    const patterns = [
-      new RegExp(`OA_PAGE\\s+${focus.page}\\b`, "i"),
-      new RegExp(`^#{1,6}\\s*Page\\s+${focus.page}\\b`, "i"),
-      new RegExp(`^Page\\s+${focus.page}\\b`, "i"),
-    ];
-    const index = lines.findIndex((line) =>
-      patterns.some((pattern) => pattern.test(line)),
-    );
-    if (index >= 0) {
-      return index;
-    }
-  }
-  return 0;
-}
-
-function isJsonArray(value: unknown): value is unknown[] {
-  return Array.isArray(value);
-}
-
-function isJsonObject(value: unknown): value is Record<string, unknown> {
-  return value != null && typeof value === "object" && !Array.isArray(value);
-}
-
-function escapeJsonPathSegment(segment: string) {
-  return segment.replaceAll("~", "~0").replaceAll("/", "~1");
-}
-
-function buildJsonPath(parentPath: string, segment: string) {
-  return `${parentPath}/${escapeJsonPathSegment(segment)}`;
-}
-
-function buildDefaultJsonExpandedPaths(
-  value: unknown,
-  maxDepth: number,
-  path = "$",
-  depth = 0,
-  expanded = new Set<string>(),
-): Set<string> {
-  if (!isJsonObject(value) && !isJsonArray(value)) {
-    return expanded;
-  }
-
-  if (depth >= maxDepth) {
-    return expanded;
-  }
-
-  expanded.add(path);
-
-  const entries = isJsonArray(value)
-    ? value.map((item, index) => [String(index), item] as const)
-    : Object.entries(value);
-
-  entries.forEach(([key, child]) => {
-    if (isJsonObject(child) || isJsonArray(child)) {
-      buildDefaultJsonExpandedPaths(
-        child,
-        maxDepth,
-        buildJsonPath(path, key),
-        depth + 1,
-        expanded,
-      );
-    }
-  });
-
-  return expanded;
-}
-
-function JsonPrimitiveValue({ value }: { value: unknown }) {
-  if (typeof value === "string") {
-    return (
-      <span className="break-all text-emerald-700 dark:text-emerald-300">
-        "{value}"
-      </span>
-    );
-  }
-  if (typeof value === "number") {
-    return <span className="text-sky-700 dark:text-sky-300">{value}</span>;
-  }
-  if (typeof value === "boolean") {
-    return (
-      <span className="text-violet-700 dark:text-violet-300">{`${value}`}</span>
-    );
-  }
-  if (value === null) {
-    return <span className="text-muted-foreground">null</span>;
-  }
-  return <span className="text-muted-foreground">{String(value)}</span>;
-}
-
-function JsonContainerMeta({ value }: { value: unknown }) {
-  if (isJsonArray(value)) {
-    return (
-      <span className="text-muted-foreground font-mono text-xs">
-        [{value.length}]
-      </span>
-    );
-  }
-  if (isJsonObject(value)) {
-    return (
-      <span className="text-muted-foreground font-mono text-xs">
-        {`{${Object.keys(value).length}}`}
-      </span>
-    );
-  }
-  return null;
-}
-
-function JsonInspectorNode({
-  path,
-  label,
-  value,
-  depth,
-  expandedPaths,
-  onToggle,
-}: {
-  path: string;
-  label: string;
-  value: unknown;
-  depth: number;
-  expandedPaths: Set<string>;
-  onToggle: (path: string) => void;
-}) {
-  const isContainer = isJsonArray(value) || isJsonObject(value);
-  const isExpanded = expandedPaths.has(path);
-  const entries = isJsonArray(value)
-    ? value.map((item, index) => [String(index), item] as const)
-    : isJsonObject(value)
-      ? Object.entries(value)
-      : [];
-
-  const rowClassName =
-    "flex w-full items-start gap-2 rounded-xl px-3 py-2 text-left transition-colors";
-
-  const content = (
-    <>
-      <div
-        className="flex h-5 w-5 shrink-0 items-center justify-center"
-        style={{ marginLeft: depth * 14 }}
-      >
-        {isContainer ? (
-          <ChevronRightIcon
-            className={cn(
-              "text-muted-foreground size-4 transition-transform",
-              isExpanded && "rotate-90",
-            )}
-          />
-        ) : (
-          <span className="bg-border size-1.5 rounded-full" />
-        )}
-      </div>
-      <div className="min-w-0 flex-1 space-y-1">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="font-mono text-xs font-semibold text-slate-700 dark:text-slate-200">
-            {label}
-          </span>
-          {isContainer ? (
-            <JsonContainerMeta value={value} />
-          ) : (
-            <span className="font-mono text-xs">
-              <JsonPrimitiveValue value={value} />
-            </span>
-          )}
-        </div>
-      </div>
-    </>
-  );
-
-  return (
-    <div className="space-y-1">
-      {isContainer ? (
-        <button
-          type="button"
-          data-json-row=""
-          data-json-toggle=""
-          data-json-path={path}
-          className={cn(
-            rowClassName,
-            "hover:bg-accent/60",
-            isExpanded && "bg-accent/35",
-          )}
-          onClick={() => onToggle(path)}
-        >
-          {content}
-        </button>
-      ) : (
-        <div
-          data-json-row=""
-          data-json-path={path}
-          className={cn(rowClassName, "hover:bg-transparent")}
-        >
-          {content}
-        </div>
-      )}
-
-      {isContainer && isExpanded ? (
-        <div className="space-y-1">
-          {entries.map(([childLabel, childValue]) => (
-            <JsonInspectorNode
-              key={buildJsonPath(path, childLabel)}
-              path={buildJsonPath(path, childLabel)}
-              label={childLabel}
-              value={childValue}
-              depth={depth + 1}
-              expandedPaths={expandedPaths}
-              onToggle={onToggle}
-            />
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function JsonInspector({ value }: { value: unknown }) {
-  const initialExpandedPaths = useMemo(
-    () => buildDefaultJsonExpandedPaths(value, 2),
-    [value],
-  );
-  const [expandedPaths, setExpandedPaths] = useState(initialExpandedPaths);
-
-  useEffect(() => {
-    setExpandedPaths(initialExpandedPaths);
-  }, [initialExpandedPaths]);
-
-  const togglePath = (path: string) => {
-    setExpandedPaths((current) => {
-      const next = new Set(current);
-      if (next.has(path)) {
-        next.delete(path);
-      } else {
-        next.add(path);
-      }
-      return next;
-    });
-  };
-
-  if (!isJsonObject(value) && !isJsonArray(value)) {
-    return (
-      <div className="rounded-[20px] border p-4 font-mono text-xs">
-        <JsonPrimitiveValue value={value} />
-      </div>
-    );
-  }
-
-  const entries = isJsonArray(value)
-    ? value.map((item, index) => [String(index), item] as const)
-    : Object.entries(value);
-
-  return (
-    <div className="border-border/60 bg-background overflow-hidden rounded-[20px] border">
-      <div className="border-border/60 bg-muted/20 flex items-center justify-between border-b px-4 py-3">
-        <div className="font-mono text-xs font-semibold text-slate-700 dark:text-slate-200">
-          document_index_json
-        </div>
-        <JsonContainerMeta value={value} />
-      </div>
-      <div className="space-y-1 p-3 font-mono text-xs">
-        {entries.map(([label, childValue]) => (
-          <JsonInspectorNode
-            key={buildJsonPath("$", label)}
-            path={buildJsonPath("$", label)}
-            label={label}
-            value={childValue}
-            depth={0}
-            expandedPaths={expandedPaths}
-            onToggle={togglePath}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ExplorerEmptyState({
-  icon: Icon,
-  title,
-  description,
-}: {
-  icon: LucideIcon;
-  title: string;
-  description: string;
-}) {
-  const { t } = useI18n();
-
-  return (
-    <div className="flex h-full flex-col items-center justify-center px-8 py-16 text-center">
-      <div className="border-border/60 bg-muted/35 text-primary flex size-14 items-center justify-center rounded-[20px] border">
-        <Icon className="size-7" />
-      </div>
-      <h2 className="mt-6 text-xl font-semibold">{title}</h2>
-      <p className="text-muted-foreground mt-3 max-w-md text-sm leading-6">
-        {description}
-      </p>
-    </div>
-  );
-}
-
-function TreeNodeView({
-  node,
-  activeNodeId,
-  onSelectNode,
-}: {
-  node: KnowledgeTreeNode;
-  activeNodeId?: string;
-  onSelectNode?: (node: KnowledgeTreeNode) => void;
-}) {
-  const { t } = useI18n();
-  const summary = node.summary ?? node.visual_summary;
-  const active = activeNodeId === node.node_id;
-
-  return (
-    <div className="space-y-3">
-      <button
-        type="button"
-        className={cn(
-          "w-full rounded-[22px] border p-4 text-left shadow-sm transition-all duration-200",
-          active
-            ? "border-primary/40 bg-primary/8 shadow-[0_18px_48px_-34px_rgba(59,130,246,0.7)]"
-            : "border-border/60 bg-background/70 hover:bg-background/85 hover:-translate-y-0.5",
-        )}
-        onClick={() => onSelectNode?.(node)}
-      >
-        <div className="flex flex-wrap items-start gap-3">
-          <div className="bg-primary/10 text-primary flex size-9 shrink-0 items-center justify-center rounded-2xl">
-            <BookOpenTextIcon className="size-4" />
-          </div>
-          <div className="min-w-0 flex-1 space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="truncate text-sm font-semibold md:text-base">
-                {node.title}
-              </div>
-              <Badge variant="outline">{locatorLabel(node, t)}</Badge>
-              {typeof node.child_count === "number" && node.child_count > 0 ? (
-                <Badge variant="secondary">
-                  {t.knowledge.childCount(node.child_count)}
-                </Badge>
-              ) : null}
-            </div>
-            {summary ? (
-              <p className="text-muted-foreground text-sm leading-6">
-                {summary}
-              </p>
-            ) : null}
-          </div>
-          <ChevronRightIcon
-            className={cn(
-              "text-muted-foreground mt-1 size-4 shrink-0 transition-transform",
-              active && "text-primary translate-x-0.5",
-            )}
-          />
-        </div>
-      </button>
-      {node.nodes?.length ? (
-        <div className="border-border/50 ml-4 space-y-3 border-l border-dashed pl-4">
-          {node.nodes.map((child) => (
-            <TreeNodeView
-              key={child.node_id}
-              node={child}
-              activeNodeId={activeNodeId}
-              onSelectNode={onSelectNode}
-            />
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function KnowledgeCanonicalPreview({
-  content,
-  focus,
-}: {
-  content: string;
-  focus: KnowledgePreviewFocus | null;
-}) {
-  const lines = useMemo(() => content.split(/\r?\n/), [content]);
-  const focusIndex = useMemo(
-    () => findFocusLineIndex(lines, focus),
-    [focus, lines],
-  );
-  const start = Math.max(0, focusIndex - 48);
-  const end = Math.min(lines.length, focusIndex + 88);
-
-  return (
-    <div className="h-full overflow-auto px-4 py-4">
-      <div className="mb-3 flex flex-wrap gap-2">
-        <Badge variant="outline">{`${start + 1}-${end}`}</Badge>
-        <Badge variant="outline">{`${lines.length} lines`}</Badge>
-        {focus?.locatorLabel ? (
-          <Badge variant="secondary">{focus.locatorLabel}</Badge>
-        ) : null}
-      </div>
-      <div className="border-border/60 bg-muted/25 rounded-[22px] border p-3 font-mono text-xs leading-6 shadow-inner">
-        {lines.slice(start, end).map((line, index) => {
-          const lineNumber = start + index + 1;
-          const active =
-            (focus?.line != null &&
-              lineNumber >= focus.line &&
-              lineNumber <= (focus.lineEnd ?? focus.line)) ||
-            (focus?.line == null && lineNumber === focusIndex + 1);
-
-          return (
-            <div
-              key={`${lineNumber}:${line}`}
-              className={cn(
-                "grid grid-cols-[4rem_minmax(0,1fr)] gap-3 rounded-xl px-2 py-0.5 transition-colors",
-                active && "bg-primary/10 text-foreground",
-              )}
-            >
-              <div className="text-muted-foreground text-right text-[11px]">
-                {lineNumber}
-              </div>
-              <pre className="overflow-x-auto text-xs leading-6 break-words whitespace-pre-wrap">
-                {line || " "}
-              </pre>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function KnowledgePreviewPanel({
-  document,
-  threadId,
-  canonicalMarkdown,
-  focus,
-  mode,
-  onModeChange,
-}: {
-  document: LibraryDocumentView;
-  threadId: string | undefined;
-  canonicalMarkdown?: string;
-  focus: KnowledgePreviewFocus | null;
-  mode: KnowledgePreviewMode;
-  onModeChange: (mode: KnowledgePreviewMode) => void;
-}) {
-  const { t } = useI18n();
-  const [opening, setOpening] = useState(false);
-  const binaryPath = documentBinaryPreviewPath(document);
-  const textPath = documentTextPreviewPath(document);
-  const hasBinaryPreview =
-    document.file_kind.toLowerCase() === "pdf" &&
-    (threadId == null || isPdfPreviewDocument(document));
-  const canCompareCanonical = Boolean(canonicalMarkdown?.trim().length);
-  const effectiveMode =
-    mode === "preview" && hasBinaryPreview
-      ? "preview"
-      : canCompareCanonical
-        ? "canonical"
-        : "preview";
-
-  const {
-    objectUrl,
-    isLoading: previewLoading,
-    error: previewError,
-  } = useArtifactObjectUrl({
-    filepath: binaryPath ?? "",
-    threadId: threadId ?? "",
-    enabled: Boolean(threadId && binaryPath && hasBinaryPreview),
-  });
-  const {
-    objectUrl: visibleObjectUrl,
-    isLoading: visiblePreviewLoading,
-    error: visiblePreviewError,
-  } = useVisibleKnowledgeDocumentObjectUrl({
-    documentId: document.id,
-    enabled: Boolean(!threadId && hasBinaryPreview),
-    variant: "preview",
-  });
-  const activePreviewObjectUrl = threadId ? objectUrl : visibleObjectUrl;
-  const activePreviewLoading = threadId
-    ? previewLoading
-    : visiblePreviewLoading;
-  const activePreviewError = threadId ? previewError : visiblePreviewError;
-
-  const compareContent = canonicalMarkdown ?? "";
-
-  const handleOpen = async () => {
-    try {
-      setOpening(true);
-      if (effectiveMode === "preview" && activePreviewObjectUrl) {
-        window.open(
-          setPdfPreviewPage(activePreviewObjectUrl, focus?.page),
-          "_blank",
-          "noopener,noreferrer",
-        );
-        return;
-      }
-      if (
-        !threadId &&
-        effectiveMode === "canonical" &&
-        compareContent.trim().length > 0
-      ) {
-        const textObjectUrl = URL.createObjectURL(
-          new Blob([compareContent], { type: "text/markdown;charset=utf-8" }),
-        );
-        const openedWindow = window.open(
-          textObjectUrl,
-          "_blank",
-          "noopener,noreferrer",
-        );
-        if (!openedWindow) {
-          URL.revokeObjectURL(textObjectUrl);
-          throw new Error(t.common.previewUnavailable);
-        }
-        window.setTimeout(() => URL.revokeObjectURL(textObjectUrl), 60_000);
-        return;
-      }
-      if (!threadId) {
-        return;
-      }
-      const filepath =
-        effectiveMode === "canonical"
-          ? (textPath ?? binaryPath)
-          : (binaryPath ?? textPath);
-      if (!filepath) {
-        return;
-      }
-      await openArtifactInNewWindow({
-        filepath,
-        threadId,
-      });
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : t.common.previewUnavailable,
-      );
-    } finally {
-      setOpening(false);
-    }
-  };
-
-  return (
-    <div className="border-border/60 bg-background/55 flex h-full min-h-0 flex-col overflow-hidden rounded-[24px] border">
-      <div className="border-border/60 flex flex-wrap items-center justify-between gap-3 border-b px-4 py-4">
-        <div className="space-y-2">
-          <div className={panelLabelClassName}>{t.common.preview}</div>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="text-sm font-semibold">{document.display_name}</div>
-            {focus?.locatorLabel ? (
-              <Badge variant="secondary">{focus.locatorLabel}</Badge>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {hasBinaryPreview ? (
-            <Button
-              size="sm"
-              variant={effectiveMode === "preview" ? "default" : "outline"}
-              className="rounded-full"
-              onClick={() => onModeChange("preview")}
-            >
-              {t.common.preview}
-            </Button>
-          ) : null}
-          {canCompareCanonical ? (
-            <Button
-              size="sm"
-              variant={effectiveMode === "canonical" ? "default" : "outline"}
-              className="rounded-full"
-              onClick={() => onModeChange("canonical")}
-            >
-              {t.knowledge.canonicalTab}
-            </Button>
-          ) : null}
-          <Button
-            size="sm"
-            variant="outline"
-            className="rounded-full"
-            disabled={
-              opening ||
-              (effectiveMode === "preview"
-                ? !activePreviewObjectUrl
-                : threadId
-                  ? !textPath && !binaryPath
-                  : compareContent.trim().length === 0)
-            }
-            onClick={() => void handleOpen()}
-          >
-            {opening ? (
-              <LoaderIcon className="mr-2 size-4 animate-spin" />
-            ) : (
-              <ExternalLinkIcon className="mr-2 size-4" />
-            )}
-            {t.common.openInNewWindow}
-          </Button>
-        </div>
-      </div>
-
-      <div className="min-h-0 flex-1">
-        {effectiveMode === "preview" && hasBinaryPreview ? (
-          activePreviewError instanceof Error ? (
-            <ExplorerEmptyState
-              icon={EyeIcon}
-              title={t.common.previewUnavailable}
-              description={activePreviewError.message}
-            />
-          ) : activePreviewLoading || !activePreviewObjectUrl ? (
-            <div className="flex h-full items-center justify-center">
-              <LoaderIcon className="text-muted-foreground size-5 animate-spin" />
-            </div>
-          ) : (
-            <iframe
-              key={`${activePreviewObjectUrl}:${focus?.page ?? 0}`}
-              className="size-full"
-              src={setPdfPreviewPage(activePreviewObjectUrl, focus?.page)}
-              title={`${document.display_name} preview`}
-            />
-          )
-        ) : canCompareCanonical ? (
-          compareContent.trim().length === 0 ? (
-            <ExplorerEmptyState
-              icon={Code2Icon}
-              title={t.knowledge.canonicalTab}
-              description={t.knowledge.emptyCanonical}
-            />
-          ) : (
-            <KnowledgeCanonicalPreview content={compareContent} focus={focus} />
-          )
-        ) : (
-          <ExplorerEmptyState
-            icon={EyeIcon}
-            title={t.common.previewUnavailable}
-            description={t.common.inlinePreviewUnsupported}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
 export function ThreadKnowledgeManagementPage() {
   const { thread_id: threadId, agent_name: agentName } = useParams();
   const { t } = useI18n();
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { knowledgeBases, isLoading } = useKnowledgeLibrary(threadId);
   const [search, setSearch] = useState("");
   const [selectedOwnerId, setSelectedOwnerId] = useState<string | null>(null);
@@ -1003,6 +237,8 @@ export function ThreadKnowledgeManagementPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailTab, setDetailTab] = useState("overview");
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [pendingUploadedBaseId, setPendingUploadedBaseId] =
+    useState<string | null>(null);
   const [deleteBaseTarget, setDeleteBaseTarget] =
     useState<KnowledgeBase | null>(null);
   const [deletingBaseId, setDeletingBaseId] = useState<string | null>(null);
@@ -1062,6 +298,119 @@ export function ThreadKnowledgeManagementPage() {
         ),
       }));
   }, [filteredKnowledgeBases]);
+
+  useEffect(() => {
+    const requestedOwnerId = searchParams.get("owner");
+    const requestedBaseId = searchParams.get("base");
+    const requestedDocumentId = searchParams.get("document");
+
+    // Knowledge links can jump straight into an active/error document so users
+    // do not need to manually hunt through the library after uploading.
+    if (requestedDocumentId) {
+      const matchedDocument = knowledgeBases
+        .flatMap((knowledgeBase) =>
+          knowledgeBase.documents.map((document) => ({
+            document,
+            knowledgeBase,
+          })),
+        )
+        .find(({ document }) => document.id === requestedDocumentId);
+      if (matchedDocument) {
+        if (selectedOwnerId !== matchedDocument.knowledgeBase.owner_id) {
+          setSelectedOwnerId(matchedDocument.knowledgeBase.owner_id);
+        }
+        if (selectedBaseId !== matchedDocument.knowledgeBase.id) {
+          setSelectedBaseId(matchedDocument.knowledgeBase.id);
+        }
+        if (selectedDocumentId !== matchedDocument.document.id) {
+          setSelectedDocumentId(matchedDocument.document.id);
+        }
+        setDetailOpen(true);
+        return;
+      }
+    }
+
+    if (requestedBaseId) {
+      const matchedBase =
+        knowledgeBases.find((knowledgeBase) => knowledgeBase.id === requestedBaseId) ??
+        null;
+      if (matchedBase) {
+        if (selectedOwnerId !== matchedBase.owner_id) {
+          setSelectedOwnerId(matchedBase.owner_id);
+        }
+        if (selectedBaseId !== matchedBase.id) {
+          setSelectedBaseId(matchedBase.id);
+        }
+        return;
+      }
+    }
+
+    if (requestedOwnerId) {
+      const matchedOwner =
+        groupedBases.find((group) => group.ownerId === requestedOwnerId) ?? null;
+      if (matchedOwner && selectedOwnerId !== matchedOwner.ownerId) {
+        setSelectedOwnerId(matchedOwner.ownerId);
+      }
+    }
+  }, [
+    groupedBases,
+    knowledgeBases,
+    searchParams,
+    selectedBaseId,
+    selectedDocumentId,
+    selectedOwnerId,
+  ]);
+
+  useEffect(() => {
+    if (!pendingUploadedBaseId) {
+      return;
+    }
+
+    const uploadedBase =
+      knowledgeBases.find((knowledgeBase) => knowledgeBase.id === pendingUploadedBaseId) ??
+      null;
+    if (!uploadedBase) {
+      return;
+    }
+
+    setSelectedOwnerId(uploadedBase.owner_id);
+    setSelectedBaseId(uploadedBase.id);
+    setSelectedDocumentId(uploadedBase.documents[0]?.id ?? null);
+    setPendingUploadedBaseId(null);
+  }, [knowledgeBases, pendingUploadedBaseId]);
+
+  useEffect(() => {
+    const nextParams = new URLSearchParams(searchParams);
+
+    if (selectedOwnerId) {
+      nextParams.set("owner", selectedOwnerId);
+    } else {
+      nextParams.delete("owner");
+    }
+
+    if (selectedBaseId) {
+      nextParams.set("base", selectedBaseId);
+    } else {
+      nextParams.delete("base");
+    }
+
+    if (detailOpen && selectedDocumentId) {
+      nextParams.set("document", selectedDocumentId);
+    } else {
+      nextParams.delete("document");
+    }
+
+    if (nextParams.toString() !== searchParams.toString()) {
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [
+    detailOpen,
+    searchParams,
+    selectedBaseId,
+    selectedDocumentId,
+    selectedOwnerId,
+    setSearchParams,
+  ]);
 
   useEffect(() => {
     if (selectedOwnerId == null) {
@@ -1494,12 +843,15 @@ export function ThreadKnowledgeManagementPage() {
         threadId={threadId}
         open={uploadDialogOpen}
         onOpenChange={setUploadDialogOpen}
+        onUploaded={({ knowledgeBaseId }) => {
+          setPendingUploadedBaseId(knowledgeBaseId);
+        }}
       />
       <WorkspaceHeader />
       <WorkspaceBody>
         <div className="bg-muted/30 flex size-full min-h-0 gap-4 overflow-hidden p-4 md:p-6">
-          <aside className="border-border/70 bg-background flex min-h-0 w-[280px] shrink-0 flex-col overflow-hidden rounded-[28px] border">
-            <div className="border-border/60 border-b px-5 py-5">
+          <aside className="border-border bg-background flex min-h-0 w-[280px] shrink-0 flex-col overflow-hidden rounded-xl border">
+            <div className="border-border border-b px-5 py-5">
               <div className={panelLabelClassName}>
                 {t.knowledge.libraryTitle}
               </div>
@@ -1516,7 +868,7 @@ export function ThreadKnowledgeManagementPage() {
                 <button
                   type="button"
                   className={cn(
-                    "flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition-colors",
+                    "flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition-colors",
                     selectedOwnerGroup == null && selectedBase == null
                       ? "bg-accent text-foreground"
                       : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
@@ -1556,7 +908,7 @@ export function ThreadKnowledgeManagementPage() {
                       <button
                         type="button"
                         className={cn(
-                          "flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition-colors",
+                          "flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition-colors",
                           selectedOwnerId === group.ownerId &&
                             selectedBase == null
                             ? "bg-accent text-foreground"
@@ -1579,7 +931,7 @@ export function ThreadKnowledgeManagementPage() {
                       </button>
 
                       {selectedOwnerId === group.ownerId ? (
-                        <div className="border-border/40 ml-4 space-y-1 border-l pl-3">
+                        <div className="border-border ml-4 space-y-1 border-l pl-3">
                           {group.bases.map((knowledgeBase) => {
                             const readyDocuments =
                               knowledgeBase.documents.filter(
@@ -1595,7 +947,7 @@ export function ThreadKnowledgeManagementPage() {
                                 className={cn(
                                   "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors",
                                   selectedBase?.id === knowledgeBase.id
-                                    ? "bg-primary/8 text-foreground"
+                                    ? "bg-primary/5 text-foreground"
                                     : "hover:bg-accent/50",
                                 )}
                                 onClick={() => openBase(knowledgeBase)}
@@ -1625,8 +977,8 @@ export function ThreadKnowledgeManagementPage() {
             </ScrollArea>
           </aside>
 
-          <section className="border-border/70 bg-background flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[28px] border">
-            <div className="border-border/60 border-b px-6 py-5">
+          <section className="border-border bg-background flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border">
+            <div className="border-border border-b px-6 py-5">
               <div className="flex flex-col gap-4">
                 <div className="min-w-0">
                   <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-sm">
@@ -1690,13 +1042,13 @@ export function ThreadKnowledgeManagementPage() {
                       value={search}
                       onChange={(event) => setSearch(event.target.value)}
                       placeholder={t.knowledge.searchPlaceholder}
-                      className="h-11 w-full min-w-[260px] rounded-2xl pl-10 sm:w-[320px]"
+                      className="h-11 w-full min-w-[260px] rounded-md pl-10 sm:w-[320px]"
                     />
                   </div>
                   <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
                     <Button
                       type="button"
-                      className="rounded-2xl px-4"
+                      className="rounded-md px-4"
                       onClick={() => setUploadDialogOpen(true)}
                     >
                       <UploadIcon className="size-4" />
@@ -1707,7 +1059,7 @@ export function ThreadKnowledgeManagementPage() {
                       <Button
                         type="button"
                         variant="outline"
-                        className="rounded-2xl px-4 text-red-600 hover:text-red-700"
+                        className="rounded-md px-4 text-red-600 hover:text-red-700"
                         disabled={
                           clearingOwnerId === derivedClearAllTarget.ownerId
                         }
@@ -1725,7 +1077,7 @@ export function ThreadKnowledgeManagementPage() {
                       <Button
                         type="button"
                         variant="destructive"
-                        className="rounded-2xl px-4"
+                        className="rounded-md px-4"
                         disabled={deletingBaseId === selectedBase.id}
                         onClick={() => setDeleteBaseTarget(selectedBase)}
                       >
@@ -1740,7 +1092,7 @@ export function ThreadKnowledgeManagementPage() {
                     <Button
                       asChild
                       variant="outline"
-                      className="rounded-2xl px-4"
+                      className="rounded-md px-4"
                     >
                       <Link to={chatPath}>
                         {isThreadScoped
@@ -1776,7 +1128,7 @@ export function ThreadKnowledgeManagementPage() {
                             : "outline"
                         }
                         disabled={bindingBusyBaseId === selectedBase.id}
-                        className="rounded-full"
+                        className="rounded-md"
                         onClick={() =>
                           void handleBinding(
                             selectedBase,
@@ -1794,7 +1146,7 @@ export function ThreadKnowledgeManagementPage() {
                       </Button>
                     ) : null}
                     {selectedBase.owner_id === user?.id ? (
-                      <div className="border-border/60 bg-muted/20 flex items-center gap-3 rounded-full border px-3 py-1.5">
+                      <div className="border-border bg-muted/40 flex items-center gap-3 rounded-md border px-3 py-1.5">
                         <span className="text-sm">
                           {t.knowledge.previewSetting}
                         </span>
@@ -1841,7 +1193,7 @@ export function ThreadKnowledgeManagementPage() {
                   ownerRows.map((owner) => (
                     <div
                       key={owner.ownerId}
-                      className="hover:bg-muted/20 flex items-center gap-4 px-6 py-5 transition-colors"
+                      className="hover:bg-muted/40 flex items-center gap-4 px-6 py-5 transition-colors"
                     >
                       <button
                         type="button"
@@ -1856,7 +1208,7 @@ export function ThreadKnowledgeManagementPage() {
                           }
                         }}
                       >
-                        <div className="bg-muted flex size-10 items-center justify-center rounded-2xl">
+                        <div className="bg-muted flex size-10 items-center justify-center rounded-lg">
                           <FolderIcon className="size-5" />
                         </div>
                         <div className="min-w-0 flex-1">
@@ -1888,14 +1240,14 @@ export function ThreadKnowledgeManagementPage() {
                     return (
                       <div
                         key={knowledgeBase.id}
-                        className="hover:bg-muted/20 flex items-center gap-4 px-6 py-5 transition-colors"
+                        className="hover:bg-muted/40 flex items-center gap-4 px-6 py-5 transition-colors"
                       >
                         <button
                           type="button"
                           className="flex min-w-0 flex-1 items-center gap-4 text-left"
                           onClick={() => openBase(knowledgeBase)}
                         >
-                          <div className="bg-muted flex size-10 items-center justify-center rounded-2xl">
+                          <div className="bg-muted flex size-10 items-center justify-center rounded-lg">
                             <FolderIcon className="size-5" />
                           </div>
                           <div className="min-w-0 flex-1">
@@ -1944,8 +1296,8 @@ export function ThreadKnowledgeManagementPage() {
                       <div
                         key={document.id}
                         className={cn(
-                          "hover:bg-muted/20 flex items-center gap-4 px-6 py-5 transition-colors",
-                          selectedDocumentId === document.id && "bg-primary/4",
+                          "hover:bg-muted/40 flex items-center gap-4 px-6 py-5 transition-colors",
+                          selectedDocumentId === document.id && "bg-primary/5",
                         )}
                       >
                         <button
@@ -1953,7 +1305,7 @@ export function ThreadKnowledgeManagementPage() {
                           className="flex min-w-0 flex-1 items-center gap-4 text-left"
                           onClick={() => openDocument(document)}
                         >
-                          <div className="bg-muted flex size-10 items-center justify-center rounded-2xl">
+                          <div className="bg-muted flex size-10 items-center justify-center rounded-lg">
                             <FileTextIcon className="size-5" />
                           </div>
                           <div className="min-w-0 flex-1">
@@ -1986,7 +1338,7 @@ export function ThreadKnowledgeManagementPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          className="rounded-full"
+                          className="rounded-md"
                           onClick={() => openDocument(document)}
                         >
                           {t.common.preview}
@@ -2030,7 +1382,7 @@ export function ThreadKnowledgeManagementPage() {
                   </div>
 
                   <div className="bg-background flex min-h-0 flex-col">
-                    <div className="border-border/60 border-b px-5 py-5 pr-12">
+                    <div className="border-border border-b px-5 py-5 pr-12">
                       <div className={panelLabelClassName}>
                         {selectedBase?.owner_name}/{selectedBase?.name}
                       </div>
@@ -2072,7 +1424,7 @@ export function ThreadKnowledgeManagementPage() {
                       onValueChange={setDetailTab}
                       className="flex min-h-0 flex-1 flex-col"
                     >
-                      <TabsList className="bg-muted/60 mx-4 mt-4 grid h-auto grid-cols-4 rounded-2xl p-1">
+                      <TabsList className="bg-muted/60 mx-4 mt-4 grid h-auto grid-cols-4 rounded-lg p-1">
                         <TabsTrigger value="overview" className="rounded-xl">
                           {t.knowledge.overviewTab}
                         </TabsTrigger>
@@ -2091,10 +1443,10 @@ export function ThreadKnowledgeManagementPage() {
                         value="overview"
                         className="mt-4 min-h-0 flex-1 px-4 pb-4"
                       >
-                        <ScrollArea className="h-full rounded-[24px] border">
+                        <ScrollArea className="h-full rounded-xl border">
                           <div className="space-y-4 p-4">
                             <div className="grid gap-3">
-                              <div className="border-border/60 bg-muted/20 rounded-[18px] border p-4">
+                              <div className="border-border bg-muted/40 rounded-lg border p-4">
                                 <div className={panelLabelClassName}>
                                   {t.knowledge.progressLabel}
                                 </div>
@@ -2115,7 +1467,7 @@ export function ThreadKnowledgeManagementPage() {
                               </div>
 
                               <div className="grid gap-3 sm:grid-cols-2">
-                                <div className="border-border/60 rounded-[18px] border p-4">
+                                <div className="border-border rounded-lg border p-4">
                                   <div className={panelLabelClassName}>
                                     {t.knowledge.stageLabel}
                                   </div>
@@ -2124,7 +1476,7 @@ export function ThreadKnowledgeManagementPage() {
                                       selectedDocument.status}
                                   </div>
                                 </div>
-                                <div className="border-border/60 rounded-[18px] border p-4">
+                                <div className="border-border rounded-lg border p-4">
                                   <div className={panelLabelClassName}>
                                     {t.knowledge.updatedAtLabel}
                                   </div>
@@ -2138,7 +1490,7 @@ export function ThreadKnowledgeManagementPage() {
                                 </div>
                               </div>
 
-                              <div className="border-border/60 rounded-[18px] border p-4">
+                              <div className="border-border rounded-lg border p-4">
                                 <div className={panelLabelClassName}>
                                   {t.knowledge.messageLabel}
                                 </div>
@@ -2156,7 +1508,7 @@ export function ThreadKnowledgeManagementPage() {
                                       ? "secondary"
                                       : "outline"
                                   }
-                                  className="w-full rounded-2xl"
+                                  className="w-full rounded-md"
                                   disabled={
                                     bindingBusyBaseId === selectedBase.id
                                   }
@@ -2175,7 +1527,7 @@ export function ThreadKnowledgeManagementPage() {
 
                               {selectedBase != null &&
                               selectedBase.owner_id === user?.id ? (
-                                <div className="border-border/60 bg-muted/20 flex items-center justify-between rounded-[18px] border p-4">
+                                <div className="border-border bg-muted/40 flex items-center justify-between rounded-lg border p-4">
                                   <div>
                                     <div className="text-sm font-medium">
                                       {t.knowledge.previewSetting}
@@ -2207,7 +1559,7 @@ export function ThreadKnowledgeManagementPage() {
                         value="tree"
                         className="mt-4 min-h-0 flex-1 px-4 pb-4"
                       >
-                        <div className="border-border/60 bg-muted/20 h-full overflow-hidden rounded-[24px] border">
+                        <div className="border-border bg-muted/40 h-full overflow-hidden rounded-xl border">
                           <ScrollArea className="h-full">
                             <div className="space-y-4 p-4">
                               {getKnowledgeDocumentStatus(selectedDocument) !==
@@ -2246,7 +1598,7 @@ export function ThreadKnowledgeManagementPage() {
                         value="events"
                         className="mt-4 min-h-0 flex-1 px-4 pb-4"
                       >
-                        <div className="border-border/60 bg-muted/20 h-full overflow-hidden rounded-[24px] border">
+                        <div className="border-border bg-muted/40 h-full overflow-hidden rounded-xl border">
                           <ScrollArea className="h-full">
                             <div className="space-y-4 p-4">
                               {eventsQuery.isLoading ? (
@@ -2266,7 +1618,7 @@ export function ThreadKnowledgeManagementPage() {
                                 eventsQuery.data?.events.map((event) => (
                                   <div
                                     key={event.id}
-                                    className="border-border/60 bg-background rounded-[18px] border p-4"
+                                    className="border-border bg-background rounded-lg border p-4"
                                   >
                                     <div className="flex flex-wrap items-center gap-2">
                                       <Badge variant="outline">
@@ -2307,7 +1659,7 @@ export function ThreadKnowledgeManagementPage() {
                         value="index"
                         className="mt-4 min-h-0 flex-1 px-4 pb-4"
                       >
-                        <div className="border-border/60 bg-muted/20 h-full overflow-hidden rounded-[24px] border">
+                        <div className="border-border bg-muted/40 h-full overflow-hidden rounded-xl border">
                           <ScrollArea className="h-full">
                             <div className="p-4">
                               {debugQuery.isLoading ? (

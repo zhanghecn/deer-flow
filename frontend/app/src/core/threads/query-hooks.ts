@@ -8,6 +8,7 @@ import {
   deleteThread,
   getThreadRuntime,
   searchThreads,
+  type ThreadSearchResult,
   updateThreadTitle,
 } from "./api";
 import {
@@ -18,13 +19,65 @@ import {
   THREAD_SEARCH_QUERY_KEY,
   type ThreadSearchParams,
 } from "./search";
-import type { AgentThread, ThreadRuntimeBinding } from "./types";
+import type { ThreadRuntimeBinding } from "./types";
+
+function removeThreadFromSearchResult(
+  oldData: ThreadSearchResult | undefined,
+  threadId: string,
+) {
+  if (!oldData) {
+    return oldData;
+  }
+
+  const nextItems = oldData.items.filter((thread) => thread.thread_id !== threadId);
+  const removedCount = oldData.items.length - nextItems.length;
+
+  return {
+    ...oldData,
+    items: nextItems,
+    total: Math.max(0, oldData.total - removedCount),
+  };
+}
+
+function clearThreadSearchResult() {
+  return {
+    items: [],
+    total: 0,
+  };
+}
+
+function renameThreadInSearchResult(
+  oldData: ThreadSearchResult | undefined,
+  threadId: string,
+  title: string,
+) {
+  if (!oldData) {
+    return oldData;
+  }
+
+  return {
+    ...oldData,
+    items: oldData.items.map((thread) => {
+      if (thread.thread_id !== threadId) {
+        return thread;
+      }
+
+      return {
+        ...thread,
+        values: {
+          ...thread.values,
+          title,
+        },
+      };
+    }),
+  };
+}
 
 export function useThreads(
   params: ThreadSearchParams = DEFAULT_THREAD_SEARCH_PARAMS,
 ) {
   const { authenticated } = useAuth();
-  return useQuery<AgentThread[]>({
+  return useQuery<ThreadSearchResult>({
     queryKey: buildThreadSearchQueryKey(params),
     queryFn: () => searchThreads(params),
     enabled: authenticated,
@@ -55,12 +108,8 @@ export function useDeleteThread() {
           queryKey: THREAD_SEARCH_QUERY_KEY,
           exact: false,
         },
-        (oldData: AgentThread[] | undefined) => {
-          if (!oldData) {
-            return oldData;
-          }
-          return oldData.filter((t) => t.thread_id !== threadId);
-        },
+        (oldData: ThreadSearchResult | undefined) =>
+          removeThreadFromSearchResult(oldData, threadId),
       );
       void queryClient.removeQueries({
         queryKey: buildThreadRuntimeQueryKey(threadId),
@@ -79,7 +128,7 @@ export function useClearThreads() {
           queryKey: THREAD_SEARCH_QUERY_KEY,
           exact: false,
         },
-        () => [],
+        () => clearThreadSearchResult(),
       );
       void queryClient.removeQueries({
         queryKey: THREAD_RUNTIME_QUERY_KEY,
@@ -111,23 +160,8 @@ export function useRenameThread() {
           queryKey: THREAD_SEARCH_QUERY_KEY,
           exact: false,
         },
-        (oldData: AgentThread[] | undefined) => {
-          if (!oldData) {
-            return oldData;
-          }
-          return oldData.map((t) => {
-            if (t.thread_id === threadId) {
-              return {
-                ...t,
-                values: {
-                  ...t.values,
-                  title,
-                },
-              };
-            }
-            return t;
-          });
-        },
+        (oldData: ThreadSearchResult | undefined) =>
+          renameThreadInSearchResult(oldData, threadId, title),
       );
     },
   });

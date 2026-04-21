@@ -21,6 +21,7 @@ import { useUpdateSubtask } from "../tasks/context";
 import type { UploadedFileInfo } from "../uploads";
 import { uploadFiles } from "../uploads";
 
+import type { ThreadSearchResult } from "./api";
 import { normalizeThreadError, shouldIgnoreThreadError } from "./error";
 import {
   DEFAULT_SUBAGENT_ENABLED,
@@ -493,6 +494,22 @@ function upsertPendingThreadRecord(
   ];
 }
 
+function upsertPendingThreadSearchResult(
+  oldData: ThreadSearchResult | undefined,
+  pendingRecord: AgentThread,
+): ThreadSearchResult {
+  const nextItems = upsertPendingThreadRecord(oldData?.items, pendingRecord);
+  const inserted =
+    oldData?.items.some((thread) => thread.thread_id === pendingRecord.thread_id)
+      ? 0
+      : 1;
+
+  return {
+    items: nextItems,
+    total: Math.max(nextItems.length, (oldData?.total ?? 0) + inserted),
+  };
+}
+
 function primePendingThreadCaches(
   queryClient: QueryClient,
   threadId: string,
@@ -509,16 +526,16 @@ function primePendingThreadCaches(
 
   queryClient.setQueryData(
     buildThreadSearchQueryKey(DEFAULT_THREAD_SEARCH_PARAMS),
-    (oldData: AgentThread[] | undefined) =>
-      upsertPendingThreadRecord(oldData, pendingRecord),
+    (oldData: ThreadSearchResult | undefined) =>
+      upsertPendingThreadSearchResult(oldData, pendingRecord),
   );
   queryClient.setQueriesData(
     {
       queryKey: THREAD_SEARCH_QUERY_KEY,
       exact: false,
     },
-    (oldData: AgentThread[] | undefined) =>
-      upsertPendingThreadRecord(oldData, pendingRecord),
+    (oldData: ThreadSearchResult | undefined) =>
+      upsertPendingThreadSearchResult(oldData, pendingRecord),
   );
 
   queryClient.setQueryData(buildThreadRuntimeQueryKey(threadId), {

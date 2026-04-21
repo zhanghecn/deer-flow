@@ -21,6 +21,7 @@ import (
 
 type fakeThreadRepo struct {
 	items            []repository.ThreadSearchRecord
+	searchOpts       []repository.ThreadSearchOptions
 	runtimeRecord    *repository.ThreadRuntimeRecord
 	runtimeErr       error
 	ownerID          uuid.UUID
@@ -39,12 +40,13 @@ type fakeThreadRepo struct {
 func (f *fakeThreadRepo) SearchByUser(
 	_ context.Context,
 	_ uuid.UUID,
-	_ repository.ThreadSearchOptions,
-) ([]repository.ThreadSearchRecord, error) {
+	opts repository.ThreadSearchOptions,
+) ([]repository.ThreadSearchRecord, int, error) {
+	f.searchOpts = append(f.searchOpts, opts)
 	if f.err != nil {
-		return nil, f.err
+		return nil, 0, f.err
 	}
-	return f.items, nil
+	return f.items, len(f.items), nil
 }
 
 func (f *fakeThreadRepo) GetRuntimeByUser(
@@ -179,6 +181,54 @@ func TestThreadsHandlerSearchReturnsUserThreads(t *testing.T) {
 	}
 	if payload[0]["agent_status"] != "prod" {
 		t.Fatalf("expected agent_status prod, got %v", payload[0]["agent_status"])
+	}
+	if len(repo.searchOpts) != 1 {
+		t.Fatalf("expected 1 search call, got %d", len(repo.searchOpts))
+	}
+	if repo.searchOpts[0].Limit != 50 || repo.searchOpts[0].Offset != 0 {
+		t.Fatalf("unexpected search options: %+v", repo.searchOpts[0])
+	}
+	if got := rec.Header().Get("X-Pagination-Total"); got != "1" {
+		t.Fatalf("expected X-Pagination-Total=1, got %q", got)
+	}
+}
+
+func TestThreadsHandlerSearchPassesQueryFilter(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	repo := &fakeThreadRepo{}
+	h, _ := newTestThreadsHandler(t, repo, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware.UserIDKey), uuid.MustParse("11111111-1111-1111-1111-111111111111"))
+		c.Next()
+	})
+	router.POST("/api/threads/search", h.Search)
+
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"/api/threads/search",
+		bytes.NewBufferString(`{"limit":20,"offset":40,"query":"report","sort_by":"updated_at","sort_order":"desc"}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if len(repo.searchOpts) != 1 {
+		t.Fatalf("expected 1 search call, got %d", len(repo.searchOpts))
+	}
+	if repo.searchOpts[0].Query != "report" {
+		t.Fatalf("expected query report, got %q", repo.searchOpts[0].Query)
+	}
+	if repo.searchOpts[0].Limit != 20 || repo.searchOpts[0].Offset != 40 {
+		t.Fatalf("unexpected search options: %+v", repo.searchOpts[0])
 	}
 }
 

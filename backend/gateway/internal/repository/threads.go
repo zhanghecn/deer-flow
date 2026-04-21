@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ func NewThreadRepo(pool *pgxpool.Pool) *ThreadRepo {
 type ThreadSearchOptions struct {
 	Limit     int
 	Offset    int
+	Query     string
 	SortBy    string
 	SortOrder string
 }
@@ -49,7 +51,7 @@ func (r *ThreadRepo) SearchByUser(
 	ctx context.Context,
 	userID uuid.UUID,
 	opts ThreadSearchOptions,
-) ([]ThreadSearchRecord, error) {
+) ([]ThreadSearchRecord, int, error) {
 	limit := opts.Limit
 	if limit <= 0 {
 		limit = 50
@@ -64,6 +66,7 @@ func (r *ThreadRepo) SearchByUser(
 
 	sortBy := normalizeThreadSortBy(opts.SortBy)
 	sortOrder := normalizeThreadSortOrder(opts.SortOrder)
+	searchQuery := strings.TrimSpace(opts.Query)
 
 	query := `
 		SELECT
@@ -77,12 +80,30 @@ func (r *ThreadRepo) SearchByUser(
 			model_name
 		FROM thread_bindings
 		WHERE user_id = $1
-		ORDER BY ` + sortBy + ` ` + sortOrder + `
-		LIMIT $2 OFFSET $3
 	`
-	rows, err := r.pool.Query(ctx, query, userID, limit, offset)
+	args := []any{userID}
+	countQuery := `SELECT COUNT(*) FROM thread_bindings WHERE user_id = $1`
+	if searchQuery != "" {
+		// Search only matches persisted thread titles so the server can paginate
+		// the filtered result set instead of the frontend guessing across pages.
+		query += ` AND title ILIKE $2`
+		countQuery += ` AND title ILIKE $2`
+		args = append(args, "%"+searchQuery+"%")
+	}
+
+	var total int
+	if err := r.pool.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	query += `
+		ORDER BY ` + sortBy + ` ` + sortOrder + `
+		LIMIT $` + pgPlaceholder(len(args)+1) + ` OFFSET $` + pgPlaceholder(len(args)+2)
+	args = append(args, limit, offset)
+
+	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
@@ -105,7 +126,7 @@ func (r *ThreadRepo) SearchByUser(
 			&remoteSessionID,
 			&modelName,
 		); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		item.AgentName = normalizeOptionalThreadText(agentName)
 		item.AgentStatus = normalizeThreadAgentStatus(agentStatus)
@@ -121,9 +142,9 @@ func (r *ThreadRepo) SearchByUser(
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return items, nil
+	return items, total, nil
 }
 
 func (r *ThreadRepo) GetRuntimeByUser(
@@ -281,6 +302,10 @@ func normalizeThreadSortOrder(raw string) string {
 		return "ASC"
 	}
 	return "DESC"
+}
+
+func pgPlaceholder(index int) string {
+	return strconv.Itoa(index)
 }
 
 func normalizeOptionalThreadText(value *string) *string {

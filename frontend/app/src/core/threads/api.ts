@@ -7,9 +7,14 @@ import {
 } from "./search";
 import type { AgentThread, ThreadRuntimeBinding } from "./types";
 
+export type ThreadSearchResult = {
+  items: AgentThread[];
+  total: number;
+};
+
 export async function searchThreads(
   params: ThreadSearchParams = {},
-): Promise<AgentThread[]> {
+): Promise<ThreadSearchResult> {
   const body = resolveThreadSearchParams(params);
 
   const res = await authFetch(`${getBackendBaseURL()}/api/threads/search`, {
@@ -18,6 +23,7 @@ export async function searchThreads(
     body: JSON.stringify({
       limit: body.limit,
       offset: body.offset,
+      query: body.query,
       sort_by: body.sortBy,
       sort_order: body.sortOrder,
       select: body.select,
@@ -27,7 +33,15 @@ export async function searchThreads(
     const err = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(err.error ?? `Failed to load threads: ${res.statusText}`);
   }
-  return (await res.json()) as AgentThread[];
+
+  const totalHeader = Number.parseInt(
+    res.headers.get("x-pagination-total") ?? "",
+    10,
+  );
+  return {
+    items: (await res.json()) as AgentThread[],
+    total: Number.isFinite(totalHeader) ? totalHeader : 0,
+  };
 }
 
 export async function updateThreadTitle(
