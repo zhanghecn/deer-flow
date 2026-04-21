@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 from src.tools.tools import get_available_tools
 
@@ -200,3 +201,75 @@ tool_groups: []
         "save_skill_to_store",
         "setup_agent",
     ]
+
+
+def test_get_available_tools_keeps_agent_scoped_mcp_when_explicit_tool_names_empty(
+    monkeypatch,
+    tmp_path: Path,
+):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+models: []
+sandbox:
+  use: src.sandbox.local:LocalSandboxProvider
+tools: []
+tool_groups: []
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("OPENAGENTS_CONFIG_PATH", str(config_path))
+    monkeypatch.setattr(
+        "src.tools.tools._tool_items_by_name",
+        lambda **_kwargs: {},
+    )
+    monkeypatch.setattr(
+        "src.tools.tools._load_mcp_tool_items",
+        lambda **_kwargs: [("fs_grep", SimpleNamespace(name="fs_grep"))],
+    )
+
+    tools = get_available_tools(
+        tool_names=[],
+        include_mcp=True,
+        mcp_servers=["custom/mcp-profiles/customer-docs.json"],
+        model_supports_vision=False,
+    )
+
+    assert [tool.name for tool in tools] == ["fs_grep"]
+
+
+def test_get_available_tools_appends_agent_scoped_mcp_to_explicit_tool_names(
+    monkeypatch,
+    tmp_path: Path,
+):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+models: []
+sandbox:
+  use: src.sandbox.local:LocalSandboxProvider
+tools: []
+tool_groups: []
+""".strip(),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("OPENAGENTS_CONFIG_PATH", str(config_path))
+    monkeypatch.setattr(
+        "src.tools.tools._tool_items_by_name",
+        lambda **_kwargs: {"question": SimpleNamespace(name="question")},
+    )
+    monkeypatch.setattr(
+        "src.tools.tools._load_mcp_tool_items",
+        lambda **_kwargs: [("fs_grep", SimpleNamespace(name="fs_grep"))],
+    )
+
+    tools = get_available_tools(
+        tool_names=["question"],
+        include_mcp=True,
+        mcp_servers=["custom/mcp-profiles/customer-docs.json"],
+        model_supports_vision=False,
+    )
+
+    assert [tool.name for tool in tools] == ["question", "fs_grep"]

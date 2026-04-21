@@ -159,13 +159,16 @@ def _make_agent_config(
     *,
     name: str = LEAD_AGENT_NAME,
     model: str | None = None,
+    tool_names: list[str] | None = None,
+    mcp_servers: list[str] | None = None,
 ) -> lead_agent_module.AgentConfig:
     return lead_agent_module.AgentConfig(
         name=name,
         status="dev",
         model=model,
         tool_groups=[],
-        mcp_servers=[],
+        tool_names=tool_names,
+        mcp_servers=[] if mcp_servers is None else mcp_servers,
     )
 
 
@@ -919,6 +922,61 @@ def test_make_lead_agent_passes_todo_enabled_when_plan_mode_is_explicit(monkeypa
 
     assert len(create_calls) == 1
     assert create_calls[0]["todo_enabled"] is True
+
+
+def test_make_lead_agent_disables_hidden_runtime_tools_for_explicit_tool_names(monkeypatch, tmp_path):
+    lead_agent_module._clear_lead_agent_graph_cache()
+    store = _FakeDBStore(models={"safe-model": _make_model("safe-model", supports_thinking=True)})
+
+    import src.tools as tools_module
+
+    monkeypatch.setattr(
+        lead_agent_module,
+        "get_paths",
+        lambda: Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / "skills"),
+    )
+    monkeypatch.setattr(lead_agent_module, "get_runtime_db_store", lambda: store)
+    monkeypatch.setattr(tools_module, "get_available_tools", lambda **kwargs: [])
+    monkeypatch.setattr(
+        lead_agent_module,
+        "build_backend",
+        lambda thread_id, agent_name, status="dev", agent_config=None, **kwargs: {"thread_id": thread_id},
+    )
+    monkeypatch.setattr(
+        lead_agent_module,
+        "_load_agent_runtime_config",
+        lambda **kwargs: _make_agent_config(
+            tool_names=[],
+            mcp_servers=["custom/mcp-profiles/customer-cases-http-demo.json"],
+        ),
+    )
+    monkeypatch.setattr(lead_agent_module, "apply_prompt_template", lambda **kwargs: "prompt")
+    monkeypatch.setattr(lead_agent_module, "create_chat_model", lambda **kwargs: object())
+
+    create_calls: list[dict[str, object]] = []
+
+    def _fake_create_deep_agent(**kwargs):
+        create_calls.append(kwargs)
+        return _make_fake_deep_agent_graph(graph_id=len(create_calls))
+
+    monkeypatch.setattr(lead_agent_module, "create_deep_agent", _fake_create_deep_agent)
+
+    config = {
+        "configurable": {
+            "thread_id": "thread-1",
+            "user_id": "user-1",
+            "model_name": "safe-model",
+            "thinking_enabled": True,
+            "subagent_enabled": False,
+        }
+    }
+
+    asyncio.run(lead_agent_module.make_lead_agent(config, runtime=None))
+
+    assert len(create_calls) == 1
+    assert create_calls[0]["filesystem_enabled"] is False
+    assert create_calls[0]["general_purpose_enabled"] is False
+    assert create_calls[0]["subagents"] is None
 
 
 def test_make_lead_agent_reuses_read_only_graph_across_threads(monkeypatch, tmp_path):

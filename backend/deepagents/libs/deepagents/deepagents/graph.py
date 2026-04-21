@@ -142,6 +142,7 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
     name: str | None = None,
     cache: BaseCache | None = None,
     todo_enabled: bool = True,
+    filesystem_enabled: bool = True,
 ) -> CompiledStateGraph:
     """Create a deep agent.
 
@@ -232,6 +233,14 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
 
             Disable this for direct-execution runtimes where planner/todo
             behavior should only appear after an explicit opt-in.
+        filesystem_enabled:
+            Whether to include `FilesystemMiddleware` and the built-in file and
+            shell tools (`ls`, `read_file`, `write_file`, `edit_file`, `glob`,
+            `grep`, `execute`).
+
+            Disable this when the caller exposes a fully explicit tool surface
+            and does not want Deep Agents to add extra runtime tools behind the
+            archive or UI configuration.
 
     Returns:
         A configured deep agent.
@@ -244,9 +253,10 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
     gp_middleware: list[AgentMiddleware[Any, Any, Any]] = []
     if todo_enabled:
         gp_middleware.append(TodoListMiddleware())
+    if filesystem_enabled:
+        gp_middleware.append(FilesystemMiddleware(backend=backend))
     gp_middleware.extend(
         [
-            FilesystemMiddleware(backend=backend),
             create_summarization_middleware(model, backend),
             AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
             PatchToolCallsMiddleware(),
@@ -281,9 +291,10 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
             subagent_middleware: list[AgentMiddleware[Any, Any, Any]] = []
             if todo_enabled:
                 subagent_middleware.append(TodoListMiddleware())
+            if filesystem_enabled:
+                subagent_middleware.append(FilesystemMiddleware(backend=backend))
             subagent_middleware.extend(
                 [
-                    FilesystemMiddleware(backend=backend),
                     create_summarization_middleware(subagent_model, backend),
                     AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
                     PatchToolCallsMiddleware(),
@@ -315,7 +326,8 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
         deepagent_middleware.append(MemoryMiddleware(backend=backend, sources=memory))
     if skills is not None:
         deepagent_middleware.append(SkillsMiddleware(backend=backend, sources=skills))
-    deepagent_middleware.append(FilesystemMiddleware(backend=backend))
+    if filesystem_enabled:
+        deepagent_middleware.append(FilesystemMiddleware(backend=backend))
     if all_subagents:
         deepagent_middleware.append(
             SubAgentMiddleware(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable
+from time import perf_counter
 from typing import Literal
 
 from fastapi import APIRouter
@@ -11,6 +12,8 @@ from pydantic import BaseModel, Field
 
 from deepagents.middleware.filesystem import FilesystemMiddleware
 from src.config.app_config import load_tool_configs
+from src.mcp.library import validate_mcp_profile_payload
+from src.mcp.tools import get_mcp_tools_for_extensions_config
 from src.reflection import resolve_variable
 from src.tools.tools import (
     AUTHORING_TOOL_REGISTRY,
@@ -57,6 +60,68 @@ class ToolCatalogItemResponse(BaseModel):
 
 class ToolCatalogResponse(BaseModel):
     tools: list[ToolCatalogItemResponse]
+
+
+class MCPProfileDiscoveryItemRequest(BaseModel):
+    """One canonical MCP profile payload to inspect from the settings UI."""
+
+    ref: str = Field(..., description="Canonical profile ref or fallback identifier.")
+    profile_name: str = Field(..., description="Human-readable profile name from the MCP library.")
+    config_json: dict[str, object] = Field(
+        ...,
+        description="Canonical Claude Code-style mcpServers JSON for this profile.",
+    )
+
+
+class MCPDiscoveredToolResponse(BaseModel):
+    """Tool metadata returned by real MCP discovery."""
+
+    name: str = Field(..., description="Stable MCP tool name returned by the server.")
+    description: str = Field(default="", description="Tool description reported by the MCP server.")
+    input_schema: dict[str, object] = Field(
+        default_factory=dict,
+        description="JSON schema for tool inputs when available.",
+    )
+
+
+class MCPProfileDiscoveryResultResponse(BaseModel):
+    """One profile discovery result shown by the agent settings page."""
+
+    ref: str = Field(..., description="Canonical profile ref or fallback identifier.")
+    profile_name: str = Field(..., description="Human-readable profile name from the MCP library.")
+    server_name: str | None = Field(
+        default=None,
+        description="Single server name defined by this profile.",
+    )
+    reachable: bool = Field(..., description="Whether the MCP server could be initialized and listed.")
+    latency_ms: float | None = Field(
+        default=None,
+        description="Discovery latency in milliseconds when the probe ran.",
+    )
+    tool_count: int = Field(default=0, description="Number of tools discovered from this profile.")
+    tools: list[MCPDiscoveredToolResponse] = Field(
+        default_factory=list,
+        description="Discovered MCP tools for this profile.",
+    )
+    error: str | None = Field(
+        default=None,
+        description="Human-readable discovery failure when reachable is false.",
+    )
+
+
+class MCPProfileDiscoveryBatchRequest(BaseModel):
+    """Batch discovery payload for selected MCP profiles."""
+
+    profiles: list[MCPProfileDiscoveryItemRequest] = Field(
+        default_factory=list,
+        description="Selected MCP profiles to inspect.",
+    )
+
+
+class MCPProfileDiscoveryBatchResponse(BaseModel):
+    """Batch discovery result for the settings UI."""
+
+    results: list[MCPProfileDiscoveryResultResponse] = Field(default_factory=list)
 
 
 def _titleize_tool_name(name: str) -> str:
@@ -181,6 +246,95 @@ def _scan_builtin_tool_catalog() -> list[ToolCatalogItemResponse]:
     return list(catalog.values())
 
 
+def _serialize_schema(schema_candidate: object) -> dict[str, object]:
+    """Convert Pydantic schema helpers into plain JSON for the browser."""
+
+    if schema_candidate is None:
+        return {}
+    if hasattr(schema_candidate, "model_json_schema"):
+        try:
+            payload = schema_candidate.model_json_schema()
+            if isinstance(payload, dict):
+                return payload
+        except Exception:  # noqa: BLE001 - schema access should not break discovery
+            return {}
+    if hasattr(schema_candidate, "schema"):
+        try:
+            payload = schema_candidate.schema()
+            if isinstance(payload, dict):
+                return payload
+        except Exception:  # noqa: BLE001 - schema access should not break discovery
+            return {}
+    if isinstance(schema_candidate, dict):
+        return schema_candidate
+    return {}
+
+
+def _serialize_discovered_tool(tool: BaseTool) -> MCPDiscoveredToolResponse:
+    """Normalize LangChain/BaseTool instances into a stable MCP discovery shape."""
+
+    input_schema = {}
+
+    # MCP adapter tools typically expose get_input_schema(), but we keep a
+    # fallback chain so future LangChain upgrades do not silently drop schema.
+    get_input_schema = getattr(tool, "get_input_schema", None)
+    if callable(get_input_schema):
+        try:
+            input_schema = _serialize_schema(get_input_schema())
+        except Exception:  # noqa: BLE001 - fall back to args_schema below
+            input_schema = {}
+
+    if not input_schema:
+        input_schema = _serialize_schema(getattr(tool, "args_schema", None))
+
+    return MCPDiscoveredToolResponse(
+        name=str(getattr(tool, "name", "") or "").strip(),
+        description=str(getattr(tool, "description", "") or "").strip(),
+        input_schema=input_schema,
+    )
+
+
+async def _discover_mcp_profile(
+    profile: MCPProfileDiscoveryItemRequest,
+) -> MCPProfileDiscoveryResultResponse:
+    """Resolve tools for one explicit MCP profile config."""
+
+    started_at = perf_counter()
+    try:
+        server_name, extensions_config = validate_mcp_profile_payload(profile.config_json)
+        tools = await get_mcp_tools_for_extensions_config(
+            extensions_config,
+            server_names=[server_name],
+        )
+        serialized_tools = [_serialize_discovered_tool(tool) for tool in tools]
+        return MCPProfileDiscoveryResultResponse(
+            ref=profile.ref,
+            profile_name=profile.profile_name,
+            server_name=server_name,
+            reachable=True,
+            latency_ms=round((perf_counter() - started_at) * 1000, 2),
+            tool_count=len(serialized_tools),
+            tools=serialized_tools,
+        )
+    except Exception as exc:  # noqa: BLE001 - return per-profile error details to the UI
+        logger.warning(
+            "Failed to discover MCP tools for profile '%s': %s",
+            profile.ref,
+            exc,
+            exc_info=True,
+        )
+        return MCPProfileDiscoveryResultResponse(
+            ref=profile.ref,
+            profile_name=profile.profile_name,
+            server_name=None,
+            reachable=False,
+            latency_ms=round((perf_counter() - started_at) * 1000, 2),
+            tool_count=0,
+            tools=[],
+            error=str(exc),
+        )
+
+
 def _scan_configured_tool_catalog() -> list[ToolCatalogItemResponse]:
     catalog: dict[str, ToolCatalogItemResponse] = {}
     tool_configs, _ = load_tool_configs()
@@ -231,7 +385,7 @@ def _scan_middleware_tool_catalog() -> list[ToolCatalogItemResponse]:
             reserved_policy=_MIDDLEWARE_INJECTED_POLICY,
             source="middleware",
             read_only_reason=(
-                "Injected by FilesystemMiddleware for runtime file access; archive tool_names cannot remove it."
+                "Injected by FilesystemMiddleware unless the agent archive uses an explicit normal-tool whitelist."
             ),
         )
 
@@ -262,7 +416,7 @@ def _scan_middleware_tool_catalog() -> list[ToolCatalogItemResponse]:
         reserved_policy=_MIDDLEWARE_INJECTED_POLICY,
         source="middleware",
         read_only_reason=(
-            "Injected by SubAgentMiddleware when general-purpose or custom subagents are enabled."
+            "Injected by SubAgentMiddleware when delegation is enabled; explicit normal-tool whitelists disable this default task surface."
         ),
     )
 
@@ -293,3 +447,26 @@ def build_runtime_tool_catalog() -> list[ToolCatalogItemResponse]:
 )
 async def list_tool_catalog() -> ToolCatalogResponse:
     return ToolCatalogResponse(tools=build_runtime_tool_catalog())
+
+
+@router.post(
+    "/mcp/discover",
+    response_model=MCPProfileDiscoveryBatchResponse,
+    summary="Discover tools from explicit MCP profiles",
+)
+async def discover_mcp_profiles(
+    request: MCPProfileDiscoveryBatchRequest,
+) -> MCPProfileDiscoveryBatchResponse:
+    """Probe only the selected MCP profiles from the settings UI.
+
+    The gateway stores canonical Claude Code-style `mcpServers` JSON, but the
+    actual tool surface is runtime-owned. This route keeps the UI honest by
+    resolving the selected profiles through the same MCP adapter stack used at
+    execution time instead of trusting static JSON alone.
+    """
+
+    results = [
+        await _discover_mcp_profile(profile)
+        for profile in request.profiles
+    ]
+    return MCPProfileDiscoveryBatchResponse(results=results)

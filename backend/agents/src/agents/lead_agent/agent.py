@@ -243,6 +243,7 @@ class LeadAgentGraphParts:
     subagents: list[Any] | None
     general_purpose_enabled: bool
     general_purpose_tools: list[Any]
+    filesystem_enabled: bool
     system_prompt: str
 
 
@@ -1381,6 +1382,19 @@ def _build_system_prompt(
     )
 
 
+def _uses_explicit_runtime_tool_surface(agent_config: AgentConfig) -> bool:
+    """Return whether the archive locked an exact normal-tool surface.
+
+    `tool_names` is the user-facing explicit whitelist for the main agent's
+    normal runtime tools. When that field is present, the runtime must not
+    silently re-expand the surface by injecting Deep Agents filesystem or
+    delegation helpers behind the settings UI. Agent-scoped MCP tools remain
+    additive through `get_available_tools(...)`.
+    """
+
+    return agent_config.tool_names is not None
+
+
 def _build_graph_parts(
     *,
     request: LeadAgentRequest,
@@ -1404,19 +1418,23 @@ def _build_graph_parts(
         always_available_authoring_actions=request.always_available_authoring_actions(),
         setup_agent_enabled=request.allows_agent_setup(),
     )
-    subagent_specs = _build_agent_subagents(
-        request=request,
-        agent_config=resolution.agent_config,
-        tools=tools,
-        model_name=resolution.model_name,
-        model_supports_vision=resolution.model_config.supports_vision,
-    )
+    explicit_runtime_surface = _uses_explicit_runtime_tool_surface(resolution.agent_config)
+    subagent_specs = None
+    if not explicit_runtime_surface:
+        subagent_specs = _build_agent_subagents(
+            request=request,
+            agent_config=resolution.agent_config,
+            tools=tools,
+            model_name=resolution.model_name,
+            model_supports_vision=resolution.model_config.supports_vision,
+        )
     return LeadAgentGraphParts(
         tools=tools,
         middleware=_build_openagents_middlewares(resolution.model_config),
         subagents=subagent_specs.custom_subagents if subagent_specs is not None else None,
         general_purpose_enabled=subagent_specs.general_purpose_enabled if subagent_specs is not None else False,
         general_purpose_tools=subagent_specs.general_purpose_tools if subagent_specs is not None else tools,
+        filesystem_enabled=not explicit_runtime_surface,
         system_prompt=_build_system_prompt(request=request, resolution=resolution),
     )
 
@@ -1515,6 +1533,10 @@ def _create_lead_agent(
             "subagents": graph_parts.subagents,
             "general_purpose_tools": graph_parts.general_purpose_tools,
             "general_purpose_enabled": graph_parts.general_purpose_enabled,
+            # Explicit archive tool_names must stay authoritative. When the
+            # user chose an exact tool subset in settings, do not let Deep
+            # Agents inject hidden filesystem helpers back into the runtime.
+            "filesystem_enabled": graph_parts.filesystem_enabled,
             "backend": backend,
             "context_schema": LeadAgentRuntimeContext,
             "name": request.agent_name,

@@ -114,7 +114,9 @@ type Agent struct {
 	Description      string                 `json:"description"`
 	Model            *string                `json:"model"`
 	ToolGroups       []string               `json:"tool_groups"`
-	ToolNames        []string               `json:"tool_names,omitempty"`
+	// Keep explicit empty slices visible over JSON so the settings UI can
+	// distinguish "no override" from "explicitly no normal tools".
+	ToolNames        []string               `json:"tool_names"`
 	McpServers       []string               `json:"mcp_servers"` // Stable MCP library refs selected for this agent
 	Status           string                 `json:"status"`
 	OwnerUserID      string                 `json:"owner_user_id,omitempty"`
@@ -129,7 +131,7 @@ type Agent struct {
 
 type AgentSubagentDefaults struct {
 	GeneralPurposeEnabled bool     `json:"general_purpose_enabled" yaml:"general_purpose_enabled"`
-	ToolNames             []string `json:"tool_names,omitempty" yaml:"tool_names,omitempty"`
+	ToolNames             []string `json:"tool_names" yaml:"tool_names,omitempty"`
 }
 
 type AgentSubagent struct {
@@ -137,7 +139,7 @@ type AgentSubagent struct {
 	Description  string   `json:"description" yaml:"description"`
 	SystemPrompt string   `json:"system_prompt" yaml:"system_prompt"`
 	Model        *string  `json:"model,omitempty" yaml:"model,omitempty"`
-	ToolNames    []string `json:"tool_names,omitempty" yaml:"tool_names,omitempty"`
+	ToolNames    []string `json:"tool_names" yaml:"tool_names,omitempty"`
 	Enabled      bool     `json:"enabled" yaml:"enabled"`
 }
 

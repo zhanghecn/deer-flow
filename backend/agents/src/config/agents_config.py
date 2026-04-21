@@ -32,7 +32,12 @@ def _normalize_optional_text(value: str | None) -> str | None:
     return normalized or None
 
 
-def _normalize_optional_string_list(value: Any, *, field_name: str) -> list[str] | None:
+def _normalize_optional_string_list(
+    value: Any,
+    *,
+    field_name: str,
+    preserve_empty: bool = False,
+) -> list[str] | None:
     if value is None:
         return None
     if not isinstance(value, list):
@@ -49,7 +54,11 @@ def _normalize_optional_string_list(value: Any, *, field_name: str) -> list[str]
         normalized.append(text)
         seen.add(text)
 
-    return normalized or None
+    if normalized:
+        return normalized
+    if preserve_empty:
+        return []
+    return None
 
 
 def _normalize_required_text(value: str, *, field_name: str) -> str:
@@ -123,7 +132,14 @@ class AgentConfig(BaseModel):
     def normalize_manifest_lists(self) -> "AgentConfig":
         self.owner_user_id = _normalize_optional_text(self.owner_user_id)
         self.tool_groups = _normalize_optional_string_list(self.tool_groups, field_name="tool_groups")
-        self.tool_names = _normalize_optional_string_list(self.tool_names, field_name="tool_names")
+        # `tool_names: []` means "explicitly no normal tools". Preserve that
+        # empty list instead of collapsing it to `None`, otherwise the runtime
+        # silently falls back to the default/global tool surface.
+        self.tool_names = _normalize_optional_string_list(
+            self.tool_names,
+            field_name="tool_names",
+            preserve_empty=True,
+        )
         self.mcp_servers = _normalize_optional_string_list(self.mcp_servers, field_name="mcp_servers")
         return self
 
@@ -138,7 +154,11 @@ class AgentSubagentDefaults(BaseModel):
 
     @model_validator(mode="after")
     def normalize_defaults(self) -> "AgentSubagentDefaults":
-        self.tool_names = _normalize_optional_string_list(self.tool_names, field_name="subagent_defaults.tool_names")
+        self.tool_names = _normalize_optional_string_list(
+            self.tool_names,
+            field_name="subagent_defaults.tool_names",
+            preserve_empty=True,
+        )
         return self
 
 
@@ -171,6 +191,7 @@ class AgentSubagentConfig(BaseModel):
         self.tool_names = _normalize_optional_string_list(
             self.tool_names,
             field_name=f"subagents[{self.name}].tool_names",
+            preserve_empty=True,
         )
         return self
 

@@ -339,7 +339,23 @@ def get_available_tools(
         if missing:
             joined = ", ".join(missing)
             raise ValueError(f"Unknown tool name(s): {joined}.")
-        return resolved
+
+        # `tool_names` is the explicit whitelist for normal runtime/configured
+        # tools. Agent-scoped MCP bindings are selected separately by
+        # `mcp_servers`, so keep them additive even when the explicit whitelist
+        # is empty. This preserves the intuitive "only MCP tools" operator flow.
+        mcp_tool_items = _load_mcp_tool_items(
+            include_mcp=include_mcp,
+            mcp_servers=mcp_servers,
+        )
+        if not mcp_tool_items:
+            return resolved
+        return _dedupe_tool_items(
+            [
+                *((getattr(tool, "name", ""), tool) for tool in resolved),
+                *mcp_tool_items,
+            ]
+        )
 
     tool_items = [
         *_load_configured_tool_items(groups=groups),

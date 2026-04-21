@@ -147,6 +147,20 @@ class TestDeepAgents:
         assert "ls" in agent_tools
         assert "task" not in agent_tools
 
+    def test_deep_agent_with_filesystem_disabled_omits_filesystem_tools(self):
+        agent = create_deep_agent(
+            model=SAMPLE_MODEL,
+            tools=[sample_tool],
+            subagents=None,
+            general_purpose_enabled=False,
+            filesystem_enabled=False,
+        )
+
+        agent_tools = agent.nodes["tools"].bound._tools_by_name
+        assert "write_todos" in agent_tools
+        assert "ls" not in agent_tools
+        assert "read_file" not in agent_tools
+
     def test_response_format_tool_strategy(self):
         class StructuredOutput(BaseModel):
             pokemon: list[str]
