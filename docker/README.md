@@ -56,16 +56,12 @@ Override only when you need a different deployment shape:
   - default: `8082`
 - `OPENAGENTS_SANDBOX_PORT`
   - default: `18080`
-- `OPENPENCIL_IMAGE`
-  - default: `ghcr.io/zseven-w/openpencil:latest`
-  - use when you want to pin or mirror the OpenPencil image
 
 Example:
 
 ```bash
 OPENAGENTS_APP_PORT=80 \
 OPENAGENTS_ADMIN_PORT=8081 \
-OPENPENCIL_IMAGE=registry.example.com/openpencil:v0.6.0 \
 docker compose -f docker-compose-prod.yaml up -d
 ```
 
@@ -186,9 +182,17 @@ Export these in the shell only when you actually need them:
 - `OPENAGENTS_ADMIN_PORT`
 - `OPENAGENTS_ONLYOFFICE_PORT`
 - `OPENAGENTS_SANDBOX_PORT`
-- `OPENPENCIL_IMAGE`
 - `NODE_HOST`
 - `K8S_API_SERVER`
+
+## Vendored OpenPencil
+
+The production stack now builds OpenPencil from the vendored `openpencil/`
+directory in this repository.
+
+That keeps the Deer Flow `/openpencil` proxy contract, bridge code, and
+OpenPencil runtime on one source revision instead of mixing current Deer Flow
+code with a potentially stale external image.
 
 ## Fixed Compose Name
 

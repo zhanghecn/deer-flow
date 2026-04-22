@@ -4,7 +4,9 @@
 
 GO_TOOLCHAIN ?= auto
 HOST_LOG_DIR := $(CURDIR)/.openagents/host-logs
-OPENPENCIL_DIR := $(abspath $(CURDIR)/../openpencil)
+# OpenPencil now lives inside this repository so local dev and Docker builds
+# use the same source tree instead of drifting from a sibling checkout.
+OPENPENCIL_DIR := $(abspath $(CURDIR)/openpencil)
 # External model gateways live outside the OpenAgents compose file. Operators
 # can attach one existing container to the shared bridge network and keep a
 # stable in-cluster DNS name for model records such as `http://model-gateway:3000`.
@@ -193,9 +195,8 @@ setup-sandbox:
 	fi
 
 # Start all services.
-# OpenPencil stays optional because not every contributor checks out the sibling
-# repo, but when it is present it must bind 3001 so nginx can preserve the
-# same-origin /openpencil bridge contract.
+# OpenPencil is vendored into this repository and must bind 3001 in host-run
+# development so nginx preserves the same-origin `/openpencil` bridge contract.
 dev:
 	@echo "Stopping existing services if any..."
 	@-pkill -f "langgraph dev" 2>/dev/null || true
@@ -218,7 +219,7 @@ dev:
 	@echo "  → Backend: LangGraph Server"
 	@echo "  → Gateway: Go Gateway"
 	@echo "  → Frontend: Vite"
-	@echo "  → OpenPencil: Vite (optional sibling repo)"
+	@echo "  → OpenPencil: Vite (vendored project)"
 	@echo "  → Nginx: Reverse Proxy"
 	@echo ""
 	@cleanup() { \
@@ -284,10 +285,10 @@ dev:
 				tail -30 $(HOST_LOG_DIR)/openpencil.log 2>/dev/null || true; \
 			fi; \
 		else \
-			echo "! bun not found, skipping optional OpenPencil dev server"; \
+			echo "! bun not found, skipping vendored OpenPencil dev server"; \
 		fi; \
 	else \
-		echo "! $(OPENPENCIL_DIR) not found, skipping optional OpenPencil dev server"; \
+		echo "! $(OPENPENCIL_DIR) not found, vendored OpenPencil copy is missing"; \
 	fi; \
 	if command -v nginx >/dev/null 2>&1; then \
 		echo "Starting Nginx reverse proxy..."; \

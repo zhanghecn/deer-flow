@@ -14,7 +14,7 @@
 - 两个前端都先构建产物，再由一个 Nginx 容器托管
 - `gateway` 和 `langgraph` 不对外暴露端口
 - `sandbox-aio` 和 `onlyoffice` 作为基础能力常驻
-- `openpencil` 默认使用预构建镜像，不再要求宿主机额外存在兄弟源码仓库
+- `openpencil` 默认从仓库内置的 `openpencil/` 源码副本构建，避免 Deer Flow 与设计编辑器版本漂移
 - `gateway` / `langgraph` 只挂各自需要热更新的源码目录与显式配置文件
 - Python 依赖保留在镜像里的 `/opt/venv`，代码更新只需要重启容器，不会因为源码挂载而反复安装
 
@@ -49,7 +49,7 @@
 - sandbox 管理端口：`18080`
 - 持久化目录：仓库根目录 `.openagents/`
 - secrets 文件：仓库根目录 `.env`
-- OpenPencil 镜像：`ghcr.io/zseven-w/openpencil:latest`
+- OpenPencil 源码目录：`openpencil/`
 
 只有你确实要改部署形态时，才需要覆写这些变量：
 
@@ -59,7 +59,6 @@
 - `OPENAGENTS_ADMIN_PORT`
 - `OPENAGENTS_ONLYOFFICE_PORT`
 - `OPENAGENTS_SANDBOX_PORT`
-- `OPENPENCIL_IMAGE`
 
 如果你有外部模型网关容器，例如 1Panel 托管的 `new-api`，推荐把那个容器直接接到
 `openagents-prod_openagents`，然后在模型记录里统一写：
@@ -88,7 +87,6 @@ docker compose -f docker-compose-prod.yaml up -d
 ```bash
 OPENAGENTS_APP_PORT=80 \
 OPENAGENTS_DOCKER_HOST_HOME=/srv/openagents \
-OPENPENCIL_IMAGE=registry.example.com/openpencil:v0.6.0 \
 docker compose -f docker-compose-prod.yaml up -d
 ```
 

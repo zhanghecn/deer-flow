@@ -37,9 +37,12 @@ services:
     restart: unless-stopped
 
   openpencil:
-    # Use a prebuilt image by default so production deploys do not depend on a
-    # sibling `../openpencil` checkout or on-container builds during startup.
-    image: ${OPENPENCIL_IMAGE:-ghcr.io/zseven-w/openpencil:latest}
+    # Build from the vendored repo copy so Deer Flow and OpenPencil ship as
+    # one project and the `/openpencil` bridge contract always matches source.
+    build:
+      context: ../openpencil
+      dockerfile: Dockerfile
+    image: openagents-prod-openpencil
     environment:
       NODE_ENV: production
       NITRO_HOST: 0.0.0.0
