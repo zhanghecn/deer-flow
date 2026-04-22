@@ -55,6 +55,11 @@ sandbox_image_cache.tar
 
 # ignore the legacy `web` folder
 web/
+# The vendored OpenPencil production build now lives under openpencil/apps/web,
+# so keep that subtree tracked even though its leaf directory is also named
+# `web`.
+!openpencil/apps/web/
+!openpencil/apps/web/**
 # Keep the nginx runtime-workspace `vsda` shim tracked even though its leaf
 # directory is named `web`, which would otherwise match the legacy ignore.
 !docker/nginx/static/vsda/rust/web/
