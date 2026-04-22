@@ -153,8 +153,7 @@ function upsertTrace(
   const previous = current.traceItems[current.traceItems.length - 1];
   const nextTimestamp = Date.now();
   if (
-    previous &&
-    previous.stage === params.stage &&
+    previous?.stage === params.stage &&
     previous.tone === "assistant" &&
     previous.title === params.title
   ) {
@@ -302,8 +301,8 @@ export function applyNormalizedPublicAPIRunEvent(params: {
       if (event.event.type === "assistant.message.completed") {
         next = {
           ...next,
-          liveOutput: event.event.text || next.liveOutput,
-          liveReasoning: event.event.reasoning || next.liveReasoning,
+          liveOutput: event.event.text ?? next.liveOutput,
+          liveReasoning: event.event.reasoning ?? next.liveReasoning,
         };
       }
       if (event.event.type === "turn.requires_input") {
@@ -360,7 +359,11 @@ export function applyPublicAPITurnSnapshot(params: {
           : "ready",
   };
 
-  for (const event of params.turn.events) {
+  // Some failed turns currently come back without a normalized `events` array.
+  // Keep the playground usable and show the real backend error instead of
+  // throwing while hydrating the final turn snapshot.
+  const turnEvents = Array.isArray(params.turn.events) ? params.turn.events : [];
+  for (const event of turnEvents) {
     next = pushTraceItemIfNeeded(next, event, params.traceText);
   }
 

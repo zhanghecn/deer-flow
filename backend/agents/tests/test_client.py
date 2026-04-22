@@ -775,12 +775,12 @@ class TestSkillsManagement:
                 patch("src.client.get_paths") as mock_get_paths,
                 patch("src.gateway.routers.skills._validate_skill_frontmatter", return_value=(True, "OK", "my-skill")),
             ):
-                mock_get_paths.return_value.store_dev_skills_dir = skills_root / "store" / "dev"
+                mock_get_paths.return_value.custom_skills_dir = skills_root / "custom"
                 result = client.install_skill(archive_path)
 
             assert result["success"] is True
             assert result["skill_name"] == "my-skill"
-            assert (skills_root / "store" / "dev" / "my-skill").exists()
+            assert (skills_root / "custom" / "my-skill").exists()
 
     def test_install_skill_not_found(self, client):
         with pytest.raises(FileNotFoundError):
@@ -1579,10 +1579,10 @@ class TestScenarioSkillInstallAndUse:
                 patch("src.client.get_paths") as mock_get_paths,
                 patch("src.gateway.routers.skills._validate_skill_frontmatter", return_value=(True, "OK", "my-analyzer")),
             ):
-                mock_get_paths.return_value.store_dev_skills_dir = skills_root / "store" / "dev"
+                mock_get_paths.return_value.custom_skills_dir = skills_root / "custom"
                 result = client.install_skill(archive)
             assert result["success"] is True
-            assert (skills_root / "store" / "dev" / "my-analyzer" / "SKILL.md").exists()
+            assert (skills_root / "custom" / "my-analyzer" / "SKILL.md").exists()
 
             # Step 2: List and find it
             installed_skill = MagicMock()
@@ -1809,7 +1809,7 @@ class TestGatewayConformance:
         store_dev_dir = tmp_path / ".openagents" / "skills" / "store" / "dev"
         store_dev_dir.mkdir(parents=True)
         with patch("src.client.get_paths") as mock_get_paths:
-            mock_get_paths.return_value.store_dev_skills_dir = store_dev_dir
+            mock_get_paths.return_value.custom_skills_dir = tmp_path / ".openagents" / "skills" / "custom"
             result = client.install_skill(archive)
 
         parsed = SkillInstallResponse(**result)

@@ -246,6 +246,32 @@ describe("applyPublicAPITurnSnapshot", () => {
     expect(hydrated.liveOutput).toBe("done");
     expect(hydrated.phase).toBe("ready");
   });
+
+  it("tolerates failed turns that omit the events array", () => {
+    const hydrated = applyPublicAPITurnSnapshot({
+      current: createPublicAPIRunReadModel(),
+      turn: {
+        id: "turn_failed",
+        object: "turn",
+        created_at: 3,
+        status: "failed",
+        agent: "demo-agent",
+        thread_id: "thread-1",
+        output_text: "",
+        reasoning_text: "",
+        events: undefined,
+        usage: {
+          input_tokens: 1,
+          output_tokens: 0,
+          total_tokens: 1,
+        },
+      } as unknown as Parameters<typeof applyPublicAPITurnSnapshot>[0]["turn"],
+      traceText,
+    });
+
+    expect(hydrated.phase).toBe("failed");
+    expect(hydrated.traceItems).toHaveLength(0);
+  });
 });
 
 describe("formatPublicAPIOutputText", () => {
