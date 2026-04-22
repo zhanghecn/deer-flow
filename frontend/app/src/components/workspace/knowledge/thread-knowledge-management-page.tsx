@@ -931,7 +931,7 @@ export function ThreadKnowledgeManagementPage() {
                       </button>
 
                       {selectedOwnerId === group.ownerId ? (
-                        <div className="border-border ml-4 space-y-1 border-l pl-3">
+                        <div className="border-border ml-4 min-w-0 space-y-1 border-l pl-3 pr-1">
                           {group.bases.map((knowledgeBase) => {
                             const readyDocuments =
                               knowledgeBase.documents.filter(
@@ -945,19 +945,19 @@ export function ThreadKnowledgeManagementPage() {
                                 key={knowledgeBase.id}
                                 type="button"
                                 className={cn(
-                                  "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors",
+                                  "flex w-full min-w-0 items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors",
                                   selectedBase?.id === knowledgeBase.id
                                     ? "bg-primary/5 text-foreground"
                                     : "hover:bg-accent/50",
                                 )}
                                 onClick={() => openBase(knowledgeBase)}
                               >
-                                <FileTextIcon className="text-muted-foreground size-4 shrink-0" />
+                                <FileTextIcon className="text-muted-foreground mt-0.5 size-4 shrink-0" />
                                 <div className="min-w-0 flex-1">
-                                  <div className="truncate text-sm font-medium">
+                                  <div className="line-clamp-2 break-words text-sm font-medium leading-5">
                                     {knowledgeBase.name}
                                   </div>
-                                  <div className="text-muted-foreground truncate text-[11px]">
+                                  <div className="text-muted-foreground line-clamp-2 break-all text-[11px] leading-4">
                                     {knowledgeBaseContextLabel(knowledgeBase) ??
                                       t.knowledge.documentCount(
                                         knowledgeBase.documents.length,
@@ -1561,7 +1561,7 @@ export function ThreadKnowledgeManagementPage() {
                       >
                         <div className="border-border bg-muted/40 h-full overflow-hidden rounded-xl border">
                           <ScrollArea className="h-full">
-                            <div className="space-y-4 p-4">
+                            <div className="w-full min-w-0 space-y-4 p-4">
                               {getKnowledgeDocumentStatus(selectedDocument) !==
                               "ready" ? (
                                 <div className="text-muted-foreground text-sm">

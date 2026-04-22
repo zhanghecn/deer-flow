@@ -43,24 +43,27 @@ export function TreeNodeView({
   const active = activeNodeId === node.node_id;
 
   return (
-    <div className="space-y-3">
+    <div className="w-full min-w-0 max-w-full space-y-3">
       <button
         type="button"
         className={cn(
-          "w-full rounded-lg border p-4 text-left transition-all duration-200",
+          // Tree cards live inside a narrow side panel, so force them to honor
+          // the available width instead of growing to the summary's intrinsic
+          // content width and clipping off-screen.
+          "w-full min-w-0 max-w-full rounded-lg border p-4 text-left transition-all duration-200",
           active
             ? "border-primary/40 bg-primary/5"
             : "border-border bg-background hover:bg-background ",
         )}
         onClick={() => onSelectNode?.(node)}
       >
-        <div className="flex flex-wrap items-start gap-3">
+        <div className="flex min-w-0 items-start gap-3">
           <div className="bg-primary/10 text-primary flex size-9 shrink-0 items-center justify-center rounded-lg">
             <BookOpenTextIcon className="size-4" />
           </div>
           <div className="min-w-0 flex-1 space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="truncate text-sm font-semibold md:text-base">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <div className="min-w-0 break-words text-sm font-semibold leading-6 md:text-base">
                 {node.title}
               </div>
               <Badge variant="outline">{locatorLabel(node, t)}</Badge>
@@ -71,7 +74,7 @@ export function TreeNodeView({
               ) : null}
             </div>
             {summary ? (
-              <p className="text-muted-foreground text-sm leading-6">
+              <p className="text-muted-foreground break-words text-sm leading-6">
                 {summary}
               </p>
             ) : null}
@@ -85,7 +88,7 @@ export function TreeNodeView({
         </div>
       </button>
       {node.nodes?.length ? (
-        <div className="border-border ml-4 space-y-3 border-l border-dashed pl-4">
+        <div className="border-border ml-3 min-w-0 space-y-3 border-l border-dashed pl-4">
           {node.nodes.map((child) => (
             <TreeNodeView
               key={child.node_id}

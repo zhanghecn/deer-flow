@@ -156,6 +156,17 @@ export function KnowledgePreviewPanel({
     ? previewLoading
     : visiblePreviewLoading;
   const activePreviewError = threadId ? previewError : visiblePreviewError;
+  const previewFrameSrc = activePreviewObjectUrl
+    ? setPdfPreviewPage(activePreviewObjectUrl, focus?.page)
+    : null;
+  const previewFrameKey = [
+    document.id,
+    effectiveMode,
+    focus?.nodeId ?? "root",
+    focus?.page ?? "page",
+    focus?.line ?? "line",
+    focus?.heading ?? "heading",
+  ].join(":");
 
   const handleOpen = async () => {
     try {
@@ -280,10 +291,15 @@ export function KnowledgePreviewPanel({
               {t.common.loading}
             </div>
           </div>
-        ) : activePreviewObjectUrl ? (
+        ) : previewFrameSrc ? (
           <iframe
+            // Chromium's built-in PDF viewer does not consistently seek to a
+            // new hash target when only `#page=` changes on an existing blob
+            // URL. Re-mount the frame for each focus target so tree clicks
+            // always open the requested page in the live preview.
+            key={previewFrameKey}
             title={document.display_name}
-            src={setPdfPreviewPage(activePreviewObjectUrl, focus?.page)}
+            src={previewFrameSrc}
             className="h-full w-full border-0"
           />
         ) : (

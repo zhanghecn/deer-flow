@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 
 export function WorkspaceHeader({ className }: { className?: string }) {
   const { t } = useI18n();
-  const { state } = useSidebar();
+  const { state, toggleSidebar } = useSidebar();
   const pathname = useLocation().pathname;
   const params = useParams<{ agent_name?: string; thread_id?: string }>();
   const [searchParams] = useSearchParams();
@@ -45,24 +45,30 @@ export function WorkspaceHeader({ className }: { className?: string }) {
         )}
       >
         {state === "collapsed" ? (
-          <div className="flex w-full cursor-pointer items-center justify-center">
-            <div className="text-foreground block pt-1 font-serif group-hover/workspace-header:hidden">
+          // Keep the collapsed monogram itself clickable so the sidebar can be
+          // reopened from the same obvious hit area after icon-collapse.
+          <button
+            type="button"
+            aria-label="Toggle Sidebar"
+            onClick={toggleSidebar}
+            className="flex h-8 w-full items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent"
+          >
+            <div className="block pt-1 font-serif text-sm tracking-tight">
               {APP_INITIALS}
             </div>
-            <SidebarTrigger className="hidden pl-2 group-hover/workspace-header:block" />
-          </div>
+          </button>
         ) : (
           <div className="flex flex-col gap-1">
-            <div className="flex items-center justify-between gap-2 px-2">
+            <div className="flex items-center justify-between gap-2">
               {env.VITE_STATIC_WEBSITE_ONLY === "true" ? (
                 <Link
                   to="/"
-                  className="text-foreground ml-1 font-serif text-sm tracking-tight hover:opacity-80 transition-opacity"
+                  className="text-foreground font-serif text-sm tracking-tight transition-opacity hover:opacity-80"
                 >
                   {APP_NAME}
                 </Link>
               ) : (
-                <div className="text-foreground ml-1 cursor-default font-serif text-sm tracking-tight">
+                <div className="text-foreground cursor-default font-serif text-sm tracking-tight">
                   {APP_NAME}
                 </div>
               )}
@@ -72,19 +78,19 @@ export function WorkspaceHeader({ className }: { className?: string }) {
         )}
       </div>
       {/* "New Chat" promoted to a clear primary action within the sidebar */}
-      <SidebarMenu className="px-2 py-1">
+      <SidebarMenu className="px-0 py-1">
         <SidebarMenuItem>
           <SidebarMenuButton
             isActive={pathname.endsWith("/chats/new")}
             asChild
             className={cn(
-              "h-9 rounded-md transition-colors",
+              "h-9 rounded-md transition-colors group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:gap-0",
               pathname.endsWith("/chats/new")
                 ? "bg-primary text-primary-foreground hover:bg-primary/90"
                 : "text-foreground hover:bg-accent",
             )}
           >
-            <Link className="gap-2 font-medium" to={newChatPath}>
+            <Link className="font-medium" to={newChatPath}>
               <MessageSquarePlus size={16} />
               <span>{t.sidebar.newChat}</span>
             </Link>
