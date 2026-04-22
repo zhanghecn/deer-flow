@@ -142,6 +142,14 @@ export interface TracePayloadSection {
   value: unknown;
 }
 
+export interface TraceLLMRequestSettings {
+  model?: string;
+  provider?: string;
+  effort?: string;
+  maxTokens?: number;
+  temperature?: number;
+}
+
 type RunStatus = "running" | "completed" | "error";
 
 const PREVIEW_KEYS = [
@@ -201,6 +209,54 @@ function hasValue(value: unknown): boolean {
   if (Array.isArray(value)) return value.length > 0;
   if (typeof value === "object") return Object.keys(value as object).length > 0;
   return true;
+}
+
+export function extractLatestLLMRequestSettings(
+  runs: TraceRunSummary[],
+): TraceLLMRequestSettings | null {
+  for (let index = runs.length - 1; index >= 0; index -= 1) {
+    const run = runs[index];
+    if (!run || run.runType !== "llm") {
+      continue;
+    }
+
+    const startPayload = toRecord(run.startEvent?.payload);
+    const request = toRecord(normalizeTraceValue(startPayload?.model_request));
+    const settings = toRecord(request?.settings);
+
+    const effort =
+      typeof settings?.effort === "string"
+        ? settings.effort.trim()
+        : "";
+    const model =
+      typeof request?.model === "string" ? request.model.trim() : "";
+    const provider =
+      typeof request?.provider === "string" ? request.provider.trim() : "";
+    const maxTokens =
+      typeof settings?.max_tokens === "number" ? settings.max_tokens : undefined;
+    const temperature =
+      typeof settings?.temperature === "number"
+        ? settings.temperature
+        : undefined;
+
+    if (
+      model ||
+      provider ||
+      effort ||
+      maxTokens !== undefined ||
+      temperature !== undefined
+    ) {
+      return {
+        model: model || undefined,
+        provider: provider || undefined,
+        effort: effort || undefined,
+        maxTokens,
+        temperature,
+      };
+    }
+  }
+
+  return null;
 }
 
 function hasTruncationMarker(value: unknown, depth = 0): boolean {

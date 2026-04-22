@@ -41,7 +41,7 @@ def test_extract_model_request_context_keeps_tool_registration_without_secret_fi
                 "model": "kimi-k2.5-1",
                 "temperature": 0.2,
                 "max_tokens": 4096,
-                "reasoning_effort": "minimal",
+                "effort": "high",
                 "tool_choice": "auto",
                 "api_key": "secret-value",
                 "tools": [
@@ -65,7 +65,7 @@ def test_extract_model_request_context_keeps_tool_registration_without_secret_fi
     assert context["tool_choice"] == "auto"
     assert context["settings"]["temperature"] == 0.2
     assert context["settings"]["max_tokens"] == 4096
-    assert context["settings"]["reasoning_effort"] == "minimal"
+    assert context["settings"]["effort"] == "high"
     assert context["options"]["stop"] == ["END"]
     assert context["tools"][0]["name"] == "read_file"
     assert "api_key" not in context

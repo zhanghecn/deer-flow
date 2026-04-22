@@ -36,7 +36,7 @@ const getAPIClientMock = vi.fn();
 let mockLocalSettingsContext: LocalSettings["context"] = {
   model_name: "kimi-k2.5",
   mode: "pro",
-  reasoning_effort: "high",
+  effort: "high",
   agent_status: "dev",
 };
 const apiClient = {
@@ -176,7 +176,7 @@ describe("useThreadStream", () => {
     mockLocalSettingsContext = {
       model_name: "kimi-k2.5",
       mode: "pro",
-      reasoning_effort: "high",
+      effort: "high",
       agent_status: "dev",
     };
     toastError.mockReset();
@@ -231,7 +231,7 @@ describe("useThreadStream", () => {
     mockLocalSettingsContext = {
       model_name: "kimi-k2.5-1",
       mode: "pro",
-      reasoning_effort: "high",
+      effort: "high",
       agent_status: "dev",
     };
 
@@ -263,7 +263,7 @@ describe("useThreadStream", () => {
     mockLocalSettingsContext = {
       model_name: undefined,
       mode: "pro",
-      reasoning_effort: "high",
+      effort: "high",
       agent_status: "dev",
     };
 
@@ -826,19 +826,23 @@ describe("useThreadStream", () => {
     });
 
     await waitFor(() => {
-      const cachedThreads = wrapper.queryClient.getQueryData<AgentThread[]>(
+      const cachedThreads = wrapper.queryClient.getQueryData<{
+        items: AgentThread[];
+      }>(
         buildThreadSearchQueryKey(DEFAULT_THREAD_SEARCH_PARAMS),
       );
-      expect(cachedThreads).toMatchObject([
-        {
-          thread_id: "thread-pending",
-          agent_name: "lead_agent",
-          agent_status: "dev",
-          values: {
-            title: "Draft the launch checklist",
+      expect(cachedThreads).toMatchObject({
+        items: [
+          {
+            thread_id: "thread-pending",
+            agent_name: "lead_agent",
+            agent_status: "dev",
+            values: {
+              title: "Draft the launch checklist",
+            },
           },
-        },
-      ]);
+        ],
+      });
       expect(
         wrapper.queryClient.getQueryData(
           buildThreadRuntimeQueryKey("thread-pending"),
@@ -880,17 +884,21 @@ describe("useThreadStream", () => {
     });
 
     await waitFor(() => {
-      const cachedThreads = wrapper.queryClient.getQueryData<AgentThread[]>(
+      const cachedThreads = wrapper.queryClient.getQueryData<{
+        items: AgentThread[];
+      }>(
         buildThreadSearchQueryKey(DEFAULT_THREAD_SEARCH_PARAMS),
       );
-      expect(cachedThreads).toMatchObject([
-        {
-          thread_id: "thread-prefixed",
-          values: {
-            title: "修复标题生成",
+      expect(cachedThreads).toMatchObject({
+        items: [
+          {
+            thread_id: "thread-prefixed",
+            values: {
+              title: "修复标题生成",
+            },
           },
-        },
-      ]);
+        ],
+      });
     });
   });
 
@@ -923,17 +931,21 @@ describe("useThreadStream", () => {
     });
 
     await waitFor(() => {
-      const cachedThreads = wrapper.queryClient.getQueryData<AgentThread[]>(
+      const cachedThreads = wrapper.queryClient.getQueryData<{
+        items: AgentThread[];
+      }>(
         buildThreadSearchQueryKey(DEFAULT_THREAD_SEARCH_PARAMS),
       );
-      expect(cachedThreads).toMatchObject([
-        {
-          thread_id: "thread-escaped-prefix",
-          values: {
-            title: "修复标题生成",
+      expect(cachedThreads).toMatchObject({
+        items: [
+          {
+            thread_id: "thread-escaped-prefix",
+            values: {
+              title: "修复标题生成",
+            },
           },
-        },
-      ]);
+        ],
+      });
     });
   });
 
@@ -966,17 +978,21 @@ describe("useThreadStream", () => {
     });
 
     await waitFor(() => {
-      const cachedThreads = wrapper.queryClient.getQueryData<AgentThread[]>(
+      const cachedThreads = wrapper.queryClient.getQueryData<{
+        items: AgentThread[];
+      }>(
         buildThreadSearchQueryKey(DEFAULT_THREAD_SEARCH_PARAMS),
       );
-      expect(cachedThreads).toMatchObject([
-        {
-          thread_id: "thread-double-escaped-prefix",
-          values: {
-            title: "修复标题生成",
+      expect(cachedThreads).toMatchObject({
+        items: [
+          {
+            thread_id: "thread-double-escaped-prefix",
+            values: {
+              title: "修复标题生成",
+            },
           },
-        },
-      ]);
+        ],
+      });
     });
   });
 

@@ -99,6 +99,11 @@ Mount only the service source directories that need hot updates, keep those
 code mounts read-only, and write runtime scratch data under `OPENAGENTS_HOME`.
 Container logs should stay on stdout/stderr and use Docker log rotation.
 
+Do not bind-mount host dependency directories such as Python `site-packages`,
+virtualenvs, or Node `node_modules` into production containers. For interpreted
+services, dependencies still belong inside the image; use build-cache mounts to
+speed local rebuilds and publish prebuilt images for production rollout.
+
 ## Important Constraint
 
 With one `.env`, `DATABASE_URI` should ideally be reachable from both:

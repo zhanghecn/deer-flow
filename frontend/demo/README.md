@@ -16,12 +16,48 @@ The internal file service exposes:
 - upload and reset APIs under `http://127.0.0.1:8084/api/*`
 - an MCP Streamable HTTP endpoint at `http://127.0.0.1:8084/mcp-http/mcp`
 - a manual tool execution endpoint at `http://127.0.0.1:8084/api/tools/{tool_name}/invoke`
+- text-only `fs_read` / `fs_grep` semantics; PDF and Office uploads stay binary and must be handled by a document-specific pipeline instead of implicit Markdown conversion
 
 ## Start
+
+The simplest operator entrypoint is:
+
+```bash
+make demo-start
+```
+
+It automatically does the right thing in this order:
+
+1. build from local source when you have demo edits
+2. otherwise try the published GHCR demo images
+3. fall back to a local build if no published image is available
+
+Other minimal commands:
+
+```bash
+make demo-status
+make demo-stop
+```
+
+You can still run plain Compose directly if needed:
 
 ```bash
 docker compose -f frontend/demo/compose.yaml up -d --build
 ```
+
+The demo Dockerfiles now use BuildKit cache mounts for `pip` and `pnpm`, so
+repeat local rebuilds can reuse downloaded dependencies.
+
+Do not bind-mount host Python or Node dependency directories into these
+containers as a production strategy. Keep dependencies baked into the image and
+treat Compose as an orchestrator that starts prebuilt images.
+
+This repository also includes a GitHub Actions workflow at
+`.github/workflows/publish-demo-images.yml` that publishes the demo images to
+GHCR using these image names:
+
+- `ghcr.io/<owner>/deer-flow-demo-mcp-file-service:<tag>`
+- `ghcr.io/<owner>/deer-flow-demo-mcp-workbench-ui:<tag>`
 
 ## Stop
 

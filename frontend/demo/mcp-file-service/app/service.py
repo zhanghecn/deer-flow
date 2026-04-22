@@ -11,16 +11,42 @@ import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from fastapi import UploadFile
 
 EMPTY_CONTENT_WARNING = "System reminder: File exists but has empty contents"
+BINARY_DOCUMENT_EXTENSIONS = {
+    ".pdf",
+    ".ppt",
+    ".pptx",
+    ".xls",
+    ".xlsx",
+    ".doc",
+    ".docx",
+}
+TEXT_MIME_TYPES = {
+    "application/javascript",
+    "application/json",
+    "application/ld+json",
+    "application/ndjson",
+    "application/toml",
+    "application/x-javascript",
+    "application/x-sh",
+    "application/x-toml",
+    "application/x-yaml",
+    "application/xml",
+    "application/yaml",
+    "image/svg+xml",
+}
+TEXT_SNIFF_BYTES = 4096
 VIRTUAL_UPLOAD_ROOTS = (
     PurePosixPath("/mnt/user-data/uploads"),
     PurePosixPath("/mnt/user-data"),
 )
+
+FileContentKind = Literal["text", "binary_document", "binary_file"]
 
 
 @dataclass(frozen=True)
@@ -44,6 +70,21 @@ class ToolDescriptor:
     arguments: tuple[ToolArgument, ...]
 
 
+@dataclass(frozen=True)
+class FileContentAccess:
+    """Explicit text-vs-binary classification for generic filesystem tools.
+
+    The demo used to hide PDF / Office files behind generated Markdown shadow
+    files. That blurred the contract: `fs_read` looked generic but actually
+    depended on an implicit conversion pipeline. Keep the classification
+    explicit so generic text tools only claim text capability.
+    """
+
+    kind: FileContentKind
+    mime_type: str
+    text_readable: bool
+
+
 def _iso8601(value: float) -> str:
     return datetime.fromtimestamp(value, tz=UTC).isoformat()
 
@@ -64,7 +105,7 @@ def build_tool_catalog() -> list[dict[str, Any]]:
         ),
         ToolDescriptor(
             name="fs_read",
-            summary="Read one file using offset and limit semantics aligned with filesystem middleware.",
+            summary="Read one text file using offset and limit semantics aligned with filesystem middleware. Binary documents are rejected instead of being auto-converted.",
             returns="JSON payload with file metadata, line window, and next_offset.",
             arguments=(
                 ToolArgument("file_path", "string", True, "Relative file path under the uploaded root."),
@@ -74,7 +115,7 @@ def build_tool_catalog() -> list[dict[str, Any]]:
         ),
         ToolDescriptor(
             name="fs_grep",
-            summary="Search file contents by text or regex pattern and optional glob filter.",
+            summary="Search text file contents by text or regex pattern and optional glob filter. Binary documents are skipped or rejected when selected directly.",
             returns="JSON payload with matches, files-with-matches, or per-file counts.",
             arguments=(
                 ToolArgument("pattern", "string", True, "Text or regex-like pattern to search for."),
@@ -132,6 +173,101 @@ class FileMcpService:
         if any(self.root.iterdir()):
             return
         shutil.copytree(self.seed_root, self.root, dirs_exist_ok=True)
+
+    @staticmethod
+    def _is_probably_text_file(file_path: Path) -> bool:
+        """Sniff a small byte prefix so extensionless text files stay readable.
+
+        MIME/extension rules are the primary contract. The byte sniff only keeps
+        obviously textual uploads from being misclassified as binary when they
+        lack a useful extension.
+        """
+
+        with file_path.open("rb") as handle:
+            sample = handle.read(TEXT_SNIFF_BYTES)
+        if not sample:
+            return True
+        if b"\x00" in sample:
+            return False
+        try:
+            sample.decode("utf-8")
+        except UnicodeDecodeError:
+            return False
+        return True
+
+    def _describe_file_content_access(self, file_path: Path) -> FileContentAccess:
+        """Classify whether generic filesystem tools may treat this file as text."""
+
+        relative = file_path.relative_to(self.root).as_posix()
+        mime_type = mimetypes.guess_type(relative)[0] or "application/octet-stream"
+        extension = file_path.suffix.lower()
+        if extension in BINARY_DOCUMENT_EXTENSIONS:
+            return FileContentAccess(
+                kind="binary_document",
+                mime_type=mime_type,
+                text_readable=False,
+            )
+        if mime_type.startswith("text/") or mime_type in TEXT_MIME_TYPES:
+            return FileContentAccess(kind="text", mime_type=mime_type, text_readable=True)
+        if self._is_probably_text_file(file_path):
+            return FileContentAccess(kind="text", mime_type=mime_type, text_readable=True)
+        return FileContentAccess(
+            kind="binary_file",
+            mime_type=mime_type,
+            text_readable=False,
+        )
+
+    @staticmethod
+    def _matches_glob(*, requested_path: str, pattern: str) -> bool:
+        """Match one relative file path against a glob filter."""
+
+        return fnmatch.fnmatch(requested_path, pattern)
+
+    @staticmethod
+    def _text_only_tool_message(
+        *,
+        tool_name: str,
+        file_name: str,
+        access: FileContentAccess,
+    ) -> str:
+        if access.kind == "binary_document":
+            return (
+                f"{tool_name} only supports text files. '{file_name}' is "
+                f"{access.mime_type}. PDF and Office files must go through a "
+                "document-specific pipeline instead of generic text tools."
+            )
+        return (
+            f"{tool_name} only supports text files. '{file_name}' is "
+            f"{access.mime_type}."
+        )
+
+    def _require_text_file(
+        self,
+        *,
+        file_path: Path,
+        tool_name: str,
+    ) -> FileContentAccess:
+        """Fail fast when a generic text tool is pointed at a binary file."""
+
+        access = self._describe_file_content_access(file_path)
+        if access.text_readable:
+            return access
+        raise ValueError(
+            self._text_only_tool_message(
+                tool_name=tool_name,
+                file_name=file_path.name,
+                access=access,
+            )
+        )
+
+    @staticmethod
+    def _sorted_file_paths(base: Path, *, recursive: bool) -> list[Path]:
+        iterator = base.rglob("*") if recursive else base.iterdir()
+        return [
+            candidate.resolve()
+            for candidate in sorted(iterator, key=lambda item: item.as_posix().lower())
+            if candidate.is_file()
+        ]
 
     def _safe_relative_path(self, value: str) -> Path:
         raw_value = str(value or "").strip()
@@ -200,14 +336,18 @@ class FileMcpService:
     def _file_row(self, file_path: Path) -> dict[str, Any]:
         stat = file_path.stat()
         relative = file_path.relative_to(self.root).as_posix()
-        return {
+        access = self._describe_file_content_access(file_path)
+        row = {
             "path": relative,
             "name": file_path.name,
             "entry_type": "file",
             "size_bytes": stat.st_size,
             "updated_at": _iso8601(stat.st_mtime),
-            "mime_type": mimetypes.guess_type(relative)[0] or "application/octet-stream",
+            "mime_type": access.mime_type,
+            "content_kind": access.kind,
+            "text_readable": access.text_readable,
         }
+        return row
 
     def _directory_row(self, dir_path: Path) -> dict[str, Any]:
         relative = dir_path.relative_to(self.root).as_posix()
@@ -238,9 +378,10 @@ class FileMcpService:
             base.iterdir(),
             key=lambda candidate: (not candidate.is_dir(), candidate.name.lower()),
         ):
-            rows.append(
-                self._directory_row(item) if item.is_dir() else self._file_row(item)
-            )
+            if item.is_dir():
+                rows.append(self._directory_row(item))
+                continue
+            rows.append(self._file_row(item.resolve()))
 
         safe_cursor = max(cursor, 0)
         safe_limit = min(max(limit, 1), 200)
@@ -268,7 +409,10 @@ class FileMcpService:
             raise ValueError(f"path is not a directory: {path}")
         safe_cursor = max(cursor, 0)
         safe_limit = min(max(limit, 1), 200)
-        items = [self._file_row(item) for item in sorted(base.rglob("*")) if item.is_file()]
+        items = [
+            self._file_row(item)
+            for item in self._sorted_file_paths(base, recursive=True)
+        ]
         next_cursor = safe_cursor + safe_limit
         return {
             "items": items[safe_cursor:next_cursor],
@@ -288,13 +432,14 @@ class FileMcpService:
     ) -> dict[str, Any]:
         """Read one file using line offsets to mirror FilesystemMiddleware semantics."""
 
-        resolved_file = self._resolve_existing_path(file_path)
-        if not resolved_file.is_file():
+        requested_file = self._resolve_existing_path(file_path)
+        if not requested_file.is_file():
             raise ValueError(f"path is not a file: {file_path}")
 
+        self._require_text_file(file_path=requested_file, tool_name="fs_read")
         safe_offset = max(offset, 0)
         safe_limit = min(max(limit, 1), 5000)
-        all_lines = resolved_file.read_text(encoding="utf-8", errors="ignore").splitlines()
+        all_lines = requested_file.read_text(encoding="utf-8", errors="ignore").splitlines()
         window = all_lines[safe_offset : safe_offset + safe_limit]
         rendered_lines = [
             f"{line_number:>6}\t{line}"
@@ -309,7 +454,7 @@ class FileMcpService:
         )
         content = "\n".join(rendered_lines) if rendered_lines else EMPTY_CONTENT_WARNING
         return {
-            **self._file_row(resolved_file),
+            **self._file_row(requested_file),
             "file_path": file_path,
             "offset": safe_offset,
             "limit": safe_limit,
@@ -329,16 +474,31 @@ class FileMcpService:
     ) -> dict[str, Any]:
         """Keep the UI preview endpoint text-first while MCP uses line windows."""
 
-        resolved_file = self._resolve_existing_path(path)
-        if not resolved_file.is_file():
+        requested_file = self._resolve_existing_path(path)
+        if not requested_file.is_file():
             raise ValueError(f"path is not a file: {path}")
+        access = self._describe_file_content_access(requested_file)
         safe_page = max(page, 1)
         safe_page_size = min(max(page_size, 256), 20_000)
-        text = resolved_file.read_text(encoding="utf-8", errors="ignore")
+        if not access.text_readable:
+            message = self._text_only_tool_message(
+                tool_name="preview",
+                file_name=requested_file.name,
+                access=access,
+            )
+            return {
+                **self._file_row(requested_file),
+                "page": safe_page,
+                "page_size": safe_page_size,
+                "total_chars": 0,
+                "has_more": False,
+                "content": message,
+            }
+        text = requested_file.read_text(encoding="utf-8", errors="ignore")
         start = (safe_page - 1) * safe_page_size
         end = start + safe_page_size
         return {
-            **self._file_row(resolved_file),
+            **self._file_row(requested_file),
             "page": safe_page,
             "page_size": safe_page_size,
             "total_chars": len(text),
@@ -426,18 +586,22 @@ class FileMcpService:
         # scope so MCP usage matches operator intuition instead of forcing the
         # model to normalize paths manually before every grep call.
         if base.is_file():
-            candidates = [base]
+            self._require_text_file(file_path=base, tool_name="fs_grep")
+            candidates = [base.resolve()]
         elif base.is_dir():
-            candidates = sorted(base.rglob("*"))
+            candidates = self._sorted_file_paths(base, recursive=True)
         else:
             raise ValueError(f"path is not a file or directory: {path}")
 
         matches: list[dict[str, Any]] = []
+        skipped_binary_files = 0
         for candidate in candidates:
-            if not candidate.is_file():
-                continue
             relative = candidate.relative_to(self.root).as_posix()
-            if not fnmatch.fnmatch(relative, glob):
+            if not self._matches_glob(requested_path=relative, pattern=glob):
+                continue
+            access = self._describe_file_content_access(candidate)
+            if not access.text_readable:
+                skipped_binary_files += 1
                 continue
             text = candidate.read_text(encoding="utf-8", errors="ignore")
             for line_number, line in enumerate(text.splitlines(), start=1):
@@ -446,17 +610,17 @@ class FileMcpService:
                     normalized_pattern=normalized_pattern,
                     raw_pattern=pattern,
                 ):
-                    matches.append(
-                        {
-                            "path": relative,
-                            "line_number": line_number,
-                            "line": line,
-                        }
-                    )
+                    item = {
+                        "path": relative,
+                        "line_number": line_number,
+                        "line": line,
+                    }
+                    matches.append(item)
 
         response_metadata = {
             "output_mode": resolved_output_mode,
             "requested_output_mode": requested_output_mode,
+            "skipped_binary_files": skipped_binary_files,
         }
 
         if resolved_output_mode == "files_with_matches":
@@ -511,9 +675,11 @@ class FileMcpService:
             raise ValueError(f"path is not a directory: {path}")
         items = [
             self._file_row(item)
-            for item in sorted(base.rglob("*"))
-            if item.is_file()
-            and fnmatch.fnmatch(item.relative_to(self.root).as_posix(), pattern)
+            for item in self._sorted_file_paths(base, recursive=True)
+            if self._matches_glob(
+                requested_path=item.relative_to(self.root).as_posix(),
+                pattern=pattern,
+            )
         ]
         return {
             "items": items,

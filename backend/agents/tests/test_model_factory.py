@@ -16,7 +16,7 @@ def _anthropic_model_config(**extra) -> ModelConfig:
         "api_key": "test-key",
         "base_url": "https://example.invalid/anthropic",
         "supports_thinking": True,
-        "supports_reasoning_effort": False,
+        "supports_effort": False,
         "when_thinking_enabled": {"thinking": {"type": "enabled"}},
     }
     payload.update(extra)
@@ -33,7 +33,7 @@ def _openai_model_config(**extra) -> ModelConfig:
         "api_key": "test-key",
         "base_url": "https://example.invalid/openai",
         "supports_thinking": True,
-        "supports_reasoning_effort": True,
+        "supports_effort": True,
     }
     payload.update(extra)
     return ModelConfig.model_validate(payload)
@@ -223,7 +223,7 @@ def test_create_chat_model_preserves_explicit_disable_streaming_override(monkeyp
     assert model.disable_streaming is False
 
 
-def test_create_chat_model_defaults_reasoning_effort_when_supported(monkeypatch):
+def test_create_chat_model_defaults_effort_when_supported(monkeypatch):
     class FakeModel:
         def __init__(self, **kwargs) -> None:
             self.callbacks = None
@@ -239,7 +239,55 @@ def test_create_chat_model_defaults_reasoning_effort_when_supported(monkeypatch)
 
     model = factory_module.create_chat_model(name="gpt-5-mini", thinking_enabled=True)
 
-    assert model.reasoning_effort == factory_module.DEFAULT_REASONING_EFFORT
+    assert model.effort == factory_module.DEFAULT_EFFORT_LEVEL
+
+
+def test_create_chat_model_runtime_effort_wins_over_model_config_extra(monkeypatch):
+    class FakeModel:
+        def __init__(self, **kwargs) -> None:
+            self.callbacks = None
+            for key, value in kwargs.items():
+                setattr(self, key, value)
+
+    monkeypatch.setattr(
+        factory_module,
+        "require_enabled_model",
+        lambda _name: _openai_model_config(effort="medium"),
+    )
+    monkeypatch.setattr(factory_module, "resolve_class", lambda *_args, **_kwargs: FakeModel)
+
+    model = factory_module.create_chat_model(
+        name="gpt-5-mini",
+        thinking_enabled=True,
+        effort="high",
+    )
+
+    assert model.effort == "high"
+
+
+def test_create_chat_model_maps_explicit_runtime_overrides_to_provider_kwargs(monkeypatch):
+    class FakeModel:
+        def __init__(self, **kwargs) -> None:
+            self.callbacks = None
+            for key, value in kwargs.items():
+                setattr(self, key, value)
+
+    monkeypatch.setattr(
+        factory_module,
+        "require_enabled_model",
+        lambda _name: _openai_model_config(),
+    )
+    monkeypatch.setattr(factory_module, "resolve_class", lambda *_args, **_kwargs: FakeModel)
+
+    model = factory_module.create_chat_model(
+        name="gpt-5-mini",
+        thinking_enabled=False,
+        max_output_tokens=512,
+        temperature=0,
+    )
+
+    assert model.max_tokens == 512
+    assert model.temperature == 0
 
 
 def test_create_chat_model_defaults_provider_retry_budget(monkeypatch):
@@ -303,7 +351,7 @@ def test_create_chat_model_disables_extra_body_thinking_when_not_requested(monke
     model = factory_module.create_chat_model(name="gpt-5-mini", thinking_enabled=False)
 
     assert model.extra_body == {"thinking": {"type": "disabled"}}
-    assert model.reasoning_effort == factory_module.MINIMAL_REASONING_EFFORT
+    assert getattr(model, "effort", None) is None
 
 
 def test_create_chat_model_attaches_explicit_max_input_tokens(monkeypatch):

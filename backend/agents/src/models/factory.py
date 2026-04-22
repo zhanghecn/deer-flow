@@ -1,6 +1,6 @@
 import ipaddress
 import logging
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 import anthropic
@@ -25,8 +25,8 @@ from src.reflection import resolve_class
 
 logger = logging.getLogger(__name__)
 DEFAULT_ANTHROPIC_THINKING_MAX_TOKENS = 16384
-DEFAULT_REASONING_EFFORT = "high"
-MINIMAL_REASONING_EFFORT = "minimal"
+EffortLevel = Literal["low", "medium", "high", "max"]
+DEFAULT_EFFORT_LEVEL = "high"
 ANTHROPIC_CHAT_MODEL_CLASS = "langchain_anthropic:ChatAnthropic"
 MODEL_CONFIG_EXCLUDE_FIELDS = {
     "use",
@@ -35,7 +35,10 @@ MODEL_CONFIG_EXCLUDE_FIELDS = {
     "description",
     "max_input_tokens",
     "supports_thinking",
-    "supports_reasoning_effort",
+    "supports_effort",
+    # Per-run effort overrides are runtime-only. Keeping them out of persisted
+    # model settings avoids mixing operator defaults with per-turn execution.
+    "effort",
     "when_thinking_enabled",
     "supports_vision",
 }
@@ -72,6 +75,26 @@ def _build_model_settings(model_config: ModelConfig) -> dict[str, Any]:
     )
 
 
+def _build_runtime_kwargs(
+    *,
+    effort: EffortLevel | None,
+    max_output_tokens: int | None,
+    temperature: float | None,
+) -> dict[str, Any]:
+    runtime_kwargs: dict[str, Any] = {}
+    if effort is not None:
+        runtime_kwargs["effort"] = effort
+    if max_output_tokens is not None:
+        if max_output_tokens <= 0:
+            raise ValueError("max_output_tokens must be greater than zero.") from None
+        # Runtime callers speak in the public `/v1` token-budget contract while
+        # provider SDKs still expect `max_tokens`.
+        runtime_kwargs["max_tokens"] = max_output_tokens
+    if temperature is not None:
+        runtime_kwargs["temperature"] = temperature
+    return runtime_kwargs
+
+
 def _apply_enabled_thinking_settings(
     *,
     name: str,
@@ -87,8 +110,8 @@ def _apply_enabled_thinking_settings(
     if model_config.use == ANTHROPIC_CHAT_MODEL_CLASS and "max_tokens" not in model_settings and "max_tokens" not in runtime_kwargs:
         runtime_kwargs["max_tokens"] = DEFAULT_ANTHROPIC_THINKING_MAX_TOKENS
 
-    if model_config.supports_reasoning_effort and "reasoning_effort" not in runtime_kwargs:
-        runtime_kwargs["reasoning_effort"] = DEFAULT_REASONING_EFFORT
+    if model_config.supports_effort and "effort" not in runtime_kwargs:
+        runtime_kwargs["effort"] = DEFAULT_EFFORT_LEVEL
 
 
 def _apply_disabled_thinking_settings(
@@ -99,7 +122,6 @@ def _apply_disabled_thinking_settings(
         return
 
     runtime_kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
-    runtime_kwargs["reasoning_effort"] = MINIMAL_REASONING_EFFORT
 
 
 def _uses_extra_body_thinking_toggle(model_config: ModelConfig) -> bool:
@@ -126,8 +148,9 @@ def _apply_thinking_settings(
     else:
         _apply_disabled_thinking_settings(model_config, runtime_kwargs)
 
-    if not model_config.supports_reasoning_effort:
-        runtime_kwargs.pop("reasoning_effort", None)
+    if not model_config.supports_effort:
+        runtime_kwargs.pop("effort", None)
+
 
 def _attach_langsmith_tracing(model_instance: BaseChatModel, name: str) -> None:
     if not is_tracing_enabled():
@@ -348,10 +371,13 @@ def _instantiate_model(
 
 
 def create_chat_model(
+    *,
     name: str | None = None,
     thinking_enabled: bool = False,
+    effort: EffortLevel | None = None,
+    max_output_tokens: int | None = None,
+    temperature: float | None = None,
     runtime_model_config: ModelConfig | dict | None = None,
-    **kwargs,
 ) -> BaseChatModel:
     """Create a chat model instance from the config.
 
@@ -364,7 +390,11 @@ def create_chat_model(
     name, model_config = _resolve_model_config(name, runtime_model_config)
     model_class = resolve_class(model_config.use, BaseChatModel)
     model_settings_from_config = _build_model_settings(model_config)
-    runtime_kwargs = dict(kwargs)
+    runtime_kwargs = _build_runtime_kwargs(
+        effort=effort,
+        max_output_tokens=max_output_tokens,
+        temperature=temperature,
+    )
 
     _apply_thinking_settings(
         name=name,

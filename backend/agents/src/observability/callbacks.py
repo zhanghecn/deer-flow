@@ -985,13 +985,13 @@ def _extract_model_request_context(
         stop = invocation_params.get("stop")
         temperature = invocation_params.get("temperature")
         max_tokens = invocation_params.get("max_tokens")
-        reasoning_effort = invocation_params.get("reasoning_effort")
+        effort = _first_non_empty_str(invocation_params.get("effort"))
         tools = _extract_registered_tools(invocation_params.get("tools"))
         settings = _drop_none(
             {
                 "temperature": _jsonify(temperature),
                 "max_tokens": _jsonify(max_tokens),
-                "reasoning_effort": _jsonify(reasoning_effort),
+                "effort": _jsonify(effort),
                 "stop": _jsonify(stop),
             }
         )

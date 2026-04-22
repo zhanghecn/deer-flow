@@ -46,6 +46,22 @@ export type PublicAPISession = {
   getLastTurn: () => PublicAPITurnSnapshot | null;
 };
 
+function normalizeThinkingRequest(
+  thinking: PublicAPISessionPromptParams["thinking"],
+): PublicAPITurnRequestBody["thinking"] {
+  if (!thinking) {
+    return undefined;
+  }
+
+  // Some runtimes treat any supplied `effort` as an active reasoning override,
+  // even when `enabled` is false. Strip the effort flag on disabled requests so
+  // the playground can explicitly disable reasoning without tripping model init.
+  return {
+    enabled: thinking.enabled,
+    effort: thinking.enabled ? thinking.effort : undefined,
+  };
+}
+
 function buildSessionTurnRequestBody(params: {
   agent: string;
   previousTurnId: string;
@@ -63,7 +79,7 @@ function buildSessionTurnRequestBody(params: {
     previous_turn_id: params.previousTurnId || undefined,
     stream: params.prompt.stream ?? true,
     metadata: params.prompt.metadata,
-    thinking: params.prompt.thinking,
+    thinking: normalizeThinkingRequest(params.prompt.thinking),
     text: params.prompt.textOptions,
     max_output_tokens: params.prompt.maxOutputTokens,
   };

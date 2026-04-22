@@ -60,6 +60,7 @@ from src.config.runtime_db import RuntimeDBStore, ThreadBinding, get_runtime_db_
 from src.config.runtime_defaults import DEFAULT_SUBAGENT_ENABLED
 from src.config.runtime_limits import DEFAULT_AGENT_RECURSION_LIMIT
 from src.models import create_chat_model
+from src.models.factory import EffortLevel
 from src.observability import create_agent_trace_callback
 from src.runtime_backends import (
     build_local_workspace_backend as build_local_runtime_backend,
@@ -117,7 +118,7 @@ class LeadAgentRuntimeContext(BaseModel):
         alias="model_config",
     )
     thinking_enabled: bool | None = None
-    reasoning_effort: Any = None
+    effort: EffortLevel | None = None
     max_output_tokens: int | None = None
     subagent_enabled: bool | None = None
     max_concurrent_subagents: int | None = None
@@ -152,12 +153,12 @@ class LeadAgentRuntimeContext(BaseModel):
 
 @dataclass(frozen=True)
 class LeadAgentRequest:
-    thinking_enabled: object
-    reasoning_effort: object
+    thinking_enabled: bool
+    effort: EffortLevel | None
     requested_model_name: str | None
-    is_plan_mode: object
-    subagent_enabled: object
-    max_concurrent_subagents: object
+    is_plan_mode: bool
+    subagent_enabled: bool
+    max_concurrent_subagents: int
     command_name: str | None
     command_kind: str | None
     command_args: str | None
@@ -175,7 +176,7 @@ class LeadAgentRequest:
     remote_session_id: str | None
     # Keep the northbound token budget override explicit so public `/v1` runs do
     # not depend on provider-specific naming at the gateway boundary.
-    max_output_tokens: object | None = None
+    max_output_tokens: int | None = None
 
     def requires_direct_authoring_tool(self) -> bool:
         """Return whether this turn is an exclusive save/push confirmation.
@@ -800,6 +801,55 @@ def _coerce_optional_str(value: object) -> str | None:
     return text or None
 
 
+def _coerce_bool(value: object, *, default: bool, field_name: str) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+    if isinstance(value, int) and value in {0, 1}:
+        return bool(value)
+    raise ValueError(f"`{field_name}` must be a boolean.") from None
+
+
+def _coerce_effort(value: object) -> EffortLevel | None:
+    normalized = _coerce_optional_str(value)
+    if normalized is None:
+        return None
+    normalized = normalized.lower()
+    if normalized in {"low", "medium", "high", "max"}:
+        return normalized
+    raise ValueError(
+        "`effort` must be one of: low, medium, high, max."
+    ) from None
+
+
+def _coerce_optional_positive_int(value: object, *, field_name: str) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError(f"`{field_name}` must be an integer.") from None
+    if isinstance(value, int):
+        parsed = value
+    elif isinstance(value, str):
+        normalized = value.strip()
+        if not normalized:
+            return None
+        if not normalized.isdigit():
+            raise ValueError(f"`{field_name}` must be a positive integer.") from None
+        parsed = int(normalized)
+    else:
+        raise ValueError(f"`{field_name}` must be a positive integer.") from None
+    if parsed <= 0:
+        raise ValueError(f"`{field_name}` must be a positive integer.") from None
+    return parsed
+
+
 def _load_configurable_payload(config: RunnableConfig, runtime: ServerRuntime | None) -> dict:
     configurable_payload = config.get("configurable", {})
     if configurable_payload is None:
@@ -1074,11 +1124,11 @@ def _build_run_metadata(
     agent_name: str,
     agent_status: str,
     model_name: str,
-    thinking_enabled: object,
-    reasoning_effort: object,
-    max_output_tokens: object,
-    is_plan_mode: object,
-    subagent_enabled: object,
+    thinking_enabled: bool,
+    effort: EffortLevel | None,
+    max_output_tokens: int | None,
+    is_plan_mode: bool,
+    subagent_enabled: bool,
     thread_id: str | None,
     user_id: str | None,
     execution_backend: str | None,
@@ -1100,7 +1150,7 @@ def _build_run_metadata(
         "agent_status": agent_status,
         "model_name": model_name,
         "thinking_enabled": thinking_enabled,
-        "reasoning_effort": reasoning_effort,
+        "effort": effort,
         "max_output_tokens": max_output_tokens,
         "is_plan_mode": is_plan_mode,
         "subagent_enabled": subagent_enabled,
@@ -1126,12 +1176,27 @@ def _resolve_lead_agent_request(
         paths=get_paths(),
     )
     return LeadAgentRequest(
-        thinking_enabled=cfg.get("thinking_enabled", True),
-        reasoning_effort=cfg.get("reasoning_effort"),
+        thinking_enabled=_coerce_bool(
+            cfg.get("thinking_enabled"),
+            default=True,
+            field_name="thinking_enabled",
+        ),
+        effort=_coerce_effort(cfg.get("effort")),
         requested_model_name=_coerce_optional_str(cfg.get("model_name") or cfg.get("model")),
-        is_plan_mode=cfg.get("is_plan_mode", False),
-        subagent_enabled=cfg.get("subagent_enabled", DEFAULT_SUBAGENT_ENABLED),
-        max_concurrent_subagents=cfg.get("max_concurrent_subagents", 3),
+        is_plan_mode=_coerce_bool(
+            cfg.get("is_plan_mode"),
+            default=False,
+            field_name="is_plan_mode",
+        ),
+        subagent_enabled=_coerce_bool(
+            cfg.get("subagent_enabled"),
+            default=DEFAULT_SUBAGENT_ENABLED,
+            field_name="subagent_enabled",
+        ),
+        max_concurrent_subagents=_coerce_optional_positive_int(
+            cfg.get("max_concurrent_subagents"),
+            field_name="max_concurrent_subagents",
+        ) or 3,
         command_name=command_resolution.name,
         command_kind=command_resolution.kind,
         command_args=command_resolution.args,
@@ -1147,7 +1212,10 @@ def _resolve_lead_agent_request(
         header_model_name=_coerce_optional_str(cfg.get("x-model-name")),
         execution_backend=_coerce_optional_str(cfg.get("execution_backend") or cfg.get("x-execution-backend")),
         remote_session_id=_coerce_optional_str(cfg.get("remote_session_id") or cfg.get("x-remote-session-id")),
-        max_output_tokens=cfg.get("max_output_tokens"),
+        max_output_tokens=_coerce_optional_positive_int(
+            cfg.get("max_output_tokens"),
+            field_name="max_output_tokens",
+        ),
     )
 
 
@@ -1258,7 +1326,7 @@ def _attach_trace_metadata(
         agent_status=request.agent_status,
         model_name=model_name,
         thinking_enabled=request.thinking_enabled,
-        reasoning_effort=request.reasoning_effort,
+        effort=request.effort,
         max_output_tokens=request.max_output_tokens,
         is_plan_mode=request.is_plan_mode,
         subagent_enabled=request.subagent_enabled,
@@ -1494,10 +1562,10 @@ def _create_lead_agent(
         return cached_entry.graph
 
     logger.info(
-        "Create Agent(%s) -> thinking_enabled: %s, reasoning_effort: %s, is_plan_mode: %s, model_name: %s, subagent_enabled: %s, agent_status: %s",
+        "Create Agent(%s) -> thinking_enabled: %s, effort: %s, is_plan_mode: %s, model_name: %s, subagent_enabled: %s, agent_status: %s",
         request.agent_name,
         request.thinking_enabled,
-        request.reasoning_effort,
+        request.effort,
         request.is_plan_mode,
         resolution.model_name,
         request.subagent_enabled,
@@ -1519,12 +1587,12 @@ def _create_lead_agent(
         deep_agent_kwargs: dict[str, Any] = {
             "model": create_chat_model(
                 name=resolution.model_name,
-                thinking_enabled=bool(request.thinking_enabled),
-                reasoning_effort=request.reasoning_effort,
+                thinking_enabled=request.thinking_enabled,
+                effort=request.effort,
                 # The public `/v1` contract exposes `max_output_tokens`. Keep
                 # the runtime field explicit here so the gateway does not need
                 # provider-specific knowledge about `max_tokens`.
-                max_tokens=request.max_output_tokens,
+                max_output_tokens=request.max_output_tokens,
                 runtime_model_config=resolution.model_config,
             ),
             "tools": graph_parts.tools,

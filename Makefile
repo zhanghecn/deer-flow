@@ -1,6 +1,6 @@
 # OpenAgents - Unified Development Environment
 
-.PHONY: help config check install dev stop clean docker-init docker-start docker-infra-start docker-stop docker-infra-stop docker-status docker-verify docker-logs docker-logs-nginx docker-logs-gateway docker-prod-config docker-prod-build docker-prod-start docker-prod-stop docker-prod-restart docker-prod-status docker-prod-verify docker-prod-logs docker-model-gateway-attach gateway-build docker-prod-preflight
+.PHONY: help config check install dev stop clean docker-init docker-start docker-infra-start docker-stop docker-infra-stop docker-status docker-verify docker-logs docker-logs-nginx docker-logs-gateway docker-prod-config docker-prod-build docker-prod-start docker-prod-stop docker-prod-restart docker-prod-status docker-prod-verify docker-prod-logs docker-model-gateway-attach gateway-build docker-prod-preflight demo-start demo-stop demo-status
 
 GO_TOOLCHAIN ?= auto
 HOST_LOG_DIR := $(CURDIR)/.openagents/host-logs
@@ -37,6 +37,11 @@ help:
 	@echo "  make docker-logs-nginx - View Docker nginx logs"
 	@echo "  make docker-logs-gateway - View Docker gateway logs"
 	@echo "  make docker-model-gateway-attach MODEL_GATEWAY_CONTAINER=<container> - Attach an external model gateway container to the shared Docker network"
+	@echo ""
+	@echo "Demo Commands:"
+	@echo "  make demo-start     - Start the demo stack with one command"
+	@echo "  make demo-stop      - Stop the demo stack"
+	@echo "  make demo-status    - Show demo stack status"
 	@echo ""
 	@echo "Docker Production Commands:"
 	@echo "  make docker-prod-build   - Direct docker compose build for production"
@@ -446,3 +451,12 @@ docker-prod-verify:
 
 docker-prod-logs:
 	@cd docker && docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml logs -f
+
+demo-start:
+	@./scripts/demo.sh start
+
+demo-stop:
+	@./scripts/demo.sh stop
+
+demo-status:
+	@./scripts/demo.sh status

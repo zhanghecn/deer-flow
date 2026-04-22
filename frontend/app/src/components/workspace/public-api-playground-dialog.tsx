@@ -69,7 +69,7 @@ import { cn } from "@/lib/utils";
 import { getPublicAPIPlaygroundText } from "./public-api-playground-dialog.i18n";
 
 type ResponseMode = "text" | "json_object" | "json_schema";
-type ReasoningEffort = "minimal" | "low" | "medium" | "high";
+type ReasoningEffort = "low" | "medium" | "high" | "max";
 type PlaygroundHeaderMode = "hero" | "compact" | "hidden";
 
 type TraceItem = PlaygroundTraceItem & {
@@ -423,7 +423,7 @@ export function PublicAPIPlaygroundPanel({
   const [streamMode, setStreamMode] = useState(true);
   const [reasoningEnabled, setReasoningEnabled] = useState(false);
   const [reasoningEffort, setReasoningEffort] =
-    useState<ReasoningEffort>("medium");
+    useState<ReasoningEffort>("high");
   const [previousTurnID, setPreviousTurnID] = useState("");
   const [maxOutputTokens, setMaxOutputTokens] = useState("");
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -1139,10 +1139,10 @@ export function PublicAPIPlaygroundPanel({
                               <SelectValue placeholder={text.reasoningEffort} />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="minimal">minimal</SelectItem>
                               <SelectItem value="low">low</SelectItem>
                               <SelectItem value="medium">medium</SelectItem>
                               <SelectItem value="high">high</SelectItem>
+                              <SelectItem value="max">max</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>

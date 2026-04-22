@@ -1424,7 +1424,7 @@ func (s *PublicAPIService) runAgentTurnStream(
 	}
 	configurableMap := requestPayload["config"].(map[string]any)["configurable"].(map[string]any)
 	if strings.TrimSpace(plan.Reasoning.Effort) != "" {
-		configurableMap["reasoning_effort"] = plan.Reasoning.Effort
+		configurableMap["effort"] = plan.Reasoning.Effort
 	}
 	if plan.MaxOutputTokens != nil {
 		configurableMap["max_output_tokens"] = *plan.MaxOutputTokens
@@ -2768,7 +2768,7 @@ func normalizeReasoningOptions(
 
 	effort := strings.ToLower(strings.TrimSpace(options.Effort))
 	switch effort {
-	case "", "minimal", "low", "medium", "high":
+	case "", "low", "medium", "high", "max":
 	default:
 		return publicAPINormalizedReasoning{}, fmt.Errorf("unsupported reasoning.effort")
 	}

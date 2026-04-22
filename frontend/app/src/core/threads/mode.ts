@@ -1,6 +1,6 @@
 export type ThreadMode = "flash" | "pro";
 export type LegacyThreadMode = ThreadMode | "thinking" | "ultra";
-export type ThreadReasoningEffort = "minimal" | "high";
+export type ThreadEffort = "high";
 
 export const DEFAULT_SUBAGENT_ENABLED = true;
 
@@ -26,10 +26,8 @@ export function getResolvedThreadMode(
   return normalizeThreadMode(mode) ?? getDefaultThreadMode();
 }
 
-export function getReasoningEffortForMode(
-  mode: ThreadMode,
-): ThreadReasoningEffort {
-  return mode === "flash" ? "minimal" : "high";
+export function getEffortForMode(mode: ThreadMode): ThreadEffort | undefined {
+  return mode === "flash" ? undefined : "high";
 }
 
 export function resolveSubmitFlags(
@@ -54,6 +52,6 @@ export function resolveSubmitFlags(
     // Workspace chats keep delegated subtasks available by default so the
     // built-in Deep Agents `task` tool is ready unless the user turns it off.
     subagent_enabled: subagentEnabled,
-    reasoning_effort: getReasoningEffortForMode(resolvedMode),
+    effort: getEffortForMode(resolvedMode),
   };
 }

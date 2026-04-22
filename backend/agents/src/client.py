@@ -619,7 +619,7 @@ class OpenAgentsClient:
                     "display_name": getattr(model, "display_name", None),
                     "description": getattr(model, "description", None),
                     "supports_thinking": getattr(model, "supports_thinking", False),
-                    "supports_reasoning_effort": getattr(model, "supports_reasoning_effort", False),
+                    "supports_effort": getattr(model, "supports_effort", False),
                 }
                 for model in self._app_config.models
             ]
@@ -682,7 +682,7 @@ class OpenAgentsClient:
             "display_name": getattr(model, "display_name", None),
             "description": getattr(model, "description", None),
             "supports_thinking": getattr(model, "supports_thinking", False),
-            "supports_reasoning_effort": getattr(model, "supports_reasoning_effort", False),
+            "supports_effort": getattr(model, "supports_effort", False),
         }
 
     # ------------------------------------------------------------------

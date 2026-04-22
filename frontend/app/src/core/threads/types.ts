@@ -138,7 +138,7 @@ export interface AgentThreadContext extends Record<string, unknown> {
   thinking_enabled: boolean;
   is_plan_mode: boolean;
   subagent_enabled: boolean;
-  reasoning_effort?: "minimal" | "low" | "medium" | "high";
+  effort?: "low" | "medium" | "high" | "max";
   agent_name?: string;
   agent_status?: "dev" | "prod";
   execution_backend?: "remote";

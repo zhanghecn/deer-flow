@@ -799,7 +799,7 @@ func (h *AgentHandler) buildOpenAPIDocument(c *gin.Context, agentName string) gi
 						"reasoning": gin.H{
 							"type": "object",
 							"properties": gin.H{
-								"effort":  gin.H{"type": "string", "enum": []string{"minimal", "low", "medium", "high"}},
+								"effort":  gin.H{"type": "string", "enum": []string{"low", "medium", "high", "max"}},
 								"summary": gin.H{"type": "string"},
 							},
 						},
@@ -876,7 +876,7 @@ func (h *AgentHandler) buildOpenAPIDocument(c *gin.Context, agentName string) gi
 						},
 						"reasoning_effort": gin.H{
 							"type": "string",
-							"enum": []string{"minimal", "low", "medium", "high"},
+							"enum": []string{"low", "medium", "high", "max"},
 						},
 						"max_completion_tokens": gin.H{"type": "integer"},
 					},

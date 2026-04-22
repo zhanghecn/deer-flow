@@ -1,9 +1,10 @@
 import type { AgentThreadContext } from "../threads";
 import {
   DEFAULT_SUBAGENT_ENABLED,
+  getEffortForMode,
   normalizeThreadMode,
   type ThreadMode,
-  type ThreadReasoningEffort,
+  type ThreadEffort,
 } from "../threads/mode";
 import type { WorkspaceSurface } from "../workspace-surface/types";
 
@@ -14,7 +15,7 @@ export const DEFAULT_LOCAL_SETTINGS: LocalSettings = {
   context: {
     model_name: undefined,
     mode: undefined,
-    reasoning_effort: undefined,
+    effort: undefined,
     subagent_enabled: DEFAULT_SUBAGENT_ENABLED,
     agent_status: "dev",
     execution_backend: undefined,
@@ -39,7 +40,7 @@ export interface LocalSettings {
     "thread_id" | "is_plan_mode" | "thinking_enabled" | "subagent_enabled"
   > & {
     mode: ThreadMode | undefined;
-    reasoning_effort?: ThreadReasoningEffort;
+    effort?: ThreadEffort;
     subagent_enabled?: boolean;
   };
   layout: {
@@ -58,12 +59,16 @@ export function getLocalSettings(): LocalSettings {
   try {
     if (json) {
       const settings = JSON.parse(json);
+      const normalizedMode = normalizeThreadMode(settings.context?.mode);
       const mergedSettings = {
         ...DEFAULT_LOCAL_SETTINGS,
         context: {
           ...DEFAULT_LOCAL_SETTINGS.context,
           ...settings.context,
-          mode: normalizeThreadMode(settings.context?.mode),
+          mode: normalizedMode,
+          effort:
+            settings.context?.effort ??
+            (normalizedMode ? getEffortForMode(normalizedMode) : undefined),
         },
         layout: {
           ...DEFAULT_LOCAL_SETTINGS.layout,

@@ -24,7 +24,7 @@ type ModelConfig struct {
 	Model             string `json:"model"`
 	SupportsThinking  bool   `json:"supports_thinking"`
 	SupportsVision    bool   `json:"supports_vision"`
-	SupportsReasoning bool   `json:"supports_reasoning_effort"`
+	SupportsEffort    bool   `json:"supports_effort"`
 }
 
 func (h *ModelHandler) List(c *gin.Context) {
@@ -74,7 +74,7 @@ func mapModelRow(row repository.ModelRecord) ModelConfig {
 		Model:             modelName,
 		SupportsThinking:  toBool(cfgMap["supports_thinking"]),
 		SupportsVision:    toBool(cfgMap["supports_vision"]),
-		SupportsReasoning: toBool(cfgMap["supports_reasoning_effort"]),
+		SupportsEffort:    toBool(cfgMap["supports_effort"]),
 	}
 }
 

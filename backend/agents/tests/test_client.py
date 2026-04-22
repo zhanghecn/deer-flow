@@ -30,7 +30,7 @@ def mock_app_config():
     model = MagicMock()
     model.name = "test-model"
     model.supports_thinking = False
-    model.supports_reasoning_effort = False
+    model.supports_effort = False
     model.model_dump.return_value = {"name": "test-model", "use": "langchain_openai:ChatOpenAI"}
 
     config = MagicMock()
@@ -624,7 +624,7 @@ class TestGetModel:
         model_cfg.display_name = "Test Model"
         model_cfg.description = "A test model"
         model_cfg.supports_thinking = True
-        model_cfg.supports_reasoning_effort = True
+        model_cfg.supports_effort = True
         client._app_config.get_model_config.return_value = model_cfg
 
         result = client.get_model("test-model")
@@ -633,7 +633,7 @@ class TestGetModel:
             "display_name": "Test Model",
             "description": "A test model",
             "supports_thinking": True,
-            "supports_reasoning_effort": True,
+            "supports_effort": True,
         }
 
     def test_not_found(self, client):
@@ -1208,7 +1208,7 @@ class TestScenarioConfigManagement:
         model_cfg.display_name = None
         model_cfg.description = None
         model_cfg.supports_thinking = False
-        model_cfg.supports_reasoning_effort = False
+        model_cfg.supports_effort = False
         client._app_config.get_model_config.return_value = model_cfg
         detail = client.get_model(model_name)
         assert detail["name"] == model_name

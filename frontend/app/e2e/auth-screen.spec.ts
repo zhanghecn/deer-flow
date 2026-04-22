@@ -17,7 +17,7 @@ async function bootstrapAuthScreen(page: Page) {
         context: {
           model_name: "kimi-k2.5",
           mode: "pro",
-          reasoning_effort: "high",
+          effort: "high",
           agent_status: "dev",
         },
         layout: { sidebar_collapsed: false },
@@ -34,7 +34,7 @@ async function bootstrapAuthScreen(page: Page) {
           name: "kimi-k2.5",
           display_name: "Kimi K2.5",
           supports_thinking: true,
-          supports_reasoning_effort: true,
+          supports_effort: true,
         },
       ],
     }),

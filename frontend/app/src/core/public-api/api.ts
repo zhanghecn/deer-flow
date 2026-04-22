@@ -32,10 +32,10 @@ export interface PublicAPITurnUsage {
 }
 
 export type PublicAPIReasoningEffort =
-  | "minimal"
   | "low"
   | "medium"
-  | "high";
+  | "high"
+  | "max";
 
 export type PublicAPITurnEventType =
   | "turn.started"

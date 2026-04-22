@@ -14,9 +14,9 @@ import (
 )
 
 type adminModelRequest struct {
-	Name        string                 `json:"name" binding:"required"`
+	Name        string                 `json:"name"`
 	DisplayName *string                `json:"display_name"`
-	Provider    string                 `json:"provider" binding:"required"`
+	Provider    string                 `json:"provider"`
 	Enabled     *bool                  `json:"enabled"`
 	ConfigJSON  map[string]interface{} `json:"config_json" binding:"required"`
 }
@@ -28,6 +28,22 @@ type adminModelResponse struct {
 	Enabled     bool            `json:"enabled"`
 	ConfigJSON  json.RawMessage `json:"config_json"`
 	CreatedAt   string          `json:"created_at"`
+}
+
+type knownModelProviderDefaults struct {
+	canonicalProvider string
+	runtimeClass      string
+}
+
+var knownModelProviderMap = map[string]knownModelProviderDefaults{
+	"openai":               {canonicalProvider: "openai", runtimeClass: "langchain_openai:ChatOpenAI"},
+	"openai-compatible":    {canonicalProvider: "openai", runtimeClass: "langchain_openai:ChatOpenAI"},
+	"anthropic":            {canonicalProvider: "anthropic", runtimeClass: "langchain_anthropic:ChatAnthropic"},
+	"anthropic-compatible": {canonicalProvider: "anthropic", runtimeClass: "langchain_anthropic:ChatAnthropic"},
+	"google":               {canonicalProvider: "google", runtimeClass: "langchain_google_genai:ChatGoogleGenerativeAI"},
+	"google-genai":         {canonicalProvider: "google", runtimeClass: "langchain_google_genai:ChatGoogleGenerativeAI"},
+	"gemini":               {canonicalProvider: "google", runtimeClass: "langchain_google_genai:ChatGoogleGenerativeAI"},
+	"deepseek":             {canonicalProvider: "deepseek", runtimeClass: "langchain_deepseek:ChatDeepSeek"},
 }
 
 func (h *AdminHandler) ListModels(c *gin.Context) {
@@ -112,28 +128,64 @@ func parseAdminModelRequest(c *gin.Context) (repository.ModelRecord, bool) {
 }
 
 func buildAdminModelRecord(req adminModelRequest) (repository.ModelRecord, error) {
-	name := strings.TrimSpace(req.Name)
-	if name == "" {
-		return repository.ModelRecord{}, errors.New("name is required")
-	}
-
-	provider := strings.TrimSpace(req.Provider)
-	if provider == "" {
-		return repository.ModelRecord{}, errors.New("provider is required")
-	}
-
 	if len(req.ConfigJSON) == 0 {
 		return repository.ModelRecord{}, errors.New("config_json must be a non-empty object")
 	}
 
-	if !hasNonEmptyString(req.ConfigJSON["use"]) {
-		return repository.ModelRecord{}, errors.New("config_json.use is required")
+	configJSON := normalizeAdminModelConfig(req.ConfigJSON)
+	// `effort` is a per-run execution input, not a persisted model profile
+	// field. Rejecting it here keeps runtime-only policy out of the provider
+	// config that is later materialized into model constructor kwargs.
+	if _, exists := configJSON["effort"]; exists {
+		return repository.ModelRecord{}, errors.New("config_json.effort is runtime-only; remove it from the model profile")
 	}
-	if !hasNonEmptyString(req.ConfigJSON["model"]) {
+	if _, exists := configJSON["reasoning_effort"]; exists {
+		return repository.ModelRecord{}, errors.New("config_json.reasoning_effort is retired; use per-run `effort` instead")
+	}
+	if _, exists := configJSON["supports_reasoning_effort"]; exists {
+		return repository.ModelRecord{}, errors.New("config_json.supports_reasoning_effort is retired; rename it to `supports_effort`")
+	}
+	modelName := getConfigString(configJSON, "model")
+	if modelName == "" {
 		return repository.ModelRecord{}, errors.New("config_json.model is required")
 	}
 
-	configJSON, err := json.Marshal(req.ConfigJSON)
+	provider := strings.TrimSpace(req.Provider)
+	runtimeClass := getConfigString(configJSON, "use")
+
+	if provider == "" {
+		inferredProvider, ok := inferProviderFromRuntimeClass(runtimeClass)
+		if !ok {
+			return repository.ModelRecord{}, errors.New("provider is required")
+		}
+		provider = inferredProvider
+	}
+
+	if runtimeClass == "" {
+		inferredRuntimeClass, ok := inferRuntimeClassForProvider(provider)
+		if !ok {
+			return repository.ModelRecord{}, errors.New("config_json.use is required")
+		}
+		runtimeClass = inferredRuntimeClass
+	}
+	configJSON["use"] = runtimeClass
+
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		name = buildGeneratedModelName(provider, modelName)
+	}
+	if name == "" {
+		return repository.ModelRecord{}, errors.New("name is required")
+	}
+
+	displayName := normalizeOptionalString(req.DisplayName)
+	if displayName == nil {
+		// Defaulting the display label to the provider-side model id keeps the
+		// admin UX lightweight while still producing a readable selector label.
+		displayName = normalizeOptionalString(&modelName)
+	}
+
+	configJSONBytes, err := json.Marshal(configJSON)
 	if err != nil {
 		return repository.ModelRecord{}, errors.New("config_json must be valid JSON")
 	}
@@ -145,9 +197,9 @@ func buildAdminModelRecord(req adminModelRequest) (repository.ModelRecord, error
 
 	return repository.ModelRecord{
 		Name:        name,
-		DisplayName: normalizeOptionalString(req.DisplayName),
+		DisplayName: displayName,
 		Provider:    provider,
-		ConfigJSON:  configJSON,
+		ConfigJSON:  configJSONBytes,
 		Enabled:     enabled,
 	}, nil
 }
@@ -174,9 +226,78 @@ func normalizeOptionalString(value *string) *string {
 	return &normalized
 }
 
-func hasNonEmptyString(value interface{}) bool {
-	text, ok := value.(string)
-	return ok && strings.TrimSpace(text) != ""
+func getConfigString(config map[string]interface{}, key string) string {
+	text, ok := config[key].(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(text)
+}
+
+func normalizeAdminModelConfig(config map[string]interface{}) map[string]interface{} {
+	normalized := make(map[string]interface{}, len(config))
+	for key, value := range config {
+		if text, ok := value.(string); ok {
+			normalized[key] = strings.TrimSpace(text)
+			continue
+		}
+		normalized[key] = value
+	}
+	return normalized
+}
+
+func normalizeProviderLookupKey(value string) string {
+	replacer := strings.NewReplacer("_", "-", " ", "-")
+	return replacer.Replace(strings.ToLower(strings.TrimSpace(value)))
+}
+
+func inferRuntimeClassForProvider(provider string) (string, bool) {
+	defaults, ok := knownModelProviderMap[normalizeProviderLookupKey(provider)]
+	if !ok {
+		return "", false
+	}
+	return defaults.runtimeClass, true
+}
+
+func inferProviderFromRuntimeClass(runtimeClass string) (string, bool) {
+	trimmedRuntimeClass := strings.TrimSpace(runtimeClass)
+	for _, defaults := range knownModelProviderMap {
+		if defaults.runtimeClass == trimmedRuntimeClass {
+			return defaults.canonicalProvider, true
+		}
+	}
+	return "", false
+}
+
+func buildGeneratedModelName(provider string, modelName string) string {
+	// Keep generated row ids deterministic so operators can predict and search
+	// them later instead of chasing opaque client-generated identifiers.
+	segments := []string{slugifyAdminModelSegment(provider), slugifyAdminModelSegment(modelName)}
+	filtered := make([]string, 0, len(segments))
+	for _, segment := range segments {
+		if segment != "" {
+			filtered = append(filtered, segment)
+		}
+	}
+	return strings.Join(filtered, "-")
+}
+
+func slugifyAdminModelSegment(value string) string {
+	var builder strings.Builder
+	lastWasHyphen := false
+	for _, r := range strings.ToLower(strings.TrimSpace(value)) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			builder.WriteRune(r)
+			lastWasHyphen = false
+			continue
+		}
+		if builder.Len() == 0 || lastWasHyphen {
+			continue
+		}
+		builder.WriteByte('-')
+		lastWasHyphen = true
+	}
+	return strings.Trim(builder.String(), "-")
 }
 
 func handleAdminModelWriteError(c *gin.Context, err error, fallback string) {

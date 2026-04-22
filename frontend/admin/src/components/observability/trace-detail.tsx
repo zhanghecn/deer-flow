@@ -12,6 +12,7 @@ import { useFetch } from "@/hooks/use-fetch";
 import type { TraceItem, TraceEvent } from "@/types";
 import {
   buildTraceRuns,
+  extractLatestLLMRequestSettings,
   extractRegisteredToolNames,
   extractContextWindowPayload,
   isCoreTraceRun,
@@ -130,6 +131,10 @@ function TraceDetailContent({
     () => extractLatestContextWindow(runs),
     [runs],
   );
+  const latestLLMSettings = useMemo(
+    () => extractLatestLLMRequestSettings(runs),
+    [runs],
+  );
 
   return (
     <ScrollArea className={expanded ? "h-[calc(100vh-13rem)]" : "h-[calc(100vh-16rem)]"}>
@@ -180,6 +185,36 @@ function TraceDetailContent({
               <span className="text-muted-foreground">{t("Raw Events:")}</span> {events.length}
             </div>
           </div>
+          {latestLLMSettings && (
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">{t("Latest LLM Request")}</p>
+              <div className="flex flex-wrap gap-1.5">
+                {latestLLMSettings.model && (
+                  <Badge variant="outline" className="text-xs">
+                    {t("Model")}: {latestLLMSettings.model}
+                  </Badge>
+                )}
+                {latestLLMSettings.provider && (
+                  <Badge variant="outline" className="text-xs">
+                    {t("Provider")}: {latestLLMSettings.provider}
+                  </Badge>
+                )}
+                <Badge variant="outline" className="text-xs">
+                  {t("Effort")}: {latestLLMSettings.effort ?? t("none")}
+                </Badge>
+                {typeof latestLLMSettings.maxTokens === "number" && (
+                  <Badge variant="outline" className="text-xs">
+                    {t("Max Tokens")}: {latestLLMSettings.maxTokens}
+                  </Badge>
+                )}
+                {typeof latestLLMSettings.temperature === "number" && (
+                  <Badge variant="outline" className="text-xs">
+                    {t("Temperature")}: {latestLLMSettings.temperature}
+                  </Badge>
+                )}
+              </div>
+            </div>
+          )}
           {toolNames.length > 0 && (
             <div className="space-y-1">
               <p className="text-xs text-muted-foreground">{t("Registered Tools")}</p>

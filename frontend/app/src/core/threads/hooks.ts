@@ -25,7 +25,7 @@ import type { ThreadSearchResult } from "./api";
 import { normalizeThreadError, shouldIgnoreThreadError } from "./error";
 import {
   DEFAULT_SUBAGENT_ENABLED,
-  getReasoningEffortForMode,
+  getEffortForMode,
   normalizeThreadMode,
   resolveSubmitFlags,
 } from "./mode";
@@ -114,10 +114,10 @@ function resolveThreadContext(context: ThreadContext): ThreadContext {
       ? context.model_name
       : storedContext.model_name,
     mode,
-    reasoning_effort:
-      context.reasoning_effort ??
-      storedContext.reasoning_effort ??
-      (mode ? getReasoningEffortForMode(mode) : undefined),
+    effort:
+      context.effort ??
+      storedContext.effort ??
+      (mode ? getEffortForMode(mode) : undefined),
     agent_name: context.agent_name ?? storedContext.agent_name,
     agent_status: context.agent_status ?? storedContext.agent_status,
     subagent_enabled:
@@ -499,8 +499,10 @@ function upsertPendingThreadSearchResult(
   pendingRecord: AgentThread,
 ): ThreadSearchResult {
   const nextItems = upsertPendingThreadRecord(oldData?.items, pendingRecord);
+  // Query cache entries may be partially seeded with `total` before the first
+  // page payload lands, so treat `items` as optional during pending inserts.
   const inserted =
-    oldData?.items.some((thread) => thread.thread_id === pendingRecord.thread_id)
+    oldData?.items?.some((thread) => thread.thread_id === pendingRecord.thread_id)
       ? 0
       : 1;
 
@@ -670,7 +672,7 @@ function buildSubmitOptions(
         thinking_enabled: submitFlags.thinking_enabled,
         is_plan_mode: submitFlags.is_plan_mode,
         subagent_enabled: submitFlags.subagent_enabled,
-        reasoning_effort: submitFlags.reasoning_effort,
+        effort: submitFlags.effort,
         thread_id: threadId,
       },
     },

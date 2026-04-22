@@ -59,10 +59,10 @@ import type {
 } from "@/core/threads";
 import {
   DEFAULT_SUBAGENT_ENABLED,
-  getReasoningEffortForMode,
+  getEffortForMode,
   getResolvedThreadMode,
   type ThreadMode,
-  type ThreadReasoningEffort,
+  type ThreadEffort,
 } from "@/core/threads/mode";
 import { useWorkspaceSurface } from "@/core/workspace-surface/context";
 import type {
@@ -101,13 +101,13 @@ import {
 import { Tooltip } from "./tooltip";
 
 type InputMode = ThreadMode;
-type ReasoningEffort = ThreadReasoningEffort;
+type Effort = ThreadEffort;
 type InputBoxContext = Omit<
   AgentThreadContext,
   "thread_id" | "is_plan_mode" | "thinking_enabled" | "subagent_enabled"
 > & {
   mode: InputMode | undefined;
-  reasoning_effort?: ReasoningEffort;
+  effort?: Effort;
   subagent_enabled?: boolean;
 };
 type ModelSelection = Pick<Model, "name">;
@@ -262,7 +262,7 @@ function resolveInputContext(
     ...context,
     model_name: modelSelection.name,
     mode: nextMode,
-    reasoning_effort: getReasoningEffortForMode(nextMode),
+    effort: getEffortForMode(nextMode),
   };
 }
 
@@ -381,7 +381,7 @@ export function InputBox({
     if (
       context.model_name === normalizedContext.model_name &&
       context.mode === normalizedContext.mode &&
-      context.reasoning_effort === normalizedContext.reasoning_effort
+      context.effort === normalizedContext.effort
     ) {
       return;
     }

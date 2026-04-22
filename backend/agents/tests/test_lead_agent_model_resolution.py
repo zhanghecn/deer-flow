@@ -412,14 +412,14 @@ def test_make_lead_agent_reads_runtime_context_and_persists_thread_runtime(monke
         *,
         name,
         thinking_enabled,
-        reasoning_effort=None,
+        effort=None,
         runtime_model_config=None,
-        max_tokens=None,
+        max_output_tokens=None,
     ):
         captured["name"] = name
         captured["thinking_enabled"] = thinking_enabled
         captured["runtime_model_config"] = runtime_model_config
-        captured["max_tokens"] = max_tokens
+        captured["max_output_tokens"] = max_output_tokens
         return object()
 
     monkeypatch.setattr(lead_agent_module, "create_chat_model", _fake_create_chat_model)
@@ -455,7 +455,7 @@ def test_make_lead_agent_reads_runtime_context_and_persists_thread_runtime(monke
 
     assert captured["name"] == "safe-model"
     assert captured["thinking_enabled"] is True
-    assert captured["max_tokens"] == 321
+    assert captured["max_output_tokens"] == 321
     assert result["model"] is not None
     assert "memory" not in result
     assert result["context_schema"] is lead_agent_module.LeadAgentRuntimeContext
@@ -501,9 +501,9 @@ def test_make_lead_agent_uses_request_header_model_for_thread_state_reads(monkey
         *,
         name,
         thinking_enabled,
-        reasoning_effort=None,
+        effort=None,
         runtime_model_config=None,
-        max_tokens=None,
+        max_output_tokens=None,
     ):
         captured["name"] = name
         captured["thinking_enabled"] = thinking_enabled
@@ -581,9 +581,9 @@ def test_make_lead_agent_reads_and_updates_typed_runtime_context(monkeypatch, tm
         *,
         name,
         thinking_enabled,
-        reasoning_effort=None,
+        effort=None,
         runtime_model_config=None,
-        max_tokens=None,
+        max_output_tokens=None,
     ):
         captured["name"] = name
         captured["thinking_enabled"] = thinking_enabled
@@ -659,7 +659,7 @@ def test_resolve_lead_agent_runtime_uses_persisted_thread_agent_runtime(monkeypa
     effective_request, resolution = lead_agent_module._resolve_lead_agent_runtime(
         request=lead_agent_module.LeadAgentRequest(
             thinking_enabled=True,
-            reasoning_effort="high",
+            effort="high",
             requested_model_name=None,
             is_plan_mode=False,
             subagent_enabled=False,
@@ -1304,7 +1304,7 @@ def test_attach_trace_metadata_keeps_trace_metadata_free_of_precomputed_tool_lis
     config: dict[str, object] = {}
     request = lead_agent_module.LeadAgentRequest(
         thinking_enabled=True,
-        reasoning_effort="high",
+        effort="high",
         requested_model_name="safe-model",
         is_plan_mode=False,
         subagent_enabled=True,

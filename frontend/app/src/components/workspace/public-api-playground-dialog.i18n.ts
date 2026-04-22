@@ -144,7 +144,7 @@ const enUS: PublicAPIPlaygroundText = {
   reasoningLabel: "Enable thinking",
   reasoningDescription:
     "Thinking stays opt-in at the control level. The runtime still exposes the resulting events and files.",
-  reasoningEffort: "Reasoning effort",
+  reasoningEffort: "Effort",
   previousResponse: "Previous turn ID",
   previousResponseHint:
     "Reuse the last turn ID to continue the same public conversation thread.",

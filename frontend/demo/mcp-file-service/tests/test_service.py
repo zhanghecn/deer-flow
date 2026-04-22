@@ -32,6 +32,69 @@ class FileMcpServiceTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
+    def test_list_reports_binary_documents_without_hiding_sibling_text_files(self) -> None:
+        (self.root / "合同.pdf").write_bytes(b"%PDF-1.4 fake")
+        (self.root / "合同.md").write_text(
+            "# 合同\n\n赔付条款\n",
+            encoding="utf-8",
+        )
+
+        payload = self.service.list_files_payload(limit=20)
+        items_by_path = {item["path"]: item for item in payload["items"]}
+
+        self.assertIn("合同.pdf", items_by_path)
+        self.assertIn("合同.md", items_by_path)
+        self.assertEqual(items_by_path["合同.pdf"]["content_kind"], "binary_document")
+        self.assertFalse(items_by_path["合同.pdf"]["text_readable"])
+        self.assertEqual(items_by_path["合同.md"]["content_kind"], "text")
+        self.assertTrue(items_by_path["合同.md"]["text_readable"])
+
+    def test_read_rejects_binary_documents_instead_of_converting_them(self) -> None:
+        (self.root / "合同.pdf").write_bytes(b"%PDF-1.4 fake")
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "fs_read only supports text files.*document-specific pipeline",
+        ):
+            self.service.read_file_payload(file_path="合同.pdf", offset=0, limit=10)
+
+    def test_preview_explains_binary_documents_without_fake_text_content(self) -> None:
+        (self.root / "合同.pdf").write_bytes(b"%PDF-1.4 fake")
+
+        payload = self.service.preview_file_payload(path="合同.pdf")
+
+        self.assertEqual(payload["content_kind"], "binary_document")
+        self.assertFalse(payload["text_readable"])
+        self.assertIn("document-specific pipeline", payload["content"])
+
+    def test_grep_skips_binary_documents_in_directory_scope(self) -> None:
+        (self.root / "合同.pdf").write_bytes(b"%PDF-1.4 fake")
+
+        payload = self.service.grep_payload(pattern="赔付", path="", glob="*.pdf", limit=20)
+
+        self.assertEqual(payload["total"], 0)
+        self.assertEqual(payload["skipped_binary_files"], 1)
+
+    def test_grep_rejects_binary_document_file_scope(self) -> None:
+        (self.root / "合同.pdf").write_bytes(b"%PDF-1.4 fake")
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "fs_grep only supports text files.*document-specific pipeline",
+        ):
+            self.service.grep_payload(pattern="赔付", path="合同.pdf", limit=20)
+
+    def test_delete_file_only_removes_requested_path(self) -> None:
+        original = self.root / "合同.pdf"
+        companion = self.root / "合同.md"
+        original.write_bytes(b"%PDF-1.4 fake")
+        companion.write_text("# 合同\n", encoding="utf-8")
+
+        self.service.delete_file("合同.pdf")
+
+        self.assertFalse(original.exists())
+        self.assertTrue(companion.exists())
+
     def test_grep_accepts_count_output_mode(self) -> None:
         payload = self.service.grep_payload(
             pattern="灾祸|血光|官非",

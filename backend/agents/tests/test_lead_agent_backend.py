@@ -49,12 +49,12 @@ def _make_lead_agent_request(
     agent_status: str = "dev",
 ) -> lead_agent_module.LeadAgentRequest:
     return lead_agent_module.LeadAgentRequest(
-        thinking_enabled=None,
-        reasoning_effort=None,
+        thinking_enabled=True,
+        effort=None,
         requested_model_name=None,
-        is_plan_mode=None,
-        subagent_enabled=None,
-        max_concurrent_subagents=None,
+        is_plan_mode=False,
+        subagent_enabled=lead_agent_module.DEFAULT_SUBAGENT_ENABLED,
+        max_concurrent_subagents=3,
         command_name=None,
         command_kind=None,
         command_args=None,
@@ -230,12 +230,12 @@ def test_create_agent_request_seeds_existing_target_archive_into_thread_runtime(
     paths = _make_paths(base_dir)
 
     request = lead_agent_module.LeadAgentRequest(
-        thinking_enabled=None,
-        reasoning_effort=None,
+        thinking_enabled=True,
+        effort=None,
         requested_model_name=None,
-        is_plan_mode=None,
-        subagent_enabled=None,
-        max_concurrent_subagents=None,
+        is_plan_mode=False,
+        subagent_enabled=lead_agent_module.DEFAULT_SUBAGENT_ENABLED,
+        max_concurrent_subagents=3,
         command_name="create-agent",
         command_kind="soft",
         command_args="请更新 landing-copy-agent-0318",
@@ -272,12 +272,12 @@ def test_create_agent_request_ignores_missing_target_archive_for_new_agent(tmp_p
     paths = _make_paths(base_dir)
 
     request = lead_agent_module.LeadAgentRequest(
-        thinking_enabled=None,
-        reasoning_effort=None,
+        thinking_enabled=True,
+        effort=None,
         requested_model_name=None,
-        is_plan_mode=None,
-        subagent_enabled=None,
-        max_concurrent_subagents=None,
+        is_plan_mode=False,
+        subagent_enabled=lead_agent_module.DEFAULT_SUBAGENT_ENABLED,
+        max_concurrent_subagents=3,
         command_name="create-agent",
         command_kind="soft",
         command_args="请创建 pw-new-agent",
@@ -657,12 +657,12 @@ def test_lead_agent_graph_cache_key_changes_when_subagents_yaml_changes(tmp_path
 
 def test_non_lead_dev_request_allows_setup_agent_for_self_updates():
     request = lead_agent_module.LeadAgentRequest(
-        thinking_enabled=None,
-        reasoning_effort=None,
+        thinking_enabled=True,
+        effort=None,
         requested_model_name=None,
-        is_plan_mode=None,
-        subagent_enabled=None,
-        max_concurrent_subagents=None,
+        is_plan_mode=False,
+        subagent_enabled=lead_agent_module.DEFAULT_SUBAGENT_ENABLED,
+        max_concurrent_subagents=3,
         command_name=None,
         command_kind=None,
         command_args=None,
@@ -685,12 +685,12 @@ def test_non_lead_dev_request_allows_setup_agent_for_self_updates():
 
 def test_lead_agent_dev_request_allows_setup_agent_for_generic_authoring():
     request = lead_agent_module.LeadAgentRequest(
-        thinking_enabled=None,
-        reasoning_effort=None,
+        thinking_enabled=True,
+        effort=None,
         requested_model_name=None,
-        is_plan_mode=None,
-        subagent_enabled=None,
-        max_concurrent_subagents=None,
+        is_plan_mode=False,
+        subagent_enabled=lead_agent_module.DEFAULT_SUBAGENT_ENABLED,
+        max_concurrent_subagents=3,
         command_name=None,
         command_kind=None,
         command_args=None,
@@ -719,12 +719,12 @@ def test_lead_agent_dev_request_allows_setup_agent_for_generic_authoring():
 
 def test_prod_agent_request_does_not_allow_self_setup_agent():
     request = lead_agent_module.LeadAgentRequest(
-        thinking_enabled=None,
-        reasoning_effort=None,
+        thinking_enabled=True,
+        effort=None,
         requested_model_name=None,
-        is_plan_mode=None,
-        subagent_enabled=None,
-        max_concurrent_subagents=None,
+        is_plan_mode=False,
+        subagent_enabled=lead_agent_module.DEFAULT_SUBAGENT_ENABLED,
+        max_concurrent_subagents=3,
         command_name=None,
         command_kind=None,
         command_args=None,

@@ -30,7 +30,7 @@ model_seed AS (
             'when_thinking_enabled', jsonb_build_object(
                 'thinking', jsonb_build_object('type', 'enabled')
             ),
-            'supports_reasoning_effort', FALSE
+            'supports_effort', FALSE
         ) AS config_json,
         TRUE AS enabled
     FROM shared_seed
@@ -52,7 +52,7 @@ model_seed AS (
             'when_thinking_enabled', jsonb_build_object(
                 'thinking', jsonb_build_object('type', 'enabled')
             ),
-            'supports_reasoning_effort', FALSE
+            'supports_effort', FALSE
         ) AS config_json,
         FALSE AS enabled
     FROM shared_seed

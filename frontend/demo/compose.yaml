@@ -2,6 +2,9 @@ name: openagents-mcp-workbench
 
 services:
   mcp-file-service:
+    # Keep an explicit image contract so local builds and CI-published images
+    # can share the same service name without bind-mounting runtime deps.
+    image: ${MCP_WORKBENCH_FILE_SERVICE_IMAGE:-openagents-mcp-workbench-mcp-file-service}
     build:
       context: ../..
       dockerfile: frontend/demo/mcp-file-service/Dockerfile
@@ -18,6 +21,7 @@ services:
       - openagents
 
   mcp-workbench-ui:
+    image: ${MCP_WORKBENCH_UI_IMAGE:-openagents-mcp-workbench-mcp-workbench-ui}
     build:
       context: ../..
       dockerfile: frontend/demo/Dockerfile

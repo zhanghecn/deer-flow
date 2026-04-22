@@ -241,4 +241,47 @@ describe("createPublicAPISession", () => {
     expect(result.turn?.id).toBe("turn_blocking");
     expect(session.getPreviousTurnId()).toBe("turn_blocking");
   });
+
+  it("drops effort when reasoning is explicitly disabled", () => {
+    const session = createPublicAPISession({
+      baseURL: "http://127.0.0.1:8083/v1",
+      apiToken: "token",
+      agent: "support-demo",
+      traceText,
+    });
+
+    const requestBody = session.previewRequest({
+      text: "no reasoning please",
+      thinking: {
+        enabled: false,
+        effort: "medium",
+      },
+    });
+
+    expect(requestBody.thinking).toEqual({
+      enabled: false,
+    });
+  });
+
+  it("preserves effort when reasoning stays enabled", () => {
+    const session = createPublicAPISession({
+      baseURL: "http://127.0.0.1:8083/v1",
+      apiToken: "token",
+      agent: "support-demo",
+      traceText,
+    });
+
+    const requestBody = session.previewRequest({
+      text: "reason carefully",
+      thinking: {
+        enabled: true,
+        effort: "high",
+      },
+    });
+
+    expect(requestBody.thinking).toEqual({
+      enabled: true,
+      effort: "high",
+    });
+  });
 });

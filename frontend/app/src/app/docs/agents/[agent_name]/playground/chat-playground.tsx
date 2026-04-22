@@ -1,8 +1,8 @@
+import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
   ChevronDown,
   ChevronRight,
-  Copy,
   Download,
   FileJson,
   Loader2,
@@ -15,12 +15,10 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { useAuth } from "@/core/auth/hooks";
 import { listAPITokens, type APITokenRecord } from "@/core/auth/tokens";
-
 import {
   type PublicAPITurnArtifact,
   type PublicAPITurnEvent,
@@ -30,7 +28,14 @@ import {
 } from "@/core/public-api/api";
 import { createPublicAPISession } from "@/core/public-api/session";
 
-type ReasoningEffort = "minimal" | "low" | "medium" | "high";
+import {
+  coerceTimestampMs,
+  formatCalendarDate,
+  formatTraceTime,
+  mergeFinalAssistantText,
+} from "./chat-playground-utils";
+
+type ReasoningEffort = "low" | "medium" | "high" | "max";
 type RunPhase = "ready" | "streaming" | "failed" | "waiting";
 type DebugTab = "request" | "events" | "snapshot";
 
@@ -56,7 +61,7 @@ interface Message {
 
 interface DebugEntry {
   type: string;
-  timestamp: number;
+  timestamp: number | null;
   summary: string;
 }
 
@@ -78,14 +83,6 @@ const TRACE_TEXT = {
 
 function uid() {
   return crypto.randomUUID();
-}
-
-function fmtTime(ts: number) {
-  return new Intl.DateTimeFormat("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).format(ts);
 }
 
 function fmtJSON(obj: unknown, max = 300): string {
@@ -262,7 +259,9 @@ function DebugPanel({
                   key={`${entry.type}-${i}`}
                   className="flex items-start gap-2 rounded px-2 py-1 hover:bg-zinc-800/50"
                 >
-                  <span className="shrink-0 text-zinc-600">{fmtTime(entry.timestamp)}</span>
+                  <span className="shrink-0 text-zinc-600">
+                    {formatTraceTime(entry.timestamp)}
+                  </span>
                   <span className={`shrink-0 ${eventAccent(entry.type)}`}>{entry.type}</span>
                   {entry.summary && (
                     <span className="truncate text-zinc-500">{entry.summary}</span>
@@ -380,6 +379,9 @@ function ConfigDrawer({
 
   const matchedToken = matchingTokens.find((t) => t.token === apiKey);
   const showSelector = authenticated && matchingTokens.length > 0;
+  const matchedTokenCreatedDate = matchedToken
+    ? formatCalendarDate(matchedToken.created_at)
+    : null;
 
   return (
     <>
@@ -422,8 +424,10 @@ function ConfigDrawer({
             )}
             {matchedToken && (
               <p className="text-[11px] text-zinc-500">
-                {matchedToken.name || matchedToken.id} · created{" "}
-                {new Date(matchedToken.created_at).toLocaleDateString()}
+                {matchedToken.name || matchedToken.id}
+                {matchedTokenCreatedDate
+                  ? ` · created ${matchedTokenCreatedDate}`
+                  : ""}
               </p>
             )}
             {!authenticated && (
@@ -450,10 +454,10 @@ function ConfigDrawer({
               onChange={(e) => setReasoningEffort(e.target.value as ReasoningEffort)}
               className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <option value="minimal">minimal</option>
               <option value="low">low</option>
               <option value="medium">medium</option>
               <option value="high">high</option>
+              <option value="max">max</option>
             </select>
           </label>
         </div>
@@ -478,7 +482,7 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
 
   const [apiKey, setAPIKey] = useState("");
   const [reasoningEnabled, setReasoningEnabled] = useState(true);
-  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("medium");
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("high");
 
   // Key auto-fetch
   const { authenticated } = useAuth();
@@ -672,9 +676,17 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
           // Debug events
           if (event.kind === "ledger_event") {
             const ledgerEvt = event.event;
+            // Runtime traces are not yet perfectly uniform across deployments.
+            // Normalize here so mixed seconds / milliseconds / ISO strings do
+            // not blank the entire Events panel during a real debugging run.
+            const eventTimestamp = coerceTimestampMs(ledgerEvt.created_at);
             setDebugEvents((prev) => [
               ...prev,
-              { type: ledgerEvt.type, timestamp: ledgerEvt.created_at * 1000, summary: summarizeEvent(ledgerEvt) },
+              {
+                type: ledgerEvt.type,
+                timestamp: eventTimestamp,
+                summary: summarizeEvent(ledgerEvt),
+              },
             ]);
           } else if (event.kind === "turn_started") {
             setDebugEvents((prev) => [...prev, { type: "turn.started", timestamp: Date.now(), summary: event.turnId }]);
@@ -689,7 +701,7 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
 
             if (event.kind === "assistant_text_delta") {
               const last = blocks[blocks.length - 1];
-              if (last && last.type === "text") {
+              if (last?.type === "text") {
                 blocks[blocks.length - 1] = { ...last, content: readModel.liveOutput };
               } else {
                 blocks.push({ type: "text", content: readModel.liveOutput });
@@ -698,16 +710,18 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
               event.kind === "ledger_event" &&
               event.event.type === "tool.call.started"
             ) {
+              const startedAt = coerceTimestampMs(event.event.created_at) ?? Date.now();
               blocks.push({
                 type: "tool_call",
                 name: event.event.tool_name ?? "unknown",
                 arguments: event.event.tool_arguments,
-                startedAt: event.event.created_at * 1000,
+                startedAt,
               });
             } else if (
               event.kind === "ledger_event" &&
               event.event.type === "tool.call.completed"
             ) {
+              const completedAt = coerceTimestampMs(event.event.created_at) ?? Date.now();
               for (let i = blocks.length - 1; i >= 0; i--) {
                 const block = blocks[i]!;
                 if (
@@ -718,7 +732,7 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
                   blocks[i] = {
                     ...block,
                     output: event.event.tool_output,
-                    completedAt: event.event.created_at * 1000,
+                    completedAt,
                   };
                   break;
                 }
@@ -756,10 +770,9 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
       updateMsg(asstId, (m) => {
         const finalText = finalized.output_text?.trim();
         if (finalText) {
-          const toolBlocks = m.blocks.filter((b) => b.type === "tool_call");
           return {
             ...m,
-            blocks: [{ type: "text" as const, content: finalText }, ...toolBlocks],
+            blocks: mergeFinalAssistantText(m.blocks, finalText),
             status: finalStatus,
             turnId: finalized.id,
             reasoningText: result.readModel.liveReasoning || finalized.reasoning_text,
@@ -929,10 +942,26 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
                           )}
                         </div>
 
-                        {msg.blocks.length === 0 ? (
+                        {msg.blocks.length === 0 && !msg.reasoningText?.trim() ? (
                           <p className="text-sm text-zinc-500">Processing…</p>
                         ) : (
                           <div className="space-y-3">
+                            {msg.reasoningText?.trim() && (
+                              <details
+                                className="rounded border border-violet-500/20 bg-violet-500/5"
+                                open={msg.status === "streaming"}
+                              >
+                                <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs text-violet-400 hover:bg-violet-500/10">
+                                  <ChevronRight className="size-3" />
+                                  Reasoning
+                                </summary>
+                                <div className="border-t border-violet-500/10 px-3 py-2">
+                                  <pre className="whitespace-pre-wrap break-words text-xs text-violet-300/80">
+                                    {msg.reasoningText}
+                                  </pre>
+                                </div>
+                              </details>
+                            )}
                             {msg.blocks.map((block, i) =>
                               block.type === "text" ? (
                                 block.content ? (
@@ -945,23 +974,6 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
                               ),
                             )}
                           </div>
-                        )}
-
-                        {msg.reasoningText?.trim() && (
-                          <details
-                            className="mt-3 rounded border border-violet-500/20 bg-violet-500/5"
-                            open={msg.status === "streaming"}
-                          >
-                            <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs text-violet-400 hover:bg-violet-500/10">
-                              <ChevronRight className="size-3" />
-                              Reasoning
-                            </summary>
-                            <div className="border-t border-violet-500/10 px-3 py-2">
-                              <pre className="whitespace-pre-wrap break-words text-xs text-violet-300/80">
-                                {msg.reasoningText}
-                              </pre>
-                            </div>
-                          </details>
                         )}
                       </div>
                     </div>
