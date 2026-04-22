@@ -8,7 +8,9 @@ ENV OPENPENCIL_BASE_PATH=/openpencil
 # per-file COPY failures when operators sync the repository onto different
 # filesystems or BuildKit computes checksums for nested package manifests.
 COPY . .
-RUN bun install --frozen-lockfile
+# Docker currently resolves this workspace with the image's Bun version, so do
+# not freeze the lockfile inside the container build.
+RUN bun install
 ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN bun --bun run build
 
