@@ -1,5 +1,7 @@
 # ── Stage 1: Build web app ──
-FROM oven/bun:1 AS builder
+ARG BUN_VERSION=1.3.10
+
+FROM oven/bun:${BUN_VERSION} AS builder
 
 WORKDIR /app
 ENV OPENPENCIL_BASE_PATH=/openpencil
@@ -8,6 +10,10 @@ ENV OPENPENCIL_BASE_PATH=/openpencil
 # per-file COPY failures when operators sync the repository onto different
 # filesystems or BuildKit computes checksums for nested package manifests.
 COPY . .
+# Fail with a direct repository-shape error before spending minutes on package
+# resolution when the vendored OpenPencil tree is incomplete on the operator's
+# machine.
+RUN test -d apps/web && test -f apps/web/package.json
 # Docker currently resolves this workspace with the image's Bun version, so do
 # not freeze the lockfile inside the container build.
 RUN bun install
@@ -15,7 +21,7 @@ ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN bun --bun run build
 
 # ── Stage 2: Base (web only, no CLI) ──
-FROM oven/bun:1-slim AS base
+FROM oven/bun:${BUN_VERSION}-slim AS base
 
 WORKDIR /app
 COPY --from=builder /app/out/web ./out/web
@@ -30,7 +36,7 @@ CMD ["bun", "run", "./out/web/server/index.mjs"]
 
 # ── CLI variants ──
 
-FROM oven/bun:1 AS with-claude
+FROM oven/bun:${BUN_VERSION} AS with-claude
 WORKDIR /app
 COPY --from=builder /app/out/web ./out/web
 COPY --from=builder /app/package.json ./
@@ -39,7 +45,7 @@ ENV NODE_ENV=production NITRO_HOST=0.0.0.0 NITRO_PORT=3000 OPENPENCIL_BASE_PATH=
 EXPOSE 3000
 CMD ["bun", "run", "./out/web/server/index.mjs"]
 
-FROM oven/bun:1 AS with-codex
+FROM oven/bun:${BUN_VERSION} AS with-codex
 WORKDIR /app
 COPY --from=builder /app/out/web ./out/web
 COPY --from=builder /app/package.json ./
@@ -48,7 +54,7 @@ ENV NODE_ENV=production NITRO_HOST=0.0.0.0 NITRO_PORT=3000 OPENPENCIL_BASE_PATH=
 EXPOSE 3000
 CMD ["bun", "run", "./out/web/server/index.mjs"]
 
-FROM oven/bun:1 AS with-opencode
+FROM oven/bun:${BUN_VERSION} AS with-opencode
 WORKDIR /app
 COPY --from=builder /app/out/web ./out/web
 COPY --from=builder /app/package.json ./
@@ -57,7 +63,7 @@ ENV NODE_ENV=production NITRO_HOST=0.0.0.0 NITRO_PORT=3000 OPENPENCIL_BASE_PATH=
 EXPOSE 3000
 CMD ["bun", "run", "./out/web/server/index.mjs"]
 
-FROM oven/bun:1 AS with-copilot
+FROM oven/bun:${BUN_VERSION} AS with-copilot
 WORKDIR /app
 COPY --from=builder /app/out/web ./out/web
 COPY --from=builder /app/package.json ./
@@ -66,7 +72,7 @@ ENV NODE_ENV=production NITRO_HOST=0.0.0.0 NITRO_PORT=3000 OPENPENCIL_BASE_PATH=
 EXPOSE 3000
 CMD ["bun", "run", "./out/web/server/index.mjs"]
 
-FROM oven/bun:1 AS with-gemini
+FROM oven/bun:${BUN_VERSION} AS with-gemini
 WORKDIR /app
 COPY --from=builder /app/out/web ./out/web
 COPY --from=builder /app/package.json ./
@@ -76,7 +82,7 @@ EXPOSE 3000
 CMD ["bun", "run", "./out/web/server/index.mjs"]
 
 # ── Full: all CLI tools ──
-FROM oven/bun:1 AS full
+FROM oven/bun:${BUN_VERSION} AS full
 WORKDIR /app
 COPY --from=builder /app/out/web ./out/web
 COPY --from=builder /app/package.json ./
