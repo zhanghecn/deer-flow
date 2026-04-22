@@ -1,6 +1,6 @@
 # OpenAgents - Unified Development Environment
 
-.PHONY: help config check install dev stop clean docker-init docker-start docker-infra-start docker-stop docker-infra-stop docker-status docker-verify docker-logs docker-logs-nginx docker-logs-gateway docker-prod-config docker-prod-build docker-prod-start docker-prod-stop docker-prod-restart docker-prod-status docker-prod-verify docker-prod-logs docker-model-gateway-attach gateway-build
+.PHONY: help config check install dev stop clean docker-init docker-start docker-infra-start docker-stop docker-infra-stop docker-status docker-verify docker-logs docker-logs-nginx docker-logs-gateway docker-prod-config docker-prod-build docker-prod-start docker-prod-stop docker-prod-restart docker-prod-status docker-prod-verify docker-prod-logs docker-model-gateway-attach gateway-build docker-prod-preflight
 
 GO_TOOLCHAIN ?= auto
 HOST_LOG_DIR := $(CURDIR)/.openagents/host-logs
@@ -418,8 +418,16 @@ docker-model-gateway-attach:
 docker-prod-config:
 	@cd docker && docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml config
 
+docker-prod-preflight:
+	@# The vendored OpenPencil tree is now part of the default prod stack, so
+	@# fail early with a concrete message instead of letting Docker error out on
+	@# a missing COPY source deep inside the image build.
+	@test -f openpencil/Dockerfile || (echo "Missing vendored OpenPencil Dockerfile: openpencil/Dockerfile"; exit 1)
+	@test -f openpencil/apps/web/package.json || (echo "Missing vendored OpenPencil web app entry: openpencil/apps/web/package.json"; exit 1)
+
 docker-prod-build:
-	@cd docker && docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml build nginx gateway langgraph sandbox-aio onlyoffice
+	@$(MAKE) docker-prod-preflight
+	@cd docker && docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml build nginx openpencil gateway langgraph sandbox-aio onlyoffice
 
 docker-prod-start:
 	@./scripts/docker.sh start

@@ -3,20 +3,12 @@ FROM oven/bun:1 AS builder
 
 WORKDIR /app
 ENV OPENPENCIL_BASE_PATH=/openpencil
-COPY package.json bun.lock ./
-COPY packages/pen-types/package.json packages/pen-types/
-COPY packages/pen-core/package.json packages/pen-core/
-COPY packages/pen-codegen/package.json packages/pen-codegen/
-COPY packages/pen-figma/package.json packages/pen-figma/
-COPY packages/pen-renderer/package.json packages/pen-renderer/
-COPY packages/pen-sdk/package.json packages/pen-sdk/
-COPY packages/pen-ai-skills/package.json packages/pen-ai-skills/
-COPY packages/agent/package.json packages/agent/
-COPY apps/web/package.json apps/web/
-COPY apps/desktop/package.json apps/desktop/
-COPY apps/cli/package.json apps/cli/
-RUN bun install --frozen-lockfile
+# Keep the builder input simple: copy the vendored repo tree once and rely on
+# `.dockerignore` to strip build outputs and local caches. This avoids brittle
+# per-file COPY failures when operators sync the repository onto different
+# filesystems or BuildKit computes checksums for nested package manifests.
 COPY . .
+RUN bun install --frozen-lockfile
 ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN bun --bun run build
 

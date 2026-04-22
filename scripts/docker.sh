@@ -28,6 +28,24 @@ compose() {
     cd "$DOCKER_DIR" && docker compose "${COMPOSE_ARGS[@]}" "$@"
 }
 
+require_vendored_openpencil_tree() {
+    local openpencil_root="$PROJECT_ROOT/openpencil"
+
+    # The prod compose file builds OpenPencil from the vendored repo copy.
+    # Validate the expected tree up front so operators get a direct fix path
+    # instead of a late Docker COPY checksum failure.
+    if [ ! -f "$openpencil_root/Dockerfile" ]; then
+        echo -e "${RED}Missing vendored OpenPencil Dockerfile: $openpencil_root/Dockerfile${NC}"
+        exit 1
+    fi
+
+    if [ ! -f "$openpencil_root/apps/web/package.json" ]; then
+        echo -e "${RED}Vendored OpenPencil tree is incomplete: $openpencil_root/apps/web/package.json${NC}"
+        echo -e "${YELLOW}Sync the committed openpencil/ directory before running the prod stack.${NC}"
+        exit 1
+    fi
+}
+
 ensure_root_env_file() {
     if [ -f "$ROOT_ENV_FILE" ]; then
         return
@@ -126,11 +144,11 @@ list_managed_services() {
 
     sandbox_mode="$(detect_sandbox_mode)"
     if [ "$sandbox_mode" = "provisioner" ]; then
-        echo "sandbox-aio onlyoffice provisioner langgraph gateway nginx"
+        echo "sandbox-aio onlyoffice provisioner langgraph gateway openpencil nginx"
         return
     fi
 
-    echo "sandbox-aio onlyoffice langgraph gateway nginx"
+    echo "sandbox-aio onlyoffice langgraph gateway openpencil nginx"
 }
 
 wait_for_service_ready() {
@@ -285,14 +303,15 @@ start() {
     echo ""
 
     ensure_root_env_file
+    require_vendored_openpencil_tree
 
     sandbox_mode="$(detect_sandbox_mode)"
 
     if [ "$sandbox_mode" = "provisioner" ]; then
         require_provisioner_env
-        services=(sandbox-aio provisioner onlyoffice langgraph gateway nginx)
+        services=(sandbox-aio provisioner onlyoffice langgraph gateway openpencil nginx)
     else
-        services=(sandbox-aio onlyoffice langgraph gateway nginx)
+        services=(sandbox-aio onlyoffice langgraph gateway openpencil nginx)
     fi
 
     echo -e "${BLUE}Detected sandbox mode: $sandbox_mode${NC}"
