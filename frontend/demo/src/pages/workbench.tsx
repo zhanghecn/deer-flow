@@ -123,7 +123,11 @@ function createInvocationId() {
   return createDemoId("workbench");
 }
 
-function buildDefaultMcpURL(baseURL: string) {
+function buildDefaultAgentMcpURL(baseURL: string) {
+  return `${baseURL.replace(/\/+$/, "")}/mcp-http-agent/mcp`;
+}
+
+function buildDefaultWorkbenchMcpURL(baseURL: string) {
   return `${baseURL.replace(/\/+$/, "")}/mcp-http/mcp`;
 }
 
@@ -550,8 +554,12 @@ export function WorkbenchPage() {
   const [invokePending, setInvokePending] = useState(false);
   const filePickerRef = useRef<HTMLInputElement | null>(null);
   const folderPickerRef = useRef<HTMLInputElement | null>(null);
-  const defaultMcpURL = useMemo(
-    () => buildDefaultMcpURL(workbenchBaseURL),
+  const defaultAgentMcpURL = useMemo(
+    () => buildDefaultAgentMcpURL(workbenchBaseURL),
+    [workbenchBaseURL],
+  );
+  const defaultWorkbenchMcpURL = useMemo(
+    () => buildDefaultWorkbenchMcpURL(workbenchBaseURL),
     [workbenchBaseURL],
   );
 
@@ -950,7 +958,7 @@ export function WorkbenchPage() {
               tone="accent"
               onClick={() =>
                 copyText(
-                  workbenchHealth?.mcp_url ?? defaultMcpURL,
+                  workbenchHealth?.agent_mcp_url ?? workbenchHealth?.mcp_url ?? defaultAgentMcpURL,
                   "已复制 MCP 地址",
                 )
               }
@@ -973,7 +981,7 @@ export function WorkbenchPage() {
         <div className="space-y-4">
           <Panel
             title="连接信息"
-            description="当前页面负责文件库维护、MCP 地址分发、协议扫描和工具联调。"
+            description="当前页面负责文件库维护、MCP 地址分发、agent 文档协议扫描和全量工具联调。"
             actions={
               <div className="flex items-center gap-2">
                 <GhostButton
@@ -1016,10 +1024,25 @@ export function WorkbenchPage() {
               <div className="rounded-md border border-[var(--border)] bg-zinc-950 px-3 py-3">
                 <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
                   <Wrench className="size-3.5" />
-                  MCP URL
+                  Agent MCP URL
                 </div>
                 <p className="mt-1 break-all font-mono text-xs text-cyan-300">
-                  {workbenchHealth?.mcp_url ?? defaultMcpURL}
+                  {workbenchHealth?.agent_mcp_url ?? workbenchHealth?.mcp_url ?? defaultAgentMcpURL}
+                </p>
+                <p className="mt-2 text-[11px] leading-5 text-[var(--muted)]">
+                  给外部 SDK / demo agent 复制这个地址，只暴露 `document_*`。
+                </p>
+              </div>
+              <div className="rounded-md border border-[var(--border)] bg-zinc-950 px-3 py-3">
+                <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
+                  <Wrench className="size-3.5" />
+                  Workbench MCP URL
+                </div>
+                <p className="mt-1 break-all font-mono text-xs text-[var(--text-soft)]">
+                  {workbenchHealth?.workbench_mcp_url ?? defaultWorkbenchMcpURL}
+                </p>
+                <p className="mt-2 text-[11px] leading-5 text-[var(--muted)]">
+                  调试台自己仍可通过这个全量端点手动调用 `fs_*` 和 `document_*`。
                 </p>
               </div>
               <div className="rounded-md border border-[var(--border)] bg-zinc-950 px-3 py-3">
@@ -1483,7 +1506,7 @@ export function WorkbenchPage() {
         <div className="space-y-4">
           <Panel
             title="MCP 扫描结果"
-            description="参考 Claude Code 的发现流程，展示真实 `tools/list` 返回，而不是静态配置。"
+            description="扫描 agent-facing 文档端点，展示真实 `tools/list` 返回，而不是静态配置。"
           >
             <div className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-2">

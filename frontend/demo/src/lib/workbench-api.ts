@@ -27,6 +27,8 @@ export type WorkbenchHealth = {
   seed_root?: string | null;
   file_count: number;
   mcp_url: string;
+  agent_mcp_url: string;
+  workbench_mcp_url: string;
   tool_catalog: ToolCatalogEntry[];
 };
 

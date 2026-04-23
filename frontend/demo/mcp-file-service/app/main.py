@@ -21,14 +21,20 @@ from .service import build_workbench_service_from_env
 
 HOST = os.getenv("MCP_WORKBENCH_HOST", "0.0.0.0").strip() or "0.0.0.0"
 PORT = int(os.getenv("MCP_WORKBENCH_PORT", "8090"))
+FULL_MCP_PATH = "/mcp-http/mcp"
+AGENT_MCP_PATH = "/mcp-http-agent/mcp"
 PUBLIC_BASE_URL = (
     os.getenv("MCP_WORKBENCH_PUBLIC_BASE_URL", "").strip()
     or f"http://127.0.0.1:{PORT}"
 )
 LOCAL_MCP_URL = os.getenv(
     "MCP_WORKBENCH_LOCAL_MCP_URL",
-    f"http://127.0.0.1:{PORT}/mcp-http/mcp",
-).strip() or f"http://127.0.0.1:{PORT}/mcp-http/mcp"
+    f"http://127.0.0.1:{PORT}{FULL_MCP_PATH}",
+).strip() or f"http://127.0.0.1:{PORT}{FULL_MCP_PATH}"
+LOCAL_AGENT_MCP_URL = os.getenv(
+    "MCP_WORKBENCH_LOCAL_AGENT_MCP_URL",
+    f"http://127.0.0.1:{PORT}{AGENT_MCP_PATH}",
+).strip() or f"http://127.0.0.1:{PORT}{AGENT_MCP_PATH}"
 MCP_REQUEST_TIMEOUT_SECONDS = float(os.getenv("MCP_WORKBENCH_TIMEOUT_SECONDS", "10"))
 STREAMABLE_HTTP_ACCEPT = "application/json, text/event-stream"
 MCP_CLIENT_INFO = {
@@ -46,13 +52,18 @@ ALLOWED_ORIGINS = [
 
 service = build_workbench_service_from_env()
 
-# Keep the MCP transport colocated with the upload API so the workbench can be
-# brought up with one container and one stable URL to copy into an agent config.
+# Keep the full MCP transport colocated with the upload API so the workbench
+# can manually debug both filesystem and document tools from one container.
 mcp = FastMCP("file-mcp-workbench", host=HOST, port=PORT)
+# The agent-facing endpoint is intentionally narrower: it exposes only the
+# document contract so the 8084 demo can validate document QA without
+# overlapping `fs_*` tools biasing the generic agent.
+agent_mcp = FastMCP("file-document-workbench", host=HOST, port=PORT)
 # `streamable_http_app()` creates the lazily-initialized session manager. When
 # FastMCP is mounted under a parent FastAPI app, the sub-app lifespan is not the
-# process owner, so we explicitly run the manager from the parent lifespan.
+# process owner, so we explicitly run the managers from the parent lifespan.
 mcp_http_app = mcp.streamable_http_app()
+agent_mcp_http_app = agent_mcp.streamable_http_app()
 
 
 def _translate_error(exc: Exception) -> HTTPException:
@@ -79,6 +90,7 @@ def _parse_sse_payload(payload: str) -> dict[str, Any]:
 
 def _post_mcp_request(
     *,
+    mcp_url: str,
     method: str,
     params: dict[str, Any] | None,
     request_id: int,
@@ -100,7 +112,7 @@ def _post_mcp_request(
         "params": params or {},
     }
     request = urllib_request.Request(
-        LOCAL_MCP_URL,
+        mcp_url,
         data=json.dumps(request_body).encode("utf-8"),
         headers=headers,
     )
@@ -119,10 +131,11 @@ def _post_mcp_request(
         ) from exc
 
 
-def _initialize_mcp_session() -> tuple[dict[str, Any], str | None]:
+def _initialize_mcp_session(*, mcp_url: str) -> tuple[dict[str, Any], str | None]:
     """Start one MCP session with the same handshake used by real clients."""
 
     return _post_mcp_request(
+        mcp_url=mcp_url,
         method="initialize",
         params={
             "protocolVersion": "2025-03-26",
@@ -165,14 +178,15 @@ def _coerce_json_text(value: Any) -> Any:
         return value
 
 
-def _scan_mcp_server() -> dict[str, Any]:
-    """Probe the colocated MCP server using the same discovery steps as real clients."""
+def _scan_mcp_server(*, mcp_url: str) -> dict[str, Any]:
+    """Probe one colocated MCP endpoint using the same discovery steps as real clients."""
 
     started_at = time.perf_counter()
-    initialize_payload, session_id = _initialize_mcp_session()
+    initialize_payload, session_id = _initialize_mcp_session(mcp_url=mcp_url)
     initialize_result = _unwrap_mcp_result(initialize_payload)
 
     tools_payload, session_id = _post_mcp_request(
+        mcp_url=mcp_url,
         method="tools/list",
         params={},
         request_id=2,
@@ -197,11 +211,12 @@ def _scan_mcp_server() -> dict[str, Any]:
 
 
 def _call_mcp_tool(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-    """Execute one tool through the MCP transport instead of calling the service directly."""
+    """Execute one tool through the full MCP transport instead of calling the service directly."""
 
     started_at = time.perf_counter()
-    _, session_id = _initialize_mcp_session()
+    _, session_id = _initialize_mcp_session(mcp_url=LOCAL_MCP_URL)
     call_payload, session_id = _post_mcp_request(
+        mcp_url=LOCAL_MCP_URL,
         method="tools/call",
         params={"name": tool_name, "arguments": arguments},
         request_id=2,
@@ -228,97 +243,103 @@ def _call_mcp_tool(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@mcp.tool()
-def fs_ls(path: str = "", cursor: int = 0, limit: int = 20) -> str:
-    """List files and directories under one relative path."""
+def _register_filesystem_tools(server: FastMCP) -> None:
+    """Bind the generic filesystem demo tools to one MCP surface."""
 
-    payload = service.ls_payload(path=path, cursor=cursor, limit=limit)
-    return service.tool_payload_json(payload)
+    @server.tool()
+    def fs_ls(path: str = "", cursor: int = 0, limit: int = 20) -> str:
+        """List files and directories under one relative path."""
 
+        payload = service.ls_payload(path=path, cursor=cursor, limit=limit)
+        return service.tool_payload_json(payload)
 
-@mcp.tool()
-def fs_read(
-    file_path: str, offset: int = 0, limit: int = 2000
-) -> str:
-    """Read one file window using offset and limit semantics."""
+    @server.tool()
+    def fs_read(
+        file_path: str, offset: int = 0, limit: int = 2000
+    ) -> str:
+        """Read one file window using offset and limit semantics."""
 
-    payload = service.read_file_payload(
-        file_path=file_path,
-        offset=offset,
-        limit=limit,
-    )
-    return service.tool_payload_json(payload)
+        payload = service.read_file_payload(
+            file_path=file_path,
+            offset=offset,
+            limit=limit,
+        )
+        return service.tool_payload_json(payload)
 
+    @server.tool()
+    def fs_grep(
+        pattern: str,
+        path: str = "",
+        glob: str = "*",
+        output_mode: str = "content",
+        cursor: int = 0,
+        limit: int = 20,
+    ) -> str:
+        """Search uploaded files by text or regex-like pattern and optional file glob."""
 
-@mcp.tool()
-def fs_grep(
-    pattern: str,
-    path: str = "",
-    glob: str = "*",
-    output_mode: str = "content",
-    cursor: int = 0,
-    limit: int = 20,
-) -> str:
-    """Search uploaded files by text or regex-like pattern and optional file glob."""
+        payload = service.grep_payload(
+            pattern=pattern,
+            path=path,
+            glob=glob,
+            output_mode=output_mode,
+            cursor=cursor,
+            limit=limit,
+        )
+        return service.tool_payload_json(payload)
 
-    payload = service.grep_payload(
-        pattern=pattern,
-        path=path,
-        glob=glob,
-        output_mode=output_mode,
-        cursor=cursor,
-        limit=limit,
-    )
-    return service.tool_payload_json(payload)
+    @server.tool()
+    def fs_glob(pattern: str = "*", path: str = "") -> str:
+        """Match uploaded files by glob pattern."""
 
-
-@mcp.tool()
-def fs_glob(pattern: str = "*", path: str = "") -> str:
-    """Match uploaded files by glob pattern."""
-
-    payload = service.glob_payload(pattern=pattern, path=path)
-    return service.tool_payload_json(payload)
-
-
-@mcp.tool()
-def document_search(
-    query: str,
-    path: str = "",
-    cursor: int = 0,
-    limit: int = 10,
-) -> str:
-    """Search uploaded documents by document semantics rather than raw bytes."""
-
-    payload = service.document_search_payload(
-        query=query,
-        path=path,
-        cursor=cursor,
-        limit=limit,
-    )
-    return service.tool_payload_json(payload)
+        payload = service.glob_payload(pattern=pattern, path=path)
+        return service.tool_payload_json(payload)
 
 
-@mcp.tool()
-def document_read(path: str, cursor: int = 0, limit: int = 3) -> str:
-    """Read one document window using page/slide/sheet/region cursors."""
+def _register_document_tools(server: FastMCP) -> None:
+    """Bind the unified document contract to one MCP surface."""
 
-    payload = service.document_read_payload(
-        path=path,
-        cursor=cursor,
-        limit=limit,
-    )
-    return service.tool_payload_json(payload)
+    @server.tool()
+    def document_search(
+        query: str,
+        path: str = "",
+        cursor: int = 0,
+        limit: int = 10,
+    ) -> str:
+        """Search uploaded documents by document semantics rather than raw bytes."""
+
+        payload = service.document_search_payload(
+            query=query,
+            path=path,
+            cursor=cursor,
+            limit=limit,
+        )
+        return service.tool_payload_json(payload)
+
+    @server.tool()
+    def document_read(path: str, cursor: int = 0, limit: int = 3) -> str:
+        """Read one document window using page/slide/sheet/region cursors."""
+
+        payload = service.document_read_payload(
+            path=path,
+            cursor=cursor,
+            limit=limit,
+        )
+        return service.tool_payload_json(payload)
+
+    @server.tool()
+    def document_fetch_asset(path: str, asset_ref: str) -> str:
+        """Fetch one visual asset returned by `document_read`."""
+
+        payload = service.document_fetch_asset_payload(
+            path=path,
+            asset_ref=asset_ref,
+        )
+        return service.tool_payload_json(payload)
 
 
-@mcp.tool()
-def document_fetch_asset(path: str, asset_ref: str) -> str:
-    """Fetch one visual asset returned by `document_read`."""
-
-    payload = service.document_fetch_asset_payload(
-        path=path,
-        asset_ref=asset_ref,
-    )
-    return service.tool_payload_json(payload)
+_register_filesystem_tools(mcp)
+_register_document_tools(mcp)
+_register_document_tools(agent_mcp)
 
 
 @asynccontextmanager
@@ -326,7 +347,8 @@ async def workbench_lifespan(_: FastAPI):
     """Run the mounted FastMCP session manager inside the parent app lifecycle."""
 
     async with mcp.session_manager.run():
-        yield
+        async with agent_mcp.session_manager.run():
+            yield
 
 
 app = FastAPI(
@@ -342,6 +364,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.mount("/mcp-http", mcp_http_app)
+app.mount("/mcp-http-agent", agent_mcp_http_app)
 
 
 def _resolve_public_base_url(request: Request) -> str:
@@ -358,22 +381,34 @@ def _resolve_public_base_url(request: Request) -> str:
 async def health(request: Request) -> dict[str, Any]:
     """Expose one compact health payload for the acceptance console header."""
 
-    return service.health_payload(base_url=_resolve_public_base_url(request))
+    return service.health_payload(
+        base_url=_resolve_public_base_url(request),
+        agent_mcp_path=AGENT_MCP_PATH,
+        workbench_mcp_path=FULL_MCP_PATH,
+    )
 
 
 @app.get("/api/tool-catalog")
 async def tool_catalog() -> dict[str, Any]:
     """Return the MCP tool metadata used by the right-side inspector."""
 
-    return {"tools": service.health_payload(base_url=PUBLIC_BASE_URL)["tool_catalog"]}
+    return {
+        "tools": service.health_payload(
+            base_url=PUBLIC_BASE_URL,
+            agent_mcp_path=AGENT_MCP_PATH,
+            workbench_mcp_path=FULL_MCP_PATH,
+        )["tool_catalog"]
+    }
 
 
 @app.post("/api/mcp/scan")
 async def scan_mcp() -> dict[str, Any]:
-    """Actively probe the mounted MCP endpoint and return discovered tools."""
+    """Actively probe the agent-facing MCP endpoint and return discovered tools."""
 
     try:
-        return await run_in_threadpool(_scan_mcp_server)
+        return await run_in_threadpool(
+            lambda: _scan_mcp_server(mcp_url=LOCAL_AGENT_MCP_URL)
+        )
     except Exception as exc:  # noqa: BLE001 - return probe failure details to the browser
         return {
             "reachable": False,

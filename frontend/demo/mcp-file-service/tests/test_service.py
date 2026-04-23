@@ -209,6 +209,13 @@ class FileMcpServiceTest(unittest.TestCase):
         self.assertEqual(items_by_path["合同.md"]["content_kind"], "text")
         self.assertTrue(items_by_path["合同.md"]["text_readable"])
 
+    def test_workspace_virtual_root_alias_resolves_to_uploaded_root(self) -> None:
+        payload = self.service.ls_payload(path="/mnt/user-data/workspace", limit=20)
+        listed_paths = {item["path"] for item in payload["items"]}
+
+        self.assertIn("案例大全", listed_paths)
+        self.assertEqual(payload["total"], 1)
+
     def test_read_rejects_binary_documents_instead_of_converting_them(self) -> None:
         (self.root / "合同.pdf").write_bytes(b"%PDF-1.4 fake")
 

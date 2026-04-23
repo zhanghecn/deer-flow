@@ -45,6 +45,10 @@ TEXT_MIME_TYPES = {
 TEXT_SNIFF_BYTES = 4096
 VIRTUAL_UPLOAD_ROOTS = (
     PurePosixPath("/mnt/user-data/uploads"),
+    # The generic runtime also uses `/mnt/user-data/workspace` as its virtual
+    # working root. Accept it here so the demo MCP can serve the same uploads
+    # without leaking host filesystem access or requiring runtime-specific prompts.
+    PurePosixPath("/mnt/user-data/workspace"),
     PurePosixPath("/mnt/user-data"),
 )
 
@@ -854,7 +858,13 @@ class FileMcpService:
             "remaining_files": self.list_files_payload(limit=1)["total"],
         }
 
-    def health_payload(self, *, base_url: str) -> dict[str, Any]:
+    def health_payload(
+        self,
+        *,
+        base_url: str,
+        agent_mcp_path: str = "/mcp-http-agent/mcp",
+        workbench_mcp_path: str = "/mcp-http/mcp",
+    ) -> dict[str, Any]:
         """Return a compact health row for the demo shell header."""
 
         listing = self.list_files_payload(limit=1)
@@ -863,9 +873,14 @@ class FileMcpService:
             "storage_root": str(self.root),
             "seed_root": str(self.seed_root) if self.seed_root else None,
             "file_count": listing["total"],
-            # FastMCP's generated HTTP app already owns an internal `/mcp` route,
-            # so the outer service mounts it under `/mcp-http`.
-            "mcp_url": f"{base_url.rstrip('/')}/mcp-http/mcp",
+            # Keep the externally copied MCP URL pointed at the document-only
+            # surface so demo agents do not receive overlapping filesystem and
+            # document tools from the same profile.
+            "mcp_url": f"{base_url.rstrip('/')}{agent_mcp_path}",
+            "agent_mcp_url": f"{base_url.rstrip('/')}{agent_mcp_path}",
+            # The workbench still keeps the full endpoint for manual tool
+            # testing, including generic `fs_*` calls.
+            "workbench_mcp_url": f"{base_url.rstrip('/')}{workbench_mcp_path}",
             "tool_catalog": build_tool_catalog(),
         }
 

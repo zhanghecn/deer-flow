@@ -14,7 +14,8 @@ explorer instead of a flat file list.
 The internal file service exposes:
 
 - upload and reset APIs under `http://127.0.0.1:8084/api/*`
-- an MCP Streamable HTTP endpoint at `http://127.0.0.1:8084/mcp-http/mcp`
+- an agent-facing document MCP endpoint at `http://127.0.0.1:8084/mcp-http-agent/mcp`
+- a workbench-only full MCP endpoint at `http://127.0.0.1:8084/mcp-http/mcp`
 - a manual tool execution endpoint at `http://127.0.0.1:8084/api/tools/{tool_name}/invoke`
 - text-only `fs_read` / `fs_grep` semantics for generic filesystem behavior
 - demo-only document tools:
@@ -85,3 +86,7 @@ docker compose -f frontend/demo/compose.yaml down
 6. Use the middle workbench to select one MCP tool such as `fs_ls`, `fs_read`, `document_search`, or `document_read`
 7. For PDF / Office files, prefer `document_search -> document_read -> document_fetch_asset`
 8. Execute the tool and inspect arguments, output, and invocation history on the right
+
+For external SDK / demo-agent binding, use the document-only `Agent MCP URL`.
+The workbench keeps the full endpoint only for manual debugging so the agent
+does not receive overlapping `fs_*` and `document_*` tools from one profile.
