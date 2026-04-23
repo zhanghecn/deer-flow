@@ -26,7 +26,9 @@ services:
       context: ../..
       dockerfile: frontend/demo/Dockerfile
     env_file:
-      - ./.env.local
+      # Use the checked-in defaults for clean clones. Local runtime setup can
+      # still point at an ignored override file through `MCP_WORKBENCH_UI_ENV_FILE`.
+      - ${MCP_WORKBENCH_UI_ENV_FILE:-./.env.defaults}
     environment:
       VITE_DEMO_WORKBENCH_BASE_URL: http://127.0.0.1:8084
     restart: unless-stopped

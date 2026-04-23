@@ -10,13 +10,25 @@ NC='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 DEMO_COMPOSE_FILE="$PROJECT_ROOT/frontend/demo/compose.yaml"
+DEMO_UI_DEFAULT_ENV_FILE="$PROJECT_ROOT/frontend/demo/.env.defaults"
+DEMO_UI_LOCAL_ENV_FILE="$PROJECT_ROOT/frontend/demo/.env.local"
 DEMO_HEALTH_URL="http://127.0.0.1:8084/api/health"
 DEFAULT_START_TIMEOUT_SECONDS="${DEMO_DOCKER_START_TIMEOUT_SECONDS:-180}"
 DEFAULT_REPO_OWNER="zhanghecn"
 DEFAULT_IMAGE_TAG="${DEMO_IMAGE_TAG:-latest}"
 
 compose() {
-    docker compose -f "$DEMO_COMPOSE_FILE" "$@"
+    local ui_env_file="$DEMO_UI_DEFAULT_ENV_FILE"
+
+    # The one-command demo path must work on a clean clone, so the compose
+    # stack defaults to a tracked env file and only switches to the ignored
+    # `.env.local` override when it actually exists.
+    if [ -f "$DEMO_UI_LOCAL_ENV_FILE" ]; then
+        ui_env_file="$DEMO_UI_LOCAL_ENV_FILE"
+    fi
+
+    MCP_WORKBENCH_UI_ENV_FILE="$ui_env_file" \
+        docker compose -f "$DEMO_COMPOSE_FILE" "$@"
 }
 
 resolve_repo_owner() {
@@ -134,6 +146,10 @@ help() {
     echo "  1. If local demo files changed, build from the workspace"
     echo "  2. Otherwise try GHCR prebuilt images"
     echo "  3. If images are unavailable, fall back to a local build"
+    echo ""
+    echo "Env selection:"
+    echo "  - Uses frontend/demo/.env.local when present"
+    echo "  - Otherwise falls back to tracked frontend/demo/.env.defaults"
 }
 
 case "${1:-}" in

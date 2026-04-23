@@ -39,6 +39,11 @@ make demo-status
 make demo-stop
 ```
 
+`make demo-start` no longer requires an untracked `frontend/demo/.env.local`
+file. The compose stack ships with a committed
+`frontend/demo/.env.defaults`, and `scripts/demo.sh` automatically prefers
+`frontend/demo/.env.local` when you have one from runtime setup.
+
 You can still run plain Compose directly if needed:
 
 ```bash
