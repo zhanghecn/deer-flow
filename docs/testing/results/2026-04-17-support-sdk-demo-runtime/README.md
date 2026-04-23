@@ -20,11 +20,17 @@
 
 1. 上传器支持目录作为分类来源，并保留 `relativePath`。
 2. `8084` 不再混合客服聊天，而是直接展示 MCP 规范、参数表单、调用历史和 JSON 返回。
-3. 浏览器可真实执行 `fs_ls`、`fs_read`、`fs_glob`、`fs_grep` 等文件型 MCP 工具，并看到参数和返回。
+3. 浏览器可真实执行文档型 MCP 工具，并看到参数和返回。
 
 同一天又补做了一次 UI 回归，确认文件区已经切换为基于 `react-arborist`
 的 VS Code 风格 Explorer，而不是旧的平铺按钮列表；浏览器脚本也同步改成了
 树节点选择路径，避免旧断言误报失败。
+
+在 2026-04-23 的后续修正中，又把 `8084` 的 MCP 展示语义重新收口，避免重复工具误导 agent：
+
+1. `Agent MCP URL` 固定指向单一文档 MCP 端点。
+2. `8084/` 中间工具面板始终按 agent 真实扫描结果展示，不再额外叠加 “Workbench 全量调试工具” 视角。
+3. `support-cases-http-demo` 的 demo fixture 不再写死某个工具家族，而是只保留“外部知识库归属 MCP”的边界。
 
 ## 当前可复现入口
 
@@ -38,6 +44,7 @@
    - upsert 并 publish 客服 agent
    - 复用或创建 scoped API key
    - 写出本地 `.env.local` 供 demo workbench 复用
+   - 严格校验 fixture 不会再把 `support-cases-http-demo` 绑定回旧的 full MCP URL
 4. 然后运行真实浏览器验收：
    - `node frontend/app/e2e/public-integration-real-browser.mjs`
 
@@ -51,7 +58,7 @@
 4. 用真实浏览器断言式验证了 `8084` 纯 MCP 工作台。
 5. 浏览器脚本现在不再只靠截图，而是会断言：
    - 目录上传后 `案例大全 · 4` 分类摘要可见
-   - `fs_ls` 工具名、参数、返回值在新工作台里可见
+   - `document_list` 工具名、参数、返回值在新工作台里可见
    - 返回 JSON 中包含根目录下的 `案例大全` 目录项
 6. 把 demo 文件服务和调试台都收敛到了独立 demo 工程：
    - `frontend/demo/compose.yaml`
@@ -78,7 +85,7 @@
 - [08-acceptance-console-uploaded.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/08-acceptance-console-uploaded.png)
   - `8084` 最新上传态；展示 Explorer 上传、文件列表、MCP 地址
 - [09-acceptance-console-complete.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/09-acceptance-console-complete.png)
-  - `8084` 最新完成态；展示 `fs_ls` 工具调用、参数、返回和调用记录
+  - `8084` 最新完成态；展示文档 MCP 工具调用、参数、返回和调用记录
 - [08-native-chat-current.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/08-native-chat-current.png)
 - [10-standalone-demo-session.png](/root/project/ai/deer-flow/docs/testing/results/2026-04-17-support-sdk-demo-runtime/10-standalone-demo-session.png)
   - 本次 session helper 路线下的 8084 独立调试台截图
@@ -108,7 +115,7 @@
 当前行为：
 
 - 默认 `Workbench Base URL = http://127.0.0.1:8084`
-- 默认展示 MCP URL、工具目录、文件管理、工具参数表单、调用历史
+- 默认展示 MCP URL、文件管理、调用历史，以及 agent 真实可见的 `document_*` 工具
 - 不再混合 `/v1/turns` 客服聊天
 
 ### 8083 平台内页
@@ -142,5 +149,7 @@
 - `docker/docker-compose-prod.yaml` 不再承载测试用 HTTP MCP。
 - `frontend/demo/compose.yaml` 单独承载 `8084` 和 `8090`，更贴近真实客户外部接入。
 - `support-cases-http-demo` 现在已真实走 HTTP MCP，不再出现“没有可用 customer-cases MCP 工具”的错误回答。
+- `scripts/setup_support_demo_runtime.py` 现在会拒绝旧的 full MCP fixture，避免下次 setup 又把 demo agent 绑回错误工具面。
+- `8084` 的 agent-facing MCP 现在只暴露 `document_list`、`document_search`、`document_read`、`document_fetch_asset`。
 - `8084` 现在不是假通，而是可渲染、可上传目录、可执行 MCP 工具并查看 JSON 返回的真实页面。
 - `8084` 最新上传区已经并入 Explorer，目录上传会保留分类层级，并支持直接拖拽到文件树。

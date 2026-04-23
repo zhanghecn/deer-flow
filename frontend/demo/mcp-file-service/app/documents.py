@@ -443,6 +443,36 @@ class DocumentTooling:
             f"document tools do not support '{relative_path}' ({access.mime_type})"
         )
 
+    def describe_document(self, file_path: Path) -> dict[str, Any]:
+        """Return lightweight document metadata for browse/list surfaces.
+
+        `document_list` should be able to enumerate the MCP-owned knowledge tree
+        without forcing the agent to guess whether a file is searchable. Keep
+        unsupported files explicit instead of silently hiding them.
+        """
+
+        relative_path = file_path.relative_to(self.root).as_posix()
+        access = self.describe_access(file_path)
+        try:
+            document = self.parse_document(file_path)
+        except ValueError:
+            return {
+                "path": relative_path,
+                "document_kind": None,
+                "locator_type": None,
+                "contains_visual": False,
+                "supported": False,
+                "mime_type": access.mime_type,
+            }
+        return {
+            "path": document.path,
+            "document_kind": document.document_kind,
+            "locator_type": document.locator_type,
+            "contains_visual": document.contains_visual,
+            "supported": True,
+            "mime_type": access.mime_type,
+        }
+
     def search(
         self,
         *,

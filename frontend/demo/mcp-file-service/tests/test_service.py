@@ -216,12 +216,32 @@ class FileMcpServiceTest(unittest.TestCase):
         self.assertIn("案例大全", listed_paths)
         self.assertEqual(payload["total"], 1)
 
+    def test_document_list_exposes_directories_and_document_metadata(self) -> None:
+        self._write_pdf(
+            "nested/contracts/policy-alpha.pdf",
+            ["Deductible is 500 USD"],
+        )
+
+        root_payload = self.service.document_list_payload(limit=20)
+        root_rows = {item["path"]: item for item in root_payload["items"]}
+        self.assertIn("nested", root_rows)
+        self.assertEqual(root_rows["nested"]["entry_type"], "directory")
+        self.assertTrue(root_rows["nested"]["has_children"])
+
+        nested_payload = self.service.document_list_payload(path="nested/contracts", limit=20)
+        file_row = nested_payload["items"][0]
+        self.assertEqual(file_row["path"], "nested/contracts/policy-alpha.pdf")
+        self.assertEqual(file_row["document_kind"], "pdf")
+        self.assertEqual(file_row["locator_type"], "page")
+        self.assertFalse(file_row["contains_visual"])
+        self.assertTrue(file_row["supported"])
+
     def test_read_rejects_binary_documents_instead_of_converting_them(self) -> None:
         (self.root / "合同.pdf").write_bytes(b"%PDF-1.4 fake")
 
         with self.assertRaisesRegex(
             ValueError,
-            "fs_read only supports text files.*document-specific pipeline",
+            "fs_read only supports text files.*document_\\* MCP tools",
         ):
             self.service.read_file_payload(file_path="合同.pdf", offset=0, limit=10)
 
@@ -232,7 +252,7 @@ class FileMcpServiceTest(unittest.TestCase):
 
         self.assertEqual(payload["content_kind"], "binary_document")
         self.assertFalse(payload["text_readable"])
-        self.assertIn("document-specific pipeline", payload["content"])
+        self.assertIn("document_list(path?, cursor?, limit?)", payload["content"])
 
     def test_grep_skips_binary_documents_in_directory_scope(self) -> None:
         (self.root / "合同.pdf").write_bytes(b"%PDF-1.4 fake")
@@ -247,7 +267,7 @@ class FileMcpServiceTest(unittest.TestCase):
 
         with self.assertRaisesRegex(
             ValueError,
-            "fs_grep only supports text files.*document-specific pipeline",
+            "fs_grep only supports text files.*document_\\* MCP tools",
         ):
             self.service.grep_payload(pattern="赔付", path="合同.pdf", limit=20)
 
@@ -349,6 +369,7 @@ class FileMcpServiceTest(unittest.TestCase):
         self.assertEqual(payload["returned_units"], 1)
         self.assertTrue(payload["has_more"])
         self.assertEqual(payload["next_cursor"], 1)
+        self.assertFalse(payload["contains_visual"])
         self.assertEqual(payload["content_blocks"][0]["type"], "text")
 
     def test_document_read_returns_pptx_text_and_visual_blocks(self) -> None:

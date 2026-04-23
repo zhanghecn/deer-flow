@@ -121,19 +121,16 @@ class WorkbenchMainAppTest(unittest.TestCase):
 
         self.assertEqual(
             tool_names,
-            {"document_search", "document_read", "document_fetch_asset"},
+            {"document_list", "document_search", "document_read", "document_fetch_asset"},
         )
 
-    def test_workbench_mcp_endpoint_keeps_full_tool_surface(self) -> None:
+    def test_workbench_mcp_endpoint_matches_agent_document_surface(self) -> None:
         tool_names = self._discover_tool_names("/mcp-http/mcp")
 
         self.assertEqual(
             tool_names,
             {
-                "fs_ls",
-                "fs_read",
-                "fs_grep",
-                "fs_glob",
+                "document_list",
                 "document_search",
                 "document_read",
                 "document_fetch_asset",

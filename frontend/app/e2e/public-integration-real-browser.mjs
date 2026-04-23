@@ -72,7 +72,7 @@ async function runWorkbench(page) {
   await page.waitForFunction(
     () =>
       document.body.innerText.includes("调用记录") &&
-      document.body.innerText.includes("fs_ls") &&
+      document.body.innerText.includes("document_list") &&
       document.body.innerText.includes("\"entry_type\": \"directory\"") &&
       document.body.innerText.includes("\"path\": \"案例大全\""),
     undefined,

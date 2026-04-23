@@ -95,94 +95,68 @@ def _iso8601(value: float) -> str:
     return datetime.fromtimestamp(value, tz=UTC).isoformat()
 
 
-def build_tool_catalog() -> list[dict[str, Any]]:
-    """Return a stable tool catalog for the demo admin API."""
+DOCUMENT_TOOL_DESCRIPTORS = (
+    ToolDescriptor(
+        name="document_list",
+        summary=(
+            "List the current knowledge-base document tree one level at a time. "
+            "Use this for file inventory questions instead of generic filesystem tools."
+        ),
+        returns="JSON payload with directory/file entries, document metadata, and pagination.",
+        arguments=(
+            ToolArgument("path", "string", False, "Relative directory under the uploaded root."),
+            ToolArgument("cursor", "integer", False, "Zero-based pagination cursor.", default=0),
+            ToolArgument("limit", "integer", False, "Maximum number of rows to return.", default=20),
+        ),
+    ),
+    ToolDescriptor(
+        name="document_search",
+        summary=(
+            "Search document content across text, PDF, image, and Office files. "
+            "Use this first for document questions because it returns page/slide/"
+            "sheet-style evidence instead of raw file bytes."
+        ),
+        returns="JSON payload with ranked results, locator metadata, and next-action hints.",
+        arguments=(
+            ToolArgument("query", "string", True, "Natural-language question or search phrase."),
+            ToolArgument("path", "string", False, "Optional file or directory scope under the uploaded root."),
+            ToolArgument("cursor", "integer", False, "Zero-based pagination cursor.", default=0),
+            ToolArgument("limit", "integer", False, "Maximum number of matches to return.", default=10),
+        ),
+    ),
+    ToolDescriptor(
+        name="document_read",
+        summary=(
+            "Read one document using page/slide/sheet/region cursors. The response "
+            "includes `contains_visual`, `has_more`, and rich content blocks so the "
+            "agent can decide whether to continue reading or fetch an asset."
+        ),
+        returns="JSON payload with locator metadata, pagination, and content_blocks.",
+        arguments=(
+            ToolArgument("path", "string", True, "Relative file path under the uploaded root."),
+            ToolArgument("cursor", "integer", False, "Zero-based unit cursor.", default=0),
+            ToolArgument("limit", "integer", False, "Maximum number of units to return.", default=3),
+        ),
+    ),
+    ToolDescriptor(
+        name="document_fetch_asset",
+        summary=(
+            "Fetch one visual asset referenced by `document_read`. Small images are "
+            "inlined as base64 so the demo can verify end-to-end visual asset access."
+        ),
+        returns="JSON payload with asset metadata and optional inlined base64 content.",
+        arguments=(
+            ToolArgument("path", "string", True, "Relative file path under the uploaded root."),
+            ToolArgument("asset_ref", "string", True, "Asset reference returned by document_read."),
+        ),
+    ),
+)
 
-    descriptors = (
-        ToolDescriptor(
-            name="fs_ls",
-            summary="List files and directories in a given relative path.",
-            returns="JSON payload with entries, cursor, limit, and has_more.",
-            arguments=(
-                ToolArgument("path", "string", False, "Relative directory under the uploaded root."),
-                ToolArgument("cursor", "integer", False, "Zero-based pagination cursor.", default=0),
-                ToolArgument("limit", "integer", False, "Maximum number of file rows to return.", default=20),
-            ),
-        ),
-        ToolDescriptor(
-            name="fs_read",
-            summary="Read one text file using offset and limit semantics aligned with filesystem middleware. Binary documents are rejected instead of being auto-converted.",
-            returns="JSON payload with file metadata, line window, and next_offset.",
-            arguments=(
-                ToolArgument("file_path", "string", True, "Relative file path under the uploaded root."),
-                ToolArgument("offset", "integer", False, "Zero-based line offset.", default=0),
-                ToolArgument("limit", "integer", False, "Maximum number of lines to return.", default=2000),
-            ),
-        ),
-        ToolDescriptor(
-            name="fs_grep",
-            summary="Search text file contents by text or regex pattern and optional glob filter. Binary documents are skipped or rejected when selected directly.",
-            returns="JSON payload with matches, files-with-matches, or per-file counts.",
-            arguments=(
-                ToolArgument("pattern", "string", True, "Text or regex-like pattern to search for."),
-                ToolArgument("path", "string", False, "Relative directory to search under."),
-                ToolArgument("glob", "string", False, "File glob filter such as *.md or **/*.txt.", default="*"),
-                ToolArgument("output_mode", "string", False, "One of content, files_with_matches, or count.", default="content"),
-                ToolArgument("cursor", "integer", False, "Zero-based pagination cursor.", default=0),
-                ToolArgument("limit", "integer", False, "Maximum number of matches to return.", default=20),
-            ),
-        ),
-        ToolDescriptor(
-            name="fs_glob",
-            summary="Match file paths by glob pattern.",
-            returns="JSON payload with matching file rows.",
-            arguments=(
-                ToolArgument("pattern", "string", False, "Glob such as *.md or Final_*.*.", default="*"),
-                ToolArgument("path", "string", False, "Relative directory to search under."),
-            ),
-        ),
-        ToolDescriptor(
-            name="document_search",
-            summary=(
-                "Search document content across text, PDF, image, and Office files. "
-                "Use this first for document questions because it returns page/slide/"
-                "sheet-style evidence instead of raw file bytes."
-            ),
-            returns="JSON payload with ranked results, locator metadata, and next-action hints.",
-            arguments=(
-                ToolArgument("query", "string", True, "Natural-language question or search phrase."),
-                ToolArgument("path", "string", False, "Optional file or directory scope under the uploaded root."),
-                ToolArgument("cursor", "integer", False, "Zero-based pagination cursor.", default=0),
-                ToolArgument("limit", "integer", False, "Maximum number of matches to return.", default=10),
-            ),
-        ),
-        ToolDescriptor(
-            name="document_read",
-            summary=(
-                "Read one document using page/slide/sheet/region cursors. The response "
-                "includes `contains_visual`, `has_more`, and rich content blocks so the "
-                "agent can decide whether to continue reading or fetch an asset."
-            ),
-            returns="JSON payload with locator metadata, pagination, and content_blocks.",
-            arguments=(
-                ToolArgument("path", "string", True, "Relative file path under the uploaded root."),
-                ToolArgument("cursor", "integer", False, "Zero-based unit cursor.", default=0),
-                ToolArgument("limit", "integer", False, "Maximum number of units to return.", default=3),
-            ),
-        ),
-        ToolDescriptor(
-            name="document_fetch_asset",
-            summary=(
-                "Fetch one visual asset referenced by `document_read`. Small images are "
-                "inlined as base64 so the demo can verify end-to-end visual asset access."
-            ),
-            returns="JSON payload with asset metadata and optional inlined base64 content.",
-            arguments=(
-                ToolArgument("path", "string", True, "Relative file path under the uploaded root."),
-                ToolArgument("asset_ref", "string", True, "Asset reference returned by document_read."),
-            ),
-        ),
-    )
+
+def build_tool_catalog() -> list[dict[str, Any]]:
+    """Return the stable document-tool catalog for the demo admin API."""
+
+    descriptors = DOCUMENT_TOOL_DESCRIPTORS
     return [
         {
             "name": item.name,
@@ -286,9 +260,9 @@ class FileMcpService:
         if access.kind == "binary_document":
             return (
                 f"{tool_name} only supports text files. '{file_name}' is "
-                f"{access.mime_type}. PDF and Office files must go through a "
-                "document-specific pipeline such as document_search/document_read "
-                "instead of generic text tools."
+                f"{access.mime_type}. PDF and Office files stay binary on the "
+                "text-preview surface, so generic line reads will not work. "
+                "Use the document_* MCP tools for parsed document access."
             )
         return (
             f"{tool_name} only supports text files. '{file_name}' is "
@@ -449,6 +423,53 @@ class FileMcpService:
             "next_cursor": next_cursor if next_cursor < len(rows) else None,
         }
 
+    def document_list_payload(
+        self,
+        *,
+        path: str = "",
+        cursor: int = 0,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        """List the KB tree without exposing raw filesystem-only semantics.
+
+        This is the browse/list counterpart to `document_search`. Directory
+        entries remain visible so the agent can answer inventory questions and
+        drill down through nested customer knowledge trees.
+        """
+
+        base = self._resolve_existing_path(path) if path else self.root
+        if not base.is_dir():
+            raise ValueError(f"path is not a directory: {path}")
+
+        rows: list[dict[str, Any]] = []
+        for item in sorted(
+            base.iterdir(),
+            key=lambda candidate: (not candidate.is_dir(), candidate.name.lower()),
+        ):
+            if item.is_dir():
+                directory_row = self._directory_row(item)
+                # Preserve whether another drill-down step exists without
+                # forcing the agent to guess from the path alone.
+                directory_row["has_children"] = any(item.iterdir())
+                rows.append(directory_row)
+                continue
+
+            document_row = self._file_row(item.resolve())
+            document_row.update(self.document_tools.describe_document(item.resolve()))
+            rows.append(document_row)
+
+        safe_cursor = max(cursor, 0)
+        safe_limit = min(max(limit, 1), 200)
+        next_cursor = safe_cursor + safe_limit
+        return {
+            "items": rows[safe_cursor:next_cursor],
+            "cursor": safe_cursor,
+            "limit": safe_limit,
+            "total": len(rows),
+            "has_more": next_cursor < len(rows),
+            "next_cursor": next_cursor if next_cursor < len(rows) else None,
+        }
+
     def list_files_payload(
         self,
         *,
@@ -548,10 +569,10 @@ class FileMcpService:
                 "has_more": False,
                 "content": (
                     f"{message}\n\n"
-                    "Recommended demo flow:\n"
-                    "- document_search(query, path?)\n"
-                    "- document_read(path, cursor?, limit?)\n"
-                    "- document_fetch_asset(path, asset_ref) when a visual asset is needed"
+                    "Recommended demo flow on the current agent-facing MCP:\n"
+                    "- document_list(path?, cursor?, limit?) to inspect the KB tree\n"
+                    "- document_search(query, path?, cursor?, limit?) to find evidence\n"
+                    "- document_read(path, cursor?, limit?) to read the matched document"
                 ),
             }
         text = requested_file.read_text(encoding="utf-8", errors="ignore")
@@ -873,13 +894,8 @@ class FileMcpService:
             "storage_root": str(self.root),
             "seed_root": str(self.seed_root) if self.seed_root else None,
             "file_count": listing["total"],
-            # Keep the externally copied MCP URL pointed at the document-only
-            # surface so demo agents do not receive overlapping filesystem and
-            # document tools from the same profile.
             "mcp_url": f"{base_url.rstrip('/')}{agent_mcp_path}",
             "agent_mcp_url": f"{base_url.rstrip('/')}{agent_mcp_path}",
-            # The workbench still keeps the full endpoint for manual tool
-            # testing, including generic `fs_*` calls.
             "workbench_mcp_url": f"{base_url.rstrip('/')}{workbench_mcp_path}",
             "tool_catalog": build_tool_catalog(),
         }

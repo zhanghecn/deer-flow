@@ -74,27 +74,8 @@ const TOOL_PRESETS: Record<
   string,
   Array<{ label: string; values: Record<string, string> }>
 > = {
-  fs_ls: [
+  document_list: [
     { label: "当前目录", values: { path: "", cursor: "0", limit: "100" } },
-  ],
-  fs_read: [
-    { label: "读取前 2000 行", values: { offset: "0", limit: "2000" } },
-  ],
-  fs_grep: [
-    {
-      label: "搜索夏仲奇",
-      values: {
-        pattern: "夏仲奇",
-        path: "",
-        glob: "*",
-        output_mode: "content",
-        cursor: "0",
-        limit: "20",
-      },
-    },
-  ],
-  fs_glob: [
-    { label: "匹配 *.md", values: { pattern: "*.md", path: "" } },
   ],
   document_search: [
     {
@@ -125,10 +106,6 @@ function createInvocationId() {
 
 function buildDefaultAgentMcpURL(baseURL: string) {
   return `${baseURL.replace(/\/+$/, "")}/mcp-http-agent/mcp`;
-}
-
-function buildDefaultWorkbenchMcpURL(baseURL: string) {
-  return `${baseURL.replace(/\/+$/, "")}/mcp-http/mcp`;
 }
 
 function parseInvocationTimestamp(value: string | null | undefined) {
@@ -234,12 +211,10 @@ function derivePathArgument(toolName: string, selectedFilePath: string) {
   if (!selectedFilePath) {
     return "";
   }
-  if (
-    toolName === "fs_read" ||
-    toolName === "document_read" ||
-    toolName === "document_fetch_asset" ||
-    toolName === "document_search"
-  ) {
+  if (toolName === "document_read" || toolName === "document_fetch_asset") {
+    return selectedFilePath;
+  }
+  if (toolName === "document_search") {
     return selectedFilePath;
   }
   const slashIndex = selectedFilePath.lastIndexOf("/");
@@ -247,7 +222,7 @@ function derivePathArgument(toolName: string, selectedFilePath: string) {
 }
 
 function getPathButtonLabel(toolName: string) {
-  if (toolName === "fs_read" || toolName === "document_read") {
+  if (toolName === "document_read") {
     return "使用当前文件";
   }
   if (toolName === "document_fetch_asset" || toolName === "document_search") {
@@ -257,13 +232,7 @@ function getPathButtonLabel(toolName: string) {
 }
 
 function supportsDocumentTools(file: StoredFileRow | null) {
-  if (!file) {
-    return false;
-  }
-  if (file.content_kind === "binary_document") {
-    return true;
-  }
-  return file.mime_type?.startsWith("image/") ?? false;
+  return Boolean(file && file.entry_type !== "directory");
 }
 
 function getRelativePathFromFile(file: File) {
@@ -558,10 +527,6 @@ export function WorkbenchPage() {
     () => buildDefaultAgentMcpURL(workbenchBaseURL),
     [workbenchBaseURL],
   );
-  const defaultWorkbenchMcpURL = useMemo(
-    () => buildDefaultWorkbenchMcpURL(workbenchBaseURL),
-    [workbenchBaseURL],
-  );
 
   const directoryGroups = useMemo(() => {
     const grouped = new Map<string, number>();
@@ -575,9 +540,22 @@ export function WorkbenchPage() {
       .sort((left, right) => left.category.localeCompare(right.category, "zh-CN"));
   }, [storedFiles]);
 
+  const visibleToolCatalog = useMemo(() => {
+    // Prefer the live `tools/list` result so the workbench mirrors the real
+    // agent-facing MCP surface instead of assuming the static catalog is the
+    // same thing.
+    const scannedAgentToolNames = new Set(
+      (mcpScan?.tools ?? []).map((tool) => tool.name),
+    );
+    if (scannedAgentToolNames.size > 0) {
+      return toolCatalog.filter((tool) => scannedAgentToolNames.has(tool.name));
+    }
+    return toolCatalog;
+  }, [mcpScan, toolCatalog]);
+
   const selectedTool = useMemo(
-    () => toolCatalog.find((tool) => tool.name === selectedToolName) ?? null,
-    [toolCatalog, selectedToolName],
+    () => visibleToolCatalog.find((tool) => tool.name === selectedToolName) ?? null,
+    [selectedToolName, visibleToolCatalog],
   );
   const selectedDiscoveredTool = useMemo(
     () => mcpScan?.tools.find((tool) => tool.name === selectedToolName) ?? null,
@@ -603,6 +581,13 @@ export function WorkbenchPage() {
     () => storedFiles.find((item) => item.path === selectedFilePath) ?? null,
     [storedFiles, selectedFilePath],
   );
+
+  useEffect(() => {
+    if (selectedToolName && visibleToolCatalog.some((tool) => tool.name === selectedToolName)) {
+      return;
+    }
+    setSelectedToolName(visibleToolCatalog[0]?.name ?? "");
+  }, [selectedToolName, visibleToolCatalog]);
 
   useEffect(() => {
     saveWorkbenchContext(
@@ -819,11 +804,6 @@ export function WorkbenchPage() {
   }
 
   function selectReadTarget(filePath: string) {
-    mergeDraftValues("fs_read", { file_path: filePath });
-    setSelectedToolName("fs_read");
-  }
-
-  function selectDocumentTarget(filePath: string) {
     mergeDraftValues("document_read", { path: filePath });
     mergeDraftValues("document_search", { path: filePath });
     setSelectedToolName("document_read");
@@ -941,7 +921,7 @@ export function WorkbenchPage() {
           <div className="min-w-0">
             <h1 className="text-base font-medium">MCP 文件调试台</h1>
             <p className="mt-1 text-xs text-[var(--muted)]">
-              文件库维护、文档工具联调和真实 MCP transport 验收都集中在这里。
+              文件库维护、工具联调和真实 MCP transport 验收都集中在这里。
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -981,7 +961,7 @@ export function WorkbenchPage() {
         <div className="space-y-4">
           <Panel
             title="连接信息"
-            description="当前页面负责文件库维护、MCP 地址分发、agent 文档协议扫描和全量工具联调。"
+            description="当前页面负责文件库维护、MCP 地址分发，以及 agent 实际工具面的真实扫描。"
             actions={
               <div className="flex items-center gap-2">
                 <GhostButton
@@ -1030,19 +1010,8 @@ export function WorkbenchPage() {
                   {workbenchHealth?.agent_mcp_url ?? workbenchHealth?.mcp_url ?? defaultAgentMcpURL}
                 </p>
                 <p className="mt-2 text-[11px] leading-5 text-[var(--muted)]">
-                  给外部 SDK / demo agent 复制这个地址，只暴露 `document_*`。
-                </p>
-              </div>
-              <div className="rounded-md border border-[var(--border)] bg-zinc-950 px-3 py-3">
-                <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
-                  <Wrench className="size-3.5" />
-                  Workbench MCP URL
-                </div>
-                <p className="mt-1 break-all font-mono text-xs text-[var(--text-soft)]">
-                  {workbenchHealth?.workbench_mcp_url ?? defaultWorkbenchMcpURL}
-                </p>
-                <p className="mt-2 text-[11px] leading-5 text-[var(--muted)]">
-                  调试台自己仍可通过这个全量端点手动调用 `fs_*` 和 `document_*`。
+                  给外部 SDK / demo agent 复制这个地址；当前 demo 只暴露单一文档契约：
+                  `document_list`、`document_search`、`document_read`、`document_fetch_asset`。
                 </p>
               </div>
               <div className="rounded-md border border-[var(--border)] bg-zinc-950 px-3 py-3">
@@ -1144,16 +1113,8 @@ export function WorkbenchPage() {
                     </span>
                   ) : null}
                   <GhostButton onClick={() => selectReadTarget(selectedFileEntry.path)}>
-                    设为读取目标
+                    设为文档目标
                   </GhostButton>
-                  {supportsDocumentTools(selectedFileEntry) ? (
-                    <GhostButton
-                      tone="accent"
-                      onClick={() => selectDocumentTarget(selectedFileEntry.path)}
-                    >
-                      文档读取目标
-                    </GhostButton>
-                  ) : null}
                   <GhostButton
                     tone="danger"
                     onClick={() => void handleDeleteFile(selectedFileEntry.path)}
@@ -1222,22 +1183,11 @@ export function WorkbenchPage() {
                         清空筛选
                       </GhostButton>
                       <GhostButton
-                        disabled={!selectedFileEntry}
-                        onClick={() =>
-                          selectedFileEntry
-                            ? selectReadTarget(selectedFileEntry.path)
-                            : undefined
-                        }
-                      >
-                        <FileCode2 className="size-3.5" />
-                        读取目标
-                      </GhostButton>
-                      <GhostButton
                         tone="accent"
                         disabled={!supportsDocumentTools(selectedFileEntry)}
                         onClick={() =>
                           selectedFileEntry
-                            ? selectDocumentTarget(selectedFileEntry.path)
+                            ? selectReadTarget(selectedFileEntry.path)
                             : undefined
                         }
                       >
@@ -1315,7 +1265,7 @@ export function WorkbenchPage() {
         <div className="space-y-4">
           <Panel
             title="工具工作台"
-            description="参数表单来自静态规范，但执行和验收都走真实 MCP transport；fs_* 与 document_* 会同时暴露给真实 agent。"
+            description="这里始终按实时 MCP 扫描结果展示 demo agent 实际会拿到的工具。"
             actions={
               <div className="flex items-center gap-2">
                 <StatusBadge
@@ -1327,8 +1277,12 @@ export function WorkbenchPage() {
             }
           >
             <div className="space-y-4">
+              <div className="rounded-md border border-[var(--border)] bg-zinc-950 px-3 py-3 text-sm leading-6 text-[var(--text-soft)]">
+                当前工具列表来自实时 `tools/list` 扫描结果，不再额外叠加一个“Workbench 全量调试工具”视角。
+              </div>
+
               <div className="flex flex-wrap gap-2">
-                {toolCatalog.map((tool) => (
+                {visibleToolCatalog.map((tool) => (
                   <button
                     key={tool.name}
                     type="button"
@@ -1489,7 +1443,7 @@ export function WorkbenchPage() {
             )}
           </Panel>
 
-          <Panel title="文件预览" description="文本预览仍走分页接口；PDF/Office 文件会在这里提示改用 document_search/document_read。">
+          <Panel title="文件预览" description="文本预览仍走分页接口；二进制文档会提示使用 document_* MCP 工具读取。">
             {selectedFilePath ? (
               <div className="space-y-2">
                 <p className="font-mono text-xs text-[var(--text-soft)]">{selectedFilePath}</p>
@@ -1506,7 +1460,7 @@ export function WorkbenchPage() {
         <div className="space-y-4">
           <Panel
             title="MCP 扫描结果"
-            description="扫描 agent-facing 文档端点，展示真实 `tools/list` 返回，而不是静态配置。"
+            description="扫描 agent-facing MCP 端点，展示真实 `tools/list` 返回，而不是静态配置。"
           >
             <div className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-2">

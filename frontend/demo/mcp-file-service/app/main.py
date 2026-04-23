@@ -53,11 +53,11 @@ ALLOWED_ORIGINS = [
 service = build_workbench_service_from_env()
 
 # Keep the full MCP transport colocated with the upload API so the workbench
-# can manually debug both filesystem and document tools from one container.
+# can manually debug the exact document contract exposed to external SDKs.
 mcp = FastMCP("file-mcp-workbench", host=HOST, port=PORT)
-# The agent-facing endpoint is intentionally narrower: it exposes only the
-# document contract so the 8084 demo can validate document QA without
-# overlapping `fs_*` tools biasing the generic agent.
+# The agent-facing endpoint stays narrow on purpose. For KB scenarios we expose
+# one canonical document surface instead of mixing raw `fs_*` tools with
+# higher-level document tools on the same agent.
 agent_mcp = FastMCP("file-document-workbench", host=HOST, port=PORT)
 # `streamable_http_app()` creates the lazily-initialized session manager. When
 # FastMCP is mounted under a parent FastAPI app, the sub-app lifespan is not the
@@ -243,60 +243,19 @@ def _call_mcp_tool(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _register_filesystem_tools(server: FastMCP) -> None:
-    """Bind the generic filesystem demo tools to one MCP surface."""
+def _register_document_tools(server: FastMCP) -> None:
+    """Bind the unified document contract to one MCP surface."""
 
     @server.tool()
-    def fs_ls(path: str = "", cursor: int = 0, limit: int = 20) -> str:
-        """List files and directories under one relative path."""
+    def document_list(path: str = "", cursor: int = 0, limit: int = 20) -> str:
+        """Browse the current KB tree without exposing raw filesystem tools."""
 
-        payload = service.ls_payload(path=path, cursor=cursor, limit=limit)
-        return service.tool_payload_json(payload)
-
-    @server.tool()
-    def fs_read(
-        file_path: str, offset: int = 0, limit: int = 2000
-    ) -> str:
-        """Read one file window using offset and limit semantics."""
-
-        payload = service.read_file_payload(
-            file_path=file_path,
-            offset=offset,
-            limit=limit,
-        )
-        return service.tool_payload_json(payload)
-
-    @server.tool()
-    def fs_grep(
-        pattern: str,
-        path: str = "",
-        glob: str = "*",
-        output_mode: str = "content",
-        cursor: int = 0,
-        limit: int = 20,
-    ) -> str:
-        """Search uploaded files by text or regex-like pattern and optional file glob."""
-
-        payload = service.grep_payload(
-            pattern=pattern,
+        payload = service.document_list_payload(
             path=path,
-            glob=glob,
-            output_mode=output_mode,
             cursor=cursor,
             limit=limit,
         )
         return service.tool_payload_json(payload)
-
-    @server.tool()
-    def fs_glob(pattern: str = "*", path: str = "") -> str:
-        """Match uploaded files by glob pattern."""
-
-        payload = service.glob_payload(pattern=pattern, path=path)
-        return service.tool_payload_json(payload)
-
-
-def _register_document_tools(server: FastMCP) -> None:
-    """Bind the unified document contract to one MCP surface."""
 
     @server.tool()
     def document_search(
@@ -337,7 +296,6 @@ def _register_document_tools(server: FastMCP) -> None:
         return service.tool_payload_json(payload)
 
 
-_register_filesystem_tools(mcp)
 _register_document_tools(mcp)
 _register_document_tools(agent_mcp)
 

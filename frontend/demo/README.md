@@ -17,8 +17,8 @@ The internal file service exposes:
 - an agent-facing document MCP endpoint at `http://127.0.0.1:8084/mcp-http-agent/mcp`
 - a workbench-only full MCP endpoint at `http://127.0.0.1:8084/mcp-http/mcp`
 - a manual tool execution endpoint at `http://127.0.0.1:8084/api/tools/{tool_name}/invoke`
-- text-only `fs_read` / `fs_grep` semantics for generic filesystem behavior
-- demo-only document tools:
+- one canonical document tool surface on both MCP endpoints:
+  - `document_list(path?, cursor?, limit?)`
   - `document_search(query, path?, cursor?, limit?)`
   - `document_read(path, cursor?, limit?)`
   - `document_fetch_asset(path, asset_ref)`
@@ -83,10 +83,10 @@ docker compose -f frontend/demo/compose.yaml down
 3. Confirm the directory chips keep the first folder segment, for example `案例大全 · 4`
 4. Confirm the MCP URL shown by the connection panel
 5. Use the Explorer tree to select a file or folder-like category
-6. Use the middle workbench to select one MCP tool such as `fs_ls`, `fs_read`, `document_search`, or `document_read`
-7. For PDF / Office files, prefer `document_search -> document_read -> document_fetch_asset`
+6. The middle panel follows the agent-visible `document_*` tools returned by live `tools/list` scanning
+7. Use `document_list` for inventory/browse, `document_search` for semantic retrieval, and `document_read` for page/slide/sheet/region reading
 8. Execute the tool and inspect arguments, output, and invocation history on the right
 
-For external SDK / demo-agent binding, use the document-only `Agent MCP URL`.
-The workbench keeps the full endpoint only for manual debugging so the agent
-does not receive overlapping `fs_*` and `document_*` tools from one profile.
+For external SDK / demo-agent binding, use the agent-facing `Agent MCP URL`.
+The workbench keeps the full endpoint for manual debugging, but it now mirrors
+the same document contract instead of exposing a second overlapping tool family.
