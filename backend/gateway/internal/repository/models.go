@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/openagents/gateway/internal/model"
 )
 
 type ModelRecord struct {
@@ -169,6 +170,65 @@ func (r *ModelRepo) DeleteByName(ctx context.Context, name string) error {
 	}
 	if tag.RowsAffected() == 0 {
 		return pgx.ErrNoRows
+	}
+	return nil
+}
+
+func (r *ModelRepo) MigrateLegacyReasoningConfigs(ctx context.Context) error {
+	rows, err := r.pool.Query(
+		ctx,
+		`SELECT name, config_json
+		 FROM models
+		 ORDER BY created_at ASC, name ASC`,
+	)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type pendingUpdate struct {
+		name       string
+		configJSON json.RawMessage
+	}
+
+	updates := make([]pendingUpdate, 0)
+	for rows.Next() {
+		var name string
+		var configJSON json.RawMessage
+		if err := rows.Scan(&name, &configJSON); err != nil {
+			return err
+		}
+
+		config := map[string]interface{}{}
+		if err := json.Unmarshal(configJSON, &config); err != nil {
+			return err
+		}
+		normalized, changed := model.NormalizeLegacyReasoningConfig(config)
+		if !changed {
+			continue
+		}
+		normalizedJSON, err := json.Marshal(normalized)
+		if err != nil {
+			return err
+		}
+		updates = append(updates, pendingUpdate{
+			name:       name,
+			configJSON: normalizedJSON,
+		})
+	}
+	if rows.Err() != nil {
+		return rows.Err()
+	}
+
+	for _, update := range updates {
+		if _, err := r.pool.Exec(
+			ctx,
+			`UPDATE models SET config_json = $1 WHERE name = $2`,
+			update.configJSON,
+			update.name,
+		); err != nil {
+			return err
+		}
 	}
 	return nil
 }

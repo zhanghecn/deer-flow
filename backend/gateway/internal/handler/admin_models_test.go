@@ -67,10 +67,9 @@ func TestBuildAdminModelRecordRejectsRuntimeOnlyEffort(t *testing.T) {
 		Name:     "gpt-5-mini",
 		Provider: "openai",
 		ConfigJSON: map[string]interface{}{
-			"use":               "langchain_openai:ChatOpenAI",
-			"model":             "gpt-5-mini",
-			"effort":            "high",
-			"supports_thinking": true,
+			"use":    "langchain_openai:ChatOpenAI",
+			"model":  "gpt-5-mini",
+			"effort": "high",
 		},
 	})
 	if err == nil || err.Error() != "config_json.effort is runtime-only; remove it from the model profile" {
@@ -85,13 +84,12 @@ func TestBuildAdminModelRecordRejectsRetiredReasoningEffortKey(t *testing.T) {
 		Name:     "gpt-5-mini",
 		Provider: "openai",
 		ConfigJSON: map[string]interface{}{
-			"use":               "langchain_openai:ChatOpenAI",
-			"model":             "gpt-5-mini",
-			"reasoning_effort":  "high",
-			"supports_thinking": true,
+			"use":              "langchain_openai:ChatOpenAI",
+			"model":            "gpt-5-mini",
+			"reasoning_effort": "high",
 		},
 	})
-	if err == nil || err.Error() != "config_json.reasoning_effort is retired; use per-run `effort` instead" {
+	if err == nil || err.Error() != "config_json uses retired reasoning keys: reasoning_effort. Use config_json.reasoning instead" {
 		t.Fatalf("expected retired reasoning_effort error, got %v", err)
 	}
 }
@@ -106,11 +104,45 @@ func TestBuildAdminModelRecordRejectsRetiredSupportsReasoningEffortKey(t *testin
 			"use":                       "langchain_openai:ChatOpenAI",
 			"model":                     "gpt-5-mini",
 			"supports_reasoning_effort": true,
-			"supports_thinking":         true,
 		},
 	})
-	if err == nil || err.Error() != "config_json.supports_reasoning_effort is retired; rename it to `supports_effort`" {
+	if err == nil || err.Error() != "config_json uses retired reasoning keys: supports_reasoning_effort. Use config_json.reasoning instead" {
 		t.Fatalf("expected retired supports_reasoning_effort error, got %v", err)
+	}
+}
+
+func TestBuildAdminModelRecordAcceptsCanonicalReasoningConfig(t *testing.T) {
+	t.Parallel()
+
+	record, err := buildAdminModelRecord(adminModelRequest{
+		Name:     "kimi-k2.6",
+		Provider: "anthropic",
+		ConfigJSON: map[string]interface{}{
+			"use":   "langchain_anthropic:ChatAnthropic",
+			"model": "kimi-k2.6",
+			"reasoning": map[string]interface{}{
+				"contract":      "anthropic_thinking",
+				"default_level": "max",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildAdminModelRecord returned error: %v", err)
+	}
+
+	var config map[string]any
+	if err := json.Unmarshal(record.ConfigJSON, &config); err != nil {
+		t.Fatalf("decode config json: %v", err)
+	}
+	reasoning, ok := config["reasoning"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected canonical reasoning object, got %#v", config["reasoning"])
+	}
+	if reasoning["contract"] != "anthropic_thinking" {
+		t.Fatalf("expected reasoning.contract to be preserved, got %#v", reasoning["contract"])
+	}
+	if reasoning["default_level"] != "max" {
+		t.Fatalf("expected reasoning.default_level to be preserved, got %#v", reasoning["default_level"])
 	}
 }
 

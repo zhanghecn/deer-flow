@@ -16,21 +16,20 @@ WITH shared_seed AS (
 ),
 model_seed AS (
     SELECT
-        'kimi-k2.5'::TEXT AS name,
-        'Kimi K2.5'::TEXT AS display_name,
+        'kimi-k2.6'::TEXT AS name,
+        'Kimi K2.6'::TEXT AS display_name,
         'anthropic'::TEXT AS provider,
         jsonb_build_object(
             'use', 'langchain_anthropic:ChatAnthropic',
-            'model', 'kimi-k2.5',
+            'model', 'kimi-k2.6',
             'api_key', shared_seed.api_key,
-            'base_url', shared_seed.base_url,
+            'base_url', 'http://model-gateway:3000',
             'supports_vision', TRUE,
-            'max_input_tokens', 256000,
-            'supports_thinking', TRUE,
-            'when_thinking_enabled', jsonb_build_object(
-                'thinking', jsonb_build_object('type', 'enabled')
-            ),
-            'supports_effort', FALSE
+            'max_input_tokens', 200000,
+            'reasoning', jsonb_build_object(
+                'contract', 'anthropic_thinking',
+                'default_level', 'auto'
+            )
         ) AS config_json,
         TRUE AS enabled
     FROM shared_seed
@@ -38,23 +37,22 @@ model_seed AS (
     UNION ALL
 
     SELECT
-        'GLM-5'::TEXT AS name,
-        'GLM-5'::TEXT AS display_name,
+        'GLM-5.1'::TEXT AS name,
+        'GLM-5.1'::TEXT AS display_name,
         'anthropic'::TEXT AS provider,
         jsonb_build_object(
             'use', 'langchain_anthropic:ChatAnthropic',
-            'model', 'glm-5',
+            'model', 'glm-5.1',
             'api_key', shared_seed.api_key,
-            'base_url', shared_seed.base_url,
+            'base_url', 'http://model-gateway:3000',
             'supports_vision', FALSE,
             'max_input_tokens', 200000,
-            'supports_thinking', TRUE,
-            'when_thinking_enabled', jsonb_build_object(
-                'thinking', jsonb_build_object('type', 'enabled')
-            ),
-            'supports_effort', FALSE
+            'reasoning', jsonb_build_object(
+                'contract', 'anthropic_thinking',
+                'default_level', 'auto'
+            )
         ) AS config_json,
-        FALSE AS enabled
+        TRUE AS enabled
     FROM shared_seed
 )
 INSERT INTO models (name, display_name, provider, config_json, enabled)

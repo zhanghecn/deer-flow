@@ -19,28 +19,61 @@ from src.agents.middlewares.retry_utils import (
     note_provider_retry_response,
 )
 from src.config import get_tracing_config, is_tracing_enabled
-from src.config.model_config import ModelConfig
+from src.config.model_config import (
+    ANTHROPIC_RUNTIME_CLASS,
+    DEEPSEEK_RUNTIME_CLASS,
+    GEMINI_RUNTIME_CLASS,
+    OPENAI_RUNTIME_CLASS,
+    ModelConfig,
+    ModelReasoningConfig,
+    ReasoningLevel,
+)
 from src.models.catalog import require_enabled_model
 from src.reflection import resolve_class
 
 logger = logging.getLogger(__name__)
 DEFAULT_ANTHROPIC_THINKING_MAX_TOKENS = 16384
+ANTHROPIC_THINKING_OUTPUT_HEADROOM = 1024
 EffortLevel = Literal["low", "medium", "high", "max"]
-DEFAULT_EFFORT_LEVEL = "high"
-ANTHROPIC_CHAT_MODEL_CLASS = "langchain_anthropic:ChatAnthropic"
 MODEL_CONFIG_EXCLUDE_FIELDS = {
     "use",
     "name",
     "display_name",
     "description",
     "max_input_tokens",
-    "supports_thinking",
-    "supports_effort",
-    # Per-run effort overrides are runtime-only. Keeping them out of persisted
-    # model settings avoids mixing operator defaults with per-turn execution.
-    "effort",
-    "when_thinking_enabled",
+    "reasoning",
     "supports_vision",
+}
+
+OPENAI_REASONING_LEVEL_MAP: dict[EffortLevel, str] = {
+    "low": "low",
+    "medium": "medium",
+    "high": "high",
+    # Our product-level `max` should map to the strongest official Responses
+    # API effort. Official OpenAI exposes `xhigh`, while compatible gateways
+    # often only mirror the older low/medium/high contract.
+    "max": "xhigh",
+}
+ANTHROPIC_THINKING_BUDGET_MAP: dict[EffortLevel, int] = {
+    "low": 1_024,
+    "medium": 4_096,
+    "high": 8_192,
+    # Keep `max` under the default Anthropic-compatible max_tokens budget so
+    # turning the profile up does not immediately trip provider validation.
+    "max": 12_000,
+}
+GEMINI_THINKING_BUDGET_MAP: dict[EffortLevel, int] = {
+    "low": 1_024,
+    "medium": 4_096,
+    "high": 8_192,
+    "max": 16_384,
+}
+GEMINI_THINKING_LEVEL_MAP: dict[EffortLevel, str] = {
+    "low": "low",
+    "medium": "medium",
+    "high": "high",
+    # Gemini 3+ tops out at `high`.
+    "max": "high",
 }
 
 
@@ -77,13 +110,10 @@ def _build_model_settings(model_config: ModelConfig) -> dict[str, Any]:
 
 def _build_runtime_kwargs(
     *,
-    effort: EffortLevel | None,
     max_output_tokens: int | None,
     temperature: float | None,
 ) -> dict[str, Any]:
     runtime_kwargs: dict[str, Any] = {}
-    if effort is not None:
-        runtime_kwargs["effort"] = effort
     if max_output_tokens is not None:
         if max_output_tokens <= 0:
             raise ValueError("max_output_tokens must be greater than zero.") from None
@@ -95,61 +125,192 @@ def _build_runtime_kwargs(
     return runtime_kwargs
 
 
-def _apply_enabled_thinking_settings(
+def _resolve_reasoning_level(
     *,
-    name: str,
-    model_config: ModelConfig,
-    model_settings: dict[str, Any],
-    runtime_kwargs: dict[str, Any],
-) -> None:
-    if model_config.when_thinking_enabled is not None:
-        if not model_config.supports_thinking:
-            raise ValueError(f"Model {name} does not support thinking. Set `supports_thinking` to true in your runtime model configuration.") from None
-        model_settings.update(model_config.when_thinking_enabled)
-
-    if model_config.use == ANTHROPIC_CHAT_MODEL_CLASS and "max_tokens" not in model_settings and "max_tokens" not in runtime_kwargs:
-        runtime_kwargs["max_tokens"] = DEFAULT_ANTHROPIC_THINKING_MAX_TOKENS
-
-    if model_config.supports_effort and "effort" not in runtime_kwargs:
-        runtime_kwargs["effort"] = DEFAULT_EFFORT_LEVEL
-
-
-def _apply_disabled_thinking_settings(
-    model_config: ModelConfig,
-    runtime_kwargs: dict[str, Any],
-) -> None:
-    if not _uses_extra_body_thinking_toggle(model_config):
-        return
-
-    runtime_kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
-
-
-def _uses_extra_body_thinking_toggle(model_config: ModelConfig) -> bool:
-    thinking_config = (model_config.when_thinking_enabled or {}).get("extra_body", {})
-    thinking = thinking_config.get("thinking", {})
-    return bool(thinking.get("type"))
-
-
-def _apply_thinking_settings(
-    *,
-    name: str,
     model_config: ModelConfig,
     thinking_enabled: bool,
+    effort: EffortLevel | None,
+) -> ReasoningLevel | None:
+    if not thinking_enabled or model_config.reasoning is None:
+        return None
+    if effort is not None:
+        return effort
+    return model_config.reasoning.default_level
+
+
+def _apply_reasoning_settings(
+    *,
+    model_config: ModelConfig,
+    thinking_enabled: bool,
+    effort: EffortLevel | None,
     model_settings: dict[str, Any],
     runtime_kwargs: dict[str, Any],
 ) -> None:
-    if thinking_enabled:
-        _apply_enabled_thinking_settings(
-            name=name,
+    reasoning = model_config.reasoning
+    if reasoning is None:
+        return
+
+    level = _resolve_reasoning_level(
+        model_config=model_config,
+        thinking_enabled=thinking_enabled,
+        effort=effort,
+    )
+
+    if reasoning.contract == "openai_responses":
+        _apply_openai_reasoning_settings(
+            reasoning=reasoning,
             model_config=model_config,
+            level=level,
+            runtime_kwargs=runtime_kwargs,
+        )
+        return
+    if reasoning.contract == "anthropic_thinking":
+        _apply_anthropic_reasoning_settings(
+            reasoning=reasoning,
+            level=level,
             model_settings=model_settings,
             runtime_kwargs=runtime_kwargs,
         )
-    else:
-        _apply_disabled_thinking_settings(model_config, runtime_kwargs)
+        return
+    if reasoning.contract == "gemini_budget":
+        _apply_gemini_budget_reasoning_settings(level=level, runtime_kwargs=runtime_kwargs)
+        return
+    if reasoning.contract == "gemini_level":
+        _apply_gemini_level_reasoning_settings(level=level, runtime_kwargs=runtime_kwargs)
+        return
+    if reasoning.contract == "deepseek_reasoner":
+        # Reasoning is selected by the model family itself (for example R1 /
+        # reasoner variants), so there is no provider-agnostic on/off or level
+        # payload for the runtime to synthesize here.
+        return
 
-    if not model_config.supports_effort:
-        runtime_kwargs.pop("effort", None)
+    raise ValueError(f"Unsupported reasoning contract: {reasoning.contract}") from None
+
+
+def _apply_openai_reasoning_settings(
+    *,
+    reasoning: ModelReasoningConfig,
+    model_config: ModelConfig,
+    level: ReasoningLevel | None,
+    runtime_kwargs: dict[str, Any],
+) -> None:
+    if level is None:
+        if _uses_official_openai_responses_endpoint(model_config):
+            # Official OpenAI reasoning models accept `reasoning.effort="none"`
+            # to disable extended reasoning. OpenAI-compatible providers vary, so
+            # custom endpoints fall back to omitting the reasoning block instead
+            # of sending a maybe-invalid non-standard enum.
+            runtime_kwargs["reasoning"] = {"effort": "none"}
+        return
+
+    if level == "auto":
+        return
+
+    if level == "max" and not _uses_official_openai_responses_endpoint(model_config):
+        # Keep custom OpenAI-compatible gateways on the conservative enum set:
+        # many providers proxy the older low/medium/high contract and would
+        # reject OpenAI's newer `xhigh` level.
+        runtime_kwargs["reasoning_effort"] = "high"
+        return
+
+    runtime_kwargs["reasoning_effort"] = OPENAI_REASONING_LEVEL_MAP[level]
+
+
+def _uses_official_openai_responses_endpoint(model_config: ModelConfig) -> bool:
+    base_url = getattr(model_config, "base_url", None)
+    if not isinstance(base_url, str) or not base_url.strip():
+        return True
+
+    hostname = urlparse(base_url).hostname
+    if hostname is None:
+        return False
+    normalized = hostname.strip().lower()
+    return normalized == "api.openai.com" or normalized.endswith(".openai.com")
+
+
+def _apply_anthropic_reasoning_settings(
+    *,
+    reasoning: ModelReasoningConfig,
+    level: ReasoningLevel | None,
+    model_settings: dict[str, Any],
+    runtime_kwargs: dict[str, Any],
+) -> None:
+    if level is None:
+        return
+
+    thinking: dict[str, Any] = {"type": "enabled"}
+    budget_tokens = _resolve_anthropic_thinking_budget(
+        level=level,
+        model_settings=model_settings,
+        runtime_kwargs=runtime_kwargs,
+    )
+    if budget_tokens is not None:
+        thinking["budget_tokens"] = budget_tokens
+
+    model_settings["thinking"] = thinking
+
+
+def _resolve_anthropic_thinking_budget(
+    *,
+    level: ReasoningLevel,
+    model_settings: dict[str, Any],
+    runtime_kwargs: dict[str, Any],
+) -> int | None:
+    if level == "auto":
+        if "max_tokens" not in model_settings and "max_tokens" not in runtime_kwargs:
+            runtime_kwargs["max_tokens"] = DEFAULT_ANTHROPIC_THINKING_MAX_TOKENS
+        return None
+
+    resolved_max_tokens = _first_positive_int(
+        runtime_kwargs.get("max_tokens"),
+        model_settings.get("max_tokens"),
+        model_settings.get("max_tokens_to_sample"),
+    )
+    if resolved_max_tokens is None:
+        resolved_max_tokens = DEFAULT_ANTHROPIC_THINKING_MAX_TOKENS
+        runtime_kwargs["max_tokens"] = resolved_max_tokens
+
+    budget = ANTHROPIC_THINKING_BUDGET_MAP[level]
+    budget_ceiling = max(1, resolved_max_tokens - ANTHROPIC_THINKING_OUTPUT_HEADROOM)
+    return min(budget, budget_ceiling)
+
+
+def _first_positive_int(*values: Any) -> int | None:
+    for value in values:
+        if isinstance(value, int) and value > 0:
+            return value
+    return None
+
+
+def _apply_gemini_budget_reasoning_settings(
+    *,
+    level: ReasoningLevel | None,
+    runtime_kwargs: dict[str, Any],
+) -> None:
+    if level is None:
+        # Gemini 2.5 disables thinking with a zero budget.
+        runtime_kwargs["thinking_budget"] = 0
+        return
+    if level == "auto":
+        runtime_kwargs["thinking_budget"] = -1
+        return
+    runtime_kwargs["thinking_budget"] = GEMINI_THINKING_BUDGET_MAP[level]
+
+
+def _apply_gemini_level_reasoning_settings(
+    *,
+    level: ReasoningLevel | None,
+    runtime_kwargs: dict[str, Any],
+) -> None:
+    if level is None:
+        # Gemini 3+ exposes level-based controls, but not a clear disable enum.
+        # Use the lightest supported level instead of sending a non-standard
+        # value that would fail at request time.
+        runtime_kwargs["thinking_level"] = "minimal"
+        return
+    if level == "auto":
+        return
+    runtime_kwargs["thinking_level"] = GEMINI_THINKING_LEVEL_MAP[level]
 
 
 def _attach_langsmith_tracing(model_instance: BaseChatModel, name: str) -> None:
@@ -391,15 +552,14 @@ def create_chat_model(
     model_class = resolve_class(model_config.use, BaseChatModel)
     model_settings_from_config = _build_model_settings(model_config)
     runtime_kwargs = _build_runtime_kwargs(
-        effort=effort,
         max_output_tokens=max_output_tokens,
         temperature=temperature,
     )
 
-    _apply_thinking_settings(
-        name=name,
+    _apply_reasoning_settings(
         model_config=model_config,
         thinking_enabled=thinking_enabled,
+        effort=effort,
         model_settings=model_settings_from_config,
         runtime_kwargs=runtime_kwargs,
     )

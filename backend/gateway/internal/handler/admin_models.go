@@ -133,17 +133,21 @@ func buildAdminModelRecord(req adminModelRequest) (repository.ModelRecord, error
 	}
 
 	configJSON := normalizeAdminModelConfig(req.ConfigJSON)
+	if legacyKeys := model.SortedLegacyReasoningKeys(configJSON); len(legacyKeys) > 0 {
+		return repository.ModelRecord{}, errors.New(
+			"config_json uses retired reasoning keys: " +
+				strings.Join(legacyKeys, ", ") +
+				". Use config_json.reasoning instead",
+		)
+	}
 	// `effort` is a per-run execution input, not a persisted model profile
 	// field. Rejecting it here keeps runtime-only policy out of the provider
 	// config that is later materialized into model constructor kwargs.
 	if _, exists := configJSON["effort"]; exists {
 		return repository.ModelRecord{}, errors.New("config_json.effort is runtime-only; remove it from the model profile")
 	}
-	if _, exists := configJSON["reasoning_effort"]; exists {
-		return repository.ModelRecord{}, errors.New("config_json.reasoning_effort is retired; use per-run `effort` instead")
-	}
-	if _, exists := configJSON["supports_reasoning_effort"]; exists {
-		return repository.ModelRecord{}, errors.New("config_json.supports_reasoning_effort is retired; rename it to `supports_effort`")
+	if _, err := model.ValidateCanonicalReasoningConfig(configJSON["reasoning"]); err != nil {
+		return repository.ModelRecord{}, err
 	}
 	modelName := getConfigString(configJSON, "model")
 	if modelName == "" {

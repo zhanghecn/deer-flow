@@ -15,9 +15,10 @@ def _anthropic_model_config(**extra) -> ModelConfig:
         "model": "glm-5",
         "api_key": "test-key",
         "base_url": "https://example.invalid/anthropic",
-        "supports_thinking": True,
-        "supports_effort": False,
-        "when_thinking_enabled": {"thinking": {"type": "enabled"}},
+        "reasoning": {
+            "contract": "anthropic_thinking",
+            "default_level": "auto",
+        },
     }
     payload.update(extra)
     return ModelConfig.model_validate(payload)
@@ -32,14 +33,50 @@ def _openai_model_config(**extra) -> ModelConfig:
         "model": "gpt-5-mini",
         "api_key": "test-key",
         "base_url": "https://example.invalid/openai",
-        "supports_thinking": True,
-        "supports_effort": True,
+        "reasoning": {
+            "contract": "openai_responses",
+            "default_level": "auto",
+        },
     }
     payload.update(extra)
     return ModelConfig.model_validate(payload)
 
 
-def test_create_chat_model_raises_anthropic_thinking_budget_when_unspecified(monkeypatch):
+def _gemini_budget_model_config(**extra) -> ModelConfig:
+    payload = {
+        "name": "gemini-2.5-pro",
+        "display_name": "Gemini 2.5 Pro",
+        "description": None,
+        "use": "langchain_google_genai:ChatGoogleGenerativeAI",
+        "model": "gemini-2.5-pro",
+        "api_key": "test-key",
+        "reasoning": {
+            "contract": "gemini_budget",
+            "default_level": "auto",
+        },
+    }
+    payload.update(extra)
+    return ModelConfig.model_validate(payload)
+
+
+def _gemini_level_model_config(**extra) -> ModelConfig:
+    payload = {
+        "name": "gemini-3-pro",
+        "display_name": "Gemini 3 Pro",
+        "description": None,
+        "use": "langchain_google_genai:ChatGoogleGenerativeAI",
+        "model": "gemini-3-pro",
+        "api_key": "test-key",
+        "reasoning": {
+            "contract": "gemini_level",
+            "default_level": "auto",
+        },
+    }
+    payload.update(extra)
+    return ModelConfig.model_validate(payload)
+
+
+def test_create_chat_model_enables_anthropic_thinking_with_default_budget(monkeypatch):
     monkeypatch.setattr(
         factory_module,
         "require_enabled_model",
@@ -52,16 +89,21 @@ def test_create_chat_model_raises_anthropic_thinking_budget_when_unspecified(mon
     assert model.thinking == {"type": "enabled"}
 
 
-def test_create_chat_model_preserves_explicit_anthropic_budget(monkeypatch):
+def test_create_chat_model_scales_anthropic_budget_for_max_effort(monkeypatch):
     monkeypatch.setattr(
         factory_module,
         "require_enabled_model",
-        lambda _name: _anthropic_model_config(max_tokens=6144),
+        lambda _name: _anthropic_model_config(max_tokens=6_144),
     )
 
-    model = factory_module.create_chat_model(name="glm-5", thinking_enabled=True)
+    model = factory_module.create_chat_model(
+        name="glm-5",
+        thinking_enabled=True,
+        effort="max",
+    )
 
-    assert model.max_tokens == 6144
+    assert model.max_tokens == 6_144
+    assert model.thinking == {"type": "enabled", "budget_tokens": 5_120}
 
 
 def test_create_chat_model_attaches_anthropic_retry_observers(monkeypatch):
@@ -207,6 +249,7 @@ def test_create_chat_model_does_not_force_disable_streaming_for_kimi_tool_calls(
 
     assert getattr(model, "disable_streaming", None) != "tool_calling"
 
+
 def test_create_chat_model_preserves_explicit_disable_streaming_override(monkeypatch):
     monkeypatch.setattr(
         factory_module,
@@ -223,7 +266,54 @@ def test_create_chat_model_preserves_explicit_disable_streaming_override(monkeyp
     assert model.disable_streaming is False
 
 
-def test_create_chat_model_defaults_effort_when_supported(monkeypatch):
+def test_create_chat_model_uses_openai_reasoning_effort_for_explicit_override(monkeypatch):
+    class FakeModel:
+        def __init__(self, **kwargs) -> None:
+            self.callbacks = None
+            for key, value in kwargs.items():
+                setattr(self, key, value)
+
+    monkeypatch.setattr(
+        factory_module,
+        "require_enabled_model",
+        lambda _name: _openai_model_config(),
+    )
+    monkeypatch.setattr(factory_module, "resolve_class", lambda *_args, **_kwargs: FakeModel)
+
+    model = factory_module.create_chat_model(
+        name="gpt-5-mini",
+        thinking_enabled=True,
+        effort="max",
+    )
+
+    # Custom OpenAI-compatible endpoints stay on the conservative enum set.
+    assert model.reasoning_effort == "high"
+
+
+def test_create_chat_model_uses_openai_xhigh_for_official_openai_max(monkeypatch):
+    class FakeModel:
+        def __init__(self, **kwargs) -> None:
+            self.callbacks = None
+            for key, value in kwargs.items():
+                setattr(self, key, value)
+
+    monkeypatch.setattr(
+        factory_module,
+        "require_enabled_model",
+        lambda _name: _openai_model_config(base_url="https://api.openai.com/v1"),
+    )
+    monkeypatch.setattr(factory_module, "resolve_class", lambda *_args, **_kwargs: FakeModel)
+
+    model = factory_module.create_chat_model(
+        name="gpt-5-mini",
+        thinking_enabled=True,
+        effort="max",
+    )
+
+    assert model.reasoning_effort == "xhigh"
+
+
+def test_create_chat_model_keeps_openai_auto_reasoning_default_when_no_override(monkeypatch):
     class FakeModel:
         def __init__(self, **kwargs) -> None:
             self.callbacks = None
@@ -239,10 +329,11 @@ def test_create_chat_model_defaults_effort_when_supported(monkeypatch):
 
     model = factory_module.create_chat_model(name="gpt-5-mini", thinking_enabled=True)
 
-    assert model.effort == factory_module.DEFAULT_EFFORT_LEVEL
+    assert getattr(model, "reasoning_effort", None) is None
+    assert getattr(model, "reasoning", None) is None
 
 
-def test_create_chat_model_runtime_effort_wins_over_model_config_extra(monkeypatch):
+def test_create_chat_model_disables_reasoning_for_official_openai_endpoints(monkeypatch):
     class FakeModel:
         def __init__(self, **kwargs) -> None:
             self.callbacks = None
@@ -252,17 +343,78 @@ def test_create_chat_model_runtime_effort_wins_over_model_config_extra(monkeypat
     monkeypatch.setattr(
         factory_module,
         "require_enabled_model",
-        lambda _name: _openai_model_config(effort="medium"),
+        lambda _name: _openai_model_config(base_url=None),
+    )
+    monkeypatch.setattr(factory_module, "resolve_class", lambda *_args, **_kwargs: FakeModel)
+
+    model = factory_module.create_chat_model(name="gpt-5-mini", thinking_enabled=False)
+
+    assert model.reasoning == {"effort": "none"}
+
+
+def test_create_chat_model_omits_openai_disable_payload_for_custom_compatible_endpoints(monkeypatch):
+    class FakeModel:
+        def __init__(self, **kwargs) -> None:
+            self.callbacks = None
+            for key, value in kwargs.items():
+                setattr(self, key, value)
+
+    monkeypatch.setattr(
+        factory_module,
+        "require_enabled_model",
+        lambda _name: _openai_model_config(base_url="https://example.invalid/openai"),
+    )
+    monkeypatch.setattr(factory_module, "resolve_class", lambda *_args, **_kwargs: FakeModel)
+
+    model = factory_module.create_chat_model(name="gpt-5-mini", thinking_enabled=False)
+
+    assert getattr(model, "reasoning", None) is None
+    assert getattr(model, "reasoning_effort", None) is None
+
+
+def test_create_chat_model_maps_gemini_budget_contract(monkeypatch):
+    class FakeModel:
+        def __init__(self, **kwargs) -> None:
+            self.callbacks = None
+            for key, value in kwargs.items():
+                setattr(self, key, value)
+
+    monkeypatch.setattr(
+        factory_module,
+        "require_enabled_model",
+        lambda _name: _gemini_budget_model_config(),
     )
     monkeypatch.setattr(factory_module, "resolve_class", lambda *_args, **_kwargs: FakeModel)
 
     model = factory_module.create_chat_model(
-        name="gpt-5-mini",
+        name="gemini-2.5-pro",
         thinking_enabled=True,
-        effort="high",
+        effort="max",
     )
 
-    assert model.effort == "high"
+    assert model.thinking_budget == 16_384
+
+
+def test_create_chat_model_maps_gemini_level_contract(monkeypatch):
+    class FakeModel:
+        def __init__(self, **kwargs) -> None:
+            self.callbacks = None
+            for key, value in kwargs.items():
+                setattr(self, key, value)
+
+    monkeypatch.setattr(
+        factory_module,
+        "require_enabled_model",
+        lambda _name: _gemini_level_model_config(),
+    )
+    monkeypatch.setattr(factory_module, "resolve_class", lambda *_args, **_kwargs: FakeModel)
+
+    model = factory_module.create_chat_model(
+        name="gemini-3-pro",
+        thinking_enabled=False,
+    )
+
+    assert model.thinking_level == "minimal"
 
 
 def test_create_chat_model_maps_explicit_runtime_overrides_to_provider_kwargs(monkeypatch):
@@ -329,29 +481,6 @@ def test_create_chat_model_drops_injected_retry_budget_when_provider_rejects_it(
     model = factory_module.create_chat_model(name="gpt-5-mini", thinking_enabled=True)
 
     assert getattr(model, "max_retries", None) is None
-
-
-def test_create_chat_model_disables_extra_body_thinking_when_not_requested(monkeypatch):
-    class FakeModel:
-        def __init__(self, **kwargs) -> None:
-            self.callbacks = None
-            for key, value in kwargs.items():
-                setattr(self, key, value)
-
-    model_config = _openai_model_config(
-        when_thinking_enabled={"extra_body": {"thinking": {"type": "enabled"}}},
-    )
-    monkeypatch.setattr(
-        factory_module,
-        "require_enabled_model",
-        lambda _name: model_config,
-    )
-    monkeypatch.setattr(factory_module, "resolve_class", lambda *_args, **_kwargs: FakeModel)
-
-    model = factory_module.create_chat_model(name="gpt-5-mini", thinking_enabled=False)
-
-    assert model.extra_body == {"thinking": {"type": "disabled"}}
-    assert getattr(model, "effort", None) is None
 
 
 def test_create_chat_model_attaches_explicit_max_input_tokens(monkeypatch):

@@ -202,6 +202,36 @@ function TraceDetailContent({
                 <Badge variant="outline" className="text-xs">
                   {t("Effort")}: {latestLLMSettings.effort ?? t("none")}
                 </Badge>
+                {latestLLMSettings.reasoningEffort && (
+                  <Badge variant="outline" className="text-xs">
+                    {t("Reasoning Effort")}: {latestLLMSettings.reasoningEffort}
+                  </Badge>
+                )}
+                {latestLLMSettings.reasoning && (
+                  <Badge variant="outline" className="text-xs">
+                    {t("Reasoning Payload")}: {latestLLMSettings.reasoning}
+                  </Badge>
+                )}
+                {latestLLMSettings.thinking && (
+                  <Badge variant="outline" className="text-xs">
+                    {t("Thinking Payload")}: {latestLLMSettings.thinking}
+                  </Badge>
+                )}
+                {typeof latestLLMSettings.thinkingBudget === "number" && (
+                  <Badge variant="outline" className="text-xs">
+                    {t("Thinking Budget")}: {latestLLMSettings.thinkingBudget}
+                  </Badge>
+                )}
+                {latestLLMSettings.thinkingLevel && (
+                  <Badge variant="outline" className="text-xs">
+                    {t("Thinking Level")}: {latestLLMSettings.thinkingLevel}
+                  </Badge>
+                )}
+                {typeof latestLLMSettings.includeThoughts === "boolean" && (
+                  <Badge variant="outline" className="text-xs">
+                    {t("Include Thoughts")}: {latestLLMSettings.includeThoughts ? t("yes") : t("no")}
+                  </Badge>
+                )}
                 {typeof latestLLMSettings.maxTokens === "number" && (
                   <Badge variant="outline" className="text-xs">
                     {t("Max Tokens")}: {latestLLMSettings.maxTokens}

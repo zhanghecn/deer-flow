@@ -986,12 +986,26 @@ def _extract_model_request_context(
         temperature = invocation_params.get("temperature")
         max_tokens = invocation_params.get("max_tokens")
         effort = _first_non_empty_str(invocation_params.get("effort"))
+        reasoning_effort = _first_non_empty_str(invocation_params.get("reasoning_effort"))
+        thinking_level = _first_non_empty_str(invocation_params.get("thinking_level"))
+        reasoning = invocation_params.get("reasoning")
+        thinking = invocation_params.get("thinking")
+        thinking_budget = invocation_params.get("thinking_budget")
+        include_thoughts = invocation_params.get("include_thoughts")
         tools = _extract_registered_tools(invocation_params.get("tools"))
         settings = _drop_none(
             {
                 "temperature": _jsonify(temperature),
                 "max_tokens": _jsonify(max_tokens),
                 "effort": _jsonify(effort),
+                # Persist the provider-facing reasoning knobs directly so trace
+                # review can prove which payload the runtime actually sent.
+                "reasoning_effort": _jsonify(reasoning_effort),
+                "reasoning": _shrink(reasoning),
+                "thinking": _shrink(thinking),
+                "thinking_budget": _jsonify(thinking_budget),
+                "thinking_level": _jsonify(thinking_level),
+                "include_thoughts": _jsonify(include_thoughts),
                 "stop": _jsonify(stop),
             }
         )

@@ -19,12 +19,12 @@ func NewModelHandler(repo *repository.ModelRepo) *ModelHandler {
 }
 
 type ModelConfig struct {
-	Name              string `json:"name"`
-	DisplayName       string `json:"display_name"`
-	Model             string `json:"model"`
-	SupportsThinking  bool   `json:"supports_thinking"`
-	SupportsVision    bool   `json:"supports_vision"`
-	SupportsEffort    bool   `json:"supports_effort"`
+	Name             string `json:"name"`
+	DisplayName      string `json:"display_name"`
+	Model            string `json:"model"`
+	SupportsThinking bool   `json:"supports_thinking"`
+	SupportsVision   bool   `json:"supports_vision"`
+	SupportsEffort   bool   `json:"supports_effort"`
 }
 
 func (h *ModelHandler) List(c *gin.Context) {
@@ -69,12 +69,12 @@ func mapModelRow(row repository.ModelRecord) ModelConfig {
 	}
 
 	return ModelConfig{
-		Name:              row.Name,
-		DisplayName:       displayName,
-		Model:             modelName,
-		SupportsThinking:  toBool(cfgMap["supports_thinking"]),
-		SupportsVision:    toBool(cfgMap["supports_vision"]),
-		SupportsEffort:    toBool(cfgMap["supports_effort"]),
+		Name:             row.Name,
+		DisplayName:      displayName,
+		Model:            modelName,
+		SupportsThinking: model.SupportsThinking(cfgMap),
+		SupportsVision:   toBool(cfgMap["supports_vision"]),
+		SupportsEffort:   model.SupportsEffort(cfgMap),
 	}
 }
 

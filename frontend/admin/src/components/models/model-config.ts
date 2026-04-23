@@ -1,13 +1,31 @@
 import type { AdminModel } from "@/types";
 import { t } from "@/i18n";
 
-export type ModelThinkingMode =
-  | "inherit"
-  | "enabled"
-  | "adaptive"
-  | "custom";
+export type ModelReasoningLevel = "auto" | "low" | "medium" | "high" | "max";
+export type ModelReasoningContract =
+  | "openai_responses"
+  | "anthropic_thinking"
+  | "gemini_budget"
+  | "gemini_level"
+  | "deepseek_reasoner";
 
-export type ModelThinkingShape = "anthropic" | "extra_body";
+const MODEL_REASONING_LEVELS: ModelReasoningLevel[] = [
+  "auto",
+  "low",
+  "medium",
+  "high",
+  "max",
+];
+const MODEL_REASONING_LEVEL_SET = new Set<ModelReasoningLevel>(
+  MODEL_REASONING_LEVELS,
+);
+const MODEL_REASONING_CONTRACT_SET = new Set<ModelReasoningContract>([
+  "openai_responses",
+  "anthropic_thinking",
+  "gemini_budget",
+  "gemini_level",
+  "deepseek_reasoner",
+]);
 
 export interface ModelProviderPreset {
   id: string;
@@ -17,15 +35,15 @@ export interface ModelProviderPreset {
   runtimeClass: string;
   apiKeyPlaceholder: string;
   baseUrlPlaceholder: string;
-  supportsThinking: boolean;
+  supportsReasoning: boolean;
   supportsVision: boolean;
-  supportsEffort: boolean;
-  thinkingShape: ModelThinkingShape;
   aliases?: string[];
 }
 
+const OPENAI_RUNTIME_CLASS = "langchain_openai:ChatOpenAI";
 const ANTHROPIC_RUNTIME_CLASS = "langchain_anthropic:ChatAnthropic";
-const KNOWN_DIRECT_THINKING_TYPES = new Set(["enabled", "adaptive"]);
+const GEMINI_RUNTIME_CLASS = "langchain_google_genai:ChatGoogleGenerativeAI";
+const DEEPSEEK_RUNTIME_CLASS = "langchain_deepseek:ChatDeepSeek";
 
 export const MODEL_PROVIDER_PRESETS: ModelProviderPreset[] = [
   {
@@ -33,13 +51,11 @@ export const MODEL_PROVIDER_PRESETS: ModelProviderPreset[] = [
     label: "OpenAI",
     description: "Best for GPT and most OpenAI-compatible APIs.",
     provider: "openai",
-    runtimeClass: "langchain_openai:ChatOpenAI",
+    runtimeClass: OPENAI_RUNTIME_CLASS,
     apiKeyPlaceholder: "$OPENAI_API_KEY",
     baseUrlPlaceholder: "Leave empty for the official OpenAI endpoint",
-    supportsThinking: true,
+    supportsReasoning: true,
     supportsVision: true,
-    supportsEffort: true,
-    thinkingShape: "extra_body",
     aliases: ["openai-compatible", "openai_compatible"],
   },
   {
@@ -47,13 +63,11 @@ export const MODEL_PROVIDER_PRESETS: ModelProviderPreset[] = [
     label: "Anthropic",
     description: "Claude-style APIs with built-in thinking support.",
     provider: "anthropic",
-    runtimeClass: "langchain_anthropic:ChatAnthropic",
+    runtimeClass: ANTHROPIC_RUNTIME_CLASS,
     apiKeyPlaceholder: "$ANTHROPIC_API_KEY",
     baseUrlPlaceholder: "Leave empty for the official Anthropic endpoint",
-    supportsThinking: true,
+    supportsReasoning: true,
     supportsVision: true,
-    supportsEffort: false,
-    thinkingShape: "anthropic",
     aliases: ["anthropic-compatible", "anthropic_compatible"],
   },
   {
@@ -61,27 +75,23 @@ export const MODEL_PROVIDER_PRESETS: ModelProviderPreset[] = [
     label: "Google Gemini",
     description: "Gemini models through the Google GenAI integration.",
     provider: "google",
-    runtimeClass: "langchain_google_genai:ChatGoogleGenerativeAI",
+    runtimeClass: GEMINI_RUNTIME_CLASS,
     apiKeyPlaceholder: "$GOOGLE_API_KEY",
     baseUrlPlaceholder: "Usually not needed for Gemini",
-    supportsThinking: true,
+    supportsReasoning: true,
     supportsVision: true,
-    supportsEffort: false,
-    thinkingShape: "extra_body",
     aliases: ["gemini", "google-genai", "google_genai"],
   },
   {
     id: "deepseek",
     label: "DeepSeek",
-    description: "DeepSeek models via the dedicated LangChain provider.",
+    description: "Reasoning is model-selected for DeepSeek reasoner variants, not configured through a generic payload toggle.",
     provider: "deepseek",
-    runtimeClass: "langchain_deepseek:ChatDeepSeek",
+    runtimeClass: DEEPSEEK_RUNTIME_CLASS,
     apiKeyPlaceholder: "$DEEPSEEK_API_KEY",
     baseUrlPlaceholder: "Leave empty for the official DeepSeek endpoint",
-    supportsThinking: true,
+    supportsReasoning: false,
     supportsVision: false,
-    supportsEffort: false,
-    thinkingShape: "extra_body",
   },
   {
     id: "custom",
@@ -91,10 +101,8 @@ export const MODEL_PROVIDER_PRESETS: ModelProviderPreset[] = [
     runtimeClass: "",
     apiKeyPlaceholder: "Provider key or $ENV_VAR",
     baseUrlPlaceholder: "Optional custom endpoint",
-    supportsThinking: false,
+    supportsReasoning: false,
     supportsVision: false,
-    supportsEffort: false,
-    thinkingShape: "extra_body",
   },
 ];
 
@@ -106,14 +114,13 @@ const KNOWN_CONFIG_KEYS = new Set([
   "api_key",
   "base_url",
   "max_input_tokens",
-  // Keep the legacy key reserved so editing an older row drops the stale
-  // runtime-only field instead of re-emitting it through advanced JSON.
-  "reasoning_effort",
-  "supports_thinking",
   "supports_vision",
-  // Keep the retired profile key reserved so the admin editor rewrites older
-  // rows onto the canonical contract instead of preserving two names.
+  "reasoning",
+  // Keep retired keys reserved so opening an older row rewrites it onto the
+  // canonical reasoning contract instead of echoing stale fields back out.
+  "reasoning_effort",
   "supports_reasoning_effort",
+  "supports_thinking",
   "supports_effort",
   "when_thinking_enabled",
 ]);
@@ -122,18 +129,47 @@ const MODEL_PROVIDER_PRESET_MAP = new Map(
   MODEL_PROVIDER_PRESETS.map((preset) => [preset.id, preset]),
 );
 
-export const DEFAULT_MODEL_PROVIDER = (
-  MODEL_PROVIDER_PRESET_MAP.get(DEFAULT_MODEL_PRESET_ID)
-  ?? MODEL_PROVIDER_PRESET_MAP.get("custom")
-  ?? MODEL_PROVIDER_PRESETS[0]
-).provider;
-
 export interface ModelMutationPayload {
   name: string;
   display_name: string | null;
   provider: string;
   enabled: boolean;
   config_json: Record<string, unknown>;
+}
+
+export interface CanonicalReasoningConfig {
+  contract: ModelReasoningContract;
+  defaultLevel: ModelReasoningLevel;
+}
+
+export interface ModelFormValues {
+  presetId: string;
+  name: string;
+  displayName: string;
+  provider: string;
+  enabled: boolean;
+  use: string;
+  model: string;
+  apiKey: string;
+  baseUrl: string;
+  maxInputTokens: string;
+  supportsVision: boolean;
+  supportsReasoning: boolean;
+  reasoningDefaultLevel: ModelReasoningLevel;
+  extraConfig: string;
+}
+
+export interface ResolvedModelFormValues {
+  preset: ModelProviderPreset;
+  name: string;
+  displayName: string;
+  provider: string;
+  runtimeClass: string;
+  model: string;
+  generatedName: boolean;
+  generatedDisplayName: boolean;
+  inferredProvider: boolean;
+  inferredRuntimeClass: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -195,6 +231,22 @@ function normalizeLookupKey(value: string): string {
   return normalizeText(value).toLowerCase().replace(/[\s_]+/g, "-");
 }
 
+function isModelReasoningLevel(value: unknown): value is ModelReasoningLevel {
+  return (
+    typeof value === "string"
+    && MODEL_REASONING_LEVEL_SET.has(value as ModelReasoningLevel)
+  );
+}
+
+function isModelReasoningContract(
+  value: unknown,
+): value is ModelReasoningContract {
+  return (
+    typeof value === "string"
+    && MODEL_REASONING_CONTRACT_SET.has(value as ModelReasoningContract)
+  );
+}
+
 function stringifyPositiveInteger(value: unknown): string {
   if (typeof value === "number" && Number.isInteger(value) && value > 0) {
     return String(value);
@@ -209,13 +261,6 @@ function parsePositiveInteger(source: string, label: string): number {
     throw new Error(t("{label} must be a positive integer", { label }));
   }
   return parsed;
-}
-
-function hasOnlyKeys(
-  value: Record<string, unknown>,
-  allowedKeys: string[],
-): boolean {
-  return Object.keys(value).every((key) => allowedKeys.includes(key));
 }
 
 function slugifySegment(value: string): string {
@@ -269,53 +314,17 @@ function getPresetSeedValues(
   ModelFormValues,
   | "provider"
   | "use"
-  | "thinkingShape"
-  | "supportsThinking"
+  | "supportsReasoning"
   | "supportsVision"
-  | "supportsEffort"
+  | "reasoningDefaultLevel"
 > {
   return {
     provider: preset.provider,
     use: preset.runtimeClass,
-    thinkingShape: preset.thinkingShape,
-    supportsThinking: preset.supportsThinking,
+    supportsReasoning: preset.supportsReasoning,
     supportsVision: preset.supportsVision,
-    supportsEffort: preset.supportsEffort,
+    reasoningDefaultLevel: "auto",
   };
-}
-
-export interface ModelFormValues {
-  presetId: string;
-  name: string;
-  displayName: string;
-  provider: string;
-  enabled: boolean;
-  use: string;
-  model: string;
-  apiKey: string;
-  baseUrl: string;
-  maxInputTokens: string;
-  thinkingShape: ModelThinkingShape;
-  supportsThinking: boolean;
-  supportsVision: boolean;
-  supportsEffort: boolean;
-  thinkingMode: ModelThinkingMode;
-  thinkingBudgetTokens: string;
-  customThinkingConfig: string;
-  extraConfig: string;
-}
-
-export interface ResolvedModelFormValues {
-  preset: ModelProviderPreset;
-  name: string;
-  displayName: string;
-  provider: string;
-  runtimeClass: string;
-  model: string;
-  generatedName: boolean;
-  generatedDisplayName: boolean;
-  inferredProvider: boolean;
-  inferredRuntimeClass: boolean;
 }
 
 export function getModelProviderPreset(presetId: string): ModelProviderPreset {
@@ -338,109 +347,139 @@ export function applyModelProviderPreset(
   };
 }
 
-function resolveDefaultThinkingShape(
-  preset: ModelProviderPreset,
+function inferReasoningContract(
   runtimeClass: string,
-): ModelThinkingShape {
-  if (normalizeText(runtimeClass) === ANTHROPIC_RUNTIME_CLASS) {
-    return "anthropic";
+  model: string,
+): ModelReasoningContract | null {
+  const normalizedRuntimeClass = normalizeText(runtimeClass);
+  const normalizedModel = normalizeText(model).toLowerCase();
+
+  if (normalizedRuntimeClass === OPENAI_RUNTIME_CLASS) {
+    return "openai_responses";
   }
-  return preset.thinkingShape;
+  if (normalizedRuntimeClass === ANTHROPIC_RUNTIME_CLASS) {
+    return "anthropic_thinking";
+  }
+  if (normalizedRuntimeClass === GEMINI_RUNTIME_CLASS) {
+    return normalizedModel.startsWith("gemini-3")
+      ? "gemini_level"
+      : "gemini_budget";
+  }
+  if (normalizedRuntimeClass === DEEPSEEK_RUNTIME_CLASS) {
+    return normalizedModel.includes("reasoner")
+      || normalizedModel.startsWith("deepseek-r1")
+      ? "deepseek_reasoner"
+      : null;
+  }
+  return null;
 }
 
-function decodeThinkingConfig(
-  preset: ModelProviderPreset,
-  runtimeClass: string,
-  thinkingConfig: unknown,
-): Pick<
-  ModelFormValues,
-  | "thinkingMode"
-  | "thinkingBudgetTokens"
-  | "thinkingShape"
-  | "customThinkingConfig"
-> {
-  const thinkingShape = resolveDefaultThinkingShape(preset, runtimeClass);
-  const customThinkingConfig = stringifyJson(thinkingConfig);
+function mapLegacyBudgetToLevel(value: unknown): ModelReasoningLevel | null {
+  const budget =
+    typeof value === "number" && Number.isInteger(value) ? value : null;
+  if (budget == null || budget <= 0) {
+    return null;
+  }
+  if (budget <= 2_000) {
+    return "low";
+  }
+  if (budget <= 8_000) {
+    return "medium";
+  }
+  if (budget <= 16_000) {
+    return "high";
+  }
+  return "max";
+}
 
-  if (!isRecord(thinkingConfig) || Object.keys(thinkingConfig).length === 0) {
-    return {
-      thinkingMode: "inherit",
-      thinkingBudgetTokens: "",
-      thinkingShape,
-      customThinkingConfig: "",
-    };
+function getLegacyThinkingConfig(
+  config: Record<string, unknown>,
+): Record<string, unknown> | null {
+  const thinkingConfig = config.when_thinking_enabled;
+  if (!isRecord(thinkingConfig)) {
+    return null;
   }
 
-  // Preserve unknown provider-specific payloads verbatim so editing a model
-  // does not silently discard working thinking settings we cannot render yet.
-  const anthropicThinking = thinkingConfig.thinking;
-  if (isRecord(anthropicThinking)) {
-    const thinkingType = anthropicThinking.type;
-    const budgetTokens = anthropicThinking.budget_tokens ?? anthropicThinking.budgetTokens;
-    if (
-      typeof thinkingType === "string"
-      && KNOWN_DIRECT_THINKING_TYPES.has(thinkingType)
-      && hasOnlyKeys(thinkingConfig, ["thinking"])
-      && hasOnlyKeys(anthropicThinking, ["type", "budget_tokens", "budgetTokens"])
-      && (budgetTokens === undefined || stringifyPositiveInteger(budgetTokens) !== "")
-    ) {
-      return {
-        thinkingMode: thinkingType as ModelThinkingMode,
-        thinkingBudgetTokens:
-          thinkingType === "enabled" ? stringifyPositiveInteger(budgetTokens) : "",
-        thinkingShape: "anthropic",
-        customThinkingConfig,
-      };
-    }
+  if (isRecord(thinkingConfig.thinking)) {
+    return thinkingConfig.thinking;
   }
 
   const extraBody = thinkingConfig.extra_body;
-  if (isRecord(extraBody) && isRecord(extraBody.thinking)) {
-    const extraBodyThinking = extraBody.thinking;
-    const thinkingType = extraBodyThinking.type;
-    const budgetTokens = extraBodyThinking.budget_tokens ?? extraBodyThinking.budgetTokens;
-    if (
-      typeof thinkingType === "string"
-      && KNOWN_DIRECT_THINKING_TYPES.has(thinkingType)
-      && hasOnlyKeys(thinkingConfig, ["extra_body"])
-      && hasOnlyKeys(extraBody, ["thinking"])
-      && hasOnlyKeys(extraBodyThinking, ["type", "budget_tokens", "budgetTokens"])
-      && (budgetTokens === undefined || stringifyPositiveInteger(budgetTokens) !== "")
-    ) {
-      return {
-        thinkingMode: thinkingType as ModelThinkingMode,
-        thinkingBudgetTokens:
-          thinkingType === "enabled" ? stringifyPositiveInteger(budgetTokens) : "",
-        thinkingShape: "extra_body",
-        customThinkingConfig,
-      };
+  if (!isRecord(extraBody) || !isRecord(extraBody.thinking)) {
+    return null;
+  }
+
+  return extraBody.thinking;
+}
+
+function getLegacyReasoning(
+  config: Record<string, unknown>,
+): CanonicalReasoningConfig | null {
+  const contract = inferReasoningContract(
+    getConfigString(config, "use"),
+    getConfigString(config, "model"),
+  );
+  if (!contract) {
+    return null;
+  }
+
+  let defaultLevel: ModelReasoningLevel = "auto";
+  const rawReasoningEffort = config.reasoning_effort;
+  if (typeof rawReasoningEffort === "string") {
+    const normalized = rawReasoningEffort.trim().toLowerCase();
+    if (isModelReasoningLevel(normalized)) {
+      defaultLevel = normalized;
+    }
+  }
+
+  const legacyThinking = getLegacyThinkingConfig(config);
+  if (legacyThinking) {
+    const thinkingType =
+      typeof legacyThinking.type === "string"
+        ? legacyThinking.type.trim().toLowerCase()
+        : "";
+    if (thinkingType === "adaptive") {
+      defaultLevel = "auto";
+    }
+    const budgetLevel = mapLegacyBudgetToLevel(
+      legacyThinking.budget_tokens ?? legacyThinking.budgetTokens,
+    );
+    if (budgetLevel) {
+      defaultLevel = budgetLevel;
     }
   }
 
   return {
-    thinkingMode: "custom",
-    thinkingBudgetTokens: "",
-    thinkingShape,
-    customThinkingConfig,
+    contract,
+    defaultLevel: contract === "deepseek_reasoner" ? "auto" : defaultLevel,
   };
 }
 
-export function buildThinkingConfigTemplate(shape: ModelThinkingShape): string {
-  if (shape === "anthropic") {
-    return `{
-  "thinking": {
-    "type": "enabled"
-  }
-}`;
-  }
-
-  return `{
-  "extra_body": {
-    "thinking": {
-      "type": "enabled"
+function getCanonicalReasoning(
+  config: Record<string, unknown>,
+): CanonicalReasoningConfig | null {
+  if (isRecord(config.reasoning)) {
+    const contract = config.reasoning.contract;
+    const defaultLevel = config.reasoning.default_level;
+    if (
+      isModelReasoningContract(contract)
+      && isModelReasoningLevel(defaultLevel)
+    ) {
+      return {
+        contract,
+        defaultLevel,
+      };
     }
   }
-}`;
+
+  if (
+    config.supports_thinking === true
+    || config.supports_effort === true
+    || isRecord(config.when_thinking_enabled)
+  ) {
+    return getLegacyReasoning(config);
+  }
+  return null;
 }
 
 export function getModelFormValues(model: AdminModel | null): ModelFormValues {
@@ -450,6 +489,7 @@ export function getModelFormValues(model: AdminModel | null): ModelFormValues {
   const extraConfig = Object.fromEntries(
     Object.entries(config).filter(([key]) => !KNOWN_CONFIG_KEYS.has(key)),
   );
+  const reasoning = getCanonicalReasoning(config);
 
   if (!model) {
     return {
@@ -461,21 +501,12 @@ export function getModelFormValues(model: AdminModel | null): ModelFormValues {
       apiKey: "",
       baseUrl: "",
       maxInputTokens: "",
-      thinkingMode: "inherit",
-      thinkingBudgetTokens: "",
-      customThinkingConfig: "",
       extraConfig: "",
       ...getPresetSeedValues(preset),
     };
   }
 
   const runtimeClass = getConfigString(config, "use") || preset.runtimeClass;
-  const thinkingSettings = decodeThinkingConfig(
-    preset,
-    runtimeClass,
-    config.when_thinking_enabled,
-  );
-
   return {
     presetId,
     name: model.name,
@@ -487,10 +518,9 @@ export function getModelFormValues(model: AdminModel | null): ModelFormValues {
     apiKey: getConfigString(config, "api_key"),
     baseUrl: getConfigString(config, "base_url"),
     maxInputTokens: getConfigPositiveInteger(config, "max_input_tokens"),
-    ...thinkingSettings,
-    supportsThinking: getConfigFlag(config, "supports_thinking"),
     supportsVision: getConfigFlag(config, "supports_vision"),
-    supportsEffort: getConfigFlag(config, "supports_effort"),
+    supportsReasoning: reasoning !== null,
+    reasoningDefaultLevel: reasoning?.defaultLevel ?? "auto",
     extraConfig: stringifyJson(extraConfig),
   };
 }
@@ -527,9 +557,7 @@ export function buildModelPayload(values: ModelFormValues): ModelMutationPayload
     ...parseJsonObject(values.extraConfig, "Extra config"),
     model: resolved.model,
     api_key: values.apiKey.trim(),
-    supports_thinking: values.supportsThinking,
     supports_vision: values.supportsVision,
-    supports_effort: values.supportsEffort,
   };
 
   if (resolved.runtimeClass) {
@@ -555,43 +583,27 @@ export function buildModelPayload(values: ModelFormValues): ModelMutationPayload
     delete configJson.max_input_tokens;
   }
 
-  if (values.supportsThinking) {
-    let whenThinkingEnabled: Record<string, unknown> = {};
-
-    if (values.thinkingMode === "custom") {
-      whenThinkingEnabled = parseJsonObject(
-        values.customThinkingConfig,
-        "Thinking config",
+  if (values.supportsReasoning) {
+    const contract = inferReasoningContract(
+      resolved.runtimeClass,
+      resolved.model,
+    );
+    if (!contract) {
+      throw new Error(
+        t(
+          "Cannot infer a reasoning contract for this runtime class and model. Choose a supported provider template or turn reasoning off.",
+        ),
       );
-    } else if (values.thinkingMode !== "inherit") {
-      const thinkingPayload: Record<string, unknown> = {
-        type: values.thinkingMode,
-      };
-      if (values.thinkingMode === "enabled" && values.thinkingBudgetTokens.trim()) {
-        thinkingPayload.budget_tokens = parsePositiveInteger(
-          values.thinkingBudgetTokens,
-          t("Thinking budget tokens"),
-        );
-      }
-
-      if (values.thinkingShape === "anthropic") {
-        whenThinkingEnabled = { thinking: thinkingPayload };
-      } else {
-        whenThinkingEnabled = {
-          extra_body: {
-            thinking: thinkingPayload,
-          },
-        };
-      }
     }
-
-    if (Object.keys(whenThinkingEnabled).length > 0) {
-      configJson.when_thinking_enabled = whenThinkingEnabled;
-    } else {
-      delete configJson.when_thinking_enabled;
-    }
+    configJson.reasoning = {
+      contract,
+      default_level:
+        contract === "deepseek_reasoner"
+          ? "auto"
+          : values.reasoningDefaultLevel,
+    };
   } else {
-    delete configJson.when_thinking_enabled;
+    delete configJson.reasoning;
   }
 
   return {
@@ -654,20 +666,17 @@ export function getRuntimeModelLabel(model: AdminModel): string {
 export function getModelCapabilityBadges(model: AdminModel): string[] {
   const config = getModelConfig(model);
   const badges: string[] = [];
-  if (config.supports_thinking === true) {
-    badges.push(t("Thinking"));
+  const reasoning = getCanonicalReasoning(config);
+  if (reasoning) {
+    badges.push(t("Reasoning"));
+    badges.push(
+      t("Reasoning {level}", {
+        level: reasoning.defaultLevel.toUpperCase(),
+      }),
+    );
   }
   if (config.supports_vision === true) {
     badges.push(t("Vision"));
-  }
-  if (config.supports_effort === true) {
-    badges.push(t("Effort"));
-  }
-  if (
-    isRecord(config.when_thinking_enabled) &&
-    Object.keys(config.when_thinking_enabled).length > 0
-  ) {
-    badges.push(t("Thinking Config"));
   }
   const maxInputTokens = config.max_input_tokens;
   if (

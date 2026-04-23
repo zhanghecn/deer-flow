@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -76,6 +77,9 @@ func main() {
 	adminObservabilityRepo := repository.NewAdminObservabilityRepo(pool)
 	publicAPIInputFileRepo := repository.NewPublicAPIInputFileRepo(pool)
 	publicAPIInvocationRepo := repository.NewPublicAPIInvocationRepo(pool)
+	if err := modelRepo.MigrateLegacyReasoningConfigs(context.Background()); err != nil {
+		log.Fatalf("Failed to migrate legacy model reasoning configs: %v", err)
+	}
 
 	// Services
 	agentSvc := service.NewAgentService(fs)

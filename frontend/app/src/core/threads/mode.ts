@@ -1,6 +1,6 @@
 export type ThreadMode = "flash" | "pro";
 export type LegacyThreadMode = ThreadMode | "thinking" | "ultra";
-export type ThreadEffort = "high";
+export type ThreadEffort = "low" | "medium" | "high" | "max";
 
 export const DEFAULT_SUBAGENT_ENABLED = true;
 
@@ -27,7 +27,11 @@ export function getResolvedThreadMode(
 }
 
 export function getEffortForMode(mode: ThreadMode): ThreadEffort | undefined {
-  return mode === "flash" ? undefined : "high";
+  void mode;
+  // Model-level reasoning defaults now live in the admin catalog. Workspace
+  // mode should only toggle thinking on/off unless the user explicitly picks a
+  // stronger per-run override elsewhere.
+  return undefined;
 }
 
 export function resolveSubmitFlags(

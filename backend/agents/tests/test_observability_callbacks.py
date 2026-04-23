@@ -42,6 +42,12 @@ def test_extract_model_request_context_keeps_tool_registration_without_secret_fi
                 "temperature": 0.2,
                 "max_tokens": 4096,
                 "effort": "high",
+                "reasoning_effort": "high",
+                "reasoning": {"effort": "none"},
+                "thinking": {"type": "enabled", "budget_tokens": 12000},
+                "thinking_budget": 16384,
+                "thinking_level": "high",
+                "include_thoughts": True,
                 "tool_choice": "auto",
                 "api_key": "secret-value",
                 "tools": [
@@ -66,6 +72,12 @@ def test_extract_model_request_context_keeps_tool_registration_without_secret_fi
     assert context["settings"]["temperature"] == 0.2
     assert context["settings"]["max_tokens"] == 4096
     assert context["settings"]["effort"] == "high"
+    assert context["settings"]["reasoning_effort"] == "high"
+    assert context["settings"]["reasoning"] == {"effort": "none"}
+    assert context["settings"]["thinking"] == {"type": "enabled", "budget_tokens": 12000}
+    assert context["settings"]["thinking_budget"] == 16384
+    assert context["settings"]["thinking_level"] == "high"
+    assert context["settings"]["include_thoughts"] is True
     assert context["options"]["stop"] == ["END"]
     assert context["tools"][0]["name"] == "read_file"
     assert "api_key" not in context

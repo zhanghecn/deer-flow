@@ -146,6 +146,12 @@ export interface TraceLLMRequestSettings {
   model?: string;
   provider?: string;
   effort?: string;
+  reasoningEffort?: string;
+  reasoning?: string;
+  thinking?: string;
+  thinkingBudget?: number;
+  thinkingLevel?: string;
+  includeThoughts?: boolean;
   maxTokens?: number;
   temperature?: number;
 }
@@ -228,6 +234,28 @@ export function extractLatestLLMRequestSettings(
       typeof settings?.effort === "string"
         ? settings.effort.trim()
         : "";
+    const reasoningEffort =
+      typeof settings?.reasoning_effort === "string"
+        ? settings.reasoning_effort.trim()
+        : "";
+    const reasoning = hasValue(settings?.reasoning)
+      ? summarizeValue(settings?.reasoning)
+      : "";
+    const thinking = hasValue(settings?.thinking)
+      ? summarizeValue(settings?.thinking)
+      : "";
+    const thinkingBudget =
+      typeof settings?.thinking_budget === "number"
+        ? settings.thinking_budget
+        : undefined;
+    const thinkingLevel =
+      typeof settings?.thinking_level === "string"
+        ? settings.thinking_level.trim()
+        : "";
+    const includeThoughts =
+      typeof settings?.include_thoughts === "boolean"
+        ? settings.include_thoughts
+        : undefined;
     const model =
       typeof request?.model === "string" ? request.model.trim() : "";
     const provider =
@@ -243,6 +271,12 @@ export function extractLatestLLMRequestSettings(
       model ||
       provider ||
       effort ||
+      reasoningEffort ||
+      reasoning ||
+      thinking ||
+      thinkingBudget !== undefined ||
+      thinkingLevel ||
+      includeThoughts !== undefined ||
       maxTokens !== undefined ||
       temperature !== undefined
     ) {
@@ -250,6 +284,12 @@ export function extractLatestLLMRequestSettings(
         model: model || undefined,
         provider: provider || undefined,
         effort: effort || undefined,
+        reasoningEffort: reasoningEffort || undefined,
+        reasoning: reasoning || undefined,
+        thinking: thinking || undefined,
+        thinkingBudget,
+        thinkingLevel: thinkingLevel || undefined,
+        includeThoughts,
         maxTokens,
         temperature,
       };

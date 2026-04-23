@@ -41,12 +41,11 @@ import { toast } from "sonner";
 import {
   applyModelProviderPreset,
   buildModelPayload,
-  buildThinkingConfigTemplate,
   getModelFormValues,
   MODEL_PROVIDER_PRESETS,
   resolveModelFormValues,
   type ModelFormValues,
-  type ModelThinkingMode,
+  type ModelReasoningLevel,
 } from "./model-config";
 
 interface ModelFormProps {
@@ -96,24 +95,22 @@ const OVERRIDE_FIELDS: Array<{
 const CAPABILITY_FIELDS: Array<{
   key:
     | "enabled"
-    | "supportsThinking"
-    | "supportsVision"
-    | "supportsEffort";
+    | "supportsVision";
   label: string;
 }> = [
   { key: "enabled", label: "Enabled" },
-  { key: "supportsThinking", label: "Supports Thinking" },
   { key: "supportsVision", label: "Supports Vision" },
-  { key: "supportsEffort", label: "Supports Effort" },
 ];
 
-const THINKING_MODE_OPTIONS: Array<{
-  value: Exclude<ModelThinkingMode, "custom">;
+const REASONING_LEVEL_OPTIONS: Array<{
+  value: ModelReasoningLevel;
   label: string;
 }> = [
-  { value: "inherit", label: "Auto" },
-  { value: "enabled", label: "Enabled" },
-  { value: "adaptive", label: "Adaptive" },
+  { value: "auto", label: "Auto" },
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+  { value: "max", label: "Max" },
 ];
 
 const JSON_EDITOR_CLASS_NAME =
@@ -139,12 +136,6 @@ export function ModelForm({
     ? `admin-model-edit-${editModel?.name ?? "unknown"}-${formSession}`
     : `admin-model-create-${formSession}`;
   const formKey = `${editModel?.name ?? "create"}-${formSession}`;
-  const showsCustomThinkingEditor = values.thinkingMode === "custom";
-  const showsThinkingBudget = values.supportsThinking
-    && values.thinkingMode === "enabled";
-  const thinkingPayloadLabel = values.thinkingShape === "anthropic"
-    ? t("Anthropic-style `thinking` payload")
-    : t("OpenAI-compatible `extra_body.thinking` payload");
 
   useEffect(() => {
     if (!open) {
@@ -166,37 +157,6 @@ export function ModelForm({
     value: ModelFormValues[Key],
   ) {
     setValues((current) => ({ ...current, [key]: value }));
-  }
-
-  function handleThinkingModeChange(mode: ModelThinkingMode) {
-    setValues((current) => ({
-      ...current,
-      thinkingMode: mode,
-      customThinkingConfig:
-        mode === "custom" && !current.customThinkingConfig.trim()
-          ? buildThinkingConfigTemplate(current.thinkingShape)
-          : current.customThinkingConfig,
-    }));
-  }
-
-  function formatCustomThinkingConfig() {
-    try {
-      updateField(
-        "customThinkingConfig",
-        formatJsonObject(values.customThinkingConfig, t("Thinking config")),
-      );
-      toast.success(t("Thinking config formatted"));
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("Invalid JSON"));
-    }
-  }
-
-  function resetCustomThinkingConfig() {
-    setValues((current) => ({
-      ...current,
-      thinkingMode: "inherit",
-      customThinkingConfig: "",
-    }));
   }
 
   function formatExtraConfig() {
@@ -532,133 +492,68 @@ export function ModelForm({
                   </Section>
 
                   <Section
-                    title={t("Thinking Defaults")}
-                    description={t("Common thinking behavior is configured here directly, so you do not need to write `when_thinking_enabled` JSON by hand.")}
+                    title={t("Reasoning")}
+                    description={t("Keep the admin surface on the product concepts only: whether this model supports reasoning and what default level it should use when reasoning is enabled at runtime.")}
                   >
                     <div className="space-y-4">
+                      <SwitchField
+                        checked={values.supportsReasoning}
+                        label={t("Supports Reasoning")}
+                        onCheckedChange={(checked) =>
+                          updateField("supportsReasoning", checked)
+                        }
+                      />
                       <Field
-                        label={t("Thinking Mode")}
+                        label={t("Default Reasoning Level")}
                         description={
-                          values.supportsThinking
-                            ? t("Pick how the runtime should populate `config_json.when_thinking_enabled` for this model.")
-                            : t("Turn on Supports Thinking above to configure thinking defaults.")
+                          values.supportsReasoning
+                            ? t("Used when the caller enables reasoning but does not send an explicit effort override.")
+                            : t("Turn on Supports Reasoning above to configure a default level.")
                         }
                       >
                         <Select
-                          disabled={!values.supportsThinking}
-                          value={values.thinkingMode}
+                          disabled={!values.supportsReasoning}
+                          value={values.reasoningDefaultLevel}
                           onValueChange={(value) =>
-                            handleThinkingModeChange(value as ModelThinkingMode)
+                            updateField(
+                              "reasoningDefaultLevel",
+                              value as ModelReasoningLevel,
+                            )
                           }
                         >
                           <SelectTrigger
-                            aria-label={t("Thinking Mode")}
-                            name={`${fieldNamePrefix}-thinking-mode`}
+                            aria-label={t("Default Reasoning Level")}
+                            name={`${fieldNamePrefix}-reasoning-default-level`}
                           >
-                            <SelectValue placeholder={t("Select thinking mode")} />
+                            <SelectValue
+                              placeholder={t("Select a reasoning level")}
+                            />
                           </SelectTrigger>
                           <SelectContent>
-                            {THINKING_MODE_OPTIONS.map((option) => (
+                            {REASONING_LEVEL_OPTIONS.map((option) => (
                               <SelectItem key={option.value} value={option.value}>
                                 {t(option.label)}
                               </SelectItem>
                             ))}
-                            <SelectItem value="custom">
-                              {t("Custom JSON")}
-                            </SelectItem>
                           </SelectContent>
                         </Select>
                       </Field>
-
-                      <div className="rounded-lg border bg-background/60 px-3 py-2 text-xs text-muted-foreground">
-                        {t("Payload Shape")}: {thinkingPayloadLabel}
-                      </div>
-
-                      {showsThinkingBudget ? (
-                        <Field
-                          label={t("Thinking Budget Tokens")}
-                          description={t("Optional token budget written into the thinking payload when mode is Enabled.")}
-                        >
-                          <Input
-                            autoComplete="off"
-                            disabled={!values.supportsThinking}
-                            inputMode="numeric"
-                            min={1}
-                            name={`${fieldNamePrefix}-thinking-budget`}
-                            placeholder={t("For example 16000")}
-                            type="number"
-                            value={values.thinkingBudgetTokens}
-                            onChange={(event) =>
-                              updateField("thinkingBudgetTokens", event.target.value)
-                            }
-                          />
-                        </Field>
-                      ) : null}
                       <p className="rounded-lg border border-dashed bg-background/60 px-3 py-2 text-xs text-muted-foreground">
-                        {values.supportsEffort
-                          ? t("Effort is chosen per run in workspace and public API requests. It is no longer stored in the model profile.")
-                          : t("Turn on Supports Effort above if this provider accepts per-run effort levels.")}
+                        {t("Provider payload mapping now lives in the runtime. The admin form only stores the canonical `reasoning` contract and default level.")}
                       </p>
-
-                      {showsCustomThinkingEditor ? (
-                        <p className="rounded-lg border border-dashed bg-background/60 px-3 py-2 text-xs text-muted-foreground">
-                          {t("This model uses a custom thinking payload. It will be preserved unless you switch back to a standard mode.")}
-                        </p>
-                      ) : null}
                     </div>
                   </Section>
                 </div>
               </div>
             ) : (
-              <div className={showsCustomThinkingEditor ? "grid gap-5 sm:grid-cols-2" : ""}>
-                {showsCustomThinkingEditor ? (
-                  <Section
-                    title={t("Custom Thinking JSON")}
-                    description={t("Only needed when your provider expects a thinking payload that the direct controls cannot express.")}
-                  >
-                    <Field
-                      label={t("JSON")}
-                      description={t("Stored in `config_json.when_thinking_enabled` exactly as written.")}
-                    >
-                      <EditorToolbar>
-                        <Button
-                          size="sm"
-                          type="button"
-                          variant="outline"
-                          onClick={formatCustomThinkingConfig}
-                        >
-                          {t("Format JSON")}
-                        </Button>
-                        <Button
-                          size="sm"
-                          type="button"
-                          variant="ghost"
-                          onClick={resetCustomThinkingConfig}
-                        >
-                          {t("Clear")}
-                        </Button>
-                      </EditorToolbar>
-                      <Textarea
-                        autoComplete="off"
-                        className={JSON_EDITOR_CLASS_NAME}
-                        name={`${fieldNamePrefix}-custom-thinking-config`}
-                        placeholder={buildThinkingConfigTemplate(values.thinkingShape)}
-                        spellCheck={false}
-                        value={values.customThinkingConfig}
-                        onChange={(event) =>
-                          updateField("customThinkingConfig", event.target.value)
-                        }
-                      />
-                    </Field>
-                  </Section>
-                ) : null}
+              <div>
                 <Section
                   title={t("Extra Config")}
                   description={t("Use this for provider-specific keys such as timeout, output limits, or headers.")}
                 >
                   <Field
                     label={t("JSON")}
-                    description={t("Fields already exposed above should stay out of this object.")}
+                    description={t("Fields already exposed above, especially `reasoning`, should stay out of this object.")}
                   >
                     <EditorToolbar>
                       <Button

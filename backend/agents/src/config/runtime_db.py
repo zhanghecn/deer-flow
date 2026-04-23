@@ -8,7 +8,11 @@ from threading import Lock
 
 from dotenv import dotenv_values
 
-from src.config.model_config import ModelConfig
+from src.config.model_config import (
+    ModelConfig,
+    has_legacy_reasoning_config,
+    migrate_legacy_model_config_payload,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +118,11 @@ class RuntimeDBStore:
 
             model_name, display_name, config_json = row
             payload = self._coerce_json_object(config_json)
+            payload = self._migrate_legacy_model_config_if_needed(
+                conn,
+                model_name=model_name,
+                payload=payload,
+            )
             payload["name"] = model_name
             if display_name is not None and str(display_name).strip() != "":
                 payload.setdefault("display_name", display_name)
@@ -135,6 +144,11 @@ class RuntimeDBStore:
 
             model_name, display_name, config_json = row
             payload = self._coerce_json_object(config_json)
+            payload = self._migrate_legacy_model_config_if_needed(
+                conn,
+                model_name=model_name,
+                payload=payload,
+            )
             payload["name"] = model_name
             if display_name is not None and str(display_name).strip() != "":
                 payload.setdefault("display_name", display_name)
@@ -431,6 +445,27 @@ class RuntimeDBStore:
         if isinstance(obj, dict):
             return dict(obj)
         raise ValueError(f"Unsupported models.config_json type: {type(value).__name__}")
+
+    def _migrate_legacy_model_config_if_needed(
+        self,
+        conn,
+        *,
+        model_name: str,
+        payload: dict,
+    ) -> dict:
+        if not has_legacy_reasoning_config(payload):
+            return payload
+
+        normalized = migrate_legacy_model_config_payload(payload)
+        with conn.cursor() as cur:
+            # Persist the canonical reasoning contract as soon as we encounter a
+            # legacy row so the runtime does not keep two config shapes alive.
+            cur.execute(
+                "UPDATE models SET config_json = %s WHERE name = %s",
+                (json.dumps(normalized), model_name),
+            )
+        logger.info("Migrated legacy reasoning config for model '%s'.", model_name)
+        return normalized
 
     @staticmethod
     def _normalize_optional_text(value: object) -> str | None:
