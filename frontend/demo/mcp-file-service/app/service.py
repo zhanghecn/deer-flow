@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING, Any, Literal
 if TYPE_CHECKING:
     from fastapi import UploadFile
 
+from .documents import DocumentTooling
+
 EMPTY_CONTENT_WARNING = "System reminder: File exists but has empty contents"
 BINARY_DOCUMENT_EXTENSIONS = {
     ".pdf",
@@ -135,6 +137,47 @@ def build_tool_catalog() -> list[dict[str, Any]]:
                 ToolArgument("path", "string", False, "Relative directory to search under."),
             ),
         ),
+        ToolDescriptor(
+            name="document_search",
+            summary=(
+                "Search document content across text, PDF, image, and Office files. "
+                "Use this first for document questions because it returns page/slide/"
+                "sheet-style evidence instead of raw file bytes."
+            ),
+            returns="JSON payload with ranked results, locator metadata, and next-action hints.",
+            arguments=(
+                ToolArgument("query", "string", True, "Natural-language question or search phrase."),
+                ToolArgument("path", "string", False, "Optional file or directory scope under the uploaded root."),
+                ToolArgument("cursor", "integer", False, "Zero-based pagination cursor.", default=0),
+                ToolArgument("limit", "integer", False, "Maximum number of matches to return.", default=10),
+            ),
+        ),
+        ToolDescriptor(
+            name="document_read",
+            summary=(
+                "Read one document using page/slide/sheet/region cursors. The response "
+                "includes `contains_visual`, `has_more`, and rich content blocks so the "
+                "agent can decide whether to continue reading or fetch an asset."
+            ),
+            returns="JSON payload with locator metadata, pagination, and content_blocks.",
+            arguments=(
+                ToolArgument("path", "string", True, "Relative file path under the uploaded root."),
+                ToolArgument("cursor", "integer", False, "Zero-based unit cursor.", default=0),
+                ToolArgument("limit", "integer", False, "Maximum number of units to return.", default=3),
+            ),
+        ),
+        ToolDescriptor(
+            name="document_fetch_asset",
+            summary=(
+                "Fetch one visual asset referenced by `document_read`. Small images are "
+                "inlined as base64 so the demo can verify end-to-end visual asset access."
+            ),
+            returns="JSON payload with asset metadata and optional inlined base64 content.",
+            arguments=(
+                ToolArgument("path", "string", True, "Relative file path under the uploaded root."),
+                ToolArgument("asset_ref", "string", True, "Asset reference returned by document_read."),
+            ),
+        ),
     )
     return [
         {
@@ -162,6 +205,12 @@ class FileMcpService:
     def __init__(self, root: Path, *, seed_root: Path | None = None) -> None:
         self.root = root.resolve()
         self.seed_root = seed_root.resolve() if seed_root else None
+        # Document parsing stays inside the 8084 demo service so richer document
+        # semantics do not leak into the shared runtime or prompt layers.
+        self.document_tools = DocumentTooling(
+            root=self.root,
+            describe_access=self._describe_file_content_access,
+        )
         self.root.mkdir(parents=True, exist_ok=True)
         self._seed_if_empty()
 
@@ -234,7 +283,8 @@ class FileMcpService:
             return (
                 f"{tool_name} only supports text files. '{file_name}' is "
                 f"{access.mime_type}. PDF and Office files must go through a "
-                "document-specific pipeline instead of generic text tools."
+                "document-specific pipeline such as document_search/document_read "
+                "instead of generic text tools."
             )
         return (
             f"{tool_name} only supports text files. '{file_name}' is "
@@ -492,7 +542,13 @@ class FileMcpService:
                 "page_size": safe_page_size,
                 "total_chars": 0,
                 "has_more": False,
-                "content": message,
+                "content": (
+                    f"{message}\n\n"
+                    "Recommended demo flow:\n"
+                    "- document_search(query, path?)\n"
+                    "- document_read(path, cursor?, limit?)\n"
+                    "- document_fetch_asset(path, asset_ref) when a visual asset is needed"
+                ),
             }
         text = requested_file.read_text(encoding="utf-8", errors="ignore")
         start = (safe_page - 1) * safe_page_size
@@ -685,6 +741,64 @@ class FileMcpService:
             "items": items,
             "total": len(items),
         }
+
+    def document_search_payload(
+        self,
+        *,
+        query: str,
+        path: str = "",
+        cursor: int = 0,
+        limit: int = 10,
+    ) -> dict[str, Any]:
+        """Search document semantics instead of generic text-file bytes."""
+
+        base = self._resolve_existing_path(path) if path else self.root
+        if base.is_file():
+            candidates = [base.resolve()]
+        elif base.is_dir():
+            candidates = self._sorted_file_paths(base, recursive=True)
+        else:
+            raise ValueError(f"path is not a file or directory: {path}")
+        return self.document_tools.search(
+            files=candidates,
+            query=query,
+            cursor=cursor,
+            limit=limit,
+        )
+
+    def document_read_payload(
+        self,
+        *,
+        path: str,
+        cursor: int = 0,
+        limit: int = 3,
+    ) -> dict[str, Any]:
+        """Read one parsed document window using the unified document contract."""
+
+        requested_file = self._resolve_existing_path(path)
+        if not requested_file.is_file():
+            raise ValueError(f"path is not a file: {path}")
+        return self.document_tools.read(
+            file_path=requested_file,
+            cursor=cursor,
+            limit=limit,
+        )
+
+    def document_fetch_asset_payload(
+        self,
+        *,
+        path: str,
+        asset_ref: str,
+    ) -> dict[str, Any]:
+        """Fetch one referenced visual asset from a parsed document."""
+
+        requested_file = self._resolve_existing_path(path)
+        if not requested_file.is_file():
+            raise ValueError(f"path is not a file: {path}")
+        return self.document_tools.fetch_asset(
+            file_path=requested_file,
+            asset_ref=asset_ref,
+        )
 
     async def store_uploads(
         self,

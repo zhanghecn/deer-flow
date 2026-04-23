@@ -5,12 +5,99 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from docx import Document as WordDocument
+from docx.shared import Inches as DocInches
+from openpyxl import Workbook
+from openpyxl.chart import BarChart, Reference
+from openpyxl.drawing.image import Image as XlsxImage
+from PIL import Image
+from pptx import Presentation
+from pptx.chart.data import CategoryChartData
+from pptx.enum.chart import XL_CHART_TYPE
+from pptx.util import Inches as PptxInches
+
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
 if str(SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(SERVICE_ROOT))
 
 from app.service import FileMcpService
+
+
+def build_pdf_bytes(pages: list[str]) -> bytes:
+    """Generate a minimal text PDF that pypdf can extract in tests."""
+
+    header = b"%PDF-1.4\n"
+    objects: list[bytes] = [
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+    ]
+    page_refs: list[str] = []
+    page_objects: list[bytes] = []
+    next_object_number = 3
+    font_object_number = 2 * len(pages) + 3
+
+    for text in pages:
+        page_number = next_object_number
+        content_number = next_object_number + 1
+        page_refs.append(f"{page_number} 0 R")
+        safe_text = (
+            text.replace("\\", "\\\\")
+            .replace("(", "\\(")
+            .replace(")", "\\)")
+        )
+        stream = (
+            f"BT\n/F1 18 Tf\n72 720 Td\n({safe_text}) Tj\nET\n".encode("latin-1")
+        )
+        page_objects.append(
+            (
+                f"{page_number} 0 obj\n"
+                f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+                f"/Resources << /Font << /F1 {font_object_number} 0 R >> >> "
+                f"/Contents {content_number} 0 R >>\nendobj\n"
+            ).encode("latin-1")
+        )
+        page_objects.append(
+            (
+                f"{content_number} 0 obj\n<< /Length {len(stream)} >>\nstream\n"
+            ).encode("latin-1")
+            + stream
+            + b"endstream\nendobj\n"
+        )
+        next_object_number += 2
+
+    objects.append(
+        (
+            f"2 0 obj\n<< /Type /Pages /Kids [{' '.join(page_refs)}] "
+            f"/Count {len(page_refs)} >>\nendobj\n"
+        ).encode("latin-1")
+    )
+    objects.extend(page_objects)
+    objects.append(
+        (
+            f"{font_object_number} 0 obj\n"
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica "
+            "/Encoding /WinAnsiEncoding >>\nendobj\n"
+        ).encode("latin-1")
+    )
+
+    offsets = [0]
+    body = b""
+    for obj in objects:
+        offsets.append(len(header) + len(body))
+        body += obj
+
+    startxref = len(header) + len(body)
+    xref_parts = [
+        f"xref\n0 {len(offsets)}\n0000000000 65535 f \n".encode("latin-1")
+    ]
+    for offset in offsets[1:]:
+        xref_parts.append(f"{offset:010d} 00000 n \n".encode("latin-1"))
+
+    trailer = (
+        f"trailer\n<< /Size {len(offsets)} /Root 1 0 R >>\n"
+        f"startxref\n{startxref}\n%%EOF\n"
+    ).encode("latin-1")
+    return header + body + b"".join(xref_parts) + trailer
 
 
 class FileMcpServiceTest(unittest.TestCase):
@@ -31,6 +118,79 @@ class FileMcpServiceTest(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
+
+    def _write_image(self, relative_path: str) -> Path:
+        target = self.root / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (80, 40), "white").save(target)
+        return target
+
+    def _write_pdf(self, relative_path: str, pages: list[str]) -> Path:
+        target = self.root / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(build_pdf_bytes(pages))
+        return target
+
+    def _write_pptx(self, relative_path: str) -> Path:
+        image_path = self._write_image("assets/slide-proof.png")
+        target = self.root / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        presentation = Presentation()
+        slide = presentation.slides.add_slide(presentation.slide_layouts[5])
+        slide.shapes.title.text = "Quarterly Revenue"
+        slide.shapes.add_picture(
+            str(image_path),
+            PptxInches(0.8),
+            PptxInches(1.2),
+            width=PptxInches(1.8),
+        )
+        chart_data = CategoryChartData()
+        chart_data.categories = ["Q1", "Q2"]
+        chart_data.add_series("Revenue", (120, 180))
+        chart = slide.shapes.add_chart(
+            XL_CHART_TYPE.COLUMN_CLUSTERED,
+            PptxInches(3.0),
+            PptxInches(1.2),
+            PptxInches(4.5),
+            PptxInches(3.2),
+            chart_data,
+        ).chart
+        chart.has_title = True
+        chart.chart_title.text_frame.text = "Revenue Trend"
+        presentation.save(target)
+        return target
+
+    def _write_docx(self, relative_path: str) -> Path:
+        image_path = self._write_image("assets/doc-proof.png")
+        target = self.root / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        document = WordDocument()
+        document.add_paragraph("Customer premium note")
+        document.add_picture(str(image_path), width=DocInches(1))
+        document.save(target)
+        return target
+
+    def _write_xlsx(self, relative_path: str) -> Path:
+        image_path = self._write_image("assets/sheet-proof.png")
+        target = self.root / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Revenue"
+        sheet.append(["Quarter", "Revenue"])
+        sheet.append(["Q1", 120])
+        sheet.append(["Q2", 180])
+        sheet.add_image(XlsxImage(str(image_path)), "D2")
+        chart = BarChart()
+        chart.title = "Revenue Trend"
+        data = Reference(sheet, min_col=2, min_row=1, max_row=3)
+        categories = Reference(sheet, min_col=1, min_row=2, max_row=3)
+        chart.add_data(data, titles_from_data=True)
+        chart.set_categories(categories)
+        sheet.add_chart(chart, "F2")
+        workbook.save(target)
+        workbook.close()
+        return target
 
     def test_list_reports_binary_documents_without_hiding_sibling_text_files(self) -> None:
         (self.root / "合同.pdf").write_bytes(b"%PDF-1.4 fake")
@@ -143,6 +303,131 @@ class FileMcpServiceTest(unittest.TestCase):
         self.assertEqual(payload["output_mode"], "files_with_matches")
         self.assertEqual(payload["requested_output_mode"], "files")
         self.assertEqual(payload["items"], ["案例大全/a.md", "案例大全/b.md"])
+
+    def test_document_search_matches_pdf_text_from_natural_language_query(self) -> None:
+        self._write_pdf(
+            "nested/contracts/policy-alpha.pdf",
+            ["Deductible is 500 USD", "Coinsurance is 20 percent"],
+        )
+
+        payload = self.service.document_search_payload(
+            query="What is the deductible in policy alpha?",
+            path="nested/contracts/policy-alpha.pdf",
+            limit=5,
+        )
+
+        self.assertEqual(payload["total"], 1)
+        match = payload["results"][0]
+        self.assertEqual(match["document_kind"], "pdf")
+        self.assertEqual(match["locator_type"], "page")
+        self.assertEqual(match["locator"], 1)
+        self.assertEqual(match["evidence_type"], "text")
+        self.assertEqual(match["next_action_hint"], "read_more")
+
+    def test_document_read_paginates_pdf_pages(self) -> None:
+        self._write_pdf(
+            "nested/contracts/policy-alpha.pdf",
+            ["Deductible is 500 USD", "Coinsurance is 20 percent"],
+        )
+
+        payload = self.service.document_read_payload(
+            path="nested/contracts/policy-alpha.pdf",
+            cursor=0,
+            limit=1,
+        )
+
+        self.assertEqual(payload["document_kind"], "pdf")
+        self.assertEqual(payload["locator_type"], "page")
+        self.assertEqual(payload["total_units"], 2)
+        self.assertEqual(payload["returned_units"], 1)
+        self.assertTrue(payload["has_more"])
+        self.assertEqual(payload["next_cursor"], 1)
+        self.assertEqual(payload["content_blocks"][0]["type"], "text")
+
+    def test_document_read_returns_pptx_text_and_visual_blocks(self) -> None:
+        self._write_pptx("nested/slides/review-deck.pptx")
+
+        payload = self.service.document_read_payload(
+            path="nested/slides/review-deck.pptx",
+            cursor=0,
+            limit=1,
+        )
+
+        self.assertEqual(payload["document_kind"], "pptx")
+        self.assertTrue(payload["contains_visual"])
+        block_types = {block["type"] for block in payload["content_blocks"]}
+        self.assertIn("text", block_types)
+        self.assertIn("image", block_types)
+        self.assertIn("document", block_types)
+
+    def test_document_fetch_asset_inlines_small_pptx_images(self) -> None:
+        self._write_pptx("nested/slides/review-deck.pptx")
+        read_payload = self.service.document_read_payload(
+            path="nested/slides/review-deck.pptx",
+            cursor=0,
+            limit=1,
+        )
+        image_block = next(
+            block for block in read_payload["content_blocks"] if block["type"] == "image"
+        )
+
+        payload = self.service.document_fetch_asset_payload(
+            path="nested/slides/review-deck.pptx",
+            asset_ref=image_block["asset_ref"],
+        )
+
+        self.assertTrue(payload["inlined"])
+        self.assertEqual(payload["asset_kind"], "image")
+        self.assertIn("content_base64", payload)
+
+    def test_document_search_reads_xlsx_table_and_chart_evidence(self) -> None:
+        self._write_xlsx("nested/sheets/revenue-tracker.xlsx")
+
+        table_payload = self.service.document_search_payload(
+            query="Q2",
+            path="nested/sheets/revenue-tracker.xlsx",
+            limit=5,
+        )
+        chart_payload = self.service.document_search_payload(
+            query="Revenue Trend",
+            path="nested/sheets/revenue-tracker.xlsx",
+            limit=5,
+        )
+
+        self.assertEqual(table_payload["results"][0]["evidence_type"], "table_text")
+        self.assertEqual(chart_payload["results"][0]["evidence_type"], "vision_summary")
+        self.assertEqual(chart_payload["results"][0]["locator_type"], "sheet")
+
+    def test_document_read_returns_xlsx_table_block_and_visual_flag(self) -> None:
+        self._write_xlsx("nested/sheets/revenue-tracker.xlsx")
+
+        payload = self.service.document_read_payload(
+            path="nested/sheets/revenue-tracker.xlsx",
+            cursor=0,
+            limit=1,
+        )
+
+        self.assertEqual(payload["document_kind"], "xlsx")
+        self.assertTrue(payload["contains_visual"])
+        self.assertEqual(payload["locator_type"], "sheet")
+        self.assertTrue(
+            any(block["type"] == "table" for block in payload["content_blocks"])
+        )
+
+    def test_document_read_returns_docx_regions_and_media_unit(self) -> None:
+        self._write_docx("nested/docs/briefing.docx")
+
+        payload = self.service.document_read_payload(
+            path="nested/docs/briefing.docx",
+            cursor=0,
+            limit=5,
+        )
+
+        self.assertEqual(payload["document_kind"], "docx")
+        self.assertGreaterEqual(payload["total_units"], 2)
+        self.assertTrue(
+            any(block["type"] == "image" for block in payload["content_blocks"])
+        )
 
 
 if __name__ == "__main__":

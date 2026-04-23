@@ -37,6 +37,7 @@ import {
   type WorkbenchHealth,
 } from "../lib/workbench-api";
 import { createDemoId } from "../lib/uid";
+import { saveWorkbenchContext } from "../lib/workbench-context";
 
 type ToolDraftState = Record<string, string>;
 
@@ -94,6 +95,18 @@ const TOOL_PRESETS: Record<
   ],
   fs_glob: [
     { label: "匹配 *.md", values: { pattern: "*.md", path: "" } },
+  ],
+  document_search: [
+    {
+      label: "搜索 deductible",
+      values: { query: "deductible", path: "", cursor: "0", limit: "10" },
+    },
+  ],
+  document_read: [
+    { label: "读取前 3 个单元", values: { path: "", cursor: "0", limit: "3" } },
+  ],
+  document_fetch_asset: [
+    { label: "等待 asset_ref", values: { path: "", asset_ref: "" } },
   ],
 };
 
@@ -217,11 +230,36 @@ function derivePathArgument(toolName: string, selectedFilePath: string) {
   if (!selectedFilePath) {
     return "";
   }
-  if (toolName === "fs_read") {
+  if (
+    toolName === "fs_read" ||
+    toolName === "document_read" ||
+    toolName === "document_fetch_asset" ||
+    toolName === "document_search"
+  ) {
     return selectedFilePath;
   }
   const slashIndex = selectedFilePath.lastIndexOf("/");
   return slashIndex >= 0 ? selectedFilePath.slice(0, slashIndex) : "";
+}
+
+function getPathButtonLabel(toolName: string) {
+  if (toolName === "fs_read" || toolName === "document_read") {
+    return "使用当前文件";
+  }
+  if (toolName === "document_fetch_asset" || toolName === "document_search") {
+    return "使用当前路径";
+  }
+  return "使用当前目录";
+}
+
+function supportsDocumentTools(file: StoredFileRow | null) {
+  if (!file) {
+    return false;
+  }
+  if (file.content_kind === "binary_document") {
+    return true;
+  }
+  return file.mime_type?.startsWith("image/") ?? false;
 }
 
 function getRelativePathFromFile(file: File) {
@@ -559,6 +597,19 @@ export function WorkbenchPage() {
   );
 
   useEffect(() => {
+    saveWorkbenchContext(
+      selectedFileEntry
+        ? {
+            selectedPath: selectedFileEntry.path,
+            baseURL: workbenchBaseURL,
+            contentKind: selectedFileEntry.content_kind ?? null,
+            mimeType: selectedFileEntry.mime_type ?? null,
+          }
+        : null,
+    );
+  }, [selectedFileEntry, workbenchBaseURL]);
+
+  useEffect(() => {
     if (!folderPickerRef.current) {
       return;
     }
@@ -764,6 +815,12 @@ export function WorkbenchPage() {
     setSelectedToolName("fs_read");
   }
 
+  function selectDocumentTarget(filePath: string) {
+    mergeDraftValues("document_read", { path: filePath });
+    mergeDraftValues("document_search", { path: filePath });
+    setSelectedToolName("document_read");
+  }
+
   function materializeArguments(tool: ToolCatalogEntry) {
     const draft = toolDrafts[tool.name] ?? {};
     const argumentsPayload: Record<string, unknown> = {};
@@ -876,7 +933,7 @@ export function WorkbenchPage() {
           <div className="min-w-0">
             <h1 className="text-base font-medium">MCP 文件调试台</h1>
             <p className="mt-1 text-xs text-[var(--muted)]">
-              只保留文件维护、MCP 工具规范和手动工具调试。
+              文件库维护、文档工具联调和真实 MCP transport 验收都集中在这里。
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -1058,9 +1115,22 @@ export function WorkbenchPage() {
                   <code className="min-w-0 flex-1 truncate text-xs text-[var(--text-soft)]">
                     {selectedFileEntry.path}
                   </code>
+                  {selectedFileEntry.content_kind ? (
+                    <span className="rounded-md border border-[var(--border)] bg-zinc-900 px-2 py-1 text-[11px] text-[var(--muted)]">
+                      {selectedFileEntry.content_kind}
+                    </span>
+                  ) : null}
                   <GhostButton onClick={() => selectReadTarget(selectedFileEntry.path)}>
                     设为读取目标
                   </GhostButton>
+                  {supportsDocumentTools(selectedFileEntry) ? (
+                    <GhostButton
+                      tone="accent"
+                      onClick={() => selectDocumentTarget(selectedFileEntry.path)}
+                    >
+                      文档读取目标
+                    </GhostButton>
+                  ) : null}
                   <GhostButton
                     tone="danger"
                     onClick={() => void handleDeleteFile(selectedFileEntry.path)}
@@ -1140,6 +1210,18 @@ export function WorkbenchPage() {
                         读取目标
                       </GhostButton>
                       <GhostButton
+                        tone="accent"
+                        disabled={!supportsDocumentTools(selectedFileEntry)}
+                        onClick={() =>
+                          selectedFileEntry
+                            ? selectDocumentTarget(selectedFileEntry.path)
+                            : undefined
+                        }
+                      >
+                        <Wrench className="size-3.5" />
+                        文档目标
+                      </GhostButton>
+                      <GhostButton
                         tone="danger"
                         disabled={!selectedFileEntry}
                         onClick={() =>
@@ -1210,7 +1292,7 @@ export function WorkbenchPage() {
         <div className="space-y-4">
           <Panel
             title="工具工作台"
-            description="参数表单来自静态规范，但执行和验收都走真实 MCP transport。"
+            description="参数表单来自静态规范，但执行和验收都走真实 MCP transport；fs_* 与 document_* 会同时暴露给真实 agent。"
             actions={
               <div className="flex items-center gap-2">
                 <StatusBadge
@@ -1275,9 +1357,7 @@ export function WorkbenchPage() {
                             )
                           }
                         >
-                          {selectedTool.name === "fs_read"
-                            ? "使用当前文件"
-                            : "使用当前目录"}
+                          {getPathButtonLabel(selectedTool.name)}
                         </GhostButton>
                       ) : null}
                     </div>
@@ -1386,7 +1466,7 @@ export function WorkbenchPage() {
             )}
           </Panel>
 
-          <Panel title="文件预览" description="磁盘文件读取仍然走分页接口，避免一次性把整个文件拉进浏览器。">
+          <Panel title="文件预览" description="文本预览仍走分页接口；PDF/Office 文件会在这里提示改用 document_search/document_read。">
             {selectedFilePath ? (
               <div className="space-y-2">
                 <p className="font-mono text-xs text-[var(--text-soft)]">{selectedFilePath}</p>

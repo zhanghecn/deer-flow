@@ -3,6 +3,9 @@ export type StoredFileRow = {
   size_bytes: number;
   updated_at: string;
   mime_type: string;
+  entry_type?: "file" | "directory";
+  content_kind?: string;
+  text_readable?: boolean;
 };
 
 export type ToolCatalogEntry = {
@@ -79,6 +82,8 @@ export type FilePreviewResponse = {
   page_size: number;
   total_chars: number;
   has_more: boolean;
+  content_kind?: string;
+  text_readable?: boolean;
 };
 
 export type UploadFilesResponse = {

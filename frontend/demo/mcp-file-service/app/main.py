@@ -280,6 +280,47 @@ def fs_glob(pattern: str = "*", path: str = "") -> str:
     return service.tool_payload_json(payload)
 
 
+@mcp.tool()
+def document_search(
+    query: str,
+    path: str = "",
+    cursor: int = 0,
+    limit: int = 10,
+) -> str:
+    """Search uploaded documents by document semantics rather than raw bytes."""
+
+    payload = service.document_search_payload(
+        query=query,
+        path=path,
+        cursor=cursor,
+        limit=limit,
+    )
+    return service.tool_payload_json(payload)
+
+
+@mcp.tool()
+def document_read(path: str, cursor: int = 0, limit: int = 3) -> str:
+    """Read one document window using page/slide/sheet/region cursors."""
+
+    payload = service.document_read_payload(
+        path=path,
+        cursor=cursor,
+        limit=limit,
+    )
+    return service.tool_payload_json(payload)
+
+
+@mcp.tool()
+def document_fetch_asset(path: str, asset_ref: str) -> str:
+    """Fetch one visual asset returned by `document_read`."""
+
+    payload = service.document_fetch_asset_payload(
+        path=path,
+        asset_ref=asset_ref,
+    )
+    return service.tool_payload_json(payload)
+
+
 @asynccontextmanager
 async def workbench_lifespan(_: FastAPI):
     """Run the mounted FastMCP session manager inside the parent app lifecycle."""

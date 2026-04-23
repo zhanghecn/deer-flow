@@ -6,6 +6,7 @@ import { MarkdownRenderer } from "../components/markdown-renderer";
 import { createChatSession, type ToolCallStep } from "../lib/chat-session";
 import { resolvePublicAPIBaseURL } from "../lib/public-api";
 import { createDemoId } from "../lib/uid";
+import { loadWorkbenchContext } from "../lib/workbench-context";
 
 const SETTINGS_KEY = "demo_chat_settings";
 
@@ -28,14 +29,47 @@ type ChatSettings = {
 
 /* ─── Settings helpers ──────────────────────────────────── */
 
+function getDefaultBaseURI(): string {
+  return (
+    (import.meta.env.VITE_DEMO_PUBLIC_API_BASE_URL as string | undefined)
+      ?.trim() || ""
+  );
+}
+
+function getDefaultAPIKey(): string {
+  return (
+    (import.meta.env.VITE_DEMO_PUBLIC_API_KEY as string | undefined)?.trim() ||
+    (import.meta.env.VITE_DEMO_HTTP_API_KEY as string | undefined)?.trim() ||
+    ""
+  );
+}
+
+function getDefaultSettings(): ChatSettings {
+  return {
+    baseURI: getDefaultBaseURI(),
+    apiKey: getDefaultAPIKey(),
+    agentName:
+      getDefaultAgentName() ||
+      (import.meta.env.VITE_DEMO_HTTP_AGENT_NAME as string | undefined)
+        ?.trim() ||
+      "",
+  };
+}
+
 function loadSettings(): ChatSettings {
+  const defaults = getDefaultSettings();
   try {
     const raw = sessionStorage.getItem(SETTINGS_KEY);
-    if (raw) return JSON.parse(raw) as ChatSettings;
+    if (raw) {
+      return {
+        ...defaults,
+        ...(JSON.parse(raw) as Partial<ChatSettings>),
+      };
+    }
   } catch {
     /* ignore */
   }
-  return { baseURI: "", apiKey: "", agentName: "" };
+  return defaults;
 }
 
 function saveSettings(settings: ChatSettings) {
@@ -234,6 +268,7 @@ function ConfigurationWarning({
 export function ChatPage() {
   const agentName = resolveAgentName();
   const agentNameFromQuery = getAgentNameFromQuery();
+  const workbenchContext = loadWorkbenchContext();
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -450,8 +485,8 @@ export function ChatPage() {
 
   const handleSaveSettings = useCallback(() => {
     const next = {
-      baseURI: baseURIInput,
-      apiKey: apiKeyInput,
+      baseURI: baseURIInput.trim(),
+      apiKey: apiKeyInput.trim(),
       agentName: agentNameInput.trim(),
     };
     setSettingsState(next);
@@ -469,6 +504,12 @@ export function ChatPage() {
     setError(null);
     setSettingsOpen(false);
   }, []);
+
+  const handleInsertWorkbenchPath = useCallback(() => {
+    if (!workbenchContext?.selectedPath) return;
+    const prefix = draft.trim().length > 0 ? `${draft.trim()}\n` : "";
+    setDraft(`${prefix}参考路径: ${workbenchContext.selectedPath}`);
+  }, [draft, workbenchContext]);
 
   /* ─── Render ────────────────────────────────────────────── */
 
@@ -526,6 +567,37 @@ export function ChatPage() {
             <p className="max-w-md text-center text-sm leading-6 text-slate-500">
               有什么可以帮您的吗？请输入您的问题，我会尽力为您解答。
             </p>
+            {workbenchContext?.selectedPath && (
+              <div className="mt-5 w-full max-w-xl rounded-xl border border-emerald-100 bg-white/80 p-4 shadow-sm">
+                <p className="text-xs font-medium tracking-[0.14em] text-emerald-600">
+                  WORKBENCH CONTEXT
+                </p>
+                <p className="mt-2 text-sm text-slate-600">
+                  当前工作台选中文件已同步到聊天页，是否引用由你决定，不会自动注入到提示词。
+                </p>
+                <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left">
+                  <p className="text-[11px] text-slate-400">已选路径</p>
+                  <code className="mt-1 block break-all text-xs text-slate-600">
+                    {workbenchContext.selectedPath}
+                  </code>
+                </div>
+                <div className="mt-3 flex flex-wrap justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleInsertWorkbenchPath}
+                    className="rounded-lg bg-emerald-500 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-emerald-600"
+                  >
+                    插入路径到输入框
+                  </button>
+                  <a
+                    href="/"
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50"
+                  >
+                    返回工作台
+                  </a>
+                </div>
+              </div>
+            )}
             {!isConfigured && (
               <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
                 <ConfigurationWarning
@@ -606,6 +678,23 @@ export function ChatPage() {
       {/* Input */}
       <div className="border-t border-slate-100 bg-white px-4 py-3">
         <div className="mx-auto max-w-3xl">
+          {workbenchContext?.selectedPath && (
+            <div className="mb-2 flex flex-wrap items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50/70 px-3 py-2">
+              <span className="text-[11px] font-medium text-emerald-700">
+                当前工作台路径
+              </span>
+              <code className="min-w-0 flex-1 truncate text-[11px] text-slate-600">
+                {workbenchContext.selectedPath}
+              </code>
+              <button
+                type="button"
+                onClick={handleInsertWorkbenchPath}
+                className="rounded-md border border-emerald-200 px-2 py-1 text-[11px] text-emerald-700 transition-colors hover:bg-emerald-100"
+              >
+                插入到输入框
+              </button>
+            </div>
+          )}
           {!isConfigured && !empty && (
             <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
               {!agentName

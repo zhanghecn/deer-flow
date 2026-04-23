@@ -16,7 +16,12 @@ The internal file service exposes:
 - upload and reset APIs under `http://127.0.0.1:8084/api/*`
 - an MCP Streamable HTTP endpoint at `http://127.0.0.1:8084/mcp-http/mcp`
 - a manual tool execution endpoint at `http://127.0.0.1:8084/api/tools/{tool_name}/invoke`
-- text-only `fs_read` / `fs_grep` semantics; PDF and Office uploads stay binary and must be handled by a document-specific pipeline instead of implicit Markdown conversion
+- text-only `fs_read` / `fs_grep` semantics for generic filesystem behavior
+- demo-only document tools:
+  - `document_search(query, path?, cursor?, limit?)`
+  - `document_read(path, cursor?, limit?)`
+  - `document_fetch_asset(path, asset_ref)`
+- PDF / DOCX / PPTX / XLSX stay explicit document types instead of being silently converted to Markdown companions
 
 ## Start
 
@@ -77,5 +82,6 @@ docker compose -f frontend/demo/compose.yaml down
 3. Confirm the directory chips keep the first folder segment, for example `案例大全 · 4`
 4. Confirm the MCP URL shown by the connection panel
 5. Use the Explorer tree to select a file or folder-like category
-6. Use the middle workbench to select one MCP tool such as `fs_ls`, `fs_read`, `fs_glob`, or `fs_grep`
-7. Execute the tool and inspect arguments, output, and invocation history on the right
+6. Use the middle workbench to select one MCP tool such as `fs_ls`, `fs_read`, `document_search`, or `document_read`
+7. For PDF / Office files, prefer `document_search -> document_read -> document_fetch_asset`
+8. Execute the tool and inspect arguments, output, and invocation history on the right
