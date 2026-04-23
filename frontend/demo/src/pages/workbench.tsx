@@ -36,6 +36,7 @@ import {
   type ToolCatalogEntry,
   type WorkbenchHealth,
 } from "../lib/workbench-api";
+import { createDemoId } from "../lib/uid";
 
 type ToolDraftState = Record<string, string>;
 
@@ -105,8 +106,8 @@ type DragDataTransferItem = DataTransferItem & {
   webkitGetAsEntry?: () => FileSystemEntry | null;
 };
 
-function uid() {
-  return crypto.randomUUID();
+function createInvocationId() {
+  return createDemoId("workbench");
 }
 
 function buildDefaultMcpURL(baseURL: string) {
@@ -806,7 +807,7 @@ export function WorkbenchPage() {
     try {
       const argumentsPayload = materializeArguments(selectedTool);
       invocationRecord = {
-        id: uid(),
+        id: createInvocationId(),
         toolName: selectedTool.name,
         arguments: argumentsPayload,
         status: "running",

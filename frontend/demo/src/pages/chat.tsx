@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { MarkdownRenderer } from "../components/markdown-renderer";
 import { createChatSession, type ToolCallStep } from "../lib/chat-session";
 import { resolvePublicAPIBaseURL } from "../lib/public-api";
+import { createDemoId } from "../lib/uid";
 
 const SETTINGS_KEY = "demo_chat_settings";
 
@@ -67,8 +68,8 @@ function resolveAgentName(): string | null {
 
 /* ─── Utilities ─────────────────────────────────────────── */
 
-function uid() {
-  return crypto.randomUUID();
+function createMessageId() {
+  return createDemoId("chat");
 }
 
 function isDemoOrigin(url: string): boolean {
@@ -314,8 +315,8 @@ export function ChatPage() {
     const text = draft.trim();
     if (!text || isStreaming || !isConfigured) return;
 
-    const userId = uid();
-    const assistantMessageId = uid();
+    const userId = createMessageId();
+    const assistantMessageId = createMessageId();
     const abortController = new AbortController();
     abortRef.current = abortController;
 
