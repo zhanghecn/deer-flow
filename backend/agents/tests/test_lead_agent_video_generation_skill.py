@@ -37,4 +37,4 @@ def test_lead_agent_video_generation_skill_resolves_from_system_archive_and_stay
 
         assert agent_script.read_text(encoding="utf-8") == archived_script.read_text(encoding="utf-8")
         assert agent_skill_doc.read_text(encoding="utf-8") == archived_skill_doc.read_text(encoding="utf-8")
-        assert 'DEFAULT_MODEL = "doubao-seedance-1-5-pro-251215"' in agent_script.read_text(encoding="utf-8")
+        assert 'DEFAULT_MODEL = "doubao-seedance-2-0-260128"' in agent_script.read_text(encoding="utf-8")

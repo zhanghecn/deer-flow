@@ -11,12 +11,57 @@ import time
 import requests
 
 ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
-DEFAULT_MODEL = "doubao-seedance-1-5-pro-251215"
+# Keep the archived default aligned with the current Seedance 2.0 Ark model ID.
+DEFAULT_MODEL = "doubao-seedance-2-0-260128"
 DEFAULT_TIMEOUT_SECONDS = 60
 POLL_INTERVAL_SECONDS = 3
 NETWORK_RETRY_ATTEMPTS = 3
 NETWORK_RETRY_DELAY_SECONDS = 2
 TERMINAL_STATUSES = {"succeeded", "failed", "cancelled", "expired"}
+# Match the image-generation skill so video generation works with either exported
+# env vars or repository-local `.env` files during local runtime smoke tests.
+API_KEY_ENV_NAMES = ("ARK_API_KEY", "VOLCENGINE_API_KEY")
+
+
+def load_env_file() -> None:
+    try:
+        from dotenv import load_dotenv  # type: ignore
+    except ImportError:
+        load_dotenv = None
+
+    seen: set[Path] = set()
+    start_points = [Path.cwd(), Path(__file__).resolve().parent]
+
+    for start in start_points:
+        for parent in [start, *start.parents]:
+            env_path = parent / ".env"
+            if env_path in seen or not env_path.is_file():
+                continue
+            seen.add(env_path)
+            if load_dotenv is not None:
+                load_dotenv(env_path, override=False)
+                continue
+            load_env_file_fallback(env_path)
+
+
+def load_env_file_fallback(env_path: Path) -> None:
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip("'").strip('"')
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+def get_env_value(names: tuple[str, ...]) -> str:
+    for name in names:
+        value = os.getenv(name, "").strip()
+        if value:
+            return value
+    return ""
 
 
 def load_prompt_text(prompt_file: str) -> str:
@@ -80,9 +125,10 @@ def build_headers(api_key: str) -> dict[str, str]:
 
 
 def require_api_key() -> str:
-    api_key = os.getenv("ARK_API_KEY")
+    load_env_file()
+    api_key = get_env_value(API_KEY_ENV_NAMES)
     if not api_key:
-        raise ValueError("ARK_API_KEY is not set")
+        raise ValueError("ARK_API_KEY or VOLCENGINE_API_KEY is not set")
     return api_key
 
 

@@ -7,7 +7,7 @@ import pytest
 import requests
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-MODULE_PATH = REPO_ROOT / ".openagents/skills/store/prod/video-generation/scripts/generate.py"
+MODULE_PATH = REPO_ROOT / ".openagents/system/skills/video-generation/scripts/generate.py"
 
 
 class FakeResponse:
@@ -55,9 +55,22 @@ def test_generate_video_requires_ark_api_key(monkeypatch, tmp_path):
     prompt_file.write_text('{"scene":"city"}', encoding="utf-8")
     output_file = tmp_path / "generated.mp4"
     monkeypatch.delenv("ARK_API_KEY", raising=False)
+    monkeypatch.delenv("VOLCENGINE_API_KEY", raising=False)
+    monkeypatch.setattr(module, "load_env_file", lambda: None)
 
-    with pytest.raises(ValueError, match="ARK_API_KEY is not set"):
+    with pytest.raises(ValueError, match="ARK_API_KEY or VOLCENGINE_API_KEY is not set"):
         module.generate_video(str(prompt_file), [], str(output_file))
+
+
+def test_require_api_key_reads_volcengine_api_key_from_dotenv(monkeypatch, tmp_path):
+    module = load_video_generation_module()
+    monkeypatch.delenv("ARK_API_KEY", raising=False)
+    monkeypatch.delenv("VOLCENGINE_API_KEY", raising=False)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(module, "__file__", str(tmp_path / "generate.py"))
+    (tmp_path / ".env").write_text("VOLCENGINE_API_KEY=test-volcengine-key\n", encoding="utf-8")
+
+    assert module.require_api_key() == "test-volcengine-key"
 
 
 def test_generate_video_polls_until_success_and_downloads_video(monkeypatch, tmp_path):

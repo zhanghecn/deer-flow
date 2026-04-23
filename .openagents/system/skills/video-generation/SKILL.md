@@ -138,7 +138,7 @@ After generation:
 - Always use English for prompts regardless of user's language
 - JSON format ensures structured, parsable prompts
 - Reference images enhance generation quality significantly
-- Runtime requires `ARK_API_KEY`
-- Default model is `doubao-seedance-1-5-pro-251215`
+- Runtime requires `ARK_API_KEY` or `VOLCENGINE_API_KEY`
+- Default model is `doubao-seedance-2-0-260128`
 - `--aspect-ratio` maps to Ark `ratio`
 - Iterative refinement is normal for optimal results
