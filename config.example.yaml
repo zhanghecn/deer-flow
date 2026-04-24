@@ -49,16 +49,20 @@ tools:
   - name: web_search
     group: web
     use: src.community.opencode_web.tools:web_search_tool
-    # Provider order is explicit so operators can keep Exa as the preferred
-    # source while still falling back to Brave/Bing during limits or outages.
+    # Default to the free Bing path. If you want higher-quality paid search,
+    # switch the provider order to include Exa and/or Brave.
     providers:
-      - exa
-      - brave
       - bing
     num_results: 8
     search_type: auto
     livecrawl: fallback
     timeout: 25
+    # provider_timeouts:
+    #   bing: 12
+    # providers:
+    #   - exa
+    #   - brave
+    #   - bing
     # provider_timeouts:
     #   exa: 25
     #   brave: 15

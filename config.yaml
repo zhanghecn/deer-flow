@@ -29,11 +29,9 @@ tools:
   - name: web_search
     group: web
     use: src.community.opencode_web.tools:web_search_tool
-    # Exa stays primary for quality; Brave/Bing keep the tool usable when the
-    # primary backend is rate-limited or unavailable.
+    # Default to the free Bing path so local/dev setups do not depend on paid
+    # search providers or API keys.
     providers:
-      - exa
-      - brave
       - bing
     num_results: 8
     search_type: auto

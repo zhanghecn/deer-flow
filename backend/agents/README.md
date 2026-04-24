@@ -386,7 +386,8 @@ Provider note:
 
 Web tool note:
 - `tools[].providers` on `web_search` controls the ordered fallback chain.
-- The default repo example keeps `exa -> brave -> bing`.
+- The default repo config keeps `bing` only so local setups stay on the free path.
+- `exa` and `brave` remain optional providers if you want to opt into paid search APIs.
 - `search_type`, `livecrawl`, and `context_max_characters` are Exa-specific knobs; Brave/Bing ignore them.
 
 ### Legacy Extensions Configuration (`extensions_config.json`)
@@ -435,7 +436,7 @@ configuration surface. Legacy shape:
 - `OPENAGENTS_CONFIG_PATH` - Override config.yaml location
 - `OPENAGENTS_EXTENSIONS_CONFIG_PATH` - Override legacy extensions_config.json location
 - Model API keys: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, etc.
-- Tool API keys: `EXA_API_KEY`, `BRAVE_SEARCH_API_KEY` / `BRAVE_API_KEY`, `GITHUB_TOKEN`, etc.
+- Tool API keys: optional `EXA_API_KEY`, optional `BRAVE_SEARCH_API_KEY` / `BRAVE_API_KEY`, `GITHUB_TOKEN`, etc.
 
 ---
 
