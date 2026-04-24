@@ -32,11 +32,16 @@ Notes:
   newer threads behind a single worker.
 - `storage.base_dir` is where archived agents, users, threads, and remote relay
   session state live.
-- `skills.path` points at the legacy skills-library compatibility root used for
-  `store/dev|prod` migration input and `/mnt/skills` exposure, not at per-agent
-  copied skills.
+- `skills.path` points at the canonical authored skills-library root used for
+  `system/custom` discovery and `/mnt/skills` exposure. Explicit migration tools
+  may also inspect old `store/dev|prod` trees when they exist in pre-migration
+  worktrees, but those are no longer a steady-state repo surface.
 - `skills.container_path` is only a compatibility mount for local execution.
   Active runtime skills are still read from `/mnt/user-data/agents/...`.
+- Tool-specific extras live directly under each `tools[]` entry. For example,
+  `web_search.providers` sets the ordered fallback chain (`exa`, `brave`,
+  `bing`), while `web_search.provider_timeouts` can override the global search
+  timeout per backend.
 
 ## Runtime Backend Modes
 

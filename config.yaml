@@ -29,6 +29,12 @@ tools:
   - name: web_search
     group: web
     use: src.community.opencode_web.tools:web_search_tool
+    # Exa stays primary for quality; Brave/Bing keep the tool usable when the
+    # primary backend is rate-limited or unavailable.
+    providers:
+      - exa
+      - brave
+      - bing
     num_results: 8
     search_type: auto
     livecrawl: fallback

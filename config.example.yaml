@@ -49,10 +49,21 @@ tools:
   - name: web_search
     group: web
     use: src.community.opencode_web.tools:web_search_tool
+    # Provider order is explicit so operators can keep Exa as the preferred
+    # source while still falling back to Brave/Bing during limits or outages.
+    providers:
+      - exa
+      - brave
+      - bing
     num_results: 8
     search_type: auto
     livecrawl: fallback
     timeout: 25
+    # provider_timeouts:
+    #   exa: 25
+    #   brave: 15
+    #   bing: 12
+    # brave_api_key: $BRAVE_SEARCH_API_KEY
 
   - name: web_fetch
     group: web
