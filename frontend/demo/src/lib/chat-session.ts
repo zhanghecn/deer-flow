@@ -1,4 +1,5 @@
 import type { PublicAPITurnSnapshot } from "@/core/public-api/api";
+import { mergeStreamingText } from "@/core/public-api/run-session";
 import { createPublicAPISession } from "@/core/public-api/session";
 import {
   normalizeThreadError,
@@ -13,6 +14,19 @@ export type ToolCallStep = {
   status: "running" | "done" | "error";
 };
 
+export type ChatActivityStep =
+  | {
+      id: string;
+      kind: "reasoning";
+      text: string;
+      status: "running" | "done";
+    }
+  | {
+      id: string;
+      kind: "tool";
+      tool: ToolCallStep;
+    };
+
 export type ChatSessionPromptParams = {
   text: string;
   stream?: boolean;
@@ -26,6 +40,7 @@ export type ChatSessionPromptParams = {
     phase: "streaming" | "waiting" | "ready" | "failed" | "interrupted";
   }) => void;
   onToolCall?: (tool: ToolCallStep) => void;
+  onActivity?: (activity: ChatActivityStep) => void;
 };
 
 export type ChatSessionPromptResult = {
@@ -105,10 +120,18 @@ export function createChatSession(params: {
   return {
     async prompt(promptParams) {
       const toolCalls = new Map<string, ToolCallStep>();
+      const reasoningSegments = new Map<string, string>();
       let latestText = "";
       let latestReasoning = "";
       let latestTurnId = "";
       let latestError = "";
+      let activitySequence = 0;
+      let currentReasoningActivityId = "";
+
+      const nextActivityId = (prefix: string) => {
+        activitySequence += 1;
+        return `${prefix}-${activitySequence}`;
+      };
 
       try {
         const result = await session.prompt({
@@ -124,6 +147,25 @@ export function createChatSession(params: {
 
             if (event.kind === "turn_failed") {
               latestError = normalizeThreadError(event.raw);
+            }
+
+            if (event.kind === "assistant_reasoning_delta" && event.delta) {
+              if (!currentReasoningActivityId) {
+                currentReasoningActivityId = nextActivityId("reasoning");
+              }
+              const previousSegment =
+                reasoningSegments.get(currentReasoningActivityId) ?? "";
+              const nextSegment = mergeStreamingText(
+                previousSegment,
+                event.delta,
+              );
+              reasoningSegments.set(currentReasoningActivityId, nextSegment);
+              promptParams.onActivity?.({
+                id: currentReasoningActivityId,
+                kind: "reasoning",
+                text: nextSegment,
+                status: "running",
+              });
             }
 
             if (event.kind === "ledger_event") {
@@ -147,7 +189,15 @@ export function createChatSession(params: {
                   status: "running",
                 };
                 toolCalls.set(tool.id, tool);
+                // A tool boundary closes the current visible reasoning segment
+                // so later thinking appears after the tool, matching SSE order.
+                currentReasoningActivityId = "";
                 promptParams.onToolCall?.(tool);
+                promptParams.onActivity?.({
+                  id: tool.id,
+                  kind: "tool",
+                  tool,
+                });
               }
 
               if (
@@ -164,6 +214,11 @@ export function createChatSession(params: {
                 };
                 toolCalls.set(tool.id, tool);
                 promptParams.onToolCall?.(tool);
+                promptParams.onActivity?.({
+                  id: tool.id,
+                  kind: "tool",
+                  tool,
+                });
               }
             }
 

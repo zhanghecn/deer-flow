@@ -8,7 +8,11 @@ import {
 } from "@/core/threads/error";
 
 import { MarkdownRenderer } from "../components/markdown-renderer";
-import { createChatSession, type ToolCallStep } from "../lib/chat-session";
+import {
+  createChatSession,
+  type ChatActivityStep,
+  type ToolCallStep,
+} from "../lib/chat-session";
 import { resolvePublicAPIBaseURL } from "../lib/public-api";
 import { createDemoId } from "../lib/uid";
 
@@ -23,6 +27,7 @@ type ChatMessage = {
   reasoning: string;
   status: "streaming" | "done" | "error" | "interrupted";
   toolCalls?: ToolCallStep[];
+  activities?: ChatActivityStep[];
 };
 
 type ChatSettings = {
@@ -261,69 +266,79 @@ function getToolActivityTitle(tool: ToolCallStep, fileCount: number) {
     : "未检索到知识库文件";
 }
 
-function ToolActivityCard({ tools }: { tools: ToolCallStep[] }) {
-  const activityItems = tools
-    .map((tool) => {
-      const paths = getReadFilePaths(tool);
-      return {
-        id: tool.id,
-        status: tool.status,
-        title: getToolActivityTitle(tool, paths.length),
-        paths,
-      };
-    })
-    .filter((item) => item.paths.length > 0 || item.status === "running");
-  const hasRunningTool = tools.some((tool) => tool.status === "running");
-  const hasToolError = tools.some((tool) => tool.status === "error");
-
-  if (activityItems.length === 0) return null;
+function ToolActivityCard({ tool, index }: { tool: ToolCallStep; index: number }) {
+  const paths = getReadFilePaths(tool);
 
   return (
     <div className="mb-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-left">
-      <div className="flex items-center gap-2 text-xs text-slate-600">
+      <div className="flex items-center gap-2 text-xs font-medium text-slate-600">
         <FileText className="size-3.5 shrink-0 text-slate-400" />
-        <span className="font-medium">
-          知识库工具调用 {activityItems.length} 次
+        <span className="rounded bg-white px-1.5 py-0.5 font-mono text-[10px] text-slate-500">
+          #{index}
         </span>
-        {hasRunningTool ? (
+        <span>{getToolActivityTitle(tool, paths.length)}</span>
+        {tool.status === "running" ? (
           <Loader2 className="ml-auto size-3.5 shrink-0 animate-spin text-emerald-500" />
-        ) : hasToolError ? (
+        ) : tool.status === "error" ? (
           <X className="ml-auto size-3.5 shrink-0 text-rose-500" />
         ) : (
           <Check className="ml-auto size-3.5 shrink-0 text-emerald-500" />
         )}
       </div>
-      <div className="mt-2 max-h-72 space-y-2 overflow-y-auto pr-1">
-        {activityItems.map((item, index) => (
-          <div key={item.id} className="rounded border border-slate-200 bg-white px-2 py-1.5">
-            <div className="flex items-center gap-2 text-[11px] font-medium text-slate-600">
-              <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-500">
-                #{index + 1}
-              </span>
-              <span>{item.title}</span>
-              {item.status === "running" && (
-                <Loader2 className="ml-auto size-3 animate-spin text-emerald-500" />
-              )}
-              {item.status === "error" && (
-                <X className="ml-auto size-3 text-rose-500" />
-              )}
-            </div>
-            {item.paths.length > 0 && (
-              <ul className="mt-1.5 space-y-1">
-                {item.paths.map((path) => (
-                  <li
-                    key={path}
-                    className="truncate rounded border border-slate-100 bg-slate-50 px-2 py-1 font-mono text-[11px] text-slate-600"
-                    title={path}
-                  >
-                    {path}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        ))}
-      </div>
+      {paths.length > 0 && (
+        <ul className="mt-2 space-y-1">
+          {paths.map((path) => (
+            <li
+              key={path}
+              className="truncate rounded border border-slate-100 bg-white px-2 py-1 font-mono text-[11px] text-slate-600"
+              title={path}
+            >
+              {path}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function ActivityTimeline({
+  activities,
+  isStreaming,
+}: {
+  activities: ChatActivityStep[];
+  isStreaming: boolean;
+}) {
+  if (activities.length === 0) return null;
+
+  let toolIndex = 0;
+
+  return (
+    <div className="mb-1.5">
+      {activities.map((activity, index) => {
+        if (activity.kind === "reasoning") {
+          return (
+            <ReasoningCard
+              key={activity.id}
+              reasoning={activity.text}
+              isStreaming={
+                isStreaming &&
+                index === activities.length - 1 &&
+                activity.status === "running"
+              }
+            />
+          );
+        }
+
+        toolIndex += 1;
+        return (
+          <ToolActivityCard
+            key={activity.id}
+            tool={activity.tool}
+            index={toolIndex}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -472,7 +487,15 @@ export function ChatPage() {
     setMessages((prev) => [
       ...prev,
       { id: userId, role: "user", content: text, reasoning: "", status: "done" },
-      { id: assistantMessageId, role: "assistant", content: "", reasoning: "", status: "streaming", toolCalls: [] },
+      {
+        id: assistantMessageId,
+        role: "assistant",
+        content: "",
+        reasoning: "",
+        status: "streaming",
+        toolCalls: [],
+        activities: [],
+      },
     ]);
 
     const session = ensureSession();
@@ -518,6 +541,24 @@ export function ChatPage() {
           if (phase === "failed" && liveError) {
             setError(liveError);
           }
+        },
+        onActivity: (activity) => {
+          setMessages((prev) =>
+            prev.map((m) => {
+              if (m.id !== assistantMessageId) return m;
+              const activities = m.activities ?? [];
+              const existing = activities.find((item) => item.id === activity.id);
+              if (existing) {
+                return {
+                  ...m,
+                  activities: activities.map((item) =>
+                    item.id === activity.id ? activity : item,
+                  ),
+                };
+              }
+              return { ...m, activities: [...activities, activity] };
+            }),
+          );
         },
         onToolCall: (tool) => {
           setMessages((prev) =>
@@ -717,7 +758,9 @@ export function ChatPage() {
                 <div key={msg.id} className="flex justify-start">
                   <div className="max-w-[85%]">
                     {/* Reasoning */}
-                    {msg.reasoning && msg.reasoning.trim().length > 0 && (
+                    {(!msg.activities || msg.activities.length === 0) &&
+                      msg.reasoning &&
+                      msg.reasoning.trim().length > 0 && (
                       <div className="mb-1.5">
                         <ReasoningCard
                           reasoning={msg.reasoning}
@@ -726,11 +769,25 @@ export function ChatPage() {
                       </div>
                     )}
 
-                    {/* Tool calls */}
-                    {msg.toolCalls && msg.toolCalls.length > 0 && (
-                      <div className="mb-1.5">
-                        <ToolActivityCard tools={msg.toolCalls} />
-                      </div>
+                    {/* Thinking and knowledge tool calls stay in SSE order. */}
+                    {msg.activities && msg.activities.length > 0 ? (
+                      <ActivityTimeline
+                        activities={msg.activities}
+                        isStreaming={msg.status === "streaming"}
+                      />
+                    ) : (
+                      msg.toolCalls &&
+                      msg.toolCalls.length > 0 && (
+                        <div className="mb-1.5">
+                          {msg.toolCalls.map((tool, index) => (
+                            <ToolActivityCard
+                              key={tool.id}
+                              tool={tool}
+                              index={index + 1}
+                            />
+                          ))}
+                        </div>
+                      )
                     )}
 
                     <div
@@ -743,6 +800,7 @@ export function ChatPage() {
                       {msg.status === "streaming" &&
                       msg.content.length === 0 &&
                       !msg.reasoning &&
+                      (!msg.activities || msg.activities.length === 0) &&
                       (!msg.toolCalls || msg.toolCalls.length === 0) ? (
                         <div className="flex items-center gap-2 text-slate-400">
                           <Loader2 className="size-4 animate-spin" />
