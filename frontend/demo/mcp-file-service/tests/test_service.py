@@ -10,7 +10,7 @@ from docx.shared import Inches as DocInches
 from openpyxl import Workbook
 from openpyxl.chart import BarChart, Reference
 from openpyxl.drawing.image import Image as XlsxImage
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 from pptx import Presentation
 from pptx.chart.data import CategoryChartData
 from pptx.enum.chart import XL_CHART_TYPE
@@ -114,15 +114,32 @@ class FileMcpServiceTest(unittest.TestCase):
             "血光 之灾\n顺遂 发展\n",
             encoding="utf-8",
         )
-        self.service = FileMcpService(self.root)
+        self.service = FileMcpService(self.root, ocr_languages=("eng",))
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
-    def _write_image(self, relative_path: str) -> Path:
+    def _write_image(self, relative_path: str, *, text: str | None = None) -> Path:
         target = self.root / relative_path
         target.parent.mkdir(parents=True, exist_ok=True)
-        Image.new("RGB", (80, 40), "white").save(target)
+        image = Image.new("RGB", (1200, 320), "white")
+        if text:
+            draw = ImageDraw.Draw(image)
+            font_path = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
+            if font_path.exists():
+                font = ImageFont.truetype(str(font_path), 96)
+            else:
+                font = ImageFont.load_default()
+            draw.text((60, 90), text, fill="black", font=font)
+        image.save(target)
+        return target
+
+    def _write_scanned_pdf(self, relative_path: str, *, text: str) -> Path:
+        image_path = self._write_image("assets/scanned-page.png", text=text)
+        target = self.root / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with Image.open(image_path) as image:
+            image.convert("RGB").save(target, "PDF", resolution=150)
         return target
 
     def _write_pdf(self, relative_path: str, pages: list[str]) -> Path:
@@ -157,6 +174,21 @@ class FileMcpServiceTest(unittest.TestCase):
         ).chart
         chart.has_title = True
         chart.chart_title.text_frame.text = "Revenue Trend"
+        presentation.save(target)
+        return target
+
+    def _write_pptx_with_ocr_image(self, relative_path: str, *, text: str) -> Path:
+        image_path = self._write_image("assets/slide-ocr.png", text=text)
+        target = self.root / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        presentation = Presentation()
+        slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+        slide.shapes.add_picture(
+            str(image_path),
+            PptxInches(0.8),
+            PptxInches(0.8),
+            width=PptxInches(8.0),
+        )
         presentation.save(target)
         return target
 
@@ -227,6 +259,11 @@ class FileMcpServiceTest(unittest.TestCase):
         self.assertIn("nested", root_rows)
         self.assertEqual(root_rows["nested"]["entry_type"], "directory")
         self.assertTrue(root_rows["nested"]["has_children"])
+        self.assertTrue(root_payload["complete_tree"])
+        self.assertIn("nested/contracts/policy-alpha.pdf", root_payload["document_paths"])
+        self.assertIn("nested/", root_payload["tree"])
+        self.assertIn("  contracts/", root_payload["tree"])
+        self.assertIn("    policy-alpha.pdf [pdf]", root_payload["tree"])
 
         nested_payload = self.service.document_list_payload(path="nested/contracts", limit=20)
         file_row = nested_payload["items"][0]
@@ -235,6 +272,20 @@ class FileMcpServiceTest(unittest.TestCase):
         self.assertEqual(file_row["locator_type"], "page")
         self.assertFalse(file_row["contains_visual"])
         self.assertTrue(file_row["supported"])
+
+    def test_document_list_keeps_large_trees_paginated(self) -> None:
+        for index in range(351):
+            target = self.root / "bulk" / f"doc-{index:03d}.md"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(f"# Doc {index}\n", encoding="utf-8")
+
+        payload = self.service.document_list_payload(limit=500)
+
+        self.assertFalse(payload["complete_tree"])
+        self.assertEqual(payload["complete_tree_limit"], 350)
+        self.assertGreaterEqual(payload["document_total"], 351)
+        self.assertNotIn("document_paths", payload)
+        self.assertNotIn("tree", payload)
 
     def test_read_rejects_binary_documents_instead_of_converting_them(self) -> None:
         (self.root / "合同.pdf").write_bytes(b"%PDF-1.4 fake")
@@ -372,6 +423,46 @@ class FileMcpServiceTest(unittest.TestCase):
         self.assertFalse(payload["contains_visual"])
         self.assertEqual(payload["content_blocks"][0]["type"], "text")
 
+        cache_dir = self.service.cache_root / "nested" / "contracts" / "policy-alpha.pdf"
+        self.assertTrue((cache_dir / "manifest.json").exists())
+        self.assertTrue((cache_dir / "canonical.md").exists())
+        self.assertIn("Deductible is 500 USD", (cache_dir / "canonical.md").read_text(encoding="utf-8"))
+
+    def test_document_search_ocr_hits_scanned_pdf(self) -> None:
+        if not self.service.document_tools.ocr_available:
+            self.skipTest("tesseract is not available in this test environment")
+
+        self._write_scanned_pdf("nested/scans/claim-scan.pdf", text="CLAIM 42")
+
+        search_payload = self.service.document_search_payload(
+            query="claim",
+            path="nested/scans/claim-scan.pdf",
+            limit=5,
+        )
+        read_payload = self.service.document_read_payload(
+            path="nested/scans/claim-scan.pdf",
+            cursor=0,
+            limit=1,
+        )
+
+        self.assertEqual(search_payload["results"][0]["evidence_type"], "ocr_text")
+        self.assertTrue(search_payload["results"][0]["contains_visual"])
+        self.assertTrue(read_payload["contains_visual"])
+        self.assertTrue(
+            any(
+                block["type"] == "text" and block.get("text_source") == "ocr"
+                for block in read_payload["content_blocks"]
+            )
+        )
+        self.assertTrue(
+            any(block["type"] == "image" for block in read_payload["content_blocks"])
+        )
+
+        manifest = (
+            self.service.cache_root / "nested" / "scans" / "claim-scan.pdf" / "manifest.json"
+        ).read_text(encoding="utf-8")
+        self.assertIn('"ocr_status": "complete"', manifest)
+
     def test_document_read_returns_pptx_text_and_visual_blocks(self) -> None:
         self._write_pptx("nested/slides/review-deck.pptx")
 
@@ -387,6 +478,39 @@ class FileMcpServiceTest(unittest.TestCase):
         self.assertIn("text", block_types)
         self.assertIn("image", block_types)
         self.assertIn("document", block_types)
+
+        cache_dir = self.service.cache_root / "nested" / "slides" / "review-deck.pptx"
+        cached_assets = sorted((cache_dir / "assets").iterdir())
+        self.assertTrue(cached_assets)
+        self.assertTrue(any(item.name.startswith("slide_1_image_2") for item in cached_assets))
+
+    def test_document_search_ocr_hits_pptx_image_slide(self) -> None:
+        if not self.service.document_tools.ocr_available:
+            self.skipTest("tesseract is not available in this test environment")
+
+        self._write_pptx_with_ocr_image(
+            "nested/slides/ocr-deck.pptx",
+            text="LOSS RATIO",
+        )
+
+        payload = self.service.document_search_payload(
+            query="loss",
+            path="nested/slides/ocr-deck.pptx",
+            limit=5,
+        )
+
+        self.assertEqual(payload["results"][0]["document_kind"], "pptx")
+        self.assertEqual(payload["results"][0]["evidence_type"], "ocr_text")
+        self.assertEqual(payload["results"][0]["next_action_hint"], "fetch_visual")
+
+    def test_prime_document_cache_builds_existing_seed_documents(self) -> None:
+        self._write_docx("nested/docs/briefing.docx")
+        self._write_xlsx("nested/sheets/revenue-tracker.xlsx")
+
+        self.service.prime_document_cache()
+
+        self.assertTrue((self.service.cache_root / "nested" / "docs" / "briefing.docx" / "manifest.json").exists())
+        self.assertTrue((self.service.cache_root / "nested" / "sheets" / "revenue-tracker.xlsx" / "canonical.md").exists())
 
     def test_document_fetch_asset_inlines_small_pptx_images(self) -> None:
         self._write_pptx("nested/slides/review-deck.pptx")
@@ -455,6 +579,33 @@ class FileMcpServiceTest(unittest.TestCase):
         self.assertGreaterEqual(payload["total_units"], 2)
         self.assertTrue(
             any(block["type"] == "image" for block in payload["content_blocks"])
+        )
+
+    def test_document_search_ocr_hits_image_file(self) -> None:
+        if not self.service.document_tools.ocr_available:
+            self.skipTest("tesseract is not available in this test environment")
+
+        self._write_image("nested/images/policy-board.png", text="POLICY LIMIT")
+
+        payload = self.service.document_search_payload(
+            query="policy",
+            path="nested/images/policy-board.png",
+            limit=5,
+        )
+
+        self.assertEqual(payload["results"][0]["document_kind"], "image")
+        self.assertEqual(payload["results"][0]["evidence_type"], "ocr_text")
+        read_payload = self.service.document_read_payload(
+            path="nested/images/policy-board.png",
+            cursor=0,
+            limit=1,
+        )
+        self.assertTrue(read_payload["contains_visual"])
+        self.assertTrue(
+            any(
+                block["type"] == "text" and block.get("text_source") == "ocr"
+                for block in read_payload["content_blocks"]
+            )
         )
 
 

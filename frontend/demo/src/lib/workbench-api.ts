@@ -24,6 +24,7 @@ export type ToolCatalogEntry = {
 export type WorkbenchHealth = {
   status: string;
   storage_root: string;
+  cache_root?: string;
   seed_root?: string | null;
   file_count: number;
   mcp_url: string;

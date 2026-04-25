@@ -247,8 +247,8 @@ def _register_document_tools(server: FastMCP) -> None:
     """Bind the unified document contract to one MCP surface."""
 
     @server.tool()
-    def document_list(path: str = "", cursor: int = 0, limit: int = 20) -> str:
-        """Browse the current KB tree without exposing raw filesystem tools."""
+    def document_list(path: str = "", cursor: int = 0, limit: int = 400) -> str:
+        """Browse the current KB tree, with a complete tree for small KBs."""
 
         payload = service.document_list_payload(
             path=path,
@@ -304,6 +304,10 @@ _register_document_tools(agent_mcp)
 async def workbench_lifespan(_: FastAPI):
     """Run the mounted FastMCP session manager inside the parent app lifecycle."""
 
+    # The demo warms its MCP-owned document cache at startup so later KB turns
+    # can search/read against prepared manifests and canonical markdown instead
+    # of reparsing the same files on every request.
+    await run_in_threadpool(service.prime_document_cache)
     async with mcp.session_manager.run():
         async with agent_mcp.session_manager.run():
             yield

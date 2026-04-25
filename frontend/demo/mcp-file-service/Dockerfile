@@ -13,6 +13,13 @@ ENV PIP_CACHE_DIR=/root/.cache/pip
 WORKDIR /app
 
 COPY frontend/demo/mcp-file-service/requirements.txt /app/requirements.txt
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        fonts-dejavu-core \
+        tesseract-ocr \
+        tesseract-ocr-chi-sim \
+        tesseract-ocr-eng \
+    && rm -rf /var/lib/apt/lists/*
 # Keep Python dependencies inside the image. The cache mount only accelerates
 # repeated local rebuilds; production should still pull a prebuilt image rather
 # than bind-mount host site-packages into the container.

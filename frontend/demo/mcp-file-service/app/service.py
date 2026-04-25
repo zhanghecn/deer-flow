@@ -43,6 +43,8 @@ TEXT_MIME_TYPES = {
     "image/svg+xml",
 }
 TEXT_SNIFF_BYTES = 4096
+DOCUMENT_LIST_FULL_TREE_MAX_FILES = 350
+DOCUMENT_LIST_MAX_LIMIT = 500
 VIRTUAL_UPLOAD_ROOTS = (
     PurePosixPath("/mnt/user-data/uploads"),
     # The generic runtime also uses `/mnt/user-data/workspace` as its virtual
@@ -99,14 +101,14 @@ DOCUMENT_TOOL_DESCRIPTORS = (
     ToolDescriptor(
         name="document_list",
         summary=(
-            "List the current knowledge-base document tree one level at a time. "
-            "Use this for file inventory questions instead of generic filesystem tools."
+            "List the current knowledge-base document tree. Small KBs include "
+            "a complete compact tree so inventory questions usually need one call."
         ),
-        returns="JSON payload with directory/file entries, document metadata, and pagination.",
+        returns="JSON payload with directory/file entries, optional complete tree, metadata, and pagination.",
         arguments=(
             ToolArgument("path", "string", False, "Relative directory under the uploaded root."),
             ToolArgument("cursor", "integer", False, "Zero-based pagination cursor.", default=0),
-            ToolArgument("limit", "integer", False, "Maximum number of rows to return.", default=20),
+            ToolArgument("limit", "integer", False, "Maximum number of rows to return.", default=400),
         ),
     ),
     ToolDescriptor(
@@ -180,17 +182,37 @@ def build_tool_catalog() -> list[dict[str, Any]]:
 class FileMcpService:
     """Owns uploaded file storage and the MCP-facing file search helpers."""
 
-    def __init__(self, root: Path, *, seed_root: Path | None = None) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        seed_root: Path | None = None,
+        cache_root: Path | None = None,
+        ocr_languages: tuple[str, ...] | None = None,
+        tesseract_binary: str = "tesseract",
+    ) -> None:
         self.root = root.resolve()
         self.seed_root = seed_root.resolve() if seed_root else None
+        self.cache_root = (
+            cache_root.resolve() if cache_root else self.root.parent / "document-cache"
+        )
         # Document parsing stays inside the 8084 demo service so richer document
         # semantics do not leak into the shared runtime or prompt layers.
         self.document_tools = DocumentTooling(
             root=self.root,
             describe_access=self._describe_file_content_access,
+            cache_root=self.cache_root,
+            ocr_languages=ocr_languages or ("eng", "chi_sim"),
+            tesseract_binary=tesseract_binary,
         )
         self.root.mkdir(parents=True, exist_ok=True)
+        self.cache_root.mkdir(parents=True, exist_ok=True)
         self._seed_if_empty()
+
+    def prime_document_cache(self) -> None:
+        """Build cached manifests/markdown/assets for the current corpus."""
+
+        self.document_tools.prime_cache()
 
     def _seed_if_empty(self) -> None:
         """Optionally copy a read-only starter dataset into an empty service root."""
@@ -428,13 +450,13 @@ class FileMcpService:
         *,
         path: str = "",
         cursor: int = 0,
-        limit: int = 20,
+        limit: int = 400,
     ) -> dict[str, Any]:
         """List the KB tree without exposing raw filesystem-only semantics.
 
         This is the browse/list counterpart to `document_search`. Directory
-        entries remain visible so the agent can answer inventory questions and
-        drill down through nested customer knowledge trees.
+        entries remain visible, and small KBs also include a compact recursive
+        tree so the agent can choose a target document without pagination.
         """
 
         base = self._resolve_existing_path(path) if path else self.root
@@ -459,9 +481,9 @@ class FileMcpService:
             rows.append(document_row)
 
         safe_cursor = max(cursor, 0)
-        safe_limit = min(max(limit, 1), 200)
+        safe_limit = min(max(limit, 1), DOCUMENT_LIST_MAX_LIMIT)
         next_cursor = safe_cursor + safe_limit
-        return {
+        payload = {
             "items": rows[safe_cursor:next_cursor],
             "cursor": safe_cursor,
             "limit": safe_limit,
@@ -469,6 +491,64 @@ class FileMcpService:
             "has_more": next_cursor < len(rows),
             "next_cursor": next_cursor if next_cursor < len(rows) else None,
         }
+        payload.update(self._document_tree_summary(base))
+        return payload
+
+    def _document_tree_summary(self, base: Path) -> dict[str, Any]:
+        document_paths = [
+            item
+            for item in self._sorted_file_paths(base, recursive=True)
+            if self._describe_file_content_access(item).kind == "binary_document"
+            or self._describe_file_content_access(item).text_readable
+        ]
+        directory_paths = [
+            item
+            for item in sorted(
+                (candidate for candidate in base.rglob("*") if candidate.is_dir()),
+                key=lambda candidate: candidate.relative_to(self.root).as_posix().lower(),
+            )
+        ]
+
+        summary: dict[str, Any] = {
+            "tree_root": base.relative_to(self.root).as_posix() if base != self.root else "",
+            "document_total": len(document_paths),
+            "directory_total": len(directory_paths),
+            "complete_tree": len(document_paths) <= DOCUMENT_LIST_FULL_TREE_MAX_FILES,
+            "complete_tree_limit": DOCUMENT_LIST_FULL_TREE_MAX_FILES,
+        }
+        if not summary["complete_tree"]:
+            return summary
+
+        # Keep the recursive inventory compact: paths plus document kind are
+        # enough for planning, while `document_read` still owns content access.
+        summary["document_paths"] = [
+            path.relative_to(self.root).as_posix() for path in document_paths
+        ]
+        summary["tree"] = self._render_compact_document_tree(base, document_paths)
+        return summary
+
+    def _render_compact_document_tree(self, base: Path, document_paths: list[Path]) -> list[str]:
+        directories: set[Path] = set()
+        for path in document_paths:
+            parent = path.parent
+            while parent != base and (parent == self.root or self.root in parent.parents):
+                directories.add(parent)
+                parent = parent.parent
+        included = sorted(
+            {*directories, *document_paths},
+            key=lambda item: (item.relative_to(base).as_posix().lower(), item.is_file()),
+        )
+        lines: list[str] = []
+        for item in included:
+            relative_to_base = item.relative_to(base).as_posix()
+            depth = len(PurePosixPath(relative_to_base).parts) - 1
+            suffix = "/" if item.is_dir() else ""
+            if item.is_file():
+                description = self.document_tools.describe_document(item)
+                kind = description.get("document_kind") or self._describe_file_content_access(item).kind
+                suffix = f" [{kind}]"
+            lines.append(f"{'  ' * depth}{item.name}{suffix}")
+        return lines
 
     def list_files_payload(
         self,
@@ -848,6 +928,14 @@ class FileMcpService:
             destination.parent.mkdir(parents=True, exist_ok=True)
             content = await upload.read()
             destination.write_bytes(content)
+            # Upload-time indexing keeps the external MCP responsive for the
+            # next user turn instead of waiting for a later cold parse.
+            try:
+                self.document_tools.prepare_cached_document(destination)
+            except ValueError:
+                # Unsupported binaries are still stored and listable even when
+                # this demo build cannot parse them into the richer cache.
+                pass
             saved.append(self._file_row(destination))
             await upload.close()
         return {
@@ -862,6 +950,7 @@ class FileMcpService:
         if not file_path.is_file():
             raise ValueError(f"path is not a file: {path}")
         file_path.unlink()
+        self.document_tools.invalidate_cached_document(file_path)
 
     def reset_uploaded_files(self) -> dict[str, Any]:
         """Clear the mutable dataset and optionally repopulate the seed snapshot."""
@@ -873,7 +962,10 @@ class FileMcpService:
                 removed += 1
             elif candidate.is_dir() and candidate != self.root:
                 candidate.rmdir()
+        shutil.rmtree(self.cache_root, ignore_errors=True)
+        self.cache_root.mkdir(parents=True, exist_ok=True)
         self._seed_if_empty()
+        self.prime_document_cache()
         return {
             "removed_files": removed,
             "remaining_files": self.list_files_payload(limit=1)["total"],
@@ -892,6 +984,7 @@ class FileMcpService:
         return {
             "status": "ok",
             "storage_root": str(self.root),
+            "cache_root": str(self.cache_root),
             "seed_root": str(self.seed_root) if self.seed_root else None,
             "file_count": listing["total"],
             "mcp_url": f"{base_url.rstrip('/')}{agent_mcp_path}",
@@ -916,7 +1009,17 @@ def build_workbench_service_from_env() -> FileMcpService:
         )
     )
     seed_value = os.getenv("MCP_WORKBENCH_SEED_DIR", "").strip()
+    cache_value = os.getenv("MCP_WORKBENCH_CACHE_DIR", "").strip()
+    ocr_languages = tuple(
+        item.strip()
+        for item in os.getenv("MCP_WORKBENCH_OCR_LANGUAGES", "eng,chi_sim").split(",")
+        if item.strip()
+    )
+    tesseract_binary = os.getenv("MCP_WORKBENCH_TESSERACT_BIN", "tesseract").strip() or "tesseract"
     return FileMcpService(
         root,
         seed_root=Path(seed_value) if seed_value else None,
+        cache_root=Path(cache_value) if cache_value else None,
+        ocr_languages=ocr_languages,
+        tesseract_binary=tesseract_binary,
     )

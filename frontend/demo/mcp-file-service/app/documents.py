@@ -8,9 +8,14 @@ the generic OpenAgents runtime.
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
+import json
 import mimetypes
 import re
+import shutil
+import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Literal
@@ -50,6 +55,9 @@ NextActionHint = Literal[
 ]
 
 INLINE_ASSET_LIMIT_BYTES = 200_000
+CACHE_SCHEMA_VERSION = 2
+DEFAULT_OCR_LANGUAGES = ("eng", "chi_sim")
+PDF_OCR_SCALE = 2.5
 IMAGE_EXTENSIONS = {
     ".bmp",
     ".gif",
@@ -174,6 +182,16 @@ class ParsedDocument:
     units: list[DocumentUnit]
     assets: dict[str, DocumentAsset]
     contains_visual: bool
+    ingest_metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class OcrText:
+    """Normalized OCR text plus the ingest metadata needed by the cache manifest."""
+
+    text: str
+    provider: str
+    languages: tuple[str, ...]
 
 
 def _collapse_whitespace(value: str) -> str:
@@ -407,6 +425,28 @@ def _extract_xls_rows(sheet: Any) -> tuple[list[list[str]], str]:
     return rows, f"{sheet.name}!A1:{end_ref}"
 
 
+def _cache_safe_name(value: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9._-]+", "_", value).strip("._") or "asset"
+
+
+def _asset_extension(asset: DocumentAsset) -> str:
+    guessed = mimetypes.guess_extension(asset.mime_type or "")
+    if guessed:
+        return guessed
+    return ".bin"
+
+
+def _locator_heading(locator_type: LocatorType, locator: str | int) -> str:
+    labels = {
+        "line": "Line",
+        "page": "Page",
+        "slide": "Slide",
+        "sheet": "Sheet",
+        "region": "Region",
+    }
+    return f"{labels.get(locator_type, locator_type.title())} {locator}"
+
+
 class DocumentTooling:
     """Parse uploaded files into the demo's richer document contract."""
 
@@ -415,11 +455,69 @@ class DocumentTooling:
         *,
         root: Path,
         describe_access: Callable[[Path], Any],
+        cache_root: Path,
+        ocr_languages: tuple[str, ...] = DEFAULT_OCR_LANGUAGES,
+        tesseract_binary: str = "tesseract",
     ) -> None:
         self.root = root
         self.describe_access = describe_access
+        # Cache files are MCP-internal implementation details. Keep them out of
+        # the uploaded corpus tree so agents cannot confuse cached markdown with
+        # the external knowledge-base contract.
+        self.cache_root = cache_root.resolve()
+        self.cache_root.mkdir(parents=True, exist_ok=True)
+        self.ocr_languages = tuple(language for language in ocr_languages if language)
+        self.tesseract_binary = tesseract_binary.strip() or "tesseract"
+        self.ocr_available = shutil.which(self.tesseract_binary) is not None
 
     def parse_document(self, file_path: Path) -> ParsedDocument:
+        """Return the parsed document from the MCP-managed cache."""
+
+        return self._load_cached_document(file_path)
+
+    def prime_cache(self) -> None:
+        """Warm cached manifests/markdown/assets for every supported document."""
+
+        for file_path in sorted(self.root.rglob("*"), key=lambda item: item.as_posix().lower()):
+            if not file_path.is_file():
+                continue
+            try:
+                self.prepare_cached_document(file_path)
+            except ValueError:
+                continue
+
+    def prepare_cached_document(self, file_path: Path) -> ParsedDocument:
+        """Build or refresh one cached document package when the source changed."""
+
+        file_path = file_path.resolve()
+        if not file_path.is_file():
+            raise ValueError(f"path is not a file: {file_path}")
+        source_metadata = self._source_metadata(file_path)
+        cache_dir = self._cache_dir(file_path)
+        manifest_path = cache_dir / "manifest.json"
+        if manifest_path.exists():
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                if self._manifest_is_fresh(manifest=manifest, source_metadata=source_metadata):
+                    return self._document_from_manifest(manifest=manifest, cache_dir=cache_dir)
+            except Exception:
+                shutil.rmtree(cache_dir, ignore_errors=True)
+
+        document = self._parse_source_document(file_path)
+        manifest = self._write_cached_document(
+            file_path=file_path,
+            document=document,
+            source_metadata=source_metadata,
+            cache_dir=cache_dir,
+        )
+        return self._document_from_manifest(manifest=manifest, cache_dir=cache_dir)
+
+    def invalidate_cached_document(self, file_path: Path) -> None:
+        """Drop the cached package for one source file after delete/replace."""
+
+        shutil.rmtree(self._cache_dir(file_path.resolve()), ignore_errors=True)
+
+    def _parse_source_document(self, file_path: Path) -> ParsedDocument:
         relative_path = file_path.relative_to(self.root).as_posix()
         suffix = file_path.suffix.lower()
         access = self.describe_access(file_path)
@@ -442,6 +540,349 @@ class DocumentTooling:
         raise ValueError(
             f"document tools do not support '{relative_path}' ({access.mime_type})"
         )
+
+    def _source_metadata(self, file_path: Path) -> dict[str, Any]:
+        stat = file_path.stat()
+        digest = hashlib.sha256(file_path.read_bytes()).hexdigest()
+        return {
+            "path": file_path.relative_to(self.root).as_posix(),
+            "size_bytes": stat.st_size,
+            "mtime_ns": stat.st_mtime_ns,
+            "sha256": digest,
+        }
+
+    def _cache_dir(self, file_path: Path) -> Path:
+        relative = file_path.relative_to(self.root)
+        return self.cache_root.joinpath(*relative.parts)
+
+    @staticmethod
+    def _manifest_is_fresh(*, manifest: dict[str, Any], source_metadata: dict[str, Any]) -> bool:
+        source = manifest.get("source")
+        if not isinstance(source, dict):
+            return False
+        return (
+            int(manifest.get("cache_schema_version", 0)) == CACHE_SCHEMA_VERSION
+            and source.get("path") == source_metadata["path"]
+            and int(source.get("size_bytes", -1)) == int(source_metadata["size_bytes"])
+            and int(source.get("mtime_ns", -1)) == int(source_metadata["mtime_ns"])
+            and source.get("sha256") == source_metadata["sha256"]
+        )
+
+    def _write_cached_document(
+        self,
+        *,
+        file_path: Path,
+        document: ParsedDocument,
+        source_metadata: dict[str, Any],
+        cache_dir: Path,
+    ) -> dict[str, Any]:
+        if cache_dir.exists():
+            shutil.rmtree(cache_dir)
+        assets_dir = cache_dir / "assets"
+        assets_dir.mkdir(parents=True, exist_ok=True)
+
+        serialized_assets: dict[str, Any] = {}
+        for asset_ref, asset in document.assets.items():
+            record: dict[str, Any] = {
+                "asset_ref": asset.asset_ref,
+                "kind": asset.kind,
+                "summary": asset.summary,
+                "mime_type": asset.mime_type,
+                "size_bytes": asset.size_bytes,
+                "width": asset.width,
+                "height": asset.height,
+                "extra": asset.extra,
+            }
+            if asset.data is not None:
+                asset_name = f"{_cache_safe_name(asset_ref)}{_asset_extension(asset)}"
+                asset_path = assets_dir / asset_name
+                asset_path.write_bytes(asset.data)
+                record["cache_file"] = f"assets/{asset_name}"
+            serialized_assets[asset_ref] = record
+
+        manifest = {
+            "cache_schema_version": CACHE_SCHEMA_VERSION,
+            "source": source_metadata,
+            "document": {
+                "path": document.path,
+                "document_kind": document.document_kind,
+                "locator_type": document.locator_type,
+                "contains_visual": document.contains_visual,
+            },
+            # Keep OCR state explicit so the external MCP remains the single
+            # document-ingest owner instead of pushing hidden behavior into the runtime.
+            "ingest": document.ingest_metadata,
+            "units": [
+                {
+                    "locator": unit.locator,
+                    "locator_type": unit.locator_type,
+                    "content_blocks": unit.content_blocks,
+                    "search_entries": [list(entry) for entry in unit.search_entries],
+                    "contains_visual": unit.contains_visual,
+                    "preview_text": unit.preview_text,
+                }
+                for unit in document.units
+            ],
+            "assets": serialized_assets,
+        }
+        canonical_markdown, canonical_source = self._canonical_markdown(
+            file_path=file_path,
+            document=document,
+            serialized_assets=serialized_assets,
+        )
+        manifest["ingest"]["canonical_source"] = canonical_source
+        (cache_dir / "canonical.md").write_text(canonical_markdown, encoding="utf-8")
+        (cache_dir / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        return manifest
+
+    def _document_from_manifest(
+        self,
+        *,
+        manifest: dict[str, Any],
+        cache_dir: Path,
+    ) -> ParsedDocument:
+        document_payload = manifest["document"]
+        assets: dict[str, DocumentAsset] = {}
+        for asset_ref, record in manifest.get("assets", {}).items():
+            data = None
+            cache_file = record.get("cache_file")
+            if isinstance(cache_file, str) and cache_file.strip():
+                asset_path = cache_dir / cache_file
+                if asset_path.exists():
+                    data = asset_path.read_bytes()
+            assets[asset_ref] = DocumentAsset(
+                asset_ref=record["asset_ref"],
+                kind=record["kind"],
+                summary=record["summary"],
+                mime_type=record.get("mime_type"),
+                size_bytes=record.get("size_bytes"),
+                width=record.get("width"),
+                height=record.get("height"),
+                data=data,
+                extra=record.get("extra") or {},
+            )
+
+        units = [
+            DocumentUnit(
+                locator=unit["locator"],
+                locator_type=unit["locator_type"],
+                content_blocks=unit.get("content_blocks") or [],
+                search_entries=[
+                    (entry[0], entry[1])
+                    for entry in unit.get("search_entries") or []
+                    if isinstance(entry, list) and len(entry) == 2
+                ],
+                contains_visual=bool(unit.get("contains_visual")),
+                preview_text=str(unit.get("preview_text") or ""),
+            )
+            for unit in manifest.get("units") or []
+            if isinstance(unit, dict)
+        ]
+        return ParsedDocument(
+            path=document_payload["path"],
+            document_kind=document_payload["document_kind"],
+            locator_type=document_payload["locator_type"],
+            units=units,
+            assets=assets,
+            contains_visual=bool(document_payload.get("contains_visual")),
+            ingest_metadata=manifest.get("ingest") or {},
+        )
+
+    def _load_cached_document(self, file_path: Path) -> ParsedDocument:
+        """Read a document package from cache, rebuilding it on demand."""
+
+        return self.prepare_cached_document(file_path)
+
+    def _default_ingest_metadata(
+        self,
+        *,
+        ocr_attempted: bool,
+        ocr_provider: str | None = None,
+        canonical_source: str = "parsed_document",
+    ) -> dict[str, Any]:
+        """Keep OCR/canonical provenance explicit inside the MCP-owned cache."""
+
+        if ocr_attempted:
+            ocr_status = "complete" if self.ocr_available else "not_available"
+        else:
+            ocr_status = "not_needed"
+        return {
+            "ocr_status": ocr_status,
+            "ocr_languages": list(self.ocr_languages) if ocr_attempted else [],
+            "ocr_provider": ocr_provider if ocr_attempted else None,
+            "canonical_source": canonical_source,
+        }
+
+    def _run_tesseract_path(self, file_path: Path) -> OcrText | None:
+        """Run OCR through the local Tesseract binary so the demo matches prod-like MCP ownership.
+
+        The OCR responsibility intentionally stays inside the external MCP demo.
+        The generic runtime only sees the resulting document contract.
+        """
+
+        if not self.ocr_available:
+            return None
+        command = [
+            self.tesseract_binary,
+            str(file_path),
+            "stdout",
+            "-l",
+            "+".join(self.ocr_languages),
+            "--psm",
+            "6",
+        ]
+        try:
+            completed = subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="ignore",
+            )
+        except OSError:
+            return None
+        if completed.returncode != 0:
+            return None
+        text = _collapse_whitespace(completed.stdout)
+        if not text:
+            return None
+        return OcrText(
+            text=text,
+            provider="tesseract",
+            languages=self.ocr_languages,
+        )
+
+    def _run_tesseract_bytes(self, *, data: bytes, suffix: str) -> OcrText | None:
+        """OCR in-memory assets by materializing a short-lived temp file for Tesseract."""
+
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
+            handle.write(data)
+            temp_path = Path(handle.name)
+        try:
+            return self._run_tesseract_path(temp_path)
+        finally:
+            temp_path.unlink(missing_ok=True)
+
+    def _ocr_asset_bytes(
+        self,
+        *,
+        data: bytes | None,
+        asset_ref: str,
+        fallback_suffix: str = ".png",
+    ) -> OcrText | None:
+        """Run OCR against one extracted image asset when the cache needs semantic text."""
+
+        if data is None:
+            return None
+        suffix = Path(asset_ref.replace(":", "_")).suffix or fallback_suffix
+        return self._run_tesseract_bytes(data=data, suffix=suffix)
+
+    def _render_pdf_page_image(self, *, file_path: Path, page_index: int) -> bytes | None:
+        """Render one PDF page to PNG so scanned pages become OCR-able and fetchable."""
+
+        try:
+            import fitz
+        except Exception:
+            return None
+
+        document = fitz.open(str(file_path))
+        try:
+            page = document.load_page(page_index)
+            matrix = fitz.Matrix(PDF_OCR_SCALE, PDF_OCR_SCALE)
+            pixmap = page.get_pixmap(matrix=matrix, alpha=False)
+            return pixmap.tobytes("png")
+        finally:
+            document.close()
+
+    def _canonical_markdown(
+        self,
+        *,
+        file_path: Path,
+        document: ParsedDocument,
+        serialized_assets: dict[str, Any],
+    ) -> tuple[str, str]:
+        """Prefer MarkItDown output when available so the cache matches KB-style packages."""
+
+        try:
+            from markitdown import MarkItDown
+        except Exception:
+            return (
+                self._render_canonical_markdown(
+                    document=document,
+                    serialized_assets=serialized_assets,
+                ),
+                "parsed_document",
+            )
+
+        try:
+            markdown = str(MarkItDown().convert(str(file_path)).text_content or "").strip()
+        except Exception:
+            markdown = ""
+        if not markdown:
+            return (
+                self._render_canonical_markdown(
+                    document=document,
+                    serialized_assets=serialized_assets,
+                ),
+                "parsed_document",
+            )
+        return f"# {document.path}\n\n{markdown}\n", "markitdown"
+
+    def _render_canonical_markdown(
+        self,
+        *,
+        document: ParsedDocument,
+        serialized_assets: dict[str, Any],
+    ) -> str:
+        lines = [
+            f"# {document.path}",
+            "",
+            f"- document_kind: {document.document_kind}",
+            f"- locator_type: {document.locator_type}",
+            f"- contains_visual: {str(document.contains_visual).lower()}",
+            "",
+        ]
+        for unit in document.units:
+            lines.extend(
+                [
+                    f"## {_locator_heading(unit.locator_type, unit.locator)}",
+                    "",
+                ]
+            )
+            if not unit.content_blocks:
+                lines.extend(["_No content blocks_", ""])
+                continue
+            for block in unit.content_blocks:
+                block_type = block.get("type")
+                if block_type == "text":
+                    lines.extend([str(block.get("text", "")), ""])
+                    continue
+                if block_type == "table":
+                    lines.extend(
+                        [
+                            "```table",
+                            str(block.get("text", "")),
+                            "```",
+                            "",
+                        ]
+                    )
+                    continue
+                if block_type == "image":
+                    asset_ref = str(block.get("asset_ref", ""))
+                    record = serialized_assets.get(asset_ref) or {}
+                    cache_file = record.get("cache_file")
+                    if isinstance(cache_file, str) and cache_file.strip():
+                        lines.append(f"![{block.get('summary', asset_ref)}]({cache_file})")
+                    else:
+                        lines.append(f"- image: {block.get('summary', asset_ref)}")
+                    lines.append("")
+                    continue
+                lines.extend([f"> {block.get('summary', '')}".rstrip(), ""])
+        return "\n".join(lines).strip() + "\n"
 
     def describe_document(self, file_path: Path) -> dict[str, Any]:
         """Return lightweight document metadata for browse/list surfaces.
@@ -646,15 +1087,30 @@ class DocumentTooling:
             units=units,
             assets={},
             contains_visual=False,
+            ingest_metadata=self._default_ingest_metadata(ocr_attempted=False),
         )
 
     def _parse_image_document(self, *, file_path: Path, path: str) -> ParsedDocument:
         asset = _asset_from_path(asset_ref="page:1:image:1", file_path=file_path)
         summary = f"Image file {file_path.name} ({asset.width or '?'}x{asset.height or '?'})"
+        ocr_text = self._run_tesseract_path(file_path)
+        content_blocks: list[dict[str, Any]] = []
+        search_entries: list[tuple[EvidenceType, str]] = []
+        if ocr_text is not None:
+            content_blocks.append(
+                {
+                    "type": "text",
+                    "locator": 1,
+                    "text": ocr_text.text,
+                    "text_source": "ocr",
+                }
+            )
+            search_entries.append(("ocr_text", ocr_text.text))
         unit = DocumentUnit(
             locator=1,
             locator_type="page",
             content_blocks=[
+                *content_blocks,
                 asset.read_block(locator=1),
                 {
                     "type": "document",
@@ -662,9 +1118,12 @@ class DocumentTooling:
                     "summary": summary,
                 },
             ],
-            search_entries=[("vision_summary", f"{file_path.stem} {summary}")],
+            search_entries=[
+                *search_entries,
+                ("vision_summary", f"{file_path.stem} {summary}"),
+            ],
             contains_visual=True,
-            preview_text=summary,
+            preview_text=ocr_text.text if ocr_text is not None else summary,
         )
         return ParsedDocument(
             path=path,
@@ -673,12 +1132,17 @@ class DocumentTooling:
             units=[unit],
             assets={asset.asset_ref: asset},
             contains_visual=True,
+            ingest_metadata=self._default_ingest_metadata(
+                ocr_attempted=True,
+                ocr_provider=ocr_text.provider if ocr_text is not None else "tesseract",
+            ),
         )
 
     def _parse_pdf_document(self, *, file_path: Path, path: str) -> ParsedDocument:
         reader = PdfReader(str(file_path))
         units: list[DocumentUnit] = []
         assets: dict[str, DocumentAsset] = {}
+        ocr_attempted = False
         for page_index, page in enumerate(reader.pages, start=1):
             text = _collapse_whitespace(page.extract_text() or "")
             content_blocks: list[dict[str, Any]] = []
@@ -708,7 +1172,43 @@ class DocumentTooling:
                 asset_refs.append(asset_ref)
                 content_blocks.append(asset.read_block(locator=page_index))
 
-            if asset_refs and not text:
+            ocr_text: OcrText | None = None
+            if not text:
+                ocr_attempted = True
+                rendered_page = self._render_pdf_page_image(
+                    file_path=file_path,
+                    page_index=page_index - 1,
+                )
+                if rendered_page:
+                    if not asset_refs:
+                        asset_ref = f"page:{page_index}:render:1"
+                        asset = _asset_from_bytes(
+                            asset_ref=asset_ref,
+                            data=rendered_page,
+                            file_name=f"page-{page_index}.png",
+                            summary=f"Rendered page {page_index}",
+                            extra={"page": page_index, "source": "pdf_render"},
+                        )
+                        assets[asset_ref] = asset
+                        asset_refs.append(asset_ref)
+                        content_blocks.append(asset.read_block(locator=page_index))
+                    ocr_text = self._run_tesseract_bytes(
+                        data=rendered_page,
+                        suffix=f"-page-{page_index}.png",
+                    )
+                    if ocr_text is not None:
+                        content_blocks.insert(
+                            0,
+                            {
+                                "type": "text",
+                                "locator": page_index,
+                                "text": ocr_text.text,
+                                "text_source": "ocr",
+                            },
+                        )
+                        search_entries.append(("ocr_text", ocr_text.text))
+
+            if asset_refs and not text and ocr_text is None:
                 search_entries.append(
                     (
                         "vision_summary",
@@ -732,7 +1232,7 @@ class DocumentTooling:
                     content_blocks=content_blocks,
                     search_entries=search_entries,
                     contains_visual=bool(asset_refs),
-                    preview_text=text or f"Page {page_index}",
+                    preview_text=text or (ocr_text.text if ocr_text is not None else f"Page {page_index}"),
                 )
             )
 
@@ -743,12 +1243,17 @@ class DocumentTooling:
             units=units,
             assets=assets,
             contains_visual=bool(assets),
+            ingest_metadata=self._default_ingest_metadata(
+                ocr_attempted=ocr_attempted,
+                ocr_provider="tesseract" if ocr_attempted else None,
+            ),
         )
 
     def _parse_pptx_document(self, *, file_path: Path, path: str) -> ParsedDocument:
         presentation = Presentation(str(file_path))
         units: list[DocumentUnit] = []
         assets: dict[str, DocumentAsset] = {}
+        ocr_attempted = False
         for slide_index, slide in enumerate(presentation.slides, start=1):
             text_blocks: list[str] = []
             search_entries: list[tuple[EvidenceType, str]] = []
@@ -821,6 +1326,22 @@ class DocumentTooling:
                     )
                     assets[asset_ref] = asset
                     content_blocks.append(asset.read_block(locator=slide_index))
+                    ocr_attempted = True
+                    ocr_text = self._ocr_asset_bytes(
+                        data=asset.data,
+                        asset_ref=asset_ref,
+                    )
+                    if ocr_text is not None:
+                        search_entries.append(("ocr_text", ocr_text.text))
+                        content_blocks.append(
+                            {
+                                "type": "text",
+                                "locator": slide_index,
+                                "text": ocr_text.text,
+                                "text_source": "ocr",
+                                "asset_ref": asset_ref,
+                            }
+                        )
 
             slide_text = "\n".join(text_blocks).strip()
             if slide_text:
@@ -859,12 +1380,17 @@ class DocumentTooling:
             units=units,
             assets=assets,
             contains_visual=any(unit.contains_visual for unit in units),
+            ingest_metadata=self._default_ingest_metadata(
+                ocr_attempted=ocr_attempted,
+                ocr_provider="tesseract" if ocr_attempted else None,
+            ),
         )
 
     def _parse_docx_document(self, *, file_path: Path, path: str) -> ParsedDocument:
         document = WordDocument(str(file_path))
         units: list[DocumentUnit] = []
         assets, asset_refs = _extract_docx_assets(document)
+        ocr_attempted = bool(asset_refs)
 
         for index, block in enumerate(_iter_docx_blocks(document), start=1):
             if isinstance(block, Paragraph):
@@ -921,6 +1447,24 @@ class DocumentTooling:
         if asset_refs:
             media_locator = len(units) + 1
             media_blocks = [assets[asset_ref].read_block(locator=media_locator) for asset_ref in asset_refs]
+            media_entries: list[tuple[EvidenceType, str]] = []
+            for asset_ref in asset_refs:
+                ocr_text = self._ocr_asset_bytes(
+                    data=assets[asset_ref].data,
+                    asset_ref=asset_ref,
+                )
+                if ocr_text is None:
+                    continue
+                media_entries.append(("ocr_text", ocr_text.text))
+                media_blocks.append(
+                    {
+                        "type": "text",
+                        "locator": media_locator,
+                        "text": ocr_text.text,
+                        "text_source": "ocr",
+                        "asset_ref": asset_ref,
+                    }
+                )
             units.append(
                 DocumentUnit(
                     locator=media_locator,
@@ -930,10 +1474,11 @@ class DocumentTooling:
                         (
                             "vision_summary",
                             f"Document contains {len(asset_refs)} embedded images",
-                        )
+                        ),
+                        *media_entries,
                     ],
                     contains_visual=True,
-                    preview_text=f"{len(asset_refs)} embedded images",
+                    preview_text=media_entries[0][1] if media_entries else f"{len(asset_refs)} embedded images",
                 )
             )
 
@@ -962,6 +1507,10 @@ class DocumentTooling:
             units=units,
             assets=assets,
             contains_visual=bool(asset_refs),
+            ingest_metadata=self._default_ingest_metadata(
+                ocr_attempted=ocr_attempted,
+                ocr_provider="tesseract" if ocr_attempted else None,
+            ),
         )
 
     def _parse_xlsx_document(self, *, file_path: Path, path: str) -> ParsedDocument:
@@ -969,6 +1518,7 @@ class DocumentTooling:
         try:
             units: list[DocumentUnit] = []
             assets: dict[str, DocumentAsset] = {}
+            ocr_attempted = False
             for sheet in workbook.worksheets:
                 rows, region = _extract_sheet_rows(sheet)
                 table_text = _table_rows_to_text(rows)
@@ -1018,6 +1568,22 @@ class DocumentTooling:
                     content_blocks.append(
                         assets[asset_ref].read_block(locator=sheet.title)
                     )
+                    ocr_attempted = True
+                    ocr_text = self._ocr_asset_bytes(
+                        data=assets[asset_ref].data,
+                        asset_ref=asset_ref,
+                    )
+                    if ocr_text is not None:
+                        search_entries.append(("ocr_text", ocr_text.text))
+                        content_blocks.append(
+                            {
+                                "type": "text",
+                                "locator": sheet.title,
+                                "text": ocr_text.text,
+                                "text_source": "ocr",
+                                "asset_ref": asset_ref,
+                            }
+                        )
 
                 if not content_blocks:
                     content_blocks.append(
@@ -1048,6 +1614,10 @@ class DocumentTooling:
             units=units,
             assets=assets,
             contains_visual=any(unit.contains_visual for unit in units),
+            ingest_metadata=self._default_ingest_metadata(
+                ocr_attempted=ocr_attempted,
+                ocr_provider="tesseract" if ocr_attempted else None,
+            ),
         )
 
     def _parse_xls_document(self, *, file_path: Path, path: str) -> ParsedDocument:
@@ -1089,6 +1659,7 @@ class DocumentTooling:
             units=units,
             assets={},
             contains_visual=False,
+            ingest_metadata=self._default_ingest_metadata(ocr_attempted=False),
         )
 
     def _parse_legacy_document(self, *, file_path: Path, path: str) -> ParsedDocument:
@@ -1120,4 +1691,5 @@ class DocumentTooling:
             ],
             assets={},
             contains_visual=False,
+            ingest_metadata=self._default_ingest_metadata(ocr_attempted=False),
         )

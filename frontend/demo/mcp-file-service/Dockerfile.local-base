@@ -1,0 +1,19 @@
+# syntax=docker/dockerfile:1.7
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# Local dependency mode keeps Python wheels in a host-managed virtualenv, but
+# OCR still needs container-local system packages. Build this base image once,
+# then reuse it across source edits and restarts.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        fonts-dejavu-core \
+        tesseract-ocr \
+        tesseract-ocr-chi-sim \
+        tesseract-ocr-eng \
+    && python -m pip install --no-cache-dir uv \
+    && rm -rf /var/lib/apt/lists/*

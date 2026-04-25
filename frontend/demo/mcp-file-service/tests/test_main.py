@@ -115,6 +115,7 @@ class WorkbenchMainAppTest(unittest.TestCase):
         self.assertEqual(payload["mcp_url"], "http://127.0.0.1:8084/mcp-http-agent/mcp")
         self.assertEqual(payload["agent_mcp_url"], "http://127.0.0.1:8084/mcp-http-agent/mcp")
         self.assertEqual(payload["workbench_mcp_url"], "http://127.0.0.1:8084/mcp-http/mcp")
+        self.assertTrue(payload["cache_root"].endswith("document-cache"))
 
     def test_agent_mcp_endpoint_only_exposes_document_tools(self) -> None:
         tool_names = self._discover_tool_names("/mcp-http-agent/mcp")
