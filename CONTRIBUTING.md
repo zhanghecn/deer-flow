@@ -84,12 +84,14 @@ make docker-logs-gateway
 ```
 Host Machine
   ↓
-Docker Compose (openagents-prod)
-  ├→ nginx (host ports 8083 / 8081) ← User app + admin entrypoint
-  ├→ gateway (internal) ← Go Gateway (JWT auth, Agent/Skill CRUD, LangGraph proxy)
-  ├→ langgraph (internal) ← LangGraph server (deepagents engine)
+Docker Compose (openagents)
+  ├→ app (host port 8083) ← User-facing app
+  ├→ admin (host port 8081) ← Admin / observability UI
+  ├→ demo (host port 8084) ← Demo / MCP workbench
+  ├→ gateway (host port 8001) ← Go Gateway (JWT auth, Agent/Skill CRUD, `/v1/turns`)
+  ├→ langgraph (host port 2024) ← LangGraph server (deepagents engine)
   ├→ sandbox-aio (host port 18080) ← Shared sandbox + management UI
-  ├→ onlyoffice (host port 8082) ← Document server for local host-run reuse
+  ├→ onlyoffice (host port 8082) ← Document server
   └→ provisioner (optional) ← Started only in provisioner/K8s sandbox mode
 ```
 
@@ -191,7 +193,7 @@ openagents/
 │   ├── docker.sh                 # Docker management script
 │   └── cleanup-containers.sh     # Sandbox container cleanup
 ├── docker/
-│   ├── docker-compose-prod.yaml  # Unified Docker Compose configuration
+│   ├── docker-compose.yaml       # Unified Docker Compose configuration
 │   ├── nginx/
 │   │   ├── nginx.conf            # Nginx config for Docker
 │   │   └── nginx.local.conf      # Nginx config for local dev

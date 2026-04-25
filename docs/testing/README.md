@@ -26,19 +26,19 @@ Minimum expectation before marking a knowledge-base task as tested:
 4. If the long-running app stack is not the current code, a sidecar
    verification run must be recorded separately.
 
-## Production-Style Docker Verification
+## Canonical Docker Verification
 
 When the task needs current-code verification in a containerized stack, the
 repository default is:
 
-1. Use `docker/docker-compose-prod.yaml`
+1. Use `docker/docker-compose.yaml`
 2. Bring it up with
-   `docker compose -f docker/docker-compose-prod.yaml up -d --build`
+   `docker compose -f docker/docker-compose.yaml up -d --build`
 3. Verify the browser flow on `http://127.0.0.1:8083`
-4. Record clearly that the result came from the prod-style compose stack rather
-   than the long-running dev stack
+4. Record clearly that the result came from the canonical Docker compose stack
+   rather than any stale long-running process
 
-This is the default answer to “how do we re-test the production environment
+This is the default answer to “how do we re-test the current Docker environment
 with Docker?” unless a task explicitly requires another stack.
 
 ## Native `/v1/turns` External Integration Verification
