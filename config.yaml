@@ -29,10 +29,13 @@ tools:
   - name: web_search
     group: web
     use: src.community.opencode_web.tools:web_search_tool
-    # Default to the free Bing path so local/dev setups do not depend on paid
-    # search providers or API keys.
+    # Tavily/Brave use env-provided keys when present; missing keys are skipped
+    # so the chain still reaches free HTML fallbacks.
     providers:
+      - tavily
+      - brave
       - bing
+      - duckduckgo
     num_results: 8
     search_type: auto
     livecrawl: fallback

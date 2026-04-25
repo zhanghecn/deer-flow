@@ -386,9 +386,10 @@ Provider note:
 
 Web tool note:
 - `tools[].providers` on `web_search` controls the ordered fallback chain.
-- The default repo config keeps `bing` only so local setups stay on the free path.
-- `exa` and `brave` remain optional providers if you want to opt into paid search APIs.
-- `search_type`, `livecrawl`, and `context_max_characters` are Exa-specific knobs; Brave/Bing ignore them.
+- The default repo config tries `tavily -> brave -> bing -> duckduckgo`.
+- Missing Tavily/Brave keys are treated as provider misses, so the chain still reaches free HTML fallbacks.
+- `exa` remains an optional provider if you want to opt into the existing Exa MCP path.
+- `search_type`, `livecrawl`, and `context_max_characters` are Exa-specific knobs; other providers ignore them.
 
 ### Legacy Extensions Configuration (`extensions_config.json`)
 
@@ -436,7 +437,7 @@ configuration surface. Legacy shape:
 - `OPENAGENTS_CONFIG_PATH` - Override config.yaml location
 - `OPENAGENTS_EXTENSIONS_CONFIG_PATH` - Override legacy extensions_config.json location
 - Model API keys: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, etc.
-- Tool API keys: optional `EXA_API_KEY`, optional `BRAVE_SEARCH_API_KEY` / `BRAVE_API_KEY`, `GITHUB_TOKEN`, etc.
+- Tool API keys: optional `TAVILY_API_KEY`, optional `EXA_API_KEY`, optional `BRAVE_SEARCH_API_KEY` / `BRAVE_API_KEY`, `GITHUB_TOKEN`, etc.
 
 ---
 

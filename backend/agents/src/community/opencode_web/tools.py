@@ -8,7 +8,7 @@ import re
 from dataclasses import dataclass
 from html import unescape as html_unescape
 from typing import Any, Literal, cast
-from urllib.parse import quote, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 import httpx
 from langchain.tools import tool
@@ -26,10 +26,13 @@ DEFAULT_EXA_BASE_URL = "https://mcp.exa.ai"
 DEFAULT_EXA_ENDPOINT = "/mcp"
 DEFAULT_EXA_NUM_RESULTS = 8
 DEFAULT_EXA_TIMEOUT_SECONDS = 25.0
-DEFAULT_SEARCH_PROVIDERS = ("exa", "brave", "bing")
-SUPPORTED_SEARCH_PROVIDERS = frozenset(DEFAULT_SEARCH_PROVIDERS)
+DEFAULT_SEARCH_PROVIDERS = ("tavily", "brave", "bing", "duckduckgo")
+SUPPORTED_SEARCH_PROVIDERS = frozenset(("tavily", "exa", "brave", "bing", "duckduckgo"))
+TAVILY_SEARCH_URL = "https://api.tavily.com/search"
 BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/llm/context"
 BING_SEARCH_URL = "https://www.bing.com/search"
+DUCKDUCKGO_SEARCH_URL = "https://html.duckduckgo.com/html/"
+TAVILY_API_KEY_ENV_VARS = ("TAVILY_API_KEY", "TVLY_API_KEY")
 BRAVE_API_KEY_ENV_VARS = ("BRAVE_SEARCH_API_KEY", "BRAVE_API_KEY")
 MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^\s)]+)\)")
 HTML_TAG_RE = re.compile(r"<[^>]+>")
@@ -38,6 +41,14 @@ BING_LINK_RE = re.compile(r'<h2[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)</a
 BING_LINECLAMP_RE = re.compile(r'<p[^>]*class="b_lineclamp[^"]*"[^>]*>([\s\S]*?)</p>', re.IGNORECASE)
 BING_CAPTION_P_RE = re.compile(r'<div[^>]*class="b_caption[^"]*"[^>]*>[\s\S]*?<p[^>]*>([\s\S]*?)</p>', re.IGNORECASE)
 BING_CAPTION_RE = re.compile(r'<div[^>]*class="b_caption[^"]*"[^>]*>([\s\S]*?)</div>', re.IGNORECASE)
+DUCKDUCKGO_LINK_RE = re.compile(
+    r'<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)</a>',
+    re.IGNORECASE,
+)
+DUCKDUCKGO_SNIPPET_RE = re.compile(
+    r'<(?:a|div)[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)</(?:a|div)>',
+    re.IGNORECASE,
+)
 BING_BROWSER_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -157,6 +168,10 @@ def _resolve_exa_api_key() -> str | None:
     return _resolve_search_secret("api_key", ("EXA_API_KEY",))
 
 
+def _resolve_tavily_api_key() -> str | None:
+    return _resolve_search_secret("tavily_api_key", TAVILY_API_KEY_ENV_VARS)
+
+
 def _resolve_brave_api_key() -> str | None:
     return _resolve_search_secret("brave_api_key", BRAVE_API_KEY_ENV_VARS)
 
@@ -267,6 +282,8 @@ def _request_failure_reason(exc: Exception) -> str:
 
 
 def _provider_display_name(provider: str) -> str:
+    if provider == "duckduckgo":
+        return "DuckDuckGo"
     return provider.capitalize()
 
 
@@ -288,6 +305,69 @@ def _raise_provider_http_error(provider: str, response: httpx.Response) -> None:
         _http_failure_reason(response.status_code),
         f"{_provider_display_name(provider)} HTTP {response.status_code}: {body}",
     )
+
+
+def _extract_tavily_hits(payload: dict[str, Any]) -> list[SearchHit]:
+    raw_results = payload.get("results")
+    if not isinstance(raw_results, list):
+        return []
+
+    hits: list[SearchHit] = []
+    seen_urls: set[str] = set()
+    for entry in raw_results:
+        if not isinstance(entry, dict):
+            continue
+
+        title = _normalize_whitespace(str(entry.get("title", "")))
+        url = str(entry.get("url", "")).strip()
+        if not title or not url or url in seen_urls:
+            continue
+
+        snippet_source = entry.get("content") or entry.get("snippet") or entry.get("raw_content") or ""
+        hits.append(SearchHit(title=title, url=url, snippet=_normalize_snippet(str(snippet_source))))
+        seen_urls.add(url)
+
+    return hits
+
+
+def _search_with_tavily(query: str, *, num_results: int | None) -> SearchProviderResult:
+    api_key = _resolve_tavily_api_key()
+    if not api_key:
+        raise SearchProviderError("tavily", "unconfigured", "Tavily API key is not configured")
+
+    payload = {
+        "query": query,
+        "search_depth": str(_tool_extra("web_search", "tavily_search_depth", "basic")),
+        "topic": str(_tool_extra("web_search", "tavily_topic", "general")),
+        "max_results": int(num_results) if num_results is not None else int(_tool_extra("web_search", "num_results", DEFAULT_EXA_NUM_RESULTS)),
+        "include_answer": bool(_tool_extra("web_search", "tavily_include_answer", False)),
+        "include_raw_content": False,
+    }
+
+    try:
+        response = httpx.post(
+            TAVILY_SEARCH_URL,
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            timeout=_resolve_search_timeout_seconds("tavily"),
+        )
+    except Exception as exc:
+        _raise_provider_request_error("tavily", exc)
+
+    _raise_provider_http_error("tavily", response)
+
+    try:
+        parsed = response.json()
+    except json.JSONDecodeError as exc:
+        raise SearchProviderError("tavily", "invalid_response", f"Tavily returned invalid JSON: {exc}") from exc
+
+    hits = _extract_tavily_hits(parsed)
+    if not hits:
+        raise SearchProviderError("tavily", "empty_results", "Tavily returned no search results")
+    return SearchProviderResult(provider="tavily", hits=hits)
 
 
 def _search_with_exa(
@@ -489,6 +569,66 @@ def _search_with_bing(query: str) -> SearchProviderResult:
     return SearchProviderResult(provider="bing", hits=hits)
 
 
+def _decode_duckduckgo_url(raw_url: str) -> str | None:
+    decoded_url = html_unescape(raw_url)
+    if decoded_url.startswith("//"):
+        decoded_url = f"https:{decoded_url}"
+    elif decoded_url.startswith("/"):
+        decoded_url = f"https://duckduckgo.com{decoded_url}"
+
+    parsed = urlparse(decoded_url)
+    if parsed.netloc.endswith("duckduckgo.com") and parsed.path.startswith("/l/"):
+        target = parse_qs(parsed.query).get("uddg", [None])[0]
+        if target and target.startswith("http"):
+            return target
+        return None
+
+    if parsed.scheme in {"http", "https"} and "duckduckgo.com" not in parsed.netloc:
+        return decoded_url
+    return None
+
+
+def _extract_duckduckgo_hits(html: str) -> list[SearchHit]:
+    hits: list[SearchHit] = []
+    seen_urls: set[str] = set()
+    matches = list(DUCKDUCKGO_LINK_RE.finditer(html))
+
+    for index, match in enumerate(matches):
+        url = _decode_duckduckgo_url(match.group(1))
+        title = _extract_html_text(match.group(2))
+        if not title or not url or url in seen_urls:
+            continue
+
+        next_start = matches[index + 1].start() if index + 1 < len(matches) else len(html)
+        result_block = html[match.end() : next_start]
+        snippet_match = DUCKDUCKGO_SNIPPET_RE.search(result_block)
+        snippet = _normalize_snippet(_extract_html_text(snippet_match.group(1))) if snippet_match else None
+        hits.append(SearchHit(title=title, url=url, snippet=snippet))
+        seen_urls.add(url)
+
+    return hits
+
+
+def _search_with_duckduckgo(query: str) -> SearchProviderResult:
+    try:
+        response = httpx.get(
+            DUCKDUCKGO_SEARCH_URL,
+            params={"q": query},
+            headers=BING_BROWSER_HEADERS,
+            timeout=_resolve_search_timeout_seconds("duckduckgo"),
+            follow_redirects=True,
+        )
+    except Exception as exc:
+        _raise_provider_request_error("duckduckgo", exc)
+
+    _raise_provider_http_error("duckduckgo", response)
+
+    hits = _extract_duckduckgo_hits(response.text)
+    if not hits:
+        raise SearchProviderError("duckduckgo", "empty_results", "DuckDuckGo returned no search results")
+    return SearchProviderResult(provider="duckduckgo", hits=hits)
+
+
 def _run_web_search(
     query: str,
     *,
@@ -508,7 +648,9 @@ def _run_web_search(
     # later backend won instead of silently hiding upstream provider issues.
     for provider in providers:
         try:
-            if provider == "exa":
+            if provider == "tavily":
+                result = _search_with_tavily(query, num_results=num_results)
+            elif provider == "exa":
                 result = _search_with_exa(
                     query,
                     num_results=num_results,
@@ -518,8 +660,10 @@ def _run_web_search(
                 )
             elif provider == "brave":
                 result = _search_with_brave(query)
-            else:
+            elif provider == "bing":
                 result = _search_with_bing(query)
+            else:
+                result = _search_with_duckduckgo(query)
         except SearchProviderError as exc:
             failures.append(SearchProviderFailure(provider=exc.provider, reason=exc.reason, detail=exc.detail))
             log_method = logger.info if exc.reason in {"empty_results", "unconfigured"} else logger.warning
@@ -615,7 +759,7 @@ def web_search_tool(
     search_type: str | None = None,
     context_max_characters: int | None = None,
 ) -> str:
-    """Search the web using Exa primary search with Brave/Bing fallbacks.
+    """Search the web using the configured provider fallback chain.
 
     Args:
         query: Search query text.

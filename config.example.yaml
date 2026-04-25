@@ -49,25 +49,31 @@ tools:
   - name: web_search
     group: web
     use: src.community.opencode_web.tools:web_search_tool
-    # Default to the free Bing path. If you want higher-quality paid search,
-    # switch the provider order to include Exa and/or Brave.
+    # Tavily/Brave use env-provided keys when present; missing keys are skipped
+    # so the chain still reaches free HTML fallbacks.
     providers:
+      - tavily
+      - brave
       - bing
+      - duckduckgo
     num_results: 8
     search_type: auto
     livecrawl: fallback
     timeout: 25
     # provider_timeouts:
+    #   tavily: 12
+    #   brave: 15
     #   bing: 12
+    #   duckduckgo: 12
+    # tavily_api_key: $TAVILY_API_KEY
+    # brave_api_key: $BRAVE_SEARCH_API_KEY
+    # Optional paid/provider-specific order:
     # providers:
+    #   - tavily
     #   - exa
     #   - brave
     #   - bing
-    # provider_timeouts:
-    #   exa: 25
-    #   brave: 15
-    #   bing: 12
-    # brave_api_key: $BRAVE_SEARCH_API_KEY
+    #   - duckduckgo
 
   - name: web_fetch
     group: web

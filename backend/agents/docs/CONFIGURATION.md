@@ -39,10 +39,10 @@ Notes:
 - `skills.container_path` is only a compatibility mount for local execution.
   Active runtime skills are still read from `/mnt/user-data/agents/...`.
 - Tool-specific extras live directly under each `tools[]` entry. For example,
-  `web_search.providers` sets the ordered provider list. The repo default keeps
-  `bing` only for a free local/dev path, while optional paid setups can expand
-  it to `exa`, `brave`, and `bing`. `web_search.provider_timeouts` can override
-  the global search timeout per backend.
+  `web_search.providers` sets the ordered provider list. The repo default tries
+  `tavily`, `brave`, `bing`, then `duckduckgo`; missing API keys are treated as
+  provider misses so the free HTML fallbacks still run. `web_search.provider_timeouts`
+  can override the global search timeout per backend.
 
 ## Runtime Backend Modes
 

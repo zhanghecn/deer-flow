@@ -136,6 +136,53 @@ def test_web_search_falls_back_to_brave_on_rate_limit(monkeypatch):
     assert "https://brave.example/result" in result
 
 
+def test_web_search_uses_tavily_first_when_key_is_configured(monkeypatch):
+    monkeypatch.setattr(
+        web_tools,
+        "load_tool_config",
+        lambda name: _fake_load_tool_config(
+            name,
+            web_search=_FakeToolConfig(
+                {
+                    "providers": ["tavily", "bing"],
+                    "tavily_api_key": "config-tavily-key",
+                    "num_results": 2,
+                }
+            ),
+        ),
+    )
+
+    captured: dict[str, object] = {}
+
+    def _fake_post(url, json, headers, timeout):
+        captured["url"] = url
+        captured["json"] = json
+        captured["headers"] = headers
+        return _FakeResponse(
+            200,
+            "",
+            json_payload={
+                "results": [
+                    {
+                        "title": "Tavily Result",
+                        "url": "https://tavily.example/result",
+                        "content": "Tavily snippet",
+                    }
+                ]
+            },
+        )
+
+    monkeypatch.setattr(web_tools.httpx, "post", _fake_post)
+
+    result = web_tools.web_search_tool.invoke({"query": "python"})
+
+    assert "Search provider: tavily" in result
+    assert "https://tavily.example/result" in result
+    assert captured["url"] == web_tools.TAVILY_SEARCH_URL
+    assert captured["json"]["max_results"] == 2
+    assert captured["headers"]["Authorization"] == "Bearer config-tavily-key"
+
+
 def test_web_search_falls_back_to_bing_when_brave_is_unconfigured(monkeypatch):
     monkeypatch.setattr(
         web_tools,
@@ -170,6 +217,41 @@ def test_web_search_falls_back_to_bing_when_brave_is_unconfigured(monkeypatch):
     assert "Search provider: bing" in result
     assert "Fallback trail: exa(rate_limit) -> brave(unconfigured)" in result
     assert "https://bing.example/result" in result
+
+
+def test_web_search_falls_back_to_duckduckgo_after_empty_bing(monkeypatch):
+    monkeypatch.setattr(
+        web_tools,
+        "load_tool_config",
+        lambda name: _fake_load_tool_config(name, web_search=_FakeToolConfig({"providers": ["tavily", "brave", "bing", "duckduckgo"]})),
+    )
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("TVLY_API_KEY", raising=False)
+    monkeypatch.delenv("BRAVE_SEARCH_API_KEY", raising=False)
+    monkeypatch.delenv("BRAVE_API_KEY", raising=False)
+
+    def _fake_get(url, headers=None, params=None, timeout=None, follow_redirects=None):
+        if "bing.com/search" in url:
+            return _FakeResponse(200, "<html><body>No organic results</body></html>")
+        assert url == web_tools.DUCKDUCKGO_SEARCH_URL
+        assert params == {"q": "python"}
+        return _FakeResponse(
+            200,
+            """
+            <div class="result">
+              <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fduck.example%2Fresult">Duck Result</a>
+              <a class="result__snippet">Duck snippet</a>
+            </div>
+            """,
+        )
+
+    monkeypatch.setattr(web_tools.httpx, "get", _fake_get)
+
+    result = web_tools.web_search_tool.invoke({"query": "python"})
+
+    assert "Search provider: duckduckgo" in result
+    assert "Fallback trail: tavily(unconfigured) -> brave(unconfigured) -> bing(empty_results)" in result
+    assert "https://duck.example/result" in result
 
 
 def test_web_search_respects_provider_order_and_provider_specific_timeout(monkeypatch):
