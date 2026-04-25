@@ -1,207 +1,143 @@
-# Docker Config Layout
+# Docker Entry Points
 
-This repository now keeps a single Docker Compose file:
+This repository has one canonical local Docker compose file:
 
+- `docker/docker-compose.yaml`
+
+The old compose filenames remain only as compatibility wrappers:
+
+- `docker/docker-compose.dev.yaml`
 - `docker/docker-compose-prod.yaml`
 
-Use it for both local Docker runs and release-style single-host deployments.
-For detailed operator notes, see `docs/guides/docker-compose-prod-selfhost-zh.md`.
+Both wrappers include the same canonical file. Do not treat them as separate
+development and production topologies.
 
-Run Docker Compose from `docker/`:
+## Common Local Development
 
-```bash
-docker compose -f docker-compose-prod.yaml build
-docker compose -f docker-compose-prod.yaml up -d
-```
-
-Gateway no longer executes repository SQL migrations.
-If `migrations/*.sql` changes, review and apply them manually before startup.
-
-This repo now uses:
-
-- one shared root `.env` for secrets only
-- `config.yaml` for LangGraph/runtime non-secret config
-- `backend/gateway/gateway.yaml` for gateway non-secret config
-
-Docker-specific differences are handled in one place:
-
-- fixed container URLs are written directly in `docker/docker-compose-prod.yaml`
-- optional compose/provisioner overrides are passed as shell env when needed
-
-Removed on purpose to keep the config surface small:
-
-- a separate Docker-only env file
-- a separate Docker-only LangGraph config file
-- an ONLYOFFICE compose profile
-
-## Defaults And Overrides
-
-The compose file now carries production-safe defaults directly in
-`docker/docker-compose-prod.yaml`. A plain `docker compose -f docker-compose-prod.yaml up -d`
-works from `docker/` as long as the repo root `.env` exists.
-
-Override only when you need a different deployment shape:
-
-- `OPENAGENTS_ENV_FILE`
-  - default: `../.env`
-  - use when secrets live somewhere other than the repo root `.env`
-- `OPENAGENTS_DOCKER_HOST_HOME`
-  - default: `../.openagents`
-  - use when runtime data should live on another host path
-- `OPENAGENTS_APP_PORT`
-  - default: `8083`
-- `OPENAGENTS_ADMIN_PORT`
-  - default: `8081`
-- `OPENAGENTS_ONLYOFFICE_PORT`
-  - default: `8082`
-- `OPENAGENTS_SANDBOX_PORT`
-  - default: `18080`
-
-Example:
+Use Docker for the normal local workflow:
 
 ```bash
-OPENAGENTS_APP_PORT=80 \
-OPENAGENTS_ADMIN_PORT=8081 \
-docker compose -f docker-compose-prod.yaml up -d
+make dev
 ```
 
-## Recommended Mental Model
-
-Put secrets in root `.env`:
-
-- `DATABASE_URI`
-- `JWT_SECRET`
-- API keys
-
-Put non-secret runtime config in `config.yaml` / `gateway.yaml`:
-
-- `storage.base_dir`
-- `sandbox.use`
-- host-run `sandbox.base_url`
-- host-run `runtime.edition`
-- gateway host-run upstream URLs
-
-Do not try to store both host-view and container-view URLs in `.env`.
-For container-only fixed values, compose already owns them:
-
-- gateway sees `LANGGRAPH_URL=http://langgraph:2024`
-- langgraph sees `OPENAGENTS_SANDBOX_BASE_URL=http://sandbox-aio:8080`
-- gateway sees `ONLYOFFICE_PUBLIC_APP_URL=http://gateway:8001`
-- gateway/langgraph see `OPENAGENTS_HOME=/openagents-home`
-
-Externally managed model gateways should join the same Docker bridge network as
-OpenAgents and expose a stable alias such as `model-gateway`. That keeps model
-records on one canonical in-container URL like `http://model-gateway:3000`
-without adding a host-network proxy shim to this compose file.
-
-In the unified compose stack, do not mount the whole repository into app containers.
-Mount only the service source directories that need hot updates, keep those
-code mounts read-only, and write runtime scratch data under `OPENAGENTS_HOME`.
-Container logs should stay on stdout/stderr and use Docker log rotation.
-
-Do not bind-mount host dependency directories such as Python `site-packages`,
-virtualenvs, or Node `node_modules` into production containers. For interpreted
-services, dependencies still belong inside the image; use build-cache mounts to
-speed local rebuilds and publish prebuilt images for production rollout.
-
-## Important Constraint
-
-With one `.env`, `DATABASE_URI` should ideally be reachable from both:
-
-- host-run processes
-- Docker containers
-
-That is usually fine when PostgreSQL is on another server or a stable LAN host.
-
-If your DB is bound only to host-local `127.0.0.1`, one `.env` cannot express
-two different addresses cleanly. This repo now optimizes for the simple case:
-one shared DB address.
-
-## Manual Usage
+This starts the writable source-mounted stack and verifies the public
+entrypoints before returning success. Stop it with:
 
 ```bash
-cd docker
-docker compose -f docker-compose-prod.yaml up --build
+make stop
 ```
 
-or:
-
-```bash
-make docker-start
-```
-
-`make docker-start` now waits for the compose services to be actually ready and
-verifies these public entrypoints before returning success:
-
-- `http://127.0.0.1:8083/health`
-- `http://127.0.0.1:8083/`
-- `http://127.0.0.1:8081/`
-
-Use these shortcuts for ongoing operations:
+Useful follow-up commands:
 
 ```bash
 make docker-status
 make docker-verify
+make docker-logs
 ```
 
-This avoids the easy-to-miss case where `docker compose up -d` has created the
-containers, but one or more services are still stuck in `Created` or not yet
-healthy.
+The stack starts these services:
 
-`ONLYOFFICE` and `SANDBOX_AIO` are part of the default unified stack.
-The app entrypoint is `http://127.0.0.1:8083`, the admin entrypoint is
-`http://127.0.0.1:8081`, and the sandbox management UI is exposed on
-`http://127.0.0.1:18080`.
-For host-run local development, start just the shared infra with:
+- `sandbox-aio`
+- `onlyoffice`
+- `langgraph`
+- `gateway`
+- `openpencil`
+- `app`
+- `admin`
+- `demo-mcp-file-service`
+- `demo`
+
+Public local URLs:
+
+- app: `http://127.0.0.1:8083`
+- admin: `http://127.0.0.1:8081`
+- demo: `http://127.0.0.1:8084`
+- gateway: `http://127.0.0.1:8001`
+- langgraph: `http://127.0.0.1:2024`
+- openpencil: `http://127.0.0.1:3001/openpencil/editor`
+- sandbox: `http://127.0.0.1:18080`
+- onlyoffice: `http://127.0.0.1:8082`
+
+## What This Compose File Optimizes For
+
+The canonical compose file is intentionally a local development stack:
+
+- the repository is bind-mounted read-write into service containers
+- dependency caches live under `OPENAGENTS_DOCKER_HOST_HOME`, defaulting to
+  `../.openagents`
+- app, admin, demo, gateway, LangGraph, OpenPencil, sandbox, and ONLYOFFICE run
+  together so ports are owned by Docker instead of mixed host processes
+- logs stay on stdout/stderr, so `docker compose logs` is the inspection path
+
+This is why `make dev` is the default and why the old `docker-prod-*` aliases
+now map to the same stack. They are kept for old automation only.
+
+## Stable Image Release Status
+
+Stable prebuilt-image deployment is a separate release lane and is not yet the
+canonical compose path in this repository.
+
+The desired release contract is simple:
 
 ```bash
-make docker-infra-start
+docker compose -f docker-compose.release.yaml pull
+docker compose -f docker-compose.release.yaml up -d
 ```
 
-That starts only `sandbox-aio` and `onlyoffice`.
-`config.yaml` keeps the host-run sandbox URL (`http://127.0.0.1:18080`), and compose overrides the in-container LangGraph URL to `http://sandbox-aio:8080`.
+Do not document or script that as the supported release command until the
+release compose file, published images, image tags, migrations, and verification
+checks exist together. Until then, use the unified local Docker stack for
+development/testing and keep `docker-prod-*` as compatibility aliases only.
+
+## Configuration
+
+The compose stack reads secrets from the repository root `.env` and non-secret
+runtime configuration from:
+
+- `config.yaml`
+- `backend/gateway/gateway.yaml`
+
+Common optional overrides:
+
+- `OPENAGENTS_DOCKER_HOST_HOME`
+- `OPENAGENTS_APP_PORT`
+- `OPENAGENTS_ADMIN_PORT`
+- `OPENAGENTS_GATEWAY_PORT`
+- `OPENAGENTS_LANGGRAPH_PORT`
+- `OPENAGENTS_OPENPENCIL_PORT`
+- `OPENAGENTS_DEMO_PORT`
+- `OPENAGENTS_ONLYOFFICE_PORT`
+- `OPENAGENTS_SANDBOX_PORT`
+
+Example:
+
+```bash
+OPENAGENTS_APP_PORT=8093 make dev
+```
 
 ## External Model Gateway
 
-If your model gateway is managed outside this repository, connect that
-container to `openagents-prod_openagents` and give it the `model-gateway`
-alias. For example:
+If your model gateway is managed outside this repository, attach that container
+to the `openagents_default` network with the `model-gateway` alias:
 
 ```bash
 make docker-model-gateway-attach MODEL_GATEWAY_CONTAINER=1Panel-new-api-6d1F
 ```
 
-After that, point Anthropic-compatible model records such as `kimi-k2.5` at:
+Model records inside OpenAgents should then use:
 
 ```text
 http://model-gateway:3000
 ```
 
-## Optional Compose/Shell Vars
+## Direct Compose Usage
 
-Export these in the shell only when you actually need them:
+Prefer `make dev`, but direct compose usage is:
 
-- `OPENAGENTS_ENV_FILE`
-- `OPENAGENTS_DOCKER_HOST_HOME`
-- `OPENAGENTS_APP_PORT`
-- `OPENAGENTS_ADMIN_PORT`
-- `OPENAGENTS_ONLYOFFICE_PORT`
-- `OPENAGENTS_SANDBOX_PORT`
-- `NODE_HOST`
-- `K8S_API_SERVER`
+```bash
+cd docker
+docker compose --env-file ../.env -p openagents -f docker-compose.yaml up --build
+```
 
-## Vendored OpenPencil
-
-The production stack now builds OpenPencil from the vendored `openpencil/`
-directory in this repository.
-
-That keeps the Deer Flow `/openpencil` proxy contract, bridge code, and
-OpenPencil runtime on one source revision instead of mixing current Deer Flow
-code with a potentially stale external image.
-
-## Fixed Compose Name
-
-Keep the top-level `name: openagents-prod`.
-
-Without that, different `docker compose` invocations can create different
-bridge networks and break service DNS such as `http://langgraph:2024`.
+Keep the project name `openagents`; changing it creates different bridge
+networks and breaks service DNS such as `http://langgraph:2024`.

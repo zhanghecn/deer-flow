@@ -1,6 +1,6 @@
 # OpenAgents - Unified Development Environment
 
-.PHONY: help config check install dev stop clean docker-init docker-start docker-infra-start docker-stop docker-infra-stop docker-status docker-verify docker-logs docker-logs-nginx docker-logs-gateway docker-prod-config docker-prod-build docker-prod-start docker-prod-stop docker-prod-restart docker-prod-status docker-prod-verify docker-prod-logs docker-model-gateway-attach gateway-build docker-prod-preflight demo-start demo-stop demo-status
+.PHONY: help config check install dev host-dev stop host-stop clean docker-init docker-start docker-infra-start docker-stop docker-infra-stop docker-status docker-verify docker-logs docker-logs-nginx docker-logs-gateway docker-prod-config docker-prod-build docker-prod-start docker-prod-stop docker-prod-restart docker-prod-status docker-prod-verify docker-prod-logs docker-model-gateway-attach gateway-build docker-prod-preflight demo-start demo-stop demo-status demo-local-deps demo-start-local demo-stop-local demo-status-local
 
 GO_TOOLCHAIN ?= auto
 HOST_LOG_DIR := $(CURDIR)/.openagents/host-logs
@@ -11,45 +11,35 @@ OPENPENCIL_DIR := $(abspath $(CURDIR)/openpencil)
 # can attach one existing container to the shared bridge network and keep a
 # stable in-cluster DNS name for model records such as `http://model-gateway:3000`.
 MODEL_GATEWAY_CONTAINER ?=
-MODEL_GATEWAY_NETWORK ?= openagents-prod_openagents
+MODEL_GATEWAY_NETWORK ?= openagents_default
 MODEL_GATEWAY_ALIAS ?= model-gateway
 
 help:
-	@echo "OpenAgents Development Commands:"
-	@echo "  make config          - Generate local config files (aborts if config already exists)"
-	@echo "  make check           - Check if all required tools are installed"
-	@echo "  make install         - Install all dependencies (frontend app + frontend admin + agents + gateway)"
-	@echo "  make gateway-build   - Build Go gateway binary"
-	@echo "  make setup-sandbox   - Pre-pull sandbox container image (recommended)"
-	@echo "  make dev             - Start all services (frontend + backend + gateway + nginx + optional OpenPencil)"
-	@echo "  make stop            - Stop all running services"
-	@echo "  make clean           - Clean up processes and temporary files"
+	@echo "OpenAgents Common Commands:"
+	@echo "  make config        - Create config.yaml and .env placeholders"
+	@echo "  make dev           - Start the writable Docker dev stack"
+	@echo "  make stop          - Stop the Docker stack"
+	@echo "  make docker-status - Show container status"
+	@echo "  make docker-verify - Verify containers and HTTP entrypoints"
+	@echo "  make docker-logs   - Follow all Docker logs"
 	@echo ""
-	@echo "Docker Development Commands:"
-	@echo "  make docker-init     - Pull the shared sandbox image"
-	@echo "  make docker-start    - Start the unified Docker compose stack (app on localhost:8083)"
-	@echo "  make docker-infra-start - Start local debug infra only (sandbox-aio + onlyoffice)"
-	@echo "  make docker-stop     - Stop Docker services"
-	@echo "  make docker-infra-stop - Stop local debug infra only"
-	@echo "  make docker-status   - Show Docker compose status"
-	@echo "  make docker-verify   - Wait for services and verify HTTP entrypoints"
-	@echo "  make docker-logs     - View Docker logs"
-	@echo "  make docker-logs-nginx - View Docker nginx logs"
-	@echo "  make docker-logs-gateway - View Docker gateway logs"
-	@echo "  make docker-model-gateway-attach MODEL_GATEWAY_CONTAINER=<container> - Attach an external model gateway container to the shared Docker network"
+	@echo "Useful Docker Shortcuts:"
+	@echo "  make docker-start  - Same as make dev"
+	@echo "  make docker-stop   - Same as make stop"
+	@echo "  make docker-init   - Pull the shared sandbox image"
+	@echo "  make docker-model-gateway-attach MODEL_GATEWAY_CONTAINER=<container>"
 	@echo ""
-	@echo "Demo Commands:"
-	@echo "  make demo-start     - Start the demo stack with one command"
-	@echo "  make demo-stop      - Stop the demo stack"
-	@echo "  make demo-status    - Show demo stack status"
+	@echo "Advanced / Legacy:"
+	@echo "  make check         - Check host tooling for non-Docker workflows"
+	@echo "  make install       - Install host dependencies"
+	@echo "  make gateway-build - Build the Go gateway on the host"
+	@echo "  make host-dev      - Start the legacy host-run stack"
+	@echo "  make host-stop     - Stop legacy host-run processes"
+	@echo "  make docker-infra-start / docker-infra-stop - Start only sandbox + ONLYOFFICE"
 	@echo ""
-	@echo "Docker Production Commands:"
-	@echo "  make docker-prod-build   - Direct docker compose build for production"
-	@echo "  make docker-prod-start   - Build, start, and verify the production-style stack"
-	@echo "  make docker-prod-stop    - Direct docker compose down for production"
-	@echo "  make docker-prod-status  - Show production-style stack status"
-	@echo "  make docker-prod-verify  - Verify production-style stack readiness"
-	@echo "  make docker-prod-logs    - Direct docker compose logs for production"
+	@echo "Compatibility aliases kept for old automation:"
+	@echo "  docker-prod-start/status/verify/restart/stop/logs now point at the same unified local stack."
+	@echo "  Stable prebuilt-image release deployment is intentionally not advertised here until docker-compose.release.yaml exists."
 
 config:
 	@if [ -f config.yaml ] || [ -f config.yml ] || [ -f configure.yml ]; then \
@@ -134,7 +124,7 @@ check:
 		echo ""; \
 		echo "You can now run:"; \
 		echo "  make install  - Install project dependencies"; \
-		echo "  make dev      - Start development server"; \
+		echo "  make dev      - Start the writable Docker dev stack"; \
 	else \
 		echo "=========================================="; \
 		echo "  ✗ Some dependencies are missing"; \
@@ -199,16 +189,22 @@ setup-sandbox:
 		exit 1; \
 	fi
 
-# Start all services.
+# Docker is the default local development lane. The compose dev stack bind-
+# mounts the repository and persists dependency caches under `.openagents`.
+dev: docker-start
+
+# Start all services on the host for debugging the pre-Docker workflow.
 # OpenPencil is vendored into this repository and must bind 3001 in host-run
 # development so nginx preserves the same-origin `/openpencil` bridge contract.
-dev:
+host-dev:
 	@echo "Stopping existing services if any..."
 	@-pkill -f "langgraph dev" 2>/dev/null || true
 	@-pkill -f "langgraph_api.cli" 2>/dev/null || true
 	@-pkill -f "backend/gateway/bin/gateway" 2>/dev/null || true
 	@-pkill -f "uvicorn src.gateway.app:app" 2>/dev/null || true
 	@-sh -c 'frontend_pids=$$(lsof -ti :3000 2>/dev/null); [ -z "$$frontend_pids" ] || kill $$frontend_pids 2>/dev/null || true'
+	@-sh -c 'admin_pids=$$(lsof -ti :5173 2>/dev/null); [ -z "$$admin_pids" ] || kill $$admin_pids 2>/dev/null || true'
+	@-sh -c 'demo_pids=$$(lsof -ti :8084 2>/dev/null); [ -z "$$demo_pids" ] || kill $$demo_pids 2>/dev/null || true'
 	@-sh -c 'openpencil_pids=$$(lsof -ti :3001 2>/dev/null); [ -z "$$openpencil_pids" ] || kill $$openpencil_pids 2>/dev/null || true'
 	@-nginx -c $(PWD)/docker/nginx/nginx.local.conf -p $(PWD) -s quit 2>/dev/null || true
 	@sleep 1
@@ -236,6 +232,8 @@ dev:
 		pkill -f "backend/gateway/bin/gateway" 2>/dev/null || true; \
 		pkill -f "uvicorn src.gateway.app:app" 2>/dev/null || true; \
 		frontend_pids=$$(lsof -ti :3000 2>/dev/null); [ -z "$$frontend_pids" ] || kill $$frontend_pids 2>/dev/null || true; \
+		admin_pids=$$(lsof -ti :5173 2>/dev/null); [ -z "$$admin_pids" ] || kill $$admin_pids 2>/dev/null || true; \
+		demo_pids=$$(lsof -ti :8084 2>/dev/null); [ -z "$$demo_pids" ] || kill $$demo_pids 2>/dev/null || true; \
 		openpencil_pids=$$(lsof -ti :3001 2>/dev/null); [ -z "$$openpencil_pids" ] || kill $$openpencil_pids 2>/dev/null || true; \
 		nginx -c $(PWD)/docker/nginx/nginx.local.conf -p $(PWD) -s quit 2>/dev/null || true; \
 		sleep 1; \
@@ -333,13 +331,18 @@ dev:
 	echo ""; \
 	wait
 
-# Stop all services
-stop:
+# Stop the default writable Docker dev stack.
+stop: docker-stop
+
+# Stop all services from the legacy host-run workflow.
+host-stop:
 	@echo "Stopping all services..."
 	@-pkill -f "langgraph dev" 2>/dev/null || true
 	@-pkill -f "backend/gateway/bin/gateway" 2>/dev/null || true
 	@-pkill -f "uvicorn src.gateway.app:app" 2>/dev/null || true
 	@-sh -c 'frontend_pids=$$(lsof -ti :3000 2>/dev/null); [ -z "$$frontend_pids" ] || kill $$frontend_pids 2>/dev/null || true'
+	@-sh -c 'admin_pids=$$(lsof -ti :5173 2>/dev/null); [ -z "$$admin_pids" ] || kill $$admin_pids 2>/dev/null || true'
+	@-sh -c 'demo_pids=$$(lsof -ti :8084 2>/dev/null); [ -z "$$demo_pids" ] || kill $$demo_pids 2>/dev/null || true'
 	@-sh -c 'openpencil_pids=$$(lsof -ti :3001 2>/dev/null); [ -z "$$openpencil_pids" ] || kill $$openpencil_pids 2>/dev/null || true'
 	@-nginx -c $(PWD)/docker/nginx/nginx.local.conf -p $(PWD) -s quit 2>/dev/null || true
 	@sleep 1
@@ -348,8 +351,9 @@ stop:
 	@-./scripts/cleanup-containers.sh openagents-sandbox 2>/dev/null || true
 	@echo "✓ All services stopped"
 
-# Clean up
-clean: stop
+# Clean up both Docker and any legacy host-run leftovers so developers can
+# reset the workspace with one command even while migrating between flows.
+clean: stop host-stop
 	@echo "Cleaning up..."
 	@-rm -rf $(HOST_LOG_DIR)/*.log 2>/dev/null || true
 	@-rm -rf logs/*.log 2>/dev/null || true
@@ -393,9 +397,9 @@ docker-logs:
 
 # View Docker nginx logs
 docker-logs-nginx:
-	@./scripts/docker.sh logs --nginx
+	@echo "Unified compose no longer runs a separate nginx container. Use 'make docker-logs' or 'make docker-logs-gateway'."
 docker-logs-gateway:
-	@./scripts/docker.sh logs --gateway
+	@cd docker && docker compose --env-file ../.env -p openagents -f docker-compose.yaml logs -f gateway
 
 # External model gateways are managed outside this repo, so the attach step
 # stays explicit instead of hiding docker-socket mutations inside compose.
@@ -421,7 +425,7 @@ docker-model-gateway-attach:
 	@echo "Model records should use base_url=http://$(MODEL_GATEWAY_ALIAS):3000"
 
 docker-prod-config:
-	@cd docker && docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml config
+	@cd docker && docker compose --env-file ../.env -p openagents -f docker-compose.yaml config
 
 docker-prod-preflight:
 	@# The vendored OpenPencil tree is now part of the default prod stack, so
@@ -431,26 +435,25 @@ docker-prod-preflight:
 	@test -f openpencil/apps/web/package.json || (echo "Missing vendored OpenPencil web app entry: openpencil/apps/web/package.json"; exit 1)
 
 docker-prod-build:
-	@$(MAKE) docker-prod-preflight
-	@cd docker && docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml build nginx openpencil gateway langgraph sandbox-aio onlyoffice
+	@cd docker && docker compose --env-file ../.env -p openagents -f docker-compose.yaml build
 
 docker-prod-start:
-	@./scripts/docker.sh start
+	@./scripts/docker.sh prod-start
 
 docker-prod-stop:
-	@cd docker && docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml down
+	@./scripts/docker.sh stop
 
 docker-prod-restart:
-	@./scripts/docker.sh restart
+	@./scripts/docker.sh prod-restart
 
 docker-prod-status:
-	@./scripts/docker.sh status
+	@./scripts/docker.sh prod-status
 
 docker-prod-verify:
-	@./scripts/docker.sh verify
+	@./scripts/docker.sh prod-verify
 
 docker-prod-logs:
-	@cd docker && docker compose --env-file ../.env -p openagents-prod -f docker-compose-prod.yaml logs -f
+	@cd docker && docker compose --env-file ../.env -p openagents -f docker-compose.yaml logs -f
 
 demo-start:
 	@./scripts/demo.sh start
@@ -460,3 +463,15 @@ demo-stop:
 
 demo-status:
 	@./scripts/demo.sh status
+
+demo-local-deps:
+	@./scripts/demo-local-deps.sh bootstrap
+
+demo-start-local:
+	@./scripts/demo-local-deps.sh start
+
+demo-stop-local:
+	@./scripts/demo-local-deps.sh stop
+
+demo-status-local:
+	@./scripts/demo-local-deps.sh status
