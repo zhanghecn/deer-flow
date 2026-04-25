@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import fnmatch
 import hashlib
+import html
 import io
 import json
 import mimetypes
@@ -305,25 +306,20 @@ def _compact_content_match(item: dict[str, Any]) -> dict[str, Any]:
     """Keep content-mode metadata locator-sized instead of duplicating snippets.
 
     The human/model-readable grep body already lives in the `content` field.
-    Repeating all context lines inside `items/results` can turn a handful of
-    broad searches into hundreds of kilobytes of tool output and exhaust the
-    next model call's context window.
+    Repeating all context lines inside structured match metadata can turn a
+    handful of broad searches into hundreds of kilobytes of tool output and
+    exhaust the next model call's context window.
     """
 
     read_args = {
         "path": item["path"],
         "locator": item["locator"],
-        "before": DOCUMENT_READ_LOCATOR_DEFAULT_BEFORE,
-        "after": DOCUMENT_READ_LOCATOR_DEFAULT_AFTER,
     }
     return {
         "path": item["path"],
         "document_kind": item["document_kind"],
         "locator": item["locator"],
         "locator_type": item["locator_type"],
-        "line_number": item["line_number"],
-        "match_text": item["match_text"],
-        "snippet": item["snippet"],
         "evidence_type": item["evidence_type"],
         "contains_visual": item["contains_visual"],
         "next_action_hint": item["next_action_hint"],
@@ -421,6 +417,117 @@ def _compact_read_block(block: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     if truncated:
         compact["truncated"] = True
     return compact, truncated
+
+
+def _xml_attr(value: Any) -> str:
+    """Escape metadata embedded in the compact XML-ish read surface."""
+
+    return html.escape(str(value), quote=True)
+
+
+def _locator_tag(locator_type: LocatorType) -> str:
+    """Map document locator types to stable model-readable tag names."""
+
+    return {
+        "line": "line",
+        "page": "page",
+        "slide": "slide",
+        "sheet": "sheet",
+        "region": "region",
+    }.get(locator_type, "unit")
+
+
+def _render_read_block(block: dict[str, Any], *, locator_type: LocatorType) -> list[str]:
+    """Render one parsed block as compact text instead of nested block JSON."""
+
+    block_type = block.get("type")
+    locator = block.get("locator")
+    if block_type == "text":
+        text = str(block.get("text", ""))
+        lines = text.splitlines() or [""]
+        if locator_type == "line":
+            return [f"{locator} | {line}" for line in lines]
+        source = block.get("text_source")
+        prefix = f"[text source={source}]" if source else ""
+        return [prefix, *lines] if prefix else lines
+    if block_type == "table":
+        region = block.get("region") or ""
+        table_lines = [f"[table region={region}]".rstrip()]
+        rows = block.get("rows")
+        if isinstance(rows, list):
+            table_lines.extend(" | ".join(str(cell) for cell in row) for row in rows)
+        elif block.get("text"):
+            table_lines.append(str(block["text"]))
+        return table_lines
+    if block_type in {"image", "document"}:
+        parts = [f"[{block_type}"]
+        for key in ("asset_ref", "summary", "mime_type", "size_bytes", "width", "height"):
+            value = block.get(key)
+            if value not in (None, ""):
+                parts.append(f'{key}="{_xml_attr(value)}"')
+        return [" ".join(parts) + "]"]
+    return [str(block)]
+
+
+def _read_assets_from_blocks(blocks: list[dict[str, Any]], *, path: str) -> list[dict[str, Any]]:
+    """Expose only fetchable asset refs; rendered content carries the rest."""
+
+    assets: list[dict[str, Any]] = []
+    for block in blocks:
+        asset_ref = block.get("asset_ref")
+        if not asset_ref:
+            continue
+        asset = {
+            "asset_ref": asset_ref,
+            "type": block.get("type"),
+            "locator": block.get("locator"),
+            "summary": block.get("summary"),
+            "fetch_args": {"path": path, "asset_ref": asset_ref},
+        }
+        assets.append({key: value for key, value in asset.items() if value not in (None, "")})
+    return assets
+
+
+def _render_read_content(
+    *,
+    document: ParsedDocument,
+    selected_units: list[DocumentUnit],
+    offset: int,
+    limit: int,
+    total_units: int,
+    has_more: bool,
+    next_offset: int | None,
+    contains_visual: bool,
+    content_blocks: list[dict[str, Any]],
+) -> str:
+    """Build a Claude Code-style read result: text first, metadata in tags."""
+
+    attrs = {
+        "path": document.path,
+        "kind": document.document_kind,
+        "locator_type": document.locator_type,
+        "offset": offset,
+        "limit": limit,
+        "total_units": total_units,
+        "has_more": str(has_more).lower(),
+        "contains_visual": str(contains_visual).lower(),
+    }
+    if next_offset is not None:
+        attrs["next_offset"] = next_offset
+    attr_text = " ".join(f'{key}="{_xml_attr(value)}"' for key, value in attrs.items())
+    lines = [f"<document {attr_text}>"]
+    tag = _locator_tag(document.locator_type)
+    block_index = 0
+    for unit in selected_units:
+        lines.append(f'<{tag} n="{_xml_attr(unit.locator)}">')
+        for _ in unit.content_blocks:
+            if block_index >= len(content_blocks):
+                break
+            lines.extend(_render_read_block(content_blocks[block_index], locator_type=unit.locator_type))
+            block_index += 1
+        lines.append(f"</{tag}>")
+    lines.append("</document>")
+    return "\n".join(lines)
 
 
 def _next_action_hint(
@@ -1249,16 +1356,21 @@ class DocumentTooling:
             "pattern": search_pattern,
             "mode": resolved_mode,
             "output_mode": resolved_mode,
-            "requested_output_mode": output_mode,
-            "case_insensitive": case_insensitive,
-            "multiline": multiline,
-            "skipped_files": skipped_files,
         }
+        if output_mode != resolved_mode:
+            metadata["requested_output_mode"] = output_mode
+        if case_insensitive:
+            metadata["case_insensitive"] = True
+        if multiline:
+            metadata["multiline"] = True
+        if skipped_files:
+            metadata["skipped_files"] = skipped_files
         if resolved_mode == "content":
-            metadata["requested_context_before"] = requested_before
-            metadata["requested_context_after"] = requested_after
-            metadata["applied_context_before"] = before
-            metadata["applied_context_after"] = after
+            if requested_before or requested_after:
+                metadata["requested_context_before"] = requested_before
+                metadata["requested_context_after"] = requested_after
+                metadata["applied_context_before"] = before
+                metadata["applied_context_after"] = after
             if before != requested_before or after != requested_after:
                 metadata["context_truncated"] = True
         if glob:
@@ -1276,9 +1388,9 @@ class DocumentTooling:
                 "filenames": window,
                 "numFiles": len(filenames),
                 "total": len(filenames),
-                "items": window,
-                "results": window,
+                "content": "\n".join(window),
             }
+            returned_count = len(window)
         elif resolved_mode == "count":
             file_counts: dict[str, int] = {}
             for item in matches:
@@ -1298,15 +1410,14 @@ class DocumentTooling:
             ]
             payload = {
                 **metadata,
-                "filenames": [item["path"] for item in count_rows],
                 "numFiles": len(count_rows),
                 "numMatches": len(matches),
                 "content": "\n".join(content_lines),
-                "items": window,
-                "results": window,
+                "counts": window,
                 "total": len(count_rows),
                 "total_matches": len(matches),
             }
+            returned_count = len(window)
         else:
             if head_limit == 0:
                 content_head_limit = DOCUMENT_SEARCH_CONTENT_MAX_MATCHES
@@ -1338,12 +1449,10 @@ class DocumentTooling:
             content_lines = [line for group in match_line_groups for line in group]
             payload = {
                 **metadata,
-                "filenames": sorted({item["path"] for item in matches}),
                 "numFiles": len({item["path"] for item in matches}),
                 "numLines": len(content_lines),
                 "content": "\n".join(content_lines),
-                "items": compact_window,
-                "results": compact_window,
+                "matches": compact_window,
                 "total": len(matches),
             }
             while len(compact_window) > 1 and _content_payload_size(payload) > DOCUMENT_SEARCH_CONTENT_MAX_BYTES:
@@ -1352,8 +1461,7 @@ class DocumentTooling:
                 content_lines = [line for group in match_line_groups for line in group]
                 payload["content"] = "\n".join(content_lines)
                 payload["numLines"] = len(content_lines)
-                payload["items"] = compact_window
-                payload["results"] = compact_window
+                payload["matches"] = compact_window
                 content_was_truncated = True
             if compact_window and _content_payload_size(payload) > DOCUMENT_SEARCH_CONTENT_MAX_BYTES:
                 first_item = window[0]
@@ -1373,14 +1481,14 @@ class DocumentTooling:
                 content_lines = line_group
                 payload["content"] = "\n".join(content_lines)
                 payload["numLines"] = len(content_lines)
-                payload["items"] = compact_window[:1]
-                payload["results"] = compact_window[:1]
+                payload["matches"] = compact_window[:1]
                 compact_window = compact_window[:1]
                 content_was_truncated = True
             if _content_payload_size(payload) > DOCUMENT_SEARCH_CONTENT_MAX_BYTES:
                 payload["content"] = ""
                 payload["numLines"] = 0
                 content_was_truncated = True
+            returned_count = len(compact_window)
             if content_was_truncated or len(window) < len(matches) or len(content_lines) < sum(
                 len(
                     item.get("context_lines")
@@ -1401,9 +1509,9 @@ class DocumentTooling:
             payload["appliedLimit"] = applied_limit
         if applied_offset is not None:
             payload["appliedOffset"] = applied_offset
-        payload["has_more"] = payload["total"] > effective_offset + len(payload.get("items", []))
+        payload["has_more"] = payload["total"] > effective_offset + returned_count
         payload["next_offset"] = (
-            effective_offset + len(payload.get("items", []))
+            effective_offset + returned_count
             if payload["has_more"]
             else None
         )
@@ -1461,15 +1569,22 @@ class DocumentTooling:
                 "path": document.path,
                 "document_kind": document.document_kind,
                 "locator_type": document.locator_type,
-                "cursor": safe_cursor,
+                "offset": safe_cursor,
                 "limit": safe_limit,
                 "requested_limit": requested_limit,
                 "has_more": False,
-                "next_cursor": None,
+                "next_offset": None,
                 "total_units": 0,
                 "returned_units": 0,
                 "contains_visual": document.contains_visual,
-                "content_blocks": [],
+                "content": (
+                    f'<document path="{_xml_attr(document.path)}" '
+                    f'kind="{_xml_attr(document.document_kind)}" '
+                    f'locator_type="{_xml_attr(document.locator_type)}" '
+                    'offset="0" limit="0" total_units="0" has_more="false">'
+                    "\n</document>"
+                ),
+                "assets": [],
             }
 
         selected_units = document.units[safe_cursor : safe_cursor + safe_limit]
@@ -1486,28 +1601,37 @@ class DocumentTooling:
                 content_truncated = content_truncated or block_truncated
 
         next_cursor = safe_cursor + len(selected_units)
+        has_more = next_cursor < total_units
+        next_offset = next_cursor if has_more else None
+        contains_visual = any(unit.contains_visual for unit in selected_units)
         payload = {
             "path": document.path,
             "document_kind": document.document_kind,
             "locator_type": document.locator_type,
-            "cursor": safe_cursor,
+            "offset": safe_cursor,
             "limit": safe_limit,
             "requested_limit": requested_limit,
-            "has_more": next_cursor < total_units,
-            "next_cursor": next_cursor if next_cursor < total_units else None,
+            "has_more": has_more,
+            "next_offset": next_offset,
             "total_units": total_units,
             "returned_units": len(selected_units),
-            "contains_visual": any(unit.contains_visual for unit in selected_units),
-            "content_blocks": content_blocks,
+            "contains_visual": contains_visual,
+            "content": _render_read_content(
+                document=document,
+                selected_units=selected_units,
+                offset=safe_cursor,
+                limit=safe_limit,
+                total_units=total_units,
+                has_more=has_more,
+                next_offset=next_offset,
+                contains_visual=contains_visual,
+                content_blocks=content_blocks,
+            ),
+            "assets": _read_assets_from_blocks(content_blocks, path=document.path),
         }
         if locator_window:
             payload["locator"] = requested_locator
-            payload["locator_window"] = True
-            payload["requested_before"] = requested_before
-            payload["requested_after"] = requested_after
-            payload["applied_before"] = applied_before
-            payload["applied_after"] = applied_after
-            payload["matched_cursor"] = locator_index
+            payload["matched_offset"] = locator_index
         if (not locator_window and safe_limit != requested_limit) or (
             locator_window and safe_limit != requested_before + 1 + requested_after
         ):
@@ -1516,10 +1640,22 @@ class DocumentTooling:
         # Most payloads are bounded by unit and block caps. This final guard
         # handles unusual mixed media/table documents with large metadata.
         while (
-            len(payload["content_blocks"]) > 1
+            len(content_blocks) > 1
             and _content_payload_size(payload) > DOCUMENT_READ_MAX_BYTES
         ):
-            payload["content_blocks"].pop()
+            content_blocks.pop()
+            payload["content"] = _render_read_content(
+                document=document,
+                selected_units=selected_units,
+                offset=safe_cursor,
+                limit=safe_limit,
+                total_units=total_units,
+                has_more=has_more,
+                next_offset=next_offset,
+                contains_visual=contains_visual,
+                content_blocks=content_blocks,
+            )
+            payload["assets"] = _read_assets_from_blocks(content_blocks, path=document.path)
             payload["content_truncated"] = True
 
         if content_truncated or payload.get("content_truncated"):

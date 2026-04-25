@@ -101,13 +101,12 @@ DOCUMENT_TOOL_DESCRIPTORS = (
     ToolDescriptor(
         name="document_list",
         summary=(
-            "List the current knowledge-base document tree. Small KBs include "
-            "a complete compact tree so inventory questions usually need one call."
+            "List the current knowledge-base document tree as a compact text inventory."
         ),
-        returns="JSON payload with directory/file entries, optional complete tree, metadata, and pagination.",
+        returns="JSON payload with one content inventory plus pagination metadata.",
         arguments=(
             ToolArgument("path", "string", False, "Relative directory under the uploaded root."),
-            ToolArgument("cursor", "integer", False, "Zero-based pagination cursor.", default=0),
+            ToolArgument("offset", "integer", False, "Rows to skip before applying limit.", default=0),
             ToolArgument("limit", "integer", False, "Maximum number of rows to return.", default=400),
         ),
     ),
@@ -125,8 +124,6 @@ DOCUMENT_TOOL_DESCRIPTORS = (
             ToolArgument("glob", "string", False, "Glob filter such as *.pdf or **/*.docx."),
             ToolArgument("output_mode", "string", False, "content, files_with_matches, or count.", default="files_with_matches"),
             ToolArgument("context", "integer", False, "Lines before and after each content match.", default=0),
-            ToolArgument("before", "integer", False, "Lines before each content match.", default=0),
-            ToolArgument("after", "integer", False, "Lines after each content match.", default=0),
             ToolArgument("head_limit", "integer", False, "Maximum output rows; 0 means unlimited.", default=250),
             ToolArgument("offset", "integer", False, "Rows to skip before applying head_limit.", default=0),
         ),
@@ -134,19 +131,15 @@ DOCUMENT_TOOL_DESCRIPTORS = (
     ToolDescriptor(
         name="document_read",
         summary=(
-            "Read one document using page/slide/sheet/region cursors or a source "
-            "locator returned by document_search. The response includes "
-            "`contains_visual`, `has_more`, and rich content blocks so the agent "
-            "can decide whether to continue reading or fetch an asset."
+            "Read one document using page/slide/sheet/region offsets or a source "
+            "locator returned by document_search."
         ),
-        returns="JSON payload with locator metadata, pagination, and content_blocks.",
+        returns="JSON payload with Claude Code-style text content, page/slide metadata, pagination, and fetchable assets.",
         arguments=(
             ToolArgument("path", "string", True, "Relative file path under the uploaded root."),
-            ToolArgument("cursor", "integer", False, "Zero-based unit cursor.", default=0),
+            ToolArgument("offset", "integer", False, "Zero-based unit offset.", default=0),
             ToolArgument("limit", "integer", False, "Maximum number of units to return.", default=3),
             ToolArgument("locator", "string", False, "Source locator returned by document_search; preferred for reading a match."),
-            ToolArgument("before", "integer", False, "Units before locator when locator is supplied.", default=6),
-            ToolArgument("after", "integer", False, "Units after locator when locator is supplied.", default=16),
         ),
     ),
     ToolDescriptor(
@@ -458,14 +451,14 @@ class FileMcpService:
         self,
         *,
         path: str = "",
-        cursor: int = 0,
+        offset: int = 0,
         limit: int = 400,
     ) -> dict[str, Any]:
-        """List the KB tree without exposing raw filesystem-only semantics.
+        """List the KB tree as one compact model-facing inventory.
 
-        This is the browse/list counterpart to `document_search`. Directory
-        entries remain visible, and small KBs also include a compact recursive
-        tree so the agent can choose a target document without pagination.
+        The old payload repeated the same inventory through `items`,
+        `document_paths`, and `tree`. Keep one text surface so a small KB can be
+        shown completely without spending context on duplicate JSON structures.
         """
 
         base = self._resolve_existing_path(path) if path else self.root
@@ -489,19 +482,37 @@ class FileMcpService:
             document_row.update(self.document_tools.describe_document(item.resolve()))
             rows.append(document_row)
 
-        safe_cursor = max(cursor, 0)
+        safe_offset = max(offset, 0)
         safe_limit = min(max(limit, 1), DOCUMENT_LIST_MAX_LIMIT)
-        next_cursor = safe_cursor + safe_limit
-        payload = {
-            "items": rows[safe_cursor:next_cursor],
-            "cursor": safe_cursor,
+        next_offset = safe_offset + safe_limit
+        summary = self._document_tree_summary(base)
+        if summary["complete_tree"]:
+            content_lines = summary["tree_lines"]
+            returned = len(content_lines)
+            has_more = False
+            next_page_offset = None
+            total = len(content_lines)
+        else:
+            page_rows = rows[safe_offset:next_offset]
+            content_lines = [self._render_document_list_row(row) for row in page_rows]
+            returned = len(page_rows)
+            has_more = next_offset < len(rows)
+            next_page_offset = next_offset if has_more else None
+            total = len(rows)
+        return {
+            "path": base.relative_to(self.root).as_posix() if base != self.root else "",
+            "content": "\n".join(content_lines),
+            "offset": safe_offset,
             "limit": safe_limit,
-            "total": len(rows),
-            "has_more": next_cursor < len(rows),
-            "next_cursor": next_cursor if next_cursor < len(rows) else None,
+            "total": total,
+            "returned": returned,
+            "has_more": has_more,
+            "next_offset": next_page_offset,
+            "document_total": summary["document_total"],
+            "directory_total": summary["directory_total"],
+            "complete": summary["complete_tree"],
+            "complete_limit": DOCUMENT_LIST_FULL_TREE_MAX_FILES,
         }
-        payload.update(self._document_tree_summary(base))
-        return payload
 
     def _document_tree_summary(self, base: Path) -> dict[str, Any]:
         document_paths: list[Path] = []
@@ -524,18 +535,26 @@ class FileMcpService:
             "document_total": len(document_paths),
             "directory_total": len(directory_paths),
             "complete_tree": len(document_paths) <= DOCUMENT_LIST_FULL_TREE_MAX_FILES,
-            "complete_tree_limit": DOCUMENT_LIST_FULL_TREE_MAX_FILES,
         }
         if not summary["complete_tree"]:
             return summary
 
         # Keep the recursive inventory compact: paths plus document kind are
         # enough for planning, while `document_read` still owns content access.
-        summary["document_paths"] = [
-            path.relative_to(self.root).as_posix() for path in document_paths
-        ]
-        summary["tree"] = self._render_compact_document_tree(base, document_paths)
+        summary["tree_lines"] = self._render_compact_document_tree(base, document_paths)
         return summary
+
+    def _render_document_list_row(self, row: dict[str, Any]) -> str:
+        """Render one paginated inventory row without duplicating row JSON."""
+
+        path = str(row.get("path", ""))
+        if row.get("entry_type") == "directory":
+            suffix = "/" if not path.endswith("/") else ""
+            child_marker = " +" if row.get("has_children") else ""
+            return f"{path}{suffix}{child_marker}"
+        document_kind = row.get("document_kind") or row.get("kind") or "file"
+        visual_marker = " visual" if row.get("contains_visual") else ""
+        return f"{path} [{document_kind}{visual_marker}]"
 
     def _render_compact_document_tree(self, base: Path, document_paths: list[Path]) -> list[str]:
         directories: set[Path] = set()
@@ -660,9 +679,9 @@ class FileMcpService:
                 "content": (
                     f"{message}\n\n"
                     "Recommended demo flow on the current agent-facing MCP:\n"
-                    "- document_list(path?, cursor?, limit?) to inspect the KB tree\n"
+                    "- document_list(path?, offset?, limit?) to inspect the KB tree\n"
                     "- document_search(pattern, path?, glob?, output_mode?, head_limit?, offset?) to grep parsed document evidence\n"
-                    "- document_read(path, cursor?, limit?) to read the matched document"
+                    "- document_read(path, offset?, limit?, locator?) to read the matched document"
                 ),
             }
         text = requested_file.read_text(encoding="utf-8", errors="ignore")
@@ -865,16 +884,9 @@ class FileMcpService:
         path: str = "",
         glob: str | None = None,
         output_mode: str = "files_with_matches",
-        cursor: int = 0,
-        limit: int = 10,
         context: int | None = None,
-        before: int | None = None,
-        after: int | None = None,
-        show_line_numbers: bool = True,
-        case_insensitive: bool = False,
         head_limit: int | None = None,
         offset: int = 0,
-        multiline: bool = False,
     ) -> dict[str, Any]:
         """Grep parsed document evidence instead of generic text-file bytes."""
 
@@ -893,40 +905,47 @@ class FileMcpService:
             pattern=effective_pattern,
             output_mode=output_mode,
             glob=glob,
-            cursor=cursor,
-            limit=limit,
-            context_before=before,
-            context_after=after,
+            cursor=offset,
+            limit=head_limit or 10,
+            context_before=None,
+            context_after=None,
             context=context,
-            show_line_numbers=show_line_numbers,
-            case_insensitive=case_insensitive,
+            show_line_numbers=True,
+            case_insensitive=False,
             head_limit=head_limit,
             offset=offset,
-            multiline=multiline,
+            multiline=False,
         )
 
     def document_read_payload(
         self,
         *,
         path: str,
-        cursor: int = 0,
+        offset: int = 0,
         limit: int = 3,
         locator: str | int | None = None,
-        before: int | None = None,
-        after: int | None = None,
     ) -> dict[str, Any]:
         """Read one parsed document window using the unified document contract."""
 
         requested_file = self._resolve_existing_path(path)
         if not requested_file.is_file():
             raise ValueError(f"path is not a file: {path}")
+        locator_before = None
+        locator_after = None
+        if locator is not None:
+            # Public locator reads still use the single Claude-style `limit`
+            # knob. Include one preceding unit for headings, then spend the
+            # remaining budget on the matched unit and following detail.
+            safe_limit = max(limit, 1)
+            locator_before = min(1, safe_limit - 1)
+            locator_after = max(safe_limit - locator_before - 1, 0)
         return self.document_tools.read(
             file_path=requested_file,
-            cursor=cursor,
+            cursor=offset,
             limit=limit,
             locator=locator,
-            before=before,
-            after=after,
+            before=locator_before,
+            after=locator_after,
         )
 
     def document_fetch_asset_payload(

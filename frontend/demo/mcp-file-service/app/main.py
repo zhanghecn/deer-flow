@@ -255,17 +255,23 @@ def _normalize_tool_arguments(tool_name: str, arguments: dict[str, Any]) -> dict
     if tool_name != "document_search":
         return dict(arguments)
     normalized = dict(arguments)
-    aliases = {
-        "-A": "after",
-        "-B": "before",
-        "-C": "context",
-        "-n": "show_line_numbers",
-        "-i": "case_insensitive",
-    }
+    aliases = {"-C": "context"}
     for source, target in aliases.items():
         if source in normalized and target not in normalized:
             normalized[target] = normalized[source]
         normalized.pop(source, None)
+    # The HTTP workbench accepts a subset of Claude grep flags but the MCP tool
+    # intentionally exposes one context knob. Fold directional context flags
+    # into that single value and drop display-only flags that are now implicit.
+    directional_context: list[int] = []
+    for flag in ("-A", "-B"):
+        value = normalized.pop(flag, None)
+        if str(value or "").isdigit():
+            directional_context.append(int(value))
+    if directional_context and "context" not in normalized:
+        normalized["context"] = max(directional_context)
+    normalized.pop("-n", None)
+    normalized.pop("-i", None)
     if "query" in normalized and "pattern" not in normalized:
         normalized["pattern"] = normalized["query"]
     normalized.pop("query", None)
@@ -276,12 +282,12 @@ def _register_document_tools(server: FastMCP) -> None:
     """Bind the unified document contract to one MCP surface."""
 
     @server.tool()
-    def document_list(path: str = "", cursor: int = 0, limit: int = 400) -> str:
-        """Browse the current KB tree, with a complete tree for small KBs."""
+    def document_list(path: str = "", offset: int = 0, limit: int = 400) -> str:
+        """Browse the current KB tree as compact text."""
 
         payload = service.document_list_payload(
             path=path,
-            cursor=cursor,
+            offset=offset,
             limit=limit,
         )
         return service.tool_payload_json(payload)
@@ -292,16 +298,9 @@ def _register_document_tools(server: FastMCP) -> None:
         path: str = "",
         glob: str = "",
         output_mode: str = "files_with_matches",
-        cursor: int = 0,
-        limit: int = 10,
-        context: int | None = None,
-        before: int | None = None,
-        after: int | None = None,
-        show_line_numbers: bool = True,
-        case_insensitive: bool = False,
+        context: int = 0,
         head_limit: int | None = None,
         offset: int = 0,
-        multiline: bool = False,
     ) -> str:
         """Grep uploaded documents with Claude Code-like output modes."""
 
@@ -310,37 +309,26 @@ def _register_document_tools(server: FastMCP) -> None:
             path=path,
             glob=glob or None,
             output_mode=output_mode,
-            cursor=cursor,
-            limit=limit,
             context=context,
-            before=before,
-            after=after,
-            show_line_numbers=show_line_numbers,
-            case_insensitive=case_insensitive,
             head_limit=head_limit,
             offset=offset,
-            multiline=multiline,
         )
         return service.tool_payload_json(payload)
 
     @server.tool()
     def document_read(
         path: str,
-        cursor: int = 0,
+        offset: int = 0,
         limit: int = 3,
         locator: str = "",
-        before: int | None = None,
-        after: int | None = None,
     ) -> str:
-        """Read one document window using cursors or a search-result locator."""
+        """Read one document window using offsets or a search-result locator."""
 
         payload = service.document_read_payload(
             path=path,
-            cursor=cursor,
+            offset=offset,
             limit=limit,
             locator=locator or None,
-            before=before,
-            after=after,
         )
         return service.tool_payload_json(payload)
 

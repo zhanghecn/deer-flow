@@ -263,26 +263,19 @@ class FileMcpServiceTest(unittest.TestCase):
         self._write_image("nested/evidence/site-board.png", text="POLICY LIMIT")
 
         root_payload = self.service.document_list_payload(limit=20)
-        root_rows = {item["path"]: item for item in root_payload["items"]}
-        self.assertIn("nested", root_rows)
-        self.assertEqual(root_rows["nested"]["entry_type"], "directory")
-        self.assertTrue(root_rows["nested"]["has_children"])
-        self.assertTrue(root_payload["complete_tree"])
-        self.assertIn("nested/contracts/policy-alpha.pdf", root_payload["document_paths"])
-        self.assertIn("nested/evidence/site-board.png", root_payload["document_paths"])
-        self.assertIn("nested/", root_payload["tree"])
-        self.assertIn("  contracts/", root_payload["tree"])
-        self.assertIn("    policy-alpha.pdf [pdf]", root_payload["tree"])
-        self.assertIn("  evidence/", root_payload["tree"])
-        self.assertIn("    site-board.png [image]", root_payload["tree"])
+        self.assertTrue(root_payload["complete"])
+        self.assertIn("nested/", root_payload["content"])
+        self.assertIn("  contracts/", root_payload["content"])
+        self.assertIn("    policy-alpha.pdf [pdf]", root_payload["content"])
+        self.assertIn("  evidence/", root_payload["content"])
+        self.assertIn("    site-board.png [image]", root_payload["content"])
+        self.assertNotIn("document_paths", root_payload)
+        self.assertNotIn("tree", root_payload)
+        self.assertNotIn("items", root_payload)
 
         nested_payload = self.service.document_list_payload(path="nested/contracts", limit=20)
-        file_row = nested_payload["items"][0]
-        self.assertEqual(file_row["path"], "nested/contracts/policy-alpha.pdf")
-        self.assertEqual(file_row["document_kind"], "pdf")
-        self.assertEqual(file_row["locator_type"], "page")
-        self.assertFalse(file_row["contains_visual"])
-        self.assertTrue(file_row["supported"])
+        self.assertIn("policy-alpha.pdf [pdf]", nested_payload["content"])
+        self.assertEqual(nested_payload["document_total"], 1)
 
     def test_document_list_keeps_large_trees_paginated(self) -> None:
         for index in range(351):
@@ -292,11 +285,12 @@ class FileMcpServiceTest(unittest.TestCase):
 
         payload = self.service.document_list_payload(limit=500)
 
-        self.assertFalse(payload["complete_tree"])
-        self.assertEqual(payload["complete_tree_limit"], 350)
+        self.assertFalse(payload["complete"])
+        self.assertEqual(payload["complete_limit"], 350)
         self.assertGreaterEqual(payload["document_total"], 351)
         self.assertNotIn("document_paths", payload)
         self.assertNotIn("tree", payload)
+        self.assertNotIn("items", payload)
 
     def test_read_rejects_binary_documents_instead_of_converting_them(self) -> None:
         (self.root / "合同.pdf").write_bytes(b"%PDF-1.4 fake")
@@ -314,7 +308,7 @@ class FileMcpServiceTest(unittest.TestCase):
 
         self.assertEqual(payload["content_kind"], "binary_document")
         self.assertFalse(payload["text_readable"])
-        self.assertIn("document_list(path?, cursor?, limit?)", payload["content"])
+        self.assertIn("document_list(path?, offset?, limit?)", payload["content"])
 
     def test_grep_skips_binary_documents_in_directory_scope(self) -> None:
         (self.root / "合同.pdf").write_bytes(b"%PDF-1.4 fake")
@@ -409,12 +403,12 @@ class FileMcpServiceTest(unittest.TestCase):
         self.assertEqual(payload["total"], 1)
         self.assertEqual(payload["mode"], "content")
         self.assertEqual(payload["pattern"], "Deductible")
-        match = payload["results"][0]
+        match = payload["matches"][0]
         self.assertEqual(match["document_kind"], "pdf")
         self.assertEqual(match["locator_type"], "page")
         self.assertEqual(match["locator"], 1)
         self.assertEqual(match["evidence_type"], "text")
-        self.assertEqual(match["match_text"], "Deductible")
+        self.assertIn("Deductible", payload["content"])
         self.assertEqual(match["next_action_hint"], "read_more")
         self.assertEqual(match["read_args"]["locator"], 1)
         self.assertEqual(match["read_args"]["path"], "nested/contracts/policy-alpha.pdf")
@@ -474,8 +468,8 @@ class FileMcpServiceTest(unittest.TestCase):
         self.assertEqual(payload["appliedLimit"], 1)
         self.assertEqual(payload["appliedOffset"], 1)
         self.assertIn("nested/contracts/policy-alpha.pdf:page:3:1", payload["content"])
-        self.assertEqual(payload["results"][0]["match_text"], "Coinsurance")
-        self.assertNotIn("context_lines", payload["results"][0])
+        self.assertIn("Coinsurance", payload["content"])
+        self.assertNotIn("context_lines", payload["matches"][0])
 
     def test_document_search_content_output_is_context_safe(self) -> None:
         self._write_text(
@@ -493,19 +487,19 @@ class FileMcpServiceTest(unittest.TestCase):
             path="cases/large.md",
             output_mode="content",
             context=15,
-            limit=50,
+            head_limit=50,
         )
 
         self.assertEqual(payload["mode"], "content")
         self.assertNotIn("context_truncated", payload)
         self.assertEqual(payload["applied_context_before"], 15)
         self.assertEqual(payload["applied_context_after"], 15)
-        self.assertLessEqual(len(payload["items"]), 20)
-        self.assertGreater(len(payload["items"]), 0)
+        self.assertLessEqual(len(payload["matches"]), 12)
+        self.assertGreater(len(payload["matches"]), 0)
         self.assertGreater(payload["numLines"], 0)
-        self.assertIn("read_args", payload["items"][0])
+        self.assertIn("read_args", payload["matches"][0])
         self.assertTrue(payload["has_more"])
-        self.assertNotIn("context_lines", payload["items"][0])
+        self.assertNotIn("context_lines", payload["matches"][0])
         self.assertLessEqual(
             len(json.dumps(payload, ensure_ascii=False).encode("utf-8")),
             8_000,
@@ -526,7 +520,7 @@ class FileMcpServiceTest(unittest.TestCase):
         self.assertEqual(payload["mode"], "count")
         self.assertEqual(payload["numMatches"], 2)
         self.assertEqual(
-            payload["items"],
+            payload["counts"],
             [{"path": "nested/contracts/policy-alpha.pdf", "match_count": 2}],
         )
 
@@ -538,7 +532,7 @@ class FileMcpServiceTest(unittest.TestCase):
 
         payload = self.service.document_read_payload(
             path="nested/contracts/policy-alpha.pdf",
-            cursor=0,
+            offset=0,
             limit=1,
         )
 
@@ -547,9 +541,10 @@ class FileMcpServiceTest(unittest.TestCase):
         self.assertEqual(payload["total_units"], 2)
         self.assertEqual(payload["returned_units"], 1)
         self.assertTrue(payload["has_more"])
-        self.assertEqual(payload["next_cursor"], 1)
+        self.assertEqual(payload["next_offset"], 1)
         self.assertFalse(payload["contains_visual"])
-        self.assertEqual(payload["content_blocks"][0]["type"], "text")
+        self.assertIn('<page n="1">', payload["content"])
+        self.assertIn("Deductible is 500 USD", payload["content"])
 
         cache_dir = self.service.cache_root / "nested" / "contracts" / "policy-alpha.pdf"
         self.assertTrue((cache_dir / "manifest.json").exists())
@@ -569,7 +564,7 @@ class FileMcpServiceTest(unittest.TestCase):
 
         payload = self.service.document_read_payload(
             path="cases/long.md",
-            cursor=0,
+            offset=0,
             limit=50,
         )
 
@@ -579,7 +574,7 @@ class FileMcpServiceTest(unittest.TestCase):
         self.assertTrue(payload["content_truncated"])
         self.assertTrue(payload["has_more"])
         self.assertLessEqual(payload["returned_units"], 12)
-        self.assertTrue(payload["content_blocks"][0]["truncated"])
+        self.assertIn("[truncated]", payload["content"])
         self.assertLessEqual(
             len(json.dumps(payload, ensure_ascii=False).encode("utf-8")),
             12_000,
@@ -607,17 +602,15 @@ class FileMcpServiceTest(unittest.TestCase):
             output_mode="content",
             head_limit=1,
         )
-        read_args = search_payload["results"][0]["read_args"]
+        read_args = search_payload["matches"][0]["read_args"]
         read_payload = self.service.document_read_payload(
             **read_args,
+            limit=4,
         )
 
-        self.assertTrue(read_payload["locator_window"])
         self.assertEqual(read_payload["locator"], "4")
-        self.assertEqual(read_payload["matched_cursor"], 3)
-        rendered = "\n".join(
-            block.get("text", "") for block in read_payload["content_blocks"]
-        )
+        self.assertEqual(read_payload["matched_offset"], 3)
+        rendered = read_payload["content"]
         self.assertIn("案例二 header", rendered)
         self.assertIn("八字 甲辰 甲戌 戊子 甲寅", rendered)
         self.assertIn("命理分析 detail", rendered)
@@ -629,30 +622,22 @@ class FileMcpServiceTest(unittest.TestCase):
         self._write_scanned_pdf("nested/scans/claim-scan.pdf", text="CLAIM 42")
 
         search_payload = self.service.document_search_payload(
-            pattern="claim",
+            pattern="CLAIM",
             path="nested/scans/claim-scan.pdf",
             output_mode="content",
-            case_insensitive=True,
             head_limit=5,
         )
         read_payload = self.service.document_read_payload(
             path="nested/scans/claim-scan.pdf",
-            cursor=0,
+            offset=0,
             limit=1,
         )
 
-        self.assertEqual(search_payload["results"][0]["evidence_type"], "ocr_text")
-        self.assertTrue(search_payload["results"][0]["contains_visual"])
+        self.assertEqual(search_payload["matches"][0]["evidence_type"], "ocr_text")
+        self.assertTrue(search_payload["matches"][0]["contains_visual"])
         self.assertTrue(read_payload["contains_visual"])
-        self.assertTrue(
-            any(
-                block["type"] == "text" and block.get("text_source") == "ocr"
-                for block in read_payload["content_blocks"]
-            )
-        )
-        self.assertTrue(
-            any(block["type"] == "image" for block in read_payload["content_blocks"])
-        )
+        self.assertIn("[text source=ocr]", read_payload["content"])
+        self.assertTrue(read_payload["assets"])
 
         manifest = (
             self.service.cache_root / "nested" / "scans" / "claim-scan.pdf" / "manifest.json"
@@ -664,16 +649,15 @@ class FileMcpServiceTest(unittest.TestCase):
 
         payload = self.service.document_read_payload(
             path="nested/slides/review-deck.pptx",
-            cursor=0,
+            offset=0,
             limit=1,
         )
 
         self.assertEqual(payload["document_kind"], "pptx")
         self.assertTrue(payload["contains_visual"])
-        block_types = {block["type"] for block in payload["content_blocks"]}
-        self.assertIn("text", block_types)
-        self.assertIn("image", block_types)
-        self.assertIn("document", block_types)
+        self.assertIn("<slide", payload["content"])
+        self.assertIn("[image", payload["content"])
+        self.assertIn("[document", payload["content"])
 
         cache_dir = self.service.cache_root / "nested" / "slides" / "review-deck.pptx"
         cached_assets = sorted((cache_dir / "assets").iterdir())
@@ -696,9 +680,9 @@ class FileMcpServiceTest(unittest.TestCase):
             head_limit=5,
         )
 
-        self.assertEqual(payload["results"][0]["document_kind"], "pptx")
-        self.assertEqual(payload["results"][0]["evidence_type"], "ocr_text")
-        self.assertEqual(payload["results"][0]["next_action_hint"], "fetch_visual")
+        self.assertEqual(payload["matches"][0]["document_kind"], "pptx")
+        self.assertEqual(payload["matches"][0]["evidence_type"], "ocr_text")
+        self.assertEqual(payload["matches"][0]["next_action_hint"], "fetch_visual")
 
     def test_prime_document_cache_builds_existing_seed_documents(self) -> None:
         self._write_docx("nested/docs/briefing.docx")
@@ -713,16 +697,14 @@ class FileMcpServiceTest(unittest.TestCase):
         self._write_pptx("nested/slides/review-deck.pptx")
         read_payload = self.service.document_read_payload(
             path="nested/slides/review-deck.pptx",
-            cursor=0,
+            offset=0,
             limit=1,
         )
-        image_block = next(
-            block for block in read_payload["content_blocks"] if block["type"] == "image"
-        )
+        image_asset = next(asset for asset in read_payload["assets"] if asset["type"] == "image")
 
         payload = self.service.document_fetch_asset_payload(
             path="nested/slides/review-deck.pptx",
-            asset_ref=image_block["asset_ref"],
+            asset_ref=image_asset["asset_ref"],
         )
 
         self.assertTrue(payload["inlined"])
@@ -758,40 +740,36 @@ class FileMcpServiceTest(unittest.TestCase):
             head_limit=5,
         )
 
-        self.assertEqual(table_payload["results"][0]["evidence_type"], "table_text")
-        self.assertEqual(chart_payload["results"][0]["evidence_type"], "vision_summary")
-        self.assertEqual(chart_payload["results"][0]["locator_type"], "sheet")
+        self.assertEqual(table_payload["matches"][0]["evidence_type"], "table_text")
+        self.assertEqual(chart_payload["matches"][0]["evidence_type"], "vision_summary")
+        self.assertEqual(chart_payload["matches"][0]["locator_type"], "sheet")
 
     def test_document_read_returns_xlsx_table_block_and_visual_flag(self) -> None:
         self._write_xlsx("nested/sheets/revenue-tracker.xlsx")
 
         payload = self.service.document_read_payload(
             path="nested/sheets/revenue-tracker.xlsx",
-            cursor=0,
+            offset=0,
             limit=1,
         )
 
         self.assertEqual(payload["document_kind"], "xlsx")
         self.assertTrue(payload["contains_visual"])
         self.assertEqual(payload["locator_type"], "sheet")
-        self.assertTrue(
-            any(block["type"] == "table" for block in payload["content_blocks"])
-        )
+        self.assertIn("[table", payload["content"])
 
     def test_document_read_returns_docx_regions_and_media_unit(self) -> None:
         self._write_docx("nested/docs/briefing.docx")
 
         payload = self.service.document_read_payload(
             path="nested/docs/briefing.docx",
-            cursor=0,
+            offset=0,
             limit=5,
         )
 
         self.assertEqual(payload["document_kind"], "docx")
         self.assertGreaterEqual(payload["total_units"], 2)
-        self.assertTrue(
-            any(block["type"] == "image" for block in payload["content_blocks"])
-        )
+        self.assertTrue(payload["assets"])
 
     def test_document_search_ocr_hits_image_file(self) -> None:
         if not self.service.document_tools.ocr_available:
@@ -806,20 +784,15 @@ class FileMcpServiceTest(unittest.TestCase):
             head_limit=5,
         )
 
-        self.assertEqual(payload["results"][0]["document_kind"], "image")
-        self.assertEqual(payload["results"][0]["evidence_type"], "ocr_text")
+        self.assertEqual(payload["matches"][0]["document_kind"], "image")
+        self.assertEqual(payload["matches"][0]["evidence_type"], "ocr_text")
         read_payload = self.service.document_read_payload(
             path="nested/images/policy-board.png",
-            cursor=0,
+            offset=0,
             limit=1,
         )
         self.assertTrue(read_payload["contains_visual"])
-        self.assertTrue(
-            any(
-                block["type"] == "text" and block.get("text_source") == "ocr"
-                for block in read_payload["content_blocks"]
-            )
-        )
+        self.assertIn("[text source=ocr]", read_payload["content"])
 
 
 if __name__ == "__main__":
