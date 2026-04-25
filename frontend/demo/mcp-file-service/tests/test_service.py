@@ -382,7 +382,30 @@ class FileMcpServiceTest(unittest.TestCase):
         self.assertEqual(payload["requested_output_mode"], "files")
         self.assertEqual(payload["items"], ["案例大全/a.md", "案例大全/b.md"])
 
-    def test_document_search_matches_pdf_text_from_natural_language_query(self) -> None:
+    def test_document_search_greps_pdf_text(self) -> None:
+        self._write_pdf(
+            "nested/contracts/policy-alpha.pdf",
+            ["Deductible is 500 USD", "Coinsurance is 20 percent"],
+        )
+
+        payload = self.service.document_search_payload(
+            query="Deductible",
+            path="nested/contracts/policy-alpha.pdf",
+            limit=5,
+        )
+
+        self.assertEqual(payload["total"], 1)
+        self.assertEqual(payload["mode"], "grep")
+        self.assertEqual(payload["pattern"], "Deductible")
+        match = payload["results"][0]
+        self.assertEqual(match["document_kind"], "pdf")
+        self.assertEqual(match["locator_type"], "page")
+        self.assertEqual(match["locator"], 1)
+        self.assertEqual(match["evidence_type"], "text")
+        self.assertEqual(match["match_text"], "Deductible")
+        self.assertEqual(match["next_action_hint"], "read_more")
+
+    def test_document_search_does_not_decompose_natural_language_questions(self) -> None:
         self._write_pdf(
             "nested/contracts/policy-alpha.pdf",
             ["Deductible is 500 USD", "Coinsurance is 20 percent"],
@@ -394,13 +417,8 @@ class FileMcpServiceTest(unittest.TestCase):
             limit=5,
         )
 
-        self.assertEqual(payload["total"], 1)
-        match = payload["results"][0]
-        self.assertEqual(match["document_kind"], "pdf")
-        self.assertEqual(match["locator_type"], "page")
-        self.assertEqual(match["locator"], 1)
-        self.assertEqual(match["evidence_type"], "text")
-        self.assertEqual(match["next_action_hint"], "read_more")
+        self.assertEqual(payload["mode"], "grep")
+        self.assertEqual(payload["total"], 0)
 
     def test_document_read_paginates_pdf_pages(self) -> None:
         self._write_pdf(
@@ -494,7 +512,7 @@ class FileMcpServiceTest(unittest.TestCase):
         )
 
         payload = self.service.document_search_payload(
-            query="loss",
+            query="LOSS",
             path="nested/slides/ocr-deck.pptx",
             limit=5,
         )
@@ -588,7 +606,7 @@ class FileMcpServiceTest(unittest.TestCase):
         self._write_image("nested/images/policy-board.png", text="POLICY LIMIT")
 
         payload = self.service.document_search_payload(
-            query="policy",
+            query="POLICY",
             path="nested/images/policy-board.png",
             limit=5,
         )

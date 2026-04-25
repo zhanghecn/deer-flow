@@ -114,13 +114,13 @@ DOCUMENT_TOOL_DESCRIPTORS = (
     ToolDescriptor(
         name="document_search",
         summary=(
-            "Search document content across text, PDF, image, and Office files. "
-            "Use this first for document questions because it returns page/slide/"
-            "sheet-style evidence instead of raw file bytes."
+            "Grep parsed document text, OCR text, tables, and visual summaries "
+            "across PDF, image, and Office files. Use exact terms or simple "
+            "regex alternation, then call document_read for the matched locator."
         ),
-        returns="JSON payload with ranked results, locator metadata, and next-action hints.",
+        returns="JSON payload with grep-style matches, locator metadata, and next-action hints.",
         arguments=(
-            ToolArgument("query", "string", True, "Natural-language question or search phrase."),
+            ToolArgument("query", "string", True, "Literal grep pattern or simple regex."),
             ToolArgument("path", "string", False, "Optional file or directory scope under the uploaded root."),
             ToolArgument("cursor", "integer", False, "Zero-based pagination cursor.", default=0),
             ToolArgument("limit", "integer", False, "Maximum number of matches to return.", default=10),
@@ -651,7 +651,7 @@ class FileMcpService:
                     f"{message}\n\n"
                     "Recommended demo flow on the current agent-facing MCP:\n"
                     "- document_list(path?, cursor?, limit?) to inspect the KB tree\n"
-                    "- document_search(query, path?, cursor?, limit?) to find evidence\n"
+                    "- document_search(query, path?, cursor?, limit?) to grep parsed document evidence\n"
                     "- document_read(path, cursor?, limit?) to read the matched document"
                 ),
             }
@@ -855,7 +855,7 @@ class FileMcpService:
         cursor: int = 0,
         limit: int = 10,
     ) -> dict[str, Any]:
-        """Search document semantics instead of generic text-file bytes."""
+        """Grep parsed document evidence instead of generic text-file bytes."""
 
         base = self._resolve_existing_path(path) if path else self.root
         if base.is_file():

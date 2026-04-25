@@ -76,27 +76,7 @@ OOXML_OFFICE_EXTENSIONS = {
     ".pptx": "pptx",
     ".xlsx": "xlsx",
 }
-LATIN_STOPWORDS = {
-    "a",
-    "an",
-    "about",
-    "does",
-    "for",
-    "from",
-    "how",
-    "in",
-    "is",
-    "me",
-    "on",
-    "please",
-    "show",
-    "tell",
-    "that",
-    "the",
-    "this",
-    "what",
-    "with",
-}
+GREP_REGEX_TOKENS = ("|", "\\", "[", "]", "(", ")", "{", "}", "^", "$", ".", "*", "+", "?")
 
 
 @dataclass(frozen=True)
@@ -198,56 +178,35 @@ def _collapse_whitespace(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
-def _extract_search_terms(query: str) -> list[str]:
-    """Keep search forgiving when the agent forwards a natural-language question.
+def _grep_match(*, pattern: str, text: str) -> tuple[int, str] | None:
+    """Return the first grep-style match, using literal search before regex.
 
-    The generic agent will often send whole user questions into `document_search`
-    rather than a single exact keyword. Latin tokenization alone performs badly
-    on Chinese prompts, so we additionally derive short CJK n-grams to recover
-    terms such as `赔付条款` from longer sentences.
+    `document_search` intentionally keeps a grep contract. That makes the MCP
+    behavior predictable for agents: broad semantic retrieval belongs in a
+    future index/reranker tool, while this tool answers "does this exact
+    pattern occur in parsed document text/OCR/table evidence?"
     """
 
-    normalized = _collapse_whitespace(query.lower())
-    if not normalized:
-        return []
+    normalized_pattern = pattern.strip()
+    if not normalized_pattern:
+        return None
 
-    terms: set[str] = set()
-    for token in re.findall(r"[a-z0-9_.:/-]{2,}", normalized):
-        if token in LATIN_STOPWORDS:
-            continue
-        if len(token) < 3 and not any(character.isdigit() for character in token):
-            continue
-        terms.add(token)
+    lowered_text = text.lower()
+    lowered_pattern = normalized_pattern.lower()
+    literal_index = lowered_text.find(lowered_pattern)
+    if literal_index >= 0:
+        return literal_index, text[literal_index : literal_index + len(normalized_pattern)]
 
-    for run in re.findall(r"[\u4e00-\u9fff]{2,}", query):
-        terms.add(run)
-        max_length = min(len(run), 8)
-        for size in range(max_length, 1, -1):
-            for index in range(0, len(run) - size + 1):
-                terms.add(run[index : index + size])
+    if not any(token in pattern for token in GREP_REGEX_TOKENS):
+        return None
 
-    if not terms:
-        terms.add(normalized)
-
-    return sorted(terms, key=len, reverse=True)[:32]
-
-
-def _match_terms(*, terms: list[str], haystack: str) -> tuple[list[str], int]:
-    lowered = haystack.lower()
-    matched: list[str] = []
-    first_index = -1
-    for term in terms:
-        if term.lower() not in lowered:
-            continue
-        # Skip short substrings when a longer match already covers the same idea.
-        if any(term in winner for winner in matched):
-            continue
-        matched.append(term)
-        if first_index < 0:
-            first_index = lowered.index(term.lower())
-        if len(matched) >= 3:
-            break
-    return matched, first_index
+    try:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+    except re.error:
+        return None
+    if match is None:
+        return None
+    return match.start(), match.group(0)
 
 
 def _build_snippet(*, text: str, match_index: int, window: int = 90) -> str:
@@ -258,17 +217,6 @@ def _build_snippet(*, text: str, match_index: int, window: int = 90) -> str:
     start = max(match_index - window // 3, 0)
     end = min(start + window, len(text))
     return _collapse_whitespace(text[start:end])
-
-
-def _score_match(*, matched_terms: list[str], match_index: int) -> float:
-    if not matched_terms:
-        return 0.0
-    score = float(sum(len(term) for term in matched_terms))
-    if match_index == 0:
-        score += 2.0
-    if len(matched_terms) > 1:
-        score += 1.5
-    return round(score, 2)
 
 
 def _next_action_hint(
@@ -922,10 +870,10 @@ class DocumentTooling:
         cursor: int,
         limit: int,
     ) -> dict[str, Any]:
-        if not query.strip():
-            raise ValueError("query is required")
+        pattern = query.strip()
+        if not pattern:
+            raise ValueError("pattern is required")
 
-        terms = _extract_search_terms(query)
         matches: list[dict[str, Any]] = []
         skipped_files: list[str] = []
         for file_path in files:
@@ -936,46 +884,43 @@ class DocumentTooling:
                 continue
 
             for unit_index, unit in enumerate(document.units):
-                best_match: dict[str, Any] | None = None
                 for evidence_type, evidence_text in unit.search_entries:
-                    matched_terms, match_index = _match_terms(
-                        terms=terms,
-                        haystack=evidence_text,
-                    )
-                    if not matched_terms:
-                        continue
-                    candidate = {
-                        "path": document.path,
-                        "document_kind": document.document_kind,
-                        "locator": unit.locator,
-                        "locator_type": unit.locator_type,
-                        "snippet": _build_snippet(
-                            text=evidence_text,
-                            match_index=match_index,
-                        ),
-                        "score": _score_match(
-                            matched_terms=matched_terms,
-                            match_index=match_index,
-                        ),
-                        "evidence_type": evidence_type,
-                        "contains_visual": unit.contains_visual,
-                        "next_action_hint": _next_action_hint(
-                            unit_index=unit_index,
-                            total_units=len(document.units),
-                            contains_visual=unit.contains_visual,
-                            evidence_type=evidence_type,
-                        ),
-                    }
-                    if best_match is None or float(candidate["score"]) > float(best_match["score"]):
-                        best_match = candidate
-                if best_match is not None:
-                    matches.append(best_match)
+                    lines = evidence_text.splitlines() or [evidence_text]
+                    for line_number, line in enumerate(lines, start=1):
+                        match = _grep_match(pattern=pattern, text=line)
+                        if match is None:
+                            continue
+                        match_index, match_text = match
+                        matches.append(
+                            {
+                                "path": document.path,
+                                "document_kind": document.document_kind,
+                                "locator": unit.locator,
+                                "locator_type": unit.locator_type,
+                                "line_number": line_number,
+                                "line": line,
+                                "match_text": match_text,
+                                "snippet": _build_snippet(
+                                    text=line,
+                                    match_index=match_index,
+                                ),
+                                "evidence_type": evidence_type,
+                                "contains_visual": unit.contains_visual,
+                                "next_action_hint": _next_action_hint(
+                                    unit_index=unit_index,
+                                    total_units=len(document.units),
+                                    contains_visual=unit.contains_visual,
+                                    evidence_type=evidence_type,
+                                ),
+                            }
+                        )
 
         matches.sort(
             key=lambda item: (
-                -float(item["score"]),
                 item["path"],
                 str(item["locator"]),
+                str(item["evidence_type"]),
+                int(item["line_number"]),
             )
         )
         safe_cursor = max(cursor, 0)
@@ -983,6 +928,8 @@ class DocumentTooling:
         next_cursor = safe_cursor + safe_limit
         return {
             "query": query,
+            "pattern": pattern,
+            "mode": "grep",
             "results": matches[safe_cursor:next_cursor],
             "cursor": safe_cursor,
             "limit": safe_limit,
