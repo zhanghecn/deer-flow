@@ -1,10 +1,10 @@
 """Tests for lead agent backend wiring and runtime seeding."""
 
-from concurrent.futures import ThreadPoolExecutor
 import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Event
-import time
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -14,7 +14,7 @@ from src.agents.lead_agent import agent as lead_agent_module
 from src.config import builtin_agents
 from src.config.agent_runtime_seed import runtime_seed_targets
 from src.config.builtin_agents import LEAD_AGENT_NAME
-from src.config.model_config import ModelConfig
+from src.config.model_config import ModelConfig, ModelReasoningConfig
 from src.config.paths import Paths
 
 
@@ -393,6 +393,52 @@ def test_runtime_seed_targets_reads_latest_archive_contents(tmp_path):
     assert second_agents_md == b"v2"
 
 
+def test_seed_runtime_materials_materializes_thread_runtime_before_upload(tmp_path):
+    base_dir = tmp_path / ".openagents"
+    _write_archived_skill(base_dir, "bootstrap", body="bootstrap")
+    paths = _make_paths(base_dir)
+    request = _make_lead_agent_request()
+
+    class SharedMountBackend:
+        def __init__(self, *, paths: Paths, thread_id: str):
+            self._paths = paths
+            self._thread_id = thread_id
+            self.upload_calls: list[list[str]] = []
+
+        def download_files(self, requested_paths):
+            responses = []
+            for requested_path in requested_paths:
+                actual_path = self._paths.resolve_virtual_path(self._thread_id, requested_path)
+                if actual_path.exists():
+                    responses.append(SimpleNamespace(path=requested_path, content=actual_path.read_bytes(), error=None))
+                    continue
+                responses.append(SimpleNamespace(path=requested_path, content=None, error="file_not_found"))
+            return responses
+
+        def upload_files(self, files):
+            self.upload_calls.append([path for path, _ in files])
+            return [SimpleNamespace(path=path, error="invalid_path") for path, _ in files]
+
+    backend = SharedMountBackend(paths=paths, thread_id="thread-1")
+
+    with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
+        lead_agent_module._seed_runtime_materials(
+            backend,
+            agent_name=LEAD_AGENT_NAME,
+            status="dev",
+            agent_config=None,
+            request=request,
+        )
+
+    runtime_agent_root = lead_agent_module._runtime_agent_root(LEAD_AGENT_NAME, "dev")
+    materialized_agents_md = paths.resolve_virtual_path("thread-1", f"{runtime_agent_root}/AGENTS.md")
+    materialized_skill = paths.resolve_virtual_path("thread-1", f"{runtime_agent_root}/skills/bootstrap/SKILL.md")
+
+    assert materialized_agents_md.exists()
+    assert materialized_skill.exists()
+    assert backend.upload_calls == []
+
+
 def test_resolve_execution_backend_defaults_to_local(monkeypatch):
     monkeypatch.delenv("OPENAGENTS_SANDBOX_PROVIDER", raising=False)
     monkeypatch.setattr("src.runtime_backends.sandbox.resolve_config_sandbox_provider", lambda: None)
@@ -522,7 +568,7 @@ def test_openagents_middlewares_include_artifacts_state():
         name="test-model",
         use="langchain_openai.ChatOpenAI",
         model="gpt-test",
-        supports_thinking=True,
+        reasoning=ModelReasoningConfig(contract="openai_responses"),
         supports_vision=False,
     )
 
@@ -542,7 +588,7 @@ def test_create_lead_agent_deduplicates_concurrent_graph_builds(tmp_path):
         name="test-model",
         use="langchain_openai.ChatOpenAI",
         model="gpt-test",
-        supports_thinking=True,
+        reasoning=ModelReasoningConfig(contract="openai_responses"),
         supports_vision=False,
     )
 

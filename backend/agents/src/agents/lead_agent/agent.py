@@ -327,6 +327,33 @@ def _build_runtime_seed_targets(
     )
 
 
+def _materialize_runtime_targets_for_thread(
+    paths: Paths,
+    *,
+    thread_id: str | None,
+    runtime_targets: list[tuple[str, bytes]],
+) -> None:
+    """Mirror runtime seed files into the host thread tree before backend sync.
+
+    Shared-mount sandbox execution reads `/mnt/user-data/...` from the mounted
+    host runtime tree. The sandbox file API can write concrete file paths such
+    as `/openagents/threads/<thread>/user-data/...`, but it does not create the
+    deep parent directories for archived agent copies on demand. Materializing
+    the files locally first keeps the shared mount authoritative and lets the
+    later backend diff skip uploads that are already present.
+    """
+
+    normalized_thread_id = str(thread_id or "").strip()
+    if not normalized_thread_id or not runtime_targets:
+        return
+
+    paths.ensure_thread_dirs(normalized_thread_id)
+    for virtual_path, content in runtime_targets:
+        actual_path = paths.resolve_virtual_path(normalized_thread_id, virtual_path)
+        actual_path.parent.mkdir(parents=True, exist_ok=True)
+        actual_path.write_bytes(content)
+
+
 def _collect_missing_runtime_uploads(
     backend: BackendProtocol,
     runtime_targets: list[tuple[str, bytes]],
@@ -375,6 +402,11 @@ def _seed_runtime_materials(
         paths=paths,
         request=request,
     )
+    _materialize_runtime_targets_for_thread(
+        paths,
+        thread_id=getattr(request, "thread_id", None),
+        runtime_targets=runtime_targets,
+    )
     missing_uploads = _collect_missing_runtime_uploads(backend, runtime_targets)
     _upload_runtime_files(backend, missing_uploads)
 
@@ -419,6 +451,7 @@ def _seed_create_agent_target_runtime_materials_if_available(
         agent_name=target_agent_name,
         status=request.agent_status,
         agent_config=target_agent_config,
+        request=request,
     )
 
 

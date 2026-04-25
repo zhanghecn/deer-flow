@@ -1,6 +1,6 @@
 from src.agents.lead_agent import agent as lead_agent_module
 from src.agents.middlewares.runtime_command_middleware import RuntimeCommandMiddleware
-from src.config.model_config import ModelConfig
+from src.config.model_config import ModelConfig, ModelReasoningConfig
 
 
 def _model() -> ModelConfig:
@@ -10,7 +10,7 @@ def _model() -> ModelConfig:
         description=None,
         use="langchain_openai:ChatOpenAI",
         model="safe-model",
-        supports_thinking=True,
+        reasoning=ModelReasoningConfig(contract="openai_responses"),
         supports_vision=False,
     )
 
