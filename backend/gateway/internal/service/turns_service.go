@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -461,6 +462,34 @@ func buildTurnSnapshot(
 	return snapshot
 }
 
+func (s *PublicAPIService) failTurnExecution(
+	ctx context.Context,
+	plan *publicAPIRunPlan,
+	collector *turnCollector,
+	onEvent func(event model.TurnEvent) error,
+	stage model.TurnFailureStage,
+	cause error,
+	outputText string,
+	reasoningText string,
+) error {
+	failed := collector.push(BuildPublicTurnFailureEvent(plan.ResponseID, stage, cause))
+	finalErr := s.finishInvocationWithError(ctx, plan.Invocation, wrapPublicAPITurnFailure(cause, publicAPITurnFailureContext{
+		TurnID:         plan.ResponseID,
+		Stage:          stage,
+		Events:         collector.events,
+		PreviousTurnID: plan.PreviousResponseID,
+		Metadata:       plan.Metadata,
+		OutputText:     outputText,
+		ReasoningText:  reasoningText,
+	}), nil)
+	if onEvent != nil {
+		if err := onEvent(failed); err != nil {
+			return err
+		}
+	}
+	return wrapHandledTurnExecutionError(finalErr)
+}
+
 func (s *PublicAPIService) executeTurn(
 	ctx context.Context,
 	plan *publicAPIRunPlan,
@@ -500,15 +529,16 @@ func (s *PublicAPIService) executeTurn(
 		return nil
 	})
 	if streamErr != nil {
-		failed := collector.push(model.TurnEvent{
-			Type:  model.TurnEventTurnFailed,
-			Error: streamErr.Error(),
-		})
-		_ = s.finishInvocationWithError(ctx, plan.Invocation, streamErr, nil)
-		if onEvent != nil {
-			_ = onEvent(failed)
-		}
-		return nil, streamErr
+		return nil, s.failTurnExecution(
+			ctx,
+			plan,
+			collector,
+			onEvent,
+			model.TurnFailureStageStreamExecution,
+			streamErr,
+			"",
+			"",
+		)
 	}
 
 	statePayload, err := s.fetchThreadState(
@@ -519,35 +549,83 @@ func (s *PublicAPIService) executeTurn(
 		plan.ModelName,
 	)
 	if err != nil {
-		_ = s.finishInvocationWithError(ctx, plan.Invocation, err, nil)
-		return nil, err
+		return nil, s.failTurnExecution(
+			ctx,
+			plan,
+			collector,
+			onEvent,
+			model.TurnFailureStageStateFetch,
+			err,
+			"",
+			"",
+		)
 	}
 
 	outputText, reasoningText, artifactPaths, err := extractAssistantResultFromState(statePayload)
 	if err != nil {
-		_ = s.finishInvocationWithError(ctx, plan.Invocation, err, nil)
-		return nil, err
+		return nil, s.failTurnExecution(
+			ctx,
+			plan,
+			collector,
+			onEvent,
+			model.TurnFailureStageSnapshotBuild,
+			err,
+			"",
+			"",
+		)
 	}
 	outputText, err = normalizeStructuredOutputText(outputText, plan.Request.Text)
 	if err != nil {
-		_ = s.finishInvocationWithError(ctx, plan.Invocation, err, nil)
-		return nil, err
+		return nil, s.failTurnExecution(
+			ctx,
+			plan,
+			collector,
+			onEvent,
+			model.TurnFailureStageSnapshotBuild,
+			err,
+			outputText,
+			reasoningText,
+		)
 	}
 
 	if err := s.applyTraceUsage(ctx, plan); err != nil {
-		_ = s.finishInvocationWithError(ctx, plan.Invocation, err, nil)
-		return nil, err
+		return nil, s.failTurnExecution(
+			ctx,
+			plan,
+			collector,
+			onEvent,
+			model.TurnFailureStageSnapshotBuild,
+			err,
+			outputText,
+			reasoningText,
+		)
 	}
 
 	responseArtifacts, ledgerArtifacts, err := s.buildResponseArtifacts(plan.Invocation, artifactPaths)
 	if err != nil {
-		_ = s.finishInvocationWithError(ctx, plan.Invocation, err, nil)
-		return nil, err
+		return nil, s.failTurnExecution(
+			ctx,
+			plan,
+			collector,
+			onEvent,
+			model.TurnFailureStageSnapshotBuild,
+			err,
+			outputText,
+			reasoningText,
+		)
 	}
 	if len(ledgerArtifacts) > 0 {
 		if err := s.invocationRepo.AttachArtifacts(ctx, ledgerArtifacts); err != nil {
-			_ = s.finishInvocationWithError(ctx, plan.Invocation, err, nil)
-			return nil, err
+			return nil, s.failTurnExecution(
+				ctx,
+				plan,
+				collector,
+				onEvent,
+				model.TurnFailureStageSnapshotBuild,
+				err,
+				outputText,
+				reasoningText,
+			)
 		}
 	}
 
@@ -612,7 +690,14 @@ func (s *PublicAPIService) CreateTurn(
 	if err != nil {
 		return nil, err
 	}
-	return s.executeTurn(ctx, plan, newTurnCollector(plan.ResponseID), nil)
+	snapshot, err := s.executeTurn(ctx, plan, newTurnCollector(plan.ResponseID), nil)
+	if err != nil {
+		if unwrapped, ok := unwrapHandledTurnExecutionError(err); ok {
+			return nil, unwrapped
+		}
+		return nil, err
+	}
+	return snapshot, nil
 }
 
 func (s *PublicAPIService) StreamTurn(
@@ -637,6 +722,10 @@ func (s *PublicAPIService) StreamTurn(
 		return emit(string(event.Type), event)
 	})
 	if err != nil {
+		var handled *handledTurnExecutionError
+		if errors.As(err, &handled) {
+			return nil
+		}
 		return err
 	}
 	if emit != nil {

@@ -580,18 +580,23 @@ describe("useThreadStream", () => {
   });
 
   it("tracks unified execution progress from custom stream events", async () => {
-    const { result } = renderHook(
-      () =>
-        useThreadStream({
-          threadId: "thread-1",
-          context: {
-            model_name: "kimi-k2.5",
-            mode: "pro",
-            agent_status: "dev",
-          },
-        }),
-      { wrapper: createWrapper() },
-    );
+    const renderResult = await act(async () => {
+      const hook = renderHook(
+        () =>
+          useThreadStream({
+            threadId: "thread-1",
+            context: {
+              model_name: "kimi-k2.5",
+              mode: "pro",
+              agent_status: "dev",
+            },
+          }),
+        { wrapper: createWrapper() },
+      );
+      await Promise.resolve();
+      return hook;
+    });
+    const { result } = renderResult;
 
     const onCustomEvent = latestUseStreamOptions?.onCustomEvent;
     expect(typeof onCustomEvent).toBe("function");
@@ -599,7 +604,7 @@ describe("useThreadStream", () => {
       throw new Error("Expected onCustomEvent callback to be registered.");
     }
 
-    act(() => {
+    await act(async () => {
       onCustomEvent({
         type: "execution_event",
         event: "phase_started",
@@ -608,6 +613,7 @@ describe("useThreadStream", () => {
         phase: "thinking_initial",
         phase_kind: "model",
       });
+      await Promise.resolve();
     });
 
     expect(result.current[4]).toEqual({
@@ -620,7 +626,7 @@ describe("useThreadStream", () => {
       terminal: false,
     });
 
-    act(() => {
+    await act(async () => {
       onCustomEvent({
         type: "execution_event",
         event: "retrying",
@@ -633,6 +639,7 @@ describe("useThreadStream", () => {
         delay_seconds: 1,
         error: "429 Too Many Requests",
       });
+      await Promise.resolve();
     });
 
     expect(result.current[4]).toEqual({
@@ -651,7 +658,7 @@ describe("useThreadStream", () => {
       terminal: false,
     });
 
-    act(() => {
+    await act(async () => {
       onCustomEvent({
         type: "execution_event",
         event: "retry_completed",
@@ -661,6 +668,7 @@ describe("useThreadStream", () => {
         started_at: "2026-03-23T12:00:02Z",
         phase: "retry_wait",
       });
+      await Promise.resolve();
     });
 
     expect(result.current[4]).toEqual({
@@ -1506,7 +1514,7 @@ describe("useThreadStream", () => {
     expect(apiClient.threads.getState).not.toHaveBeenCalled();
   });
 
-  it("defers state hydration for threads created during the current session until the first run finishes", async () => {
+  it("waits for a later window activation before hydrating a newly finished thread", async () => {
     type ThreadStreamProps = {
       threadId?: string;
     };
@@ -1571,6 +1579,18 @@ describe("useThreadStream", () => {
       });
     });
 
+    expect(apiClient.threads.getState).not.toHaveBeenCalled();
+
+    vi.mocked(document.hasFocus).mockReturnValue(false);
+    act(() => {
+      window.dispatchEvent(new Event("blur"));
+    });
+
+    vi.mocked(document.hasFocus).mockReturnValue(true);
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+
     await waitFor(() => {
       expect(apiClient.threads.getState).toHaveBeenCalledWith(
         "thread-new",
@@ -1578,6 +1598,51 @@ describe("useThreadStream", () => {
         { subgraphs: true },
       );
     });
+  });
+
+  it("does not poll pending recovery state for a fresh thread owned by the current tab", async () => {
+    type ThreadStreamProps = {
+      threadId?: string;
+    };
+
+    const { rerender } = renderHook(
+      ({ threadId }: ThreadStreamProps) =>
+        useThreadStream({
+          threadId,
+          skipInitialHistory: true,
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      {
+        initialProps: { threadId: undefined as string | undefined },
+        wrapper: createWrapper(),
+      },
+    );
+
+    const onCreated = latestUseStreamOptions?.onCreated;
+    expect(typeof onCreated).toBe("function");
+    if (typeof onCreated !== "function") {
+      throw new Error("Expected onCreated callback to be registered.");
+    }
+
+    act(() => {
+      onCreated({ thread_id: "thread-new-owned" });
+    });
+    window.sessionStorage.setItem(
+      "openagents:stream-owner:thread-new-owned",
+      "1",
+    );
+    window.sessionStorage.setItem("lg:stream:thread-new-owned", "run-owned-1");
+
+    await act(async () => {
+      rerender({ threadId: "thread-new-owned" });
+      await Promise.resolve();
+    });
+
+    expect(apiClient.threads.getState).not.toHaveBeenCalled();
   });
 
   it("does not re-fetch thread state on unrelated stream rerenders", async () => {

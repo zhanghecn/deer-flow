@@ -27,6 +27,10 @@ import {
   uploadPublicAPIFile,
 } from "@/core/public-api/api";
 import { createPublicAPISession } from "@/core/public-api/session";
+import {
+  normalizeThreadError,
+  shouldIgnoreThreadError,
+} from "@/core/threads/error";
 
 import {
   coerceTimestampMs,
@@ -755,8 +759,11 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
 
       const finalized = result.turn;
       if (!finalized) {
-        setRunState("ready");
-        updateMsg(asstId, (m) => ({ ...m, status: "done" }));
+        setRunState(result.readModel.phase === "failed" ? "failed" : result.readModel.phase);
+        updateMsg(asstId, (m) => ({
+          ...m,
+          status: result.readModel.phase === "failed" ? "error" : m.status,
+        }));
         return;
       }
       setDebugSnapshot(finalized);
@@ -792,11 +799,11 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
       }
       setRunState("ready");
     } catch (err) {
-      if (err instanceof Error && err.name === "AbortError") {
+      if (shouldIgnoreThreadError(err)) {
         setRunState("ready");
         return;
       }
-      const detail = err instanceof Error ? err.message : String(err);
+      const detail = normalizeThreadError(err);
       setRunState("failed");
       toast.error(detail);
       updateMsg(asstId, (m) => ({

@@ -71,6 +71,7 @@ import { getPublicAPIPlaygroundText } from "./public-api-playground-dialog.i18n"
 type ResponseMode = "text" | "json_object" | "json_schema";
 type ReasoningEffort = "low" | "medium" | "high" | "max";
 type PlaygroundHeaderMode = "hero" | "compact" | "hidden";
+type ResultStatusFallback = "idle" | "running" | "failed" | "waiting";
 
 type TraceItem = PlaygroundTraceItem & {
   id: string;
@@ -433,6 +434,8 @@ export function PublicAPIPlaygroundPanel({
   const [turn, setTurn] = useState<PublicAPITurnSnapshot | null>(
     null,
   );
+  const [resultStatusFallback, setResultStatusFallback] =
+    useState<ResultStatusFallback>("idle");
   const [liveOutput, setLiveOutput] = useState("");
   const [liveReasoning, setLiveReasoning] = useState("");
   const [lastRunMode, setLastRunMode] = useState<"stream" | "blocking" | null>(
@@ -599,6 +602,7 @@ export function PublicAPIPlaygroundPanel({
 
     for (const normalizedEvent of normalizePublicAPIStreamEvent(event)) {
       if (normalizedEvent.kind === "turn_started") {
+        setResultStatusFallback("running");
         if (normalizedEvent.turnId) {
           setPreviousTurnID(normalizedEvent.turnId);
         }
@@ -643,6 +647,10 @@ export function PublicAPIPlaygroundPanel({
       }
 
       if (normalizedEvent.kind === "turn_failed") {
+        // Some `/v1/turns` failures intentionally end without a snapshot or
+        // turn id. Keep the result card in a failed terminal state instead of
+        // falling back to `idle` once the network request resolves.
+        setResultStatusFallback("failed");
         appendTrace({
           stage: "error",
           tone: "error",
@@ -676,6 +684,7 @@ export function PublicAPIPlaygroundPanel({
 
     setSubmitting(true);
     setTurn(null);
+    setResultStatusFallback("running");
     setTraceItems([]);
     setLiveOutput("");
     setLiveReasoning("");
@@ -725,6 +734,13 @@ export function PublicAPIPlaygroundPanel({
         setPreviousTurnID(payload.id);
         setLiveOutput(payload.output_text);
         setLiveReasoning(payload.reasoning_text);
+        setResultStatusFallback(
+          payload.status === "failed"
+            ? "failed"
+            : payload.status === "requires_input"
+              ? "waiting"
+              : "idle",
+        );
 
         // Blocking turns already contain the full event ledger, so the console
         // replays that ledger into the same grouped trace UI instead of
@@ -771,6 +787,7 @@ export function PublicAPIPlaygroundPanel({
     } catch (error) {
       const detail =
         error instanceof Error ? error.message : text.requestFailed;
+      setResultStatusFallback("failed");
       appendTrace({
         stage: "error",
         tone: "error",
@@ -813,7 +830,14 @@ export function PublicAPIPlaygroundPanel({
   const currentResponseID = turn?.id ?? "—";
   const currentTraceID = asString(turn?.trace_id) || "—";
   const currentStatus =
-    turn?.status ?? (submitting ? text.statusRunning : text.statusIdle);
+    turn?.status ??
+    (resultStatusFallback === "running"
+      ? text.statusRunning
+      : resultStatusFallback === "failed"
+        ? text.statusFailed
+        : resultStatusFallback === "waiting"
+          ? text.statusWaiting
+          : text.statusIdle);
   const currentTokenCount = turn?.usage?.total_tokens ?? "—";
   const responseArtifacts = turn?.artifacts ?? [];
   const showHeader = headerMode !== "hidden";
@@ -1256,6 +1280,7 @@ export function PublicAPIPlaygroundPanel({
                   onClick={() => {
                     setTraceItems([]);
                     setTurn(null);
+                    setResultStatusFallback("idle");
                     setLiveOutput("");
                     setLiveReasoning("");
                     setLastRunMode(null);

@@ -3,6 +3,7 @@ package model
 import "encoding/json"
 
 type TurnEventType string
+type TurnFailureStage string
 
 const (
 	TurnEventTurnStarted               TurnEventType = "turn.started"
@@ -15,6 +16,11 @@ const (
 	TurnEventAssistantMessageCompleted TurnEventType = "assistant.message.completed"
 	TurnEventTurnCompleted             TurnEventType = "turn.completed"
 	TurnEventTurnFailed                TurnEventType = "turn.failed"
+
+	TurnFailureStagePrepareRun      TurnFailureStage = "prepare_run"
+	TurnFailureStageStreamExecution TurnFailureStage = "stream_execution"
+	TurnFailureStageStateFetch      TurnFailureStage = "state_fetch"
+	TurnFailureStageSnapshotBuild   TurnFailureStage = "snapshot_build"
 )
 
 type TurnThinkingConfig struct {
@@ -51,19 +57,23 @@ type TurnUsage struct {
 }
 
 type TurnEvent struct {
-	Sequence      int           `json:"sequence"`
-	CreatedAt     int64         `json:"created_at"`
-	TurnID        string        `json:"turn_id"`
-	Type          TurnEventType `json:"type"`
-	MessageID     string        `json:"message_id,omitempty"`
-	ToolCallID    string        `json:"tool_call_id,omitempty"`
-	ToolName      string        `json:"tool_name,omitempty"`
-	Delta         string        `json:"delta,omitempty"`
-	Text          string        `json:"text,omitempty"`
-	Reasoning     string        `json:"reasoning,omitempty"`
-	Error         string        `json:"error,omitempty"`
-	ToolArguments any           `json:"tool_arguments,omitempty"`
-	ToolOutput    any           `json:"tool_output,omitempty"`
+	Sequence      int              `json:"sequence"`
+	CreatedAt     int64            `json:"created_at"`
+	TurnID        string           `json:"turn_id,omitempty"`
+	Type          TurnEventType    `json:"type"`
+	Status        string           `json:"status,omitempty"`
+	MessageID     string           `json:"message_id,omitempty"`
+	ToolCallID    string           `json:"tool_call_id,omitempty"`
+	ToolName      string           `json:"tool_name,omitempty"`
+	Delta         string           `json:"delta,omitempty"`
+	Text          string           `json:"text,omitempty"`
+	Reasoning     string           `json:"reasoning,omitempty"`
+	Error         string           `json:"error,omitempty"`
+	Stage         TurnFailureStage `json:"stage,omitempty"`
+	Retryable     *bool            `json:"retryable,omitempty"`
+	Code          string           `json:"code,omitempty"`
+	ToolArguments any              `json:"tool_arguments,omitempty"`
+	ToolOutput    any              `json:"tool_output,omitempty"`
 }
 
 type TurnSnapshot struct {

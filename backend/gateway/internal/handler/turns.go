@@ -34,10 +34,14 @@ func (h *TurnsHandler) Create(c *gin.Context) {
 				return writeSSE(c, eventName, payload)
 			},
 		); err != nil {
-			_ = writeSSE(c, string(model.TurnEventTurnFailed), gin.H{
-				"type":  model.TurnEventTurnFailed,
-				"error": err.Error(),
-			})
+			_ = writeSSE(
+				c,
+				string(model.TurnEventTurnFailed),
+				service.BuildPublicTurnFailureEventFromError(
+					err,
+					model.TurnFailureStagePrepareRun,
+				),
+			)
 		}
 		return
 	}

@@ -4,7 +4,7 @@ const IGNORED_THREAD_ERROR_NAMES = new Set(["AbortError", "CancelledError"]);
 
 function parsePseudoJsonErrorMessage(input: string) {
   const value = input.trim();
-  for (const key of ["message", "error", "detail"]) {
+  for (const key of ["message", "error", "detail", "details"]) {
     const match = new RegExp(
       `['"]${key}['"]\\s*:\\s*(["'])([\\s\\S]*?)\\1`,
       "i",
@@ -26,7 +26,7 @@ function parseJsonErrorMessage(input: string) {
 
   try {
     const parsed = JSON.parse(value) as Record<string, unknown>;
-    for (const key of ["message", "error", "detail"]) {
+    for (const key of ["message", "error", "detail", "details"]) {
       const candidate = parsed[key];
       if (typeof candidate === "string" && candidate.trim()) {
         return candidate.trim();
@@ -92,6 +92,16 @@ function extractErrorMessage(error: unknown) {
     error.message.trim()
   ) {
     return error.message.trim();
+  }
+
+  if (typeof error === "object" && error !== null) {
+    const record = error as Record<string, unknown>;
+    for (const key of ["details", "detail", "error"] as const) {
+      const candidate = record[key];
+      if (typeof candidate === "string" && candidate.trim()) {
+        return candidate.trim();
+      }
+    }
   }
 
   return null;

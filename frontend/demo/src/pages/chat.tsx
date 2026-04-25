@@ -2,6 +2,11 @@ import { Bot, Check, Copy, Loader2, MessageSquare, Send, Settings, Sparkles, Squ
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import {
+  normalizeThreadError,
+  shouldIgnoreThreadError,
+} from "@/core/threads/error";
+
 import { MarkdownRenderer } from "../components/markdown-renderer";
 import { createChatSession, type ToolCallStep } from "../lib/chat-session";
 import { resolvePublicAPIBaseURL } from "../lib/public-api";
@@ -17,7 +22,7 @@ type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   reasoning: string;
-  status: "streaming" | "done" | "error";
+  status: "streaming" | "done" | "error" | "interrupted";
   toolCalls?: ToolCallStep[];
 };
 
@@ -123,7 +128,7 @@ function prettyJSON(value: unknown): string {
 }
 
 function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return normalizeThreadError(error);
 }
 
 /* ─── Components ────────────────────────────────────────── */
@@ -366,23 +371,38 @@ export function ChatPage() {
     ]);
 
     const session = ensureSession();
+    let latestPhase: "streaming" | "waiting" | "ready" | "failed" | "interrupted" =
+      "streaming";
+    let latestError = "";
 
     session
       .prompt({
         text,
         stream: true,
         signal: abortController.signal,
-        onUpdate: ({ text: liveText, reasoning: liveReasoning, phase }) => {
+        onUpdate: ({ text: liveText, reasoning: liveReasoning, phase, error: liveError }) => {
+          latestPhase = phase;
+          latestError = liveError ?? latestError;
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantMessageId
                 ? {
                     ...m,
-                    content: liveText,
+                    // Failed public runs can terminate without a turn snapshot.
+                    // Preserve the streamed content when present, otherwise
+                    // surface the normalized terminal error inline.
+                    content:
+                      liveText ||
+                      m.content ||
+                      (phase === "failed" && liveError
+                        ? `Error: ${liveError}`
+                        : ""),
                     reasoning: liveReasoning,
                     status:
                       phase === "failed"
                         ? "error"
+                        : phase === "interrupted"
+                          ? "interrupted"
                         : phase === "ready"
                           ? "done"
                           : "streaming",
@@ -390,6 +410,9 @@ export function ChatPage() {
                 : m,
             ),
           );
+          if (phase === "failed" && liveError) {
+            setError(liveError);
+          }
         },
         onToolCall: (tool) => {
           setMessages((prev) =>
@@ -411,11 +434,22 @@ export function ChatPage() {
       })
       .then((result) => {
         if (!result.turn) {
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantMessageId ? { ...m, status: "done" } : m,
-            ),
-          );
+          if (latestPhase === "failed") {
+            const detail = latestError || "Request failed";
+            setError(detail);
+            toast.error(detail);
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantMessageId
+                  ? {
+                      ...m,
+                      status: "error",
+                      content: m.content || `Error: ${detail}`,
+                    }
+                  : m,
+              ),
+            );
+          }
           setIsStreaming(false);
           return;
         }
@@ -438,10 +472,12 @@ export function ChatPage() {
         setIsStreaming(false);
       })
       .catch((err) => {
-        if (err instanceof Error && err.name === "AbortError") {
+        if (shouldIgnoreThreadError(err)) {
           setMessages((prev) =>
             prev.map((m) =>
-              m.id === assistantMessageId ? { ...m, status: "done" } : m,
+              m.id === assistantMessageId
+                ? { ...m, status: "interrupted" }
+                : m,
             ),
           );
           setIsStreaming(false);
@@ -652,6 +688,11 @@ export function ChatPage() {
                         <div className="flex items-center gap-2 text-slate-400">
                           <Loader2 className="size-4 animate-spin" />
                           <span>思考中…</span>
+                        </div>
+                      ) : msg.status === "interrupted" &&
+                        msg.content.length === 0 ? (
+                        <div className="text-sm leading-6 text-slate-500">
+                          已中断
                         </div>
                       ) : (
                         <div className="text-sm leading-6 text-slate-700">

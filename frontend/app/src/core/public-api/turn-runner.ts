@@ -56,6 +56,13 @@ export async function runStreamedPublicAPITurn(params: {
     },
   });
 
+  // `/v1/turns` must always end in a terminal turn state. A clean SSE close
+  // without `turn.completed`, `turn.failed`, or `turn.requires_input` is a
+  // protocol violation, not an implicit success.
+  if (readModel.phase === "streaming") {
+    throw new Error("Streaming /v1/turns ended without a terminal turn event.");
+  }
+
   // The stream only guarantees partial progress. Finalizing from the snapshot
   // keeps artifacts, terminal state, and replayed events aligned with the
   // canonical `/v1/turns/{id}` contract.

@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -256,7 +257,8 @@ func buildPublicAPIAuthContext(c *gin.Context) service.PublicAPIAuthContext {
 }
 
 func writePublicAPIError(c *gin.Context, err error) {
-	if publicErr, ok := err.(*service.PublicAPIError); ok {
+	var publicErr *service.PublicAPIError
+	if errors.As(err, &publicErr) && publicErr != nil {
 		c.JSON(publicErr.StatusCode, gin.H{
 			"error":   publicErr.Code,
 			"details": publicErr.Message,

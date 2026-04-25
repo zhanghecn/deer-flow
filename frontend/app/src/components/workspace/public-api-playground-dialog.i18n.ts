@@ -67,6 +67,8 @@ type PublicAPIPlaygroundText = {
   totalTokens: string;
   statusRunning: string;
   statusIdle: string;
+  statusFailed: string;
+  statusWaiting: string;
   download: string;
   copy: string;
   copied: string;
@@ -196,6 +198,8 @@ const enUS: PublicAPIPlaygroundText = {
   totalTokens: "Tokens",
   statusRunning: "running",
   statusIdle: "idle",
+  statusFailed: "failed",
+  statusWaiting: "waiting",
   download: "Download",
   copy: "Copy",
   copied: "Copied",
@@ -325,6 +329,8 @@ const zhCN: PublicAPIPlaygroundText = {
   totalTokens: "Tokens",
   statusRunning: "运行中",
   statusIdle: "空闲",
+  statusFailed: "失败",
+  statusWaiting: "等待输入",
   download: "下载",
   copy: "复制",
   copied: "已复制",

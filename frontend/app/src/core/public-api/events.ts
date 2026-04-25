@@ -4,6 +4,7 @@ import type {
   PublicAPITurnSnapshot,
   PublicAPITurnStreamEvent,
 } from "./api";
+import { normalizeThreadError } from "../threads/error";
 
 export type PublicAPINormalizedRunEvent =
   | {
@@ -154,7 +155,7 @@ export function normalizePublicAPIStreamEvent(
       return [
         {
           kind: "turn_failed",
-          detail: prettyJSON(event.data),
+          detail: normalizeThreadError(event.data),
           raw: event.data,
         },
       ];
@@ -197,7 +198,7 @@ export function normalizePublicAPIStreamEvent(
     case "turn.failed":
       normalized.push({
         kind: "turn_failed",
-        detail: asString(turnEvent.error),
+        detail: normalizeThreadError(event.data),
         raw: event.data,
       });
       break;

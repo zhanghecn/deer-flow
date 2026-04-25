@@ -1344,7 +1344,10 @@ export function useThreadStream({
       clearStoredActiveRunId(activeThreadId);
       if (activeThreadId) {
         deferStateHydrationRef.current = false;
-        lastHydrationActivationRef.current = null;
+        // The live stream already delivered the terminal state for this window
+        // activation. Mark it as hydrated so a brand-new thread does not
+        // immediately refetch state before persistence catches up.
+        lastHydrationActivationRef.current = windowActivationId;
         manualHistorySeedRef.current = false;
         setHistoryEnabled(true);
       }
@@ -1352,7 +1355,7 @@ export function useThreadStream({
       onFinish?.(state);
       void invalidateThreadSearchCaches(queryClient);
     },
-    [onFinish, queryClient, streamThreadId, threadId],
+    [onFinish, queryClient, streamThreadId, threadId, windowActivationId],
   );
   const finalizeRecoveredTerminalError = useCallback(
     (
@@ -1379,7 +1382,9 @@ export function useThreadStream({
         // A persisted task error means the backend already finished this run,
         // even if the last checkpoint still reports a stale `next` step.
         deferStateHydrationRef.current = false;
-        lastHydrationActivationRef.current = null;
+        // The current window already has the terminal payload, so wait for the
+        // next activation before rehydrating persisted state.
+        lastHydrationActivationRef.current = windowActivationId;
         manualHistorySeedRef.current = false;
         setHistoryEnabled(true);
       }
@@ -1387,7 +1392,14 @@ export function useThreadStream({
       onStop?.(state);
       void invalidateThreadSearchCaches(queryClient);
     },
-    [notifyThreadError, onStop, queryClient, streamThreadId, threadId],
+    [
+      notifyThreadError,
+      onStop,
+      queryClient,
+      streamThreadId,
+      threadId,
+      windowActivationId,
+    ],
   );
   const thread = useStream<
     AgentThreadState,
@@ -1729,6 +1741,13 @@ export function useThreadStream({
       !isWindowActive ||
       !hasResolvedModelName
     ) {
+      return;
+    }
+
+    if (deferStateHydrationRef.current) {
+      // Fresh threads created in this tab do not need recovery polling because
+      // the live stream owns the run already. Polling state before the first
+      // checkpoint lands produces noisy 404s without improving recovery.
       return;
     }
 

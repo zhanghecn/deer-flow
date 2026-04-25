@@ -49,11 +49,18 @@ export type PublicAPITurnEventType =
   | "turn.completed"
   | "turn.failed";
 
+export type PublicAPITurnFailureStage =
+  | "prepare_run"
+  | "stream_execution"
+  | "state_fetch"
+  | "snapshot_build";
+
 export interface PublicAPITurnEvent {
   sequence: number;
   created_at: number;
-  turn_id: string;
+  turn_id?: string;
   type: PublicAPITurnEventType;
+  status?: string;
   message_id?: string;
   tool_call_id?: string;
   tool_name?: string;
@@ -61,6 +68,9 @@ export interface PublicAPITurnEvent {
   text?: string;
   reasoning?: string;
   error?: string;
+  stage?: PublicAPITurnFailureStage;
+  retryable?: boolean;
+  code?: string;
   tool_arguments?: unknown;
   tool_output?: unknown;
 }

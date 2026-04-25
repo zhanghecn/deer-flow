@@ -87,6 +87,15 @@ function buildCurlSnippet(baseURL: string, agentName: string) {
   }'`;
 }
 
+function resolveGatewayBaseURL(exportDoc: {
+  gateway_base_url?: string;
+  api_base_url: string;
+}) {
+  return (
+    exportDoc.gateway_base_url ?? exportDoc.api_base_url.replace(/\/v1\/?$/, "")
+  ).replace(/\/+$/, "");
+}
+
 /** Flat route listing — one row per route, no table borders */
 function RouteList({
   routes,
@@ -178,6 +187,7 @@ export default function AgentPublicDocsPage() {
   const routes = listReferenceOperations(openapiDoc);
   const referencePath = buildPublicAgentReferencePath(exportDoc.agent);
   const playgroundPath = buildPublicAgentPlaygroundPath(exportDoc.agent);
+  const gatewayBaseURL = resolveGatewayBaseURL(exportDoc);
   const javascriptSnippet = buildJavaScriptSnippet(
     exportDoc.api_base_url,
     exportDoc.agent,
@@ -217,7 +227,7 @@ export default function AgentPublicDocsPage() {
         <section id="overview" className="scroll-mt-20 space-y-5">
           <EndpointHeroCard
             method="POST"
-            baseURL={exportDoc.api_base_url}
+            baseURL={gatewayBaseURL}
             path="/v1/turns"
             agentParam={`agent=${exportDoc.agent}`}
             copyLabel={text.copy}

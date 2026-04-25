@@ -1,11 +1,9 @@
+import type { PublicAPITurnSnapshot } from "@/core/public-api/api";
+import { createPublicAPISession } from "@/core/public-api/session";
 import {
-  createPublicAPITurn,
-  getPublicAPITurn,
-  streamPublicAPITurn,
-  type PublicAPITurnRequestBody,
-  type PublicAPITurnSnapshot,
-  type PublicAPITurnStreamEvent,
-} from "./public-api";
+  normalizeThreadError,
+  shouldIgnoreThreadError,
+} from "@/core/threads/error";
 
 export type ToolCallStep = {
   id: string;
@@ -23,8 +21,9 @@ export type ChatSessionPromptParams = {
   onUpdate?: (update: {
     text: string;
     reasoning: string;
+    error?: string;
     turnId: string;
-    phase: "streaming" | "ready" | "failed";
+    phase: "streaming" | "waiting" | "ready" | "failed" | "interrupted";
   }) => void;
   onToolCall?: (tool: ToolCallStep) => void;
 };
@@ -41,19 +40,52 @@ export type ChatSession = {
   getPreviousTurnId: () => string;
 };
 
-function buildRequestBody(params: {
-  agent: string;
-  previousTurnId: string;
-  prompt: ChatSessionPromptParams;
-}): PublicAPITurnRequestBody {
-  return {
-    agent: params.agent,
-    input: { text: params.prompt.text },
-    previous_turn_id: params.previousTurnId || undefined,
-    stream: params.prompt.stream ?? true,
-    metadata: params.prompt.metadata,
-    thinking: { enabled: true, effort: "high" },
-  };
+const TRACE_TEXT = {
+  assistantMessage: "Assistant",
+  assistantThinking: "Thinking",
+  toolCall: "Tool Call",
+  toolResult: "Tool Result",
+  turnCompleted: "Completed",
+  turnStarted: "Started",
+  turnWaiting: "Waiting",
+  turnFailed: "Failed",
+};
+
+function normalizeToolOutput(output: unknown): Array<{
+  id?: string;
+  text?: string;
+  type?: string;
+}> {
+  if (Array.isArray(output)) {
+    return output.map((item) => {
+      if (!item || typeof item !== "object") {
+        return {
+          type: typeof item === "string" ? "text" : "json",
+          text:
+            typeof item === "string" ? item : JSON.stringify(item, null, 2),
+        };
+      }
+      const record = item as Record<string, unknown>;
+      return {
+        id: typeof record.id === "string" ? record.id : undefined,
+        type: typeof record.type === "string" ? record.type : undefined,
+        text:
+          typeof record.text === "string"
+            ? record.text
+            : JSON.stringify(record, null, 2),
+      };
+    });
+  }
+  if (output === undefined) {
+    return [];
+  }
+  return [
+    {
+      type: typeof output === "string" ? "text" : "json",
+      text:
+        typeof output === "string" ? output : JSON.stringify(output, null, 2),
+    },
+  ];
 }
 
 export function createChatSession(params: {
@@ -62,154 +94,119 @@ export function createChatSession(params: {
   agent: string;
   previousTurnId?: string;
 }): ChatSession {
-  let previousTurnId = params.previousTurnId?.trim() ?? "";
+  const session = createPublicAPISession({
+    baseURL: params.baseURL,
+    apiToken: params.apiToken,
+    agent: params.agent,
+    previousTurnId: params.previousTurnId,
+    traceText: TRACE_TEXT,
+  });
 
   return {
     async prompt(promptParams) {
-      const requestBody = buildRequestBody({
-        agent: params.agent,
-        previousTurnId,
-        prompt: promptParams,
-      });
-
-      if (requestBody.stream === false) {
-        const turn = await createPublicAPITurn({
-          baseURL: params.baseURL,
-          apiToken: params.apiToken,
-          body: requestBody,
-          signal: promptParams.signal,
-        });
-        previousTurnId = turn.id;
-        return { turn };
-      }
-
-      let accumulatedOutput = "";
-      let accumulatedReasoning = "";
-      let currentTurnId = "";
       const toolCalls = new Map<string, ToolCallStep>();
+      let latestText = "";
+      let latestReasoning = "";
+      let latestTurnId = "";
+      let latestError = "";
 
-      await streamPublicAPITurn({
-        baseURL: params.baseURL,
-        apiToken: params.apiToken,
-        body: requestBody,
-        signal: promptParams.signal,
-        onEvent: (event: PublicAPITurnStreamEvent) => {
-          const data = event.data as Record<string, unknown> | null;
-          if (!data || typeof data !== "object") return;
+      try {
+        const result = await session.prompt({
+          text: promptParams.text,
+          stream: promptParams.stream,
+          metadata: promptParams.metadata,
+          signal: promptParams.signal,
+          thinking: { enabled: true, effort: "high" },
+          onUpdate: ({ event, readModel }) => {
+            latestText = readModel.liveOutput;
+            latestReasoning = readModel.liveReasoning;
+            latestTurnId = readModel.turnId;
 
-          const eventType = String(data.type ?? "");
-          // Keep event-specific streaming side effects in one table so the
-          // shared update below can stay small and behaviorally stable.
-          const eventHandlers: Record<
-            string,
-            (eventData: Record<string, unknown>) => void
-          > = {
-            "assistant.text.delta": (eventData) => {
-              if (typeof eventData.delta === "string") {
-                accumulatedOutput += eventData.delta;
+            if (event.kind === "turn_failed") {
+              latestError = normalizeThreadError(event.raw);
+            }
+
+            if (event.kind === "ledger_event") {
+              if (event.event.type === "turn.failed") {
+                latestError = normalizeThreadError(event.event);
               }
-            },
-            "assistant.reasoning.delta": (eventData) => {
-              if (typeof eventData.delta !== "string") return;
-              accumulatedReasoning += eventData.delta;
-              promptParams.onUpdate?.({
-                text: accumulatedOutput,
-                reasoning: accumulatedReasoning,
-                turnId: currentTurnId,
-                phase: "streaming",
-              });
-            },
-            "turn.started": (eventData) => {
-              if (typeof eventData.turn_id === "string") {
-                currentTurnId = eventData.turn_id;
-              }
-            },
-            "turn.completed": (eventData) => {
-              if (typeof eventData.turn_id === "string") {
-                currentTurnId = eventData.turn_id;
-              }
-            },
-            "tool.call.started": (eventData) => {
-              const toolCallId = String(eventData.tool_call_id ?? "");
-              const toolName = String(eventData.tool_name ?? "");
-              const toolArgs =
-                eventData.tool_arguments &&
-                typeof eventData.tool_arguments === "object"
-                  ? (eventData.tool_arguments as Record<string, unknown>)
-                  : {};
-              if (toolCallId && toolName) {
-                const step: ToolCallStep = {
-                  id: toolCallId,
-                  name: toolName,
-                  arguments: toolArgs,
+
+              if (
+                event.event.type === "tool.call.started" &&
+                event.event.tool_call_id &&
+                event.event.tool_name
+              ) {
+                const tool: ToolCallStep = {
+                  id: event.event.tool_call_id,
+                  name: event.event.tool_name,
+                  arguments:
+                    event.event.tool_arguments &&
+                    typeof event.event.tool_arguments === "object"
+                      ? (event.event.tool_arguments as Record<string, unknown>)
+                      : {},
                   status: "running",
                 };
-                toolCalls.set(toolCallId, step);
-                promptParams.onToolCall?.(step);
+                toolCalls.set(tool.id, tool);
+                promptParams.onToolCall?.(tool);
               }
-            },
-            "tool.call.completed": (eventData) => {
-              const toolCallId = String(eventData.tool_call_id ?? "");
-              const toolName = String(eventData.tool_name ?? "");
-              const toolOutput = Array.isArray(eventData.tool_output)
-                ? (eventData.tool_output as Array<{
-                    id?: string;
-                    text?: string;
-                    type?: string;
-                  }>)
-                : [];
-              if (toolCallId) {
-                const existing = toolCalls.get(toolCallId);
-                const step: ToolCallStep = {
-                  id: toolCallId,
-                  name: existing?.name ?? toolName,
+
+              if (
+                event.event.type === "tool.call.completed" &&
+                event.event.tool_call_id
+              ) {
+                const existing = toolCalls.get(event.event.tool_call_id);
+                const tool: ToolCallStep = {
+                  id: event.event.tool_call_id,
+                  name: existing?.name ?? event.event.tool_name ?? "unknown",
                   arguments: existing?.arguments ?? {},
-                  output: toolOutput,
+                  output: normalizeToolOutput(event.event.tool_output),
                   status: "done",
                 };
-                toolCalls.set(toolCallId, step);
-                promptParams.onToolCall?.(step);
+                toolCalls.set(tool.id, tool);
+                promptParams.onToolCall?.(tool);
               }
-            },
-          };
-          const handler = eventHandlers[eventType];
-          handler?.(data);
+            }
 
-          const phase: "streaming" | "ready" | "failed" =
-            eventType === "turn.failed"
-              ? "failed"
-              : eventType === "turn.completed"
-                ? "ready"
-                : "streaming";
+            promptParams.onUpdate?.({
+              text: latestText,
+              reasoning: latestReasoning,
+              error: latestError || undefined,
+              turnId: latestTurnId,
+              phase: readModel.phase,
+            });
+          },
+        });
 
+        if (
+          result.turn?.status === "failed" &&
+          !latestError &&
+          Array.isArray(result.turn.events)
+        ) {
+          const failedEvent = result.turn.events.find(
+            (event) => event.type === "turn.failed",
+          );
+          latestError = failedEvent ? normalizeThreadError(failedEvent) : "";
+        }
+
+        return { turn: result.turn };
+      } catch (error) {
+        if (shouldIgnoreThreadError(error)) {
           promptParams.onUpdate?.({
-            text: accumulatedOutput,
-            reasoning: accumulatedReasoning,
-            turnId: currentTurnId,
-            phase,
+            text: latestText,
+            reasoning: latestReasoning,
+            error: undefined,
+            turnId: latestTurnId,
+            phase: "interrupted",
           });
-        },
-      });
-
-      if (!currentTurnId) {
-        return { turn: null };
+        }
+        throw error;
       }
-
-      const turn = await getPublicAPITurn({
-        baseURL: params.baseURL,
-        apiToken: params.apiToken,
-        turnId: currentTurnId,
-        signal: promptParams.signal,
-      });
-
-      previousTurnId = turn.id;
-      return { turn };
     },
     reset() {
-      previousTurnId = "";
+      session.reset();
     },
     getPreviousTurnId() {
-      return previousTurnId;
+      return session.getPreviousTurnId();
     },
   };
 }

@@ -23,6 +23,10 @@ type stubPublicAPIModelRepo struct {
 	enabled map[string]bool
 }
 
+type stubPublicAPIInvocationRepo struct {
+	byResponseID map[string]*model.PublicAPIInvocation
+}
+
 func (s stubPublicAPIModelRepo) FindEnabledByName(
 	_ context.Context,
 	name string,
@@ -31,6 +35,69 @@ func (s stubPublicAPIModelRepo) FindEnabledByName(
 		return nil, nil
 	}
 	return &repository.ModelRecord{Name: name, Enabled: true}, nil
+}
+
+func (s *stubPublicAPIInvocationRepo) Create(
+	_ context.Context,
+	invocation *model.PublicAPIInvocation,
+) error {
+	if s.byResponseID == nil {
+		s.byResponseID = make(map[string]*model.PublicAPIInvocation)
+	}
+	cloned := *invocation
+	s.byResponseID[invocation.ResponseID] = &cloned
+	return nil
+}
+
+func (s *stubPublicAPIInvocationRepo) Finish(
+	_ context.Context,
+	invocation *model.PublicAPIInvocation,
+) error {
+	if s.byResponseID == nil {
+		s.byResponseID = make(map[string]*model.PublicAPIInvocation)
+	}
+	cloned := *invocation
+	s.byResponseID[invocation.ResponseID] = &cloned
+	return nil
+}
+
+func (s *stubPublicAPIInvocationRepo) AttachArtifacts(
+	_ context.Context,
+	_ []model.PublicAPIArtifact,
+) error {
+	return nil
+}
+
+func (s *stubPublicAPIInvocationRepo) GetByResponseID(
+	_ context.Context,
+	responseID string,
+	_ uuid.UUID,
+) (*model.PublicAPIInvocation, error) {
+	if s.byResponseID == nil {
+		return nil, nil
+	}
+	item, ok := s.byResponseID[responseID]
+	if !ok {
+		return nil, nil
+	}
+	cloned := *item
+	return &cloned, nil
+}
+
+func (s *stubPublicAPIInvocationRepo) GetArtifactByFileID(
+	_ context.Context,
+	_ string,
+	_ uuid.UUID,
+) (*model.PublicAPIArtifact, *model.PublicAPIInvocation, error) {
+	return nil, nil, nil
+}
+
+func (s *stubPublicAPIInvocationRepo) ListByUser(
+	_ context.Context,
+	_ uuid.UUID,
+	_ model.PublicAPIInvocationFilter,
+) ([]model.PublicAPIInvocation, error) {
+	return nil, nil
 }
 
 func TestFetchThreadStatePassesRuntimeHeaders(t *testing.T) {
@@ -177,6 +244,64 @@ func TestRunAgentTurnReturnsEmbeddedLangGraphError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "APIConnectionError: Connection error.") {
 		t.Fatalf("expected embedded error details, got %v", err)
+	}
+}
+
+func TestFinishInvocationWithErrorStoresFailedTurnSnapshotForTurnsSurface(t *testing.T) {
+	t.Parallel()
+
+	invocationRepo := &stubPublicAPIInvocationRepo{}
+	svc := &PublicAPIService{invocationRepo: invocationRepo}
+	invocation := &model.PublicAPIInvocation{
+		ID:           uuid.New(),
+		ResponseID:   "turn_failed",
+		Surface:      "turns",
+		AgentName:    "demo-agent",
+		ThreadID:     "thread-1",
+		RequestModel: "demo-agent",
+		Status:       "in_progress",
+		CreatedAt:    time.Unix(42, 0).UTC(),
+	}
+
+	cause := wrapPublicAPITurnFailure(&PublicAPIError{
+		StatusCode: http.StatusBadGateway,
+		Code:       "runtime_error",
+		Message:    "state lookup exploded",
+	}, publicAPITurnFailureContext{
+		Stage:          model.TurnFailureStageStateFetch,
+		PreviousTurnID: "turn_prev",
+		Metadata:       map[string]any{"source": "test"},
+	})
+
+	err := svc.finishInvocationWithError(context.Background(), invocation, cause, nil)
+	if err == nil {
+		t.Fatal("expected finishInvocationWithError to return a public error")
+	}
+
+	var snapshot model.TurnSnapshot
+	if unmarshalErr := json.Unmarshal(invocation.ResponseJSON, &snapshot); unmarshalErr != nil {
+		t.Fatalf("unmarshal failed turn snapshot: %v", unmarshalErr)
+	}
+	if snapshot.Object != "turn" || snapshot.Status != "failed" {
+		t.Fatalf("unexpected turn snapshot %#v", snapshot)
+	}
+	if snapshot.PreviousTurnID != "turn_prev" {
+		t.Fatalf("expected previous turn id to be preserved, got %#v", snapshot.PreviousTurnID)
+	}
+	if len(snapshot.Events) != 1 {
+		t.Fatalf("expected 1 terminal event, got %#v", snapshot.Events)
+	}
+	if snapshot.Events[0].Type != model.TurnEventTurnFailed {
+		t.Fatalf("expected terminal failed event, got %#v", snapshot.Events[0])
+	}
+	if snapshot.Events[0].Stage != model.TurnFailureStageStateFetch {
+		t.Fatalf("expected state_fetch stage, got %#v", snapshot.Events[0].Stage)
+	}
+	if snapshot.Events[0].Retryable == nil || !*snapshot.Events[0].Retryable {
+		t.Fatalf("expected retryable=true, got %#v", snapshot.Events[0].Retryable)
+	}
+	if snapshot.Events[0].Code != "runtime_error" {
+		t.Fatalf("expected runtime_error code, got %#v", snapshot.Events[0].Code)
 	}
 }
 

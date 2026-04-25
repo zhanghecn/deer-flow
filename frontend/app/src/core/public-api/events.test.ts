@@ -98,6 +98,59 @@ describe("normalizePublicAPIStreamEvent", () => {
     expect(normalized).toHaveLength(1);
     expect(normalized[0]).toMatchObject({
       kind: "turn_failed",
+      detail: "boom",
+    });
+  });
+
+  it("normalizes structured turn.failed payloads into one readable detail string", () => {
+    const normalized = normalizePublicAPIStreamEvent({
+      event: "turn.failed",
+      data: {
+        sequence: 4,
+        created_at: 4,
+        type: "turn.failed",
+        status: "failed",
+        stage: "state_fetch",
+        retryable: true,
+        code: "runtime_error",
+        error: "langgraph state fetch failed: status 500: boom",
+      },
+    });
+
+    expect(normalized).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "turn_failed",
+          detail: "langgraph state fetch failed: status 500: boom",
+        }),
+      ]),
+    );
+    expect(normalized).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "ledger_event",
+          event: expect.objectContaining({
+            stage: "state_fetch",
+            retryable: true,
+            code: "runtime_error",
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("prefers embedded error details from generic SSE error payloads", () => {
+    const normalized = normalizePublicAPIStreamEvent({
+      event: "error",
+      data: {
+        error: "runtime_error",
+        details: "stream closed before terminal event",
+      },
+    });
+
+    expect(normalized[0]).toMatchObject({
+      kind: "turn_failed",
+      detail: "stream closed before terminal event",
     });
   });
 });

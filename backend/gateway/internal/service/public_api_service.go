@@ -639,10 +639,20 @@ func (s *PublicAPIService) prepareRun(
 	}
 
 	if err := s.fs.EnsureThreadDirs(threadID); err != nil {
-		return nil, s.finishInvocationWithError(ctx, invocation, err, nil)
+		return nil, s.finishInvocationWithError(ctx, invocation, wrapPublicAPITurnFailure(err, publicAPITurnFailureContext{
+			TurnID:         responseID,
+			Stage:          model.TurnFailureStagePrepareRun,
+			PreviousTurnID: previousResponseID,
+			Metadata:       metadata,
+		}), nil)
 	}
 	if err := s.ensureLangGraphThread(ctx, auth.UserID, threadID); err != nil {
-		return nil, s.finishInvocationWithError(ctx, invocation, err, nil)
+		return nil, s.finishInvocationWithError(ctx, invocation, wrapPublicAPITurnFailure(err, publicAPITurnFailureContext{
+			TurnID:         responseID,
+			Stage:          model.TurnFailureStagePrepareRun,
+			PreviousTurnID: previousResponseID,
+			Metadata:       metadata,
+		}), nil)
 	}
 
 	runtimeUploads, err := s.stageInputFilesForThread(
@@ -652,7 +662,12 @@ func (s *PublicAPIService) prepareRun(
 		normalizedInput.FileIDs,
 	)
 	if err != nil {
-		return nil, s.finishInvocationWithError(ctx, invocation, err, nil)
+		return nil, s.finishInvocationWithError(ctx, invocation, wrapPublicAPITurnFailure(err, publicAPITurnFailureContext{
+			TurnID:         responseID,
+			Stage:          model.TurnFailureStagePrepareRun,
+			PreviousTurnID: previousResponseID,
+			Metadata:       metadata,
+		}), nil)
 	}
 
 	return &publicAPIRunPlan{
@@ -1829,11 +1844,27 @@ func (s *PublicAPIService) finishInvocationWithError(
 	invocation.Error = &message
 	finishedAt := time.Now().UTC()
 	invocation.FinishedAt = &finishedAt
-	invocation.ResponseJSON = buildFailedResponseEnvelope(invocation, message, runEvents)
+	if invocation != nil && invocation.Surface == "turns" {
+		invocation.ResponseJSON = buildFailedTurnSnapshotEnvelope(invocation, message, cause)
+	} else {
+		invocation.ResponseJSON = buildFailedResponseEnvelope(invocation, message, runEvents)
+	}
 	if err := s.invocationRepo.Finish(ctx, invocation); err != nil {
 		return err
 	}
-	if publicErr, ok := cause.(*PublicAPIError); ok {
+	if context, ok := extractPublicAPITurnFailureContext(cause); ok {
+		var publicErr *PublicAPIError
+		if errors.As(cause, &publicErr) && publicErr != nil {
+			return wrapPublicAPITurnFailure(publicErr, context)
+		}
+		return wrapPublicAPITurnFailure(&PublicAPIError{
+			StatusCode: http.StatusBadGateway,
+			Code:       "runtime_error",
+			Message:    message,
+		}, context)
+	}
+	var publicErr *PublicAPIError
+	if errors.As(cause, &publicErr) && publicErr != nil {
 		return publicErr
 	}
 	return &PublicAPIError{

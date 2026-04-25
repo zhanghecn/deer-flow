@@ -30,7 +30,7 @@ describe("thread mode helpers", () => {
       thinking_enabled: true,
       is_plan_mode: false,
       subagent_enabled: DEFAULT_SUBAGENT_ENABLED,
-      effort: "high",
+      effort: undefined,
     });
   });
 
@@ -44,7 +44,7 @@ describe("thread mode helpers", () => {
       thinking_enabled: true,
       is_plan_mode: false,
       subagent_enabled: true,
-      effort: "high",
+      effort: undefined,
     });
   });
 });
