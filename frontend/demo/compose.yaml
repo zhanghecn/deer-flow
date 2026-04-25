@@ -26,9 +26,11 @@ services:
       context: ../..
       dockerfile: frontend/demo/Dockerfile
     env_file:
-      # Use the checked-in defaults for clean clones. Local runtime setup can
-      # still point at an ignored override file through `MCP_WORKBENCH_UI_ENV_FILE`.
-      - ${MCP_WORKBENCH_UI_ENV_FILE:-./.env.defaults}
+      # Defaults keep clean clones bootable; the optional local file lets direct
+      # Docker Compose runs pick up the same chat agent/API settings as demo.sh.
+      - ./.env.defaults
+      - path: ${MCP_WORKBENCH_UI_ENV_FILE:-./.env.local}
+        required: false
     environment:
       VITE_DEMO_WORKBENCH_BASE_URL: http://127.0.0.1:8084
     restart: unless-stopped
@@ -54,4 +56,7 @@ volumes:
 networks:
   openagents:
     external: true
-    name: openagents-prod_openagents
+    # The standalone workbench must join the canonical dev stack network so the
+    # LangGraph container can resolve `http://mcp-file-service:8090` for
+    # agent-scoped MCP profiles while the browser still uses localhost:8084.
+    name: openagents_default
