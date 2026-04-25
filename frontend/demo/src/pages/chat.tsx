@@ -143,27 +143,78 @@ function safeParseJSON(value: string): unknown | null {
   }
 }
 
-function collectPathsFromValue(value: unknown, paths: Set<string>) {
+const DOCUMENT_PATH_KEYS = new Set([
+  "path",
+  "file_path",
+  "filepath",
+  "filename",
+  "document_path",
+  "asset_path",
+]);
+
+const DOCUMENT_PATH_ARRAY_KEYS = new Set([
+  "paths",
+  "files",
+  "filenames",
+  "items",
+  "results",
+  "documents",
+  "assets",
+]);
+
+function looksLikeKnowledgePath(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed || /^https?:\/\//i.test(trimmed)) return false;
+  return (
+    trimmed.includes("/") ||
+    /\.(md|markdown|txt|pdf|docx?|pptx?|xlsx?|csv|json|png|jpe?g|webp|gif)$/i.test(
+      trimmed,
+    )
+  );
+}
+
+function shouldCollectStringPath(parentKey: string | undefined, value: string) {
+  if (!parentKey) return false;
+  return (
+    (DOCUMENT_PATH_KEYS.has(parentKey) ||
+      DOCUMENT_PATH_ARRAY_KEYS.has(parentKey)) &&
+    looksLikeKnowledgePath(value)
+  );
+}
+
+function collectPathsFromValue(
+  value: unknown,
+  paths: Set<string>,
+  parentKey?: string,
+) {
+  if (typeof value === "string") {
+    if (shouldCollectStringPath(parentKey, value)) {
+      paths.add(value.trim());
+    }
+    return;
+  }
+
   if (!value || typeof value !== "object") return;
   if (Array.isArray(value)) {
-    value.forEach((item) => collectPathsFromValue(item, paths));
+    value.forEach((item) => collectPathsFromValue(item, paths, parentKey));
     return;
   }
 
   const record = value as Record<string, unknown>;
-  if (typeof record.path === "string" && record.path.trim()) {
-    paths.add(record.path.trim());
-  }
-
-  // Tool outputs may nest file paths inside content blocks or asset metadata.
-  // Extracting paths internally keeps the UI useful without exposing raw JSON.
-  Object.values(record).forEach((item) => collectPathsFromValue(item, paths));
+  // Tool outputs may nest file paths inside search results, content blocks, or
+  // asset metadata. We extract only path-shaped fields so the customer-facing
+  // trace stays useful without leaking raw tool JSON.
+  Object.entries(record).forEach(([key, item]) =>
+    collectPathsFromValue(item, paths, key),
+  );
 }
 
 function getReadFilePaths(tool: ToolCallStep): string[] {
   if (
     tool.name !== "document_read" &&
-    tool.name !== "document_fetch_asset"
+    tool.name !== "document_fetch_asset" &&
+    tool.name !== "document_search" &&
+    tool.name !== "document_list"
   ) {
     return [];
   }
@@ -178,23 +229,61 @@ function getReadFilePaths(tool: ToolCallStep): string[] {
   return Array.from(paths);
 }
 
+function getToolActivityTitle(tool: ToolCallStep, fileCount: number) {
+  if (tool.status === "running") {
+    if (tool.name === "document_read" || tool.name === "document_fetch_asset") {
+      return "正在读取知识库文件";
+    }
+    if (tool.name === "document_list") {
+      return "正在列出知识库文件";
+    }
+    return "正在检索知识库";
+  }
+
+  if (tool.status === "error") {
+    return "知识库工具调用失败";
+  }
+
+  if (tool.name === "document_read" || tool.name === "document_fetch_asset") {
+    return fileCount > 0
+      ? `已读取 ${fileCount} 个知识库文件`
+      : "已读取知识库文件";
+  }
+
+  if (tool.name === "document_list") {
+    return fileCount > 0
+      ? `已列出 ${fileCount} 个知识库文件`
+      : "已列出知识库文件";
+  }
+
+  return fileCount > 0
+    ? `检索到 ${fileCount} 个知识库文件`
+    : "未检索到知识库文件";
+}
+
 function ToolActivityCard({ tools }: { tools: ToolCallStep[] }) {
-  const readFiles = Array.from(
-    new Set(tools.flatMap((tool) => getReadFilePaths(tool))),
-  );
+  const activityItems = tools
+    .map((tool) => {
+      const paths = getReadFilePaths(tool);
+      return {
+        id: tool.id,
+        status: tool.status,
+        title: getToolActivityTitle(tool, paths.length),
+        paths,
+      };
+    })
+    .filter((item) => item.paths.length > 0 || item.status === "running");
   const hasRunningTool = tools.some((tool) => tool.status === "running");
   const hasToolError = tools.some((tool) => tool.status === "error");
 
-  if (readFiles.length === 0 && !hasRunningTool) return null;
+  if (activityItems.length === 0) return null;
 
   return (
     <div className="mb-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-left">
       <div className="flex items-center gap-2 text-xs text-slate-600">
         <FileText className="size-3.5 shrink-0 text-slate-400" />
         <span className="font-medium">
-          {readFiles.length > 0
-            ? `已读取 ${readFiles.length} 个知识库文件`
-            : "正在检索知识库"}
+          知识库工具调用 {activityItems.length} 次
         </span>
         {hasRunningTool ? (
           <Loader2 className="ml-auto size-3.5 shrink-0 animate-spin text-emerald-500" />
@@ -204,19 +293,37 @@ function ToolActivityCard({ tools }: { tools: ToolCallStep[] }) {
           <Check className="ml-auto size-3.5 shrink-0 text-emerald-500" />
         )}
       </div>
-      {readFiles.length > 0 && (
-        <ul className="mt-2 space-y-1">
-          {readFiles.map((path) => (
-            <li
-              key={path}
-              className="truncate rounded border border-slate-200 bg-white px-2 py-1 font-mono text-[11px] text-slate-600"
-              title={path}
-            >
-              {path}
-            </li>
-          ))}
-        </ul>
-      )}
+      <div className="mt-2 max-h-72 space-y-2 overflow-y-auto pr-1">
+        {activityItems.map((item, index) => (
+          <div key={item.id} className="rounded border border-slate-200 bg-white px-2 py-1.5">
+            <div className="flex items-center gap-2 text-[11px] font-medium text-slate-600">
+              <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-500">
+                #{index + 1}
+              </span>
+              <span>{item.title}</span>
+              {item.status === "running" && (
+                <Loader2 className="ml-auto size-3 animate-spin text-emerald-500" />
+              )}
+              {item.status === "error" && (
+                <X className="ml-auto size-3 text-rose-500" />
+              )}
+            </div>
+            {item.paths.length > 0 && (
+              <ul className="mt-1.5 space-y-1">
+                {item.paths.map((path) => (
+                  <li
+                    key={path}
+                    className="truncate rounded border border-slate-100 bg-slate-50 px-2 py-1 font-mono text-[11px] text-slate-600"
+                    title={path}
+                  >
+                    {path}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
