@@ -151,6 +151,8 @@ def _resolve_search_provider_order() -> list[str]:
 
 
 def _resolve_search_secret(config_field: str, env_vars: tuple[str, ...]) -> str | None:
+    # Tool config wins over environment so deployments can override process
+    # secrets explicitly without changing the provider resolution code.
     configured = _tool_extra("web_search", config_field)
     if configured is not None:
         value = str(configured).strip()
@@ -174,6 +176,12 @@ def _resolve_tavily_api_key() -> str | None:
 
 def _resolve_brave_api_key() -> str | None:
     return _resolve_search_secret("brave_api_key", BRAVE_API_KEY_ENV_VARS)
+
+
+def _resolve_search_result_count(num_results: int | None) -> int:
+    if num_results is not None:
+        return int(num_results)
+    return int(_tool_extra("web_search", "num_results", DEFAULT_EXA_NUM_RESULTS))
 
 
 def _parse_exa_result_text(response_text: str) -> str | None:
@@ -330,24 +338,26 @@ def _extract_tavily_hits(payload: dict[str, Any]) -> list[SearchHit]:
     return hits
 
 
+def _build_tavily_payload(query: str, *, num_results: int | None) -> dict[str, object]:
+    return {
+        "query": query,
+        "search_depth": str(_tool_extra("web_search", "tavily_search_depth", "basic")),
+        "topic": str(_tool_extra("web_search", "tavily_topic", "general")),
+        "max_results": _resolve_search_result_count(num_results),
+        "include_answer": bool(_tool_extra("web_search", "tavily_include_answer", False)),
+        "include_raw_content": False,
+    }
+
+
 def _search_with_tavily(query: str, *, num_results: int | None) -> SearchProviderResult:
     api_key = _resolve_tavily_api_key()
     if not api_key:
         raise SearchProviderError("tavily", "unconfigured", "Tavily API key is not configured")
 
-    payload = {
-        "query": query,
-        "search_depth": str(_tool_extra("web_search", "tavily_search_depth", "basic")),
-        "topic": str(_tool_extra("web_search", "tavily_topic", "general")),
-        "max_results": int(num_results) if num_results is not None else int(_tool_extra("web_search", "num_results", DEFAULT_EXA_NUM_RESULTS)),
-        "include_answer": bool(_tool_extra("web_search", "tavily_include_answer", False)),
-        "include_raw_content": False,
-    }
-
     try:
         response = httpx.post(
             TAVILY_SEARCH_URL,
-            json=payload,
+            json=_build_tavily_payload(query, num_results=num_results),
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
@@ -400,7 +410,7 @@ def _search_with_exa(
             "name": "web_search_exa",
             "arguments": {
                 "query": query,
-                "numResults": int(num_results) if num_results is not None else int(_tool_extra("web_search", "num_results", DEFAULT_EXA_NUM_RESULTS)),
+                "numResults": _resolve_search_result_count(num_results),
                 "livecrawl": livecrawl or str(_tool_extra("web_search", "livecrawl", "fallback")),
                 "type": search_type or str(_tool_extra("web_search", "search_type", "auto")),
             },
@@ -629,6 +639,38 @@ def _search_with_duckduckgo(query: str) -> SearchProviderResult:
     return SearchProviderResult(provider="duckduckgo", hits=hits)
 
 
+def _search_with_provider(
+    provider: str,
+    query: str,
+    *,
+    num_results: int | None,
+    livecrawl: str | None,
+    search_type: str | None,
+    context_max_characters: int | None,
+) -> SearchProviderResult:
+    if provider == "tavily":
+        return _search_with_tavily(query, num_results=num_results)
+    if provider == "exa":
+        return _search_with_exa(
+            query,
+            num_results=num_results,
+            livecrawl=livecrawl,
+            search_type=search_type,
+            context_max_characters=context_max_characters,
+        )
+    if provider == "brave":
+        return _search_with_brave(query)
+    if provider == "bing":
+        return _search_with_bing(query)
+    if provider == "duckduckgo":
+        return _search_with_duckduckgo(query)
+    raise SearchProviderError(provider, "unsupported_provider", f"Unsupported web_search provider: {provider}")
+
+
+def _format_failure_trail(failures: list[SearchProviderFailure], *, separator: str) -> str:
+    return separator.join(f"{failure.provider}({failure.reason})" for failure in failures)
+
+
 def _run_web_search(
     query: str,
     *,
@@ -644,26 +686,18 @@ def _run_web_search(
     except ValueError as exc:
         return None, failures, f"Error: {exc}"
 
-    # Keep fallback decisions explicit and logged so traces can explain why a
-    # later backend won instead of silently hiding upstream provider issues.
+    # Provider failures are intentionally soft so quota/auth issues in an
+    # earlier backend do not prevent the configured free fallbacks from running.
     for provider in providers:
         try:
-            if provider == "tavily":
-                result = _search_with_tavily(query, num_results=num_results)
-            elif provider == "exa":
-                result = _search_with_exa(
-                    query,
-                    num_results=num_results,
-                    livecrawl=livecrawl,
-                    search_type=search_type,
-                    context_max_characters=context_max_characters,
-                )
-            elif provider == "brave":
-                result = _search_with_brave(query)
-            elif provider == "bing":
-                result = _search_with_bing(query)
-            else:
-                result = _search_with_duckduckgo(query)
+            result = _search_with_provider(
+                provider,
+                query,
+                num_results=num_results,
+                livecrawl=livecrawl,
+                search_type=search_type,
+                context_max_characters=context_max_characters,
+            )
         except SearchProviderError as exc:
             failures.append(SearchProviderFailure(provider=exc.provider, reason=exc.reason, detail=exc.detail))
             log_method = logger.info if exc.reason in {"empty_results", "unconfigured"} else logger.warning
@@ -683,13 +717,13 @@ def _run_web_search(
             len(result.hits),
             bool(result.raw_text),
             bool(failures),
-            ",".join(f"{failure.provider}:{failure.reason}" for failure in failures) or "none",
+            _format_failure_trail(failures, separator=",") or "none",
         )
         return result, failures, None
 
     if failures:
         last_failure = failures[-1]
-        provider_chain = ", ".join(f"{failure.provider}({failure.reason})" for failure in failures)
+        provider_chain = _format_failure_trail(failures, separator=", ")
         return None, failures, f"Error: web_search failed after trying {provider_chain}. Last failure: {last_failure.detail}"
 
     return None, failures, "Error: web_search failed before any provider executed"
@@ -698,7 +732,7 @@ def _run_web_search(
 def _format_search_results(result: SearchProviderResult, failures: list[SearchProviderFailure]) -> str:
     lines = [f"Search provider: {result.provider}"]
     if failures:
-        lines.append("Fallback trail: " + " -> ".join(f"{failure.provider}({failure.reason})" for failure in failures))
+        lines.append("Fallback trail: " + _format_failure_trail(failures, separator=" -> "))
     lines.append("")
 
     if result.hits:
