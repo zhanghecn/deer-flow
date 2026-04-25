@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+import json
 from pathlib import Path
 
 from docx import Document as WordDocument
@@ -146,6 +147,12 @@ class FileMcpServiceTest(unittest.TestCase):
         target = self.root / relative_path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(build_pdf_bytes(pages))
+        return target
+
+    def _write_text(self, relative_path: str, content: str) -> Path:
+        target = self.root / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
         return target
 
     def _write_pptx(self, relative_path: str) -> Path:
@@ -409,6 +416,8 @@ class FileMcpServiceTest(unittest.TestCase):
         self.assertEqual(match["evidence_type"], "text")
         self.assertEqual(match["match_text"], "Deductible")
         self.assertEqual(match["next_action_hint"], "read_more")
+        self.assertEqual(match["read_args"]["locator"], 1)
+        self.assertEqual(match["read_args"]["path"], "nested/contracts/policy-alpha.pdf")
 
     def test_document_search_does_not_decompose_natural_language_questions(self) -> None:
         self._write_pdf(
@@ -466,6 +475,41 @@ class FileMcpServiceTest(unittest.TestCase):
         self.assertEqual(payload["appliedOffset"], 1)
         self.assertIn("nested/contracts/policy-alpha.pdf:page:3:1", payload["content"])
         self.assertEqual(payload["results"][0]["match_text"], "Coinsurance")
+        self.assertNotIn("context_lines", payload["results"][0])
+
+    def test_document_search_content_output_is_context_safe(self) -> None:
+        self._write_text(
+            "cases/large.md",
+            "\n".join(
+                [
+                    f"prefix {index} 甲辰 " + ("detail " * 80)
+                    for index in range(80)
+                ]
+            ),
+        )
+
+        payload = self.service.document_search_payload(
+            pattern="甲辰",
+            path="cases/large.md",
+            output_mode="content",
+            context=15,
+            limit=50,
+        )
+
+        self.assertEqual(payload["mode"], "content")
+        self.assertNotIn("context_truncated", payload)
+        self.assertEqual(payload["applied_context_before"], 15)
+        self.assertEqual(payload["applied_context_after"], 15)
+        self.assertLessEqual(len(payload["items"]), 20)
+        self.assertGreater(len(payload["items"]), 0)
+        self.assertGreater(payload["numLines"], 0)
+        self.assertIn("read_args", payload["items"][0])
+        self.assertTrue(payload["has_more"])
+        self.assertNotIn("context_lines", payload["items"][0])
+        self.assertLessEqual(
+            len(json.dumps(payload, ensure_ascii=False).encode("utf-8")),
+            8_000,
+        )
 
     def test_document_search_count_mode_returns_file_counts(self) -> None:
         self._write_pdf(
@@ -511,6 +555,72 @@ class FileMcpServiceTest(unittest.TestCase):
         self.assertTrue((cache_dir / "manifest.json").exists())
         self.assertTrue((cache_dir / "canonical.md").exists())
         self.assertIn("Deductible is 500 USD", (cache_dir / "canonical.md").read_text(encoding="utf-8"))
+
+    def test_document_read_caps_large_text_windows(self) -> None:
+        self._write_text(
+            "cases/long.md",
+            "\n".join(
+                [
+                    f"case {index} 甲辰 " + ("detail " * 500)
+                    for index in range(80)
+                ]
+            ),
+        )
+
+        payload = self.service.document_read_payload(
+            path="cases/long.md",
+            cursor=0,
+            limit=50,
+        )
+
+        self.assertEqual(payload["requested_limit"], 50)
+        self.assertEqual(payload["limit"], 12)
+        self.assertTrue(payload["limit_truncated"])
+        self.assertTrue(payload["content_truncated"])
+        self.assertTrue(payload["has_more"])
+        self.assertLessEqual(payload["returned_units"], 12)
+        self.assertTrue(payload["content_blocks"][0]["truncated"])
+        self.assertLessEqual(
+            len(json.dumps(payload, ensure_ascii=False).encode("utf-8")),
+            12_000,
+        )
+
+    def test_document_read_uses_search_locator_without_cursor_guessing(self) -> None:
+        self._write_text(
+            "cases/sections.md",
+            "\n".join(
+                [
+                    "案例一 header",
+                    "普通内容",
+                    "案例二 header",
+                    "八字 甲辰 甲戌 戊子 甲寅",
+                    "真实事件 detail",
+                    "命理分析 detail",
+                    "结尾",
+                ]
+            ),
+        )
+
+        search_payload = self.service.document_search_payload(
+            pattern="甲辰 甲戌",
+            path="cases/sections.md",
+            output_mode="content",
+            head_limit=1,
+        )
+        read_args = search_payload["results"][0]["read_args"]
+        read_payload = self.service.document_read_payload(
+            **read_args,
+        )
+
+        self.assertTrue(read_payload["locator_window"])
+        self.assertEqual(read_payload["locator"], "4")
+        self.assertEqual(read_payload["matched_cursor"], 3)
+        rendered = "\n".join(
+            block.get("text", "") for block in read_payload["content_blocks"]
+        )
+        self.assertIn("案例二 header", rendered)
+        self.assertIn("八字 甲辰 甲戌 戊子 甲寅", rendered)
+        self.assertIn("命理分析 detail", rendered)
 
     def test_document_search_ocr_hits_scanned_pdf(self) -> None:
         if not self.service.document_tools.ocr_available:
@@ -618,6 +728,19 @@ class FileMcpServiceTest(unittest.TestCase):
         self.assertTrue(payload["inlined"])
         self.assertEqual(payload["asset_kind"], "image")
         self.assertIn("content_base64", payload)
+
+    def test_document_fetch_asset_returns_structured_error_for_missing_ref(self) -> None:
+        self._write_pdf("nested/contracts/policy-alpha.pdf", ["No images here"])
+
+        payload = self.service.document_fetch_asset_payload(
+            path="nested/contracts/policy-alpha.pdf",
+            asset_ref="test",
+        )
+
+        self.assertEqual(payload["status"], "not_found")
+        self.assertEqual(payload["asset_ref"], "test")
+        self.assertFalse(payload["retryable"])
+        self.assertIn("does not exist", payload["error"])
 
     def test_document_search_reads_xlsx_table_and_chart_evidence(self) -> None:
         self._write_xlsx("nested/sheets/revenue-tracker.xlsx")

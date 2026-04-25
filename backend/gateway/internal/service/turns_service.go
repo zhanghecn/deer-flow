@@ -23,7 +23,9 @@ type turnCollector struct {
 	replayedToolCallIDs  map[string]struct{}
 	startedToolCallKeys  map[string]struct{}
 	startedAssistantIDs  map[string]struct{}
+	lastTextByMsgID      map[string]string
 	lastReasoningByMsgID map[string]string
+	emittedReasoningText string
 }
 
 type turnReplayBoundary struct {
@@ -41,6 +43,7 @@ func newTurnCollector(turnID string) *turnCollector {
 		replayedToolCallIDs:  make(map[string]struct{}),
 		startedToolCallKeys:  make(map[string]struct{}),
 		startedAssistantIDs:  make(map[string]struct{}),
+		lastTextByMsgID:      make(map[string]string),
 		lastReasoningByMsgID: make(map[string]string),
 	}
 }
@@ -171,7 +174,7 @@ func (c *turnCollector) consumeAssistantRecord(record map[string]any) []model.Tu
 		}))
 	}
 
-	if textDelta := extractMessageChunkTextDelta(record["content"]); strings.TrimSpace(textDelta) != "" {
+	if textDelta := c.extractTextDelta(messageID, record["content"]); strings.TrimSpace(textDelta) != "" {
 		events = append(events, c.push(model.TurnEvent{
 			Type:      model.TurnEventAssistantTextDelta,
 			MessageID: messageID,
@@ -235,6 +238,35 @@ func (c *turnCollector) consumeAssistantRecord(record map[string]any) []model.Tu
 	return events
 }
 
+func (c *turnCollector) extractTextDelta(messageID string, content any) string {
+	current := extractMessageChunkTextDelta(content)
+	if strings.TrimSpace(current) == "" {
+		return ""
+	}
+	previous := c.lastTextByMsgID[messageID]
+	switch {
+	case previous == "":
+		c.lastTextByMsgID[messageID] = current
+		return current
+	case current == previous:
+		return ""
+	case strings.HasPrefix(current, previous):
+		delta := current[len(previous):]
+		c.lastTextByMsgID[messageID] = current
+		return delta
+	case strings.HasPrefix(previous, current):
+		// LangGraph can replay an earlier prefix for the same assistant message
+		// after tool updates. Dropping it preserves a monotonic public stream.
+		return ""
+	default:
+		// Providers can switch between token deltas and cumulative chunks for
+		// the same LangGraph message. Treat non-prefix text as the next delta so
+		// a later cumulative replay of the full message can still be suppressed.
+		c.lastTextByMsgID[messageID] = previous + current
+		return current
+	}
+}
+
 func (c *turnCollector) consumeToolRecord(record map[string]any) []model.TurnEvent {
 	toolName := strings.TrimSpace(fmt.Sprint(record["name"]))
 	if toolName == "" {
@@ -280,19 +312,37 @@ func (c *turnCollector) extractReasoningDelta(messageID string, content any) str
 	switch {
 	case previous == "":
 		c.lastReasoningByMsgID[messageID] = current
-		return current
+		return c.filterReasoningDelta(current)
 	case current == previous:
 		return ""
 	case strings.HasPrefix(current, previous):
 		delta := current[len(previous):]
 		c.lastReasoningByMsgID[messageID] = current
-		return delta
+		return c.filterReasoningDelta(delta)
 	case strings.HasPrefix(previous, current):
 		return ""
 	default:
-		c.lastReasoningByMsgID[messageID] = current
-		return current
+		// Reasoning chunks follow the same mixed delta/cumulative behavior as
+		// text chunks on some upstream model adapters.
+		c.lastReasoningByMsgID[messageID] = previous + current
+		return c.filterReasoningDelta(current)
 	}
+}
+
+func (c *turnCollector) filterReasoningDelta(delta string) string {
+	trimmed := strings.TrimSpace(delta)
+	if trimmed == "" {
+		return ""
+	}
+	// Some upstream adapters replay a whole reasoning sentence under a new
+	// LangGraph message id after a tool call. Keep token-sized deltas intact,
+	// but suppress large repeated blocks so the public trace stays interleaved
+	// and readable instead of showing the same thought paragraph several times.
+	if len([]rune(trimmed)) >= 24 && strings.Contains(c.emittedReasoningText, trimmed) {
+		return ""
+	}
+	c.emittedReasoningText += delta
+	return delta
 }
 
 func extractReasoningFromContentBlocks(content any) string {

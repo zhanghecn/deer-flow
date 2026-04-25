@@ -59,6 +59,16 @@ NextActionHint = Literal[
 INLINE_ASSET_LIMIT_BYTES = 200_000
 CACHE_SCHEMA_VERSION = 2
 DEFAULT_DOCUMENT_SEARCH_HEAD_LIMIT = 250
+DOCUMENT_SEARCH_CONTENT_MAX_CONTEXT = 30
+DOCUMENT_SEARCH_CONTENT_MAX_MATCHES = 12
+DOCUMENT_SEARCH_CONTENT_MAX_BYTES = 8_000
+DOCUMENT_READ_MAX_UNITS = 12
+DOCUMENT_READ_LOCATOR_MAX_UNITS = 24
+DOCUMENT_READ_LOCATOR_DEFAULT_BEFORE = 6
+DOCUMENT_READ_LOCATOR_DEFAULT_AFTER = 16
+DOCUMENT_READ_TEXT_MAX_BYTES = 700
+DOCUMENT_READ_TABLE_MAX_ROWS = 24
+DOCUMENT_READ_MAX_BYTES = 12_000
 DEFAULT_OCR_LANGUAGES = ("eng", "chi_sim")
 PDF_OCR_SCALE = 2.5
 IMAGE_EXTENSIONS = {
@@ -291,6 +301,128 @@ def _build_snippet(*, text: str, match_index: int, window: int = 90) -> str:
     return _collapse_whitespace(text[start:end])
 
 
+def _compact_content_match(item: dict[str, Any]) -> dict[str, Any]:
+    """Keep content-mode metadata locator-sized instead of duplicating snippets.
+
+    The human/model-readable grep body already lives in the `content` field.
+    Repeating all context lines inside `items/results` can turn a handful of
+    broad searches into hundreds of kilobytes of tool output and exhaust the
+    next model call's context window.
+    """
+
+    read_args = {
+        "path": item["path"],
+        "locator": item["locator"],
+        "before": DOCUMENT_READ_LOCATOR_DEFAULT_BEFORE,
+        "after": DOCUMENT_READ_LOCATOR_DEFAULT_AFTER,
+    }
+    return {
+        "path": item["path"],
+        "document_kind": item["document_kind"],
+        "locator": item["locator"],
+        "locator_type": item["locator_type"],
+        "line_number": item["line_number"],
+        "match_text": item["match_text"],
+        "snippet": item["snippet"],
+        "evidence_type": item["evidence_type"],
+        "contains_visual": item["contains_visual"],
+        "next_action_hint": item["next_action_hint"],
+        "read_args": read_args,
+    }
+
+
+def _content_match_lines(
+    item: dict[str, Any],
+    *,
+    show_line_numbers: bool,
+) -> tuple[list[str], bool]:
+    """Render one grep match into bounded source lines plus truncation state."""
+
+    lines: list[str] = []
+    truncated = False
+    context_lines = item.get("context_lines") or [
+        {
+            "line_number": item["line_number"],
+            "line": item["line"],
+            "is_match": True,
+        }
+    ]
+    for context_item in context_lines:
+        locator = item["locator"]
+        line_number = context_item["line_number"]
+        prefix = f"{item['path']}:{item['locator_type']}:{locator}"
+        if show_line_numbers:
+            prefix = f"{prefix}:{line_number}"
+        # Context lines can contain long source URL fields. Keep grep output
+        # source-faithful but bounded so one noisy line does not evict every
+        # useful neighboring line.
+        line_text, line_truncated = _truncate_utf8_text(
+            str(context_item["line"]),
+            max_bytes=DOCUMENT_READ_TEXT_MAX_BYTES,
+        )
+        truncated = truncated or line_truncated
+        lines.append(f"{prefix}:{line_text}")
+    return lines, truncated
+
+
+def _content_payload_size(payload: dict[str, Any]) -> int:
+    """Measure serialized UTF-8 size so tool responses stay model-safe."""
+
+    return len(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+
+
+def _truncate_utf8_text(value: str, *, max_bytes: int) -> tuple[str, bool]:
+    """Trim text on a UTF-8 boundary so payload caps never corrupt content."""
+
+    encoded = value.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return value, False
+    marker = "\n[truncated]"
+    marker_bytes = marker.encode("utf-8")
+    budget = max(0, max_bytes - len(marker_bytes))
+    trimmed = encoded[:budget].decode("utf-8", errors="ignore").rstrip()
+    return f"{trimmed}{marker}", True
+
+
+def _compact_read_block(block: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Bound one `document_read` block while preserving source locators.
+
+    `document_read` sends raw document text into the next model call. Broad
+    "give me all details" requests can otherwise combine many reads into a
+    provider-side context or safety failure. The block remains source-faithful
+    and advertises truncation so callers can page or narrow explicitly.
+    """
+
+    compact = dict(block)
+    truncated = False
+
+    text = compact.get("text")
+    if isinstance(text, str):
+        compact["text"], text_truncated = _truncate_utf8_text(
+            text,
+            max_bytes=DOCUMENT_READ_TEXT_MAX_BYTES,
+        )
+        truncated = truncated or text_truncated
+
+    rows = compact.get("rows")
+    if isinstance(rows, list) and len(rows) > DOCUMENT_READ_TABLE_MAX_ROWS:
+        compact["rows"] = rows[:DOCUMENT_READ_TABLE_MAX_ROWS]
+        compact["rows_truncated"] = True
+        truncated = True
+
+    summary = compact.get("summary")
+    if isinstance(summary, str):
+        compact["summary"], summary_truncated = _truncate_utf8_text(
+            summary,
+            max_bytes=DOCUMENT_READ_TEXT_MAX_BYTES,
+        )
+        truncated = truncated or summary_truncated
+
+    if truncated:
+        compact["truncated"] = True
+    return compact, truncated
+
+
 def _next_action_hint(
     *,
     unit_index: int,
@@ -303,6 +435,26 @@ def _next_action_hint(
     if unit_index + 1 < total_units:
         return "read_more"
     return "read_current"
+
+
+def _find_unit_index_by_locator(
+    units: list[DocumentUnit],
+    locator: str | int,
+) -> int | None:
+    """Resolve a source locator to the corresponding parsed unit index.
+
+    Search results expose locators such as text line numbers, PDF pages, and
+    slide numbers. Agents can pass that locator back directly instead of
+    guessing the zero-based pagination cursor used by broad reads.
+    """
+
+    locator_text = str(locator).strip()
+    if not locator_text:
+        return None
+    for index, unit in enumerate(units):
+        if str(unit.locator) == locator_text:
+            return index
+    return None
 
 
 def _guess_mime_type(name: str) -> str:
@@ -961,8 +1113,17 @@ class DocumentTooling:
             # `cursor`/`limit` are legacy demo arguments. Keep explicit old
             # callers working without weakening the Claude-style head_limit API.
             head_limit = limit
-        before = max(context_before if context_before is not None else context or 0, 0)
-        after = max(context_after if context_after is not None else context or 0, 0)
+        requested_before = max(context_before if context_before is not None else context or 0, 0)
+        requested_after = max(context_after if context_after is not None else context or 0, 0)
+        if resolved_mode == "content":
+            # Content mode feeds directly back into the next model turn. Cap
+            # context like Claude-style grep output so a broad "give me all"
+            # request paginates instead of exhausting the model window.
+            before = min(requested_before, DOCUMENT_SEARCH_CONTENT_MAX_CONTEXT)
+            after = min(requested_after, DOCUMENT_SEARCH_CONTENT_MAX_CONTEXT)
+        else:
+            before = requested_before
+            after = requested_after
 
         matches: list[dict[str, Any]] = []
         skipped_files: list[str] = []
@@ -1093,6 +1254,13 @@ class DocumentTooling:
             "multiline": multiline,
             "skipped_files": skipped_files,
         }
+        if resolved_mode == "content":
+            metadata["requested_context_before"] = requested_before
+            metadata["requested_context_after"] = requested_after
+            metadata["applied_context_before"] = before
+            metadata["applied_context_after"] = after
+            if before != requested_before or after != requested_after:
+                metadata["context_truncated"] = True
         if glob:
             metadata["glob"] = glob
 
@@ -1140,37 +1308,94 @@ class DocumentTooling:
                 "total_matches": len(matches),
             }
         else:
+            if head_limit == 0:
+                content_head_limit = DOCUMENT_SEARCH_CONTENT_MAX_MATCHES
+            elif head_limit is None:
+                content_head_limit = min(
+                    DEFAULT_DOCUMENT_SEARCH_HEAD_LIMIT,
+                    DOCUMENT_SEARCH_CONTENT_MAX_MATCHES,
+                )
+            else:
+                content_head_limit = min(
+                    max(int(head_limit), 1),
+                    DOCUMENT_SEARCH_CONTENT_MAX_MATCHES,
+                )
             window, applied_limit, applied_offset = _apply_head_window(
                 matches,
-                head_limit=head_limit,
+                head_limit=content_head_limit,
                 offset=effective_offset,
             )
-            content_lines: list[str] = []
+            match_line_groups: list[list[str]] = []
+            content_was_truncated = False
             for item in window:
-                context_lines = item.get("context_lines") or [
-                    {
-                        "line_number": item["line_number"],
-                        "line": item["line"],
-                        "is_match": True,
-                    }
-                ]
-                for context_item in context_lines:
-                    locator = item["locator"]
-                    line_number = context_item["line_number"]
-                    prefix = f"{item['path']}:{item['locator_type']}:{locator}"
-                    if show_line_numbers:
-                        prefix = f"{prefix}:{line_number}"
-                    content_lines.append(f"{prefix}:{context_item['line']}")
+                lines, lines_truncated = _content_match_lines(
+                    item,
+                    show_line_numbers=show_line_numbers,
+                )
+                match_line_groups.append(lines)
+                content_was_truncated = content_was_truncated or lines_truncated
+            compact_window = [_compact_content_match(item) for item in window]
+            content_lines = [line for group in match_line_groups for line in group]
             payload = {
                 **metadata,
                 "filenames": sorted({item["path"] for item in matches}),
                 "numFiles": len({item["path"] for item in matches}),
                 "numLines": len(content_lines),
                 "content": "\n".join(content_lines),
-                "items": window,
-                "results": window,
+                "items": compact_window,
+                "results": compact_window,
                 "total": len(matches),
             }
+            while len(compact_window) > 1 and _content_payload_size(payload) > DOCUMENT_SEARCH_CONTENT_MAX_BYTES:
+                compact_window.pop()
+                match_line_groups.pop()
+                content_lines = [line for group in match_line_groups for line in group]
+                payload["content"] = "\n".join(content_lines)
+                payload["numLines"] = len(content_lines)
+                payload["items"] = compact_window
+                payload["results"] = compact_window
+                content_was_truncated = True
+            if compact_window and _content_payload_size(payload) > DOCUMENT_SEARCH_CONTENT_MAX_BYTES:
+                first_item = window[0]
+                line_group, _ = _content_match_lines(
+                    {
+                        **first_item,
+                        "context_lines": [
+                            {
+                                "line_number": first_item["line_number"],
+                                "line": first_item["line"],
+                                "is_match": True,
+                            }
+                        ],
+                    },
+                    show_line_numbers=show_line_numbers,
+                )
+                content_lines = line_group
+                payload["content"] = "\n".join(content_lines)
+                payload["numLines"] = len(content_lines)
+                payload["items"] = compact_window[:1]
+                payload["results"] = compact_window[:1]
+                compact_window = compact_window[:1]
+                content_was_truncated = True
+            if _content_payload_size(payload) > DOCUMENT_SEARCH_CONTENT_MAX_BYTES:
+                payload["content"] = ""
+                payload["numLines"] = 0
+                content_was_truncated = True
+            if content_was_truncated or len(window) < len(matches) or len(content_lines) < sum(
+                len(
+                    item.get("context_lines")
+                    or [
+                        {
+                            "line_number": item["line_number"],
+                            "line": item["line"],
+                            "is_match": True,
+                        }
+                    ]
+                )
+                for item in window
+            ):
+                payload["content_truncated"] = True
+                payload["max_content_bytes"] = DOCUMENT_SEARCH_CONTENT_MAX_BYTES
 
         if applied_limit is not None:
             payload["appliedLimit"] = applied_limit
@@ -1184,11 +1409,53 @@ class DocumentTooling:
         )
         return payload
 
-    def read(self, *, file_path: Path, cursor: int, limit: int) -> dict[str, Any]:
+    def read(
+        self,
+        *,
+        file_path: Path,
+        cursor: int,
+        limit: int,
+        locator: str | int | None = None,
+        before: int | None = None,
+        after: int | None = None,
+    ) -> dict[str, Any]:
         document = self.parse_document(file_path)
         safe_cursor = max(cursor, 0)
-        safe_limit = min(max(limit, 1), 50)
+        requested_limit = max(limit, 1)
         total_units = len(document.units)
+        requested_locator = None if locator is None else str(locator).strip()
+        locator_index: int | None = None
+        locator_window = False
+        requested_before = max(before or 0, 0)
+        requested_after = max(after or 0, 0)
+        applied_before = 0
+        applied_after = 0
+
+        if requested_locator:
+            locator_index = _find_unit_index_by_locator(document.units, requested_locator)
+            if locator_index is None:
+                raise ValueError(
+                    f"locator '{requested_locator}' does not exist for {document.path}"
+                )
+            locator_window = True
+            if before is None and after is None:
+                requested_before = DOCUMENT_READ_LOCATOR_DEFAULT_BEFORE
+                requested_after = DOCUMENT_READ_LOCATOR_DEFAULT_AFTER
+            elif after is None:
+                requested_after = max(requested_limit - 1, 0)
+            requested_span = requested_before + 1 + requested_after
+            safe_span = min(max(requested_span, 1), DOCUMENT_READ_LOCATOR_MAX_UNITS)
+            applied_before = min(requested_before, safe_span - 1, locator_index)
+            remaining_after_budget = max(safe_span - applied_before - 1, 0)
+            applied_after = min(
+                requested_after,
+                remaining_after_budget,
+                max(total_units - locator_index - 1, 0),
+            )
+            safe_cursor = max(locator_index - applied_before, 0)
+            safe_limit = applied_before + 1 + applied_after
+        else:
+            safe_limit = min(requested_limit, DOCUMENT_READ_MAX_UNITS)
         if total_units == 0:
             return {
                 "path": document.path,
@@ -1196,6 +1463,7 @@ class DocumentTooling:
                 "locator_type": document.locator_type,
                 "cursor": safe_cursor,
                 "limit": safe_limit,
+                "requested_limit": requested_limit,
                 "has_more": False,
                 "next_cursor": None,
                 "total_units": 0,
@@ -1206,16 +1474,25 @@ class DocumentTooling:
 
         selected_units = document.units[safe_cursor : safe_cursor + safe_limit]
         content_blocks: list[dict[str, Any]] = []
+        content_truncated = (
+            safe_limit != requested_limit
+            if not locator_window
+            else safe_limit != requested_before + 1 + requested_after
+        )
         for unit in selected_units:
-            content_blocks.extend(unit.content_blocks)
+            for block in unit.content_blocks:
+                compact_block, block_truncated = _compact_read_block(block)
+                content_blocks.append(compact_block)
+                content_truncated = content_truncated or block_truncated
 
         next_cursor = safe_cursor + len(selected_units)
-        return {
+        payload = {
             "path": document.path,
             "document_kind": document.document_kind,
             "locator_type": document.locator_type,
             "cursor": safe_cursor,
             "limit": safe_limit,
+            "requested_limit": requested_limit,
             "has_more": next_cursor < total_units,
             "next_cursor": next_cursor if next_cursor < total_units else None,
             "total_units": total_units,
@@ -1223,6 +1500,32 @@ class DocumentTooling:
             "contains_visual": any(unit.contains_visual for unit in selected_units),
             "content_blocks": content_blocks,
         }
+        if locator_window:
+            payload["locator"] = requested_locator
+            payload["locator_window"] = True
+            payload["requested_before"] = requested_before
+            payload["requested_after"] = requested_after
+            payload["applied_before"] = applied_before
+            payload["applied_after"] = applied_after
+            payload["matched_cursor"] = locator_index
+        if (not locator_window and safe_limit != requested_limit) or (
+            locator_window and safe_limit != requested_before + 1 + requested_after
+        ):
+            payload["limit_truncated"] = True
+
+        # Most payloads are bounded by unit and block caps. This final guard
+        # handles unusual mixed media/table documents with large metadata.
+        while (
+            len(payload["content_blocks"]) > 1
+            and _content_payload_size(payload) > DOCUMENT_READ_MAX_BYTES
+        ):
+            payload["content_blocks"].pop()
+            payload["content_truncated"] = True
+
+        if content_truncated or payload.get("content_truncated"):
+            payload["content_truncated"] = True
+            payload["max_content_bytes"] = DOCUMENT_READ_MAX_BYTES
+        return payload
 
     def fetch_asset(self, *, file_path: Path, asset_ref: str) -> dict[str, Any]:
         if not asset_ref.strip():

@@ -134,15 +134,19 @@ DOCUMENT_TOOL_DESCRIPTORS = (
     ToolDescriptor(
         name="document_read",
         summary=(
-            "Read one document using page/slide/sheet/region cursors. The response "
-            "includes `contains_visual`, `has_more`, and rich content blocks so the "
-            "agent can decide whether to continue reading or fetch an asset."
+            "Read one document using page/slide/sheet/region cursors or a source "
+            "locator returned by document_search. The response includes "
+            "`contains_visual`, `has_more`, and rich content blocks so the agent "
+            "can decide whether to continue reading or fetch an asset."
         ),
         returns="JSON payload with locator metadata, pagination, and content_blocks.",
         arguments=(
             ToolArgument("path", "string", True, "Relative file path under the uploaded root."),
             ToolArgument("cursor", "integer", False, "Zero-based unit cursor.", default=0),
             ToolArgument("limit", "integer", False, "Maximum number of units to return.", default=3),
+            ToolArgument("locator", "string", False, "Source locator returned by document_search; preferred for reading a match."),
+            ToolArgument("before", "integer", False, "Units before locator when locator is supplied.", default=6),
+            ToolArgument("after", "integer", False, "Units after locator when locator is supplied.", default=16),
         ),
     ),
     ToolDescriptor(
@@ -907,6 +911,9 @@ class FileMcpService:
         path: str,
         cursor: int = 0,
         limit: int = 3,
+        locator: str | int | None = None,
+        before: int | None = None,
+        after: int | None = None,
     ) -> dict[str, Any]:
         """Read one parsed document window using the unified document contract."""
 
@@ -917,6 +924,9 @@ class FileMcpService:
             file_path=requested_file,
             cursor=cursor,
             limit=limit,
+            locator=locator,
+            before=before,
+            after=after,
         )
 
     def document_fetch_asset_payload(
@@ -927,13 +937,25 @@ class FileMcpService:
     ) -> dict[str, Any]:
         """Fetch one referenced visual asset from a parsed document."""
 
-        requested_file = self._resolve_existing_path(path)
-        if not requested_file.is_file():
-            raise ValueError(f"path is not a file: {path}")
-        return self.document_tools.fetch_asset(
-            file_path=requested_file,
-            asset_ref=asset_ref,
-        )
+        try:
+            requested_file = self._resolve_existing_path(path)
+            if not requested_file.is_file():
+                raise ValueError(f"path is not a file: {path}")
+            return self.document_tools.fetch_asset(
+                file_path=requested_file,
+                asset_ref=asset_ref,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            # Invalid asset refs are model-recoverable tool results. Returning
+            # a structured error keeps one bad visual fetch from terminating the
+            # whole chat turn before the agent can answer from text evidence.
+            return {
+                "path": path,
+                "asset_ref": asset_ref,
+                "error": str(exc),
+                "status": "not_found",
+                "retryable": False,
+            }
 
     async def store_uploads(
         self,

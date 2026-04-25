@@ -324,13 +324,23 @@ def _register_document_tools(server: FastMCP) -> None:
         return service.tool_payload_json(payload)
 
     @server.tool()
-    def document_read(path: str, cursor: int = 0, limit: int = 3) -> str:
-        """Read one document window using page/slide/sheet/region cursors."""
+    def document_read(
+        path: str,
+        cursor: int = 0,
+        limit: int = 3,
+        locator: str = "",
+        before: int | None = None,
+        after: int | None = None,
+    ) -> str:
+        """Read one document window using cursors or a search-result locator."""
 
         payload = service.document_read_payload(
             path=path,
             cursor=cursor,
             limit=limit,
+            locator=locator or None,
+            before=before,
+            after=after,
         )
         return service.tool_payload_json(payload)
 
