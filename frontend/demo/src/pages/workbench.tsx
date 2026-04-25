@@ -80,7 +80,12 @@ const TOOL_PRESETS: Record<
   document_search: [
     {
       label: "搜索 deductible",
-      values: { query: "deductible", path: "", cursor: "0", limit: "10" },
+      values: {
+        pattern: "deductible",
+        path: "",
+        output_mode: "content",
+        head_limit: "10",
+      },
     },
   ],
   document_read: [

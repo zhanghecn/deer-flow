@@ -214,11 +214,12 @@ def _call_mcp_tool(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     """Execute one tool through the full MCP transport instead of calling the service directly."""
 
     started_at = time.perf_counter()
+    normalized_arguments = _normalize_tool_arguments(tool_name, arguments)
     _, session_id = _initialize_mcp_session(mcp_url=LOCAL_MCP_URL)
     call_payload, session_id = _post_mcp_request(
         mcp_url=LOCAL_MCP_URL,
         method="tools/call",
-        params={"name": tool_name, "arguments": arguments},
+        params={"name": tool_name, "arguments": normalized_arguments},
         request_id=2,
         session_id=session_id,
     )
@@ -233,7 +234,7 @@ def _call_mcp_tool(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "tool_name": tool_name,
-        "arguments": arguments,
+        "arguments": normalized_arguments,
         "transport": "streamable_http",
         "session_id": session_id,
         "latency_ms": round((time.perf_counter() - started_at) * 1000, 2),
@@ -241,6 +242,34 @@ def _call_mcp_tool(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         "raw_result": call_result,
         "executed_at": datetime.now(tz=UTC).isoformat(),
     }
+
+
+def _normalize_tool_arguments(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    """Translate Claude-style short grep flags for the manual HTTP invoke shim.
+
+    FastMCP exposes Python identifiers in the generated schema, so the MCP tool
+    uses readable names while this workbench-only endpoint accepts exact
+    Claude Code flag keys from curl/debug scripts.
+    """
+
+    if tool_name != "document_search":
+        return dict(arguments)
+    normalized = dict(arguments)
+    aliases = {
+        "-A": "after",
+        "-B": "before",
+        "-C": "context",
+        "-n": "show_line_numbers",
+        "-i": "case_insensitive",
+    }
+    for source, target in aliases.items():
+        if source in normalized and target not in normalized:
+            normalized[target] = normalized[source]
+        normalized.pop(source, None)
+    if "query" in normalized and "pattern" not in normalized:
+        normalized["pattern"] = normalized["query"]
+    normalized.pop("query", None)
+    return normalized
 
 
 def _register_document_tools(server: FastMCP) -> None:
@@ -259,18 +288,38 @@ def _register_document_tools(server: FastMCP) -> None:
 
     @server.tool()
     def document_search(
-        query: str,
+        pattern: str,
         path: str = "",
+        glob: str = "",
+        output_mode: str = "files_with_matches",
         cursor: int = 0,
         limit: int = 10,
+        context: int | None = None,
+        before: int | None = None,
+        after: int | None = None,
+        show_line_numbers: bool = True,
+        case_insensitive: bool = False,
+        head_limit: int | None = None,
+        offset: int = 0,
+        multiline: bool = False,
     ) -> str:
-        """Search uploaded documents by document semantics rather than raw bytes."""
+        """Grep uploaded documents with Claude Code-like output modes."""
 
         payload = service.document_search_payload(
-            query=query,
+            pattern=pattern,
             path=path,
+            glob=glob or None,
+            output_mode=output_mode,
             cursor=cursor,
             limit=limit,
+            context=context,
+            before=before,
+            after=after,
+            show_line_numbers=show_line_numbers,
+            case_insensitive=case_insensitive,
+            head_limit=head_limit,
+            offset=offset,
+            multiline=multiline,
         )
         return service.tool_payload_json(payload)
 

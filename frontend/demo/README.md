@@ -19,7 +19,7 @@ The internal file service exposes:
 - a manual tool execution endpoint at `http://127.0.0.1:8084/api/tools/{tool_name}/invoke`
 - one canonical document tool surface on both MCP endpoints:
   - `document_list(path?, cursor?, limit?)`
-  - `document_search(query, path?, cursor?, limit?)`
+  - `document_search(pattern, path?, glob?, output_mode?, context?, before?, after?, head_limit?, offset?)`
   - `document_read(path, cursor?, limit?)`
   - `document_fetch_asset(path, asset_ref)`
 - PDF / DOCX / PPTX / XLSX stay explicit document types instead of being silently converted to Markdown companions
@@ -136,7 +136,7 @@ docker compose -f frontend/demo/compose.yaml down
 4. Confirm the MCP URL shown by the connection panel
 5. Use the Explorer tree to select a file or folder-like category
 6. The middle panel follows the agent-visible `document_*` tools returned by live `tools/list` scanning
-7. Use `document_list` for inventory/browse, `document_search` for semantic retrieval, and `document_read` for page/slide/sheet/region reading
+7. Use `document_list` for inventory/browse, `document_search` for grep-style retrieval, and `document_read` for page/slide/sheet/region reading
 8. Execute the tool and inspect arguments, output, and invocation history on the right
 
 For external SDK / demo-agent binding, use the agent-facing `Agent MCP URL`.

@@ -253,6 +253,7 @@ class FileMcpServiceTest(unittest.TestCase):
             "nested/contracts/policy-alpha.pdf",
             ["Deductible is 500 USD"],
         )
+        self._write_image("nested/evidence/site-board.png", text="POLICY LIMIT")
 
         root_payload = self.service.document_list_payload(limit=20)
         root_rows = {item["path"]: item for item in root_payload["items"]}
@@ -261,9 +262,12 @@ class FileMcpServiceTest(unittest.TestCase):
         self.assertTrue(root_rows["nested"]["has_children"])
         self.assertTrue(root_payload["complete_tree"])
         self.assertIn("nested/contracts/policy-alpha.pdf", root_payload["document_paths"])
+        self.assertIn("nested/evidence/site-board.png", root_payload["document_paths"])
         self.assertIn("nested/", root_payload["tree"])
         self.assertIn("  contracts/", root_payload["tree"])
         self.assertIn("    policy-alpha.pdf [pdf]", root_payload["tree"])
+        self.assertIn("  evidence/", root_payload["tree"])
+        self.assertIn("    site-board.png [image]", root_payload["tree"])
 
         nested_payload = self.service.document_list_payload(path="nested/contracts", limit=20)
         file_row = nested_payload["items"][0]
@@ -389,13 +393,14 @@ class FileMcpServiceTest(unittest.TestCase):
         )
 
         payload = self.service.document_search_payload(
-            query="Deductible",
+            pattern="Deductible",
             path="nested/contracts/policy-alpha.pdf",
-            limit=5,
+            output_mode="content",
+            head_limit=5,
         )
 
         self.assertEqual(payload["total"], 1)
-        self.assertEqual(payload["mode"], "grep")
+        self.assertEqual(payload["mode"], "content")
         self.assertEqual(payload["pattern"], "Deductible")
         match = payload["results"][0]
         self.assertEqual(match["document_kind"], "pdf")
@@ -412,13 +417,74 @@ class FileMcpServiceTest(unittest.TestCase):
         )
 
         payload = self.service.document_search_payload(
-            query="What is the deductible in policy alpha?",
+            pattern="What is the deductible in policy alpha?",
             path="nested/contracts/policy-alpha.pdf",
-            limit=5,
+            output_mode="content",
+            head_limit=5,
         )
 
-        self.assertEqual(payload["mode"], "grep")
+        self.assertEqual(payload["mode"], "content")
         self.assertEqual(payload["total"], 0)
+
+    def test_document_search_defaults_to_files_with_matches(self) -> None:
+        self._write_pdf(
+            "nested/contracts/policy-alpha.pdf",
+            ["Deductible is 500 USD", "Coinsurance is 20 percent"],
+        )
+
+        payload = self.service.document_search_payload(
+            pattern="Deductible",
+            path="nested",
+        )
+
+        self.assertEqual(payload["mode"], "files_with_matches")
+        self.assertEqual(payload["filenames"], ["nested/contracts/policy-alpha.pdf"])
+        self.assertEqual(payload["numFiles"], 1)
+
+    def test_document_search_supports_regex_glob_context_and_offset(self) -> None:
+        self._write_pdf(
+            "nested/contracts/policy-alpha.pdf",
+            ["Header", "Deductible is 500 USD", "Coinsurance is 20 percent"],
+        )
+        self._write_pdf(
+            "nested/contracts/policy-beta.pdf",
+            ["Header", "Deductible is 250 USD", "Coinsurance is 10 percent"],
+        )
+
+        payload = self.service.document_search_payload(
+            pattern="Deductible|Coinsurance",
+            path="nested",
+            glob="**/policy-*.pdf",
+            output_mode="content",
+            context=1,
+            head_limit=1,
+            offset=1,
+        )
+
+        self.assertEqual(payload["mode"], "content")
+        self.assertEqual(payload["appliedLimit"], 1)
+        self.assertEqual(payload["appliedOffset"], 1)
+        self.assertIn("nested/contracts/policy-alpha.pdf:page:3:1", payload["content"])
+        self.assertEqual(payload["results"][0]["match_text"], "Coinsurance")
+
+    def test_document_search_count_mode_returns_file_counts(self) -> None:
+        self._write_pdf(
+            "nested/contracts/policy-alpha.pdf",
+            ["Deductible", "Deductible", "Coinsurance"],
+        )
+
+        payload = self.service.document_search_payload(
+            pattern="Deductible",
+            path="nested",
+            output_mode="count",
+        )
+
+        self.assertEqual(payload["mode"], "count")
+        self.assertEqual(payload["numMatches"], 2)
+        self.assertEqual(
+            payload["items"],
+            [{"path": "nested/contracts/policy-alpha.pdf", "match_count": 2}],
+        )
 
     def test_document_read_paginates_pdf_pages(self) -> None:
         self._write_pdf(
@@ -453,9 +519,11 @@ class FileMcpServiceTest(unittest.TestCase):
         self._write_scanned_pdf("nested/scans/claim-scan.pdf", text="CLAIM 42")
 
         search_payload = self.service.document_search_payload(
-            query="claim",
+            pattern="claim",
             path="nested/scans/claim-scan.pdf",
-            limit=5,
+            output_mode="content",
+            case_insensitive=True,
+            head_limit=5,
         )
         read_payload = self.service.document_read_payload(
             path="nested/scans/claim-scan.pdf",
@@ -512,9 +580,10 @@ class FileMcpServiceTest(unittest.TestCase):
         )
 
         payload = self.service.document_search_payload(
-            query="LOSS",
+            pattern="LOSS",
             path="nested/slides/ocr-deck.pptx",
-            limit=5,
+            output_mode="content",
+            head_limit=5,
         )
 
         self.assertEqual(payload["results"][0]["document_kind"], "pptx")
@@ -554,14 +623,16 @@ class FileMcpServiceTest(unittest.TestCase):
         self._write_xlsx("nested/sheets/revenue-tracker.xlsx")
 
         table_payload = self.service.document_search_payload(
-            query="Q2",
+            pattern="Q2",
             path="nested/sheets/revenue-tracker.xlsx",
-            limit=5,
+            output_mode="content",
+            head_limit=5,
         )
         chart_payload = self.service.document_search_payload(
-            query="Revenue Trend",
+            pattern="Revenue Trend",
             path="nested/sheets/revenue-tracker.xlsx",
-            limit=5,
+            output_mode="content",
+            head_limit=5,
         )
 
         self.assertEqual(table_payload["results"][0]["evidence_type"], "table_text")
@@ -606,9 +677,10 @@ class FileMcpServiceTest(unittest.TestCase):
         self._write_image("nested/images/policy-board.png", text="POLICY LIMIT")
 
         payload = self.service.document_search_payload(
-            query="POLICY",
+            pattern="POLICY",
             path="nested/images/policy-board.png",
-            limit=5,
+            output_mode="content",
+            head_limit=5,
         )
 
         self.assertEqual(payload["results"][0]["document_kind"], "image")

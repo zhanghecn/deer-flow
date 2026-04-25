@@ -8,6 +8,7 @@ the generic OpenAgents runtime.
 from __future__ import annotations
 
 import base64
+import fnmatch
 import hashlib
 import io
 import json
@@ -47,6 +48,7 @@ DocumentKind = Literal[
 ]
 LocatorType = Literal["line", "page", "slide", "sheet", "region"]
 EvidenceType = Literal["text", "ocr_text", "table_text", "vision_summary"]
+DocumentSearchOutputMode = Literal["content", "files_with_matches", "count"]
 NextActionHint = Literal[
     "read_current",
     "read_more",
@@ -56,6 +58,7 @@ NextActionHint = Literal[
 
 INLINE_ASSET_LIMIT_BYTES = 200_000
 CACHE_SCHEMA_VERSION = 2
+DEFAULT_DOCUMENT_SEARCH_HEAD_LIMIT = 250
 DEFAULT_OCR_LANGUAGES = ("eng", "chi_sim")
 PDF_OCR_SCALE = 2.5
 IMAGE_EXTENSIONS = {
@@ -178,7 +181,13 @@ def _collapse_whitespace(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
-def _grep_match(*, pattern: str, text: str) -> tuple[int, str] | None:
+def _grep_match(
+    *,
+    pattern: str,
+    text: str,
+    case_insensitive: bool,
+    multiline: bool = False,
+) -> tuple[int, str] | None:
     """Return the first grep-style match, using literal search before regex.
 
     `document_search` intentionally keeps a grep contract. That makes the MCP
@@ -191,9 +200,9 @@ def _grep_match(*, pattern: str, text: str) -> tuple[int, str] | None:
     if not normalized_pattern:
         return None
 
-    lowered_text = text.lower()
-    lowered_pattern = normalized_pattern.lower()
-    literal_index = lowered_text.find(lowered_pattern)
+    haystack = text.lower() if case_insensitive else text
+    needle = normalized_pattern.lower() if case_insensitive else normalized_pattern
+    literal_index = haystack.find(needle)
     if literal_index >= 0:
         return literal_index, text[literal_index : literal_index + len(normalized_pattern)]
 
@@ -201,12 +210,75 @@ def _grep_match(*, pattern: str, text: str) -> tuple[int, str] | None:
         return None
 
     try:
-        match = re.search(pattern, text, flags=re.IGNORECASE)
+        flags = 0
+        if case_insensitive:
+            flags |= re.IGNORECASE
+        if multiline:
+            flags |= re.DOTALL | re.MULTILINE
+        match = re.search(pattern, text, flags=flags)
     except re.error:
         return None
     if match is None:
         return None
     return match.start(), match.group(0)
+
+
+def _normalize_document_search_output_mode(value: str) -> DocumentSearchOutputMode:
+    """Accept grep-mode aliases while returning one Claude-style mode string."""
+
+    normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if not normalized:
+        return "files_with_matches"
+    aliases: dict[str, DocumentSearchOutputMode] = {
+        "content": "content",
+        "matches": "content",
+        "match_content": "content",
+        "files": "files_with_matches",
+        "file": "files_with_matches",
+        "filenames": "files_with_matches",
+        "paths": "files_with_matches",
+        "files_with_matches": "files_with_matches",
+        "count": "count",
+        "counts": "count",
+        "summary": "count",
+        "stats": "count",
+    }
+    return aliases.get(normalized, "files_with_matches")
+
+
+def _apply_head_window[T](
+    items: list[T],
+    *,
+    head_limit: int | None,
+    offset: int,
+) -> tuple[list[T], int | None, int | None]:
+    """Mirror Claude Code Grep's head/offset contract for all output modes."""
+
+    safe_offset = max(offset, 0)
+    if head_limit == 0:
+        return items[safe_offset:], None, safe_offset or None
+    effective_limit = (
+        DEFAULT_DOCUMENT_SEARCH_HEAD_LIMIT
+        if head_limit is None
+        else max(int(head_limit), 1)
+    )
+    window = items[safe_offset : safe_offset + effective_limit]
+    truncated = len(items) - safe_offset > effective_limit
+    return window, effective_limit if truncated else None, safe_offset or None
+
+
+def _context_line_numbers(
+    *,
+    total_lines: int,
+    line_number: int,
+    before: int,
+    after: int,
+) -> range:
+    """Return the one-based grep context line range around a matched line."""
+
+    start = max(line_number - max(before, 0), 1)
+    end = min(line_number + max(after, 0), total_lines)
+    return range(start, end + 1)
 
 
 def _build_snippet(*, text: str, match_index: int, window: int = 90) -> str:
@@ -866,28 +938,104 @@ class DocumentTooling:
         self,
         *,
         files: list[Path],
-        query: str,
-        cursor: int,
-        limit: int,
+        pattern: str,
+        output_mode: str = "files_with_matches",
+        glob: str | None = None,
+        cursor: int = 0,
+        limit: int = 10,
+        context_before: int | None = None,
+        context_after: int | None = None,
+        context: int | None = None,
+        show_line_numbers: bool = True,
+        case_insensitive: bool = False,
+        head_limit: int | None = None,
+        offset: int = 0,
+        multiline: bool = False,
     ) -> dict[str, Any]:
-        pattern = query.strip()
-        if not pattern:
+        search_pattern = pattern.strip()
+        if not search_pattern:
             raise ValueError("pattern is required")
+        resolved_mode = _normalize_document_search_output_mode(output_mode)
+        effective_offset = offset if offset > 0 else max(cursor, 0)
+        if head_limit is None and limit != 10:
+            # `cursor`/`limit` are legacy demo arguments. Keep explicit old
+            # callers working without weakening the Claude-style head_limit API.
+            head_limit = limit
+        before = max(context_before if context_before is not None else context or 0, 0)
+        after = max(context_after if context_after is not None else context or 0, 0)
 
         matches: list[dict[str, Any]] = []
         skipped_files: list[str] = []
         for file_path in files:
+            relative_path = file_path.relative_to(self.root).as_posix()
+            if glob and not fnmatch.fnmatch(relative_path, glob):
+                continue
             try:
                 document = self.parse_document(file_path)
             except ValueError:
-                skipped_files.append(file_path.relative_to(self.root).as_posix())
+                skipped_files.append(relative_path)
                 continue
 
             for unit_index, unit in enumerate(document.units):
                 for evidence_type, evidence_text in unit.search_entries:
+                    if multiline:
+                        match = _grep_match(
+                            pattern=search_pattern,
+                            text=evidence_text,
+                            case_insensitive=case_insensitive,
+                            multiline=True,
+                        )
+                        if match is None:
+                            continue
+                        match_index, match_text = match
+                        line_number = evidence_text[:match_index].count("\n") + 1
+                        lines = evidence_text.splitlines() or [evidence_text]
+                        line = lines[line_number - 1] if line_number <= len(lines) else ""
+                        matches.append(
+                            {
+                                "path": document.path,
+                                "document_kind": document.document_kind,
+                                "locator": unit.locator,
+                                "locator_type": unit.locator_type,
+                                "line_number": line_number,
+                                "line": line,
+                                "match_text": match_text,
+                                "snippet": _build_snippet(
+                                    text=evidence_text,
+                                    match_index=match_index,
+                                ),
+                                "context_lines": [
+                                    {
+                                        "line_number": context_line_number,
+                                        "line": lines[context_line_number - 1],
+                                        "is_match": context_line_number == line_number,
+                                    }
+                                    for context_line_number in _context_line_numbers(
+                                        total_lines=len(lines),
+                                        line_number=line_number,
+                                        before=before,
+                                        after=after,
+                                    )
+                                ],
+                                "evidence_type": evidence_type,
+                                "contains_visual": unit.contains_visual,
+                                "next_action_hint": _next_action_hint(
+                                    unit_index=unit_index,
+                                    total_units=len(document.units),
+                                    contains_visual=unit.contains_visual,
+                                    evidence_type=evidence_type,
+                                ),
+                            }
+                        )
+                        continue
+
                     lines = evidence_text.splitlines() or [evidence_text]
                     for line_number, line in enumerate(lines, start=1):
-                        match = _grep_match(pattern=pattern, text=line)
+                        match = _grep_match(
+                            pattern=search_pattern,
+                            text=line,
+                            case_insensitive=case_insensitive,
+                        )
                         if match is None:
                             continue
                         match_index, match_text = match
@@ -904,6 +1052,19 @@ class DocumentTooling:
                                     text=line,
                                     match_index=match_index,
                                 ),
+                                "context_lines": [
+                                    {
+                                        "line_number": context_line_number,
+                                        "line": lines[context_line_number - 1],
+                                        "is_match": context_line_number == line_number,
+                                    }
+                                    for context_line_number in _context_line_numbers(
+                                        total_lines=len(lines),
+                                        line_number=line_number,
+                                        before=before,
+                                        after=after,
+                                    )
+                                ],
                                 "evidence_type": evidence_type,
                                 "contains_visual": unit.contains_visual,
                                 "next_action_hint": _next_action_hint(
@@ -923,21 +1084,105 @@ class DocumentTooling:
                 int(item["line_number"]),
             )
         )
-        safe_cursor = max(cursor, 0)
-        safe_limit = min(max(limit, 1), 50)
-        next_cursor = safe_cursor + safe_limit
-        return {
-            "query": query,
-            "pattern": pattern,
-            "mode": "grep",
-            "results": matches[safe_cursor:next_cursor],
-            "cursor": safe_cursor,
-            "limit": safe_limit,
-            "total": len(matches),
-            "has_more": next_cursor < len(matches),
-            "next_cursor": next_cursor if next_cursor < len(matches) else None,
+        metadata: dict[str, Any] = {
+            "pattern": search_pattern,
+            "mode": resolved_mode,
+            "output_mode": resolved_mode,
+            "requested_output_mode": output_mode,
+            "case_insensitive": case_insensitive,
+            "multiline": multiline,
             "skipped_files": skipped_files,
         }
+        if glob:
+            metadata["glob"] = glob
+
+        if resolved_mode == "files_with_matches":
+            filenames = sorted({item["path"] for item in matches})
+            window, applied_limit, applied_offset = _apply_head_window(
+                filenames,
+                head_limit=head_limit,
+                offset=effective_offset,
+            )
+            payload = {
+                **metadata,
+                "filenames": window,
+                "numFiles": len(filenames),
+                "total": len(filenames),
+                "items": window,
+                "results": window,
+            }
+        elif resolved_mode == "count":
+            file_counts: dict[str, int] = {}
+            for item in matches:
+                file_counts[item["path"]] = file_counts.get(item["path"], 0) + 1
+            count_rows = [
+                {"path": path, "match_count": count}
+                for path, count in sorted(file_counts.items())
+            ]
+            window, applied_limit, applied_offset = _apply_head_window(
+                count_rows,
+                head_limit=head_limit,
+                offset=effective_offset,
+            )
+            content_lines = [
+                f"{item['path']}:{item['match_count']}"
+                for item in window
+            ]
+            payload = {
+                **metadata,
+                "filenames": [item["path"] for item in count_rows],
+                "numFiles": len(count_rows),
+                "numMatches": len(matches),
+                "content": "\n".join(content_lines),
+                "items": window,
+                "results": window,
+                "total": len(count_rows),
+                "total_matches": len(matches),
+            }
+        else:
+            window, applied_limit, applied_offset = _apply_head_window(
+                matches,
+                head_limit=head_limit,
+                offset=effective_offset,
+            )
+            content_lines: list[str] = []
+            for item in window:
+                context_lines = item.get("context_lines") or [
+                    {
+                        "line_number": item["line_number"],
+                        "line": item["line"],
+                        "is_match": True,
+                    }
+                ]
+                for context_item in context_lines:
+                    locator = item["locator"]
+                    line_number = context_item["line_number"]
+                    prefix = f"{item['path']}:{item['locator_type']}:{locator}"
+                    if show_line_numbers:
+                        prefix = f"{prefix}:{line_number}"
+                    content_lines.append(f"{prefix}:{context_item['line']}")
+            payload = {
+                **metadata,
+                "filenames": sorted({item["path"] for item in matches}),
+                "numFiles": len({item["path"] for item in matches}),
+                "numLines": len(content_lines),
+                "content": "\n".join(content_lines),
+                "items": window,
+                "results": window,
+                "total": len(matches),
+            }
+
+        if applied_limit is not None:
+            payload["appliedLimit"] = applied_limit
+        if applied_offset is not None:
+            payload["appliedOffset"] = applied_offset
+        payload["has_more"] = payload["total"] > effective_offset + len(payload.get("items", []))
+        payload["next_offset"] = (
+            effective_offset + len(payload.get("items", []))
+            if payload["has_more"]
+            else None
+        )
+        return payload
 
     def read(self, *, file_path: Path, cursor: int, limit: int) -> dict[str, Any]:
         document = self.parse_document(file_path)

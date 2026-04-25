@@ -15,6 +15,10 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
     /bin/sh -lc "cd /app/frontend/demo && pnpm install --frozen-lockfile"
 
 COPY frontend/demo /app/frontend/demo
+# The demo chat page reuses the shared public-api/thread error client from the
+# main frontend. Keep that source inside the image so Docker dev serves the same
+# module graph that host-side `tsc` checks through the `@` alias.
+COPY frontend/app/src /app/frontend/app/src
 
 WORKDIR /app/frontend/demo
 

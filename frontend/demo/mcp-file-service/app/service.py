@@ -115,15 +115,20 @@ DOCUMENT_TOOL_DESCRIPTORS = (
         name="document_search",
         summary=(
             "Grep parsed document text, OCR text, tables, and visual summaries "
-            "across PDF, image, and Office files. Use exact terms or simple "
-            "regex alternation, then call document_read for the matched locator."
+            "across PDF, image, and Office files with a Claude Code-like "
+            "pattern/output_mode contract, then call document_read for locators."
         ),
-        returns="JSON payload with grep-style matches, locator metadata, and next-action hints.",
+        returns="JSON payload with grep-style files_with_matches, content, or count output plus locator metadata.",
         arguments=(
-            ToolArgument("query", "string", True, "Literal grep pattern or simple regex."),
+            ToolArgument("pattern", "string", True, "Regular expression or literal grep pattern."),
             ToolArgument("path", "string", False, "Optional file or directory scope under the uploaded root."),
-            ToolArgument("cursor", "integer", False, "Zero-based pagination cursor.", default=0),
-            ToolArgument("limit", "integer", False, "Maximum number of matches to return.", default=10),
+            ToolArgument("glob", "string", False, "Glob filter such as *.pdf or **/*.docx."),
+            ToolArgument("output_mode", "string", False, "content, files_with_matches, or count.", default="files_with_matches"),
+            ToolArgument("context", "integer", False, "Lines before and after each content match.", default=0),
+            ToolArgument("before", "integer", False, "Lines before each content match.", default=0),
+            ToolArgument("after", "integer", False, "Lines after each content match.", default=0),
+            ToolArgument("head_limit", "integer", False, "Maximum output rows; 0 means unlimited.", default=250),
+            ToolArgument("offset", "integer", False, "Rows to skip before applying head_limit.", default=0),
         ),
     ),
     ToolDescriptor(
@@ -495,12 +500,13 @@ class FileMcpService:
         return payload
 
     def _document_tree_summary(self, base: Path) -> dict[str, Any]:
-        document_paths = [
-            item
-            for item in self._sorted_file_paths(base, recursive=True)
-            if self._describe_file_content_access(item).kind == "binary_document"
-            or self._describe_file_content_access(item).text_readable
-        ]
+        document_paths: list[Path] = []
+        for item in self._sorted_file_paths(base, recursive=True):
+            # The compact tree is an agent planning surface, not a raw text-file
+            # list. Ask the document parser whether the file is supported so
+            # standalone OCR/image documents are not hidden from small KBs.
+            if self.document_tools.describe_document(item).get("supported"):
+                document_paths.append(item)
         directory_paths = [
             item
             for item in sorted(
@@ -651,7 +657,7 @@ class FileMcpService:
                     f"{message}\n\n"
                     "Recommended demo flow on the current agent-facing MCP:\n"
                     "- document_list(path?, cursor?, limit?) to inspect the KB tree\n"
-                    "- document_search(query, path?, cursor?, limit?) to grep parsed document evidence\n"
+                    "- document_search(pattern, path?, glob?, output_mode?, head_limit?, offset?) to grep parsed document evidence\n"
                     "- document_read(path, cursor?, limit?) to read the matched document"
                 ),
             }
@@ -850,13 +856,27 @@ class FileMcpService:
     def document_search_payload(
         self,
         *,
-        query: str,
+        pattern: str | None = None,
+        query: str | None = None,
         path: str = "",
+        glob: str | None = None,
+        output_mode: str = "files_with_matches",
         cursor: int = 0,
         limit: int = 10,
+        context: int | None = None,
+        before: int | None = None,
+        after: int | None = None,
+        show_line_numbers: bool = True,
+        case_insensitive: bool = False,
+        head_limit: int | None = None,
+        offset: int = 0,
+        multiline: bool = False,
     ) -> dict[str, Any]:
         """Grep parsed document evidence instead of generic text-file bytes."""
 
+        effective_pattern = pattern if pattern is not None else query
+        if effective_pattern is None:
+            raise ValueError("pattern is required")
         base = self._resolve_existing_path(path) if path else self.root
         if base.is_file():
             candidates = [base.resolve()]
@@ -866,9 +886,19 @@ class FileMcpService:
             raise ValueError(f"path is not a file or directory: {path}")
         return self.document_tools.search(
             files=candidates,
-            query=query,
+            pattern=effective_pattern,
+            output_mode=output_mode,
+            glob=glob,
             cursor=cursor,
             limit=limit,
+            context_before=before,
+            context_after=after,
+            context=context,
+            show_line_numbers=show_line_numbers,
+            case_insensitive=case_insensitive,
+            head_limit=head_limit,
+            offset=offset,
+            multiline=multiline,
         )
 
     def document_read_payload(
