@@ -1,4 +1,4 @@
-import { Bot, Check, Copy, Loader2, MessageSquare, Send, Settings, Sparkles, Square, Wrench, X } from "lucide-react";
+import { Bot, Check, FileText, Loader2, Send, Settings, Sparkles, Square, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -11,7 +11,6 @@ import { MarkdownRenderer } from "../components/markdown-renderer";
 import { createChatSession, type ToolCallStep } from "../lib/chat-session";
 import { resolvePublicAPIBaseURL } from "../lib/public-api";
 import { createDemoId } from "../lib/uid";
-import { loadWorkbenchContext } from "../lib/workbench-context";
 
 const SETTINGS_KEY = "demo_chat_settings";
 
@@ -119,14 +118,6 @@ function isDemoOrigin(url: string): boolean {
   }
 }
 
-function prettyJSON(value: unknown): string {
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-}
-
 function getErrorMessage(error: unknown): string {
   return normalizeThreadError(error);
 }
@@ -144,60 +135,88 @@ function StatusDot({ tone }: { tone: "ok" | "warn" | "danger" }) {
   );
 }
 
-function ToolCallCard({ tool }: { tool: ToolCallStep }) {
-  const isRunning = tool.status === "running";
-  const isError = tool.status === "error";
+function safeParseJSON(value: string): unknown | null {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function collectPathsFromValue(value: unknown, paths: Set<string>) {
+  if (!value || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectPathsFromValue(item, paths));
+    return;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (typeof record.path === "string" && record.path.trim()) {
+    paths.add(record.path.trim());
+  }
+
+  // Tool outputs may nest file paths inside content blocks or asset metadata.
+  // Extracting paths internally keeps the UI useful without exposing raw JSON.
+  Object.values(record).forEach((item) => collectPathsFromValue(item, paths));
+}
+
+function getReadFilePaths(tool: ToolCallStep): string[] {
+  if (
+    tool.name !== "document_read" &&
+    tool.name !== "document_fetch_asset"
+  ) {
+    return [];
+  }
+
+  const paths = new Set<string>();
+  collectPathsFromValue(tool.arguments, paths);
+  tool.output?.forEach((item) => {
+    if (!item.text) return;
+    const parsed = safeParseJSON(item.text);
+    if (parsed) collectPathsFromValue(parsed, paths);
+  });
+  return Array.from(paths);
+}
+
+function ToolActivityCard({ tools }: { tools: ToolCallStep[] }) {
+  const readFiles = Array.from(
+    new Set(tools.flatMap((tool) => getReadFilePaths(tool))),
+  );
+  const hasRunningTool = tools.some((tool) => tool.status === "running");
+  const hasToolError = tools.some((tool) => tool.status === "error");
+
+  if (readFiles.length === 0 && !hasRunningTool) return null;
 
   return (
-    <div className="mb-1.5 overflow-hidden rounded-md border border-slate-200 bg-slate-50/60 text-left">
-      <div className="flex items-center gap-2 px-2.5 py-1.5">
-        <Wrench className="size-3 shrink-0 text-slate-400" />
-        <span className="text-[11px] font-mono font-medium text-slate-600">
-          {tool.name}
+    <div className="mb-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-left">
+      <div className="flex items-center gap-2 text-xs text-slate-600">
+        <FileText className="size-3.5 shrink-0 text-slate-400" />
+        <span className="font-medium">
+          {readFiles.length > 0
+            ? `已读取 ${readFiles.length} 个知识库文件`
+            : "正在检索知识库"}
         </span>
-        {isRunning ? (
-          <Loader2 className="ml-auto size-3 shrink-0 animate-spin text-emerald-500" />
-        ) : isError ? (
-          <X className="ml-auto size-3 shrink-0 text-rose-500" />
+        {hasRunningTool ? (
+          <Loader2 className="ml-auto size-3.5 shrink-0 animate-spin text-emerald-500" />
+        ) : hasToolError ? (
+          <X className="ml-auto size-3.5 shrink-0 text-rose-500" />
         ) : (
-          <Check className="ml-auto size-3 shrink-0 text-emerald-500" />
+          <Check className="ml-auto size-3.5 shrink-0 text-emerald-500" />
         )}
       </div>
-
-      <div className="space-y-1.5 border-t border-slate-100 px-2.5 py-1.5">
-        <div>
-          <div className="mb-0.5 flex items-center justify-between">
-            <span className="text-[10px] font-medium text-slate-400">
-              参数
-            </span>
-            <CopyButton
-              text={prettyJSON(tool.arguments)}
-              label="复制"
-            />
-          </div>
-          <pre className="max-h-[100px] overflow-y-auto rounded bg-white p-1.5 text-[10px] leading-4 text-slate-500">
-            {prettyJSON(tool.arguments)}
-          </pre>
-        </div>
-
-        {tool.output && tool.output.length > 0 && (
-          <div>
-            <span className="mb-0.5 block text-[10px] font-medium text-slate-400">
-              返回
-            </span>
-            <div className="space-y-1">
-              {tool.output.map((out, i) => (
-                <pre
-                  key={i}
-                  className="max-h-[100px] overflow-y-auto rounded bg-white p-1.5 text-[10px] leading-4 text-slate-500"
-                >
-                  {out.text ?? "(无文本输出)"}
-                </pre>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
+      {readFiles.length > 0 && (
+        <ul className="mt-2 space-y-1">
+          {readFiles.map((path) => (
+            <li
+              key={path}
+              className="truncate rounded border border-slate-200 bg-white px-2 py-1 font-mono text-[11px] text-slate-600"
+              title={path}
+            >
+              {path}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -232,26 +251,6 @@ function ReasoningCard({
   );
 }
 
-function CopyButton({ text, label }: { text: string; label: string }) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = () => {
-    void navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  return (
-    <button
-      onClick={handleCopy}
-      className="inline-flex items-center gap-1 text-[11px] text-slate-400 transition hover:text-slate-600"
-    >
-      <Copy className="size-3" />
-      {copied ? "已复制" : label}
-    </button>
-  );
-}
-
 function ConfigurationWarning({
   agentName,
   baseURLIsDemo,
@@ -273,7 +272,6 @@ function ConfigurationWarning({
 export function ChatPage() {
   const agentName = resolveAgentName();
   const agentNameFromQuery = getAgentNameFromQuery();
-  const workbenchContext = loadWorkbenchContext();
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -541,12 +539,6 @@ export function ChatPage() {
     setSettingsOpen(false);
   }, []);
 
-  const handleInsertWorkbenchPath = useCallback(() => {
-    if (!workbenchContext?.selectedPath) return;
-    const prefix = draft.trim().length > 0 ? `${draft.trim()}\n` : "";
-    setDraft(`${prefix}参考路径: ${workbenchContext.selectedPath}`);
-  }, [draft, workbenchContext]);
-
   /* ─── Render ────────────────────────────────────────────── */
 
   return (
@@ -569,13 +561,6 @@ export function ChatPage() {
           </div>
         </div>
         <div className="flex items-center gap-1">
-          <a
-            href="/"
-            className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
-            title="MCP 工作台"
-          >
-            <MessageSquare className="size-5" />
-          </a>
           <button
             type="button"
             onClick={() => setSettingsOpen(true)}
@@ -603,37 +588,6 @@ export function ChatPage() {
             <p className="max-w-md text-center text-sm leading-6 text-slate-500">
               有什么可以帮您的吗？请输入您的问题，我会尽力为您解答。
             </p>
-            {workbenchContext?.selectedPath && (
-              <div className="mt-5 w-full max-w-xl rounded-xl border border-emerald-100 bg-white/80 p-4 shadow-sm">
-                <p className="text-xs font-medium tracking-[0.14em] text-emerald-600">
-                  WORKBENCH CONTEXT
-                </p>
-                <p className="mt-2 text-sm text-slate-600">
-                  当前工作台选中文件已同步到聊天页，是否引用由你决定，不会自动注入到提示词。
-                </p>
-                <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left">
-                  <p className="text-[11px] text-slate-400">已选路径</p>
-                  <code className="mt-1 block break-all text-xs text-slate-600">
-                    {workbenchContext.selectedPath}
-                  </code>
-                </div>
-                <div className="mt-3 flex flex-wrap justify-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleInsertWorkbenchPath}
-                    className="rounded-lg bg-emerald-500 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-emerald-600"
-                  >
-                    插入路径到输入框
-                  </button>
-                  <a
-                    href="/"
-                    className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50"
-                  >
-                    返回工作台
-                  </a>
-                </div>
-              </div>
-            )}
             {!isConfigured && (
               <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
                 <ConfigurationWarning
@@ -668,9 +622,7 @@ export function ChatPage() {
                     {/* Tool calls */}
                     {msg.toolCalls && msg.toolCalls.length > 0 && (
                       <div className="mb-1.5">
-                        {msg.toolCalls.map((tool) => (
-                          <ToolCallCard key={tool.id} tool={tool} />
-                        ))}
+                        <ToolActivityCard tools={msg.toolCalls} />
                       </div>
                     )}
 
@@ -719,23 +671,6 @@ export function ChatPage() {
       {/* Input */}
       <div className="border-t border-slate-100 bg-white px-4 py-3">
         <div className="mx-auto max-w-3xl">
-          {workbenchContext?.selectedPath && (
-            <div className="mb-2 flex flex-wrap items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50/70 px-3 py-2">
-              <span className="text-[11px] font-medium text-emerald-700">
-                当前工作台路径
-              </span>
-              <code className="min-w-0 flex-1 truncate text-[11px] text-slate-600">
-                {workbenchContext.selectedPath}
-              </code>
-              <button
-                type="button"
-                onClick={handleInsertWorkbenchPath}
-                className="rounded-md border border-emerald-200 px-2 py-1 text-[11px] text-emerald-700 transition-colors hover:bg-emerald-100"
-              >
-                插入到输入框
-              </button>
-            </div>
-          )}
           {!isConfigured && !empty && (
             <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
               {!agentName
