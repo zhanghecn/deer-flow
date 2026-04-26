@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fnmatch
+import html
 import json
 import mimetypes
 import os
@@ -12,11 +13,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Literal
+from urllib.parse import urlencode
 
 if TYPE_CHECKING:
     from fastapi import UploadFile
 
-from .documents import DocumentTooling
+from .documents import DOCUMENT_SEARCH_CONTENT_MAX_BYTES, DocumentTooling
 
 EMPTY_CONTENT_WARNING = "System reminder: File exists but has empty contents"
 BINARY_DOCUMENT_EXTENSIONS = {
@@ -192,12 +194,16 @@ class FileMcpService:
         cache_root: Path | None = None,
         ocr_languages: tuple[str, ...] | None = None,
         tesseract_binary: str = "tesseract",
+        public_base_url: str = "",
     ) -> None:
         self.root = root.resolve()
         self.seed_root = seed_root.resolve() if seed_root else None
         self.cache_root = (
             cache_root.resolve() if cache_root else self.root.parent / "document-cache"
         )
+        # Source links must use the browser-visible demo origin, not the
+        # container-internal MCP URL that only LangGraph can resolve.
+        self.public_base_url = public_base_url.rstrip("/")
         # Document parsing stays inside the 8084 demo service so richer document
         # semantics do not leak into the shared runtime or prompt layers.
         self.document_tools = DocumentTooling(
@@ -398,6 +404,7 @@ class FileMcpService:
             "mime_type": access.mime_type,
             "content_kind": access.kind,
             "text_readable": access.text_readable,
+            "source_url": self.source_url(relative),
         }
         return row
 
@@ -900,7 +907,7 @@ class FileMcpService:
             candidates = self._sorted_file_paths(base, recursive=True)
         else:
             raise ValueError(f"path is not a file or directory: {path}")
-        return self.document_tools.search(
+        payload = self.document_tools.search(
             files=candidates,
             pattern=effective_pattern,
             output_mode=output_mode,
@@ -916,6 +923,7 @@ class FileMcpService:
             offset=offset,
             multiline=False,
         )
+        return self._with_search_source_urls(payload)
 
     def document_read_payload(
         self,
@@ -939,7 +947,7 @@ class FileMcpService:
             safe_limit = max(limit, 1)
             locator_before = min(1, safe_limit - 1)
             locator_after = max(safe_limit - locator_before - 1, 0)
-        return self.document_tools.read(
+        payload = self.document_tools.read(
             file_path=requested_file,
             cursor=offset,
             limit=limit,
@@ -947,6 +955,7 @@ class FileMcpService:
             before=locator_before,
             after=locator_after,
         )
+        return self._with_read_source_url(payload)
 
     def document_fetch_asset_payload(
         self,
@@ -960,10 +969,12 @@ class FileMcpService:
             requested_file = self._resolve_existing_path(path)
             if not requested_file.is_file():
                 raise ValueError(f"path is not a file: {path}")
-            return self.document_tools.fetch_asset(
+            payload = self.document_tools.fetch_asset(
                 file_path=requested_file,
                 asset_ref=asset_ref,
             )
+            payload["source_url"] = self.source_url(payload["path"])
+            return payload
         except (FileNotFoundError, ValueError) as exc:
             # Invalid asset refs are model-recoverable tool results. Returning
             # a structured error keeps one bad visual fetch from terminating the
@@ -1064,6 +1075,115 @@ class FileMcpService:
             "tool_catalog": build_tool_catalog(),
         }
 
+    def source_url(
+        self,
+        path: str,
+        *,
+        locator: str | int | None = None,
+        locator_type: str | None = None,
+    ) -> str:
+        """Return a browser-visible URL for the original uploaded source file."""
+
+        query = urlencode({"path": path})
+        url = f"{self.public_base_url}/api/files/source?{query}"
+        if locator is not None and str(locator).strip():
+            if locator_type == "page":
+                return f"{url}#page={locator}"
+            return f"{url}&{urlencode({'locator': str(locator)})}"
+        return url
+
+    def source_file_path(self, path: str) -> Path:
+        """Resolve one uploaded source for the public clickable source endpoint."""
+
+        requested_file = self._resolve_existing_path(path)
+        if not requested_file.is_file():
+            raise ValueError(f"path is not a file: {path}")
+        return requested_file
+
+    def _with_search_source_urls(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Attach compact source links to grep results without duplicating content."""
+
+        source_links: dict[tuple[str, str | None, str | None], dict[str, str]] = {}
+        mode = str(payload.get("mode") or payload.get("output_mode") or "")
+
+        for match in payload.get("matches") or []:
+            if not isinstance(match, dict):
+                continue
+            path = match.get("path")
+            if not isinstance(path, str):
+                continue
+            if mode == "content":
+                # Content-mode grep output is already capped near the model
+                # context budget. Link by file only here; `document_read`
+                # returns the precise locator URL after the agent narrows.
+                source_links[(path, None, None)] = {
+                    "path": path,
+                    "source_url": self.source_url(path),
+                }
+                continue
+            locator = match.get("locator")
+            locator_text = None if locator is None else str(locator)
+            locator_type = str(match.get("locator_type") or "")
+            source_links[(path, locator_text, locator_type)] = {
+                "path": path,
+                "locator": locator_text or "",
+                "locator_type": locator_type,
+                "source_url": self.source_url(
+                    path,
+                    locator=locator,
+                    locator_type=locator_type,
+                ),
+            }
+
+        for count in payload.get("counts") or []:
+            if isinstance(count, dict) and isinstance(count.get("path"), str):
+                path = count["path"]
+                source_links[(path, None, None)] = {
+                    "path": path,
+                    "source_url": self.source_url(path),
+                }
+
+        filenames = payload.get("filenames")
+        if isinstance(filenames, list):
+            for path in filenames:
+                if isinstance(path, str):
+                    source_links[(path, None, None)] = {
+                        "path": path,
+                        "source_url": self.source_url(path),
+                    }
+        if source_links:
+            payload["source_links"] = list(source_links.values())
+        if (
+            mode == "content"
+            and "source_links" in payload
+            and len(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+            > DOCUMENT_SEARCH_CONTENT_MAX_BYTES
+        ):
+            # Search content has a strict context budget. If links alone push a
+            # broad grep over the cap, keep the match locators and let the next
+            # `document_read` provide the precise clickable source.
+            payload.pop("source_links", None)
+        return payload
+
+    def _with_read_source_url(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Expose a clickable source and mirror it into the text-first read body."""
+
+        path = str(payload.get("path") or "")
+        if not path:
+            return payload
+        locator_type = str(payload.get("locator_type") or "")
+        locator = payload.get("locator")
+        if locator is None and locator_type == "page":
+            locator = int(payload.get("offset") or 0) + 1
+        source_url = self.source_url(path, locator=locator, locator_type=locator_type)
+        payload["source_url"] = source_url
+
+        content = payload.get("content")
+        if isinstance(content, str) and content.startswith("<document "):
+            escaped = html.escape(source_url, quote=True)
+            payload["content"] = content.replace("<document ", f'<document source_url="{escaped}" ', 1)
+        return payload
+
     def tool_payload_json(self, payload: dict[str, Any]) -> str:
         """Serialize MCP tool payloads with UTF-8 preserved for Chinese content."""
 
@@ -1081,6 +1201,10 @@ def build_workbench_service_from_env() -> FileMcpService:
     )
     seed_value = os.getenv("MCP_WORKBENCH_SEED_DIR", "").strip()
     cache_value = os.getenv("MCP_WORKBENCH_CACHE_DIR", "").strip()
+    public_base_url = (
+        os.getenv("MCP_WORKBENCH_PUBLIC_BASE_URL", "").strip()
+        or f"http://127.0.0.1:{os.getenv('MCP_WORKBENCH_PORT', '8090').strip() or '8090'}"
+    )
     ocr_languages = tuple(
         item.strip()
         for item in os.getenv("MCP_WORKBENCH_OCR_LANGUAGES", "eng,chi_sim").split(",")
@@ -1093,4 +1217,5 @@ def build_workbench_service_from_env() -> FileMcpService:
         cache_root=Path(cache_value) if cache_value else None,
         ocr_languages=ocr_languages,
         tesseract_binary=tesseract_binary,
+        public_base_url=public_base_url,
     )

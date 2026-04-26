@@ -115,7 +115,11 @@ class FileMcpServiceTest(unittest.TestCase):
             "血光 之灾\n顺遂 发展\n",
             encoding="utf-8",
         )
-        self.service = FileMcpService(self.root, ocr_languages=("eng",))
+        self.service = FileMcpService(
+            self.root,
+            ocr_languages=("eng",),
+            public_base_url="http://127.0.0.1:8084",
+        )
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
@@ -543,6 +547,11 @@ class FileMcpServiceTest(unittest.TestCase):
         self.assertTrue(payload["has_more"])
         self.assertEqual(payload["next_offset"], 1)
         self.assertFalse(payload["contains_visual"])
+        self.assertEqual(
+            payload["source_url"],
+            "http://127.0.0.1:8084/api/files/source?path=nested%2Fcontracts%2Fpolicy-alpha.pdf#page=1",
+        )
+        self.assertIn('source_url="http://127.0.0.1:8084/api/files/source?path=nested%2Fcontracts%2Fpolicy-alpha.pdf#page=1"', payload["content"])
         self.assertIn('<page n="1">', payload["content"])
         self.assertIn("Deductible is 500 USD", payload["content"])
 
@@ -603,12 +612,20 @@ class FileMcpServiceTest(unittest.TestCase):
             head_limit=1,
         )
         read_args = search_payload["matches"][0]["read_args"]
+        self.assertEqual(
+            search_payload["source_links"][0]["source_url"],
+            "http://127.0.0.1:8084/api/files/source?path=cases%2Fsections.md",
+        )
         read_payload = self.service.document_read_payload(
             **read_args,
             limit=4,
         )
 
         self.assertEqual(read_payload["locator"], "4")
+        self.assertEqual(
+            read_payload["source_url"],
+            "http://127.0.0.1:8084/api/files/source?path=cases%2Fsections.md&locator=4",
+        )
         self.assertEqual(read_payload["matched_offset"], 3)
         rendered = read_payload["content"]
         self.assertIn("案例二 header", rendered)

@@ -14,6 +14,7 @@ from urllib import request as urllib_request
 from fastapi import Body, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from mcp.server.fastmcp import FastMCP
+from starlette.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
 
 from .service import build_workbench_service_from_env
@@ -474,6 +475,21 @@ async def read_uploaded_file(
 
     try:
         return service.preview_file_payload(path=path, page=page, page_size=page_size)
+    except Exception as exc:  # noqa: BLE001 - convert workbench errors into API details
+        raise _translate_error(exc) from exc
+
+
+@app.get("/api/files/source")
+async def open_uploaded_source(path: str = Query(...)) -> FileResponse:
+    """Serve one original uploaded source file for citation links."""
+
+    try:
+        file_path = service.source_file_path(path)
+        return FileResponse(
+            file_path,
+            media_type=service._describe_file_content_access(file_path).mime_type,
+            filename=file_path.name,
+        )
     except Exception as exc:  # noqa: BLE001 - convert workbench errors into API details
         raise _translate_error(exc) from exc
 

@@ -167,6 +167,11 @@ const DOCUMENT_PATH_ARRAY_KEYS = new Set([
   "assets",
 ]);
 
+type SourceLink = {
+  path: string;
+  url: string;
+};
+
 function looksLikeKnowledgePath(value: string) {
   const trimmed = value.trim();
   if (!trimmed || /^https?:\/\//i.test(trimmed)) return false;
@@ -214,6 +219,49 @@ function collectPathsFromValue(
   );
 }
 
+function isSafeSourceURL(value: string) {
+  try {
+    const parsed = new URL(value, window.location.origin);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function collectSourceLinksFromValue(
+  value: unknown,
+  links: Map<string, SourceLink>,
+  parentKey?: string,
+) {
+  if (!value || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectSourceLinksFromValue(item, links, parentKey));
+    return;
+  }
+
+  const record = value as Record<string, unknown>;
+  const sourceURL =
+    typeof record.source_url === "string" && isSafeSourceURL(record.source_url)
+      ? record.source_url
+      : null;
+  if (sourceURL) {
+    const pathValue =
+      typeof record.path === "string"
+        ? record.path
+        : typeof record.file_path === "string"
+          ? record.file_path
+          : parentKey;
+    const path = pathValue?.trim();
+    if (path && looksLikeKnowledgePath(path)) {
+      links.set(path, { path, url: sourceURL });
+    }
+  }
+
+  Object.entries(record).forEach(([key, item]) =>
+    collectSourceLinksFromValue(item, links, key),
+  );
+}
+
 function getReadFilePaths(tool: ToolCallStep): string[] {
   if (
     tool.name !== "document_read" &&
@@ -232,6 +280,16 @@ function getReadFilePaths(tool: ToolCallStep): string[] {
     if (parsed) collectPathsFromValue(parsed, paths);
   });
   return Array.from(paths);
+}
+
+function getReadFileSourceLinks(tool: ToolCallStep): SourceLink[] {
+  const links = new Map<string, SourceLink>();
+  tool.output?.forEach((item) => {
+    if (!item.text) return;
+    const parsed = safeParseJSON(item.text);
+    if (parsed) collectSourceLinksFromValue(parsed, links);
+  });
+  return Array.from(links.values());
 }
 
 function getToolActivityTitle(tool: ToolCallStep, fileCount: number) {
@@ -268,6 +326,8 @@ function getToolActivityTitle(tool: ToolCallStep, fileCount: number) {
 
 function ToolActivityCard({ tool, index }: { tool: ToolCallStep; index: number }) {
   const paths = getReadFilePaths(tool);
+  const sourceLinks = getReadFileSourceLinks(tool);
+  const linksByPath = new Map(sourceLinks.map((link) => [link.path, link.url]));
 
   return (
     <div className="mb-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-left">
@@ -293,7 +353,18 @@ function ToolActivityCard({ tool, index }: { tool: ToolCallStep; index: number }
               className="truncate rounded border border-slate-100 bg-white px-2 py-1 font-mono text-[11px] text-slate-600"
               title={path}
             >
-              {path}
+              {linksByPath.has(path) ? (
+                <a
+                  href={linksByPath.get(path)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline decoration-emerald-300 underline-offset-2 hover:text-emerald-600"
+                >
+                  {path}
+                </a>
+              ) : (
+                path
+              )}
             </li>
           ))}
         </ul>

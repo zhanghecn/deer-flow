@@ -138,6 +138,17 @@ class WorkbenchMainAppTest(unittest.TestCase):
             },
         )
 
+    def test_source_endpoint_serves_uploaded_file_for_clickable_citations(self) -> None:
+        target = Path(self.temp_dir.name) / "cases" / "source.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("甲辰 clickable source", encoding="utf-8")
+
+        response = self.client.get("/api/files/source", params={"path": "cases/source.md"})
+
+        response.raise_for_status()
+        self.assertEqual(response.text, "甲辰 clickable source")
+        self.assertEqual(response.headers["content-type"].split(";")[0], "text/markdown")
+
 
 if __name__ == "__main__":
     unittest.main()

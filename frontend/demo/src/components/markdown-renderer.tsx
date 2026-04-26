@@ -150,9 +150,12 @@ const TdComponent = createStyledComponent(
 );
 
 function AComponent({ href, children }: StyledComponentProps<"a">) {
+  const safeHref =
+    href && /^(https?:\/\/|\/(?!\/))/i.test(href.trim()) ? href : undefined;
+
   return (
     <a
-      href={href}
+      href={safeHref}
       target="_blank"
       rel="noopener noreferrer"
       className="text-emerald-600 underline underline-offset-2 hover:text-emerald-700"
