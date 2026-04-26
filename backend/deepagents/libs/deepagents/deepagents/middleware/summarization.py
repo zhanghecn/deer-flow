@@ -90,8 +90,8 @@ logger = logging.getLogger(__name__)
 _FAILED_SUMMARY_PREFIX = "Error generating summary:"
 _MICROCOMPACT_CLEARED_TOOL_RESULT = "[Old tool result content cleared by context microcompact]"
 _TOOL_CALL_SUMMARY_MAX_CHARS = 240
-_SUMMARY_OVERFLOW_EXTRACTIVE_CHAR_BUDGET = 40_000
-_SUMMARY_OVERFLOW_OMISSION_MARKER = (
+_EXTRACTIVE_SUMMARY_CHAR_BUDGET = 40_000
+_EXTRACTIVE_SUMMARY_OMISSION_MARKER = (
     "\n\n[... content omitted during compaction overflow fallback: "
     "original_chars={original_chars}, omitted_chars={omitted_chars} ...]\n\n"
 )
@@ -440,22 +440,22 @@ class _DeepAgentsSummarizationMiddleware(AgentMiddleware):
         try:
             return self._create_summary_once(messages_to_summarize)
         except EmptySummaryGenerationError as exc:
-            return self._create_summary_after_summary_overflow(messages_to_summarize, exc)
+            return self._create_extractive_summary_after_unusable_summary(messages_to_summarize, exc)
         except SummaryGenerationError as exc:
             if not self._is_context_overflow_exception(exc):
                 raise
-            return self._create_summary_after_summary_overflow(messages_to_summarize, exc)
+            return self._create_extractive_summary_after_unusable_summary(messages_to_summarize, exc)
 
     async def _acreate_summary(self, messages_to_summarize: list[AnyMessage]) -> str:
         """Generate summary for the given messages (async)."""
         try:
             return await self._acreate_summary_once(messages_to_summarize)
         except EmptySummaryGenerationError as exc:
-            return await self._acreate_summary_after_summary_overflow(messages_to_summarize, exc)
+            return await self._acreate_extractive_summary_after_unusable_summary(messages_to_summarize, exc)
         except SummaryGenerationError as exc:
             if not self._is_context_overflow_exception(exc):
                 raise
-            return await self._acreate_summary_after_summary_overflow(messages_to_summarize, exc)
+            return await self._acreate_extractive_summary_after_unusable_summary(messages_to_summarize, exc)
 
     @staticmethod
     def _format_compact_summary(summary: str) -> str:
@@ -503,7 +503,7 @@ class _DeepAgentsSummarizationMiddleware(AgentMiddleware):
             raise EmptySummaryGenerationError(message)
 
     @classmethod
-    def _abbreviate_summary_content(cls, content: object, max_chars: int) -> object:
+    def _clip_summary_content(cls, content: object, max_chars: int) -> str:
         """Keep head and tail content when a single message is too large.
 
         This fallback is only used after a full-summary attempt overflows. It is
@@ -517,7 +517,7 @@ class _DeepAgentsSummarizationMiddleware(AgentMiddleware):
         text = cls._collapse_repeated_summary_text(text)
         if len(text) <= max_chars:
             return text
-        marker = cls._summary_omission_marker(len(text), len(text) - max_chars)
+        marker = cls._extractive_omission_marker(len(text), len(text) - max_chars)
         edge_chars = max(1, (max_chars - len(marker)) // 2)
         return f"{text[:edge_chars]}{marker}{text[-edge_chars:]}"
 
@@ -562,42 +562,42 @@ class _DeepAgentsSummarizationMiddleware(AgentMiddleware):
         return "".join(collapsed)
 
     @staticmethod
-    def _summary_omission_marker(original_chars: int, omitted_chars: int) -> str:
+    def _extractive_omission_marker(original_chars: int, omitted_chars: int) -> str:
         """Format a deterministic omission marker for lossy summary fallback."""
-        return _SUMMARY_OVERFLOW_OMISSION_MARKER.format(
+        return _EXTRACTIVE_SUMMARY_OMISSION_MARKER.format(
             original_chars=original_chars,
             omitted_chars=max(0, omitted_chars),
         )
 
-    def _messages_for_summary_overflow_retry(
+    def _messages_for_extractive_summary(
         self,
         messages: list[AnyMessage],
         char_budget: int,
     ) -> list[AnyMessage]:
-        """Build a bounded head+tail transcript for a failed full-summary attempt."""
+        """Build a bounded head+tail transcript for fallback summary context."""
         if not messages:
             return messages
         per_message_budget = max(200, char_budget // len(messages))
         return [
-            message.model_copy(update={"content": self._abbreviate_summary_content(message.content, per_message_budget)})
+            message.model_copy(update={"content": self._clip_summary_content(message.content, per_message_budget)})
             for message in messages
         ]
 
-    def _build_extractive_overflow_summary(
+    def _build_extractive_fallback_summary(
         self,
         messages_to_summarize: list[AnyMessage],
     ) -> str:
-        """Build a deterministic summary when even the summarizer overflows.
+        """Build deterministic continuation context when model summary is unusable.
 
-        This is intentionally extractive instead of another model call. Once the
-        provider has rejected the full compaction prompt, a smaller LLM retry can
+        This is intentionally extractive instead of another model call. Once
+        summarization is already failing or empty, a smaller LLM retry can
         hallucinate that there is no prior context. A bounded transcript excerpt
-        preserves exact user facts and tool evidence so the main agent can still
-        continue from real text.
+        preserves exact user facts and tool evidence so the main agent continues
+        from real text.
         """
-        retry_messages = self._messages_for_summary_overflow_retry(
+        retry_messages = self._messages_for_extractive_summary(
             messages_to_summarize,
-            _SUMMARY_OVERFLOW_EXTRACTIVE_CHAR_BUDGET,
+            _EXTRACTIVE_SUMMARY_CHAR_BUDGET,
         )
         transcript = get_buffer_string(retry_messages)
         return (
@@ -609,23 +609,23 @@ class _DeepAgentsSummarizationMiddleware(AgentMiddleware):
             f"{transcript}"
         )
 
-    def _create_summary_after_summary_overflow(
+    def _create_extractive_summary_after_unusable_summary(
         self,
         messages_to_summarize: list[AnyMessage],
-        overflow_exc: SummaryGenerationError,
+        reason: SummaryGenerationError,
     ) -> str:
-        """Fallback to deterministic extractive context after summary overflow."""
-        logger.warning("Falling back to extractive summary after summarizer context overflow: %s", overflow_exc)
-        return self._build_extractive_overflow_summary(messages_to_summarize)
+        """Fallback to deterministic extractive context after unusable summary."""
+        logger.warning("Falling back to extractive summary after unusable summary: %s", reason)
+        return self._build_extractive_fallback_summary(messages_to_summarize)
 
-    async def _acreate_summary_after_summary_overflow(
+    async def _acreate_extractive_summary_after_unusable_summary(
         self,
         messages_to_summarize: list[AnyMessage],
-        overflow_exc: SummaryGenerationError,
+        reason: SummaryGenerationError,
     ) -> str:
-        """Async fallback to deterministic extractive context after overflow."""
-        logger.warning("Falling back to extractive summary after async summarizer context overflow: %s", overflow_exc)
-        return self._build_extractive_overflow_summary(messages_to_summarize)
+        """Async fallback to deterministic extractive context after unusable summary."""
+        logger.warning("Falling back to extractive summary after async unusable summary: %s", reason)
+        return self._build_extractive_fallback_summary(messages_to_summarize)
 
     @staticmethod
     def _is_context_overflow_exception(exc: BaseException) -> bool:
@@ -687,7 +687,11 @@ class _DeepAgentsSummarizationMiddleware(AgentMiddleware):
             1,
             0,
         ]
-        return [count for index, count in enumerate(candidates) if 0 <= count < preserved_count and count not in candidates[:index]]
+        return [
+            count
+            for index, count in enumerate(candidates)
+            if 0 <= count < preserved_count and count not in candidates[:index]
+        ]
 
     def _build_summarization_event(
         self,
