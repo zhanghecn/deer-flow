@@ -247,6 +247,31 @@ func TestTurnCollectorSuppressesRepeatedReasoningAcrossMessageIDs(t *testing.T) 
 	}
 }
 
+func TestTurnCollectorDropsSummarizationChunks(t *testing.T) {
+	t.Parallel()
+
+	collector := newTurnCollector("turn_test")
+	events := collector.consume("messages-tuple", []any{
+		map[string]any{
+			"type": "AIMessageChunk",
+			"id":   "summary_msg",
+			"content": []any{
+				map[string]any{
+					"type":      "reasoning",
+					"reasoning": "压缩摘要内部输出，不应进入 SDK 消息流。",
+				},
+			},
+		},
+		map[string]any{
+			"lc_source": "summarization",
+		},
+	})
+
+	if len(events) != 0 {
+		t.Fatalf("expected summarization chunks to be hidden, got %#v", events)
+	}
+}
+
 func TestExtractTurnReplayBoundaryFromState(t *testing.T) {
 	t.Parallel()
 

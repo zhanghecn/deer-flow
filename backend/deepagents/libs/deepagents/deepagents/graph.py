@@ -143,6 +143,7 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
     cache: BaseCache | None = None,
     todo_enabled: bool = True,
     filesystem_enabled: bool = True,
+    summarization_model: str | BaseChatModel | None = None,
 ) -> CompiledStateGraph:
     """Create a deep agent.
 
@@ -241,11 +242,17 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
             Disable this when the caller exposes a fully explicit tool surface
             and does not want Deep Agents to add extra runtime tools behind the
             archive or UI configuration.
+        summarization_model:
+            Optional model instance used only for automatic compaction. Passing
+            a separate non-thinking model mirrors Claude Code's compact-query
+            isolation: the compact pass must produce normal text and must not
+            inherit user-visible reasoning settings from the active run model.
 
     Returns:
         A configured deep agent.
     """
     model = get_default_model() if model is None else resolve_model(model)
+    summarization_model = model if summarization_model is None else resolve_model(summarization_model)
 
     backend = backend if backend is not None else (StateBackend)
 
@@ -257,7 +264,7 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
         gp_middleware.append(FilesystemMiddleware(backend=backend))
     gp_middleware.extend(
         [
-            create_summarization_middleware(model, backend),
+            create_summarization_middleware(summarization_model, backend),
             AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
             PatchToolCallsMiddleware(),
         ]
@@ -295,7 +302,7 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
                 subagent_middleware.append(FilesystemMiddleware(backend=backend))
             subagent_middleware.extend(
                 [
-                    create_summarization_middleware(subagent_model, backend),
+                    create_summarization_middleware(summarization_model, backend),
                     AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
                     PatchToolCallsMiddleware(),
                 ]
@@ -337,7 +344,7 @@ def create_deep_agent(  # noqa: C901, PLR0912  # Complex graph assembly logic wi
         )
     deepagent_middleware.extend(
         [
-            create_summarization_middleware(model, backend),
+            create_summarization_middleware(summarization_model, backend),
             AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
             PatchToolCallsMiddleware(),
         ]

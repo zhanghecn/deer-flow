@@ -890,6 +890,11 @@ func (c *publicAPIRunCollector) consume(sourceEvent string, payload any) publicA
 		messageType := strings.ToLower(strings.TrimSpace(fmt.Sprint(record["type"])))
 		switch {
 		case strings.HasPrefix(messageType, "ai"):
+			if isSummarizationStreamRecord(record) {
+				// Hide internal compaction model chunks from the public Responses
+				// stream; consumers should only see the actual run output.
+				return publicAPIRuntimeEventRecord{}
+			}
 			if toolEvents := c.extractToolCallEventsFromMessage(record); len(toolEvents) > 0 {
 				events = append(events, toolEvents...)
 			}
@@ -2898,12 +2903,50 @@ func extractStreamMessageRecord(payload any) map[string]any {
 			if toolCalls, ok := record["tool_calls"]; ok && scoreToolCalls(toolCalls) >= scoreToolCalls(merged["tool_calls"]) {
 				merged["tool_calls"] = toolCalls
 			}
+			mergeStreamMetadata(merged, record)
 		}
 		if len(merged) > 0 {
 			return merged
 		}
 	}
 	return map[string]any{}
+}
+
+func mergeStreamMetadata(target map[string]any, record map[string]any) {
+	// LangGraph `messages-tuple` streams `[message, metadata]`. Preserve the
+	// metadata bits needed to identify internal middleware calls before the
+	// tuple is flattened into one message-like record.
+	if target == nil || record == nil {
+		return
+	}
+	if rawSource, ok := record["lc_source"]; ok {
+		if source := strings.TrimSpace(fmt.Sprint(rawSource)); source != "" && target["lc_source"] == nil {
+			target["lc_source"] = source
+		}
+	}
+	if metadata, ok := record["metadata"].(map[string]any); ok && target["metadata"] == nil {
+		target["metadata"] = metadata
+	}
+}
+
+func isSummarizationStreamRecord(record map[string]any) bool {
+	if record == nil {
+		return false
+	}
+	if strings.TrimSpace(fmt.Sprint(record["lc_source"])) == "summarization" {
+		return true
+	}
+	if metadata, ok := record["metadata"].(map[string]any); ok {
+		if strings.TrimSpace(fmt.Sprint(metadata["lc_source"])) == "summarization" {
+			return true
+		}
+	}
+	if kwargs, ok := record["additional_kwargs"].(map[string]any); ok {
+		if strings.TrimSpace(fmt.Sprint(kwargs["lc_source"])) == "summarization" {
+			return true
+		}
+	}
+	return false
 }
 
 func extractStreamValues(payload any) (map[string]any, bool) {

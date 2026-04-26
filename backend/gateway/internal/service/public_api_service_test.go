@@ -543,6 +543,31 @@ func TestPublicAPIRunCollectorExtractsTextDeltaFromMessagesEvent(t *testing.T) {
 	}
 }
 
+func TestPublicAPIRunCollectorDropsSummarizationChunks(t *testing.T) {
+	t.Parallel()
+
+	collector := newPublicAPIRunCollector(1)
+	record := collector.consume("messages-tuple", []any{
+		map[string]any{
+			"type": "AIMessageChunk",
+			"content": []any{
+				map[string]any{
+					"type": "text",
+					"text": "内部压缩摘要",
+				},
+			},
+			"tool_calls": []any{},
+		},
+		map[string]any{
+			"lc_source": "summarization",
+		},
+	})
+
+	if len(record.RunEvents) != 0 {
+		t.Fatalf("expected summarization chunks to be hidden, got %#v", record.RunEvents)
+	}
+}
+
 func TestBuildResponseRunEventsKeepsV1BudgetOrdered(t *testing.T) {
 	t.Parallel()
 

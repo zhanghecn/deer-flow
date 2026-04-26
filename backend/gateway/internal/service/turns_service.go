@@ -156,6 +156,12 @@ func (c *turnCollector) consumeMessageRecord(record map[string]any) []model.Turn
 
 func (c *turnCollector) consumeAssistantRecord(record map[string]any) []model.TurnEvent {
 	events := make([]model.TurnEvent, 0, 4)
+	if isSummarizationStreamRecord(record) {
+		// Summarization is an internal context-management model call. It may
+		// stream text/reasoning chunks, but `/v1/turns` should only expose the
+		// user-requested assistant turn.
+		return nil
+	}
 	messageID := strings.TrimSpace(fmt.Sprint(record["id"]))
 	if _, isHistorical := c.replayedMessageIDs[messageID]; isHistorical {
 		// LangGraph can replay thread history at the start of a streamed run.

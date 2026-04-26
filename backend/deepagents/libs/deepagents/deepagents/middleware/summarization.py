@@ -50,6 +50,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+import re
 import warnings
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Annotated, Any, NotRequired, cast
@@ -169,7 +170,7 @@ def _resolve_external_summarization_config(
     back to model-derived defaults.
     """
     try:
-        from src.config.summarization_config import get_summarization_config
+        from src.config.summarization_config import CLAUDE_CODE_COMPACTION_PROMPT, get_summarization_config
     except Exception:
         return None
 
@@ -207,7 +208,11 @@ def _resolve_external_summarization_config(
         "trigger": _to_context_size(getattr(config, "trigger", None)),
         "keep": _to_context_size(getattr(config, "keep", None)),
         "trim_tokens_to_summarize": getattr(config, "trim_tokens_to_summarize", None),
-        "summary_prompt": getattr(config, "summary_prompt", None),
+        # Treat YAML `summary_prompt: null` as "use the OpenAgents default",
+        # not as permission to fall back to LangChain's generic prompt. The
+        # default is intentionally Claude Code-shaped so compaction preserves
+        # exact user requests and current work across runtime restarts.
+        "summary_prompt": getattr(config, "summary_prompt", None) or CLAUDE_CODE_COMPACTION_PROMPT,
     }
     return summary_model, overrides
 
@@ -374,11 +379,26 @@ class _DeepAgentsSummarizationMiddleware(AgentMiddleware):
 
     def _create_summary(self, messages_to_summarize: list[AnyMessage]) -> str:
         """Generate summary for the given messages."""
-        return self._lc_helper._create_summary(messages_to_summarize)
+        return self._format_compact_summary(self._lc_helper._create_summary(messages_to_summarize))
 
     async def _acreate_summary(self, messages_to_summarize: list[AnyMessage]) -> str:
         """Generate summary for the given messages (async)."""
-        return await self._lc_helper._acreate_summary(messages_to_summarize)
+        return self._format_compact_summary(await self._lc_helper._acreate_summary(messages_to_summarize))
+
+    @staticmethod
+    def _format_compact_summary(summary: str) -> str:
+        """Normalize Claude Code-style compact output before reinjecting it.
+
+        The compact prompt asks the summarizer to draft in `<analysis>` and then
+        write the durable continuation context in `<summary>`. Only the summary
+        should become future agent context; keeping the scratchpad would inflate
+        tokens and can teach the main agent to expose compaction internals.
+        """
+        formatted = re.sub(r"<analysis>[\s\S]*?</analysis>", "", summary).strip()
+        match = re.search(r"<summary>([\s\S]*?)</summary>", formatted)
+        if match:
+            formatted = match.group(1).strip()
+        return re.sub(r"\n{3,}", "\n\n", formatted).strip()
 
     def _get_backend(
         self,

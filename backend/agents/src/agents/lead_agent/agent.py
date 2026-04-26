@@ -1628,6 +1628,16 @@ def _create_lead_agent(
                 max_output_tokens=request.max_output_tokens,
                 runtime_model_config=resolution.model_config,
             ),
+            # Compacting should be isolated from the active answer model's
+            # thinking/reasoning settings. Claude Code treats compaction as a
+            # separate internal query; doing the same here prevents summaries
+            # from being emitted as reasoning-only blocks and lost as empty
+            # `<summary></summary>` messages.
+            "summarization_model": create_chat_model(
+                name=resolution.model_name,
+                thinking_enabled=False,
+                runtime_model_config=resolution.model_config,
+            ),
             "tools": graph_parts.tools,
             "system_prompt": graph_parts.system_prompt,
             "middleware": graph_parts.middleware,

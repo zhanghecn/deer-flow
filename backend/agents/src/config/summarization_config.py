@@ -6,20 +6,55 @@ from pydantic import BaseModel, Field
 
 ContextSizeType = Literal["fraction", "tokens", "messages"]
 
-OPENCODE_COMPACTION_PROMPT = """You are a helpful AI assistant tasked with summarizing conversations.
+CLAUDE_CODE_COMPACTION_PROMPT = """CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.
 
-When asked to summarize, provide a detailed but concise summary of the conversation.
-Focus on information that would be helpful for continuing the conversation, including:
-- What was done
-- What is currently being worked on
-- Which files are being modified
-- What needs to be done next
-- Key user requests, constraints, or preferences that should persist
-- Important technical decisions and why they were made
+- Do NOT use Read, Bash, Grep, Glob, Edit, Write, or ANY other tool.
+- You already have all the context you need in the conversation history below.
+- Tool calls will be rejected and will waste your only turn.
+- Your entire response must be plain text: an <analysis> block followed by a <summary> block.
 
-Your summary should be comprehensive enough to provide context but concise enough to be quickly understood.
+Your task is to create a detailed summary of the conversation so far, paying close attention to the user's explicit requests and your previous actions.
+This summary should be thorough in capturing technical details, exact values, constraints, code patterns, and architectural decisions that would be essential for continuing work without losing context.
 
-Do not respond to any questions in the conversation, only output the summary."""
+Before providing your final summary, wrap your analysis in <analysis> tags to organize your thoughts and ensure you've covered all necessary points. In your analysis process:
+
+1. Chronologically analyze each message and section of the conversation. For each section thoroughly identify:
+   - The user's explicit requests and intents
+   - Your approach to addressing the user's requests
+   - Key decisions, technical concepts and code patterns
+   - Specific details like:
+     - file names
+     - identifiers
+     - URLs
+     - commands
+     - ports
+     - secret codes or test markers
+     - exact user-provided values
+     - function signatures
+     - file edits
+   - Errors that you ran into and how you fixed them
+   - Pay special attention to specific user feedback that you received, especially if the user told you to do something differently.
+2. Double-check for technical accuracy and completeness, addressing each required element thoroughly.
+3. If an earlier summary exists in the conversation, merge it with newer messages instead of replacing durable facts with only recent messages.
+
+Your summary should include the following sections:
+
+1. Primary Request and Intent: Capture all of the user's explicit requests and intents in detail.
+2. Key Technical Concepts: List all important technical concepts, technologies, frameworks, and product contracts discussed.
+3. Files and Code Sections: Enumerate specific files and code sections examined, modified, or created. Include important snippets or exact names where they are needed to continue.
+4. Errors and fixes: List all errors that occurred, how they were fixed, and any user feedback about those errors.
+5. Problem Solving: Document problems solved and any ongoing troubleshooting.
+6. All user messages: List ALL user messages that are not tool results. These are critical for preserving user feedback, changed intent, secret codes, and exact constraints.
+7. Pending Tasks: Outline pending tasks that the user explicitly asked you to work on.
+8. Current Work: Describe precisely what was being worked on immediately before this summary request, including file names, code snippets, commands, and verification state where applicable.
+9. Optional Next Step: List the next step directly related to the most recent work. If there is a next step, include direct quotes from the most recent conversation showing exactly what task was active and where it left off.
+
+Conversation history:
+{messages}
+
+Please provide your summary following this structure and ensuring precision and thoroughness.
+
+REMINDER: Do NOT call any tools. Respond with plain text only — an <analysis> block followed by a <summary> block. Tool calls will be rejected and you will fail the task."""
 
 
 class ContextSize(BaseModel):
@@ -63,8 +98,8 @@ class SummarizationConfig(BaseModel):
         description="Maximum tokens to keep when preparing messages for summarization. Pass null to skip trimming.",
     )
     summary_prompt: str | None = Field(
-        default=OPENCODE_COMPACTION_PROMPT,
-        description="Custom prompt template for generating summaries. If not provided, uses the default LangChain prompt.",
+        default=CLAUDE_CODE_COMPACTION_PROMPT,
+        description="Custom prompt template for generating summaries. The template must include {messages}.",
     )
 
 
@@ -86,4 +121,10 @@ def set_summarization_config(config: SummarizationConfig) -> None:
 def load_summarization_config_from_dict(config_dict: dict) -> None:
     """Load summarization configuration from a dictionary."""
     global _summarization_config
-    _summarization_config = SummarizationConfig(**config_dict)
+    normalized = dict(config_dict)
+    if normalized.get("summary_prompt") is None:
+        # A YAML null means "use the repo default". Keeping the key as None
+        # would bypass the Claude Code-style prompt and silently fall back to
+        # LangChain's generic compact prompt in the Deep Agents middleware.
+        normalized.pop("summary_prompt", None)
+    _summarization_config = SummarizationConfig(**normalized)
