@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock, NonCallableMagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, NonCallableMagicMock, patch
 
+import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.types import Command
 
@@ -38,7 +39,7 @@ def _make_mock_model() -> MagicMock:
     response.text = "Summary of the conversation."
     response.content = "Summary of the conversation."
     model.invoke.return_value = response
-    model.ainvoke = MagicMock(return_value=response)
+    model.ainvoke = AsyncMock(return_value=response)
     return model
 
 
@@ -166,6 +167,7 @@ class TestNotEnoughMessages:
         assert len(update_messages) == 1
         assert "Nothing to compact yet" in update_messages[0].content
 
+    @pytest.mark.anyio
     async def test_not_enough_messages_async(self) -> None:
         """Async: return Command with a 'nothing to compact' ToolMessage when cutoff is 0."""
         mw = _make_middleware()
@@ -248,6 +250,7 @@ class TestCompactSuccess:
         # old_cutoff(5) + new_cutoff(3) - 1 = 7
         assert event["cutoff_index"] == 7
 
+    @pytest.mark.anyio
     async def test_compact_success_async(self) -> None:
         """Async path should produce the same Command structure."""
         mw = _make_middleware()
@@ -373,6 +376,7 @@ class TestCompactErrorHandling:
         # Should NOT have a _summarization_event (state not modified)
         assert "_summarization_event" not in result.update
 
+    @pytest.mark.anyio
     async def test_async_summary_failure_returns_error_tool_message(self) -> None:
         """Async: LLM failure should return an error ToolMessage, not raise."""
         mw = _make_middleware()
@@ -489,6 +493,29 @@ class TestResolveBackend:
         result = mw._resolve_backend(runtime)
         assert result is resolved
         factory.assert_called_once_with(runtime)
+
+
+class TestFailedSummary:
+    """Verify compact tool failures do not poison summarization state."""
+
+    def test_stringified_summary_failure_returns_tool_error_without_state_update(self) -> None:
+        """LangChain summary error text should be treated as failure, not memory."""
+        model = _make_mock_model()
+        model.invoke.return_value.text = "Error generating summary: No generations found in stream"
+        mw = _make_middleware(model=model)
+        messages = [HumanMessage(content="keep this"), _ai_message_with_usage(100_000)]
+        runtime = _make_runtime(messages)
+
+        with (
+            patch.object(mw, "_is_eligible_for_compaction", return_value=True),
+            patch.object(mw._summarization, "_determine_cutoff_index", return_value=1),
+            patch.object(mw._summarization, "_partition_messages", side_effect=lambda m, i: (m[:i], m[i:])),
+        ):
+            result = mw._run_compact(runtime)
+
+        assert isinstance(result, Command)
+        assert "_summarization_event" not in result.update
+        assert result.update["messages"][0].content.startswith("Compaction failed:")
 
 
 class TestComputeStateCutoff:
@@ -613,6 +640,7 @@ class TestIsEligibleForCompaction:
             result = mw._run_compact(runtime)
         assert "Nothing to compact" in result.update["messages"][0].content
 
+    @pytest.mark.anyio
     async def test_under_50pct_async(self) -> None:
         """Async path: under 50% → nothing to compact."""
         mw = _make_middleware_with_trigger(("tokens", 100_000))

@@ -49,8 +49,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import uuid
 import re
+import uuid
 import warnings
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Annotated, Any, NotRequired, cast
@@ -86,6 +86,13 @@ if TYPE_CHECKING:
     from deepagents.backends.protocol import BACKEND_TYPES, BackendProtocol
 
 logger = logging.getLogger(__name__)
+
+_FAILED_SUMMARY_PREFIX = "Error generating summary:"
+
+
+class SummaryGenerationError(RuntimeError):
+    """Raised when the summarizer returned an internal failure sentinel."""
+
 
 SUMMARIZATION_SYSTEM_PROMPT = """## Compact conversation Tool `compact_conversation`
 
@@ -379,11 +386,15 @@ class _DeepAgentsSummarizationMiddleware(AgentMiddleware):
 
     def _create_summary(self, messages_to_summarize: list[AnyMessage]) -> str:
         """Generate summary for the given messages."""
-        return self._format_compact_summary(self._lc_helper._create_summary(messages_to_summarize))
+        summary = self._format_compact_summary(self._lc_helper._create_summary(messages_to_summarize))
+        self._raise_if_failed_summary(summary)
+        return summary
 
     async def _acreate_summary(self, messages_to_summarize: list[AnyMessage]) -> str:
         """Generate summary for the given messages (async)."""
-        return self._format_compact_summary(await self._lc_helper._acreate_summary(messages_to_summarize))
+        summary = self._format_compact_summary(await self._lc_helper._acreate_summary(messages_to_summarize))
+        self._raise_if_failed_summary(summary)
+        return summary
 
     @staticmethod
     def _format_compact_summary(summary: str) -> str:
@@ -399,6 +410,51 @@ class _DeepAgentsSummarizationMiddleware(AgentMiddleware):
         if match:
             formatted = match.group(1).strip()
         return re.sub(r"\n{3,}", "\n\n", formatted).strip()
+
+    @staticmethod
+    def _is_failed_summary(summary: str) -> bool:
+        """Detect LangChain's stringified summarizer failure sentinel.
+
+        LangChain's summarization helper catches model exceptions and returns a
+        plain text value instead of raising. Treating that value as durable
+        memory pollutes later turns with internal errors, so OpenAgents converts
+        the sentinel back into an exception before any summary event is written.
+        """
+        return summary.strip().startswith(_FAILED_SUMMARY_PREFIX)
+
+    @classmethod
+    def _raise_if_failed_summary(cls, summary: str) -> None:
+        """Reject summary text that represents an internal generation failure."""
+        if cls._is_failed_summary(summary):
+            raise SummaryGenerationError(summary.removeprefix(_FAILED_SUMMARY_PREFIX).strip())
+
+    def _handle_summary_generation_error(
+        self,
+        exc: SummaryGenerationError,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], ModelResponse],
+        truncated_messages: list[AnyMessage],
+    ) -> ModelResponse:
+        """Continue without mutating compaction state after summary generation fails."""
+        logger.warning(
+            "Skipping conversation summarization because summary generation failed; preserving existing context. Error: %s",
+            exc,
+        )
+        return handler(request.override(messages=truncated_messages))
+
+    async def _ahandle_summary_generation_error(
+        self,
+        exc: SummaryGenerationError,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+        truncated_messages: list[AnyMessage],
+    ) -> ModelResponse:
+        """Async variant of `_handle_summary_generation_error`."""
+        logger.warning(
+            "Skipping conversation summarization because summary generation failed; preserving existing context. Error: %s",
+            exc,
+        )
+        return await handler(request.override(messages=truncated_messages))
 
     def _get_backend(
         self,
@@ -1011,8 +1067,13 @@ A condensed summary follows:
             logger.error(msg)
             warnings.warn(msg, stacklevel=2)
 
-        # Generate summary
-        summary = self._create_summary(messages_to_summarize)
+        # Generate summary. A failed compact must never become the durable
+        # `_summarization_event`; otherwise future turns inherit internal error
+        # text as if it were user-visible conversation memory.
+        try:
+            summary = self._create_summary(messages_to_summarize)
+        except SummaryGenerationError as exc:
+            return self._handle_summary_generation_error(exc, request, handler, truncated_messages)
 
         # Build summary message with file path reference
         new_messages = self._build_new_messages_with_path(summary, file_path)
@@ -1112,7 +1173,18 @@ A condensed summary follows:
         file_path, summary = await asyncio.gather(
             self._aoffload_to_backend(backend, messages_to_summarize),
             self._acreate_summary(messages_to_summarize),
+            # Summary failures are handled below so they do not mutate compact
+            # state; backend offload helpers already convert their own failures
+            # to None.
+            return_exceptions=True,
         )
+        if isinstance(summary, SummaryGenerationError):
+            return await self._ahandle_summary_generation_error(exc=summary, request=request, handler=handler, truncated_messages=truncated_messages)
+        if isinstance(summary, BaseException):
+            raise summary
+        if isinstance(file_path, BaseException):
+            logger.warning("Exception offloading conversation history asynchronously: %s", file_path)
+            file_path = None
         if file_path is None:
             msg = "Offloading conversation history to backend failed during summarization. Older messages will not be recoverable."
             logger.error(msg)

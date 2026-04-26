@@ -5,7 +5,7 @@ import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, cast
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from langchain.agents.middleware.types import ExtendedModelResponse, ModelRequest, ModelResponse
@@ -226,6 +226,7 @@ def make_mock_model(summary_response: str = "This is a test summary.") -> MagicM
     """
     model = MagicMock()
     model.invoke.return_value = MagicMock(text=summary_response)
+    model.ainvoke = AsyncMock(return_value=MagicMock(text=summary_response))
     model._llm_type = "test-model"
     model.profile = {"max_input_tokens": 100000}
     model._get_ls_params.return_value = {"ls_provider": "test"}
@@ -352,6 +353,70 @@ class TestSummarizationMiddlewareInit:
 
 class TestOffloadingBasic:
     """Tests for basic offloading behavior."""
+
+    def test_failed_summary_does_not_update_summarization_event(self) -> None:
+        """A stringified summarizer failure must not become durable memory."""
+        backend = MockBackend()
+        mock_model = make_mock_model("Error generating summary: No generations found in stream")
+
+        middleware = SummarizationMiddleware(
+            model=mock_model,
+            backend=backend,
+            trigger=("messages", 5),
+            keep=("messages", 2),
+        )
+
+        messages = make_conversation_messages(num_old=6, num_recent=2)
+        state = cast("AgentState[Any]", {"messages": messages})
+        runtime = make_mock_runtime()
+
+        with mock_get_config():
+            result, captured_request = call_wrap_model_call(middleware, state, runtime)
+
+        assert isinstance(result, AIMessage)
+        assert captured_request is not None
+        assert captured_request.messages == messages
+
+    def test_failed_summary_preserves_prior_event_in_effective_messages(self) -> None:
+        """A later failed compaction should keep the previous valid summary active."""
+        backend = MockBackend()
+        mock_model = make_mock_model("Error generating summary: No generations found in stream")
+
+        middleware = SummarizationMiddleware(
+            model=mock_model,
+            backend=backend,
+            trigger=("messages", 5),
+            keep=("messages", 2),
+        )
+
+        prior_summary = HumanMessage(
+            content="Here is a summary of the conversation to date:\n\nEarlier valid summary.",
+            additional_kwargs={"lc_source": "summarization"},
+        )
+        messages = make_conversation_messages(num_old=6, num_recent=2)
+        state = cast(
+            "AgentState[Any]",
+            {
+                "messages": messages,
+                "_summarization_event": {
+                    "cutoff_index": 4,
+                    "summary_message": prior_summary,
+                    "file_path": "/conversation_history/test-thread-123.md",
+                },
+            },
+        )
+        runtime = make_mock_runtime()
+
+        with mock_get_config():
+            result, captured_request = call_wrap_model_call(middleware, state, runtime)
+
+        assert isinstance(result, AIMessage)
+        assert captured_request is not None
+        assert captured_request.messages[0] is prior_summary
+        assert all(
+            "Error generating summary" not in str(getattr(message, "content", ""))
+            for message in captured_request.messages
+        )
 
     def test_offload_writes_to_backend(self) -> None:
         """Test that summarization triggers a write to the backend."""
@@ -780,7 +845,7 @@ def test_system_message_counts_for_trigger_only() -> None:
 async def test_async_tools_passed_to_token_counter_for_summarization() -> None:
     backend = MockBackend()
     mock_model = make_mock_model()
-    mock_model.ainvoke = MagicMock(return_value=MagicMock(text="Async summary"))
+    mock_model.ainvoke = AsyncMock(return_value=MagicMock(text="Async summary"))
     seen = {"tools": False, "system": False}
 
     def token_counter(messages: list[BaseMessage], *, tools: list[dict[str, Any]] | None = None) -> int:
@@ -831,7 +896,7 @@ async def test_async_tools_passed_to_token_counter_for_summarization() -> None:
 async def test_async_system_message_counts_for_truncate_trigger() -> None:
     backend = MockBackend()
     mock_model = make_mock_model()
-    mock_model.ainvoke = MagicMock(return_value=MagicMock(text="Async summary"))
+    mock_model.ainvoke = AsyncMock(return_value=MagicMock(text="Async summary"))
 
     def token_counter(messages: list[BaseMessage], *, tools: list[dict[str, Any]] | None = None) -> int:
         if not any(isinstance(msg, SystemMessage) for msg in messages):
@@ -1014,7 +1079,7 @@ class TestAsyncBehavior:
         backend = MockBackend()
         mock_model = make_mock_model()
         # Mock the async create summary
-        mock_model.ainvoke = MagicMock(return_value=MagicMock(text="Async summary"))
+        mock_model.ainvoke = AsyncMock(return_value=MagicMock(text="Async summary"))
 
         middleware = SummarizationMiddleware(
             model=mock_model,
@@ -1039,7 +1104,7 @@ class TestAsyncBehavior:
         """Test that async summarization warns on backend failure but still summarizes."""
         backend = MockBackend(should_fail=True)
         mock_model = make_mock_model()
-        mock_model.ainvoke = MagicMock(return_value=MagicMock(text="Async summary"))
+        mock_model.ainvoke = AsyncMock(return_value=MagicMock(text="Async summary"))
 
         middleware = SummarizationMiddleware(
             model=mock_model,
@@ -1188,7 +1253,7 @@ class TestDownloadFilesException:
         """Test that async summarization continues when adownload_files raises."""
         backend = MockBackend(download_raises=True)
         mock_model = make_mock_model()
-        mock_model.ainvoke = MagicMock(return_value=MagicMock(text="Async summary"))
+        mock_model.ainvoke = AsyncMock(return_value=MagicMock(text="Async summary"))
 
         middleware = SummarizationMiddleware(
             model=mock_model,
@@ -1250,7 +1315,7 @@ class TestWriteEditException:
         """
         backend = MockBackend(write_raises=True)
         mock_model = make_mock_model()
-        mock_model.ainvoke = MagicMock(return_value=MagicMock(text="Async summary"))
+        mock_model.ainvoke = AsyncMock(return_value=MagicMock(text="Async summary"))
 
         middleware = SummarizationMiddleware(
             model=mock_model,
@@ -1310,7 +1375,7 @@ class TestWriteEditException:
         existing = "## Summarized at 2024-01-01T00:00:00Z\n\nHuman: Previous message\n\n"
         backend = MockBackend(existing_content=existing, write_raises=True)
         mock_model = make_mock_model()
-        mock_model.ainvoke = MagicMock(return_value=MagicMock(text="Async summary"))
+        mock_model.ainvoke = AsyncMock(return_value=MagicMock(text="Async summary"))
 
         middleware = SummarizationMiddleware(
             model=mock_model,
@@ -1393,7 +1458,7 @@ class TestCutoffIndexEdgeCases:
         """Test that async `abefore_model` returns `None` when `cutoff_index <= 0`."""
         backend = MockBackend()
         mock_model = make_mock_model()
-        mock_model.ainvoke = MagicMock(return_value=MagicMock(text="Async summary"))
+        mock_model.ainvoke = AsyncMock(return_value=MagicMock(text="Async summary"))
 
         middleware = SummarizationMiddleware(
             model=mock_model,
@@ -2293,7 +2358,7 @@ async def test_async_context_overflow_triggers_summarization() -> None:
     """Test that ContextOverflowError triggers fallback to summarization (async)."""
     backend = MockBackend()
     mock_model = make_mock_model(summary_response="Fallback summary")
-    mock_model.ainvoke = MagicMock(return_value=MagicMock(text="Async fallback summary"))
+    mock_model.ainvoke = AsyncMock(return_value=MagicMock(text="Async fallback summary"))
 
     middleware = SummarizationMiddleware(
         model=mock_model,
@@ -2518,6 +2583,7 @@ def test_usage_metadata_trigger() -> None:
     assert len(backend.write_calls) == 1
 
 
+@pytest.mark.anyio
 async def test_async_offload_and_summary_run_concurrently() -> None:
     """Verify that _aoffload_to_backend and _acreate_summary run in parallel."""
     delay = 0.1
