@@ -1,7 +1,11 @@
 package service
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,6 +16,11 @@ import (
 )
 
 const authoringVirtualPathPrefix = "/mnt/user-data/authoring"
+
+type authoringDraftSourceMetadata struct {
+	SourceFingerprint string `json:"source_fingerprint"`
+	DraftFingerprint  string `json:"draft_fingerprint"`
+}
 
 type AuthoringWorkspaceService struct {
 	fs       *storage.FS
@@ -37,9 +46,11 @@ func (s *AuthoringWorkspaceService) StageAgentDraft(threadID string, agentName s
 	// canonical archive until an explicit save action copies them back.
 	if info, err := os.Stat(draftDir); err != nil || !info.IsDir() {
 		_ = os.RemoveAll(draftDir)
-		if err := s.fs.CopyDir(sourceDir, draftDir); err != nil {
+		if err := s.copyAgentArchiveIntoDraft(sourceDir, draftDir); err != nil {
 			return "", nil, err
 		}
+	} else if err := s.refreshAgentDraftIfArchiveChanged(sourceDir, draftDir); err != nil {
+		return "", nil, err
 	}
 	return s.listDraftDirectory(threadID, draftDir)
 }
@@ -151,6 +162,52 @@ func (s *AuthoringWorkspaceService) SaveAgentDraft(threadID string, agentName st
 	return s.virtualAuthoringPath(threadID, draftDir), nil
 }
 
+func (s *AuthoringWorkspaceService) copyAgentArchiveIntoDraft(sourceDir string, draftDir string) error {
+	if err := s.fs.CopyDir(sourceDir, draftDir); err != nil {
+		return err
+	}
+	return writeAuthoringSourceMetadata(sourceDir, draftDir)
+}
+
+func (s *AuthoringWorkspaceService) refreshAgentDraftIfArchiveChanged(sourceDir string, draftDir string) error {
+	sourceFingerprint, err := fingerprintDirectory(sourceDir)
+	if err != nil {
+		return err
+	}
+	draftFingerprint, err := fingerprintDirectory(draftDir)
+	if err != nil {
+		return err
+	}
+
+	metadata, hasMetadata, err := readAuthoringSourceMetadata(draftDir)
+	if err != nil {
+		return err
+	}
+	if !hasMetadata {
+		shouldRefresh, err := legacyDraftLooksOlderThanSource(sourceDir, draftDir)
+		if err != nil {
+			return err
+		}
+		if shouldRefresh {
+			// Older authoring drafts did not record their source fingerprint, so
+			// a source-newer-than-draft mtime is the safest migration signal.
+			_ = os.RemoveAll(draftDir)
+			return s.copyAgentArchiveIntoDraft(sourceDir, draftDir)
+		}
+		return writeAuthoringSourceMetadataValues(draftDir, sourceFingerprint, draftFingerprint)
+	}
+	if metadata.SourceFingerprint == sourceFingerprint {
+		return nil
+	}
+	if metadata.DraftFingerprint != draftFingerprint {
+		// Preserve local draft edits over archive refreshes; saving remains an
+		// explicit author action, so this avoids clobbering in-progress edits.
+		return nil
+	}
+	_ = os.RemoveAll(draftDir)
+	return s.copyAgentArchiveIntoDraft(sourceDir, draftDir)
+}
+
 func (s *AuthoringWorkspaceService) SaveSkillDraft(threadID string, skillName string) (string, error) {
 	draftDir := filepath.Join(s.fs.ThreadUserDataDir(threadID), "authoring", "skills", skillName)
 	if info, err := os.Stat(draftDir); err != nil || !info.IsDir() {
@@ -228,4 +285,115 @@ func normalizeAuthoringAgentStatus(status string) string {
 		return "prod"
 	}
 	return "dev"
+}
+
+func authoringSourceMetadataPath(draftDir string) string {
+	return filepath.Join(filepath.Dir(draftDir), "."+filepath.Base(draftDir)+".source.json")
+}
+
+func readAuthoringSourceMetadata(draftDir string) (authoringDraftSourceMetadata, bool, error) {
+	data, err := os.ReadFile(authoringSourceMetadataPath(draftDir))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return authoringDraftSourceMetadata{}, false, nil
+		}
+		return authoringDraftSourceMetadata{}, false, err
+	}
+	var metadata authoringDraftSourceMetadata
+	if err := json.Unmarshal(data, &metadata); err != nil {
+		return authoringDraftSourceMetadata{}, false, err
+	}
+	return metadata, true, nil
+}
+
+func writeAuthoringSourceMetadata(sourceDir string, draftDir string) error {
+	sourceFingerprint, err := fingerprintDirectory(sourceDir)
+	if err != nil {
+		return err
+	}
+	draftFingerprint, err := fingerprintDirectory(draftDir)
+	if err != nil {
+		return err
+	}
+	return writeAuthoringSourceMetadataValues(draftDir, sourceFingerprint, draftFingerprint)
+}
+
+func writeAuthoringSourceMetadataValues(draftDir string, sourceFingerprint string, draftFingerprint string) error {
+	metadata := authoringDraftSourceMetadata{
+		SourceFingerprint: sourceFingerprint,
+		DraftFingerprint:  draftFingerprint,
+	}
+	data, err := json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(authoringSourceMetadataPath(draftDir), append(data, '\n'), 0o644)
+}
+
+func fingerprintDirectory(root string) (string, error) {
+	hash := sha256.New()
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		relativePath, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		hash.Write([]byte(filepath.ToSlash(relativePath)))
+		hash.Write([]byte{0})
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		hash.Write(data)
+		hash.Write([]byte{0})
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func legacyDraftLooksOlderThanSource(sourceDir string, draftDir string) (bool, error) {
+	sourceInfo, err := newestFileModTime(sourceDir)
+	if err != nil {
+		return false, err
+	}
+	draftInfo, err := newestFileModTime(draftDir)
+	if err != nil {
+		return false, err
+	}
+	return sourceInfo.ModTime().After(draftInfo.ModTime()), nil
+}
+
+func newestFileModTime(root string) (fs.FileInfo, error) {
+	var newest fs.FileInfo
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if newest == nil || info.ModTime().After(newest.ModTime()) {
+			newest = info
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if newest == nil {
+		return nil, fmt.Errorf("directory %q has no files", root)
+	}
+	return newest, nil
 }

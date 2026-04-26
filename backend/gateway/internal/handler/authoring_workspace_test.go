@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -72,6 +73,47 @@ func newAuthoringAuthedContext(
 	return context, recorder
 }
 
+func createAgentDraft(
+	t *testing.T,
+	handler *AuthoringWorkspaceHandler,
+	userID uuid.UUID,
+	threadID string,
+	agentName string,
+	agentStatus string,
+) {
+	t.Helper()
+	context, recorder := newAuthoringAuthedContext(
+		http.MethodPost,
+		"/api/authoring/agents/"+agentName+"/draft",
+		`{"thread_id":"`+threadID+`","agent_status":"`+agentStatus+`"}`,
+		userID,
+	)
+	context.Params = gin.Params{{Key: "name", Value: agentName}}
+
+	handler.CreateAgentDraft(context)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected draft status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func readAuthoringAgentsMD(t *testing.T, fsStore *storage.FS, threadID string, agentName string) string {
+	t.Helper()
+	path := filepath.Join(
+		fsStore.ThreadUserDataDir(threadID),
+		"authoring",
+		"agents",
+		"dev",
+		agentName,
+		"AGENTS.md",
+	)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read authoring AGENTS.md: %v", err)
+	}
+	return string(data)
+}
+
 func TestAuthoringWorkspaceHandlerCreateAgentDraftCopiesArchiveIntoThreadDraft(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
@@ -131,6 +173,144 @@ func TestAuthoringWorkspaceHandlerCreateAgentDraftCopiesArchiveIntoThreadDraft(t
 	}
 	if string(data) != "# Agent" {
 		t.Fatalf("draft AGENTS.md = %q, want %q", string(data), "# Agent")
+	}
+}
+
+func TestAuthoringWorkspaceHandlerCreateAgentDraftRefreshesCleanDraftAfterArchiveChange(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	fsStore := storage.NewFS(t.TempDir())
+	userID := uuid.New()
+	threadID := "thread-authoring"
+	seedOwnedAgentArchive(t, fsStore, "reviewer", "dev", userID.String())
+
+	handler := NewAuthoringWorkspaceHandler(
+		service.NewAuthoringWorkspaceService(fsStore),
+		fsStore,
+		&stubAuthoringThreadRepo{
+			record: &repository.ThreadRuntimeRecord{ThreadID: threadID},
+		},
+	)
+
+	createAgentDraft(t, handler, userID, threadID, "reviewer", "dev")
+	time.Sleep(10 * time.Millisecond)
+	if err := fsStore.WriteAgentFiles("reviewer", "dev", "# Agent\n\nUpdated source", map[string]interface{}{
+		"name":           "reviewer",
+		"description":    "Owned agent",
+		"status":         "dev",
+		"owner_user_id":  userID.String(),
+		"agents_md_path": "AGENTS.md",
+	}); err != nil {
+		t.Fatalf("update agent archive: %v", err)
+	}
+
+	createAgentDraft(t, handler, userID, threadID, "reviewer", "dev")
+
+	data := readAuthoringAgentsMD(t, fsStore, threadID, "reviewer")
+	if !strings.Contains(data, "Updated source") {
+		t.Fatalf("draft AGENTS.md was not refreshed from archive: %s", data)
+	}
+}
+
+func TestAuthoringWorkspaceHandlerCreateAgentDraftPreservesEditedDraftAfterArchiveChange(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	fsStore := storage.NewFS(t.TempDir())
+	userID := uuid.New()
+	threadID := "thread-authoring"
+	seedOwnedAgentArchive(t, fsStore, "reviewer", "dev", userID.String())
+
+	handler := NewAuthoringWorkspaceHandler(
+		service.NewAuthoringWorkspaceService(fsStore),
+		fsStore,
+		&stubAuthoringThreadRepo{
+			record: &repository.ThreadRuntimeRecord{ThreadID: threadID},
+		},
+	)
+
+	createAgentDraft(t, handler, userID, threadID, "reviewer", "dev")
+	writeContext, writeRecorder := newAuthoringAuthedContext(
+		http.MethodPut,
+		"/api/authoring/file",
+		`{"thread_id":"`+threadID+`","path":"/mnt/user-data/authoring/agents/dev/reviewer/AGENTS.md","content":"# Agent\n\nLocal draft edit"}`,
+		userID,
+	)
+	handler.WriteFile(writeContext)
+	if writeRecorder.Code != http.StatusOK {
+		t.Fatalf("expected write status 200, got %d body=%s", writeRecorder.Code, writeRecorder.Body.String())
+	}
+	time.Sleep(10 * time.Millisecond)
+	if err := fsStore.WriteAgentFiles("reviewer", "dev", "# Agent\n\nUpdated source", map[string]interface{}{
+		"name":           "reviewer",
+		"description":    "Owned agent",
+		"status":         "dev",
+		"owner_user_id":  userID.String(),
+		"agents_md_path": "AGENTS.md",
+	}); err != nil {
+		t.Fatalf("update agent archive: %v", err)
+	}
+
+	createAgentDraft(t, handler, userID, threadID, "reviewer", "dev")
+
+	data := readAuthoringAgentsMD(t, fsStore, threadID, "reviewer")
+	if !strings.Contains(data, "Local draft edit") {
+		t.Fatalf("draft AGENTS.md did not preserve local edit: %s", data)
+	}
+	if strings.Contains(data, "Updated source") {
+		t.Fatalf("edited draft was unexpectedly overwritten by archive: %s", data)
+	}
+}
+
+func TestAuthoringWorkspaceHandlerCreateAgentDraftMigratesLegacyStaleDraft(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	fsStore := storage.NewFS(t.TempDir())
+	userID := uuid.New()
+	threadID := "thread-authoring"
+	seedOwnedAgentArchive(t, fsStore, "reviewer", "dev", userID.String())
+
+	draftDir := filepath.Join(
+		fsStore.ThreadUserDataDir(threadID),
+		"authoring",
+		"agents",
+		"dev",
+		"reviewer",
+	)
+	if err := fsStore.CopyDir(fsStore.AgentDir("reviewer", "dev"), draftDir); err != nil {
+		t.Fatalf("seed legacy draft: %v", err)
+	}
+	oldTime := time.Now().Add(-time.Hour)
+	for _, name := range []string{"AGENTS.md", "config.yaml"} {
+		if err := os.Chtimes(filepath.Join(draftDir, name), oldTime, oldTime); err != nil {
+			t.Fatalf("age legacy draft file %s: %v", name, err)
+		}
+	}
+	if err := fsStore.WriteAgentFiles("reviewer", "dev", "# Agent\n\nUpdated source", map[string]interface{}{
+		"name":           "reviewer",
+		"description":    "Owned agent",
+		"status":         "dev",
+		"owner_user_id":  userID.String(),
+		"agents_md_path": "AGENTS.md",
+	}); err != nil {
+		t.Fatalf("update agent archive: %v", err)
+	}
+
+	handler := NewAuthoringWorkspaceHandler(
+		service.NewAuthoringWorkspaceService(fsStore),
+		fsStore,
+		&stubAuthoringThreadRepo{
+			record: &repository.ThreadRuntimeRecord{ThreadID: threadID},
+		},
+	)
+
+	createAgentDraft(t, handler, userID, threadID, "reviewer", "dev")
+
+	data := readAuthoringAgentsMD(t, fsStore, threadID, "reviewer")
+	if !strings.Contains(data, "Updated source") {
+		t.Fatalf("legacy stale draft was not migrated to archive content: %s", data)
 	}
 }
 
