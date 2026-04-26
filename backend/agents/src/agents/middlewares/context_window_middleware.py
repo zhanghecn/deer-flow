@@ -69,6 +69,11 @@ class ContextWindowMiddleware(AgentMiddleware[ContextWindowMiddlewareState]):
             request.system_message,
             request.tools,
         )
+        microcompacted_messages, microcompact_applied, microcompact_stats = helper._compact_old_tool_results(
+            pre_summary_messages,
+            request.system_message,
+            request.tools,
+        )
 
         active_messages = list(request.messages)
         # A freshly applied summary appears as a synthetic first HumanMessage. Compare it
@@ -92,6 +97,15 @@ class ContextWindowMiddleware(AgentMiddleware[ContextWindowMiddlewareState]):
             active_messages,
             system_message=request.system_message,
             tools=request.tools,
+        )
+        microcompacted_tokens = (
+            _count_tokens(
+                microcompacted_messages,
+                system_message=request.system_message,
+                tools=request.tools,
+            )
+            if microcompact_applied
+            else None
         )
         max_input_tokens = _resolve_max_input_tokens(request.model)
 
@@ -172,12 +186,20 @@ class ContextWindowMiddleware(AgentMiddleware[ContextWindowMiddlewareState]):
 
         snapshot |= {
             "approx_input_tokens": active_tokens,
+            "approx_input_tokens_after_microcompact": microcompacted_tokens,
             "usage_ratio": _usage_ratio(active_tokens, max_input_tokens),
+            "usage_ratio_after_microcompact": _usage_ratio(microcompacted_tokens, max_input_tokens)
+            if microcompacted_tokens is not None
+            else None,
             "effective_message_count": active_count,
             "triggered": triggered,
             "summary_applied": False,
             "summary_count": summary_count or None,
             "last_summary": last_summary,
+            "microcompact_applied": microcompact_applied or None,
+            "microcompacted_tool_result_count": microcompact_stats["compacted_count"] or None,
+            "microcompact_original_chars": microcompact_stats["original_chars"] or None,
+            "microcompact_compacted_chars": microcompact_stats["compacted_chars"] or None,
         }
         return _to_context_window_state(snapshot)
 

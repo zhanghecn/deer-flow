@@ -1976,6 +1976,179 @@ def test_truncate_without_summarization() -> None:
     assert first_ai_msg.tool_calls[0]["args"]["content"] == "x" * 20 + "...(argument truncated)"
 
 
+def test_microcompact_clears_old_large_tool_result_without_breaking_pairing() -> None:
+    """Old bulky tool results should be cleared while IDs and calls survive."""
+    backend = MockBackend()
+    mock_model = make_mock_model()
+
+    middleware = SummarizationMiddleware(
+        model=mock_model,
+        backend=backend,
+        trigger=("messages", 100),
+        truncate_args_settings={
+            "trigger": ("messages", 5),
+            "keep": ("messages", 2),
+            "max_length": 100,
+            "tool_result_max_length": 80,
+        },
+    )
+
+    large_result = "甲辰案例检索结果\n" + ("详细段落 " * 80)
+    messages = [
+        HumanMessage(content="Search the KB", id="h1"),
+        AIMessage(
+            content="Searching.",
+            id="a1",
+            tool_calls=[
+                {
+                    "id": "tc-doc-search",
+                    "name": "document_search",
+                    "args": {"pattern": "甲辰", "path": "八字案例集合"},
+                }
+            ],
+        ),
+        ToolMessage(
+            content=large_result,
+            name="document_search",
+            tool_call_id="tc-doc-search",
+            id="t1",
+        ),
+        HumanMessage(content="Next question", id="h2"),
+        AIMessage(content="Answer", id="a2"),
+        HumanMessage(content="Continue", id="h3"),
+    ]
+
+    result, modified_request = call_wrap_model_call(middleware, {"messages": messages}, make_mock_runtime())
+
+    assert isinstance(result, AIMessage)
+    assert modified_request is not None
+    tool_result = modified_request.messages[2]
+    assert isinstance(tool_result, ToolMessage)
+    assert tool_result.tool_call_id == "tc-doc-search"
+    assert tool_result.name == "document_search"
+    assert "Old tool result content cleared" in str(tool_result.content)
+    assert "original_chars:" in str(tool_result.content)
+    assert "甲辰案例检索结果" not in str(tool_result.content)
+    assert modified_request.messages[1].tool_calls[0]["id"] == "tc-doc-search"
+
+
+def test_microcompact_keeps_recent_large_tool_result_intact() -> None:
+    """The recent keep window remains literal so the model can finish the active step."""
+    backend = MockBackend()
+    mock_model = make_mock_model()
+
+    middleware = SummarizationMiddleware(
+        model=mock_model,
+        backend=backend,
+        trigger=("messages", 100),
+        truncate_args_settings={
+            "trigger": ("messages", 5),
+            "keep": ("messages", 4),
+            "max_length": 100,
+            "tool_result_max_length": 80,
+        },
+    )
+
+    recent_result = "Final document_read evidence " + ("important " * 40)
+    messages = [
+        HumanMessage(content="Earlier", id="h1"),
+        AIMessage(content="Earlier answer", id="a1"),
+        AIMessage(
+            content="Reading.",
+            id="a2",
+            tool_calls=[{"id": "tc-read", "name": "document_read", "args": {"path": "cases.md"}}],
+        ),
+        ToolMessage(content=recent_result, name="document_read", tool_call_id="tc-read", id="t1"),
+        HumanMessage(content="Use that evidence", id="h2"),
+        AIMessage(content="Working", id="a3"),
+    ]
+
+    _, modified_request = call_wrap_model_call(middleware, {"messages": messages}, make_mock_runtime())
+
+    assert modified_request is not None
+    tool_result = modified_request.messages[3]
+    assert isinstance(tool_result, ToolMessage)
+    assert tool_result.content == recent_result
+
+
+def test_microcompact_does_not_clear_tool_results_before_formal_summary() -> None:
+    """Formal compaction must summarize the original evidence, not cleared markers."""
+    backend = MockBackend()
+    mock_model = make_mock_model(summary_response="Summary based on original evidence")
+
+    middleware = SummarizationMiddleware(
+        model=mock_model,
+        backend=backend,
+        trigger=("messages", 5),
+        keep=("messages", 2),
+        truncate_args_settings={
+            "trigger": ("messages", 5),
+            "keep": ("messages", 2),
+            "max_length": 100,
+            "tool_result_max_length": 80,
+        },
+    )
+
+    large_result = "ORIGINAL_EVIDENCE " + ("甲辰 " * 100)
+    messages = [
+        HumanMessage(content="Find cases", id="h1"),
+        AIMessage(
+            content="Searching.",
+            id="a1",
+            tool_calls=[{"id": "tc-search", "name": "document_search", "args": {"pattern": "甲辰"}}],
+        ),
+        ToolMessage(content=large_result, name="document_search", tool_call_id="tc-search", id="t1"),
+        HumanMessage(content="Question 2", id="h2"),
+        AIMessage(content="Answer 2", id="a2"),
+        HumanMessage(content="Question 3", id="h3"),
+    ]
+
+    result, modified_request = call_wrap_model_call(middleware, {"messages": messages}, make_mock_runtime())
+
+    assert isinstance(result, ExtendedModelResponse)
+    assert modified_request is not None
+    assert len(backend.write_calls) == 1
+    assert "ORIGINAL_EVIDENCE" in backend.write_calls[0][1]
+    assert "Old tool result content cleared" not in backend.write_calls[0][1]
+
+
+@pytest.mark.anyio
+async def test_microcompact_async_clears_old_large_tool_result() -> None:
+    """Async model calls use the same old-tool-result clearing path."""
+    backend = MockBackend()
+    mock_model = make_mock_model()
+
+    middleware = SummarizationMiddleware(
+        model=mock_model,
+        backend=backend,
+        trigger=("messages", 100),
+        truncate_args_settings={
+            "trigger": ("messages", 5),
+            "keep": ("messages", 2),
+            "max_length": 100,
+            "tool_result_max_length": 80,
+        },
+    )
+
+    messages = [
+        AIMessage(
+            content="Searching.",
+            id="a1",
+            tool_calls=[{"id": "tc-async", "name": "document_search", "args": {"pattern": "甲辰"}}],
+        ),
+        ToolMessage(content="result " * 100, name="document_search", tool_call_id="tc-async", id="t1"),
+        HumanMessage(content="Request 1", id="h1"),
+        AIMessage(content="Response 1", id="a2"),
+        HumanMessage(content="Request 2", id="h2"),
+        AIMessage(content="Response 2", id="a3"),
+    ]
+
+    _, modified_request = await call_awrap_model_call(middleware, {"messages": messages}, make_mock_runtime())
+
+    assert modified_request is not None
+    assert "Old tool result content cleared" in str(modified_request.messages[1].content)
+
+
 def test_truncate_preserves_small_arguments() -> None:
     """Test that small arguments are not truncated even in old messages."""
     backend = MockBackend()

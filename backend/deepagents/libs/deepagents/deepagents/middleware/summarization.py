@@ -48,6 +48,7 @@ lo of all evicted messages.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import uuid
@@ -88,6 +89,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _FAILED_SUMMARY_PREFIX = "Error generating summary:"
+_MICROCOMPACT_CLEARED_TOOL_RESULT = "[Old tool result content cleared by context microcompact]"
+_TOOL_CALL_SUMMARY_MAX_CHARS = 240
 
 
 class SummaryGenerationError(RuntimeError):
@@ -119,12 +122,14 @@ class SummarizationEvent(TypedDict):
 
 
 class TruncateArgsSettings(TypedDict, total=False):
-    """Settings for truncating large tool-call arguments in older messages.
+    """Settings for trimming large tool context in older messages.
 
     This is a lightweight, pre-summarization optimization that fires at a lower
-    token threshold than full conversation compaction. When triggered, only the
-    `args` values on `AIMessage.tool_calls` in messages *before* the keep window
-    are shortened — recent messages are left intact.
+    token threshold than full conversation compaction. When triggered, large
+    `args` values on old `AIMessage.tool_calls` can be shortened. Separately,
+    old `ToolMessage` content can be replaced with a small marker while keeping
+    the tool-use/result pair intact, which mirrors Claude Code's microcompact
+    strategy for long-lived tool transcripts.
 
     Typical large arguments include `write_file` content, `edit_file` patches,
     and verbose `execute` outputs.
@@ -140,12 +145,25 @@ class TruncateArgsSettings(TypedDict, total=False):
         max_length: Character limit per argument value before it is clipped.
         truncation_text: Replacement suffix appended after the first 20
             characters of a truncated argument.
+        tool_result_max_length: Character limit for old tool result content.
+        tool_result_truncation_text: Marker used when clearing old tool result
+            content.
     """
 
     trigger: ContextSize | None
     keep: ContextSize
     max_length: int
     truncation_text: str
+    tool_result_max_length: int
+    tool_result_truncation_text: str
+
+
+class ToolResultCompactionStats(TypedDict):
+    """Counters returned when old tool results are cleared from a prompt."""
+
+    compacted_count: int
+    original_chars: int
+    compacted_chars: int
 
 
 class SummarizationState(AgentState):
@@ -347,11 +365,18 @@ class _DeepAgentsSummarizationMiddleware(AgentMiddleware):
             self._truncate_args_keep: ContextSize = ("messages", 20)
             self._max_arg_length = 2000
             self._truncation_text = "...(argument truncated)"
+            self._max_tool_result_length = 4000
+            self._tool_result_truncation_text = _MICROCOMPACT_CLEARED_TOOL_RESULT
         else:
             self._truncate_args_trigger = truncate_args_settings.get("trigger")
             self._truncate_args_keep = truncate_args_settings.get("keep", ("messages", 20))
             self._max_arg_length = truncate_args_settings.get("max_length", 2000)
             self._truncation_text = truncate_args_settings.get("truncation_text", "...(argument truncated)")
+            self._max_tool_result_length = truncate_args_settings.get("tool_result_max_length", 4000)
+            self._tool_result_truncation_text = truncate_args_settings.get(
+                "tool_result_truncation_text",
+                _MICROCOMPACT_CLEARED_TOOL_RESULT,
+            )
 
     # Delegated properties and methods from langchain helper
     @property
@@ -839,6 +864,116 @@ A condensed summary follows:
 
         return truncated_messages, modified
 
+    @staticmethod
+    def _message_text_length(content: object) -> int:
+        """Measure model-facing content size without assuming a string payload."""
+        if isinstance(content, str):
+            return len(content)
+        try:
+            return len(json.dumps(content, ensure_ascii=False, default=str))
+        except TypeError:
+            return len(str(content))
+
+    @staticmethod
+    def _collect_tool_call_summaries(messages: list[AnyMessage]) -> dict[str, str]:
+        """Index tool call labels by id so cleared results keep useful breadcrumbs."""
+        summaries: dict[str, str] = {}
+        for msg in messages:
+            if not isinstance(msg, AIMessage) or not msg.tool_calls:
+                continue
+            for tool_call in msg.tool_calls:
+                tool_call_id = tool_call.get("id")
+                if not isinstance(tool_call_id, str) or not tool_call_id:
+                    continue
+                tool_name = str(tool_call.get("name") or "tool")
+                args = tool_call.get("args")
+                try:
+                    args_text = json.dumps(args, ensure_ascii=False, default=str, sort_keys=True)
+                except TypeError:
+                    args_text = str(args)
+                if len(args_text) > _TOOL_CALL_SUMMARY_MAX_CHARS:
+                    args_text = f"{args_text[:_TOOL_CALL_SUMMARY_MAX_CHARS]}..."
+                summaries[tool_call_id] = f"{tool_name}({args_text})"
+        return summaries
+
+    def _build_cleared_tool_result_content(
+        self,
+        msg: ToolMessage,
+        *,
+        original_chars: int,
+        tool_call_summary: str | None,
+    ) -> str:
+        """Return the compact marker that replaces stale bulky tool output."""
+        tool_label = msg.name or tool_call_summary or "tool"
+        detail_lines = [
+            self._tool_result_truncation_text,
+            f"tool: {tool_label}",
+            f"tool_call_id: {msg.tool_call_id}",
+            f"original_chars: {original_chars}",
+            "Re-run the tool with narrower arguments if this older output is needed again.",
+        ]
+        if tool_call_summary and tool_call_summary != tool_label:
+            detail_lines.insert(2, f"call: {tool_call_summary}")
+        return "\n".join(detail_lines)
+
+    def _compact_old_tool_results(
+        self,
+        messages: list[AnyMessage],
+        system_message: SystemMessage | None,
+        tools: list[BaseTool | dict[str, Any]] | None,
+    ) -> tuple[list[AnyMessage], bool, ToolResultCompactionStats]:
+        """Clear large old tool result bodies while preserving tool pairing.
+
+        Claude Code's microcompact path removes old bulky tool results without
+        removing the surrounding tool-use/result structure. We do the same with
+        LangChain `ToolMessage`s: only messages before the keep cutoff are
+        eligible, recent results remain intact, and the `tool_call_id` stays
+        unchanged so provider message invariants are preserved.
+        """
+        stats: ToolResultCompactionStats = {
+            "compacted_count": 0,
+            "original_chars": 0,
+            "compacted_chars": 0,
+        }
+        counted_messages = [system_message, *messages] if system_message is not None else messages
+        try:
+            total_tokens = self.token_counter(counted_messages, tools=tools)  # ty: ignore[unknown-argument]
+        except TypeError:
+            total_tokens = self.token_counter(counted_messages)
+        if not self._should_truncate_args(messages, total_tokens):
+            return messages, False, stats
+
+        cutoff_index = self._determine_truncate_cutoff_index(messages)
+        if cutoff_index >= len(messages):
+            return messages, False, stats
+
+        tool_call_summaries = self._collect_tool_call_summaries(messages)
+        compacted_messages: list[AnyMessage] = []
+        modified = False
+        for index, msg in enumerate(messages):
+            if index >= cutoff_index or not isinstance(msg, ToolMessage):
+                compacted_messages.append(msg)
+                continue
+
+            original_chars = self._message_text_length(msg.content)
+            if original_chars <= self._max_tool_result_length:
+                compacted_messages.append(msg)
+                continue
+
+            replacement = self._build_cleared_tool_result_content(
+                msg,
+                original_chars=original_chars,
+                tool_call_summary=tool_call_summaries.get(msg.tool_call_id),
+            )
+            compacted_msg = msg.model_copy(update={"content": replacement})
+            compacted_messages.append(compacted_msg)
+            modified = True
+            stats["compacted_count"] += 1
+            stats["original_chars"] += original_chars
+            stats["compacted_chars"] += len(replacement)
+
+        return compacted_messages, modified, stats
+
     def _offload_to_backend(
         self,
         backend: BackendProtocol,
@@ -1042,10 +1177,18 @@ A condensed summary follows:
             total_tokens = self.token_counter(counted_messages)
         should_summarize = self._should_summarize(truncated_messages, total_tokens)
 
-        # If no summarization needed, return with truncated messages
+        # If no summarization is needed, use microcompact to clear stale bulky
+        # tool outputs before the main model call. When summarization *is*
+        # needed, leave tool results intact so the compact summary can still
+        # extract the important facts from the original evidence.
         if not should_summarize:
+            microcompacted_messages, _, _ = self._compact_old_tool_results(
+                truncated_messages,
+                request.system_message,
+                request.tools,
+            )
             try:
-                return handler(request.override(messages=truncated_messages))
+                return handler(request.override(messages=microcompacted_messages))
             except ContextOverflowError:
                 pass
                 # Fallback to summarization on context overflow
@@ -1053,8 +1196,14 @@ A condensed summary follows:
         # Step 3: Perform summarization
         cutoff_index = self._determine_cutoff_index(truncated_messages)
         if cutoff_index <= 0:
-            # Can't summarize, return truncated messages
-            return handler(request.override(messages=truncated_messages))
+            # Can't summarize, so still microcompact old tool output before the
+            # final attempt to avoid retrying the same oversized prompt.
+            microcompacted_messages, _, _ = self._compact_old_tool_results(
+                truncated_messages,
+                request.system_message,
+                request.tools,
+            )
+            return handler(request.override(messages=microcompacted_messages))
 
         messages_to_summarize, preserved_messages = self._partition_messages(truncated_messages, cutoff_index)
 
@@ -1151,10 +1300,18 @@ A condensed summary follows:
             total_tokens = self.token_counter(counted_messages)
         should_summarize = self._should_summarize(truncated_messages, total_tokens)
 
-        # If no summarization needed, return with truncated messages
+        # If no summarization is needed, use microcompact to clear stale bulky
+        # tool outputs before the main model call. When summarization *is*
+        # needed, leave tool results intact so the compact summary can still
+        # extract the important facts from the original evidence.
         if not should_summarize:
+            microcompacted_messages, _, _ = self._compact_old_tool_results(
+                truncated_messages,
+                request.system_message,
+                request.tools,
+            )
             try:
-                return await handler(request.override(messages=truncated_messages))
+                return await handler(request.override(messages=microcompacted_messages))
             except ContextOverflowError:
                 pass
                 # Fallback to summarization on context overflow
@@ -1162,8 +1319,14 @@ A condensed summary follows:
         # Step 3: Perform summarization
         cutoff_index = self._determine_cutoff_index(truncated_messages)
         if cutoff_index <= 0:
-            # Can't summarize, return truncated messages
-            return await handler(request.override(messages=truncated_messages))
+            # Can't summarize, so still microcompact old tool output before the
+            # final attempt to avoid retrying the same oversized prompt.
+            microcompacted_messages, _, _ = self._compact_old_tool_results(
+                truncated_messages,
+                request.system_message,
+                request.tools,
+            )
+            return await handler(request.override(messages=microcompacted_messages))
 
         messages_to_summarize, preserved_messages = self._partition_messages(truncated_messages, cutoff_index)
 

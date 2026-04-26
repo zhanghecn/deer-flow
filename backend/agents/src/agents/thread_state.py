@@ -52,9 +52,11 @@ class ContextWindowState(TypedDict):
     updated_at: NotRequired[str | None]
     approx_input_tokens: NotRequired[int | None]
     approx_input_tokens_after_summary: NotRequired[int | None]
+    approx_input_tokens_after_microcompact: NotRequired[int | None]
     max_input_tokens: NotRequired[int | None]
     usage_ratio: NotRequired[float | None]
     usage_ratio_after_summary: NotRequired[float | None]
+    usage_ratio_after_microcompact: NotRequired[float | None]
     raw_message_count: NotRequired[int | None]
     effective_message_count: NotRequired[int | None]
     effective_message_count_after_summary: NotRequired[int | None]
@@ -65,6 +67,13 @@ class ContextWindowState(TypedDict):
     summary_applied: NotRequired[bool | None]
     summary_count: NotRequired[int | None]
     last_summary: NotRequired[ContextWindowSummaryState | None]
+    # Microcompact clears stale tool result bodies while preserving tool-call
+    # pairing. These counters help the admin trace distinguish it from formal
+    # summarization, which creates durable conversation memory.
+    microcompact_applied: NotRequired[bool | None]
+    microcompacted_tool_result_count: NotRequired[int | None]
+    microcompact_original_chars: NotRequired[int | None]
+    microcompact_compacted_chars: NotRequired[int | None]
 
 
 def merge_artifacts(existing: list[str] | None, new: list[str] | None) -> list[str]:

@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 from langchain.agents import create_agent
 from langchain.agents.middleware.types import ExtendedModelResponse, ModelRequest, ModelResponse
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.checkpoint.memory import MemorySaver
 
 from src.agents.middlewares.context_window_middleware import ContextWindowMiddleware
@@ -195,6 +195,54 @@ class TestContextWindowMiddleware:
         assert payload["effective_message_count"] == 2
         assert payload["last_summary"]["file_path"] == "/conversation_history/thread-9.md"
         assert payload["last_summary"]["summary_preview"] == "Previous conversation summary."
+
+    def test_wrap_model_call_records_microcompact_tool_result_savings(self):
+        _set_test_summarization_config(
+            enabled=True,
+            trigger=[ContextSize(type="messages", value=100)],
+            keep=ContextSize(type="messages", value=2),
+        )
+        middleware = ContextWindowMiddleware()
+        model = MagicMock()
+        model.profile = None
+
+        long_result = "document_search result " + ("甲辰 " * 2000)
+        messages = [
+            AIMessage(
+                content="Searching",
+                tool_calls=[
+                    {
+                        "id": "tc-search",
+                        "name": "document_search",
+                        "args": {"pattern": "甲辰"},
+                    }
+                ],
+            ),
+            ToolMessage(content=long_result, name="document_search", tool_call_id="tc-search"),
+        ]
+        messages.extend(HumanMessage(content=f"Follow-up {index}") for index in range(23))
+
+        request = ModelRequest(
+            model=model,
+            messages=messages,
+            system_message=SystemMessage(content="You are helpful."),
+            tools=[],
+            runtime=MagicMock(),
+            state={"messages": messages},
+        )
+
+        response = middleware.wrap_model_call(
+            request,
+            lambda _request: ModelResponse(result=[AIMessage(content="Done")]),
+        )
+
+        assert isinstance(response, ExtendedModelResponse)
+        payload = response.command.update["context_window"]
+        assert payload["summary_applied"] is False
+        assert payload["microcompact_applied"] is True
+        assert payload["microcompacted_tool_result_count"] == 1
+        assert payload["microcompact_original_chars"] > payload["microcompact_compacted_chars"]
+        assert payload["approx_input_tokens_after_microcompact"] < payload["approx_input_tokens"]
 
     def test_state_schema_persists_context_window_into_agent_state(self):
         _set_test_summarization_config(
