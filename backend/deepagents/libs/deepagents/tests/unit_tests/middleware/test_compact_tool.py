@@ -274,8 +274,8 @@ class TestCompactSuccess:
         event = result.update["_summarization_event"]
         assert event["cutoff_index"] == 4
 
-    def test_summary_message_has_file_path(self) -> None:
-        """Summary message should reference the file path when offload succeeds."""
+    def test_summary_message_hides_file_path(self) -> None:
+        """Summary message should keep offload paths out of model-facing text."""
         mw = _make_middleware()
         messages = _make_messages(10)
         runtime = _make_runtime(messages)
@@ -294,7 +294,8 @@ class TestCompactSuccess:
 
         assert result.update is not None
         event = result.update["_summarization_event"]
-        assert "/conversation_history/t.md" in event["summary_message"].content
+        assert event["file_path"] == "/conversation_history/t.md"
+        assert "/conversation_history/t.md" not in event["summary_message"].content
 
     def test_summary_message_without_file_path(self) -> None:
         """Summary message should use plain format when offload returns None."""
@@ -453,7 +454,7 @@ class TestMalformedEvent:
         assert result is not messages
 
     def test_cutoff_exceeds_message_count(self) -> None:
-        """Should return only summary when cutoff_index > len(messages)."""
+        """Should ignore invalid cutoff values that would hide current messages."""
         messages = _make_messages(3)
         summary_msg = MagicMock()
         event = {
@@ -462,8 +463,7 @@ class TestMalformedEvent:
             "file_path": None,
         }
         result = SummarizationMiddleware._apply_event_to_messages(messages, event)
-        assert len(result) == 1
-        assert result[0] is summary_msg
+        assert result == messages
 
 
 class TestResolveBackend:

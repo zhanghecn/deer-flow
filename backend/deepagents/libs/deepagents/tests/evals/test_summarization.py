@@ -191,10 +191,11 @@ def test_summarization_offloads_to_filesystem(tmp_path: Path, model: BaseChatMod
     # Should contain human-readable message content (from get_buffer_string)
     assert "Human:" in content or "AI:" in content, "Missing message content in markdown file"
 
-    # Verify the summary message references the conversation_history path
+    # The raw history file exists for audit/recovery, but model-facing summary
+    # text should not expose the path unless a user explicitly asks for it.
     summary_message = state.values["_summarization_event"]["summary_message"]
-    assert "conversation_history" in summary_message.content
-    assert f"{thread_id}.md" in summary_message.content
+    assert "conversation_history" not in summary_message.content
+    assert f"{thread_id}.md" not in summary_message.content
 
     # --- Needle in the haystack follow-up ---
     # Ask about a specific detail from the beginning of the file that was read

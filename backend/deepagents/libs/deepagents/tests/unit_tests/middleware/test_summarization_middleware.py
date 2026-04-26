@@ -418,6 +418,230 @@ class TestOffloadingBasic:
             for message in captured_request.messages
         )
 
+    def test_empty_summary_uses_extractive_transcript(self) -> None:
+        """An empty summary must not erase durable memory in thread state."""
+        backend = MockBackend()
+        mock_model = make_mock_model("<analysis>scratch</analysis><summary>\n\n</summary>")
+        middleware = SummarizationMiddleware(
+            model=mock_model,
+            backend=backend,
+            trigger=("messages", 2),
+            keep=("messages", 1),
+        )
+        messages = [
+            HumanMessage(content="early durable fact: 甲辰=109+48", id="early"),
+            HumanMessage(content="current request", id="current"),
+        ]
+        state = cast("AgentState[Any]", {"messages": messages})
+        runtime = make_mock_runtime()
+
+        with mock_get_config():
+            result, captured_request = call_wrap_model_call(middleware, state, runtime)
+
+        assert isinstance(result, ExtendedModelResponse)
+        assert captured_request is not None
+        summary_content = str(captured_request.messages[0].content)
+        assert "extractive head/tail transcript" in summary_content
+        assert "甲辰=109+48" in summary_content
+        assert mock_model.invoke.call_count == 1
+
+    def test_empty_prior_summary_event_is_ignored_on_replay(self) -> None:
+        """A persisted empty summary event should not hide raw checkpointed messages."""
+        backend = MockBackend()
+        middleware = SummarizationMiddleware(
+            model=make_mock_model(),
+            backend=backend,
+            trigger=("messages", 100),
+            keep=("messages", 2),
+        )
+        empty_summary = HumanMessage(
+            content=(
+                "You are in the middle of a conversation that has been summarized.\n\n"
+                "A condensed summary follows:\n\n<summary>\n\n</summary>"
+            ),
+            additional_kwargs={"lc_source": "summarization"},
+        )
+        messages = [
+            HumanMessage(content="raw fact should remain visible", id="raw"),
+            HumanMessage(content="current request", id="current"),
+        ]
+        state = cast(
+            "AgentState[Any]",
+            {
+                "messages": messages,
+                "_summarization_event": {
+                    "cutoff_index": 1,
+                    "summary_message": empty_summary,
+                    "file_path": "/conversation_history/test-thread-123.md",
+                },
+            },
+        )
+        runtime = make_mock_runtime()
+
+        with mock_get_config():
+            result, captured_request = call_wrap_model_call(middleware, state, runtime)
+
+        assert isinstance(result, AIMessage)
+        assert captured_request is not None
+        assert captured_request.messages == messages
+
+    def test_invalid_prior_cutoff_does_not_accumulate_next_event(self) -> None:
+        """A stale cutoff beyond state length should not poison the next summary."""
+        backend = MockBackend()
+        middleware = SummarizationMiddleware(
+            model=make_mock_model("Recovered summary"),
+            backend=backend,
+            trigger=("messages", 3),
+            keep=("messages", 1),
+        )
+        prior_summary = HumanMessage(
+            content="Here is a summary of the conversation to date:\n\nPrior summary",
+            additional_kwargs={"lc_source": "summarization"},
+        )
+        messages = [
+            HumanMessage(content="fact A", id="a"),
+            HumanMessage(content="fact B", id="b"),
+            HumanMessage(content="current", id="c"),
+        ]
+        state = cast(
+            "AgentState[Any]",
+            {
+                "messages": messages,
+                "_summarization_event": {
+                    "cutoff_index": 99,
+                    "summary_message": prior_summary,
+                    "file_path": "/conversation_history/test-thread-123.md",
+                },
+            },
+        )
+        runtime = make_mock_runtime()
+
+        with mock_get_config():
+            result, captured_request = call_wrap_model_call(middleware, state, runtime)
+
+        assert isinstance(result, ExtendedModelResponse)
+        assert captured_request is not None
+        event = result.command.update["_summarization_event"]
+        assert event["cutoff_index"] == 2
+        assert [message.content for message in captured_request.messages[1:]] == ["current"]
+
+    def test_repeated_summary_text_is_collapsed_before_clipping(self) -> None:
+        """Repeated pressure prompt lines should not dominate extractive summaries."""
+        backend = MockBackend()
+        middleware = SummarizationMiddleware(
+            model=make_mock_model("<summary></summary>"),
+            backend=backend,
+            trigger=("messages", 2),
+            keep=("messages", 1),
+        )
+        repeated = "压力上下文块\uff1a早期事实=甲辰命中109+48\uff1b只回复ACK。\n" * 50
+        messages = [
+            HumanMessage(content=repeated, id="pressure"),
+            HumanMessage(content="current request", id="current"),
+        ]
+        state = cast("AgentState[Any]", {"messages": messages})
+        runtime = make_mock_runtime()
+
+        with mock_get_config():
+            result, captured_request = call_wrap_model_call(middleware, state, runtime)
+
+        assert isinstance(result, ExtendedModelResponse)
+        assert captured_request is not None
+        summary_content = str(captured_request.messages[0].content)
+        assert "previous historical segment repeated 49 more times" in summary_content
+        assert summary_content.count("只回复ACK") == 1
+
+    def test_summary_generation_overflow_uses_extractive_transcript(self) -> None:
+        """A full-summary overflow should keep clipped facts without another LLM call."""
+        backend = MockBackend()
+        mock_model = make_mock_model()
+        mock_model.invoke.side_effect = [RuntimeError("stop_reason=model_context_window_exceeded")]
+        middleware = SummarizationMiddleware(
+            model=mock_model,
+            backend=backend,
+            trigger=("messages", 2),
+            keep=("messages", 1),
+        )
+        huge_text = "early-fact " + ("x" * 180_000) + " late-fact"
+        messages = [
+            HumanMessage(content=huge_text, id="huge-user"),
+            HumanMessage(content="current request", id="current-user"),
+        ]
+        state = cast("AgentState[Any]", {"messages": messages})
+        runtime = make_mock_runtime()
+
+        with mock_get_config():
+            result, captured_request = call_wrap_model_call(middleware, state, runtime)
+
+        assert isinstance(result, ExtendedModelResponse)
+        assert captured_request is not None
+        summary_content = str(captured_request.messages[0].content)
+        assert "extractive head/tail transcript" in summary_content
+        assert "early-fact" in summary_content
+        assert "late-fact" in summary_content
+        assert "content omitted during compaction overflow fallback" in summary_content
+        assert mock_model.invoke.call_count == 1
+
+    @pytest.mark.anyio
+    async def test_async_empty_summary_uses_extractive_transcript(self) -> None:
+        """Async empty summaries also fall back before state is updated."""
+        backend = MockBackend()
+        mock_model = make_mock_model("<summary></summary>")
+        middleware = SummarizationMiddleware(
+            model=mock_model,
+            backend=backend,
+            trigger=("messages", 2),
+            keep=("messages", 1),
+        )
+        messages = [
+            HumanMessage(content="async durable fact: ACK-PRESSURE-REAL-V5", id="early"),
+            HumanMessage(content="current request", id="current"),
+        ]
+        state = cast("AgentState[Any]", {"messages": messages})
+        runtime = make_mock_runtime()
+
+        with mock_get_config():
+            result, captured_request = await call_awrap_model_call(middleware, state, runtime)
+
+        assert isinstance(result, ExtendedModelResponse)
+        assert captured_request is not None
+        summary_content = str(captured_request.messages[0].content)
+        assert "extractive head/tail transcript" in summary_content
+        assert "ACK-PRESSURE-REAL-V5" in summary_content
+        assert mock_model.ainvoke.await_count == 1
+
+    @pytest.mark.anyio
+    async def test_async_summary_generation_overflow_uses_extractive_transcript(self) -> None:
+        """Async full-summary overflow should keep clipped facts without another LLM call."""
+        backend = MockBackend()
+        mock_model = make_mock_model()
+        mock_model.ainvoke = AsyncMock(side_effect=[RuntimeError("stop_reason=model_context_window_exceeded")])
+        middleware = SummarizationMiddleware(
+            model=mock_model,
+            backend=backend,
+            trigger=("messages", 2),
+            keep=("messages", 1),
+        )
+        huge_text = "async-early " + ("y" * 180_000) + " async-late"
+        messages = [
+            HumanMessage(content=huge_text, id="huge-user"),
+            HumanMessage(content="current request", id="current-user"),
+        ]
+        state = cast("AgentState[Any]", {"messages": messages})
+        runtime = make_mock_runtime()
+
+        with mock_get_config():
+            result, captured_request = await call_awrap_model_call(middleware, state, runtime)
+
+        assert isinstance(result, ExtendedModelResponse)
+        assert captured_request is not None
+        summary_content = str(captured_request.messages[0].content)
+        assert "extractive head/tail transcript" in summary_content
+        assert "async-early" in summary_content
+        assert "async-late" in summary_content
+        assert "content omitted during compaction overflow fallback" in summary_content
+        assert mock_model.ainvoke.call_count == 1
+
     def test_offload_writes_to_backend(self) -> None:
         """Test that summarization triggers a write to the backend."""
         backend = MockBackend()
@@ -653,10 +877,10 @@ class TestOffloadingBasic:
 
 
 class TestSummaryMessageFormat:
-    """Tests for the summary message format with file path reference."""
+    """Tests for the summary message format."""
 
-    def test_summary_includes_file_path(self) -> None:
-        """Test that summary message includes the file path reference."""
+    def test_summary_hides_internal_history_path(self) -> None:
+        """Summary should not invite the model to read raw history paths."""
         backend = MockBackend()
         mock_model = make_mock_model(summary_response="Test summary content")
 
@@ -682,9 +906,13 @@ class TestSummaryMessageFormat:
         # Get the summary message (first in modified messages list)
         summary_msg = modified_request.messages[0]
 
-        # Should include the file path reference
-        assert "full conversation history has been saved to" in summary_msg.content
-        assert "/conversation_history/test-thread.md" in summary_msg.content
+        # The durable event keeps the path for operators, but model-facing
+        # summary text should not expose it because models can choose the wrong
+        # retrieval tool and fail the current user turn.
+        event = result.command.update["_summarization_event"]
+        assert event["file_path"] == "/conversation_history/test-thread.md"
+        assert "/conversation_history/test-thread.md" not in summary_msg.content
+        assert "do not read raw history unless the user explicitly asks" in summary_msg.content
 
         # Should include the summary in XML tags
         assert "<summary>" in summary_msg.content
@@ -745,10 +973,10 @@ class TestSummaryMessageFormat:
         event = result.command.update["_summarization_event"]
         assert event["file_path"] is None
 
-    def test_summary_includes_file_path_after_second_summarization(self) -> None:
-        """Test that summary message includes file path reference after multiple summarizations.
+    def test_summary_hides_internal_history_path_after_second_summarization(self) -> None:
+        """Test that chained summary messages also hide internal history paths.
 
-        This ensures the path reference is present even when a previous summary message
+        This ensures the path is not exposed even when a previous summary message
         exists in the conversation (i.e., chained summarization).
         """
         backend = MockBackend()
@@ -791,9 +1019,10 @@ class TestSummaryMessageFormat:
         # The summary message should be the first message
         summary_msg = modified_request.messages[0]
 
-        # Should include the file path reference
-        assert "full conversation history has been saved to" in summary_msg.content
-        assert "/conversation_history/multi-summarize-thread.md" in summary_msg.content
+        event = result.command.update["_summarization_event"]
+        assert event["file_path"] == "/conversation_history/multi-summarize-thread.md"
+        assert "/conversation_history/multi-summarize-thread.md" not in summary_msg.content
+        assert "do not read raw history unless the user explicitly asks" in summary_msg.content
 
         # Should include the summary in XML tags
         assert "<summary>" in summary_msg.content
@@ -2597,6 +2826,87 @@ def test_provider_context_window_stop_reason_triggers_summarization() -> None:
     assert len(backend.write_calls) == 1
 
 
+def test_summary_overflow_retries_with_smaller_preserved_window() -> None:
+    """If summary plus recent messages still overflows, shrink the kept window."""
+    backend = MockBackend()
+    mock_model = make_mock_model(summary_response="Adaptive summary")
+    middleware = SummarizationMiddleware(
+        model=mock_model,
+        backend=backend,
+        trigger=("messages", 5),
+        keep=("messages", 4),
+    )
+    messages = [HumanMessage(content=f"S{i}", id=f"s{i}") for i in range(8)]
+    state = cast("AgentState[Any]", {"messages": messages})
+    runtime = make_mock_runtime()
+    call_count = {"count": 0}
+    captured_requests: list[ModelRequest] = []
+
+    def handler_with_second_overflow(req: ModelRequest) -> "ModelResponse":
+        captured_requests.append(req)
+        call_count["count"] += 1
+        if call_count["count"] == 1:
+            message = "stop_reason=model_context_window_exceeded"
+            raise RuntimeError(message)
+        return AIMessage(content="Success after adaptive preserved-window shrink")
+
+    request = make_model_request(state, runtime)
+
+    with mock_get_config():
+        result = middleware.wrap_model_call(request, handler_with_second_overflow)
+
+    assert isinstance(result, ExtendedModelResponse)
+    event = result.command.update["_summarization_event"]
+    assert event["cutoff_index"] == 6
+    assert call_count["count"] == 2
+    assert [message.content for message in captured_requests[0].messages[1:]] == ["S4", "S5", "S6", "S7"]
+    assert [message.content for message in captured_requests[1].messages[1:]] == ["S6", "S7"]
+    assert len(backend.write_calls) == 2
+    assert "S0" in backend.write_calls[0][1] and "S3" in backend.write_calls[0][1]
+    assert "S4" in backend.write_calls[1][1] and "S5" in backend.write_calls[1][1]
+
+
+def test_context_overflow_with_few_huge_messages_forces_summary() -> None:
+    """Few-message transcripts still need summary when provider context overflows."""
+    backend = MockBackend()
+    mock_model = make_mock_model(summary_response="Few huge messages summary")
+    middleware = SummarizationMiddleware(
+        model=mock_model,
+        backend=backend,
+        trigger=("tokens", 999999),
+        keep=("messages", 12),
+    )
+    messages = [
+        HumanMessage(content="old huge message", id="old"),
+        AIMessage(content="old huge answer", id="old-ai"),
+        HumanMessage(content="current huge message", id="current"),
+    ]
+    state = cast("AgentState[Any]", {"messages": messages})
+    runtime = make_mock_runtime()
+    call_count = {"count": 0}
+    captured_requests: list[ModelRequest] = []
+
+    def handler_with_overflow(req: ModelRequest) -> "ModelResponse":
+        captured_requests.append(req)
+        call_count["count"] += 1
+        if call_count["count"] == 1:
+            message = "stop_reason=model_context_window_exceeded"
+            raise RuntimeError(message)
+        return AIMessage(content="Recovered after forced summary")
+
+    request = make_model_request(state, runtime)
+
+    with mock_get_config():
+        result = middleware.wrap_model_call(request, handler_with_overflow)
+
+    assert isinstance(result, ExtendedModelResponse)
+    assert call_count["count"] == 2
+    event = result.command.update["_summarization_event"]
+    assert event["cutoff_index"] == 2
+    assert "Few huge messages summary" in str(captured_requests[1].messages[0].content)
+    assert [message.content for message in captured_requests[1].messages[1:]] == ["current huge message"]
+
+
 @pytest.mark.anyio
 async def test_async_context_overflow_triggers_summarization() -> None:
     """Test that ContextOverflowError triggers fallback to summarization (async)."""
@@ -2679,6 +2989,91 @@ async def test_async_provider_context_window_stop_reason_triggers_summarization(
     assert "_summarization_event" in result.command.update
     assert call_count["count"] == 2
     assert len(backend.write_calls) == 1
+
+
+@pytest.mark.anyio
+async def test_async_summary_overflow_retries_with_smaller_preserved_window() -> None:
+    """Async summary overflow retries with less recent context before failing."""
+    backend = MockBackend()
+    mock_model = make_mock_model(summary_response="Async adaptive summary")
+    mock_model.ainvoke = AsyncMock(return_value=MagicMock(text="Async adaptive summary"))
+    middleware = SummarizationMiddleware(
+        model=mock_model,
+        backend=backend,
+        trigger=("messages", 5),
+        keep=("messages", 4),
+    )
+    messages = [HumanMessage(content=f"S{i}", id=f"s{i}") for i in range(8)]
+    state = cast("AgentState[Any]", {"messages": messages})
+    runtime = make_mock_runtime()
+    call_count = {"count": 0}
+    captured_requests: list[ModelRequest] = []
+
+    async def handler_with_second_overflow(req: ModelRequest) -> "ModelResponse":
+        captured_requests.append(req)
+        call_count["count"] += 1
+        if call_count["count"] == 1:
+            message = "stop_reason=model_context_window_exceeded"
+            raise RuntimeError(message)
+        return AIMessage(content="Success after async adaptive preserved-window shrink")
+
+    request = make_model_request(state, runtime)
+
+    with mock_get_config():
+        result = await middleware.awrap_model_call(request, handler_with_second_overflow)
+
+    assert isinstance(result, ExtendedModelResponse)
+    event = result.command.update["_summarization_event"]
+    assert event["cutoff_index"] == 6
+    assert call_count["count"] == 2
+    assert [message.content for message in captured_requests[0].messages[1:]] == ["S4", "S5", "S6", "S7"]
+    assert [message.content for message in captured_requests[1].messages[1:]] == ["S6", "S7"]
+    assert len(backend.write_calls) == 2
+    assert "S0" in backend.write_calls[0][1] and "S3" in backend.write_calls[0][1]
+    assert "S4" in backend.write_calls[1][1] and "S5" in backend.write_calls[1][1]
+
+
+@pytest.mark.anyio
+async def test_async_context_overflow_with_few_huge_messages_forces_summary() -> None:
+    """Async few-message overflow should force a summarizable cutoff."""
+    backend = MockBackend()
+    mock_model = make_mock_model(summary_response="Async few huge messages summary")
+    mock_model.ainvoke = AsyncMock(return_value=MagicMock(text="Async few huge messages summary"))
+    middleware = SummarizationMiddleware(
+        model=mock_model,
+        backend=backend,
+        trigger=("tokens", 999999),
+        keep=("messages", 12),
+    )
+    messages = [
+        HumanMessage(content="old huge message", id="old"),
+        AIMessage(content="old huge answer", id="old-ai"),
+        HumanMessage(content="current huge message", id="current"),
+    ]
+    state = cast("AgentState[Any]", {"messages": messages})
+    runtime = make_mock_runtime()
+    call_count = {"count": 0}
+    captured_requests: list[ModelRequest] = []
+
+    async def handler_with_overflow(req: ModelRequest) -> "ModelResponse":
+        captured_requests.append(req)
+        call_count["count"] += 1
+        if call_count["count"] == 1:
+            message = "stop_reason=model_context_window_exceeded"
+            raise RuntimeError(message)
+        return AIMessage(content="Recovered after async forced summary")
+
+    request = make_model_request(state, runtime)
+
+    with mock_get_config():
+        result = await middleware.awrap_model_call(request, handler_with_overflow)
+
+    assert isinstance(result, ExtendedModelResponse)
+    assert call_count["count"] == 2
+    event = result.command.update["_summarization_event"]
+    assert event["cutoff_index"] == 2
+    assert "Async few huge messages summary" in str(captured_requests[1].messages[0].content)
+    assert [message.content for message in captured_requests[1].messages[1:]] == ["current huge message"]
 
 
 def test_profile_inference_triggers_summary() -> None:

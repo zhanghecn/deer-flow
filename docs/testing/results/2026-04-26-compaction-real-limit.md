@@ -29,24 +29,24 @@ docker compose -f docker/docker-compose.yaml exec -T langgraph sh -lc \
 
 Result:
 
-- `107 passed, 1 warning`
+- `118 passed, 1 warning`
 
 Focused retry after test lint cleanup:
 
 ```bash
 docker compose -f docker/docker-compose.yaml exec -T langgraph sh -lc \
-  'cd /workspace/backend/agents && UV_PROJECT_ENVIRONMENT=/openagents-home/dev-cache/agents-venv uv run pytest ../deepagents/libs/deepagents/tests/unit_tests/middleware/test_summarization_middleware.py -q'
+  'cd /workspace/backend/agents && UV_PROJECT_ENVIRONMENT=/openagents-home/dev-cache/agents-venv uv run pytest ../deepagents/libs/deepagents/tests/unit_tests/middleware/test_summarization_middleware.py ../deepagents/libs/deepagents/tests/unit_tests/middleware/test_compact_tool.py -q'
 ```
 
 Result:
 
-- `61 passed, 1 warning`
+- `104 passed, 1 warning`
 
 Lint:
 
 ```bash
 docker compose -f docker/docker-compose.yaml exec -T langgraph sh -lc \
-  'cd /workspace/backend/agents && UV_PROJECT_ENVIRONMENT=/openagents-home/dev-cache/agents-venv uv run ruff check tests/test_summarization_config.py ../deepagents/libs/deepagents/tests/unit_tests/middleware/test_summarization_factory.py ../deepagents/libs/deepagents/tests/unit_tests/middleware/test_summarization_middleware.py'
+  'cd /workspace/backend/agents && UV_PROJECT_ENVIRONMENT=/openagents-home/dev-cache/agents-venv uv run ruff check ../deepagents/libs/deepagents/deepagents/middleware/summarization.py ../deepagents/libs/deepagents/tests/unit_tests/middleware/test_summarization_middleware.py ../deepagents/libs/deepagents/tests/unit_tests/middleware/test_compact_tool.py'
 ```
 
 Result:
@@ -57,19 +57,12 @@ Import-order lint:
 
 ```bash
 docker compose -f docker/docker-compose.yaml exec -T langgraph sh -lc \
-  'cd /workspace/backend/agents && UV_PROJECT_ENVIRONMENT=/openagents-home/dev-cache/agents-venv uv run ruff check --select I tests/test_summarization_config.py ../deepagents/libs/deepagents/tests/unit_tests/middleware/test_summarization_factory.py ../deepagents/libs/deepagents/tests/unit_tests/middleware/test_summarization_middleware.py ../deepagents/libs/deepagents/deepagents/middleware/summarization.py'
+  'cd /workspace/backend/agents && UV_PROJECT_ENVIRONMENT=/openagents-home/dev-cache/agents-venv uv run ruff check --select I ../deepagents/libs/deepagents/deepagents/middleware/summarization.py ../deepagents/libs/deepagents/tests/unit_tests/middleware/test_summarization_middleware.py ../deepagents/libs/deepagents/tests/unit_tests/middleware/test_compact_tool.py'
 ```
 
 Result:
 
 - `All checks passed`
-
-Known lint note:
-
-- Full lint on `deepagents/middleware/summarization.py` still reports existing
-  optional-runtime import and defensive broad-catch rules (`PLC0415`, `BLE001`,
-  `ANN401`). Those were present around the OpenAgents optional config bridge and
-  are not new to this compaction fix.
 
 ## Real `/v1/turns` Compaction Run
 
@@ -136,6 +129,53 @@ Fix validated:
   enters the same compaction fallback path as `ContextOverflowError`.
 - The successful long-thread run above reached the real pressure path, applied
   summary, then continued to a no-tool final answer.
+
+## Follow-Up Regression Run
+
+After the initial pass, a more severe real thread exposed three additional
+failure modes:
+
+- The summary model can return an empty `<summary></summary>` without raising.
+  Persisting that empty summary erased early facts for later turns.
+- A poisoned prior summary event could produce a cumulative `cutoff_index`
+  larger than the raw message count, causing replay to drop the latest user
+  message and feed only the old summary to the model.
+- Extractive overflow fallback could preserve repeated historical pressure
+  instructions so strongly that a later no-tool question was answered with the
+  old `ACK` instead of the requested facts.
+
+Fixes validated in Docker:
+
+- Empty summaries are rejected before state update and replaced with a
+  deterministic extractive fallback.
+- Empty or out-of-range `_summarization_event` values are treated as invalid
+  during replay and during the next event's cutoff calculation.
+- Repeated historical text is collapsed before extractive clipping, and the
+  fallback summary explicitly marks historical Human/AI/Tool text as evidence
+  rather than instructions that override the latest user message.
+
+Real pressure evidence:
+
+- Thread: `a42d23ea-bc07-4c1e-ab70-4fd99916f428`
+- Seed turn: `resp_723859ef3f1b4c939d9ef69f8d325e1e`
+- Pressure turn: `resp_00c049498a0944beab06d24e59b17438`
+- Pressure result: `turn.completed`, `tool_count=0`,
+  output `ACK-PRESSURE-REAL-V7`
+- Immediate follow-up turn: `resp_2b78bec70c4c42a8909c1820f0415f3d`
+- Follow-up result: `turn.completed`, `tool_count=0`
+- Follow-up answer:
+  `甲辰命中频次=109+48=157次；子平总数=963；盲派总数=423；刚才压力turn要求回复的ACK是ACK-PRESSURE-REAL-V7。`
+- Post-restart verification turn: `resp_87a3c3ee40994b0e8b0bdc5dc593e0f9`
+- Post-restart result: `turn.completed`, `tool_count=0`, same facts retained.
+
+State audit after the pressure run:
+
+- `message_count=87`
+- `_summarization_event.cutoff_index=84`
+- `cutoff_valid=true`
+- `summary_len=9315`
+- summary contains `previous historical segment repeated ...`
+- summary contains `ACK-PRESSURE-REAL-V7`
 
 ## Browser Verification
 
