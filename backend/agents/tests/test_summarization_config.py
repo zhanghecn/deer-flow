@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import yaml
 from deepagents.middleware.summarization import SummarizationMiddleware
 
 from src.config.summarization_config import (
@@ -51,3 +54,16 @@ def test_yaml_null_summary_prompt_uses_claude_code_default():
         assert get_summarization_config().summary_prompt == CLAUDE_CODE_COMPACTION_PROMPT
     finally:
         load_summarization_config_from_dict(original.model_dump())
+
+
+def test_default_compaction_does_not_tail_trim_evicted_history():
+    config = get_summarization_config()
+
+    assert config.trim_tokens_to_summarize is None
+
+
+def test_root_config_keeps_full_evicted_history_for_compaction():
+    root_config = Path(__file__).resolve().parents[3] / "config.yaml"
+    payload = yaml.safe_load(root_config.read_text(encoding="utf-8"))
+
+    assert payload["summarization"]["trim_tokens_to_summarize"] is None

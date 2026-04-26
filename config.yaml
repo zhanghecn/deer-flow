@@ -70,7 +70,9 @@ summarization:
   keep:
     type: messages
     value: 12
-  trim_tokens_to_summarize: 8000
+  # Summaries must see the full evicted transcript. A small tail-only trim drops
+  # older durable facts and makes post-compaction memory worse than Claude Code.
+  trim_tokens_to_summarize: null
   summary_prompt: null
 
 # Memory is configured per agent, not in this root config file.

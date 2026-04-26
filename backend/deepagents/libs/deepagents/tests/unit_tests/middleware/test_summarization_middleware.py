@@ -450,6 +450,38 @@ class TestOffloadingBasic:
         assert "## Summarized at" in content
         assert "Human:" in content or "AI:" in content
 
+    def test_summary_model_sees_early_durable_facts_without_tail_trim(self) -> None:
+        """Full-transcript compaction keeps old facts visible to the summarizer.
+
+        This protects the Claude Code-style behavior expected by long support
+        sessions: after automatic compaction, an answer may still need exact
+        facts from early turns, not just the last few tool-heavy messages.
+        """
+        backend = MockBackend()
+        mock_model = make_mock_model(summary_response="Durable facts preserved")
+        middleware = SummarizationMiddleware(
+            model=mock_model,
+            backend=backend,
+            trigger=("messages", 5),
+            keep=("messages", 1),
+            trim_tokens_to_summarize=None,
+        )
+        messages = [
+            HumanMessage(content="Remember early durable fact: 甲辰 total hit count is 760.", id="h-early"),
+            AIMessage(content="Noted: 甲辰=760.", id="a-early"),
+            HumanMessage(content="Now inspect many other cases.", id="h-mid"),
+            AIMessage(content="Case 70+71 combine 甲辰 / 庚午 / 癸亥 / 车祸+死亡.", id="a-mid"),
+            HumanMessage(content="Recent filler question", id="h-recent"),
+            AIMessage(content="Recent filler answer", id="a-recent"),
+        ]
+        state = cast("AgentState[Any]", {"messages": messages})
+
+        call_wrap_model_call(middleware, state, make_mock_runtime())
+
+        prompt = mock_model.invoke.call_args.args[0]
+        assert "甲辰 total hit count is 760" in prompt
+        assert "Case 70+71 combine 甲辰 / 庚午 / 癸亥 / 车祸+死亡" in prompt
+
     def test_offload_appends_to_existing_content(self) -> None:
         """Test that second summarization appends to existing file."""
         existing = "## Summarized at 2024-01-01T00:00:00Z\n\nHuman: Previous message\n\n"
@@ -2526,6 +2558,45 @@ def test_context_overflow_triggers_summarization() -> None:
     assert len(backend.write_calls) == 1
 
 
+def test_provider_context_window_stop_reason_triggers_summarization() -> None:
+    """Provider stop reasons surfaced as RuntimeError still trigger compaction."""
+    backend = MockBackend()
+    mock_model = make_mock_model(summary_response="Provider overflow fallback summary")
+
+    middleware = SummarizationMiddleware(
+        model=mock_model,
+        backend=backend,
+        trigger=("messages", 100),
+        keep=("messages", 2),
+    )
+
+    messages = make_conversation_messages(num_old=6, num_recent=2)
+    state = cast("AgentState[Any]", {"messages": messages})
+    runtime = make_mock_runtime()
+    call_count = {"count": 0}
+
+    def handler_with_provider_overflow(_req: ModelRequest) -> "ModelResponse":
+        call_count["count"] += 1
+        if call_count["count"] == 1:
+            message = (
+                "Model produced no visible assistant response after recovery retry: "
+                "assistant message had no visible text or tool call "
+                "(stop_reason=model_context_window_exceeded)."
+            )
+            raise RuntimeError(message)
+        return AIMessage(content="Success after provider overflow summarization")
+
+    request = make_model_request(state, runtime)
+
+    with mock_get_config():
+        result = middleware.wrap_model_call(request, handler_with_provider_overflow)
+
+    assert isinstance(result, ExtendedModelResponse)
+    assert result.command.update["_summarization_event"]
+    assert call_count["count"] == 2
+    assert len(backend.write_calls) == 1
+
+
 @pytest.mark.anyio
 async def test_async_context_overflow_triggers_summarization() -> None:
     """Test that ContextOverflowError triggers fallback to summarization (async)."""
@@ -2570,6 +2641,43 @@ async def test_async_context_overflow_triggers_summarization() -> None:
     assert call_count["count"] == 2
 
     # Backend should have offloaded messages
+    assert len(backend.write_calls) == 1
+
+
+@pytest.mark.anyio
+async def test_async_provider_context_window_stop_reason_triggers_summarization() -> None:
+    """Async provider stop reasons surfaced as RuntimeError still compact."""
+    backend = MockBackend()
+    mock_model = make_mock_model(summary_response="Async provider overflow fallback summary")
+    mock_model.ainvoke = AsyncMock(return_value=MagicMock(text="Async provider overflow fallback summary"))
+
+    middleware = SummarizationMiddleware(
+        model=mock_model,
+        backend=backend,
+        trigger=("messages", 100),
+        keep=("messages", 2),
+    )
+
+    messages = make_conversation_messages(num_old=6, num_recent=2)
+    state = cast("AgentState[Any]", {"messages": messages})
+    runtime = make_mock_runtime()
+    call_count = {"count": 0}
+
+    async def handler_with_provider_overflow(_req: ModelRequest) -> "ModelResponse":
+        call_count["count"] += 1
+        if call_count["count"] == 1:
+            message = "stop_reason=model_context_window_exceeded"
+            raise RuntimeError(message)
+        return AIMessage(content="Success after async provider overflow summarization")
+
+    request = make_model_request(state, runtime)
+
+    with mock_get_config():
+        result = await middleware.awrap_model_call(request, handler_with_provider_overflow)
+
+    assert isinstance(result, ExtendedModelResponse)
+    assert "_summarization_event" in result.command.update
+    assert call_count["count"] == 2
     assert len(backend.write_calls) == 1
 
 

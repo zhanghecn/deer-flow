@@ -94,8 +94,12 @@ class SummarizationConfig(BaseModel):
         "{'type': 'fraction', 'value': 0.3} keeps 30% of model's max input tokens",
     )
     trim_tokens_to_summarize: int | None = Field(
-        default=4000,
-        description="Maximum tokens to keep when preparing messages for summarization. Pass null to skip trimming.",
+        default=None,
+        description=(
+            "Maximum tokens to keep when preparing messages for summarization. "
+            "The default is null so compaction summarizes the full evicted transcript "
+            "instead of dropping older durable facts from long-running tasks."
+        ),
     )
     summary_prompt: str | None = Field(
         default=CLAUDE_CODE_COMPACTION_PROMPT,

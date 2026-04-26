@@ -58,7 +58,6 @@ from typing import TYPE_CHECKING, Annotated, Any, NotRequired, cast
 
 from langchain.agents.middleware.summarization import (
     _DEFAULT_MESSAGES_TO_KEEP,
-    _DEFAULT_TRIM_TOKEN_LIMIT,
     DEFAULT_SUMMARY_PROMPT,
     ContextSize,
     SummarizationMiddleware as LCSummarizationMiddleware,
@@ -296,7 +295,7 @@ class _DeepAgentsSummarizationMiddleware(AgentMiddleware):
         keep: ContextSize = ("messages", _DEFAULT_MESSAGES_TO_KEEP),
         token_counter: TokenCounter = count_tokens_approximately,
         summary_prompt: str = DEFAULT_SUMMARY_PROMPT,
-        trim_tokens_to_summarize: int | None = _DEFAULT_TRIM_TOKEN_LIMIT,
+        trim_tokens_to_summarize: int | None = None,
         history_path_prefix: str = "/conversation_history",
         truncate_args_settings: TruncateArgsSettings | None = None,
         **deprecated_kwargs: Any,
@@ -314,7 +313,9 @@ class _DeepAgentsSummarizationMiddleware(AgentMiddleware):
             summary_prompt: Prompt template for generating summaries.
             trim_tokens_to_summarize: Max tokens to include when generating summary.
 
-                Defaults to 4000.
+                Defaults to `None` so the summarizer sees the full evicted
+                transcript. Tail-only trimming is unsafe for agent tasks because
+                older user facts can remain required after compaction.
             truncate_args_settings: Settings for truncating large tool arguments in old messages.
 
                 Provide a [`TruncateArgsSettings`][deepagents.middleware.summarization.TruncateArgsSettings]
@@ -452,6 +453,21 @@ class _DeepAgentsSummarizationMiddleware(AgentMiddleware):
         """Reject summary text that represents an internal generation failure."""
         if cls._is_failed_summary(summary):
             raise SummaryGenerationError(summary.removeprefix(_FAILED_SUMMARY_PREFIX).strip())
+
+    @staticmethod
+    def _is_context_overflow_exception(exc: BaseException) -> bool:
+        """Normalize provider-specific context-overflow failures.
+
+        LangChain raises `ContextOverflowError` for some providers, but real
+        OpenAgents traffic can surface a provider stop reason through outer
+        recovery middleware as a `RuntimeError`. Treat both as the same terminal
+        pressure signal so automatic compaction runs before the user-visible
+        turn fails.
+        """
+        if isinstance(exc, ContextOverflowError):
+            return True
+        message = str(exc).lower()
+        return "context_window_exceeded" in message or "context window exceeded" in message
 
     def _handle_summary_generation_error(
         self,
@@ -1189,9 +1205,10 @@ A condensed summary follows:
             )
             try:
                 return handler(request.override(messages=microcompacted_messages))
-            except ContextOverflowError:
-                pass
-                # Fallback to summarization on context overflow
+            except Exception as exc:
+                if not self._is_context_overflow_exception(exc):
+                    raise
+                # Fallback to summarization on provider-reported context overflow.
 
         # Step 3: Perform summarization
         cutoff_index = self._determine_cutoff_index(truncated_messages)
@@ -1312,9 +1329,10 @@ A condensed summary follows:
             )
             try:
                 return await handler(request.override(messages=microcompacted_messages))
-            except ContextOverflowError:
-                pass
-                # Fallback to summarization on context overflow
+            except Exception as exc:
+                if not self._is_context_overflow_exception(exc):
+                    raise
+                # Fallback to summarization on provider-reported context overflow.
 
         # Step 3: Perform summarization
         cutoff_index = self._determine_cutoff_index(truncated_messages)

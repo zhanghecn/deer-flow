@@ -29,6 +29,7 @@ def test_factory_uses_profile_based_defaults() -> None:
 
     assert middleware._lc_helper.trigger == ("fraction", 0.85)
     assert middleware._lc_helper.keep == ("fraction", 0.10)
+    assert middleware._lc_helper.trim_tokens_to_summarize is None
     assert middleware._truncate_args_trigger == ("fraction", 0.85)
     assert middleware._truncate_args_keep == ("fraction", 0.10)
 
@@ -55,7 +56,7 @@ def test_factory_uses_openagents_overrides_when_available(monkeypatch: pytest.Mo
     model = _make_model(with_profile_limit=120_000)
 
     class _ContextSize:
-        def __init__(self, type_: str, value: int | float) -> None:
+        def __init__(self, type_: str, value: float) -> None:
             self.type = type_
             self.value = value
 
@@ -63,6 +64,7 @@ def test_factory_uses_openagents_overrides_when_available(monkeypatch: pytest.Mo
             return (self.type, self.value)
 
     config_module = types.ModuleType("src.config.summarization_config")
+    config_module.CLAUDE_CODE_COMPACTION_PROMPT = "Default OpenAgents compact prompt: {messages}"
     config_module.get_summarization_config = lambda: types.SimpleNamespace(
         enabled=True,
         model_name=None,
