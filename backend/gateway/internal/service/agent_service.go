@@ -231,7 +231,11 @@ func normalizeAgentSubagents(subagents []model.AgentSubagent) ([]model.AgentSuba
 	return normalized, nil
 }
 
-func (s *AgentService) validateMainToolNames(toolNames []string) ([]string, error) {
+func hasMCPToolNamespace(mcpServers []string) bool {
+	return len(normalizeOptionalStringList(mcpServers)) > 0
+}
+
+func (s *AgentService) validateMainToolNames(toolNames []string, mcpServers []string) ([]string, error) {
 	normalized := normalizeToolNames(toolNames)
 	if normalized == nil {
 		return nil, nil
@@ -241,9 +245,17 @@ func (s *AgentService) validateMainToolNames(toolNames []string) ([]string, erro
 	if err != nil {
 		return nil, err
 	}
+	allowMCPResolvedTools := hasMCPToolNamespace(mcpServers)
 	for _, toolName := range normalized {
 		item, ok := index[toolName]
 		if !ok {
+			if allowMCPResolvedTools {
+				// MCP profile tools are discovered by the Python runtime after
+				// archive materialization. The Go gateway can validate the MCP
+				// binding itself, but it cannot know dynamic tool names such as
+				// document_list without opening a runtime MCP session.
+				continue
+			}
 			return nil, fmt.Errorf("unknown tool %q", toolName)
 		}
 		if !item.ConfigurableForMainAgent || item.ReservedPolicy == "runtime_only" {
@@ -253,7 +265,7 @@ func (s *AgentService) validateMainToolNames(toolNames []string) ([]string, erro
 	return normalized, nil
 }
 
-func (s *AgentService) validateSubagentToolNames(toolNames []string) ([]string, error) {
+func (s *AgentService) validateSubagentToolNames(toolNames []string, mcpServers []string) ([]string, error) {
 	normalized := normalizeToolNames(toolNames)
 	if normalized == nil {
 		return nil, nil
@@ -263,9 +275,16 @@ func (s *AgentService) validateSubagentToolNames(toolNames []string) ([]string, 
 	if err != nil {
 		return nil, err
 	}
+	allowMCPResolvedTools := hasMCPToolNamespace(mcpServers)
 	for _, toolName := range normalized {
 		item, ok := index[toolName]
 		if !ok {
+			if allowMCPResolvedTools {
+				// Subagents inherit the parent agent's MCP bindings at runtime,
+				// so dynamically discovered MCP tool names must not be rejected
+				// by the static archive catalog.
+				continue
+			}
 			return nil, fmt.Errorf("unknown tool %q", toolName)
 		}
 		if !item.ConfigurableForSubagent || item.ReservedPolicy != "normal" {
@@ -277,17 +296,18 @@ func (s *AgentService) validateSubagentToolNames(toolNames []string) ([]string, 
 
 func (s *AgentService) validateToolScopes(
 	toolNames []string,
+	mcpServers []string,
 	subagentDefaults model.AgentSubagentDefaults,
 	subagents []model.AgentSubagent,
 ) (model.AgentSubagentDefaults, []model.AgentSubagent, error) {
 	normalizedDefaults := normalizeAgentSubagentDefaults(&subagentDefaults)
-	validatedToolNames, err := s.validateMainToolNames(toolNames)
+	validatedToolNames, err := s.validateMainToolNames(toolNames, mcpServers)
 	if err != nil {
 		return model.AgentSubagentDefaults{}, nil, err
 	}
 	_ = validatedToolNames
 
-	validatedDefaultTools, err := s.validateSubagentToolNames(normalizedDefaults.ToolNames)
+	validatedDefaultTools, err := s.validateSubagentToolNames(normalizedDefaults.ToolNames, mcpServers)
 	if err != nil {
 		return model.AgentSubagentDefaults{}, nil, err
 	}
@@ -298,7 +318,7 @@ func (s *AgentService) validateToolScopes(
 		return model.AgentSubagentDefaults{}, nil, err
 	}
 	for i := range normalizedSubagents {
-		validatedSubagentTools, err := s.validateSubagentToolNames(normalizedSubagents[i].ToolNames)
+		validatedSubagentTools, err := s.validateSubagentToolNames(normalizedSubagents[i].ToolNames, mcpServers)
 		if err != nil {
 			return model.AgentSubagentDefaults{}, nil, fmt.Errorf("subagent %q: %w", normalizedSubagents[i].Name, err)
 		}
@@ -331,12 +351,16 @@ func (s *AgentService) Create(_ context.Context, req model.CreateAgentRequest, u
 	if err != nil {
 		return nil, err
 	}
-	mainToolNames, err := s.validateMainToolNames(req.ToolNames)
+	mcpServers, err := s.validateMCPBindings(req.McpServers)
+	if err != nil {
+		return nil, err
+	}
+	mainToolNames, err := s.validateMainToolNames(req.ToolNames, mcpServers)
 	if err != nil {
 		return nil, err
 	}
 	subagentDefaults := normalizeAgentSubagentDefaults(req.SubagentDefaults)
-	subagentDefaults.ToolNames, err = s.validateSubagentToolNames(subagentDefaults.ToolNames)
+	subagentDefaults.ToolNames, err = s.validateSubagentToolNames(subagentDefaults.ToolNames, mcpServers)
 	if err != nil {
 		return nil, err
 	}
@@ -345,7 +369,7 @@ func (s *AgentService) Create(_ context.Context, req model.CreateAgentRequest, u
 		return nil, err
 	}
 	for i := range subagents {
-		subagents[i].ToolNames, err = s.validateSubagentToolNames(subagents[i].ToolNames)
+		subagents[i].ToolNames, err = s.validateSubagentToolNames(subagents[i].ToolNames, mcpServers)
 		if err != nil {
 			return nil, fmt.Errorf("subagent %q: %w", subagents[i].Name, err)
 		}
@@ -357,15 +381,11 @@ func (s *AgentService) Create(_ context.Context, req model.CreateAgentRequest, u
 		Model:            req.Model,
 		ToolGroups:       normalizeOptionalStringList(req.ToolGroups),
 		ToolNames:        mainToolNames,
-		McpServers:       nil,
+		McpServers:       mcpServers,
 		Status:           "dev",
 		Memory:           &memoryConfig,
 		SubagentDefaults: &subagentDefaults,
 		Subagents:        subagents,
-	}
-	agent.McpServers, err = s.validateMCPBindings(req.McpServers)
-	if err != nil {
-		return nil, err
 	}
 	if userID != uuid.Nil {
 		agent.OwnerUserID = userID.String()
@@ -394,18 +414,20 @@ func (s *AgentService) Update(_ context.Context, name string, status string, req
 	if req.ToolGroups != nil {
 		existing.ToolGroups = normalizeOptionalStringList(req.ToolGroups)
 	}
-	if req.ToolNames != nil {
-		existing.ToolNames, err = s.validateMainToolNames(req.ToolNames)
-		if err != nil {
-			return nil, err
-		}
-	}
+	effectiveMCPServers := existing.McpServers
 	if req.McpServers != nil {
-		existing.McpServers, err = s.validateMCPBindings(req.McpServers)
+		effectiveMCPServers, err = s.validateMCPBindings(req.McpServers)
 		if err != nil {
 			return nil, err
 		}
 	}
+	if req.ToolNames != nil {
+		existing.ToolNames, err = s.validateMainToolNames(req.ToolNames, effectiveMCPServers)
+		if err != nil {
+			return nil, err
+		}
+	}
+	existing.McpServers = effectiveMCPServers
 	if req.Memory != nil {
 		memoryConfig, err := normalizeAgentMemoryConfig(req.Memory)
 		if err != nil {
@@ -419,7 +441,7 @@ func (s *AgentService) Update(_ context.Context, name string, status string, req
 	}
 	if req.SubagentDefaults != nil {
 		normalizedDefaults := normalizeAgentSubagentDefaults(req.SubagentDefaults)
-		normalizedDefaults.ToolNames, err = s.validateSubagentToolNames(normalizedDefaults.ToolNames)
+		normalizedDefaults.ToolNames, err = s.validateSubagentToolNames(normalizedDefaults.ToolNames, effectiveMCPServers)
 		if err != nil {
 			return nil, err
 		}
@@ -431,7 +453,7 @@ func (s *AgentService) Update(_ context.Context, name string, status string, req
 			return nil, err
 		}
 		for i := range subagents {
-			subagents[i].ToolNames, err = s.validateSubagentToolNames(subagents[i].ToolNames)
+			subagents[i].ToolNames, err = s.validateSubagentToolNames(subagents[i].ToolNames, effectiveMCPServers)
 			if err != nil {
 				return nil, fmt.Errorf("subagent %q: %w", subagents[i].Name, err)
 			}

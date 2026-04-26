@@ -97,6 +97,112 @@ func TestAgentServiceCreateRejectsMissingCanonicalMCPProfileRefs(t *testing.T) {
 	}
 }
 
+func TestAgentServiceCreateAllowsMCPToolNamesWhenProfileBound(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	profileFile := filepath.Join(baseDir, "custom", "mcp-profiles", "customer-docs.json")
+	if err := os.MkdirAll(filepath.Dir(profileFile), 0o755); err != nil {
+		t.Fatalf("mkdir profile dir: %v", err)
+	}
+	profileJSON := `{"mcpServers":{"customer-docs":{"type":"http","url":"https://customer.example.com/mcp"}}}`
+	if err := os.WriteFile(profileFile, []byte(profileJSON), 0o644); err != nil {
+		t.Fatalf("write profile file: %v", err)
+	}
+
+	svc := NewAgentService(storage.NewFS(baseDir))
+	agent, err := svc.Create(context.Background(), model.CreateAgentRequest{
+		Name:       "support-agent",
+		McpServers: []string{"custom/mcp-profiles/customer-docs.json"},
+		ToolNames:  []string{"document_list", "present_files"},
+		SubagentDefaults: &model.AgentSubagentDefaults{
+			GeneralPurposeEnabled: true,
+			ToolNames:             []string{"document_read"},
+		},
+		Subagents: []model.AgentSubagent{
+			{
+				Name:         "researcher",
+				Description:  "Search the customer MCP profile.",
+				SystemPrompt: "Use customer evidence.",
+				ToolNames:    []string{"document_search"},
+				Enabled:      true,
+			},
+		},
+		AgentsMD: "# Agent",
+	}, uuid.Nil)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if got := agent.ToolNames; len(got) != 2 || got[0] != "document_list" || got[1] != "present_files" {
+		t.Fatalf("agent.ToolNames = %#v, want MCP tool plus builtin", got)
+	}
+	if agent.SubagentDefaults == nil || len(agent.SubagentDefaults.ToolNames) != 1 || agent.SubagentDefaults.ToolNames[0] != "document_read" {
+		t.Fatalf("agent.SubagentDefaults = %#v, want MCP default tool", agent.SubagentDefaults)
+	}
+	if len(agent.Subagents) != 1 || len(agent.Subagents[0].ToolNames) != 1 || agent.Subagents[0].ToolNames[0] != "document_search" {
+		t.Fatalf("agent.Subagents = %#v, want MCP subagent tool", agent.Subagents)
+	}
+}
+
+func TestAgentServiceCreateRejectsUnknownToolWithoutMCPBinding(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	svc := NewAgentService(storage.NewFS(baseDir))
+	_, err := svc.Create(context.Background(), model.CreateAgentRequest{
+		Name:      "support-agent",
+		ToolNames: []string{"document_list"},
+		AgentsMD:  "# Agent",
+	}, uuid.Nil)
+	if err == nil || !strings.Contains(err.Error(), `unknown tool "document_list"`) {
+		t.Fatalf("Create() error = %v, want unknown tool rejection", err)
+	}
+}
+
+func TestAgentServiceUpdateAllowsMCPToolNamesFromExistingBinding(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	profileFile := filepath.Join(baseDir, "custom", "mcp-profiles", "customer-docs.json")
+	if err := os.MkdirAll(filepath.Dir(profileFile), 0o755); err != nil {
+		t.Fatalf("mkdir profile dir: %v", err)
+	}
+	profileJSON := `{"mcpServers":{"customer-docs":{"type":"http","url":"https://customer.example.com/mcp"}}}`
+	if err := os.WriteFile(profileFile, []byte(profileJSON), 0o644); err != nil {
+		t.Fatalf("write profile file: %v", err)
+	}
+
+	fsStore := storage.NewFS(baseDir)
+	if err := fsStore.WriteAgentFiles("support-agent", "dev", "# Agent", map[string]interface{}{
+		"name":           "support-agent",
+		"description":    "Support agent",
+		"status":         "dev",
+		"agents_md_path": "AGENTS.md",
+		"mcp_servers":    []string{"custom/mcp-profiles/customer-docs.json"},
+		"memory": map[string]interface{}{
+			"enabled":                   false,
+			"debounce_seconds":          30,
+			"max_facts":                 100,
+			"fact_confidence_threshold": 0.7,
+			"injection_enabled":         true,
+			"max_injection_tokens":      2000,
+		},
+	}); err != nil {
+		t.Fatalf("seed agent files: %v", err)
+	}
+
+	svc := NewAgentService(fsStore)
+	agent, err := svc.Update(context.Background(), "support-agent", "dev", model.UpdateAgentRequest{
+		ToolNames: []string{"document_list", "document_read", "present_files"},
+	})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if got := strings.Join(agent.ToolNames, ","); got != "document_list,document_read,present_files" {
+		t.Fatalf("agent.ToolNames = %#v, want MCP tools preserved", agent.ToolNames)
+	}
+}
+
 func TestAgentServiceCreatePersistsOwnerUserID(t *testing.T) {
 	t.Parallel()
 
