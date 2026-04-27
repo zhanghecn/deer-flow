@@ -140,6 +140,12 @@ OPENAGENTS_POSTGRES_DATA_DIR=/srv/openagents/postgres
 OPENAGENTS_MINIO_DATA_DIR=/srv/openagents/minio
 ```
 
+PostgreSQL 默认绑定 `0.0.0.0:${OPENAGENTS_POSTGRES_PORT:-15432}`，方便局域网内运维连接。只想允许服务器本机访问时，改成：
+
+```text
+OPENAGENTS_POSTGRES_BIND_HOST=127.0.0.1
+```
+
 不要直接改 `deploy/docker-compose.yml`；它下次运行 `docker-deploy.sh` 会被模板覆盖。
 
 ## SQL 迁移
