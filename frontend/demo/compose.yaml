@@ -64,7 +64,7 @@ volumes:
 networks:
   openagents:
     external: true
-    # The standalone workbench must join the canonical dev stack network so the
-    # LangGraph container can resolve `http://mcp-file-service:8090` for
-    # agent-scoped MCP profiles while the browser still uses localhost:8084.
-    name: openagents_default
+    # The standalone workbench must join the active OpenAgents stack network so
+    # LangGraph can resolve `http://mcp-file-service:8090` for agent-scoped MCP
+    # profiles while the browser still uses localhost:8084.
+    name: ${MCP_WORKBENCH_NETWORK:-openagents_default}

@@ -631,6 +631,9 @@ export const zhCN: Translations = {
       profileDeleted: "MCP Profile 已删除",
       profileName: "Profile 名称",
       profileConfig: "标准 mcpServers JSON",
+      useDemoTemplate: "使用 demo 模板",
+      profileTemplateHint:
+        "HTTP MCP Profile 应使用 type: \"http\" 和容器可访问的 URL。本地 demo 模板指向当前 Docker 网络内的 mcp-file-service。",
       saveProfile: "保存 MCP Profile",
       saveError: "保存 MCP Profile 失败",
     },

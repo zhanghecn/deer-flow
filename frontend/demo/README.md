@@ -70,6 +70,9 @@ reuses it on later runs. That base image includes:
 
 Relevant environment variables:
 
+- `MCP_WORKBENCH_NETWORK` overrides the Docker network used by the demo stack.
+  When omitted, `make demo-start` prefers `openagents-prod_openagents` if it
+  exists, then falls back to `openagents_default`.
 - `MCP_WORKBENCH_OCR_LANGUAGES`
 - `MCP_WORKBENCH_TESSERACT_BIN`
 - `MCP_WORKBENCH_CACHE_DIR`

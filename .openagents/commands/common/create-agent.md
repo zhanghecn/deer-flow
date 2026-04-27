@@ -32,6 +32,11 @@ skill 选择与装配规则：
 - 如果你是在修复 target agent 已有的 agent 专属 copied skill（它只存在于 `/mnt/user-data/agents/{status}/{target_agent_name}/skills/...`，并不在 store 仓库里），先读取它当前的 `SKILL.md`，再以 `{name, content}` 形式传给 `setup_agent`。
 - 如果省略 `setup_agent.skills`，语义是“保留 target agent 当前已有 skills”，不是“自动继承你本回合刚看过的 archived skill”。对 brand-new agent 来说，这通常就意味着“创建成功但没有任何 skills”。
 
+MCP Profile 选择与装配规则：
+- 如果用户要使用本地 8084 demo MCP，不要手写 `127.0.0.1:8084`，直接在 `setup_agent.mcp_servers` 里绑定 `system/mcp-profiles/openagents-demo-mcp.json`。
+- 如果你必须创建新的 HTTP MCP Profile，`mcp_profiles[].config_json` 必须使用 Claude Code 风格的 `mcpServers` 形状，并且服务条目必须写 `type: "http"` 和容器/运行时可访问的 `url`；不要把 HTTP URL 配成 `type: "stdio"`。
+- `stdio` MCP 只用于本地命令启动场景，并且必须提供 `command`；只有 URL 的 MCP 不是 `stdio`。
+
 生成 agent 时：
 - 新 agent 的 `AGENTS.md` 必须保持精简，只描述角色、边界、什么时候读 skill，以及少量非 skill 层运行约束。
 - 如果详细工作流、审查顺序、输出格式已经由 attached skill 定义，就让 copied `SKILL.md` 成为该领域任务的唯一详细流程来源。不要在 `AGENTS.md` 里再造一套第二流程或第二输出契约。

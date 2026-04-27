@@ -22,11 +22,24 @@ import {
   useUpdateMCPProfile,
 } from "@/core/mcp/hooks";
 import type { MCPProfile } from "@/core/mcp/types";
-import { EditIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import { EditIcon, FileJson2Icon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { SettingsSection } from "./settings-section";
+
+const DEMO_MCP_TEMPLATE_NAME = "local-demo-mcp";
+const DEMO_MCP_TEMPLATE_CONFIG = {
+  mcpServers: {
+    "local-demo-mcp": {
+      enabled: true,
+      type: "http",
+      url: "http://mcp-file-service:8090/mcp-http-agent/mcp",
+      headers: {},
+      description: "OpenAgents local MCP demo file workbench.",
+    },
+  },
+};
 
 export function ToolSettingsPage() {
   const { t } = useI18n();
@@ -159,11 +172,16 @@ function MCPProfileDialog({
     if (!open) {
       return;
     }
-    setName(profile?.name ?? "");
+    setName(profile?.name ?? DEMO_MCP_TEMPLATE_NAME);
     setConfigJSON(
-      JSON.stringify(profile?.config_json ?? { mcpServers: {} }, null, 2),
+      JSON.stringify(profile?.config_json ?? DEMO_MCP_TEMPLATE_CONFIG, null, 2),
     );
   }, [open, profile]);
+
+  function applyDemoTemplate() {
+    setName((current) => current.trim() || DEMO_MCP_TEMPLATE_NAME);
+    setConfigJSON(JSON.stringify(DEMO_MCP_TEMPLATE_CONFIG, null, 2));
+  }
 
   async function handleSave() {
     try {
@@ -210,14 +228,25 @@ function MCPProfileDialog({
             />
           </div>
           <div className="space-y-2">
-            <div className="text-sm font-medium">
-              {t.settings.tools.profileConfig}
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm font-medium">
+                {t.settings.tools.profileConfig}
+              </div>
+              {!isEditing && (
+                <Button size="sm" variant="outline" onClick={applyDemoTemplate}>
+                  <FileJson2Icon className="size-4" />
+                  {t.settings.tools.useDemoTemplate}
+                </Button>
+              )}
             </div>
             <Textarea
               value={configJSON}
               onChange={(event) => setConfigJSON(event.target.value)}
               className="min-h-72 font-mono text-xs"
             />
+            <div className="text-muted-foreground text-xs leading-5">
+              {t.settings.tools.profileTemplateHint}
+            </div>
           </div>
           <div className="flex justify-end">
             <Button onClick={() => void handleSave()} disabled={isPending}>

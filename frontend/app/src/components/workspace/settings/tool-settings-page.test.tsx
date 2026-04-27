@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { ToolSettingsPage } from "./tool-settings-page";
@@ -22,6 +23,8 @@ vi.mock("@/core/i18n/hooks", () => ({
           profileDeleted: "MCP profile deleted",
           profileName: "Profile name",
           profileConfig: "Canonical mcpServers JSON",
+          useDemoTemplate: "Use demo template",
+          profileTemplateHint: "HTTP MCP profiles should use type http.",
           saveProfile: "Save MCP profile",
           saveError: "Failed to save MCP profile",
         },
@@ -70,6 +73,19 @@ describe("ToolSettingsPage", () => {
     expect(screen.getByText("customer-docs")).toBeInTheDocument();
     expect(
       screen.getByText(/custom\/mcp-profiles\/customer-docs\.json/),
+    ).toBeInTheDocument();
+  });
+
+  it("prefills new MCP profiles with the local demo HTTP template", async () => {
+    const user = userEvent.setup();
+    render(<ToolSettingsPage />);
+
+    await user.click(screen.getByRole("button", { name: "Create MCP" }));
+
+    expect(screen.getByDisplayValue("local-demo-mcp")).toBeInTheDocument();
+    expect(screen.getByText("Use demo template")).toBeInTheDocument();
+    expect(
+      screen.getByDisplayValue(/http:\/\/mcp-file-service:8090\/mcp-http-agent\/mcp/),
     ).toBeInTheDocument();
   });
 });

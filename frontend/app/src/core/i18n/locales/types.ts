@@ -548,6 +548,8 @@ export interface Translations {
       profileDeleted: string;
       profileName: string;
       profileConfig: string;
+      useDemoTemplate: string;
+      profileTemplateHint: string;
       saveProfile: string;
       saveError: string;
     };

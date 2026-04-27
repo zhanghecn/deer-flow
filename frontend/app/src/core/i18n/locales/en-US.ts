@@ -666,6 +666,9 @@ export const enUS: Translations = {
       profileDeleted: "MCP profile deleted",
       profileName: "Profile name",
       profileConfig: "Canonical mcpServers JSON",
+      useDemoTemplate: "Use demo template",
+      profileTemplateHint:
+        "HTTP MCP profiles should use type \"http\" and a container-reachable URL. The local demo template targets mcp-file-service on the active Docker network.",
       saveProfile: "Save MCP profile",
       saveError: "Failed to save MCP profile",
     },

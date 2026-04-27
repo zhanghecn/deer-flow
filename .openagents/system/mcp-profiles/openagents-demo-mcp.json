@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "openagents-demo-mcp": {
+      "enabled": true,
+      "type": "http",
+      "url": "http://mcp-file-service:8090/mcp-http-agent/mcp",
+      "headers": {},
+      "description": "OpenAgents local MCP demo file workbench. The URL is container-internal and requires the demo stack to share the active OpenAgents Docker network."
+    }
+  }
+}
