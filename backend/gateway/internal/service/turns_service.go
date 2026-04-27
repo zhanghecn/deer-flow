@@ -14,18 +14,16 @@ import (
 )
 
 type turnCollector struct {
-	turnID               string
-	events               []model.TurnEvent
-	sequence             int
-	activeToolCallKeys   map[string]int
-	pendingToolCallKeys  map[string]pendingPublicAPIToolCall
-	replayedMessageIDs   map[string]struct{}
-	replayedToolCallIDs  map[string]struct{}
-	startedToolCallKeys  map[string]struct{}
-	startedAssistantIDs  map[string]struct{}
-	lastTextByMsgID      map[string]string
-	lastReasoningByMsgID map[string]string
-	emittedReasoningText string
+	turnID              string
+	events              []model.TurnEvent
+	sequence            int
+	activeToolCallKeys  map[string]int
+	pendingToolCallKeys map[string]pendingPublicAPIToolCall
+	replayedMessageIDs  map[string]struct{}
+	replayedToolCallIDs map[string]struct{}
+	startedToolCallKeys map[string]struct{}
+	startedAssistantIDs map[string]struct{}
+	assistantStream     assistantStreamAssembler
 }
 
 type turnReplayBoundary struct {
@@ -35,16 +33,15 @@ type turnReplayBoundary struct {
 
 func newTurnCollector(turnID string) *turnCollector {
 	return &turnCollector{
-		turnID:               strings.TrimSpace(turnID),
-		events:               make([]model.TurnEvent, 0, 24),
-		activeToolCallKeys:   make(map[string]int),
-		pendingToolCallKeys:  make(map[string]pendingPublicAPIToolCall),
-		replayedMessageIDs:   make(map[string]struct{}),
-		replayedToolCallIDs:  make(map[string]struct{}),
-		startedToolCallKeys:  make(map[string]struct{}),
-		startedAssistantIDs:  make(map[string]struct{}),
-		lastTextByMsgID:      make(map[string]string),
-		lastReasoningByMsgID: make(map[string]string),
+		turnID:              strings.TrimSpace(turnID),
+		events:              make([]model.TurnEvent, 0, 24),
+		activeToolCallKeys:  make(map[string]int),
+		pendingToolCallKeys: make(map[string]pendingPublicAPIToolCall),
+		replayedMessageIDs:  make(map[string]struct{}),
+		replayedToolCallIDs: make(map[string]struct{}),
+		startedToolCallKeys: make(map[string]struct{}),
+		startedAssistantIDs: make(map[string]struct{}),
+		assistantStream:     newAssistantStreamAssembler(),
 	}
 }
 
@@ -162,15 +159,12 @@ func (c *turnCollector) consumeAssistantRecord(record map[string]any) []model.Tu
 		// user-requested assistant turn.
 		return nil
 	}
-	messageID := strings.TrimSpace(fmt.Sprint(record["id"]))
+	messageID := assistantMessageID(record)
 	if _, isHistorical := c.replayedMessageIDs[messageID]; isHistorical {
 		// LangGraph can replay thread history at the start of a streamed run.
 		// Drop already-persisted assistant chunks so `/v1/turns` only exposes the
 		// current turn instead of restating prior answers.
 		return nil
-	}
-	if messageID == "" {
-		messageID = fmt.Sprintf("assistant:%d", len(c.startedAssistantIDs)+1)
 	}
 	if _, ok := c.startedAssistantIDs[messageID]; !ok {
 		c.startedAssistantIDs[messageID] = struct{}{}
@@ -180,7 +174,7 @@ func (c *turnCollector) consumeAssistantRecord(record map[string]any) []model.Tu
 		}))
 	}
 
-	if textDelta := c.extractTextDelta(messageID, record["content"]); strings.TrimSpace(textDelta) != "" {
+	if textDelta := c.assistantStream.textDelta(messageID, record["content"]); strings.TrimSpace(textDelta) != "" {
 		events = append(events, c.push(model.TurnEvent{
 			Type:      model.TurnEventAssistantTextDelta,
 			MessageID: messageID,
@@ -188,7 +182,7 @@ func (c *turnCollector) consumeAssistantRecord(record map[string]any) []model.Tu
 		}))
 	}
 
-	if reasoningDelta := c.extractReasoningDelta(messageID, record["content"]); strings.TrimSpace(reasoningDelta) != "" {
+	if reasoningDelta := c.assistantStream.reasoningDelta(messageID, record["content"]); strings.TrimSpace(reasoningDelta) != "" {
 		events = append(events, c.push(model.TurnEvent{
 			Type:      model.TurnEventAssistantReasoningDelta,
 			MessageID: messageID,
@@ -244,35 +238,6 @@ func (c *turnCollector) consumeAssistantRecord(record map[string]any) []model.Tu
 	return events
 }
 
-func (c *turnCollector) extractTextDelta(messageID string, content any) string {
-	current := extractMessageChunkTextDelta(content)
-	if strings.TrimSpace(current) == "" {
-		return ""
-	}
-	previous := c.lastTextByMsgID[messageID]
-	switch {
-	case previous == "":
-		c.lastTextByMsgID[messageID] = current
-		return current
-	case current == previous:
-		return ""
-	case strings.HasPrefix(current, previous):
-		delta := current[len(previous):]
-		c.lastTextByMsgID[messageID] = current
-		return delta
-	case strings.HasPrefix(previous, current):
-		// LangGraph can replay an earlier prefix for the same assistant message
-		// after tool updates. Dropping it preserves a monotonic public stream.
-		return ""
-	default:
-		// Providers can switch between token deltas and cumulative chunks for
-		// the same LangGraph message. Treat non-prefix text as the next delta so
-		// a later cumulative replay of the full message can still be suppressed.
-		c.lastTextByMsgID[messageID] = previous + current
-		return current
-	}
-}
-
 func (c *turnCollector) consumeToolRecord(record map[string]any) []model.TurnEvent {
 	toolName := strings.TrimSpace(fmt.Sprint(record["name"]))
 	if toolName == "" {
@@ -307,76 +272,6 @@ func (c *turnCollector) consumeToolRecord(record map[string]any) []model.TurnEve
 		ToolOutput: record["content"],
 	}))
 	return events
-}
-
-func (c *turnCollector) extractReasoningDelta(messageID string, content any) string {
-	current := extractReasoningFromContentBlocks(content)
-	if strings.TrimSpace(current) == "" {
-		return ""
-	}
-	previous := c.lastReasoningByMsgID[messageID]
-	switch {
-	case previous == "":
-		c.lastReasoningByMsgID[messageID] = current
-		return c.filterReasoningDelta(current)
-	case current == previous:
-		return ""
-	case strings.HasPrefix(current, previous):
-		delta := current[len(previous):]
-		c.lastReasoningByMsgID[messageID] = current
-		return c.filterReasoningDelta(delta)
-	case strings.HasPrefix(previous, current):
-		return ""
-	default:
-		// Reasoning chunks follow the same mixed delta/cumulative behavior as
-		// text chunks on some upstream model adapters.
-		c.lastReasoningByMsgID[messageID] = previous + current
-		return c.filterReasoningDelta(current)
-	}
-}
-
-func (c *turnCollector) filterReasoningDelta(delta string) string {
-	trimmed := strings.TrimSpace(delta)
-	if trimmed == "" {
-		return ""
-	}
-	// Some upstream adapters replay a whole reasoning sentence under a new
-	// LangGraph message id after a tool call. Keep token-sized deltas intact,
-	// but suppress large repeated blocks so the public trace stays interleaved
-	// and readable instead of showing the same thought paragraph several times.
-	if len([]rune(trimmed)) >= 24 && strings.Contains(c.emittedReasoningText, trimmed) {
-		return ""
-	}
-	c.emittedReasoningText += delta
-	return delta
-}
-
-func extractReasoningFromContentBlocks(content any) string {
-	items, ok := content.([]any)
-	if !ok {
-		return ""
-	}
-	segments := make([]string, 0, len(items))
-	for _, item := range items {
-		block, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		blockType := strings.ToLower(strings.TrimSpace(fmt.Sprint(block["type"])))
-		if blockType != "thinking" && blockType != "reasoning" {
-			continue
-		}
-		text := firstNonEmptyString(
-			block["thinking"],
-			block["reasoning"],
-			block["reasoning_content"],
-			block["text"],
-		)
-		if strings.TrimSpace(text) != "" {
-			segments = append(segments, text)
-		}
-	}
-	return strings.Join(segments, "\n\n")
 }
 
 func extractTurnReplayBoundaryFromState(payload []byte) turnReplayBoundary {

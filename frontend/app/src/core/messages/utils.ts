@@ -140,11 +140,19 @@ export function groupMessages<T>(
             messages: [message],
           });
         } else if (hasSubagent(message)) {
-          groups.push({
-            id: message.id,
-            type: "assistant:subagent",
-            messages: [message],
-          });
+          if (lastGroup?.type === "assistant:subagent") {
+            // A single subagent turn can stream cumulative reasoning and task
+            // updates as several AI messages. Keep adjacent subagent messages
+            // together so downstream rendering can merge snapshot-style
+            // reasoning instead of showing repeated Thinking groups.
+            lastGroup.messages.push(message);
+          } else {
+            groups.push({
+              id: message.id,
+              type: "assistant:subagent",
+              messages: [message],
+            });
+          }
         } else {
           if (lastGroup?.type !== "assistant:processing") {
             groups.push({
@@ -163,7 +171,8 @@ export function groupMessages<T>(
           }
         }
       }
-      if (hasContent(message)) {
+      const visibleContent = extractContentFromMessage(message);
+      if (visibleContent) {
         // Some runtimes keep the final answer text on the same AI message that
         // also carries tool calls or reasoning. The transcript must still
         // render that visible answer instead of treating the turn as

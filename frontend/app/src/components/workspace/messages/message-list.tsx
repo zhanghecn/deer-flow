@@ -461,6 +461,30 @@ function renderSubagentMessage(
     (message) => message.type === "ai",
   );
   const content: React.ReactNode[] = [];
+  const pendingReasoningMessages: typeof subagentMessages = [];
+  const flushReasoningGroup = () => {
+    if (pendingReasoningMessages.length === 0) {
+      return;
+    }
+    // LangGraph can replay cumulative reasoning across several AI messages for
+    // one subagent turn. Keep those adjacent reasoning-bearing messages in one
+    // MessageGroup so the structured prefix-delta merge in MessageGroup applies
+    // across message ids instead of rendering repeated Thinking cards.
+    content.push(
+      <MessageGroup
+        key={
+          `thinking-group-${group.id}-${content.length}-` +
+          pendingReasoningMessages
+            .map((message) => message.id)
+            .filter(Boolean)
+            .join("-")
+        }
+        messages={[...pendingReasoningMessages]}
+        isLoading={renderer.isLoading}
+      />,
+    );
+    pendingReasoningMessages.length = 0;
+  };
 
   if (taskIds.length > 0) {
     content.push(
@@ -475,19 +499,14 @@ function renderSubagentMessage(
 
   for (const message of subagentMessages) {
     if (hasReasoning(message)) {
-      content.push(
-        <MessageGroup
-          key={"thinking-group-" + message.id}
-          messages={[message]}
-          isLoading={renderer.isLoading}
-        />,
-      );
+      pendingReasoningMessages.push(message);
     }
 
     for (const toolCall of message.tool_calls ?? []) {
       if (toolCall.name !== "task" || !toolCall.id) {
         continue;
       }
+      flushReasoningGroup();
       content.push(
         <SubtaskCard
           key={"task-group-" + toolCall.id}
@@ -498,6 +517,7 @@ function renderSubagentMessage(
       );
     }
   }
+  flushReasoningGroup();
 
   return (
     <div

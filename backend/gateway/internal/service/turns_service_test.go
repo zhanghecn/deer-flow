@@ -205,6 +205,65 @@ func TestTurnCollectorSuppressesCumulativeReplayAfterTokenDeltas(t *testing.T) {
 	}
 }
 
+func TestTurnCollectorSuppressesWhitespaceNormalizedFinalReplay(t *testing.T) {
+	t.Parallel()
+
+	collector := newTurnCollector("turn_test")
+
+	for _, chunk := range []string{"OA", "_TURNS", "_DELTA", "_0427", "流式", "通道"} {
+		events := collector.consume("messages", []any{
+			map[string]any{
+				"type": "AIMessageChunk",
+				"id":   "msg_current",
+				"content": []any{
+					map[string]any{
+						"type": "text",
+						"text": chunk,
+					},
+				},
+			},
+		})
+		if len(events) == 0 {
+			t.Fatalf("expected token delta event for %q", chunk)
+		}
+	}
+
+	replay := collector.consume("messages", []any{
+		map[string]any{
+			"type": "AIMessageChunk",
+			"id":   "msg_current",
+			"content": []any{
+				map[string]any{
+					"type": "text",
+					"text": "OA_TURNS_DELTA_0427 流式通道",
+				},
+			},
+		},
+	})
+	if len(replay) != 0 {
+		t.Fatalf("expected whitespace-normalized replay to be ignored, got %#v", replay)
+	}
+
+	extended := collector.consume("messages", []any{
+		map[string]any{
+			"type": "AIMessageChunk",
+			"id":   "msg_current",
+			"content": []any{
+				map[string]any{
+					"type": "text",
+					"text": "OA_TURNS_DELTA_0427 流式通道已完成",
+				},
+			},
+		},
+	})
+	if len(extended) != 1 {
+		t.Fatalf("expected only appended suffix after normalized prefix, got %#v", extended)
+	}
+	if extended[0].Delta != "已完成" {
+		t.Fatalf("expected appended suffix, got %q", extended[0].Delta)
+	}
+}
+
 func TestTurnCollectorSuppressesRepeatedReasoningAcrossMessageIDs(t *testing.T) {
 	t.Parallel()
 
@@ -244,6 +303,56 @@ func TestTurnCollectorSuppressesRepeatedReasoningAcrossMessageIDs(t *testing.T) 
 	})
 	if len(replayed) != 1 {
 		t.Fatalf("expected only the new assistant message start, got %#v", replayed)
+	}
+}
+
+func TestTurnCollectorConvertsNoIDReasoningSnapshotsToDeltas(t *testing.T) {
+	t.Parallel()
+
+	collector := newTurnCollector("turn_test")
+	first := collector.consume("messages", []any{
+		map[string]any{
+			"type": "AIMessageChunk",
+			"content": []any{
+				map[string]any{
+					"type":     "thinking",
+					"thinking": "先读取技能",
+				},
+			},
+		},
+	})
+	if len(first) != 2 || first[1].Delta != "先读取技能" {
+		t.Fatalf("expected first reasoning delta, got %#v", first)
+	}
+
+	replay := collector.consume("messages-tuple", []any{
+		map[string]any{
+			"type": "AIMessageChunk",
+			"content": []any{
+				map[string]any{
+					"type":     "thinking",
+					"thinking": "先读取技能",
+				},
+			},
+		},
+	})
+	if len(replay) != 0 {
+		t.Fatalf("expected duplicate no-id reasoning snapshot to be ignored, got %#v", replay)
+	}
+
+	extended := collector.consume("messages", []any{
+		map[string]any{
+			"type": "AIMessageChunk",
+			"content": []any{
+				map[string]any{
+					"type":     "thinking",
+					"thinking": "先读取技能，然后调用知识库工具",
+				},
+			},
+		},
+	})
+	if len(extended) != 1 || extended[0].Delta != "，然后调用知识库工具" {
+		t.Fatalf("expected appended no-id reasoning delta, got %#v", extended)
 	}
 }
 

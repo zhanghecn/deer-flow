@@ -126,6 +126,7 @@ type publicAPIRunCollector struct {
 	activeToolCallKeys    map[string]int
 	pendingToolCallKeys   map[string]pendingPublicAPIToolCall
 	startedToolCallKeys   map[string]struct{}
+	assistantStream       assistantStreamAssembler
 }
 
 type publicAPIModelRepository interface {
@@ -861,6 +862,7 @@ func newPublicAPIRunCollector(startIndex int) *publicAPIRunCollector {
 		activeToolCallKeys:    make(map[string]int),
 		pendingToolCallKeys:   make(map[string]pendingPublicAPIToolCall),
 		startedToolCallKeys:   make(map[string]struct{}),
+		assistantStream:       newAssistantStreamAssembler(),
 	}
 }
 
@@ -898,7 +900,8 @@ func (c *publicAPIRunCollector) consume(sourceEvent string, payload any) publicA
 			if toolEvents := c.extractToolCallEventsFromMessage(record); len(toolEvents) > 0 {
 				events = append(events, toolEvents...)
 			}
-			if textDelta := extractMessageChunkTextDelta(record["content"]); strings.TrimSpace(textDelta) != "" {
+			messageID := assistantMessageID(record)
+			if textDelta := c.assistantStream.textDelta(messageID, record["content"]); strings.TrimSpace(textDelta) != "" {
 				events = append(events, c.pushEvent(model.PublicAPIRunEvent{
 					Type:  model.PublicAPIAssistantDelta,
 					Delta: textDelta,

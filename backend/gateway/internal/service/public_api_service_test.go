@@ -543,6 +543,63 @@ func TestPublicAPIRunCollectorExtractsTextDeltaFromMessagesEvent(t *testing.T) {
 	}
 }
 
+func TestPublicAPIRunCollectorConvertsCumulativeTextSnapshotsToDeltas(t *testing.T) {
+	t.Parallel()
+
+	collector := newPublicAPIRunCollector(1)
+	first := collector.consume("messages", []any{
+		map[string]any{
+			"type": "AIMessageChunk",
+			"id":   "msg_current",
+			"content": []any{
+				map[string]any{
+					"type": "text",
+					"text": "正在检索",
+				},
+			},
+			"tool_calls": []any{},
+		},
+	})
+	if len(first.RunEvents) != 1 || first.RunEvents[0].Delta != "正在检索" {
+		t.Fatalf("expected first text delta, got %#v", first.RunEvents)
+	}
+
+	replay := collector.consume("values", map[string]any{
+		"messages": []any{
+			map[string]any{
+				"type": "ai",
+				"id":   "msg_current",
+				"content": []any{
+					map[string]any{
+						"type": "text",
+						"text": "正在检索",
+					},
+				},
+			},
+		},
+	})
+	if len(replay.RunEvents) != 0 {
+		t.Fatalf("expected duplicate cumulative snapshot to be suppressed, got %#v", replay.RunEvents)
+	}
+
+	extended := collector.consume("messages-tuple", []any{
+		map[string]any{
+			"type": "AIMessageChunk",
+			"id":   "msg_current",
+			"content": []any{
+				map[string]any{
+					"type": "text",
+					"text": "正在检索知识库",
+				},
+			},
+			"tool_calls": []any{},
+		},
+	})
+	if len(extended.RunEvents) != 1 || extended.RunEvents[0].Delta != "知识库" {
+		t.Fatalf("expected only appended text delta, got %#v", extended.RunEvents)
+	}
+}
+
 func TestPublicAPIRunCollectorDropsSummarizationChunks(t *testing.T) {
 	t.Parallel()
 

@@ -127,6 +127,51 @@ describe("groupMessages", () => {
     ]);
     expect(groups[1]?.messages[0]?.content).toBe("最终结论：命盘偏财旺。");
   });
+
+  it("keeps adjacent subagent chunks in one group for cumulative reasoning merge", () => {
+    const groups = groupMessages(
+      [
+        {
+          id: "ai-task-1",
+          type: "ai",
+          content: [
+            {
+              type: "thinking",
+              thinking: "先读取技能。",
+            },
+          ],
+          tool_calls: [
+            {
+              id: "task-1",
+              name: "task",
+              args: { description: "查资料", prompt: "查资料" },
+            },
+          ],
+        },
+        {
+          id: "ai-task-2",
+          type: "ai",
+          content: [
+            {
+              type: "thinking",
+              thinking: "先读取技能。\n然后调用知识库工具。",
+            },
+          ],
+          tool_calls: [
+            {
+              id: "task-2",
+              name: "task",
+              args: { description: "继续查资料", prompt: "继续查资料" },
+            },
+          ],
+        },
+      ] as never,
+      (group) => group,
+    );
+
+    expect(groups.map((group) => group.type)).toEqual(["assistant:subagent"]);
+    expect(groups[0]?.messages).toHaveLength(2);
+  });
 });
 
 describe("extractNextStepsFromText", () => {
