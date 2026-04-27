@@ -10,6 +10,10 @@ Generated files such as `__pycache__/` do not belong here.
 - `docker-release.sh` - builds, pushes, pulls, and deploys Docker Hub release images.
 - `cleanup-containers.sh` - removes sandbox containers left by local runtime tests.
 
+Current Docker development and release workflow:
+
+- `../docs/guides/docker-compose-prod-selfhost-zh.md`
+
 ## Demo Helpers
 
 - `demo.sh` - starts, stops, and inspects the demo workbench.

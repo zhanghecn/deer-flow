@@ -266,7 +266,8 @@ export JWT_SECRET="${ONLYOFFICE_JWT_SECRET:-${JWT_SECRET}}"
 相关代码：
 
 - `backend/gateway/cmd/server/main.go`
-- `docker/docker-compose-prod.yaml`
+- `docker/docker-compose-prod.yaml`（正式 compose 模板）
+- `deploy/docker-compose.yml`（部署脚本生成后的实际正式 compose）
 
 ## 9. 为什么生产环境要走同源 /onlyoffice
 
@@ -285,7 +286,8 @@ documentServerUrl = /onlyoffice
 
 生产配置位置：
 
-- `docker/docker-compose-prod.yaml`
+- `docker/docker-compose-prod.yaml`（正式 compose 模板）
+- `deploy/docker-compose.yml`（部署脚本生成后的实际正式 compose）
 - `docker/nginx/nginx.prod.conf`
 
 ## 10. 本地开发为什么也建议模拟 nginx
@@ -342,5 +344,6 @@ gateway 返回给前端的:
   - `backend/gateway/internal/handler/onlyoffice_test.go`
 
 - Deploy / Proxy
-  - `docker/docker-compose-prod.yaml`
+  - `docker/docker-compose-prod.yaml`（正式 compose 模板）
+  - `deploy/docker-compose.yml`（部署脚本生成后的实际正式 compose）
   - `docker/nginx/nginx.prod.conf`

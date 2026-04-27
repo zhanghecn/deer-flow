@@ -39,6 +39,10 @@ For contributor workflow:
 1. `../CONTRIBUTING.md`
 2. `testing/README.md`
 
+For Docker development, release, and deployment:
+
+1. `guides/docker-compose-prod-selfhost-zh.md`
+
 ## Source-Of-Truth Rule
 
 When someone asks whether the "project docs" match the code, default to:

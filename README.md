@@ -47,22 +47,25 @@ OPENAI_API_KEY=your-openai-api-key
 TAVILY_API_KEY=your-tavily-api-key
 ```
 
-### 2. Run with Docker
+### 2. Run with Docker for development
 
 ```bash
 make docker-init
-make docker-start
+make dev
 ```
 
 Open: `http://localhost:8083`
 
-### 3. Run locally
+Docker development uses `deploy/data/openagents` for runtime data and caches.
+See [Docker 开发与发版流程](docs/guides/docker-compose-prod-selfhost-zh.md)
+for first deployment, later releases, and data-directory rules.
+
+### 3. Host debugging
 
 ```bash
 make check
 make install
-make docker-infra-start
-make dev
+make host-dev
 ```
 
 Open: `http://localhost:2026`
@@ -119,6 +122,7 @@ See [`backend/agents/src/client.py`](backend/agents/src/client.py) and [`backend
 ## Documentation
 
 - [Docs Index](docs/README.md)
+- [Docker 开发与发版流程](docs/guides/docker-compose-prod-selfhost-zh.md)
 - [Contributing Guide](CONTRIBUTING.md)
 - [Testing Guide](docs/testing/README.md)
 - [Agents Architecture](backend/agents/README.md)

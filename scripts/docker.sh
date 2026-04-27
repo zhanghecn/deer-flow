@@ -632,10 +632,7 @@ help() {
     echo "  init            - Pull the sandbox image"
     echo "  infra-start     - Start only sandbox-aio + ONLYOFFICE"
     echo "  infra-stop      - Stop only sandbox-aio + ONLYOFFICE"
-    echo ""
-    echo "Compatibility aliases:"
-    echo "  prod-start/prod-status/prod-verify/prod-restart map to the same unified local stack."
-    echo "  They are kept so old automation does not fail, not as a separate release topology."
+    echo "  docker workflow - See docs/guides/docker-compose-prod-selfhost-zh.md"
     echo ""
 }
 
