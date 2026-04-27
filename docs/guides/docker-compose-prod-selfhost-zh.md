@@ -212,6 +212,8 @@ make docker-model-gateway-attach MODEL_GATEWAY_CONTAINER=1Panel-new-api-6d1F MOD
 http://model-gateway:3000
 ```
 
+`openagents-prod_openagents` 是脚本管理的 external network。这样服务器上如果已经有同名网络，Compose 会直接复用它，不会因为旧 compose label 不一致而启动失败。
+
 ## 备份和回滚
 
 发版前至少备份：

@@ -2,9 +2,10 @@ name: openagents-prod
 
 networks:
   default:
-    # Keep the production bridge network stable so external model-gateway
-    # containers can join it without depending on Docker Compose's generated
-    # `<project>_default` naming convention.
+    # Treat the production bridge as an operator-owned shared network. This
+    # avoids Compose label conflicts when an existing model-gateway container
+    # already uses the stable network name from an older deployment.
+    external: true
     name: ${OPENAGENTS_DOCKER_NETWORK:-openagents-prod_openagents}
 
 x-openagents-env-file: &openagents_env_file

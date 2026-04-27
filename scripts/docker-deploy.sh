@@ -14,6 +14,7 @@ ENV_EXAMPLE="$DEPLOY_DIR/.env.example"
 ENV_FILE="$DEPLOY_DIR/.env"
 FORCE=0
 START=0
+DOCKER_NETWORK="${OPENAGENTS_DOCKER_NETWORK:-openagents-prod_openagents}"
 
 info() { echo -e "${BLUE}[INFO]${NC} $*"; }
 success() { echo -e "${GREEN}[OK]${NC} $*"; }
@@ -88,6 +89,18 @@ directory_has_files() {
 
 compose() {
     (cd "$DEPLOY_DIR" && docker compose -f docker-compose.yml "$@")
+}
+
+ensure_docker_network() {
+    if docker network inspect "$DOCKER_NETWORK" >/dev/null 2>&1; then
+        # The production compose declares this as external so existing networks
+        # with older Compose labels can be reused instead of failing startup.
+        info "Using existing Docker network: $DOCKER_NETWORK"
+        return
+    fi
+
+    info "Creating Docker network: $DOCKER_NETWORK"
+    docker network create "$DOCKER_NETWORK" >/dev/null
 }
 
 postgres_container() {
@@ -196,6 +209,7 @@ main() {
     copy_if_available "$PROJECT_ROOT/backend/gateway/gateway.yaml" "$DEPLOY_DIR/gateway.yaml"
     sync_runtime_asset_dir commands
     sync_runtime_asset_dir system
+    ensure_docker_network
 
     success "Created deploy/data/openagents, deploy/data/postgres, deploy/data/minio"
     success "Synced .openagents/commands and .openagents/system into deploy/data/openagents"

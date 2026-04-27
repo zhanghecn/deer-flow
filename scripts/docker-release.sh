@@ -15,6 +15,7 @@ PROD_COMPOSE_FILE="docker-compose.yml"
 DEFAULT_SERVICES=(nginx gateway langgraph sandbox-aio onlyoffice openpencil)
 DEFAULT_IMAGE_REPOSITORY="zhangxuan2/openagents"
 DEFAULT_IMAGE_TAG="latest"
+DEFAULT_DOCKER_NETWORK="openagents-prod_openagents"
 
 COMMAND="push"
 IMAGE_REGISTRY="${OPENAGENTS_IMAGE_REGISTRY:-docker.io}"
@@ -203,6 +204,16 @@ run_cmd() {
     "$@"
 }
 
+ensure_docker_network() {
+    local network="${OPENAGENTS_DOCKER_NETWORK:-$DEFAULT_DOCKER_NETWORK}"
+
+    if docker network inspect "$network" >/dev/null 2>&1; then
+        return
+    fi
+
+    run_cmd docker network create "$network"
+}
+
 build_service() {
     local service="$1"
     local image
@@ -333,6 +344,7 @@ main() {
             release_pull
             ;;
         deploy)
+            ensure_docker_network
             release_deploy
             ;;
         *)
