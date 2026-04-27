@@ -73,7 +73,8 @@ ensure_demo_network() {
 }
 
 ensure_local_base_image() {
-    if docker image inspect "$LOCAL_BASE_IMAGE" >/dev/null 2>&1; then
+    if docker image inspect "$LOCAL_BASE_IMAGE" >/dev/null 2>&1 \
+        && docker run --rm "$LOCAL_BASE_IMAGE" python -m uv --version >/dev/null 2>&1; then
         echo -e "${GREEN}✓ Reusing local base image ${LOCAL_BASE_IMAGE}${NC}"
         return
     fi
@@ -90,23 +91,61 @@ ensure_local_base_image() {
 
 bootstrap_python_deps() {
     echo -e "${BLUE}Syncing demo Python deps in ${DEMO_MCP_PROJECT_DIR}${NC}"
-    # The mounted service runs inside a CPython 3.12 container, so the host
-    # dependency environment must use the same ABI for import compatibility.
-    # The default index is pinned here instead of relying on user-global uv
-    # config so clean servers get the same fast bootstrap behavior.
-    uv sync \
-        --project "$DEMO_MCP_PROJECT_DIR" \
-        --python 3.12 \
-        --default-index "$DEMO_PYTHON_INDEX_URL" \
-        --frozen
+    if command -v uv >/dev/null 2>&1; then
+        # The mounted service runs inside a CPython 3.12 container, so the host
+        # dependency environment must use the same ABI for import compatibility.
+        # The default index is pinned here instead of relying on user-global uv
+        # config so clean servers get the same fast bootstrap behavior.
+        uv sync \
+            --project "$DEMO_MCP_PROJECT_DIR" \
+            --python 3.12 \
+            --default-index "$DEMO_PYTHON_INDEX_URL" \
+            --frozen
+        return
+    fi
+
+    echo -e "${YELLOW}uv not found on host; syncing Python deps with Docker image ${LOCAL_BASE_IMAGE}${NC}"
+    # Demo startup should only require Docker. When uv is absent on the host,
+    # reuse the local Python base image and write the mounted .venv from inside
+    # the same CPython 3.12 environment that will later run the service.
+    docker run --rm \
+        --user "$(id -u):$(id -g)" \
+        -e HOME=/tmp \
+        -e UV_CACHE_DIR=/tmp/uv-cache \
+        -v "$DEMO_MCP_PROJECT_DIR:/app" \
+        -w /app \
+        "$LOCAL_BASE_IMAGE" \
+        python -m uv sync \
+            --project /app \
+            --python 3.12 \
+            --default-index "$DEMO_PYTHON_INDEX_URL" \
+            --frozen
 }
 
 bootstrap_node_deps() {
     echo -e "${BLUE}Syncing demo Node deps in ${DEMO_UI_PROJECT_DIR}${NC}"
-    # Keep the registry scoped to this command so the demo does not mutate a
-    # developer's global pnpm/npm configuration.
-    npm_config_registry="$DEMO_NPM_REGISTRY" \
-        CI=true pnpm --dir "$DEMO_UI_PROJECT_DIR" install --frozen-lockfile
+    if command -v pnpm >/dev/null 2>&1; then
+        # Keep the registry scoped to this command so the demo does not mutate a
+        # developer's global pnpm/npm configuration.
+        npm_config_registry="$DEMO_NPM_REGISTRY" \
+            CI=true pnpm --dir "$DEMO_UI_PROJECT_DIR" install --frozen-lockfile
+        return
+    fi
+
+    echo -e "${YELLOW}pnpm not found on host; syncing Node deps with Docker image node:22-alpine${NC}"
+    # The dynamic demo bind-mounts frontend/demo, so node_modules must exist in
+    # that directory. Use a disposable Node container when pnpm is not installed
+    # on the host instead of asking operators to install extra tooling.
+    docker run --rm \
+        --user "$(id -u):$(id -g)" \
+        -e HOME=/tmp \
+        -e COREPACK_HOME=/tmp/corepack \
+        -e npm_config_registry="$DEMO_NPM_REGISTRY" \
+        -e COREPACK_NPM_REGISTRY="$DEMO_NPM_REGISTRY" \
+        -v "$PROJECT_ROOT:/app" \
+        -w /app/frontend/demo \
+        node:22-alpine \
+        /bin/sh -lc 'mkdir -p /tmp/corepack-bin && corepack enable --install-directory /tmp/corepack-bin && export PATH="/tmp/corepack-bin:$PATH" && corepack prepare pnpm@10.26.2 --activate && CI=true pnpm install --frozen-lockfile'
 }
 
 bootstrap() {
@@ -238,6 +277,10 @@ help() {
     echo "  - DEMO_PYTHON_INDEX_URL=$DEMO_PYTHON_INDEX_URL"
     echo "  - DEMO_APT_DEBIAN_MIRROR=$DEMO_APT_DEBIAN_MIRROR"
     echo "  - DEMO_APT_SECURITY_MIRROR=$DEMO_APT_SECURITY_MIRROR"
+    echo ""
+    echo "Host tools:"
+    echo "  - Docker is required"
+    echo "  - pnpm and uv are optional; missing tools are run through Docker"
 }
 
 case "${1:-}" in
