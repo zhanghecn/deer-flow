@@ -1,7 +1,6 @@
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
-import json
 from pathlib import Path
 from typing import Any
 
@@ -11,17 +10,17 @@ from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
-from src.config.builtin_agents import LEAD_AGENT_NAME, normalize_effective_agent_name
-from src.config.agent_runtime_seed import runtime_seed_targets
 from src.config.agent_materialization import materialize_agent_definition
+from src.config.agent_runtime_seed import runtime_seed_targets
 from src.config.agent_skill_preservation import (
     load_existing_agent_skill_input,
     load_existing_agent_skill_inputs,
 )
-from src.config.agents_config import AGENT_NAME_PATTERN, AgentConfig, load_agent_config, load_agent_subagents, load_agents_md
+from src.config.agents_config import AgentConfig, load_agent_config, load_agent_subagents, load_agents_md
+from src.config.builtin_agents import LEAD_AGENT_NAME, normalize_effective_agent_name
 from src.config.paths import get_paths
-from src.mcp.library import normalize_mcp_profile_name, write_mcp_profile
 from src.config.runtime_db import get_runtime_db_store
+from src.mcp.library import normalize_mcp_profile_name, write_mcp_profile
 from src.runtime_backends import (
     REMOTE_EXECUTION_BACKEND,
     build_runtime_workspace_backend,
@@ -61,6 +60,21 @@ class SetupAgentSkillInput(BaseModel):
             "When creating a brand-new agent-owned skill, use the target local skill name."
         )
     )
+    source_path: str | None = Field(
+        default=None,
+        description=(
+            "Optional explicit skill source path such as 'system/skills/my-skill' or "
+            "'custom/skills/team/my-skill'. Use this when the same skill name exists in multiple roots "
+            "and the source must be explicit."
+        ),
+    )
+    content: str | None = Field(
+        default=None,
+        description=(
+            "Optional full SKILL.md markdown for a brand-new agent-owned skill. "
+            "Omit this field when copying an existing archived store skill by name."
+        ),
+    )
 
 
 class SetupAgentMCPProfileInput(BaseModel):
@@ -78,21 +92,6 @@ class SetupAgentMCPProfileInput(BaseModel):
         description=(
             "Canonical MCP profile JSON using the Claude Code-style `mcpServers` "
             "shape. The payload must define exactly one server entry."
-        ),
-    )
-    source_path: str | None = Field(
-        default=None,
-        description=(
-            "Optional explicit skill source path such as 'system/skills/my-skill' or "
-            "'custom/skills/team/my-skill'. Use this when the same skill name exists in multiple roots "
-            "and the source must be explicit."
-        ),
-    )
-    content: str | None = Field(
-        default=None,
-        description=(
-            "Optional full SKILL.md markdown for a brand-new agent-owned skill. "
-            "Omit this field when copying an existing archived store skill by name."
         ),
     )
 

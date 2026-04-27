@@ -17,7 +17,7 @@ from src.tools.builtins.push_skill_prod_tool import push_skill_prod
 from src.tools.builtins.runtime_context import runtime_context_value
 from src.tools.builtins.save_agent_to_store_tool import save_agent_to_store
 from src.tools.builtins.save_skill_to_store_tool import save_skill_to_store
-from src.tools.builtins.setup_agent_tool import setup_agent
+from src.tools.builtins.setup_agent_tool import SetupAgentSkillInput, setup_agent
 
 
 def test_runtime_context_value_supports_typed_context():
@@ -33,6 +33,20 @@ def test_runtime_context_value_supports_typed_context():
     assert runtime_context_value(context, "agent_status") == "dev"
     assert runtime_context_value(context, "x-thread-id") == "thread-1"
     assert runtime_context_value(context, "missing", "fallback") == "fallback"
+
+
+def test_setup_agent_skill_input_schema_preserves_inline_skill_content():
+    """Inline agent-owned skills must reach setup_agent instead of degrading to name-only refs."""
+
+    skill = SetupAgentSkillInput(
+        name="bms-kb-answering",
+        content="---\nname: bms-kb-answering\ndescription: BMS KB answering\n---\n\n# BMS\n",
+    )
+
+    assert skill.name == "bms-kb-answering"
+    assert skill.content.startswith("---\nname: bms-kb-answering")
+    assert "content" in SetupAgentSkillInput.model_fields
+    assert "source_path" in SetupAgentSkillInput.model_fields
 
 
 def test_save_skill_to_store_requires_explicit_skill_name(monkeypatch):
