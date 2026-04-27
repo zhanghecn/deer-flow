@@ -3,7 +3,7 @@
 ## 当前状态
 
 - 已完成：本地开发栈统一到 `docker/docker-compose.yaml`，项目名为 `openagents`。
-- 已完成：兼容入口 `docker/docker-compose.dev.yaml` 与 `docker/docker-compose-prod.yaml` 仅指向统一 compose，不再维护两套服务定义。
+- 已完成：Docker Compose 入口收敛为开发 `docker/docker-compose.yaml` 与正式环境 `docker/docker-compose-prod.yaml`。
 - 已完成：源码目录在 Docker 内读写挂载，依赖缓存持久化到 `.openagents/dev-cache/`。
 - 已完成：固定端口已验证：
   - `8081` admin
@@ -41,7 +41,6 @@
 
 2. 统一 Docker 开发栈
    - `docker/docker-compose.yaml`
-   - `docker/docker-compose.dev.yaml`
    - `docker/docker-compose-prod.yaml`
    - `scripts/docker.sh`
    - `Makefile`

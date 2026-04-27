@@ -4,27 +4,31 @@
 
 - `docker/docker-compose-prod.yaml`
 
-目标不是做云原生大规模编排，而是提供一份适合单机/单节点正式环境、同时也能作为本地 Docker 默认入口的自托管方案。
+目标不是做云原生大规模编排，而是提供一份适合单机/单节点正式环境的自托管方案。
 
 ## 设计取向
 
-这份 Compose 现在就是仓库唯一保留的编排文件：
+这份 Compose 现在是发布/正式环境入口：
 
+- 业务服务只声明 `image:`，正式机器只负责拉取并运行镜像
+- 本地构建和推送由 `scripts/docker-release.sh` 按各服务 Dockerfile 完成
+- 服务器部署时可以只 `pull` 已发布镜像，不需要在正式机器重新构建
 - 前端不再跑 Vite dev server
 - 两个前端都先构建产物，再由一个 Nginx 容器托管
 - `gateway` 和 `langgraph` 不对外暴露端口
+- PostgreSQL、MinIO、OpenAgents runtime home 都使用显式宿主机目录挂载
 - `sandbox-aio` 和 `onlyoffice` 作为基础能力常驻
 - `openpencil` 默认从仓库内置的 `openpencil/` 源码副本构建，避免 Deer Flow 与设计编辑器版本漂移
-- `gateway` / `langgraph` 只挂各自需要热更新的源码目录与显式配置文件
-- Python 依赖保留在镜像里的 `/opt/venv`，代码更新只需要重启容器，不会因为源码挂载而反复安装
+- `gateway` / `langgraph` 只挂显式配置文件和运行时数据目录
+- Python 依赖保留在镜像里的 `/opt/venv`，代码更新通过镜像 tag 发布
 
 注意：
 
-- 根目录 `config.yaml` 依然会被挂进正式环境容器
+- `docker/config.yaml` 依然会被挂进正式环境容器
 - 但其中 `sandbox.base_url: http://127.0.0.1:18080` 属于宿主机/开发视角地址
 - 正式环境里 `langgraph` 会用 `OPENAGENTS_SANDBOX_BASE_URL=http://sandbox-aio:8080` 覆盖它
 - `sandbox-aio` 额外对宿主机暴露 `18080 -> 8080`，方便访问它的管理页面
-- `langgraph` 的 inmem 运行时目录固定落在 `.openagents/runtime/langgraph/`
+- OpenAgents runtime、PostgreSQL、MinIO 默认都落在 `docker/data/` 下，方便整目录迁移
 - `gateway` / `langgraph` 继续输出到容器标准日志，由 Docker 做日志轮转
 - 浏览器访问链路仍然是 `nginx -> gateway -> langgraph -> sandbox-aio`
 - 如果外部模型网关由别的面板/Compose 单独托管，推荐把它直接接入
@@ -34,31 +38,87 @@
 这份方案更适合：
 
 - 你已经把仓库 clone 到正式机器
-- 你希望直接复用本地的 `.env`、`config.yaml`、`gateway.yaml`
-- 你希望以后 `git pull + compose build + compose up -d` 就能更新
+- 你希望用脚本把本地 `config.yaml`、`gateway.yaml` 复制成部署目录里的配置
+- 你希望以后 `compose pull + compose up -d` 就能使用已发布镜像更新
 
 ## 最省事的用法
 
-这套正式环境现在不依赖额外的 docker 专用 env 文件，也不依赖 sh 脚本。
+这套正式环境推荐使用部署准备脚本生成 docker 专用 `.env`。
 
-默认值直接写在 compose 里：
+推荐先准备一份和 compose 同目录的部署配置：
+
+```bash
+./scripts/docker-deploy.sh
+cd docker
+docker compose -f docker-compose-prod.yaml up -d
+```
+
+这个脚本会借鉴常见开源项目的部署目录模式：
+
+- 生成 `docker/.env`，并写入 PostgreSQL、MinIO、JWT 的强随机 secret
+- 复制 `config.yaml` 到 `docker/config.yaml`
+- 复制 `backend/gateway/gateway.yaml` 到 `docker/gateway.yaml`
+- 创建 `docker/data/openagents`、`docker/data/postgres`、`docker/data/minio`
+
+默认值直接写在 compose 和 `docker/.env` 里：
 
 - 用户前台端口：`8083`
 - 后台管理端口：`8081`
+- PostgreSQL 宿主机调试端口：`15432`
+- MinIO API 宿主机调试端口：`19000`
+- MinIO Console 宿主机调试端口：`19001`
 - ONLYOFFICE 暴露端口：`8082`
 - sandbox 管理端口：`18080`
-- 持久化目录：仓库根目录 `.openagents/`
-- secrets 文件：仓库根目录 `.env`
-- OpenPencil 源码目录：`openpencil/`
+- OpenAgents runtime 目录：`docker/data/openagents/`
+- PostgreSQL 数据目录：`docker/data/postgres/`
+- MinIO 数据目录：`docker/data/minio/`
+- secrets 文件：`docker/.env`
+- OpenPencil 运行镜像：由 `scripts/docker-release.sh` 自动选择 repository/tag
 
 只有你确实要改部署形态时，才需要覆写这些变量：
 
 - `OPENAGENTS_ENV_FILE`
 - `OPENAGENTS_DOCKER_HOST_HOME`
+- `OPENAGENTS_POSTGRES_DATA_DIR`
+- `OPENAGENTS_MINIO_DATA_DIR`
+- `OPENAGENTS_POSTGRES_PORT`
+- `OPENAGENTS_MINIO_API_PORT`
+- `OPENAGENTS_MINIO_CONSOLE_PORT`
 - `OPENAGENTS_APP_PORT`
 - `OPENAGENTS_ADMIN_PORT`
 - `OPENAGENTS_ONLYOFFICE_PORT`
 - `OPENAGENTS_SANDBOX_PORT`
+
+如果要把本地镜像发布到 Docker Hub，典型命令是：
+
+```bash
+./scripts/docker-release.sh push
+```
+
+脚本默认仓库就是 `zhangxuan2/openagents`，默认 tag 是 `latest`，可以直接这样跑，
+不需要手动 `export`：
+
+```bash
+./scripts/docker-release.sh push
+```
+
+脚本会在同一个仓库里生成多个 service tag，例如：
+
+```text
+zhangxuan2/openagents:nginx-latest
+zhangxuan2/openagents:gateway-latest
+zhangxuan2/openagents:langgraph-latest
+```
+
+需要指定版本时加 `--tag v0.1.0`，最终 tag 会变成 `nginx-v0.1.0`、
+`gateway-v0.1.0` 这种形式。需要推到别的 Docker Hub 仓库时，再加
+`--repository <namespace>/openagents` 覆盖默认值。
+
+服务器部署时执行：
+
+```bash
+./scripts/docker-release.sh deploy
+```
 
 如果你有外部模型网关容器，例如 1Panel 托管的 `new-api`，推荐把那个容器直接接到
 `openagents-prod_openagents`，然后在模型记录里统一写：
@@ -78,7 +138,7 @@ make docker-model-gateway-attach MODEL_GATEWAY_CONTAINER=1Panel-new-api-6d1F
 推荐直接在 `docker/` 目录执行：
 
 ```bash
-docker compose -f docker-compose-prod.yaml build
+docker compose -f docker-compose-prod.yaml pull
 docker compose -f docker-compose-prod.yaml up -d
 ```
 
@@ -86,7 +146,9 @@ docker compose -f docker-compose-prod.yaml up -d
 
 ```bash
 OPENAGENTS_APP_PORT=80 \
-OPENAGENTS_DOCKER_HOST_HOME=/srv/openagents \
+OPENAGENTS_DOCKER_HOST_HOME=/srv/openagents/runtime \
+OPENAGENTS_POSTGRES_DATA_DIR=/srv/openagents/postgres \
+OPENAGENTS_MINIO_DATA_DIR=/srv/openagents/minio \
 docker compose -f docker-compose-prod.yaml up -d
 ```
 
@@ -143,11 +205,12 @@ docker compose -f docker-compose-prod.yaml logs -f
 
 ### 1. compose 里的 `env_file` 是什么
 
-- `env_file: ${OPENAGENTS_ENV_FILE:-../.env}`
-- 作用：把仓库根目录 `.env` 里的 secrets 注入给容器进程
-- 你正常只需要维护这一份 `.env`
+- `env_file: ${OPENAGENTS_ENV_FILE:-.env}`
+- 作用：把 `docker/.env` 里的 secrets 注入给容器进程
+- 你正常只需要维护部署目录里的这一份 `.env`
 - 这里适合放：
-  - `DATABASE_URI`
+  - `OPENAGENTS_POSTGRES_PASSWORD`
+  - `OPENAGENTS_MINIO_ROOT_PASSWORD`
   - `JWT_SECRET`
   - `ONLYOFFICE_JWT_SECRET`
   - 各种第三方 API Key
@@ -166,11 +229,9 @@ docker compose -f docker-compose-prod.yaml logs -f
 
 ### 3. compose 里的 `command` 是什么
 
-- `command:` 是容器启动后真正执行的命令
-- 这决定了“这个容器起来后到底跑什么”
-- 例如：
-  - `gateway` 跑的是挂载进来的源码 `go run ./cmd/server`
-  - `langgraph` 直接以 `.openagents/runtime/langgraph/` 作为工作目录启动，避免把运行时状态写回源码目录
+- `docker-compose-prod.yaml` 的业务服务默认使用镜像自带启动命令
+- 这保证部署机只需要拉取镜像，不需要保留源码构建环境
+- 需要从源码构建发布镜像时，使用 `scripts/docker-release.sh push`
 
 ### 4. 每个容器是干什么的
 
@@ -211,7 +272,7 @@ docker compose -f docker-compose-prod.yaml logs -f
 - `docker compose ... logs -f`
   - 看日志
 - `docker compose ... down`
-  - 停止容器，但不会删 `.openagents` 数据
+  - 停止容器，但不会删 `docker/data/` 数据
 
 ## 暴露端口
 
@@ -319,8 +380,8 @@ services:
 
 说明：
 
-- 会直接使用根 `.env`
-- 也会把 `.env` 挂进容器，方便你在容器内排查时看到同一份配置来源
+- 会直接使用部署目录里的 `docker/.env`
+- `docker-deploy.sh` 会生成强随机 secret，避免正式环境继续使用弱默认密码
 
 ### `onlyoffice`
 
@@ -334,23 +395,24 @@ services:
 
 ## 目录与配置约定
 
-正式环境机器上，建议直接使用仓库根目录下这些文件：
+正式环境机器上，建议直接使用 `docker/` 部署目录下这些文件：
 
-- `.env`
-- `config.yaml`
-- `backend/gateway/gateway.yaml`
-- `.openagents/`
+- `docker/.env`
+- `docker/config.yaml`
+- `docker/gateway.yaml`
+- `docker/data/`
 
-### `.env`
+### `docker/.env`
 
 放 secrets：
 
-- `DATABASE_URI`
+- `OPENAGENTS_POSTGRES_PASSWORD`
+- `OPENAGENTS_MINIO_ROOT_PASSWORD`
 - `JWT_SECRET`
 - `ONLYOFFICE_JWT_SECRET`
 - 第三方 API Key
 
-### `config.yaml`
+### `docker/config.yaml`
 
 放 runtime 的非 secrets 配置：
 
@@ -360,7 +422,7 @@ services:
 - `tools`
 - `skills`
 
-### `backend/gateway/gateway.yaml`
+### `docker/gateway.yaml`
 
 放 Gateway 非 secrets 配置：
 
@@ -379,14 +441,13 @@ onlyoffice:
 
 而容器之间回调用的 `ONLYOFFICE_PUBLIC_APP_URL` 已经由 compose 固定注入为 `http://gateway:8001`，不需要你再手工写进 `gateway.yaml`。
 
-### `.openagents/`
+### `docker/data/`
 
 这是正式环境必须持久化的数据目录，里面包含：
 
-- agents
-- skills
-- users
-- threads
+- `openagents/`：agents、skills、users、threads 等运行时文件
+- `postgres/`：PostgreSQL 数据目录
+- `minio/`：知识库对象存储数据目录
 - knowledge
 - runtime/langgraph
 
@@ -396,38 +457,49 @@ onlyoffice:
 
 ### 1. 准备配置
 
-在项目根目录准备好：
+推荐直接运行：
 
 ```bash
-cp config.example.yaml config.yaml
+./scripts/docker-deploy.sh
 ```
 
-然后确认：
+脚本会生成或复制：
 
-- `.env` 已填写
-- `config.yaml` 已填写
-- `backend/gateway/gateway.yaml` 已填写
+- `docker/.env`
+- `docker/config.yaml`
+- `docker/gateway.yaml`
 
 ### 2. 准备持久目录
 
 如果你没改默认值，Compose 会直接使用：
 
 ```text
-../.openagents
+./data/openagents
+./data/postgres
+./data/minio
 ```
 
-也就是仓库根目录下的 `.openagents`。
+也就是 `docker/` 目录下的 `data/openagents`、`data/postgres`、
+`data/minio`。如果你已经有旧数据，可以把 `OPENAGENTS_DOCKER_HOST_HOME`
+覆写回 `../.openagents`，或者把旧目录迁移到 `docker/data/openagents`。
 
-如果你想把正式数据放到别的位置，直接修改 `docker/docker-compose-prod.yaml` 里的 `../.openagents` 挂载路径。
-更推荐直接在启动命令前覆写：
+如果你想把正式数据放到别的位置，不需要改 compose 文件，直接在启动命令前覆写：
 
 ```bash
-OPENAGENTS_DOCKER_HOST_HOME=/srv/openagents docker compose -f docker-compose-prod.yaml up -d
+OPENAGENTS_DOCKER_HOST_HOME=/srv/openagents/runtime \
+OPENAGENTS_POSTGRES_DATA_DIR=/srv/openagents/postgres \
+OPENAGENTS_MINIO_DATA_DIR=/srv/openagents/minio \
+docker compose -f docker-compose-prod.yaml up -d
 ```
+
+迁移机器时至少要一起迁移这三类目录。PostgreSQL 目录保存结构化数据，
+MinIO 目录保存知识库对象，OpenAgents runtime 目录保存线程、技能和 agent 运行时文件。
 
 ### 3. 准备数据库
 
-确认 `.env` 里的 `DATABASE_URI` 指向正式 PostgreSQL。
+默认情况下 compose 会启动内置 PostgreSQL，并把 `DATABASE_URI` 指向 compose 网络里的
+`postgres:5432`。如果你要使用外部 PostgreSQL，可以设置 `OPENAGENTS_DATABASE_URI`
+覆盖内置连接串。
 
 如果这是首次部署，或者 `migrations/` 下有新 SQL，请先人工执行这些 SQL。
 不要通过 gateway 或 docker compose 自动执行结构变更。
@@ -438,7 +510,7 @@ OPENAGENTS_DOCKER_HOST_HOME=/srv/openagents docker compose -f docker-compose-pro
 
 ```bash
 cd docker
-docker compose -f docker-compose-prod.yaml build
+docker compose -f docker-compose-prod.yaml pull
 docker compose -f docker-compose-prod.yaml up -d
 ```
 
@@ -458,18 +530,16 @@ docker compose -f docker-compose-prod.yaml up -d
 
 如果你直接修改：
 
-- `.env`
-- `config.yaml`
-- `backend/gateway/gateway.yaml`
-- `backend/gateway/**`
-- `backend/agents/**`
-- `backend/deepagents/**`
+- `docker/.env`
+- `docker/config.yaml`
+- `docker/gateway.yaml`
 
-由于 prod compose 挂的是这几个服务自己的源码目录，所以重启对应容器即可让改动生效。
+这些外部挂载配置，重启对应容器即可生效。代码改动需要先构建并推送新镜像，然后在部署机
+`pull + up -d`。
 
 补充说明：
 
-- 服务源码在 prod compose 里保持只读挂载，避免运行时把代码树写脏。
+- 服务源码不再由 prod compose 挂载，避免正式环境依赖宿主机源码树。
 - `langgraph` 的 `.langgraph_api` 运行时文件不再写回源码目录，而是写到 `.openagents/runtime/langgraph/`。
 - `gateway` / `langgraph` 日志继续通过 `docker compose logs` 查看，compose 已配置 Docker 日志轮转。
 
@@ -480,7 +550,8 @@ cd docker
 docker compose -f docker-compose-prod.yaml restart gateway langgraph
 ```
 
-如果你改了前端代码，则需要重新 build `nginx` 镜像，因为前端产物是在镜像构建阶段生成的。
+如果你改了前端代码，则需要用发布脚本重新构建并推送
+`nginx` 镜像，因为前端产物是在镜像构建阶段生成的。
 
 ## 日常发版流程
 
@@ -495,8 +566,7 @@ git pull
 ### 2. 构建新镜像
 
 ```bash
-cd docker
-docker compose -f docker-compose-prod.yaml build nginx gateway langgraph sandbox-aio onlyoffice
+./scripts/docker-release.sh push
 ```
 
 ### 3. 人工执行 SQL（如有）
@@ -507,7 +577,7 @@ docker compose -f docker-compose-prod.yaml build nginx gateway langgraph sandbox
 ### 4. 重启到新版本
 
 ```bash
-docker compose -f docker-compose-prod.yaml up -d --remove-orphans
+./scripts/docker-release.sh deploy
 ```
 
 ## 最小更新策略
@@ -517,25 +587,22 @@ docker compose -f docker-compose-prod.yaml up -d --remove-orphans
 ### 只改前端
 
 ```bash
-cd docker
-docker compose -f docker-compose-prod.yaml build nginx
-docker compose -f docker-compose-prod.yaml up -d nginx
+./scripts/docker-release.sh push --service nginx
+./scripts/docker-release.sh deploy --service nginx
 ```
 
 ### 只改 Gateway
 
 ```bash
-cd docker
-docker compose -f docker-compose-prod.yaml build gateway
-docker compose -f docker-compose-prod.yaml up -d gateway nginx
+./scripts/docker-release.sh push --service gateway
+./scripts/docker-release.sh deploy --service gateway
 ```
 
 ### 只改 LangGraph
 
 ```bash
-cd docker
-docker compose -f docker-compose-prod.yaml build langgraph
-docker compose -f docker-compose-prod.yaml up -d langgraph gateway nginx
+./scripts/docker-release.sh push --service langgraph
+./scripts/docker-release.sh deploy --service langgraph
 ```
 
 ## 发布前建议备份
@@ -552,47 +619,44 @@ docker compose -f docker-compose-prod.yaml up -d langgraph gateway nginx
 - knowledge-base 相关表
 - 其他业务表
 
-### 2. `.openagents`
+### 2. `docker/data`
 
 备份整个目录：
 
 ```text
-.openagents/
+docker/data/
 ```
 
 尤其要保留：
 
-- `agents/`
-- `skills/`
-- `threads/`
-- `knowledge/`
+- `openagents/`
+- `postgres/`
+- `minio/`
 
 ## 回滚方式
 
 如果发布后出问题，优先按下面顺序回滚：
 
 1. 回滚到上一版代码
-2. 重新 build 对应镜像
-3. 重新执行 `up -d`
+2. 用上一版 tag 重新执行 `./scripts/docker-release.sh deploy --tag <上一版>`
 
 如果问题涉及数据库迁移，再单独处理数据库回滚。
 
-如果问题涉及 agent/skill/knowledge 运行时数据，再恢复 `.openagents` 备份。
+如果问题涉及 agent/skill/knowledge 运行时数据，再恢复 `docker/data` 备份。
 
 ## 适用范围说明
 
-这份 `docker-compose-prod.yaml` 不是“完全不可变镜像”的企业标准发布模型。
+这份 `docker-compose-prod.yaml` 已经按“镜像可发布、数据目录外置”的单机发布模型组织。
 
 它更准确的定位是：
 
 - 正式环境可用
 - 单机自托管
 - 配置简单
-- 能直接复用仓库里的本地配置
-- 方便你后续自己维护和更新
+- 业务镜像可推送到 Docker Hub
+- 数据目录可整体备份和迁移
 
 如果你后面要继续升级，可以再往下演进成：
 
-- 完全去掉源码挂载
-- 单独产出 Gateway/LangGraph 的发布镜像 tag
 - 用 CI/CD 自动 build / push / deploy
+- 用 Kubernetes/对象存储托管 PostgreSQL、MinIO 和沙箱控制面

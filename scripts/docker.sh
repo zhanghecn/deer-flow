@@ -27,7 +27,6 @@ DEFAULT_MODEL_GATEWAY_ALIAS="${MODEL_GATEWAY_ALIAS:-model-gateway}"
 DEFAULT_COMPOSE_PROJECT="${OPENAGENTS_COMPOSE_PROJECT:-openagents}"
 DEFAULT_MODEL_GATEWAY_NETWORK="${OPENAGENTS_MODEL_GATEWAY_NETWORK:-${MODEL_GATEWAY_NETWORK:-${DEFAULT_COMPOSE_PROJECT}_default}}"
 COMPOSE_ARGS=(--env-file "$ROOT_ENV_FILE" -p "$DEFAULT_COMPOSE_PROJECT" -f docker-compose.yaml)
-LEGACY_DEV_COMPOSE_ARGS=(--env-file "$ROOT_ENV_FILE" -p openagents-dev -f docker-compose.dev.yaml)
 LEGACY_PROD_COMPOSE_ARGS=(--env-file "$ROOT_ENV_FILE" -p openagents-prod -f docker-compose-prod.yaml)
 
 compose_stack() {
@@ -35,7 +34,7 @@ compose_stack() {
 }
 
 compose_legacy_dev() {
-    cd "$DOCKER_DIR" && docker compose "${LEGACY_DEV_COMPOSE_ARGS[@]}" "$@"
+    cd "$DOCKER_DIR" && docker compose --env-file "$ROOT_ENV_FILE" -p openagents-dev -f docker-compose.yaml "$@"
 }
 
 compose_legacy_prod() {
@@ -245,7 +244,7 @@ require_provisioner_env() {
 }
 
 resolve_openagents_home() {
-    local configured_home="${OPENAGENTS_DOCKER_HOST_HOME:-.openagents}"
+    local configured_home="${OPENAGENTS_DOCKER_HOST_HOME:-docker/data/openagents}"
     local resolved_home
 
     if [[ "$configured_home" = /* ]]; then

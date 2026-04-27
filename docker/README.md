@@ -1,16 +1,15 @@
 # Docker Entry Points
 
-This repository has one canonical local Docker compose file:
+This repository has two Docker Compose entry points:
 
 - `docker/docker-compose.yaml`
-
-The old compose filenames remain only as compatibility wrappers:
-
-- `docker/docker-compose.dev.yaml`
 - `docker/docker-compose-prod.yaml`
 
-Both wrappers include the same canonical file. Do not treat them as separate
-development and production topologies.
+`docker-compose.yaml` is the writable source-mounted development stack.
+`docker-compose-prod.yaml` is the release stack: application services have
+Docker Hub-style `image:` names only. The release script builds and pushes
+those images from the service Dockerfiles. Stateful data is stored in explicit
+host directories.
 
 ## Common Local Development
 
@@ -64,42 +63,79 @@ The canonical compose file is intentionally a local development stack:
 
 - the repository is bind-mounted read-write into service containers
 - dependency caches live under `OPENAGENTS_DOCKER_HOST_HOME`, defaulting to
-  `../.openagents`
+  `docker/data/openagents`
 - app, admin, demo, gateway, LangGraph, OpenPencil, sandbox, and ONLYOFFICE run
   together so ports are owned by Docker instead of mixed host processes
 - logs stay on stdout/stderr, so `docker compose logs` is the inspection path
 
-This is why `make dev` is the default and why the old `docker-prod-*` aliases
-now map to the same stack. They are kept for old automation only.
+This is why `make dev` is the default local path.
 
-## Stable Image Release Status
+## Production Images
 
-Stable prebuilt-image deployment is a separate release lane and is not yet the
-canonical compose path in this repository.
+`docker/docker-compose-prod.yaml` is designed for the common open-source
+release flow: build locally, push tagged images to a registry, then deploy by
+pulling those images on the server.
 
-The desired release contract is simple:
+Build and push the OpenAgents-owned images:
 
 ```bash
-docker compose -f docker-compose.release.yaml pull
-docker compose -f docker-compose.release.yaml up -d
+./scripts/docker-release.sh push
 ```
 
-Do not document or script that as the supported release command until the
-release compose file, published images, image tags, migrations, and verification
-checks exist together. Until then, use the unified local Docker stack for
-development/testing and keep `docker-prod-*` as compatibility aliases only.
+Deploy from published images:
+
+```bash
+./scripts/docker-release.sh deploy
+```
+
+Prepare a self-contained production directory, following the same pattern as
+projects that keep `docker-compose.yml`, `.env`, and data directories together:
+
+```bash
+./scripts/docker-deploy.sh
+cd docker
+docker compose -f docker-compose-prod.yaml up -d
+```
+
+The preparation script creates `docker/.env`, copies deployment-local
+`config.yaml` and `gateway.yaml`, and creates `docker/data/openagents`,
+`docker/data/postgres`, and `docker/data/minio`.
+
+The release script defaults to `zhangxuan2/openagents` and `latest`, so the
+normal publish command is:
+
+```bash
+./scripts/docker-release.sh push
+```
+
+This publishes service tags such as `zhangxuan2/openagents:nginx-latest` and
+`zhangxuan2/openagents:gateway-latest`. Override the base tag without shell
+exports when needed: `--tag v0.1.0`. Override the repository with
+`--repository <namespace>/openagents` when publishing elsewhere.
+
+The production compose file intentionally contains no `build:` blocks. Local
+release builds are owned by `scripts/docker-release.sh`, so the deploy file
+stays the same file operators use on a server. PostgreSQL, MinIO, and the
+OpenAgents runtime home use bind-mounted host directories instead of anonymous
+Docker volumes so backups and machine migration are explicit filesystem
+operations.
 
 ## Configuration
 
-The compose stack reads secrets from the repository root `.env` and non-secret
-runtime configuration from:
+The production compose stack reads secrets from `docker/.env` by default. The
+deployment preparation script copies non-secret runtime configuration into:
 
-- `config.yaml`
-- `backend/gateway/gateway.yaml`
+- `docker/config.yaml`
+- `docker/gateway.yaml`
 
 Common optional overrides:
 
 - `OPENAGENTS_DOCKER_HOST_HOME`
+- `OPENAGENTS_POSTGRES_DATA_DIR`
+- `OPENAGENTS_MINIO_DATA_DIR`
+- `OPENAGENTS_POSTGRES_PORT`
+- `OPENAGENTS_MINIO_API_PORT`
+- `OPENAGENTS_MINIO_CONSOLE_PORT`
 - `OPENAGENTS_APP_PORT`
 - `OPENAGENTS_ADMIN_PORT`
 - `OPENAGENTS_GATEWAY_PORT`
@@ -114,6 +150,18 @@ Example:
 ```bash
 OPENAGENTS_APP_PORT=8093 make dev
 ```
+
+Production data directory example:
+
+```bash
+OPENAGENTS_DOCKER_HOST_HOME=/srv/openagents/runtime \
+OPENAGENTS_POSTGRES_DATA_DIR=/srv/openagents/postgres \
+OPENAGENTS_MINIO_DATA_DIR=/srv/openagents/minio \
+docker compose -f docker-compose-prod.yaml up -d
+```
+
+Without those overrides, production data is stored next to the compose file
+under `docker/data/openagents`, `docker/data/postgres`, and `docker/data/minio`.
 
 ## External Model Gateway
 

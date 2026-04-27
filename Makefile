@@ -1,6 +1,6 @@
 # OpenAgents - Unified Development Environment
 
-.PHONY: help config check install dev host-dev stop host-stop clean docker-init docker-start docker-infra-start docker-stop docker-infra-stop docker-status docker-verify docker-logs docker-logs-nginx docker-logs-gateway docker-prod-config docker-prod-build docker-prod-start docker-prod-stop docker-prod-restart docker-prod-status docker-prod-verify docker-prod-logs docker-model-gateway-attach gateway-build docker-prod-preflight demo-start demo-stop demo-status demo-local-deps demo-start-local demo-stop-local demo-status-local
+.PHONY: help config check install dev host-dev stop host-stop clean docker-init docker-start docker-infra-start docker-stop docker-infra-stop docker-status docker-verify docker-logs docker-logs-nginx docker-logs-gateway docker-deploy-prepare docker-release-build docker-release-push docker-release-deploy docker-prod-config docker-prod-build docker-prod-start docker-prod-stop docker-prod-restart docker-prod-status docker-prod-verify docker-prod-logs docker-model-gateway-attach gateway-build docker-prod-preflight demo-start demo-stop demo-status demo-local-deps demo-start-local demo-stop-local demo-status-local
 
 GO_TOOLCHAIN ?= auto
 HOST_LOG_DIR := $(CURDIR)/.openagents/host-logs
@@ -28,6 +28,9 @@ help:
 	@echo "  make docker-stop   - Same as make stop"
 	@echo "  make docker-init   - Pull the shared sandbox image"
 	@echo "  make docker-model-gateway-attach MODEL_GATEWAY_CONTAINER=<container>"
+	@echo "  make docker-deploy-prepare"
+	@echo "  make docker-release-push ARGS='--tag <tag>'"
+	@echo "  make docker-release-deploy ARGS='--tag <tag>'"
 	@echo ""
 	@echo "Advanced / Legacy:"
 	@echo "  make check         - Check host tooling for non-Docker workflows"
@@ -39,7 +42,7 @@ help:
 	@echo ""
 	@echo "Compatibility aliases kept for old automation:"
 	@echo "  docker-prod-start/status/verify/restart/stop/logs now point at the same unified local stack."
-	@echo "  Stable prebuilt-image release deployment is intentionally not advertised here until docker-compose.release.yaml exists."
+	@echo "  Production release images are managed by scripts/docker-release.sh."
 
 config:
 	@if [ -f config.yaml ] || [ -f config.yml ] || [ -f configure.yml ]; then \
@@ -190,7 +193,7 @@ setup-sandbox:
 	fi
 
 # Docker is the default local development lane. The compose dev stack bind-
-# mounts the repository and persists dependency caches under `.openagents`.
+# mounts the repository and persists dependency caches under `docker/data`.
 dev: docker-start
 
 # Start all services on the host for debugging the pre-Docker workflow.
@@ -436,6 +439,18 @@ docker-prod-preflight:
 
 docker-prod-build:
 	@cd docker && docker compose --env-file ../.env -p openagents -f docker-compose.yaml build
+
+docker-deploy-prepare:
+	@./scripts/docker-deploy.sh $(ARGS)
+
+docker-release-build:
+	@./scripts/docker-release.sh build $(ARGS)
+
+docker-release-push:
+	@./scripts/docker-release.sh push $(ARGS)
+
+docker-release-deploy:
+	@./scripts/docker-release.sh deploy $(ARGS)
 
 docker-prod-start:
 	@./scripts/docker.sh prod-start

@@ -1,4 +1,0 @@
-# Compatibility entrypoint for older commands and docs. The actual topology now
-# lives in one canonical compose file so Docker dev/release flows cannot drift.
-include:
-  - ./docker-compose.yaml
