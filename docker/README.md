@@ -63,7 +63,7 @@ The canonical compose file is intentionally a local development stack:
 
 - the repository is bind-mounted read-write into service containers
 - dependency caches live under `OPENAGENTS_DOCKER_HOST_HOME`, defaulting to
-  `docker/data/openagents`
+  `deploy/data/openagents`
 - app, admin, demo, gateway, LangGraph, OpenPencil, sandbox, and ONLYOFFICE run
   together so ports are owned by Docker instead of mixed host processes
 - logs stay on stdout/stderr, so `docker compose logs` is the inspection path
@@ -88,18 +88,30 @@ Deploy from published images:
 ./scripts/docker-release.sh deploy
 ```
 
+`deploy`, `pull`, and `config` use the generated `deploy/docker-compose.yml`.
+Run `./scripts/docker-deploy.sh` once before those commands on a new machine.
+
 Prepare a self-contained production directory, following the same pattern as
 projects that keep `docker-compose.yml`, `.env`, and data directories together:
 
 ```bash
 ./scripts/docker-deploy.sh
-cd docker
-docker compose -f docker-compose-prod.yaml up -d
+cd deploy
+docker compose -f docker-compose.yml up -d
 ```
 
-The preparation script creates `docker/.env`, copies deployment-local
-`config.yaml` and `gateway.yaml`, and creates `docker/data/openagents`,
-`docker/data/postgres`, and `docker/data/minio`.
+The preparation script creates `deploy/.env`, copies deployment-local
+`config.yaml` and `gateway.yaml`, copies the production compose template to
+`deploy/docker-compose.yml`, and creates `deploy/data/openagents`,
+`deploy/data/postgres`, and `deploy/data/minio`.
+
+First-time deployments still need the SQL baseline applied once after
+PostgreSQL is running. From the repository root, use:
+
+```bash
+docker exec -i openagents-prod-postgres-1 psql -U openagents -d openagents -v ON_ERROR_STOP=1 < migrations/001_init.up.sql
+docker exec -i openagents-prod-postgres-1 psql -U openagents -d openagents -v ON_ERROR_STOP=1 < migrations/002_seed_data.up.sql
+```
 
 The release script defaults to `zhangxuan2/openagents` and `latest`, so the
 normal publish command is:
@@ -113,7 +125,7 @@ This publishes service tags such as `zhangxuan2/openagents:nginx-latest` and
 exports when needed: `--tag v0.1.0`. Override the repository with
 `--repository <namespace>/openagents` when publishing elsewhere.
 
-The production compose file intentionally contains no `build:` blocks. Local
+The generated production compose file intentionally contains no `build:` blocks. Local
 release builds are owned by `scripts/docker-release.sh`, so the deploy file
 stays the same file operators use on a server. PostgreSQL, MinIO, and the
 OpenAgents runtime home use bind-mounted host directories instead of anonymous
@@ -122,11 +134,11 @@ operations.
 
 ## Configuration
 
-The production compose stack reads secrets from `docker/.env` by default. The
+The production compose stack reads secrets from `deploy/.env` by default. The
 deployment preparation script copies non-secret runtime configuration into:
 
-- `docker/config.yaml`
-- `docker/gateway.yaml`
+- `deploy/config.yaml`
+- `deploy/gateway.yaml`
 
 Common optional overrides:
 
@@ -157,11 +169,11 @@ Production data directory example:
 OPENAGENTS_DOCKER_HOST_HOME=/srv/openagents/runtime \
 OPENAGENTS_POSTGRES_DATA_DIR=/srv/openagents/postgres \
 OPENAGENTS_MINIO_DATA_DIR=/srv/openagents/minio \
-docker compose -f docker-compose-prod.yaml up -d
+docker compose -f docker-compose.yml up -d
 ```
 
 Without those overrides, production data is stored next to the compose file
-under `docker/data/openagents`, `docker/data/postgres`, and `docker/data/minio`.
+under `deploy/data/openagents`, `deploy/data/postgres`, and `deploy/data/minio`.
 
 ## External Model Gateway
 

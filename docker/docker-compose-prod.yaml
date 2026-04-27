@@ -8,9 +8,9 @@ networks:
     name: ${OPENAGENTS_DOCKER_NETWORK:-openagents-prod_openagents}
 
 x-openagents-env-file: &openagents_env_file
-  # Production deployments should keep secrets next to this compose file, like
-  # docker-deploy.sh prepares. The file is optional so operators can still pass
-  # environment variables directly in CI or during local verification.
+  # Production deployments should keep secrets next to the generated deploy
+  # compose file. The file is optional so operators can still pass environment
+  # variables directly in CI or during local verification.
   - path: ${OPENAGENTS_ENV_FILE:-.env}
     required: false
 

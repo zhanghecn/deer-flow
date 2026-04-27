@@ -244,7 +244,7 @@ require_provisioner_env() {
 }
 
 resolve_openagents_home() {
-    local configured_home="${OPENAGENTS_DOCKER_HOST_HOME:-docker/data/openagents}"
+    local configured_home="${OPENAGENTS_DOCKER_HOST_HOME:-deploy/data/openagents}"
     local resolved_home
 
     if [[ "$configured_home" = /* ]]; then

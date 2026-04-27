@@ -6,7 +6,7 @@ Generated files such as `__pycache__/` do not belong here.
 ## Docker Operations
 
 - `docker.sh` - local Docker development stack used by `make docker-*`.
-- `docker-deploy.sh` - prepares the self-contained production `docker/` directory.
+- `docker-deploy.sh` - prepares the self-contained production `deploy/` directory.
 - `docker-release.sh` - builds, pushes, pulls, and deploys Docker Hub release images.
 - `cleanup-containers.sh` - removes sandbox containers left by local runtime tests.
 

@@ -25,9 +25,9 @@ x-repo-mount: &repo_mount
 
 x-openagents-home-mount: &openagents_home_mount
   # Runtime state plus dependency caches live under OPENAGENTS_DOCKER_HOST_HOME
-  # so dev and prod share the same movable docker/data layout by default.
+  # so dev and prod share the same movable deploy/data layout by default.
   type: bind
-  source: ${OPENAGENTS_DOCKER_HOST_HOME:-./data/openagents}
+  source: ${OPENAGENTS_DOCKER_HOST_HOME:-../deploy/data/openagents}
   target: /openagents-home
 
 services:
@@ -54,7 +54,7 @@ services:
     volumes:
       - *openagents_home_mount
       - type: bind
-        source: ${OPENAGENTS_DOCKER_HOST_HOME:-./data/openagents}
+        source: ${OPENAGENTS_DOCKER_HOST_HOME:-../deploy/data/openagents}
         # The sandbox runtime contract expects the shared OPENAGENTS_HOME tree
         # to be visible inside the sandbox service at `/openagents` so
         # `/mnt/user-data/...` can rewrite into `/openagents/threads/...`.
@@ -225,7 +225,7 @@ services:
       - *repo_mount
       - *openagents_home_mount
       - type: bind
-        source: ${OPENAGENTS_DOCKER_HOST_HOME:-./data/openagents}/dev-cache/app-node_modules
+        source: ${OPENAGENTS_DOCKER_HOST_HOME:-../deploy/data/openagents}/dev-cache/app-node_modules
         target: /workspace/frontend/app/node_modules
     restart: unless-stopped
 
@@ -269,7 +269,7 @@ services:
       - *repo_mount
       - *openagents_home_mount
       - type: bind
-        source: ${OPENAGENTS_DOCKER_HOST_HOME:-./data/openagents}/dev-cache/admin-node_modules
+        source: ${OPENAGENTS_DOCKER_HOST_HOME:-../deploy/data/openagents}/dev-cache/admin-node_modules
         target: /workspace/frontend/admin/node_modules
     restart: unless-stopped
 
@@ -358,7 +358,7 @@ services:
       - *repo_mount
       - *openagents_home_mount
       - type: bind
-        source: ${OPENAGENTS_DOCKER_HOST_HOME:-./data/openagents}/dev-cache/demo-node_modules
+        source: ${OPENAGENTS_DOCKER_HOST_HOME:-../deploy/data/openagents}/dev-cache/demo-node_modules
         target: /workspace/frontend/demo/node_modules
     restart: unless-stopped
 
@@ -378,9 +378,9 @@ services:
       K8S_API_SERVER: ${K8S_API_SERVER:-}
       # Provisioned sandboxes mount host data directly, so these must resolve
       # to real host paths before compose starts.
-      OPENAGENTS_HOME: ${OPENAGENTS_DOCKER_HOST_HOME:-./data/openagents}
-      SKILLS_HOST_PATH: ${OPENAGENTS_DOCKER_HOST_HOME:-./data/openagents}/skills
-      THREADS_HOST_PATH: ${OPENAGENTS_DOCKER_HOST_HOME:-./data/openagents}/threads
+      OPENAGENTS_HOME: ${OPENAGENTS_DOCKER_HOST_HOME:-../deploy/data/openagents}
+      SKILLS_HOST_PATH: ${OPENAGENTS_DOCKER_HOST_HOME:-../deploy/data/openagents}/skills
+      THREADS_HOST_PATH: ${OPENAGENTS_DOCKER_HOST_HOME:-../deploy/data/openagents}/threads
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
       interval: 10s
@@ -421,6 +421,6 @@ services:
       - *repo_mount
       - *openagents_home_mount
       - type: bind
-        source: ${OPENAGENTS_DOCKER_HOST_HOME:-./data/openagents}/dev-cache/openpencil-node_modules
+        source: ${OPENAGENTS_DOCKER_HOST_HOME:-../deploy/data/openagents}/dev-cache/openpencil-node_modules
         target: /workspace/openpencil/node_modules
     restart: unless-stopped

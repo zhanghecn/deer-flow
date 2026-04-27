@@ -10,7 +10,8 @@ NC='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 DOCKER_DIR="$PROJECT_ROOT/docker"
-PROD_COMPOSE_FILE="docker-compose-prod.yaml"
+DEPLOY_DIR="$PROJECT_ROOT/deploy"
+PROD_COMPOSE_FILE="docker-compose.yml"
 DEFAULT_SERVICES=(nginx gateway langgraph sandbox-aio onlyoffice openpencil)
 DEFAULT_IMAGE_REPOSITORY="zhangxuan2/openagents"
 DEFAULT_IMAGE_TAG="latest"
@@ -32,9 +33,9 @@ Usage:
 Commands:
   push      Build release images and push them to the registry (default)
   build     Build release images only
-  pull      Pull release images only
-  deploy    Pull release images and run docker compose up -d
-  config    Print the resolved production compose config
+  pull      Pull release images using deploy/docker-compose.yml
+  deploy    Pull release images and run docker compose up -d from deploy/
+  config    Print the resolved deploy compose config
   images    Print the image refs that will be used
 
 Options:
@@ -249,7 +250,14 @@ compose_base() {
 }
 
 run_compose_base() {
-    cd "$DOCKER_DIR"
+    # Compose runtime commands intentionally use the generated deploy directory:
+    # docker/ remains source-controlled templates, while deploy/ owns local
+    # secrets, copied configs, and bind-mounted data paths.
+    if [ ! -f "$DEPLOY_DIR/$PROD_COMPOSE_FILE" ]; then
+        fail "Missing deploy compose: $DEPLOY_DIR/$PROD_COMPOSE_FILE. Run scripts/docker-deploy.sh first."
+    fi
+
+    cd "$DEPLOY_DIR"
     if [ "$DRY_RUN" -eq 1 ]; then
         printf '+ OPENAGENTS_IMAGE_REGISTRY=%q OPENAGENTS_IMAGE_REPOSITORY=%q OPENAGENTS_IMAGE_TAG=%q docker compose -f %q' \
             "$IMAGE_REGISTRY" "$IMAGE_REPOSITORY" "$IMAGE_TAG" "$PROD_COMPOSE_FILE"

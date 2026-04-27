@@ -193,7 +193,7 @@ setup-sandbox:
 	fi
 
 # Docker is the default local development lane. The compose dev stack bind-
-# mounts the repository and persists dependency caches under `docker/data`.
+# mounts the repository and persists runtime data/caches under `deploy/data`.
 dev: docker-start
 
 # Start all services on the host for debugging the pre-Docker workflow.
