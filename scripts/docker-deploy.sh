@@ -60,6 +60,21 @@ copy_if_available() {
     cp "$source" "$target"
 }
 
+sync_runtime_asset_dir() {
+    local name="$1"
+    local source="$PROJECT_ROOT/.openagents/$name"
+    local target="$DOCKER_DIR/data/openagents/$name"
+
+    [ -d "$source" ] || fail "Missing runtime asset directory: $source"
+
+    # commands/ and system/ are bundled runtime assets, not user-authored data.
+    # Replace them on deploy preparation so a fresh docker/data tree has the
+    # same built-in commands, system agents, and system skills as the repo.
+    rm -rf "$target"
+    mkdir -p "$(dirname "$target")"
+    cp -a "$source" "$target"
+}
+
 directory_has_files() {
     local path="$1"
     [ -d "$path" ] || return 1
@@ -110,8 +125,11 @@ main() {
 
     copy_if_available "$PROJECT_ROOT/config.yaml" "$DOCKER_DIR/config.yaml"
     copy_if_available "$PROJECT_ROOT/backend/gateway/gateway.yaml" "$DOCKER_DIR/gateway.yaml"
+    sync_runtime_asset_dir commands
+    sync_runtime_asset_dir system
 
     success "Created docker/data/openagents, docker/data/postgres, docker/data/minio"
+    success "Synced .openagents/commands and .openagents/system into docker/data/openagents"
     echo ""
     echo "Next steps:"
     echo "  cd docker"
