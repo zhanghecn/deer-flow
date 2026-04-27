@@ -270,3 +270,86 @@ def test_on_tool_start_persists_execute_contract_metadata():
     assert execution["requested_timeout_seconds"] == 300
     assert execution["max_timeout_seconds"] == 3600
     assert execution["default_timeout_seconds_hint"] == 600
+
+
+def test_on_tool_start_excludes_injected_runtime_from_tool_arguments():
+    store = MagicMock()
+    run_id = uuid4()
+
+    with patch("src.observability.callbacks.get_trace_store", return_value=store):
+        callback = AgentTraceCallbackHandler(
+            trace_id=str(uuid4()),
+            user_id=None,
+            thread_id="thread-1",
+            agent_name="test",
+            model_name="kimi-k2.5-1",
+        )
+
+    callback.on_tool_start(
+        {"name": "document_list"},
+        input_str=(
+            "{'runtime': ToolRuntime(state={'messages': "
+            "[HumanMessage(content='User:\\n你有哪些知识库')]})}"
+        ),
+        run_id=run_id,
+        inputs={"runtime": "ToolRuntime(state={'messages': [...]})"},
+    )
+
+    payload = store.append_event.call_args.kwargs["payload"]
+    assert payload["tool_call"]["arguments"] == {}
+    assert "你有哪些知识库" not in str(payload["tool_call"]["arguments"])
+
+
+def test_on_tool_start_keeps_structured_inputs_when_input_str_is_runtime_repr():
+    store = MagicMock()
+    run_id = uuid4()
+
+    with patch("src.observability.callbacks.get_trace_store", return_value=store):
+        callback = AgentTraceCallbackHandler(
+            trace_id=str(uuid4()),
+            user_id=None,
+            thread_id="thread-1",
+            agent_name="test",
+            model_name="kimi-k2.5-1",
+        )
+
+    callback.on_tool_start(
+        {"name": "document_list"},
+        input_str=(
+            "{'runtime': ToolRuntime(state={'messages': "
+            "[HumanMessage(content='User:\\n你有哪些知识库')]})}"
+        ),
+        run_id=run_id,
+        inputs={"limit": 100, "runtime": "ToolRuntime(state={'messages': [...]})"},
+    )
+
+    payload = store.append_event.call_args.kwargs["payload"]
+    assert payload["tool_call"]["arguments"] == {"limit": 100}
+
+
+def test_on_tool_start_keeps_model_args_when_runtime_is_injected():
+    store = MagicMock()
+    run_id = uuid4()
+
+    with patch("src.observability.callbacks.get_trace_store", return_value=store):
+        callback = AgentTraceCallbackHandler(
+            trace_id=str(uuid4()),
+            user_id=None,
+            thread_id="thread-1",
+            agent_name="test",
+            model_name="kimi-k2.5-1",
+        )
+
+    callback.on_tool_start(
+        {"name": "document_list"},
+        input_str='{"path":"guides","runtime":"ToolRuntime(state={})","tool_call_id":"call-1"}',
+        run_id=run_id,
+        inputs={
+            "path": "guides",
+            "runtime": "ToolRuntime(state={})",
+            "tool_call_id": "call-1",
+        },
+    )
+
+    payload = store.append_event.call_args.kwargs["payload"]
+    assert payload["tool_call"]["arguments"] == {"path": "guides"}

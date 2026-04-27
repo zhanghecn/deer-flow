@@ -228,13 +228,32 @@ export function extractMessageStringText(text: string): string | null {
   return null;
 }
 
+function isStandaloneMessageRepr(text: string): boolean {
+  const trimmed = text.trim();
+  // ToolRuntime reprs can contain nested HumanMessage text, but that text is
+  // runtime context rather than the value being inspected in this JSON field.
+  if (trimmed.includes("ToolRuntime(")) {
+    return false;
+  }
+
+  return (
+    /^(HumanMessage|AIMessage|SystemMessage|ToolMessage|ChatMessage|BaseMessage)\(/.test(
+      trimmed,
+    ) ||
+    (/^\{/.test(trimmed) &&
+      /(['"](?:role|type)['"]\s*:|(?:role|type)\s*=)/.test(trimmed))
+  );
+}
+
 export function normalizeReadableString(value: string): unknown {
   const parsed = parseJsonString(value);
   if (parsed !== null) {
     return parsed;
   }
 
-  const messageText = extractMessageStringText(value);
+  const messageText = isStandaloneMessageRepr(value)
+    ? extractMessageStringText(value)
+    : null;
   if (messageText) {
     return {
       role: "message",

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import logging
-import hashlib
 import threading
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -304,10 +304,11 @@ class AgentTraceCallbackHandler(BaseCallbackHandler):
     ) -> Any:
         tool_name = _resolve_name(serialized)
         parsed_input = _try_parse_json(input_str)
+        tool_arguments = _model_tool_arguments(parsed_input, inputs)
         payload = {
             "tool_call": {
                 "name": tool_name,
-                "arguments": self._tool_shrink(parsed_input, tool_name=tool_name),
+                "arguments": self._tool_shrink(tool_arguments, tool_name=tool_name),
                 "inputs": self._tool_shrink(inputs, tool_name=tool_name),
             },
             "input_str": self._tool_shrink(input_str, tool_name=tool_name),
@@ -337,7 +338,7 @@ class AgentTraceCallbackHandler(BaseCallbackHandler):
             payload=_augment_trace_payload(
                 payload=payload,
                 metadata=metadata,
-                input_value=parsed_input if parsed_input is not None else inputs,
+                input_value=tool_arguments,
             ),
         )
 
@@ -779,6 +780,53 @@ def _coerce_record(value: Any) -> dict[str, Any]:
     if isinstance(value, Mapping):
         return dict(value)
     return {}
+
+
+_INJECTED_TOOL_ARG_KEYS = {
+    "config",
+    "runtime",
+    "store",
+    "stream_writer",
+    "tool_call_id",
+}
+
+
+def _looks_like_injected_tool_runtime(value: str) -> bool:
+    return "ToolRuntime(" in value
+
+
+def _strip_injected_tool_args(value: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: _jsonify(item)
+        for key, item in value.items()
+        if key not in _INJECTED_TOOL_ARG_KEYS
+        and not (isinstance(item, str) and _looks_like_injected_tool_runtime(item))
+    }
+
+
+def _model_tool_arguments(parsed_input: Any, inputs: dict[str, Any] | None) -> Any:
+    """Return only model-authored tool args, not LangChain callback context.
+
+    LangChain calls `on_tool_start` after injecting runtime-only parameters such
+    as ToolRuntime, stores, and tool_call_id. Observability must keep those out
+    of `tool_call.arguments`, otherwise UI and SDK consumers see execution
+    context as if the model had passed it to the tool.
+    """
+
+    if isinstance(parsed_input, str) and _looks_like_injected_tool_runtime(
+        parsed_input
+    ):
+        return _strip_injected_tool_args(inputs) if isinstance(inputs, dict) else {}
+
+    if isinstance(parsed_input, dict):
+        return _strip_injected_tool_args(parsed_input)
+
+    if isinstance(inputs, dict):
+        cleaned = _strip_injected_tool_args(inputs)
+        if cleaned:
+            return cleaned
+
+    return parsed_input
 
 
 def _task_launch_failure_class(parsed_input: dict[str, Any]) -> str | None:
