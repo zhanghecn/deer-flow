@@ -1,15 +1,27 @@
 # syntax=docker/dockerfile:1.7
 FROM python:3.12-slim
 
+ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+ARG APT_DEBIAN_MIRROR=http://mirrors.aliyun.com/debian
+ARG APT_SECURITY_MIRROR=http://mirrors.aliyun.com/debian-security
+
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV PIP_INDEX_URL=${PIP_INDEX_URL}
 
 WORKDIR /app
 
 # Local dependency mode keeps Python wheels in a host-managed virtualenv, but
 # OCR still needs container-local system packages. Build this base image once,
 # then reuse it across source edits and restarts.
-RUN apt-get update \
+# Configure apt before installing OCR packages so first-time demo startup does
+# not depend on the slower Debian defaults from the base image.
+RUN sed -i \
+        -e "s|http://deb.debian.org/debian|${APT_DEBIAN_MIRROR}|g" \
+        -e "s|http://deb.debian.org/debian-security|${APT_SECURITY_MIRROR}|g" \
+        -e "s|http://security.debian.org/debian-security|${APT_SECURITY_MIRROR}|g" \
+        /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
     && apt-get install -y --no-install-recommends \
         fonts-dejavu-core \
         tesseract-ocr \

@@ -8,6 +8,10 @@ services:
     build:
       context: ../..
       dockerfile: frontend/demo/mcp-file-service/Dockerfile
+      args:
+        PIP_INDEX_URL: ${DEMO_PYTHON_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}
+        APT_DEBIAN_MIRROR: ${DEMO_APT_DEBIAN_MIRROR:-http://mirrors.aliyun.com/debian}
+        APT_SECURITY_MIRROR: ${DEMO_APT_SECURITY_MIRROR:-http://mirrors.aliyun.com/debian-security}
     environment:
       MCP_WORKBENCH_HOST: 0.0.0.0
       MCP_WORKBENCH_PORT: 8090
@@ -25,6 +29,10 @@ services:
     build:
       context: ../..
       dockerfile: frontend/demo/Dockerfile
+      args:
+        # Keep full image builds aligned with the dynamic `make demo-start`
+        # registry default, while allowing operators to override it per host.
+        NPM_REGISTRY: ${DEMO_NPM_REGISTRY:-https://registry.npmmirror.com}
     env_file:
       # Defaults keep clean clones bootable; the optional local file lets direct
       # Docker Compose runs pick up the same chat agent/API settings as demo.sh.

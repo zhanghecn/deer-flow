@@ -73,12 +73,20 @@ Relevant environment variables:
 - `MCP_WORKBENCH_OCR_LANGUAGES`
 - `MCP_WORKBENCH_TESSERACT_BIN`
 - `MCP_WORKBENCH_CACHE_DIR`
+- `DEMO_NPM_REGISTRY` defaults to `https://registry.npmmirror.com`
+- `DEMO_PYTHON_INDEX_URL` defaults to `https://mirrors.aliyun.com/pypi/simple/`
+- `DEMO_APT_DEBIAN_MIRROR` defaults to `http://mirrors.aliyun.com/debian`
+- `DEMO_APT_SECURITY_MIRROR` defaults to `http://mirrors.aliyun.com/debian-security`
 
 The local file-service container does not execute host-generated console entry
 points directly. Instead it keeps using the container's Python 3.12 runtime and
 extends `PYTHONPATH` with `/app/.venv/lib/python3.12/site-packages`, which
 avoids host/container shebang path drift while still reusing the host-managed
 `uv` environment.
+
+The mirror defaults above are intentionally scoped to the demo helper and demo
+image builds. Override them per host when another registry is faster; no global
+`npm`, `pnpm`, `pip`, or `uv` configuration is rewritten.
 
 ## Stop
 

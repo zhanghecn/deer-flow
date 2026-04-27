@@ -19,6 +19,10 @@ DEMO_HEALTH_URL="http://127.0.0.1:8084/api/health"
 DEFAULT_START_TIMEOUT_SECONDS="${DEMO_DOCKER_START_TIMEOUT_SECONDS:-180}"
 DEMO_NETWORK="${MCP_WORKBENCH_NETWORK:-openagents_default}"
 LOCAL_BASE_IMAGE="${MCP_WORKBENCH_FILE_SERVICE_LOCAL_BASE_IMAGE:-openagents-mcp-workbench-mcp-file-service-local-base}"
+DEMO_NPM_REGISTRY="${DEMO_NPM_REGISTRY:-${NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}}"
+DEMO_PYTHON_INDEX_URL="${DEMO_PYTHON_INDEX_URL:-${UV_DEFAULT_INDEX:-https://mirrors.aliyun.com/pypi/simple/}}"
+DEMO_APT_DEBIAN_MIRROR="${DEMO_APT_DEBIAN_MIRROR:-http://mirrors.aliyun.com/debian}"
+DEMO_APT_SECURITY_MIRROR="${DEMO_APT_SECURITY_MIRROR:-http://mirrors.aliyun.com/debian-security}"
 
 compose() {
     local ui_env_file="$DEMO_UI_DEFAULT_ENV_FILE"
@@ -52,6 +56,9 @@ ensure_local_base_image() {
 
     echo -e "${BLUE}Building demo OCR base image once: ${LOCAL_BASE_IMAGE}${NC}"
     docker build \
+        --build-arg "PIP_INDEX_URL=$DEMO_PYTHON_INDEX_URL" \
+        --build-arg "APT_DEBIAN_MIRROR=$DEMO_APT_DEBIAN_MIRROR" \
+        --build-arg "APT_SECURITY_MIRROR=$DEMO_APT_SECURITY_MIRROR" \
         -t "$LOCAL_BASE_IMAGE" \
         -f "$PROJECT_ROOT/frontend/demo/mcp-file-service/Dockerfile.local-base" \
         "$PROJECT_ROOT"
@@ -61,15 +68,21 @@ bootstrap_python_deps() {
     echo -e "${BLUE}Syncing demo Python deps in ${DEMO_MCP_PROJECT_DIR}${NC}"
     # The mounted service runs inside a CPython 3.12 container, so the host
     # dependency environment must use the same ABI for import compatibility.
+    # The default index is pinned here instead of relying on user-global uv
+    # config so clean servers get the same fast bootstrap behavior.
     uv sync \
         --project "$DEMO_MCP_PROJECT_DIR" \
         --python 3.12 \
+        --default-index "$DEMO_PYTHON_INDEX_URL" \
         --frozen
 }
 
 bootstrap_node_deps() {
     echo -e "${BLUE}Syncing demo Node deps in ${DEMO_UI_PROJECT_DIR}${NC}"
-    CI=true pnpm --dir "$DEMO_UI_PROJECT_DIR" install --frozen-lockfile
+    # Keep the registry scoped to this command so the demo does not mutate a
+    # developer's global pnpm/npm configuration.
+    npm_config_registry="$DEMO_NPM_REGISTRY" \
+        CI=true pnpm --dir "$DEMO_UI_PROJECT_DIR" install --frozen-lockfile
 }
 
 bootstrap() {
@@ -144,6 +157,12 @@ help() {
     echo "Env selection:"
     echo "  - Uses frontend/demo/.env.local when present"
     echo "  - Otherwise falls back to tracked frontend/demo/.env.defaults"
+    echo ""
+    echo "Dependency mirrors:"
+    echo "  - DEMO_NPM_REGISTRY=$DEMO_NPM_REGISTRY"
+    echo "  - DEMO_PYTHON_INDEX_URL=$DEMO_PYTHON_INDEX_URL"
+    echo "  - DEMO_APT_DEBIAN_MIRROR=$DEMO_APT_DEBIAN_MIRROR"
+    echo "  - DEMO_APT_SECURITY_MIRROR=$DEMO_APT_SECURITY_MIRROR"
 }
 
 case "${1:-}" in

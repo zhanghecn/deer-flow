@@ -2,9 +2,16 @@
 FROM node:22-alpine
 
 ARG PNPM_STORE_PATH=/root/.local/share/pnpm/store
+ARG NPM_REGISTRY=https://registry.npmmirror.com
+
+# Keep demo image builds fast on clean release machines while still allowing
+# builders to override the registry with --build-arg NPM_REGISTRY=...
+ENV npm_config_registry=${NPM_REGISTRY}
+ENV COREPACK_NPM_REGISTRY=${NPM_REGISTRY}
 
 RUN corepack enable && corepack install -g pnpm@10.26.2
-RUN pnpm config set store-dir ${PNPM_STORE_PATH}
+RUN pnpm config set store-dir ${PNPM_STORE_PATH} \
+    && pnpm config set registry ${NPM_REGISTRY}
 
 WORKDIR /app
 
