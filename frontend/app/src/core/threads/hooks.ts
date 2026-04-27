@@ -1128,7 +1128,12 @@ function finalizeExecutionStatus(
     finished_at: finishedAt,
     total_duration_ms: totalDurationMs,
     error:
-      terminalEvent === "failed" ? normalizeThreadError(error) : previous.error,
+      terminalEvent === "failed" ? normalizeThreadError(error) : undefined,
+    // Interrupt-driven waits can pass through transient phase errors that are
+    // runtime control payloads, not user-facing failures. Clear them whenever
+    // the terminal state is not failed so completed/stopped banners never leak
+    // raw LangGraph objects such as Interrupt(...).
+    error_type: terminalEvent === "failed" ? previous.error_type : undefined,
     terminal: true,
   };
 }

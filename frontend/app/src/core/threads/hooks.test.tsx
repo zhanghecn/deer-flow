@@ -688,6 +688,67 @@ describe("useThreadStream", () => {
     });
   });
 
+  it("clears transient interrupt payloads when a run finishes successfully", async () => {
+    streamState = makeThreadState({ isLoading: true });
+    const { result } = renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    const onCustomEvent = latestUseStreamOptions?.onCustomEvent;
+    expect(typeof onCustomEvent).toBe("function");
+    if (typeof onCustomEvent !== "function") {
+      throw new Error("Expected onCustomEvent callback to be registered.");
+    }
+
+    await act(async () => {
+      onCustomEvent({
+        type: "execution_event",
+        event: "phase_finished",
+        occurred_at: "2026-03-23T12:00:00Z",
+        finished_at: "2026-03-23T12:00:00Z",
+        phase: "thinking_finalize",
+        phase_kind: "model",
+        error: "(Interrupt(value={...}),)",
+      });
+      await Promise.resolve();
+    });
+
+    expect(result.current[4]?.error).toBe("(Interrupt(value={...}),)");
+
+    const onFinish = latestUseStreamOptions?.onFinish;
+    expect(typeof onFinish).toBe("function");
+    if (typeof onFinish !== "function") {
+      throw new Error("Expected onFinish callback to be registered.");
+    }
+
+    await act(async () => {
+      onFinish({
+        values: {
+          title: "Thread",
+          messages: [],
+          artifacts: [],
+        },
+      });
+      await Promise.resolve();
+    });
+
+    expect(result.current[4]).toMatchObject({
+      event: "completed",
+      terminal: true,
+      error: undefined,
+      error_type: undefined,
+    });
+  });
+
   it("surfaces hydrated interrupts from thread state recovery", async () => {
     apiClient.threads.getState.mockResolvedValue({
       values: {
@@ -1581,12 +1642,12 @@ describe("useThreadStream", () => {
 
     expect(apiClient.threads.getState).not.toHaveBeenCalled();
 
-    vi.mocked(document.hasFocus).mockReturnValue(false);
+    vi.spyOn(document, "hasFocus").mockReturnValue(false);
     act(() => {
       window.dispatchEvent(new Event("blur"));
     });
 
-    vi.mocked(document.hasFocus).mockReturnValue(true);
+    vi.spyOn(document, "hasFocus").mockReturnValue(true);
     act(() => {
       window.dispatchEvent(new Event("focus"));
     });

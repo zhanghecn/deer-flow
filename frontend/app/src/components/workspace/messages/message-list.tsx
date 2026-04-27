@@ -25,6 +25,7 @@ import { useSubtaskContext, useUpdateSubtask } from "@/core/tasks/context";
 import type { AgentThreadState, ExecutionStatus } from "@/core/threads";
 import {
   extractQuestionReplyFromMessages,
+  extractQuestionRequestFromInterrupt,
   extractQuestionRequestFromMessages,
 } from "@/core/threads/interrupts";
 import { getFileName } from "@/core/utils/files";
@@ -822,35 +823,61 @@ export function MessageList({
     );
   }, [persistedSubtaskTurn, visibleCurrentTurnTaskIds]);
   const workspaceEvents = workspaceSurface?.events ?? [];
-  const inlineExecutionLabel = useMemo(() => {
-    if (!executionStatus) {
+  const threadInterrupt = (thread as { interrupt?: unknown }).interrupt;
+  const pendingQuestion = useMemo(() => {
+    const interruptQuestion = extractQuestionRequestFromInterrupt(threadInterrupt);
+    if (interruptQuestion) {
+      return interruptQuestion;
+    }
+
+    const messageQuestion = extractQuestionRequestFromMessages(currentTurnMessages);
+    if (!messageQuestion) {
       return null;
     }
 
-    if (executionStatus.event === "retrying") {
-      return executionStatus.tool_name
-        ? `Retrying ${executionStatus.tool_name}`
+    // A pending question is a user-input wait state, not a normal run status.
+    // Once a matching tool result exists the historical question summary can
+    // stay visible while the usual execution status resumes.
+    return extractQuestionReplyFromMessages(
+      currentTurnMessages,
+      messageQuestion.requestId,
+    )
+      ? null
+      : messageQuestion;
+  }, [currentTurnMessages, threadInterrupt]);
+  const visibleExecutionStatus = pendingQuestion ? null : executionStatus;
+  const inlineExecutionLabel = useMemo(() => {
+    if (!visibleExecutionStatus) {
+      return null;
+    }
+
+    if (visibleExecutionStatus.event === "retrying") {
+      return visibleExecutionStatus.tool_name
+        ? `Retrying ${visibleExecutionStatus.tool_name}`
         : "Retrying model";
     }
-    if (executionStatus.event === "failed" || executionStatus.event === "retry_failed") {
-      return executionStatus.error?.trim() ?? "Run failed";
+    if (
+      visibleExecutionStatus.event === "failed" ||
+      visibleExecutionStatus.event === "retry_failed"
+    ) {
+      return visibleExecutionStatus.error?.trim() ?? "Run failed";
     }
-    if (executionStatus.event === "interrupted") {
+    if (visibleExecutionStatus.event === "interrupted") {
       return "Run stopped";
     }
-    if (executionStatus.event === "completed") {
+    if (visibleExecutionStatus.event === "completed") {
       return "Run completed";
     }
-    if (executionStatus.phase_kind === "tool") {
-      return executionStatus.tool_name
-        ? `Running ${executionStatus.tool_name}`
+    if (visibleExecutionStatus.phase_kind === "tool") {
+      return visibleExecutionStatus.tool_name
+        ? `Running ${visibleExecutionStatus.tool_name}`
         : "Running tool";
     }
-    if (executionStatus.phase === "thinking_finalize") {
+    if (visibleExecutionStatus.phase === "thinking_finalize") {
       return "Finalizing response";
     }
     return "Thinking";
-  }, [executionStatus]);
+  }, [visibleExecutionStatus]);
 
   useEffect(() => {
     for (const update of subtaskUpdates) {
@@ -930,8 +957,8 @@ export function MessageList({
             ))}
           </div>
         )}
-        {executionStatus ? (
-          <ExecutionStatusBanner executionStatus={executionStatus} />
+        {visibleExecutionStatus ? (
+          <ExecutionStatusBanner executionStatus={visibleExecutionStatus} />
         ) : inlineExecutionLabel ? (
           <div className="flex w-full justify-center">
             <div className="w-full border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">

@@ -196,4 +196,47 @@ describe("subtask aggregate state", () => {
       screen.getByText("网络错误，错误id：202604162004385dab114c4ec9494e，请稍后重试"),
     ).toBeInTheDocument();
   });
+
+  it("hides execution status while a question interrupt is waiting for input", () => {
+    render(
+      React.createElement(MessageList, {
+        threadId: "thread-1",
+        thread: {
+          messages: [],
+          isLoading: false,
+          isThreadLoading: false,
+          interrupt: {
+            id: "question-1",
+            value: {
+              kind: "question",
+              request_id: "question-1",
+              questions: [
+                {
+                  header: "Scope",
+                  question: "Which data source should I use?",
+                  options: [],
+                  multiple: false,
+                  custom: true,
+                },
+              ],
+            },
+          },
+        } as never,
+        executionStatus: {
+          event: "completed",
+          phase: "thinking_finalize",
+          phase_kind: "model",
+          started_at: "2026-04-14T10:00:00Z",
+          run_started_at: "2026-04-14T10:00:00Z",
+          finished_at: "2026-04-14T10:00:04Z",
+          error: "(Interrupt(value={...}),)",
+          terminal: true,
+        },
+        paddingBottom: 0,
+      }),
+    );
+
+    expect(screen.queryByText("Run completed")).not.toBeInTheDocument();
+    expect(screen.queryByText("(Interrupt(value={...}),)")).not.toBeInTheDocument();
+  });
 });
