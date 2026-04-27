@@ -22,6 +22,7 @@ type MCPProfileService struct {
 var ErrMCPProfileReadOnly = errors.New("mcp profile is read-only")
 var ErrMCPProfileAmbiguous = errors.New("mcp profile is ambiguous")
 var ErrMCPProfileInvalidSourcePath = errors.New("invalid mcp profile source path")
+var ErrMCPProfileInvalidConfig = errors.New("invalid mcp profile config")
 
 type mcpProfileLocation struct {
 	scope        string
@@ -132,18 +133,56 @@ func (s *MCPProfileService) List(_ context.Context) ([]model.MCPProfile, error) 
 func validateMCPProfileDocument(raw json.RawMessage) (string, error) {
 	var document mcpProfileDocument
 	if err := json.Unmarshal(raw, &document); err != nil {
-		return "", fmt.Errorf("invalid MCP profile JSON: %w", err)
+		return "", fmt.Errorf("%w: invalid JSON: %v", ErrMCPProfileInvalidConfig, err)
 	}
 	if len(document.MCPServers) != 1 {
-		return "", fmt.Errorf("mcp profile must define exactly one mcpServers entry")
+		return "", fmt.Errorf("%w: mcp profile must define exactly one mcpServers entry", ErrMCPProfileInvalidConfig)
 	}
-	for serverName := range document.MCPServers {
+	for serverName, serverConfig := range document.MCPServers {
 		if strings.TrimSpace(serverName) == "" {
-			return "", fmt.Errorf("mcp profile server name cannot be empty")
+			return "", fmt.Errorf("%w: mcp profile server name cannot be empty", ErrMCPProfileInvalidConfig)
+		}
+		if err := validateMCPServerConfig(serverName, serverConfig); err != nil {
+			return "", fmt.Errorf("%w: %v", ErrMCPProfileInvalidConfig, err)
 		}
 		return serverName, nil
 	}
-	return "", fmt.Errorf("mcp profile must define exactly one mcpServers entry")
+	return "", fmt.Errorf("%w: mcp profile must define exactly one mcpServers entry", ErrMCPProfileInvalidConfig)
+}
+
+func validateMCPServerConfig(serverName string, serverConfig map[string]any) error {
+	transportType := "stdio"
+	if rawType, ok := serverConfig["type"]; ok {
+		value, ok := rawType.(string)
+		if !ok || strings.TrimSpace(value) == "" {
+			return fmt.Errorf("mcp profile %q type must be a non-empty string", serverName)
+		}
+		transportType = strings.TrimSpace(value)
+	}
+
+	// Keep the gateway validation aligned with the runtime transport contract so
+	// malformed profile JSON cannot be saved and fail later as an agent-runtime
+	// startup issue.
+	switch transportType {
+	case "http", "sse":
+		if strings.TrimSpace(stringValue(serverConfig["url"])) == "" {
+			return fmt.Errorf("mcp profile %q with type %q requires url", serverName, transportType)
+		}
+	case "stdio":
+		if strings.TrimSpace(stringValue(serverConfig["command"])) == "" {
+			return fmt.Errorf("mcp profile %q with type %q requires command", serverName, transportType)
+		}
+	default:
+		return fmt.Errorf("mcp profile %q has unsupported type %q", serverName, transportType)
+	}
+	return nil
+}
+
+func stringValue(value any) string {
+	if rendered, ok := value.(string); ok {
+		return rendered
+	}
+	return ""
 }
 
 func parseMCPProfileSourcePath(sourcePath string) (mcpProfileLocation, error) {

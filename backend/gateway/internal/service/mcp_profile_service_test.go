@@ -56,6 +56,29 @@ func TestMCPProfileServiceCreateRejectsMultipleServers(t *testing.T) {
 	}
 }
 
+func TestMCPProfileServiceCreateRejectsInvalidTransportConfig(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	svc := NewMCPProfileService(storage.NewFS(baseDir))
+
+	_, err := svc.Create(context.Background(), model.CreateMCPProfileRequest{
+		Name:       "broken-stdio",
+		ConfigJSON: []byte(`{"mcpServers":{"broken-stdio":{"type":"stdio","url":"http://127.0.0.1:8084/mcp"}}}`),
+	})
+	if err == nil || !strings.Contains(err.Error(), `type "stdio" requires command`) {
+		t.Fatalf("Create() error = %v, want stdio command validation failure", err)
+	}
+
+	_, err = svc.Create(context.Background(), model.CreateMCPProfileRequest{
+		Name:       "broken-http",
+		ConfigJSON: []byte(`{"mcpServers":{"broken-http":{"type":"http","command":"node"}}}`),
+	})
+	if err == nil || !strings.Contains(err.Error(), `type "http" requires url`) {
+		t.Fatalf("Create() error = %v, want http url validation failure", err)
+	}
+}
+
 func TestMCPProfileServiceUpdateRejectsReadOnlySystemProfile(t *testing.T) {
 	t.Parallel()
 

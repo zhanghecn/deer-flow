@@ -25,6 +25,8 @@ func writeMCPProfileServiceError(c *gin.Context, err error, notFoundStatus int) 
 		c.JSON(http.StatusConflict, model.ErrorResponse{Error: err.Error()})
 	case errors.Is(err, service.ErrMCPProfileInvalidSourcePath):
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
+	case errors.Is(err, service.ErrMCPProfileInvalidConfig):
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 	default:
 		c.JSON(notFoundStatus, model.ErrorResponse{Error: err.Error()})
 	}
@@ -61,7 +63,7 @@ func (h *MCPProfileHandler) Create(c *gin.Context) {
 	}
 	profile, err := h.svc.Create(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusConflict, model.ErrorResponse{Error: err.Error()})
+		writeMCPProfileServiceError(c, err, http.StatusConflict)
 		return
 	}
 	c.JSON(http.StatusCreated, profile)

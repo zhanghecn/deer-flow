@@ -1078,7 +1078,9 @@ function MCPSection({
 
   const selectedProfiles = useMemo(() => {
     const profileByRef = new Map(
-      mcpProfiles.map((profile) => [profile.source_path ?? profile.name, profile]),
+      mcpProfiles
+        .map((profile) => [mcpProfileRef(profile), profile] as const)
+        .filter((entry): entry is readonly [string, MCPProfile] => entry[0] != null),
     );
 
     // Preserve the persisted selection order so the discovery panel mirrors the
@@ -1157,6 +1159,16 @@ function MCPSection({
     ? discoveredProfileMap.get(inspectedProfile.ref)
     : undefined;
 
+  function removeMCPProfileRef(ref: string) {
+    onFormChange((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        mcpServers: current.mcpServers.filter((value) => value !== ref),
+      };
+    });
+  }
+
   return (
     <SectionCard
       eyebrow={<Link2Icon className="size-4" />}
@@ -1186,7 +1198,10 @@ function MCPSection({
       ) : (
         <div className="grid gap-3">
           {filteredProfiles.map((profile) => {
-            const ref = profile.source_path ?? profile.name;
+            const ref = mcpProfileRef(profile);
+            if (!ref) {
+              return null;
+            }
             const selected = form.mcpServers.includes(ref);
             return (
               <button
@@ -1300,6 +1315,7 @@ function MCPSection({
                   discovery={discovery}
                   text={text}
                   onInspect={() => setInspectedProfileRef(profile.ref)}
+                  onRemove={() => removeMCPProfileRef(profile.ref)}
                 />
               );
             })}
@@ -1331,6 +1347,11 @@ type SelectedMCPProfile = {
   missing: boolean;
 };
 
+function mcpProfileRef(profile: MCPProfile) {
+  const sourcePath = profile.source_path?.trim();
+  return sourcePath || null;
+}
+
 function isProfileReachable(
   profile: Pick<SelectedMCPProfile, "missing">,
   discovery?: MCPProfileDiscoveryResult,
@@ -1343,11 +1364,13 @@ function SelectedMCPProfileCard({
   discovery,
   text,
   onInspect,
+  onRemove,
 }: {
   profile: SelectedMCPProfile;
   discovery?: MCPProfileDiscoveryResult;
   text: AgentSettingsPageText;
   onInspect: () => void;
+  onRemove: () => void;
 }) {
   const reachable = isProfileReachable(profile, discovery);
 
@@ -1384,9 +1407,20 @@ function SelectedMCPProfileCard({
           variant="ghost"
           size="sm"
           className="h-7 gap-1 text-xs"
+          disabled={profile.missing}
           onClick={onInspect}
         >
           {text.mcpViewTools}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1 text-xs"
+          onClick={onRemove}
+        >
+          <Trash2Icon className="size-3.5" />
+          {text.mcpRemoveProfile}
         </Button>
       </div>
     </div>

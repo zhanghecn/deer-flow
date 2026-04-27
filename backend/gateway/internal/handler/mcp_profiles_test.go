@@ -76,3 +76,21 @@ func TestMCPProfileHandlerUpdateReadOnlyProfileReturnsForbidden(t *testing.T) {
 		t.Fatalf("Update() status = %d, want %d", updateRecorder.Code, http.StatusForbidden)
 	}
 }
+
+func TestMCPProfileHandlerCreateInvalidConfigReturnsBadRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	handler := NewMCPProfileHandler(service.NewMCPProfileService(storage.NewFS(baseDir)))
+
+	createBody := []byte(`{"name":"broken","config_json":{"mcpServers":{"broken":{"type":"http"}}}}`)
+	createRecorder := httptest.NewRecorder()
+	createContext, _ := gin.CreateTestContext(createRecorder)
+	createContext.Request = httptest.NewRequest(http.MethodPost, "/api/mcp/profiles", bytes.NewReader(createBody))
+	createContext.Request.Header.Set("Content-Type", "application/json")
+
+	handler.Create(createContext)
+
+	if createRecorder.Code != http.StatusBadRequest {
+		t.Fatalf("Create() status = %d, want %d", createRecorder.Code, http.StatusBadRequest)
+	}
+}

@@ -113,6 +113,7 @@ export type AgentSettingsPageText = {
   mcpProfileMissing: string;
   mcpNoDescription: string;
   mcpViewTools: string;
+  mcpRemoveProfile: string;
   mcpDialogDescription: string;
   // Behavior tab
   promptTitle: string;
@@ -311,6 +312,7 @@ const enUS: AgentSettingsPageText = {
   mcpProfileMissing: "This selected profile was not found in the current MCP library.",
   mcpNoDescription: "No description provided by the MCP server.",
   mcpViewTools: "View tools",
+  mcpRemoveProfile: "Remove",
   mcpDialogDescription:
     "Inspect the tools and input schema exposed by this MCP profile without stretching the settings page.",
   promptTitle: "System Prompt",
@@ -514,6 +516,7 @@ const zhCN: AgentSettingsPageText = {
   mcpProfileMissing: "当前选中的 profile 不在 MCP 配置库中。",
   mcpNoDescription: "MCP 服务器未提供描述。",
   mcpViewTools: "查看工具",
+  mcpRemoveProfile: "移除",
   mcpDialogDescription:
     "在独立面板里查看这个 MCP profile 暴露的工具和输入 schema，避免设置页被内容撑长。",
   promptTitle: "系统提示词",

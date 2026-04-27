@@ -1597,7 +1597,10 @@ export function AgentSettingsDialog({
                             ) : (
                               <div className="grid gap-3">
                                 {filteredMCPProfiles.map((profile) => {
-                                  const ref = profile.source_path ?? profile.name;
+                                  const ref = profile.source_path?.trim();
+                                  if (!ref) {
+                                    return null;
+                                  }
                                   const selected = form.mcpServers.includes(ref);
                                   return (
                                     <button
