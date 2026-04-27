@@ -27,6 +27,8 @@ func writeMCPProfileServiceError(c *gin.Context, err error, notFoundStatus int) 
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 	case errors.Is(err, service.ErrMCPProfileInvalidConfig):
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
+	case errors.Is(err, service.ErrMCPProfileInUse):
+		c.JSON(http.StatusConflict, model.ErrorResponse{Error: err.Error()})
 	default:
 		c.JSON(notFoundStatus, model.ErrorResponse{Error: err.Error()})
 	}

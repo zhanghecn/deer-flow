@@ -112,7 +112,11 @@ function MCPProfileList({
   return (
     <div className="flex w-full flex-col gap-4">
       {profiles.map((profile) => (
-        <Item className="w-full" variant="outline" key={profile.source_path ?? profile.name}>
+        <Item
+          className="w-full"
+          variant="outline"
+          key={profile.source_path ?? profile.name}
+        >
           <ItemContent>
             <ItemTitle>
               <div className="flex items-center gap-2">
@@ -125,22 +129,40 @@ function MCPProfileList({
             </ItemDescription>
           </ItemContent>
           <ItemActions>
+            <Button
+              size="icon"
+              variant="ghost"
+              aria-label={
+                profile.can_edit
+                  ? t.settings.tools.editProfile
+                  : t.settings.tools.viewProfile
+              }
+              title={
+                profile.can_edit
+                  ? t.settings.tools.editProfile
+                  : t.settings.tools.viewProfile
+              }
+              onClick={() => onEdit(profile)}
+            >
+              {profile.can_edit ? (
+                <EditIcon className="size-4" />
+              ) : (
+                <FileJson2Icon className="size-4" />
+              )}
+            </Button>
             {profile.can_edit && (
-              <>
-                <Button size="icon" variant="ghost" onClick={() => onEdit(profile)}>
-                  <EditIcon className="size-4" />
-                </Button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  disabled={isPending}
-                  onClick={() => {
-                    void handleDelete(profile);
-                  }}
-                >
-                  <Trash2Icon className="size-4" />
-                </Button>
-              </>
+              <Button
+                size="icon"
+                variant="ghost"
+                aria-label={t.settings.tools.deleteProfile}
+                title={t.settings.tools.deleteProfile}
+                disabled={isPending}
+                onClick={() => {
+                  void handleDelete(profile);
+                }}
+              >
+                <Trash2Icon className="size-4" />
+              </Button>
             )}
           </ItemActions>
         </Item>
@@ -166,6 +188,7 @@ function MCPProfileDialog({
   const [name, setName] = useState("");
   const [configJSON, setConfigJSON] = useState("{}");
   const isEditing = profile != null;
+  const isReadOnly = isEditing && profile?.can_edit !== true;
   const isPending = isCreating || isUpdating;
 
   useEffect(() => {
@@ -184,6 +207,12 @@ function MCPProfileDialog({
   }
 
   async function handleSave() {
+    if (isReadOnly) {
+      // System-library profiles are intentionally view-only; closing here keeps
+      // the dialog useful without relaxing the backend's can_edit contract.
+      onOpenChange(false);
+      return;
+    }
     try {
       const parsed = JSON.parse(configJSON) as Record<string, unknown>;
       if (isEditing && profile) {
@@ -213,13 +242,22 @@ function MCPProfileDialog({
         <DialogHeader>
           <DialogTitle>
             {isEditing
-              ? t.settings.tools.editProfile
+              ? isReadOnly
+                ? t.settings.tools.viewProfile
+                : t.settings.tools.editProfile
               : t.settings.tools.createProfile}
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
+          {isReadOnly && (
+            <p className="text-muted-foreground text-sm leading-6">
+              {t.settings.tools.readOnlyProfileHint}
+            </p>
+          )}
           <div className="space-y-2">
-            <div className="text-sm font-medium">{t.settings.tools.profileName}</div>
+            <div className="text-sm font-medium">
+              {t.settings.tools.profileName}
+            </div>
             <Input
               value={name}
               disabled={isEditing}
@@ -241,6 +279,7 @@ function MCPProfileDialog({
             </div>
             <Textarea
               value={configJSON}
+              readOnly={isReadOnly}
               onChange={(event) => setConfigJSON(event.target.value)}
               className="min-h-72 font-mono text-xs"
             />
@@ -250,7 +289,9 @@ function MCPProfileDialog({
           </div>
           <div className="flex justify-end">
             <Button onClick={() => void handleSave()} disabled={isPending}>
-              {t.settings.tools.saveProfile}
+              {isReadOnly
+                ? t.settings.tools.closeProfile
+                : t.settings.tools.saveProfile}
             </Button>
           </div>
         </div>

@@ -625,7 +625,9 @@ export const zhCN: Translations = {
         message ? `加载工具失败：${message}` : "加载工具失败",
       emptyState: "当前还没有配置 MCP Profile。",
       createProfile: "新建 MCP",
+      viewProfile: "查看 MCP",
       editProfile: "编辑 MCP",
+      deleteProfile: "删除 MCP",
       profileCreated: "MCP Profile 已创建",
       profileUpdated: "MCP Profile 已更新",
       profileDeleted: "MCP Profile 已删除",
@@ -635,7 +637,10 @@ export const zhCN: Translations = {
       profileTemplateHint:
         "HTTP MCP Profile 应使用 type: \"http\" 和容器可访问的 URL。本地 demo 模板指向当前 Docker 网络内的 mcp-file-service。",
       saveProfile: "保存 MCP Profile",
+      closeProfile: "关闭",
       saveError: "保存 MCP Profile 失败",
+      readOnlyProfileHint:
+        "这个 Profile 来自系统库，只能在这里查看配置，不能直接编辑。",
     },
     skills: {
       title: "技能",

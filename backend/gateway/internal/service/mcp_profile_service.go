@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/openagents/gateway/internal/agentfs"
 	"github.com/openagents/gateway/internal/model"
 	"github.com/openagents/gateway/pkg/storage"
 )
@@ -23,6 +24,7 @@ var ErrMCPProfileReadOnly = errors.New("mcp profile is read-only")
 var ErrMCPProfileAmbiguous = errors.New("mcp profile is ambiguous")
 var ErrMCPProfileInvalidSourcePath = errors.New("invalid mcp profile source path")
 var ErrMCPProfileInvalidConfig = errors.New("invalid mcp profile config")
+var ErrMCPProfileInUse = errors.New("mcp profile is in use")
 
 type mcpProfileLocation struct {
 	scope        string
@@ -92,11 +94,33 @@ func (s *MCPProfileService) Delete(_ context.Context, name string) error {
 	if err != nil {
 		return err
 	}
+	if err := s.ensureMCPProfileNotInUse(location); err != nil {
+		return err
+	}
 	target, err := s.fs.GlobalMCPProfileFile(location.scope, location.relativePath)
 	if err != nil {
 		return err
 	}
 	return os.Remove(target)
+}
+
+func (s *MCPProfileService) ensureMCPProfileNotInUse(location mcpProfileLocation) error {
+	sourcePath := s.globalMCPProfileSourcePath(location.scope, filepath.ToSlash(location.relativePath))
+	agents, err := agentfs.ListAgents(s.fs, "")
+	if err != nil {
+		return fmt.Errorf("list agents for mcp profile usage: %w", err)
+	}
+	for _, agent := range agents {
+		for _, ref := range agent.McpServers {
+			// MCP library refs are stored as source_path strings in agent manifests.
+			// Blocking deletion here preserves that archive contract and prevents
+			// agents from silently keeping dangling runtime MCP bindings.
+			if strings.Trim(strings.TrimSpace(ref), "/") == sourcePath {
+				return fmt.Errorf("%w: %s is bound by agent %q (%s)", ErrMCPProfileInUse, sourcePath, agent.Name, agent.Status)
+			}
+		}
+	}
+	return nil
 }
 
 func (s *MCPProfileService) Get(_ context.Context, name string, sourcePath string) (*model.MCPProfile, error) {

@@ -17,7 +17,9 @@ vi.mock("@/core/i18n/hooks", () => ({
           loadError: (message: string) => message,
           emptyState: "No MCP profiles are configured yet.",
           createProfile: "Create MCP",
+          viewProfile: "View MCP",
           editProfile: "Edit MCP",
+          deleteProfile: "Delete MCP",
           profileCreated: "MCP profile created",
           profileUpdated: "MCP profile updated",
           profileDeleted: "MCP profile deleted",
@@ -26,7 +28,10 @@ vi.mock("@/core/i18n/hooks", () => ({
           useDemoTemplate: "Use demo template",
           profileTemplateHint: "HTTP MCP profiles should use type http.",
           saveProfile: "Save MCP profile",
+          closeProfile: "Close",
           saveError: "Failed to save MCP profile",
+          readOnlyProfileHint:
+            "This profile is provided by the system library.",
         },
       },
     },
@@ -36,6 +41,14 @@ vi.mock("@/core/i18n/hooks", () => ({
 vi.mock("@/core/mcp/hooks", () => ({
   useMCPProfiles: () => ({
     profiles: [
+      {
+        name: "system-docs",
+        server_name: "system-docs",
+        category: "system",
+        source_path: "system/mcp-profiles/system-docs.json",
+        can_edit: false,
+        config_json: { mcpServers: { "system-docs": { type: "http" } } },
+      },
       {
         name: "customer-docs",
         server_name: "customer-docs",
@@ -67,10 +80,18 @@ describe("ToolSettingsPage", () => {
     render(<ToolSettingsPage />);
 
     expect(
-      screen.getByText("Manage the global MCP library that agents can bind to."),
+      screen.getByText(
+        "Manage the global MCP library that agents can bind to.",
+      ),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Create MCP" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Create MCP" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("customer-docs")).toBeInTheDocument();
+    expect(screen.getByText("system-docs")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "View MCP" }),
+    ).toBeInTheDocument();
     expect(
       screen.getByText(/custom\/mcp-profiles\/customer-docs\.json/),
     ).toBeInTheDocument();
@@ -85,7 +106,24 @@ describe("ToolSettingsPage", () => {
     expect(screen.getByDisplayValue("local-demo-mcp")).toBeInTheDocument();
     expect(screen.getByText("Use demo template")).toBeInTheDocument();
     expect(
-      screen.getByDisplayValue(/http:\/\/mcp-file-service:8090\/mcp-http-agent\/mcp/),
+      screen.getByDisplayValue(
+        /http:\/\/mcp-file-service:8090\/mcp-http-agent\/mcp/,
+      ),
     ).toBeInTheDocument();
+  });
+
+  it("opens read-only system MCP profiles for inspection", async () => {
+    const user = userEvent.setup();
+    render(<ToolSettingsPage />);
+
+    await user.click(screen.getByRole("button", { name: "View MCP" }));
+
+    expect(screen.getByText("View MCP")).toBeInTheDocument();
+    expect(
+      screen.getByText("This profile is provided by the system library."),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Close" })).not.toHaveLength(
+      0,
+    );
   });
 });

@@ -100,6 +100,39 @@ func TestMCPProfileServiceUpdateRejectsReadOnlySystemProfile(t *testing.T) {
 	}
 }
 
+func TestMCPProfileServiceDeleteRejectsProfileBoundByAgent(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	profileFile := filepath.Join(baseDir, "custom", "mcp-profiles", "customer-docs.json")
+	if err := os.MkdirAll(filepath.Dir(profileFile), 0o755); err != nil {
+		t.Fatalf("mkdir profile dir: %v", err)
+	}
+	if err := os.WriteFile(profileFile, []byte(`{"mcpServers":{"customer-docs":{"type":"http","url":"https://customer.example.com/mcp"}}}`), 0o644); err != nil {
+		t.Fatalf("write profile file: %v", err)
+	}
+
+	fsStore := storage.NewFS(baseDir)
+	if err := fsStore.WriteAgentFiles("support-agent", "prod", "# Agent", map[string]interface{}{
+		"name":           "support-agent",
+		"description":    "Support agent",
+		"status":         "prod",
+		"agents_md_path": "AGENTS.md",
+		"mcp_servers":    []string{"custom/mcp-profiles/customer-docs.json"},
+	}); err != nil {
+		t.Fatalf("seed agent files: %v", err)
+	}
+
+	svc := NewMCPProfileService(fsStore)
+	err := svc.Delete(context.Background(), "customer-docs")
+	if err == nil || !strings.Contains(err.Error(), "in use") {
+		t.Fatalf("Delete() error = %v, want in-use failure", err)
+	}
+	if _, statErr := os.Stat(profileFile); statErr != nil {
+		t.Fatalf("profile file should remain after rejected delete: %v", statErr)
+	}
+}
+
 func TestMCPProfileServiceListIncludesSystemAndCustomProfiles(t *testing.T) {
 	t.Parallel()
 

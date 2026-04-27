@@ -542,7 +542,9 @@ export interface Translations {
       loadError: (message: string) => string;
       emptyState: string;
       createProfile: string;
+      viewProfile: string;
       editProfile: string;
+      deleteProfile: string;
       profileCreated: string;
       profileUpdated: string;
       profileDeleted: string;
@@ -551,7 +553,9 @@ export interface Translations {
       useDemoTemplate: string;
       profileTemplateHint: string;
       saveProfile: string;
+      closeProfile: string;
       saveError: string;
+      readOnlyProfileHint: string;
     };
     skills: {
       title: string;

@@ -660,7 +660,9 @@ export const enUS: Translations = {
         message ? `Failed to load tools: ${message}` : "Failed to load tools",
       emptyState: "No MCP profiles are configured yet.",
       createProfile: "Create MCP",
+      viewProfile: "View MCP",
       editProfile: "Edit MCP",
+      deleteProfile: "Delete MCP",
       profileCreated: "MCP profile created",
       profileUpdated: "MCP profile updated",
       profileDeleted: "MCP profile deleted",
@@ -670,7 +672,10 @@ export const enUS: Translations = {
       profileTemplateHint:
         "HTTP MCP profiles should use type \"http\" and a container-reachable URL. The local demo template targets mcp-file-service on the active Docker network.",
       saveProfile: "Save MCP profile",
+      closeProfile: "Close",
       saveError: "Failed to save MCP profile",
+      readOnlyProfileHint:
+        "This profile is provided by the system library, so it can be inspected but not edited here.",
     },
     skills: {
       title: "Agent Skills",

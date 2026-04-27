@@ -77,6 +77,41 @@ func TestMCPProfileHandlerUpdateReadOnlyProfileReturnsForbidden(t *testing.T) {
 	}
 }
 
+func TestMCPProfileHandlerDeleteBoundProfileReturnsConflict(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	profileFile := filepath.Join(baseDir, "custom", "mcp-profiles", "customer-docs.json")
+	if err := os.MkdirAll(filepath.Dir(profileFile), 0o755); err != nil {
+		t.Fatalf("mkdir custom profile dir: %v", err)
+	}
+	if err := os.WriteFile(profileFile, []byte(`{"mcpServers":{"customer-docs":{"type":"http","url":"https://customer.example.com/mcp"}}}`), 0o644); err != nil {
+		t.Fatalf("write custom profile: %v", err)
+	}
+
+	fsStore := storage.NewFS(baseDir)
+	if err := fsStore.WriteAgentFiles("support-agent", "prod", "# Agent", map[string]interface{}{
+		"name":           "support-agent",
+		"description":    "Support agent",
+		"status":         "prod",
+		"agents_md_path": "AGENTS.md",
+		"mcp_servers":    []string{"custom/mcp-profiles/customer-docs.json"},
+	}); err != nil {
+		t.Fatalf("seed agent files: %v", err)
+	}
+
+	handler := NewMCPProfileHandler(service.NewMCPProfileService(fsStore))
+	deleteRecorder := httptest.NewRecorder()
+	deleteContext, _ := gin.CreateTestContext(deleteRecorder)
+	deleteContext.Params = gin.Params{{Key: "name", Value: "customer-docs"}}
+	deleteContext.Request = httptest.NewRequest(http.MethodDelete, "/api/mcp/profiles/customer-docs", nil)
+
+	handler.Delete(deleteContext)
+
+	if deleteRecorder.Code != http.StatusConflict {
+		t.Fatalf("Delete() status = %d, want %d", deleteRecorder.Code, http.StatusConflict)
+	}
+}
+
 func TestMCPProfileHandlerCreateInvalidConfigReturnsBadRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	baseDir := filepath.Join(t.TempDir(), ".openagents")
