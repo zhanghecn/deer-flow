@@ -208,12 +208,13 @@ def _resolve_builtin_tool_items(
         for tool in COMPATIBILITY_BUILTIN_TOOLS:
             if tool not in builtin_tools:
                 builtin_tools.append(tool)
+    if setup_agent_enabled and setup_agent not in builtin_tools:
+        builtin_tools.append(setup_agent)
+
     if agent_status == "dev":
         for tool in DEV_BUILTIN_TOOLS:
             if tool not in builtin_tools:
                 builtin_tools.append(tool)
-        if setup_agent_enabled and setup_agent not in builtin_tools:
-            builtin_tools.append(setup_agent)
         requested_authoring_actions = list(authoring_actions or [])
         for action in always_available_authoring_actions or []:
             if action not in requested_authoring_actions:

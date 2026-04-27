@@ -663,7 +663,12 @@ def setup_agent(
             mcp_profiles=mcp_profiles,
             paths=paths,
         )
-        agent_status = str(runtime_context_value(runtime.context, "agent_status", "dev")).strip() or "dev"
+        command_name = str(runtime_context_value(runtime.context, "command_name") or "").strip()
+        runtime_agent_status = str(runtime_context_value(runtime.context, "agent_status", "dev")).strip() or "dev"
+        # `/create-agent` is always a dev-agent authoring workflow even when the
+        # currently selected lead_agent is prod. This keeps the result directly
+        # testable and avoids mutating prod archives before an explicit publish.
+        agent_status = "dev" if command_name == "create-agent" else runtime_agent_status
         runtime_thread_id = _runtime_thread_id(runtime)
         owner_user_id = _resolve_owner_user_id(runtime=runtime, thread_id=runtime_thread_id)
         execution_backend = str(runtime_context_value(runtime.context, "execution_backend") or "").strip() or None

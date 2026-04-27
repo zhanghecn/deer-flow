@@ -204,7 +204,11 @@ class LeadAgentRequest:
         # language, not only through slash-command scaffolding. Non-lead dev
         # agents also need `setup_agent` for self-edits because mutating their
         # thread-local `/mnt/user-data/agents/...` copy would be lost.
-        return self.agent_status == "dev"
+        # `/create-agent` is a structured authoring command exposed from both
+        # dev and prod lead_agent entrypoints. It still writes a dev target
+        # archive via setup_agent, so do not gate the tool on the caller's own
+        # lead_agent status for that command.
+        return self.agent_status == "dev" or self.command_name == "create-agent"
 
     def always_available_tool_names(self) -> tuple[str, ...]:
         if self.agent_status != "dev" or self.agent_name != LEAD_AGENT_NAME:

@@ -77,3 +77,21 @@ def test_create_agent_flow_receives_setup_agent(monkeypatch):
     names = _tool_names(tools)
     assert "setup_agent" in names
     assert "save_agent_to_store" not in names
+
+
+def test_prod_create_agent_flow_receives_only_setup_agent(monkeypatch):
+    monkeypatch.setattr(tools_module, "load_tool_configs", lambda: ([], []))
+
+    tools = tools_module.get_available_tools(
+        agent_status="prod",
+        authoring_actions=["setup_agent"],
+        setup_agent_enabled=True,
+        model_supports_vision=False,
+        include_mcp=False,
+    )
+
+    names = _tool_names(tools)
+    assert "setup_agent" in names
+    assert "install_skill_from_registry" not in names
+    assert "save_agent_to_store" not in names
+    assert "push_agent_prod" not in names

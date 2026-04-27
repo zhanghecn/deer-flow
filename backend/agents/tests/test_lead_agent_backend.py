@@ -789,3 +789,31 @@ def test_prod_agent_request_does_not_allow_self_setup_agent():
     )
 
     assert request.allows_agent_setup() is False
+
+
+def test_prod_lead_agent_create_agent_command_allows_setup_agent():
+    request = lead_agent_module.LeadAgentRequest(
+        thinking_enabled=True,
+        effort=None,
+        requested_model_name=None,
+        is_plan_mode=False,
+        subagent_enabled=lead_agent_module.DEFAULT_SUBAGENT_ENABLED,
+        max_concurrent_subagents=3,
+        command_name="create-agent",
+        command_kind="soft",
+        command_args=None,
+        command_prompt=None,
+        authoring_actions=("setup_agent",),
+        target_agent_name=None,
+        agent_name="lead_agent",
+        agent_status="prod",
+        thread_id="thread-1",
+        user_id=None,
+        original_user_input=None,
+        runtime_model_name=None,
+        header_model_name=None,
+        execution_backend=None,
+        remote_session_id=None,
+    )
+
+    assert request.allows_agent_setup() is True

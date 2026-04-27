@@ -1072,6 +1072,49 @@ def test_setup_agent_writes_mcp_profile_and_binds_it(monkeypatch, tmp_path: Path
     assert calls["mcp_servers"] == ["mcp-profiles/customer-docs.json"]
 
 
+def test_setup_agent_create_agent_command_writes_dev_archive_from_prod_lead_agent(monkeypatch, tmp_path: Path):
+    paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
+    calls: dict[str, object] = {}
+
+    def fake_materialize_agent_definition(**kwargs):
+        calls.update(kwargs)
+        return SimpleNamespace(skill_refs=[], name="support-agent")
+
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.materialize_agent_definition",
+        fake_materialize_agent_definition,
+    )
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.get_paths",
+        lambda: paths,
+    )
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool._refresh_thread_runtime_materials",
+        lambda **kwargs: None,
+    )
+
+    runtime = SimpleNamespace(
+        context=LeadAgentRuntimeContext(
+            agent_name="lead_agent",
+            agent_status="prod",
+            command_name="create-agent",
+            runtime_thread_id="thread-1",
+            model_name="kimi-k2.5",
+        ),
+        tool_call_id="tc-create-agent-from-prod-lead",
+    )
+
+    setup_agent.func(
+        runtime=runtime,
+        agent_name="support-agent",
+        agents_md="# Support Agent\n",
+        description="Answers customer questions",
+        skills=[],
+    )
+
+    assert calls["status"] == "dev"
+
+
 def test_setup_agent_requires_agents_md_and_description_for_new_agents():
     runtime = SimpleNamespace(
         context=LeadAgentRuntimeContext(
