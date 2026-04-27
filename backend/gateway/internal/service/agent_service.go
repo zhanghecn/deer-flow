@@ -148,18 +148,34 @@ func (s *AgentService) validateMCPBindings(values []string) ([]string, error) {
 		return nil, nil
 	}
 	profileSvc := NewMCPProfileService(s.fs)
+	resolved := make([]string, 0, len(normalized))
 	for _, value := range normalized {
-		if !looksLikeMCPProfileRef(value) {
+		trimmed := strings.Trim(strings.TrimSpace(value), "/")
+		if looksLikeMCPProfileRef(trimmed) {
+			if _, err := parseMCPProfileSourcePath(trimmed); err != nil {
+				return nil, err
+			}
+			profile, err := profileSvc.Get(context.Background(), "", trimmed)
+			if err != nil {
+				return nil, err
+			}
+			resolved = append(resolved, profile.SourcePath)
 			continue
 		}
-		if _, err := parseMCPProfileSourcePath(value); err != nil {
+
+		profile, err := profileSvc.Get(context.Background(), trimmed, "")
+		if err == nil {
+			// Older UI/tool paths could persist a bare profile name. Store the
+			// canonical library ref so future saves do not depend on name lookup.
+			resolved = append(resolved, profile.SourcePath)
+			continue
+		}
+		if strings.HasSuffix(trimmed, ".json") {
 			return nil, err
 		}
-		if _, err := profileSvc.Get(context.Background(), "", value); err != nil {
-			return nil, err
-		}
+		resolved = append(resolved, trimmed)
 	}
-	return normalized, nil
+	return resolved, nil
 }
 
 func normalizeToolNames(values []string) []string {

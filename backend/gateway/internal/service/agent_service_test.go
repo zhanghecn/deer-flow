@@ -97,6 +97,47 @@ func TestAgentServiceCreateRejectsMissingCanonicalMCPProfileRefs(t *testing.T) {
 	}
 }
 
+func TestAgentServiceCreateNormalizesBareMCPProfileNames(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	profileFile := filepath.Join(baseDir, "custom", "mcp-profiles", "customer-docs.json")
+	if err := os.MkdirAll(filepath.Dir(profileFile), 0o755); err != nil {
+		t.Fatalf("mkdir profile dir: %v", err)
+	}
+	if err := os.WriteFile(profileFile, []byte(`{"mcpServers":{"customer-docs":{"type":"http","url":"https://customer.example.com/mcp"}}}`), 0o644); err != nil {
+		t.Fatalf("write profile file: %v", err)
+	}
+
+	svc := NewAgentService(storage.NewFS(baseDir))
+	agent, err := svc.Create(context.Background(), model.CreateAgentRequest{
+		Name:       "support-agent",
+		McpServers: []string{"customer-docs.json"},
+		AgentsMD:   "# Agent",
+	}, uuid.Nil)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if len(agent.McpServers) != 1 || agent.McpServers[0] != "custom/mcp-profiles/customer-docs.json" {
+		t.Fatalf("agent.McpServers = %#v, want canonical profile ref", agent.McpServers)
+	}
+}
+
+func TestAgentServiceCreateRejectsMissingBareJSONMCPProfileNames(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	svc := NewAgentService(storage.NewFS(baseDir))
+	_, err := svc.Create(context.Background(), model.CreateAgentRequest{
+		Name:       "support-agent",
+		McpServers: []string{"missing.json"},
+		AgentsMD:   "# Agent",
+	}, uuid.Nil)
+	if err == nil || !strings.Contains(err.Error(), `mcp profile "missing.json" not found`) {
+		t.Fatalf("Create() error = %v, want missing bare MCP profile failure", err)
+	}
+}
+
 func TestAgentServiceCreateAllowsMCPToolNamesWhenProfileBound(t *testing.T) {
 	t.Parallel()
 
