@@ -95,9 +95,7 @@ Prepare a self-contained production directory, following the same pattern as
 projects that keep `docker-compose.yml`, `.env`, and data directories together:
 
 ```bash
-./scripts/docker-deploy.sh
-cd deploy
-docker compose -f docker-compose.yml up -d
+./scripts/docker-deploy.sh --start
 ```
 
 The preparation script creates `deploy/.env`, copies deployment-local
@@ -105,7 +103,9 @@ The preparation script creates `deploy/.env`, copies deployment-local
 `deploy/docker-compose.yml`, and creates `deploy/data/openagents`,
 `deploy/data/postgres`, and `deploy/data/minio`.
 
-First-time deployments still need the SQL baseline applied once after
+`--start` starts PostgreSQL first, applies the SQL baseline when the database is
+empty, then starts the whole stack. If you are doing the steps manually,
+first-time deployments still need the SQL baseline applied once after
 PostgreSQL is running. From the repository root, use:
 
 ```bash

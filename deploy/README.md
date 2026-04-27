@@ -20,12 +20,13 @@ Generated files, ignored by git:
 Typical first run:
 
 ```bash
-./scripts/docker-deploy.sh
-cd deploy
-docker compose -f docker-compose.yml up -d
+./scripts/docker-deploy.sh --start
 ```
 
-Apply the initial SQL baseline once from the repository root:
+`--start` brings PostgreSQL up first, applies the SQL baseline if the database
+is empty, then starts the full stack. If you prefer to run the steps manually,
+apply the initial SQL baseline once from the repository root after PostgreSQL
+is running:
 
 ```bash
 docker exec -i openagents-prod-postgres-1 psql -U openagents -d openagents -v ON_ERROR_STOP=1 < migrations/001_init.up.sql

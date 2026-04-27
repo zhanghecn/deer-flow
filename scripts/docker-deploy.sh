@@ -13,6 +13,7 @@ DEPLOY_DIR="$PROJECT_ROOT/deploy"
 ENV_EXAMPLE="$DEPLOY_DIR/.env.example"
 ENV_FILE="$DEPLOY_DIR/.env"
 FORCE=0
+START=0
 
 info() { echo -e "${BLUE}[INFO]${NC} $*"; }
 success() { echo -e "${GREEN}[OK]${NC} $*"; }
@@ -22,7 +23,7 @@ fail() { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
 usage() {
     cat <<'EOF'
 Usage:
-  scripts/docker-deploy.sh [--force]
+  scripts/docker-deploy.sh [--force] [--start]
 
 Prepares the self-contained production deploy directory:
   - deploy/docker-compose.yml
@@ -33,6 +34,9 @@ Prepares the self-contained production deploy directory:
 Then start with:
   cd deploy
   docker compose -f docker-compose.yml up -d
+
+Or let the script perform the first-run-safe startup sequence:
+  scripts/docker-deploy.sh --start
 EOF
 }
 
@@ -82,11 +86,73 @@ directory_has_files() {
     find "$path" -mindepth 1 -print -quit | grep -q .
 }
 
+compose() {
+    (cd "$DEPLOY_DIR" && docker compose -f docker-compose.yml "$@")
+}
+
+postgres_container() {
+    compose ps -q postgres | head -n 1
+}
+
+wait_for_postgres() {
+    local container_id=""
+    local deadline
+    deadline=$((SECONDS + 90))
+
+    while [ "$SECONDS" -lt "$deadline" ]; do
+        container_id="$(postgres_container)"
+        if [ -n "$container_id" ] && docker exec "$container_id" pg_isready -U openagents -d openagents >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 2
+    done
+
+    fail "PostgreSQL did not become ready within 90 seconds"
+}
+
+schema_state() {
+    local container_id="$1"
+
+    docker exec -i "$container_id" psql -U openagents -d openagents -tAc \
+        "select count(*) from pg_tables where schemaname='public' and tablename in ('models','knowledge_build_jobs','users');" |
+        tr -d '[:space:]'
+}
+
+apply_baseline_sql_if_needed() {
+    local container_id
+    local table_count
+
+    container_id="$(postgres_container)"
+    [ -n "$container_id" ] || fail "PostgreSQL container is not running"
+
+    table_count="$(schema_state "$container_id")"
+    case "$table_count" in
+        0)
+            info "Applying SQL baseline into empty PostgreSQL database"
+            # Baseline SQL is intentionally applied after PostgreSQL is healthy
+            # and before gateway starts, because gateway fails fast if required
+            # tables such as models and knowledge_build_jobs are absent.
+            docker exec -i "$container_id" psql -U openagents -d openagents -v ON_ERROR_STOP=1 < "$PROJECT_ROOT/migrations/001_init.up.sql"
+            docker exec -i "$container_id" psql -U openagents -d openagents -v ON_ERROR_STOP=1 < "$PROJECT_ROOT/migrations/002_seed_data.up.sql"
+            ;;
+        3)
+            warn "PostgreSQL baseline tables already exist; skipping baseline SQL"
+            ;;
+        *)
+            fail "PostgreSQL schema looks partial ($table_count/3 sentinel tables found). Inspect the database before applying migrations."
+            ;;
+    esac
+}
+
 parse_args() {
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --force)
                 FORCE=1
+                shift
+                ;;
+            --start)
+                START=1
                 shift
                 ;;
             -h|--help)
@@ -141,6 +207,16 @@ main() {
     echo "First deployment still needs the SQL baseline applied once:"
     echo "  docker exec -i openagents-prod-postgres-1 psql -U openagents -d openagents -v ON_ERROR_STOP=1 < $PROJECT_ROOT/migrations/001_init.up.sql"
     echo "  docker exec -i openagents-prod-postgres-1 psql -U openagents -d openagents -v ON_ERROR_STOP=1 < $PROJECT_ROOT/migrations/002_seed_data.up.sql"
+
+    if [ "$START" -eq 1 ]; then
+        echo ""
+        info "Starting first-run-safe production stack"
+        compose up -d postgres
+        wait_for_postgres
+        apply_baseline_sql_if_needed
+        compose up -d
+        success "Production stack is started from deploy/docker-compose.yml"
+    fi
 }
 
 main "$@"
