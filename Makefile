@@ -1,6 +1,6 @@
 # OpenAgents - Unified Development Environment
 
-.PHONY: help config check install dev host-dev stop host-stop clean docker-init docker-start docker-infra-start docker-stop docker-infra-stop docker-status docker-verify docker-logs docker-logs-nginx docker-logs-gateway docker-deploy-prepare docker-release-build docker-release-push docker-release-deploy docker-prod-config docker-prod-build docker-prod-start docker-prod-stop docker-prod-restart docker-prod-status docker-prod-verify docker-prod-logs docker-model-gateway-attach gateway-build docker-prod-preflight demo-start demo-stop demo-status demo-local-deps demo-start-local demo-stop-local demo-status-local
+.PHONY: help config check install dev host-dev stop host-stop clean docker-init docker-start docker-infra-start docker-stop docker-infra-stop docker-status docker-verify docker-logs docker-logs-nginx docker-logs-gateway docker-deploy-prepare docker-release-build docker-release-push docker-release-deploy docker-prod-config docker-prod-build docker-prod-start docker-prod-stop docker-prod-restart docker-prod-status docker-prod-verify docker-prod-logs docker-model-gateway-attach gateway-build docker-prod-preflight demo-start demo-stop demo-status
 
 GO_TOOLCHAIN ?= auto
 HOST_LOG_DIR := $(CURDIR)/.openagents/host-logs
@@ -22,6 +22,7 @@ help:
 	@echo "  make docker-status - Show container status"
 	@echo "  make docker-verify - Verify containers and HTTP entrypoints"
 	@echo "  make docker-logs   - Follow all Docker logs"
+	@echo "  make demo-start    - Start the dynamic MCP demo on port 8084"
 	@echo ""
 	@echo "Useful Docker Shortcuts:"
 	@echo "  make docker-start  - Same as make dev"
@@ -475,15 +476,3 @@ demo-stop:
 
 demo-status:
 	@./scripts/demo.sh status
-
-demo-local-deps:
-	@./scripts/demo-local-deps.sh bootstrap
-
-demo-start-local:
-	@./scripts/demo-local-deps.sh start
-
-demo-stop-local:
-	@./scripts/demo-local-deps.sh stop
-
-demo-status-local:
-	@./scripts/demo-local-deps.sh status

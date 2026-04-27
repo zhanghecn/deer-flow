@@ -16,8 +16,7 @@ Current Docker development and release workflow:
 
 ## Demo Helpers
 
-- `demo.sh` - starts, stops, and inspects the demo workbench.
-- `demo-local-deps.sh` - bootstraps and manages demo local dependencies.
+- `demo.sh` - starts, stops, and inspects the bind-mounted demo workbench.
 
 ## Smoke And Setup Probes
 

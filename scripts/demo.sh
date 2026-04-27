@@ -10,12 +10,15 @@ NC='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 DEMO_COMPOSE_FILE="$PROJECT_ROOT/frontend/demo/compose.yaml"
+DEMO_LOCAL_COMPOSE_FILE="$PROJECT_ROOT/frontend/demo/compose.local-deps.yaml"
 DEMO_UI_DEFAULT_ENV_FILE="$PROJECT_ROOT/frontend/demo/.env.defaults"
 DEMO_UI_LOCAL_ENV_FILE="$PROJECT_ROOT/frontend/demo/.env.local"
+DEMO_UI_PROJECT_DIR="$PROJECT_ROOT/frontend/demo"
+DEMO_MCP_PROJECT_DIR="$PROJECT_ROOT/frontend/demo/mcp-file-service"
 DEMO_HEALTH_URL="http://127.0.0.1:8084/api/health"
 DEFAULT_START_TIMEOUT_SECONDS="${DEMO_DOCKER_START_TIMEOUT_SECONDS:-180}"
-DEFAULT_REPO_OWNER="zhanghecn"
-DEFAULT_IMAGE_TAG="${DEMO_IMAGE_TAG:-latest}"
+DEMO_NETWORK="${MCP_WORKBENCH_NETWORK:-openagents_default}"
+LOCAL_BASE_IMAGE="${MCP_WORKBENCH_FILE_SERVICE_LOCAL_BASE_IMAGE:-openagents-mcp-workbench-mcp-file-service-local-base}"
 
 compose() {
     local ui_env_file="$DEMO_UI_DEFAULT_ENV_FILE"
@@ -28,34 +31,52 @@ compose() {
     fi
 
     MCP_WORKBENCH_UI_ENV_FILE="$ui_env_file" \
-        docker compose -f "$DEMO_COMPOSE_FILE" "$@"
+    MCP_WORKBENCH_FILE_SERVICE_LOCAL_BASE_IMAGE="$LOCAL_BASE_IMAGE" \
+        docker compose -f "$DEMO_COMPOSE_FILE" -f "$DEMO_LOCAL_COMPOSE_FILE" "$@"
 }
 
-resolve_repo_owner() {
-    local remote_url
-    remote_url="$(git -C "$PROJECT_ROOT" config --get remote.origin.url 2>/dev/null || true)"
-
-    if [[ "$remote_url" =~ github\.com[:/]([^/]+)/[^/]+(\.git)?$ ]]; then
-        echo "${BASH_REMATCH[1]}"
+ensure_demo_network() {
+    if docker network inspect "$DEMO_NETWORK" >/dev/null 2>&1; then
         return
     fi
 
-    echo "${DEMO_IMAGE_OWNER:-$DEFAULT_REPO_OWNER}"
+    echo -e "${BLUE}Creating demo Docker network: $DEMO_NETWORK${NC}"
+    docker network create "$DEMO_NETWORK" >/dev/null
 }
 
-resolve_image_namespace() {
-    if [ -n "${DEMO_IMAGE_NAMESPACE:-}" ]; then
-        echo "$DEMO_IMAGE_NAMESPACE"
+ensure_local_base_image() {
+    if docker image inspect "$LOCAL_BASE_IMAGE" >/dev/null 2>&1; then
+        echo -e "${GREEN}✓ Reusing local base image ${LOCAL_BASE_IMAGE}${NC}"
         return
     fi
 
-    echo "ghcr.io/$(resolve_repo_owner)"
+    echo -e "${BLUE}Building demo OCR base image once: ${LOCAL_BASE_IMAGE}${NC}"
+    docker build \
+        -t "$LOCAL_BASE_IMAGE" \
+        -f "$PROJECT_ROOT/frontend/demo/mcp-file-service/Dockerfile.local-base" \
+        "$PROJECT_ROOT"
 }
 
-has_local_demo_edits() {
-    # A local source edit should win over remote image pulls so the user keeps
-    # one stable command while still seeing current workspace changes.
-    [ -n "$(git -C "$PROJECT_ROOT" status --porcelain -- frontend/demo .github/workflows/publish-demo-images.yml 2>/dev/null || true)" ]
+bootstrap_python_deps() {
+    echo -e "${BLUE}Syncing demo Python deps in ${DEMO_MCP_PROJECT_DIR}${NC}"
+    # The mounted service runs inside a CPython 3.12 container, so the host
+    # dependency environment must use the same ABI for import compatibility.
+    uv sync \
+        --project "$DEMO_MCP_PROJECT_DIR" \
+        --python 3.12 \
+        --frozen
+}
+
+bootstrap_node_deps() {
+    echo -e "${BLUE}Syncing demo Node deps in ${DEMO_UI_PROJECT_DIR}${NC}"
+    CI=true pnpm --dir "$DEMO_UI_PROJECT_DIR" install --frozen-lockfile
+}
+
+bootstrap() {
+    ensure_demo_network
+    ensure_local_base_image
+    bootstrap_python_deps
+    bootstrap_node_deps
 }
 
 wait_for_http_url() {
@@ -81,40 +102,15 @@ wait_for_http_url() {
 }
 
 start() {
-    local image_namespace
-    local file_service_image
-    local ui_image
-
     echo "=========================================="
     echo "  Starting Demo Stack"
     echo "=========================================="
     echo ""
 
-    if has_local_demo_edits; then
-        echo -e "${BLUE}Detected local demo changes. Building from the current workspace.${NC}"
-        compose up -d --build mcp-file-service mcp-workbench-ui mcp-workbench-gateway
-    else
-        image_namespace="$(resolve_image_namespace)"
-        file_service_image="${image_namespace}/deer-flow-demo-mcp-file-service:${DEFAULT_IMAGE_TAG}"
-        ui_image="${image_namespace}/deer-flow-demo-mcp-workbench-ui:${DEFAULT_IMAGE_TAG}"
-
-        echo -e "${BLUE}Trying prebuilt demo images first:${NC}"
-        echo "  $file_service_image"
-        echo "  $ui_image"
-        echo ""
-
-        if MCP_WORKBENCH_FILE_SERVICE_IMAGE="$file_service_image" \
-           MCP_WORKBENCH_UI_IMAGE="$ui_image" \
-           compose pull mcp-file-service mcp-workbench-ui; then
-            MCP_WORKBENCH_FILE_SERVICE_IMAGE="$file_service_image" \
-            MCP_WORKBENCH_UI_IMAGE="$ui_image" \
-            compose up -d mcp-file-service mcp-workbench-ui mcp-workbench-gateway
-        else
-            echo ""
-            echo -e "${YELLOW}Prebuilt demo images are unavailable. Falling back to a local build.${NC}"
-            compose up -d --build mcp-file-service mcp-workbench-ui mcp-workbench-gateway
-        fi
-    fi
+    bootstrap
+    # The demo is intentionally local and dynamic: source directories are
+    # bind-mounted so UI and MCP service edits apply without rebuilding images.
+    compose up -d --no-build mcp-file-service mcp-workbench-ui mcp-workbench-gateway
 
     echo ""
     wait_for_http_url "$DEMO_HEALTH_URL" "demo health endpoint" "$DEFAULT_START_TIMEOUT_SECONDS"
@@ -142,10 +138,8 @@ help() {
     echo ""
     echo "Usage: $0 <start|stop|status>"
     echo ""
-    echo "The default start flow is intentionally simple:"
-    echo "  1. If local demo files changed, build from the workspace"
-    echo "  2. Otherwise try GHCR prebuilt images"
-    echo "  3. If images are unavailable, fall back to a local build"
+    echo "start is the only demo boot command. It prepares local deps and starts"
+    echo "bind-mounted containers so source edits apply without image rebuilds."
     echo ""
     echo "Env selection:"
     echo "  - Uses frontend/demo/.env.local when present"

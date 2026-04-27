@@ -42,11 +42,10 @@ The simplest operator entrypoint is:
 make demo-start
 ```
 
-It automatically does the right thing in this order:
-
-1. build from local source when you have demo edits
-2. otherwise try the published GHCR demo images
-3. fall back to a local build if no published image is available
+`make demo-start` is the only supported demo boot command. It prepares local
+Python and Node dependencies, then starts bind-mounted containers so source
+edits in `frontend/demo` and `frontend/demo/mcp-file-service` apply without
+rebuilding the demo images.
 
 Other minimal commands:
 
@@ -60,16 +59,8 @@ file. The compose stack ships with a committed
 `frontend/demo/.env.defaults`, and `scripts/demo.sh` automatically prefers
 `frontend/demo/.env.local` when you have one from runtime setup.
 
-You can still run plain Compose directly if needed:
-
-```bash
-docker compose -f frontend/demo/compose.yaml up -d --build
-```
-
-The demo Dockerfiles now use BuildKit cache mounts for `pip` and `pnpm`, so
-repeat local rebuilds can reuse downloaded dependencies.
-
-The file-service image also installs:
+On first run, the helper builds one local OCR base image for the MCP service and
+reuses it on later runs. That base image includes:
 
 - `tesseract-ocr`
 - `tesseract-ocr-eng`
@@ -83,49 +74,16 @@ Relevant environment variables:
 - `MCP_WORKBENCH_TESSERACT_BIN`
 - `MCP_WORKBENCH_CACHE_DIR`
 
-For the default / production-style demo flow, keep dependencies baked into the
-image and treat Compose as an orchestrator that starts prebuilt images.
-
-## Local mounted-deps mode
-
-When you are iterating on the 8084 demo locally and do not want every restart
-to rebuild the Python service image or re-download frontend dependencies, use
-the local mounted-deps flow:
-
-```bash
-make demo-local-deps
-make demo-start-local
-```
-
-What it does:
-
-1. Builds one local OCR base image for `mcp-file-service` system packages
-2. Runs `uv sync --project frontend/demo/mcp-file-service --python 3.12 --frozen`
-   to create `frontend/demo/mcp-file-service/.venv`
-3. Runs `pnpm --dir frontend/demo install --frozen-lockfile`
-4. Starts Compose with the whole demo project bind-mounted into the runtime
-   containers, so source edits apply without rebuilding the app image
-
 The local file-service container does not execute host-generated console entry
 points directly. Instead it keeps using the container's Python 3.12 runtime and
 extends `PYTHONPATH` with `/app/.venv/lib/python3.12/site-packages`, which
 avoids host/container shebang path drift while still reusing the host-managed
 `uv` environment.
 
-This mode is intentionally local-only. It avoids repeated dependency pulls
-while preserving the default image-baked path for reproducible demo publishing.
-
-This repository also includes a GitHub Actions workflow at
-`.github/workflows/publish-demo-images.yml` that publishes the demo images to
-GHCR using these image names:
-
-- `ghcr.io/<owner>/deer-flow-demo-mcp-file-service:<tag>`
-- `ghcr.io/<owner>/deer-flow-demo-mcp-workbench-ui:<tag>`
-
 ## Stop
 
 ```bash
-docker compose -f frontend/demo/compose.yaml down
+make demo-stop
 ```
 
 ## Typical flow
