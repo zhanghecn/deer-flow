@@ -366,4 +366,83 @@ describe("APIKeyManagementPage", () => {
       );
     });
   });
+
+  it("falls back to textarea copy when the async clipboard API is denied", async () => {
+    const user = userEvent.setup();
+    if (!navigator.clipboard) {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: async () => undefined,
+        },
+      });
+    }
+    const clipboardWriteTextMock = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockRejectedValue(new Error("Clipboard denied"));
+    const execCommandMock = vi.fn(() => true);
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: execCommandMock,
+    });
+
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "New key" }));
+    await user.type(screen.getByLabelText("Key name"), "fallback-key");
+    await user.click(screen.getByRole("button", { name: "Create key" }));
+
+    const freshKeyButton = (
+      await screen.findAllByRole("button", {
+        name: /df_secret_token/i,
+      })
+    )[0]!;
+    toastSuccessMock.mockClear();
+    await user.click(freshKeyButton);
+
+    await waitFor(() => {
+      expect(clipboardWriteTextMock).toHaveBeenCalledWith("df_secret_token");
+      expect(execCommandMock).toHaveBeenCalledWith("copy");
+      expect(toastSuccessMock).toHaveBeenCalledWith("Key copied");
+    });
+  });
+
+  it("does not mark a key copied when both clipboard paths fail", async () => {
+    const user = userEvent.setup();
+    if (!navigator.clipboard) {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: async () => undefined,
+        },
+      });
+    }
+    vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(
+      new Error("Clipboard denied"),
+    );
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: vi.fn(() => false),
+    });
+
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "New key" }));
+    await user.type(screen.getByLabelText("Key name"), "failed-copy-key");
+    await user.click(screen.getByRole("button", { name: "Create key" }));
+
+    const freshKeyButton = (
+      await screen.findAllByRole("button", {
+        name: /df_secret_token/i,
+      })
+    )[0]!;
+    toastSuccessMock.mockClear();
+    await user.click(freshKeyButton);
+
+    await waitFor(() => {
+      expect(toastErrorMock).toHaveBeenCalledWith("Copy failed.");
+    });
+    expect(toastSuccessMock).not.toHaveBeenCalledWith("Key copied");
+    expect(screen.queryByText("Key copied")).not.toBeInTheDocument();
+  });
 });

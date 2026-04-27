@@ -123,6 +123,47 @@ function formatTokenDisplay(value: string) {
   )}`;
 }
 
+function copyTextWithTextareaFallback(value: string) {
+  if (typeof document === "undefined") {
+    return false;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "true");
+  // LAN deployments often run over plain HTTP, where the async Clipboard API can
+  // be denied. Keep a user-gesture fallback so the key manager does not leave a
+  // stale token in the operator's clipboard after showing "copy failed".
+  textarea.style.position = "fixed";
+  textarea.style.top = "-1000px";
+  textarea.style.left = "-1000px";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+
+  try {
+    textarea.focus();
+    textarea.select();
+    return document.execCommand?.("copy") === true;
+  } catch {
+    return false;
+  } finally {
+    textarea.remove();
+  }
+}
+
+async function writeTextToClipboard(value: string) {
+  if (typeof navigator.clipboard?.writeText !== "function") {
+    return copyTextWithTextareaFallback(value);
+  }
+
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {
+    return copyTextWithTextareaFallback(value);
+  }
+}
+
 function tokenMatchesInventorySearch(token: APITokenRecord, query: string) {
   if (!query) {
     return true;
@@ -442,19 +483,23 @@ export function APIKeyManagementPage() {
     user?.email?.trim() ?? user?.name?.trim() ?? text.title;
 
   async function handleCopy(value: string, successMessage: string) {
-    try {
-      await navigator.clipboard.writeText(value);
+    if (await writeTextToClipboard(value)) {
       toast.success(successMessage);
-    } catch {
-      toast.error(text.copyFailed);
+      return true;
     }
+
+    toast.error(text.copyFailed);
+    return false;
   }
 
   async function handleCopyPlaintext() {
     if (!createdToken) {
       return;
     }
-    await handleCopy(createdToken, text.tokenReadyCopied);
+    const copied = await handleCopy(createdToken, text.tokenReadyCopied);
+    if (!copied) {
+      return;
+    }
     setCopiedPlaintext(true);
     if (createdTokenID) {
       setCopiedTokenID(createdTokenID);
@@ -466,7 +511,10 @@ export function APIKeyManagementPage() {
       return;
     }
 
-    await handleCopy(token.token, text.tokenReadyCopied);
+    const copied = await handleCopy(token.token, text.tokenReadyCopied);
+    if (!copied) {
+      return;
+    }
     setCopiedTokenID(token.id);
     if (token.id === createdTokenID) {
       setCopiedPlaintext(true);
