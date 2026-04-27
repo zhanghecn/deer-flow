@@ -13,6 +13,7 @@ import yaml
 from src.agents.lead_agent.agent import prime_lead_agent_read_graph_cache
 from src.config.builtin_agents import ensure_builtin_agent_archive
 from src.config.config_files import resolve_config_file
+from src.config.mcp_profile_migration import migrate_legacy_mcp_profile_layout
 from src.config.paths import get_paths
 from src.knowledge.worker import start_knowledge_worker_thread
 from src.remote.server import start_remote_relay_sidecar
@@ -197,6 +198,7 @@ def main() -> None:
 
     print(f"Starting LangGraph with runtime edition: {runtime_edition} (host={host} port={port} jobs_per_worker={jobs_per_worker})")
 
+    migrate_legacy_mcp_profile_layout(paths=get_paths())
     # Ensure built-in archived agent files exist before serving requests.
     ensure_builtin_agent_archive("lead_agent", status="dev")
     ensure_builtin_agent_archive("lead_agent", status="prod")

@@ -947,7 +947,7 @@ def test_make_lead_agent_disables_hidden_runtime_tools_for_explicit_tool_names(m
         "_load_agent_runtime_config",
         lambda **kwargs: _make_agent_config(
             tool_names=[],
-            mcp_servers=["custom/mcp-profiles/customer-cases-http-demo.json"],
+            mcp_servers=["mcp-profiles/customer-cases-http-demo.json"],
         ),
     )
     monkeypatch.setattr(lead_agent_module, "apply_prompt_template", lambda **kwargs: "prompt")

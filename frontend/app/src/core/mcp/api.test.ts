@@ -18,7 +18,7 @@ vi.mock("@/core/auth/fetch", () => ({
         json: async () => ({
           results: [
             {
-              ref: "custom/mcp-profiles/customer-docs.json",
+              ref: "mcp-profiles/customer-docs.json",
               profile_name: "customer-docs",
               server_name: "customer-docs",
               reachable: true,
@@ -46,8 +46,8 @@ vi.mock("@/core/auth/fetch", () => ({
         json: async () => ({
           name: "customer-docs",
           server_name: "customer-docs",
-          category: "custom",
-          source_path: "custom/mcp-profiles/customer-docs.json",
+          category: "global",
+          source_path: "mcp-profiles/customer-docs.json",
           can_edit: true,
           config_json: {
             mcpServers: {
@@ -78,8 +78,8 @@ vi.mock("@/core/auth/fetch", () => ({
         json: async () => ({
           name: "customer-docs",
           server_name: "customer-docs",
-          category: "custom",
-          source_path: "custom/mcp-profiles/customer-docs.json",
+          category: "global",
+          source_path: "mcp-profiles/customer-docs.json",
           can_edit: true,
           config_json: { mcpServers: {} },
         }),
@@ -91,8 +91,8 @@ vi.mock("@/core/auth/fetch", () => ({
           {
             name: "customer-docs",
             server_name: "customer-docs",
-            category: "custom",
-            source_path: "custom/mcp-profiles/customer-docs.json",
+            category: "global",
+            source_path: "mcp-profiles/customer-docs.json",
             can_edit: true,
             config_json: { mcpServers: {} },
           },
@@ -106,7 +106,7 @@ describe("mcp profile api", () => {
   it("lists profiles", async () => {
     const profiles = await listMCPProfiles();
     expect(profiles[0]?.source_path).toBe(
-      "custom/mcp-profiles/customer-docs.json",
+      "mcp-profiles/customer-docs.json",
     );
   });
 
@@ -132,7 +132,7 @@ describe("mcp profile api", () => {
   it("discovers tools for selected profiles", async () => {
     const results = await discoverMCPProfiles([
       {
-        ref: "custom/mcp-profiles/customer-docs.json",
+        ref: "mcp-profiles/customer-docs.json",
         profile_name: "customer-docs",
         config_json: { mcpServers: {} },
       },

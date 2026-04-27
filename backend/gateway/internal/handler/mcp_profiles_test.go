@@ -51,16 +51,9 @@ func TestMCPProfileHandlerCreateAndList(t *testing.T) {
 	}
 }
 
-func TestMCPProfileHandlerUpdateReadOnlyProfileReturnsForbidden(t *testing.T) {
+func TestMCPProfileHandlerUpdateMissingProfileReturnsNotFound(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	baseDir := filepath.Join(t.TempDir(), ".openagents")
-	systemProfile := filepath.Join(baseDir, "system", "mcp-profiles", "github.json")
-	if err := os.MkdirAll(filepath.Dir(systemProfile), 0o755); err != nil {
-		t.Fatalf("mkdir system profile dir: %v", err)
-	}
-	if err := os.WriteFile(systemProfile, []byte(`{"mcpServers":{"github":{"type":"stdio","command":"npx"}}}`), 0o644); err != nil {
-		t.Fatalf("write system profile: %v", err)
-	}
 
 	handler := NewMCPProfileHandler(service.NewMCPProfileService(storage.NewFS(baseDir)))
 	updateBody := []byte(`{"config_json":{"mcpServers":{"github":{"type":"stdio","command":"printf"}}}}`)
@@ -72,20 +65,20 @@ func TestMCPProfileHandlerUpdateReadOnlyProfileReturnsForbidden(t *testing.T) {
 
 	handler.Update(updateContext)
 
-	if updateRecorder.Code != http.StatusForbidden {
-		t.Fatalf("Update() status = %d, want %d", updateRecorder.Code, http.StatusForbidden)
+	if updateRecorder.Code != http.StatusNotFound {
+		t.Fatalf("Update() status = %d, want %d", updateRecorder.Code, http.StatusNotFound)
 	}
 }
 
 func TestMCPProfileHandlerDeleteBoundProfileReturnsConflict(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	baseDir := filepath.Join(t.TempDir(), ".openagents")
-	profileFile := filepath.Join(baseDir, "custom", "mcp-profiles", "customer-docs.json")
+	profileFile := filepath.Join(baseDir, "mcp-profiles", "customer-docs.json")
 	if err := os.MkdirAll(filepath.Dir(profileFile), 0o755); err != nil {
-		t.Fatalf("mkdir custom profile dir: %v", err)
+		t.Fatalf("mkdir global profile dir: %v", err)
 	}
 	if err := os.WriteFile(profileFile, []byte(`{"mcpServers":{"customer-docs":{"type":"http","url":"https://customer.example.com/mcp"}}}`), 0o644); err != nil {
-		t.Fatalf("write custom profile: %v", err)
+		t.Fatalf("write global profile: %v", err)
 	}
 
 	fsStore := storage.NewFS(baseDir)
@@ -94,7 +87,7 @@ func TestMCPProfileHandlerDeleteBoundProfileReturnsConflict(t *testing.T) {
 		"description":    "Support agent",
 		"status":         "prod",
 		"agents_md_path": "AGENTS.md",
-		"mcp_servers":    []string{"custom/mcp-profiles/customer-docs.json"},
+		"mcp_servers":    []string{"mcp-profiles/customer-docs.json"},
 	}); err != nil {
 		t.Fatalf("seed agent files: %v", err)
 	}

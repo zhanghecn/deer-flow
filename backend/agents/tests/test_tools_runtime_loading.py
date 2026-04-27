@@ -232,7 +232,7 @@ tool_groups: []
     tools = get_available_tools(
         tool_names=[],
         include_mcp=True,
-        mcp_servers=["custom/mcp-profiles/customer-docs.json"],
+        mcp_servers=["mcp-profiles/customer-docs.json"],
         model_supports_vision=False,
     )
 
@@ -268,7 +268,7 @@ tool_groups: []
     tools = get_available_tools(
         tool_names=["question"],
         include_mcp=True,
-        mcp_servers=["custom/mcp-profiles/customer-docs.json"],
+        mcp_servers=["mcp-profiles/customer-docs.json"],
         model_supports_vision=False,
     )
 

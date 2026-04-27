@@ -116,12 +116,11 @@ func (f *FS) CustomSkillsDir() string {
 	return filepath.Join(f.CustomDir(), "skills")
 }
 
-func (f *FS) SystemMCPProfilesDir() string {
-	return filepath.Join(f.SystemDir(), "mcp-profiles")
-}
-
-func (f *FS) CustomMCPProfilesDir() string {
-	return filepath.Join(f.CustomDir(), "mcp-profiles")
+func (f *FS) MCPProfilesDir() string {
+	// MCP profiles are a single global library. They intentionally do not reuse
+	// the skill/agent system-vs-custom roots because agents only select global
+	// profile refs and should not expose archive provenance in product UI.
+	return filepath.Join(f.baseDir, "mcp-profiles")
 }
 
 func (f *FS) StoreDevSkillsDir() string {
@@ -183,23 +182,139 @@ func NormalizeMCPProfileRelativePathForGateway(profileName string) (string, erro
 	return normalizeMCPProfileRelativePath(profileName)
 }
 
-// GlobalMCPProfileFile returns the canonical JSON file path for one reusable
+// MCPProfileFile returns the canonical JSON file path for one reusable
 // MCP library item. MCP profiles stay aligned to the Claude Code-style
 // `mcpServers` JSON shape, but OpenAgents stores them as one profile per file so
 // agents can bind them independently.
-func (f *FS) GlobalMCPProfileFile(scope, profileName string) (string, error) {
+func (f *FS) MCPProfileFile(profileName string) (string, error) {
 	cleanName, err := normalizeMCPProfileRelativePath(profileName)
 	if err != nil {
 		return "", err
 	}
-	switch strings.Trim(strings.TrimSpace(scope), "/") {
-	case "system":
-		return filepath.Join(f.SystemMCPProfilesDir(), filepath.FromSlash(cleanName)), nil
-	case "custom":
-		return filepath.Join(f.CustomMCPProfilesDir(), filepath.FromSlash(cleanName)), nil
-	default:
-		return filepath.Join(f.baseDir, filepath.FromSlash(scope), filepath.FromSlash(cleanName)), nil
+	return filepath.Join(f.MCPProfilesDir(), filepath.FromSlash(cleanName)), nil
+}
+
+// MigrateLegacyMCPProfileLayout moves old scoped MCP library files into the
+// single global MCP library and rewrites persisted agent refs in place. Runtime
+// code intentionally rejects scoped refs after this migration point.
+func (f *FS) MigrateLegacyMCPProfileLayout() error {
+	for _, legacyRoot := range []string{
+		filepath.Join(f.SystemDir(), "mcp-profiles"),
+		filepath.Join(f.CustomDir(), "mcp-profiles"),
+	} {
+		if err := f.migrateLegacyMCPProfileRoot(legacyRoot); err != nil {
+			return err
+		}
 	}
+	for _, agentsRoot := range []string{
+		filepath.Join(f.SystemDir(), "agents"),
+		filepath.Join(f.CustomDir(), "agents"),
+	} {
+		if err := f.rewriteLegacyMCPRefsInAgentManifests(agentsRoot); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (f *FS) migrateLegacyMCPProfileRoot(legacyRoot string) error {
+	if info, err := os.Stat(legacyRoot); err != nil || !info.IsDir() {
+		return nil
+	}
+	return filepath.WalkDir(legacyRoot, func(currentPath string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if filepath.Ext(currentPath) != ".json" {
+			return nil
+		}
+		relativePath, err := filepath.Rel(legacyRoot, currentPath)
+		if err != nil {
+			return err
+		}
+		targetPath, err := f.MCPProfileFile(filepath.ToSlash(relativePath))
+		if err != nil {
+			return err
+		}
+		sourceBytes, err := os.ReadFile(currentPath)
+		if err != nil {
+			return err
+		}
+		if targetBytes, err := os.ReadFile(targetPath); err == nil {
+			if string(targetBytes) != string(sourceBytes) {
+				return fmt.Errorf("legacy MCP profile migration conflict: %s -> %s", currentPath, targetPath)
+			}
+			return nil
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(targetPath, sourceBytes, 0o644)
+	})
+}
+
+func legacyMCPProfileRefToGlobal(value string) (string, bool) {
+	normalized := strings.Trim(strings.TrimSpace(value), "/")
+	for _, prefix := range []string{"system/mcp-profiles/", "custom/mcp-profiles/"} {
+		if strings.HasPrefix(normalized, prefix) {
+			return path.Join("mcp-profiles", strings.TrimPrefix(normalized, prefix)), true
+		}
+	}
+	return value, false
+}
+
+func (f *FS) rewriteLegacyMCPRefsInAgentManifests(agentsRoot string) error {
+	if info, err := os.Stat(agentsRoot); err != nil || !info.IsDir() {
+		return nil
+	}
+	return filepath.WalkDir(agentsRoot, func(currentPath string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() || filepath.Base(currentPath) != "config.yaml" {
+			return nil
+		}
+		data, err := os.ReadFile(currentPath)
+		if err != nil {
+			return err
+		}
+		var manifest map[string]interface{}
+		if err := yaml.Unmarshal(data, &manifest); err != nil {
+			return err
+		}
+		rawRefs, ok := manifest["mcp_servers"].([]interface{})
+		if !ok {
+			return nil
+		}
+		changed := false
+		rewrittenRefs := make([]interface{}, 0, len(rawRefs))
+		for _, rawRef := range rawRefs {
+			ref, ok := rawRef.(string)
+			if !ok {
+				rewrittenRefs = append(rewrittenRefs, rawRef)
+				continue
+			}
+			rewrittenRef, didRewrite := legacyMCPProfileRefToGlobal(ref)
+			changed = changed || didRewrite
+			rewrittenRefs = append(rewrittenRefs, rewrittenRef)
+		}
+		if !changed {
+			return nil
+		}
+		manifest["mcp_servers"] = rewrittenRefs
+		// Re-marshalling the manifest is intentional: this is the hard-cut
+		// persistence migration from scoped MCP refs to one global MCP catalog.
+		updated, err := yaml.Marshal(manifest)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(currentPath, updated, 0o644)
+	})
 }
 
 // ResolveRef resolves a relative storage reference against the gateway base dir.

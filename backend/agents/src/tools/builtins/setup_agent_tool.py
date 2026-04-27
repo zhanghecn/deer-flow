@@ -84,7 +84,7 @@ class SetupAgentMCPProfileInput(BaseModel):
         ...,
         description=(
             "Target reusable MCP profile name, for example `customer-docs` or "
-            "`support/customer-docs.json`. This writes to the custom MCP library."
+            "`support/customer-docs.json`. This writes to the global MCP library."
         ),
     )
     config_json: dict[str, object] = Field(
@@ -278,7 +278,7 @@ def _write_requested_mcp_profiles(
     mcp_profiles: list[SetupAgentMCPProfileInput | dict[str, Any]] | None,
     paths: Any,
 ) -> tuple[list[str], list[tuple[Path, bytes | None]]]:
-    """Write custom MCP library items requested by setup_agent.
+    """Write global MCP library items requested by setup_agent.
 
     Returns the canonical profile refs that should be bound to the target agent
     plus rollback data for any files touched in this call.
@@ -294,11 +294,10 @@ def _write_requested_mcp_profiles(
             else SetupAgentMCPProfileInput.model_validate(raw_entry)
         )
         normalized_name = normalize_mcp_profile_name(parsed.name)
-        target_file = paths.custom_mcp_profile_file(normalized_name)
+        target_file = paths.mcp_profile_file(normalized_name)
         previous_content = target_file.read_bytes() if target_file.exists() else None
         rollback_items.append((target_file, previous_content))
         source_path = write_mcp_profile(
-            scope="custom",
             name=normalized_name,
             config_json=parsed.config_json,
             paths=paths,
@@ -630,12 +629,11 @@ def setup_agent(
             When omitted, setup_agent persists the current runtime model selection.
         tool_groups: Optional list of runtime tool groups to enable for the agent.
         mcp_servers: Optional list of MCP library refs or legacy MCP names to bind to
-            the agent. Canonical refs look like `custom/mcp-profiles/customer-docs.json`
-            or `system/mcp-profiles/slack.json`. When omitted, preserve the existing
-            archived agent MCP bindings.
-        mcp_profiles: Optional custom MCP library items to create or update before
+            the agent. Canonical refs look like `mcp-profiles/customer-docs.json`.
+            When omitted, preserve the existing archived agent MCP bindings.
+        mcp_profiles: Optional global MCP library items to create or update before
             binding. Each entry uses canonical `mcpServers` JSON and is written into
-            the custom MCP library. Newly written profile refs are automatically bound
+            the global MCP library. Newly written profile refs are automatically bound
             to the target agent for this call.
         skills: Optional list of skill entries. Use a skill `source_path` or existing
             skill `name` to copy an archived skill. Use both a new skill `name` and full

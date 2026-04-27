@@ -3,6 +3,7 @@ package storage
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -94,41 +95,73 @@ func TestStoreProdSkillsDirUsesOpenAgentsStoreProdScope(t *testing.T) {
 	}
 }
 
-func TestGlobalMCPProfileFileUsesSystemAndCustomRoots(t *testing.T) {
+func TestMCPProfileFileUsesSingleGlobalRoot(t *testing.T) {
 	t.Parallel()
 
 	projectDir := t.TempDir()
 	baseDir := filepath.Join(projectDir, ".openagents")
 	fs := NewFS(baseDir)
 
-	gotSystem, err := fs.GlobalMCPProfileFile("system", "github")
+	got, err := fs.MCPProfileFile("customer-docs.json")
 	if err != nil {
-		t.Fatalf("GlobalMCPProfileFile(system) error = %v", err)
+		t.Fatalf("MCPProfileFile() error = %v", err)
 	}
-	wantSystem := filepath.Join(baseDir, "system", "mcp-profiles", "github.json")
-	if gotSystem != wantSystem {
-		t.Fatalf("GlobalMCPProfileFile(system) = %q, want %q", gotSystem, wantSystem)
-	}
-
-	gotCustom, err := fs.GlobalMCPProfileFile("custom", "customer-docs.json")
-	if err != nil {
-		t.Fatalf("GlobalMCPProfileFile(custom) error = %v", err)
-	}
-	wantCustom := filepath.Join(baseDir, "custom", "mcp-profiles", "customer-docs.json")
-	if gotCustom != wantCustom {
-		t.Fatalf("GlobalMCPProfileFile(custom) = %q, want %q", gotCustom, wantCustom)
+	want := filepath.Join(baseDir, "mcp-profiles", "customer-docs.json")
+	if got != want {
+		t.Fatalf("MCPProfileFile() = %q, want %q", got, want)
 	}
 }
 
-func TestGlobalMCPProfileFileRejectsTraversal(t *testing.T) {
+func TestMCPProfileFileRejectsTraversal(t *testing.T) {
 	t.Parallel()
 
 	projectDir := t.TempDir()
 	baseDir := filepath.Join(projectDir, ".openagents")
 	fs := NewFS(baseDir)
 
-	if _, err := fs.GlobalMCPProfileFile("custom", "../agents/dev/lead_agent/config.yaml"); err == nil {
+	if _, err := fs.MCPProfileFile("../agents/dev/lead_agent/config.yaml"); err == nil {
 		t.Fatal("expected traversal error")
+	}
+}
+
+func TestMigrateLegacyMCPProfileLayoutCopiesProfilesAndRewritesAgentRefs(t *testing.T) {
+	t.Parallel()
+
+	projectDir := t.TempDir()
+	baseDir := filepath.Join(projectDir, ".openagents")
+	fs := NewFS(baseDir)
+	legacyProfile := filepath.Join(baseDir, "custom", "mcp-profiles", "customer-docs.json")
+	if err := os.MkdirAll(filepath.Dir(legacyProfile), 0o755); err != nil {
+		t.Fatalf("mkdir legacy profile dir: %v", err)
+	}
+	if err := os.WriteFile(legacyProfile, []byte(`{"mcpServers":{"customer-docs":{"type":"http","url":"https://example.com/mcp"}}}`), 0o644); err != nil {
+		t.Fatalf("write legacy profile: %v", err)
+	}
+	agentConfig := filepath.Join(baseDir, "custom", "agents", "prod", "support-agent", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(agentConfig), 0o755); err != nil {
+		t.Fatalf("mkdir agent config dir: %v", err)
+	}
+	if err := os.WriteFile(agentConfig, []byte("name: support-agent\nmcp_servers:\n  - custom/mcp-profiles/customer-docs.json\n"), 0o644); err != nil {
+		t.Fatalf("write agent config: %v", err)
+	}
+
+	if err := fs.MigrateLegacyMCPProfileLayout(); err != nil {
+		t.Fatalf("MigrateLegacyMCPProfileLayout() error = %v", err)
+	}
+
+	globalProfile := filepath.Join(baseDir, "mcp-profiles", "customer-docs.json")
+	if _, err := os.Stat(globalProfile); err != nil {
+		t.Fatalf("expected migrated profile at %s: %v", globalProfile, err)
+	}
+	configBytes, err := os.ReadFile(agentConfig)
+	if err != nil {
+		t.Fatalf("read migrated agent config: %v", err)
+	}
+	if strings.Contains(string(configBytes), "custom/mcp-profiles/") {
+		t.Fatalf("agent config still contains legacy MCP ref: %s", configBytes)
+	}
+	if !strings.Contains(string(configBytes), "mcp-profiles/customer-docs.json") {
+		t.Fatalf("agent config missing global MCP ref: %s", configBytes)
 	}
 }
 

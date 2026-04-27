@@ -60,7 +60,7 @@ func TestAgentServiceCreateAcceptsCanonicalMCPProfileRefs(t *testing.T) {
 	t.Parallel()
 
 	baseDir := filepath.Join(t.TempDir(), ".openagents")
-	profileFile := filepath.Join(baseDir, "custom", "mcp-profiles", "customer-docs.json")
+	profileFile := filepath.Join(baseDir, "mcp-profiles", "customer-docs.json")
 	if err := os.MkdirAll(filepath.Dir(profileFile), 0o755); err != nil {
 		t.Fatalf("mkdir profile dir: %v", err)
 	}
@@ -71,13 +71,13 @@ func TestAgentServiceCreateAcceptsCanonicalMCPProfileRefs(t *testing.T) {
 	svc := NewAgentService(storage.NewFS(baseDir))
 	agent, err := svc.Create(context.Background(), model.CreateAgentRequest{
 		Name:       "support-agent",
-		McpServers: []string{"custom/mcp-profiles/customer-docs.json"},
+		McpServers: []string{"mcp-profiles/customer-docs.json"},
 		AgentsMD:   "# Agent",
 	}, uuid.Nil)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	if len(agent.McpServers) != 1 || agent.McpServers[0] != "custom/mcp-profiles/customer-docs.json" {
+	if len(agent.McpServers) != 1 || agent.McpServers[0] != "mcp-profiles/customer-docs.json" {
 		t.Fatalf("agent.McpServers = %#v, want canonical profile ref", agent.McpServers)
 	}
 }
@@ -89,7 +89,7 @@ func TestAgentServiceCreateRejectsMissingCanonicalMCPProfileRefs(t *testing.T) {
 	svc := NewAgentService(storage.NewFS(baseDir))
 	_, err := svc.Create(context.Background(), model.CreateAgentRequest{
 		Name:       "support-agent",
-		McpServers: []string{"custom/mcp-profiles/missing.json"},
+		McpServers: []string{"mcp-profiles/missing.json"},
 		AgentsMD:   "# Agent",
 	}, uuid.Nil)
 	if err == nil || !strings.Contains(err.Error(), "not found") {
@@ -101,7 +101,7 @@ func TestAgentServiceCreateNormalizesBareMCPProfileNames(t *testing.T) {
 	t.Parallel()
 
 	baseDir := filepath.Join(t.TempDir(), ".openagents")
-	profileFile := filepath.Join(baseDir, "custom", "mcp-profiles", "customer-docs.json")
+	profileFile := filepath.Join(baseDir, "mcp-profiles", "customer-docs.json")
 	if err := os.MkdirAll(filepath.Dir(profileFile), 0o755); err != nil {
 		t.Fatalf("mkdir profile dir: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestAgentServiceCreateNormalizesBareMCPProfileNames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	if len(agent.McpServers) != 1 || agent.McpServers[0] != "custom/mcp-profiles/customer-docs.json" {
+	if len(agent.McpServers) != 1 || agent.McpServers[0] != "mcp-profiles/customer-docs.json" {
 		t.Fatalf("agent.McpServers = %#v, want canonical profile ref", agent.McpServers)
 	}
 }
@@ -142,7 +142,7 @@ func TestAgentServiceCreateAllowsMCPToolNamesWhenProfileBound(t *testing.T) {
 	t.Parallel()
 
 	baseDir := filepath.Join(t.TempDir(), ".openagents")
-	profileFile := filepath.Join(baseDir, "custom", "mcp-profiles", "customer-docs.json")
+	profileFile := filepath.Join(baseDir, "mcp-profiles", "customer-docs.json")
 	if err := os.MkdirAll(filepath.Dir(profileFile), 0o755); err != nil {
 		t.Fatalf("mkdir profile dir: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestAgentServiceCreateAllowsMCPToolNamesWhenProfileBound(t *testing.T) {
 	svc := NewAgentService(storage.NewFS(baseDir))
 	agent, err := svc.Create(context.Background(), model.CreateAgentRequest{
 		Name:       "support-agent",
-		McpServers: []string{"custom/mcp-profiles/customer-docs.json"},
+		McpServers: []string{"mcp-profiles/customer-docs.json"},
 		ToolNames:  []string{"document_list", "present_files"},
 		SubagentDefaults: &model.AgentSubagentDefaults{
 			GeneralPurposeEnabled: true,
@@ -204,7 +204,7 @@ func TestAgentServiceUpdateAllowsMCPToolNamesFromExistingBinding(t *testing.T) {
 	t.Parallel()
 
 	baseDir := filepath.Join(t.TempDir(), ".openagents")
-	profileFile := filepath.Join(baseDir, "custom", "mcp-profiles", "customer-docs.json")
+	profileFile := filepath.Join(baseDir, "mcp-profiles", "customer-docs.json")
 	if err := os.MkdirAll(filepath.Dir(profileFile), 0o755); err != nil {
 		t.Fatalf("mkdir profile dir: %v", err)
 	}
@@ -219,7 +219,7 @@ func TestAgentServiceUpdateAllowsMCPToolNamesFromExistingBinding(t *testing.T) {
 		"description":    "Support agent",
 		"status":         "dev",
 		"agents_md_path": "AGENTS.md",
-		"mcp_servers":    []string{"custom/mcp-profiles/customer-docs.json"},
+		"mcp_servers":    []string{"mcp-profiles/customer-docs.json"},
 		"memory": map[string]interface{}{
 			"enabled":                   false,
 			"debounce_seconds":          30,

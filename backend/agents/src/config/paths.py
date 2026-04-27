@@ -106,14 +106,9 @@ class Paths:
         return self.custom_dir / "skills"
 
     @property
-    def system_mcp_profiles_dir(self) -> Path:
-        """Git-tracked reusable MCP profile library."""
-        return self.system_dir / "mcp-profiles"
-
-    @property
-    def custom_mcp_profiles_dir(self) -> Path:
-        """Writable reusable MCP profile library."""
-        return self.custom_dir / "mcp-profiles"
+    def mcp_profiles_dir(self) -> Path:
+        """Single global reusable MCP profile library."""
+        return self.base_dir / "mcp-profiles"
 
     def system_skill_dir(self, skill_name: str | Path) -> Path:
         return self.system_skills_dir / Path(skill_name)
@@ -121,21 +116,13 @@ class Paths:
     def custom_skill_dir(self, skill_name: str | Path) -> Path:
         return self.custom_skills_dir / Path(skill_name)
 
-    def system_mcp_profile_file(self, profile_name: str | Path) -> Path:
-        """Canonical file path for a system MCP profile JSON document."""
+    def mcp_profile_file(self, profile_name: str | Path) -> Path:
+        """Canonical file path for a global MCP profile JSON document."""
         relative = Path(profile_name)
         suffix = relative.suffix
         if suffix.lower() != ".json":
             relative = relative.with_suffix(".json")
-        return self.system_mcp_profiles_dir / relative
-
-    def custom_mcp_profile_file(self, profile_name: str | Path) -> Path:
-        """Canonical file path for a custom MCP profile JSON document."""
-        relative = Path(profile_name)
-        suffix = relative.suffix
-        if suffix.lower() != ".json":
-            relative = relative.with_suffix(".json")
-        return self.custom_mcp_profiles_dir / relative
+        return self.mcp_profiles_dir / relative
 
     @property
     def runtime_threads_dir(self) -> Path:

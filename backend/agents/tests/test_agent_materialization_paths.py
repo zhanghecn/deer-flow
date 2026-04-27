@@ -223,7 +223,7 @@ def test_materialize_agent_definition_rejects_store_dev_skills_for_prod_agents(t
 def test_materialize_agent_definition_accepts_canonical_mcp_profile_refs(tmp_path: Path):
     base_dir = tmp_path / ".openagents"
     paths = Paths(base_dir=base_dir, skills_dir=base_dir / "skills")
-    profile_file = paths.custom_mcp_profile_file("customer-docs.json")
+    profile_file = paths.mcp_profile_file("customer-docs.json")
     profile_file.parent.mkdir(parents=True, exist_ok=True)
     profile_file.write_text(
         '{\n  "mcpServers": {\n    "customer-docs": {\n      "type": "http",\n      "url": "https://customer.example.com/mcp"\n    }\n  }\n}\n',
@@ -235,11 +235,11 @@ def test_materialize_agent_definition_accepts_canonical_mcp_profile_refs(tmp_pat
         status="dev",
         agents_md="# Support Agent",
         description="Answers customer questions",
-        mcp_servers=["custom/mcp-profiles/customer-docs.json"],
+        mcp_servers=["mcp-profiles/customer-docs.json"],
         paths=paths,
     )
 
-    assert config.mcp_servers == ["custom/mcp-profiles/customer-docs.json"]
+    assert config.mcp_servers == ["mcp-profiles/customer-docs.json"]
 
 
 def test_materialize_agent_definition_rejects_missing_canonical_mcp_profile_refs(tmp_path: Path):
@@ -252,7 +252,7 @@ def test_materialize_agent_definition_rejects_missing_canonical_mcp_profile_refs
             status="dev",
             agents_md="# Support Agent",
             description="Answers customer questions",
-            mcp_servers=["custom/mcp-profiles/missing.json"],
+            mcp_servers=["mcp-profiles/missing.json"],
             paths=paths,
         )
 

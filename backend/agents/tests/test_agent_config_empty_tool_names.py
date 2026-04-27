@@ -11,7 +11,7 @@ def test_agent_config_preserves_explicit_empty_tool_names() -> None:
             "name": "support-cases-http-demo",
             "status": "dev",
             "tool_names": [],
-            "mcp_servers": ["custom/mcp-profiles/customer-cases-http-demo.json"],
+            "mcp_servers": ["mcp-profiles/customer-cases-http-demo.json"],
         }
     )
 

@@ -70,7 +70,7 @@ def _get_authoring_context(*, agent_name: str | None, agent_status: str) -> str:
 - `setup_agent(skills=...)` replaces the target skill set. Preserve every current skill explicitly: keep unchanged archived copied skills with their exact `source_path`, keep unchanged agent-owned skills as `{{name, content}}`, and pass each edited skill as `{{name, content: "<full updated SKILL.md>"}}`.
 - Do not edit only the thread-local copied skill and then omit `skills`; that refreshes from archived sources and loses the skill change.
 - When updating yourself as a non-`lead_agent` dev runtime, you may omit `agent_name` in `setup_agent`; it will resolve to the current agent.
-- For MCP bindings, prefer canonical MCP library refs such as `custom/mcp-profiles/customer-docs.json` or `system/mcp-profiles/slack.json`.
+- For MCP bindings, prefer canonical MCP library refs such as `mcp-profiles/customer-docs.json`.
 - Do not treat `mcp_servers` as a workspace-global enable list. They are the archived MCP library refs bound to the target agent.
 - If the user wants a new MCP integration, create or update the reusable MCP library entry first, then bind that ref on the agent instead of inventing a second MCP schema in prose.
 </self_authoring>

@@ -19,8 +19,6 @@ func NewMCPProfileHandler(svc *service.MCPProfileService) *MCPProfileHandler {
 
 func writeMCPProfileServiceError(c *gin.Context, err error, notFoundStatus int) {
 	switch {
-	case errors.Is(err, service.ErrMCPProfileReadOnly):
-		c.JSON(http.StatusForbidden, model.ErrorResponse{Error: err.Error()})
 	case errors.Is(err, service.ErrMCPProfileAmbiguous):
 		c.JSON(http.StatusConflict, model.ErrorResponse{Error: err.Error()})
 	case errors.Is(err, service.ErrMCPProfileInvalidSourcePath):

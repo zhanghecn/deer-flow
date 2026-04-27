@@ -967,7 +967,7 @@ def test_setup_agent_allows_explicit_mcp_binding_override(monkeypatch, tmp_path:
                 "name": "support-agent",
                 "status": "dev",
                 "description": "Existing description",
-                "mcp_servers": ["custom/mcp-profiles/old.json"],
+                "mcp_servers": ["mcp-profiles/old.json"],
                 "agents_md_path": "AGENTS.md",
                 "skill_refs": [],
             },
@@ -1007,11 +1007,11 @@ def test_setup_agent_allows_explicit_mcp_binding_override(monkeypatch, tmp_path:
 
     setup_agent.func(
         runtime=runtime,
-        mcp_servers=["custom/mcp-profiles/customer-docs.json"],
+        mcp_servers=["mcp-profiles/customer-docs.json"],
         skills=[],
     )
 
-    assert calls["mcp_servers"] == ["custom/mcp-profiles/customer-docs.json"]
+    assert calls["mcp_servers"] == ["mcp-profiles/customer-docs.json"]
 
 
 def test_setup_agent_writes_mcp_profile_and_binds_it(monkeypatch, tmp_path: Path):
@@ -1067,9 +1067,9 @@ def test_setup_agent_writes_mcp_profile_and_binds_it(monkeypatch, tmp_path: Path
         skills=[],
     )
 
-    profile_file = paths.custom_mcp_profile_file("customer-docs.json")
+    profile_file = paths.mcp_profile_file("customer-docs.json")
     assert profile_file.exists()
-    assert calls["mcp_servers"] == ["custom/mcp-profiles/customer-docs.json"]
+    assert calls["mcp_servers"] == ["mcp-profiles/customer-docs.json"]
 
 
 def test_setup_agent_requires_agents_md_and_description_for_new_agents():

@@ -29,10 +29,10 @@ def test_load_mcp_tool_items_uses_agent_scoped_profile_refs(monkeypatch):
 
     resolved = _load_mcp_tool_items(
         include_mcp=True,
-        mcp_servers=["custom/mcp-profiles/customer-docs.json"],
+        mcp_servers=["mcp-profiles/customer-docs.json"],
     )
 
-    assert calls["profile_refs"] == ["custom/mcp-profiles/customer-docs.json"]
+    assert calls["profile_refs"] == ["mcp-profiles/customer-docs.json"]
     assert calls["explicit_config"] is True
     assert [name for name, _tool in resolved] == ["mcp__customer_docs__search_files"]
 
@@ -71,12 +71,12 @@ def test_load_mcp_tool_items_merges_profile_refs_with_legacy_server_names(monkey
     resolved = _load_mcp_tool_items(
         include_mcp=True,
         mcp_servers=[
-            "custom/mcp-profiles/customer-docs.json",
+            "mcp-profiles/customer-docs.json",
             "github",
         ],
     )
 
-    assert calls["profile_refs"] == ["custom/mcp-profiles/customer-docs.json"]
+    assert calls["profile_refs"] == ["mcp-profiles/customer-docs.json"]
     assert [name for name, _tool in resolved] == [
         "mcp__customer_docs__search_files",
         "mcp__github__repo_search",

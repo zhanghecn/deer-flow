@@ -223,7 +223,7 @@ GET /api/mcp/profiles
       "name": "customer-docs",
       "server_name": "customer-docs",
       "category": "custom",
-      "source_path": "custom/mcp-profiles/customer-docs.json",
+      "source_path": "mcp-profiles/customer-docs.json",
       "can_edit": true,
       "config_json": {
         "mcpServers": {
@@ -268,7 +268,7 @@ Content-Type: application/json
   "name": "customer-docs",
   "server_name": "customer-docs",
   "category": "custom",
-  "source_path": "custom/mcp-profiles/customer-docs.json",
+  "source_path": "mcp-profiles/customer-docs.json",
   "can_edit": true,
   "config_json": {
     "mcpServers": {

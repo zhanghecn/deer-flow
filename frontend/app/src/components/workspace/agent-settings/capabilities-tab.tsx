@@ -1068,7 +1068,6 @@ function MCPSection({
         profile.name,
         profile.server_name,
         profile.source_path ?? "",
-        profile.category ?? "",
       ]
         .join(" ")
         .toLowerCase()
@@ -1093,7 +1092,6 @@ function MCPSection({
           profile_name: ref,
           source_path: ref,
           server_name: null,
-          category: undefined,
           config_json: {},
           missing: true,
         };
@@ -1103,7 +1101,6 @@ function MCPSection({
         profile_name: profile.name,
         source_path: profile.source_path ?? ref,
         server_name: profile.server_name,
-        category: profile.category,
         config_json: profile.config_json,
         missing: false,
       };
@@ -1243,13 +1240,7 @@ function MCPSection({
                   </span>
                   <span className="text-muted-foreground mt-1 block text-xs leading-5">
                     {profile.server_name}
-                    {profile.category ? ` · ${profile.category}` : ""}
                   </span>
-                  {profile.source_path && (
-                    <code className="text-muted-foreground mt-2 block text-[11px] break-all">
-                      {profile.source_path}
-                    </code>
-                  )}
                 </span>
               </button>
             );
@@ -1343,7 +1334,6 @@ type SelectedMCPProfile = {
   profile_name: string;
   source_path: string;
   server_name: string | null;
-  category?: string;
   missing: boolean;
 };
 
@@ -1388,9 +1378,6 @@ function SelectedMCPProfileCard({
         </p>
         <p className="text-muted-foreground truncate text-[11px] leading-4">
           {profile.server_name ?? discovery?.server_name ?? profile.ref}
-          {profile.category ? ` · ${profile.category}` : ""}
-          {" · "}
-          <code>{profile.source_path}</code>
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
@@ -1462,11 +1449,7 @@ function MCPToolsSheet({
             />
             <p className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
               {profile.server_name ?? discovery?.server_name ?? profile.ref}
-              {profile.category ? ` · ${profile.category}` : ""}
             </p>
-            <code className="text-muted-foreground shrink-0 text-[11px]">
-              {profile.source_path}
-            </code>
             {typeof discovery?.latency_ms === "number" ? (
               <Badge variant="outline" className="px-1.5 text-[10px]">
                 {text.mcpLatency(discovery.latency_ms)}

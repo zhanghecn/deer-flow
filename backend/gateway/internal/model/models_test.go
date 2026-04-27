@@ -13,7 +13,7 @@ func TestAgentJSONIncludesExplicitEmptyToolNames(t *testing.T) {
 		Name:        "support-agent",
 		Description: "Support agent",
 		ToolNames:   []string{},
-		McpServers:  []string{"custom/mcp-profiles/customer-docs.json"},
+		McpServers:  []string{"mcp-profiles/customer-docs.json"},
 		Status:      "dev",
 		AgentsMD:    "# Agent",
 	})

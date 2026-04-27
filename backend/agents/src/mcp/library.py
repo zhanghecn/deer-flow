@@ -2,7 +2,7 @@
 
 This module intentionally keeps the product-facing MCP format aligned with the
 Claude Code-style ``mcpServers`` JSON shape. Agent manifests bind reusable
-profile refs such as ``custom/mcp-profiles/customer-docs.json`` instead of
+profile refs such as ``mcp-profiles/customer-docs.json`` instead of
 editing one workspace-global runtime config blob.
 """
 
@@ -14,17 +14,14 @@ from pathlib import Path, PurePosixPath
 from src.config.extensions_config import ExtensionsConfig, McpServerConfig
 from src.config.paths import Paths, get_paths
 
-_MCP_PROFILE_SOURCE_PREFIXES: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("system", ("system", "mcp-profiles")),
-    ("custom", ("custom", "mcp-profiles")),
-)
+_MCP_PROFILE_SOURCE_PREFIX = "mcp-profiles/"
 
 
 def is_mcp_profile_ref(value: str) -> bool:
     """Return whether *value* looks like a canonical MCP profile source path."""
 
     normalized = str(value or "").strip().strip("/")
-    return normalized.startswith("system/mcp-profiles/") or normalized.startswith("custom/mcp-profiles/")
+    return normalized.startswith(_MCP_PROFILE_SOURCE_PREFIX)
 
 
 def normalize_mcp_profile_name(name: str) -> str:
@@ -41,42 +38,38 @@ def normalize_mcp_profile_name(name: str) -> str:
     return relative_path.as_posix()
 
 
-def _parse_mcp_profile_source_path(source_path: str) -> tuple[str, PurePosixPath]:
+def _parse_mcp_profile_source_path(source_path: str) -> PurePosixPath:
     normalized = str(source_path or "").strip().strip("/")
     if not normalized:
         raise ValueError("MCP profile source_path is required.")
 
     path = PurePosixPath(normalized)
-    if path.is_absolute() or ".." in path.parts or len(path.parts) < 3:
+    if path.is_absolute() or ".." in path.parts or len(path.parts) < 2:
         raise ValueError(
             "MCP profile source_path must be a safe relative path like "
-            "'system/mcp-profiles/customer-docs.json' or "
-            "'custom/mcp-profiles/customer-docs.json'."
+            "'mcp-profiles/customer-docs.json'."
         )
 
     path_str = path.as_posix()
-    for scope, prefix_parts in _MCP_PROFILE_SOURCE_PREFIXES:
-        prefix = PurePosixPath(*prefix_parts).as_posix() + "/"
-        if not path_str.startswith(prefix):
-            continue
-        relative_path = PurePosixPath(path_str[len(prefix) :])
-        if not relative_path.parts:
-            raise ValueError("MCP profile source_path must point to a concrete JSON file.")
-        if relative_path.suffix.lower() != ".json":
-            relative_path = relative_path.with_suffix(".json")
-        return scope, relative_path
+    if path_str.startswith("system/mcp-profiles/") or path_str.startswith("custom/mcp-profiles/"):
+        raise ValueError("Legacy scoped MCP profile refs are no longer supported; use mcp-profiles/<name>.json.")
+    if not path_str.startswith(_MCP_PROFILE_SOURCE_PREFIX):
+        raise ValueError("MCP profile source_path must start with mcp-profiles/.")
 
-    raise ValueError("MCP profile source_path must start with system/mcp-profiles/ or custom/mcp-profiles/.")
+    relative_path = PurePosixPath(path_str[len(_MCP_PROFILE_SOURCE_PREFIX) :])
+    if not relative_path.parts:
+        raise ValueError("MCP profile source_path must point to a concrete JSON file.")
+    if relative_path.suffix.lower() != ".json":
+        relative_path = relative_path.with_suffix(".json")
+    return relative_path
 
 
 def resolve_mcp_profile_file(source_path: str, *, paths: Paths | None = None) -> Path:
     """Resolve a canonical MCP profile source path to a filesystem JSON file."""
 
     paths = paths or get_paths()
-    scope, relative_path = _parse_mcp_profile_source_path(source_path)
-    if scope == "system":
-        return paths.system_mcp_profile_file(relative_path)
-    return paths.custom_mcp_profile_file(relative_path)
+    relative_path = _parse_mcp_profile_source_path(source_path)
+    return paths.mcp_profile_file(relative_path)
 
 
 def load_mcp_profile(source_path: str, *, paths: Paths | None = None) -> tuple[str, McpServerConfig]:
@@ -112,7 +105,6 @@ def validate_mcp_profile_payload(config_json: dict[str, object]) -> tuple[str, E
 
 def write_mcp_profile(
     *,
-    scope: str,
     name: str,
     config_json: dict[str, object],
     paths: Paths | None = None,
@@ -123,15 +115,10 @@ def write_mcp_profile(
     normalized_name = normalize_mcp_profile_name(name)
     _server_name, parsed = validate_mcp_profile_payload(config_json)
 
-    if scope == "system":
-        target_file = paths.system_mcp_profile_file(normalized_name)
-        source_path = f"system/mcp-profiles/{normalized_name}"
-    elif scope == "custom":
-        target_file = paths.custom_mcp_profile_file(normalized_name)
-        source_path = f"custom/mcp-profiles/{normalized_name}"
-    else:
-        raise ValueError("MCP profile scope must be 'system' or 'custom'.")
-
+    # MCP profile refs are deliberately global. Skills and agents retain scoped
+    # archive roots, but MCP is selected by every agent from one shared catalog.
+    target_file = paths.mcp_profile_file(normalized_name)
+    source_path = f"mcp-profiles/{normalized_name}"
     target_file.parent.mkdir(parents=True, exist_ok=True)
     with open(target_file, "w", encoding="utf-8") as handle:
         json.dump(parsed.model_dump(by_alias=True, exclude_none=True), handle, indent=2)

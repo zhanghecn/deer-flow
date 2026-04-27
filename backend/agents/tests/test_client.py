@@ -136,8 +136,8 @@ class TestConfigQueries:
 
     def test_list_mcp_profiles(self, client, tmp_path):
         paths = Paths(base_dir=tmp_path, skills_dir=tmp_path / "skills")
-        (paths.custom_mcp_profiles_dir).mkdir(parents=True, exist_ok=True)
-        profile_file = paths.custom_mcp_profiles_dir / "customer-docs.json"
+        (paths.mcp_profiles_dir).mkdir(parents=True, exist_ok=True)
+        profile_file = paths.mcp_profiles_dir / "customer-docs.json"
         profile_file.write_text(
             json.dumps(
                 {
@@ -155,7 +155,7 @@ class TestConfigQueries:
         with patch("src.client.get_paths", return_value=paths):
             result = client.list_mcp_profiles()
 
-        assert result["profiles"][0]["source_path"] == "custom/mcp-profiles/customer-docs.json"
+        assert result["profiles"][0]["source_path"] == "mcp-profiles/customer-docs.json"
         assert result["profiles"][0]["server_name"] == "customer-docs"
 
     def test_create_update_and_delete_mcp_profile(self, client, tmp_path):
@@ -173,7 +173,7 @@ class TestConfigQueries:
                     }
                 },
             )
-            assert created["source_path"] == "custom/mcp-profiles/customer-docs.json"
+            assert created["source_path"] == "mcp-profiles/customer-docs.json"
 
             updated = client.update_mcp_profile(
                 "customer-docs",
@@ -190,7 +190,7 @@ class TestConfigQueries:
 
             client.delete_mcp_profile("customer-docs")
 
-        assert not paths.custom_mcp_profile_file("customer-docs.json").exists()
+        assert not paths.mcp_profile_file("customer-docs.json").exists()
 
 
 class TestRunnableConfig:

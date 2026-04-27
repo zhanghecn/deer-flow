@@ -139,7 +139,7 @@ func normalizeOptionalStringList(values []string) []string {
 
 func looksLikeMCPProfileRef(value string) bool {
 	normalized := strings.Trim(strings.TrimSpace(value), "/")
-	return strings.HasPrefix(normalized, "system/mcp-profiles/") || strings.HasPrefix(normalized, "custom/mcp-profiles/")
+	return strings.HasPrefix(normalized, "mcp-profiles/")
 }
 
 func (s *AgentService) validateMCPBindings(values []string) ([]string, error) {

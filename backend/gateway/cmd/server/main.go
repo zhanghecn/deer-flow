@@ -63,6 +63,9 @@ func main() {
 		log.Fatalf("Failed to initialize API token cipher: %v", err)
 	}
 	fs := storage.NewFS(baseDir)
+	if err := fs.MigrateLegacyMCPProfileLayout(); err != nil {
+		log.Fatalf("Failed to migrate legacy MCP profile layout: %v", err)
+	}
 	knowledgeAssetStore, err := knowledgeasset.New(baseDir)
 	if err != nil {
 		log.Fatalf("Failed to initialize knowledge asset store: %v", err)
