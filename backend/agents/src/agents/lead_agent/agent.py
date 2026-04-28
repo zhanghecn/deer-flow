@@ -559,7 +559,11 @@ def build_backend(
     return workspace_backend
 
 
-def _build_openagents_middlewares(model_config: ModelConfig):
+def _build_openagents_middlewares(
+    model_config: ModelConfig,
+    *,
+    question_tool_enabled: bool = True,
+):
     """Build openagents specific extra middlewares (not handled by deepagents).
 
     deepagents already provides:
@@ -586,7 +590,6 @@ def _build_openagents_middlewares(model_config: ModelConfig):
     # command strings as authoring policy would block legitimate runtime work.
     middlewares = [
         ArtifactsMiddleware(),
-        QuestionDisciplineMiddleware(),
         RuntimeCommandMiddleware(),
         UploadsMiddleware(),
         KnowledgeContextMiddleware(),
@@ -595,9 +598,11 @@ def _build_openagents_middlewares(model_config: ModelConfig):
         build_tool_retry_middleware(),
         ToolBatchSequencingMiddleware(),
         MaxTokensRecoveryMiddleware(),
-        VisibleResponseRecoveryMiddleware(),
+        VisibleResponseRecoveryMiddleware(question_tool_enabled=question_tool_enabled),
         ContextWindowMiddleware(),
     ]
+    if question_tool_enabled:
+        middlewares.insert(1, QuestionDisciplineMiddleware())
 
     if model_config.supports_vision:
         middlewares.append(ViewImageMiddleware())
@@ -1524,6 +1529,7 @@ def _build_graph_parts(
         setup_agent_enabled=request.allows_agent_setup(),
     )
     explicit_runtime_surface = _uses_explicit_runtime_tool_surface(resolution.agent_config)
+    question_tool_enabled = any(getattr(tool, "name", None) == "question" for tool in tools)
     subagent_specs = None
     if not explicit_runtime_surface:
         subagent_specs = _build_agent_subagents(
@@ -1535,7 +1541,10 @@ def _build_graph_parts(
         )
     return LeadAgentGraphParts(
         tools=tools,
-        middleware=_build_openagents_middlewares(resolution.model_config),
+        middleware=_build_openagents_middlewares(
+            resolution.model_config,
+            question_tool_enabled=question_tool_enabled,
+        ),
         subagents=subagent_specs.custom_subagents if subagent_specs is not None else None,
         general_purpose_enabled=subagent_specs.general_purpose_enabled if subagent_specs is not None else False,
         general_purpose_tools=subagent_specs.general_purpose_tools if subagent_specs is not None else tools,

@@ -148,6 +148,43 @@ def test_wrap_model_call_retries_when_provider_returns_no_ai_message():
     assert response.result[0].content == "继续执行中。"
 
 
+def test_wrap_model_call_omits_question_instruction_when_question_tool_unavailable():
+    middleware = VisibleResponseRecoveryMiddleware(question_tool_enabled=False)
+    model = MagicMock()
+    model.thinking = {"type": "enabled"}
+    model.model = "mcp-only-model"
+
+    request = ModelRequest(
+        model=model,
+        messages=[HumanMessage(content="继续执行")],
+        system_message=SystemMessage(content="You are helpful."),
+        tools=[],
+        runtime=MagicMock(),
+        state={"messages": []},
+    )
+
+    calls: list[ModelRequest] = []
+
+    def handler(next_request: ModelRequest):
+        calls.append(next_request)
+        if len(calls) == 1:
+            return ModelResponse(result=[])
+        return ModelResponse(
+            result=[
+                AIMessage(
+                    content="我会基于当前可用信息继续回答。",
+                    response_metadata={"stop_reason": "stop"},
+                )
+            ]
+        )
+
+    middleware.wrap_model_call(request, handler)
+
+    assert len(calls) == 2
+    assert "call `question`" not in calls[1].system_message.text
+    assert "Do not call tools that are not available" in calls[1].system_message.text
+
+
 def test_wrap_model_call_raises_when_recovery_retry_still_has_no_visible_response():
     middleware = VisibleResponseRecoveryMiddleware()
     model = MagicMock()

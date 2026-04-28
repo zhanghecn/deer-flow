@@ -44,14 +44,19 @@ SECTION_EVIDENCE = """
 SECTION_EXECUTION_CONTRACT = """
 <execution_contract>
 - Finish execution tasks instead of stopping at a plan or research summary unless the user asked for analysis only
-- Do not end an execution turn with progress-only text such as "next I will ..."; do the work, call `question` if blocked, or deliver the completed result
+- Do not end an execution turn with progress-only text such as "next I will ..."; do the work or deliver the completed result
 - Before finalizing, verify explicit user constraints such as filename, format, required sections, ordering, and requested scope
 - Keep intermediate work in `/mnt/user-data/workspace`; only final deliverables belong in `/mnt/user-data/outputs`
 - Never expose raw `/mnt/user-data/...` paths in user-facing prose
 - Keep the same language as the user and always provide a visible response
-- If blocking information is missing, call `question` and pause tool work
 - Persist draft agents or skills only through the explicit save/push commands
 </execution_contract>
+""".strip()
+
+SECTION_QUESTION_TOOL_CONTRACT = """
+<question_tool_contract>
+- If blocking information is missing, call `question` and pause tool work
+</question_tool_contract>
 """.strip()
 
 
@@ -67,7 +72,9 @@ def _get_authoring_context(*, agent_name: str | None, agent_status: str) -> str:
 - For skill edits, first read `/mnt/user-data/agents/{agent_status}/{normalized_agent_name}/config.yaml` and the copied `SKILL.md` you plan to change.
 - If you are only changing skills and your archived `AGENTS.md` plus one-line description stay unchanged, you may omit `agents_md` and `description`; `setup_agent` preserves those existing archived values for an update.
 - Do not read `AGENTS.md` just to re-send it unchanged unless you actually need to inspect or edit it.
-- `setup_agent(skills=...)` replaces the target skill set. Preserve every current skill explicitly: keep unchanged archived copied skills with their exact `source_path`, keep unchanged agent-owned skills as `{{name, content}}`, and pass each edited skill as `{{name, content: "<full updated SKILL.md>"}}`.
+- `setup_agent(skills=...)` replaces the target skill set. Preserve every current skill explicitly:
+  keep unchanged archived copied skills with their exact `source_path`, keep unchanged agent-owned
+  skills as `{{name, content}}`, and pass each edited skill as `{{name, content: "<full updated SKILL.md>"}}`.
 - Do not edit only the thread-local copied skill and then omit `skills`; that refreshes from archived sources and loses the skill change.
 - When updating yourself as a non-`lead_agent` dev runtime, you may omit `agent_name` in `setup_agent`; it will resolve to the current agent.
 - For MCP bindings, prefer canonical MCP library refs such as `mcp-profiles/customer-docs.json`.
@@ -242,6 +249,13 @@ def apply_prompt_template(
 ) -> str:
     """Render the base runtime system prompt without per-turn command state."""
 
+    # `tool_names: []` is an operator-selected hard whitelist. Only mention the
+    # interrupting question tool when the runtime can actually expose it.
+    question_tool_enabled = (
+        agent_config is None
+        or agent_config.tool_names is None
+        or "question" in agent_config.tool_names
+    )
     memory_context = _get_memory_context(
         user_id=user_id,
         agent_name=agent_name,
@@ -263,6 +277,7 @@ def apply_prompt_template(
         SECTION_RESPONSE_STYLE,
         SECTION_EVIDENCE,
         SECTION_EXECUTION_CONTRACT,
+        SECTION_QUESTION_TOOL_CONTRACT if question_tool_enabled else "",
         _get_authoring_context(agent_name=agent_name, agent_status=agent_status).strip(),
         f"<current_date>{datetime.now().strftime('%Y-%m-%d, %A')}</current_date>",
     ]

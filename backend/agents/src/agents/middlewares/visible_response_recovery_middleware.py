@@ -20,7 +20,7 @@ from src.agents.middlewares.model_response_utils import (
 logger = logging.getLogger(__name__)
 
 _RETRY_TAG = "<visible_response_recovery>"
-_RECOVERY_SYSTEM_PROMPT = """
+_RECOVERY_SYSTEM_PROMPT_WITH_QUESTION = """
 <visible_response_recovery>
 - Your previous attempt ended without any user-visible text or tool call.
 - Produce a visible next action now.
@@ -38,9 +38,22 @@ _RECOVERY_SYSTEM_PROMPT = """
 </visible_response_recovery>
 """.strip()
 
+_RECOVERY_SYSTEM_PROMPT_WITHOUT_QUESTION = """
+<visible_response_recovery>
+- Your previous attempt ended without any user-visible text or tool call.
+- Produce a visible response now.
+- If the request is ambiguous, contradictory, or underspecified, state the blocker or proceed with an explicit reasonable assumption in normal prose.
+- Do not call tools that are not available in this runtime.
+- Do not emit more internal thinking.
+</visible_response_recovery>
+""".strip()
+
 
 class VisibleResponseRecoveryMiddleware(AgentMiddleware):
     """Retry once when the model ends with invisible reasoning-only output."""
+
+    def __init__(self, *, question_tool_enabled: bool = True) -> None:
+        self._question_tool_enabled = question_tool_enabled
 
     def _response_gap_reason(
         self,
@@ -79,7 +92,9 @@ class VisibleResponseRecoveryMiddleware(AgentMiddleware):
         return request.override(
             system_message=append_to_system_message(
                 request.system_message,
-                _RECOVERY_SYSTEM_PROMPT,
+                _RECOVERY_SYSTEM_PROMPT_WITH_QUESTION
+                if self._question_tool_enabled
+                else _RECOVERY_SYSTEM_PROMPT_WITHOUT_QUESTION,
             ),
             model_settings=model_settings,
         )

@@ -23,11 +23,13 @@ class WorkbenchMainAppTest(unittest.TestCase):
             "MCP_WORKBENCH_PUBLIC_BASE_URL": os.environ.get("MCP_WORKBENCH_PUBLIC_BASE_URL"),
             "MCP_WORKBENCH_LOCAL_MCP_URL": os.environ.get("MCP_WORKBENCH_LOCAL_MCP_URL"),
             "MCP_WORKBENCH_LOCAL_AGENT_MCP_URL": os.environ.get("MCP_WORKBENCH_LOCAL_AGENT_MCP_URL"),
+            "MCP_WORKBENCH_ALLOWED_ORIGINS": os.environ.get("MCP_WORKBENCH_ALLOWED_ORIGINS"),
         }
         os.environ["MCP_WORKBENCH_DATA_DIR"] = self.temp_dir.name
         os.environ["MCP_WORKBENCH_PUBLIC_BASE_URL"] = "http://127.0.0.1:8084"
         os.environ.pop("MCP_WORKBENCH_LOCAL_MCP_URL", None)
         os.environ.pop("MCP_WORKBENCH_LOCAL_AGENT_MCP_URL", None)
+        os.environ.pop("MCP_WORKBENCH_ALLOWED_ORIGINS", None)
 
         import app.main as main_module
 
@@ -116,6 +118,18 @@ class WorkbenchMainAppTest(unittest.TestCase):
         self.assertEqual(payload["agent_mcp_url"], "http://127.0.0.1:8084/mcp-http-agent/mcp")
         self.assertEqual(payload["workbench_mcp_url"], "http://127.0.0.1:8084/mcp-http/mcp")
         self.assertTrue(payload["cache_root"].endswith("document-cache"))
+
+    def test_default_cors_allows_lan_browser_origin(self) -> None:
+        response = self.client.options(
+            "/api/health",
+            headers={
+                "origin": "http://192.168.0.189:8084",
+                "access-control-request-method": "GET",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["access-control-allow-origin"], "*")
 
     def test_agent_mcp_endpoint_only_exposes_document_tools(self) -> None:
         tool_names = self._discover_tool_names("/mcp-http-agent/mcp")

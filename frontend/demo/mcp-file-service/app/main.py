@@ -46,7 +46,7 @@ ALLOWED_ORIGINS = [
     item.strip()
     for item in os.getenv(
         "MCP_WORKBENCH_ALLOWED_ORIGINS",
-        "http://127.0.0.1:8084,http://localhost:8084",
+        "*",
     ).split(",")
     if item.strip()
 ]

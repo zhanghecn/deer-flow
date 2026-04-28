@@ -1,6 +1,8 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+from src.agents.lead_agent.prompt import apply_prompt_template
+from src.config.agents_config import AgentConfig
 from src.tools.tools import get_available_tools
 
 
@@ -101,6 +103,21 @@ tool_groups: []
     # use the same archived agent manifest without tool-loading failures.
     assert "view_image" not in text_tool_names
     assert "view_image" in vision_tool_names
+
+
+def test_prompt_omits_question_contract_for_explicit_empty_tool_names() -> None:
+    prompt = apply_prompt_template(
+        agent_name="mcp-only-agent",
+        memory_config=None,
+        agent_config=AgentConfig(
+            name="mcp-only-agent",
+            tool_names=[],
+            mcp_servers=["mcp-profiles/customer-docs.json"],
+        ),
+    )
+
+    assert "call `question`" not in prompt
+    assert "question_tool_contract" not in prompt
 
 
 def test_get_available_tools_resolves_opt_in_knowledge_compatibility_tool(monkeypatch, tmp_path: Path):

@@ -6,10 +6,11 @@ import asyncio
 from unittest.mock import MagicMock
 
 import pytest
+
 from src.agents.lead_agent import agent as lead_agent_module
 from src.agents.middlewares.runtime_command_middleware import RuntimeCommandMiddleware
 from src.config.builtin_agents import LEAD_AGENT_NAME
-from src.config.model_config import ModelConfig
+from src.config.model_config import ModelConfig, ModelReasoningConfig
 from src.config.paths import Paths
 
 
@@ -150,7 +151,7 @@ def _make_model(name: str, *, supports_thinking: bool, supports_vision: bool = F
         description=None,
         use="langchain_openai:ChatOpenAI",
         model=name,
-        supports_thinking=supports_thinking,
+        reasoning=ModelReasoningConfig(contract="openai_responses") if supports_thinking else None,
         supports_vision=supports_vision,
     )
 
@@ -406,7 +407,7 @@ def test_make_lead_agent_reads_runtime_context_and_persists_thread_runtime(monke
     monkeypatch.setattr(lead_agent_module, "apply_prompt_template", lambda **kwargs: "prompt")
     monkeypatch.setattr(lead_agent_module, "create_deep_agent", _make_fake_deep_agent_graph)
 
-    captured: dict[str, object] = {}
+    captured_calls: list[dict[str, object]] = []
 
     def _fake_create_chat_model(
         *,
@@ -416,10 +417,14 @@ def test_make_lead_agent_reads_runtime_context_and_persists_thread_runtime(monke
         runtime_model_config=None,
         max_output_tokens=None,
     ):
-        captured["name"] = name
-        captured["thinking_enabled"] = thinking_enabled
-        captured["runtime_model_config"] = runtime_model_config
-        captured["max_output_tokens"] = max_output_tokens
+        captured_calls.append(
+            {
+                "name": name,
+                "thinking_enabled": thinking_enabled,
+                "runtime_model_config": runtime_model_config,
+                "max_output_tokens": max_output_tokens,
+            }
+        )
         return object()
 
     monkeypatch.setattr(lead_agent_module, "create_chat_model", _fake_create_chat_model)
@@ -453,9 +458,10 @@ def test_make_lead_agent_reads_runtime_context_and_persists_thread_runtime(monke
         )
     )
 
-    assert captured["name"] == "safe-model"
-    assert captured["thinking_enabled"] is True
-    assert captured["max_output_tokens"] == 321
+    answer_model_call = captured_calls[0]
+    assert answer_model_call["name"] == "safe-model"
+    assert answer_model_call["thinking_enabled"] is True
+    assert answer_model_call["max_output_tokens"] == 321
     assert result["model"] is not None
     assert "memory" not in result
     assert result["context_schema"] is lead_agent_module.LeadAgentRuntimeContext
@@ -495,7 +501,7 @@ def test_make_lead_agent_uses_request_header_model_for_thread_state_reads(monkey
     monkeypatch.setattr(lead_agent_module, "apply_prompt_template", lambda **kwargs: "prompt")
     monkeypatch.setattr(lead_agent_module, "create_deep_agent", _make_fake_deep_agent_graph)
 
-    captured: dict[str, object] = {}
+    captured_calls: list[dict[str, object]] = []
 
     def _fake_create_chat_model(
         *,
@@ -505,9 +511,13 @@ def test_make_lead_agent_uses_request_header_model_for_thread_state_reads(monkey
         runtime_model_config=None,
         max_output_tokens=None,
     ):
-        captured["name"] = name
-        captured["thinking_enabled"] = thinking_enabled
-        captured["runtime_model_config"] = runtime_model_config
+        captured_calls.append(
+            {
+                "name": name,
+                "thinking_enabled": thinking_enabled,
+                "runtime_model_config": runtime_model_config,
+            }
+        )
         return object()
 
     monkeypatch.setattr(lead_agent_module, "create_chat_model", _fake_create_chat_model)
@@ -542,8 +552,9 @@ def test_make_lead_agent_uses_request_header_model_for_thread_state_reads(monkey
         )
     )
 
-    assert captured["name"] == "header-model"
-    assert captured["thinking_enabled"] is True
+    answer_model_call = captured_calls[0]
+    assert answer_model_call["name"] == "header-model"
+    assert answer_model_call["thinking_enabled"] is True
     assert store.saved == [("thread-1", "user-1", "header-model", LEAD_AGENT_NAME)]
     assert runtime.execution_runtime.context["x-model-name"] == "header-model"
 
@@ -575,7 +586,7 @@ def test_make_lead_agent_reads_and_updates_typed_runtime_context(monkeypatch, tm
     monkeypatch.setattr(lead_agent_module, "apply_prompt_template", lambda **kwargs: "prompt")
     monkeypatch.setattr(lead_agent_module, "create_deep_agent", _make_fake_deep_agent_graph)
 
-    captured: dict[str, object] = {}
+    captured_calls: list[dict[str, object]] = []
 
     def _fake_create_chat_model(
         *,
@@ -585,8 +596,7 @@ def test_make_lead_agent_reads_and_updates_typed_runtime_context(monkeypatch, tm
         runtime_model_config=None,
         max_output_tokens=None,
     ):
-        captured["name"] = name
-        captured["thinking_enabled"] = thinking_enabled
+        captured_calls.append({"name": name, "thinking_enabled": thinking_enabled})
         return object()
 
     monkeypatch.setattr(lead_agent_module, "create_chat_model", _fake_create_chat_model)
@@ -618,8 +628,9 @@ def test_make_lead_agent_reads_and_updates_typed_runtime_context(monkeypatch, tm
         )
     )
 
-    assert captured["name"] == "safe-model"
-    assert captured["thinking_enabled"] is True
+    answer_model_call = captured_calls[0]
+    assert answer_model_call["name"] == "safe-model"
+    assert answer_model_call["thinking_enabled"] is True
     assert runtime_context.thread_id == "thread-typed"
     assert runtime_context.runtime_thread_id == "thread-typed"
     assert runtime_context.model_dump(by_alias=True)["x-thread-id"] == "thread-typed"
@@ -711,6 +722,17 @@ def test_build_openagents_middlewares_includes_vision_middleware_for_vision_mode
     assert any(isinstance(m, QuestionDisciplineMiddleware) for m in middlewares)
     assert any(isinstance(m, VisibleResponseRecoveryMiddleware) for m in middlewares)
     assert any(isinstance(m, ViewImageMiddleware) for m in middlewares)
+
+
+def test_build_openagents_middlewares_excludes_question_policy_when_tool_unavailable():
+    middlewares = lead_agent_module._build_openagents_middlewares(
+        _make_model("text-model", supports_thinking=False, supports_vision=False),
+        question_tool_enabled=False,
+    )
+
+    from src.agents.middlewares.question_discipline_middleware import QuestionDisciplineMiddleware
+
+    assert not any(isinstance(m, QuestionDisciplineMiddleware) for m in middlewares)
 
 
 def test_build_openagents_middlewares_excludes_vision_middleware_for_non_vision_model():
@@ -806,7 +828,7 @@ def test_make_lead_agent_rebuilds_cached_graph_when_model_config_changes(monkeyp
                     "model": "safe-model",
                     "api_key": "token-a",
                     "base_url": "http://gateway-a.invalid",
-                    "supports_thinking": True,
+                    "reasoning": {"contract": "anthropic_thinking"},
                 }
             )
         }
@@ -863,7 +885,7 @@ def test_make_lead_agent_rebuilds_cached_graph_when_model_config_changes(monkeyp
             "model": "safe-model",
             "api_key": "token-b",
             "base_url": "http://gateway-b.invalid",
-            "supports_thinking": True,
+            "reasoning": {"contract": "anthropic_thinking"},
         }
     )
 
@@ -977,6 +999,10 @@ def test_make_lead_agent_disables_hidden_runtime_tools_for_explicit_tool_names(m
     assert create_calls[0]["filesystem_enabled"] is False
     assert create_calls[0]["general_purpose_enabled"] is False
     assert create_calls[0]["subagents"] is None
+    assert not any(
+        type(middleware).__name__ == "QuestionDisciplineMiddleware"
+        for middleware in create_calls[0]["middleware"]
+    )
 
 
 def test_make_lead_agent_reuses_read_only_graph_across_threads(monkeypatch, tmp_path):

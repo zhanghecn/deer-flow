@@ -15,14 +15,18 @@ services:
     environment:
       MCP_WORKBENCH_HOST: 0.0.0.0
       MCP_WORKBENCH_PORT: 8090
-      MCP_WORKBENCH_PUBLIC_BASE_URL: http://127.0.0.1:8084
+      MCP_WORKBENCH_PUBLIC_BASE_URL: ${MCP_WORKBENCH_PUBLIC_BASE_URL:-}
       MCP_WORKBENCH_DATA_DIR: /data/files
-      MCP_WORKBENCH_ALLOWED_ORIGINS: http://127.0.0.1:8084,http://localhost:8084
+      MCP_WORKBENCH_ALLOWED_ORIGINS: ${MCP_WORKBENCH_ALLOWED_ORIGINS:-*}
     volumes:
       - mcp_workbench_data:/data
     restart: unless-stopped
     networks:
-      - openagents
+      openagents:
+        aliases:
+          # Keep the gateway upstream stable even when the main OpenAgents stack
+          # also exposes a legacy `mcp-file-service` alias on the same network.
+          - mcp-workbench-file-service
 
   mcp-workbench-ui:
     image: ${MCP_WORKBENCH_UI_IMAGE:-openagents-mcp-workbench-mcp-workbench-ui}
@@ -40,10 +44,12 @@ services:
       - path: ${MCP_WORKBENCH_UI_ENV_FILE:-./.env.local}
         required: false
     environment:
-      VITE_DEMO_WORKBENCH_BASE_URL: http://127.0.0.1:8084
+      VITE_DEMO_WORKBENCH_BASE_URL: ${VITE_DEMO_WORKBENCH_BASE_URL:-}
     restart: unless-stopped
     networks:
-      - openagents
+      openagents:
+        aliases:
+          - mcp-workbench-ui
 
   mcp-workbench-gateway:
     image: nginx:1.27-alpine
