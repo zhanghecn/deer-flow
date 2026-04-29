@@ -495,193 +495,22 @@ function AttachmentList({
   );
 }
 
-function safeParseJSON(value: string): unknown | null {
+function formatToolArguments(argumentsValue: Record<string, unknown>) {
+  if (Object.keys(argumentsValue).length === 0) return "{}";
+
   try {
-    return JSON.parse(value) as unknown;
+    return JSON.stringify(argumentsValue, null, 2) ?? "{}";
   } catch {
-    return null;
+    // Tool arguments come from runtime events; keep the UI resilient if a
+    // future transport sends a non-JSON-serializable value.
+    return String(argumentsValue);
   }
-}
-
-const DOCUMENT_PATH_KEYS = new Set([
-  "path",
-  "file_path",
-  "filepath",
-  "filename",
-  "document_path",
-  "asset_path",
-]);
-
-const DOCUMENT_PATH_ARRAY_KEYS = new Set([
-  "paths",
-  "files",
-  "filenames",
-  "items",
-  "results",
-  "documents",
-  "assets",
-]);
-
-type SourceLink = {
-  path: string;
-  url: string;
-};
-
-function looksLikeKnowledgePath(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed || /^https?:\/\//i.test(trimmed)) return false;
-  return (
-    trimmed.includes("/") ||
-    /\.(md|markdown|txt|pdf|docx?|pptx?|xlsx?|csv|json|png|jpe?g|webp|gif)$/i.test(
-      trimmed,
-    )
-  );
-}
-
-function shouldCollectStringPath(parentKey: string | undefined, value: string) {
-  if (!parentKey) return false;
-  return (
-    (DOCUMENT_PATH_KEYS.has(parentKey) ||
-      DOCUMENT_PATH_ARRAY_KEYS.has(parentKey)) &&
-    looksLikeKnowledgePath(value)
-  );
-}
-
-function collectPathsFromValue(
-  value: unknown,
-  paths: Set<string>,
-  parentKey?: string,
-) {
-  if (typeof value === "string") {
-    if (shouldCollectStringPath(parentKey, value)) {
-      paths.add(value.trim());
-    }
-    return;
-  }
-
-  if (!value || typeof value !== "object") return;
-  if (Array.isArray(value)) {
-    value.forEach((item) => collectPathsFromValue(item, paths, parentKey));
-    return;
-  }
-
-  const record = value as Record<string, unknown>;
-  // Tool outputs may nest file paths inside search results, content blocks, or
-  // asset metadata. We extract only path-shaped fields so the customer-facing
-  // trace stays useful without leaking raw tool JSON.
-  Object.entries(record).forEach(([key, item]) =>
-    collectPathsFromValue(item, paths, key),
-  );
-}
-
-function isSafeSourceURL(value: string) {
-  try {
-    const parsed = new URL(value, window.location.origin);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
-  } catch {
-    return false;
-  }
-}
-
-function collectSourceLinksFromValue(
-  value: unknown,
-  links: Map<string, SourceLink>,
-  parentKey?: string,
-) {
-  if (!value || typeof value !== "object") return;
-  if (Array.isArray(value)) {
-    value.forEach((item) => collectSourceLinksFromValue(item, links, parentKey));
-    return;
-  }
-
-  const record = value as Record<string, unknown>;
-  const sourceURL =
-    typeof record.source_url === "string" && isSafeSourceURL(record.source_url)
-      ? record.source_url
-      : null;
-  if (sourceURL) {
-    const pathValue =
-      typeof record.path === "string"
-        ? record.path
-        : typeof record.file_path === "string"
-          ? record.file_path
-          : parentKey;
-    const path = pathValue?.trim();
-    if (path && looksLikeKnowledgePath(path)) {
-      links.set(path, { path, url: sourceURL });
-    }
-  }
-
-  Object.entries(record).forEach(([key, item]) =>
-    collectSourceLinksFromValue(item, links, key),
-  );
-}
-
-function getReadFilePaths(tool: ToolCallStep): string[] {
-  if (
-    tool.name !== "document_read" &&
-    tool.name !== "document_search" &&
-    tool.name !== "document_list"
-  ) {
-    return [];
-  }
-
-  const paths = new Set<string>();
-  collectPathsFromValue(tool.arguments, paths);
-  tool.output?.forEach((item) => {
-    if (!item.text) return;
-    const parsed = safeParseJSON(item.text);
-    if (parsed) collectPathsFromValue(parsed, paths);
-  });
-  return Array.from(paths);
-}
-
-function getReadFileSourceLinks(tool: ToolCallStep): SourceLink[] {
-  const links = new Map<string, SourceLink>();
-  tool.output?.forEach((item) => {
-    if (!item.text) return;
-    const parsed = safeParseJSON(item.text);
-    if (parsed) collectSourceLinksFromValue(parsed, links);
-  });
-  return Array.from(links.values());
-}
-
-function getToolActivityTitle(tool: ToolCallStep, fileCount: number) {
-  if (tool.status === "running") {
-    if (tool.name === "document_read") {
-      return "正在读取知识库文件";
-    }
-    if (tool.name === "document_list") {
-      return "正在列出知识库文件";
-    }
-    return "正在检索知识库";
-  }
-
-  if (tool.status === "error") {
-    return "知识库工具调用失败";
-  }
-
-  if (tool.name === "document_read") {
-    return fileCount > 0
-      ? `已读取 ${fileCount} 个知识库文件`
-      : "已读取知识库文件";
-  }
-
-  if (tool.name === "document_list") {
-    return fileCount > 0
-      ? `已列出 ${fileCount} 个知识库文件`
-      : "已列出知识库文件";
-  }
-
-  return fileCount > 0
-    ? `检索到 ${fileCount} 个知识库文件`
-    : "未检索到知识库文件";
 }
 
 function ToolActivityCard({ tool, index }: { tool: ToolCallStep; index: number }) {
-  const paths = getReadFilePaths(tool);
-  const sourceLinks = getReadFileSourceLinks(tool);
-  const linksByPath = new Map(sourceLinks.map((link) => [link.path, link.url]));
+  // Tool names are runtime-owned and may change, so the demo renders the
+  // event payload directly instead of translating known names into labels.
+  const toolArguments = formatToolArguments(tool.arguments);
 
   return (
     <div className="mb-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-left">
@@ -690,7 +519,9 @@ function ToolActivityCard({ tool, index }: { tool: ToolCallStep; index: number }
         <span className="rounded bg-white px-1.5 py-0.5 font-mono text-[10px] text-slate-500">
           #{index}
         </span>
-        <span>{getToolActivityTitle(tool, paths.length)}</span>
+        <span className="min-w-0 truncate font-mono" title={tool.name}>
+          {tool.name}
+        </span>
         {tool.status === "running" ? (
           <Loader2 className="ml-auto size-3.5 shrink-0 animate-spin text-emerald-500" />
         ) : tool.status === "error" ? (
@@ -699,30 +530,9 @@ function ToolActivityCard({ tool, index }: { tool: ToolCallStep; index: number }
           <Check className="ml-auto size-3.5 shrink-0 text-emerald-500" />
         )}
       </div>
-      {paths.length > 0 && (
-        <ul className="mt-2 space-y-1">
-          {paths.map((path) => (
-            <li
-              key={path}
-              className="truncate rounded border border-slate-100 bg-white px-2 py-1 font-mono text-[11px] text-slate-600"
-              title={path}
-            >
-              {linksByPath.has(path) ? (
-                <a
-                  href={linksByPath.get(path)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline decoration-emerald-300 underline-offset-2 hover:text-emerald-600"
-                >
-                  {path}
-                </a>
-              ) : (
-                path
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
+      <pre className="mt-2 max-h-[180px] overflow-y-auto whitespace-pre-wrap break-words rounded border border-slate-100 bg-white px-2 py-1.5 font-mono text-[11px] leading-5 text-slate-600">
+        {toolArguments}
+      </pre>
     </div>
   );
 }
@@ -1348,7 +1158,7 @@ export function ChatPage() {
                       </div>
                     )}
 
-                    {/* Thinking and knowledge tool calls stay in SSE order. */}
+                    {/* Thinking and tool calls stay in SSE order. */}
                     {msg.activities && msg.activities.length > 0 ? (
                       <ActivityTimeline
                         activities={msg.activities}
