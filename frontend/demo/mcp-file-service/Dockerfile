@@ -17,7 +17,7 @@ ENV PIP_INDEX_URL=${PIP_INDEX_URL}
 
 WORKDIR /app
 
-COPY frontend/demo/mcp-file-service/requirements.txt /app/requirements.txt
+COPY mcp-file-service/requirements.txt /app/requirements.txt
 # Demo release builds often run on fresh hosts. Configure apt before update so
 # the OCR system packages use the same mirror policy as Python packages.
 RUN sed -i \
@@ -38,7 +38,7 @@ RUN sed -i \
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install -r /app/requirements.txt
 
-COPY frontend/demo/mcp-file-service /app
+COPY mcp-file-service /app
 
 EXPOSE 8090
 

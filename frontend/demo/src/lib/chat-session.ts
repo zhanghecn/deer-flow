@@ -1,10 +1,10 @@
-import type { PublicAPITurnSnapshot } from "@/core/public-api/api";
-import { mergeStreamingText } from "@/core/public-api/run-session";
-import { createPublicAPISession } from "@/core/public-api/session";
+import type { PublicAPITurnSnapshot } from "./public-api";
+import { mergeStreamingText } from "./public-api-run-session";
+import { createPublicAPISession } from "./public-api-session";
 import {
   normalizeThreadError,
   shouldIgnoreThreadError,
-} from "@/core/threads/error";
+} from "./thread-error";
 
 export type ToolCallStep = {
   id: string;
@@ -56,17 +56,6 @@ export type ChatSession = {
   getPreviousTurnId: () => string;
 };
 
-const TRACE_TEXT = {
-  assistantMessage: "Assistant",
-  assistantThinking: "Thinking",
-  toolCall: "Tool Call",
-  toolResult: "Tool Result",
-  turnCompleted: "Completed",
-  turnStarted: "Started",
-  turnWaiting: "Waiting",
-  turnFailed: "Failed",
-};
-
 function normalizeToolOutput(output: unknown): Array<{
   id?: string;
   text?: string;
@@ -115,7 +104,6 @@ export function createChatSession(params: {
     apiToken: params.apiToken,
     agent: params.agent,
     previousTurnId: params.previousTurnId,
-    traceText: TRACE_TEXT,
   });
 
   return {

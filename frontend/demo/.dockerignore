@@ -1,0 +1,10 @@
+.env.local
+.git
+.vite
+dist
+node_modules
+mcp-file-service/.venv
+mcp-file-service/.pytest_cache
+mcp-file-service/__pycache__
+**/__pycache__
+*.log

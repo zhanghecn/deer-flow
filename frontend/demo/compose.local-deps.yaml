@@ -28,6 +28,3 @@ services:
     working_dir: /app/frontend/demo
     volumes:
       - ./:/app/frontend/demo
-      # Vite aliases `@` to ../app/src; dynamic demo mode bind-mounts the demo
-      # package, so the shared frontend source must be mounted explicitly.
-      - ../app/src:/app/frontend/app/src:ro

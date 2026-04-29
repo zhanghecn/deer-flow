@@ -16,10 +16,7 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      "@": path.resolve(rootDir, "../app/src"),
       "@demo": path.resolve(rootDir, "./src"),
-      // Shared `@/core` modules live outside the demo package in Docker. Pin
-      // zod to the demo install so Vite does not look for `/app/frontend/node_modules`.
       zod: path.resolve(rootDir, "node_modules/zod"),
     },
     dedupe: ["react", "react-dom"],

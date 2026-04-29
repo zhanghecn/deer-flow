@@ -58,6 +58,16 @@ file. The compose stack ships with a committed
 `frontend/demo/.env.defaults`, and `scripts/demo.sh` automatically prefers
 `frontend/demo/.env.local` when you have one from runtime setup.
 
+The UI package can also be built as a standalone frontend from this directory:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm build
+```
+
+The standalone build does not require `frontend/app` or any `@/core` alias from
+the main OpenAgents web app.
+
 On first run, the helper builds one local OCR base image for the MCP service and
 reuses it on later runs. That base image includes:
 

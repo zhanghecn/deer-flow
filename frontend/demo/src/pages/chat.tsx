@@ -16,7 +16,7 @@ import { toast } from "sonner";
 import {
   normalizeThreadError,
   shouldIgnoreThreadError,
-} from "@/core/threads/error";
+} from "../lib/thread-error";
 
 import { MarkdownRenderer } from "../components/markdown-renderer";
 import {

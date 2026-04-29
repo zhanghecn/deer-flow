@@ -1,13 +1,85 @@
+export type PublicAPIReasoningEffort =
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "max";
+
+export type PublicAPITurnEventType =
+  | "turn.started"
+  | "assistant.message.started"
+  | "assistant.text.delta"
+  | "assistant.reasoning.delta"
+  | "tool.call.started"
+  | "tool.call.completed"
+  | "turn.requires_input"
+  | "assistant.message.completed"
+  | "turn.completed"
+  | "turn.failed";
+
+export type PublicAPITurnFailureStage =
+  | "prepare_run"
+  | "stream_execution"
+  | "state_fetch"
+  | "snapshot_build";
+
+export interface PublicAPITurnArtifact {
+  id: string;
+  object: string;
+  filename: string;
+  mime_type?: string | null;
+  bytes?: number | null;
+  download_url: string;
+}
+
+export interface PublicAPITurnUsage {
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+}
+
+export interface PublicAPITurnEvent {
+  sequence: number;
+  created_at: number;
+  turn_id?: string;
+  type: PublicAPITurnEventType;
+  status?: string;
+  message_id?: string;
+  tool_call_id?: string;
+  tool_name?: string;
+  delta?: string;
+  text?: string;
+  reasoning?: string;
+  error?: string;
+  stage?: PublicAPITurnFailureStage;
+  retryable?: boolean;
+  code?: string;
+  tool_arguments?: unknown;
+  tool_output?: unknown;
+}
+
 export interface PublicAPITurnRequestBody {
   agent: string;
-  input: { text: string; file_ids?: string[] };
+  input: {
+    text: string;
+    file_ids?: string[];
+  };
   previous_turn_id?: string;
   stream?: boolean;
-  metadata?: Record<string, unknown>;
+  text?: {
+    format?: {
+      type: string;
+      name?: string;
+      schema?: unknown;
+      strict?: boolean;
+    };
+  };
   thinking?: {
     enabled: boolean;
-    effort?: "minimal" | "low" | "medium" | "high";
+    effort?: PublicAPIReasoningEffort;
   };
+  max_output_tokens?: number;
+  metadata?: Record<string, unknown>;
 }
 
 export interface PublicAPITurnSnapshot {
@@ -16,18 +88,14 @@ export interface PublicAPITurnSnapshot {
   status: string;
   agent: string;
   thread_id: string;
+  trace_id?: string;
+  previous_turn_id?: string;
   output_text: string;
   reasoning_text: string;
-  usage: { input_tokens: number; output_tokens: number; total_tokens: number };
-  events: Array<{
-    sequence: number;
-    created_at: number;
-    turn_id: string;
-    type: string;
-    delta?: string;
-    text?: string;
-    error?: string;
-  }>;
+  artifacts?: PublicAPITurnArtifact[];
+  usage: PublicAPITurnUsage;
+  metadata?: Record<string, unknown>;
+  events: PublicAPITurnEvent[];
   created_at: number;
   completed_at?: number;
 }

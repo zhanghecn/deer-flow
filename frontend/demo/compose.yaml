@@ -6,8 +6,8 @@ services:
     # can share the same service name without bind-mounting runtime deps.
     image: ${MCP_WORKBENCH_FILE_SERVICE_IMAGE:-openagents-mcp-workbench-mcp-file-service}
     build:
-      context: ../..
-      dockerfile: frontend/demo/mcp-file-service/Dockerfile
+      context: .
+      dockerfile: mcp-file-service/Dockerfile
       args:
         PIP_INDEX_URL: ${DEMO_PYTHON_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}
         APT_DEBIAN_MIRROR: ${DEMO_APT_DEBIAN_MIRROR:-http://mirrors.aliyun.com/debian}
@@ -33,8 +33,8 @@ services:
   mcp-workbench-ui:
     image: ${MCP_WORKBENCH_UI_IMAGE:-openagents-mcp-workbench-mcp-workbench-ui}
     build:
-      context: ../..
-      dockerfile: frontend/demo/Dockerfile
+      context: .
+      dockerfile: Dockerfile
       args:
         # Keep full image builds aligned with the dynamic `make demo-start`
         # registry default, while allowing operators to override it per host.

@@ -15,19 +15,13 @@ RUN pnpm config set store-dir ${PNPM_STORE_PATH} \
 
 WORKDIR /app
 
-COPY frontend/demo/package.json frontend/demo/pnpm-lock.yaml /app/frontend/demo/
-# Like the Python service, keep runtime dependencies baked into the image. The
-# cache mount only reuses the package store across local rebuilds.
+COPY package.json pnpm-lock.yaml ./
+# Keep runtime dependencies baked into the image; the cache mount only reuses
+# the package store across local rebuilds.
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
-    /bin/sh -lc "cd /app/frontend/demo && pnpm install --frozen-lockfile"
+    pnpm install --frozen-lockfile
 
-COPY frontend/demo /app/frontend/demo
-# The demo chat page reuses the shared public-api/thread error client from the
-# main frontend. Keep that source inside the image so Docker dev serves the same
-# module graph that host-side `tsc` checks through the `@` alias.
-COPY frontend/app/src /app/frontend/app/src
-
-WORKDIR /app/frontend/demo
+COPY . .
 
 EXPOSE 8084
 
