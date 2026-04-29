@@ -102,7 +102,7 @@ DOCUMENT_TOOL_DESCRIPTORS = (
         summary=(
             "List all direct children in the current knowledge-base directory."
         ),
-        returns="JSON payload with an ls-style complete directory listing.",
+        returns="Plain ls-style directory listing text.",
         arguments=(
             ToolArgument("path", "string", False, "Relative directory under the uploaded root."),
         ),

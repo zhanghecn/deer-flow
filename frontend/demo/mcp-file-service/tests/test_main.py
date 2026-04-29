@@ -155,6 +155,48 @@ class WorkbenchMainAppTest(unittest.TestCase):
             },
         )
 
+    def test_document_list_mcp_returns_plain_ls_text_for_agents(self) -> None:
+        (Path(self.temp_dir.name) / "nested" / "contracts").mkdir(parents=True)
+        (Path(self.temp_dir.name) / "root.md").write_text("# Root\n", encoding="utf-8")
+
+        _, session_id = self._mcp_request(
+            path="/mcp-http-agent/mcp",
+            method="initialize",
+            request_id=1,
+            params={
+                "protocolVersion": "2025-03-26",
+                "capabilities": {},
+                "clientInfo": self.main.MCP_CLIENT_INFO,
+            },
+        )
+        call_payload, _ = self._mcp_request(
+            path="/mcp-http-agent/mcp",
+            method="tools/call",
+            request_id=2,
+            session_id=session_id,
+            params={
+                "name": "document_list",
+                "arguments": {},
+            },
+        )
+
+        result = call_payload["result"]
+        self.assertIsInstance(result, dict)
+        content = result.get("content")
+        self.assertIsInstance(content, list)
+        text_block = next(
+            item
+            for item in content
+            if isinstance(item, dict) and item.get("type") == "text"
+        )
+        text = str(text_block["text"])
+
+        self.assertIn("nested/ +", text)
+        self.assertIn("root.md [text]", text)
+        self.assertNotIn('"items"', text)
+        with self.assertRaises(json.JSONDecodeError):
+            json.loads(text)
+
     def test_document_read_mcp_returns_image_content_blocks(self) -> None:
         image_path = Path(self.temp_dir.name) / "images" / "tiny.png"
         image_path.parent.mkdir(parents=True, exist_ok=True)

@@ -355,7 +355,9 @@ def _register_document_tools(server: FastMCP) -> None:
         """List all direct children in the current KB directory."""
 
         payload = service.document_list_payload(path=path)
-        return service.tool_payload_json(payload)
+        # Agent-facing list output should match Claude Code's Bash(ls) shape:
+        # plain stdout text, while document_list_payload keeps JSON for HTTP/UI.
+        return str(payload.get("content") or "")
 
     @server.tool()
     def document_search(
