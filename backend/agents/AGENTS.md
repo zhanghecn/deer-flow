@@ -1,4 +1,5 @@
 Read these docs before changing agent/runtime/backend/skills behavior:
+@../../memory/README.md
 @../../docs/guides/documentation-boundaries.md
 @../../docs/architecture/agent-authoring-command-contract.md
 @../../docs/architecture/opencode-alignment-and-skill-boundary.md
@@ -18,11 +19,12 @@ For broader development workflow and commands:
 Critical agent protocol rules for future work:
 
 - Documentation boundary rule:
+  - `memory/**` is durable coding-agent memory for recurring constraints and archived plans/history
   - `docs/**`, repo/service `README.md`, and `CONTRIBUTING.md` are repository engineering docs for humans
   - `AGENTS.md` / `CLAUDE.md` are coding-agent collaboration docs for people or agents changing this repo
   - `.openagents/**`, archived agent prompts, copied skills, and runtime prompt/tool contracts are runtime-agent contracts consumed by OpenAgents itself
   - do not mix those layers when auditing "current project docs" unless the task explicitly asks to review runtime agent behavior
-  - inside repo `docs/`, default current-doc layers are `architecture/`, `guides/`, and `testing/`; `plans/` and `history/` are supporting context only
+  - inside repo `docs/`, default current-doc layers are `architecture/`, `guides/`, and `testing/`; historical plans and one-off analyses live under `memory/archive/`
 
 - `lead_agent` is an explicit built-in agent and a reserved name.
 - Missing runtime `agent_name` should normalize to `lead_agent`, not to a special `None` branch.

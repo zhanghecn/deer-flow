@@ -13,12 +13,10 @@ This directory is organized by document type instead of keeping all repository d
 - `testing/`
   - test entrypoints, specs, pitfalls, and recorded audits
   - source of truth for repository-level verification expectations
-- `plans/`
-  - implementation plans and design rollouts
-  - planning/history material, not the default source of truth for current architecture
-- `history/`
-  - historical analyses, migration notes, and one-off summaries
-  - useful context, but not the default source of truth for current behavior
+
+Historical plans, migration notes, and one-off analyses live under
+`../memory/archive/` so this docs tree stays focused on current human-facing
+documentation.
 
 ## Recommended Reading Order
 
@@ -54,4 +52,4 @@ When someone asks whether the "project docs" match the code, default to:
 - top-level `CONTRIBUTING.md`
 - relevant `AGENTS.md`
 
-Do not automatically treat `plans/` or `history/` as current source of truth.
+Do not automatically treat `../memory/archive/` as current source of truth.

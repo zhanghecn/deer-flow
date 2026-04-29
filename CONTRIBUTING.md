@@ -9,9 +9,10 @@ Before treating two documents as if they describe the same thing, check [docs/gu
 In short:
 
 - `README.md`, `CONTRIBUTING.md`, `docs/**`, and service `README.md` files are repository engineering docs for humans.
+- `memory/**` is durable coding-agent memory for project continuity, archived plans/history, and recurring implementation constraints.
 - `AGENTS.md` / subtree `AGENTS.md` / `CLAUDE.md` are collaboration docs for coding agents modifying this repo.
 - `.openagents/**` plus runtime prompt/skill contracts are the runtime-agent layer and should not be mixed into normal project-doc audits unless the task is explicitly about runtime behavior.
-- Inside `docs/`, use `architecture/`, `guides/`, and `testing/` as the default current-doc tree. Treat `plans/` and `history/` as non-authoritative supporting context unless the task is explicitly historical.
+- Inside `docs/`, use `architecture/`, `guides/`, and `testing/` as the default current-doc tree. Historical plans and one-off analyses live under `memory/archive/`.
 
 ## Development Environment Setup
 

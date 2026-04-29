@@ -4,7 +4,7 @@
 
 英文版执行计划仍然保留在：
 
-- `docs/plans/2026-03-11-openagents-agent-first-authoring-final.md`
+- `memory/archive/plans/2026-03-11-openagents-agent-first-authoring-final.md`
 
 中文版重点是：
 

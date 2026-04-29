@@ -5,6 +5,7 @@ This document separates the repository's documentation into distinct audiences a
 Use it to avoid mixing:
 
 - repository engineering docs for humans
+- durable coding-agent memory for future repo work
 - coding-agent collaboration docs for Codex/Claude when modifying this repo
 - runtime agent contracts consumed by OpenAgents itself at execution time
 
@@ -52,7 +53,31 @@ Purpose:
 
 These docs are about how to change the repository, not about what the product runtime agent sees.
 
-## 3. Runtime Agent Contracts
+## 3. Durable Coding-Agent Memory
+
+Audience:
+
+- coding agents and maintainers carrying project context across sessions
+
+Examples:
+
+- `memory/README.md`
+- `memory/directives/**`
+- `memory/integrations/**`
+- `memory/operations/**`
+- `memory/archive/**`
+
+Purpose:
+
+- preserve recurring constraints, accepted decisions, environment notes, and
+  historical plans that should shape future code changes
+- migrate durable lessons out of local `.omx` runtime memory
+- keep project-continuity memory separate from current human-facing docs
+
+Historical plans and one-off analyses belong under `memory/archive/`, not under
+`docs/`.
+
+## 4. Runtime Agent Contracts
 
 Audience:
 
@@ -73,12 +98,14 @@ Purpose:
 
 These contracts are product/runtime behavior, not general contributor docs.
 
-## 4. Default Review Boundary
+## 5. Default Review Boundary
 
 When auditing whether "project docs" match the current architecture, the default scope is:
 
 - repository engineering docs
 - coding-agent collaboration docs
+- durable coding-agent memory when the task involves project continuity,
+  historical decisions, or recurring implementation constraints
 
 Do not automatically include runtime agent contracts in that audit unless the task explicitly asks to review:
 
@@ -87,12 +114,14 @@ Do not automatically include runtime agent contracts in that audit unless the ta
 - model-visible tool contracts
 - agent answer behavior
 
-## 5. Update Rules
+## 6. Update Rules
 
 If a change affects repository architecture or contributor workflow:
 
 - update repository engineering docs
 - update coding-agent collaboration docs when the change should constrain future agent edits
+- update `memory/**` when the lesson should persist as project-continuity
+  guidance for future coding agents
 
 If a change affects only runtime agent behavior:
 
@@ -104,7 +133,14 @@ If a change affects both:
 - update both layers explicitly
 - do not assume one layer implicitly documents the other
 
-## 6. Practical Examples
+If a change records a plan, historical analysis, accepted/rejected approach, or
+session-memory lesson:
+
+- put the durable summary under `memory/**`
+- keep only current architecture, guides, testing specs, and verification reports
+  under `docs/**`
+
+## 7. Practical Examples
 
 - Changing `thread_bindings` ownership or persistence flow:
   update repo architecture docs and coding-agent docs; update runtime prompts only if model-visible behavior changes.
@@ -112,8 +148,10 @@ If a change affects both:
   update runtime agent contracts first; update repo docs only if the architectural contract changed.
 - Changing how contributors should run verification:
   update `docs/testing/**`, `CONTRIBUTING.md`, and any relevant `AGENTS.md`; do not treat runtime skill docs as the primary place for that rule.
+- Recording an implementation plan or historical migration analysis:
+  put it under `memory/archive/**`, not `docs/plans` or `docs/history`.
 
-## 7. Source-Of-Truth Reminder
+## 8. Source-Of-Truth Reminder
 
 For architecture and project-management discussions, prefer:
 
@@ -121,5 +159,6 @@ For architecture and project-management discussions, prefer:
 - `README.md`
 - `CONTRIBUTING.md`
 - `AGENTS.md` / subtree `AGENTS.md`
+- `memory/**` for durable project-continuity constraints and archived plans/history
 
 Treat `.openagents/**` and runtime prompt/skill content as a separate layer unless the task is explicitly about runtime agent behavior.

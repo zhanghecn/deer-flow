@@ -620,7 +620,7 @@ git commit -m "feat: gate authoring tools by mode and command"
 - Persist through explicit tools, not a generic sync mechanism.
 - Filter persistence tools per turn so the model does not carry unnecessary tool burden.
 
-Plan complete and saved to `docs/plans/2026-03-11-openagents-agent-first-authoring-final.md`. Two execution options:
+Plan complete and saved to `memory/archive/plans/2026-03-11-openagents-agent-first-authoring-final.md`. Two execution options:
 
 **1. Continue Here (this session)** - Execute tasks in order here, with review checkpoints as needed
 

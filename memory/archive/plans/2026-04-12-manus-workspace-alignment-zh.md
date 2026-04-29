@@ -4,7 +4,7 @@
 
 英文版执行计划保留在：
 
-- `docs/plans/2026-04-12-manus-workspace-alignment.md`
+- `memory/archive/plans/2026-04-12-manus-workspace-alignment.md`
 
 中文版重点是：
 

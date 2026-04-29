@@ -1,4 +1,5 @@
 Read these docs before changing runtime/backend/sandbox/remote architecture:
+@./memory/README.md
 @./docs/guides/documentation-boundaries.md
 @./docs/architecture/agent-authoring-command-contract.md
 @./docs/architecture/opencode-alignment-and-skill-boundary.md
@@ -17,11 +18,14 @@ Read these docs before changing runtime/backend/sandbox/remote architecture:
 Repository-wide runtime architecture rules:
 
 - Documentation boundary rule:
+  - `memory/**` is the durable coding-agent memory for recurring project constraints, archived plans/history, and continuity notes distilled from `.omx` runtime memory and long-form docs
+  - `.omx/project-memory.json` and `.omx/notepad.md` are local runtime/session memory caches; migrate durable rules from them into `memory/**` instead of assuming future agents can see local OMX state
   - repository engineering docs (`README.md`, `CONTRIBUTING.md`, `docs/**`, service `README.md`) are for humans
   - `AGENTS.md` / subtree `AGENTS.md` / `CLAUDE.md` are for coding agents modifying this repo
   - runtime prompts and skills under `.openagents/**` plus runtime prompt code are a separate runtime-agent contract layer
   - when auditing whether "project docs" match the code, default to the first two layers unless the task explicitly asks about runtime agent behavior
-  - inside `docs/`, treat `architecture/`, `guides/`, and `testing/` as current-doc layers; `plans/` and `history/` are not default source of truth
+  - inside `docs/`, treat `architecture/`, `guides/`, and `testing/` as current-doc layers; historical plans and analyses now belong under `memory/archive/`
+  - when a lesson from `docs/**` should constrain future coding-agent work, summarize it in `memory/**` with a source link rather than copying the full doc into `AGENTS.md`
 
 - Treat runtime execution as three separate layers:
   - data plane: file and command operations
