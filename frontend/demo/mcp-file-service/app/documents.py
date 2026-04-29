@@ -377,11 +377,13 @@ def _content_match_lines(
         line_number = context_item["line_number"]
         if item["locator_type"] == "line":
             # Text documents are stored as one source line per unit, so the
-            # unit locator is the grep line number. Emitting `path:line:1`
-            # would add noise and make agents chase the wrong coordinate.
+            # rendered line number should point at document_read's canonical
+            # markdown surface. Emitting `path:line:1` would add noise, and
+            # emitting the raw source line would not be directly readable after
+            # the canonical `# path` prelude.
             prefix = str(item["path"])
             if show_line_numbers:
-                prefix = f"{prefix}:{locator}"
+                prefix = f"{prefix}:{item.get('read_line_number', locator)}"
         else:
             prefix = f"{item['path']}:{item['locator_type']}:{locator}"
             if show_line_numbers:
@@ -1389,6 +1391,30 @@ class DocumentTooling:
                 skipped_files.append(relative_path)
                 continue
 
+            canonical_lines: list[str] | None = None
+
+            def read_line_number_for_unit(unit_index: int, fallback: int) -> int:
+                """Return the line number agents can pass back to document_read.
+
+                Text/Markdown packages use canonical markdown as their read
+                surface, which prepends the document title before source lines.
+                Search hits should therefore expose that read-surface line
+                number instead of the raw file line so the search/read loop has
+                one coordinate system.
+                """
+
+                nonlocal canonical_lines
+                if document.locator_type != "line":
+                    return fallback
+                if canonical_lines is None:
+                    cache_dir = self._cache_dir(file_path.resolve())
+                    canonical_lines = self._read_cached_markdown(cache_dir=cache_dir).splitlines()
+                return self._find_markdown_locator_offset(
+                    document=document,
+                    lines=canonical_lines,
+                    unit_index=unit_index,
+                ) + 1
+
             for unit_index, unit in enumerate(document.units):
                 for evidence_type, evidence_text in unit.search_entries:
                     if multiline:
@@ -1412,6 +1438,10 @@ class DocumentTooling:
                                 "locator": unit.locator,
                                 "locator_type": unit.locator_type,
                                 "line_number": line_number,
+                                "read_line_number": read_line_number_for_unit(
+                                    unit_index,
+                                    line_number,
+                                ),
                                 "line": line,
                                 "match_text": match_text,
                                 "snippet": _build_snippet(
@@ -1461,6 +1491,10 @@ class DocumentTooling:
                                 "locator": unit.locator,
                                 "locator_type": unit.locator_type,
                                 "line_number": line_number,
+                                "read_line_number": read_line_number_for_unit(
+                                    unit_index,
+                                    line_number,
+                                ),
                                 "line": line,
                                 "match_text": match_text,
                                 "snippet": _build_snippet(
@@ -1817,18 +1851,20 @@ class DocumentTooling:
         for index, line in enumerate(lines):
             if line.strip() == heading:
                 return index
+        if unit.locator_type == "line":
+            try:
+                # MarkItDown/text canonical output prepends "# path" and one
+                # blank line, so a one-based source line starts two lines later.
+                # Do this before preview matching: repeated text such as
+                # "needle" would otherwise map every unit to the first copy.
+                return max(int(unit.locator) + 1, 0)
+            except (TypeError, ValueError):
+                return unit_index
         preview = unit.preview_text.strip()
         if preview:
             for index, line in enumerate(lines):
                 if preview in line:
                     return index
-        if unit.locator_type == "line":
-            try:
-                # MarkItDown/text canonical output prepends "# path" and one
-                # blank line, so a one-based source line starts two lines later.
-                return max(int(unit.locator) + 1, 0)
-            except (TypeError, ValueError):
-                return unit_index
         return unit_index
 
     def _asset_record_for_image_path(

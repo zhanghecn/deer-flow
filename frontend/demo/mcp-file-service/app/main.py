@@ -387,9 +387,10 @@ def _register_document_tools(server: FastMCP) -> None:
             Literal["content", "files_with_matches", "count"],
             Field(
                 description=(
-                    "Output mode: 'content' shows matching lines with line/locator numbers "
-                    "(default), 'files_with_matches' shows only files whose CONTENT matched, "
-                    "and 'count' shows match counts. Do not use 'path'."
+                    "Output mode: 'content' shows matching lines with document_read "
+                    "line/locator numbers (default), 'files_with_matches' shows only "
+                    "files whose CONTENT matched, and 'count' shows match counts. "
+                    "Do not use 'path'."
                 )
             ),
         ] = "content",

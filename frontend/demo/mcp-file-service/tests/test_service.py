@@ -548,9 +548,9 @@ class FileMcpServiceTest(unittest.TestCase):
         )
 
         lines = payload["content"].splitlines()
-        self.assertIn("cases/order.md:3:needle", lines[0])
-        self.assertIn("cases/order.md:10:needle", lines[1])
-        self.assertIn("cases/order.md:100:needle", lines[2])
+        self.assertIn("cases/order.md:5:needle", lines[0])
+        self.assertIn("cases/order.md:12:needle", lines[1])
+        self.assertIn("cases/order.md:102:needle", lines[2])
 
     def test_document_search_count_mode_returns_file_counts(self) -> None:
         self._write_pdf(

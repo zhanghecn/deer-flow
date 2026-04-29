@@ -272,7 +272,7 @@ class WorkbenchMainAppTest(unittest.TestCase):
             {"pattern": "Deductible"},
         )
 
-        self.assertIn("cases/policy.md:1:Deductible is 500 USD", text)
+        self.assertIn("cases/policy.md:3:Deductible is 500 USD", text)
         self.assertIn("Deductible is 500 USD", text)
         self.assertNotIn('"filenames"', text)
         with self.assertRaises(json.JSONDecodeError):
@@ -302,7 +302,7 @@ class WorkbenchMainAppTest(unittest.TestCase):
             {"pattern": "Deductible", "output_mode": "content"},
         )
 
-        self.assertIn("cases/policy.md:2:Deductible is 500 USD", text)
+        self.assertIn("cases/policy.md:4:Deductible is 500 USD", text)
         self.assertIn("Deductible is 500 USD", text)
         self.assertNotIn('"matches"', text)
         with self.assertRaises(json.JSONDecodeError):

@@ -144,7 +144,7 @@ DOCUMENT_TOOL_DESCRIPTORS = (
                 "output_mode",
                 "string",
                 False,
-                "content, files_with_matches, or count. content shows lines; files_with_matches shows only files whose content matched. Do not use path.",
+                "content, files_with_matches, or count. content shows document_read line/locator numbers; files_with_matches shows only files whose content matched. Do not use path.",
                 default="content",
             ),
             ToolArgument(
