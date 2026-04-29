@@ -727,6 +727,7 @@ def test_non_lead_dev_request_allows_setup_agent_for_self_updates():
     )
 
     assert request.allows_agent_setup() is True
+    assert request.always_available_tool_names() == ("setup_agent",)
 
 
 def test_lead_agent_dev_request_allows_setup_agent_for_generic_authoring():

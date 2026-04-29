@@ -1,4 +1,4 @@
-import type { AgentSkillRef } from "@/core/agents";
+import type { AgentRuntimeMiddlewares, AgentSkillRef } from "@/core/agents";
 
 export type SettingsTab = "identity" | "capabilities" | "behavior" | "integration";
 
@@ -19,6 +19,7 @@ export type AgentSettingsFormState = {
   toolGroups: string;
   toolSelectionEnabled: boolean;
   toolNames: string[];
+  runtimeMiddlewares: AgentRuntimeMiddlewares;
   mcpServers: string[];
   skillRefs: AgentSkillRef[];
   agentsMd: string;

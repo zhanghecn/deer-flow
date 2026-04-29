@@ -22,3 +22,45 @@ func TestListToolCatalogOmitsRemovedKnowledgeListingTool(t *testing.T) {
 		t.Fatalf("knowledge retrieval tools missing from catalog: %+v", names)
 	}
 }
+
+func TestListToolCatalogIncludesFilesystemMiddlewareTools(t *testing.T) {
+	t.Setenv("OPENAGENTS_CONFIG_PATH", t.TempDir()+"/missing-config.yaml")
+
+	items, err := (&AgentService{}).ListToolCatalog()
+	if err != nil {
+		t.Fatalf("ListToolCatalog() error = %v", err)
+	}
+
+	byName := make(map[string]struct {
+		middlewareName         string
+		middlewareConfigurable bool
+		configurableMain       bool
+		reservedPolicy         string
+	}, len(items))
+	for _, item := range items {
+		byName[item.Name] = struct {
+			middlewareName         string
+			middlewareConfigurable bool
+			configurableMain       bool
+			reservedPolicy         string
+		}{
+			middlewareName:         item.MiddlewareName,
+			middlewareConfigurable: item.MiddlewareConfigurable,
+			configurableMain:       item.ConfigurableForMainAgent,
+			reservedPolicy:         item.ReservedPolicy,
+		}
+	}
+
+	for _, name := range []string{"ls", "read_file", "write_file", "edit_file", "glob", "grep", "execute"} {
+		item, ok := byName[name]
+		if !ok {
+			t.Fatalf("filesystem middleware tool %q missing from catalog", name)
+		}
+		if item.middlewareName != "filesystem" || !item.middlewareConfigurable {
+			t.Fatalf("tool %q metadata = %+v, want configurable filesystem middleware", name, item)
+		}
+		if item.configurableMain || item.reservedPolicy != middlewareInjectedPolicy {
+			t.Fatalf("tool %q policy = %+v, want read-only middleware injected", name, item)
+		}
+	}
+}

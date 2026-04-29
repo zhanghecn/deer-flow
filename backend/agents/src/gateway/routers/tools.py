@@ -52,6 +52,14 @@ class ToolCatalogItemResponse(BaseModel):
         ...,
         description="Where this catalog item comes from.",
     )
+    middleware_name: str | None = Field(
+        default=None,
+        description="Runtime middleware switch that owns this tool, when applicable.",
+    )
+    middleware_configurable: bool = Field(
+        default=False,
+        description="Whether the settings UI can enable or disable the owning middleware.",
+    )
     read_only_reason: str | None = Field(
         default=None,
         description="Why this tool is visible but not directly filterable from archive settings.",
@@ -176,6 +184,8 @@ def _append_catalog_item(
     configurable_for_subagent: bool,
     reserved_policy: Literal["normal", "main_agent_only", "runtime_only", "middleware_injected"],
     source: Literal["builtin", "config", "middleware"],
+    middleware_name: str | None = None,
+    middleware_configurable: bool = False,
     read_only_reason: str | None = None,
 ) -> None:
     normalized_name = str(name).strip()
@@ -194,6 +204,8 @@ def _append_catalog_item(
         configurable_for_subagent=configurable_for_subagent,
         reserved_policy=reserved_policy,
         source=source,
+        middleware_name=(middleware_name or "").strip() or None,
+        middleware_configurable=middleware_configurable,
         read_only_reason=(read_only_reason or "").strip() or None,
     )
 
@@ -382,8 +394,10 @@ def _scan_middleware_tool_catalog() -> list[ToolCatalogItemResponse]:
             configurable_for_subagent=False,
             reserved_policy=_MIDDLEWARE_INJECTED_POLICY,
             source="middleware",
+            middleware_name="filesystem",
+            middleware_configurable=True,
             read_only_reason=(
-                "Injected by FilesystemMiddleware unless the agent archive uses an explicit normal-tool whitelist."
+                "Injected by FilesystemMiddleware when the agent runtime middleware switch is enabled."
             ),
         )
 
@@ -398,6 +412,8 @@ def _scan_middleware_tool_catalog() -> list[ToolCatalogItemResponse]:
             configurable_for_subagent=False,
             reserved_policy=_MIDDLEWARE_INJECTED_POLICY,
             source="middleware",
+            middleware_name="todo",
+            middleware_configurable=False,
             read_only_reason=(
                 "Injected only for plan-mode runs by TodoListMiddleware; archive tool_names do not control it."
             ),
@@ -413,6 +429,8 @@ def _scan_middleware_tool_catalog() -> list[ToolCatalogItemResponse]:
         configurable_for_subagent=False,
         reserved_policy=_MIDDLEWARE_INJECTED_POLICY,
         source="middleware",
+        middleware_name="subagents",
+        middleware_configurable=False,
         read_only_reason=(
             "Injected by SubAgentMiddleware when delegation is enabled; explicit normal-tool whitelists disable this default task surface."
         ),

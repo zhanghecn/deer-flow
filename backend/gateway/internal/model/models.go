@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gopkg.in/yaml.v3"
 )
 
 // User represents a platform user.
@@ -110,23 +111,60 @@ type PublicAPIInputFile struct {
 // `.openagents/system/agents/{status}/{name}/` for reserved built-ins or
 // `.openagents/custom/agents/{status}/{name}/` for custom agents.
 type Agent struct {
-	Name             string                 `json:"name"`
-	Description      string                 `json:"description"`
-	Model            *string                `json:"model"`
-	ToolGroups       []string               `json:"tool_groups"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Model       *string  `json:"model"`
+	ToolGroups  []string `json:"tool_groups"`
 	// Keep explicit empty slices visible over JSON so the settings UI can
 	// distinguish "no override" from "explicitly no normal tools".
-	ToolNames        []string               `json:"tool_names"`
-	McpServers       []string               `json:"mcp_servers"` // Stable MCP library refs selected for this agent
-	Status           string                 `json:"status"`
-	OwnerUserID      string                 `json:"owner_user_id,omitempty"`
-	OwnerName        string                 `json:"owner_name,omitempty"`
-	CanManage        bool                   `json:"can_manage"`
-	Memory           *AgentMemoryConfig     `json:"memory,omitempty"`
-	SubagentDefaults *AgentSubagentDefaults `json:"subagent_defaults,omitempty"`
-	Subagents        []AgentSubagent        `json:"subagents,omitempty"`
-	AgentsMD         string                 `json:"agents_md"`
-	Skills           []SkillRef             `json:"skills,omitempty"`
+	ToolNames          []string                 `json:"tool_names"`
+	McpServers         []string                 `json:"mcp_servers"` // Stable MCP library refs selected for this agent
+	Status             string                   `json:"status"`
+	OwnerUserID        string                   `json:"owner_user_id,omitempty"`
+	OwnerName          string                   `json:"owner_name,omitempty"`
+	CanManage          bool                     `json:"can_manage"`
+	Memory             *AgentMemoryConfig       `json:"memory,omitempty"`
+	RuntimeMiddlewares *AgentRuntimeMiddlewares `json:"runtime_middlewares,omitempty"`
+	SubagentDefaults   *AgentSubagentDefaults   `json:"subagent_defaults,omitempty"`
+	Subagents          []AgentSubagent          `json:"subagents,omitempty"`
+	AgentsMD           string                   `json:"agents_md"`
+	Skills             []SkillRef               `json:"skills,omitempty"`
+}
+
+type AgentRuntimeMiddlewares struct {
+	Filesystem bool `json:"filesystem" yaml:"filesystem"`
+}
+
+func (m *AgentRuntimeMiddlewares) applyDefaults(filesystem *bool) {
+	m.Filesystem = true
+	if filesystem != nil {
+		m.Filesystem = *filesystem
+	}
+}
+
+func (m *AgentRuntimeMiddlewares) UnmarshalJSON(data []byte) error {
+	var payload struct {
+		Filesystem *bool `json:"filesystem"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return err
+	}
+	// Empty objects preserve the product default instead of accidentally
+	// disabling every filesystem runtime tool through Go's false zero value.
+	m.applyDefaults(payload.Filesystem)
+	return nil
+}
+
+func (m *AgentRuntimeMiddlewares) UnmarshalYAML(value *yaml.Node) error {
+	var payload struct {
+		Filesystem *bool `yaml:"filesystem"`
+	}
+	if err := value.Decode(&payload); err != nil {
+		return err
+	}
+	// Archived YAML follows the same defaulting contract as JSON API input.
+	m.applyDefaults(payload.Filesystem)
+	return nil
 }
 
 type AgentSubagentDefaults struct {
@@ -151,6 +189,10 @@ type ToolCatalogItem struct {
 	ConfigurableForMainAgent bool   `json:"configurable_for_main_agent"`
 	ConfigurableForSubagent  bool   `json:"configurable_for_subagent"`
 	ReservedPolicy           string `json:"reserved_policy"`
+	Source                   string `json:"source,omitempty"`
+	MiddlewareName           string `json:"middleware_name,omitempty"`
+	MiddlewareConfigurable   bool   `json:"middleware_configurable,omitempty"`
+	ReadOnlyReason           string `json:"read_only_reason,omitempty"`
 }
 
 type AgentMemoryConfig struct {

@@ -127,6 +127,7 @@ class AgentConfig(BaseModel):
     skill_refs: list["AgentSkillRef"] = Field(default_factory=list)
     memory: "AgentMemoryConfig" = Field(default_factory=lambda: AgentMemoryConfig())
     subagent_defaults: "AgentSubagentDefaults" = Field(default_factory=lambda: AgentSubagentDefaults())
+    runtime_middlewares: "AgentRuntimeMiddlewares" = Field(default_factory=lambda: AgentRuntimeMiddlewares())
 
     @model_validator(mode="after")
     def normalize_manifest_lists(self) -> "AgentConfig":
@@ -142,6 +143,14 @@ class AgentConfig(BaseModel):
         )
         self.mcp_servers = _normalize_optional_string_list(self.mcp_servers, field_name="mcp_servers")
         return self
+
+
+class AgentRuntimeMiddlewares(BaseModel):
+    """Per-agent switches for middleware-owned runtime tool surfaces."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    filesystem: bool = True
 
 
 class AgentSubagentDefaults(BaseModel):
@@ -279,6 +288,7 @@ class AgentMemoryConfig(BaseModel):
 
 
 AgentConfig.model_rebuild()
+AgentRuntimeMiddlewares.model_rebuild()
 AgentSubagentDefaults.model_rebuild()
 AgentSubagentConfig.model_rebuild()
 AgentSubagentsConfig.model_rebuild()
@@ -304,6 +314,12 @@ def serialize_subagent_defaults(subagent_defaults: AgentSubagentDefaults) -> dic
     if subagent_defaults.tool_names is not None:
         payload["tool_names"] = subagent_defaults.tool_names
     return payload
+
+
+def serialize_runtime_middlewares(runtime_middlewares: AgentRuntimeMiddlewares) -> dict[str, Any]:
+    return {
+        "filesystem": runtime_middlewares.filesystem,
+    }
 
 
 def serialize_agent_subagent(subagent: AgentSubagentConfig) -> dict[str, Any]:

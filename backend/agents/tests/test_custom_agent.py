@@ -481,6 +481,8 @@ class TestAgentsAPI:
             "description": "Specialized agent",
             "model": "deepseek-v3",
             "tool_groups": ["web"],
+            "tool_names": ["question"],
+            "runtime_middlewares": {"filesystem": False},
             "agents_md": "You are specialized.",
         }
         response = agent_client.post("/api/agents", json=payload)
@@ -488,6 +490,8 @@ class TestAgentsAPI:
         data = response.json()
         assert data["model"] == "deepseek-v3"
         assert data["tool_groups"] == ["web"]
+        assert data["tool_names"] == ["question"]
+        assert data["runtime_middlewares"] == {"filesystem": False}
 
     def test_create_agent_with_selected_skills_copies_library_skill(self, agent_client, tmp_path):
         _write_archived_skill(tmp_path, "data-analysis", category="store/dev")

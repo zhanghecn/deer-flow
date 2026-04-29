@@ -356,6 +356,7 @@ def _resolve_manifest_update_inputs(
     list[str] | None,
     Any,
     Any,
+    Any,
     list[Any] | None,
 ]:
     """Resolve the full manifest inputs expected by materialization.
@@ -390,6 +391,7 @@ def _resolve_manifest_update_inputs(
             None,
             None,
             None,
+            None,
         )
 
     resolved_tool_groups = tool_groups if tool_groups is not None else existing_state.config.tool_groups
@@ -409,6 +411,7 @@ def _resolve_manifest_update_inputs(
         existing_state.config.tool_names,
         resolved_mcp_servers,
         existing_state.config.memory,
+        existing_state.config.runtime_middlewares,
         existing_state.config.subagent_defaults,
         existing_state.subagents,
     )
@@ -682,6 +685,7 @@ def setup_agent(
             resolved_tool_names,
             resolved_mcp_servers,
             resolved_memory,
+            resolved_runtime_middlewares,
             resolved_subagent_defaults,
             resolved_subagents,
         ) = _resolve_manifest_update_inputs(
@@ -724,6 +728,7 @@ def setup_agent(
             skill_refs=copied_skill_refs,
             inline_skills=inline_skills,
             memory=resolved_memory,
+            runtime_middlewares=resolved_runtime_middlewares,
             subagent_defaults=resolved_subagent_defaults,
             subagents=resolved_subagents,
             paths=paths,

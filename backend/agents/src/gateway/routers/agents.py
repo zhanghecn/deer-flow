@@ -12,9 +12,13 @@ from src.config.agent_skill_preservation import load_existing_agent_skill_inputs
 from src.config.agents_config import (
     AgentConfig,
     AgentMemoryConfig,
+    AgentRuntimeMiddlewares,
     AgentSkillRef,
+    AgentSubagentConfig,
+    AgentSubagentDefaults,
     list_custom_agents,
     load_agent_config,
+    load_agent_subagents,
     load_agents_md,
     resolve_authored_agent_dir,
 )
@@ -44,9 +48,19 @@ class AgentResponse(BaseModel):
     description: str = Field(default="", description="Agent description")
     model: str | None = Field(default=None, description="Optional model override")
     tool_groups: list[str] | None = Field(default=None, description="Optional tool group whitelist")
+    tool_names: list[str] | None = Field(default=None, description="Optional explicit normal-tool whitelist")
     mcp_servers: list[str] | None = Field(default=None, description="Optional MCP library refs selected for this agent")
     status: str | None = Field(default=None, description="Agent status: prod or dev")
     memory: AgentMemoryConfig = Field(default_factory=AgentMemoryConfig, description="Per-agent user-scoped memory policy")
+    runtime_middlewares: AgentRuntimeMiddlewares = Field(
+        default_factory=AgentRuntimeMiddlewares,
+        description="Per-agent runtime middleware switches.",
+    )
+    subagent_defaults: AgentSubagentDefaults = Field(
+        default_factory=AgentSubagentDefaults,
+        description="Default policy for the general-purpose subagent.",
+    )
+    subagents: list[AgentSubagentConfig] = Field(default_factory=list, description="Custom subagent definitions")
     skills: list[AgentSkillResponse] = Field(default_factory=list, description="Skills copied into the agent directory")
     agents_md: str | None = Field(default=None, description="AGENTS.md content (included on GET /{name})")
 
@@ -64,9 +78,14 @@ class AgentCreateRequest(BaseModel):
     description: str = Field(default="", description="Agent description")
     model: str | None = Field(default=None, description="Optional model override")
     tool_groups: list[str] | None = Field(default=None, description="Optional tool group whitelist")
+    tool_names: list[str] | None = Field(default=None, description="Optional explicit normal-tool whitelist")
     mcp_servers: list[str] | None = Field(default=None, description="Optional MCP library refs selected for this agent")
     memory: AgentMemoryConfig = Field(default_factory=AgentMemoryConfig, description="Per-agent user-scoped memory policy")
+    runtime_middlewares: AgentRuntimeMiddlewares = Field(default_factory=AgentRuntimeMiddlewares)
+    subagent_defaults: AgentSubagentDefaults = Field(default_factory=AgentSubagentDefaults)
+    subagents: list[AgentSubagentConfig] = Field(default_factory=list)
     skills: list[str] = Field(default_factory=list, description="Archived store skills to copy into the agent")
+    skill_refs: list[AgentSkillRef] | None = Field(default=None, description="Structured copied skill refs")
     agents_md: str = Field(default="", description="AGENTS.md content — agent personality and behavioral guardrails")
 
 
@@ -76,9 +95,14 @@ class AgentUpdateRequest(BaseModel):
     description: str | None = Field(default=None, description="Updated description")
     model: str | None = Field(default=None, description="Updated model override")
     tool_groups: list[str] | None = Field(default=None, description="Updated tool group whitelist")
+    tool_names: list[str] | None = Field(default=None, description="Updated explicit normal-tool whitelist")
     mcp_servers: list[str] | None = Field(default=None, description="Updated MCP library refs selected for this agent")
     memory: AgentMemoryConfig | None = Field(default=None, description="Updated per-agent user-scoped memory policy")
+    runtime_middlewares: AgentRuntimeMiddlewares | None = Field(default=None, description="Updated runtime middleware switches")
+    subagent_defaults: AgentSubagentDefaults | None = Field(default=None, description="Updated general-purpose subagent policy")
+    subagents: list[AgentSubagentConfig] | None = Field(default=None, description="Updated custom subagent definitions")
     skills: list[str] | None = Field(default=None, description="Replacement archived store skills to copy into the agent")
+    skill_refs: list[AgentSkillRef] | None = Field(default=None, description="Replacement structured copied skill refs")
     agents_md: str | None = Field(default=None, description="Updated AGENTS.md content")
 
 
@@ -133,15 +157,20 @@ def _agent_config_to_response(agent_cfg: AgentConfig, include_agents_md: bool = 
     agents_md: str | None = None
     if include_agents_md:
         agents_md = load_agents_md(agent_cfg.name, status=agent_cfg.status) or ""
+    subagents = load_agent_subagents(agent_cfg.name, status=agent_cfg.status).subagents
 
     return AgentResponse(
         name=agent_cfg.name,
         description=agent_cfg.description,
         model=agent_cfg.model,
         tool_groups=agent_cfg.tool_groups,
+        tool_names=agent_cfg.tool_names,
         mcp_servers=agent_cfg.mcp_servers,
         status=agent_cfg.status,
         memory=agent_cfg.memory,
+        runtime_middlewares=agent_cfg.runtime_middlewares,
+        subagent_defaults=agent_cfg.subagent_defaults,
+        subagents=subagents,
         skills=[_skill_ref_to_response(skill_ref) for skill_ref in agent_cfg.skill_refs],
         agents_md=agents_md,
     )
@@ -152,6 +181,45 @@ def _agent_exists(paths, name: str) -> bool:
         resolve_authored_agent_dir(name, "dev", paths=paths) is not None
         or resolve_authored_agent_dir(name, "prod", paths=paths) is not None
     )
+
+
+def _skill_inputs_from_request_refs(
+    *,
+    requested_refs: list[AgentSkillRef],
+    agent_name: str,
+    agent_status: str,
+    paths,
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """Convert settings-page skill refs into materialization inputs.
+
+    The settings UI sends agent-owned inline skills back as name/materialized
+    refs because it should not ship full SKILL.md bodies to the browser. Preserve
+    those inline bodies from the existing archive while allowing archived copied
+    refs to be replaced from explicit source paths.
+    """
+
+    _existing_refs, existing_inline_skills = load_existing_agent_skill_inputs(
+        agent_name=agent_name,
+        agent_status=agent_status,
+        thread_id=None,
+        paths=paths,
+    )
+    inline_by_name = {entry["name"]: entry for entry in existing_inline_skills if entry.get("name")}
+
+    copied_refs: list[dict[str, str]] = []
+    inline_skills: list[dict[str, str]] = []
+    for skill_ref in requested_refs:
+        if skill_ref.source_path:
+            copied_refs.append({"name": skill_ref.name, "source_path": skill_ref.source_path})
+            continue
+        inline_skill = inline_by_name.get(skill_ref.name)
+        if inline_skill is not None:
+            inline_skills.append(inline_skill)
+            continue
+        raise ValueError(
+            f"Skill '{skill_ref.name}' is not an archived copied skill and no existing agent-owned content was found."
+        )
+    return copied_refs, inline_skills
 
 
 @router.get(
@@ -241,9 +309,14 @@ async def create_agent_endpoint(request: AgentCreateRequest) -> AgentResponse:
             description=request.description,
             model=request.model,
             tool_groups=request.tool_groups,
+            tool_names=request.tool_names,
             mcp_servers=request.mcp_servers,
             memory=request.memory,
+            runtime_middlewares=request.runtime_middlewares,
+            subagent_defaults=request.subagent_defaults,
+            subagents=request.subagents,
             skill_names=request.skills,
+            skill_refs=request.skill_refs,
             agents_md=request.agents_md,
             paths=paths,
         )
@@ -293,7 +366,14 @@ async def update_agent(
         paths = get_paths()
         preserved_skill_refs: list[dict[str, str]] | None = None
         preserved_inline_skills: list[dict[str, str]] | None = None
-        if request.skills is None:
+        if request.skill_refs is not None:
+            preserved_skill_refs, preserved_inline_skills = _skill_inputs_from_request_refs(
+                requested_refs=request.skill_refs,
+                agent_name=name,
+                agent_status=normalized_status,
+                paths=paths,
+            )
+        elif request.skills is None:
             # Preserve the agent's current skill contract without degrading copied
             # refs to bare names or dropping agent-owned inline SKILL.md content.
             preserved_skill_refs, preserved_inline_skills = load_existing_agent_skill_inputs(
@@ -303,17 +383,26 @@ async def update_agent(
                 paths=paths,
             )
 
+        fields_set = request.model_fields_set
         updated_cfg = materialize_agent_definition(
             name=name,
             status=normalized_status,
             description=request.description if request.description is not None else agent_cfg.description,
             model=request.model if request.model is not None else agent_cfg.model,
-            tool_groups=request.tool_groups if request.tool_groups is not None else agent_cfg.tool_groups,
-            mcp_servers=request.mcp_servers if request.mcp_servers is not None else agent_cfg.mcp_servers,
+            tool_groups=request.tool_groups if "tool_groups" in fields_set else agent_cfg.tool_groups,
+            tool_names=request.tool_names if "tool_names" in fields_set else agent_cfg.tool_names,
+            mcp_servers=request.mcp_servers if "mcp_servers" in fields_set else agent_cfg.mcp_servers,
             memory=request.memory if request.memory is not None else agent_cfg.memory,
+            runtime_middlewares=(
+                request.runtime_middlewares if request.runtime_middlewares is not None else agent_cfg.runtime_middlewares
+            ),
+            subagent_defaults=(
+                request.subagent_defaults if request.subagent_defaults is not None else agent_cfg.subagent_defaults
+            ),
             skill_names=request.skills,
             skill_refs=preserved_skill_refs,
             inline_skills=preserved_inline_skills,
+            subagents=request.subagents if request.subagents is not None else load_agent_subagents(name, status=normalized_status).subagents,
             agents_md=agents_md_content,
             paths=paths,
         )

@@ -152,12 +152,14 @@ export function CapabilitiesTab({
 
       {/* Tools Section */}
       <ToolsSection
+        form={form}
         mainToolOptions={mainToolOptions}
         selectedMainToolNames={selectedMainToolNames}
         toolCatalogLoading={toolCatalogLoading}
         toolCatalogError={toolCatalogError}
         fullToolCatalog={fullToolCatalog}
         text={text}
+        onFormChange={onFormChange}
         onToggleTool={(toolName) =>
           onFormChange((current) => {
             if (!current) return current;
@@ -466,20 +468,26 @@ function SkillsSection({
 
 // --- Tools ---
 function ToolsSection({
+  form,
   mainToolOptions,
   selectedMainToolNames,
   toolCatalogLoading,
   toolCatalogError,
   fullToolCatalog,
   text,
+  onFormChange,
   onToggleTool,
 }: {
+  form: AgentSettingsFormState;
   mainToolOptions: ToolCatalogItem[];
   selectedMainToolNames: string[];
   toolCatalogLoading: boolean;
   toolCatalogError: unknown;
   fullToolCatalog: ToolCatalogItem[];
   text: AgentSettingsPageText;
+  onFormChange: (
+    updater: (prev: AgentSettingsFormState) => AgentSettingsFormState | null,
+  ) => void;
   onToggleTool: (toolName: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -491,6 +499,22 @@ function ToolsSection({
           tool.reserved_policy === "middleware_injected",
       ),
     [fullToolCatalog],
+  );
+  const filesystemTools = useMemo(
+    () =>
+      runtimeInjectedTools.filter(
+        (tool) =>
+          tool.middleware_name === "filesystem" || tool.group === "filesystem",
+      ),
+    [runtimeInjectedTools],
+  );
+  const otherRuntimeTools = useMemo(
+    () =>
+      runtimeInjectedTools.filter(
+        (tool) =>
+          tool.middleware_name !== "filesystem" && tool.group !== "filesystem",
+      ),
+    [runtimeInjectedTools],
   );
 
   if (!expanded) {
@@ -568,7 +592,33 @@ function ToolsSection({
                 {text.noRuntimeTools}
               </p>
             ) : (
-              <RuntimeToolList tools={runtimeInjectedTools} text={text} />
+              <div className="space-y-4">
+                {filesystemTools.length > 0 && (
+                  <MiddlewareToolGroup
+                    title={text.filesystemMiddlewareTitle}
+                    description={text.filesystemMiddlewareDescription}
+                    tools={filesystemTools}
+                    enabled={form.runtimeMiddlewares.filesystem}
+                    text={text}
+                    onEnabledChange={(checked) =>
+                      onFormChange((current) =>
+                        current
+                          ? {
+                              ...current,
+                              runtimeMiddlewares: {
+                                ...current.runtimeMiddlewares,
+                                filesystem: checked,
+                              },
+                            }
+                          : current,
+                      )
+                    }
+                  />
+                )}
+                {otherRuntimeTools.length > 0 && (
+                  <RuntimeToolList tools={otherRuntimeTools} text={text} />
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -577,6 +627,46 @@ function ToolsSection({
         {text.collapseLabel}
       </Button>
     </SectionCard>
+  );
+}
+
+function MiddlewareToolGroup({
+  title,
+  description,
+  tools,
+  enabled,
+  text,
+  onEnabledChange,
+}: {
+  title: string;
+  description: string;
+  tools: ToolCatalogItem[];
+  enabled: boolean;
+  text: AgentSettingsPageText;
+  onEnabledChange: (enabled: boolean) => void;
+}) {
+  return (
+    <div className="border-border/70 bg-muted/15 rounded-3xl border px-4 py-3">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-medium">{title}</p>
+            <Badge variant="outline">{text.runtimeInjectedBadge}</Badge>
+          </div>
+          <p className="text-muted-foreground mt-1 text-xs leading-5">
+            {description}
+          </p>
+        </div>
+        <Switch checked={enabled} onCheckedChange={onEnabledChange} />
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {tools.map((tool) => (
+          <Badge key={tool.name} variant="secondary" className="rounded-full">
+            {tool.name}
+          </Badge>
+        ))}
+      </div>
+    </div>
   );
 }
 

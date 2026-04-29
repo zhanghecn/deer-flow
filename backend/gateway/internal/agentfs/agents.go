@@ -23,18 +23,19 @@ func isBuiltinLeadAgent(name string) bool {
 }
 
 type manifest struct {
-	Name             string                       `yaml:"name"`
-	Description      string                       `yaml:"description"`
-	Model            *string                      `yaml:"model"`
-	ToolGroups       []string                     `yaml:"tool_groups"`
-	ToolNames        []string                     `yaml:"tool_names"`
-	McpServers       []string                     `yaml:"mcp_servers"`
-	Status           string                       `yaml:"status"`
-	OwnerUserID      string                       `yaml:"owner_user_id,omitempty"`
-	AgentsMD         string                       `yaml:"agents_md_path"`
-	Memory           *model.AgentMemoryConfig     `yaml:"memory"`
-	SkillRefs        []model.SkillRef             `yaml:"skill_refs"`
-	SubagentDefaults *model.AgentSubagentDefaults `yaml:"subagent_defaults"`
+	Name               string                         `yaml:"name"`
+	Description        string                         `yaml:"description"`
+	Model              *string                        `yaml:"model"`
+	ToolGroups         []string                       `yaml:"tool_groups"`
+	ToolNames          []string                       `yaml:"tool_names"`
+	RuntimeMiddlewares *model.AgentRuntimeMiddlewares `yaml:"runtime_middlewares"`
+	McpServers         []string                       `yaml:"mcp_servers"`
+	Status             string                         `yaml:"status"`
+	OwnerUserID        string                         `yaml:"owner_user_id,omitempty"`
+	AgentsMD           string                         `yaml:"agents_md_path"`
+	Memory             *model.AgentMemoryConfig       `yaml:"memory"`
+	SkillRefs          []model.SkillRef               `yaml:"skill_refs"`
+	SubagentDefaults   *model.AgentSubagentDefaults   `yaml:"subagent_defaults"`
 }
 
 type subagentsManifest struct {
@@ -146,21 +147,26 @@ func LoadAgent(fsStore *storage.FS, name string, status string, includeMarkdown 
 	}
 
 	agent := &model.Agent{
-		Name:             agentName,
-		Description:      cfg.Description,
-		Model:            cfg.Model,
-		ToolGroups:       cfg.ToolGroups,
-		ToolNames:        cfg.ToolNames,
-		McpServers:       cfg.McpServers,
-		Status:           status,
-		OwnerUserID:      strings.TrimSpace(cfg.OwnerUserID),
-		Memory:           cfg.Memory,
-		Skills:           cfg.SkillRefs,
-		SubagentDefaults: cfg.SubagentDefaults,
+		Name:               agentName,
+		Description:        cfg.Description,
+		Model:              cfg.Model,
+		ToolGroups:         cfg.ToolGroups,
+		ToolNames:          cfg.ToolNames,
+		RuntimeMiddlewares: cfg.RuntimeMiddlewares,
+		McpServers:         cfg.McpServers,
+		Status:             status,
+		OwnerUserID:        strings.TrimSpace(cfg.OwnerUserID),
+		Memory:             cfg.Memory,
+		Skills:             cfg.SkillRefs,
+		SubagentDefaults:   cfg.SubagentDefaults,
 	}
 	if agent.Memory == nil {
 		normalized := defaultMemoryConfig()
 		agent.Memory = &normalized
+	}
+	if agent.RuntimeMiddlewares == nil {
+		normalized := defaultRuntimeMiddlewares()
+		agent.RuntimeMiddlewares = &normalized
 	}
 	if agent.SubagentDefaults == nil {
 		normalized := defaultSubagentDefaults()
@@ -496,6 +502,12 @@ func defaultMemoryConfig() model.AgentMemoryConfig {
 		FactConfidenceThreshold: 0.7,
 		InjectionEnabled:        true,
 		MaxInjectionTokens:      2000,
+	}
+}
+
+func defaultRuntimeMiddlewares() model.AgentRuntimeMiddlewares {
+	return model.AgentRuntimeMiddlewares{
+		Filesystem: true,
 	}
 }
 

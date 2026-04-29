@@ -71,6 +71,8 @@ export type AgentSettingsPageText = {
   runtimeToolsDescription: string;
   noRuntimeTools: string;
   runtimeInjectedBadge: string;
+  filesystemMiddlewareTitle: string;
+  filesystemMiddlewareDescription: string;
   subagentsTitle: string;
   subagentsDescription: string;
   generalPurposeTitle: string;
@@ -264,9 +266,12 @@ const enUS: AgentSettingsPageText = {
   selectableToolsTitle: "Archive-selectable tools",
   runtimeToolsTitle: "Runtime-injected tools",
   runtimeToolsDescription:
-    "These tools are scanned from the active runtime middleware stack. They remain visible for audit, but archive tool_names do not filter them.",
+    "These tools are scanned from the active runtime middleware stack. Enable the owning middleware here; normal tool_names only control archive-selectable tools.",
   noRuntimeTools: "No runtime-injected tools found.",
   runtimeInjectedBadge: "runtime",
+  filesystemMiddlewareTitle: "Filesystem middleware",
+  filesystemMiddlewareDescription:
+    "Injects runtime file tools such as ls, read_file, glob, grep, write_file, edit_file, and execute.",
   subagentsTitle: "Subagents",
   subagentsDescription: "General-purpose and custom subagent configuration.",
   generalPurposeTitle: "General Purpose Subagent",
@@ -469,9 +474,12 @@ const zhCN: AgentSettingsPageText = {
   selectableToolsTitle: "可配置工具",
   runtimeToolsTitle: "运行时注入工具",
   runtimeToolsDescription:
-    "这些工具来自运行时 middleware 扫描结果，主要用于审计可见性。归档里的 tool_names 无法过滤掉它们。",
+    "这些工具来自运行时 middleware。这里配置是否启用对应 middleware；普通 tool_names 只控制可配置工具。",
   noRuntimeTools: "当前未发现运行时注入工具。",
   runtimeInjectedBadge: "运行时",
+  filesystemMiddlewareTitle: "文件系统 middleware",
+  filesystemMiddlewareDescription:
+    "注入 ls、read_file、glob、grep、write_file、edit_file、execute 等运行时文件工具。",
   subagentsTitle: "子代理",
   subagentsDescription: "通用子代理和自定义子代理配置。",
   generalPurposeTitle: "通用子代理",

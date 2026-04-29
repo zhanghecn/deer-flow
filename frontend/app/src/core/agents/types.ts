@@ -10,6 +10,10 @@ export interface AgentMemoryConfig {
   max_injection_tokens: number;
 }
 
+export interface AgentRuntimeMiddlewares {
+  filesystem: boolean;
+}
+
 export interface AgentSkillRef {
   name: string;
   category: string | null;
@@ -51,6 +55,8 @@ export interface ToolCatalogItem {
     | "runtime_only"
     | "middleware_injected";
   source?: "builtin" | "config" | "middleware";
+  middleware_name?: string | null;
+  middleware_configurable?: boolean;
   read_only_reason?: string | null;
 }
 
@@ -60,6 +66,7 @@ export interface Agent {
   model: string | null;
   tool_groups: string[] | null;
   tool_names?: string[] | null;
+  runtime_middlewares?: AgentRuntimeMiddlewares | null;
   mcp_servers?: string[] | null; // Stable MCP library refs bound to this agent
   status: AgentStatus;
   owner_user_id?: string | null;
@@ -100,6 +107,7 @@ export interface CreateAgentRequest {
   model?: string | null;
   tool_groups?: string[] | null;
   tool_names?: string[] | null;
+  runtime_middlewares?: AgentRuntimeMiddlewares | null;
   mcp_servers?: string[] | null; // Stable MCP library refs selected for this agent
   memory?: AgentMemoryConfig;
   subagent_defaults?: AgentSubagentDefaults | null;
@@ -114,6 +122,7 @@ export interface UpdateAgentRequest {
   model?: string | null;
   tool_groups?: string[] | null;
   tool_names?: string[] | null;
+  runtime_middlewares?: AgentRuntimeMiddlewares | null;
   mcp_servers?: string[] | null; // Stable MCP library refs selected for this agent
   memory?: AgentMemoryConfig;
   subagent_defaults?: AgentSubagentDefaults | null;

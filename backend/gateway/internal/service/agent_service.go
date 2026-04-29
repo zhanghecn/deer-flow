@@ -182,6 +182,21 @@ func normalizeToolNames(values []string) []string {
 	return normalizeOptionalStringList(values)
 }
 
+func defaultAgentRuntimeMiddlewares() model.AgentRuntimeMiddlewares {
+	return model.AgentRuntimeMiddlewares{
+		Filesystem: true,
+	}
+}
+
+func normalizeAgentRuntimeMiddlewares(cfg *model.AgentRuntimeMiddlewares) model.AgentRuntimeMiddlewares {
+	normalized := defaultAgentRuntimeMiddlewares()
+	if cfg == nil {
+		return normalized
+	}
+	normalized.Filesystem = cfg.Filesystem
+	return normalized
+}
+
 func defaultAgentSubagentDefaults() model.AgentSubagentDefaults {
 	return model.AgentSubagentDefaults{
 		GeneralPurposeEnabled: true,
@@ -375,6 +390,7 @@ func (s *AgentService) Create(_ context.Context, req model.CreateAgentRequest, u
 	if err != nil {
 		return nil, err
 	}
+	runtimeMiddlewares := normalizeAgentRuntimeMiddlewares(req.RuntimeMiddlewares)
 	subagentDefaults := normalizeAgentSubagentDefaults(req.SubagentDefaults)
 	subagentDefaults.ToolNames, err = s.validateSubagentToolNames(subagentDefaults.ToolNames, mcpServers)
 	if err != nil {
@@ -392,16 +408,17 @@ func (s *AgentService) Create(_ context.Context, req model.CreateAgentRequest, u
 	}
 
 	agent := &model.Agent{
-		Name:             name,
-		Description:      req.Description,
-		Model:            req.Model,
-		ToolGroups:       normalizeOptionalStringList(req.ToolGroups),
-		ToolNames:        mainToolNames,
-		McpServers:       mcpServers,
-		Status:           "dev",
-		Memory:           &memoryConfig,
-		SubagentDefaults: &subagentDefaults,
-		Subagents:        subagents,
+		Name:               name,
+		Description:        req.Description,
+		Model:              req.Model,
+		ToolGroups:         normalizeOptionalStringList(req.ToolGroups),
+		ToolNames:          mainToolNames,
+		RuntimeMiddlewares: &runtimeMiddlewares,
+		McpServers:         mcpServers,
+		Status:             "dev",
+		Memory:             &memoryConfig,
+		SubagentDefaults:   &subagentDefaults,
+		Subagents:          subagents,
 	}
 	if userID != uuid.Nil {
 		agent.OwnerUserID = userID.String()
@@ -442,6 +459,14 @@ func (s *AgentService) Update(_ context.Context, name string, status string, req
 		if err != nil {
 			return nil, err
 		}
+	}
+	if existing.RuntimeMiddlewares == nil {
+		normalizedRuntimeMiddlewares := defaultAgentRuntimeMiddlewares()
+		existing.RuntimeMiddlewares = &normalizedRuntimeMiddlewares
+	}
+	if req.RuntimeMiddlewares != nil {
+		normalizedRuntimeMiddlewares := normalizeAgentRuntimeMiddlewares(req.RuntimeMiddlewares)
+		existing.RuntimeMiddlewares = &normalizedRuntimeMiddlewares
 	}
 	existing.McpServers = effectiveMCPServers
 	if req.Memory != nil {
@@ -790,13 +815,14 @@ func (s *AgentService) syncAgentFilesystem(agent *model.Agent, agentsMD string, 
 	}()
 
 	config := map[string]interface{}{
-		"name":              agent.Name,
-		"description":       agent.Description,
-		"status":            agent.Status,
-		"agents_md_path":    "AGENTS.md",
-		"skill_refs":        skillRefs,
-		"memory":            agentMemoryPayload(agent.Memory),
-		"subagent_defaults": agentSubagentDefaultsPayload(agent.SubagentDefaults),
+		"name":                agent.Name,
+		"description":         agent.Description,
+		"status":              agent.Status,
+		"agents_md_path":      "AGENTS.md",
+		"skill_refs":          skillRefs,
+		"memory":              agentMemoryPayload(agent.Memory),
+		"runtime_middlewares": agentRuntimeMiddlewaresPayload(agent.RuntimeMiddlewares),
+		"subagent_defaults":   agentSubagentDefaultsPayload(agent.SubagentDefaults),
 	}
 	// Newly authored agents persist an explicit owner so downstream management
 	// and API-key issuance can follow one owner-of-record contract.
@@ -862,6 +888,10 @@ func (s *AgentService) hydrateFilesystemAgent(agent *model.Agent, agentsMD strin
 	if agent.Memory == nil {
 		normalized := defaultAgentMemoryConfig()
 		agent.Memory = &normalized
+	}
+	if agent.RuntimeMiddlewares == nil {
+		normalized := defaultAgentRuntimeMiddlewares()
+		agent.RuntimeMiddlewares = &normalized
 	}
 	if agent.SubagentDefaults == nil {
 		normalized := defaultAgentSubagentDefaults()
@@ -934,6 +964,15 @@ func agentMemoryPayload(cfg *model.AgentMemoryConfig) map[string]interface{} {
 		payload["model_name"] = strings.TrimSpace(*normalized.ModelName)
 	}
 	return payload
+}
+
+func agentRuntimeMiddlewaresPayload(cfg *model.AgentRuntimeMiddlewares) map[string]interface{} {
+	normalized := normalizeAgentRuntimeMiddlewares(cfg)
+	return map[string]interface{}{
+		// Middleware-owned tools are controlled here, not through archive
+		// tool_names, so an explicit false must survive YAML round-trips.
+		"filesystem": normalized.Filesystem,
+	}
 }
 
 func agentSubagentDefaultsPayload(cfg *model.AgentSubagentDefaults) map[string]interface{} {

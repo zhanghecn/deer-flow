@@ -79,6 +79,9 @@ function createFormState(agent: Agent): AgentSettingsFormState {
     toolGroups: (agent.tool_groups ?? []).join(", "),
     toolSelectionEnabled: agent.tool_names != null,
     toolNames: agent.tool_names ?? [],
+    runtimeMiddlewares: {
+      filesystem: agent.runtime_middlewares?.filesystem ?? true,
+    },
     mcpServers: agent.mcp_servers ?? [],
     skillRefs: agent.skills ?? [],
     agentsMd: agent.agents_md ?? "",
@@ -308,6 +311,7 @@ export function AgentSettingsPageView({
           tool_names: form.toolSelectionEnabled
             ? [...effectiveMainToolNames]
             : null,
+          runtime_middlewares: form.runtimeMiddlewares,
           mcp_servers: form.mcpServers.length > 0 ? [...form.mcpServers] : null,
           skill_refs: form.skillRefs.map(serializeSkillRefForRequest),
           agents_md: form.agentsMd,

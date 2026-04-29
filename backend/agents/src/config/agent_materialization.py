@@ -14,6 +14,7 @@ from src.config.agents_config import (
     SUBAGENTS_FILENAME,
     AgentConfig,
     AgentMemoryConfig,
+    AgentRuntimeMiddlewares,
     AgentSkillRef,
     AgentSubagentConfig,
     AgentSubagentDefaults,
@@ -21,6 +22,7 @@ from src.config.agents_config import (
     _parse_skill_source_path,
     serialize_agent_subagents_config,
     serialize_agent_skill_ref,
+    serialize_runtime_middlewares,
     serialize_subagent_defaults,
 )
 from src.config.paths import Paths, get_paths
@@ -379,6 +381,7 @@ def _write_agent_manifest(
     mcp_servers: list[str] | None,
     skill_refs: list[AgentSkillRef],
     memory: AgentMemoryConfig | None,
+    runtime_middlewares: AgentRuntimeMiddlewares | None,
     subagent_defaults: AgentSubagentDefaults | None,
 ) -> None:
     manifest: dict[str, object] = {
@@ -388,6 +391,7 @@ def _write_agent_manifest(
         "agents_md_path": AGENTS_MD_FILENAME,
         "skill_refs": [serialize_agent_skill_ref(skill_ref) for skill_ref in skill_refs],
         "memory": (memory or AgentMemoryConfig()).model_dump(exclude_none=True),
+        "runtime_middlewares": serialize_runtime_middlewares(runtime_middlewares or AgentRuntimeMiddlewares()),
         "subagent_defaults": serialize_subagent_defaults(subagent_defaults or AgentSubagentDefaults()),
     }
     if model is not None:
@@ -437,6 +441,7 @@ def materialize_agent_definition(
     skill_refs: list[AgentSkillRef | dict[str, str]] | None = None,
     inline_skills: list[dict[str, str]] | None = None,
     memory: AgentMemoryConfig | dict | None = None,
+    runtime_middlewares: AgentRuntimeMiddlewares | dict | None = None,
     subagent_defaults: AgentSubagentDefaults | dict | None = None,
     subagents: list[AgentSubagentConfig | dict[str, object]] | None = None,
     paths: Paths | None = None,
@@ -478,6 +483,11 @@ def materialize_agent_definition(
         skill_refs = copied_skill_refs + inline_skill_refs
 
         memory_config = memory if isinstance(memory, AgentMemoryConfig) else AgentMemoryConfig.model_validate(memory or {})
+        runtime_middlewares_config = (
+            runtime_middlewares
+            if isinstance(runtime_middlewares, AgentRuntimeMiddlewares)
+            else AgentRuntimeMiddlewares.model_validate(runtime_middlewares or {})
+        )
         subagent_defaults_config = subagent_defaults if isinstance(subagent_defaults, AgentSubagentDefaults) else AgentSubagentDefaults.model_validate(subagent_defaults or {})
         subagent_configs = [item if isinstance(item, AgentSubagentConfig) else AgentSubagentConfig.model_validate(item) for item in (subagents or [])]
 
@@ -498,6 +508,7 @@ def materialize_agent_definition(
             mcp_servers=normalized_mcp_servers,
             skill_refs=skill_refs,
             memory=memory_config,
+            runtime_middlewares=runtime_middlewares_config,
             subagent_defaults=subagent_defaults_config,
         )
         _write_agent_subagents_file(agent_dir=staging_dir, subagents=subagent_configs)
@@ -527,6 +538,7 @@ def materialize_agent_definition(
             agents_md_path=AGENTS_MD_FILENAME,
             skill_refs=skill_refs,
             memory=memory_config,
+            runtime_middlewares=runtime_middlewares_config,
             subagent_defaults=subagent_defaults_config,
         )
     finally:

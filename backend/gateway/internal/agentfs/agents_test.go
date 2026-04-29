@@ -184,6 +184,61 @@ func TestLoadAgentReadsOwnerUserID(t *testing.T) {
 	}
 }
 
+func TestLoadAgentDefaultsRuntimeMiddlewares(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	fsStore := storage.NewFS(baseDir)
+	if err := fsStore.WriteAgentFiles("contract-reviewer", "dev", "# Contract Reviewer", map[string]interface{}{
+		"name":           "contract-reviewer",
+		"description":    "Contract reviewer",
+		"status":         "dev",
+		"agents_md_path": "AGENTS.md",
+	}); err != nil {
+		t.Fatalf("write agent files: %v", err)
+	}
+
+	agent, err := LoadAgent(fsStore, "contract-reviewer", "dev", false)
+	if err != nil {
+		t.Fatalf("LoadAgent() error = %v", err)
+	}
+	if agent == nil || agent.RuntimeMiddlewares == nil {
+		t.Fatalf("agent.RuntimeMiddlewares = %#v, want default config", agent)
+	}
+	if !agent.RuntimeMiddlewares.Filesystem {
+		t.Fatalf("RuntimeMiddlewares.Filesystem = false, want default true")
+	}
+}
+
+func TestLoadAgentReadsRuntimeMiddlewares(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	fsStore := storage.NewFS(baseDir)
+	if err := fsStore.WriteAgentFiles("contract-reviewer", "dev", "# Contract Reviewer", map[string]interface{}{
+		"name":           "contract-reviewer",
+		"description":    "Contract reviewer",
+		"status":         "dev",
+		"agents_md_path": "AGENTS.md",
+		"runtime_middlewares": map[string]interface{}{
+			"filesystem": false,
+		},
+	}); err != nil {
+		t.Fatalf("write agent files: %v", err)
+	}
+
+	agent, err := LoadAgent(fsStore, "contract-reviewer", "dev", false)
+	if err != nil {
+		t.Fatalf("LoadAgent() error = %v", err)
+	}
+	if agent == nil || agent.RuntimeMiddlewares == nil {
+		t.Fatalf("agent.RuntimeMiddlewares = %#v, want loaded config", agent)
+	}
+	if agent.RuntimeMiddlewares.Filesystem {
+		t.Fatalf("RuntimeMiddlewares.Filesystem = true, want configured false")
+	}
+}
+
 func TestSetAgentOwnerClaimsExistingArchives(t *testing.T) {
 	t.Parallel()
 

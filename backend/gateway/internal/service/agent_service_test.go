@@ -200,6 +200,21 @@ func TestAgentServiceCreateRejectsUnknownToolWithoutMCPBinding(t *testing.T) {
 	}
 }
 
+func TestAgentServiceRejectsMiddlewareToolAsArchiveToolName(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	svc := NewAgentService(storage.NewFS(baseDir))
+	_, err := svc.Create(context.Background(), model.CreateAgentRequest{
+		Name:      "support-agent",
+		ToolNames: []string{"read_file"},
+		AgentsMD:  "# Agent",
+	}, uuid.Nil)
+	if err == nil || !strings.Contains(err.Error(), `tool "read_file" is not configurable`) {
+		t.Fatalf("Create() error = %v, want middleware tool rejection", err)
+	}
+}
+
 func TestAgentServiceUpdateAllowsMCPToolNamesFromExistingBinding(t *testing.T) {
 	t.Parallel()
 
@@ -475,6 +490,60 @@ func TestAgentServiceCreatePersistsToolNamesAndSubagents(t *testing.T) {
 	}
 	if !strings.Contains(string(subagentsBytes), "reviewer:") {
 		t.Fatalf("subagents.yaml missing reviewer entry: %s", string(subagentsBytes))
+	}
+}
+
+func TestAgentServicePersistsRuntimeMiddlewares(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	svc := NewAgentService(storage.NewFS(baseDir))
+
+	agent, err := svc.Create(context.Background(), model.CreateAgentRequest{
+		Name: "research-agent",
+		RuntimeMiddlewares: &model.AgentRuntimeMiddlewares{
+			Filesystem: false,
+		},
+		AgentsMD: "# Agent",
+	}, uuid.Nil)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if agent.RuntimeMiddlewares == nil || agent.RuntimeMiddlewares.Filesystem {
+		t.Fatalf("agent.RuntimeMiddlewares = %#v, want filesystem disabled", agent.RuntimeMiddlewares)
+	}
+
+	configPath := filepath.Join(baseDir, "custom", "agents", "dev", "research-agent", "config.yaml")
+	configBytes, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if !strings.Contains(string(configBytes), "runtime_middlewares:") ||
+		!strings.Contains(string(configBytes), "filesystem: false") {
+		t.Fatalf("config.yaml missing disabled runtime middleware: %s", string(configBytes))
+	}
+
+	description := "Updated without touching middleware"
+	updated, err := svc.Update(context.Background(), "research-agent", "dev", model.UpdateAgentRequest{
+		Description: &description,
+	})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if updated.RuntimeMiddlewares == nil || updated.RuntimeMiddlewares.Filesystem {
+		t.Fatalf("updated.RuntimeMiddlewares = %#v, want disabled middleware preserved", updated.RuntimeMiddlewares)
+	}
+
+	enabled, err := svc.Update(context.Background(), "research-agent", "dev", model.UpdateAgentRequest{
+		RuntimeMiddlewares: &model.AgentRuntimeMiddlewares{
+			Filesystem: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Update(enable) error = %v", err)
+	}
+	if enabled.RuntimeMiddlewares == nil || !enabled.RuntimeMiddlewares.Filesystem {
+		t.Fatalf("enabled.RuntimeMiddlewares = %#v, want filesystem enabled", enabled.RuntimeMiddlewares)
 	}
 }
 

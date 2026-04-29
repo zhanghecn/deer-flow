@@ -21,6 +21,8 @@ type runtimeConfigManifest struct {
 	Tools []runtimeConfigTool `yaml:"tools"`
 }
 
+const middlewareInjectedPolicy = "middleware_injected"
+
 var builtinToolCatalog = []model.ToolCatalogItem{
 	{
 		Name:                     "present_files",
@@ -30,6 +32,7 @@ var builtinToolCatalog = []model.ToolCatalogItem{
 		ConfigurableForMainAgent: true,
 		ConfigurableForSubagent:  true,
 		ReservedPolicy:           "normal",
+		Source:                   "builtin",
 	},
 	{
 		Name:                     "question",
@@ -39,6 +42,7 @@ var builtinToolCatalog = []model.ToolCatalogItem{
 		ConfigurableForMainAgent: true,
 		ConfigurableForSubagent:  false,
 		ReservedPolicy:           "main_agent_only",
+		Source:                   "builtin",
 	},
 	{
 		Name:                     "get_document_tree",
@@ -48,6 +52,7 @@ var builtinToolCatalog = []model.ToolCatalogItem{
 		ConfigurableForMainAgent: true,
 		ConfigurableForSubagent:  true,
 		ReservedPolicy:           "normal",
+		Source:                   "builtin",
 	},
 	{
 		Name:                     "get_document_evidence",
@@ -57,6 +62,7 @@ var builtinToolCatalog = []model.ToolCatalogItem{
 		ConfigurableForMainAgent: true,
 		ConfigurableForSubagent:  true,
 		ReservedPolicy:           "normal",
+		Source:                   "builtin",
 	},
 	{
 		Name:                     "get_document_tree_node_detail",
@@ -66,6 +72,7 @@ var builtinToolCatalog = []model.ToolCatalogItem{
 		ConfigurableForMainAgent: true,
 		ConfigurableForSubagent:  true,
 		ReservedPolicy:           "normal",
+		Source:                   "builtin",
 	},
 	{
 		Name:                     "get_document_image",
@@ -75,6 +82,7 @@ var builtinToolCatalog = []model.ToolCatalogItem{
 		ConfigurableForMainAgent: true,
 		ConfigurableForSubagent:  true,
 		ReservedPolicy:           "normal",
+		Source:                   "builtin",
 	},
 	{
 		Name:                     "install_skill_from_registry",
@@ -84,6 +92,7 @@ var builtinToolCatalog = []model.ToolCatalogItem{
 		ConfigurableForMainAgent: false,
 		ConfigurableForSubagent:  false,
 		ReservedPolicy:           "runtime_only",
+		Source:                   "builtin",
 	},
 	{
 		Name:                     "save_agent_to_store",
@@ -93,6 +102,7 @@ var builtinToolCatalog = []model.ToolCatalogItem{
 		ConfigurableForMainAgent: false,
 		ConfigurableForSubagent:  false,
 		ReservedPolicy:           "runtime_only",
+		Source:                   "builtin",
 	},
 	{
 		Name:                     "save_skill_to_store",
@@ -102,6 +112,7 @@ var builtinToolCatalog = []model.ToolCatalogItem{
 		ConfigurableForMainAgent: false,
 		ConfigurableForSubagent:  false,
 		ReservedPolicy:           "runtime_only",
+		Source:                   "builtin",
 	},
 	{
 		Name:                     "push_agent_prod",
@@ -111,6 +122,7 @@ var builtinToolCatalog = []model.ToolCatalogItem{
 		ConfigurableForMainAgent: false,
 		ConfigurableForSubagent:  false,
 		ReservedPolicy:           "runtime_only",
+		Source:                   "builtin",
 	},
 	{
 		Name:                     "push_skill_prod",
@@ -120,6 +132,7 @@ var builtinToolCatalog = []model.ToolCatalogItem{
 		ConfigurableForMainAgent: false,
 		ConfigurableForSubagent:  false,
 		ReservedPolicy:           "runtime_only",
+		Source:                   "builtin",
 	},
 	{
 		Name:                     "setup_agent",
@@ -129,11 +142,12 @@ var builtinToolCatalog = []model.ToolCatalogItem{
 		ConfigurableForMainAgent: false,
 		ConfigurableForSubagent:  false,
 		ReservedPolicy:           "runtime_only",
+		Source:                   "builtin",
 	},
 }
 
 func (s *AgentService) ListToolCatalog() ([]model.ToolCatalogItem, error) {
-	tools := make([]model.ToolCatalogItem, 0, len(builtinToolCatalog))
+	tools := make([]model.ToolCatalogItem, 0, len(builtinToolCatalog)+len(middlewareToolCatalog))
 	tools = append(tools, builtinToolCatalog...)
 
 	configTools, err := loadConfiguredToolCatalog()
@@ -141,6 +155,8 @@ func (s *AgentService) ListToolCatalog() ([]model.ToolCatalogItem, error) {
 		return nil, err
 	}
 	tools = append(tools, configTools...)
+	tools = append(tools, middlewareToolCatalog...)
+	tools = dedupeToolCatalogItems(tools)
 	slices.SortFunc(tools, func(a, b model.ToolCatalogItem) int {
 		if byGroup := strings.Compare(a.Group, b.Group); byGroup != 0 {
 			return byGroup
@@ -160,6 +176,76 @@ func (s *AgentService) toolCatalogByName() (map[string]model.ToolCatalogItem, er
 		index[item.Name] = item
 	}
 	return index, nil
+}
+
+var middlewareToolCatalog = []model.ToolCatalogItem{
+	filesystemMiddlewareTool("ls", "filesystem", "List directory entries in the runtime workspace."),
+	filesystemMiddlewareTool("read_file", "filesystem", "Read a file from the runtime workspace."),
+	filesystemMiddlewareTool("write_file", "filesystem", "Write a file in the runtime workspace."),
+	filesystemMiddlewareTool("edit_file", "filesystem", "Apply targeted edits to a runtime workspace file."),
+	filesystemMiddlewareTool("glob", "filesystem", "Find files by glob pattern in the runtime workspace."),
+	filesystemMiddlewareTool("grep", "filesystem", "Search file contents in the runtime workspace."),
+	filesystemMiddlewareTool("execute", "execution", "Run a shell command through the runtime filesystem middleware."),
+	{
+		Name:                     "write_todos",
+		Group:                    "planning",
+		Label:                    "Write Todos",
+		Description:              "Update the runtime todo list when plan-mode middleware is enabled.",
+		ConfigurableForMainAgent: false,
+		ConfigurableForSubagent:  false,
+		ReservedPolicy:           middlewareInjectedPolicy,
+		Source:                   "middleware",
+		MiddlewareName:           "todo",
+		MiddlewareConfigurable:   false,
+		ReadOnlyReason:           "Injected only for plan-mode runs by TodoListMiddleware; archive tool_names do not control it.",
+	},
+	{
+		Name:                     "task",
+		Group:                    "delegation",
+		Label:                    "Task",
+		Description:              "Delegate a complex, independent task to an isolated subagent when subagents are enabled.",
+		ConfigurableForMainAgent: false,
+		ConfigurableForSubagent:  false,
+		ReservedPolicy:           middlewareInjectedPolicy,
+		Source:                   "middleware",
+		MiddlewareName:           "subagents",
+		MiddlewareConfigurable:   false,
+		ReadOnlyReason:           "Injected by SubAgentMiddleware when delegation is enabled; explicit normal-tool whitelists disable this default task surface.",
+	},
+}
+
+func filesystemMiddlewareTool(name string, group string, description string) model.ToolCatalogItem {
+	return model.ToolCatalogItem{
+		Name:                     name,
+		Group:                    group,
+		Label:                    titleizeToolName(name),
+		Description:              description,
+		ConfigurableForMainAgent: false,
+		ConfigurableForSubagent:  false,
+		ReservedPolicy:           middlewareInjectedPolicy,
+		Source:                   "middleware",
+		MiddlewareName:           "filesystem",
+		MiddlewareConfigurable:   true,
+		ReadOnlyReason:           "Injected by FilesystemMiddleware when the agent runtime middleware switch is enabled.",
+	}
+}
+
+func dedupeToolCatalogItems(items []model.ToolCatalogItem) []model.ToolCatalogItem {
+	deduped := make([]model.ToolCatalogItem, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		item.Name = name
+		deduped = append(deduped, item)
+		seen[name] = struct{}{}
+	}
+	return deduped
 }
 
 func loadConfiguredToolCatalog() ([]model.ToolCatalogItem, error) {
@@ -202,6 +288,7 @@ func loadConfiguredToolCatalog() ([]model.ToolCatalogItem, error) {
 			ConfigurableForMainAgent: true,
 			ConfigurableForSubagent:  true,
 			ReservedPolicy:           "normal",
+			Source:                   "config",
 		})
 	}
 	return items, nil
