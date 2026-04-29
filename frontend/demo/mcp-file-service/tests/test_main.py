@@ -155,8 +155,12 @@ class WorkbenchMainAppTest(unittest.TestCase):
             },
         )
 
-    def test_document_list_mcp_returns_plain_ls_text_for_agents(self) -> None:
+    def test_document_list_mcp_returns_plain_tree_text_for_agents(self) -> None:
         (Path(self.temp_dir.name) / "nested" / "contracts").mkdir(parents=True)
+        (Path(self.temp_dir.name) / "nested" / "contracts" / "policy.md").write_text(
+            "# Policy\n",
+            encoding="utf-8",
+        )
         (Path(self.temp_dir.name) / "root.md").write_text("# Root\n", encoding="utf-8")
 
         _, session_id = self._mcp_request(
@@ -191,8 +195,10 @@ class WorkbenchMainAppTest(unittest.TestCase):
         )
         text = str(text_block["text"])
 
-        self.assertIn("nested/ +", text)
-        self.assertIn("root.md [text]", text)
+        self.assertIn("- nested/", text)
+        self.assertIn("- nested/contracts/", text)
+        self.assertIn("- nested/contracts/policy.md [text]", text)
+        self.assertIn("- root.md [text]", text)
         self.assertNotIn('"items"', text)
         with self.assertRaises(json.JSONDecodeError):
             json.loads(text)

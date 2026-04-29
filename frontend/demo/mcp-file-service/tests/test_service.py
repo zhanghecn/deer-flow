@@ -259,7 +259,7 @@ class FileMcpServiceTest(unittest.TestCase):
         self.assertIn("案例大全", listed_paths)
         self.assertEqual(payload["total"], 1)
 
-    def test_document_list_behaves_like_complete_ls_with_document_metadata(self) -> None:
+    def test_document_list_returns_tree_with_document_metadata(self) -> None:
         self._write_pdf(
             "nested/contracts/policy-alpha.pdf",
             ["Deductible is 500 USD"],
@@ -268,22 +268,25 @@ class FileMcpServiceTest(unittest.TestCase):
         self._write_pdf("root-policy.pdf", ["Root policy"])
 
         root_payload = self.service.document_list_payload()
-        self.assertIn("nested/", root_payload["content"])
-        self.assertIn("root-policy.pdf [pdf]", root_payload["content"])
-        self.assertNotIn("policy-alpha.pdf", root_payload["content"])
+        self.assertIn("- nested/", root_payload["content"])
+        self.assertIn("- nested/contracts/", root_payload["content"])
+        self.assertIn("- nested/contracts/policy-alpha.pdf [pdf]", root_payload["content"])
+        self.assertIn("- nested/evidence/site-board.png [image visual]", root_payload["content"])
+        self.assertIn("- root-policy.pdf [pdf]", root_payload["content"])
         self.assertEqual(root_payload["total"], len(root_payload["items"]))
         self.assertEqual(root_payload["returned"], root_payload["total"])
         self.assertFalse(root_payload["has_more"])
         items_by_path = {item["path"]: item for item in root_payload["items"]}
         self.assertEqual(items_by_path["nested"]["entry_type"], "directory")
         self.assertTrue(items_by_path["nested"]["has_children"])
+        self.assertEqual(items_by_path["nested/contracts"]["entry_type"], "directory")
         self.assertEqual(items_by_path["root-policy.pdf"]["document_kind"], "pdf")
 
         nested_payload = self.service.document_list_payload(path="nested/contracts")
-        self.assertIn("policy-alpha.pdf [pdf]", nested_payload["content"])
+        self.assertIn("- nested/contracts/policy-alpha.pdf [pdf]", nested_payload["content"])
         self.assertEqual(nested_payload["total"], 1)
 
-    def test_document_list_returns_all_direct_children_without_pagination(self) -> None:
+    def test_document_list_returns_all_tree_entries_without_pagination(self) -> None:
         for index in range(351):
             target = self.root / "bulk" / f"doc-{index:03d}.md"
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -294,8 +297,8 @@ class FileMcpServiceTest(unittest.TestCase):
         self.assertEqual(payload["total"], 351)
         self.assertEqual(payload["returned"], 351)
         self.assertFalse(payload["has_more"])
-        self.assertIn("bulk/doc-000.md [text]", payload["content"])
-        self.assertIn("bulk/doc-350.md [text]", payload["content"])
+        self.assertIn("- bulk/doc-000.md [text]", payload["content"])
+        self.assertIn("- bulk/doc-350.md [text]", payload["content"])
         self.assertNotIn("next_offset", payload)
 
     def test_read_rejects_binary_documents_instead_of_converting_them(self) -> None:

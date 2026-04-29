@@ -100,9 +100,9 @@ DOCUMENT_TOOL_DESCRIPTORS = (
     ToolDescriptor(
         name="document_list",
         summary=(
-            "List all direct children in the current knowledge-base directory."
+            "List the complete knowledge-base tree under the requested directory."
         ),
-        returns="Plain ls-style directory listing text.",
+        returns="Plain tree-style listing text with one relative path per line.",
         arguments=(
             ToolArgument("path", "string", False, "Relative directory under the uploaded root."),
         ),
@@ -445,33 +445,18 @@ class FileMcpService:
         *,
         path: str = "",
     ) -> dict[str, Any]:
-        """List all direct KB children with document-aware file metadata.
+        """List the KB subtree with document-aware file metadata.
 
-        This intentionally mirrors `ls` instead of exporting a recursive tree:
-        agents should drill into directories explicitly, while the response is
-        complete for the selected directory and never asks for pagination.
+        The agent-facing text is intentionally a full relative-path tree. The
+        demo knowledge base is small enough that one inventory pass is clearer
+        than forcing repeated directory drill-down calls.
         """
 
         base = self._resolve_existing_path(path) if path else self.root
         if not base.is_dir():
             raise ValueError(f"path is not a directory: {path}")
 
-        rows: list[dict[str, Any]] = []
-        for item in sorted(
-            base.iterdir(),
-            key=lambda candidate: (not candidate.is_dir(), candidate.name.lower()),
-        ):
-            if item.is_dir():
-                directory_row = self._directory_row(item)
-                # Preserve whether another drill-down step exists without
-                # forcing the agent to guess from the path alone.
-                directory_row["has_children"] = any(item.iterdir())
-                rows.append(directory_row)
-                continue
-
-            document_row = self._file_row(item.resolve())
-            document_row.update(self.document_tools.describe_document(item.resolve()))
-            rows.append(document_row)
+        rows = self._document_list_rows(base)
 
         content_lines = [self._render_document_list_row(row) for row in rows]
         return {
@@ -483,17 +468,38 @@ class FileMcpService:
             "has_more": False,
         }
 
+    def _document_list_rows(self, base: Path) -> list[dict[str, Any]]:
+        """Walk one small KB subtree in display order for document_list."""
+
+        rows: list[dict[str, Any]] = []
+        for item in sorted(
+            base.iterdir(),
+            key=lambda candidate: (not candidate.is_dir(), candidate.name.lower()),
+        ):
+            if item.is_dir():
+                directory_row = self._directory_row(item)
+                # Keep this metadata for the workbench while the agent-facing
+                # text uses the slash suffix to signal a directory.
+                directory_row["has_children"] = any(item.iterdir())
+                rows.append(directory_row)
+                rows.extend(self._document_list_rows(item))
+                continue
+
+            document_row = self._file_row(item.resolve())
+            document_row.update(self.document_tools.describe_document(item.resolve()))
+            rows.append(document_row)
+        return rows
+
     def _render_document_list_row(self, row: dict[str, Any]) -> str:
-        """Render one ls-style inventory row while keeping full JSON in items."""
+        """Render one tree-style inventory row while keeping full JSON in items."""
 
         path = str(row.get("path", ""))
         if row.get("entry_type") == "directory":
             suffix = "/" if not path.endswith("/") else ""
-            child_marker = " +" if row.get("has_children") else ""
-            return f"{path}{suffix}{child_marker}"
+            return f"- {path}{suffix}"
         document_kind = row.get("document_kind") or row.get("kind") or "file"
         visual_marker = " visual" if row.get("contains_visual") else ""
-        return f"{path} [{document_kind}{visual_marker}]"
+        return f"- {path} [{document_kind}{visual_marker}]"
 
     def list_files_payload(
         self,
@@ -595,7 +601,7 @@ class FileMcpService:
                 "content": (
                     f"{message}\n\n"
                     "Recommended demo flow on the current agent-facing MCP:\n"
-                    "- document_list(path?) to inspect one KB directory\n"
+                    "- document_list(path?) to inspect the KB tree under one directory\n"
                     "- document_search(pattern, path?, glob?, output_mode?, head_limit?, offset?) to grep parsed document evidence\n"
                     "- document_read(path, offset?, limit?, locator?) to read the matched document"
                 ),

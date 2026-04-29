@@ -352,7 +352,7 @@ def _register_document_tools(server: FastMCP) -> None:
 
     @server.tool()
     def document_list(path: str = "") -> str:
-        """List all direct children in the current KB directory."""
+        """List the complete KB tree under the current directory."""
 
         payload = service.document_list_payload(path=path)
         # Agent-facing list output should match Claude Code's Bash(ls) shape:
