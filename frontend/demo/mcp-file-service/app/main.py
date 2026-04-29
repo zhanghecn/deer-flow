@@ -351,14 +351,10 @@ def _register_document_tools(server: FastMCP) -> None:
     """Bind the unified document contract to one MCP surface."""
 
     @server.tool()
-    def document_list(path: str = "", offset: int = 0, limit: int = 400) -> str:
-        """Browse the current KB tree as compact text."""
+    def document_list(path: str = "") -> str:
+        """List all direct children in the current KB directory."""
 
-        payload = service.document_list_payload(
-            path=path,
-            offset=offset,
-            limit=limit,
-        )
+        payload = service.document_list_payload(path=path)
         return service.tool_payload_json(payload)
 
     @server.tool()

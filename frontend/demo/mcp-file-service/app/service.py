@@ -44,8 +44,6 @@ TEXT_MIME_TYPES = {
     "image/svg+xml",
 }
 TEXT_SNIFF_BYTES = 4096
-DOCUMENT_LIST_FULL_TREE_MAX_FILES = 350
-DOCUMENT_LIST_MAX_LIMIT = 500
 VIRTUAL_UPLOAD_ROOTS = (
     PurePosixPath("/mnt/user-data/uploads"),
     # The generic runtime also uses `/mnt/user-data/workspace` as its virtual
@@ -102,13 +100,11 @@ DOCUMENT_TOOL_DESCRIPTORS = (
     ToolDescriptor(
         name="document_list",
         summary=(
-            "List the current knowledge-base document tree as a compact text inventory."
+            "List all direct children in the current knowledge-base directory."
         ),
-        returns="JSON payload with one content inventory plus pagination metadata.",
+        returns="JSON payload with an ls-style complete directory listing.",
         arguments=(
             ToolArgument("path", "string", False, "Relative directory under the uploaded root."),
-            ToolArgument("offset", "integer", False, "Rows to skip before applying limit.", default=0),
-            ToolArgument("limit", "integer", False, "Maximum number of rows to return.", default=400),
         ),
     ),
     ToolDescriptor(
@@ -448,14 +444,12 @@ class FileMcpService:
         self,
         *,
         path: str = "",
-        offset: int = 0,
-        limit: int = 400,
     ) -> dict[str, Any]:
-        """List the KB tree as one compact model-facing inventory.
+        """List all direct KB children with document-aware file metadata.
 
-        The old payload repeated the same inventory through `items`,
-        `document_paths`, and `tree`. Keep one text surface so a small KB can be
-        shown completely without spending context on duplicate JSON structures.
+        This intentionally mirrors `ls` instead of exporting a recursive tree:
+        agents should drill into directories explicitly, while the response is
+        complete for the selected directory and never asks for pagination.
         """
 
         base = self._resolve_existing_path(path) if path else self.root
@@ -479,70 +473,18 @@ class FileMcpService:
             document_row.update(self.document_tools.describe_document(item.resolve()))
             rows.append(document_row)
 
-        safe_offset = max(offset, 0)
-        safe_limit = min(max(limit, 1), DOCUMENT_LIST_MAX_LIMIT)
-        next_offset = safe_offset + safe_limit
-        summary = self._document_tree_summary(base)
-        if summary["complete_tree"]:
-            content_lines = summary["tree_lines"]
-            returned = len(content_lines)
-            has_more = False
-            next_page_offset = None
-            total = len(content_lines)
-        else:
-            page_rows = rows[safe_offset:next_offset]
-            content_lines = [self._render_document_list_row(row) for row in page_rows]
-            returned = len(page_rows)
-            has_more = next_offset < len(rows)
-            next_page_offset = next_offset if has_more else None
-            total = len(rows)
+        content_lines = [self._render_document_list_row(row) for row in rows]
         return {
             "path": base.relative_to(self.root).as_posix() if base != self.root else "",
             "content": "\n".join(content_lines),
-            "offset": safe_offset,
-            "limit": safe_limit,
-            "total": total,
-            "returned": returned,
-            "has_more": has_more,
-            "next_offset": next_page_offset,
-            "document_total": summary["document_total"],
-            "directory_total": summary["directory_total"],
-            "complete": summary["complete_tree"],
-            "complete_limit": DOCUMENT_LIST_FULL_TREE_MAX_FILES,
+            "items": rows,
+            "total": len(rows),
+            "returned": len(rows),
+            "has_more": False,
         }
-
-    def _document_tree_summary(self, base: Path) -> dict[str, Any]:
-        document_paths: list[Path] = []
-        for item in self._sorted_file_paths(base, recursive=True):
-            # The compact tree is an agent planning surface, not a raw text-file
-            # list. Ask the document parser whether the file is supported so
-            # standalone OCR/image documents are not hidden from small KBs.
-            if self.document_tools.describe_document(item).get("supported"):
-                document_paths.append(item)
-        directory_paths = [
-            item
-            for item in sorted(
-                (candidate for candidate in base.rglob("*") if candidate.is_dir()),
-                key=lambda candidate: candidate.relative_to(self.root).as_posix().lower(),
-            )
-        ]
-
-        summary: dict[str, Any] = {
-            "tree_root": base.relative_to(self.root).as_posix() if base != self.root else "",
-            "document_total": len(document_paths),
-            "directory_total": len(directory_paths),
-            "complete_tree": len(document_paths) <= DOCUMENT_LIST_FULL_TREE_MAX_FILES,
-        }
-        if not summary["complete_tree"]:
-            return summary
-
-        # Keep the recursive inventory compact: paths plus document kind are
-        # enough for planning, while `document_read` still owns content access.
-        summary["tree_lines"] = self._render_compact_document_tree(base, document_paths)
-        return summary
 
     def _render_document_list_row(self, row: dict[str, Any]) -> str:
-        """Render one paginated inventory row without duplicating row JSON."""
+        """Render one ls-style inventory row while keeping full JSON in items."""
 
         path = str(row.get("path", ""))
         if row.get("entry_type") == "directory":
@@ -552,29 +494,6 @@ class FileMcpService:
         document_kind = row.get("document_kind") or row.get("kind") or "file"
         visual_marker = " visual" if row.get("contains_visual") else ""
         return f"{path} [{document_kind}{visual_marker}]"
-
-    def _render_compact_document_tree(self, base: Path, document_paths: list[Path]) -> list[str]:
-        directories: set[Path] = set()
-        for path in document_paths:
-            parent = path.parent
-            while parent != base and (parent == self.root or self.root in parent.parents):
-                directories.add(parent)
-                parent = parent.parent
-        included = sorted(
-            {*directories, *document_paths},
-            key=lambda item: (item.relative_to(base).as_posix().lower(), item.is_file()),
-        )
-        lines: list[str] = []
-        for item in included:
-            relative_to_base = item.relative_to(base).as_posix()
-            depth = len(PurePosixPath(relative_to_base).parts) - 1
-            suffix = "/" if item.is_dir() else ""
-            if item.is_file():
-                description = self.document_tools.describe_document(item)
-                kind = description.get("document_kind") or self._describe_file_content_access(item).kind
-                suffix = f" [{kind}]"
-            lines.append(f"{'  ' * depth}{item.name}{suffix}")
-        return lines
 
     def list_files_payload(
         self,
@@ -676,7 +595,7 @@ class FileMcpService:
                 "content": (
                     f"{message}\n\n"
                     "Recommended demo flow on the current agent-facing MCP:\n"
-                    "- document_list(path?, offset?, limit?) to inspect the KB tree\n"
+                    "- document_list(path?) to inspect one KB directory\n"
                     "- document_search(pattern, path?, glob?, output_mode?, head_limit?, offset?) to grep parsed document evidence\n"
                     "- document_read(path, offset?, limit?, locator?) to read the matched document"
                 ),

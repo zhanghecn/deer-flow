@@ -75,7 +75,7 @@ const TOOL_PRESETS: Record<
   Array<{ label: string; values: Record<string, string> }>
 > = {
   document_list: [
-    { label: "当前目录", values: { path: "", offset: "0", limit: "100" } },
+    { label: "当前目录", values: { path: "" } },
   ],
   document_search: [
     {

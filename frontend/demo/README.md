@@ -18,7 +18,7 @@ The internal file service exposes:
 - a workbench-only full MCP endpoint at `http://127.0.0.1:8084/mcp-http/mcp`
 - a manual tool execution endpoint at `http://127.0.0.1:8084/api/tools/{tool_name}/invoke`
 - one canonical document tool surface on both MCP endpoints:
-  - `document_list(path?, offset?, limit?)`
+  - `document_list(path?)`
   - `document_search(pattern, path?, glob?, output_mode?, context?, before?, after?, head_limit?, offset?)`
   - `document_read(path, offset?, limit?, locator?)`
 - PDF / DOCX / PPTX / XLSX stay explicit document types instead of being silently converted to Markdown companions

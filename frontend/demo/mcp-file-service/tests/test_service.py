@@ -259,42 +259,44 @@ class FileMcpServiceTest(unittest.TestCase):
         self.assertIn("案例大全", listed_paths)
         self.assertEqual(payload["total"], 1)
 
-    def test_document_list_exposes_directories_and_document_metadata(self) -> None:
+    def test_document_list_behaves_like_complete_ls_with_document_metadata(self) -> None:
         self._write_pdf(
             "nested/contracts/policy-alpha.pdf",
             ["Deductible is 500 USD"],
         )
         self._write_image("nested/evidence/site-board.png", text="POLICY LIMIT")
+        self._write_pdf("root-policy.pdf", ["Root policy"])
 
-        root_payload = self.service.document_list_payload(limit=20)
-        self.assertTrue(root_payload["complete"])
+        root_payload = self.service.document_list_payload()
         self.assertIn("nested/", root_payload["content"])
-        self.assertIn("  contracts/", root_payload["content"])
-        self.assertIn("    policy-alpha.pdf [pdf]", root_payload["content"])
-        self.assertIn("  evidence/", root_payload["content"])
-        self.assertIn("    site-board.png [image]", root_payload["content"])
-        self.assertNotIn("document_paths", root_payload)
-        self.assertNotIn("tree", root_payload)
-        self.assertNotIn("items", root_payload)
+        self.assertIn("root-policy.pdf [pdf]", root_payload["content"])
+        self.assertNotIn("policy-alpha.pdf", root_payload["content"])
+        self.assertEqual(root_payload["total"], len(root_payload["items"]))
+        self.assertEqual(root_payload["returned"], root_payload["total"])
+        self.assertFalse(root_payload["has_more"])
+        items_by_path = {item["path"]: item for item in root_payload["items"]}
+        self.assertEqual(items_by_path["nested"]["entry_type"], "directory")
+        self.assertTrue(items_by_path["nested"]["has_children"])
+        self.assertEqual(items_by_path["root-policy.pdf"]["document_kind"], "pdf")
 
-        nested_payload = self.service.document_list_payload(path="nested/contracts", limit=20)
+        nested_payload = self.service.document_list_payload(path="nested/contracts")
         self.assertIn("policy-alpha.pdf [pdf]", nested_payload["content"])
-        self.assertEqual(nested_payload["document_total"], 1)
+        self.assertEqual(nested_payload["total"], 1)
 
-    def test_document_list_keeps_large_trees_paginated(self) -> None:
+    def test_document_list_returns_all_direct_children_without_pagination(self) -> None:
         for index in range(351):
             target = self.root / "bulk" / f"doc-{index:03d}.md"
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(f"# Doc {index}\n", encoding="utf-8")
 
-        payload = self.service.document_list_payload(limit=500)
+        payload = self.service.document_list_payload(path="bulk")
 
-        self.assertFalse(payload["complete"])
-        self.assertEqual(payload["complete_limit"], 350)
-        self.assertGreaterEqual(payload["document_total"], 351)
-        self.assertNotIn("document_paths", payload)
-        self.assertNotIn("tree", payload)
-        self.assertNotIn("items", payload)
+        self.assertEqual(payload["total"], 351)
+        self.assertEqual(payload["returned"], 351)
+        self.assertFalse(payload["has_more"])
+        self.assertIn("bulk/doc-000.md [text]", payload["content"])
+        self.assertIn("bulk/doc-350.md [text]", payload["content"])
+        self.assertNotIn("next_offset", payload)
 
     def test_read_rejects_binary_documents_instead_of_converting_them(self) -> None:
         (self.root / "合同.pdf").write_bytes(b"%PDF-1.4 fake")
@@ -312,7 +314,7 @@ class FileMcpServiceTest(unittest.TestCase):
 
         self.assertEqual(payload["content_kind"], "binary_document")
         self.assertFalse(payload["text_readable"])
-        self.assertIn("document_list(path?, offset?, limit?)", payload["content"])
+        self.assertIn("document_list(path?)", payload["content"])
 
     def test_grep_skips_binary_documents_in_directory_scope(self) -> None:
         (self.root / "合同.pdf").write_bytes(b"%PDF-1.4 fake")
