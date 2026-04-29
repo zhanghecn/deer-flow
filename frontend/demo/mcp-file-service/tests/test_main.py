@@ -155,7 +155,7 @@ class WorkbenchMainAppTest(unittest.TestCase):
             },
         )
 
-    def test_document_list_mcp_returns_plain_tree_text_for_agents(self) -> None:
+    def test_document_list_mcp_returns_plain_final_file_text_for_agents(self) -> None:
         (Path(self.temp_dir.name) / "nested" / "contracts").mkdir(parents=True)
         (Path(self.temp_dir.name) / "nested" / "contracts" / "policy.md").write_text(
             "# Policy\n",
@@ -194,11 +194,12 @@ class WorkbenchMainAppTest(unittest.TestCase):
             if isinstance(item, dict) and item.get("type") == "text"
         )
         text = str(text_block["text"])
+        lines = text.splitlines()
 
-        self.assertIn("- nested/", text)
-        self.assertIn("- nested/contracts/", text)
         self.assertIn("- nested/contracts/policy.md [text]", text)
         self.assertIn("- root.md [text]", text)
+        self.assertNotIn("- nested/", lines)
+        self.assertNotIn("- nested/contracts/", lines)
         self.assertNotIn('"items"', text)
         with self.assertRaises(json.JSONDecodeError):
             json.loads(text)

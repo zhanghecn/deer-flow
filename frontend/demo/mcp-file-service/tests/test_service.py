@@ -259,7 +259,7 @@ class FileMcpServiceTest(unittest.TestCase):
         self.assertIn("案例大全", listed_paths)
         self.assertEqual(payload["total"], 1)
 
-    def test_document_list_returns_tree_with_document_metadata(self) -> None:
+    def test_document_list_returns_final_files_with_document_metadata(self) -> None:
         self._write_pdf(
             "nested/contracts/policy-alpha.pdf",
             ["Deductible is 500 USD"],
@@ -268,18 +268,18 @@ class FileMcpServiceTest(unittest.TestCase):
         self._write_pdf("root-policy.pdf", ["Root policy"])
 
         root_payload = self.service.document_list_payload()
-        self.assertIn("- nested/", root_payload["content"])
-        self.assertIn("- nested/contracts/", root_payload["content"])
+        root_lines = root_payload["content"].splitlines()
         self.assertIn("- nested/contracts/policy-alpha.pdf [pdf]", root_payload["content"])
         self.assertIn("- nested/evidence/site-board.png [image visual]", root_payload["content"])
         self.assertIn("- root-policy.pdf [pdf]", root_payload["content"])
+        self.assertNotIn("- nested/", root_lines)
+        self.assertNotIn("- nested/contracts/", root_lines)
         self.assertEqual(root_payload["total"], len(root_payload["items"]))
         self.assertEqual(root_payload["returned"], root_payload["total"])
         self.assertFalse(root_payload["has_more"])
         items_by_path = {item["path"]: item for item in root_payload["items"]}
-        self.assertEqual(items_by_path["nested"]["entry_type"], "directory")
-        self.assertTrue(items_by_path["nested"]["has_children"])
-        self.assertEqual(items_by_path["nested/contracts"]["entry_type"], "directory")
+        self.assertNotIn("nested", items_by_path)
+        self.assertNotIn("nested/contracts", items_by_path)
         self.assertEqual(items_by_path["root-policy.pdf"]["document_kind"], "pdf")
 
         nested_payload = self.service.document_list_payload(path="nested/contracts")

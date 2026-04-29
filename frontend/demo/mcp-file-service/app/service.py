@@ -100,9 +100,9 @@ DOCUMENT_TOOL_DESCRIPTORS = (
     ToolDescriptor(
         name="document_list",
         summary=(
-            "List the complete knowledge-base tree under the requested directory."
+            "List every document file under the requested knowledge-base directory."
         ),
-        returns="Plain tree-style listing text with one relative path per line.",
+        returns="Plain listing text with one final document path per line.",
         arguments=(
             ToolArgument("path", "string", False, "Relative directory under the uploaded root."),
         ),
@@ -445,11 +445,10 @@ class FileMcpService:
         *,
         path: str = "",
     ) -> dict[str, Any]:
-        """List the KB subtree with document-aware file metadata.
+        """List final document paths with document-aware file metadata.
 
-        The agent-facing text is intentionally a full relative-path tree. The
-        demo knowledge base is small enough that one inventory pass is clearer
-        than forcing repeated directory drill-down calls.
+        The agent-facing text intentionally omits intermediate directories:
+        every line is a path the agent can pass directly to document_read.
         """
 
         base = self._resolve_existing_path(path) if path else self.root
@@ -469,34 +468,22 @@ class FileMcpService:
         }
 
     def _document_list_rows(self, base: Path) -> list[dict[str, Any]]:
-        """Walk one small KB subtree in display order for document_list."""
+        """Walk one small KB subtree and return only final document files."""
 
         rows: list[dict[str, Any]] = []
         for item in sorted(
-            base.iterdir(),
-            key=lambda candidate: (not candidate.is_dir(), candidate.name.lower()),
+            self._sorted_file_paths(base, recursive=True),
+            key=lambda candidate: candidate.relative_to(self.root).as_posix().lower(),
         ):
-            if item.is_dir():
-                directory_row = self._directory_row(item)
-                # Keep this metadata for the workbench while the agent-facing
-                # text uses the slash suffix to signal a directory.
-                directory_row["has_children"] = any(item.iterdir())
-                rows.append(directory_row)
-                rows.extend(self._document_list_rows(item))
-                continue
-
             document_row = self._file_row(item.resolve())
             document_row.update(self.document_tools.describe_document(item.resolve()))
             rows.append(document_row)
         return rows
 
     def _render_document_list_row(self, row: dict[str, Any]) -> str:
-        """Render one tree-style inventory row while keeping full JSON in items."""
+        """Render one final document path while keeping full JSON in items."""
 
         path = str(row.get("path", ""))
-        if row.get("entry_type") == "directory":
-            suffix = "/" if not path.endswith("/") else ""
-            return f"- {path}{suffix}"
         document_kind = row.get("document_kind") or row.get("kind") or "file"
         visual_marker = " visual" if row.get("contains_visual") else ""
         return f"- {path} [{document_kind}{visual_marker}]"
