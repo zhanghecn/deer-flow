@@ -137,7 +137,7 @@ DOCUMENT_TOOL_DESCRIPTORS = (
         ),
         arguments=(
             ToolArgument("path", "string", True, "Relative file path under the uploaded root."),
-            ToolArgument("offset", "integer", False, "Zero-based markdown line offset.", default=0),
+            ToolArgument("offset", "integer", False, "One-based markdown line number to start reading from.", default=1),
             ToolArgument("limit", "integer", False, "Maximum markdown lines to return.", default=2000),
             ToolArgument("locator", "string", False, "Source locator from document_search, or an images/... path from markdown image_read_args."),
         ),

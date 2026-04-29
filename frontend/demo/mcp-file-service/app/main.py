@@ -372,15 +372,18 @@ def _register_document_tools(server: FastMCP) -> None:
     @server.tool()
     def document_read(
         path: str,
-        offset: int = 0,
+        offset: int = 1,
         limit: int = 2000,
         locator: str = "",
     ) -> list[TextContent | ImageContent]:
         """Read cached markdown, or read an images/... locator as multimodal content."""
 
+        # Agent-facing reads follow Claude Code's 1-based line-number contract;
+        # the cache reader remains 0-based internally to avoid a broader migration.
+        internal_offset = max(int(offset), 1) - 1
         payload = service.document_read_payload(
             path=path,
-            offset=offset,
+            offset=internal_offset,
             limit=limit,
             locator=locator or None,
         )

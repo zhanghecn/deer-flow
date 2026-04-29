@@ -304,6 +304,19 @@ class WorkbenchMainAppTest(unittest.TestCase):
         with self.assertRaises(json.JSONDecodeError):
             json.loads(text)
 
+    def test_document_read_mcp_uses_one_based_offset_for_agents(self) -> None:
+        target = Path(self.temp_dir.name) / "cases" / "offset.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("Alpha\nBeta\nGamma\n", encoding="utf-8")
+
+        text = self._call_agent_tool_text(
+            "document_read",
+            {"path": "cases/offset.md", "offset": 4, "limit": 2},
+        )
+
+        self.assertTrue(text.startswith("4\tBeta\n5\tGamma"), text)
+        self.assertNotIn("3\tAlpha", text)
+
     def test_document_read_mcp_adds_image_hint_for_markdown_references(self) -> None:
         target = Path(self.temp_dir.name) / "cases" / "vision.md"
         target.parent.mkdir(parents=True, exist_ok=True)
