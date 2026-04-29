@@ -43,7 +43,7 @@ openagents/
 │   │   │   └── routers/       # 6 route modules (agents, skills, models, etc.)
 │   │   ├── sandbox/           # Sandbox execution system (legacy, replaced by deepagents backends)
 │   │   ├── subagents/         # Subagent delegation system (legacy, replaced by deepagents SubAgentMiddleware)
-│   │   ├── tools/builtins/    # Built-in tools (present_files, question, view_image, setup_agent)
+│   │   ├── tools/builtins/    # Built-in tools (present_files, question, setup_agent)
 │   │   ├── mcp/               # MCP integration (tools, cache, client)
 │   │   ├── models/            # Model factory with thinking/vision support
 │   │   ├── skills/            # Skills discovery, loading, parsing
@@ -135,8 +135,8 @@ CI runs these regression tests for every pull request via [.github/workflows/bac
 - See `docs/AGENT_PROTOCOL.md` for the full contract and ASCII flow
 
 **ThreadState** (`src/agents/thread_state.py`):
-- Extends `AgentState` with: `sandbox`, `thread_data`, `title`, `artifacts`, `todos`, `uploaded_files`, `viewed_images`
-- Uses custom reducers: `merge_artifacts` (deduplicate), `merge_viewed_images` (merge/clear)
+- Extends `AgentState` with: `sandbox`, `thread_data`, `title`, `artifacts`, `todos`, `uploaded_files`
+- Uses custom reducers such as `merge_artifacts` for deduplicating output artifacts
 
 **Runtime Configuration** (via `config.configurable`):
 - `thinking_enabled` - Enable model's extended thinking
@@ -172,7 +172,6 @@ The agent uses **deepagents built-in middleware** plus **OpenAgents-specific ext
 5. **TitleMiddleware** — Auto-generates thread title
 6. **Retry / recovery middlewares** — Normalize provider/tool failures and short-circuit bad visible responses
 7. **ContextWindowMiddleware** — Persists prompt occupancy telemetry
-8. **ViewImageMiddleware** — Injects base64 image data (conditional on vision support)
 
 Prompt-level completion discipline:
 - DeepAgents base prompt plus `lead_agent` prompt are responsible for the "keep going until done" contract.
@@ -268,7 +267,7 @@ The lead agent uses `deepagents.create_deep_agent()` which provides:
 3. **Built-in tools**:
    - `present_files` - Make output files visible to user (only `/mnt/user-data/outputs`)
    - `question` - Request structured user answers via LangGraph interrupt/resume
-   - `view_image` - Read image as base64 (added only if model supports vision)
+   - Image files are read through Deep Agents `read_file`, which returns multimodal image blocks for supported extensions
 4. **Subagent tool** (if enabled):
    - `task` - Delegate to subagent (description, prompt, subagent_type, max_turns)
 
@@ -482,9 +481,9 @@ See [docs/summarization.md](docs/summarization.md) for details.
 ### Vision Support
 
 For models with `supports_vision: true`:
-- `ViewImageMiddleware` processes images in conversation
-- `view_image_tool` added to agent's toolset
-- Images automatically converted to base64 and injected into state
+- Deep Agents `read_file` returns multimodal image blocks for image files
+- `UploadsMiddleware` injects current-turn uploaded images when the selected model supports vision
+- Knowledge visual inspection should export the page with `get_document_image`, then inspect the returned `image_path` with `read_file(file_path=...)`
 
 ## Code Style
 

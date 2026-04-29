@@ -47,6 +47,7 @@ from deepagents.backends.utils import (
     validate_path,
 )
 from deepagents.middleware._utils import append_to_system_message
+from deepagents.middleware.image_utils import prepare_image_bytes_for_model
 
 EMPTY_CONTENT_WARNING = "System reminder: File exists but has empty contents"
 GLOB_TIMEOUT = 20.0  # seconds
@@ -108,7 +109,7 @@ def _trim_read_output_by_display_lines(result: str, limit: int) -> str:
 def _extract_pdf_text(content: bytes, file_path: str) -> str:
     """Extract readable text from a PDF byte stream."""
     try:
-        import pdfplumber
+        import pdfplumber  # noqa: PLC0415 - optional dependency loaded only for PDF reads.
     except ImportError:
         return f"Error reading PDF '{file_path}': pdfplumber is not installed"
 
@@ -126,6 +127,57 @@ def _extract_pdf_text(content: bytes, file_path: str) -> str:
         return "\n\n".join(pages)
     except Exception as exc:  # noqa: BLE001
         return f"Error reading PDF '{file_path}': {exc}"
+
+
+def _truncate_read_result_for_context(
+    result: str,
+    *,
+    token_limit: int | None,
+    file_path: str,
+) -> str:
+    """Keep read_file text responses inside the configured tool-result budget."""
+    if not token_limit or len(result) < NUM_CHARS_PER_TOKEN * token_limit:
+        return result
+    truncation_msg = READ_FILE_TRUNCATION_MSG.format(file_path=file_path)
+    max_content_length = NUM_CHARS_PER_TOKEN * token_limit - len(truncation_msg)
+    return f"{result[:max_content_length]}{truncation_msg}"
+
+
+def _image_read_tool_message(
+    *,
+    content: bytes,
+    file_path: str,
+    media_type: str,
+    tool_call_id: str,
+) -> ToolMessage | str:
+    """Build the multimodal read_file result after applying model image limits."""
+    prepared = prepare_image_bytes_for_model(
+        content,
+        media_type,
+        source_name=file_path,
+    )
+    if prepared is None:
+        return "Error reading image: image exceeds model input limits after compression"
+
+    image_b64 = base64.standard_b64encode(prepared.data).decode("utf-8")
+    return ToolMessage(
+        content_blocks=[
+            create_image_block(base64=image_b64, mime_type=prepared.mime_type),
+        ],
+        name="read_file",
+        tool_call_id=tool_call_id,
+        additional_kwargs={
+            "read_file_path": file_path,
+            "read_file_media_type": prepared.mime_type,
+            "read_file_original_bytes": prepared.original_bytes,
+            "read_file_prepared_bytes": prepared.prepared_bytes,
+            "read_file_original_width": prepared.original_width,
+            "read_file_original_height": prepared.original_height,
+            "read_file_display_width": prepared.display_width,
+            "read_file_display_height": prepared.display_height,
+            "read_file_resized": prepared.resized,
+        },
+    )
 
 
 class FileData(TypedDict):
@@ -598,7 +650,7 @@ class FilesystemMiddleware(AgentMiddleware[FilesystemState, ContextT, ResponseT]
         tool_description = self._custom_tool_descriptions.get("read_file") or READ_FILE_TOOL_DESCRIPTION
         token_limit = self._tool_token_limit_before_evict
 
-        def sync_read_file(
+        def sync_read_file(  # noqa: PLR0911 - format-specific read paths return distinct model/tool errors.
             file_path: Annotated[str, "Absolute path to the file to read. Must be absolute, not relative."],
             runtime: ToolRuntime[None, FilesystemState],
             offset: Annotated[int, "Line number to start reading from (0-indexed). Use for pagination of large files."] = DEFAULT_READ_OFFSET,
@@ -616,15 +668,11 @@ class FilesystemMiddleware(AgentMiddleware[FilesystemState, ContextT, ResponseT]
                 responses = resolved_backend.download_files([validated_path])
                 if responses and responses[0].content is not None:
                     media_type = IMAGE_MEDIA_TYPES.get(ext, "image/png")
-                    image_b64 = base64.standard_b64encode(responses[0].content).decode("utf-8")
-                    return ToolMessage(
-                        content_blocks=[create_image_block(base64=image_b64, mime_type=media_type)],
-                        name="read_file",
+                    return _image_read_tool_message(
+                        content=responses[0].content,
+                        file_path=validated_path,
+                        media_type=media_type,
                         tool_call_id=runtime.tool_call_id,
-                        additional_kwargs={
-                            "read_file_path": validated_path,
-                            "read_file_media_type": media_type,
-                        },
                     )
                 if responses and responses[0].error:
                     return f"Error reading image: {responses[0].error}"
@@ -642,32 +690,24 @@ class FilesystemMiddleware(AgentMiddleware[FilesystemState, ContextT, ResponseT]
                         limit=max(limit, 0),
                     )
                     result = _trim_read_output_by_display_lines(result, limit)
-
-                    if token_limit and len(result) >= NUM_CHARS_PER_TOKEN * token_limit:
-                        truncation_msg = READ_FILE_TRUNCATION_MSG.format(file_path=validated_path)
-                        max_content_length = NUM_CHARS_PER_TOKEN * token_limit - len(truncation_msg)
-                        result = result[:max_content_length]
-                        result += truncation_msg
-
-                    return result
+                    return _truncate_read_result_for_context(
+                        result,
+                        token_limit=token_limit,
+                        file_path=validated_path,
+                    )
                 if responses and responses[0].error:
                     return f"Error reading PDF: {responses[0].error}"
                 return "Error reading PDF: unknown error"
 
             result = resolved_backend.read(validated_path, offset=offset, limit=limit)
             result = _trim_read_output_by_display_lines(result, limit)
+            return _truncate_read_result_for_context(
+                result,
+                token_limit=token_limit,
+                file_path=validated_path,
+            )
 
-            # Check if result exceeds token threshold and truncate if necessary
-            if token_limit and len(result) >= NUM_CHARS_PER_TOKEN * token_limit:
-                # Calculate truncation message length to ensure final result stays under threshold
-                truncation_msg = READ_FILE_TRUNCATION_MSG.format(file_path=validated_path)
-                max_content_length = NUM_CHARS_PER_TOKEN * token_limit - len(truncation_msg)
-                result = result[:max_content_length]
-                result += truncation_msg
-
-            return result
-
-        async def async_read_file(
+        async def async_read_file(  # noqa: PLR0911 - keep async behavior symmetric with sync read_file.
             file_path: Annotated[str, "Absolute path to the file to read. Must be absolute, not relative."],
             runtime: ToolRuntime[None, FilesystemState],
             offset: Annotated[int, "Line number to start reading from (0-indexed). Use for pagination of large files."] = DEFAULT_READ_OFFSET,
@@ -685,15 +725,11 @@ class FilesystemMiddleware(AgentMiddleware[FilesystemState, ContextT, ResponseT]
                 responses = await resolved_backend.adownload_files([validated_path])
                 if responses and responses[0].content is not None:
                     media_type = IMAGE_MEDIA_TYPES.get(ext, "image/png")
-                    image_b64 = base64.standard_b64encode(responses[0].content).decode("utf-8")
-                    return ToolMessage(
-                        content_blocks=[create_image_block(base64=image_b64, mime_type=media_type)],
-                        name="read_file",
+                    return _image_read_tool_message(
+                        content=responses[0].content,
+                        file_path=validated_path,
+                        media_type=media_type,
                         tool_call_id=runtime.tool_call_id,
-                        additional_kwargs={
-                            "read_file_path": validated_path,
-                            "read_file_media_type": media_type,
-                        },
                     )
                 if responses and responses[0].error:
                     return f"Error reading image: {responses[0].error}"
@@ -711,30 +747,22 @@ class FilesystemMiddleware(AgentMiddleware[FilesystemState, ContextT, ResponseT]
                         limit=max(limit, 0),
                     )
                     result = _trim_read_output_by_display_lines(result, limit)
-
-                    if token_limit and len(result) >= NUM_CHARS_PER_TOKEN * token_limit:
-                        truncation_msg = READ_FILE_TRUNCATION_MSG.format(file_path=validated_path)
-                        max_content_length = NUM_CHARS_PER_TOKEN * token_limit - len(truncation_msg)
-                        result = result[:max_content_length]
-                        result += truncation_msg
-
-                    return result
+                    return _truncate_read_result_for_context(
+                        result,
+                        token_limit=token_limit,
+                        file_path=validated_path,
+                    )
                 if responses and responses[0].error:
                     return f"Error reading PDF: {responses[0].error}"
                 return "Error reading PDF: unknown error"
 
             result = await resolved_backend.aread(validated_path, offset=offset, limit=limit)
             result = _trim_read_output_by_display_lines(result, limit)
-
-            # Check if result exceeds token threshold and truncate if necessary
-            if token_limit and len(result) >= NUM_CHARS_PER_TOKEN * token_limit:
-                # Calculate truncation message length to ensure final result stays under threshold
-                truncation_msg = READ_FILE_TRUNCATION_MSG.format(file_path=validated_path)
-                max_content_length = NUM_CHARS_PER_TOKEN * token_limit - len(truncation_msg)
-                result = result[:max_content_length]
-                result += truncation_msg
-
-            return result
+            return _truncate_read_result_for_context(
+                result,
+                token_limit=token_limit,
+                file_path=validated_path,
+            )
 
         return StructuredTool.from_function(
             name="read_file",
@@ -990,7 +1018,7 @@ class FilesystemMiddleware(AgentMiddleware[FilesystemState, ContextT, ResponseT]
         """Create the execute tool for sandbox command execution."""
         tool_description = self._custom_tool_descriptions.get("execute") or EXECUTE_TOOL_DESCRIPTION
 
-        def sync_execute(  # noqa: PLR0911 - early returns for distinct error conditions
+        def sync_execute(  # noqa: C901, PLR0911 - early returns for distinct error conditions
             command: Annotated[str, "Shell command to execute in the sandbox environment."],
             runtime: ToolRuntime[None, FilesystemState],
             timeout: Annotated[
@@ -1048,7 +1076,7 @@ class FilesystemMiddleware(AgentMiddleware[FilesystemState, ContextT, ResponseT]
 
             return "".join(parts)
 
-        async def async_execute(  # noqa: PLR0911 - early returns for distinct error conditions
+        async def async_execute(  # noqa: C901, PLR0911 - early returns for distinct error conditions
             command: Annotated[str, "Shell command to execute in the sandbox environment."],
             runtime: ToolRuntime[None, FilesystemState],
             # ASYNC109 - timeout is a semantic parameter forwarded to the

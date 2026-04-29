@@ -77,15 +77,6 @@ var builtinToolCatalog = []model.ToolCatalogItem{
 		ReservedPolicy:           "normal",
 	},
 	{
-		Name:                     "view_image",
-		Group:                    "preview",
-		Label:                    "View Image",
-		Description:              "Inspect an image path when the current model supports vision.",
-		ConfigurableForMainAgent: true,
-		ConfigurableForSubagent:  true,
-		ReservedPolicy:           "normal",
-	},
-	{
 		Name:                     "install_skill_from_registry",
 		Group:                    "authoring",
 		Label:                    "Install Skill From Registry",

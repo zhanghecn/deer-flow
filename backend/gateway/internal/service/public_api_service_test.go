@@ -247,6 +247,55 @@ func TestRunAgentTurnReturnsEmbeddedLangGraphError(t *testing.T) {
 	}
 }
 
+func TestRunAgentTurnForwardsRuntimeUploadMimeType(t *testing.T) {
+	t.Parallel()
+
+	var requestPayload map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&requestPayload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "event: end\ndata: {}\n\n")
+	}))
+	t.Cleanup(server.Close)
+
+	svc := &PublicAPIService{
+		langGraphURL: server.URL,
+		httpClient:   server.Client(),
+	}
+
+	err := svc.runAgentTurnStream(
+		context.Background(),
+		&publicAPIRunPlan{
+			Auth: PublicAPIAuthContext{
+				UserID: uuid.MustParse("11111111-1111-1111-1111-111111111111"),
+			},
+			AgentName:  "demo-agent",
+			ThreadID:   "thread-1",
+			ModelName:  "vision-model",
+			PromptText: "describe the image",
+			RuntimeUploads: []publicAPIRuntimeUpload{
+				{Filename: "file_123_chart.png", Size: 42, MimeType: "image/png"},
+			},
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("runAgentTurnStream: %v", err)
+	}
+
+	input := requestPayload["input"].(map[string]any)
+	messages := input["messages"].([]any)
+	message := messages[0].(map[string]any)
+	additional := message["additional_kwargs"].(map[string]any)
+	files := additional["files"].([]any)
+	file := files[0].(map[string]any)
+	if got := file["mime_type"]; got != "image/png" {
+		t.Fatalf("mime_type = %#v, want image/png", got)
+	}
+}
+
 func TestFinishInvocationWithErrorStoresFailedTurnSnapshotForTurnsSurface(t *testing.T) {
 	t.Parallel()
 

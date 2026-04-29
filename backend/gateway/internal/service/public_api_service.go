@@ -81,6 +81,7 @@ type publicAPINormalizedInput struct {
 type publicAPIRuntimeUpload struct {
 	Filename     string
 	Size         int64
+	MimeType     string
 	MarkdownFile string
 }
 
@@ -1411,6 +1412,9 @@ func (s *PublicAPIService) runAgentTurnStream(
 				"filename": file.Filename,
 				"size":     file.Size,
 			}
+			if strings.TrimSpace(file.MimeType) != "" {
+				payload["mime_type"] = file.MimeType
+			}
 			if strings.TrimSpace(file.MarkdownFile) != "" {
 				payload["markdown_file"] = file.MarkdownFile
 				payload["markdown_virtual_path"] = "/mnt/user-data/uploads/" + file.MarkdownFile
@@ -1828,9 +1832,14 @@ func (s *PublicAPIService) stageInputFilesForThread(
 			}
 		}
 
+		mimeType := ""
+		if inputFile.MimeType != nil {
+			mimeType = strings.TrimSpace(*inputFile.MimeType)
+		}
 		staged = append(staged, publicAPIRuntimeUpload{
 			Filename:     targetFilename,
 			Size:         inputFile.SizeBytes,
+			MimeType:     mimeType,
 			MarkdownFile: markdownFile,
 		})
 	}

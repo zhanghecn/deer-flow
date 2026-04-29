@@ -72,7 +72,7 @@ tool_groups: []
     assert "get_document_tree_node_detail" not in tool_names
 
 
-def test_get_available_tools_adds_view_image_only_for_vision_models(monkeypatch, tmp_path: Path):
+def test_get_available_tools_does_not_duplicate_read_file_image_support(monkeypatch, tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         """
@@ -99,10 +99,10 @@ tool_groups: []
     text_tool_names = {tool.name for tool in text_tools if hasattr(tool, "name")}
     vision_tool_names = {tool.name for tool in vision_tools if hasattr(tool, "name")}
 
-    # `view_image` must stay runtime-conditional so non-vision models can still
-    # use the same archived agent manifest without tool-loading failures.
+    # Image files are handled by Deep Agents `read_file`; the builtin catalog
+    # should not grow a second image-read tool for vision models.
     assert "view_image" not in text_tool_names
-    assert "view_image" in vision_tool_names
+    assert "view_image" not in vision_tool_names
 
 
 def test_prompt_omits_question_contract_for_explicit_empty_tool_names() -> None:

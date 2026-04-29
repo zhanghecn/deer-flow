@@ -1,4 +1,5 @@
 import time
+from io import BytesIO
 from unittest.mock import patch
 
 import pytest
@@ -118,8 +119,7 @@ def _build_test_pdf_bytes(text: str = "Hello PDF") -> bytes:
     xref_offset = sum(len(chunk) for chunk in chunks)
     chunks.append(f"xref\n0 {len(objects) + 1}\n".encode())
     chunks.append(b"0000000000 65535 f \n")
-    for offset in offsets[1:]:
-        chunks.append(f"{offset:010d} 00000 n \n".encode())
+    chunks.extend(f"{offset:010d} 00000 n \n".encode() for offset in offsets[1:])
     chunks.append(f"trailer\n<< /Root 1 0 R /Size {len(objects) + 1} >>\nstartxref\n{xref_offset}\n%%EOF\n".encode())
     return b"".join(chunks)
 
@@ -1244,6 +1244,45 @@ class TestFilesystemMiddleware:
         assert result.content[0]["mime_type"] == "image/jpeg"
         assert result.content[0]["base64"] == "ZmFrZS1pbWFnZS1ieXRlcw=="
 
+    def test_read_file_image_downsamples_large_dimensions_before_model_input(self):
+        """Large local images should follow the same model limits as uploads."""
+        pil = pytest.importorskip("PIL.Image")
+        image = pil.new("RGB", (3200, 2200), (40, 120, 220))
+        buffer = BytesIO()
+        image.save(buffer, format="PNG")
+        image_bytes = buffer.getvalue()
+
+        class ImageBackend(StateBackend):
+            def download_files(self, paths: list[str]) -> list[FileDownloadResponse]:
+                return [
+                    FileDownloadResponse(
+                        path=paths[0],
+                        content=image_bytes,
+                        error=None,
+                    )
+                ]
+
+        middleware = FilesystemMiddleware(backend=lambda rt: ImageBackend(rt))  # noqa: PLW0108
+        state = FilesystemState(messages=[], files={})
+        runtime = ToolRuntime(
+            state=state,
+            context=None,
+            tool_call_id="img-read-large",
+            store=None,
+            stream_writer=lambda _: None,
+            config={},
+        )
+
+        read_file_tool = next(tool for tool in middleware.tools if tool.name == "read_file")
+        result = read_file_tool.invoke({"file_path": "/app/large.png", "runtime": runtime})
+
+        assert isinstance(result, ToolMessage)
+        assert result.additional_kwargs["read_file_resized"] is True
+        assert result.additional_kwargs["read_file_original_width"] == 3200
+        assert result.additional_kwargs["read_file_display_width"] <= 2000
+        assert result.content[0]["type"] == "image"
+        assert result.content[0]["mime_type"] in {"image/png", "image/jpeg"}
+
     def test_read_file_image_returns_error_when_download_fails(self):
         """Image reads should return a clear backend error string."""
 
@@ -1270,6 +1309,10 @@ class TestFilesystemMiddleware:
 
     def test_read_file_pdf_extracts_text_with_page_markers(self):
         """PDF reads should extract text instead of returning raw binary bytes."""
+        pytest.importorskip(
+            "pdfplumber",
+            reason="PDF text extraction is optional in local test environments.",
+        )
 
         class PdfBackend(StateBackend):
             def download_files(self, paths: list[str]) -> list[FileDownloadResponse]:

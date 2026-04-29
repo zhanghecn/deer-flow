@@ -18,20 +18,19 @@ The internal file service exposes:
 - a workbench-only full MCP endpoint at `http://127.0.0.1:8084/mcp-http/mcp`
 - a manual tool execution endpoint at `http://127.0.0.1:8084/api/tools/{tool_name}/invoke`
 - one canonical document tool surface on both MCP endpoints:
-  - `document_list(path?, cursor?, limit?)`
+  - `document_list(path?, offset?, limit?)`
   - `document_search(pattern, path?, glob?, output_mode?, context?, before?, after?, head_limit?, offset?)`
-  - `document_read(path, cursor?, limit?)`
-  - `document_fetch_asset(path, asset_ref)`
+  - `document_read(path, offset?, limit?, locator?)`
 - PDF / DOCX / PPTX / XLSX stay explicit document types instead of being silently converted to Markdown companions
 - the demo MCP now keeps an internal cache under `/data/document-cache`
   - `manifest.json` for cached units/search metadata
   - `canonical.md` for normalized markdown
-  - `assets/` for extracted images
+  - `parse_result.json` for the local `doc_extract`-style parse package
+  - `images/` for extracted visual assets referenced from Markdown
   - cache warmup runs on service startup and on upload
-  - `ingest.ocr_status` / `ocr_languages` / `ocr_provider` stay in the manifest so OCR behavior is inspectable
-- OCR and canonicalization stay inside the external MCP demo instead of changing the generic agent prompt/runtime
-  - images and scanned PDFs are OCR'd by the MCP service
-  - PPTX / DOCX / XLSX image assets are OCR'd before they enter `document_search`
+  - markdown windows expose `images/...` plus `image_read_args`; reading that image locator with `document_read` returns the MCP image content block
+- Canonicalization stays inside the external MCP demo instead of changing the generic agent prompt/runtime
+  - the local parse package exposes Markdown plus `images/...` paths in `parse_result.json`
   - canonical markdown prefers `markitdown` when available and falls back to the parsed document blocks
 
 ## Start

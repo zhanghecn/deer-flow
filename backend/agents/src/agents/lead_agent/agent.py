@@ -35,7 +35,6 @@ from src.agents.middlewares.tool_batch_sequencing_middleware import (
     ToolBatchSequencingMiddleware,
 )
 from src.agents.middlewares.uploads_middleware import UploadsMiddleware
-from src.agents.middlewares.view_image_middleware import ViewImageMiddleware
 from src.agents.middlewares.visible_response_recovery_middleware import (
     VisibleResponseRecoveryMiddleware,
 )
@@ -582,7 +581,6 @@ def _build_openagents_middlewares(
     - TitleMiddleware: persists a local first-turn title without another model call
     - Recovery middlewares: recover provider-specific outputs
     - ContextWindowMiddleware: emit telemetry for the admin console
-    - ViewImageMiddleware: injects image content after successful `view_image` tool calls
     """
     # Authoring turns rely on explicit tool contracts plus backend/runtime
     # isolation instead of shell/path heuristics. Attached copied skills execute
@@ -591,7 +589,7 @@ def _build_openagents_middlewares(
     middlewares = [
         ArtifactsMiddleware(),
         RuntimeCommandMiddleware(),
-        UploadsMiddleware(),
+        UploadsMiddleware(model_supports_vision=model_config.supports_vision),
         KnowledgeContextMiddleware(),
         TitleMiddleware(),
         build_model_retry_middleware(),
@@ -603,9 +601,6 @@ def _build_openagents_middlewares(
     ]
     if question_tool_enabled:
         middlewares.insert(1, QuestionDisciplineMiddleware())
-
-    if model_config.supports_vision:
-        middlewares.append(ViewImageMiddleware())
 
     return middlewares
 

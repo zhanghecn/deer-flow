@@ -75,7 +75,7 @@ const TOOL_PRESETS: Record<
   Array<{ label: string; values: Record<string, string> }>
 > = {
   document_list: [
-    { label: "当前目录", values: { path: "", cursor: "0", limit: "100" } },
+    { label: "当前目录", values: { path: "", offset: "0", limit: "100" } },
   ],
   document_search: [
     {
@@ -89,10 +89,7 @@ const TOOL_PRESETS: Record<
     },
   ],
   document_read: [
-    { label: "读取前 3 个单元", values: { path: "", cursor: "0", limit: "3" } },
-  ],
-  document_fetch_asset: [
-    { label: "等待 asset_ref", values: { path: "", asset_ref: "" } },
+    { label: "读取 Markdown", values: { path: "", offset: "0", limit: "2000" } },
   ],
 };
 
@@ -216,7 +213,7 @@ function derivePathArgument(toolName: string, selectedFilePath: string) {
   if (!selectedFilePath) {
     return "";
   }
-  if (toolName === "document_read" || toolName === "document_fetch_asset") {
+  if (toolName === "document_read") {
     return selectedFilePath;
   }
   if (toolName === "document_search") {
@@ -230,7 +227,7 @@ function getPathButtonLabel(toolName: string) {
   if (toolName === "document_read") {
     return "使用当前文件";
   }
-  if (toolName === "document_fetch_asset" || toolName === "document_search") {
+  if (toolName === "document_search") {
     return "使用当前路径";
   }
   return "使用当前目录";
@@ -1016,7 +1013,7 @@ export function WorkbenchPage() {
                 </p>
                 <p className="mt-2 text-[11px] leading-5 text-[var(--muted)]">
                   给外部 SDK / demo agent 复制这个地址；当前 demo 只暴露单一文档契约：
-                  `document_list`、`document_search`、`document_read`、`document_fetch_asset`。
+                  `document_list`、`document_search`、`document_read`。
                 </p>
               </div>
               <div className="rounded-md border border-[var(--border)] bg-zinc-950 px-3 py-3">

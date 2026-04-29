@@ -150,6 +150,6 @@
 - `frontend/demo/compose.yaml` 单独承载 `8084` 和 `8090`，更贴近真实客户外部接入。
 - `support-cases-http-demo` 现在已真实走 HTTP MCP，不再出现“没有可用 customer-cases MCP 工具”的错误回答。
 - `scripts/setup_support_demo_runtime.py` 现在会拒绝旧的 full MCP fixture，避免下次 setup 又把 demo agent 绑回错误工具面。
-- `8084` 的 agent-facing MCP 现在只暴露 `document_list`、`document_search`、`document_read`、`document_fetch_asset`。
+- 当时的 `8084` agent-facing MCP 暴露了四个文档工具；后续已收敛为当前 README 记录的三个工具面。
 - `8084` 现在不是假通，而是可渲染、可上传目录、可执行 MCP 工具并查看 JSON 返回的真实页面。
 - `8084` 最新上传区已经并入 Explorer，目录上传会保留分类层级，并支持直接拖拽到文件树。

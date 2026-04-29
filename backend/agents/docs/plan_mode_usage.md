@@ -66,7 +66,6 @@ make_lead_agent(config)
               - TitleMiddleware
               - recovery / clarification middlewares
               - ContextWindowMiddleware
-              - ViewImageMiddleware (vision models only)
 ```
 
 ## Usage Guidance

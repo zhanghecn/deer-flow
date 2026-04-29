@@ -4,6 +4,7 @@ import ast
 import hashlib
 import json
 import logging
+import re
 import threading
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -31,6 +32,12 @@ TRACE_LINEAGE_METADATA_KEYS = (
     "execution_backend",
     "original_user_input_preview",
     "original_user_input_digest",
+)
+IMAGE_DATA_URL_RE = re.compile(r"data:(image/[A-Za-z0-9.+-]+);base64,([A-Za-z0-9+/=]+)")
+IMAGE_BASE64_FIELD_RE = re.compile(
+    r"(?P<prefix>['\"](?:base64|data|content_base64|contentBase64)['\"]\s*:\s*['\"])"
+    r"(?P<data>[A-Za-z0-9+/=]{256,})"
+    r"(?P<suffix>['\"])",
 )
 
 
@@ -73,11 +80,7 @@ class AgentTraceCallbackHandler(BaseCallbackHandler):
 
     @staticmethod
     def _tool_shrink(value: Any, *, tool_name: str | None) -> Any:
-        max_string_len = (
-            FILE_TOOL_TRACE_STRING_LIMIT
-            if tool_name in FILE_IO_TOOL_NAMES
-            else TOOL_TRACE_STRING_LIMIT
-        )
+        max_string_len = FILE_TOOL_TRACE_STRING_LIMIT if tool_name in FILE_IO_TOOL_NAMES else TOOL_TRACE_STRING_LIMIT
         return _shrink(
             value,
             max_string_len=max_string_len,
@@ -207,6 +210,16 @@ class AgentTraceCallbackHandler(BaseCallbackHandler):
         node_name = _resolve_name(serialized)
         request_messages = _extract_chat_messages(messages)
         request_context = _extract_model_request_context(serialized, kwargs)
+        image_inputs = _extract_model_image_inputs(request_messages)
+        if image_inputs:
+            # Image blocks are model inputs, not tool calls. Persist a compact
+            # system event so trace review can see that multimodal context was
+            # attached without storing the base64 payload a second time.
+            self.record_system_event(
+                node_name="ModelImageInputs",
+                payload={"model_image_inputs": image_inputs},
+                parent_run_id=str(parent_run_id) if parent_run_id else None,
+            )
         self._record_start(
             run_id=run_id,
             parent_run_id=parent_run_id,
@@ -362,10 +375,10 @@ class AgentTraceCallbackHandler(BaseCallbackHandler):
             payload=_augment_tool_end_payload(
                 tool_name=tool_name,
                 payload={
-                "tool_response": {
+                    "tool_response": {
+                        "output": self._tool_shrink(output, tool_name=tool_name),
+                    },
                     "output": self._tool_shrink(output, tool_name=tool_name),
-                },
-                "output": self._tool_shrink(output, tool_name=tool_name),
                 },
                 output=output,
             ),
@@ -710,11 +723,7 @@ def _last_human_input_text(value: Any, depth: int = 0) -> str:
     if isinstance(value, dict):
         role = str(value.get("type") or value.get("role") or "").strip().lower()
         if role == "human":
-            text = "\n".join(
-                part.strip()
-                for part in _extract_text_blocks(value.get("content"))
-                if part.strip()
-            ).strip()
+            text = "\n".join(part.strip() for part in _extract_text_blocks(value.get("content")) if part.strip()).strip()
             if text:
                 return text
         for nested_key in ("messages", "inputs", "state", "values", "update", "output", "outputs"):
@@ -795,13 +804,16 @@ def _looks_like_injected_tool_runtime(value: str) -> bool:
     return "ToolRuntime(" in value
 
 
+def _is_model_authored_tool_arg(key: str, value: Any) -> bool:
+    """Keep trace arguments focused on values the model actually supplied."""
+
+    if key in _INJECTED_TOOL_ARG_KEYS:
+        return False
+    return not (isinstance(value, str) and _looks_like_injected_tool_runtime(value))
+
+
 def _strip_injected_tool_args(value: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: _jsonify(item)
-        for key, item in value.items()
-        if key not in _INJECTED_TOOL_ARG_KEYS
-        and not (isinstance(item, str) and _looks_like_injected_tool_runtime(item))
-    }
+    return {key: _jsonify(item) for key, item in value.items() if _is_model_authored_tool_arg(key, item)}
 
 
 def _model_tool_arguments(parsed_input: Any, inputs: dict[str, Any] | None) -> Any:
@@ -813,9 +825,7 @@ def _model_tool_arguments(parsed_input: Any, inputs: dict[str, Any] | None) -> A
     context as if the model had passed it to the tool.
     """
 
-    if isinstance(parsed_input, str) and _looks_like_injected_tool_runtime(
-        parsed_input
-    ):
+    if isinstance(parsed_input, str) and _looks_like_injected_tool_runtime(parsed_input):
         return _strip_injected_tool_args(inputs) if isinstance(inputs, dict) else {}
 
     if isinstance(parsed_input, dict):
@@ -993,6 +1003,159 @@ def _extract_response_messages(response: Any) -> list[dict[str, Any]]:
             if text not in (None, ""):
                 messages.append({"role": "assistant", "content": _jsonify(text)})
     return messages
+
+
+def _extract_model_image_inputs(messages: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Summarize image blocks that will be sent to the model without duplicating bytes."""
+
+    images: list[dict[str, Any]] = []
+    for message_index, message in enumerate(messages):
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        previous_text = ""
+        for block_index, block in enumerate(content):
+            if not isinstance(block, dict):
+                continue
+            block_type = str(block.get("type") or "")
+            if block_type == "text":
+                previous_text = str(block.get("text") or "")
+                continue
+            image = _summarize_model_image_block(
+                block,
+                message=message,
+                message_index=message_index,
+                block_index=block_index,
+                previous_text=previous_text,
+            )
+            if image:
+                images.append(image)
+
+    if not images:
+        return None
+    return {
+        "schema_version": 1,
+        "count": len(images),
+        "images": images,
+    }
+
+
+def _summarize_model_image_block(
+    block: dict[str, Any],
+    *,
+    message: dict[str, Any],
+    message_index: int,
+    block_index: int,
+    previous_text: str,
+) -> dict[str, Any] | None:
+    block_type = str(block.get("type") or "")
+    if block_type == "image_url":
+        image_url = block.get("image_url")
+        url = image_url.get("url") if isinstance(image_url, dict) else image_url
+        metadata = _summarize_image_reference(url)
+    elif block_type == "image":
+        source = block.get("source") if isinstance(block.get("source"), dict) else block
+        metadata = _summarize_image_reference(source.get("data") or source.get("url") or source.get("base64"))
+        mime_type = source.get("media_type") or source.get("mime_type") or source.get("mimeType")
+        if isinstance(mime_type, str) and mime_type:
+            metadata["mime_type"] = mime_type
+    else:
+        return None
+
+    tool_name = message.get("name") if isinstance(message.get("name"), str) else None
+    role = message.get("role") if isinstance(message.get("role"), str) else None
+    if "Attached uploaded image" in previous_text:
+        source_kind = "uploaded_attachment"
+    elif tool_name == "read_file":
+        source_kind = "read_file_image"
+    elif role == "tool" and tool_name and tool_name.startswith("mcp__"):
+        source_kind = "mcp_tool_result"
+    elif role == "tool":
+        source_kind = "tool_result_image"
+    else:
+        source_kind = "inline_image"
+    payload = {
+        "message_index": message_index,
+        "block_index": block_index,
+        "block_type": block_type,
+        "source": source_kind,
+        **metadata,
+    }
+    if tool_name:
+        payload["tool_name"] = tool_name
+    if previous_text:
+        payload["context"] = _truncate_summary_text(previous_text, max_len=320)
+    return _drop_none(payload)
+
+
+def _summarize_image_reference(value: Any) -> dict[str, Any]:
+    if not isinstance(value, str) or not value:
+        return {"transport": "unknown"}
+    if value.startswith("data:"):
+        header, _, data = value.partition(",")
+        mime_type = header.removeprefix("data:").split(";", 1)[0] or None
+        return {
+            "transport": "data_url",
+            "mime_type": mime_type,
+            "base64_bytes": len(data) if data else None,
+            "data_omitted": True,
+        }
+    if not value.startswith(("http://", "https://", "file://")):
+        return {
+            "transport": "base64",
+            "base64_bytes": len(value),
+            "data_omitted": True,
+        }
+    return {
+        "transport": "url",
+        "url_preview": _truncate_summary_text(value, max_len=240),
+    }
+
+
+def _redact_image_data_urls(text: str) -> str:
+    """Remove inline image bytes from trace strings while keeping size evidence."""
+
+    def replace_data_url(match: re.Match[str]) -> str:
+        mime_type = match.group(1)
+        data = match.group(2)
+        return f"data:{mime_type};base64,[omitted {len(data)} base64 bytes]"
+
+    def replace_base64_field(match: re.Match[str]) -> str:
+        # Some LangChain message objects stringify MCP image content as Python
+        # repr rather than structured dicts. Redact those field values too so
+        # observability can display tool payloads without persisting image bytes.
+        data = match.group("data")
+        return f"{match.group('prefix')}[omitted {len(data)} base64 bytes]{match.group('suffix')}"
+
+    redacted = IMAGE_DATA_URL_RE.sub(replace_data_url, text)
+    return IMAGE_BASE64_FIELD_RE.sub(replace_base64_field, redacted)
+
+
+def _redact_trace_image_block(value: dict[str, Any]) -> dict[str, Any] | None:
+    """Return a trace-safe image block with model-visible bytes summarized."""
+
+    block_type = str(value.get("type") or "")
+    if block_type == "image_url":
+        image_url = value.get("image_url")
+        url = image_url.get("url") if isinstance(image_url, dict) else image_url
+        return {
+            "type": "image_url",
+            "image_url": _summarize_image_reference(url),
+        }
+
+    if block_type != "image":
+        return None
+
+    source = value.get("source") if isinstance(value.get("source"), dict) else value
+    reference = source.get("data") or source.get("url") or source.get("base64")
+    metadata = _summarize_image_reference(reference)
+    mime_type = source.get("media_type") or source.get("mime_type") or source.get("mimeType")
+    if isinstance(mime_type, str) and mime_type:
+        metadata["mime_type"] = mime_type
+    return {
+        "type": "image",
+        "source": metadata,
+    }
 
 
 def _extract_tool_calls(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1384,9 +1547,9 @@ def _shrink_value(
     if value is None:
         return None
     if depth >= max_depth:
-        return _truncate_text(json.dumps(value, ensure_ascii=True, default=str), max_string_len)
+        return _truncate_text(_redact_image_data_urls(json.dumps(value, ensure_ascii=True, default=str)), max_string_len)
     if isinstance(value, str):
-        return _truncate_text(value, max_string_len)
+        return _truncate_text(_redact_image_data_urls(value), max_string_len)
     if isinstance(value, list):
         items = [
             _shrink_value(
@@ -1407,6 +1570,12 @@ def _shrink_value(
             )
         return items
     if isinstance(value, dict):
+        image_block = _redact_trace_image_block(value)
+        if image_block is not None:
+            # Trace payloads should show that a multimodal block was sent, but
+            # must not persist the image bytes themselves. The dedicated
+            # ModelImageInputs event keeps count/source/size metadata.
+            return image_block
         items = list(value.items())
         shrunken = {
             str(key): _shrink_value(

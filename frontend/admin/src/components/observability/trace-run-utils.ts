@@ -191,6 +191,13 @@ export function extractContextWindowPayload(
   return toRecord(normalizeTraceValue(outputsPayload?.context_window));
 }
 
+function extractModelImageInputsPayload(
+  run: TraceRunSummary,
+): Record<string, unknown> | null {
+  const endPayload = toRecord(run.endEvent?.payload ?? run.errorEvent?.payload);
+  return toRecord(normalizeTraceValue(endPayload?.model_image_inputs));
+}
+
 function toRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -1104,6 +1111,22 @@ function summarizeLLMRun(run: TraceRunSummary): string {
 }
 
 function summarizeSystemRun(run: TraceRunSummary): string {
+  const imageInputs = extractModelImageInputsPayload(run);
+  if (imageInputs) {
+    const count =
+      typeof imageInputs.count === "number"
+        ? imageInputs.count
+        : Array.isArray(imageInputs.images)
+          ? imageInputs.images.length
+          : 0;
+    if (count > 0) {
+      return count === 1
+        ? t("1 image input attached to the model request")
+        : t("{count} image inputs attached to the model request", { count });
+    }
+    return t("image inputs attached to the model request");
+  }
+
   const contextWindow = extractContextWindowPayload(run);
   if (!contextWindow) {
     return t("system event");
@@ -1159,6 +1182,9 @@ function resolveRunLabel(run: TraceRunSummary): string {
     return modelName ? t("LLM · {model}", { model: modelName }) : "LLM";
   }
   if (run.runType === "system") {
+    if (run.nodeName === "ModelImageInputs") {
+      return t("Model Image Inputs");
+    }
     return humanizeNodeName(run.nodeName) || t("System");
   }
   return humanizeNodeName(run.nodeName);
@@ -1502,6 +1528,21 @@ export function extractRunSections(
       );
     }
   } else if (run.runType === "system") {
+    const imageInputs = extractModelImageInputsPayload(run);
+    if (hasValue(imageInputs)) {
+      sections.push(
+        makeSection(
+          "model-image-inputs",
+          t("Model Image Inputs"),
+          t(
+            "Image blocks attached to the model request after middleware processing. Base64 image data is intentionally omitted from this summary.",
+          ),
+          "messages",
+          imageInputs,
+        ),
+      );
+    }
+
     const contextWindow = extractContextWindowPayload(run);
     if (hasValue(contextWindow)) {
       sections.push(
@@ -1573,7 +1614,7 @@ export function isMiddlewareRun(run: TraceRunSummary): boolean {
 
 export function isCoreTraceRun(run: TraceRunSummary): boolean {
   if (run.runType === "system") {
-    return false;
+    return run.nodeName === "ModelImageInputs";
   }
 
   if (isMiddlewareRun(run)) {

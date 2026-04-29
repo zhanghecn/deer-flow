@@ -29,6 +29,7 @@ export type ChatActivityStep =
 
 export type ChatSessionPromptParams = {
   text: string;
+  fileIds?: string[];
   stream?: boolean;
   metadata?: Record<string, unknown>;
   signal?: AbortSignal;
@@ -136,6 +137,7 @@ export function createChatSession(params: {
       try {
         const result = await session.prompt({
           text: promptParams.text,
+          fileIds: promptParams.fileIds,
           stream: promptParams.stream,
           metadata: promptParams.metadata,
           signal: promptParams.signal,

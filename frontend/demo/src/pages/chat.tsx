@@ -1,4 +1,15 @@
-import { Bot, Check, FileText, Loader2, Send, Settings, Sparkles, Square, X } from "lucide-react";
+import {
+  Bot,
+  Check,
+  FileText,
+  Loader2,
+  Paperclip,
+  Send,
+  Settings,
+  Sparkles,
+  Square,
+  X,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -13,12 +24,60 @@ import {
   type ChatActivityStep,
   type ToolCallStep,
 } from "../lib/chat-session";
-import { resolvePublicAPIBaseURL } from "../lib/public-api";
+import { resolvePublicAPIBaseURL, uploadPublicAPIFile } from "../lib/public-api";
 import { createDemoId } from "../lib/uid";
 
 const SETTINGS_KEY = "demo_chat_settings";
+const API_IMAGE_MAX_BASE64_SIZE = 5 * 1024 * 1024;
+const IMAGE_TARGET_RAW_SIZE = Math.floor((API_IMAGE_MAX_BASE64_SIZE * 3) / 4);
+const IMAGE_MAX_DIMENSION = 2000;
+// Keep the browser-side image preparation aligned with Claude Code's API
+// image-block limits so the demo exposes the same compression decision point.
+const COMPRESSIBLE_IMAGE_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
 
 /* ─── Types ─────────────────────────────────────────────── */
+
+type AttachmentStatus =
+  | "selected"
+  | "preparing"
+  | "compressing"
+  | "uploading"
+  | "uploaded"
+  | "failed";
+
+type ImageDimensions = {
+  width: number;
+  height: number;
+};
+
+type AttachmentCompression = {
+  originalBytes: number;
+  preparedBytes: number;
+  originalDimensions?: ImageDimensions;
+  preparedDimensions?: ImageDimensions;
+  outputMimeType?: string;
+  didCompress: boolean;
+};
+
+type ChatAttachment = {
+  id: string;
+  file: File;
+  uploadFile?: File;
+  originalFilename: string;
+  filename: string;
+  mimeType: string;
+  originalBytes: number;
+  uploadBytes: number;
+  fileId?: string;
+  status: AttachmentStatus;
+  statusText: string;
+  detail?: string;
+  compression?: AttachmentCompression;
+};
 
 type ChatMessage = {
   id: string;
@@ -28,6 +87,7 @@ type ChatMessage = {
   status: "streaming" | "done" | "error" | "interrupted";
   toolCalls?: ToolCallStep[];
   activities?: ChatActivityStep[];
+  attachments?: ChatAttachment[];
 };
 
 type ChatSettings = {
@@ -115,6 +175,210 @@ function createMessageId() {
   return createDemoId("chat");
 }
 
+function createAttachmentId() {
+  return createDemoId("attachment");
+}
+
+function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatDimensions(dimensions: ImageDimensions | undefined) {
+  if (!dimensions) return "";
+  return `${dimensions.width}x${dimensions.height}`;
+}
+
+function replaceFileExtension(filename: string, extension: string) {
+  const dotIndex = filename.lastIndexOf(".");
+  const baseName = dotIndex > 0 ? filename.slice(0, dotIndex) : filename;
+  return `${baseName}${extension}`;
+}
+
+function isCompressibleImage(file: File) {
+  return COMPRESSIBLE_IMAGE_TYPES.has(file.type);
+}
+
+function createChatAttachment(file: File): ChatAttachment {
+  return {
+    id: createAttachmentId(),
+    file,
+    originalFilename: file.name,
+    filename: file.name,
+    mimeType: file.type || "application/octet-stream",
+    originalBytes: file.size,
+    uploadBytes: file.size,
+    status: "selected",
+    statusText: "待发送",
+  };
+}
+
+function readImageElement(file: File): Promise<{
+  image: HTMLImageElement;
+  dimensions: ImageDimensions;
+}> {
+  return new Promise((resolve, reject) => {
+    const objectURL = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(objectURL);
+      resolve({
+        image,
+        dimensions: {
+          width: image.naturalWidth,
+          height: image.naturalHeight,
+        },
+      });
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectURL);
+      reject(new Error("无法读取图片尺寸"));
+    };
+    image.src = objectURL;
+  });
+}
+
+function getScaledDimensions(dimensions: ImageDimensions): ImageDimensions {
+  const scale = Math.min(
+    1,
+    IMAGE_MAX_DIMENSION / Math.max(dimensions.width, 1),
+    IMAGE_MAX_DIMENSION / Math.max(dimensions.height, 1),
+  );
+  return {
+    width: Math.max(1, Math.round(dimensions.width * scale)),
+    height: Math.max(1, Math.round(dimensions.height * scale)),
+  };
+}
+
+function canvasToBlob(
+  canvas: HTMLCanvasElement,
+  mimeType: string,
+  quality?: number,
+): Promise<Blob | null> {
+  return new Promise((resolve) => canvas.toBlob(resolve, mimeType, quality));
+}
+
+async function compressImageForUpload(file: File): Promise<{
+  file: File;
+  compression: AttachmentCompression;
+  detail: string;
+}> {
+  const { image, dimensions } = await readImageElement(file);
+  const scaledDimensions = getScaledDimensions(dimensions);
+  const needsResize =
+    scaledDimensions.width !== dimensions.width ||
+    scaledDimensions.height !== dimensions.height;
+  const needsSizeCompression = file.size > IMAGE_TARGET_RAW_SIZE;
+
+  if (!needsResize && !needsSizeCompression) {
+    return {
+      file,
+      compression: {
+        originalBytes: file.size,
+        preparedBytes: file.size,
+        originalDimensions: dimensions,
+        preparedDimensions: dimensions,
+        outputMimeType: file.type,
+        didCompress: false,
+      },
+      detail: `无需压缩 · ${formatDimensions(dimensions)} · ${formatBytes(file.size)}`,
+    };
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = scaledDimensions.width;
+  canvas.height = scaledDimensions.height;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("浏览器无法创建图片压缩画布");
+  }
+  context.drawImage(image, 0, 0, scaledDimensions.width, scaledDimensions.height);
+
+  const attempts: Array<{ mimeType: string; quality?: number }> = [];
+  if (file.type === "image/png") {
+    attempts.push({ mimeType: "image/png" });
+  } else if (file.type === "image/webp") {
+    attempts.push({ mimeType: "image/webp", quality: 0.82 });
+  }
+  attempts.push(
+    { mimeType: "image/jpeg", quality: 0.82 },
+    { mimeType: "image/jpeg", quality: 0.68 },
+    { mimeType: "image/jpeg", quality: 0.52 },
+    { mimeType: "image/jpeg", quality: 0.36 },
+    { mimeType: "image/jpeg", quality: 0.24 },
+  );
+
+  let bestBlob: Blob | null = null;
+  let bestType = file.type;
+  for (const attempt of attempts) {
+    const blob = await canvasToBlob(canvas, attempt.mimeType, attempt.quality);
+    if (!blob) continue;
+    if (!bestBlob || blob.size < bestBlob.size) {
+      bestBlob = blob;
+      bestType = attempt.mimeType;
+    }
+    if (blob.size <= IMAGE_TARGET_RAW_SIZE) {
+      bestBlob = blob;
+      bestType = attempt.mimeType;
+      break;
+    }
+  }
+
+  if (!bestBlob) {
+    throw new Error("图片压缩失败");
+  }
+
+  const extension =
+    bestType === "image/png"
+      ? ".png"
+      : bestType === "image/webp"
+        ? ".webp"
+        : ".jpg";
+  const outputName =
+    bestType === file.type ? file.name : replaceFileExtension(file.name, extension);
+  const compressedFile = new File([bestBlob], outputName, {
+    type: bestType,
+    lastModified: file.lastModified,
+  });
+
+  return {
+    file: compressedFile,
+    compression: {
+      originalBytes: file.size,
+      preparedBytes: compressedFile.size,
+      originalDimensions: dimensions,
+      preparedDimensions: scaledDimensions,
+      outputMimeType: bestType,
+      didCompress: true,
+    },
+    detail: `已压缩 ${formatBytes(file.size)} → ${formatBytes(compressedFile.size)} · ${formatDimensions(dimensions)} → ${formatDimensions(scaledDimensions)}`,
+  };
+}
+
+async function prepareAttachmentForUpload(file: File): Promise<{
+  file: File;
+  compression: AttachmentCompression;
+  detail: string;
+}> {
+  // Public `/v1/files` stores normal file attachments. Only images get a
+  // browser compression pass; documents are uploaded as-is for runtime parsing.
+  if (!isCompressibleImage(file)) {
+    return {
+      file,
+      compression: {
+        originalBytes: file.size,
+        preparedBytes: file.size,
+        outputMimeType: file.type || "application/octet-stream",
+        didCompress: false,
+      },
+      detail: "非可压缩图片，按原文件上传",
+    };
+  }
+  return compressImageForUpload(file);
+}
+
 function isDemoOrigin(url: string): boolean {
   try {
     return new URL(url).origin === window.location.origin;
@@ -137,6 +401,97 @@ function StatusDot({ tone }: { tone: "ok" | "warn" | "danger" }) {
   };
   return (
     <span className={`inline-block size-2 rounded-full ${map[tone]}`} />
+  );
+}
+
+function getAttachmentStatusTone(status: AttachmentStatus) {
+  if (status === "failed") return "border-rose-200 bg-rose-50 text-rose-700";
+  if (status === "uploaded") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+  if (
+    status === "uploading" ||
+    status === "compressing" ||
+    status === "preparing"
+  ) {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+  return "border-slate-200 bg-white text-slate-600";
+}
+
+function AttachmentStatusIcon({ status }: { status: AttachmentStatus }) {
+  if (status === "failed") return <X className="size-3.5 shrink-0" />;
+  if (status === "uploaded") return <Check className="size-3.5 shrink-0" />;
+  if (
+    status === "uploading" ||
+    status === "compressing" ||
+    status === "preparing"
+  ) {
+    return <Loader2 className="size-3.5 shrink-0 animate-spin" />;
+  }
+  return <FileText className="size-3.5 shrink-0" />;
+}
+
+function AttachmentList({
+  attachments,
+  onRemove,
+  variant = "input",
+}: {
+  attachments: ChatAttachment[];
+  onRemove?: (id: string) => void;
+  variant?: "input" | "message";
+}) {
+  if (attachments.length === 0) return null;
+
+  const messageVariant = variant === "message";
+
+  return (
+    <div className={`flex flex-wrap gap-2 ${messageVariant ? "mt-2" : ""}`}>
+      {attachments.map((attachment) => (
+        <div
+          key={attachment.id}
+          className={`min-w-0 max-w-full rounded-lg border px-2.5 py-2 text-xs shadow-sm ${
+            messageVariant
+              ? "border-white/25 bg-white/15 text-white shadow-none"
+              : getAttachmentStatusTone(attachment.status)
+          }`}
+          title={`${attachment.originalFilename}\n${attachment.detail ?? attachment.statusText}`}
+        >
+          <div className="flex min-w-0 items-center gap-1.5">
+            <AttachmentStatusIcon status={attachment.status} />
+            <span className="truncate font-medium">
+              {attachment.originalFilename}
+            </span>
+            {onRemove && attachment.status === "selected" && (
+              <button
+                type="button"
+                onClick={() => onRemove(attachment.id)}
+                className="ml-1 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                title="移除附件"
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
+          </div>
+          <div
+            className={`mt-1 truncate ${
+              messageVariant ? "text-white/75" : "text-slate-500"
+            }`}
+          >
+            {attachment.statusText}
+            {attachment.fileId ? ` · ${attachment.fileId}` : ""}
+          </div>
+          <div
+            className={`mt-0.5 truncate font-mono text-[10px] ${
+              messageVariant ? "text-white/65" : "text-slate-400"
+            }`}
+          >
+            {formatBytes(attachment.uploadBytes)}
+            {attachment.detail ? ` · ${attachment.detail}` : ""}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -265,7 +620,6 @@ function collectSourceLinksFromValue(
 function getReadFilePaths(tool: ToolCallStep): string[] {
   if (
     tool.name !== "document_read" &&
-    tool.name !== "document_fetch_asset" &&
     tool.name !== "document_search" &&
     tool.name !== "document_list"
   ) {
@@ -294,7 +648,7 @@ function getReadFileSourceLinks(tool: ToolCallStep): SourceLink[] {
 
 function getToolActivityTitle(tool: ToolCallStep, fileCount: number) {
   if (tool.status === "running") {
-    if (tool.name === "document_read" || tool.name === "document_fetch_asset") {
+    if (tool.name === "document_read") {
       return "正在读取知识库文件";
     }
     if (tool.name === "document_list") {
@@ -307,7 +661,7 @@ function getToolActivityTitle(tool: ToolCallStep, fileCount: number) {
     return "知识库工具调用失败";
   }
 
-  if (tool.name === "document_read" || tool.name === "document_fetch_asset") {
+  if (tool.name === "document_read") {
     return fileCount > 0
       ? `已读取 ${fileCount} 个知识库文件`
       : "已读取知识库文件";
@@ -468,6 +822,7 @@ export function ChatPage() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const sessionRef = useRef<ReturnType<typeof createChatSession> | null>(null);
   const sessionKeyRef = useRef("");
@@ -486,12 +841,17 @@ export function ChatPage() {
   const baseURLIsDemo = isDemoOrigin(resolvedBaseURL);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const empty = messages.length === 0;
   const isConfigured =
     agentName != null && agentName.trim() !== "" && apiKeyInput.trim() !== "" && !baseURLIsDemo;
+  const canSend =
+    (draft.trim().length > 0 || attachments.length > 0) &&
+    !isStreaming &&
+    isConfigured;
 
   /* Override body styles for light theme */
   useEffect(() => {
@@ -542,9 +902,38 @@ export function ChatPage() {
     return sessionRef.current;
   }, [resolvedBaseURL, apiKeyInput, agentName]);
 
+  const handleFilesSelected = useCallback((fileList: FileList | null) => {
+    const selectedFiles = Array.from(fileList ?? []);
+    if (selectedFiles.length === 0) return;
+    setAttachments((prev) => [
+      ...prev,
+      ...selectedFiles.map(createChatAttachment),
+    ]);
+    setError(null);
+  }, []);
+
+  const handleFileInputChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      handleFilesSelected(event.target.files);
+      event.target.value = "";
+    },
+    [handleFilesSelected],
+  );
+
+  const handleRemoveAttachment = useCallback((id: string) => {
+    setAttachments((prev) => prev.filter((attachment) => attachment.id !== id));
+  }, []);
+
   const handleSend = useCallback(() => {
     const text = draft.trim();
-    if (!text || isStreaming || !isConfigured) return;
+    const attachmentsForTurn = attachments;
+    if (
+      (!text && attachmentsForTurn.length === 0) ||
+      isStreaming ||
+      !isConfigured
+    ) {
+      return;
+    }
 
     const userId = createMessageId();
     const assistantMessageId = createMessageId();
@@ -552,106 +941,207 @@ export function ChatPage() {
     abortRef.current = abortController;
 
     setDraft("");
+    setAttachments([]);
     setError(null);
     setIsStreaming(true);
 
     setMessages((prev) => [
       ...prev,
-      { id: userId, role: "user", content: text, reasoning: "", status: "done" },
       {
-        id: assistantMessageId,
-        role: "assistant",
-        content: "",
+        id: userId,
+        role: "user",
+        content: text,
         reasoning: "",
-        status: "streaming",
-        toolCalls: [],
-        activities: [],
+        status: "done",
+        attachments: attachmentsForTurn,
       },
     ]);
 
-    const session = ensureSession();
-    let latestPhase: "streaming" | "waiting" | "ready" | "failed" | "interrupted" =
-      "streaming";
-    let latestError = "";
+    const updateUserAttachment = (
+      attachmentId: string,
+      patch: Partial<ChatAttachment>,
+    ) => {
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === userId
+            ? {
+                ...message,
+                attachments: (message.attachments ?? []).map((attachment) =>
+                  attachment.id === attachmentId
+                    ? { ...attachment, ...patch }
+                    : attachment,
+                ),
+              }
+            : message,
+        ),
+      );
+    };
 
-    session
-      .prompt({
-        text,
-        stream: true,
-        signal: abortController.signal,
-        onUpdate: ({ text: liveText, reasoning: liveReasoning, phase, error: liveError }) => {
-          latestPhase = phase;
-          latestError = liveError ?? latestError;
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantMessageId
-                ? {
-                    ...m,
-                    // Failed public runs can terminate without a turn snapshot.
-                    // Preserve the streamed content when present, otherwise
-                    // surface the normalized terminal error inline.
-                    content:
-                      liveText ||
-                      m.content ||
-                      (phase === "failed" && liveError
-                        ? `Error: ${liveError}`
-                        : ""),
-                    reasoning: liveReasoning,
-                    status:
-                      phase === "failed"
-                        ? "error"
-                        : phase === "interrupted"
-                          ? "interrupted"
-                        : phase === "ready"
-                          ? "done"
-                          : "streaming",
-                  }
-                : m,
-            ),
-          );
-          if (phase === "failed" && liveError) {
-            setError(liveError);
+    let assistantCreated = false;
+
+    void (async () => {
+      let latestPhase:
+        | "streaming"
+        | "waiting"
+        | "ready"
+        | "failed"
+        | "interrupted" = "streaming";
+      let latestError = "";
+
+      try {
+        const uploadedFileIds: string[] = [];
+        // The SDK-style attachment contract is two-step: upload to `/v1/files`,
+        // then reference the returned opaque ids from `/v1/turns input.file_ids`.
+        for (const attachment of attachmentsForTurn) {
+          updateUserAttachment(attachment.id, {
+            status: isCompressibleImage(attachment.file)
+              ? "compressing"
+              : "preparing",
+            statusText: isCompressibleImage(attachment.file)
+              ? "压缩检查中"
+              : "检查附件",
+          });
+
+          try {
+            const prepared = await prepareAttachmentForUpload(attachment.file);
+            updateUserAttachment(attachment.id, {
+              uploadFile: prepared.file,
+              filename: prepared.file.name,
+              mimeType: prepared.file.type || attachment.mimeType,
+              uploadBytes: prepared.file.size,
+              compression: prepared.compression,
+              detail: prepared.detail,
+              status: "uploading",
+              statusText: "上传到 /v1/files",
+            });
+
+            const uploaded = await uploadPublicAPIFile({
+              baseURL: resolvedBaseURL,
+              apiToken: apiKeyInput.trim(),
+              file: prepared.file,
+              purpose: "assistants",
+              signal: abortController.signal,
+            });
+            uploadedFileIds.push(uploaded.id);
+            updateUserAttachment(attachment.id, {
+              fileId: uploaded.id,
+              filename: uploaded.filename,
+              uploadBytes: uploaded.bytes,
+              status: "uploaded",
+              statusText: "已加入 input.file_ids",
+            });
+          } catch (attachmentError) {
+            updateUserAttachment(attachment.id, {
+              status: "failed",
+              statusText: "附件处理失败",
+              detail: getErrorMessage(attachmentError),
+            });
+            throw attachmentError;
           }
-        },
-        onActivity: (activity) => {
-          setMessages((prev) =>
-            prev.map((m) => {
-              if (m.id !== assistantMessageId) return m;
-              const activities = m.activities ?? [];
-              const existing = activities.find((item) => item.id === activity.id);
-              if (existing) {
-                return {
-                  ...m,
-                  activities: activities.map((item) =>
-                    item.id === activity.id ? activity : item,
-                  ),
-                };
-              }
-              return { ...m, activities: [...activities, activity] };
-            }),
-          );
-        },
-        onToolCall: (tool) => {
-          setMessages((prev) =>
-            prev.map((m) => {
-              if (m.id !== assistantMessageId || !m.toolCalls) return m;
-              const existing = m.toolCalls.find((t) => t.id === tool.id);
-              if (existing) {
-                return {
-                  ...m,
-                  toolCalls: m.toolCalls.map((t) =>
-                    t.id === tool.id ? tool : t,
-                  ),
-                };
-              }
-              return { ...m, toolCalls: [...m.toolCalls, tool] };
-            }),
-          );
-        },
-      })
-      .then((result) => {
+        }
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: assistantMessageId,
+            role: "assistant",
+            content: "",
+            reasoning: "",
+            status: "streaming",
+            toolCalls: [],
+            activities: [],
+          },
+        ]);
+        assistantCreated = true;
+
+        const session = ensureSession();
+        const result = await session.prompt({
+          text,
+          fileIds: uploadedFileIds.length > 0 ? uploadedFileIds : undefined,
+          stream: true,
+          signal: abortController.signal,
+          metadata: {
+            demo_surface: "mcp_workbench_chat",
+            attachment_count: uploadedFileIds.length,
+          },
+          onUpdate: ({
+            text: liveText,
+            reasoning: liveReasoning,
+            phase,
+            error: liveError,
+          }) => {
+            latestPhase = phase;
+            latestError = liveError ?? latestError;
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantMessageId
+                  ? {
+                      ...m,
+                      // Failed public runs can terminate without a turn snapshot.
+                      // Preserve the streamed content when present, otherwise
+                      // surface the normalized terminal error inline.
+                      content:
+                        liveText ||
+                        m.content ||
+                        (phase === "failed" && liveError
+                          ? `Error: ${liveError}`
+                          : ""),
+                      reasoning: liveReasoning,
+                      status:
+                        phase === "failed"
+                          ? "error"
+                          : phase === "interrupted"
+                            ? "interrupted"
+                            : phase === "ready"
+                              ? "done"
+                              : "streaming",
+                    }
+                  : m,
+              ),
+            );
+            if (phase === "failed" && liveError) {
+              setError(liveError);
+            }
+          },
+          onActivity: (activity) => {
+            setMessages((prev) =>
+              prev.map((m) => {
+                if (m.id !== assistantMessageId) return m;
+                const activities = m.activities ?? [];
+                const existing = activities.find((item) => item.id === activity.id);
+                if (existing) {
+                  return {
+                    ...m,
+                    activities: activities.map((item) =>
+                      item.id === activity.id ? activity : item,
+                    ),
+                  };
+                }
+                return { ...m, activities: [...activities, activity] };
+              }),
+            );
+          },
+          onToolCall: (tool) => {
+            setMessages((prev) =>
+              prev.map((m) => {
+                if (m.id !== assistantMessageId || !m.toolCalls) return m;
+                const existing = m.toolCalls.find((t) => t.id === tool.id);
+                if (existing) {
+                  return {
+                    ...m,
+                    toolCalls: m.toolCalls.map((t) =>
+                      t.id === tool.id ? tool : t,
+                    ),
+                  };
+                }
+                return { ...m, toolCalls: [...m.toolCalls, tool] };
+              }),
+            );
+          },
+        });
+
         if (!result.turn) {
-          if (latestPhase === "failed") {
+          if (latestError) {
             const detail = latestError || "Request failed";
             setError(detail);
             toast.error(detail);
@@ -667,9 +1157,9 @@ export function ChatPage() {
               ),
             );
           }
-          setIsStreaming(false);
           return;
         }
+
         const finalStatus =
           result.turn.status === "completed" ||
           result.turn.status === "requires_input"
@@ -686,40 +1176,49 @@ export function ChatPage() {
               : m,
           ),
         );
-        setIsStreaming(false);
-      })
-      .catch((err) => {
+      } catch (err) {
         if (shouldIgnoreThreadError(err)) {
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantMessageId
-                ? { ...m, status: "interrupted" }
-                : m,
-            ),
-          );
-          setIsStreaming(false);
+          if (assistantCreated) {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantMessageId
+                  ? { ...m, status: "interrupted" }
+                  : m,
+              ),
+            );
+          }
           return;
         }
         const detail = getErrorMessage(err);
         setError(detail);
         toast.error(detail);
+        if (assistantCreated) {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantMessageId
+                ? {
+                    ...m,
+                    status: "error",
+                    content: m.content || `Error: ${detail}`,
+                  }
+                : m,
+            ),
+          );
+        }
+      } finally {
         setIsStreaming(false);
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantMessageId
-              ? {
-                  ...m,
-                  status: "error",
-                  content: m.content || `Error: ${detail}`,
-                }
-              : m,
-          ),
-        );
-      })
-      .finally(() => {
         abortRef.current = null;
-      });
-  }, [draft, isStreaming, isConfigured, ensureSession]);
+      }
+    })();
+  }, [
+    draft,
+    attachments,
+    isStreaming,
+    isConfigured,
+    resolvedBaseURL,
+    apiKeyInput,
+    ensureSession,
+  ]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -753,6 +1252,7 @@ export function ChatPage() {
     abortRef.current = null;
     sessionRef.current?.reset();
     setMessages([]);
+    setAttachments([]);
     setIsStreaming(false);
     setError(null);
     setSettingsOpen(false);
@@ -822,7 +1322,15 @@ export function ChatPage() {
               msg.role === "user" ? (
                 <div key={msg.id} className="flex justify-end">
                   <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-emerald-500 px-4 py-2.5 text-sm leading-6 text-white shadow-sm">
-                    <p className="whitespace-pre-wrap">{msg.content}</p>
+                    {msg.content ? (
+                      <p className="whitespace-pre-wrap">{msg.content}</p>
+                    ) : (
+                      <p className="text-white/80">已发送附件</p>
+                    )}
+                    <AttachmentList
+                      attachments={msg.attachments ?? []}
+                      variant="message"
+                    />
                   </div>
                 </div>
               ) : (
@@ -916,7 +1424,31 @@ export function ChatPage() {
                   : "请在右上角设置中填写 API Key"}
             </div>
           )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={handleFileInputChange}
+          />
+          {attachments.length > 0 && (
+            <div className="mb-2">
+              <AttachmentList
+                attachments={attachments}
+                onRemove={handleRemoveAttachment}
+              />
+            </div>
+          )}
           <div className="flex items-end gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2 transition-colors focus-within:border-emerald-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-emerald-100">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={!isConfigured || isStreaming}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+              title="添加 SDK 附件"
+            >
+              <Paperclip className="size-4" />
+            </button>
             <textarea
               ref={textareaRef}
               value={draft}
@@ -941,7 +1473,7 @@ export function ChatPage() {
               <button
                 type="button"
                 onClick={handleSend}
-                disabled={!draft.trim() || !isConfigured}
+                disabled={!canSend}
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500 text-white transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
                 title="发送"
               >

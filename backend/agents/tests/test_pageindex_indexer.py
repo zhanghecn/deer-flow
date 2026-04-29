@@ -7,26 +7,26 @@ from textwrap import dedent
 import pymupdf
 from PIL import Image
 
+from src.knowledge.formatters import format_document_evidence_payload
 from src.knowledge.models import (
     DocumentEvidenceResult,
     DocumentImageResult,
     EvidenceBlock,
     EvidencePreviewTarget,
-    KnowledgeToolNextSteps,
     KnowledgeDocumentRecord,
     KnowledgeNodeRecord,
+    KnowledgeToolNextSteps,
     NodeDetailItem,
     NodeDetailResult,
 )
+from src.knowledge.pageindex import build_document_index
 from src.knowledge.pageindex.canonical import build_canonical_document
-from src.knowledge.formatters import format_document_evidence_payload
 from src.knowledge.pageindex.indexer import (
     _ParsedNode,
     _PdfPage,
     _should_use_markdown_page_tree,
     _split_large_page_leaf_nodes,
 )
-from src.knowledge.pageindex import build_document_index
 from src.knowledge.repository import (
     KnowledgeRepository,
     _limit_tree_depth,
@@ -408,7 +408,7 @@ def test_format_document_image_payload_reports_image_path():
         embedded_image_count=2,
         next_steps=KnowledgeToolNextSteps(
             summary="Exported a page image for PRML.pdf page 176.",
-            options=["Use view_image(image_path=...) to inspect the page visually."],
+            options=["Use read_file(file_path=...) to inspect the page visually."],
         ),
     )
 

@@ -111,7 +111,6 @@ OpenAgents-specific middlewares are combined with deepagents built-ins such as `
 | OpenAgents extras | **TitleMiddleware** | Auto-generates and persists a lightweight first-turn title |
 | OpenAgents extras | **Retry / recovery middlewares** | Handles model/tool retries, target-length retries, max-token recovery, visible-response recovery, and question-flow recovery |
 | OpenAgents extras | **ContextWindowMiddleware** | Persists current prompt occupancy snapshots into LangGraph state |
-| OpenAgents extras | **ViewImageMiddleware** | Injects image data for vision-capable models after successful `view_image` calls |
 | Deep Agents built-ins | **FilesystemMiddleware**, **SkillsMiddleware**, **SummarizationMiddleware**, **TodoListMiddleware**, **MemoryMiddleware** | Provide the core filesystem, skills, summarization, planning, and memory behaviors |
 | Prompt contract | DeepAgents base prompt + `lead_agent` prompt | Keep execution running until required deliverables are actually completed, prevent ending on unfinished todos, and treat research/proposal text as non-final when the user asked for execution |
 
@@ -180,7 +179,7 @@ LLM-powered persistent context retention across conversations:
 | Category | Tools |
 |----------|-------|
 | **Sandbox** | `bash`, `ls`, `read_file`, `write_file`, `str_replace` |
-| **Built-in** | `present_files`, `question`, `view_image`, `task` (subagent) |
+| **Built-in** | `present_files`, `question`, `task` (subagent) |
 
 Question behavior notes:
 

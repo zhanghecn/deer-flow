@@ -37,6 +37,17 @@ export interface PublicAPITurnStreamEvent {
   data: unknown;
 }
 
+export interface PublicAPIFileObject {
+  id: string;
+  object: string;
+  bytes: number;
+  created_at: number;
+  filename: string;
+  purpose: string;
+  mime_type?: string | null;
+  status?: string;
+}
+
 /* ─── Tool call events ──────────────────────────────────── */
 
 export interface ToolCallStartedEvent {
@@ -125,6 +136,33 @@ async function handleAPIError(
   throw new Error(
     error.details ?? error.error ?? `Failed to ${action}: ${response.statusText}`,
   );
+}
+
+export async function uploadPublicAPIFile(params: {
+  baseURL: string;
+  apiToken: string;
+  file: File;
+  purpose?: string;
+  signal?: AbortSignal;
+}): Promise<PublicAPIFileObject> {
+  const formData = new FormData();
+  formData.append("purpose", params.purpose ?? "assistants");
+  formData.append("file", params.file);
+
+  const response = await publicAPIFetch(
+    params.baseURL,
+    params.apiToken,
+    "./files",
+    {
+      method: "POST",
+      body: formData,
+      signal: params.signal,
+    },
+  );
+  if (!response.ok) {
+    return handleAPIError(response, "upload file");
+  }
+  return response.json() as Promise<PublicAPIFileObject>;
 }
 
 export async function createPublicAPITurn(params: {

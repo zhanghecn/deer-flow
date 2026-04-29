@@ -72,11 +72,8 @@ backend/agents/src/
 │   ├── lead_agent/         # Main agent implementation
 │   │   └── agent.py        # Agent factory and creation
 │   ├── middlewares/        # Agent middlewares
-│   │   ├── thread_data_middleware.py
-│   │   ├── sandbox_middleware.py
 │   │   ├── title_middleware.py
 │   │   ├── uploads_middleware.py
-│   │   ├── view_image_middleware.py
 │   │   └── visible_response_recovery_middleware.py
 │   └── thread_state.py     # Thread state definition
 │
@@ -88,8 +85,7 @@ backend/agents/src/
 ├── tools/                   # Agent tools
 │   └── builtins/           # Built-in tools
 │       ├── present_file_tool.py
-│       ├── question_tool.py
-│       └── view_image_tool.py
+│       └── question_tool.py
 │
 ├── mcp/                     # MCP integration
 │   └── manager.py          # MCP server management

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import fnmatch
-import html
 import json
 import mimetypes
 import os
@@ -133,27 +132,18 @@ DOCUMENT_TOOL_DESCRIPTORS = (
     ToolDescriptor(
         name="document_read",
         summary=(
-            "Read one document using page/slide/sheet/region offsets or a source "
-            "locator returned by document_search."
+            "Read cached canonical markdown by line offset, or read a markdown "
+            "image path with the same source document path."
         ),
-        returns="JSON payload with Claude Code-style text content, page/slide metadata, pagination, and fetchable assets.",
+        returns=(
+            "JSON payload with markdown content, line pagination, doc_extract-style "
+            "image paths, and MCP image blocks when locator is an images/... path."
+        ),
         arguments=(
             ToolArgument("path", "string", True, "Relative file path under the uploaded root."),
-            ToolArgument("offset", "integer", False, "Zero-based unit offset.", default=0),
-            ToolArgument("limit", "integer", False, "Maximum number of units to return.", default=3),
-            ToolArgument("locator", "string", False, "Source locator returned by document_search; preferred for reading a match."),
-        ),
-    ),
-    ToolDescriptor(
-        name="document_fetch_asset",
-        summary=(
-            "Fetch one visual asset referenced by `document_read`. Small images are "
-            "inlined as base64 so the demo can verify end-to-end visual asset access."
-        ),
-        returns="JSON payload with asset metadata and optional inlined base64 content.",
-        arguments=(
-            ToolArgument("path", "string", True, "Relative file path under the uploaded root."),
-            ToolArgument("asset_ref", "string", True, "Asset reference returned by document_read."),
+            ToolArgument("offset", "integer", False, "Zero-based markdown line offset.", default=0),
+            ToolArgument("limit", "integer", False, "Maximum markdown lines to return.", default=2000),
+            ToolArgument("locator", "string", False, "Source locator from document_search, or an images/... path from markdown image_read_args."),
         ),
     ),
 )
@@ -930,7 +920,7 @@ class FileMcpService:
         *,
         path: str,
         offset: int = 0,
-        limit: int = 3,
+        limit: int = 2000,
         locator: str | int | None = None,
     ) -> dict[str, Any]:
         """Read one parsed document window using the unified document contract."""
@@ -941,9 +931,9 @@ class FileMcpService:
         locator_before = None
         locator_after = None
         if locator is not None:
-            # Public locator reads still use the single Claude-style `limit`
-            # knob. Include one preceding unit for headings, then spend the
-            # remaining budget on the matched unit and following detail.
+            # Public locator reads keep a single Claude-style line budget. We
+            # include one preceding markdown line so headings remain attached
+            # without going back to the old unit/XML read surface.
             safe_limit = max(limit, 1)
             locator_before = min(1, safe_limit - 1)
             locator_after = max(safe_limit - locator_before - 1, 0)
@@ -956,36 +946,6 @@ class FileMcpService:
             after=locator_after,
         )
         return self._with_read_source_url(payload)
-
-    def document_fetch_asset_payload(
-        self,
-        *,
-        path: str,
-        asset_ref: str,
-    ) -> dict[str, Any]:
-        """Fetch one referenced visual asset from a parsed document."""
-
-        try:
-            requested_file = self._resolve_existing_path(path)
-            if not requested_file.is_file():
-                raise ValueError(f"path is not a file: {path}")
-            payload = self.document_tools.fetch_asset(
-                file_path=requested_file,
-                asset_ref=asset_ref,
-            )
-            payload["source_url"] = self.source_url(payload["path"])
-            return payload
-        except (FileNotFoundError, ValueError) as exc:
-            # Invalid asset refs are model-recoverable tool results. Returning
-            # a structured error keeps one bad visual fetch from terminating the
-            # whole chat turn before the agent can answer from text evidence.
-            return {
-                "path": path,
-                "asset_ref": asset_ref,
-                "error": str(exc),
-                "status": "not_found",
-                "retryable": False,
-            }
 
     async def store_uploads(
         self,
@@ -1166,7 +1126,7 @@ class FileMcpService:
         return payload
 
     def _with_read_source_url(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Expose a clickable source and mirror it into the text-first read body."""
+        """Expose a clickable source next to the cached markdown read body."""
 
         path = str(payload.get("path") or "")
         if not path:
@@ -1178,10 +1138,6 @@ class FileMcpService:
         source_url = self.source_url(path, locator=locator, locator_type=locator_type)
         payload["source_url"] = source_url
 
-        content = payload.get("content")
-        if isinstance(content, str) and content.startswith("<document "):
-            escaped = html.escape(source_url, quote=True)
-            payload["content"] = content.replace("<document ", f'<document source_url="{escaped}" ', 1)
         return payload
 
     def tool_payload_json(self, payload: dict[str, Any]) -> str:

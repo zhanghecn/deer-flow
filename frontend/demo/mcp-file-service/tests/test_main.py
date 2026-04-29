@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import base64
+import io
 import importlib
+import json
 import os
 import sys
 import tempfile
@@ -8,6 +11,7 @@ import unittest
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from PIL import Image
 
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
@@ -136,7 +140,7 @@ class WorkbenchMainAppTest(unittest.TestCase):
 
         self.assertEqual(
             tool_names,
-            {"document_list", "document_search", "document_read", "document_fetch_asset"},
+            {"document_list", "document_search", "document_read"},
         )
 
     def test_workbench_mcp_endpoint_matches_agent_document_surface(self) -> None:
@@ -148,9 +152,103 @@ class WorkbenchMainAppTest(unittest.TestCase):
                 "document_list",
                 "document_search",
                 "document_read",
-                "document_fetch_asset",
             },
         )
+
+    def test_document_read_mcp_returns_image_content_blocks(self) -> None:
+        image_path = Path(self.temp_dir.name) / "images" / "tiny.png"
+        image_path.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (32, 32), "white").save(image_path)
+
+        _, session_id = self._mcp_request(
+            path="/mcp-http-agent/mcp",
+            method="initialize",
+            request_id=1,
+            params={
+                "protocolVersion": "2025-03-26",
+                "capabilities": {},
+                "clientInfo": self.main.MCP_CLIENT_INFO,
+            },
+        )
+        call_payload, _ = self._mcp_request(
+            path="/mcp-http-agent/mcp",
+            method="tools/call",
+            request_id=2,
+            session_id=session_id,
+            params={
+                "name": "document_read",
+                "arguments": {"path": "images/tiny.png", "limit": 1},
+            },
+        )
+
+        result = call_payload["result"]
+        self.assertIsInstance(result, dict)
+        content = result.get("content")
+        self.assertIsInstance(content, list)
+        content_types = {item.get("type") for item in content if isinstance(item, dict)}
+        self.assertIn("text", content_types)
+        self.assertIn("image", content_types)
+        text_block = next(
+            item
+            for item in content
+            if isinstance(item, dict) and item.get("type") == "text"
+        )
+        payload = json.loads(str(text_block["text"]))
+        self.assertEqual(payload["local_parse"]["image_root"], "images")
+        self.assertTrue(payload["local_parse"]["image_paths"])
+        image_block = next(
+            item
+            for item in content
+            if isinstance(item, dict) and item.get("type") == "image"
+        )
+        self.assertEqual(image_block["mimeType"], "image/png")
+        self.assertTrue(image_block["data"])
+
+    def test_document_read_mcp_downsamples_large_image_blocks(self) -> None:
+        image_path = Path(self.temp_dir.name) / "images" / "large.png"
+        image_path.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (2400, 2200), "#1d4ed8").save(image_path)
+
+        _, session_id = self._mcp_request(
+            path="/mcp-http-agent/mcp",
+            method="initialize",
+            request_id=1,
+            params={
+                "protocolVersion": "2025-03-26",
+                "capabilities": {},
+                "clientInfo": self.main.MCP_CLIENT_INFO,
+            },
+        )
+        call_payload, _ = self._mcp_request(
+            path="/mcp-http-agent/mcp",
+            method="tools/call",
+            request_id=2,
+            session_id=session_id,
+            params={
+                "name": "document_read",
+                "arguments": {"path": "images/large.png", "limit": 1},
+            },
+        )
+
+        image_block = next(
+            item
+            for item in call_payload["result"]["content"]
+            if isinstance(item, dict) and item.get("type") == "image"
+        )
+        image_bytes = base64.b64decode(str(image_block["data"]))
+        with Image.open(io.BytesIO(image_bytes)) as image:
+            self.assertLessEqual(image.width, 2000)
+            self.assertLessEqual(image.height, 2000)
+
+    def test_mcp_content_list_coercion_prefers_json_text_block(self) -> None:
+        payload = self.main._coerce_mcp_content_items(
+            [
+                {"type": "text", "text": "{\"local_parse\":{\"image_root\":\"images\"}}"},
+                {"type": "image", "data": "abc", "mimeType": "image/png"},
+            ]
+        )
+
+        self.assertEqual(payload["local_parse"]["image_root"], "images")
 
     def test_source_endpoint_serves_uploaded_file_for_clickable_citations(self) -> None:
         target = Path(self.temp_dir.name) / "cases" / "source.md"

@@ -706,14 +706,13 @@ def test_resolve_lead_agent_runtime_uses_persisted_thread_agent_runtime(monkeypa
     assert captured_save["remote_session_id"] == "remote-session-1"
 
 
-def test_build_openagents_middlewares_includes_vision_middleware_for_vision_model():
+def test_build_openagents_middlewares_keeps_common_runtime_middlewares_for_vision_model():
     middlewares = lead_agent_module._build_openagents_middlewares(_make_model("vision-model", supports_thinking=False, supports_vision=True))
 
     from langchain.agents.middleware import ModelRetryMiddleware, ToolRetryMiddleware
 
     from src.agents.middlewares.max_tokens_recovery_middleware import MaxTokensRecoveryMiddleware
     from src.agents.middlewares.question_discipline_middleware import QuestionDisciplineMiddleware
-    from src.agents.middlewares.view_image_middleware import ViewImageMiddleware
     from src.agents.middlewares.visible_response_recovery_middleware import VisibleResponseRecoveryMiddleware
 
     assert any(isinstance(m, ModelRetryMiddleware) for m in middlewares)
@@ -721,7 +720,6 @@ def test_build_openagents_middlewares_includes_vision_middleware_for_vision_mode
     assert any(isinstance(m, MaxTokensRecoveryMiddleware) for m in middlewares)
     assert any(isinstance(m, QuestionDisciplineMiddleware) for m in middlewares)
     assert any(isinstance(m, VisibleResponseRecoveryMiddleware) for m in middlewares)
-    assert any(isinstance(m, ViewImageMiddleware) for m in middlewares)
 
 
 def test_build_openagents_middlewares_excludes_question_policy_when_tool_unavailable():
@@ -735,14 +733,13 @@ def test_build_openagents_middlewares_excludes_question_policy_when_tool_unavail
     assert not any(isinstance(m, QuestionDisciplineMiddleware) for m in middlewares)
 
 
-def test_build_openagents_middlewares_excludes_vision_middleware_for_non_vision_model():
+def test_build_openagents_middlewares_keeps_common_runtime_middlewares_for_non_vision_model():
     middlewares = lead_agent_module._build_openagents_middlewares(_make_model("text-model", supports_thinking=False, supports_vision=False))
 
     from langchain.agents.middleware import ModelRetryMiddleware, ToolRetryMiddleware
 
     from src.agents.middlewares.max_tokens_recovery_middleware import MaxTokensRecoveryMiddleware
     from src.agents.middlewares.question_discipline_middleware import QuestionDisciplineMiddleware
-    from src.agents.middlewares.view_image_middleware import ViewImageMiddleware
     from src.agents.middlewares.visible_response_recovery_middleware import VisibleResponseRecoveryMiddleware
 
     assert any(isinstance(m, ModelRetryMiddleware) for m in middlewares)
@@ -750,7 +747,6 @@ def test_build_openagents_middlewares_excludes_vision_middleware_for_non_vision_
     assert any(isinstance(m, MaxTokensRecoveryMiddleware) for m in middlewares)
     assert any(isinstance(m, QuestionDisciplineMiddleware) for m in middlewares)
     assert any(isinstance(m, VisibleResponseRecoveryMiddleware) for m in middlewares)
-    assert not any(isinstance(m, ViewImageMiddleware) for m in middlewares)
 
 
 def test_resolve_lead_agent_request_defaults_subagent_enabled_to_backend_default():

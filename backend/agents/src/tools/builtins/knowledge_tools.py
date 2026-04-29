@@ -132,9 +132,9 @@ def get_document_image(
     Specialized visual inspection tool. Prefer get_document_evidence(...) for the main knowledge flow.
     Use this after get_document_evidence when a relevant PDF page contains a figure, chart,
     diagram, or layout question that needs ad-hoc visual inspection. The response includes an image_path that can be
-    passed to view_image(image_path=...) when the current model supports vision. If the answer depends on what the
+    passed to read_file(file_path=...) when the current model supports vision. If the answer depends on what the
     page looks like, do not treat present_files(image_path) or raw image_paths from node detail as a substitute for
-    visual inspection; call view_image(image_path=...) first, then answer.
+    visual inspection; call read_file(file_path=...) first, then answer.
 
     Args:
         document_name_or_id: Document id or exact document name from the attached knowledge prompt.

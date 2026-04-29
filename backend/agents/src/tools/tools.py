@@ -1,5 +1,5 @@
-import logging
 import asyncio
+import logging
 from collections.abc import Sequence
 from typing import Any
 
@@ -21,7 +21,6 @@ from src.tools.builtins import (
     save_agent_to_store,
     save_skill_to_store,
     setup_agent,
-    view_image_tool,
 )
 
 logger = logging.getLogger(__name__)
@@ -135,8 +134,8 @@ def _load_mcp_tool_items(
 
     try:
         from src.config.extensions_config import ExtensionsConfig
-        from src.mcp.library import build_extensions_config_for_profile_refs, is_mcp_profile_ref
         from src.mcp.cache import get_cached_mcp_tools
+        from src.mcp.library import build_extensions_config_for_profile_refs, is_mcp_profile_ref
         from src.mcp.tools import get_mcp_tools_for_extensions_config
 
         normalized_servers = [str(server).strip() for server in (mcp_servers or []) if str(server).strip()]
@@ -228,10 +227,6 @@ def _resolve_builtin_tool_items(
     if model_supports_vision is None:
         model_config = get_runtime_db_store().get_model(model_name) if model_name else None
         model_supports_vision = bool(model_config and model_config.supports_vision)
-
-    if model_supports_vision and view_image_tool not in builtin_tools:
-        builtin_tools.append(view_image_tool)
-        logger.info("Including view_image_tool for model '%s' (supports_vision=True)", model_name)
 
     return [(tool.name, tool) for tool in builtin_tools]
 

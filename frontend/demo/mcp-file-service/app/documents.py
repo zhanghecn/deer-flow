@@ -10,7 +10,6 @@ from __future__ import annotations
 import base64
 import fnmatch
 import hashlib
-import html
 import io
 import json
 import mimetypes
@@ -19,7 +18,7 @@ import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Literal
 
 from docx import Document as WordDocument
@@ -53,23 +52,26 @@ DocumentSearchOutputMode = Literal["content", "files_with_matches", "count"]
 NextActionHint = Literal[
     "read_current",
     "read_more",
-    "fetch_visual",
     "search_next_page",
 ]
 
 INLINE_ASSET_LIMIT_BYTES = 200_000
-CACHE_SCHEMA_VERSION = 2
+MCP_IMAGE_MAX_BASE64_BYTES = 5 * 1024 * 1024
+MCP_IMAGE_TARGET_RAW_BYTES = (MCP_IMAGE_MAX_BASE64_BYTES * 3) // 4
+MCP_IMAGE_MAX_WIDTH = 2000
+MCP_IMAGE_MAX_HEIGHT = 2000
+MCP_IMAGE_JPEG_QUALITIES = (80, 60, 40, 20)
+CACHE_SCHEMA_VERSION = 3
+LOCAL_PARSE_RESULT_FILE = "parse_result.json"
 DEFAULT_DOCUMENT_SEARCH_HEAD_LIMIT = 250
 DOCUMENT_SEARCH_CONTENT_MAX_CONTEXT = 30
 DOCUMENT_SEARCH_CONTENT_MAX_MATCHES = 12
 DOCUMENT_SEARCH_CONTENT_MAX_BYTES = 8_000
-DOCUMENT_READ_MAX_UNITS = 12
-DOCUMENT_READ_LOCATOR_MAX_UNITS = 24
-DOCUMENT_READ_LOCATOR_DEFAULT_BEFORE = 6
-DOCUMENT_READ_LOCATOR_DEFAULT_AFTER = 16
+DOCUMENT_READ_DEFAULT_LINES = 2000
+DOCUMENT_READ_MAX_LINES = DOCUMENT_READ_DEFAULT_LINES
+DOCUMENT_READ_LOCATOR_CONTEXT_BEFORE = 1
 DOCUMENT_READ_TEXT_MAX_BYTES = 700
-DOCUMENT_READ_TABLE_MAX_ROWS = 24
-DOCUMENT_READ_MAX_BYTES = 12_000
+DOCUMENT_READ_MAX_BYTES = 64_000
 DEFAULT_OCR_LANGUAGES = ("eng", "chi_sim")
 PDF_OCR_SCALE = 2.5
 IMAGE_EXTENSIONS = {
@@ -151,6 +153,33 @@ class DocumentAsset:
             return payload
         payload["inlined"] = True
         payload["content_base64"] = base64.b64encode(self.data).decode("ascii")
+        return payload
+
+    def model_image_payload(self, *, path: str) -> dict[str, Any]:
+        """Prepare an image block for a multimodal MCP tool result.
+
+        Claude Code resizes MCP image resources before sending them to the
+        model. The demo service does the same at the document boundary so a
+        large page image cannot silently bloat or break the next model request.
+        """
+
+        payload = self.fetch_payload(path=path)
+        if self.kind != "image" or self.data is None:
+            return payload
+        prepared = _prepare_mcp_model_image(
+            data=self.data,
+            mime_type=self.mime_type,
+        )
+        payload.pop("warning", None)
+        payload.update(
+            {
+                "fetchable": True,
+                "inlined": True,
+                "mime_type": prepared["mime_type"],
+                "content_base64": base64.b64encode(prepared["data"]).decode("ascii"),
+                "model_image": prepared["metadata"],
+            }
+        )
         return payload
 
 
@@ -380,154 +409,69 @@ def _truncate_utf8_text(value: str, *, max_bytes: int) -> tuple[str, bool]:
     return f"{trimmed}{marker}", True
 
 
-def _compact_read_block(block: dict[str, Any]) -> tuple[dict[str, Any], bool]:
-    """Bound one `document_read` block while preserving source locators.
-
-    `document_read` sends raw document text into the next model call. Broad
-    "give me all details" requests can otherwise combine many reads into a
-    provider-side context or safety failure. The block remains source-faithful
-    and advertises truncation so callers can page or narrow explicitly.
-    """
-
-    compact = dict(block)
-    truncated = False
-
-    text = compact.get("text")
-    if isinstance(text, str):
-        compact["text"], text_truncated = _truncate_utf8_text(
-            text,
-            max_bytes=DOCUMENT_READ_TEXT_MAX_BYTES,
-        )
-        truncated = truncated or text_truncated
-
-    rows = compact.get("rows")
-    if isinstance(rows, list) and len(rows) > DOCUMENT_READ_TABLE_MAX_ROWS:
-        compact["rows"] = rows[:DOCUMENT_READ_TABLE_MAX_ROWS]
-        compact["rows_truncated"] = True
-        truncated = True
-
-    summary = compact.get("summary")
-    if isinstance(summary, str):
-        compact["summary"], summary_truncated = _truncate_utf8_text(
-            summary,
-            max_bytes=DOCUMENT_READ_TEXT_MAX_BYTES,
-        )
-        truncated = truncated or summary_truncated
-
-    if truncated:
-        compact["truncated"] = True
-    return compact, truncated
+MARKDOWN_IMAGE_PATTERN = re.compile(r"!\[[^\]]*\]\(([^)\s]+)(?:\s+[^)]*)?\)")
 
 
-def _xml_attr(value: Any) -> str:
-    """Escape metadata embedded in the compact XML-ish read surface."""
+def _safe_cache_image_path(value: str | int | None) -> str | None:
+    """Accept only cache-local markdown image paths such as `images/page_1.png`."""
 
-    return html.escape(str(value), quote=True)
-
-
-def _locator_tag(locator_type: LocatorType) -> str:
-    """Map document locator types to stable model-readable tag names."""
-
-    return {
-        "line": "line",
-        "page": "page",
-        "slide": "slide",
-        "sheet": "sheet",
-        "region": "region",
-    }.get(locator_type, "unit")
-
-
-def _render_read_block(block: dict[str, Any], *, locator_type: LocatorType) -> list[str]:
-    """Render one parsed block as compact text instead of nested block JSON."""
-
-    block_type = block.get("type")
-    locator = block.get("locator")
-    if block_type == "text":
-        text = str(block.get("text", ""))
-        lines = text.splitlines() or [""]
-        if locator_type == "line":
-            return [f"{locator} | {line}" for line in lines]
-        source = block.get("text_source")
-        prefix = f"[text source={source}]" if source else ""
-        return [prefix, *lines] if prefix else lines
-    if block_type == "table":
-        region = block.get("region") or ""
-        table_lines = [f"[table region={region}]".rstrip()]
-        rows = block.get("rows")
-        if isinstance(rows, list):
-            table_lines.extend(" | ".join(str(cell) for cell in row) for row in rows)
-        elif block.get("text"):
-            table_lines.append(str(block["text"]))
-        return table_lines
-    if block_type in {"image", "document"}:
-        parts = [f"[{block_type}"]
-        for key in ("asset_ref", "summary", "mime_type", "size_bytes", "width", "height"):
-            value = block.get(key)
-            if value not in (None, ""):
-                parts.append(f'{key}="{_xml_attr(value)}"')
-        return [" ".join(parts) + "]"]
-    return [str(block)]
+    if value is None:
+        return None
+    text = str(value).strip().strip("'\"")
+    if not text:
+        return None
+    if text.startswith("./"):
+        text = text[2:]
+    relative = PurePosixPath(text)
+    if relative.is_absolute() or ".." in relative.parts:
+        return None
+    if not relative.parts or relative.parts[0] != "images":
+        return None
+    return relative.as_posix()
 
 
-def _read_assets_from_blocks(blocks: list[dict[str, Any]], *, path: str) -> list[dict[str, Any]]:
-    """Expose only fetchable asset refs; rendered content carries the rest."""
+def _markdown_image_paths(markdown: str) -> list[str]:
+    """Return unique cache image links in first-seen order from a markdown window."""
 
-    assets: list[dict[str, Any]] = []
-    for block in blocks:
-        asset_ref = block.get("asset_ref")
-        if not asset_ref:
+    seen: set[str] = set()
+    paths: list[str] = []
+    for match in MARKDOWN_IMAGE_PATTERN.finditer(markdown):
+        image_path = _safe_cache_image_path(match.group(1))
+        if image_path is None or image_path in seen:
             continue
-        asset = {
-            "asset_ref": asset_ref,
-            "type": block.get("type"),
-            "locator": block.get("locator"),
-            "summary": block.get("summary"),
-            "fetch_args": {"path": path, "asset_ref": asset_ref},
-        }
-        assets.append({key: value for key, value in asset.items() if value not in (None, "")})
-    return assets
+        seen.add(image_path)
+        paths.append(image_path)
+    return paths
 
 
-def _render_read_content(
+def _markdown_window_by_lines(
     *,
-    document: ParsedDocument,
-    selected_units: list[DocumentUnit],
+    lines: list[str],
     offset: int,
     limit: int,
-    total_units: int,
-    has_more: bool,
-    next_offset: int | None,
-    contains_visual: bool,
-    content_blocks: list[dict[str, Any]],
-) -> str:
-    """Build a Claude Code-style read result: text first, metadata in tags."""
+    max_bytes: int,
+) -> tuple[str, int, bool]:
+    """Read a Claude Code-like markdown line window while honoring byte budget."""
 
-    attrs = {
-        "path": document.path,
-        "kind": document.document_kind,
-        "locator_type": document.locator_type,
-        "offset": offset,
-        "limit": limit,
-        "total_units": total_units,
-        "has_more": str(has_more).lower(),
-        "contains_visual": str(contains_visual).lower(),
-    }
-    if next_offset is not None:
-        attrs["next_offset"] = next_offset
-    attr_text = " ".join(f'{key}="{_xml_attr(value)}"' for key, value in attrs.items())
-    lines = [f"<document {attr_text}>"]
-    tag = _locator_tag(document.locator_type)
-    block_index = 0
-    for unit in selected_units:
-        lines.append(f'<{tag} n="{_xml_attr(unit.locator)}">')
-        for _ in unit.content_blocks:
-            if block_index >= len(content_blocks):
-                break
-            lines.extend(_render_read_block(content_blocks[block_index], locator_type=unit.locator_type))
-            block_index += 1
-        lines.append(f"</{tag}>")
-    lines.append("</document>")
-    return "\n".join(lines)
+    selected: list[str] = []
+    selected_bytes = 0
+    truncated_by_bytes = False
+    safe_offset = min(max(offset, 0), len(lines))
+    safe_limit = min(max(limit, 1), DOCUMENT_READ_MAX_LINES)
+    for line in lines[safe_offset : safe_offset + safe_limit]:
+        separator_bytes = 1 if selected else 0
+        next_bytes = selected_bytes + separator_bytes + len(line.encode("utf-8"))
+        if next_bytes > max_bytes:
+            truncated_by_bytes = True
+            break
+        selected.append(line)
+        selected_bytes = next_bytes
+    content = "\n".join(selected)
+    if truncated_by_bytes:
+        content = f"{content}\n[truncated]" if content else "[truncated]"
+    if content and safe_offset + len(selected) < len(lines):
+        content += "\n"
+    return content, len(selected), truncated_by_bytes
 
 
 def _next_action_hint(
@@ -538,7 +482,7 @@ def _next_action_hint(
     evidence_type: EvidenceType,
 ) -> NextActionHint:
     if evidence_type == "vision_summary" or contains_visual:
-        return "fetch_visual"
+        return "read_current"
     if unit_index + 1 < total_units:
         return "read_more"
     return "read_current"
@@ -566,6 +510,148 @@ def _find_unit_index_by_locator(
 
 def _guess_mime_type(name: str) -> str:
     return mimetypes.guess_type(name)[0] or "application/octet-stream"
+
+
+def _normalize_image_mime_type(format_name: str | None, fallback: str | None) -> str:
+    """Normalize PIL/extension image labels to API-compatible MIME strings."""
+
+    if format_name:
+        normalized = format_name.lower()
+        if normalized == "jpg":
+            normalized = "jpeg"
+        return f"image/{normalized}"
+    if fallback and fallback.startswith("image/"):
+        return "image/jpeg" if fallback == "image/jpg" else fallback
+    return "image/png"
+
+
+def _image_has_alpha(image: Image.Image) -> bool:
+    """Return whether saving as JPEG would need an explicit background."""
+
+    return image.mode in {"RGBA", "LA"} or (
+        image.mode == "P" and "transparency" in image.info
+    )
+
+
+def _encode_png(image: Image.Image) -> bytes:
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG", optimize=True, compress_level=9)
+    return buffer.getvalue()
+
+
+def _encode_jpeg(image: Image.Image, *, quality: int) -> bytes:
+    if _image_has_alpha(image):
+        # Flatten transparent images on white before lossy compression; otherwise
+        # Pillow would discard alpha with a black background in some modes.
+        rgba = image.convert("RGBA")
+        background = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+        background.alpha_composite(rgba)
+        rgb = background.convert("RGB")
+    else:
+        rgb = image.convert("RGB")
+    buffer = io.BytesIO()
+    rgb.save(buffer, format="JPEG", optimize=True, quality=quality)
+    return buffer.getvalue()
+
+
+def _resize_for_mcp_model(image: Image.Image) -> Image.Image:
+    """Constrain dimensions to the same client-side envelope Claude Code uses."""
+
+    resized = image.copy()
+    if resized.width > MCP_IMAGE_MAX_WIDTH or resized.height > MCP_IMAGE_MAX_HEIGHT:
+        resized.thumbnail(
+            (MCP_IMAGE_MAX_WIDTH, MCP_IMAGE_MAX_HEIGHT),
+            Image.Resampling.LANCZOS,
+        )
+    return resized
+
+
+def _prepare_mcp_model_image(
+    *,
+    data: bytes,
+    mime_type: str | None,
+) -> dict[str, Any]:
+    """Downsample and compress image bytes before they become MCP image content."""
+
+    if not data:
+        raise ValueError("image asset is empty")
+    with Image.open(io.BytesIO(data)) as opened_image:
+        original_format = opened_image.format
+        original_width, original_height = opened_image.size
+        normalized_mime = _normalize_image_mime_type(original_format, mime_type)
+        if (
+            len(data) <= MCP_IMAGE_TARGET_RAW_BYTES
+            and original_width <= MCP_IMAGE_MAX_WIDTH
+            and original_height <= MCP_IMAGE_MAX_HEIGHT
+        ):
+            return {
+                "data": data,
+                "mime_type": normalized_mime,
+                "metadata": {
+                    "resized": False,
+                    "original_size_bytes": len(data),
+                    "prepared_size_bytes": len(data),
+                    "original_width": original_width,
+                    "original_height": original_height,
+                    "display_width": original_width,
+                    "display_height": original_height,
+                },
+            }
+
+        resized = _resize_for_mcp_model(opened_image)
+        png_candidate = b""
+        if normalized_mime == "image/png" or _image_has_alpha(resized):
+            png_candidate = _encode_png(resized)
+            if len(png_candidate) <= MCP_IMAGE_TARGET_RAW_BYTES:
+                return {
+                    "data": png_candidate,
+                    "mime_type": "image/png",
+                    "metadata": {
+                        "resized": resized.size != (original_width, original_height),
+                        "original_size_bytes": len(data),
+                        "prepared_size_bytes": len(png_candidate),
+                        "original_width": original_width,
+                        "original_height": original_height,
+                        "display_width": resized.width,
+                        "display_height": resized.height,
+                    },
+                }
+
+        for quality in MCP_IMAGE_JPEG_QUALITIES:
+            jpeg_candidate = _encode_jpeg(resized, quality=quality)
+            if len(jpeg_candidate) <= MCP_IMAGE_TARGET_RAW_BYTES:
+                return {
+                    "data": jpeg_candidate,
+                    "mime_type": "image/jpeg",
+                    "metadata": {
+                        "resized": resized.size != (original_width, original_height),
+                        "original_size_bytes": len(data),
+                        "prepared_size_bytes": len(jpeg_candidate),
+                        "original_width": original_width,
+                        "original_height": original_height,
+                        "display_width": resized.width,
+                        "display_height": resized.height,
+                        "jpeg_quality": quality,
+                    },
+                }
+
+        smaller = resized.copy()
+        smaller.thumbnail((1000, 1000), Image.Resampling.LANCZOS)
+        compressed = _encode_jpeg(smaller, quality=MCP_IMAGE_JPEG_QUALITIES[-1])
+        return {
+            "data": compressed,
+            "mime_type": "image/jpeg",
+            "metadata": {
+                "resized": True,
+                "original_size_bytes": len(data),
+                "prepared_size_bytes": len(compressed),
+                "original_width": original_width,
+                "original_height": original_height,
+                "display_width": smaller.width,
+                "display_height": smaller.height,
+                "jpeg_quality": MCP_IMAGE_JPEG_QUALITIES[-1],
+            },
+        }
 
 
 def _asset_from_bytes(
@@ -857,10 +943,11 @@ class DocumentTooling:
     ) -> dict[str, Any]:
         if cache_dir.exists():
             shutil.rmtree(cache_dir)
-        assets_dir = cache_dir / "assets"
-        assets_dir.mkdir(parents=True, exist_ok=True)
+        images_dir = cache_dir / "images"
+        images_dir.mkdir(parents=True, exist_ok=True)
 
         serialized_assets: dict[str, Any] = {}
+        image_mapping: dict[str, str] = {}
         for asset_ref, asset in document.assets.items():
             record: dict[str, Any] = {
                 "asset_ref": asset.asset_ref,
@@ -874,9 +961,12 @@ class DocumentTooling:
             }
             if asset.data is not None:
                 asset_name = f"{_cache_safe_name(asset_ref)}{_asset_extension(asset)}"
-                asset_path = assets_dir / asset_name
+                asset_path = images_dir / asset_name
                 asset_path.write_bytes(asset.data)
-                record["cache_file"] = f"assets/{asset_name}"
+                record["cache_file"] = f"images/{asset_name}"
+                image_mapping[record["cache_file"]] = base64.b64encode(asset.data).decode(
+                    "ascii"
+                )
             serialized_assets[asset_ref] = record
 
         manifest = {
@@ -904,18 +994,65 @@ class DocumentTooling:
             ],
             "assets": serialized_assets,
         }
-        canonical_markdown, canonical_source = self._canonical_markdown(
+        fallback_markdown, canonical_source = self._canonical_markdown(
             file_path=file_path,
             document=document,
             serialized_assets=serialized_assets,
         )
+        canonical_markdown = self._render_canonical_markdown(
+            document=document,
+            serialized_assets=serialized_assets,
+        )
+        if document.document_kind == "text" and fallback_markdown.strip():
+            # Plain text/markdown sources should preserve their authored markdown
+            # instead of expanding every line into synthetic parsed-unit headings.
+            canonical_markdown = fallback_markdown
+            canonical_source = "markitdown"
+        if not canonical_markdown.strip():
+            canonical_markdown = fallback_markdown
         manifest["ingest"]["canonical_source"] = canonical_source
+        parse_result = self._local_parse_result(
+            document=document,
+            canonical_markdown=canonical_markdown,
+            image_mapping=image_mapping,
+            serialized_assets=serialized_assets,
+        )
         (cache_dir / "canonical.md").write_text(canonical_markdown, encoding="utf-8")
+        (cache_dir / LOCAL_PARSE_RESULT_FILE).write_text(
+            json.dumps(parse_result, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
         (cache_dir / "manifest.json").write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
         return manifest
+
+    def _local_parse_result(
+        self,
+        *,
+        document: ParsedDocument,
+        canonical_markdown: str,
+        image_mapping: dict[str, str],
+        serialized_assets: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Write a doc_extract-compatible local package without remote OCR dependencies."""
+
+        return {
+            "status": "success",
+            "parse_mode": "local",
+            "document": {
+                "name": Path(document.path).name,
+                "type": Path(document.path).suffix.lower(),
+                "path": document.path,
+                "document_kind": document.document_kind,
+                "segments_count": len(document.units),
+            },
+            "markdown": [canonical_markdown],
+            "image_mapping": image_mapping,
+            "layout_visualizations": {},
+            "image_paths": sorted(image_mapping),
+        }
 
     def _document_from_manifest(
         self,
@@ -1527,17 +1664,41 @@ class DocumentTooling:
         before: int | None = None,
         after: int | None = None,
     ) -> dict[str, Any]:
-        document = self.parse_document(file_path)
-        safe_cursor = max(cursor, 0)
-        requested_limit = max(limit, 1)
-        total_units = len(document.units)
+        document = self.prepare_cached_document(file_path)
+        cache_dir = self._cache_dir(file_path.resolve())
+        manifest = self._read_cached_manifest(cache_dir=cache_dir)
         requested_locator = None if locator is None else str(locator).strip()
+        requested_limit = max(limit, 1)
+        safe_limit = min(requested_limit, DOCUMENT_READ_MAX_LINES)
+
+        image_locator = _safe_cache_image_path(requested_locator)
+        if image_locator is not None:
+            return self._read_cached_image_asset(
+                file_path=file_path,
+                document=document,
+                manifest=manifest,
+                image_path=image_locator,
+                requested_limit=requested_limit,
+                safe_limit=safe_limit,
+            )
+        if document.document_kind == "image" and requested_locator is None:
+            first_image = self._first_cache_image_path(manifest=manifest)
+            if first_image is not None:
+                return self._read_cached_image_asset(
+                    file_path=file_path,
+                    document=document,
+                    manifest=manifest,
+                    image_path=first_image,
+                    requested_limit=requested_limit,
+                    safe_limit=safe_limit,
+                )
+
+        markdown = self._read_cached_markdown(cache_dir=cache_dir)
+        lines = markdown.splitlines()
+        total_lines = len(lines)
         locator_index: int | None = None
-        locator_window = False
-        requested_before = max(before or 0, 0)
-        requested_after = max(after or 0, 0)
-        applied_before = 0
-        applied_after = 0
+        matched_markdown_offset: int | None = None
+        safe_cursor = min(max(cursor, 0), total_lines)
 
         if requested_locator:
             locator_index = _find_unit_index_by_locator(document.units, requested_locator)
@@ -1545,134 +1706,266 @@ class DocumentTooling:
                 raise ValueError(
                     f"locator '{requested_locator}' does not exist for {document.path}"
                 )
-            locator_window = True
-            if before is None and after is None:
-                requested_before = DOCUMENT_READ_LOCATOR_DEFAULT_BEFORE
-                requested_after = DOCUMENT_READ_LOCATOR_DEFAULT_AFTER
-            elif after is None:
-                requested_after = max(requested_limit - 1, 0)
-            requested_span = requested_before + 1 + requested_after
-            safe_span = min(max(requested_span, 1), DOCUMENT_READ_LOCATOR_MAX_UNITS)
-            applied_before = min(requested_before, safe_span - 1, locator_index)
-            remaining_after_budget = max(safe_span - applied_before - 1, 0)
-            applied_after = min(
-                requested_after,
-                remaining_after_budget,
-                max(total_units - locator_index - 1, 0),
+            matched_markdown_offset = self._find_markdown_locator_offset(
+                document=document,
+                lines=lines,
+                unit_index=locator_index,
             )
-            safe_cursor = max(locator_index - applied_before, 0)
-            safe_limit = applied_before + 1 + applied_after
-        else:
-            safe_limit = min(requested_limit, DOCUMENT_READ_MAX_UNITS)
-        if total_units == 0:
-            return {
-                "path": document.path,
-                "document_kind": document.document_kind,
-                "locator_type": document.locator_type,
-                "offset": safe_cursor,
-                "limit": safe_limit,
-                "requested_limit": requested_limit,
-                "has_more": False,
-                "next_offset": None,
-                "total_units": 0,
-                "returned_units": 0,
-                "contains_visual": document.contains_visual,
-                "content": (
-                    f'<document path="{_xml_attr(document.path)}" '
-                    f'kind="{_xml_attr(document.document_kind)}" '
-                    f'locator_type="{_xml_attr(document.locator_type)}" '
-                    'offset="0" limit="0" total_units="0" has_more="false">'
-                    "\n</document>"
-                ),
-                "assets": [],
-            }
+            context_before = (
+                DOCUMENT_READ_LOCATOR_CONTEXT_BEFORE
+                if before is None
+                else max(before, 0)
+            )
+            safe_cursor = max((matched_markdown_offset or 0) - context_before, 0)
 
-        selected_units = document.units[safe_cursor : safe_cursor + safe_limit]
-        content_blocks: list[dict[str, Any]] = []
-        content_truncated = (
-            safe_limit != requested_limit
-            if not locator_window
-            else safe_limit != requested_before + 1 + requested_after
+        content, returned_lines, truncated_by_bytes = _markdown_window_by_lines(
+            lines=lines,
+            offset=safe_cursor,
+            limit=safe_limit,
+            max_bytes=DOCUMENT_READ_MAX_BYTES,
         )
-        for unit in selected_units:
-            for block in unit.content_blocks:
-                compact_block, block_truncated = _compact_read_block(block)
-                content_blocks.append(compact_block)
-                content_truncated = content_truncated or block_truncated
-
-        next_cursor = safe_cursor + len(selected_units)
-        has_more = next_cursor < total_units
-        next_offset = next_cursor if has_more else None
-        contains_visual = any(unit.contains_visual for unit in selected_units)
+        next_cursor = safe_cursor + returned_lines
+        has_more = next_cursor < total_lines
+        image_paths = _markdown_image_paths(content)
         payload = {
             "path": document.path,
             "document_kind": document.document_kind,
             "locator_type": document.locator_type,
+            "read_surface": "canonical_markdown",
+            "markdown_path": "canonical.md",
             "offset": safe_cursor,
             "limit": safe_limit,
             "requested_limit": requested_limit,
             "has_more": has_more,
-            "next_offset": next_offset,
-            "total_units": total_units,
-            "returned_units": len(selected_units),
-            "contains_visual": contains_visual,
-            "content": _render_read_content(
+            "next_offset": next_cursor if has_more else None,
+            "total_lines": total_lines,
+            "returned_lines": returned_lines,
+            # Keep the old unit counts as compatibility metadata, while the
+            # primary read contract above is now markdown-line based.
+            "total_units": len(document.units),
+            "returned_units": returned_lines,
+            "contains_visual": bool(image_paths),
+            "content": content,
+            "image_paths": image_paths,
+            "image_read_args": [
+                {"path": document.path, "locator": image_path}
+                for image_path in image_paths
+            ],
+            "assets": self._asset_metadata_for_image_paths(
                 document=document,
-                selected_units=selected_units,
-                offset=safe_cursor,
-                limit=safe_limit,
-                total_units=total_units,
-                has_more=has_more,
-                next_offset=next_offset,
-                contains_visual=contains_visual,
-                content_blocks=content_blocks,
+                manifest=manifest,
+                image_paths=image_paths,
             ),
-            "assets": _read_assets_from_blocks(content_blocks, path=document.path),
+            "local_parse": self._read_local_parse_summary(file_path=file_path),
         }
-        if locator_window:
+        if requested_locator:
             payload["locator"] = requested_locator
-            payload["matched_offset"] = locator_index
-        if (not locator_window and safe_limit != requested_limit) or (
-            locator_window and safe_limit != requested_before + 1 + requested_after
-        ):
+            payload["matched_offset"] = matched_markdown_offset
+            payload["matched_unit_offset"] = locator_index
+        if safe_limit != requested_limit:
             payload["limit_truncated"] = True
-
-        # Most payloads are bounded by unit and block caps. This final guard
-        # handles unusual mixed media/table documents with large metadata.
-        while (
-            len(content_blocks) > 1
-            and _content_payload_size(payload) > DOCUMENT_READ_MAX_BYTES
-        ):
-            content_blocks.pop()
-            payload["content"] = _render_read_content(
-                document=document,
-                selected_units=selected_units,
-                offset=safe_cursor,
-                limit=safe_limit,
-                total_units=total_units,
-                has_more=has_more,
-                next_offset=next_offset,
-                contains_visual=contains_visual,
-                content_blocks=content_blocks,
-            )
-            payload["assets"] = _read_assets_from_blocks(content_blocks, path=document.path)
-            payload["content_truncated"] = True
-
-        if content_truncated or payload.get("content_truncated"):
+        if truncated_by_bytes:
             payload["content_truncated"] = True
             payload["max_content_bytes"] = DOCUMENT_READ_MAX_BYTES
         return payload
 
-    def fetch_asset(self, *, file_path: Path, asset_ref: str) -> dict[str, Any]:
-        if not asset_ref.strip():
-            raise ValueError("asset_ref is required")
-        document = self.parse_document(file_path)
-        asset = document.assets.get(asset_ref)
-        if asset is None:
-            raise FileNotFoundError(
-                f"asset_ref '{asset_ref}' does not exist for {document.path}"
+    def _read_cached_manifest(self, *, cache_dir: Path) -> dict[str, Any]:
+        """Load the cache manifest after `prepare_cached_document` has made it fresh."""
+
+        manifest_path = cache_dir / "manifest.json"
+        if not manifest_path.exists():
+            raise FileNotFoundError(f"cached manifest does not exist: {manifest_path}")
+        return json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    def _read_cached_markdown(self, *, cache_dir: Path) -> str:
+        """Use the cached canonical markdown as the single document_read text surface."""
+
+        markdown_path = cache_dir / "canonical.md"
+        if markdown_path.exists():
+            return markdown_path.read_text(encoding="utf-8")
+        parse_path = cache_dir / LOCAL_PARSE_RESULT_FILE
+        if parse_path.exists():
+            parsed = json.loads(parse_path.read_text(encoding="utf-8"))
+            markdown = parsed.get("markdown")
+            if isinstance(markdown, list):
+                return "\n\n".join(str(page) for page in markdown)
+        return ""
+
+    def _find_markdown_locator_offset(
+        self,
+        *,
+        document: ParsedDocument,
+        lines: list[str],
+        unit_index: int,
+    ) -> int:
+        """Map a source locator to the nearest canonical-markdown line offset."""
+
+        unit = document.units[unit_index]
+        heading = f"## {_locator_heading(unit.locator_type, unit.locator)}"
+        for index, line in enumerate(lines):
+            if line.strip() == heading:
+                return index
+        preview = unit.preview_text.strip()
+        if preview:
+            for index, line in enumerate(lines):
+                if preview in line:
+                    return index
+        if unit.locator_type == "line":
+            try:
+                # MarkItDown/text canonical output prepends "# path" and one
+                # blank line, so a one-based source line starts two lines later.
+                return max(int(unit.locator) + 1, 0)
+            except (TypeError, ValueError):
+                return unit_index
+        return unit_index
+
+    def _asset_record_for_image_path(
+        self,
+        *,
+        document: ParsedDocument,
+        manifest: dict[str, Any],
+        image_path: str,
+    ) -> tuple[str, dict[str, Any], DocumentAsset] | None:
+        """Resolve a markdown `images/...` link back to its cached asset bytes."""
+
+        for asset_ref, record in (manifest.get("assets") or {}).items():
+            if not isinstance(record, dict) or record.get("cache_file") != image_path:
+                continue
+            asset = document.assets.get(str(asset_ref))
+            if asset is None:
+                return None
+            return str(asset_ref), record, asset
+        return None
+
+    def _first_cache_image_path(self, *, manifest: dict[str, Any]) -> str | None:
+        """Return the first markdown image cache path for source-image reads."""
+
+        for record in (manifest.get("assets") or {}).values():
+            if not isinstance(record, dict) or record.get("kind") != "image":
+                continue
+            image_path = _safe_cache_image_path(record.get("cache_file"))
+            if image_path is not None:
+                return image_path
+        return None
+
+    def _asset_metadata_for_image_paths(
+        self,
+        *,
+        document: ParsedDocument,
+        manifest: dict[str, Any],
+        image_paths: list[str],
+    ) -> list[dict[str, Any]]:
+        """Return cache-path metadata without inlining image bytes into JSON."""
+
+        assets: list[dict[str, Any]] = []
+        for image_path in image_paths:
+            resolved = self._asset_record_for_image_path(
+                document=document,
+                manifest=manifest,
+                image_path=image_path,
             )
-        return asset.fetch_payload(path=document.path)
+            if resolved is None:
+                continue
+            asset_ref, _record, asset = resolved
+            assets.append(
+                {
+                    "asset_ref": asset_ref,
+                    "type": asset.kind,
+                    "image_path": image_path,
+                    "summary": asset.summary,
+                    "mime_type": asset.mime_type,
+                    "size_bytes": asset.size_bytes,
+                    "width": asset.width,
+                    "height": asset.height,
+                }
+            )
+        return assets
+
+    def _read_cached_image_asset(
+        self,
+        *,
+        file_path: Path,
+        document: ParsedDocument,
+        manifest: dict[str, Any],
+        image_path: str,
+        requested_limit: int,
+        safe_limit: int,
+    ) -> dict[str, Any]:
+        """Read one cached markdown image path through the same document_read tool."""
+
+        resolved = self._asset_record_for_image_path(
+            document=document,
+            manifest=manifest,
+            image_path=image_path,
+        )
+        if resolved is None:
+            raise FileNotFoundError(
+                f"image path '{image_path}' does not exist for {document.path}"
+            )
+        asset_ref, _record, asset = resolved
+        if asset.kind != "image" or asset.data is None:
+            raise ValueError(f"image path '{image_path}' is not a readable image asset")
+        model_payload = asset.model_image_payload(path=document.path)
+        content = f"![{asset.summary}]({image_path})\n\nImage asset for {document.path}: {asset.summary}"
+        return {
+            "path": document.path,
+            "document_kind": document.document_kind,
+            "locator_type": document.locator_type,
+            "read_surface": "cached_image",
+            "markdown_path": "canonical.md",
+            "locator": image_path,
+            "asset_ref": asset_ref,
+            "offset": 0,
+            "limit": safe_limit,
+            "requested_limit": requested_limit,
+            "has_more": False,
+            "next_offset": None,
+            "total_lines": len(content.splitlines()),
+            "returned_lines": len(content.splitlines()),
+            "total_units": len(document.units),
+            "returned_units": 1,
+            "contains_visual": True,
+            "content": content,
+            "image_paths": [image_path],
+            "assets": self._asset_metadata_for_image_paths(
+                document=document,
+                manifest=manifest,
+                image_paths=[image_path],
+            ),
+            "mcp_images": [
+                {
+                    "asset_ref": asset_ref,
+                    "image_path": image_path,
+                    "mime_type": model_payload.get("mime_type") or asset.mime_type or "image/png",
+                    "content_base64": model_payload["content_base64"],
+                    "model_image": model_payload.get("model_image") or {},
+                }
+            ],
+            "local_parse": self._read_local_parse_summary(file_path=file_path),
+        }
+
+    def _read_local_parse_summary(self, *, file_path: Path) -> dict[str, Any]:
+        """Expose markdown/image paths while keeping large base64 in the cache file."""
+
+        cache_dir = self._cache_dir(file_path.resolve())
+        parse_result_path = cache_dir / LOCAL_PARSE_RESULT_FILE
+        image_paths: list[str] = []
+        if parse_result_path.exists():
+            try:
+                parsed = json.loads(parse_result_path.read_text(encoding="utf-8"))
+                images = parsed.get("image_paths")
+                if isinstance(images, list):
+                    image_paths = [str(item) for item in images if str(item).strip()]
+            except Exception:
+                image_paths = []
+        return {
+            "format": "doc_extract_local_v1",
+            "parse_mode": "local",
+            "markdown_path": "canonical.md",
+            "parse_result_path": LOCAL_PARSE_RESULT_FILE,
+            "image_root": "images",
+            "image_paths": image_paths,
+        }
 
     def _parse_text_document(self, *, file_path: Path, path: str) -> ParsedDocument:
         lines = file_path.read_text(encoding="utf-8", errors="ignore").splitlines()

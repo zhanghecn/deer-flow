@@ -14,6 +14,7 @@ from urllib import request as urllib_request
 from fastapi import Body, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ImageContent, TextContent
 from starlette.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -42,6 +43,7 @@ MCP_CLIENT_INFO = {
     "name": "openagents-mcp-workbench",
     "version": "0.1.0",
 }
+DOCUMENT_READ_MCP_IMAGE_LIMIT = 4
 ALLOWED_ORIGINS = [
     item.strip()
     for item in os.getenv(
@@ -179,6 +181,26 @@ def _coerce_json_text(value: Any) -> Any:
         return value
 
 
+def _coerce_mcp_content_result(call_result: dict[str, Any]) -> Any:
+    """Prefer the JSON text block when a multimodal MCP result has images too."""
+
+    return _coerce_mcp_content_items(call_result.get("content"))
+
+
+def _coerce_mcp_content_items(content: Any) -> Any:
+    """Extract JSON from MCP content lists while leaving image blocks in raw_result."""
+
+    if not isinstance(content, list):
+        return None
+    for item in content:
+        if not isinstance(item, dict) or item.get("type") != "text":
+            continue
+        text = item.get("text")
+        if isinstance(text, str):
+            return _coerce_json_text(text)
+    return None
+
+
 def _scan_mcp_server(*, mcp_url: str) -> dict[str, Any]:
     """Probe one colocated MCP endpoint using the same discovery steps as real clients."""
 
@@ -231,7 +253,13 @@ def _call_mcp_tool(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         if isinstance(structured_content, dict) and "result" in structured_content
         else None
     )
-    normalized_result = _coerce_json_text(result_payload)
+    # FastMCP mirrors list content into structuredContent.result; the workbench
+    # should display the JSON payload while raw_result keeps the image blocks.
+    normalized_result = _coerce_mcp_content_items(result_payload)
+    if normalized_result is None:
+        normalized_result = _coerce_json_text(result_payload)
+    if normalized_result is None:
+        normalized_result = _coerce_mcp_content_result(call_result)
 
     return {
         "tool_name": tool_name,
@@ -279,6 +307,46 @@ def _normalize_tool_arguments(tool_name: str, arguments: dict[str, Any]) -> dict
     return normalized
 
 
+def _document_read_mcp_content(payload: dict[str, Any]) -> list[TextContent | ImageContent]:
+    """Return JSON plus explicit image blocks for cached-image read requests."""
+
+    text_payload = dict(payload)
+    mcp_images = text_payload.pop("mcp_images", None)
+    if isinstance(mcp_images, list) and mcp_images:
+        # Keep compression evidence visible in the JSON preview without putting
+        # base64 bytes into the text block that the model also receives.
+        text_payload["model_images"] = [
+            {
+                key: image.get(key)
+                for key in ("asset_ref", "image_path", "mime_type", "model_image")
+                if isinstance(image, dict) and image.get(key) is not None
+            }
+            for image in mcp_images
+            if isinstance(image, dict)
+        ]
+    image_blocks: list[ImageContent] = []
+    for image in mcp_images or []:
+        if not isinstance(image, dict):
+            continue
+        base64_data = image.get("content_base64")
+        if not isinstance(base64_data, str) or not base64_data:
+            continue
+        image_blocks.append(
+            ImageContent(
+                type="image",
+                data=base64_data,
+                mimeType=str(image.get("mime_type") or "image/png"),
+            )
+        )
+        if len(image_blocks) >= DOCUMENT_READ_MCP_IMAGE_LIMIT:
+            break
+
+    return [
+        TextContent(type="text", text=service.tool_payload_json(text_payload)),
+        *image_blocks,
+    ]
+
+
 def _register_document_tools(server: FastMCP) -> None:
     """Bind the unified document contract to one MCP surface."""
 
@@ -320,10 +388,10 @@ def _register_document_tools(server: FastMCP) -> None:
     def document_read(
         path: str,
         offset: int = 0,
-        limit: int = 3,
+        limit: int = 2000,
         locator: str = "",
-    ) -> str:
-        """Read one document window using offsets or a search-result locator."""
+    ) -> list[TextContent | ImageContent]:
+        """Read cached markdown, or read an images/... locator as multimodal content."""
 
         payload = service.document_read_payload(
             path=path,
@@ -331,17 +399,7 @@ def _register_document_tools(server: FastMCP) -> None:
             limit=limit,
             locator=locator or None,
         )
-        return service.tool_payload_json(payload)
-
-    @server.tool()
-    def document_fetch_asset(path: str, asset_ref: str) -> str:
-        """Fetch one visual asset returned by `document_read`."""
-
-        payload = service.document_fetch_asset_payload(
-            path=path,
-            asset_ref=asset_ref,
-        )
-        return service.tool_payload_json(payload)
+        return _document_read_mcp_content(payload)
 
 
 _register_document_tools(mcp)

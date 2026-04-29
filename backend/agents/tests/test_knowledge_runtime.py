@@ -496,7 +496,7 @@ def test_knowledge_context_middleware_does_not_retry_grounded_evidence_answer_wi
     request = ModelRequest(
         model=object(),
         messages=[HumanMessage(content=user_input)],
-        tools=[_tool("get_document_tree"), _tool("get_document_evidence"), _tool("view_image")],
+        tools=[_tool("get_document_tree"), _tool("get_document_evidence"), _tool("read_file")],
         state={
             "messages": [
                 HumanMessage(content=user_input),
@@ -555,7 +555,7 @@ def test_knowledge_context_middleware_does_not_retry_inline_asset_without_struct
     request = ModelRequest(
         model=object(),
         messages=[HumanMessage(content=user_input)],
-        tools=[_tool("get_document_tree"), _tool("get_document_evidence"), _tool("view_image")],
+        tools=[_tool("get_document_tree"), _tool("get_document_evidence"), _tool("read_file")],
         state={
             "messages": [
                 HumanMessage(content=user_input),

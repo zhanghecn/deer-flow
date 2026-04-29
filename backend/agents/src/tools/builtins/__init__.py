@@ -5,14 +5,13 @@ from .knowledge_tools import (
     get_document_tree,
     get_document_tree_node_detail,
 )
+from .present_file_tool import present_file_tool
 from .push_agent_prod_tool import push_agent_prod
 from .push_skill_prod_tool import push_skill_prod
-from .present_file_tool import present_file_tool
 from .question_tool import question_tool
 from .save_agent_to_store_tool import save_agent_to_store
 from .save_skill_to_store_tool import save_skill_to_store
 from .setup_agent_tool import setup_agent
-from .view_image_tool import view_image_tool
 
 __all__ = [
     "setup_agent",
@@ -27,5 +26,4 @@ __all__ = [
     "push_skill_prod",
     "present_file_tool",
     "question_tool",
-    "view_image_tool",
 ]

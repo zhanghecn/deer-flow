@@ -15,7 +15,9 @@ services:
     environment:
       MCP_WORKBENCH_HOST: 0.0.0.0
       MCP_WORKBENCH_PORT: 8090
-      MCP_WORKBENCH_PUBLIC_BASE_URL: ${MCP_WORKBENCH_PUBLIC_BASE_URL:-}
+      # Source links are shown in the browser; default to the gateway origin,
+      # not the internal uvicorn port used between containers.
+      MCP_WORKBENCH_PUBLIC_BASE_URL: ${MCP_WORKBENCH_PUBLIC_BASE_URL:-http://127.0.0.1:8084}
       MCP_WORKBENCH_DATA_DIR: /data/files
       MCP_WORKBENCH_ALLOWED_ORIGINS: ${MCP_WORKBENCH_ALLOWED_ORIGINS:-*}
     volumes:

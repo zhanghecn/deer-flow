@@ -1,10 +1,12 @@
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages.content import create_image_block
 
 from src.observability.callbacks import (
     AgentTraceCallbackHandler,
+    _extract_model_image_inputs,
     _extract_model_request_context,
     _serialize_message,
     _shrink,
@@ -117,6 +119,130 @@ def test_record_system_event_persists_context_window_snapshot():
     assert payload["context_window"]["usage_ratio"] == 0.72
     assert payload["context_window"]["summary_applied"] is True
     assert store.append_event.call_args.kwargs["run_type"] == "system"
+
+
+def test_chat_model_start_records_image_input_system_event_without_base64_duplication():
+    store = MagicMock()
+    run_id = uuid4()
+
+    with patch("src.observability.callbacks.get_trace_store", return_value=store):
+        callback = AgentTraceCallbackHandler(
+            trace_id=str(uuid4()),
+            user_id=None,
+            thread_id="thread-1",
+            agent_name="lead_agent",
+            model_name="kimi-k2.5-1",
+        )
+
+    callback.on_chat_model_start(
+        {"name": "ChatModel"},
+        [
+            [
+                HumanMessage(
+                    content=[
+                        {
+                            "type": "text",
+                            "text": "Attached uploaded image for visual inspection: demo.png (image/png, 10 KB, 20x20)",
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": "data:image/png;base64,QUJDREVGRw==",
+                            },
+                        },
+                    ]
+                )
+            ]
+        ],
+        run_id=run_id,
+    )
+
+    append_calls = store.append_event.call_args_list
+    assert append_calls[0].kwargs["run_type"] == "system"
+    assert append_calls[0].kwargs["node_name"] == "ModelImageInputs"
+    payload = append_calls[0].kwargs["payload"]["model_image_inputs"]
+    assert payload["count"] == 1
+    assert payload["images"][0]["source"] == "uploaded_attachment"
+    assert payload["images"][0]["mime_type"] == "image/png"
+    assert payload["images"][0]["base64_bytes"] == len("QUJDREVGRw==")
+    assert payload["images"][0]["data_omitted"] is True
+    assert "QUJDREVGRw==" not in str(payload)
+    llm_payload = append_calls[1].kwargs["payload"]
+    assert "QUJDREVGRw==" not in str(llm_payload)
+    assert llm_payload["model_request"]["messages"][0]["content"][1]["image_url"]["data_omitted"] is True
+    assert append_calls[1].kwargs["run_type"] == "llm"
+
+
+def test_shrink_redacts_stringified_mcp_image_content_fields():
+    image_data = "A" * 1024
+    tool_message_repr = (
+        "content=[{'type': 'text', 'text': '{}'}, "
+        "{'type': 'image', 'data': '" + image_data + "', 'mimeType': 'image/png'}]"
+    )
+
+    result = _shrink(tool_message_repr, max_string_len=4096)
+
+    assert image_data not in result
+    assert "[omitted 1024 base64 bytes]" in result
+    assert "'mimeType': 'image/png'" in result
+
+
+def test_chat_model_start_classifies_read_file_image_blocks_without_base64_duplication():
+    store = MagicMock()
+    run_id = uuid4()
+
+    with patch("src.observability.callbacks.get_trace_store", return_value=store):
+        callback = AgentTraceCallbackHandler(
+            trace_id=str(uuid4()),
+            user_id=None,
+            thread_id="thread-1",
+            agent_name="lead_agent",
+            model_name="kimi-k2.5-1",
+        )
+
+    callback.on_chat_model_start(
+        {"name": "ChatModel"},
+        [
+            [
+                ToolMessage(
+                    content=[create_image_block(base64="QUJDREVGRw==", mime_type="image/png")],
+                    name="read_file",
+                    tool_call_id="read-image-1",
+                )
+            ]
+        ],
+        run_id=run_id,
+    )
+
+    payload = store.append_event.call_args_list[0].kwargs["payload"]["model_image_inputs"]
+    assert payload["images"][0]["source"] == "read_file_image"
+    assert payload["images"][0]["tool_name"] == "read_file"
+    assert payload["images"][0]["transport"] == "base64"
+    assert payload["images"][0]["base64_bytes"] == len("QUJDREVGRw==")
+    assert "QUJDREVGRw==" not in str(payload)
+
+
+def test_model_image_inputs_classifies_mcp_tool_result_image_blocks():
+    payload = _extract_model_image_inputs(
+        [
+            {
+                "role": "tool",
+                "name": "mcp__docs__document_read",
+                "content": [
+                    {
+                        "type": "image",
+                        "base64": "QUJDREVGRw==",
+                        "mime_type": "image/png",
+                    }
+                ],
+            }
+        ]
+    )
+
+    assert payload is not None
+    assert payload["images"][0]["source"] == "mcp_tool_result"
+    assert payload["images"][0]["tool_name"] == "mcp__docs__document_read"
+    assert payload["images"][0]["data_omitted"] is True
 
 
 def test_on_chain_end_records_context_window_system_event_from_direct_output():

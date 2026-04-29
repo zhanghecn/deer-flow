@@ -5,16 +5,17 @@ from collections.abc import Iterable
 from time import perf_counter
 from typing import Literal
 
+from deepagents.middleware.filesystem import FilesystemMiddleware
 from fastapi import APIRouter
 from langchain.agents.middleware.todo import TodoListMiddleware
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from deepagents.middleware.filesystem import FilesystemMiddleware
 from src.config.app_config import load_tool_configs
 from src.mcp.library import validate_mcp_profile_payload
 from src.mcp.tools import get_mcp_tools_for_extensions_config
 from src.reflection import resolve_variable
+from src.tools.builtins import setup_agent
 from src.tools.tools import (
     AUTHORING_TOOL_REGISTRY,
     COMPATIBILITY_BUILTIN_TOOLS,
@@ -22,7 +23,6 @@ from src.tools.tools import (
     DEV_BUILTIN_TOOLS,
     MAIN_AGENT_ONLY_TOOL_NAMES,
 )
-from src.tools.builtins import setup_agent, view_image_tool
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/tools", tags=["tools"])
@@ -153,8 +153,6 @@ def _group_for_builtin_tool(name: str) -> str:
         return "interaction"
     if name.startswith("get_document_"):
         return "knowledge"
-    if name == "view_image":
-        return "preview"
     if name in {
         "install_skill_from_registry",
         "save_agent_to_store",
@@ -203,7 +201,7 @@ def _append_catalog_item(
 def _iter_builtin_tools() -> Iterable[tuple[BaseTool, dict[str, object]]]:
     yielded: set[str] = set()
 
-    for tool in [*DEFAULT_BUILTIN_TOOLS, *COMPATIBILITY_BUILTIN_TOOLS, view_image_tool]:
+    for tool in [*DEFAULT_BUILTIN_TOOLS, *COMPATIBILITY_BUILTIN_TOOLS]:
         if tool.name in yielded:
             continue
         yielded.add(tool.name)

@@ -7,6 +7,7 @@ Covers:
   additional_kwargs, historical files from uploads dir, edge-cases)
 """
 
+import base64
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -16,6 +17,7 @@ from src.agents.middlewares.uploads_middleware import UploadsMiddleware
 from src.config.paths import Paths
 
 THREAD_ID = "thread-abc123"
+TINY_PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC")
 
 
 # ---------------------------------------------------------------------------
@@ -23,8 +25,8 @@ THREAD_ID = "thread-abc123"
 # ---------------------------------------------------------------------------
 
 
-def _middleware(tmp_path: Path) -> UploadsMiddleware:
-    return UploadsMiddleware(base_dir=str(tmp_path))
+def _middleware(tmp_path: Path, *, model_supports_vision: bool = False) -> UploadsMiddleware:
+    return UploadsMiddleware(base_dir=str(tmp_path), model_supports_vision=model_supports_vision)
 
 
 def _runtime(thread_id: str | None = THREAD_ID) -> MagicMock:
@@ -324,6 +326,81 @@ class TestBeforeAgent:
         updated_kwargs = result["messages"][-1].additional_kwargs
         assert updated_kwargs.get("files") == files_meta
         assert updated_kwargs.get("element") == "task"
+
+    def test_vision_model_inlines_current_uploaded_image_block(self, tmp_path):
+        mw = _middleware(tmp_path, model_supports_vision=True)
+        uploads_dir = _uploads_dir(tmp_path)
+        (uploads_dir / "chart.png").write_bytes(TINY_PNG)
+
+        msg = _human(
+            "请识别这张图",
+            files=[
+                {
+                    "filename": "chart.png",
+                    "size": len(TINY_PNG),
+                    "path": "/mnt/user-data/uploads/chart.png",
+                    "mime_type": "image/png",
+                }
+            ],
+        )
+        result = mw.before_agent(self._state(msg), _runtime())
+
+        assert result is not None
+        updated_msg = result["messages"][-1]
+        assert isinstance(updated_msg.content, list)
+        assert updated_msg.content[0]["type"] == "text"
+        assert "<uploaded_files>" in updated_msg.content[0]["text"]
+        assert "请识别这张图" in updated_msg.content[0]["text"]
+        image_blocks = [block for block in updated_msg.content if block.get("type") == "image_url"]
+        assert len(image_blocks) == 1
+        assert image_blocks[0]["image_url"]["url"].startswith("data:image/png;base64,")
+        assert base64.b64encode(TINY_PNG).decode("ascii") in image_blocks[0]["image_url"]["url"]
+
+    def test_non_vision_model_keeps_image_upload_as_text_context_only(self, tmp_path):
+        mw = _middleware(tmp_path, model_supports_vision=False)
+        uploads_dir = _uploads_dir(tmp_path)
+        (uploads_dir / "chart.png").write_bytes(TINY_PNG)
+
+        msg = _human(
+            "请识别这张图",
+            files=[
+                {
+                    "filename": "chart.png",
+                    "size": len(TINY_PNG),
+                    "path": "/mnt/user-data/uploads/chart.png",
+                    "mime_type": "image/png",
+                }
+            ],
+        )
+        result = mw.before_agent(self._state(msg), _runtime())
+
+        assert result is not None
+        updated_msg = result["messages"][-1]
+        assert isinstance(updated_msg.content, str)
+        assert "chart.png" in updated_msg.content
+        assert "image content is attached inline" in updated_msg.content
+
+    def test_preserves_existing_non_text_blocks_when_injecting_upload_context(self, tmp_path):
+        mw = _middleware(tmp_path)
+        uploads_dir = _uploads_dir(tmp_path)
+        (uploads_dir / "data.csv").write_bytes(b"a,b")
+        existing_image = {
+            "type": "image_url",
+            "image_url": {"url": "data:image/png;base64,abc"},
+        }
+
+        msg = _human(
+            [{"type": "text", "text": "analyse this"}, existing_image],
+            files=[{"filename": "data.csv", "size": 3, "path": "/mnt/user-data/uploads/data.csv"}],
+        )
+        result = mw.before_agent(self._state(msg), _runtime())
+
+        assert result is not None
+        content = result["messages"][-1].content
+        assert isinstance(content, list)
+        assert content[0]["type"] == "text"
+        assert "<uploaded_files>" in content[0]["text"]
+        assert existing_image in content
 
     def test_uploaded_files_returned_in_state_update(self, tmp_path):
         mw = _middleware(tmp_path)
