@@ -2,6 +2,8 @@ package model
 
 import (
 	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -132,39 +134,88 @@ type Agent struct {
 }
 
 type AgentRuntimeMiddlewares struct {
-	Filesystem bool `json:"filesystem" yaml:"filesystem"`
+	Disabled []string `json:"disabled" yaml:"disabled"`
 }
 
-func (m *AgentRuntimeMiddlewares) applyDefaults(filesystem *bool) {
-	m.Filesystem = true
-	if filesystem != nil {
-		m.Filesystem = *filesystem
+func normalizeMiddlewareNames(values []string) []string {
+	normalized := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, rawValue := range values {
+		name := strings.TrimSpace(rawValue)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		normalized = append(normalized, name)
+		seen[name] = struct{}{}
 	}
+	return normalized
 }
 
 func (m *AgentRuntimeMiddlewares) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if _, ok := raw["filesystem"]; ok {
+		return fmt.Errorf("runtime_middlewares.filesystem is deprecated; use runtime_middlewares.disabled")
+	}
+	for key := range raw {
+		if key != "disabled" {
+			return fmt.Errorf("runtime_middlewares.%s is not supported; use runtime_middlewares.disabled", key)
+		}
+	}
 	var payload struct {
-		Filesystem *bool `json:"filesystem"`
+		Disabled []string `json:"disabled"`
 	}
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return err
 	}
-	// Empty objects preserve the product default instead of accidentally
-	// disabling every filesystem runtime tool through Go's false zero value.
-	m.applyDefaults(payload.Filesystem)
+	// The default contract is "all runtime middlewares enabled"; only this
+	// deny-list is persisted so future middleware stays on until explicitly
+	// disabled by the operator.
+	m.Disabled = normalizeMiddlewareNames(payload.Disabled)
 	return nil
 }
 
 func (m *AgentRuntimeMiddlewares) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.MappingNode {
+		for index := 0; index+1 < len(value.Content); index += 2 {
+			if value.Content[index].Value == "filesystem" {
+				return fmt.Errorf("runtime_middlewares.filesystem is deprecated; use runtime_middlewares.disabled")
+			}
+			if value.Content[index].Value != "disabled" {
+				return fmt.Errorf(
+					"runtime_middlewares.%s is not supported; use runtime_middlewares.disabled",
+					value.Content[index].Value,
+				)
+			}
+		}
+	}
 	var payload struct {
-		Filesystem *bool `yaml:"filesystem"`
+		Disabled []string `yaml:"disabled"`
 	}
 	if err := value.Decode(&payload); err != nil {
 		return err
 	}
-	// Archived YAML follows the same defaulting contract as JSON API input.
-	m.applyDefaults(payload.Filesystem)
+	// Archived YAML follows the same deny-list contract as JSON API input.
+	m.Disabled = normalizeMiddlewareNames(payload.Disabled)
 	return nil
+}
+
+func (m *AgentRuntimeMiddlewares) MiddlewareEnabled(name string) bool {
+	normalizedName := strings.TrimSpace(name)
+	if normalizedName == "" {
+		return true
+	}
+	for _, disabledName := range m.Disabled {
+		if disabledName == normalizedName {
+			return false
+		}
+	}
+	return true
 }
 
 type AgentSubagentDefaults struct {

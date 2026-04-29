@@ -38,10 +38,7 @@ import {
   type ToolCatalogItem,
 } from "@/core/agents";
 import { discoverMCPProfiles } from "@/core/mcp/api";
-import type {
-  MCPProfile,
-  MCPProfileDiscoveryResult,
-} from "@/core/mcp/types";
+import type { MCPProfile, MCPProfileDiscoveryResult } from "@/core/mcp/types";
 import type { Model } from "@/core/models/types";
 import { getLocalizedSkillDescription } from "@/core/skills";
 import {
@@ -94,6 +91,80 @@ interface CapabilitiesTabProps {
   mcpProfilesError: unknown;
   mcpProfileQuery: string;
   onMcpProfileQueryChange: (query: string) => void;
+}
+
+type RuntimeMiddlewareGroup = {
+  name: string;
+  title: string;
+  description: string;
+  tools: ToolCatalogItem[];
+  configurable: boolean;
+};
+
+function getRuntimeMiddlewareName(tool: ToolCatalogItem) {
+  return tool.middleware_name?.trim() || tool.group.trim() || "runtime";
+}
+
+function formatMiddlewareTitle(name: string) {
+  const words = name
+    .split(/[-_\s]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (words.length === 0) {
+    return "Runtime middleware";
+  }
+
+  return `${words
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ")} middleware`;
+}
+
+function buildRuntimeMiddlewareGroups(
+  tools: ToolCatalogItem[],
+  text: AgentSettingsPageText,
+): RuntimeMiddlewareGroup[] {
+  const groupedTools = new Map<string, ToolCatalogItem[]>();
+
+  for (const tool of tools) {
+    const middlewareName = getRuntimeMiddlewareName(tool);
+    groupedTools.set(middlewareName, [
+      ...(groupedTools.get(middlewareName) ?? []),
+      tool,
+    ]);
+  }
+
+  return [...groupedTools.entries()]
+    .map(([name, groupTools]) => ({
+      name,
+      title: formatMiddlewareTitle(name),
+      description: text.middlewareGroupDescription(groupTools.length),
+      tools: groupTools,
+      configurable: groupTools.some(
+        (tool) => tool.middleware_configurable === true,
+      ),
+    }))
+    .sort((left, right) => left.title.localeCompare(right.title));
+}
+
+function setRuntimeMiddlewareEnabled(
+  form: AgentSettingsFormState,
+  middlewareName: string,
+  enabled: boolean,
+): AgentSettingsFormState {
+  const disabled = new Set(form.runtimeMiddlewares.disabled);
+  if (enabled) {
+    disabled.delete(middlewareName);
+  } else {
+    disabled.add(middlewareName);
+  }
+
+  return {
+    ...form,
+    runtimeMiddlewares: {
+      disabled: [...disabled].sort((left, right) => left.localeCompare(right)),
+    },
+  };
 }
 
 let draftSubagentCounter = 0;
@@ -500,21 +571,9 @@ function ToolsSection({
       ),
     [fullToolCatalog],
   );
-  const filesystemTools = useMemo(
-    () =>
-      runtimeInjectedTools.filter(
-        (tool) =>
-          tool.middleware_name === "filesystem" || tool.group === "filesystem",
-      ),
-    [runtimeInjectedTools],
-  );
-  const otherRuntimeTools = useMemo(
-    () =>
-      runtimeInjectedTools.filter(
-        (tool) =>
-          tool.middleware_name !== "filesystem" && tool.group !== "filesystem",
-      ),
-    [runtimeInjectedTools],
+  const runtimeMiddlewareGroups = useMemo(
+    () => buildRuntimeMiddlewareGroups(runtimeInjectedTools, text),
+    [runtimeInjectedTools, text],
   );
 
   if (!expanded) {
@@ -593,30 +652,38 @@ function ToolsSection({
               </p>
             ) : (
               <div className="space-y-4">
-                {filesystemTools.length > 0 && (
-                  <MiddlewareToolGroup
-                    title={text.filesystemMiddlewareTitle}
-                    description={text.filesystemMiddlewareDescription}
-                    tools={filesystemTools}
-                    enabled={form.runtimeMiddlewares.filesystem}
-                    text={text}
-                    onEnabledChange={(checked) =>
-                      onFormChange((current) =>
-                        current
-                          ? {
-                              ...current,
-                              runtimeMiddlewares: {
-                                ...current.runtimeMiddlewares,
-                                filesystem: checked,
-                              },
-                            }
-                          : current,
-                      )
-                    }
-                  />
-                )}
-                {otherRuntimeTools.length > 0 && (
-                  <RuntimeToolList tools={otherRuntimeTools} text={text} />
+                {runtimeMiddlewareGroups.map((group) =>
+                  group.configurable ? (
+                    <MiddlewareToolGroup
+                      key={group.name}
+                      title={group.title}
+                      description={group.description}
+                      tools={group.tools}
+                      enabled={
+                        !form.runtimeMiddlewares.disabled.includes(group.name)
+                      }
+                      text={text}
+                      onEnabledChange={(checked) =>
+                        onFormChange((current) =>
+                          current
+                            ? setRuntimeMiddlewareEnabled(
+                                current,
+                                group.name,
+                                checked,
+                              )
+                            : current,
+                        )
+                      }
+                    />
+                  ) : (
+                    <RuntimeToolList
+                      key={group.name}
+                      title={group.title}
+                      description={group.description}
+                      tools={group.tools}
+                      text={text}
+                    />
+                  ),
                 )}
               </div>
             )}
@@ -671,40 +738,53 @@ function MiddlewareToolGroup({
 }
 
 function RuntimeToolList({
+  title,
+  description,
   tools,
   text,
 }: {
+  title: string;
+  description: string;
   tools: ToolCatalogItem[];
   text: AgentSettingsPageText;
 }) {
   return (
-    <div className="grid gap-3">
-      {tools.map((tool) => (
-        <div
-          key={tool.name}
-          className="border-border/70 bg-muted/15 rounded-3xl border px-4 py-3"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="text-sm font-medium">{tool.label}</p>
-                <Badge variant="outline">{text.runtimeInjectedBadge}</Badge>
+    <div className="border-border/70 bg-muted/15 rounded-3xl border px-4 py-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-sm font-medium">{title}</p>
+        <Badge variant="outline">{text.runtimeInjectedBadge}</Badge>
+      </div>
+      <p className="text-muted-foreground mt-1 text-xs leading-5">
+        {description}
+      </p>
+      <div className="mt-3 grid gap-3">
+        {tools.map((tool) => (
+          <div
+            key={tool.name}
+            className="border-border/70 bg-background rounded-2xl border px-4 py-3"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-medium">{tool.label}</p>
+                  <Badge variant="outline">{text.runtimeInjectedBadge}</Badge>
+                </div>
+                <p className="text-muted-foreground mt-1 text-xs leading-5">
+                  {tool.description}
+                </p>
               </div>
-              <p className="text-muted-foreground mt-1 text-xs leading-5">
-                {tool.description}
-              </p>
+              <code className="text-muted-foreground shrink-0 text-[11px]">
+                {tool.name}
+              </code>
             </div>
-            <code className="text-muted-foreground shrink-0 text-[11px]">
-              {tool.name}
-            </code>
+            {tool.read_only_reason ? (
+              <p className="text-muted-foreground mt-3 text-xs leading-5">
+                {tool.read_only_reason}
+              </p>
+            ) : null}
           </div>
-          {tool.read_only_reason ? (
-            <p className="text-muted-foreground mt-3 text-xs leading-5">
-              {tool.read_only_reason}
-            </p>
-          ) : null}
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
@@ -1154,11 +1234,7 @@ function MCPSection({
     const query = mcpProfileQuery.trim().toLowerCase();
     if (!query) return mcpProfiles;
     return mcpProfiles.filter((profile) =>
-      [
-        profile.name,
-        profile.server_name,
-        profile.source_path ?? "",
-      ]
+      [profile.name, profile.server_name, profile.source_path ?? ""]
         .join(" ")
         .toLowerCase()
         .includes(query),
@@ -1169,7 +1245,9 @@ function MCPSection({
     const profileByRef = new Map(
       mcpProfiles
         .map((profile) => [mcpProfileRef(profile), profile] as const)
-        .filter((entry): entry is readonly [string, MCPProfile] => entry[0] != null),
+        .filter(
+          (entry): entry is readonly [string, MCPProfile] => entry[0] != null,
+        ),
     );
 
     // Preserve the persisted selection order so the discovery panel mirrors the
@@ -1341,7 +1419,7 @@ function MCPSection({
         {text.mcpSelected(form.mcpServers.length)}
       </p>
 
-      <div className="space-y-2 rounded-3xl border border-border/70 bg-muted/15 p-3">
+      <div className="border-border/70 bg-muted/15 space-y-2 rounded-3xl border p-3">
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-1">
             <p className="text-sm font-medium">{text.selectedMcpTitle}</p>
@@ -1455,7 +1533,7 @@ function SelectedMCPProfileCard({
   const reachable = isProfileReachable(profile, discovery);
 
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-border/70 bg-background/80 px-3 py-2">
+    <div className="border-border/70 bg-background/80 flex items-center gap-3 rounded-xl border px-3 py-2">
       <span
         className={cn(
           "mt-px size-2 shrink-0 rounded-full",
@@ -1463,7 +1541,7 @@ function SelectedMCPProfileCard({
         )}
       />
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium leading-5 truncate">
+        <p className="truncate text-sm leading-5 font-medium">
           {profile.profile_name || text.mcpUnknownProfile}
         </p>
         <p className="text-muted-foreground truncate text-[11px] leading-4">
@@ -1472,7 +1550,7 @@ function SelectedMCPProfileCard({
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
         {typeof discovery?.latency_ms === "number" ? (
-          <span className="text-muted-foreground tabular-nums text-[11px]">
+          <span className="text-muted-foreground text-[11px] tabular-nums">
             {text.mcpLatency(discovery.latency_ms)}
           </span>
         ) : null}
@@ -1521,8 +1599,8 @@ function MCPToolsSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="sm:max-w-2xl gap-0 overflow-hidden">
-        <SheetHeader className="shrink-0 border-b border-border/70 px-6 py-5">
+      <SheetContent side="right" className="gap-0 overflow-hidden sm:max-w-2xl">
+        <SheetHeader className="border-border/70 shrink-0 border-b px-6 py-5">
           <SheetTitle className="text-base">
             {profile?.profile_name ?? text.mcpUnknownProfile}
           </SheetTitle>
@@ -1530,7 +1608,7 @@ function MCPToolsSheet({
         </SheetHeader>
 
         {profile && (
-          <div className="flex shrink-0 items-center gap-2 border-b border-border/70 px-6 py-2.5">
+          <div className="border-border/70 flex shrink-0 items-center gap-2 border-b px-6 py-2.5">
             <span
               className={cn(
                 "size-2 shrink-0 rounded-full",
@@ -1555,7 +1633,9 @@ function MCPToolsSheet({
           <ScrollArea className="h-full">
             <div className="space-y-4 px-6 py-5">
               {profile?.missing ? (
-                <p className="text-destructive text-sm">{text.mcpProfileMissing}</p>
+                <p className="text-destructive text-sm">
+                  {text.mcpProfileMissing}
+                </p>
               ) : discovery?.error ? (
                 <p className="text-destructive text-sm">{discovery.error}</p>
               ) : discovery && discovery.tools.length > 0 ? (
@@ -1566,7 +1646,7 @@ function MCPToolsSheet({
                   {discovery.tools.map((tool) => (
                     <div
                       key={`${profile?.ref ?? "unknown"}:${tool.name}`}
-                      className="space-y-2 rounded-xl border border-border/70 bg-background/90 p-4"
+                      className="border-border/70 bg-background/90 space-y-2 rounded-xl border p-4"
                     >
                       <Badge
                         variant="secondary"

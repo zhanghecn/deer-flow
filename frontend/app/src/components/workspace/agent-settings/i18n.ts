@@ -71,8 +71,7 @@ export type AgentSettingsPageText = {
   runtimeToolsDescription: string;
   noRuntimeTools: string;
   runtimeInjectedBadge: string;
-  filesystemMiddlewareTitle: string;
-  filesystemMiddlewareDescription: string;
+  middlewareGroupDescription: (count: number) => string;
   subagentsTitle: string;
   subagentsDescription: string;
   generalPurposeTitle: string;
@@ -269,9 +268,8 @@ const enUS: AgentSettingsPageText = {
     "These tools are scanned from the active runtime middleware stack. Enable the owning middleware here; normal tool_names only control archive-selectable tools.",
   noRuntimeTools: "No runtime-injected tools found.",
   runtimeInjectedBadge: "runtime",
-  filesystemMiddlewareTitle: "Filesystem middleware",
-  filesystemMiddlewareDescription:
-    "Injects runtime file tools such as ls, read_file, glob, grep, write_file, edit_file, and execute.",
+  middlewareGroupDescription: (count) =>
+    `Controls ${count} runtime tool${count === 1 ? "" : "s"} owned by this middleware.`,
   subagentsTitle: "Subagents",
   subagentsDescription: "General-purpose and custom subagent configuration.",
   generalPurposeTitle: "General Purpose Subagent",
@@ -314,7 +312,8 @@ const enUS: AgentSettingsPageText = {
   mcpAvailableTools: "Available tools",
   mcpInputSchema: "Input schema",
   mcpUnknownProfile: "Unknown profile",
-  mcpProfileMissing: "This selected profile was not found in the current MCP library.",
+  mcpProfileMissing:
+    "This selected profile was not found in the current MCP library.",
   mcpNoDescription: "No description provided by the MCP server.",
   mcpViewTools: "View tools",
   mcpRemoveProfile: "Remove",
@@ -477,9 +476,8 @@ const zhCN: AgentSettingsPageText = {
     "这些工具来自运行时 middleware。这里配置是否启用对应 middleware；普通 tool_names 只控制可配置工具。",
   noRuntimeTools: "当前未发现运行时注入工具。",
   runtimeInjectedBadge: "运行时",
-  filesystemMiddlewareTitle: "文件系统 middleware",
-  filesystemMiddlewareDescription:
-    "注入 ls、read_file、glob、grep、write_file、edit_file、execute 等运行时文件工具。",
+  middlewareGroupDescription: (count) =>
+    `控制该 middleware 注入的 ${count} 个运行时工具。`,
   subagentsTitle: "子代理",
   subagentsDescription: "通用子代理和自定义子代理配置。",
   generalPurposeTitle: "通用子代理",

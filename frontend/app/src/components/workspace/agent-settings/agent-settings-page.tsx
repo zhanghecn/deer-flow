@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   type Agent,
+  type AgentRuntimeMiddlewares,
   type AgentStatus,
   useAgent,
   useAgentExportDoc,
@@ -72,6 +73,15 @@ function parseFloatInput(value: string) {
   return parsed;
 }
 
+function normalizeRuntimeMiddlewares(
+  runtimeMiddlewares: AgentRuntimeMiddlewares | null | undefined,
+): AgentRuntimeMiddlewares {
+  const disabled = runtimeMiddlewares?.disabled ?? [];
+  return {
+    disabled: [...new Set(disabled.map((name) => name.trim()).filter(Boolean))],
+  };
+}
+
 function createFormState(agent: Agent): AgentSettingsFormState {
   return {
     description: agent.description ?? "",
@@ -79,9 +89,7 @@ function createFormState(agent: Agent): AgentSettingsFormState {
     toolGroups: (agent.tool_groups ?? []).join(", "),
     toolSelectionEnabled: agent.tool_names != null,
     toolNames: agent.tool_names ?? [],
-    runtimeMiddlewares: {
-      filesystem: agent.runtime_middlewares?.filesystem ?? true,
-    },
+    runtimeMiddlewares: normalizeRuntimeMiddlewares(agent.runtime_middlewares),
     mcpServers: agent.mcp_servers ?? [],
     skillRefs: agent.skills ?? [],
     agentsMd: agent.agents_md ?? "",

@@ -397,7 +397,7 @@ def _scan_middleware_tool_catalog() -> list[ToolCatalogItemResponse]:
             middleware_name="filesystem",
             middleware_configurable=True,
             read_only_reason=(
-                "Injected by FilesystemMiddleware when the agent runtime middleware switch is enabled."
+                "Injected by FilesystemMiddleware unless the agent runtime middleware deny-list disables it."
             ),
         )
 

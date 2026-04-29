@@ -226,7 +226,7 @@ func filesystemMiddlewareTool(name string, group string, description string) mod
 		Source:                   "middleware",
 		MiddlewareName:           "filesystem",
 		MiddlewareConfigurable:   true,
-		ReadOnlyReason:           "Injected by FilesystemMiddleware when the agent runtime middleware switch is enabled.",
+		ReadOnlyReason:           "Injected by FilesystemMiddleware unless the agent runtime middleware deny-list disables it.",
 	}
 }
 

@@ -205,8 +205,11 @@ func TestLoadAgentDefaultsRuntimeMiddlewares(t *testing.T) {
 	if agent == nil || agent.RuntimeMiddlewares == nil {
 		t.Fatalf("agent.RuntimeMiddlewares = %#v, want default config", agent)
 	}
-	if !agent.RuntimeMiddlewares.Filesystem {
-		t.Fatalf("RuntimeMiddlewares.Filesystem = false, want default true")
+	if len(agent.RuntimeMiddlewares.Disabled) != 0 {
+		t.Fatalf("RuntimeMiddlewares.Disabled = %#v, want empty deny-list", agent.RuntimeMiddlewares.Disabled)
+	}
+	if !agent.RuntimeMiddlewares.MiddlewareEnabled("filesystem") {
+		t.Fatalf("MiddlewareEnabled(filesystem) = false, want default enabled")
 	}
 }
 
@@ -221,7 +224,7 @@ func TestLoadAgentReadsRuntimeMiddlewares(t *testing.T) {
 		"status":         "dev",
 		"agents_md_path": "AGENTS.md",
 		"runtime_middlewares": map[string]interface{}{
-			"filesystem": false,
+			"disabled": []string{"filesystem"},
 		},
 	}); err != nil {
 		t.Fatalf("write agent files: %v", err)
@@ -234,8 +237,8 @@ func TestLoadAgentReadsRuntimeMiddlewares(t *testing.T) {
 	if agent == nil || agent.RuntimeMiddlewares == nil {
 		t.Fatalf("agent.RuntimeMiddlewares = %#v, want loaded config", agent)
 	}
-	if agent.RuntimeMiddlewares.Filesystem {
-		t.Fatalf("RuntimeMiddlewares.Filesystem = true, want configured false")
+	if agent.RuntimeMiddlewares.MiddlewareEnabled("filesystem") {
+		t.Fatalf("MiddlewareEnabled(filesystem) = true, want configured disabled")
 	}
 }
 

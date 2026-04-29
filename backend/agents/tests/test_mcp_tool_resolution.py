@@ -2,9 +2,68 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
+from langchain_core.tools import BaseTool
+
+from src.mcp.tools import wrap_mcp_tool_errors
 from src.tools.tools import _load_mcp_tool_items
+
+
+class FailingDocumentTool(BaseTool):
+    name: str = "document_read"
+    description: str = "Read a document."
+
+    def _run(self, path: str) -> str:
+        raise FileNotFoundError(f"{path} was not found")
+
+
+class AsyncFailingDocumentTool(BaseTool):
+    name: str = "document_read"
+    description: str = "Read a document."
+
+    def _run(self, path: str) -> str:
+        raise FileNotFoundError(f"{path} was not found")
+
+    async def _arun(self, path: str) -> str:
+        raise RuntimeError(f"{path} cannot be read")
+
+
+def test_wrap_mcp_tool_errors_returns_model_visible_tool_error():
+    wrapped = wrap_mcp_tool_errors(FailingDocumentTool())
+
+    result = wrapped.invoke(
+        {
+            "type": "tool_call",
+            "id": "call-document-read",
+            "name": "document_read",
+            "args": {"path": "missing.md"},
+        }
+    )
+
+    assert result.status == "error"
+    assert result.name == "document_read"
+    assert result.tool_call_id == "call-document-read"
+    assert "MCP tool 'document_read' failed: missing.md was not found" in result.content
+
+
+def test_wrap_mcp_tool_errors_handles_async_mcp_failures():
+    wrapped = wrap_mcp_tool_errors(AsyncFailingDocumentTool())
+
+    result = asyncio.run(
+        wrapped.ainvoke(
+            {
+                "type": "tool_call",
+                "id": "call-document-read",
+                "name": "document_read",
+                "args": {"path": "missing.md"},
+            }
+        )
+    )
+
+    assert result.status == "error"
+    assert "MCP tool 'document_read' failed: missing.md cannot be read" in result.content
 
 
 def test_load_mcp_tool_items_uses_agent_scoped_profile_refs(monkeypatch):

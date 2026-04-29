@@ -506,9 +506,7 @@ func defaultMemoryConfig() model.AgentMemoryConfig {
 }
 
 func defaultRuntimeMiddlewares() model.AgentRuntimeMiddlewares {
-	return model.AgentRuntimeMiddlewares{
-		Filesystem: true,
-	}
+	return model.AgentRuntimeMiddlewares{Disabled: []string{}}
 }
 
 func defaultSubagentDefaults() model.AgentSubagentDefaults {

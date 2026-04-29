@@ -11,7 +11,7 @@ export interface AgentMemoryConfig {
 }
 
 export interface AgentRuntimeMiddlewares {
-  filesystem: boolean;
+  disabled: string[];
 }
 
 export interface AgentSkillRef {

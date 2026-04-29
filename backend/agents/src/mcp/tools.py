@@ -2,13 +2,72 @@
 
 import logging
 
-from langchain_core.tools import BaseTool
+from langchain_core.tools import BaseTool, ToolException
+from pydantic import Field
 
 from src.config.extensions_config import ExtensionsConfig
 from src.mcp.client import build_servers_config
 from src.mcp.oauth import build_oauth_tool_interceptor, get_initial_oauth_headers
 
 logger = logging.getLogger(__name__)
+
+
+class MCPToolErrorGuard(BaseTool):
+    """Convert MCP server exceptions into model-visible tool errors.
+
+    LangChain only turns `ToolException` into a tool message. MCP adapters can
+    raise transport, validation, or server exceptions directly, so every MCP
+    tool is wrapped at the runtime boundary instead of relying on each demo or
+    third-party MCP server to follow one error convention.
+    """
+
+    wrapped_tool: BaseTool = Field(exclude=True)
+
+    def _run(self, *args: object, **kwargs: object) -> object:
+        try:
+            return self.wrapped_tool.invoke(_delegated_tool_input(args, kwargs))
+        except ToolException:
+            raise
+        except Exception as exc:
+            raise ToolException(_format_mcp_tool_error(self.name, exc)) from exc
+
+    async def _arun(self, *args: object, **kwargs: object) -> object:
+        try:
+            return await self.wrapped_tool.ainvoke(_delegated_tool_input(args, kwargs))
+        except ToolException:
+            raise
+        except Exception as exc:
+            raise ToolException(_format_mcp_tool_error(self.name, exc)) from exc
+
+
+def _delegated_tool_input(args: tuple[object, ...], kwargs: dict[str, object]) -> object:
+    if len(args) == 1 and not kwargs:
+        return args[0]
+    if not args:
+        return kwargs
+    return {"args": list(args), **kwargs}
+
+
+def _format_mcp_tool_error(tool_name: str, exc: Exception) -> str:
+    detail = str(exc).strip() or type(exc).__name__
+    return f"MCP tool '{tool_name}' failed: {detail}"
+
+
+def wrap_mcp_tool_errors(tool: BaseTool) -> BaseTool:
+    metadata = dict(tool.metadata or {})
+    metadata["mcp_error_guard"] = True
+    return MCPToolErrorGuard(
+        name=tool.name,
+        description=tool.description,
+        args_schema=tool.args_schema,
+        return_direct=tool.return_direct,
+        response_format=tool.response_format,
+        tags=tool.tags,
+        metadata=metadata,
+        wrapped_tool=tool,
+        handle_tool_error=True,
+        handle_validation_error=True,
+    )
 
 
 async def _build_client(extensions_config: ExtensionsConfig):
@@ -61,7 +120,7 @@ async def get_mcp_tools() -> list[BaseTool]:
         return []
 
     try:
-        tools = await client.get_tools()
+        tools = [wrap_mcp_tool_errors(tool) for tool in await client.get_tools()]
         logger.info(f"Successfully loaded {len(tools)} tool(s) from MCP servers")
         return tools
     except Exception as e:
@@ -95,7 +154,8 @@ async def get_mcp_tools_for_extensions_config(
             logger.warning("Explicit MCP server '%s' was not present in the resolved config", server_name)
             continue
         try:
-            resolved.extend(await client.get_tools(server_name=server_name))
+            server_tools = await client.get_tools(server_name=server_name)
+            resolved.extend(wrap_mcp_tool_errors(tool) for tool in server_tools)
         except Exception as e:
             logger.error("Failed to load tools from MCP server '%s': %s", server_name, e, exc_info=True)
     return resolved
@@ -115,7 +175,8 @@ async def get_mcp_tools_by_server() -> dict[str, list[BaseTool]]:
     result: dict[str, list[BaseTool]] = {}
     for server_name in servers_config:
         try:
-            tools = await client.get_tools(server_name=server_name)
+            server_tools = await client.get_tools(server_name=server_name)
+            tools = [wrap_mcp_tool_errors(tool) for tool in server_tools]
             result[server_name] = tools
             logger.info(f"Loaded {len(tools)} tool(s) from MCP server '{server_name}'")
         except Exception as e:

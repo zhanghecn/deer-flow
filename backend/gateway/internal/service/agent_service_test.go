@@ -502,14 +502,14 @@ func TestAgentServicePersistsRuntimeMiddlewares(t *testing.T) {
 	agent, err := svc.Create(context.Background(), model.CreateAgentRequest{
 		Name: "research-agent",
 		RuntimeMiddlewares: &model.AgentRuntimeMiddlewares{
-			Filesystem: false,
+			Disabled: []string{"filesystem"},
 		},
 		AgentsMD: "# Agent",
 	}, uuid.Nil)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	if agent.RuntimeMiddlewares == nil || agent.RuntimeMiddlewares.Filesystem {
+	if agent.RuntimeMiddlewares == nil || agent.RuntimeMiddlewares.MiddlewareEnabled("filesystem") {
 		t.Fatalf("agent.RuntimeMiddlewares = %#v, want filesystem disabled", agent.RuntimeMiddlewares)
 	}
 
@@ -519,7 +519,8 @@ func TestAgentServicePersistsRuntimeMiddlewares(t *testing.T) {
 		t.Fatalf("read config: %v", err)
 	}
 	if !strings.Contains(string(configBytes), "runtime_middlewares:") ||
-		!strings.Contains(string(configBytes), "filesystem: false") {
+		!strings.Contains(string(configBytes), "disabled:") ||
+		!strings.Contains(string(configBytes), "- filesystem") {
 		t.Fatalf("config.yaml missing disabled runtime middleware: %s", string(configBytes))
 	}
 
@@ -530,19 +531,19 @@ func TestAgentServicePersistsRuntimeMiddlewares(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
-	if updated.RuntimeMiddlewares == nil || updated.RuntimeMiddlewares.Filesystem {
+	if updated.RuntimeMiddlewares == nil || updated.RuntimeMiddlewares.MiddlewareEnabled("filesystem") {
 		t.Fatalf("updated.RuntimeMiddlewares = %#v, want disabled middleware preserved", updated.RuntimeMiddlewares)
 	}
 
 	enabled, err := svc.Update(context.Background(), "research-agent", "dev", model.UpdateAgentRequest{
 		RuntimeMiddlewares: &model.AgentRuntimeMiddlewares{
-			Filesystem: true,
+			Disabled: []string{},
 		},
 	})
 	if err != nil {
 		t.Fatalf("Update(enable) error = %v", err)
 	}
-	if enabled.RuntimeMiddlewares == nil || !enabled.RuntimeMiddlewares.Filesystem {
+	if enabled.RuntimeMiddlewares == nil || !enabled.RuntimeMiddlewares.MiddlewareEnabled("filesystem") {
 		t.Fatalf("enabled.RuntimeMiddlewares = %#v, want filesystem enabled", enabled.RuntimeMiddlewares)
 	}
 }

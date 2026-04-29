@@ -146,11 +146,30 @@ class AgentConfig(BaseModel):
 
 
 class AgentRuntimeMiddlewares(BaseModel):
-    """Per-agent switches for middleware-owned runtime tool surfaces."""
+    """Per-agent deny-list for middleware-owned runtime tool surfaces."""
 
     model_config = ConfigDict(extra="forbid")
 
-    filesystem: bool = True
+    disabled: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def normalize_middlewares(self) -> "AgentRuntimeMiddlewares":
+        # Empty means every runtime middleware is enabled. Persisting only a
+        # deny-list keeps future middleware active until the operator explicitly
+        # disables that middleware by name.
+        self.disabled = (
+            _normalize_optional_string_list(
+                self.disabled,
+                field_name="runtime_middlewares.disabled",
+                preserve_empty=True,
+            )
+            or []
+        )
+        return self
+
+    def is_enabled(self, middleware_name: str) -> bool:
+        normalized_name = str(middleware_name).strip()
+        return not normalized_name or normalized_name not in set(self.disabled)
 
 
 class AgentSubagentDefaults(BaseModel):
@@ -318,7 +337,7 @@ def serialize_subagent_defaults(subagent_defaults: AgentSubagentDefaults) -> dic
 
 def serialize_runtime_middlewares(runtime_middlewares: AgentRuntimeMiddlewares) -> dict[str, Any]:
     return {
-        "filesystem": runtime_middlewares.filesystem,
+        "disabled": runtime_middlewares.disabled,
     }
 
 

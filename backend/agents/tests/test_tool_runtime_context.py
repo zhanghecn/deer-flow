@@ -884,7 +884,7 @@ def test_setup_agent_preserves_existing_agent_manifest_fields_when_omitted(monke
                     "debounce_seconds": 15,
                 },
                 "runtime_middlewares": {
-                    "filesystem": False,
+                    "disabled": ["filesystem"],
                 },
                 "subagent_defaults": {
                     "general_purpose_enabled": False,
@@ -955,7 +955,7 @@ def test_setup_agent_preserves_existing_agent_manifest_fields_when_omitted(monke
     assert calls["mcp_servers"] == ["figma"]
     assert calls["memory"].enabled is True
     assert calls["memory"].debounce_seconds == 15
-    assert calls["runtime_middlewares"].filesystem is False
+    assert calls["runtime_middlewares"].is_enabled("filesystem") is False
     assert calls["subagent_defaults"].general_purpose_enabled is False
     assert calls["subagents"][0].name == "designer-helper"
 

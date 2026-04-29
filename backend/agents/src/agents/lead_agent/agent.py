@@ -1547,7 +1547,7 @@ def _build_graph_parts(
         subagents=subagent_specs.custom_subagents if subagent_specs is not None else None,
         general_purpose_enabled=subagent_specs.general_purpose_enabled if subagent_specs is not None else False,
         general_purpose_tools=subagent_specs.general_purpose_tools if subagent_specs is not None else tools,
-        filesystem_enabled=resolution.agent_config.runtime_middlewares.filesystem,
+        filesystem_enabled=resolution.agent_config.runtime_middlewares.is_enabled("filesystem"),
         system_prompt=_build_system_prompt(request=request, resolution=resolution),
     )
 

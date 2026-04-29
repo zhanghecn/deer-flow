@@ -183,9 +183,7 @@ func normalizeToolNames(values []string) []string {
 }
 
 func defaultAgentRuntimeMiddlewares() model.AgentRuntimeMiddlewares {
-	return model.AgentRuntimeMiddlewares{
-		Filesystem: true,
-	}
+	return model.AgentRuntimeMiddlewares{Disabled: []string{}}
 }
 
 func normalizeAgentRuntimeMiddlewares(cfg *model.AgentRuntimeMiddlewares) model.AgentRuntimeMiddlewares {
@@ -193,7 +191,10 @@ func normalizeAgentRuntimeMiddlewares(cfg *model.AgentRuntimeMiddlewares) model.
 	if cfg == nil {
 		return normalized
 	}
-	normalized.Filesystem = cfg.Filesystem
+	normalized.Disabled = normalizeOptionalStringList(cfg.Disabled)
+	if normalized.Disabled == nil {
+		normalized.Disabled = []string{}
+	}
 	return normalized
 }
 
@@ -969,9 +970,10 @@ func agentMemoryPayload(cfg *model.AgentMemoryConfig) map[string]interface{} {
 func agentRuntimeMiddlewaresPayload(cfg *model.AgentRuntimeMiddlewares) map[string]interface{} {
 	normalized := normalizeAgentRuntimeMiddlewares(cfg)
 	return map[string]interface{}{
-		// Middleware-owned tools are controlled here, not through archive
-		// tool_names, so an explicit false must survive YAML round-trips.
-		"filesystem": normalized.Filesystem,
+		// Middleware-owned tools are controlled by this deny-list, not through
+		// archive tool_names. Empty means every configurable middleware remains
+		// enabled, including future middleware discovered by the runtime catalog.
+		"disabled": normalized.Disabled,
 	}
 }
 

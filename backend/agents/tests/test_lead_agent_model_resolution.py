@@ -1025,7 +1025,7 @@ def test_make_lead_agent_disables_filesystem_when_runtime_middleware_is_off(monk
     monkeypatch.setattr(
         lead_agent_module,
         "_load_agent_runtime_config",
-        lambda **kwargs: _make_agent_config(runtime_middlewares={"filesystem": False}),
+        lambda **kwargs: _make_agent_config(runtime_middlewares={"disabled": ["filesystem"]}),
     )
     monkeypatch.setattr(lead_agent_module, "apply_prompt_template", lambda **kwargs: "prompt")
     monkeypatch.setattr(lead_agent_module, "create_chat_model", lambda **kwargs: object())
