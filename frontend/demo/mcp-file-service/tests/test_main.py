@@ -79,7 +79,7 @@ class WorkbenchMainAppTest(unittest.TestCase):
         payload = self.main._parse_sse_payload(response.text)
         return payload, response.headers.get("mcp-session-id")
 
-    def _discover_tool_names(self, path: str) -> set[str]:
+    def _discover_tools(self, path: str) -> list[dict[str, object]]:
         initialize_payload, session_id = self._mcp_request(
             path=path,
             method="initialize",
@@ -101,10 +101,14 @@ class WorkbenchMainAppTest(unittest.TestCase):
         self.assertIsInstance(result, dict)
         tools = result.get("tools")
         self.assertIsInstance(tools, list)
+        return [tool for tool in tools if isinstance(tool, dict)]
+
+    def _discover_tool_names(self, path: str) -> set[str]:
+        tools = self._discover_tools(path)
         return {
             str(tool.get("name"))
             for tool in tools
-            if isinstance(tool, dict) and str(tool.get("name", "")).strip()
+            if str(tool.get("name", "")).strip()
         }
 
     def _call_agent_tool_text(self, name: str, arguments: dict[str, object]) -> str:
@@ -189,6 +193,25 @@ class WorkbenchMainAppTest(unittest.TestCase):
                 "document_read",
             },
         )
+
+    def test_document_search_mcp_schema_guides_content_search_only(self) -> None:
+        tools = self._discover_tools("/mcp-http-agent/mcp")
+        search_tool = next(
+            tool for tool in tools if tool.get("name") == "document_search"
+        )
+
+        description = str(search_tool.get("description") or "")
+        self.assertIn("content", description.lower())
+        self.assertIn("not file paths", description.lower())
+        properties = search_tool["inputSchema"]["properties"]  # type: ignore[index]
+        pattern_schema = properties["pattern"]  # type: ignore[index]
+        output_mode_schema = properties["output_mode"]  # type: ignore[index]
+        self.assertIn("CONTENT only", pattern_schema["description"])  # type: ignore[index]
+        self.assertEqual(
+            output_mode_schema["enum"],  # type: ignore[index]
+            ["content", "files_with_matches", "count"],
+        )
+        self.assertIn("Do not use 'path'", output_mode_schema["description"])  # type: ignore[index]
 
     def test_document_list_mcp_returns_plain_final_file_text_for_agents(self) -> None:
         (Path(self.temp_dir.name) / "nested" / "contracts").mkdir(parents=True)

@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 import json
 import os
 import time
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
@@ -15,6 +15,7 @@ from fastapi import Body, FastAPI, File, Form, HTTPException, Query, Request, Up
 from fastapi.middleware.cors import CORSMiddleware
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ImageContent, TextContent
+from pydantic import Field
 from starlette.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -339,7 +340,13 @@ def _register_document_tools(server: FastMCP) -> None:
 
     @server.tool()
     def document_list(path: str = "") -> str:
-        """List the complete KB tree under the current directory."""
+        """List document file paths under a knowledge-base directory.
+
+        Use this for path or folder discovery before content search. The output
+        is plain text with one final document path per line, and every returned
+        path can be passed directly to document_search(path=...) or
+        document_read(path=...).
+        """
 
         payload = service.document_list_payload(path=path)
         # Agent-facing list output should match Claude Code's Bash(ls) shape:
@@ -348,15 +355,85 @@ def _register_document_tools(server: FastMCP) -> None:
 
     @server.tool()
     def document_search(
-        pattern: str,
-        path: str = "",
-        glob: str = "",
-        output_mode: str = "content",
-        context: int = 0,
-        head_limit: int | None = None,
-        offset: int = 0,
+        pattern: Annotated[
+            str,
+            Field(
+                description=(
+                    "Regex or literal grep pattern for document CONTENT only. "
+                    "This does not search file paths; use document_list to find "
+                    "directories or filenames such as 'stress'."
+                )
+            ),
+        ],
+        path: Annotated[
+            str,
+            Field(
+                description=(
+                    "Optional file or directory path returned by document_list. "
+                    "Search is limited to this path; leave empty to search all documents."
+                )
+            ),
+        ] = "",
+        glob: Annotated[
+            str,
+            Field(
+                description=(
+                    "Optional file filter, e.g. '*.md', '**/*.pdf', or '**/*.docx'. "
+                    "This filters candidate paths after path scoping; it is not the search term."
+                )
+            ),
+        ] = "",
+        output_mode: Annotated[
+            Literal["content", "files_with_matches", "count"],
+            Field(
+                description=(
+                    "Output mode: 'content' shows matching lines with line/locator numbers "
+                    "(default), 'files_with_matches' shows only files whose CONTENT matched, "
+                    "and 'count' shows match counts. Do not use 'path'."
+                )
+            ),
+        ] = "content",
+        context: Annotated[
+            int,
+            Field(
+                description=(
+                    "Number of lines before and after each content match. "
+                    "Only applies when output_mode is 'content'."
+                )
+            ),
+        ] = 0,
+        head_limit: Annotated[
+            int | None,
+            Field(
+                description=(
+                    "Maximum output rows or matches. Defaults to the service limit; "
+                    "0 means unlimited but should be used sparingly."
+                )
+            ),
+        ] = None,
+        offset: Annotated[
+            int,
+            Field(
+                description=(
+                    "Rows or matches to skip before applying head_limit. "
+                    "Use for pagination."
+                )
+            ),
+        ] = 0,
     ) -> str:
-        """Grep uploaded documents with Claude Code-like output modes."""
+        """Search uploaded document contents with Claude Code Grep semantics.
+
+        Usage:
+        - Use document_search for content search tasks. It searches parsed text,
+          OCR text, tables, and visual summaries from supported documents.
+        - Pattern matches document content, not file paths. To find paths or
+          directories, call document_list first, then pass the returned path here.
+        - Filter candidate files with glob, e.g. '*.md' or '**/*.pdf'.
+        - Output modes: 'content' shows matching lines, 'files_with_matches'
+          shows only files whose content matched, and 'count' shows match counts.
+        - After a content hit, call document_read with the returned path and
+          locator or line number when more surrounding context is needed.
+        """
 
         payload = service.document_search_payload(
             pattern=pattern,

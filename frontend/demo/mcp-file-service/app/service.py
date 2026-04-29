@@ -100,29 +100,74 @@ DOCUMENT_TOOL_DESCRIPTORS = (
     ToolDescriptor(
         name="document_list",
         summary=(
-            "List every document file under the requested knowledge-base directory."
+            "List document file paths under a knowledge-base directory. Use this "
+            "for path or folder discovery before content search."
         ),
         returns="Plain listing text with one final document path per line.",
         arguments=(
-            ToolArgument("path", "string", False, "Relative directory under the uploaded root."),
+            ToolArgument(
+                "path",
+                "string",
+                False,
+                "Relative directory under the uploaded root. Leave empty to list all final document paths.",
+            ),
         ),
     ),
     ToolDescriptor(
         name="document_search",
         summary=(
-            "Grep parsed document text, OCR text, tables, and visual summaries "
-            "across PDF, image, and Office files with a Claude Code-like "
-            "pattern/output_mode contract, then call document_read for locators."
+            "Search uploaded document contents with Claude Code Grep semantics. "
+            "Use document_list for path or filename discovery; pattern searches "
+            "parsed document content only."
         ),
         returns="Plain Claude Code Grep-like text for files_with_matches, content, or count output.",
         arguments=(
-            ToolArgument("pattern", "string", True, "Regular expression or literal grep pattern."),
-            ToolArgument("path", "string", False, "Optional file or directory scope under the uploaded root."),
-            ToolArgument("glob", "string", False, "Glob filter such as *.pdf or **/*.docx."),
-            ToolArgument("output_mode", "string", False, "content, files_with_matches, or count.", default="content"),
-            ToolArgument("context", "integer", False, "Lines before and after each content match.", default=0),
-            ToolArgument("head_limit", "integer", False, "Maximum output rows; 0 means unlimited.", default=250),
-            ToolArgument("offset", "integer", False, "Rows to skip before applying head_limit.", default=0),
+            ToolArgument(
+                "pattern",
+                "string",
+                True,
+                "Regex or literal grep pattern for document CONTENT only. This does not search file paths.",
+            ),
+            ToolArgument(
+                "path",
+                "string",
+                False,
+                "Optional file or directory path returned by document_list. Leave empty to search all documents.",
+            ),
+            ToolArgument(
+                "glob",
+                "string",
+                False,
+                "Optional file filter such as *.md, **/*.pdf, or **/*.docx; not the search term.",
+            ),
+            ToolArgument(
+                "output_mode",
+                "string",
+                False,
+                "content, files_with_matches, or count. content shows lines; files_with_matches shows only files whose content matched. Do not use path.",
+                default="content",
+            ),
+            ToolArgument(
+                "context",
+                "integer",
+                False,
+                "Lines before and after each content match. Requires output_mode=content.",
+                default=0,
+            ),
+            ToolArgument(
+                "head_limit",
+                "integer",
+                False,
+                "Maximum output rows; 0 means unlimited and should be used sparingly.",
+                default=250,
+            ),
+            ToolArgument(
+                "offset",
+                "integer",
+                False,
+                "Rows to skip before applying head_limit. Use for pagination.",
+                default=0,
+            ),
         ),
     ),
     ToolDescriptor(
