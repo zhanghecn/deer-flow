@@ -175,10 +175,7 @@ def test_chat_model_start_records_image_input_system_event_without_base64_duplic
 
 def test_shrink_redacts_stringified_mcp_image_content_fields():
     image_data = "A" * 1024
-    tool_message_repr = (
-        "content=[{'type': 'text', 'text': '{}'}, "
-        "{'type': 'image', 'data': '" + image_data + "', 'mimeType': 'image/png'}]"
-    )
+    tool_message_repr = "content=[{'type': 'text', 'text': '{}'}, {'type': 'image', 'data': '" + image_data + "', 'mimeType': 'image/png'}]"
 
     result = _shrink(tool_message_repr, max_string_len=4096)
 
@@ -222,7 +219,7 @@ def test_chat_model_start_classifies_read_file_image_blocks_without_base64_dupli
     assert "QUJDREVGRw==" not in str(payload)
 
 
-def test_model_image_inputs_classifies_mcp_tool_result_image_blocks():
+def test_model_image_inputs_does_not_depend_on_mcp_tool_name_prefix():
     payload = _extract_model_image_inputs(
         [
             {
@@ -240,9 +237,53 @@ def test_model_image_inputs_classifies_mcp_tool_result_image_blocks():
     )
 
     assert payload is not None
-    assert payload["images"][0]["source"] == "mcp_tool_result"
+    assert payload["images"][0]["source"] == "tool_result_image"
     assert payload["images"][0]["tool_name"] == "mcp__docs__document_read"
     assert payload["images"][0]["data_omitted"] is True
+
+
+def test_model_image_inputs_uses_structured_mcp_metadata_when_available():
+    payload = _extract_model_image_inputs(
+        [
+            {
+                "role": "tool",
+                "name": "document_read",
+                "additional_kwargs": {
+                    "is_mcp": True,
+                    "mcp_info": {"server_name": "docs", "tool_name": "document_read"},
+                },
+                "content": [
+                    {
+                        "type": "image",
+                        "base64": "QUJDREVGRw==",
+                        "mime_type": "image/png",
+                    }
+                ],
+            }
+        ]
+    )
+
+    assert payload is not None
+    assert payload["images"][0]["source"] == "mcp_tool_result"
+    assert payload["images"][0]["tool_name"] == "document_read"
+    assert payload["images"][0]["data_omitted"] is True
+
+
+def test_serialize_message_preserves_structured_mcp_metadata_for_trace_classification():
+    message = ToolMessage(
+        content=[create_image_block(base64="QUJDREVGRw==", mime_type="image/png")],
+        name="document_read",
+        tool_call_id="read-image-1",
+        additional_kwargs={
+            "is_mcp": True,
+            "mcp_info": {"server_name": "docs", "tool_name": "document_read"},
+        },
+    )
+
+    result = _serialize_message(message)
+
+    assert result["additional_kwargs"]["is_mcp"] is True
+    assert result["additional_kwargs"]["mcp_info"]["server_name"] == "docs"
 
 
 def test_on_chain_end_records_context_window_system_event_from_direct_output():
@@ -281,11 +322,7 @@ def test_on_chain_end_records_context_window_system_event_from_direct_output():
         )
         callback.on_chain_end(outputs, run_id=run_id)
 
-    system_calls = [
-        call.kwargs
-        for call in store.append_event.call_args_list
-        if call.kwargs["run_type"] == "system"
-    ]
+    system_calls = [call.kwargs for call in store.append_event.call_args_list if call.kwargs["run_type"] == "system"]
     assert len(system_calls) == 1
 
     payload = system_calls[0]["payload"]["context_window"]
@@ -413,10 +450,7 @@ def test_on_tool_start_excludes_injected_runtime_from_tool_arguments():
 
     callback.on_tool_start(
         {"name": "document_list"},
-        input_str=(
-            "{'runtime': ToolRuntime(state={'messages': "
-            "[HumanMessage(content='User:\\n你有哪些知识库')]})}"
-        ),
+        input_str=("{'runtime': ToolRuntime(state={'messages': [HumanMessage(content='User:\\n你有哪些知识库')]})}"),
         run_id=run_id,
         inputs={"runtime": "ToolRuntime(state={'messages': [...]})"},
     )
@@ -441,10 +475,7 @@ def test_on_tool_start_keeps_structured_inputs_when_input_str_is_runtime_repr():
 
     callback.on_tool_start(
         {"name": "document_list"},
-        input_str=(
-            "{'runtime': ToolRuntime(state={'messages': "
-            "[HumanMessage(content='User:\\n你有哪些知识库')]})}"
-        ),
+        input_str=("{'runtime': ToolRuntime(state={'messages': [HumanMessage(content='User:\\n你有哪些知识库')]})}"),
         run_id=run_id,
         inputs={"limit": 100, "runtime": "ToolRuntime(state={'messages': [...]})"},
     )

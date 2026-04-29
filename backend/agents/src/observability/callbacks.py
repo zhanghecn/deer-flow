@@ -798,6 +798,7 @@ _INJECTED_TOOL_ARG_KEYS = {
     "stream_writer",
     "tool_call_id",
 }
+_MCP_MESSAGE_METADATA_KEYS = ("mcp_info", "mcpInfo", "mcp_meta", "mcpMeta")
 
 
 def _looks_like_injected_tool_runtime(value: str) -> bool:
@@ -1068,7 +1069,7 @@ def _summarize_model_image_block(
         source_kind = "uploaded_attachment"
     elif tool_name == "read_file":
         source_kind = "read_file_image"
-    elif role == "tool" and tool_name and tool_name.startswith("mcp__"):
+    elif role == "tool" and _has_structured_mcp_metadata(message):
         source_kind = "mcp_tool_result"
     elif role == "tool":
         source_kind = "tool_result_image"
@@ -1086,6 +1087,22 @@ def _summarize_model_image_block(
     if previous_text:
         payload["context"] = _truncate_summary_text(previous_text, max_len=320)
     return _drop_none(payload)
+
+
+def _has_structured_mcp_metadata(message: dict[str, Any]) -> bool:
+    """Detect MCP provenance from metadata, not from the presentation tool name."""
+
+    if message.get("is_mcp") is True or message.get("isMcp") is True:
+        return True
+    if any(isinstance(message.get(key), dict) for key in _MCP_MESSAGE_METADATA_KEYS):
+        return True
+
+    additional_kwargs = message.get("additional_kwargs")
+    if isinstance(additional_kwargs, dict):
+        if additional_kwargs.get("is_mcp") is True or additional_kwargs.get("isMcp") is True:
+            return True
+        return any(isinstance(additional_kwargs.get(key), dict) for key in _MCP_MESSAGE_METADATA_KEYS)
+    return False
 
 
 def _summarize_image_reference(value: Any) -> dict[str, Any]:
@@ -1340,7 +1357,15 @@ def _serialize_message(message: Any) -> dict[str, Any]:
     additional_kwargs = getattr(message, "additional_kwargs", None)
     if isinstance(additional_kwargs, dict):
         extra: dict[str, Any] = {}
-        for key in ("finish_reason", "stop_reason", "refusal", "reasoning_content"):
+        for key in (
+            "finish_reason",
+            "stop_reason",
+            "refusal",
+            "reasoning_content",
+            "is_mcp",
+            "isMcp",
+            *_MCP_MESSAGE_METADATA_KEYS,
+        ):
             if key in additional_kwargs:
                 extra[key] = _jsonify(additional_kwargs.get(key))
         if extra:
