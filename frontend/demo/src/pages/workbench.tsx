@@ -167,6 +167,13 @@ function prettyJSON(value: unknown, maxLength = 10000) {
   }
 }
 
+function formatBlockValue(value: unknown) {
+  if (typeof value === "string") {
+    return value;
+  }
+  return prettyJSON(value);
+}
+
 function seedDraft(tool: ToolCatalogEntry) {
   return tool.arguments.reduce<ToolDraftState>((accumulator, item) => {
     accumulator[item.name] =
@@ -456,7 +463,7 @@ function StatusBadge({
 function JsonBlock({ value }: { value: unknown }) {
   return (
     <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-[var(--code-bg)] p-3 text-xs leading-6 text-[var(--text-soft)]">
-      {prettyJSON(value)}
+      {formatBlockValue(value)}
     </pre>
   );
 }
@@ -1421,7 +1428,9 @@ export function WorkbenchPage() {
                 <GhostButton
                   onClick={() =>
                     copyText(
-                      prettyJSON(selectedInvocation.result ?? { error: selectedInvocation.errorText }),
+                      formatBlockValue(
+                        selectedInvocation.result ?? { error: selectedInvocation.errorText },
+                      ),
                       "已复制返回 JSON",
                     )
                   }
