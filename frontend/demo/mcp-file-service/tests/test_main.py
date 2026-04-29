@@ -107,6 +107,41 @@ class WorkbenchMainAppTest(unittest.TestCase):
             if isinstance(tool, dict) and str(tool.get("name", "")).strip()
         }
 
+    def _call_agent_tool_text(self, name: str, arguments: dict[str, object]) -> str:
+        """Call the narrow agent MCP surface and return its first text block."""
+
+        _, session_id = self._mcp_request(
+            path="/mcp-http-agent/mcp",
+            method="initialize",
+            request_id=1,
+            params={
+                "protocolVersion": "2025-03-26",
+                "capabilities": {},
+                "clientInfo": self.main.MCP_CLIENT_INFO,
+            },
+        )
+        call_payload, _ = self._mcp_request(
+            path="/mcp-http-agent/mcp",
+            method="tools/call",
+            request_id=2,
+            session_id=session_id,
+            params={
+                "name": name,
+                "arguments": arguments,
+            },
+        )
+
+        result = call_payload["result"]
+        self.assertIsInstance(result, dict)
+        content = result.get("content")
+        self.assertIsInstance(content, list)
+        text_block = next(
+            item
+            for item in content
+            if isinstance(item, dict) and item.get("type") == "text"
+        )
+        return str(text_block["text"])
+
     def test_health_exposes_agent_and_workbench_mcp_urls(self) -> None:
         response = self.client.get(
             "/api/health",
@@ -201,6 +236,54 @@ class WorkbenchMainAppTest(unittest.TestCase):
         self.assertNotIn("- nested/", lines)
         self.assertNotIn("- nested/contracts/", lines)
         self.assertNotIn('"items"', text)
+        with self.assertRaises(json.JSONDecodeError):
+            json.loads(text)
+
+    def test_document_search_mcp_returns_grep_file_text_for_agents(self) -> None:
+        target = Path(self.temp_dir.name) / "cases" / "policy.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("Deductible is 500 USD\n", encoding="utf-8")
+
+        text = self._call_agent_tool_text(
+            "document_search",
+            {"pattern": "Deductible"},
+        )
+
+        self.assertIn("Found 1 file", text)
+        self.assertIn("cases/policy.md", text)
+        self.assertNotIn('"filenames"', text)
+        with self.assertRaises(json.JSONDecodeError):
+            json.loads(text)
+
+    def test_document_search_mcp_returns_grep_content_text_for_agents(self) -> None:
+        target = Path(self.temp_dir.name) / "cases" / "policy.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("Header\nDeductible is 500 USD\n", encoding="utf-8")
+
+        text = self._call_agent_tool_text(
+            "document_search",
+            {"pattern": "Deductible", "output_mode": "content"},
+        )
+
+        self.assertIn("cases/policy.md", text)
+        self.assertIn("Deductible is 500 USD", text)
+        self.assertNotIn('"matches"', text)
+        with self.assertRaises(json.JSONDecodeError):
+            json.loads(text)
+
+    def test_document_search_mcp_returns_grep_count_text_for_agents(self) -> None:
+        target = Path(self.temp_dir.name) / "cases" / "policy.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("Deductible one\nDeductible two\n", encoding="utf-8")
+
+        text = self._call_agent_tool_text(
+            "document_search",
+            {"pattern": "Deductible", "output_mode": "count"},
+        )
+
+        self.assertIn("cases/policy.md:2", text)
+        self.assertIn("Found 2 total occurrences across 1 file.", text)
+        self.assertNotIn('"counts"', text)
         with self.assertRaises(json.JSONDecodeError):
             json.loads(text)
 

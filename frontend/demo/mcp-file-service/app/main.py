@@ -380,7 +380,7 @@ def _register_document_tools(server: FastMCP) -> None:
             head_limit=head_limit,
             offset=offset,
         )
-        return service.tool_payload_json(payload)
+        return service.format_document_search_result(payload)
 
     @server.tool()
     def document_read(

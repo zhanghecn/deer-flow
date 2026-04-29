@@ -114,7 +114,7 @@ DOCUMENT_TOOL_DESCRIPTORS = (
             "across PDF, image, and Office files with a Claude Code-like "
             "pattern/output_mode contract, then call document_read for locators."
         ),
-        returns="JSON payload with grep-style files_with_matches, content, or count output plus locator metadata.",
+        returns="Plain Claude Code Grep-like text for files_with_matches, content, or count output.",
         arguments=(
             ToolArgument("pattern", "string", True, "Regular expression or literal grep pattern."),
             ToolArgument("path", "string", False, "Optional file or directory scope under the uploaded root."),
@@ -1056,6 +1056,72 @@ class FileMcpService:
         """Serialize MCP tool payloads with UTF-8 preserved for Chinese content."""
 
         return json.dumps(payload, ensure_ascii=False)
+
+    @staticmethod
+    def _format_grep_limit_info(
+        applied_limit: object,
+        applied_offset: object,
+    ) -> str:
+        """Match Claude Code Grep's conditional limit/offset display."""
+
+        parts: list[str] = []
+        if applied_limit is not None:
+            parts.append(f"limit: {applied_limit}")
+        if applied_offset:
+            parts.append(f"offset: {applied_offset}")
+        return ", ".join(parts)
+
+    @staticmethod
+    def _plural_count(count: object, singular: str, plural: str) -> str:
+        numeric_count = int(count or 0)
+        return singular if numeric_count == 1 else plural
+
+    def format_document_search_result(self, payload: dict[str, Any]) -> str:
+        """Render the agent-facing search result using Claude Code Grep text.
+
+        The structured payload remains the API/UI contract because it carries
+        locators and source links. MCP agents get this compact text so their
+        search/read loop mirrors Claude Code's Grep tool instead of parsing JSON.
+        """
+
+        mode = str(
+            payload.get("mode")
+            or payload.get("output_mode")
+            or "files_with_matches"
+        )
+        limit_info = self._format_grep_limit_info(
+            payload.get("appliedLimit"),
+            payload.get("appliedOffset"),
+        )
+        if mode == "content":
+            result_content = str(payload.get("content") or "No matches found")
+            if limit_info:
+                return (
+                    f"{result_content}\n\n"
+                    f"[Showing results with pagination = {limit_info}]"
+                )
+            return result_content
+
+        if mode == "count":
+            raw_content = str(payload.get("content") or "No matches found")
+            matches = int(payload.get("numMatches") or 0)
+            files = int(payload.get("numFiles") or 0)
+            occurrence_word = self._plural_count(matches, "occurrence", "occurrences")
+            file_word = self._plural_count(files, "file", "files")
+            pagination = f" with pagination = {limit_info}" if limit_info else ""
+            return (
+                f"{raw_content}\n\n"
+                f"Found {matches} total {occurrence_word} across {files} {file_word}."
+                f"{pagination}"
+            )
+
+        filenames = [str(item) for item in payload.get("filenames") or []]
+        num_files = int(payload.get("numFiles") or 0)
+        if num_files == 0:
+            return "No files found"
+        file_word = self._plural_count(num_files, "file", "files")
+        limit_suffix = f" {limit_info}" if limit_info else ""
+        return f"Found {num_files} {file_word}{limit_suffix}\n" + "\n".join(filenames)
 
 
 def build_workbench_service_from_env() -> FileMcpService:
