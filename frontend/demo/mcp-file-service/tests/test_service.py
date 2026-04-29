@@ -438,7 +438,7 @@ class FileMcpServiceTest(unittest.TestCase):
         self.assertEqual(payload["mode"], "content")
         self.assertEqual(payload["total"], 0)
 
-    def test_document_search_defaults_to_files_with_matches(self) -> None:
+    def test_document_search_defaults_to_content_with_line_numbers(self) -> None:
         self._write_pdf(
             "nested/contracts/policy-alpha.pdf",
             ["Deductible is 500 USD", "Coinsurance is 20 percent"],
@@ -447,6 +447,23 @@ class FileMcpServiceTest(unittest.TestCase):
         payload = self.service.document_search_payload(
             pattern="Deductible",
             path="nested",
+        )
+
+        self.assertEqual(payload["mode"], "content")
+        self.assertIn("nested/contracts/policy-alpha.pdf:page:1:1", payload["content"])
+        self.assertIn("Deductible is 500 USD", payload["content"])
+        self.assertEqual(payload["numFiles"], 1)
+
+    def test_document_search_keeps_files_with_matches_mode(self) -> None:
+        self._write_pdf(
+            "nested/contracts/policy-alpha.pdf",
+            ["Deductible is 500 USD", "Coinsurance is 20 percent"],
+        )
+
+        payload = self.service.document_search_payload(
+            pattern="Deductible",
+            path="nested",
+            output_mode="files_with_matches",
         )
 
         self.assertEqual(payload["mode"], "files_with_matches")
@@ -513,6 +530,27 @@ class FileMcpServiceTest(unittest.TestCase):
             len(json.dumps(payload, ensure_ascii=False).encode("utf-8")),
             8_000,
         )
+
+    def test_document_search_content_preserves_numeric_line_order(self) -> None:
+        self._write_text(
+            "cases/order.md",
+            "\n".join(
+                "needle" if index in {3, 10, 100} else f"line {index}"
+                for index in range(1, 105)
+            ),
+        )
+
+        payload = self.service.document_search_payload(
+            pattern="needle",
+            path="cases/order.md",
+            output_mode="content",
+            head_limit=3,
+        )
+
+        lines = payload["content"].splitlines()
+        self.assertIn("cases/order.md:3:needle", lines[0])
+        self.assertIn("cases/order.md:10:needle", lines[1])
+        self.assertIn("cases/order.md:100:needle", lines[2])
 
     def test_document_search_count_mode_returns_file_counts(self) -> None:
         self._write_pdf(

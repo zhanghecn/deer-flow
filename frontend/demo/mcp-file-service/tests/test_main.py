@@ -239,7 +239,7 @@ class WorkbenchMainAppTest(unittest.TestCase):
         with self.assertRaises(json.JSONDecodeError):
             json.loads(text)
 
-    def test_document_search_mcp_returns_grep_file_text_for_agents(self) -> None:
+    def test_document_search_mcp_defaults_to_grep_content_text_for_agents(self) -> None:
         target = Path(self.temp_dir.name) / "cases" / "policy.md"
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text("Deductible is 500 USD\n", encoding="utf-8")
@@ -249,11 +249,25 @@ class WorkbenchMainAppTest(unittest.TestCase):
             {"pattern": "Deductible"},
         )
 
-        self.assertIn("Found 1 file", text)
-        self.assertIn("cases/policy.md", text)
+        self.assertIn("cases/policy.md:1:Deductible is 500 USD", text)
+        self.assertIn("Deductible is 500 USD", text)
         self.assertNotIn('"filenames"', text)
         with self.assertRaises(json.JSONDecodeError):
             json.loads(text)
+
+    def test_document_search_mcp_keeps_files_with_matches_mode(self) -> None:
+        target = Path(self.temp_dir.name) / "cases" / "policy.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("Deductible is 500 USD\n", encoding="utf-8")
+
+        text = self._call_agent_tool_text(
+            "document_search",
+            {"pattern": "Deductible", "output_mode": "files_with_matches"},
+        )
+
+        self.assertIn("Found 1 file", text)
+        self.assertIn("cases/policy.md", text)
+        self.assertNotIn("Deductible is 500 USD", text)
 
     def test_document_search_mcp_returns_grep_content_text_for_agents(self) -> None:
         target = Path(self.temp_dir.name) / "cases" / "policy.md"
@@ -265,7 +279,7 @@ class WorkbenchMainAppTest(unittest.TestCase):
             {"pattern": "Deductible", "output_mode": "content"},
         )
 
-        self.assertIn("cases/policy.md", text)
+        self.assertIn("cases/policy.md:2:Deductible is 500 USD", text)
         self.assertIn("Deductible is 500 USD", text)
         self.assertNotIn('"matches"', text)
         with self.assertRaises(json.JSONDecodeError):

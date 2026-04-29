@@ -351,7 +351,7 @@ def _register_document_tools(server: FastMCP) -> None:
         pattern: str,
         path: str = "",
         glob: str = "",
-        output_mode: str = "files_with_matches",
+        output_mode: str = "content",
         context: int = 0,
         head_limit: int | None = None,
         offset: int = 0,

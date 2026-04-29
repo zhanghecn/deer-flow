@@ -375,9 +375,17 @@ def _content_match_lines(
     for context_item in context_lines:
         locator = item["locator"]
         line_number = context_item["line_number"]
-        prefix = f"{item['path']}:{item['locator_type']}:{locator}"
-        if show_line_numbers:
-            prefix = f"{prefix}:{line_number}"
+        if item["locator_type"] == "line":
+            # Text documents are stored as one source line per unit, so the
+            # unit locator is the grep line number. Emitting `path:line:1`
+            # would add noise and make agents chase the wrong coordinate.
+            prefix = str(item["path"])
+            if show_line_numbers:
+                prefix = f"{prefix}:{locator}"
+        else:
+            prefix = f"{item['path']}:{item['locator_type']}:{locator}"
+            if show_line_numbers:
+                prefix = f"{prefix}:{line_number}"
         # Context lines can contain long source URL fields. Keep grep output
         # source-faithful but bounded so one noisy line does not evict every
         # useful neighboring line.
@@ -1400,6 +1408,7 @@ class DocumentTooling:
                             {
                                 "path": document.path,
                                 "document_kind": document.document_kind,
+                                "unit_index": unit_index,
                                 "locator": unit.locator,
                                 "locator_type": unit.locator_type,
                                 "line_number": line_number,
@@ -1448,6 +1457,7 @@ class DocumentTooling:
                             {
                                 "path": document.path,
                                 "document_kind": document.document_kind,
+                                "unit_index": unit_index,
                                 "locator": unit.locator,
                                 "locator_type": unit.locator_type,
                                 "line_number": line_number,
@@ -1484,7 +1494,9 @@ class DocumentTooling:
         matches.sort(
             key=lambda item: (
                 item["path"],
-                str(item["locator"]),
+                # Preserve source order. Text documents use one unit per line,
+                # so sorting locator as a string would put line 100 before 2.
+                int(item["unit_index"]),
                 str(item["evidence_type"]),
                 int(item["line_number"]),
             )
