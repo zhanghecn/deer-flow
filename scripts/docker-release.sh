@@ -24,18 +24,19 @@ IMAGE_REPOSITORY="${OPENAGENTS_IMAGE_REPOSITORY:-${DOCKERHUB_REPOSITORY:-}}"
 IMAGE_TAG="${OPENAGENTS_IMAGE_TAG:-}"
 DRY_RUN=0
 BUILD_BEFORE_PUSH=1
-SERVICES=()
+SCOPE=""
 
 usage() {
     cat <<'EOF'
 Usage:
-  scripts/docker-release.sh [push|build|pull|deploy|config|images] [options]
+  scripts/docker-release.sh [push|build|pull|deploy|config|images] --scope <scope> [options]
 
 Commands:
   push      Build release images and push them to the registry (default)
   build     Build release images only
   pull      Pull release images using deploy/docker-compose.yml
-  deploy    Pull release images and run docker compose up -d from deploy/
+  deploy    Pull release images and run docker compose up -d from deploy/.
+            Requires --scope. Non-all scopes deploy with --no-deps.
   config    Print the resolved deploy compose config
   images    Print the image refs that will be used
 
@@ -46,15 +47,18 @@ Options:
   --tag <tag>          Base tag. Defaults to latest.
                        Final tags are service-tag pairs, e.g. nginx-latest.
   --registry <host>    Registry host. Defaults to docker.io.
-  --service <name>     Limit to a service. Can be repeated.
+  --scope <scope>      Release scope: frontend, gateway, app, or all.
+                       frontend=nginx; gateway=gateway; app=nginx+gateway+langgraph.
+                       all is explicit full-stack/full-image reconciliation.
   --no-build           For push: skip build and only push existing local images.
   --dry-run            Print commands without executing them.
   -h, --help           Show this help.
 
 Examples:
-  scripts/docker-release.sh push
-  scripts/docker-release.sh push --repository zhangxuan2/openagents --tag v0.1.0
-  scripts/docker-release.sh deploy --tag v0.1.0
+  scripts/docker-release.sh push --scope app
+  scripts/docker-release.sh push --scope app --repository zhangxuan2/openagents --tag v0.1.0
+  scripts/docker-release.sh deploy --scope gateway --tag v0.1.0
+  scripts/docker-release.sh deploy --scope all --tag v0.1.0
 EOF
 }
 
@@ -99,10 +103,19 @@ parse_args() {
                 IMAGE_REGISTRY="$2"
                 shift 2
                 ;;
-            --service)
-                [ "$#" -ge 2 ] || fail "--service requires a value"
-                SERVICES+=("$2")
+            --scope)
+                [ "$#" -ge 2 ] || fail "--scope requires a value"
+                SCOPE="$2"
                 shift 2
+                ;;
+            --service)
+                fail "--service has been replaced by --scope frontend|gateway|app|all"
+                ;;
+            --all)
+                fail "--all has been replaced by --scope all"
+                ;;
+            --no-deps)
+                fail "--no-deps is automatic for deploy with --scope frontend|gateway|app"
                 ;;
             --no-build)
                 BUILD_BEFORE_PUSH=0
@@ -121,6 +134,35 @@ parse_args() {
                 ;;
         esac
     done
+}
+
+command_requires_scope() {
+    case "$COMMAND" in
+        push|build|pull|deploy|images)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+validate_release_scope() {
+    if command_requires_scope && [ -z "$SCOPE" ]; then
+        fail "$COMMAND requires --scope frontend|gateway|app|all"
+    fi
+
+    if ! command_requires_scope && [ -n "$SCOPE" ]; then
+        fail "--scope only applies to push, build, pull, deploy, or images"
+    fi
+
+    case "$SCOPE" in
+        ""|frontend|gateway|app|all)
+            ;;
+        *)
+            fail "Unknown release scope: $SCOPE (expected frontend, gateway, app, or all)"
+            ;;
+    esac
 }
 
 resolve_release_identity() {
@@ -146,11 +188,37 @@ resolve_release_identity() {
 }
 
 selected_services() {
-    if [ "${#SERVICES[@]}" -gt 0 ]; then
-        printf '%s\n' "${SERVICES[@]}"
-        return
-    fi
-    printf '%s\n' "${DEFAULT_SERVICES[@]}"
+    case "$SCOPE" in
+        frontend)
+            printf '%s\n' nginx
+            ;;
+        gateway)
+            printf '%s\n' gateway
+            ;;
+        app)
+            # The app scope is application code only. It deliberately excludes
+            # stateful and heavyweight dependencies such as PostgreSQL, MinIO,
+            # ONLYOFFICE, sandbox-aio, and OpenPencil.
+            printf '%s\n' nginx gateway langgraph
+            ;;
+        all)
+            printf '%s\n' "${DEFAULT_SERVICES[@]}"
+            ;;
+        *)
+            fail "Missing release scope"
+            ;;
+    esac
+}
+
+scope_services_csv() {
+    local service
+    local separator=""
+
+    while IFS= read -r service; do
+        [ -n "$service" ] || continue
+        printf '%s%s' "$separator" "$service"
+        separator=","
+    done < <(selected_services)
 }
 
 print_release_summary() {
@@ -160,12 +228,34 @@ print_release_summary() {
     echo "  registry:  $IMAGE_REGISTRY"
     echo "  repository: $IMAGE_REPOSITORY"
     echo "  base tag:   $IMAGE_TAG"
-    echo ""
-    info "Images:"
-    while IFS= read -r service; do
-        [ -n "$service" ] || continue
-        echo "  $(image_ref "$service")"
-    done < <(selected_services)
+    if command_requires_scope; then
+        echo "  scope:      $SCOPE"
+        if [ "$SCOPE" = "all" ] && { [ "$COMMAND" = "deploy" ] || [ "$COMMAND" = "pull" ]; }; then
+            echo "  compose:    full stack"
+            echo "  images:     $(scope_services_csv)"
+        else
+            echo "  services:   $(scope_services_csv)"
+        fi
+        echo ""
+        info "Images:"
+        while IFS= read -r service; do
+            [ -n "$service" ] || continue
+            echo "  $(image_ref "$service")"
+        done < <(selected_services)
+
+        if [ "$COMMAND" = "deploy" ]; then
+            echo ""
+            if [ "$SCOPE" = "all" ]; then
+                # Full-stack deploys intentionally reconcile infrastructure services
+                # such as PostgreSQL, MinIO, and ONLYOFFICE; require scope=all so this is
+                # never an accidental side effect of a routine gateway/frontend release.
+                echo "Deploy scope: full compose stack"
+            else
+                echo "Deploy scope: selected release services"
+                echo "Compose up:   --no-deps (automatic)"
+            fi
+        fi
+    fi
     echo ""
 }
 
@@ -302,7 +392,8 @@ release_push() {
 
 release_pull() {
     local services
-    if [ "${#SERVICES[@]}" -gt 0 ]; then
+
+    if [ "$SCOPE" != "all" ]; then
         mapfile -t services < <(selected_services)
         run_compose_base pull "${services[@]}"
         return
@@ -312,18 +403,21 @@ release_pull() {
 
 release_deploy() {
     local services
-    if [ "${#SERVICES[@]}" -gt 0 ]; then
+
+    if [ "$SCOPE" != "all" ]; then
         mapfile -t services < <(selected_services)
         run_compose_base pull "${services[@]}"
-        run_compose_base up -d "${services[@]}"
+        run_compose_base up -d --no-deps "${services[@]}"
         return
     fi
+
     run_compose_base pull
     run_compose_base up -d
 }
 
 main() {
     parse_args "$@"
+    validate_release_scope
     resolve_release_identity
     print_release_summary
 

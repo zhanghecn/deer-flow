@@ -23,17 +23,16 @@ make docker-logs
 后续发版：
 
 ```bash
-./scripts/docker-release.sh push
-./scripts/docker-release.sh deploy
+./scripts/docker-release.sh push --scope app
+./scripts/docker-release.sh deploy --scope app
 ```
 
-指定版本或服务：
+指定版本或全栈：
 
 ```bash
-./scripts/docker-release.sh push --tag v0.1.0
-./scripts/docker-release.sh deploy --tag v0.1.0
-./scripts/docker-release.sh push --service gateway
-./scripts/docker-release.sh deploy --service gateway
+./scripts/docker-release.sh push --scope gateway --tag v0.1.0
+./scripts/docker-release.sh deploy --scope gateway --tag v0.1.0
+./scripts/docker-release.sh deploy --scope all --tag v0.1.0
 ```
 
 默认镜像仓库是 `zhangxuan2/openagents`，默认 tag 是 `latest`。实际镜像 tag 形如 `gateway-latest`、`nginx-v0.1.0`。
@@ -95,24 +94,62 @@ migrations/002_seed_data.up.sql
 
 后续发版不要再跑 `docker-deploy.sh --start`，除非你删除了 `deploy/` 或明确要重建全新环境。
 
-如果只发布新镜像：
+如果只发布新镜像，按本次变更影响的 scope 发版。日常发布 gateway、用户前台、管理后台、agents runtime 时，不要跑全栈 deploy。
+
+常见影响范围：
+
+- `--scope frontend`：发布 `nginx`，用于 `frontend/app/**`、`frontend/admin/**`、`docker/nginx/**`。
+- `--scope gateway`：发布 `gateway`，用于 `backend/gateway/**`。
+- `--scope app`：发布 `nginx`、`gateway`、`langgraph`，用于常规应用代码一起发。
+
+例如只发 gateway：
 
 ```bash
-./scripts/docker-release.sh push
-./scripts/docker-release.sh deploy
+./scripts/docker-release.sh push --scope gateway
+./scripts/docker-release.sh deploy --scope gateway
 ```
 
-如果这次发版也改了脚本、compose 模板或文档，服务器先更新代码：
+例如常规应用代码一起发：
+
+```bash
+./scripts/docker-release.sh push --scope app
+./scripts/docker-release.sh deploy --scope app
+```
+
+`deploy --scope frontend|gateway|app` 会自动让 Compose 只重建/重启 scope 内服务，不主动启动或 reconcile PostgreSQL、MinIO、ONLYOFFICE 等依赖服务。
+
+如果确实要全栈 reconcile，必须显式写 `--scope all`：
+
+```bash
+./scripts/docker-release.sh push --scope all --tag v0.1.0
+./scripts/docker-release.sh deploy --scope all --tag v0.1.0
+```
+
+如果这次发版也改了脚本或文档，服务器先更新代码后再按影响 scope 发布：
 
 ```bash
 git pull
-./scripts/docker-release.sh deploy
+./scripts/docker-release.sh deploy --scope gateway
+```
+
+如果改了 `docker/docker-compose-prod.yaml` 模板，先刷新生成的 `deploy/docker-compose.yml`，再按影响范围发布：
+
+```bash
+git pull
+./scripts/docker-deploy.sh
+./scripts/docker-release.sh deploy --scope gateway
+```
+
+只有 compose-wide 或基础设施变更才使用全栈：
+
+```bash
+./scripts/docker-release.sh deploy --scope all --tag v0.1.0
 ```
 
 推到其他仓库：
 
 ```bash
-./scripts/docker-release.sh push --repository <namespace>/openagents --tag v0.1.0
+./scripts/docker-release.sh push --scope app --repository <namespace>/openagents --tag v0.1.0
 ```
 
 ## 配置和数据
@@ -232,7 +269,9 @@ deploy/data/
 回滚镜像：
 
 ```bash
-./scripts/docker-release.sh deploy --tag <previous-tag>
+./scripts/docker-release.sh deploy --scope gateway --tag <previous-tag>
+# 或确认要全栈回滚时：
+./scripts/docker-release.sh deploy --scope all --tag <previous-tag>
 ```
 
 如果发版涉及数据库结构变更，数据库回滚要单独处理，不能只靠镜像回滚。

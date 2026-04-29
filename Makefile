@@ -31,7 +31,7 @@ help:
 	@echo "  make docker-model-gateway-attach MODEL_GATEWAY_CONTAINER=<container>"
 	@echo "  make docker-deploy-prepare ARGS='--start' - First production deploy"
 	@echo "  make docker-release-push ARGS='--tag <tag>'"
-	@echo "  make docker-release-deploy ARGS='--tag <tag>'"
+	@echo "  make docker-release-deploy ARGS='--scope app --tag <tag>'"
 	@echo ""
 	@echo "Advanced host-debug helpers:"
 	@echo "  make check         - Check host tooling for non-Docker workflows"
