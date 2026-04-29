@@ -287,6 +287,41 @@ class WorkbenchMainAppTest(unittest.TestCase):
         with self.assertRaises(json.JSONDecodeError):
             json.loads(text)
 
+    def test_document_read_mcp_returns_numbered_text_for_agents(self) -> None:
+        target = Path(self.temp_dir.name) / "cases" / "read.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("Alpha\nBeta\n", encoding="utf-8")
+
+        text = self._call_agent_tool_text(
+            "document_read",
+            {"path": "cases/read.md", "limit": 4},
+        )
+
+        self.assertIn("1\t# cases/read.md", text)
+        self.assertIn("3\tAlpha", text)
+        self.assertIn("4\tBeta", text)
+        self.assertNotIn('"content"', text)
+        with self.assertRaises(json.JSONDecodeError):
+            json.loads(text)
+
+    def test_document_read_mcp_adds_image_hint_for_markdown_references(self) -> None:
+        target = Path(self.temp_dir.name) / "cases" / "vision.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            "Intro\n![Image file bms-vision-red-42.png](images/page_1_image_1.png)\n",
+            encoding="utf-8",
+        )
+
+        text = self._call_agent_tool_text(
+            "document_read",
+            {"path": "cases/vision.md", "limit": 5},
+        )
+
+        self.assertIn("![Image file bms-vision-red-42.png]", text)
+        self.assertIn("<image_read_hint>", text)
+        self.assertIn("document_read", text)
+        self.assertNotIn('"image_paths"', text)
+
     def test_document_read_mcp_returns_image_content_blocks(self) -> None:
         image_path = Path(self.temp_dir.name) / "images" / "tiny.png"
         image_path.parent.mkdir(parents=True, exist_ok=True)
@@ -325,9 +360,12 @@ class WorkbenchMainAppTest(unittest.TestCase):
             for item in content
             if isinstance(item, dict) and item.get("type") == "text"
         )
-        payload = json.loads(str(text_block["text"]))
-        self.assertEqual(payload["local_parse"]["image_root"], "images")
-        self.assertTrue(payload["local_parse"]["image_paths"])
+        text = str(text_block["text"])
+        self.assertIn("1\t![", text)
+        self.assertIn("Image asset for images/tiny.png", text)
+        self.assertNotIn("<image_read_hint>", text)
+        with self.assertRaises(json.JSONDecodeError):
+            json.loads(text)
         image_block = next(
             item
             for item in content

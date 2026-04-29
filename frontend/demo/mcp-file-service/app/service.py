@@ -132,8 +132,8 @@ DOCUMENT_TOOL_DESCRIPTORS = (
             "image path with the same source document path."
         ),
         returns=(
-            "JSON payload with markdown content, line pagination, doc_extract-style "
-            "image paths, and MCP image blocks when locator is an images/... path."
+            "Plain cat -n style text, with MCP image blocks when locator is an "
+            "images/... path."
         ),
         arguments=(
             ToolArgument("path", "string", True, "Relative file path under the uploaded root."),
@@ -1122,6 +1122,42 @@ class FileMcpService:
         file_word = self._plural_count(num_files, "file", "files")
         limit_suffix = f" {limit_info}" if limit_info else ""
         return f"Found {num_files} {file_word}{limit_suffix}\n" + "\n".join(filenames)
+
+    @staticmethod
+    def _format_read_lines(content: str, *, offset: object) -> str:
+        """Render document_read content in Claude Read's compact cat -n shape."""
+
+        if not content:
+            return ""
+        try:
+            start_line = int(offset or 0) + 1
+        except (TypeError, ValueError):
+            start_line = 1
+        return "\n".join(
+            f"{line_number}\t{line}"
+            for line_number, line in enumerate(content.splitlines(), start_line)
+        )
+
+    def format_document_read_result(self, payload: dict[str, Any]) -> str:
+        """Render only the agent-useful read text plus a minimal image hint."""
+
+        result = self._format_read_lines(
+            str(payload.get("content") or ""),
+            offset=payload.get("offset"),
+        )
+        image_paths = payload.get("image_paths")
+        has_inline_images = isinstance(image_paths, list) and bool(image_paths)
+        has_returned_image_blocks = bool(payload.get("mcp_images"))
+        if has_inline_images and not has_returned_image_blocks:
+            # Image paths are already present in the numbered markdown lines;
+            # keep the hint generic so the model context is spent on content.
+            hint = (
+                "<image_read_hint>Image references appear above. Automatically "
+                "call document_read with the same path and locator set to the "
+                "image path when the image may affect the answer.</image_read_hint>"
+            )
+            return f"{result}\n\n{hint}" if result else hint
+        return result
 
 
 def build_workbench_service_from_env() -> FileMcpService:
