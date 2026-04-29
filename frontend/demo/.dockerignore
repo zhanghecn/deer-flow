@@ -3,6 +3,7 @@
 .vite
 dist
 node_modules
+deploy/data
 mcp-file-service/.venv
 mcp-file-service/.pytest_cache
 mcp-file-service/__pycache__

@@ -2,8 +2,8 @@ name: openagents-mcp-workbench
 
 services:
   mcp-file-service:
-    # Keep an explicit image contract so local builds and CI-published images
-    # can share the same service name without bind-mounting runtime deps.
+    # Keep the MCP service as the only runtime backend. Its writable state is a
+    # visible project bind mount, not a Docker named volume hidden under /var/lib.
     image: ${MCP_WORKBENCH_FILE_SERVICE_IMAGE:-openagents-mcp-workbench-mcp-file-service}
     build:
       context: .
@@ -15,64 +15,30 @@ services:
     environment:
       MCP_WORKBENCH_HOST: 0.0.0.0
       MCP_WORKBENCH_PORT: 8090
-      # Source links are shown in the browser; default to the gateway origin,
-      # not the internal uvicorn port used between containers.
       MCP_WORKBENCH_PUBLIC_BASE_URL: ${MCP_WORKBENCH_PUBLIC_BASE_URL:-http://127.0.0.1:8084}
       MCP_WORKBENCH_DATA_DIR: /data/files
       MCP_WORKBENCH_ALLOWED_ORIGINS: ${MCP_WORKBENCH_ALLOWED_ORIGINS:-*}
     volumes:
-      - mcp_workbench_data:/data
+      - ./deploy/data:/data
     restart: unless-stopped
-    networks:
-      openagents:
-        aliases:
-          # Keep the gateway upstream stable even when the main OpenAgents stack
-          # also exposes a legacy `mcp-file-service` alias on the same network.
-          - mcp-workbench-file-service
 
-  mcp-workbench-ui:
-    image: ${MCP_WORKBENCH_UI_IMAGE:-openagents-mcp-workbench-mcp-workbench-ui}
+  mcp-workbench:
+    # One container owns the browser surface: nginx serves the built frontend
+    # and reverse proxies all MCP/API traffic to the internal MCP service.
+    image: ${MCP_WORKBENCH_IMAGE:-openagents-mcp-workbench}
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        # Keep full image builds aligned with the dynamic `make demo-start`
-        # registry default, while allowing operators to override it per host.
         NPM_REGISTRY: ${DEMO_NPM_REGISTRY:-https://registry.npmmirror.com}
-    env_file:
-      # Defaults keep clean clones bootable; the optional local file lets direct
-      # Docker Compose runs pick up the same chat agent/API settings as demo.sh.
-      - ./.env.defaults
-      - path: ${MCP_WORKBENCH_UI_ENV_FILE:-./.env.local}
-        required: false
-    environment:
-      VITE_DEMO_WORKBENCH_BASE_URL: ${VITE_DEMO_WORKBENCH_BASE_URL:-}
-    restart: unless-stopped
-    networks:
-      openagents:
-        aliases:
-          - mcp-workbench-ui
-
-  mcp-workbench-gateway:
-    image: nginx:1.27-alpine
+        VITE_DEMO_PUBLIC_API_BASE_URL: ${VITE_DEMO_PUBLIC_API_BASE_URL:-}
+        VITE_DEMO_PUBLIC_API_KEY: ${VITE_DEMO_PUBLIC_API_KEY:-}
+        VITE_DEMO_DEFAULT_AGENT_NAME: ${VITE_DEMO_DEFAULT_AGENT_NAME:-}
+        VITE_DEMO_HTTP_AGENT_NAME: ${VITE_DEMO_HTTP_AGENT_NAME:-}
+        VITE_DEMO_HTTP_API_KEY: ${VITE_DEMO_HTTP_API_KEY:-}
+        VITE_DEMO_WORKBENCH_BASE_URL: ${VITE_DEMO_WORKBENCH_BASE_URL:-http://127.0.0.1:8084}
     depends_on:
       - mcp-file-service
-      - mcp-workbench-ui
     ports:
       - "8084:8084"
-    volumes:
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     restart: unless-stopped
-    networks:
-      - openagents
-
-volumes:
-  mcp_workbench_data:
-
-networks:
-  openagents:
-    external: true
-    # The standalone workbench must join the active OpenAgents stack network so
-    # LangGraph can resolve `http://mcp-file-service:8090` for agent-scoped MCP
-    # profiles while the browser still uses localhost:8084.
-    name: ${MCP_WORKBENCH_NETWORK:-openagents_default}

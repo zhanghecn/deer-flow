@@ -9,164 +9,50 @@ NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-DEMO_COMPOSE_FILE="$PROJECT_ROOT/frontend/demo/compose.yaml"
-DEMO_LOCAL_COMPOSE_FILE="$PROJECT_ROOT/frontend/demo/compose.local-deps.yaml"
-DEMO_UI_DEFAULT_ENV_FILE="$PROJECT_ROOT/frontend/demo/.env.defaults"
-DEMO_UI_LOCAL_ENV_FILE="$PROJECT_ROOT/frontend/demo/.env.local"
-DEMO_UI_PROJECT_DIR="$PROJECT_ROOT/frontend/demo"
-DEMO_MCP_PROJECT_DIR="$PROJECT_ROOT/frontend/demo/mcp-file-service"
+DEMO_PROJECT_DIR="$PROJECT_ROOT/frontend/demo"
+DEMO_COMPOSE_FILE="$DEMO_PROJECT_DIR/compose.yaml"
+DEMO_UI_DEFAULT_ENV_FILE="$DEMO_PROJECT_DIR/.env.defaults"
+DEMO_UI_LOCAL_ENV_FILE="$DEMO_PROJECT_DIR/.env.local"
+DEMO_DATA_DIR="$DEMO_PROJECT_DIR/deploy/data"
 DEMO_HEALTH_URL="http://127.0.0.1:8084/api/health"
 DEFAULT_START_TIMEOUT_SECONDS="${DEMO_DOCKER_START_TIMEOUT_SECONDS:-180}"
-DEFAULT_DEV_NETWORK="openagents_default"
 DEFAULT_PROD_NETWORK="openagents-prod_openagents"
-LOCAL_BASE_IMAGE="${MCP_WORKBENCH_FILE_SERVICE_LOCAL_BASE_IMAGE:-openagents-mcp-workbench-mcp-file-service-local-base}"
 DEMO_NPM_REGISTRY="${DEMO_NPM_REGISTRY:-${NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}}"
 DEMO_PYTHON_INDEX_URL="${DEMO_PYTHON_INDEX_URL:-${UV_DEFAULT_INDEX:-https://mirrors.aliyun.com/pypi/simple/}}"
 DEMO_APT_DEBIAN_MIRROR="${DEMO_APT_DEBIAN_MIRROR:-http://mirrors.aliyun.com/debian}"
 DEMO_APT_SECURITY_MIRROR="${DEMO_APT_SECURITY_MIRROR:-http://mirrors.aliyun.com/debian-security}"
-DEMO_NETWORK=""
 
-resolve_demo_network() {
-    if [ -n "${MCP_WORKBENCH_NETWORK:-}" ]; then
-        echo "$MCP_WORKBENCH_NETWORK"
+demo_env_file() {
+    if [ -f "$DEMO_UI_LOCAL_ENV_FILE" ]; then
+        echo "$DEMO_UI_LOCAL_ENV_FILE"
         return
     fi
 
-    # The MCP URL exposed to agents is container-internal. Prefer the running
-    # production network when it exists so the demo MCP can be bound from the
-    # prod LangGraph container without users hand-editing localhost URLs.
-    if docker network inspect "$DEFAULT_PROD_NETWORK" >/dev/null 2>&1; then
-        echo "$DEFAULT_PROD_NETWORK"
-        return
-    fi
-
-    echo "$DEFAULT_DEV_NETWORK"
+    echo "$DEMO_UI_DEFAULT_ENV_FILE"
 }
 
 compose() {
-    local ui_env_file="$DEMO_UI_DEFAULT_ENV_FILE"
+    local ui_env_file
 
-    if [ -z "$DEMO_NETWORK" ]; then
-        DEMO_NETWORK="$(resolve_demo_network)"
-    fi
-
-    # The one-command demo path must work on a clean clone, so the compose
-    # stack defaults to a tracked env file and only switches to the ignored
-    # `.env.local` override when it actually exists.
-    if [ -f "$DEMO_UI_LOCAL_ENV_FILE" ]; then
-        ui_env_file="$DEMO_UI_LOCAL_ENV_FILE"
-    fi
-
-    MCP_WORKBENCH_UI_ENV_FILE="$ui_env_file" \
-    MCP_WORKBENCH_FILE_SERVICE_LOCAL_BASE_IMAGE="$LOCAL_BASE_IMAGE" \
-    MCP_WORKBENCH_NETWORK="$DEMO_NETWORK" \
-        docker compose -f "$DEMO_COMPOSE_FILE" -f "$DEMO_LOCAL_COMPOSE_FILE" "$@"
-}
-
-ensure_demo_network() {
-    if docker network inspect "$DEMO_NETWORK" >/dev/null 2>&1; then
-        return
-    fi
-
-    echo -e "${BLUE}Creating demo Docker network: $DEMO_NETWORK${NC}"
-    docker network create "$DEMO_NETWORK" >/dev/null
-}
-
-ensure_local_base_image() {
-    if docker image inspect "$LOCAL_BASE_IMAGE" >/dev/null 2>&1 \
-        && docker run --rm "$LOCAL_BASE_IMAGE" python -m uv --version >/dev/null 2>&1; then
-        echo -e "${GREEN}✓ Reusing local base image ${LOCAL_BASE_IMAGE}${NC}"
-        return
-    fi
-
-    echo -e "${BLUE}Building demo OCR base image once: ${LOCAL_BASE_IMAGE}${NC}"
-    docker build \
-        --build-arg "PIP_INDEX_URL=$DEMO_PYTHON_INDEX_URL" \
-        --build-arg "APT_DEBIAN_MIRROR=$DEMO_APT_DEBIAN_MIRROR" \
-        --build-arg "APT_SECURITY_MIRROR=$DEMO_APT_SECURITY_MIRROR" \
-        -t "$LOCAL_BASE_IMAGE" \
-        -f "$PROJECT_ROOT/frontend/demo/mcp-file-service/Dockerfile.local-base" \
-        "$PROJECT_ROOT"
-}
-
-bootstrap_python_deps() {
-    echo -e "${BLUE}Syncing demo Python deps in ${DEMO_MCP_PROJECT_DIR}${NC}"
-    if command -v uv >/dev/null 2>&1; then
-        # The mounted service runs inside a CPython 3.12 container, so the host
-        # dependency environment must use the same ABI for import compatibility.
-        # The default index is pinned here instead of relying on user-global uv
-        # config so clean servers get the same fast bootstrap behavior.
-        uv sync \
-            --project "$DEMO_MCP_PROJECT_DIR" \
-            --python 3.12 \
-            --default-index "$DEMO_PYTHON_INDEX_URL" \
-            --frozen
-        return
-    fi
-
-    echo -e "${YELLOW}uv not found on host; syncing Python deps with Docker image ${LOCAL_BASE_IMAGE}${NC}"
-    # Demo startup should only require Docker. When uv is absent on the host,
-    # reuse the local Python base image and write the mounted .venv from inside
-    # the same CPython 3.12 environment that will later run the service.
-    docker run --rm \
-        --user "$(id -u):$(id -g)" \
-        -e HOME=/tmp \
-        -e UV_CACHE_DIR=/tmp/uv-cache \
-        -v "$DEMO_MCP_PROJECT_DIR:/app" \
-        -w /app \
-        "$LOCAL_BASE_IMAGE" \
-        python -m uv sync \
-            --project /app \
-            --python 3.12 \
-            --default-index "$DEMO_PYTHON_INDEX_URL" \
-            --frozen
-}
-
-bootstrap_node_deps() {
-    echo -e "${BLUE}Syncing demo Node deps in ${DEMO_UI_PROJECT_DIR}${NC}"
-    if command -v pnpm >/dev/null 2>&1; then
-        # Keep the registry scoped to this command so the demo does not mutate a
-        # developer's global pnpm/npm configuration.
-        npm_config_registry="$DEMO_NPM_REGISTRY" \
-            CI=true pnpm --dir "$DEMO_UI_PROJECT_DIR" install --frozen-lockfile
-        return
-    fi
-
-    echo -e "${YELLOW}pnpm not found on host; syncing Node deps with Docker image node:22-alpine${NC}"
-    # The dynamic demo bind-mounts frontend/demo, so node_modules must exist in
-    # that directory. Use a disposable Node container when pnpm is not installed
-    # on the host instead of asking operators to install extra tooling.
-    docker run --rm \
-        --user "$(id -u):$(id -g)" \
-        -e HOME=/tmp \
-        -e COREPACK_HOME=/tmp/corepack \
-        -e npm_config_registry="$DEMO_NPM_REGISTRY" \
-        -e COREPACK_NPM_REGISTRY="$DEMO_NPM_REGISTRY" \
-        -v "$PROJECT_ROOT:/app" \
-        -w /app/frontend/demo \
-        node:22-alpine \
-        /bin/sh -lc 'mkdir -p /tmp/corepack-bin && corepack enable --install-directory /tmp/corepack-bin && export PATH="/tmp/corepack-bin:$PATH" && corepack prepare pnpm@10.26.2 --activate && CI=true pnpm install --frozen-lockfile'
+    ui_env_file="$(demo_env_file)"
+    # Compose interpolation happens before containers exist. Pass the selected
+    # UI env file to docker compose so Vite public values become build args for
+    # the static nginx image instead of runtime-only container variables.
+    DEMO_NPM_REGISTRY="$DEMO_NPM_REGISTRY" \
+    DEMO_PYTHON_INDEX_URL="$DEMO_PYTHON_INDEX_URL" \
+    DEMO_APT_DEBIAN_MIRROR="$DEMO_APT_DEBIAN_MIRROR" \
+    DEMO_APT_SECURITY_MIRROR="$DEMO_APT_SECURITY_MIRROR" \
+        docker compose \
+            --project-directory "$DEMO_PROJECT_DIR" \
+            --env-file "$ui_env_file" \
+            -f "$DEMO_COMPOSE_FILE" \
+            "$@"
 }
 
 bootstrap() {
-    DEMO_NETWORK="$(resolve_demo_network)"
-    ensure_demo_network
-    ensure_local_base_image
-    bootstrap_python_deps
-    bootstrap_node_deps
-}
-
-demo_containers_match_network() {
-    local service
-    local container_id
-
-    for service in mcp-file-service mcp-workbench-ui mcp-workbench-gateway; do
-        container_id="$(compose ps -q "$service" 2>/dev/null | head -n 1)"
-        [ -n "$container_id" ] || return 1
-        # Compose does not always recreate already-running containers when only
-        # the external network name changes, so verify membership explicitly.
-        [ "$(docker inspect "$container_id" --format "{{ if index .NetworkSettings.Networks \"$DEMO_NETWORK\" }}yes{{ end }}" 2>/dev/null)" = "yes" ] || return 1
-    done
+    # The MCP service persists uploaded files and document-cache here so the
+    # operator can inspect or delete demo state from the repository checkout.
+    mkdir -p "$DEMO_DATA_DIR"
 }
 
 connect_demo_container_to_network() {
@@ -175,7 +61,6 @@ connect_demo_container_to_network() {
     local network="$3"
     local container_id
 
-    [ "$network" != "$DEMO_NETWORK" ] || return 0
     docker network inspect "$network" >/dev/null 2>&1 || return 0
 
     container_id="$(compose ps -q "$service" 2>/dev/null | head -n 1)"
@@ -184,19 +69,19 @@ connect_demo_container_to_network() {
         return 0
     fi
 
-    # Attach an alias on the selected extra network so LangGraph can use the
-    # same system MCP profile URL when the demo is not compose-managed there.
+    # The browser uses localhost:8084, but published OpenAgents MCP profiles
+    # resolve mcp-file-service from the runtime network. Attach only the MCP
+    # container, never the nginx/frontend container.
     docker network connect --alias "$alias" "$network" "$container_id"
 }
 
-connect_demo_to_known_openagents_networks() {
-    # The unified dev stack already exposes its own demo service on
-    # openagents_default. Only add the standalone demo to prod when the primary
-    # compose network is dev; connecting it back into dev can create duplicate
-    # DNS aliases if the unified dev demo is also running.
+connect_demo_to_agent_network() {
+    if [ -n "${MCP_WORKBENCH_NETWORK:-}" ]; then
+        connect_demo_container_to_network mcp-file-service mcp-file-service "$MCP_WORKBENCH_NETWORK"
+        return
+    fi
+
     connect_demo_container_to_network mcp-file-service mcp-file-service "$DEFAULT_PROD_NETWORK"
-    connect_demo_container_to_network mcp-workbench-ui mcp-workbench-ui "$DEFAULT_PROD_NETWORK"
-    connect_demo_container_to_network mcp-workbench-gateway mcp-workbench-gateway "$DEFAULT_PROD_NETWORK"
 }
 
 wait_for_http_url() {
@@ -228,25 +113,20 @@ start() {
     echo ""
 
     bootstrap
-    # The demo is intentionally local and dynamic: source directories are
-    # bind-mounted so UI and MCP service edits apply without rebuilding images.
-    if demo_containers_match_network; then
-        compose up -d --no-build mcp-file-service mcp-workbench-ui mcp-workbench-gateway
-    else
-        compose up -d --no-build --force-recreate mcp-file-service mcp-workbench-ui mcp-workbench-gateway
-    fi
-    connect_demo_to_known_openagents_networks
+    compose up -d --build --remove-orphans mcp-file-service mcp-workbench
+    connect_demo_to_agent_network
 
     echo ""
     wait_for_http_url "$DEMO_HEALTH_URL" "demo health endpoint" "$DEFAULT_START_TIMEOUT_SECONDS"
     echo ""
     echo -e "${GREEN}✓ Demo stack is ready: http://127.0.0.1:8084${NC}"
+    echo -e "${GREEN}✓ Demo data directory: $DEMO_DATA_DIR${NC}"
     echo ""
 }
 
 stop() {
     echo -e "${BLUE}Stopping demo stack...${NC}"
-    compose down
+    compose down --remove-orphans
     echo -e "${GREEN}✓ Demo stack stopped${NC}"
 }
 
@@ -263,10 +143,9 @@ help() {
     echo ""
     echo "Usage: $0 <start|stop|status>"
     echo ""
-    echo "start is the only demo boot command. It prepares local deps and starts"
-    echo "bind-mounted containers so source edits apply without image rebuilds."
-    echo "When MCP_WORKBENCH_NETWORK is not set, start prefers"
-    echo "$DEFAULT_PROD_NETWORK when present, otherwise $DEFAULT_DEV_NETWORK."
+    echo "start builds and runs two services: mcp-workbench and mcp-file-service."
+    echo "Uploaded files and document caches are stored in:"
+    echo "  $DEMO_DATA_DIR"
     echo ""
     echo "Env selection:"
     echo "  - Uses frontend/demo/.env.local when present"
@@ -280,7 +159,6 @@ help() {
     echo ""
     echo "Host tools:"
     echo "  - Docker is required"
-    echo "  - pnpm and uv are optional; missing tools are run through Docker"
 }
 
 case "${1:-}" in

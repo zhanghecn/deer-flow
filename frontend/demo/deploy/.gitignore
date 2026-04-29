@@ -1,0 +1,2 @@
+# Runtime uploads and document-cache are bind-mounted here by compose.
+data/

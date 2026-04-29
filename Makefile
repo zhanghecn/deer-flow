@@ -22,7 +22,7 @@ help:
 	@echo "  make docker-status - Show container status"
 	@echo "  make docker-verify - Verify containers and HTTP entrypoints"
 	@echo "  make docker-logs   - Follow all Docker logs"
-	@echo "  make demo-start    - Start the dynamic MCP demo on port 8084"
+	@echo "  make demo-start    - Start the MCP workbench demo on port 8084"
 	@echo ""
 	@echo "Useful Docker Shortcuts:"
 	@echo "  make docker-start  - Same as make dev"
