@@ -58,7 +58,6 @@ import type {
   ExecutionStatus,
 } from "@/core/threads";
 import {
-  DEFAULT_SUBAGENT_ENABLED,
   getEffortForMode,
   getResolvedThreadMode,
   type ThreadMode,
@@ -390,7 +389,6 @@ export function InputBox({
   }, [context, onContextChange, selectedModel]);
 
   const displayedMode = getResolvedThreadMode(context.mode);
-  const subagentEnabled = context.subagent_enabled ?? DEFAULT_SUBAGENT_ENABLED;
   const submitButtonLabel =
     status === "streaming" ? t.inputBox.stop : t.inputBox.submit;
 
@@ -440,13 +438,6 @@ export function InputBox({
     },
     [onContextChange, context, selectedModel],
   );
-
-  const handleSubagentToggle = useCallback(() => {
-    onContextChange?.({
-      ...context,
-      subagent_enabled: !subagentEnabled,
-    });
-  }, [context, onContextChange, subagentEnabled]);
 
   const buildSurfaceContext = useCallback((): SurfaceContextPayload | undefined => {
     if (designSelection && designSelection.selected_node_ids.length > 0) {
@@ -757,23 +748,6 @@ export function InputBox({
             disabled={disabled}
             ensureThreadExists={ensureThreadExists}
           />
-          <Tooltip
-            content={`${t.inputBox.subagentToggle}: ${t.inputBox.subagentToggleDescription}`}
-          >
-            <PromptInputButton
-              aria-pressed={subagentEnabled}
-              className={cn(
-                "h-7 gap-1 px-2 text-[11px] font-normal",
-                subagentEnabled
-                  ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20"
-                  : "text-muted-foreground/60 hover:text-foreground",
-              )}
-              onClick={handleSubagentToggle}
-            >
-              <SparklesIcon className="size-3" />
-              <span>{t.inputBox.subagentToggle}</span>
-            </PromptInputButton>
-          </Tooltip>
           {/* Mode selector — compact, minimal */}
           <PromptInputActionMenu>
             <ModeHoverGuide mode={displayedMode}>

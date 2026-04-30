@@ -34,12 +34,8 @@ describe("thread mode helpers", () => {
     });
   });
 
-  it("respects explicit subagent opt-in without enabling planner mode", () => {
-    expect(
-      resolveSubmitFlags("pro", {
-        subagentEnabled: true,
-      }),
-    ).toEqual({
+  it("keeps subagents enabled without enabling planner mode", () => {
+    expect(resolveSubmitFlags("pro")).toEqual({
       mode: "pro",
       thinking_enabled: true,
       is_plan_mode: false,

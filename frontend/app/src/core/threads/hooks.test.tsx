@@ -579,6 +579,44 @@ describe("useThreadStream", () => {
     );
   });
 
+  it("keeps subagents enabled when stale local settings disabled them", async () => {
+    mockLocalSettingsContext = {
+      ...mockLocalSettingsContext,
+      subagent_enabled: false,
+    };
+
+    const { result } = renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    await act(async () => {
+      await result.current[1]("thread-1", {
+        text: "hello",
+        files: [],
+      });
+    });
+
+    expect(streamState.submit).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        config: expect.objectContaining({
+          configurable: expect.objectContaining({
+            subagent_enabled: true,
+          }),
+        }),
+      }),
+    );
+  });
+
   it("tracks unified execution progress from custom stream events", async () => {
     const renderResult = await act(async () => {
       const hook = renderHook(

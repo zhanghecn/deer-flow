@@ -120,10 +120,9 @@ function resolveThreadContext(context: ThreadContext): ThreadContext {
       (mode ? getEffortForMode(mode) : undefined),
     agent_name: context.agent_name ?? storedContext.agent_name,
     agent_status: context.agent_status ?? storedContext.agent_status,
-    subagent_enabled:
-      context.subagent_enabled ??
-      storedContext.subagent_enabled ??
-      DEFAULT_SUBAGENT_ENABLED,
+    // Runtime middleware settings now own whether the `task` tool exists.
+    // Keep workspace submissions enabled so stale local toggles cannot hide it.
+    subagent_enabled: DEFAULT_SUBAGENT_ENABLED,
     execution_backend:
       context.execution_backend ?? storedContext.execution_backend,
     remote_session_id:
@@ -652,9 +651,7 @@ function buildSubmitOptions(
   command?: Command,
 ) {
   const agentName = resolveAgentName(context, extraContext);
-  const submitFlags = resolveSubmitFlags(context.mode, {
-    subagentEnabled: context.subagent_enabled,
-  });
+  const submitFlags = resolveSubmitFlags(context.mode);
 
   return {
     threadId,

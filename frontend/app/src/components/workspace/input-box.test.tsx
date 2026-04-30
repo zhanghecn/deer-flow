@@ -280,41 +280,7 @@ describe("InputBox", () => {
     );
   });
 
-  it("exposes an explicit subtask toggle and reports state changes", async () => {
-    const user = userEvent.setup();
-    const onContextChange = vi.fn();
-    const queryClient = new QueryClient();
-
-    render(
-      <MemoryRouter>
-        <QueryClientProvider client={queryClient}>
-          <PromptInputProvider>
-            <InputBox
-              threadId="thread-test"
-              context={{
-                model_name: "kimi-k2.5",
-                mode: "pro",
-                subagent_enabled: false,
-                agent_status: "dev",
-              }}
-              onContextChange={onContextChange}
-              onSubmit={vi.fn()}
-            />
-          </PromptInputProvider>
-        </QueryClientProvider>
-      </MemoryRouter>,
-    );
-
-    await user.click(screen.getByRole("button", { name: "Subtasks" }));
-
-    expect(onContextChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        subagent_enabled: true,
-      }),
-    );
-  });
-
-  it("defaults the subtask toggle to enabled when context omits it", () => {
+  it("does not expose the deprecated per-turn subtask toggle", () => {
     const queryClient = new QueryClient();
 
     render(
@@ -336,10 +302,7 @@ describe("InputBox", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByRole("button", { name: "Subtasks" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    expect(screen.queryByRole("button", { name: "Subtasks" })).toBeNull();
   });
 
   it("shows a stop action while streaming and routes clicks to onStop", async () => {
