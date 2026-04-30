@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
+from typing import Literal
 
 from langchain_core.tools import BaseTool
 
@@ -28,6 +29,18 @@ class AsyncFailingDocumentTool(BaseTool):
 
     async def _arun(self, path: str) -> str:
         raise RuntimeError(f"{path} cannot be read")
+
+
+class AdapterLikeContentArtifactDocumentTool(BaseTool):
+    name: str = "document_list"
+    description: str = "List documents."
+    response_format: Literal["content_and_artifact"] = "content_and_artifact"
+
+    def _run(self, path: str = "/") -> tuple[list[dict[str, str]], dict[str, object]]:
+        # The LangChain MCP adapter exposes MCP content plus raw output this way.
+        content = [{"type": "text", "text": f"- {path}/notes.md [text]"}]
+        artifact = {"structured_content": {"result": f"- {path}/notes.md [text]"}}
+        return content, artifact
 
 
 def test_wrap_mcp_tool_errors_returns_model_visible_tool_error():
@@ -64,6 +77,25 @@ def test_wrap_mcp_tool_errors_handles_async_mcp_failures():
 
     assert result.status == "error"
     assert "MCP tool 'document_read' failed: missing.md cannot be read" in result.content
+
+
+def test_wrap_mcp_tool_errors_converts_adapter_result_to_plain_content_tool():
+    wrapped = wrap_mcp_tool_errors(AdapterLikeContentArtifactDocumentTool())
+
+    result = wrapped.invoke(
+        {
+            "type": "tool_call",
+            "id": "call-document-list",
+            "name": "document_list",
+            "args": {"path": "kb"},
+        }
+    )
+
+    assert result.status == "success"
+    assert result.name == "document_list"
+    assert result.tool_call_id == "call-document-list"
+    assert result.content == [{"type": "text", "text": "- kb/notes.md [text]"}]
+    assert getattr(result, "artifact", None) is None
 
 
 def test_load_mcp_tool_items_uses_agent_scoped_profile_refs(monkeypatch):

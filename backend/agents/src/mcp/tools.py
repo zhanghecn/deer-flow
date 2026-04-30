@@ -13,12 +13,12 @@ logger = logging.getLogger(__name__)
 
 
 class MCPToolErrorGuard(BaseTool):
-    """Convert MCP server exceptions into model-visible tool errors.
+    """Convert MCP adapter tools into ordinary model-visible tools.
 
-    LangChain only turns `ToolException` into a tool message. MCP adapters can
-    raise transport, validation, or server exceptions directly, so every MCP
-    tool is wrapped at the runtime boundary instead of relying on each demo or
-    third-party MCP server to follow one error convention.
+    LangChain's MCP adapter already handles protocol conversion. This guard
+    intentionally exposes a plain `content` tool to the agent so adapter
+    internals like `content_and_artifact` do not leak through a second wrapper
+    and make result-shape validation fail before the model sees a tool result.
     """
 
     wrapped_tool: BaseTool = Field(exclude=True)
@@ -50,6 +50,9 @@ def _delegated_tool_input(args: tuple[object, ...], kwargs: dict[str, object]) -
 
 def _format_mcp_tool_error(tool_name: str, exc: Exception) -> str:
     detail = str(exc).strip() or type(exc).__name__
+    prefix = f"MCP tool '{tool_name}' failed:"
+    if detail.startswith(prefix):
+        return detail
     return f"MCP tool '{tool_name}' failed: {detail}"
 
 
@@ -61,7 +64,7 @@ def wrap_mcp_tool_errors(tool: BaseTool) -> BaseTool:
         description=tool.description,
         args_schema=tool.args_schema,
         return_direct=tool.return_direct,
-        response_format=tool.response_format,
+        response_format="content",
         tags=tool.tags,
         metadata=metadata,
         wrapped_tool=tool,
