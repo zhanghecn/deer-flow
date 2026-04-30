@@ -252,6 +252,7 @@ class LeadAgentGraphParts:
     subagents: list[Any] | None
     general_purpose_enabled: bool
     general_purpose_tools: list[Any]
+    todo_enabled: bool
     filesystem_enabled: bool
     system_prompt: str
 
@@ -1429,6 +1430,8 @@ def _build_agent_subagents(
         return None
     if not request.subagent_enabled:
         return None
+    if not agent_config.runtime_middlewares.is_enabled("subagents"):
+        return None
     if not isinstance(tools, list):
         raise ValueError("Lead agent tools must resolve to a list before subagent construction.")
     return load_subagent_specs(
@@ -1492,18 +1495,6 @@ def _build_system_prompt(
     )
 
 
-def _uses_explicit_runtime_tool_surface(agent_config: AgentConfig) -> bool:
-    """Return whether the archive locked an exact normal-tool surface.
-
-    `tool_names` is the user-facing explicit whitelist for normal configured
-    tools. Middleware-owned tool surfaces are controlled separately by
-    `runtime_middlewares`, because the settings UI cannot represent those tools
-    as ordinary `tool_names` entries.
-    """
-
-    return agent_config.tool_names is not None
-
-
 def _build_graph_parts(
     *,
     request: LeadAgentRequest,
@@ -1527,17 +1518,17 @@ def _build_graph_parts(
         always_available_authoring_actions=request.always_available_authoring_actions(),
         setup_agent_enabled=request.allows_agent_setup(),
     )
-    explicit_runtime_surface = _uses_explicit_runtime_tool_surface(resolution.agent_config)
     question_tool_enabled = any(getattr(tool, "name", None) == "question" for tool in tools)
-    subagent_specs = None
-    if not explicit_runtime_surface:
-        subagent_specs = _build_agent_subagents(
-            request=request,
-            agent_config=resolution.agent_config,
-            tools=tools,
-            model_name=resolution.model_name,
-            model_supports_vision=resolution.model_config.supports_vision,
-        )
+    # Middleware-owned tools are governed by the runtime middleware deny-list.
+    # `tool_names` only whitelists normal archive tools, so explicit MCP-only
+    # agents can still expose `task` unless the operator disables subagents.
+    subagent_specs = _build_agent_subagents(
+        request=request,
+        agent_config=resolution.agent_config,
+        tools=tools,
+        model_name=resolution.model_name,
+        model_supports_vision=resolution.model_config.supports_vision,
+    )
     return LeadAgentGraphParts(
         tools=tools,
         middleware=_build_openagents_middlewares(
@@ -1547,6 +1538,7 @@ def _build_graph_parts(
         subagents=subagent_specs.custom_subagents if subagent_specs is not None else None,
         general_purpose_enabled=subagent_specs.general_purpose_enabled if subagent_specs is not None else False,
         general_purpose_tools=subagent_specs.general_purpose_tools if subagent_specs is not None else tools,
+        todo_enabled=bool(request.is_plan_mode and resolution.agent_config.runtime_middlewares.is_enabled("todo")),
         filesystem_enabled=resolution.agent_config.runtime_middlewares.is_enabled("filesystem"),
         system_prompt=_build_system_prompt(request=request, resolution=resolution),
     )
@@ -1664,7 +1656,7 @@ def _create_lead_agent(
             "context_schema": LeadAgentRuntimeContext,
             "name": request.agent_name,
             # Keep planner/todo behavior behind explicit plan-mode opt-in.
-            "todo_enabled": bool(request.is_plan_mode),
+            "todo_enabled": graph_parts.todo_enabled,
         }
 
         graph = create_deep_agent(**deep_agent_kwargs).with_config(

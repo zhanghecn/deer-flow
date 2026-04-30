@@ -196,8 +196,8 @@ var middlewareToolCatalog = []model.ToolCatalogItem{
 		ReservedPolicy:           middlewareInjectedPolicy,
 		Source:                   "middleware",
 		MiddlewareName:           "todo",
-		MiddlewareConfigurable:   false,
-		ReadOnlyReason:           "Injected only for plan-mode runs by TodoListMiddleware; archive tool_names do not control it.",
+		MiddlewareConfigurable:   true,
+		ReadOnlyReason:           "Injected for plan-mode runs by TodoListMiddleware unless the agent runtime middleware deny-list disables todo.",
 	},
 	{
 		Name:                     "task",
@@ -209,8 +209,8 @@ var middlewareToolCatalog = []model.ToolCatalogItem{
 		ReservedPolicy:           middlewareInjectedPolicy,
 		Source:                   "middleware",
 		MiddlewareName:           "subagents",
-		MiddlewareConfigurable:   false,
-		ReadOnlyReason:           "Injected by SubAgentMiddleware when delegation is enabled; explicit normal-tool whitelists disable this default task surface.",
+		MiddlewareConfigurable:   true,
+		ReadOnlyReason:           "Injected by SubAgentMiddleware when per-turn delegation and the agent subagents middleware are enabled.",
 	},
 }
 

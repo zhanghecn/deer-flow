@@ -230,6 +230,7 @@ class OpenAgentsClient:
         effective_model_name: str,
         model_config: Any,
         thinking_enabled: bool,
+        plan_mode: bool,
         subagent_enabled: bool,
         max_concurrent_subagents: int,
         thread_id: str,
@@ -252,17 +253,18 @@ class OpenAgentsClient:
         except FileNotFoundError:
             lead_agent_config = AgentConfig(name=LEAD_AGENT_NAME, status="dev")
 
-        loaded_subagents = (
-            load_subagent_specs(
+        loaded_subagents = None
+        # Mirror server graph assembly: runtime middleware switches are archive
+        # policy, while per-call flags such as `subagent_enabled` are turn
+        # policy. Both must allow delegation before the `task` tool appears.
+        if subagent_enabled and lead_agent_config.runtime_middlewares.is_enabled("subagents"):
+            loaded_subagents = load_subagent_specs(
                 tools,
                 agent_config=lead_agent_config,
                 agent_status="dev",
                 model_name=effective_model_name,
                 model_supports_vision=model_config.supports_vision,
             )
-            if subagent_enabled
-            else None
-        )
         create_kwargs: dict[str, Any] = {
             "model": create_chat_model(
                 name=effective_model_name,
@@ -285,6 +287,8 @@ class OpenAgentsClient:
             "context_schema": LeadAgentRuntimeContext,
             "checkpointer": self._checkpointer,
             "name": LEAD_AGENT_NAME,
+            "todo_enabled": bool(plan_mode and lead_agent_config.runtime_middlewares.is_enabled("todo")),
+            "filesystem_enabled": lead_agent_config.runtime_middlewares.is_enabled("filesystem"),
         }
 
         return create_deep_agent(**create_kwargs)
@@ -302,6 +306,7 @@ class OpenAgentsClient:
             "subagent_enabled",
             DEFAULT_SUBAGENT_ENABLED,
         )
+        plan_mode = cfg.get("is_plan_mode", False)
         max_concurrent_subagents = cfg.get("max_concurrent_subagents", 3)
         thread_id = cfg.get("thread_id", "_default")
         effective_model_name = model_name
@@ -318,6 +323,7 @@ class OpenAgentsClient:
             effective_model_name=effective_model_name,
             model_config=model_config,
             thinking_enabled=thinking_enabled,
+            plan_mode=plan_mode,
             subagent_enabled=subagent_enabled,
             max_concurrent_subagents=max_concurrent_subagents,
             thread_id=thread_id,

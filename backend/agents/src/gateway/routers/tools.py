@@ -413,9 +413,9 @@ def _scan_middleware_tool_catalog() -> list[ToolCatalogItemResponse]:
             reserved_policy=_MIDDLEWARE_INJECTED_POLICY,
             source="middleware",
             middleware_name="todo",
-            middleware_configurable=False,
+            middleware_configurable=True,
             read_only_reason=(
-                "Injected only for plan-mode runs by TodoListMiddleware; archive tool_names do not control it."
+                "Injected for plan-mode runs by TodoListMiddleware unless the agent runtime middleware deny-list disables todo."
             ),
         )
 
@@ -430,9 +430,9 @@ def _scan_middleware_tool_catalog() -> list[ToolCatalogItemResponse]:
         reserved_policy=_MIDDLEWARE_INJECTED_POLICY,
         source="middleware",
         middleware_name="subagents",
-        middleware_configurable=False,
+        middleware_configurable=True,
         read_only_reason=(
-            "Injected by SubAgentMiddleware when delegation is enabled; explicit normal-tool whitelists disable this default task surface."
+            "Injected by SubAgentMiddleware when per-turn delegation and the agent subagents middleware are enabled."
         ),
     )
 

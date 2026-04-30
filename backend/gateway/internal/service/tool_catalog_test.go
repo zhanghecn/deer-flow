@@ -64,3 +64,48 @@ func TestListToolCatalogIncludesFilesystemMiddlewareTools(t *testing.T) {
 		}
 	}
 }
+
+func TestListToolCatalogMarksTaskAndTodoMiddlewareConfigurable(t *testing.T) {
+	t.Setenv("OPENAGENTS_CONFIG_PATH", t.TempDir()+"/missing-config.yaml")
+
+	items, err := (&AgentService{}).ListToolCatalog()
+	if err != nil {
+		t.Fatalf("ListToolCatalog() error = %v", err)
+	}
+
+	byName := make(map[string]struct {
+		middlewareName         string
+		middlewareConfigurable bool
+		reservedPolicy         string
+	}, len(items))
+	for _, item := range items {
+		byName[item.Name] = struct {
+			middlewareName         string
+			middlewareConfigurable bool
+			reservedPolicy         string
+		}{
+			middlewareName:         item.MiddlewareName,
+			middlewareConfigurable: item.MiddlewareConfigurable,
+			reservedPolicy:         item.ReservedPolicy,
+		}
+	}
+
+	for _, expectation := range []struct {
+		toolName       string
+		middlewareName string
+	}{
+		{toolName: "task", middlewareName: "subagents"},
+		{toolName: "write_todos", middlewareName: "todo"},
+	} {
+		item, ok := byName[expectation.toolName]
+		if !ok {
+			t.Fatalf("middleware tool %q missing from catalog", expectation.toolName)
+		}
+		if item.middlewareName != expectation.middlewareName || !item.middlewareConfigurable {
+			t.Fatalf("tool %q metadata = %+v, want configurable %s middleware", expectation.toolName, item, expectation.middlewareName)
+		}
+		if item.reservedPolicy != middlewareInjectedPolicy {
+			t.Fatalf("tool %q policy = %+v, want middleware injected", expectation.toolName, item)
+		}
+	}
+}
