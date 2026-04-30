@@ -422,6 +422,39 @@ class FileMcpService:
             return self.root
         raise FileNotFoundError(f"path not found: {value}")
 
+    def _resolve_document_list_base(self, value: str) -> Path | None:
+        """Resolve document_list scopes without runtime-path compatibility.
+
+        `document_list` is the discovery entrypoint. If it accepts guessed
+        runtime paths, the model learns the wrong namespace and then passes
+        those guesses into document_read. Keep this resolver strict: only empty
+        path or an exact relative directory inside the KB tree is valid.
+        """
+
+        raw_value = str(value or "").strip()
+        if not raw_value:
+            return self.root
+
+        candidate = PurePosixPath(raw_value)
+        if candidate.is_absolute() or ".." in candidate.parts:
+            return None
+
+        resolved = (self.root / Path(candidate.as_posix())).resolve()
+        if resolved == self.root or self.root in resolved.parents:
+            if resolved.exists() and resolved.is_dir():
+                return resolved
+        return None
+
+    def _empty_document_list_payload(self, path: str) -> dict[str, Any]:
+        return {
+            "path": path,
+            "content": "No files found",
+            "items": [],
+            "total": 0,
+            "returned": 0,
+            "has_more": False,
+        }
+
     def _file_row(self, file_path: Path) -> dict[str, Any]:
         stat = file_path.stat()
         relative = file_path.relative_to(self.root).as_posix()
@@ -496,11 +529,15 @@ class FileMcpService:
         every line is a path the agent can pass directly to document_read.
         """
 
-        base = self._resolve_existing_path(path) if path else self.root
-        if not base.is_dir():
-            raise ValueError(f"path is not a directory: {path}")
+        base = self._resolve_document_list_base(path)
+        if base is None:
+            return self._empty_document_list_payload(path)
 
         rows = self._document_list_rows(base)
+        if not rows:
+            return self._empty_document_list_payload(
+                base.relative_to(self.root).as_posix() if base != self.root else ""
+            )
 
         content_lines = [self._render_document_list_row(row) for row in rows]
         return {

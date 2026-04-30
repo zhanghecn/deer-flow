@@ -339,13 +339,26 @@ def _register_document_tools(server: FastMCP) -> None:
     """Bind the unified document contract to one MCP surface."""
 
     @server.tool()
-    def document_list(path: str = "") -> str:
+    def document_list(
+        path: Annotated[
+            str,
+            Field(
+                description=(
+                    "Optional exact relative directory returned by this document "
+                    "tree. Leave empty to list the root. Do not pass runtime "
+                    "filesystem paths such as user-data/uploads, /mnt/user-data, "
+                    "or agents/..."
+                )
+            ),
+        ] = "",
+    ) -> str:
         """List document file paths under a knowledge-base directory.
 
         Use this for path or folder discovery before content search. The output
-        is plain text with one final document path per line, and every returned
-        path can be passed directly to document_search(path=...) or
-        document_read(path=...).
+        is plain text with one final document path per line. Leave `path` empty
+        for root discovery; only pass exact relative directories from this
+        knowledge tree back into `path`. Every returned file path can be passed
+        directly to document_search(path=...) or document_read(path=...).
         """
 
         payload = service.document_list_payload(path=path)

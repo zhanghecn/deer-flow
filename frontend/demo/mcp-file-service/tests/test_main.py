@@ -194,6 +194,19 @@ class WorkbenchMainAppTest(unittest.TestCase):
             },
         )
 
+    def test_document_list_mcp_schema_uses_kb_relative_paths_only(self) -> None:
+        tools = self._discover_tools("/mcp-http-agent/mcp")
+        list_tool = next(
+            tool for tool in tools if tool.get("name") == "document_list"
+        )
+
+        properties = list_tool["inputSchema"]["properties"]  # type: ignore[index]
+        path_schema = properties["path"]  # type: ignore[index]
+        path_description = str(path_schema["description"])  # type: ignore[index]
+
+        self.assertIn("Leave empty to list the root", path_description)
+        self.assertIn("Do not pass runtime filesystem paths", path_description)
+
     def test_document_search_mcp_schema_guides_content_search_only(self) -> None:
         tools = self._discover_tools("/mcp-http-agent/mcp")
         search_tool = next(
@@ -261,6 +274,16 @@ class WorkbenchMainAppTest(unittest.TestCase):
         self.assertNotIn('"items"', text)
         with self.assertRaises(json.JSONDecodeError):
             json.loads(text)
+
+    def test_document_list_mcp_unknown_path_returns_no_files_found(self) -> None:
+        (Path(self.temp_dir.name) / "root.md").write_text("# Root\n", encoding="utf-8")
+
+        text = self._call_agent_tool_text(
+            "document_list",
+            {"path": "user-data/uploads"},
+        )
+
+        self.assertEqual(text, "No files found")
 
     def test_document_search_mcp_defaults_to_grep_content_text_for_agents(self) -> None:
         target = Path(self.temp_dir.name) / "cases" / "policy.md"

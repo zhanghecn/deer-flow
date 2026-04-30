@@ -286,6 +286,21 @@ class FileMcpServiceTest(unittest.TestCase):
         self.assertIn("- nested/contracts/policy-alpha.pdf [pdf]", nested_payload["content"])
         self.assertEqual(nested_payload["total"], 1)
 
+    def test_document_list_unknown_path_returns_no_files_without_root_fallback(self) -> None:
+        payload = self.service.document_list_payload(path="user-data/uploads")
+
+        self.assertEqual(payload["content"], "No files found")
+        self.assertEqual(payload["items"], [])
+        self.assertEqual(payload["total"], 0)
+        self.assertNotIn("案例大全/a.md", payload["content"])
+
+    def test_document_list_rejects_virtual_upload_root_alias(self) -> None:
+        payload = self.service.document_list_payload(path="/mnt/user-data/uploads")
+
+        self.assertEqual(payload["content"], "No files found")
+        self.assertEqual(payload["items"], [])
+        self.assertEqual(payload["total"], 0)
+
     def test_document_list_returns_all_tree_entries_without_pagination(self) -> None:
         for index in range(351):
             target = self.root / "bulk" / f"doc-{index:03d}.md"
