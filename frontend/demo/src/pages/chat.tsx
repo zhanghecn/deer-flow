@@ -1071,7 +1071,7 @@ export function ChatPage() {
   /* ─── Render ────────────────────────────────────────────── */
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-gradient-to-b from-emerald-50/70 via-white to-white text-slate-800">
+    <div className="flex h-screen flex-col overflow-hidden bg-gradient-to-b from-emerald-50/40 via-white to-white text-slate-800">
       {/* Header */}
       <header className="flex items-center justify-between border-b border-emerald-100/70 bg-white/80 px-4 py-3 backdrop-blur-sm">
         <div className="flex items-center gap-2.5">
@@ -1104,17 +1104,17 @@ export function ChatPage() {
       {/* Messages */}
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-6">
         {empty ? (
-          <div className="flex flex-col items-center justify-center pt-20">
-            <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-500 text-white shadow-lg shadow-emerald-200">
-              <Bot className="size-9" />
+          <div className="flex flex-col items-center justify-center px-2 pt-16 text-center sm:pt-20">
+            <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-xl bg-emerald-500 text-white shadow-[0_12px_28px_rgba(16,185,129,0.18)] sm:h-16 sm:w-16">
+              <Bot className="size-8 sm:size-9" />
             </div>
-            <h1 className="mb-2 text-xl font-semibold text-slate-800">
+            <h1 className="mx-auto mb-2 max-w-[22rem] text-lg font-semibold leading-8 text-slate-800 sm:max-w-none sm:text-xl">
               你好，我是{" "}
-              <span className="text-emerald-600">
+              <span className="block break-words text-emerald-600 sm:inline">
                 {agentName ?? "AI"} 助手
               </span>
             </h1>
-            <p className="max-w-md text-center text-sm leading-6 text-slate-500">
+            <p className="max-w-md text-center text-sm leading-6 text-slate-500 sm:max-w-2xl">
               有什么可以帮您的吗？请输入您的问题，我会尽力为您解答。
             </p>
             {!isConfigured && (
@@ -1127,11 +1127,11 @@ export function ChatPage() {
             )}
           </div>
         ) : (
-          <div className="mx-auto max-w-3xl space-y-5">
+          <div className="mx-auto max-w-5xl space-y-5">
             {messages.map((msg) =>
               msg.role === "user" ? (
                 <div key={msg.id} className="flex justify-end">
-                  <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-emerald-500 px-4 py-2.5 text-sm leading-6 text-white shadow-sm">
+                  <div className="max-w-[92%] rounded-xl rounded-tr-sm bg-emerald-500 px-4 py-2.5 text-sm leading-6 text-white shadow-sm sm:max-w-[78%]">
                     {msg.content ? (
                       <p className="whitespace-pre-wrap">{msg.content}</p>
                     ) : (
@@ -1145,7 +1145,7 @@ export function ChatPage() {
                 </div>
               ) : (
                 <div key={msg.id} className="flex justify-start">
-                  <div className="max-w-[85%]">
+                  <div className="max-w-[94%] sm:max-w-[88%]">
                     {/* Reasoning */}
                     {(!msg.activities || msg.activities.length === 0) &&
                       msg.reasoning &&
@@ -1180,7 +1180,7 @@ export function ChatPage() {
                     )}
 
                     <div
-                      className={`rounded-2xl rounded-tl-sm border bg-white px-4 py-3 shadow-sm ${
+                      className={`rounded-xl rounded-tl-sm border bg-white px-4 py-3 shadow-sm ${
                         msg.status === "error"
                           ? "border-rose-200 bg-rose-50"
                           : "border-slate-100"
@@ -1202,7 +1202,10 @@ export function ChatPage() {
                         </div>
                       ) : (
                         <div className="text-sm leading-6 text-slate-700">
-                          <MarkdownRenderer content={msg.content} />
+                          <MarkdownRenderer
+                            content={msg.content}
+                            isStreaming={msg.status === "streaming"}
+                          />
                         </div>
                       )}
                     </div>
@@ -1224,7 +1227,7 @@ export function ChatPage() {
 
       {/* Input */}
       <div className="border-t border-slate-100 bg-white px-4 py-3">
-        <div className="mx-auto max-w-3xl">
+        <div className="mx-auto max-w-5xl">
           {!isConfigured && !empty && (
             <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
               {!agentName
@@ -1249,12 +1252,12 @@ export function ChatPage() {
               />
             </div>
           )}
-          <div className="flex items-end gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2 transition-colors focus-within:border-emerald-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-emerald-100">
+          <div className="flex items-end gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2 transition-colors focus-within:border-emerald-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-emerald-100">
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={!isConfigured || isStreaming}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
               title="添加 SDK 附件"
             >
               <Paperclip className="size-4" />
@@ -1264,7 +1267,7 @@ export function ChatPage() {
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="请输入您的问题，Shift+Enter 换行"
+              placeholder="输入消息"
               rows={1}
               disabled={!isConfigured || isStreaming}
               className="min-h-[40px] max-h-[160px] flex-1 resize-none bg-transparent px-2 py-2 text-sm leading-5 text-slate-700 placeholder-slate-400 outline-none disabled:opacity-50"
@@ -1274,7 +1277,7 @@ export function ChatPage() {
               <button
                 type="button"
                 onClick={handleStop}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-200 text-slate-600 transition-colors hover:bg-slate-300"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-200 text-slate-600 transition-colors hover:bg-slate-300"
                 title="停止"
               >
                 <Square className="size-4 fill-current" />
@@ -1284,7 +1287,7 @@ export function ChatPage() {
                 type="button"
                 onClick={handleSend}
                 disabled={!canSend}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500 text-white transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500 text-white transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
                 title="发送"
               >
                 <Send className="size-4" />
@@ -1304,7 +1307,7 @@ export function ChatPage() {
             className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm"
             onClick={() => setSettingsOpen(false)}
           />
-          <aside className="fixed top-0 right-0 z-50 flex h-full w-80 flex-col border-l border-slate-200 bg-white shadow-xl">
+          <aside className="fixed top-0 right-0 z-50 flex h-full w-full max-w-sm flex-col border-l border-slate-200 bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
               <h2 className="text-base font-semibold text-slate-800">设置</h2>
               <button

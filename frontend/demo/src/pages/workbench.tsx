@@ -394,7 +394,7 @@ function Panel({
 }) {
   return (
     <section className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--panel)]">
-      <header className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
+      <header className="flex flex-col gap-3 border-b border-[var(--border)] px-4 py-3">
         <div className="min-w-0">
           <h2 className="text-sm font-medium text-[var(--text)]">{title}</h2>
           {description ? (
@@ -403,7 +403,7 @@ function Panel({
             </p>
           ) : null}
         </div>
-        {actions}
+        {actions ? <div className="shrink-0">{actions}</div> : null}
       </header>
       <div className="px-4 py-4">{children}</div>
     </section>
@@ -432,7 +432,7 @@ function GhostButton({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={`inline-flex items-center gap-2 rounded-md border px-3 py-2 text-xs transition ${toneClass} disabled:cursor-not-allowed disabled:opacity-50`}
+      className={`inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md border px-3 py-2 text-xs leading-5 transition ${toneClass} disabled:cursor-not-allowed disabled:opacity-50`}
     >
       {children}
     </button>
@@ -453,7 +453,7 @@ function StatusBadge({
     info: "bg-cyan-400",
   } as const;
   return (
-    <span className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-zinc-950 px-2.5 py-1 text-[11px] text-[var(--text-soft)]">
+    <span className="inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-[var(--border)] bg-zinc-950 px-2.5 py-1 text-[11px] text-[var(--text-soft)]">
       <span className={`inline-block size-2 rounded-full ${toneMap[tone]}`} />
       {label}
     </span>
@@ -926,7 +926,7 @@ export function WorkbenchPage() {
   return (
     <div className="min-h-screen bg-[var(--canvas)] text-[var(--text)]">
       <header className="border-b border-[var(--border)] bg-zinc-950/80 backdrop-blur">
-        <div className="mx-auto flex max-w-[1760px] flex-wrap items-center justify-between gap-3 px-5 py-4">
+        <div className="mx-auto flex max-w-[1760px] flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-5">
           <div className="min-w-0">
             <h1 className="text-base font-medium">MCP 文件调试台</h1>
             <p className="mt-1 text-xs text-[var(--muted)]">
@@ -966,13 +966,13 @@ export function WorkbenchPage() {
         </div>
       </header>
 
-      <main className="mx-auto grid max-w-[1760px] gap-4 px-4 py-4 xl:grid-cols-[320px_minmax(0,1fr)_400px]">
+      <main className="mx-auto grid max-w-[1760px] gap-4 px-3 py-4 sm:px-4 xl:grid-cols-[320px_minmax(0,1fr)_400px]">
         <div className="space-y-4">
           <Panel
             title="连接信息"
             description="当前页面负责文件库维护、MCP 地址分发，以及 agent 实际工具面的真实扫描。"
             actions={
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <GhostButton
                   tone="accent"
                   disabled={scanPending}
