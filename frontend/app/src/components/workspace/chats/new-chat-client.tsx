@@ -2,24 +2,21 @@ import { lazy } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
-import {
-  PromptInputProvider,
-  type PromptInputMessage,
-} from "@/components/ai-elements/prompt-input";
+import { type PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { AgentSwitcherDialog } from "@/components/workspace/agent-switcher-dialog";
 import { useThreadChat } from "@/components/workspace/chats/use-thread-chat";
 import { InputBox } from "@/components/workspace/input-box";
 import { Welcome } from "@/components/workspace/welcome";
-import { getAPIClient } from "@/core/api";
 import {
   buildWorkspaceAgentPath,
   isLeadAgent,
   readAgentRuntimeSelection,
   useAgent,
 } from "@/core/agents";
+import { getAPIClient } from "@/core/api";
 import { useI18n } from "@/core/i18n/hooks";
-import { useModels } from "@/core/models/hooks";
 import { findAvailableModelName } from "@/core/models";
+import { useModels } from "@/core/models/hooks";
 import { useLocalSettings } from "@/core/settings";
 import { env } from "@/env";
 import { cn } from "@/lib/utils";
@@ -143,6 +140,12 @@ export default function NewChatClient() {
       setPendingExtraContext(extraContext);
     },
     [draftThreadId],
+  );
+  const handleContextChange = useCallback(
+    (context: typeof settings.context) => {
+      setSettings("context", context);
+    },
+    [setSettings],
   );
 
   const ensureDraftThreadExists = useCallback(async () => {
@@ -302,44 +305,42 @@ export default function NewChatClient() {
   }
 
   return (
-    <PromptInputProvider initialInput={inputInitialValue}>
-      <div className="relative flex size-full min-h-0 justify-between">
-        <main className="flex min-h-0 max-w-full grow flex-col items-center">
-          {/* Agent switcher — positioned top-right, compact */}
-          <div className="absolute top-4 right-4 z-30">
-            <AgentSwitcherDialog selection={runtimeSelection} compact />
+    <div className="relative flex size-full min-h-0 justify-between">
+      <main className="flex min-h-0 max-w-full grow flex-col items-center">
+        {/* Agent switcher — positioned top-right, compact */}
+        <div className="absolute top-4 right-4 z-30">
+          <AgentSwitcherDialog selection={runtimeSelection} compact />
+        </div>
+
+        {/* Centered content: welcome above, input below */}
+        <div className="flex w-full max-w-(--container-width-sm) flex-1 flex-col items-center justify-center px-4 pb-8">
+          <div className="w-full">
+            <Welcome mode={runtimeContext.mode} />
           </div>
 
-          {/* Centered content: welcome above, input below */}
-          <div className="flex w-full max-w-(--container-width-sm) flex-1 flex-col items-center justify-center px-4 pb-8">
-            <div className="w-full">
-              <Welcome mode={runtimeContext.mode} />
-            </div>
-
-            {/* Input box anchored near bottom-center */}
-            <div className="relative mt-8 w-full">
-              <InputBox
-                className={cn("w-full")}
-                threadId={draftThreadId}
-                isNewThread
-                autoFocus
-                status="ready"
-                context={runtimeContext}
-                initialValue={inputInitialValue}
-                disabled={env.VITE_STATIC_WEBSITE_ONLY === "true"}
-                onContextChange={(context) => setSettings("context", context)}
-                ensureThreadExists={ensureDraftThreadExists}
-                onSubmit={handleSubmit}
-              />
-              {env.VITE_STATIC_WEBSITE_ONLY === "true" && (
-                <div className="text-muted-foreground/50 mt-3 w-full text-center text-xs">
-                  {t.common.notAvailableInDemoMode}
-                </div>
-              )}
-            </div>
+          {/* Input box anchored near bottom-center */}
+          <div className="relative mt-8 w-full">
+            <InputBox
+              className={cn("w-full")}
+              threadId={draftThreadId}
+              isNewThread
+              autoFocus
+              status="ready"
+              context={runtimeContext}
+              initialValue={inputInitialValue}
+              disabled={env.VITE_STATIC_WEBSITE_ONLY === "true"}
+              onContextChange={handleContextChange}
+              ensureThreadExists={ensureDraftThreadExists}
+              onSubmit={handleSubmit}
+            />
+            {env.VITE_STATIC_WEBSITE_ONLY === "true" && (
+              <div className="text-muted-foreground/50 mt-3 w-full text-center text-xs">
+                {t.common.notAvailableInDemoMode}
+              </div>
+            )}
           </div>
-        </main>
-      </div>
-    </PromptInputProvider>
+        </div>
+      </main>
+    </div>
   );
 }

@@ -267,6 +267,12 @@ export default function AgentChatPage() {
     },
     [handleSendMessage],
   );
+  const handleRuntimeContextChange = useCallback(
+    (context: typeof settings.context) => {
+      setRuntimeContext(context);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (
@@ -425,7 +431,7 @@ export default function AgentChatPage() {
                       )
                     }
                     disabled={env.VITE_STATIC_WEBSITE_ONLY === "true"}
-                    onContextChange={(context) => setRuntimeContext(context)}
+                    onContextChange={handleRuntimeContextChange}
                     onSubmit={handleSubmit}
                     onStop={handleStop}
                   />

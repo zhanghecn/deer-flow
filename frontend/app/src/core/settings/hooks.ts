@@ -7,12 +7,26 @@ import {
   type LocalSettings,
 } from "./local";
 
+export type LocalSettingsSetter = <K extends keyof LocalSettings>(
+  key: K,
+  value: Partial<LocalSettings[K]>,
+) => void;
+
+function settingPatchKeepsCurrentValues<K extends keyof LocalSettings>(
+  section: LocalSettings[K],
+  value: Partial<LocalSettings[K]>,
+) {
+  for (const settingKey of Object.keys(value) as Array<keyof LocalSettings[K]>) {
+    if (!Object.is(section[settingKey], value[settingKey])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function useLocalSettings(): [
   LocalSettings,
-  (
-    key: keyof LocalSettings,
-    value: Partial<LocalSettings[keyof LocalSettings]>,
-  ) => void,
+  LocalSettingsSetter,
 ] {
   const [mounted, setMounted] = useState(false);
   const [state, setState] = useState<LocalSettings>(DEFAULT_LOCAL_SETTINGS);
@@ -22,20 +36,23 @@ export function useLocalSettings(): [
     }
     setMounted(true);
   }, [mounted]);
-  const setter = useCallback(
-    (
-      key: keyof LocalSettings,
-      value: Partial<LocalSettings[keyof LocalSettings]>,
-    ) => {
+  const setter = useCallback<LocalSettingsSetter>(
+    (key, value) => {
       if (!mounted) return;
       setState((prev) => {
+        // Chat routes normalize context from effects; no-op patches must keep
+        // the same object identity or those effects can feed each other.
+        if (settingPatchKeepsCurrentValues(prev[key], value)) {
+          return prev;
+        }
+
         const newState = {
           ...prev,
           [key]: {
             ...prev[key],
             ...value,
           },
-        };
+        } satisfies LocalSettings;
         saveLocalSettings(newState);
         return newState;
       });

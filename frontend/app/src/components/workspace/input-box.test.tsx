@@ -166,6 +166,41 @@ vi.mock("@/core/skills/hooks", () => ({
 }));
 
 describe("InputBox", () => {
+  it("keeps user edits after applying a route prefill", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient();
+
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <PromptInputProvider>
+            <InputBox
+              threadId="thread-test"
+              initialValue="/create-skill "
+              context={{
+                model_name: "kimi-k2.5",
+                mode: "pro",
+                subagent_enabled: false,
+                agent_status: "dev",
+              }}
+              onContextChange={vi.fn()}
+              onSubmit={vi.fn()}
+            />
+          </PromptInputProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    const textarea = screen.getByPlaceholderText("Ask anything");
+    await waitFor(() => {
+      expect(textarea).toHaveValue("/create-skill ");
+    });
+
+    await user.type(textarea, "review");
+
+    expect(textarea).toHaveValue("/create-skill review");
+  });
+
   it("supports keyboard selection for slash commands", async () => {
     const user = userEvent.setup();
     const queryClient = new QueryClient();

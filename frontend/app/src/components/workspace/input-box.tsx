@@ -14,6 +14,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type KeyboardEvent,
   type ComponentProps,
@@ -348,15 +349,26 @@ export function InputBox({
   const [modelDialogOpen, setModelDialogOpen] = useState(false);
   const { models } = useModels();
   const promptInputController = usePromptInputController();
+  const setPromptInput = promptInputController.textInput.setInput;
   const draftText = promptInputController.textInput.value;
+  const appliedInitialValueRef = useRef<string | undefined>(undefined);
   const [knowledgeUploadOpen, setKnowledgeUploadOpen] = useState(false);
 
   useEffect(() => {
     if (typeof initialValue !== "string") {
+      appliedInitialValueRef.current = undefined;
       return;
     }
-    promptInputController.textInput.setInput(initialValue);
-  }, [initialValue, promptInputController]);
+
+    if (appliedInitialValueRef.current === initialValue) {
+      return;
+    }
+
+    // Route prefill is a one-shot seed. Reapplying it after every provider
+    // render overwrites user edits and can participate in render loops.
+    appliedInitialValueRef.current = initialValue;
+    setPromptInput(initialValue);
+  }, [initialValue, setPromptInput]);
 
   const waitsForPinnedAgentModel =
     typeof context.agent_name === "string" &&
