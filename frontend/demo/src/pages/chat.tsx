@@ -395,9 +395,9 @@ function getErrorMessage(error: unknown): string {
 
 function StatusDot({ tone }: { tone: "ok" | "warn" | "danger" }) {
   const map = {
-    ok: "bg-emerald-500",
-    warn: "bg-amber-500",
-    danger: "bg-rose-500",
+    ok: "bg-teal-500",
+    warn: "bg-stone-400",
+    danger: "bg-red-500",
   };
   return (
     <span className={`inline-block size-2 rounded-full ${map[tone]}`} />
@@ -405,18 +405,18 @@ function StatusDot({ tone }: { tone: "ok" | "warn" | "danger" }) {
 }
 
 function getAttachmentStatusTone(status: AttachmentStatus) {
-  if (status === "failed") return "border-rose-200 bg-rose-50 text-rose-700";
+  if (status === "failed") return "border-red-200 bg-red-50 text-red-700";
   if (status === "uploaded") {
-    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    return "border-teal-200 bg-teal-50 text-teal-700";
   }
   if (
     status === "uploading" ||
     status === "compressing" ||
     status === "preparing"
   ) {
-    return "border-amber-200 bg-amber-50 text-amber-700";
+    return "border-stone-200 bg-stone-50 text-stone-700";
   }
-  return "border-slate-200 bg-white text-slate-600";
+  return "border-stone-200 bg-white text-stone-600";
 }
 
 function AttachmentStatusIcon({ status }: { status: AttachmentStatus }) {
@@ -466,7 +466,7 @@ function AttachmentList({
               <button
                 type="button"
                 onClick={() => onRemove(attachment.id)}
-                className="ml-1 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                className="ml-1 rounded p-0.5 text-stone-400 hover:bg-stone-100 hover:text-stone-700"
                 title="移除附件"
               >
                 <X className="size-3.5" />
@@ -475,7 +475,7 @@ function AttachmentList({
           </div>
           <div
             className={`mt-1 truncate ${
-              messageVariant ? "text-white/75" : "text-slate-500"
+              messageVariant ? "text-white/75" : "text-stone-500"
             }`}
           >
             {attachment.statusText}
@@ -483,7 +483,7 @@ function AttachmentList({
           </div>
           <div
             className={`mt-0.5 truncate font-mono text-[10px] ${
-              messageVariant ? "text-white/65" : "text-slate-400"
+              messageVariant ? "text-white/65" : "text-stone-400"
             }`}
           >
             {formatBytes(attachment.uploadBytes)}
@@ -511,29 +511,42 @@ function ToolActivityCard({ tool, index }: { tool: ToolCallStep; index: number }
   // Tool names are runtime-owned and may change, so the demo renders the
   // event payload directly instead of translating known names into labels.
   const toolArguments = formatToolArguments(tool.arguments);
+  const [open, setOpen] = useState(tool.status === "running");
+
+  useEffect(() => {
+    if (tool.status === "running") {
+      setOpen(true);
+    }
+  }, [tool.status]);
 
   return (
-    <div className="mb-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-left">
-      <div className="flex items-center gap-2 text-xs font-medium text-slate-600">
-        <FileText className="size-3.5 shrink-0 text-slate-400" />
-        <span className="rounded bg-white px-1.5 py-0.5 font-mono text-[10px] text-slate-500">
+    <details
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+      className="mb-2 w-full min-w-0 rounded-lg border border-stone-200 bg-white/80 text-left"
+    >
+      <summary className="flex min-w-0 cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs font-medium text-stone-600 [&::-webkit-details-marker]:hidden">
+        <FileText className="size-3.5 shrink-0 text-stone-400" />
+        <span className="rounded-md border border-stone-200 bg-stone-50 px-1.5 py-0.5 font-mono text-[10px] text-stone-500">
           #{index}
         </span>
-        <span className="min-w-0 truncate font-mono" title={tool.name}>
+        <span className="min-w-0 flex-1 truncate font-mono" title={tool.name}>
           {tool.name}
         </span>
         {tool.status === "running" ? (
-          <Loader2 className="ml-auto size-3.5 shrink-0 animate-spin text-emerald-500" />
+          <Loader2 className="size-3.5 shrink-0 animate-spin text-teal-600" />
         ) : tool.status === "error" ? (
-          <X className="ml-auto size-3.5 shrink-0 text-rose-500" />
+          <X className="size-3.5 shrink-0 text-red-500" />
         ) : (
-          <Check className="ml-auto size-3.5 shrink-0 text-emerald-500" />
+          <Check className="size-3.5 shrink-0 text-teal-600" />
         )}
+      </summary>
+      <div className="border-t border-stone-200 px-3 py-2">
+        <pre className="whitespace-pre-wrap break-words rounded-md bg-stone-50 px-2.5 py-2 font-mono text-[11px] leading-5 text-stone-600">
+          {toolArguments}
+        </pre>
       </div>
-      <pre className="mt-2 max-h-[180px] overflow-y-auto whitespace-pre-wrap break-words rounded border border-slate-100 bg-white px-2 py-1.5 font-mono text-[11px] leading-5 text-slate-600">
-        {toolArguments}
-      </pre>
-    </div>
+    </details>
   );
 }
 
@@ -549,7 +562,7 @@ function ActivityTimeline({
   let toolIndex = 0;
 
   return (
-    <div className="mb-1.5">
+    <div className="mb-1.5 w-full min-w-0">
       {activities.map((activity, index) => {
         if (activity.kind === "reasoning") {
           return (
@@ -585,26 +598,42 @@ function ReasoningCard({
   reasoning: string;
   isStreaming: boolean;
 }) {
+  const [open, setOpen] = useState(isStreaming);
+  const wasStreamingRef = useRef(isStreaming);
+
+  useEffect(() => {
+    if (isStreaming) {
+      setOpen(true);
+    } else if (wasStreamingRef.current) {
+      setOpen(false);
+    }
+    wasStreamingRef.current = isStreaming;
+  }, [isStreaming]);
+
   if (!reasoning || reasoning.trim().length === 0) return null;
 
   return (
-    <div className="mb-1.5 overflow-hidden rounded-md border border-amber-200/60 bg-amber-50/40 text-left">
-      <div className="flex items-center gap-2 px-2.5 py-1.5">
-        <Sparkles className="size-3 shrink-0 text-amber-500" />
-        <span className="text-[11px] font-medium text-slate-600">思考过程</span>
+    <details
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+      className="mb-2 w-full min-w-0 rounded-lg border border-stone-200 bg-white/80 text-left"
+    >
+      <summary className="flex min-w-0 cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs font-medium text-stone-600 [&::-webkit-details-marker]:hidden">
+        <Sparkles className="size-3.5 shrink-0 text-teal-600" />
+        <span>思考过程</span>
         {isStreaming && (
-          <span className="ml-1 inline-flex items-center gap-1 text-[10px] text-amber-500">
-            <span className="inline-block size-1.5 animate-pulse rounded-full bg-amber-500" />
+          <span className="ml-1 inline-flex items-center gap-1 text-[10px] text-teal-600">
+            <span className="inline-block size-1.5 animate-pulse rounded-full bg-teal-500" />
             思考中
           </span>
         )}
-      </div>
-      <div className="border-t border-amber-100/60 px-2.5 py-1.5">
-        <pre className="max-h-[240px] overflow-y-auto whitespace-pre-wrap break-words rounded bg-white/70 p-2 text-[12px] leading-[1.7] text-slate-600">
+      </summary>
+      <div className="border-t border-stone-200 px-3 py-2">
+        <div className="whitespace-pre-wrap break-words text-[12px] leading-6 text-stone-600">
           {reasoning}
-        </pre>
+        </div>
       </div>
-    </div>
+    </details>
   );
 }
 
@@ -663,11 +692,10 @@ export function ChatPage() {
     !isStreaming &&
     isConfigured;
 
-  /* Override body styles for light theme */
+  /* The demo chat owns a light surface while the workbench keeps dark globals. */
   useEffect(() => {
-    document.body.style.color = "#1e293b";
-    document.body.style.background =
-      "linear-gradient(180deg, #f0fdf4 0%, #ffffff 40%, #f8fafc 100%)";
+    document.body.style.color = "#292524";
+    document.body.style.background = "#f7f6f3";
     return () => {
       document.body.style.color = "";
       document.body.style.background = "";
@@ -1071,15 +1099,15 @@ export function ChatPage() {
   /* ─── Render ────────────────────────────────────────────── */
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-gradient-to-b from-emerald-50/40 via-white to-white text-slate-800">
+    <div className="demo-chat-shell flex h-screen flex-col overflow-hidden bg-[#f7f6f3] text-stone-900">
       {/* Header */}
-      <header className="flex items-center justify-between border-b border-emerald-100/70 bg-white/80 px-4 py-3 backdrop-blur-sm">
+      <header className="flex items-center justify-between border-b border-stone-200 bg-[#fbfaf8]/95 px-4 py-3 backdrop-blur-sm">
         <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500 text-white shadow-sm">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-stone-200 bg-white text-teal-700">
             <Bot className="size-5" />
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-slate-700">
+            <span className="text-sm font-semibold text-stone-800">
               AI 助手
             </span>
             {isConfigured ? (
@@ -1093,7 +1121,7 @@ export function ChatPage() {
           <button
             type="button"
             onClick={() => setSettingsOpen(true)}
-            className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+            className="rounded-lg p-2 text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-800"
             title="设置"
           >
             <Settings className="size-5" />
@@ -1102,23 +1130,23 @@ export function ChatPage() {
       </header>
 
       {/* Messages */}
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-6">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-6 sm:px-5">
         {empty ? (
           <div className="flex flex-col items-center justify-center px-2 pt-16 text-center sm:pt-20">
-            <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-xl bg-emerald-500 text-white shadow-[0_12px_28px_rgba(16,185,129,0.18)] sm:h-16 sm:w-16">
+            <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-xl border border-stone-200 bg-white text-teal-700 sm:h-16 sm:w-16">
               <Bot className="size-8 sm:size-9" />
             </div>
-            <h1 className="mx-auto mb-2 max-w-[22rem] text-lg font-semibold leading-8 text-slate-800 sm:max-w-none sm:text-xl">
+            <h1 className="mx-auto mb-2 max-w-[22rem] text-lg font-semibold leading-8 text-stone-900 sm:max-w-none sm:text-xl">
               你好，我是{" "}
-              <span className="block break-words text-emerald-600 sm:inline">
+              <span className="block break-words text-teal-700 sm:inline">
                 {agentName ?? "AI"} 助手
               </span>
             </h1>
-            <p className="max-w-md text-center text-sm leading-6 text-slate-500 sm:max-w-2xl">
+            <p className="max-w-md text-center text-sm leading-6 text-stone-500 sm:max-w-2xl">
               有什么可以帮您的吗？请输入您的问题，我会尽力为您解答。
             </p>
             {!isConfigured && (
-              <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+              <div className="mt-6 rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
                 <ConfigurationWarning
                   agentName={agentName}
                   baseURLIsDemo={baseURLIsDemo}
@@ -1131,7 +1159,7 @@ export function ChatPage() {
             {messages.map((msg) =>
               msg.role === "user" ? (
                 <div key={msg.id} className="flex justify-end">
-                  <div className="max-w-[92%] rounded-xl rounded-tr-sm bg-emerald-500 px-4 py-2.5 text-sm leading-6 text-white shadow-sm sm:max-w-[78%]">
+                  <div className="max-w-[92%] rounded-lg rounded-tr-sm bg-stone-900 px-4 py-2.5 text-sm leading-6 text-white sm:max-w-[78%]">
                     {msg.content ? (
                       <p className="whitespace-pre-wrap">{msg.content}</p>
                     ) : (
@@ -1145,12 +1173,13 @@ export function ChatPage() {
                 </div>
               ) : (
                 <div key={msg.id} className="flex justify-start">
-                  <div className="max-w-[94%] sm:max-w-[88%]">
+                  {/* Keep the assistant lane width stable while tool events stream in. */}
+                  <div className="w-full min-w-0 max-w-[96%] sm:max-w-[90%]">
                     {/* Reasoning */}
                     {(!msg.activities || msg.activities.length === 0) &&
                       msg.reasoning &&
                       msg.reasoning.trim().length > 0 && (
-                      <div className="mb-1.5">
+                      <div className="mb-1.5 w-full min-w-0">
                         <ReasoningCard
                           reasoning={msg.reasoning}
                           isStreaming={msg.status === "streaming"}
@@ -1167,7 +1196,7 @@ export function ChatPage() {
                     ) : (
                       msg.toolCalls &&
                       msg.toolCalls.length > 0 && (
-                        <div className="mb-1.5">
+                        <div className="mb-1.5 w-full min-w-0">
                           {msg.toolCalls.map((tool, index) => (
                             <ToolActivityCard
                               key={tool.id}
@@ -1180,10 +1209,10 @@ export function ChatPage() {
                     )}
 
                     <div
-                      className={`rounded-xl rounded-tl-sm border bg-white px-4 py-3 shadow-sm ${
+                      className={`w-full min-w-0 rounded-lg rounded-tl-sm border bg-white px-4 py-3 shadow-[0_1px_2px_rgba(28,25,23,0.04)] ${
                         msg.status === "error"
-                          ? "border-rose-200 bg-rose-50"
-                          : "border-slate-100"
+                          ? "border-red-200 bg-red-50"
+                          : "border-stone-200"
                       }`}
                     >
                       {msg.status === "streaming" &&
@@ -1191,17 +1220,17 @@ export function ChatPage() {
                       !msg.reasoning &&
                       (!msg.activities || msg.activities.length === 0) &&
                       (!msg.toolCalls || msg.toolCalls.length === 0) ? (
-                        <div className="flex items-center gap-2 text-slate-400">
+                        <div className="flex items-center gap-2 text-stone-400">
                           <Loader2 className="size-4 animate-spin" />
                           <span>思考中…</span>
                         </div>
                       ) : msg.status === "interrupted" &&
                         msg.content.length === 0 ? (
-                        <div className="text-sm leading-6 text-slate-500">
+                        <div className="text-sm leading-6 text-stone-500">
                           已中断
                         </div>
                       ) : (
-                        <div className="text-sm leading-6 text-slate-700">
+                        <div className="text-sm leading-6 text-stone-700">
                           <MarkdownRenderer
                             content={msg.content}
                             isStreaming={msg.status === "streaming"}
@@ -1216,7 +1245,7 @@ export function ChatPage() {
 
             {error && (
               <div className="flex justify-center">
-                <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-600">
+                <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-600">
                   {error}
                 </div>
               </div>
@@ -1226,10 +1255,10 @@ export function ChatPage() {
       </div>
 
       {/* Input */}
-      <div className="border-t border-slate-100 bg-white px-4 py-3">
+      <div className="border-t border-stone-200 bg-[#fbfaf8] px-4 py-3">
         <div className="mx-auto max-w-5xl">
           {!isConfigured && !empty && (
-            <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+            <div className="mb-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-xs text-stone-700">
               {!agentName
                 ? "请在设置中配置 Agent 名称，或在 URL 中指定 ?agent="
                 : baseURLIsDemo
@@ -1252,12 +1281,12 @@ export function ChatPage() {
               />
             </div>
           )}
-          <div className="flex items-end gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2 transition-colors focus-within:border-emerald-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-emerald-100">
+          <div className="flex items-end gap-2 rounded-lg border border-stone-300 bg-white p-2 transition-colors focus-within:border-teal-500 focus-within:ring-2 focus-within:ring-teal-100">
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={!isConfigured || isStreaming}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-200 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-800 disabled:cursor-not-allowed disabled:opacity-40"
               title="添加 SDK 附件"
             >
               <Paperclip className="size-4" />
@@ -1270,14 +1299,14 @@ export function ChatPage() {
               placeholder="输入消息"
               rows={1}
               disabled={!isConfigured || isStreaming}
-              className="min-h-[40px] max-h-[160px] flex-1 resize-none bg-transparent px-2 py-2 text-sm leading-5 text-slate-700 placeholder-slate-400 outline-none disabled:opacity-50"
+              className="min-h-[40px] max-h-[160px] flex-1 resize-none bg-transparent px-2 py-2 text-sm leading-5 text-stone-800 placeholder-stone-400 outline-none disabled:opacity-50"
               style={{ height: "auto" }}
             />
             {isStreaming ? (
               <button
                 type="button"
                 onClick={handleStop}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-200 text-slate-600 transition-colors hover:bg-slate-300"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-stone-200 text-stone-700 transition-colors hover:bg-stone-300"
                 title="停止"
               >
                 <Square className="size-4 fill-current" />
@@ -1287,14 +1316,14 @@ export function ChatPage() {
                 type="button"
                 onClick={handleSend}
                 disabled={!canSend}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500 text-white transition-colors hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-teal-700 text-white transition-colors hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-40"
                 title="发送"
               >
                 <Send className="size-4" />
               </button>
             )}
           </div>
-          <p className="mt-1.5 text-center text-[11px] text-slate-400">
+          <p className="mt-1.5 text-center text-[11px] text-stone-400">
             内容由 AI 生成，仅供参考
           </p>
         </div>
@@ -1307,20 +1336,20 @@ export function ChatPage() {
             className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm"
             onClick={() => setSettingsOpen(false)}
           />
-          <aside className="fixed top-0 right-0 z-50 flex h-full w-full max-w-sm flex-col border-l border-slate-200 bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-              <h2 className="text-base font-semibold text-slate-800">设置</h2>
+          <aside className="fixed top-0 right-0 z-50 flex h-full w-full max-w-sm flex-col border-l border-stone-200 bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-stone-200 px-4 py-3">
+              <h2 className="text-base font-semibold text-stone-900">设置</h2>
               <button
                 type="button"
                 onClick={() => setSettingsOpen(false)}
-                className="rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                className="rounded p-1 text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700"
               >
                 <X className="size-5" />
               </button>
             </div>
             <div className="flex-1 space-y-5 overflow-y-auto px-4 py-5">
               <div className="space-y-1.5">
-                <label className="text-sm font-medium text-slate-600">
+                <label className="text-sm font-medium text-stone-700">
                   Base URI
                 </label>
                 <input
@@ -1328,23 +1357,23 @@ export function ChatPage() {
                   value={baseURIInput}
                   onChange={(e) => setBaseURIInput(e.target.value)}
                   placeholder="https://api.example.com"
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
+                  className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-800 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
                 />
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-stone-500">
                   留空则使用默认地址
                 </p>
-                <p className="text-xs font-mono text-slate-400">
+                <p className="text-xs font-mono text-stone-500">
                   解析后: {resolvedBaseURL}
                 </p>
                 {baseURLIsDemo && (
-                  <p className="text-xs text-rose-500">
+                  <p className="text-xs text-red-500">
                     解析地址与当前页面同源，会导致请求 404，请填写正确的 API 地址
                   </p>
                 )}
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-sm font-medium text-slate-600">
+                <label className="text-sm font-medium text-stone-700">
                   API Key
                 </label>
                 <input
@@ -1352,15 +1381,15 @@ export function ChatPage() {
                   value={apiKeyInput}
                   onChange={(e) => setApiKeyInput(e.target.value)}
                   placeholder="df_..."
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
+                  className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-800 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
                 />
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-stone-500">
                   仅保存在 sessionStorage，关闭标签页后清除
                 </p>
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-sm font-medium text-slate-600">
+                <label className="text-sm font-medium text-stone-700">
                   Agent 名称
                 </label>
                 <input
@@ -1368,14 +1397,14 @@ export function ChatPage() {
                   value={agentNameInput}
                   onChange={(e) => setAgentNameInput(e.target.value)}
                   placeholder="support-cases-http-demo"
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
+                  className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-800 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
                 />
                 {agentNameFromQuery ? (
-                  <p className="text-xs text-amber-600">
+                  <p className="text-xs text-stone-600">
                     当前由 URL 参数 ?agent={agentNameFromQuery} 控制，修改设置不会生效
                   </p>
                 ) : (
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-stone-500">
                     来源优先级: URL ?agent= &gt; 设置 &gt; VITE_DEMO_DEFAULT_AGENT_NAME
                   </p>
                 )}
@@ -1385,14 +1414,14 @@ export function ChatPage() {
                 <button
                   type="button"
                   onClick={handleSaveSettings}
-                  className="flex-1 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-600"
+                  className="flex-1 rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-800"
                 >
                   保存
                 </button>
                 <button
                   type="button"
                   onClick={handleResetChat}
-                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 transition-colors hover:bg-slate-50"
+                  className="rounded-lg border border-stone-200 px-4 py-2 text-sm text-stone-700 transition-colors hover:bg-stone-50"
                 >
                   清空对话
                 </button>
