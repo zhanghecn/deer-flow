@@ -1,24 +1,12 @@
 import {
-  createContext,
   useCallback,
-  useEffect,
   useState,
   type ReactNode,
 } from "react";
+import { AuthContext, type AuthState } from "@/contexts/auth-context-value";
 import { t } from "@/i18n";
 import { login as apiLogin } from "@/lib/api";
 import type { AuthUser } from "@/types";
-
-interface AuthState {
-  token: string | null;
-  user: AuthUser | null;
-  isLoading: boolean;
-}
-
-interface AuthContextValue extends AuthState {
-  login: (account: string, password: string) => Promise<void>;
-  logout: () => void;
-}
 
 const STORAGE_KEY = "admin_auth";
 
@@ -32,23 +20,16 @@ function loadFromStorage(): { token: string; user: AuthUser } | null {
   }
 }
 
-export const AuthContext = createContext<AuthContextValue | null>(null);
+function initialAuthState(): AuthState {
+  const stored = loadFromStorage();
+  if (stored) {
+    return { token: stored.token, user: stored.user, isLoading: false };
+  }
+  return { token: null, user: null, isLoading: false };
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<AuthState>({
-    token: null,
-    user: null,
-    isLoading: true,
-  });
-
-  useEffect(() => {
-    const stored = loadFromStorage();
-    if (stored) {
-      setState({ token: stored.token, user: stored.user, isLoading: false });
-    } else {
-      setState((s) => ({ ...s, isLoading: false }));
-    }
-  }, []);
+  const [state, setState] = useState<AuthState>(() => initialAuthState());
 
   const login = useCallback(async (account: string, password: string) => {
     const res = await apiLogin(account, password);

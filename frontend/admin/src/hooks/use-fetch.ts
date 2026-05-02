@@ -42,7 +42,11 @@ export function useFetch<T>(
 
   useEffect(() => {
     mountedRef.current = true;
-    fetchData();
+    queueMicrotask(() => {
+      if (mountedRef.current) {
+        fetchData();
+      }
+    });
     let timer: ReturnType<typeof setInterval> | undefined;
     if (options?.interval && path) {
       timer = setInterval(fetchData, options.interval);

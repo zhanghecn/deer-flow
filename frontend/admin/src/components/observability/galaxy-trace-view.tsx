@@ -95,9 +95,9 @@ function Starfield({ count = 1600, radius = 88 }: { count?: number; radius?: num
   const positionArray = useMemo(() => {
     const values = new Float32Array(count * 3);
     for (let i = 0; i < count; i += 1) {
-      const r = radius * (0.45 + Math.random() * 0.55);
-      const theta = Math.random() * Math.PI * 2;
-      const phi = Math.acos(2 * Math.random() - 1);
+      const r = radius * (0.45 + hashFloat(`star:${count}:${radius}:${i}:r`) * 0.55);
+      const theta = hashFloat(`star:${count}:${radius}:${i}:theta`) * Math.PI * 2;
+      const phi = Math.acos(2 * hashFloat(`star:${count}:${radius}:${i}:phi`) - 1);
       values[i * 3 + 0] = r * Math.sin(phi) * Math.cos(theta);
       values[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
       values[i * 3 + 2] = r * Math.cos(phi);
@@ -245,11 +245,14 @@ export function GalaxyTraceView({
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [isAltPressed, setIsAltPressed] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-
-  useEffect(() => {
+  const defaultSelectedRunId = useMemo(() => {
     const root = graph.nodes.find((node) => node.runId === rootRunId);
-    setSelectedRunId(root?.runId ?? graph.nodes[0]?.runId ?? null);
+    return root?.runId ?? graph.nodes[0]?.runId ?? null;
   }, [graph.nodes, rootRunId]);
+  const effectiveSelectedRunId =
+    selectedRunId && nodeMap.has(selectedRunId)
+      ? selectedRunId
+      : defaultSelectedRunId;
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -283,7 +286,9 @@ export function GalaxyTraceView({
     );
   }
 
-  const selectedRun = selectedRunId ? nodeMap.get(selectedRunId) ?? null : null;
+  const selectedRun = effectiveSelectedRunId
+    ? nodeMap.get(effectiveSelectedRunId) ?? null
+    : null;
 
   return (
     <>
@@ -300,7 +305,7 @@ export function GalaxyTraceView({
             <LinkLines links={graph.links} />
             <NodeStars
               nodes={graph.nodes}
-              selectedRunId={selectedRunId}
+              selectedRunId={effectiveSelectedRunId}
               onSelect={(runId) => {
                 setSelectedRunId(runId);
                 setIsDialogOpen(true);

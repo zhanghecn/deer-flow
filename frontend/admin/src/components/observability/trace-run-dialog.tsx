@@ -87,7 +87,7 @@ export function TraceRunDialog({
     }
 
     return run.runId;
-  }, [dialogRuns, run]);
+  }, [run]);
 
   useEffect(() => {
     setActiveRunId(defaultActiveRunId);
