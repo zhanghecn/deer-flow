@@ -11,6 +11,7 @@ from .local import build_local_workspace_backend, resolve_skills_mount
 from .operation_logging import wrap_runtime_backend_with_logging
 from .remote import REMOTE_EXECUTION_BACKEND, build_remote_workspace_backend
 from .sandbox import build_sandbox_workspace_backend, resolve_default_execution_backend
+from .search_scope import scope_composite_root_search
 
 RuntimeBackendKind = Literal["local", "sandbox", "remote"]
 
@@ -30,6 +31,7 @@ def build_runtime_workspace_backend(
     *,
     user_data_dir: str,
     thread_id: str,
+    user_id: str | None = None,
     paths: Paths,
     requested_backend: str | None = None,
     remote_session_id: str | None = None,
@@ -44,6 +46,7 @@ def build_runtime_workspace_backend(
     elif backend_kind == "sandbox":
         backend = build_sandbox_workspace_backend(
             thread_id,
+            user_id=user_id,
             user_data_dir=user_data_dir,
             shared_tmp_dir=str(paths.runtime_tmp_dir),
             skills_mount=skills_mount,
@@ -55,7 +58,8 @@ def build_runtime_workspace_backend(
             skills_mount=skills_mount,
         )
 
-    guarded_backend = wrap_runtime_backend_with_design_file_guard(backend)
+    scoped_backend = scope_composite_root_search(backend)
+    guarded_backend = wrap_runtime_backend_with_design_file_guard(scoped_backend)
     return wrap_runtime_backend_with_logging(
         guarded_backend,
         backend_kind=backend_kind,

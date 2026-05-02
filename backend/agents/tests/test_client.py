@@ -1480,7 +1480,7 @@ class TestScenarioThreadIsolation:
             src_file = tmp_path / "secret.txt"
             src_file.write_text("thread-a only")
 
-            def get_dir(thread_id):
+            def get_dir(thread_id, *, user_id=None):
                 return uploads_a if thread_id == "thread-a" else uploads_b
 
             with patch.object(OpenAgentsClient, "_get_uploads_dir", side_effect=get_dir):
@@ -1504,7 +1504,7 @@ class TestScenarioThreadIsolation:
             (data_a / "outputs" / "result.txt").write_text("thread-a artifact")
 
             mock_paths = MagicMock()
-            mock_paths.sandbox_user_data_dir.side_effect = lambda tid: data_a if tid == "thread-a" else data_b
+            mock_paths.sandbox_user_data_dir.side_effect = lambda tid, user_id=None: data_a if tid == "thread-a" else data_b
 
             with patch("src.client.get_paths", return_value=mock_paths):
                 content, _ = client.get_artifact("thread-a", "mnt/user-data/outputs/result.txt")

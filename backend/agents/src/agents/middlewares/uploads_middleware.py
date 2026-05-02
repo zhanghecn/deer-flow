@@ -436,6 +436,26 @@ class UploadsMiddleware(AgentMiddleware[UploadsMiddlewareState]):
 
         return None
 
+    def _resolve_user_id(
+        self,
+        runtime: Runtime,
+        config: RunnableConfig | None,
+    ) -> str | None:
+        """Resolve tenant identity from the same explicit runtime sources as thread id."""
+        runtime_context = getattr(runtime, "context", None)
+        if isinstance(runtime_context, dict):
+            runtime_user_id = runtime_context.get("user_id") or runtime_context.get("x-user-id")
+            if runtime_user_id is not None:
+                return str(runtime_user_id)
+
+        configurable = config.get("configurable", {}) if isinstance(config, dict) else {}
+        if isinstance(configurable, dict):
+            configured_user_id = configurable.get("user_id") or configurable.get("x-user-id")
+            if configured_user_id is not None:
+                return str(configured_user_id)
+
+        return None
+
     @override
     def before_agent(
         self,
@@ -472,7 +492,8 @@ class UploadsMiddleware(AgentMiddleware[UploadsMiddlewareState]):
 
         # Resolve uploads directory for existence checks
         thread_id = self._resolve_thread_id(runtime, config)
-        uploads_dir = self._paths.sandbox_uploads_dir(thread_id) if thread_id else None
+        user_id = self._resolve_user_id(runtime, config)
+        uploads_dir = self._paths.sandbox_uploads_dir(thread_id, user_id=user_id) if thread_id else None
 
         # Get newly uploaded files from the current message's additional_kwargs.files
         new_files = self._files_from_kwargs(last_message, uploads_dir) or []

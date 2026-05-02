@@ -948,7 +948,7 @@ func (h *KnowledgeHandler) copyThreadUploadToKnowledge(
 	if safeName == "." || safeName == ".." || safeName == "" {
 		return knowledgePendingDocument{}, fmt.Errorf("invalid upload filename: %s", filename)
 	}
-	sourcePath := filepath.Join(h.fs.ThreadUserDataDir(threadID), "uploads", safeName)
+	sourcePath := filepath.Join(h.fs.ThreadUserDataDirForUser(userID, threadID), "uploads", safeName)
 	info, err := os.Stat(sourcePath)
 	if err != nil || info.IsDir() {
 		return knowledgePendingDocument{}, fmt.Errorf("uploaded file not found: %s", safeName)

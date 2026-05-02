@@ -3,7 +3,7 @@
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, Header, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from src.config.paths import get_paths
@@ -33,7 +33,14 @@ class UploadResponse(BaseModel):
     message: str
 
 
-def get_uploads_dir(thread_id: str) -> Path:
+def _coerce_header_user_id(value: object) -> str | None:
+    """Treat FastAPI's Header default sentinel as absent during direct unit calls."""
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def get_uploads_dir(thread_id: str, *, user_id: str | None = None) -> Path:
     """Get the uploads directory for a thread.
 
     Args:
@@ -42,7 +49,7 @@ def get_uploads_dir(thread_id: str) -> Path:
     Returns:
         Path to the uploads directory.
     """
-    base_dir = get_paths().sandbox_uploads_dir(thread_id)
+    base_dir = get_paths().sandbox_uploads_dir(thread_id, user_id=user_id)
     base_dir.mkdir(parents=True, exist_ok=True)
     return base_dir
 
@@ -51,6 +58,7 @@ def get_uploads_dir(thread_id: str) -> Path:
 async def upload_files(
     thread_id: str,
     files: list[UploadFile] = File(...),
+    x_user_id: str | None = Header(default=None, alias="x-user-id"),
 ) -> UploadResponse:
     """Upload multiple files to a thread's uploads directory.
 
@@ -67,8 +75,8 @@ async def upload_files(
     if not files:
         raise HTTPException(status_code=400, detail="No files provided")
 
-    uploads_dir = get_uploads_dir(thread_id)
-    paths = get_paths()
+    owner_user_id = _coerce_header_user_id(x_user_id)
+    uploads_dir = get_uploads_dir(thread_id, user_id=owner_user_id)
     uploaded_files = []
 
     for file in files:
@@ -87,7 +95,7 @@ async def upload_files(
             file_path.write_bytes(content)
 
             # Build relative path from backend root
-            relative_path = str(paths.sandbox_uploads_dir(thread_id) / safe_filename)
+            relative_path = str(uploads_dir / safe_filename)
             file_info = {
                 "filename": safe_filename,
                 "size": str(len(content)),
@@ -102,7 +110,7 @@ async def upload_files(
             if is_convertible_upload(safe_filename):
                 md_path = await convert_file_to_markdown(file_path)
                 if md_path:
-                    file_info["markdown_path"] = str(paths.sandbox_uploads_dir(thread_id) / md_path.name)
+                    file_info["markdown_path"] = str(uploads_dir / md_path.name)
                     attach_markdown_metadata(file_info, thread_id=thread_id, markdown_filename=md_path.name)
 
             uploaded_files.append(file_info)
@@ -119,7 +127,10 @@ async def upload_files(
 
 
 @router.get("/list", response_model=dict)
-async def list_uploaded_files(thread_id: str) -> dict:
+async def list_uploaded_files(
+    thread_id: str,
+    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+) -> dict:
     """List all files in a thread's uploads directory.
 
     Args:
@@ -128,7 +139,8 @@ async def list_uploaded_files(thread_id: str) -> dict:
     Returns:
         Dictionary containing list of files with their metadata.
     """
-    uploads_dir = get_uploads_dir(thread_id)
+    owner_user_id = _coerce_header_user_id(x_user_id)
+    uploads_dir = get_uploads_dir(thread_id, user_id=owner_user_id)
 
     if not uploads_dir.exists():
         return {"files": [], "count": 0}
@@ -138,7 +150,7 @@ async def list_uploaded_files(thread_id: str) -> dict:
     available_filenames = {file_path.name for file_path in uploads_dir.iterdir() if file_path.is_file()}
     for file_path in visible_paths:
         stat = file_path.stat()
-        relative_path = str(get_paths().sandbox_uploads_dir(thread_id) / file_path.name)
+        relative_path = str(uploads_dir / file_path.name)
         file_info = {
             "filename": file_path.name,
             "size": stat.st_size,
@@ -150,7 +162,7 @@ async def list_uploaded_files(thread_id: str) -> dict:
         }
         markdown_filename = find_markdown_companion(file_path.name, available_filenames)
         if markdown_filename:
-            file_info["markdown_path"] = str(get_paths().sandbox_uploads_dir(thread_id) / markdown_filename)
+            file_info["markdown_path"] = str(uploads_dir / markdown_filename)
             attach_markdown_metadata(file_info, thread_id=thread_id, markdown_filename=markdown_filename)
         files.append(file_info)
 
@@ -158,7 +170,11 @@ async def list_uploaded_files(thread_id: str) -> dict:
 
 
 @router.delete("/{filename}")
-async def delete_uploaded_file(thread_id: str, filename: str) -> dict:
+async def delete_uploaded_file(
+    thread_id: str,
+    filename: str,
+    x_user_id: str | None = Header(default=None, alias="x-user-id"),
+) -> dict:
     """Delete a file from a thread's uploads directory.
 
     Args:
@@ -168,7 +184,8 @@ async def delete_uploaded_file(thread_id: str, filename: str) -> dict:
     Returns:
         Success message.
     """
-    uploads_dir = get_uploads_dir(thread_id)
+    owner_user_id = _coerce_header_user_id(x_user_id)
+    uploads_dir = get_uploads_dir(thread_id, user_id=owner_user_id)
     file_path = uploads_dir / filename
 
     if not file_path.exists():

@@ -29,8 +29,8 @@ SANDBOX_LOCK_FILE = "sandbox.lock"
 class FileSandboxStateStore(SandboxStateStore):
     """File-based state store using JSON files and fcntl file locking.
 
-    State is stored at: {base_dir}/threads/{thread_id}/sandbox.json
-    Lock files at:      {base_dir}/threads/{thread_id}/sandbox.lock
+    State is stored next to the tenant-scoped thread runtime directory:
+    `{base_dir}/users/{user_id}/threads/{thread_id}/sandbox.json`.
 
     This works across processes on the same machine sharing a filesystem.
     For K8s multi-pod scenarios, requires a shared PVC mount at base_dir.
@@ -44,12 +44,12 @@ class FileSandboxStateStore(SandboxStateStore):
         """
         self._paths = Paths(base_dir)
 
-    def _thread_dir(self, thread_id: str) -> Path:
+    def _thread_dir(self, thread_id: str, user_id: str | None = None) -> Path:
         """Get the directory for a thread's state files."""
-        return self._paths.thread_dir(thread_id)
+        return self._paths.thread_dir(thread_id, user_id=user_id)
 
-    def save(self, thread_id: str, info: SandboxInfo) -> None:
-        thread_dir = self._thread_dir(thread_id)
+    def save(self, thread_id: str, info: SandboxInfo, *, user_id: str | None = None) -> None:
+        thread_dir = self._thread_dir(thread_id, user_id)
         os.makedirs(thread_dir, exist_ok=True)
         state_file = thread_dir / SANDBOX_STATE_FILE
         try:
@@ -58,8 +58,8 @@ class FileSandboxStateStore(SandboxStateStore):
         except OSError as e:
             logger.warning(f"Failed to save sandbox state for thread {thread_id}: {e}")
 
-    def load(self, thread_id: str) -> SandboxInfo | None:
-        state_file = self._thread_dir(thread_id) / SANDBOX_STATE_FILE
+    def load(self, thread_id: str, *, user_id: str | None = None) -> SandboxInfo | None:
+        state_file = self._thread_dir(thread_id, user_id) / SANDBOX_STATE_FILE
         if not state_file.exists():
             return None
         try:
@@ -69,8 +69,8 @@ class FileSandboxStateStore(SandboxStateStore):
             logger.warning(f"Failed to load sandbox state for thread {thread_id}: {e}")
             return None
 
-    def remove(self, thread_id: str) -> None:
-        state_file = self._thread_dir(thread_id) / SANDBOX_STATE_FILE
+    def remove(self, thread_id: str, *, user_id: str | None = None) -> None:
+        state_file = self._thread_dir(thread_id, user_id) / SANDBOX_STATE_FILE
         try:
             if state_file.exists():
                 state_file.unlink()
@@ -79,7 +79,7 @@ class FileSandboxStateStore(SandboxStateStore):
             logger.warning(f"Failed to remove sandbox state for thread {thread_id}: {e}")
 
     @contextmanager
-    def lock(self, thread_id: str) -> Generator[None, None, None]:
+    def lock(self, thread_id: str, *, user_id: str | None = None) -> Generator[None, None, None]:
         """Acquire a cross-process file lock using fcntl.flock.
 
         The lock is held for the duration of the context manager.
@@ -87,7 +87,7 @@ class FileSandboxStateStore(SandboxStateStore):
 
         Note: fcntl.flock is available on macOS and Linux.
         """
-        thread_dir = self._thread_dir(thread_id)
+        thread_dir = self._thread_dir(thread_id, user_id)
         os.makedirs(thread_dir, exist_ok=True)
         lock_path = thread_dir / SANDBOX_LOCK_FILE
         lock_file = open(lock_path, "w")

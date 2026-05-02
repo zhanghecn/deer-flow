@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/openagents/gateway/internal/middleware"
 	"github.com/openagents/gateway/internal/model"
 	"github.com/openagents/gateway/internal/threadartifacts"
 	"github.com/openagents/gateway/pkg/storage"
@@ -37,13 +39,18 @@ func NewArtifactsHandler(fs *storage.FS) *ArtifactsHandler {
 }
 
 func (h *ArtifactsHandler) List(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	if userID == uuid.Nil {
+		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "unauthorized"})
+		return
+	}
 	threadID := strings.TrimSpace(c.Param("id"))
 	if threadID == "" {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "thread id is required"})
 		return
 	}
 
-	artifacts, err := threadartifacts.ListOutputArtifacts(h.fs, threadID)
+	artifacts, err := threadartifacts.ListOutputArtifacts(h.fs, userID.String(), threadID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to list artifacts"})
 		return
@@ -53,6 +60,11 @@ func (h *ArtifactsHandler) List(c *gin.Context) {
 }
 
 func (h *ArtifactsHandler) Serve(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	if userID == uuid.Nil {
+		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "unauthorized"})
+		return
+	}
 	threadID := c.Param("id")
 	artifactPath := artifactPathFromContext(c)
 
@@ -66,7 +78,7 @@ func (h *ArtifactsHandler) Serve(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return
 	}
-	resolvedPath, info, err := resolveArtifactFile(h.fs, threadID, relativePath, preferredScope)
+	resolvedPath, info, err := resolveArtifactFile(h.fs, userID.String(), threadID, relativePath, preferredScope)
 	if err == nil {
 		if c.Query("preview") == "pdf" && isOfficeDocumentFile(resolvedPath) {
 			previewPath, err := officePreviewConverter(resolvedPath)
@@ -104,11 +116,12 @@ func artifactPathFromContext(c *gin.Context) string {
 
 func resolveArtifactFile(
 	fs *storage.FS,
+	userID string,
 	threadID string,
 	relativePath string,
 	preferredScope string,
 ) (string, os.FileInfo, error) {
-	for _, candidate := range artifactCandidates(fs, threadID, relativePath, preferredScope) {
+	for _, candidate := range artifactCandidates(fs, userID, threadID, relativePath, preferredScope) {
 		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
 			return candidate, info, nil
 		}
@@ -118,11 +131,12 @@ func resolveArtifactFile(
 
 func artifactCandidates(
 	fs *storage.FS,
+	userID string,
 	threadID string,
 	relativePath string,
 	preferredScope string,
 ) []string {
-	userDataDir := fs.ThreadUserDataDir(threadID)
+	userDataDir := fs.ThreadUserDataDirForUser(userID, threadID)
 	switch preferredScope {
 	case "outputs":
 		return []string{filepath.Join(userDataDir, "outputs", relativePath)}

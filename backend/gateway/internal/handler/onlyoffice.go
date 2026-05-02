@@ -17,6 +17,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	jwtv5 "github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/openagents/gateway/internal/middleware"
 	"github.com/openagents/gateway/internal/model"
 	"github.com/openagents/gateway/pkg/storage"
@@ -81,7 +82,12 @@ func (h *OnlyOfficeHandler) Config(c *gin.Context) {
 		return
 	}
 
-	resolvedPath, info, err := resolveArtifactFile(h.fs, threadID, relativePath, preferredScope)
+	userID := middleware.GetUserID(c)
+	if userID == uuid.Nil {
+		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "unauthorized"})
+		return
+	}
+	resolvedPath, info, err := resolveArtifactFile(h.fs, userID.String(), threadID, relativePath, preferredScope)
 	if err != nil {
 		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "artifact not found"})
 		return
@@ -95,14 +101,13 @@ func (h *OnlyOfficeHandler) Config(c *gin.Context) {
 		mode = "view"
 	}
 
-	userID := middleware.GetUserID(c)
 	role := strings.TrimSpace(middleware.GetRole(c))
 	userName := "OpenAgents User"
 	if role != "" {
 		userName = role
 	}
 
-	fileRoutePath := encodeArtifactPath(relativePathForUserData(h.fs, threadID, resolvedPath))
+	fileRoutePath := encodeArtifactPath(relativePathForUserData(h.fs, userID.String(), threadID, resolvedPath))
 	baseURL := h.publicBaseURL(c)
 	fileURL := fmt.Sprintf("%s/api/office/threads/%s/files/%s", baseURL, url.PathEscape(threadID), fileRoutePath)
 	callbackURL := fmt.Sprintf("%s/api/office/threads/%s/callback/%s", baseURL, url.PathEscape(threadID), fileRoutePath)
@@ -164,7 +169,13 @@ func (h *OnlyOfficeHandler) File(c *gin.Context) {
 		return
 	}
 
-	if !h.authorizeOnlyOfficeRequest(c, "") {
+	claims, ok := h.authorizeOnlyOfficeRequest(c, "")
+	if !ok {
+		return
+	}
+	userID := onlyOfficeUserIDFromClaims(claims)
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "invalid onlyoffice authorization token"})
 		return
 	}
 
@@ -181,7 +192,7 @@ func (h *OnlyOfficeHandler) File(c *gin.Context) {
 		return
 	}
 
-	resolvedPath, info, err := resolveArtifactFile(h.fs, threadID, relativePath, preferredScope)
+	resolvedPath, info, err := resolveArtifactFile(h.fs, userID, threadID, relativePath, preferredScope)
 	if err != nil {
 		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "artifact not found"})
 		return
@@ -213,23 +224,29 @@ func (h *OnlyOfficeHandler) Callback(c *gin.Context) {
 		return
 	}
 
-	resolvedPath, info, err := resolveArtifactFile(h.fs, threadID, relativePath, preferredScope)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": 1})
-		return
-	}
-	if !isOfficeDocumentFile(resolvedPath) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": 1})
-		return
-	}
-
 	var request onlyOfficeCallbackRequest
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": 1})
 		return
 	}
 
-	if !h.authorizeOnlyOfficeRequest(c, request.Token) {
+	claims, ok := h.authorizeOnlyOfficeRequest(c, request.Token)
+	if !ok {
+		return
+	}
+	userID := onlyOfficeUserIDFromClaims(claims)
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": 1})
+		return
+	}
+
+	resolvedPath, info, err := resolveArtifactFile(h.fs, userID, threadID, relativePath, preferredScope)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": 1})
+		return
+	}
+	if !isOfficeDocumentFile(resolvedPath) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": 1})
 		return
 	}
 
@@ -258,7 +275,7 @@ func (h *OnlyOfficeHandler) enabled() bool {
 	return h.config.ServerURL != "" && h.config.JWTSecret != ""
 }
 
-func (h *OnlyOfficeHandler) authorizeOnlyOfficeRequest(c *gin.Context, bodyToken string) bool {
+func (h *OnlyOfficeHandler) authorizeOnlyOfficeRequest(c *gin.Context, bodyToken string) (jwtv5.MapClaims, bool) {
 	token := strings.TrimSpace(bodyToken)
 	if token == "" {
 		token = strings.TrimSpace(c.GetHeader("Authorization"))
@@ -266,20 +283,27 @@ func (h *OnlyOfficeHandler) authorizeOnlyOfficeRequest(c *gin.Context, bodyToken
 	}
 	if token == "" {
 		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "missing onlyoffice authorization token"})
-		return false
+		return nil, false
 	}
 
-	if _, err := jwtv5.Parse(token, func(t *jwtv5.Token) (interface{}, error) {
+	claims := jwtv5.MapClaims{}
+	if _, err := jwtv5.ParseWithClaims(token, claims, func(t *jwtv5.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwtv5.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method")
 		}
 		return []byte(h.config.JWTSecret), nil
 	}); err != nil {
 		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "invalid onlyoffice authorization token"})
-		return false
+		return nil, false
 	}
 
-	return true
+	return claims, true
+}
+
+func onlyOfficeUserIDFromClaims(claims jwtv5.MapClaims) string {
+	editorConfig, _ := claims["editorConfig"].(map[string]any)
+	user, _ := editorConfig["user"].(map[string]any)
+	return strings.TrimSpace(fmt.Sprint(user["id"]))
 }
 
 func (h *OnlyOfficeHandler) signPayload(payload map[string]any) (string, error) {
@@ -434,8 +458,8 @@ func buildOnlyOfficeDocumentKey(threadID string, resolvedPath string, info os.Fi
 	return hex.EncodeToString(sum[:16])
 }
 
-func relativePathForUserData(fs *storage.FS, threadID string, resolvedPath string) string {
-	rel, err := filepath.Rel(fs.ThreadUserDataDir(threadID), resolvedPath)
+func relativePathForUserData(fs *storage.FS, userID string, threadID string, resolvedPath string) string {
+	rel, err := filepath.Rel(fs.ThreadUserDataDirForUser(userID, threadID), resolvedPath)
 	if err != nil {
 		return filepath.Base(resolvedPath)
 	}

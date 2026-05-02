@@ -25,8 +25,10 @@ func shouldSkipOutputArtifactEntry(entry fs.DirEntry, outputsDir string, current
 // ListOutputArtifacts mirrors the workspace artifact discovery contract by
 // scanning persisted thread outputs instead of trusting only graph state.
 // This keeps generated files visible even when the model forgets `present_files`.
-func ListOutputArtifacts(storageFS *storage.FS, threadID string) ([]string, error) {
-	outputsDir := filepath.Join(storageFS.ThreadUserDataDir(threadID), "outputs")
+func ListOutputArtifacts(storageFS *storage.FS, userID string, threadID string) ([]string, error) {
+	// The host path is tenant-scoped even though returned artifact paths remain
+	// on the stable agent/browser contract under `/mnt/user-data`.
+	outputsDir := filepath.Join(storageFS.ThreadUserDataDirForUser(userID, threadID), "outputs")
 	info, err := os.Stat(outputsDir)
 	if err != nil {
 		if os.IsNotExist(err) {

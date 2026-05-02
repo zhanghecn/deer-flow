@@ -18,13 +18,15 @@ import (
 	"github.com/openagents/gateway/pkg/storage"
 )
 
+const onlyOfficeTestUserID = "6098d570-33fa-40ad-a622-dd1525afbd41"
+
 func TestOnlyOfficeConfigReturnsSignedPresentationConfig(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
 	baseDir := t.TempDir()
 	threadID := "thread-office-config"
-	deckPath := writeTestDeck(t, baseDir, threadID, "outputs", "deck.pptx", []byte("pptx"))
+	deckPath := writeTestDeck(t, baseDir, onlyOfficeTestUserID, threadID, "outputs", "deck.pptx", []byte("pptx"))
 
 	handler := NewOnlyOfficeHandler(storage.NewFS(baseDir), OnlyOfficeConfig{
 		ServerURL:    "http://onlyoffice.local",
@@ -44,7 +46,7 @@ func TestOnlyOfficeConfigReturnsSignedPresentationConfig(t *testing.T) {
 		{Key: "head", Value: "outputs"},
 		{Key: "tail", Value: "/deck.pptx"},
 	}
-	c.Set(string(middleware.UserIDKey), uuid.MustParse("6098d570-33fa-40ad-a622-dd1525afbd41"))
+	c.Set(string(middleware.UserIDKey), uuid.MustParse(onlyOfficeTestUserID))
 	c.Set(string(middleware.RoleKey), "admin")
 
 	handler.Config(c)
@@ -109,7 +111,7 @@ func TestOnlyOfficeConfigAllowsRelativeDocumentServerURL(t *testing.T) {
 
 	baseDir := t.TempDir()
 	threadID := "thread-office-relative"
-	writeTestDeck(t, baseDir, threadID, "outputs", "deck.pptx", []byte("pptx"))
+	writeTestDeck(t, baseDir, onlyOfficeTestUserID, threadID, "outputs", "deck.pptx", []byte("pptx"))
 
 	handler := NewOnlyOfficeHandler(storage.NewFS(baseDir), OnlyOfficeConfig{
 		ServerURL:    "/onlyoffice",
@@ -129,7 +131,7 @@ func TestOnlyOfficeConfigAllowsRelativeDocumentServerURL(t *testing.T) {
 		{Key: "head", Value: "outputs"},
 		{Key: "tail", Value: "/deck.pptx"},
 	}
-	c.Set(string(middleware.UserIDKey), uuid.MustParse("6098d570-33fa-40ad-a622-dd1525afbd41"))
+	c.Set(string(middleware.UserIDKey), uuid.MustParse(onlyOfficeTestUserID))
 
 	handler.Config(c)
 
@@ -155,7 +157,7 @@ func TestOnlyOfficeConfigReturnsSpreadsheetConfig(t *testing.T) {
 
 	baseDir := t.TempDir()
 	threadID := "thread-office-sheet"
-	writeTestDeck(t, baseDir, threadID, "outputs", "market.xlsx", []byte("xlsx"))
+	writeTestDeck(t, baseDir, onlyOfficeTestUserID, threadID, "outputs", "market.xlsx", []byte("xlsx"))
 
 	handler := NewOnlyOfficeHandler(storage.NewFS(baseDir), OnlyOfficeConfig{
 		ServerURL:    "http://onlyoffice.local",
@@ -175,7 +177,7 @@ func TestOnlyOfficeConfigReturnsSpreadsheetConfig(t *testing.T) {
 		{Key: "head", Value: "outputs"},
 		{Key: "tail", Value: "/market.xlsx"},
 	}
-	c.Set(string(middleware.UserIDKey), uuid.MustParse("6098d570-33fa-40ad-a622-dd1525afbd41"))
+	c.Set(string(middleware.UserIDKey), uuid.MustParse(onlyOfficeTestUserID))
 
 	handler.Config(c)
 
@@ -207,7 +209,7 @@ func TestOnlyOfficeConfigFallsBackToViewForLegacyOfficeFiles(t *testing.T) {
 
 	baseDir := t.TempDir()
 	threadID := "thread-office-legacy"
-	writeTestDeck(t, baseDir, threadID, "outputs", "legacy.ppt", []byte("ppt"))
+	writeTestDeck(t, baseDir, onlyOfficeTestUserID, threadID, "outputs", "legacy.ppt", []byte("ppt"))
 
 	handler := NewOnlyOfficeHandler(storage.NewFS(baseDir), OnlyOfficeConfig{
 		ServerURL:    "http://onlyoffice.local",
@@ -227,7 +229,7 @@ func TestOnlyOfficeConfigFallsBackToViewForLegacyOfficeFiles(t *testing.T) {
 		{Key: "head", Value: "outputs"},
 		{Key: "tail", Value: "/legacy.ppt"},
 	}
-	c.Set(string(middleware.UserIDKey), uuid.MustParse("6098d570-33fa-40ad-a622-dd1525afbd41"))
+	c.Set(string(middleware.UserIDKey), uuid.MustParse(onlyOfficeTestUserID))
 
 	handler.Config(c)
 
@@ -260,7 +262,7 @@ func TestOnlyOfficeFileServesArtifactForAuthorizedRequest(t *testing.T) {
 
 	baseDir := t.TempDir()
 	threadID := "thread-office-file"
-	writeTestDeck(t, baseDir, threadID, "outputs", "market report.pptx", []byte("pptx-binary"))
+	writeTestDeck(t, baseDir, onlyOfficeTestUserID, threadID, "outputs", "market report.pptx", []byte("pptx-binary"))
 
 	handler := NewOnlyOfficeHandler(storage.NewFS(baseDir), OnlyOfficeConfig{
 		ServerURL: "http://onlyoffice.local",
@@ -297,7 +299,7 @@ func TestOnlyOfficeCallbackDownloadsAndReplacesPresentation(t *testing.T) {
 
 	baseDir := t.TempDir()
 	threadID := "thread-office-callback"
-	deckPath := writeTestDeck(t, baseDir, threadID, "outputs", "deck.pptx", []byte("before"))
+	deckPath := writeTestDeck(t, baseDir, onlyOfficeTestUserID, threadID, "outputs", "deck.pptx", []byte("before"))
 
 	downloadServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("after"))
@@ -354,7 +356,7 @@ func TestOnlyOfficeCallbackRewritesBrowserFacingDownloadURLToInternalServer(t *t
 
 	baseDir := t.TempDir()
 	threadID := "thread-office-callback-rewrite"
-	deckPath := writeTestDeck(t, baseDir, threadID, "outputs", "deck.docx", []byte("before"))
+	deckPath := writeTestDeck(t, baseDir, onlyOfficeTestUserID, threadID, "outputs", "deck.docx", []byte("before"))
 
 	downloadServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/cache/files/data/save-1/output.docx/output.docx" {
@@ -415,6 +417,7 @@ func TestOnlyOfficeCallbackRewritesBrowserFacingDownloadURLToInternalServer(t *t
 func writeTestDeck(
 	t *testing.T,
 	baseDir string,
+	userID string,
 	threadID string,
 	scope string,
 	name string,
@@ -422,7 +425,7 @@ func writeTestDeck(
 ) string {
 	t.Helper()
 
-	path := filepath.Join(baseDir, "threads", threadID, "user-data", scope, name)
+	path := filepath.Join(baseDir, "users", userID, "threads", threadID, "user-data", scope, name)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("mkdir deck dir: %v", err)
 	}
@@ -437,6 +440,11 @@ func signOnlyOfficeTestToken(t *testing.T, secret string) string {
 
 	token := jwtv5.NewWithClaims(jwtv5.SigningMethodHS256, jwtv5.MapClaims{
 		"scope": "onlyoffice",
+		"editorConfig": map[string]any{
+			"user": map[string]any{
+				"id": onlyOfficeTestUserID,
+			},
+		},
 	})
 	signed, err := token.SignedString([]byte(secret))
 	if err != nil {

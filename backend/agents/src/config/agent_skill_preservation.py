@@ -68,12 +68,13 @@ def _resolve_runtime_agent_root(
     agent_name: str | None,
     agent_status: str,
     thread_id: str | None,
+    user_id: str | None,
     paths: Any,
 ) -> Path | None:
     normalized_agent_name = _normalize_existing_agent_name(agent_name=agent_name, paths=paths)
     if normalized_agent_name is None or not thread_id or not hasattr(paths, "sandbox_agents_dir"):
         return None
-    return Path(paths.sandbox_agents_dir(thread_id)) / agent_status / normalized_agent_name
+    return Path(paths.sandbox_agents_dir(thread_id, user_id=user_id)) / agent_status / normalized_agent_name
 
 
 def _load_existing_agent_roots(
@@ -81,6 +82,7 @@ def _load_existing_agent_roots(
     agent_name: str | None,
     agent_status: str,
     thread_id: str | None,
+    user_id: str | None,
     paths: Any,
 ) -> _ExistingAgentRoots | None:
     normalized_agent_name = _normalize_existing_agent_name(agent_name=agent_name, paths=paths)
@@ -100,6 +102,7 @@ def _load_existing_agent_roots(
         agent_name=normalized_agent_name,
         agent_status=agent_status,
         thread_id=thread_id,
+        user_id=user_id,
         paths=paths,
     )
     runtime_config = None
@@ -180,12 +183,14 @@ def load_existing_agent_skill_input(
     agent_name: str | None,
     agent_status: str,
     thread_id: str | None,
-    paths: Any,
+    user_id: str | None = None,
+    paths: Any = None,
 ) -> tuple[dict[str, str] | None, dict[str, str] | None]:
     existing_roots = _load_existing_agent_roots(
         agent_name=agent_name,
         agent_status=agent_status,
         thread_id=thread_id,
+        user_id=user_id,
         paths=paths,
     )
     if existing_roots is None:
@@ -203,7 +208,8 @@ def load_existing_agent_owned_skill_content(
     agent_name: str | None,
     agent_status: str,
     thread_id: str | None,
-    paths: Any,
+    user_id: str | None = None,
+    paths: Any = None,
 ) -> str | None:
     _copied_ref, inline_skill = load_existing_agent_skill_input(
         skill_name=skill_name,
@@ -211,6 +217,7 @@ def load_existing_agent_owned_skill_content(
         agent_name=agent_name,
         agent_status=agent_status,
         thread_id=thread_id,
+        user_id=user_id,
         paths=paths,
     )
     if inline_skill is None:
@@ -223,7 +230,8 @@ def load_existing_agent_skill_inputs(
     agent_name: str | None,
     agent_status: str,
     thread_id: str | None,
-    paths: Any,
+    user_id: str | None = None,
+    paths: Any = None,
 ) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
     """Return current skill inputs in setup_agent-compatible form.
 
@@ -237,6 +245,7 @@ def load_existing_agent_skill_inputs(
         agent_name=agent_name,
         agent_status=agent_status,
         thread_id=thread_id,
+        user_id=user_id,
         paths=paths,
     )
     if existing_roots is None or not existing_roots.config.skill_refs:

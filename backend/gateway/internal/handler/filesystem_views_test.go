@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/openagents/gateway/internal/agentfs"
 	"github.com/openagents/gateway/pkg/storage"
 )
@@ -228,12 +229,13 @@ func TestInstallSkillArchiveWritesToCanonicalCustomSkillsRoot(t *testing.T) {
 
 	baseDir := filepath.Join(t.TempDir(), ".openagents")
 	fsStore := storage.NewFS(baseDir)
+	userID := uuid.NewString()
 	threadID := "thread-1"
-	if err := fsStore.EnsureThreadDirs(threadID); err != nil {
-		t.Fatalf("EnsureThreadDirs() error = %v", err)
+	if err := fsStore.EnsureThreadDirsForUser(userID, threadID); err != nil {
+		t.Fatalf("EnsureThreadDirsForUser() error = %v", err)
 	}
 
-	archivePath := filepath.Join(fsStore.ThreadUserDataDir(threadID), "uploads", "imported.skill")
+	archivePath := filepath.Join(fsStore.ThreadUserDataDirForUser(userID, threadID), "uploads", "imported.skill")
 	file, err := os.Create(archivePath)
 	if err != nil {
 		t.Fatalf("create archive: %v", err)
@@ -253,7 +255,7 @@ func TestInstallSkillArchiveWritesToCanonicalCustomSkillsRoot(t *testing.T) {
 		t.Fatalf("close archive file: %v", err)
 	}
 
-	skillName, err := installSkillArchive(fsStore, threadID, "/mnt/user-data/uploads/imported.skill")
+	skillName, err := installSkillArchive(fsStore, userID, threadID, "/mnt/user-data/uploads/imported.skill")
 	if err != nil {
 		t.Fatalf("installSkillArchive() error = %v", err)
 	}

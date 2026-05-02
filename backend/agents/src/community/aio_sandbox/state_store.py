@@ -23,7 +23,7 @@ class SandboxStateStore(ABC):
     """
 
     @abstractmethod
-    def save(self, thread_id: str, info: SandboxInfo) -> None:
+    def save(self, thread_id: str, info: SandboxInfo, *, user_id: str | None = None) -> None:
         """Save sandbox state for a thread.
 
         Args:
@@ -33,7 +33,7 @@ class SandboxStateStore(ABC):
         ...
 
     @abstractmethod
-    def load(self, thread_id: str) -> SandboxInfo | None:
+    def load(self, thread_id: str, *, user_id: str | None = None) -> SandboxInfo | None:
         """Load sandbox state for a thread.
 
         Args:
@@ -45,7 +45,7 @@ class SandboxStateStore(ABC):
         ...
 
     @abstractmethod
-    def remove(self, thread_id: str) -> None:
+    def remove(self, thread_id: str, *, user_id: str | None = None) -> None:
         """Remove sandbox state for a thread.
 
         Args:
@@ -55,7 +55,7 @@ class SandboxStateStore(ABC):
 
     @abstractmethod
     @contextmanager
-    def lock(self, thread_id: str) -> Generator[None, None, None]:
+    def lock(self, thread_id: str, *, user_id: str | None = None) -> Generator[None, None, None]:
         """Acquire a cross-process lock for a thread's sandbox operations.
 
         Ensures only one process can create/modify a sandbox for a given

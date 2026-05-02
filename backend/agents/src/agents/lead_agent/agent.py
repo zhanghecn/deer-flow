@@ -340,25 +340,27 @@ def _materialize_runtime_targets_for_thread(
     paths: Paths,
     *,
     thread_id: str | None,
+    user_id: str | None,
     runtime_targets: list[tuple[str, bytes]],
 ) -> None:
     """Mirror runtime seed files into the host thread tree before backend sync.
 
     Shared-mount sandbox execution reads `/mnt/user-data/...` from the mounted
-    host runtime tree. The sandbox file API can write concrete file paths such
-    as `/openagents/threads/<thread>/user-data/...`, but it does not create the
-    deep parent directories for archived agent copies on demand. Materializing
-    the files locally first keeps the shared mount authoritative and lets the
-    later backend diff skip uploads that are already present.
+    user-scoped host runtime tree. The sandbox file API can write concrete file
+    paths under `/openagents/users/<user>/threads/<thread>/user-data/...`, but it
+    does not create the deep parent directories for archived agent copies on
+    demand. Materializing the files locally first keeps the shared mount
+    authoritative and lets the later backend diff skip uploads that are already
+    present.
     """
 
     normalized_thread_id = str(thread_id or "").strip()
     if not normalized_thread_id or not runtime_targets:
         return
 
-    paths.ensure_thread_dirs(normalized_thread_id)
+    paths.ensure_thread_dirs(normalized_thread_id, user_id=user_id)
     for virtual_path, content in runtime_targets:
-        actual_path = paths.resolve_virtual_path(normalized_thread_id, virtual_path)
+        actual_path = paths.resolve_virtual_path(normalized_thread_id, virtual_path, user_id=user_id)
         actual_path.parent.mkdir(parents=True, exist_ok=True)
         actual_path.write_bytes(content)
 
@@ -414,6 +416,7 @@ def _seed_runtime_materials(
     _materialize_runtime_targets_for_thread(
         paths,
         thread_id=getattr(request, "thread_id", None),
+        user_id=getattr(request, "user_id", None),
         runtime_targets=runtime_targets,
     )
     missing_uploads = _collect_missing_runtime_uploads(backend, runtime_targets)
@@ -475,14 +478,15 @@ def _build_local_workspace_backend(
     )
 
 
-def _build_sandbox_workspace_backend(thread_id: str | None) -> BackendProtocol:
-    return build_sandbox_runtime_backend(_effective_thread_id(thread_id))
+def _build_sandbox_workspace_backend(thread_id: str | None, *, user_id: str | None = None) -> BackendProtocol:
+    return build_sandbox_runtime_backend(_effective_thread_id(thread_id), user_id=user_id)
 
 
 def _build_workspace_backend(
     *,
     user_data_dir: str,
     thread_id: str | None,
+    user_id: str | None = None,
     paths: Paths | None = None,
     requested_backend: str | None = None,
     remote_session_id: str | None = None,
@@ -491,6 +495,7 @@ def _build_workspace_backend(
     return build_runtime_workspace_backend(
         user_data_dir=user_data_dir,
         thread_id=_effective_thread_id(thread_id),
+        user_id=user_id,
         paths=resolved_paths,
         requested_backend=requested_backend,
         remote_session_id=remote_session_id,
@@ -500,7 +505,7 @@ def _build_workspace_backend(
 def _build_read_context_backend(thread_id: str | None) -> BackendProtocol:
     paths = get_paths()
     effective_thread_id = _effective_thread_id(thread_id)
-    user_data_dir = str(paths.sandbox_user_data_dir(effective_thread_id))
+    user_data_dir = str(paths.sandbox_user_data_dir(effective_thread_id, user_id="_default"))
     return _build_local_workspace_backend(
         user_data_dir,
         skills_mount=resolve_skills_mount(paths),
@@ -526,6 +531,7 @@ def build_backend(
     agent_config: AgentConfig | None = None,
     *,
     request: LeadAgentRequest | None = None,
+    user_id: str | None = None,
     execution_backend: str | None = None,
     remote_session_id: str | None = None,
 ):
@@ -544,11 +550,18 @@ def build_backend(
 
     # === Runtime layer (per-thread isolated) ===
     effective_thread_id = _effective_thread_id(thread_id)
-    user_data_dir = str(paths.sandbox_user_data_dir(effective_thread_id))
+    request_user_id = request.user_id if request is not None else user_id
+    if request_user_id is None and thread_id is None:
+        # The synthetic default graph backend has no tenant owner because it is
+        # only used for shared read context; keep it in the user-scoped layout so
+        # path helpers never need the legacy flat `.openagents/threads` runtime.
+        request_user_id = DEFAULT_THREAD_ID
+    user_data_dir = str(paths.sandbox_user_data_dir(effective_thread_id, user_id=request_user_id))
 
     workspace_backend = _build_workspace_backend(
         user_data_dir=user_data_dir,
         thread_id=effective_thread_id,
+        user_id=request_user_id,
         paths=paths,
         requested_backend=execution_backend,
         remote_session_id=remote_session_id,

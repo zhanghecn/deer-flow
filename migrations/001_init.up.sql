@@ -187,6 +187,23 @@ CREATE INDEX idx_agent_trace_events_trace_id ON agent_trace_events(trace_id, eve
 CREATE INDEX idx_agent_trace_events_task_run_id ON agent_trace_events(task_run_id);
 CREATE INDEX idx_agent_trace_events_run_id ON agent_trace_events(run_id);
 
+CREATE TABLE admin_runtime_cleanup_policies (
+    action VARCHAR(64) PRIMARY KEY,
+    enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    dry_run BOOLEAN NOT NULL DEFAULT TRUE,
+    inactive_days INTEGER NOT NULL,
+    schedule VARCHAR(32) NOT NULL DEFAULT 'daily',
+    run_at VARCHAR(8) NOT NULL DEFAULT '03:00',
+    limit_count INTEGER NOT NULL DEFAULT 200,
+    last_run_at TIMESTAMPTZ,
+    last_job_id UUID,
+    last_preview_at TIMESTAMPTZ,
+    last_preview_candidates BIGINT NOT NULL DEFAULT 0,
+    last_preview_bytes BIGINT NOT NULL DEFAULT 0,
+    last_error TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE knowledge_bases (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

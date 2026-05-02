@@ -43,7 +43,7 @@ def _write_agent(agent_dir: Path, name: str, status: str = "dev", *, skill_sourc
 
 def test_save_skill_directory_to_store_copies_authoring_skill(tmp_path: Path):
     paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
-    source_dir = paths.sandbox_authoring_skills_dir("thread-1") / "contract-risk-rating"
+    source_dir = paths.sandbox_authoring_skills_dir("thread-1", user_id="user-1") / "contract-risk-rating"
     _write_skill(source_dir, "contract-risk-rating", "Contract risk rating")
 
     target_dir, backup_dir = save_skill_directory_to_store(
@@ -59,7 +59,7 @@ def test_save_skill_directory_to_store_copies_authoring_skill(tmp_path: Path):
 
 def test_save_skill_directory_to_store_overwrite_creates_backup(tmp_path: Path):
     paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
-    source_dir = paths.sandbox_authoring_skills_dir("thread-1") / "contract-risk-rating"
+    source_dir = paths.sandbox_authoring_skills_dir("thread-1", user_id="user-1") / "contract-risk-rating"
     _write_skill(source_dir, "contract-risk-rating", "Contract risk rating v2")
     existing_target = paths.custom_skills_dir / "contract-risk-rating"
     _write_skill(existing_target, "contract-risk-rating", "Contract risk rating v1")
@@ -203,7 +203,7 @@ def test_install_registry_skill_to_store_skips_existing_repo_root_skills(
 
 def test_save_agent_directory_to_store_accepts_runtime_agent_copy(tmp_path: Path):
     paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
-    source_dir = paths.sandbox_agents_dir("thread-1") / "dev" / "contract-review"
+    source_dir = paths.sandbox_agents_dir("thread-1", user_id="user-1") / "dev" / "contract-review"
     _write_skill(paths.store_dev_skills_dir / "bootstrap", "bootstrap")
     _write_agent(source_dir, "contract-review")
 
@@ -221,7 +221,7 @@ def test_save_agent_directory_to_store_accepts_runtime_agent_copy(tmp_path: Path
 
 def test_save_agent_directory_to_store_rejects_invalid_manifest(tmp_path: Path):
     paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
-    source_dir = paths.sandbox_authoring_agents_dir("thread-1") / "broken-agent"
+    source_dir = paths.sandbox_authoring_agents_dir("thread-1", user_id="user-1") / "broken-agent"
     source_dir.mkdir(parents=True, exist_ok=True)
     (source_dir / "config.yaml").write_text("name: broken-agent\nstatus: dev\n", encoding="utf-8")
 

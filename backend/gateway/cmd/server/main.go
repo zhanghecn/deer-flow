@@ -78,6 +78,7 @@ func main() {
 	threadRepo := repository.NewThreadRepo(pool)
 	knowledgeRepo := repository.NewKnowledgeRepo(pool)
 	adminObservabilityRepo := repository.NewAdminObservabilityRepo(pool)
+	runtimeStorageRepo := repository.NewRuntimeStorageRepo(pool)
 	publicAPIInputFileRepo := repository.NewPublicAPIInputFileRepo(pool)
 	publicAPIInvocationRepo := repository.NewPublicAPIInvocationRepo(pool)
 	if err := modelRepo.MigrateLegacyReasoningConfigs(context.Background()); err != nil {
@@ -90,6 +91,18 @@ func main() {
 	mcpProfileSvc := service.NewMCPProfileService(fs)
 	authoringWorkspaceSvc := service.NewAuthoringWorkspaceService(fs)
 	designBoardSvc := service.NewDesignBoardService(fs)
+	runtimeStorageSvc := service.NewRuntimeStorageService(
+		runtimeStorageRepo,
+		threadRepo,
+		fs,
+		cfg.Upstream.LangGraphURL,
+	)
+	// Runtime storage scans walk `.openagents` and checkpoint metadata on a
+	// timer so admin pages do not run full directory traversal per request.
+	runtimeStorageSvc.StartBackgroundScanner(context.Background())
+	// Cleanup policies are disabled by default and dry-run by default; the
+	// scheduler only turns saved admin policy settings into preview/jobs.
+	runtimeStorageSvc.StartCleanupPolicyScheduler(context.Background())
 	publicAPISvc := service.NewPublicAPIService(
 		modelRepo,
 		publicAPIInputFileRepo,
@@ -121,7 +134,7 @@ func main() {
 		JWTSecret:         resolveOnlyOfficeJWTSecret(),
 	})
 	langGraphRuntimeH := handler.NewLangGraphRuntimeHandler()
-	adminH := handler.NewAdminHandler(userRepo, adminObservabilityRepo, modelRepo)
+	adminH := handler.NewAdminHandler(userRepo, adminObservabilityRepo, modelRepo, runtimeStorageSvc)
 	publicAPIH := handler.NewPublicAPIHandler(publicAPISvc)
 	publicAPIAuditH := handler.NewPublicAPIAuditHandler(publicAPISvc)
 	turnsH := handler.NewTurnsHandler(publicAPISvc)
@@ -336,6 +349,16 @@ func main() {
 			admin.GET("/traces/:trace_id/events", adminH.GetTraceEvents)
 			admin.GET("/runtime/threads", adminH.ListRuntimeThreads)
 			admin.GET("/runtime/checkpoint-status", adminH.GetCheckpointStatus)
+			admin.GET("/runtime/storage/summary", adminH.RuntimeStorageSummary)
+			admin.GET("/runtime/storage/users", adminH.RuntimeStorageUsers)
+			admin.GET("/runtime/storage/users/:user_id", adminH.RuntimeStorageUserDetail)
+			admin.GET("/runtime/storage/threads", adminH.RuntimeStorageThreads)
+			admin.GET("/runtime/storage/threads/:thread_id", adminH.RuntimeStorageThreadDetail)
+			admin.POST("/runtime/storage/cleanup/preview", adminH.RuntimeStorageCleanupPreview)
+			admin.POST("/runtime/storage/cleanup/jobs", adminH.RuntimeStorageCreateCleanupJob)
+			admin.GET("/runtime/storage/cleanup/jobs/:job_id", adminH.RuntimeStorageCleanupJob)
+			admin.GET("/runtime/storage/cleanup/policies", adminH.RuntimeStorageCleanupPolicies)
+			admin.PUT("/runtime/storage/cleanup/policies/:action", adminH.RuntimeStorageUpdateCleanupPolicy)
 		}
 
 	}

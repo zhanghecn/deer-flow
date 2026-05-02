@@ -9,6 +9,10 @@ from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
 
+# The filename is operator-facing (`test_mcp_server.py`) but this module is a
+# runnable MCP fixture, not a pytest suite.
+__test__ = False
+
 mcp = FastMCP("test-echo")
 
 

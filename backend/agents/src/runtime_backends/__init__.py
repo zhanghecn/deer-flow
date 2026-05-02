@@ -17,12 +17,14 @@ from .sandbox import (
     resolve_default_execution_backend,
     resolve_sandbox_provider,
 )
+from .search_scope import RootSearchScopedCompositeBackend, scope_composite_root_search
 
 __all__ = [
     "DEFAULT_REMOTE_OPERATION_TIMEOUT_SECONDS",
     "LOCAL_SANDBOX_PROVIDER",
     "REMOTE_EXECUTION_BACKEND",
     "RemoteShellBackend",
+    "RootSearchScopedCompositeBackend",
     "RuntimeBackendKind",
     "build_local_workspace_backend",
     "build_remote_workspace_backend",
@@ -34,4 +36,5 @@ __all__ = [
     "resolve_runtime_backend_kind",
     "resolve_sandbox_provider",
     "resolve_skills_mount",
+    "scope_composite_root_search",
 ]

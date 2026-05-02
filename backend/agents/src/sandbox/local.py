@@ -10,8 +10,9 @@ class LocalSandboxProvider(SandboxProvider):
     and does not provision managed sandboxes.
     """
 
-    def acquire(self, thread_id: str | None = None) -> str:
+    def acquire(self, thread_id: str | None = None, *, user_id: str | None = None) -> str:
         _ = thread_id
+        _ = user_id
         raise NotImplementedError("LocalSandboxProvider is a config marker and is not instantiated at runtime.")
 
     def get(self, sandbox_id: str):

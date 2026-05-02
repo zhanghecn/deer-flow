@@ -9,7 +9,7 @@ class SandboxProvider(ABC):
     """Lifecycle manager for runtime sandboxes."""
 
     @abstractmethod
-    def acquire(self, thread_id: str | None = None) -> str:
+    def acquire(self, thread_id: str | None = None, *, user_id: str | None = None) -> str:
         """Acquire or reuse a sandbox for the given thread."""
 
     @abstractmethod

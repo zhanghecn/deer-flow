@@ -63,7 +63,8 @@ func (h *AuthoringWorkspaceHandler) CreateAgentDraft(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return
 	}
-	if !h.ensureThreadAccess(c, req.ThreadID) {
+	userID, ok := h.ensureThreadAccess(c, req.ThreadID)
+	if !ok {
 		return
 	}
 
@@ -81,7 +82,7 @@ func (h *AuthoringWorkspaceHandler) CreateAgentDraft(c *gin.Context) {
 		return
 	}
 
-	rootPath, files, err := h.svc.StageAgentDraft(req.ThreadID, name, req.AgentStatus)
+	rootPath, files, err := h.svc.StageAgentDraft(userID.String(), req.ThreadID, name, req.AgentStatus)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return
@@ -96,11 +97,12 @@ func (h *AuthoringWorkspaceHandler) CreateSkillDraft(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return
 	}
-	if !h.ensureThreadAccess(c, req.ThreadID) {
+	userID, ok := h.ensureThreadAccess(c, req.ThreadID)
+	if !ok {
 		return
 	}
 
-	rootPath, files, err := h.svc.StageSkillDraft(req.ThreadID, name, req.SourcePath)
+	rootPath, files, err := h.svc.StageSkillDraft(userID.String(), req.ThreadID, name, req.SourcePath)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return
@@ -114,11 +116,12 @@ func (h *AuthoringWorkspaceHandler) ListFiles(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return
 	}
-	if !h.ensureThreadAccess(c, req.ThreadID) {
+	userID, ok := h.ensureThreadAccess(c, req.ThreadID)
+	if !ok {
 		return
 	}
 
-	files, err := h.svc.ListDraftFiles(req.ThreadID, req.Path)
+	files, err := h.svc.ListDraftFiles(userID.String(), req.ThreadID, req.Path)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return
@@ -132,11 +135,12 @@ func (h *AuthoringWorkspaceHandler) ReadFile(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return
 	}
-	if !h.ensureThreadAccess(c, req.ThreadID) {
+	userID, ok := h.ensureThreadAccess(c, req.ThreadID)
+	if !ok {
 		return
 	}
 
-	content, err := h.svc.ReadDraftFile(req.ThreadID, req.Path)
+	content, err := h.svc.ReadDraftFile(userID.String(), req.ThreadID, req.Path)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return
@@ -150,11 +154,12 @@ func (h *AuthoringWorkspaceHandler) WriteFile(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return
 	}
-	if !h.ensureThreadAccess(c, req.ThreadID) {
+	userID, ok := h.ensureThreadAccess(c, req.ThreadID)
+	if !ok {
 		return
 	}
 
-	if err := h.svc.WriteDraftFile(req.ThreadID, req.Path, req.Content); err != nil {
+	if err := h.svc.WriteDraftFile(userID.String(), req.ThreadID, req.Path, req.Content); err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return
 	}
@@ -168,7 +173,8 @@ func (h *AuthoringWorkspaceHandler) SaveAgentDraft(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return
 	}
-	if !h.ensureThreadAccess(c, req.ThreadID) {
+	userID, ok := h.ensureThreadAccess(c, req.ThreadID)
+	if !ok {
 		return
 	}
 
@@ -186,7 +192,7 @@ func (h *AuthoringWorkspaceHandler) SaveAgentDraft(c *gin.Context) {
 		return
 	}
 
-	rootPath, err := h.svc.SaveAgentDraft(req.ThreadID, name, req.AgentStatus)
+	rootPath, err := h.svc.SaveAgentDraft(userID.String(), req.ThreadID, name, req.AgentStatus)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return
@@ -201,11 +207,12 @@ func (h *AuthoringWorkspaceHandler) SaveSkillDraft(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return
 	}
-	if !h.ensureThreadAccess(c, req.ThreadID) {
+	userID, ok := h.ensureThreadAccess(c, req.ThreadID)
+	if !ok {
 		return
 	}
 
-	rootPath, err := h.svc.SaveSkillDraft(req.ThreadID, name)
+	rootPath, err := h.svc.SaveSkillDraft(userID.String(), req.ThreadID, name)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return
@@ -213,24 +220,24 @@ func (h *AuthoringWorkspaceHandler) SaveSkillDraft(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"root_path": rootPath, "saved": true})
 }
 
-func (h *AuthoringWorkspaceHandler) ensureThreadAccess(c *gin.Context, threadID string) bool {
+func (h *AuthoringWorkspaceHandler) ensureThreadAccess(c *gin.Context, threadID string) (uuid.UUID, bool) {
 	userID := middleware.GetUserID(c)
 	if userID == uuid.Nil {
 		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "unauthorized"})
-		return false
+		return uuid.Nil, false
 	}
 	normalizedThreadID := strings.TrimSpace(threadID)
 	if normalizedThreadID == "" {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "thread_id is required"})
-		return false
+		return uuid.Nil, false
 	}
 	if !authoringThreadIDPattern.MatchString(normalizedThreadID) {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "thread_id must use only letters, numbers, hyphens, or underscores"})
-		return false
+		return uuid.Nil, false
 	}
 	if h.threadRepo == nil {
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "thread repository unavailable"})
-		return false
+		return uuid.Nil, false
 	}
 	if _, err := h.threadRepo.GetRuntimeByUser(c.Request.Context(), userID, normalizedThreadID); err != nil {
 		if err == pgx.ErrNoRows {
@@ -239,23 +246,23 @@ func (h *AuthoringWorkspaceHandler) ensureThreadAccess(c *gin.Context, threadID 
 			case nil:
 				if ownerID != userID && !middleware.IsAdmin(c) {
 					c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "thread not found"})
-					return false
+					return uuid.Nil, false
 				}
 			case pgx.ErrNoRows:
 				// Authoring workbenches can bootstrap from an unbound UUID-style
 				// draft thread id before any runtime has persisted thread_bindings.
 			default:
 				c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to resolve thread owner"})
-				return false
+				return uuid.Nil, false
 			}
 		} else {
 			c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to load thread runtime"})
-			return false
+			return uuid.Nil, false
 		}
 	}
-	if err := h.fs.EnsureThreadDirs(normalizedThreadID); err != nil {
+	if err := h.fs.EnsureThreadDirsForUser(userID.String(), normalizedThreadID); err != nil {
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to initialize authoring workspace"})
-		return false
+		return uuid.Nil, false
 	}
-	return true
+	return userID, true
 }

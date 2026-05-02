@@ -19,6 +19,7 @@ The active baseline is intentionally squashed into two files:
 - `thread_bindings`
 - `agent_traces`
 - `agent_trace_events`
+- `admin_runtime_cleanup_policies`
 - `knowledge_bases`
 - `knowledge_documents`
 - `knowledge_document_nodes`

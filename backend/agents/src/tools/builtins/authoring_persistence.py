@@ -469,6 +469,15 @@ def _runtime_thread_id(runtime: ToolRuntime | None) -> str:
     return str(thread_id)
 
 
+def _runtime_user_id(runtime: ToolRuntime | None) -> str | None:
+    context = getattr(runtime, "context", None)
+    for key in ("user_id", "x-user-id"):
+        user_id = str(runtime_context_value(context, key) or "").strip()
+        if user_id:
+            return user_id
+    return None
+
+
 def resolve_runtime_source_path(
     *,
     runtime: ToolRuntime[dict, ThreadState] | None,
@@ -480,7 +489,7 @@ def resolve_runtime_source_path(
     if not raw_path:
         raise ValueError("source_path is required.")
     if raw_path.startswith(VIRTUAL_PATH_PREFIX):
-        return paths.resolve_virtual_path(_runtime_thread_id(runtime), raw_path)
+        return paths.resolve_virtual_path(_runtime_thread_id(runtime), raw_path, user_id=_runtime_user_id(runtime))
     return Path(raw_path).expanduser().resolve()
 
 
@@ -492,10 +501,11 @@ def resolve_default_agent_source_dir(
 ) -> Path:
     paths = paths or get_paths()
     thread_id = _runtime_thread_id(runtime)
+    user_id = _runtime_user_id(runtime)
     normalized_agent_name = _normalize_agent_name(agent_name)
 
-    authoring_base = paths.sandbox_authoring_agents_dir(thread_id)
-    runtime_agents_base = paths.sandbox_agents_dir(thread_id)
+    authoring_base = paths.sandbox_authoring_agents_dir(thread_id, user_id=user_id)
+    runtime_agents_base = paths.sandbox_agents_dir(thread_id, user_id=user_id)
     candidates = (
         authoring_base / normalized_agent_name,
         runtime_agents_base / "dev" / normalized_agent_name,
@@ -514,6 +524,7 @@ def resolve_default_skill_source_dir(
 ) -> Path:
     paths = paths or get_paths()
     thread_id = _runtime_thread_id(runtime)
+    user_id = _runtime_user_id(runtime)
     skill_path = _normalize_skill_path(skill_name)
-    authoring_base = paths.sandbox_authoring_skills_dir(thread_id)
+    authoring_base = paths.sandbox_authoring_skills_dir(thread_id, user_id=user_id)
     return authoring_base / Path(skill_path.as_posix())

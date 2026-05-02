@@ -202,7 +202,7 @@ class SandboxIDESessionManager:
         # Reuse the canonical path builder for thread-id validation so the IDE
         # control plane follows the same allowed identifier contract as runtime
         # seeding and gateway draft workspaces.
-        get_paths().thread_dir(thread_id)
+        get_paths().validate_thread_id(thread_id)
 
     def _normalize_mode(self, mode: str) -> str:
         normalized = str(mode or "").strip().lower()
@@ -242,7 +242,7 @@ class SandboxIDESessionManager:
                 f"Sandbox provider '{provider_path}' does not expose AIO browser IDE sessions."
             )
 
-        sandbox_id, sandbox = provider.resolve_thread_sandbox(thread_id)
+        sandbox_id, sandbox = provider.resolve_thread_sandbox(thread_id, user_id=owner_user_id or user_id)
         return ResolvedSandboxContext(
             owner_user_id=owner_user_id or user_id,
             sandbox_id=sandbox_id,

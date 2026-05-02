@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/openagents/gateway/internal/middleware"
 	"github.com/openagents/gateway/pkg/storage"
 )
 
@@ -17,8 +19,9 @@ func TestArtifactsHandlerSupportsMntUserDataPrefixes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	baseDir := t.TempDir()
+	userID := uuid.New()
 	threadID := "thread-1"
-	userDataDir := filepath.Join(baseDir, "threads", threadID, "user-data")
+	userDataDir := filepath.Join(baseDir, "users", userID.String(), "threads", threadID, "user-data")
 	outputFile := filepath.Join(userDataDir, "outputs", "index.html")
 	workspaceFile := filepath.Join(userDataDir, "workspace", "report.html")
 
@@ -71,6 +74,7 @@ func TestArtifactsHandlerSupportsMntUserDataPrefixes(t *testing.T) {
 			rec := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(rec)
 			c.Request = httptest.NewRequest(http.MethodGet, tc.url, nil)
+			c.Set(string(middleware.UserIDKey), userID)
 			c.Params = gin.Params{
 				{Key: "id", Value: threadID},
 				{Key: "path", Value: strings.TrimPrefix(tc.url, "/api/threads/"+threadID+"/artifacts")},
@@ -91,8 +95,9 @@ func TestArtifactsHandlerServesOfficePreviewPDF(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	baseDir := t.TempDir()
+	userID := uuid.New()
 	threadID := "thread-preview"
-	userDataDir := filepath.Join(baseDir, "threads", threadID, "user-data")
+	userDataDir := filepath.Join(baseDir, "users", userID.String(), "threads", threadID, "user-data")
 	deckPath := filepath.Join(userDataDir, "outputs", "deck.docx")
 	previewPath := filepath.Join(userDataDir, "outputs", "deck.docx.preview.pdf")
 
@@ -126,6 +131,7 @@ func TestArtifactsHandlerServesOfficePreviewPDF(t *testing.T) {
 		"/api/threads/thread-preview/artifacts/mnt/user-data/outputs/deck.docx?preview=pdf",
 		nil,
 	)
+	c.Set(string(middleware.UserIDKey), userID)
 	c.Params = gin.Params{
 		{Key: "id", Value: threadID},
 		{Key: "path", Value: "/mnt/user-data/outputs/deck.docx"},
@@ -149,8 +155,9 @@ func TestArtifactsHandlerListReturnsThreadOutputFiles(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	baseDir := t.TempDir()
+	userID := uuid.New()
 	threadID := "thread-list"
-	userDataDir := filepath.Join(baseDir, "threads", threadID, "user-data")
+	userDataDir := filepath.Join(baseDir, "users", userID.String(), "threads", threadID, "user-data")
 	outputsDir := filepath.Join(userDataDir, "outputs")
 
 	files := map[string]string{
@@ -179,6 +186,7 @@ func TestArtifactsHandlerListReturnsThreadOutputFiles(t *testing.T) {
 		"/api/threads/thread-list/artifacts/list",
 		nil,
 	)
+	c.Set(string(middleware.UserIDKey), userID)
 	c.Params = gin.Params{{Key: "id", Value: threadID}}
 
 	handler.List(c)

@@ -30,10 +30,10 @@ class Paths:
         ├── custom/                          # Dynamic authored assets
         │   ├── agents/{status}/{agent-name}/
         │   └── skills/{skill-name}/
-        └── runtime/                         # Disposable materialized/runtime data
+        ├── users/{user_id}/threads/{thread_id}/user-data/
+        └── runtime/                         # Shared disposable runtime data
             ├── agents/{status}/{agent-name}/
-            ├── threads/{thread_id}/
-            ├── users/{user_id}/
+            ├── tmp/
             └── knowledge/
 
     The authored/runtime split below is the canonical contract. Legacy flat
@@ -174,6 +174,10 @@ class Paths:
             raise ValueError(f"Invalid user_id {user_id!r}")
         return self.base_dir / "users" / user_id
 
+    def user_threads_dir(self, user_id: str) -> Path:
+        """Directory containing one user's thread workspaces."""
+        return self.user_dir(user_id) / "threads"
+
     def user_agent_memory_file(self, user_id: str, agent_name: str, status: str = "dev") -> Path:
         """Per-user per-agent memory file."""
         return self.user_dir(user_id) / "agents" / status / agent_name.lower() / "memory.json"
@@ -231,20 +235,69 @@ class Paths:
 
     # ── Thread runtime layer (per-thread isolated) ──
 
-    def thread_dir(self, thread_id: str) -> Path:
-        """Host path for a thread's data: `{base_dir}/threads/{thread_id}/`."""
-        if not _SAFE_ID_RE.match(thread_id):
-            raise ValueError(f"Invalid thread_id {thread_id!r}: only alphanumeric characters, hyphens, and underscores are allowed.")
-        return self.base_dir / "threads" / thread_id
+    def validate_thread_id(self, thread_id: str) -> str:
+        """Validate a thread id before using it as a tenant-scoped path segment."""
+        normalized_thread_id = str(thread_id or "").strip()
+        if not _SAFE_ID_RE.match(normalized_thread_id):
+            raise ValueError(
+                f"Invalid thread_id {thread_id!r}: only alphanumeric characters, hyphens, and underscores are allowed."
+            )
+        return normalized_thread_id
 
-    def sandbox_work_dir(self, thread_id: str) -> Path:
-        return self.thread_dir(thread_id) / "user-data" / "workspace"
+    def _resolve_thread_user_id(self, thread_id: str, user_id: str | None = None) -> str:
+        """Resolve the owning user for a thread path without falling back to the old layout."""
 
-    def sandbox_uploads_dir(self, thread_id: str) -> Path:
-        return self.thread_dir(thread_id) / "user-data" / "uploads"
+        thread_id = self.validate_thread_id(thread_id)
+        if user_id is not None and str(user_id).strip():
+            normalized_user_id = str(user_id).strip()
+            if not _SAFE_ID_RE.match(normalized_user_id):
+                raise ValueError(f"Invalid user_id {user_id!r}")
+            return normalized_user_id
 
-    def sandbox_outputs_dir(self, thread_id: str) -> Path:
-        return self.thread_dir(thread_id) / "user-data" / "outputs"
+        # Thread directories are now tenant-scoped. Callers that only have a
+        # thread_id must resolve ownership from the authoritative DB binding;
+        # do not try `{base_dir}/threads/{thread_id}` as a compatibility path.
+        try:
+            from src.config.runtime_db import get_runtime_db_store
+
+            owner_id = get_runtime_db_store().get_thread_owner(thread_id)
+        except Exception as exc:  # noqa: BLE001
+            raise ValueError(f"user_id is required to resolve thread path for {thread_id!r}") from exc
+        if not owner_id:
+            raise ValueError(f"user_id is required to resolve thread path for unbound thread {thread_id!r}")
+        return owner_id
+
+    def thread_dir(self, thread_id: str, *, user_id: str | None = None) -> Path:
+        """Host path for a thread's data: `{base_dir}/users/{user_id}/threads/{thread_id}/`."""
+        owner_id = self._resolve_thread_user_id(thread_id, user_id=user_id)
+        return self.user_threads_dir(owner_id) / thread_id
+
+    def thread_user_data_dir(self, thread_id: str, *, user_id: str | None = None) -> Path:
+        """Host path backing the agent-visible `/mnt/user-data` root."""
+        return self.thread_dir(thread_id, user_id=user_id) / "user-data"
+
+    def thread_user_data_mount_path(
+        self,
+        thread_id: str,
+        *,
+        user_id: str | None = None,
+    ) -> str:
+        """Relative container path for a thread under a mounted `OPENAGENTS_HOME`."""
+        owner_id = self._resolve_thread_user_id(thread_id, user_id=user_id)
+        return f"users/{owner_id}/threads/{thread_id}/user-data"
+
+    def legacy_thread_dir(self, thread_id: str) -> Path:
+        """Old flat thread path, reserved for the one-time storage migration."""
+        return self.base_dir / "threads" / self.validate_thread_id(thread_id)
+
+    def sandbox_work_dir(self, thread_id: str, *, user_id: str | None = None) -> Path:
+        return self.thread_user_data_dir(thread_id, user_id=user_id) / "workspace"
+
+    def sandbox_uploads_dir(self, thread_id: str, *, user_id: str | None = None) -> Path:
+        return self.thread_user_data_dir(thread_id, user_id=user_id) / "uploads"
+
+    def sandbox_outputs_dir(self, thread_id: str, *, user_id: str | None = None) -> Path:
+        return self.thread_user_data_dir(thread_id, user_id=user_id) / "outputs"
 
     @property
     def runtime_tmp_dir(self) -> Path:
@@ -257,20 +310,20 @@ class Paths:
 
         return self.runtime_dir / "tmp"
 
-    def sandbox_agents_dir(self, thread_id: str) -> Path:
-        return self.thread_dir(thread_id) / "user-data" / "agents"
+    def sandbox_agents_dir(self, thread_id: str, *, user_id: str | None = None) -> Path:
+        return self.thread_user_data_dir(thread_id, user_id=user_id) / "agents"
 
-    def sandbox_authoring_dir(self, thread_id: str) -> Path:
-        return self.thread_dir(thread_id) / "user-data" / "authoring"
+    def sandbox_authoring_dir(self, thread_id: str, *, user_id: str | None = None) -> Path:
+        return self.thread_user_data_dir(thread_id, user_id=user_id) / "authoring"
 
-    def sandbox_authoring_agents_dir(self, thread_id: str) -> Path:
-        return self.sandbox_authoring_dir(thread_id) / "agents"
+    def sandbox_authoring_agents_dir(self, thread_id: str, *, user_id: str | None = None) -> Path:
+        return self.sandbox_authoring_dir(thread_id, user_id=user_id) / "agents"
 
-    def sandbox_authoring_skills_dir(self, thread_id: str) -> Path:
-        return self.sandbox_authoring_dir(thread_id) / "skills"
+    def sandbox_authoring_skills_dir(self, thread_id: str, *, user_id: str | None = None) -> Path:
+        return self.sandbox_authoring_dir(thread_id, user_id=user_id) / "skills"
 
-    def sandbox_user_data_dir(self, thread_id: str) -> Path:
-        return self.thread_dir(thread_id) / "user-data"
+    def sandbox_user_data_dir(self, thread_id: str, *, user_id: str | None = None) -> Path:
+        return self.thread_user_data_dir(thread_id, user_id=user_id)
 
     # ── Remote relay layer (shared across runtime + remote clients) ──
 
@@ -287,23 +340,23 @@ class Paths:
             raise ValueError(f"Invalid session_id {session_id!r}")
         return self.remote_sessions_dir / session_id
 
-    def ensure_thread_dirs(self, thread_id: str) -> None:
+    def ensure_thread_dirs(self, thread_id: str, *, user_id: str | None = None) -> None:
         """Create all standard sandbox directories for a thread."""
         runtime_dirs = (
             self.runtime_tmp_dir,
-            self.sandbox_user_data_dir(thread_id),
-            self.sandbox_work_dir(thread_id),
-            self.sandbox_uploads_dir(thread_id),
-            self.sandbox_outputs_dir(thread_id),
-            self.sandbox_agents_dir(thread_id),
-            self.sandbox_authoring_dir(thread_id),
-            self.sandbox_authoring_agents_dir(thread_id),
-            self.sandbox_authoring_skills_dir(thread_id),
+            self.sandbox_user_data_dir(thread_id, user_id=user_id),
+            self.sandbox_work_dir(thread_id, user_id=user_id),
+            self.sandbox_uploads_dir(thread_id, user_id=user_id),
+            self.sandbox_outputs_dir(thread_id, user_id=user_id),
+            self.sandbox_agents_dir(thread_id, user_id=user_id),
+            self.sandbox_authoring_dir(thread_id, user_id=user_id),
+            self.sandbox_authoring_agents_dir(thread_id, user_id=user_id),
+            self.sandbox_authoring_skills_dir(thread_id, user_id=user_id),
         )
         for runtime_dir in runtime_dirs:
             _ensure_runtime_dir(runtime_dir)
 
-    def resolve_virtual_path(self, thread_id: str, virtual_path: str) -> Path:
+    def resolve_virtual_path(self, thread_id: str, virtual_path: str, *, user_id: str | None = None) -> Path:
         """Resolve a sandbox virtual path to the actual host filesystem path."""
         stripped = virtual_path.lstrip("/")
         prefix = VIRTUAL_PATH_PREFIX.lstrip("/")
@@ -317,7 +370,7 @@ class Paths:
             base = self.runtime_tmp_dir.resolve()
         else:
             relative = stripped[len(prefix) :].lstrip("/")
-            base = self.sandbox_user_data_dir(thread_id).resolve()
+            base = self.sandbox_user_data_dir(thread_id, user_id=user_id).resolve()
         actual = (base / relative).resolve()
 
         try:

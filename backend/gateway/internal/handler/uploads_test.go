@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/openagents/gateway/internal/middleware"
 	"github.com/openagents/gateway/pkg/storage"
 )
 
@@ -108,12 +110,14 @@ func TestUploadsHandlerUploadCreatesMarkdownCompanionForConvertibleDocs(t *testi
 	t.Setenv("OPENAGENTS_MARKITDOWN_BIN", writeFakeMarkItDown(t))
 
 	fsStore := storage.NewFS(filepath.Join(t.TempDir(), ".openagents"))
+	userID := uuid.New()
 	handler := NewUploadsHandler(fsStore)
 
 	request := multipartUploadRequest(t, "contract.pdf", []byte("%PDF-1.4"))
 	recorder := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(recorder)
 	context.Request = request
+	context.Set(string(middleware.UserIDKey), userID)
 	context.Params = gin.Params{{Key: "id", Value: "thread-1"}}
 
 	handler.Upload(context)
@@ -139,7 +143,7 @@ func TestUploadsHandlerUploadCreatesMarkdownCompanionForConvertibleDocs(t *testi
 		t.Fatalf("response.Files[0].MarkdownVirtualPath = %q, want %q", response.Files[0].MarkdownVirtualPath, "/mnt/user-data/uploads/contract.md")
 	}
 
-	if _, err := os.Stat(filepath.Join(fsStore.ThreadUserDataDir("thread-1"), "uploads", "contract.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(fsStore.ThreadUserDataDirForUser(userID.String(), "thread-1"), "uploads", "contract.md")); err != nil {
 		t.Fatalf("expected markdown companion to exist: %v", err)
 	}
 }
@@ -148,7 +152,8 @@ func TestUploadsHandlerListCollapsesGeneratedMarkdownCompanions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	fsStore := storage.NewFS(filepath.Join(t.TempDir(), ".openagents"))
-	uploadsDir := filepath.Join(fsStore.ThreadUserDataDir("thread-1"), "uploads")
+	userID := uuid.New()
+	uploadsDir := filepath.Join(fsStore.ThreadUserDataDirForUser(userID.String(), "thread-1"), "uploads")
 	if err := os.MkdirAll(uploadsDir, 0755); err != nil {
 		t.Fatalf("mkdir uploads: %v", err)
 	}
@@ -166,6 +171,7 @@ func TestUploadsHandlerListCollapsesGeneratedMarkdownCompanions(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(recorder)
 	context.Request = httptest.NewRequest(http.MethodGet, "/api/threads/thread-1/uploads/list", nil)
+	context.Set(string(middleware.UserIDKey), userID)
 	context.Params = gin.Params{{Key: "id", Value: "thread-1"}}
 
 	handler.List(context)
@@ -199,7 +205,8 @@ func TestUploadsHandlerDeleteRemovesMarkdownCompanion(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	fsStore := storage.NewFS(filepath.Join(t.TempDir(), ".openagents"))
-	uploadsDir := filepath.Join(fsStore.ThreadUserDataDir("thread-1"), "uploads")
+	userID := uuid.New()
+	uploadsDir := filepath.Join(fsStore.ThreadUserDataDirForUser(userID.String(), "thread-1"), "uploads")
 	if err := os.MkdirAll(uploadsDir, 0755); err != nil {
 		t.Fatalf("mkdir uploads: %v", err)
 	}
@@ -214,6 +221,7 @@ func TestUploadsHandlerDeleteRemovesMarkdownCompanion(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(recorder)
 	context.Request = httptest.NewRequest(http.MethodDelete, "/api/threads/thread-1/uploads/contract.pdf", nil)
+	context.Set(string(middleware.UserIDKey), userID)
 	context.Params = gin.Params{
 		{Key: "id", Value: "thread-1"},
 		{Key: "filename", Value: "contract.pdf"},

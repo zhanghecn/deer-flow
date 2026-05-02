@@ -1,6 +1,7 @@
 from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 
+import pytest
 import yaml
 from langchain_core.messages import HumanMessage
 
@@ -18,6 +19,22 @@ from src.tools.builtins.runtime_context import runtime_context_value
 from src.tools.builtins.save_agent_to_store_tool import save_agent_to_store
 from src.tools.builtins.save_skill_to_store_tool import save_skill_to_store
 from src.tools.builtins.setup_agent_tool import SetupAgentSkillInput, setup_agent
+
+USER_ID = "user-1"
+
+
+class _FakeRuntimeDBStore:
+    """Bind thread-only unit-test contexts to the new user-scoped path layout."""
+
+    def get_thread_owner(self, thread_id: str) -> str:  # noqa: ARG002
+        return USER_ID
+
+
+@pytest.fixture(autouse=True)
+def _bind_threads_to_user(monkeypatch: pytest.MonkeyPatch) -> None:
+    store = _FakeRuntimeDBStore()
+    monkeypatch.setattr("src.config.runtime_db.get_runtime_db_store", lambda: store)
+    monkeypatch.setattr("src.tools.builtins.setup_agent_tool.get_runtime_db_store", lambda: store)
 
 
 def test_runtime_context_value_supports_typed_context():

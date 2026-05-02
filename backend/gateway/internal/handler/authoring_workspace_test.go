@@ -97,10 +97,10 @@ func createAgentDraft(
 	}
 }
 
-func readAuthoringAgentsMD(t *testing.T, fsStore *storage.FS, threadID string, agentName string) string {
+func readAuthoringAgentsMD(t *testing.T, fsStore *storage.FS, userID uuid.UUID, threadID string, agentName string) string {
 	t.Helper()
 	path := filepath.Join(
-		fsStore.ThreadUserDataDir(threadID),
+		fsStore.ThreadUserDataDirForUser(userID.String(), threadID),
 		"authoring",
 		"agents",
 		"dev",
@@ -160,7 +160,7 @@ func TestAuthoringWorkspaceHandlerCreateAgentDraftCopiesArchiveIntoThreadDraft(t
 	}
 
 	draftAgentsPath := filepath.Join(
-		fsStore.ThreadUserDataDir(threadID),
+		fsStore.ThreadUserDataDirForUser(userID.String(), threadID),
 		"authoring",
 		"agents",
 		"dev",
@@ -207,7 +207,7 @@ func TestAuthoringWorkspaceHandlerCreateAgentDraftRefreshesCleanDraftAfterArchiv
 
 	createAgentDraft(t, handler, userID, threadID, "reviewer", "dev")
 
-	data := readAuthoringAgentsMD(t, fsStore, threadID, "reviewer")
+	data := readAuthoringAgentsMD(t, fsStore, userID, threadID, "reviewer")
 	if !strings.Contains(data, "Updated source") {
 		t.Fatalf("draft AGENTS.md was not refreshed from archive: %s", data)
 	}
@@ -254,7 +254,7 @@ func TestAuthoringWorkspaceHandlerCreateAgentDraftPreservesEditedDraftAfterArchi
 
 	createAgentDraft(t, handler, userID, threadID, "reviewer", "dev")
 
-	data := readAuthoringAgentsMD(t, fsStore, threadID, "reviewer")
+	data := readAuthoringAgentsMD(t, fsStore, userID, threadID, "reviewer")
 	if !strings.Contains(data, "Local draft edit") {
 		t.Fatalf("draft AGENTS.md did not preserve local edit: %s", data)
 	}
@@ -273,7 +273,7 @@ func TestAuthoringWorkspaceHandlerCreateAgentDraftMigratesLegacyStaleDraft(t *te
 	seedOwnedAgentArchive(t, fsStore, "reviewer", "dev", userID.String())
 
 	draftDir := filepath.Join(
-		fsStore.ThreadUserDataDir(threadID),
+		fsStore.ThreadUserDataDirForUser(userID.String(), threadID),
 		"authoring",
 		"agents",
 		"dev",
@@ -308,7 +308,7 @@ func TestAuthoringWorkspaceHandlerCreateAgentDraftMigratesLegacyStaleDraft(t *te
 
 	createAgentDraft(t, handler, userID, threadID, "reviewer", "dev")
 
-	data := readAuthoringAgentsMD(t, fsStore, threadID, "reviewer")
+	data := readAuthoringAgentsMD(t, fsStore, userID, threadID, "reviewer")
 	if !strings.Contains(data, "Updated source") {
 		t.Fatalf("legacy stale draft was not migrated to archive content: %s", data)
 	}
@@ -481,7 +481,7 @@ func TestAuthoringWorkspaceHandlerAllowsUnboundDraftThreadIDs(t *testing.T) {
 		t.Fatalf("expected status 200, got %d body=%s", recorder.Code, recorder.Body.String())
 	}
 
-	if _, err := os.Stat(fsStore.ThreadUserDataDir(threadID)); err != nil {
+	if _, err := os.Stat(fsStore.ThreadUserDataDirForUser(userID.String(), threadID)); err != nil {
 		t.Fatalf("expected unbound draft thread dirs to be initialized: %v", err)
 	}
 }

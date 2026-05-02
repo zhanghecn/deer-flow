@@ -523,9 +523,10 @@ func TestBuildResponseArtifactsDiscoversThreadOutputsWithoutPresentFiles(t *test
 
 	baseDir := t.TempDir()
 	fsStore := storage.NewFS(baseDir)
+	userID := uuid.New()
 	threadID := "thread-output-discovery"
 	outputPath := filepath.Join(
-		fsStore.ThreadUserDataDir(threadID),
+		fsStore.ThreadUserDataDirForUser(userID.String(), threadID),
 		"outputs",
 		"summary.md",
 	)
@@ -540,6 +541,7 @@ func TestBuildResponseArtifactsDiscoversThreadOutputsWithoutPresentFiles(t *test
 	invocation := &model.PublicAPIInvocation{
 		ID:         uuid.New(),
 		ResponseID: "resp_test",
+		UserID:     userID,
 		ThreadID:   threadID,
 	}
 

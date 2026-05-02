@@ -73,7 +73,7 @@ Agent and Skill metadata live in PostgreSQL for querying, while `AGENTS.md` and 
 │   ├── AGENTS.md
 │   └── skills/{skill-name}/SKILL.md
 ├── users/{user_id}/
-└── threads/{thread_id}/user-data/{workspace,uploads,outputs}/
+└── users/{user_id}/threads/{thread_id}/user-data/{workspace,uploads,outputs}/
 ```
 
 The Go gateway writes archived agent definitions. The Python runtime later seeds those archived files into thread-local runtime paths.
@@ -89,7 +89,7 @@ When the frontend or lead agent creates a new domain agent, slash commands shoul
 - Preserve the archive-definition-to-runtime-materialization contract.
 - When extending agent-owned assets, add them under `agents/{status}/{name}/...`, copy them during create and publish, and rely on Python startup to seed them into the runtime view.
 - Public API execution should surface LangGraph run failures directly. Do not collapse a concrete runtime error into a vague “missing output” response when history/tasks already explain the failure.
-- Thread uploads live under `threads/{thread_id}/user-data/uploads/`. Go owns upload CRUD there, including auto-generating Markdown companions for convertible documents and keeping delete/list behavior consistent with those companions.
+- Thread uploads live under `users/{user_id}/threads/{thread_id}/user-data/uploads/`. Go owns upload CRUD there, including auto-generating Markdown companions for convertible documents and keeping delete/list behavior consistent with those companions. Browser and agent-visible paths still stay under `/mnt/user-data/uploads/...`.
 - Upload conversion should stay best-effort: save the original file first, then attempt Markdown generation without failing the whole upload when conversion tooling is unavailable.
 
 ## Code Style

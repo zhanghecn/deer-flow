@@ -7,8 +7,9 @@ class _DummyProvider:
     def __init__(self, backend):
         self._backend = backend
 
-    def acquire(self, thread_id: str) -> str:
+    def acquire(self, thread_id: str, *, user_id: str | None = None) -> str:
         assert thread_id == "thread-1"
+        assert user_id == "user-1"
         return "sandbox-1"
 
     def get(self, sandbox_id: str):
@@ -38,6 +39,7 @@ def test_build_sandbox_workspace_backend_routes_archived_skills_read_only(monkey
 
     backend = sandbox_module.build_sandbox_workspace_backend(
         "thread-1",
+        user_id="user-1",
         skills_mount=(str(skills_root), "/mnt/skills/"),
     )
 
@@ -69,6 +71,7 @@ def test_build_sandbox_workspace_backend_routes_shared_tmp(monkeypatch, tmp_path
 
     backend = sandbox_module.build_sandbox_workspace_backend(
         "thread-1",
+        user_id="user-1",
         user_data_dir=str(runtime_root),
         shared_tmp_dir=str(shared_tmp_root),
     )

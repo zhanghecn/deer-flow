@@ -193,7 +193,7 @@ func loadFilesystemSkillByName(fsStore *storage.FS, extensionsConfigPath string,
 	return nil, nil
 }
 
-func resolveThreadVirtualPath(fsStore *storage.FS, threadID string, virtualPath string) (string, error) {
+func resolveThreadVirtualPath(fsStore *storage.FS, userID string, threadID string, virtualPath string) (string, error) {
 	cleanVirtual := strings.TrimSpace(virtualPath)
 	if cleanVirtual == "" {
 		return "", errors.New("path is required")
@@ -203,7 +203,7 @@ func resolveThreadVirtualPath(fsStore *storage.FS, threadID string, virtualPath 
 	}
 
 	relative := strings.TrimPrefix(cleanVirtual, threadVirtualPathPrefix)
-	base := filepath.Clean(fsStore.ThreadUserDataDir(threadID))
+	base := filepath.Clean(fsStore.ThreadUserDataDirForUser(userID, threadID))
 	actual := filepath.Clean(filepath.Join(base, relative))
 	if actual != base && !strings.HasPrefix(actual, base+string(os.PathSeparator)) {
 		return "", errors.New("access denied: path traversal detected")
@@ -238,8 +238,8 @@ func copyFileFromZip(targetPath string, file *zip.File) error {
 	return err
 }
 
-func installSkillArchive(fsStore *storage.FS, threadID string, virtualPath string) (string, error) {
-	archivePath, err := resolveThreadVirtualPath(fsStore, threadID, virtualPath)
+func installSkillArchive(fsStore *storage.FS, userID string, threadID string, virtualPath string) (string, error) {
+	archivePath, err := resolveThreadVirtualPath(fsStore, userID, threadID, virtualPath)
 	if err != nil {
 		return "", err
 	}

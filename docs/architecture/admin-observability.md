@@ -47,12 +47,12 @@ PostgreSQL
    v
 Gateway Admin APIs (/api/admin/*)
    |
-   | list traces / trace events / runtime threads / checkpoint status
+   | list traces / trace events / runtime storage / checkpoint status
    v
 Frontend /workspace/admin
    |
    | trace timeline, parent-child tree, token summary,
-   | runtime threads, admin account management
+   | runtime storage, cleanup jobs, admin account management
    v
 Admin Operator
 ```
@@ -106,6 +106,48 @@ Current schema is unified:
 
 Thread metadata itself is sourced from LangGraph `threads` storage/APIs, not from gateway-local thread tables.
 
+## Runtime Storage Administration
+
+The admin runtime storage page exposes logical user/thread aggregation without
+changing the agent-visible `/mnt/user-data/...` contract.
+
+Admin-only endpoints:
+
+- `GET /api/admin/runtime/storage/summary`
+- `GET /api/admin/runtime/storage/users`
+- `GET /api/admin/runtime/storage/users/:user_id`
+- `GET /api/admin/runtime/storage/threads`
+- `GET /api/admin/runtime/storage/threads/:thread_id`
+- `POST /api/admin/runtime/storage/cleanup/preview`
+- `POST /api/admin/runtime/storage/cleanup/jobs`
+- `GET /api/admin/runtime/storage/cleanup/jobs/:job_id`
+- `GET /api/admin/runtime/storage/cleanup/policies`
+- `PUT /api/admin/runtime/storage/cleanup/policies/:action`
+
+Storage scanning walks `.openagents/users/{user_id}/threads` and reads
+checkpoint metadata on a background interval. HTTP requests read the cached
+snapshot unless `refresh=true` is passed. Filesystem statistics stay
+directory-level only; file contents are not stored or returned.
+
+Cleanup intentionally has one destructive action:
+
+- `full_thread_delete`: keeps the existing product order: LangGraph
+  `DELETE /threads/{thread_id}`, then checkpoint rows, `thread_bindings`, and
+  finally the host thread directory.
+
+Full delete candidates are blocked when a thread has a running trace, an
+interrupt marker in checkpoint state, an authoring draft directory, or recent
+activity relative to the requested threshold. The old
+`.openagents/threads/{thread_id}` layout is only a one-time migration input;
+live runtime paths must resolve through `user_id + thread_id`.
+
+Scheduled and manually-created cleanup jobs intentionally expose only
+whole-session deletion. The scheduler always computes a preview first; it only
+creates cleanup jobs after an admin has explicitly enabled the policy and
+switched it out of dry-run mode. Partial actions such as checkpoint pruning and
+runtime-cache eviction are not executable through admin cleanup jobs because
+they can leave a session present but missing recoverability or runtime context.
+
 ## Admin Scope and RBAC
 
 - Admin endpoints are under `/api/admin/*`
@@ -126,7 +168,9 @@ Thread metadata itself is sourced from LangGraph `threads` storage/APIs, not fro
   start/end events
 - Run detail panels prioritize readable blocks (messages, tool cards, request config, outputs)
   and keep raw JSON in collapsed advanced inspectors
-- `Checkpoint / Threads`: checkpoint table status + runtime thread list
+- `Runtime Storage`: checkpoint/filesystem summary, user -> thread storage
+  explorer, scheduled whole-session delete settings, thread detail drawer,
+  delete preview, and delete job status
 - Thread-level debug flows may escalate from trace review into runtime workspace
   or design-board inspection while still honoring the original thread owner
 - `管理账号`: grant/revoke admin role

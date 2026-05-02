@@ -60,7 +60,7 @@ type threadSearchRepository interface {
 }
 
 type threadFilesystem interface {
-	DeleteThreadDir(threadID string) error
+	DeleteThreadDirForUser(userID string, threadID string) error
 }
 
 func NewThreadsHandler(
@@ -280,7 +280,7 @@ func (h *ThreadsHandler) deleteThreadResources(
 	if err := h.repo.DeleteByUser(ctx, userID, threadID); err != nil {
 		return err
 	}
-	h.deleteThreadDirBestEffort(threadID)
+	h.deleteThreadDirBestEffort(userID, threadID)
 	return nil
 }
 
@@ -327,11 +327,11 @@ func (h *ThreadsHandler) deleteRuntimeThread(
 	)
 }
 
-func (h *ThreadsHandler) deleteThreadDirBestEffort(threadID string) {
+func (h *ThreadsHandler) deleteThreadDirBestEffort(userID uuid.UUID, threadID string) {
 	if h.fs == nil {
 		return
 	}
-	if err := h.fs.DeleteThreadDir(threadID); err != nil {
+	if err := h.fs.DeleteThreadDirForUser(userID.String(), threadID); err != nil {
 		log.Printf("threads: failed to delete thread directory for %s: %v", threadID, err)
 	}
 }

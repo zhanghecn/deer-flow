@@ -205,6 +205,7 @@ def _split_skill_inputs(
     agent_name: str | None = None,
     agent_status: str = "dev",
     thread_id: str | None = None,
+    user_id: str | None = None,
     paths: Any = None,
 ) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
     copied_skill_refs: list[dict[str, str]] = []
@@ -223,6 +224,7 @@ def _split_skill_inputs(
                 agent_name=agent_name,
                 agent_status=agent_status,
                 thread_id=thread_id,
+                user_id=user_id,
                 paths=paths,
             )
             if preserved_inline_skill is not None:
@@ -446,6 +448,7 @@ def _resolve_default_setup_agent_skills(
     agent_name: str,
     agent_status: str,
     thread_id: str | None,
+    user_id: str | None,
     paths: Any,
 ) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
     """Build default skill inputs when the model omits `setup_agent.skills`.
@@ -459,6 +462,7 @@ def _resolve_default_setup_agent_skills(
         agent_name=agent_name,
         agent_status=agent_status,
         thread_id=thread_id,
+        user_id=user_id,
         paths=paths,
     )
 
@@ -494,9 +498,10 @@ def _runtime_thread_id(runtime: ToolRuntime | None) -> str | None:
 
 def _resolve_owner_user_id(*, runtime: ToolRuntime | None, thread_id: str | None) -> str | None:
     runtime_context = getattr(runtime, "context", None)
-    direct_user_id = str(runtime_context_value(runtime_context, "user_id") or "").strip()
-    if direct_user_id:
-        return direct_user_id
+    for key in ("user_id", "x-user-id"):
+        direct_user_id = str(runtime_context_value(runtime_context, key) or "").strip()
+        if direct_user_id:
+            return direct_user_id
 
     if not thread_id:
         return None
@@ -560,6 +565,7 @@ def _refresh_thread_runtime_materials(
     agent_name: str,
     agent_status: str,
     thread_id: str | None,
+    user_id: str | None,
     requested_backend: str | None,
     remote_session_id: str | None,
     manifest: AgentConfig,
@@ -569,7 +575,7 @@ def _refresh_thread_runtime_materials(
     if not normalized_thread_id:
         return
 
-    paths.ensure_thread_dirs(normalized_thread_id)
+    paths.ensure_thread_dirs(normalized_thread_id, user_id=user_id)
     runtime_targets = runtime_seed_targets(
         agent_name,
         status=agent_status,
@@ -579,7 +585,7 @@ def _refresh_thread_runtime_materials(
     )
 
     for virtual_path, content in runtime_targets:
-        actual_path = paths.resolve_virtual_path(normalized_thread_id, virtual_path)
+        actual_path = paths.resolve_virtual_path(normalized_thread_id, virtual_path, user_id=user_id)
         actual_path.parent.mkdir(parents=True, exist_ok=True)
         actual_path.write_bytes(content)
 
@@ -587,8 +593,9 @@ def _refresh_thread_runtime_materials(
         return
 
     runtime_backend = build_runtime_workspace_backend(
-        user_data_dir=str(paths.sandbox_user_data_dir(normalized_thread_id)),
+        user_data_dir=str(paths.sandbox_user_data_dir(normalized_thread_id, user_id=user_id)),
         thread_id=normalized_thread_id,
+        user_id=user_id,
         paths=paths,
         requested_backend=requested_backend,
         remote_session_id=remote_session_id,
@@ -703,6 +710,7 @@ def setup_agent(
                 agent_name=resolved_agent_name,
                 agent_status=agent_status,
                 thread_id=runtime_thread_id,
+                user_id=owner_user_id,
                 paths=paths,
             )
         else:
@@ -711,6 +719,7 @@ def setup_agent(
                 agent_name=resolved_agent_name,
                 agent_status=agent_status,
                 thread_id=runtime_thread_id,
+                user_id=owner_user_id,
                 paths=paths,
             )
         agent_dir = paths.custom_agent_dir(resolved_agent_name, agent_status)
@@ -737,6 +746,7 @@ def setup_agent(
             agent_name=resolved_agent_name,
             agent_status=agent_status,
             thread_id=runtime_thread_id,
+            user_id=owner_user_id,
             requested_backend=execution_backend,
             remote_session_id=remote_session_id,
             manifest=materialized,

@@ -243,7 +243,7 @@ class OpenAgentsClient:
         runtime context contract as the HTTP/SSE runtime.
         """
 
-        backend = build_backend(thread_id, agent_name=LEAD_AGENT_NAME)
+        backend = build_backend(thread_id, agent_name=LEAD_AGENT_NAME, user_id=user_id)
         tools = self._get_tools(
             model_name=effective_model_name,
             model_supports_vision=model_config.supports_vision,
@@ -1030,13 +1030,13 @@ class OpenAgentsClient:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _get_uploads_dir(thread_id: str) -> Path:
+    def _get_uploads_dir(thread_id: str, *, user_id: str | None = None) -> Path:
         """Get (and create) the uploads directory for a thread."""
-        base = get_paths().sandbox_uploads_dir(thread_id)
+        base = get_paths().sandbox_uploads_dir(thread_id, user_id=user_id)
         base.mkdir(parents=True, exist_ok=True)
         return base
 
-    def upload_files(self, thread_id: str, files: list[str | Path]) -> dict:
+    def upload_files(self, thread_id: str, files: list[str | Path], *, user_id: str | None = None) -> dict:
         """Upload local files into a thread's uploads directory.
 
         For PDF, PPT, Excel, and Word files, they are also converted to Markdown.
@@ -1068,7 +1068,7 @@ class OpenAgentsClient:
                 raise FileNotFoundError(f"File not found: {f}")
             resolved_files.append(p)
 
-        uploads_dir = self._get_uploads_dir(thread_id)
+        uploads_dir = self._get_uploads_dir(thread_id, user_id=user_id)
         uploaded_files: list[dict] = []
 
         for src_path in resolved_files:
@@ -1108,7 +1108,7 @@ class OpenAgentsClient:
             "message": f"Successfully uploaded {len(uploaded_files)} file(s)",
         }
 
-    def list_uploads(self, thread_id: str) -> dict:
+    def list_uploads(self, thread_id: str, *, user_id: str | None = None) -> dict:
         """List files in a thread's uploads directory.
 
         Args:
@@ -1118,7 +1118,7 @@ class OpenAgentsClient:
             Dict with "files" and "count" keys, matching the Gateway API
             ``list_uploaded_files`` response.
         """
-        uploads_dir = self._get_uploads_dir(thread_id)
+        uploads_dir = self._get_uploads_dir(thread_id, user_id=user_id)
         if not uploads_dir.exists():
             return {"files": [], "count": 0}
 
@@ -1150,7 +1150,7 @@ class OpenAgentsClient:
             files.append(file_info)
         return {"files": files, "count": len(files)}
 
-    def delete_upload(self, thread_id: str, filename: str) -> dict:
+    def delete_upload(self, thread_id: str, filename: str, *, user_id: str | None = None) -> dict:
         """Delete a file from a thread's uploads directory.
 
         Args:
@@ -1167,7 +1167,7 @@ class OpenAgentsClient:
         """
         from src.gateway.uploads_utils import is_convertible_upload, markdown_companion_name
 
-        uploads_dir = self._get_uploads_dir(thread_id)
+        uploads_dir = self._get_uploads_dir(thread_id, user_id=user_id)
         file_path = (uploads_dir / filename).resolve()
 
         try:
@@ -1189,7 +1189,7 @@ class OpenAgentsClient:
     # Public API — artifacts
     # ------------------------------------------------------------------
 
-    def get_artifact(self, thread_id: str, path: str) -> tuple[bytes, str]:
+    def get_artifact(self, thread_id: str, path: str, *, user_id: str | None = None) -> tuple[bytes, str]:
         """Read an artifact file produced by the agent.
 
         Args:
@@ -1209,7 +1209,7 @@ class OpenAgentsClient:
             raise ValueError(f"Path must start with /{virtual_prefix}")
 
         relative = clean_path[len(virtual_prefix) :].lstrip("/")
-        base_dir = get_paths().sandbox_user_data_dir(thread_id)
+        base_dir = get_paths().sandbox_user_data_dir(thread_id, user_id=user_id)
         actual = (base_dir / relative).resolve()
 
         try:

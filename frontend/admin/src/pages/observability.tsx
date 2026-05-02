@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 import { TraceFilters } from "@/components/observability/trace-filters";
 import { TraceList } from "@/components/observability/trace-list";
 import { TraceDetail } from "@/components/observability/trace-detail";
@@ -10,9 +11,14 @@ import type { PaginatedResponse, TraceItem } from "@/types";
 const PAGE_SIZE = 30;
 
 export function ObservabilityPage() {
-  const [userId, setUserId] = useState("");
-  const [agentName, setAgentName] = useState("");
-  const [threadId, setThreadId] = useState("");
+  const [searchParams] = useSearchParams();
+  const [userId, setUserId] = useState(() => searchParams.get("user_id") ?? "");
+  const [agentName, setAgentName] = useState(
+    () => searchParams.get("agent_name") ?? "",
+  );
+  const [threadId, setThreadId] = useState(
+    () => searchParams.get("thread_id") ?? "",
+  );
   const [page, setPage] = useState(1);
   const [selectedTrace, setSelectedTrace] = useState<TraceItem | null>(null);
   const offset = (page - 1) * PAGE_SIZE;
@@ -32,10 +38,10 @@ export function ObservabilityPage() {
     { interval: 10000 },
   );
 
-  useEffect(() => {
+  function resetTraceList() {
     setPage(1);
     setSelectedTrace(null);
-  }, [userId, agentName, threadId]);
+  }
 
   const traces = data?.items ?? [];
   const total = data?.total ?? 0;
@@ -44,12 +50,6 @@ export function ObservabilityPage() {
   const hasNextPage = page < totalPages;
   const startRow = total === 0 ? 0 : offset + 1;
   const endRow = offset + traces.length;
-
-  useEffect(() => {
-    if (page > totalPages) {
-      setPage(totalPages);
-    }
-  }, [page, totalPages]);
 
   return (
     <div className="space-y-4">
@@ -64,9 +64,18 @@ export function ObservabilityPage() {
         userId={userId}
         agentName={agentName}
         threadId={threadId}
-        onUserIdChange={setUserId}
-        onAgentNameChange={setAgentName}
-        onThreadIdChange={setThreadId}
+        onUserIdChange={(value) => {
+          setUserId(value);
+          resetTraceList();
+        }}
+        onAgentNameChange={(value) => {
+          setAgentName(value);
+          resetTraceList();
+        }}
+        onThreadIdChange={(value) => {
+          setThreadId(value);
+          resetTraceList();
+        }}
       />
 
       {!selectedTrace ? (

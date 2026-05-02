@@ -72,4 +72,5 @@ def test_get_artifact_decodes_url_encoded_path(tmp_path: Path) -> None:
     mocked_resolve.assert_called_once_with(
         "thread-1",
         "mnt/user-data/outputs/A股报告.txt",
+        user_id=None,
     )

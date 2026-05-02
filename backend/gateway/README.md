@@ -338,12 +338,9 @@ Agent/Skill 定义已经完全脱离数据库：
 │       └── skills/{skill-name}/SKILL.md
 ├── users/{user_id}/
 │   ├── USER.md
-│   └── agents/{status}/{agent_name}/memory.json
-└── threads/{thread_id}/
-    └── user-data/
-        ├── workspace/
-        ├── uploads/
-        └── outputs/
+│   ├── agents/{status}/{agent_name}/memory.json
+│   └── threads/{thread_id}/
+│       └── user-data/{workspace,uploads,outputs,agents,authoring}/
 ```
 
 说明：

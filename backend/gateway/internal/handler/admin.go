@@ -9,23 +9,27 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/openagents/gateway/internal/model"
 	"github.com/openagents/gateway/internal/repository"
+	"github.com/openagents/gateway/internal/service"
 )
 
 type AdminHandler struct {
 	userRepo          *repository.UserRepo
 	observabilityRepo *repository.AdminObservabilityRepo
 	modelRepo         *repository.ModelRepo
+	runtimeStorageSvc *service.RuntimeStorageService
 }
 
 func NewAdminHandler(
 	userRepo *repository.UserRepo,
 	observabilityRepo *repository.AdminObservabilityRepo,
 	modelRepo *repository.ModelRepo,
+	runtimeStorageSvc *service.RuntimeStorageService,
 ) *AdminHandler {
 	return &AdminHandler{
 		userRepo:          userRepo,
 		observabilityRepo: observabilityRepo,
 		modelRepo:         modelRepo,
+		runtimeStorageSvc: runtimeStorageSvc,
 	}
 }
 

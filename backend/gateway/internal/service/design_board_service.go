@@ -48,8 +48,8 @@ func DefaultDesignDocumentVirtualPath() string {
 // user-visible outputs/designs artifact contract before any external editor
 // reads it. Keeping the `.op` source under outputs lets the same file power the
 // editor, artifact list, and downloads without a second mirrored copy.
-func (s *DesignBoardService) EnsureDocument(threadID string, virtualPath string) (string, string, error) {
-	actualPath, normalizedVirtualPath, err := s.resolveDocumentPath(threadID, virtualPath)
+func (s *DesignBoardService) EnsureDocument(userID string, threadID string, virtualPath string) (string, string, error) {
+	actualPath, normalizedVirtualPath, err := s.resolveDocumentPath(userID, threadID, virtualPath)
 	if err != nil {
 		return "", "", err
 	}
@@ -66,8 +66,8 @@ func (s *DesignBoardService) EnsureDocument(threadID string, virtualPath string)
 	return actualPath, normalizedVirtualPath, nil
 }
 
-func (s *DesignBoardService) ReadDocument(threadID string, virtualPath string) (json.RawMessage, string, string, error) {
-	actualPath, normalizedVirtualPath, err := s.EnsureDocument(threadID, virtualPath)
+func (s *DesignBoardService) ReadDocument(userID string, threadID string, virtualPath string) (json.RawMessage, string, string, error) {
+	actualPath, normalizedVirtualPath, err := s.EnsureDocument(userID, threadID, virtualPath)
 	if err != nil {
 		return nil, "", "", err
 	}
@@ -93,8 +93,8 @@ func (s *DesignBoardService) ReadDocument(threadID string, virtualPath string) (
 
 // WriteDocument enforces optimistic concurrency so the external board and the
 // runtime agent cannot silently overwrite each other's thread-local .op edits.
-func (s *DesignBoardService) WriteDocument(threadID string, virtualPath string, document json.RawMessage, expectedRevision string) (string, string, error) {
-	actualPath, normalizedVirtualPath, err := s.EnsureDocument(threadID, virtualPath)
+func (s *DesignBoardService) WriteDocument(userID string, threadID string, virtualPath string, document json.RawMessage, expectedRevision string) (string, string, error) {
+	actualPath, normalizedVirtualPath, err := s.EnsureDocument(userID, threadID, virtualPath)
 	if err != nil {
 		return "", "", err
 	}
@@ -122,7 +122,7 @@ func (s *DesignBoardService) WriteDocument(threadID string, virtualPath string, 
 	return normalizedVirtualPath, documentRevision(nextNormalized), nil
 }
 
-func (s *DesignBoardService) resolveDocumentPath(threadID string, virtualPath string) (string, string, error) {
+func (s *DesignBoardService) resolveDocumentPath(userID string, threadID string, virtualPath string) (string, string, error) {
 	normalizedVirtualPath := strings.TrimSpace(virtualPath)
 	if normalizedVirtualPath == "" {
 		normalizedVirtualPath = DefaultDesignDocumentVirtualPath()
@@ -131,7 +131,7 @@ func (s *DesignBoardService) resolveDocumentPath(threadID string, virtualPath st
 		return "", "", fmt.Errorf("path must stay under %s", designVirtualPathPrefix)
 	}
 
-	threadUserDataDir := filepath.Clean(s.fs.ThreadUserDataDir(threadID))
+	threadUserDataDir := filepath.Clean(s.fs.ThreadUserDataDirForUser(userID, threadID))
 	// The design board only serves `.op` files from the dedicated outputs/designs
 	// subtree so chat-visible design artifacts and editor sessions always point
 	// at the same canonical thread-local document.

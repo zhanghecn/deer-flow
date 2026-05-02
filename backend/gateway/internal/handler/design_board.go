@@ -120,7 +120,7 @@ func (h *DesignBoardHandler) Open(c *gin.Context) {
 	}
 
 	targetPath := strings.TrimSpace(c.Query("target_path"))
-	_, revision, normalizedTargetPath, err := h.service.ReadDocument(threadID, targetPath)
+	_, revision, normalizedTargetPath, err := h.service.ReadDocument(effectiveUserID.String(), threadID, targetPath)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return
@@ -175,7 +175,7 @@ func (h *DesignBoardHandler) ReadDocument(c *gin.Context) {
 		return
 	}
 
-	document, revision, targetPath, err := h.service.ReadDocument(claims.ThreadID, claims.TargetPath)
+	document, revision, targetPath, err := h.service.ReadDocument(claims.UserID, claims.ThreadID, claims.TargetPath)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return
@@ -201,6 +201,7 @@ func (h *DesignBoardHandler) WriteDocument(c *gin.Context) {
 	}
 
 	targetPath, revision, err := h.service.WriteDocument(
+		claims.UserID,
 		claims.ThreadID,
 		claims.TargetPath,
 		request.Document,

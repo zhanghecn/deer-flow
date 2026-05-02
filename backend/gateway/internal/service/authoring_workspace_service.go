@@ -34,14 +34,14 @@ func NewAuthoringWorkspaceService(fs *storage.FS) *AuthoringWorkspaceService {
 	}
 }
 
-func (s *AuthoringWorkspaceService) StageAgentDraft(threadID string, agentName string, agentStatus string) (string, []model.AuthoringFileEntry, error) {
+func (s *AuthoringWorkspaceService) StageAgentDraft(userID string, threadID string, agentName string, agentStatus string) (string, []model.AuthoringFileEntry, error) {
 	status := normalizeAuthoringAgentStatus(agentStatus)
 	sourceDir := s.fs.AgentDir(agentName, status)
 	if info, err := os.Stat(sourceDir); err != nil || !info.IsDir() {
 		return "", nil, fmt.Errorf("agent %q (%s) not found", agentName, status)
 	}
 
-	draftDir := filepath.Join(s.fs.ThreadUserDataDir(threadID), "authoring", "agents", status, agentName)
+	draftDir := filepath.Join(s.fs.ThreadUserDataDirForUser(userID, threadID), "authoring", "agents", status, agentName)
 	// Drafts are thread-local working copies so browser edits never mutate the
 	// canonical archive until an explicit save action copies them back.
 	if info, err := os.Stat(draftDir); err != nil || !info.IsDir() {
@@ -52,13 +52,13 @@ func (s *AuthoringWorkspaceService) StageAgentDraft(threadID string, agentName s
 	} else if err := s.refreshAgentDraftIfArchiveChanged(sourceDir, draftDir); err != nil {
 		return "", nil, err
 	}
-	return s.listDraftDirectory(threadID, draftDir)
+	return s.listDraftDirectory(userID, threadID, draftDir)
 }
 
-func (s *AuthoringWorkspaceService) StageSkillDraft(threadID string, skillName string, sourcePath string) (string, []model.AuthoringFileEntry, error) {
-	draftDir := filepath.Join(s.fs.ThreadUserDataDir(threadID), "authoring", "skills", skillName)
+func (s *AuthoringWorkspaceService) StageSkillDraft(userID string, threadID string, skillName string, sourcePath string) (string, []model.AuthoringFileEntry, error) {
+	draftDir := filepath.Join(s.fs.ThreadUserDataDirForUser(userID, threadID), "authoring", "skills", skillName)
 	if info, err := os.Stat(draftDir); err == nil && info.IsDir() {
-		return s.listDraftDirectory(threadID, draftDir)
+		return s.listDraftDirectory(userID, threadID, draftDir)
 	}
 
 	_ = os.RemoveAll(draftDir)
@@ -83,11 +83,11 @@ func (s *AuthoringWorkspaceService) StageSkillDraft(threadID string, skillName s
 		}
 	}
 
-	return s.listDraftDirectory(threadID, draftDir)
+	return s.listDraftDirectory(userID, threadID, draftDir)
 }
 
-func (s *AuthoringWorkspaceService) ListDraftFiles(threadID string, virtualPath string) ([]model.AuthoringFileEntry, error) {
-	actualPath, err := s.resolveDraftVirtualPath(threadID, virtualPath)
+func (s *AuthoringWorkspaceService) ListDraftFiles(userID string, threadID string, virtualPath string) ([]model.AuthoringFileEntry, error) {
+	actualPath, err := s.resolveDraftVirtualPath(userID, threadID, virtualPath)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +100,7 @@ func (s *AuthoringWorkspaceService) ListDraftFiles(threadID string, virtualPath 
 	for _, entry := range entries {
 		items = append(items, model.AuthoringFileEntry{
 			Name:  entry.Name(),
-			Path:  s.virtualAuthoringPath(threadID, filepath.Join(actualPath, entry.Name())),
+			Path:  s.virtualAuthoringPath(userID, threadID, filepath.Join(actualPath, entry.Name())),
 			IsDir: entry.IsDir(),
 		})
 	}
@@ -116,8 +116,8 @@ func (s *AuthoringWorkspaceService) ListDraftFiles(threadID string, virtualPath 
 	return items, nil
 }
 
-func (s *AuthoringWorkspaceService) ReadDraftFile(threadID string, virtualPath string) (string, error) {
-	actualPath, err := s.resolveDraftVirtualPath(threadID, virtualPath)
+func (s *AuthoringWorkspaceService) ReadDraftFile(userID string, threadID string, virtualPath string) (string, error) {
+	actualPath, err := s.resolveDraftVirtualPath(userID, threadID, virtualPath)
 	if err != nil {
 		return "", err
 	}
@@ -136,8 +136,8 @@ func (s *AuthoringWorkspaceService) ReadDraftFile(threadID string, virtualPath s
 	return string(data), nil
 }
 
-func (s *AuthoringWorkspaceService) WriteDraftFile(threadID string, virtualPath string, content string) error {
-	actualPath, err := s.resolveDraftVirtualPath(threadID, virtualPath)
+func (s *AuthoringWorkspaceService) WriteDraftFile(userID string, threadID string, virtualPath string, content string) error {
+	actualPath, err := s.resolveDraftVirtualPath(userID, threadID, virtualPath)
 	if err != nil {
 		return err
 	}
@@ -147,9 +147,9 @@ func (s *AuthoringWorkspaceService) WriteDraftFile(threadID string, virtualPath 
 	return os.WriteFile(actualPath, []byte(content), 0o644)
 }
 
-func (s *AuthoringWorkspaceService) SaveAgentDraft(threadID string, agentName string, agentStatus string) (string, error) {
+func (s *AuthoringWorkspaceService) SaveAgentDraft(userID string, threadID string, agentName string, agentStatus string) (string, error) {
 	status := normalizeAuthoringAgentStatus(agentStatus)
-	draftDir := filepath.Join(s.fs.ThreadUserDataDir(threadID), "authoring", "agents", status, agentName)
+	draftDir := filepath.Join(s.fs.ThreadUserDataDirForUser(userID, threadID), "authoring", "agents", status, agentName)
 	if info, err := os.Stat(draftDir); err != nil || !info.IsDir() {
 		return "", fmt.Errorf("agent draft %q (%s) not found", agentName, status)
 	}
@@ -159,7 +159,7 @@ func (s *AuthoringWorkspaceService) SaveAgentDraft(threadID string, agentName st
 	if err := s.fs.CopyDir(draftDir, targetDir); err != nil {
 		return "", err
 	}
-	return s.virtualAuthoringPath(threadID, draftDir), nil
+	return s.virtualAuthoringPath(userID, threadID, draftDir), nil
 }
 
 func (s *AuthoringWorkspaceService) copyAgentArchiveIntoDraft(sourceDir string, draftDir string) error {
@@ -208,8 +208,8 @@ func (s *AuthoringWorkspaceService) refreshAgentDraftIfArchiveChanged(sourceDir 
 	return s.copyAgentArchiveIntoDraft(sourceDir, draftDir)
 }
 
-func (s *AuthoringWorkspaceService) SaveSkillDraft(threadID string, skillName string) (string, error) {
-	draftDir := filepath.Join(s.fs.ThreadUserDataDir(threadID), "authoring", "skills", skillName)
+func (s *AuthoringWorkspaceService) SaveSkillDraft(userID string, threadID string, skillName string) (string, error) {
+	draftDir := filepath.Join(s.fs.ThreadUserDataDirForUser(userID, threadID), "authoring", "skills", skillName)
 	if info, err := os.Stat(draftDir); err != nil || !info.IsDir() {
 		return "", fmt.Errorf("skill draft %q not found", skillName)
 	}
@@ -219,7 +219,7 @@ func (s *AuthoringWorkspaceService) SaveSkillDraft(threadID string, skillName st
 	if err := s.fs.CopyDir(draftDir, targetDir); err != nil {
 		return "", err
 	}
-	return s.virtualAuthoringPath(threadID, draftDir), nil
+	return s.virtualAuthoringPath(userID, threadID, draftDir), nil
 }
 
 func (s *AuthoringWorkspaceService) resolveSkillDraftSourceDir(skillName string, sourcePath string) (string, error) {
@@ -243,16 +243,16 @@ func (s *AuthoringWorkspaceService) resolveSkillDraftSourceDir(skillName string,
 	return "", err
 }
 
-func (s *AuthoringWorkspaceService) listDraftDirectory(threadID string, actualPath string) (string, []model.AuthoringFileEntry, error) {
-	rootPath := s.virtualAuthoringPath(threadID, actualPath)
-	items, err := s.ListDraftFiles(threadID, rootPath)
+func (s *AuthoringWorkspaceService) listDraftDirectory(userID string, threadID string, actualPath string) (string, []model.AuthoringFileEntry, error) {
+	rootPath := s.virtualAuthoringPath(userID, threadID, actualPath)
+	items, err := s.ListDraftFiles(userID, threadID, rootPath)
 	if err != nil {
 		return "", nil, err
 	}
 	return rootPath, items, nil
 }
 
-func (s *AuthoringWorkspaceService) resolveDraftVirtualPath(threadID string, virtualPath string) (string, error) {
+func (s *AuthoringWorkspaceService) resolveDraftVirtualPath(userID string, threadID string, virtualPath string) (string, error) {
 	cleanVirtualPath := strings.TrimSpace(virtualPath)
 	if cleanVirtualPath == "" {
 		cleanVirtualPath = authoringVirtualPathPrefix
@@ -261,7 +261,9 @@ func (s *AuthoringWorkspaceService) resolveDraftVirtualPath(threadID string, vir
 		return "", fmt.Errorf("path must stay under %s", authoringVirtualPathPrefix)
 	}
 
-	threadUserDataDir := filepath.Clean(s.fs.ThreadUserDataDir(threadID))
+	// Draft workspaces are tenant-scoped on disk while keeping browser-facing
+	// authoring paths inside `/mnt/user-data/authoring`.
+	threadUserDataDir := filepath.Clean(s.fs.ThreadUserDataDirForUser(userID, threadID))
 	authoringRoot := filepath.Join(threadUserDataDir, "authoring")
 	relativePath := strings.TrimPrefix(cleanVirtualPath, "/mnt/user-data")
 	actualPath := filepath.Clean(filepath.Join(threadUserDataDir, relativePath))
@@ -271,8 +273,8 @@ func (s *AuthoringWorkspaceService) resolveDraftVirtualPath(threadID string, vir
 	return actualPath, nil
 }
 
-func (s *AuthoringWorkspaceService) virtualAuthoringPath(threadID string, actualPath string) string {
-	threadUserDataDir := filepath.Clean(s.fs.ThreadUserDataDir(threadID))
+func (s *AuthoringWorkspaceService) virtualAuthoringPath(userID string, threadID string, actualPath string) string {
+	threadUserDataDir := filepath.Clean(s.fs.ThreadUserDataDirForUser(userID, threadID))
 	relativePath, err := filepath.Rel(threadUserDataDir, actualPath)
 	if err != nil {
 		return authoringVirtualPathPrefix

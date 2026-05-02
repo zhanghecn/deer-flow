@@ -169,7 +169,7 @@ func TestDesignBoardOpenCreatesDefaultThreadDocument(t *testing.T) {
 	}
 
 	documentPath := filepath.Join(
-		fsStore.ThreadUserDataDir(threadID),
+		fsStore.ThreadUserDataDirForUser(userID.String(), threadID),
 		"outputs",
 		"designs",
 		"canvas.op",
@@ -260,7 +260,7 @@ func TestDesignBoardDocumentRoundTripAndRevisionConflict(t *testing.T) {
 	}
 
 	documentPath := filepath.Join(
-		fsStore.ThreadUserDataDir(threadID),
+		fsStore.ThreadUserDataDirForUser(userID.String(), threadID),
 		"outputs",
 		"designs",
 		"canvas.op",
@@ -338,9 +338,10 @@ func TestDesignBoardReadDocumentNormalizesCommonShorthand(t *testing.T) {
 	t.Parallel()
 
 	fsStore := storage.NewFS(t.TempDir())
+	userID := uuid.NewString()
 	threadID := "thread-design"
 	documentPath := filepath.Join(
-		fsStore.ThreadUserDataDir(threadID),
+		fsStore.ThreadUserDataDirForUser(userID, threadID),
 		"outputs",
 		"designs",
 		"canvas.op",
@@ -355,7 +356,7 @@ func TestDesignBoardReadDocumentNormalizesCommonShorthand(t *testing.T) {
 	}
 
 	designService := service.NewDesignBoardService(fsStore)
-	document, _, _, err := designService.ReadDocument(threadID, service.DefaultDesignDocumentVirtualPath())
+	document, _, _, err := designService.ReadDocument(userID, threadID, service.DefaultDesignDocumentVirtualPath())
 	if err != nil {
 		t.Fatalf("read normalized document: %v", err)
 	}
@@ -511,7 +512,7 @@ func TestDesignBoardOpenAcceptsExplicitOutputDesignTarget(t *testing.T) {
 		t.Fatalf("design_revision = %q, want %q", query.Get("design_revision"), payload.Revision)
 	}
 
-	if _, err := os.Stat(filepath.Join(fsStore.ThreadUserDataDir(threadID), "outputs", "designs", "landing-v2.op")); err != nil {
+	if _, err := os.Stat(filepath.Join(fsStore.ThreadUserDataDirForUser(userID.String(), threadID), "outputs", "designs", "landing-v2.op")); err != nil {
 		t.Fatalf("expected explicit design document to be created: %v", err)
 	}
 }
@@ -523,7 +524,7 @@ func TestDesignBoardReadCanonicalizesOlderMinifiedDocument(t *testing.T) {
 	fsStore := storage.NewFS(t.TempDir())
 	userID := uuid.New()
 	threadID := "thread-design"
-	documentPath := filepath.Join(fsStore.ThreadUserDataDir(threadID), "outputs", "designs", "canvas.op")
+	documentPath := filepath.Join(fsStore.ThreadUserDataDirForUser(userID.String(), threadID), "outputs", "designs", "canvas.op")
 	if err := os.MkdirAll(filepath.Dir(documentPath), 0o755); err != nil {
 		t.Fatalf("mkdir design dir: %v", err)
 	}

@@ -64,7 +64,7 @@ def _make_lead_agent_request(
         agent_name=LEAD_AGENT_NAME,
         agent_status=agent_status,
         thread_id="thread-1",
-        user_id=None,
+        user_id="user-1",
         original_user_input=None,
         runtime_model_name=None,
         header_model_name=None,
@@ -82,11 +82,12 @@ def test_build_backend_sets_thread_user_data_as_shell_cwd(tmp_path):
     base_dir = tmp_path / ".openagents"
     _write_archived_skill(base_dir, "bootstrap", body="bootstrap")
     paths = _make_paths(base_dir)
+    request = _make_lead_agent_request()
 
     with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
-        backend = lead_agent_module.build_backend("thread-1", agent_name=None)
+        backend = lead_agent_module.build_backend("thread-1", agent_name=None, request=request)
 
-    user_data_dir = paths.sandbox_user_data_dir("thread-1")
+    user_data_dir = paths.sandbox_user_data_dir("thread-1", user_id="user-1")
     assert isinstance(backend, CompositeBackend)
     assert backend.default.cwd == user_data_dir.resolve()
     assert "/mnt/skills/" in backend.routes
@@ -103,7 +104,7 @@ def test_build_backend_sets_default_user_data_as_shell_cwd_when_thread_missing(t
     with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
         backend = lead_agent_module.build_backend(None, agent_name=None)
 
-    default_user_data_dir = base_dir / "threads" / "_default" / "user-data"
+    default_user_data_dir = base_dir / "users" / "_default" / "threads" / "_default" / "user-data"
     assert isinstance(backend, CompositeBackend)
     assert backend.default.cwd == default_user_data_dir.resolve()
 
@@ -115,7 +116,7 @@ def test_build_backend_default_agent_seeds_archived_agent_tree_into_thread_runti
     paths = _make_paths(base_dir)
 
     with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
-        backend = lead_agent_module.build_backend("thread-1", agent_name=None)
+        backend = lead_agent_module.build_backend("thread-1", agent_name=None, user_id="user-1")
 
     runtime_agent_root = lead_agent_module._runtime_agent_root(LEAD_AGENT_NAME, "dev")
     responses = backend.download_files(
@@ -137,7 +138,7 @@ def test_build_backend_does_not_seed_default_design_document_into_thread_runtime
     paths = _make_paths(base_dir)
 
     with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
-        backend = lead_agent_module.build_backend("thread-1", agent_name=None)
+        backend = lead_agent_module.build_backend("thread-1", agent_name=None, user_id="user-1")
 
     response = backend.download_files(["/mnt/user-data/outputs/designs/canvas.op"])[0]
 
@@ -153,7 +154,7 @@ def test_build_backend_routes_shared_skills_into_local_debug_backend(tmp_path):
     paths = _make_paths(base_dir)
 
     with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
-        backend = lead_agent_module.build_backend("thread-1", agent_name=None)
+        backend = lead_agent_module.build_backend("thread-1", agent_name=None, user_id="user-1")
 
     shared_skill = backend.download_files(["/mnt/skills/system/skills/bootstrap/SKILL.md"])[0]
 
@@ -168,7 +169,7 @@ def test_build_backend_execute_rewrites_runtime_skill_aliases(tmp_path):
     paths = _make_paths(base_dir)
 
     with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
-        backend = lead_agent_module.build_backend("thread-1", agent_name=None)
+        backend = lead_agent_module.build_backend("thread-1", agent_name=None, user_id="user-1")
 
     assert isinstance(backend, CompositeBackend)
     result = backend.default.execute("test -f /agents/dev/lead_agent/skills/bootstrap/SKILL.md && echo ok")
@@ -195,7 +196,7 @@ def test_build_backend_named_agent_seeds_agent_definition_into_thread_runtime(tm
     paths = _make_paths(base_dir)
 
     with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
-        backend = lead_agent_module.build_backend("thread-1", agent_name="analyst", status="prod")
+        backend = lead_agent_module.build_backend("thread-1", agent_name="analyst", status="prod", user_id="user-1")
 
     runtime_agent_root = lead_agent_module._runtime_agent_root("analyst", "prod")
     responses = backend.download_files(
@@ -245,7 +246,7 @@ def test_create_agent_request_seeds_existing_target_archive_into_thread_runtime(
         agent_name=LEAD_AGENT_NAME,
         agent_status="dev",
         thread_id="thread-1",
-        user_id=None,
+        user_id="user-1",
         original_user_input=None,
         runtime_model_name=None,
         header_model_name=None,
@@ -254,7 +255,7 @@ def test_create_agent_request_seeds_existing_target_archive_into_thread_runtime(
     )
 
     with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
-        backend = lead_agent_module.build_backend("thread-1", agent_name=None)
+        backend = lead_agent_module.build_backend("thread-1", agent_name=None, request=request)
         lead_agent_module._seed_create_agent_target_runtime_materials_if_available(
             backend,
             request=request,
@@ -287,7 +288,7 @@ def test_create_agent_request_ignores_missing_target_archive_for_new_agent(tmp_p
         agent_name=LEAD_AGENT_NAME,
         agent_status="dev",
         thread_id="thread-1",
-        user_id=None,
+        user_id="user-1",
         original_user_input=None,
         runtime_model_name=None,
         header_model_name=None,
@@ -296,7 +297,7 @@ def test_create_agent_request_ignores_missing_target_archive_for_new_agent(tmp_p
     )
 
     with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
-        backend = lead_agent_module.build_backend("thread-1", agent_name=None)
+        backend = lead_agent_module.build_backend("thread-1", agent_name=None, request=request)
         lead_agent_module._seed_create_agent_target_runtime_materials_if_available(
             backend,
             request=request,
@@ -317,7 +318,7 @@ def test_build_backend_dev_lead_agent_does_not_seed_store_skills_without_explici
     paths = _make_paths(base_dir)
 
     with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
-        backend = lead_agent_module.build_backend("thread-1", agent_name=None)
+        backend = lead_agent_module.build_backend("thread-1", agent_name=None, user_id="user-1")
 
     runtime_agent_root = lead_agent_module._runtime_agent_root(LEAD_AGENT_NAME, "dev")
     responses = backend.download_files(
@@ -351,7 +352,7 @@ def test_build_backend_supports_store_prod_skill_refs(tmp_path):
     paths = _make_paths(base_dir)
 
     with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
-        backend = lead_agent_module.build_backend("thread-1", agent_name="reviewer", status="prod")
+        backend = lead_agent_module.build_backend("thread-1", agent_name="reviewer", status="prod", user_id="user-1")
 
     runtime_agent_root = lead_agent_module._runtime_agent_root("reviewer", "prod")
     response = backend.download_files([f"{runtime_agent_root}/skills/contracts/review/SKILL.md"])[0]
@@ -408,7 +409,7 @@ def test_seed_runtime_materials_materializes_thread_runtime_before_upload(tmp_pa
         def download_files(self, requested_paths):
             responses = []
             for requested_path in requested_paths:
-                actual_path = self._paths.resolve_virtual_path(self._thread_id, requested_path)
+                actual_path = self._paths.resolve_virtual_path(self._thread_id, requested_path, user_id="user-1")
                 if actual_path.exists():
                     responses.append(SimpleNamespace(path=requested_path, content=actual_path.read_bytes(), error=None))
                     continue
@@ -431,8 +432,8 @@ def test_seed_runtime_materials_materializes_thread_runtime_before_upload(tmp_pa
         )
 
     runtime_agent_root = lead_agent_module._runtime_agent_root(LEAD_AGENT_NAME, "dev")
-    materialized_agents_md = paths.resolve_virtual_path("thread-1", f"{runtime_agent_root}/AGENTS.md")
-    materialized_skill = paths.resolve_virtual_path("thread-1", f"{runtime_agent_root}/skills/bootstrap/SKILL.md")
+    materialized_agents_md = paths.resolve_virtual_path("thread-1", f"{runtime_agent_root}/AGENTS.md", user_id="user-1")
+    materialized_skill = paths.resolve_virtual_path("thread-1", f"{runtime_agent_root}/skills/bootstrap/SKILL.md", user_id="user-1")
 
     assert materialized_agents_md.exists()
     assert materialized_skill.exists()
@@ -458,8 +459,9 @@ def test_build_workspace_backend_uses_configured_sandbox_provider(monkeypatch):
             self.thread_id = None
             self.sandbox = object()
 
-        def acquire(self, thread_id):
+        def acquire(self, thread_id, *, user_id=None):
             self.thread_id = thread_id
+            self.user_id = user_id
             return "sandbox-1"
 
         def get(self, sandbox_id):
@@ -474,6 +476,7 @@ def test_build_workspace_backend_uses_configured_sandbox_provider(monkeypatch):
     backend = lead_agent_module._build_workspace_backend(
         user_data_dir="/tmp/runtime",
         thread_id="thread-1",
+        user_id="user-1",
         paths=paths,
     )
 
@@ -481,6 +484,7 @@ def test_build_workspace_backend_uses_configured_sandbox_provider(monkeypatch):
     wrapped_default = getattr(backend.default, "__wrapped_backend__", backend.default)
     assert wrapped_default is provider.sandbox
     assert provider.thread_id == "thread-1"
+    assert provider.user_id == "user-1"
     assert backend.routes["/large_tool_results/"].cwd == Path("/tmp/runtime/outputs/.large_tool_results").resolve()
     assert backend.routes["/conversation_history/"].cwd == Path("/tmp/runtime/outputs/.conversation_history").resolve()
     assert backend.routes["/mnt/user-data/tmp"].cwd == paths.runtime_tmp_dir.resolve()
@@ -490,14 +494,15 @@ def test_build_backend_routes_internal_agent_spill_files_into_thread_outputs(tmp
     base_dir = tmp_path / ".openagents"
     _write_archived_skill(base_dir, "bootstrap", body="bootstrap")
     paths = _make_paths(base_dir)
+    request = _make_lead_agent_request()
 
     with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
-        backend = lead_agent_module.build_backend("thread-1", agent_name=None)
+        backend = lead_agent_module.build_backend("thread-1", agent_name=None, request=request)
 
     large_result = backend.write("/large_tool_results/tool-1", "large result payload")
     history_result = backend.write("/conversation_history/thread-1.md", "history payload")
 
-    user_data_dir = paths.sandbox_user_data_dir("thread-1")
+    user_data_dir = paths.sandbox_user_data_dir("thread-1", user_id="user-1")
     assert large_result.error is None
     assert history_result.error is None
     assert (user_data_dir / "outputs" / ".large_tool_results" / "tool-1").read_text(encoding="utf-8") == "large result payload"
@@ -533,6 +538,7 @@ def test_build_backend_uses_remote_backend_when_requested(monkeypatch, tmp_path)
         backend = lead_agent_module.build_backend(
             "thread-1",
             agent_name=None,
+            user_id="user-1",
             execution_backend="remote",
             remote_session_id="remote-session-1",
         )
@@ -555,6 +561,7 @@ def test_build_backend_remote_requires_session_id(tmp_path):
             lead_agent_module.build_backend(
                 "thread-1",
                 agent_name=None,
+                user_id="user-1",
                 execution_backend="remote",
             )
         except ValueError as exc:

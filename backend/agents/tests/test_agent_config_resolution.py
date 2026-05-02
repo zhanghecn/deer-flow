@@ -6,7 +6,7 @@ from src.config.paths import Paths
 
 
 def _write_agent(base_dir: Path, name: str, status: str = "dev") -> None:
-    agent_dir = base_dir / "agents" / status / name
+    agent_dir = base_dir / "custom" / "agents" / status / name
     (agent_dir / "skills" / "bootstrap").mkdir(parents=True, exist_ok=True)
     (agent_dir / "AGENTS.md").write_text("You are file-backed.", encoding="utf-8")
     (agent_dir / "skills" / "bootstrap" / "SKILL.md").write_text(

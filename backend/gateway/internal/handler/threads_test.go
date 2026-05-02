@@ -413,14 +413,15 @@ func TestThreadsHandlerDelete(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 
-	threadDir := fs.ThreadDir(threadID)
+	userID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	threadDir := fs.ThreadDirForUser(userID.String(), threadID)
 	if err := os.MkdirAll(filepath.Join(threadDir, "user-data", "outputs"), 0755); err != nil {
 		t.Fatalf("mkdir thread dir: %v", err)
 	}
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
-		c.Set(string(middleware.UserIDKey), uuid.MustParse("11111111-1111-1111-1111-111111111111"))
+		c.Set(string(middleware.UserIDKey), userID)
 		c.Next()
 	})
 	router.DELETE("/api/threads/:id", h.Delete)
@@ -463,14 +464,15 @@ func TestThreadsHandlerDeleteSkipsRuntimeDeleteForLegacyThreadID(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 
-	threadDir := fs.ThreadDir("direct-debug-thread")
+	userID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	threadDir := fs.ThreadDirForUser(userID.String(), "direct-debug-thread")
 	if err := os.MkdirAll(filepath.Join(threadDir, "user-data", "outputs"), 0755); err != nil {
 		t.Fatalf("mkdir thread dir: %v", err)
 	}
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
-		c.Set(string(middleware.UserIDKey), uuid.MustParse("11111111-1111-1111-1111-111111111111"))
+		c.Set(string(middleware.UserIDKey), userID)
 		c.Next()
 	})
 	router.DELETE("/api/threads/:id", h.Delete)
@@ -499,6 +501,7 @@ func TestThreadsHandlerClearAll(t *testing.T) {
 
 	threadID1 := "11111111-1111-1111-1111-111111111111"
 	threadID2 := "22222222-2222-2222-2222-222222222222"
+	userID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
 	repo := &fakeThreadRepo{
 		threadIDs: []string{threadID1, threadID2},
 	}
@@ -510,14 +513,14 @@ func TestThreadsHandlerClearAll(t *testing.T) {
 	}))
 
 	for _, threadID := range repo.threadIDs {
-		if err := os.MkdirAll(filepath.Join(fs.ThreadDir(threadID), "user-data", "workspace"), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Join(fs.ThreadDirForUser(userID.String(), threadID), "user-data", "workspace"), 0755); err != nil {
 			t.Fatalf("mkdir thread dir for %s: %v", threadID, err)
 		}
 	}
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
-		c.Set(string(middleware.UserIDKey), uuid.MustParse("11111111-1111-1111-1111-111111111111"))
+		c.Set(string(middleware.UserIDKey), userID)
 		c.Next()
 	})
 	router.DELETE("/api/threads", h.ClearAll)
@@ -544,7 +547,7 @@ func TestThreadsHandlerClearAll(t *testing.T) {
 		t.Fatalf("expected 2 runtime deletes, got %d", len(deletedPaths))
 	}
 	for _, threadID := range repo.threadIDs {
-		if _, err := os.Stat(fs.ThreadDir(threadID)); !os.IsNotExist(err) {
+		if _, err := os.Stat(fs.ThreadDirForUser(userID.String(), threadID)); !os.IsNotExist(err) {
 			t.Fatalf("expected thread dir %s to be removed, got err=%v", threadID, err)
 		}
 	}
@@ -555,6 +558,7 @@ func TestThreadsHandlerClearAllSkipsLegacyThreadIDs(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	uuidThreadID := "11111111-1111-1111-1111-111111111111"
+	userID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
 	repo := &fakeThreadRepo{
 		threadIDs: []string{"direct-debug-thread", uuidThreadID},
 	}
@@ -566,14 +570,14 @@ func TestThreadsHandlerClearAllSkipsLegacyThreadIDs(t *testing.T) {
 	}))
 
 	for _, threadID := range repo.threadIDs {
-		if err := os.MkdirAll(filepath.Join(fs.ThreadDir(threadID), "user-data", "workspace"), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Join(fs.ThreadDirForUser(userID.String(), threadID), "user-data", "workspace"), 0755); err != nil {
 			t.Fatalf("mkdir thread dir for %s: %v", threadID, err)
 		}
 	}
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
-		c.Set(string(middleware.UserIDKey), uuid.MustParse("11111111-1111-1111-1111-111111111111"))
+		c.Set(string(middleware.UserIDKey), userID)
 		c.Next()
 	})
 	router.DELETE("/api/threads", h.ClearAll)
@@ -603,7 +607,7 @@ func TestThreadsHandlerClearAllSkipsLegacyThreadIDs(t *testing.T) {
 		t.Fatalf("expected runtime delete path for uuid thread, got %s", deletedPaths[0])
 	}
 	for _, threadID := range repo.threadIDs {
-		if _, err := os.Stat(fs.ThreadDir(threadID)); !os.IsNotExist(err) {
+		if _, err := os.Stat(fs.ThreadDirForUser(userID.String(), threadID)); !os.IsNotExist(err) {
 			t.Fatalf("expected thread dir %s to be removed, got err=%v", threadID, err)
 		}
 	}

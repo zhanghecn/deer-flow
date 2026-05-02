@@ -187,19 +187,20 @@ def test_ensure_thread_dirs_marks_runtime_tree_writable_for_sandbox_processes(tm
 
     paths = Paths(base_dir=tmp_path)
     thread_id = "thread-perms"
+    user_id = "user-1"
 
-    paths.ensure_thread_dirs(thread_id)
+    paths.ensure_thread_dirs(thread_id, user_id=user_id)
 
     runtime_dirs = (
         paths.runtime_tmp_dir,
-        paths.sandbox_user_data_dir(thread_id),
-        paths.sandbox_work_dir(thread_id),
-        paths.sandbox_uploads_dir(thread_id),
-        paths.sandbox_outputs_dir(thread_id),
-        paths.sandbox_agents_dir(thread_id),
-        paths.sandbox_authoring_dir(thread_id),
-        paths.sandbox_authoring_agents_dir(thread_id),
-        paths.sandbox_authoring_skills_dir(thread_id),
+        paths.sandbox_user_data_dir(thread_id, user_id=user_id),
+        paths.sandbox_work_dir(thread_id, user_id=user_id),
+        paths.sandbox_uploads_dir(thread_id, user_id=user_id),
+        paths.sandbox_outputs_dir(thread_id, user_id=user_id),
+        paths.sandbox_agents_dir(thread_id, user_id=user_id),
+        paths.sandbox_authoring_dir(thread_id, user_id=user_id),
+        paths.sandbox_authoring_agents_dir(thread_id, user_id=user_id),
+        paths.sandbox_authoring_skills_dir(thread_id, user_id=user_id),
     )
 
     for runtime_dir in runtime_dirs:
@@ -212,8 +213,24 @@ def test_resolve_virtual_path_maps_shared_tmp_outside_thread_root(tmp_path: Path
 
     paths = Paths(base_dir=tmp_path)
     thread_id = "thread-shared-tmp"
-    paths.ensure_thread_dirs(thread_id)
+    user_id = "user-1"
+    paths.ensure_thread_dirs(thread_id, user_id=user_id)
 
-    resolved = paths.resolve_virtual_path(thread_id, "/mnt/user-data/tmp/demo.txt")
+    resolved = paths.resolve_virtual_path(thread_id, "/mnt/user-data/tmp/demo.txt", user_id=user_id)
 
     assert resolved == paths.runtime_tmp_dir / "demo.txt"
+
+
+def test_thread_dir_is_user_scoped_without_changing_virtual_contract(tmp_path: Path):
+    from src.config.paths import Paths
+
+    paths = Paths(base_dir=tmp_path)
+    resolved = paths.resolve_virtual_path(
+        "thread-1",
+        "/mnt/user-data/outputs/report.md",
+        user_id="user-1",
+    )
+
+    assert resolved == tmp_path / "users" / "user-1" / "threads" / "thread-1" / "user-data" / "outputs" / "report.md"
+    assert paths.thread_user_data_mount_path("thread-1", user_id="user-1") == "users/user-1/threads/thread-1/user-data"
+    assert paths.legacy_thread_dir("thread-1") == tmp_path / "threads" / "thread-1"

@@ -17,6 +17,7 @@ from src.agents.middlewares.uploads_middleware import UploadsMiddleware
 from src.config.paths import Paths
 
 THREAD_ID = "thread-abc123"
+USER_ID = "user-1"
 TINY_PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC")
 
 
@@ -31,12 +32,12 @@ def _middleware(tmp_path: Path, *, model_supports_vision: bool = False) -> Uploa
 
 def _runtime(thread_id: str | None = THREAD_ID) -> MagicMock:
     rt = MagicMock()
-    rt.context = {"thread_id": thread_id}
+    rt.context = {"thread_id": thread_id, "user_id": USER_ID}
     return rt
 
 
 def _uploads_dir(tmp_path: Path, thread_id: str = THREAD_ID) -> Path:
-    d = Paths(str(tmp_path)).sandbox_uploads_dir(thread_id)
+    d = Paths(str(tmp_path)).sandbox_uploads_dir(thread_id, user_id=USER_ID)
     d.mkdir(parents=True, exist_ok=True)
     return d
 

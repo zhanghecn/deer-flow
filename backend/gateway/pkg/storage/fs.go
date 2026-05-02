@@ -350,14 +350,31 @@ func (f *FS) UserDir(userID string) string {
 	return filepath.Join(f.baseDir, "users", userID)
 }
 
-// ThreadDir returns the directory for a thread's runtime data.
-func (f *FS) ThreadDir(threadID string) string {
-	return filepath.Join(f.baseDir, "threads", threadID)
+// UsersDir returns the root containing tenant-scoped runtime directories.
+func (f *FS) UsersDir() string {
+	return filepath.Join(f.baseDir, "users")
 }
 
-// ThreadUserDataDir returns the user-data directory within a thread.
-func (f *FS) ThreadUserDataDir(threadID string) string {
-	return filepath.Join(f.ThreadDir(threadID), "user-data")
+// UserThreadsDir returns the root containing one user's thread directories.
+func (f *FS) UserThreadsDir(userID string) string {
+	return filepath.Join(f.UserDir(userID), "threads")
+}
+
+// ThreadDirForUser returns the canonical tenant-scoped thread runtime root.
+func (f *FS) ThreadDirForUser(userID string, threadID string) string {
+	return filepath.Join(f.UserThreadsDir(userID), threadID)
+}
+
+// ThreadUserDataDirForUser returns the user-data root backing `/mnt/user-data`.
+func (f *FS) ThreadUserDataDirForUser(userID string, threadID string) string {
+	return filepath.Join(f.ThreadDirForUser(userID, threadID), "user-data")
+}
+
+// ThreadRuntimeAgentsDirForUser returns the reconstructable copied-agent cache.
+// The runtime reseeds this directory on demand while preserving the
+// agent-visible `/mnt/user-data/agents` path.
+func (f *FS) ThreadRuntimeAgentsDirForUser(userID string, threadID string) string {
+	return filepath.Join(f.ThreadUserDataDirForUser(userID, threadID), "agents")
 }
 
 // WriteAgentFiles writes AGENTS.md and config.yaml for an agent.
@@ -442,9 +459,16 @@ func (f *FS) DeleteAgentSkillsDir(name, status string) error {
 	return os.RemoveAll(f.AgentSkillsDir(name, status))
 }
 
-// DeleteThreadDir removes all persisted files for a thread.
-func (f *FS) DeleteThreadDir(threadID string) error {
-	return os.RemoveAll(f.ThreadDir(threadID))
+// DeleteThreadDirForUser removes all persisted files for a tenant-scoped thread.
+func (f *FS) DeleteThreadDirForUser(userID string, threadID string) error {
+	return os.RemoveAll(f.ThreadDirForUser(userID, threadID))
+}
+
+// DeleteThreadRuntimeAgentsDirForUser removes only reconstructable runtime materials.
+// The runtime reseeds copied agents/skills on demand; user-authored artifacts
+// under workspace/uploads/outputs/authoring must remain untouched.
+func (f *FS) DeleteThreadRuntimeAgentsDirForUser(userID string, threadID string) error {
+	return os.RemoveAll(f.ThreadRuntimeAgentsDirForUser(userID, threadID))
 }
 
 // CopyDir copies src directory to dst recursively.
@@ -472,9 +496,9 @@ func (f *FS) CopyDir(src, dst string) error {
 	})
 }
 
-// EnsureThreadDirs creates the thread user-data subdirectories.
-func (f *FS) EnsureThreadDirs(threadID string) error {
-	base := f.ThreadUserDataDir(threadID)
+// EnsureThreadDirsForUser creates the tenant-scoped thread user-data subdirectories.
+func (f *FS) EnsureThreadDirsForUser(userID string, threadID string) error {
+	base := f.ThreadUserDataDirForUser(userID, threadID)
 	for _, sub := range []string{"workspace", "uploads", "outputs"} {
 		if err := os.MkdirAll(filepath.Join(base, sub), 0755); err != nil {
 			return err

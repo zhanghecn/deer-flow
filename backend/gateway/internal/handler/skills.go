@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/openagents/gateway/internal/middleware"
 	"github.com/openagents/gateway/internal/model"
 	"github.com/openagents/gateway/internal/service"
@@ -155,6 +156,11 @@ func (h *SkillHandler) Delete(c *gin.Context) {
 }
 
 func (h *SkillHandler) Install(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	if userID == uuid.Nil {
+		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "unauthorized"})
+		return
+	}
 	var req struct {
 		ThreadID string `json:"thread_id" binding:"required"`
 		Path     string `json:"path" binding:"required"`
@@ -164,7 +170,7 @@ func (h *SkillHandler) Install(c *gin.Context) {
 		return
 	}
 
-	skillName, err := installSkillArchive(h.fs, req.ThreadID, req.Path)
+	skillName, err := installSkillArchive(h.fs, userID.String(), req.ThreadID, req.Path)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return

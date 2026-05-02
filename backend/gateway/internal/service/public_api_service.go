@@ -640,7 +640,7 @@ func (s *PublicAPIService) prepareRun(
 		return nil, err
 	}
 
-	if err := s.fs.EnsureThreadDirs(threadID); err != nil {
+	if err := s.fs.EnsureThreadDirsForUser(auth.UserID.String(), threadID); err != nil {
 		return nil, s.finishInvocationWithError(ctx, invocation, wrapPublicAPITurnFailure(err, publicAPITurnFailureContext{
 			TurnID:         responseID,
 			Stage:          model.TurnFailureStagePrepareRun,
@@ -659,6 +659,7 @@ func (s *PublicAPIService) prepareRun(
 
 	runtimeUploads, err := s.stageInputFilesForThread(
 		ctx,
+		auth.UserID.String(),
 		threadID,
 		auth.APITokenID,
 		normalizedInput.FileIDs,
@@ -1262,7 +1263,7 @@ func (s *PublicAPIService) GetFileContent(
 		}
 	}
 
-	filePath, err := s.resolveArtifactStoragePath(invocation.ThreadID, artifact.StorageRef)
+	filePath, err := s.resolveArtifactStoragePath(invocation.UserID.String(), invocation.ThreadID, artifact.StorageRef)
 	if err != nil {
 		if errors.Is(err, errArtifactNotFound) {
 			return nil, &PublicAPIError{
@@ -1642,7 +1643,7 @@ func (s *PublicAPIService) buildResponseArtifacts(
 	// Public API callers should see the same persisted output files that the
 	// first-party workspace can discover, even when the model wrote into
 	// `/mnt/user-data/outputs` but forgot to call `present_files`.
-	discoveredOutputs, err := threadartifacts.ListOutputArtifacts(s.fs, invocation.ThreadID)
+	discoveredOutputs, err := threadartifacts.ListOutputArtifacts(s.fs, invocation.UserID.String(), invocation.ThreadID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1664,7 +1665,7 @@ func (s *PublicAPIService) buildResponseArtifacts(
 		}
 		seen[virtualPath] = struct{}{}
 
-		storageRef, filePath, err := s.resolveStorageRef(invocation.ThreadID, virtualPath)
+		storageRef, filePath, err := s.resolveStorageRef(invocation.UserID.String(), invocation.ThreadID, virtualPath)
 		if err != nil {
 			continue
 		}
@@ -1704,26 +1705,26 @@ func (s *PublicAPIService) buildResponseArtifacts(
 	return responseArtifacts, ledgerArtifacts, nil
 }
 
-func (s *PublicAPIService) resolveStorageRef(threadID string, virtualPath string) (string, string, error) {
+func (s *PublicAPIService) resolveStorageRef(userID string, threadID string, virtualPath string) (string, string, error) {
 	cleaned := path.Clean(strings.TrimSpace(virtualPath))
 	switch {
 	case strings.HasPrefix(cleaned, "/mnt/user-data/outputs/"):
 		relative := strings.TrimPrefix(cleaned, "/mnt/user-data/outputs/")
 		storageRef := path.Join("outputs", relative)
-		filePath, err := s.resolveArtifactStoragePath(threadID, storageRef)
+		filePath, err := s.resolveArtifactStoragePath(userID, threadID, storageRef)
 		return storageRef, filePath, err
 	case strings.HasPrefix(cleaned, "mnt/user-data/outputs/"):
 		relative := strings.TrimPrefix(cleaned, "mnt/user-data/outputs/")
 		storageRef := path.Join("outputs", relative)
-		filePath, err := s.resolveArtifactStoragePath(threadID, storageRef)
+		filePath, err := s.resolveArtifactStoragePath(userID, threadID, storageRef)
 		return storageRef, filePath, err
 	default:
 		return "", "", errArtifactNotFound
 	}
 }
 
-func (s *PublicAPIService) resolveArtifactStoragePath(threadID string, storageRef string) (string, error) {
-	baseDir := filepath.Clean(s.fs.ThreadUserDataDir(threadID))
+func (s *PublicAPIService) resolveArtifactStoragePath(userID string, threadID string, storageRef string) (string, error) {
+	baseDir := filepath.Clean(s.fs.ThreadUserDataDirForUser(userID, threadID))
 	cleanRelative := filepath.Clean(filepath.FromSlash(strings.TrimPrefix(storageRef, "/")))
 	if cleanRelative == "." || cleanRelative == "" {
 		return "", errArtifactNotFound
@@ -1766,6 +1767,7 @@ func (s *PublicAPIService) resolveBaseStoragePath(storageRef string) (string, er
 
 func (s *PublicAPIService) stageInputFilesForThread(
 	ctx context.Context,
+	userID string,
 	threadID string,
 	apiTokenID uuid.UUID,
 	fileIDs []string,
@@ -1781,7 +1783,7 @@ func (s *PublicAPIService) stageInputFilesForThread(
 		}
 	}
 
-	uploadsDir := filepath.Join(s.fs.ThreadUserDataDir(threadID), "uploads")
+	uploadsDir := filepath.Join(s.fs.ThreadUserDataDirForUser(userID, threadID), "uploads")
 	if err := os.MkdirAll(uploadsDir, 0o755); err != nil {
 		return nil, err
 	}

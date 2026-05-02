@@ -1219,12 +1219,13 @@ class KnowledgeRepository:
     def build_node_detail_result(
         self,
         *,
+        user_id: str,
         thread_id: str,
         document: KnowledgeDocumentRecord,
         nodes: list[KnowledgeNodeRecord],
         requested_node_ids: list[str],
     ) -> NodeDetailResult:
-        artifact_path = self.materialize_document_preview(thread_id=thread_id, document=document)
+        artifact_path = self.materialize_document_preview(user_id=user_id, thread_id=thread_id, document=document)
         self._validate_node_detail_request(document=document, nodes=nodes)
 
         items: list[NodeDetailItem] = []
@@ -1260,12 +1261,13 @@ class KnowledgeRepository:
     def build_document_evidence_result(
         self,
         *,
+        user_id: str,
         thread_id: str,
         document: KnowledgeDocumentRecord,
         nodes: list[KnowledgeNodeRecord],
         requested_node_ids: list[str],
     ) -> DocumentEvidenceResult:
-        artifact_path = self.materialize_document_preview(thread_id=thread_id, document=document)
+        artifact_path = self.materialize_document_preview(user_id=user_id, thread_id=thread_id, document=document)
         self._validate_node_detail_request(document=document, nodes=nodes)
 
         items: list[NodeDetailItem] = []
@@ -1300,11 +1302,13 @@ class KnowledgeRepository:
     def build_document_image_result(
         self,
         *,
+        user_id: str,
         thread_id: str,
         document: KnowledgeDocumentRecord,
         page_number: int,
     ) -> DocumentImageResult:
         image_path, embedded_image_count = self.materialize_document_page_image(
+            user_id=user_id,
             thread_id=thread_id,
             document=document,
             page_number=page_number,
@@ -1328,6 +1332,7 @@ class KnowledgeRepository:
     def materialize_document_preview(
         self,
         *,
+        user_id: str,
         thread_id: str,
         document: KnowledgeDocumentRecord,
     ) -> str:
@@ -1336,17 +1341,21 @@ class KnowledgeRepository:
         else:
             source_ref = document.canonical_storage_path or document.markdown_storage_path or document.source_storage_path
         source_path = self._storage_ref_to_path(source_ref)
-        target_dir = self._paths.sandbox_outputs_dir(thread_id) / ".knowledge" / document.id
+        # Knowledge preview artifacts are user-visible `/mnt/user-data/outputs`
+        # files, so the host path must stay on the owning user's thread tree.
+        outputs_dir = self._paths.sandbox_outputs_dir(thread_id, user_id=user_id)
+        target_dir = outputs_dir / ".knowledge" / document.id
         target_dir.mkdir(parents=True, exist_ok=True)
         target_path = target_dir / source_path.name
         if not target_path.exists() or target_path.stat().st_mtime < source_path.stat().st_mtime:
             target_path.write_bytes(source_path.read_bytes())
-        relative = target_path.relative_to(self._paths.sandbox_outputs_dir(thread_id))
+        relative = target_path.relative_to(outputs_dir)
         return f"{VIRTUAL_PATH_PREFIX}/outputs/{relative.as_posix()}"
 
     def materialize_document_page_image(
         self,
         *,
+        user_id: str,
         thread_id: str,
         document: KnowledgeDocumentRecord,
         page_number: int,
@@ -1363,7 +1372,8 @@ class KnowledgeRepository:
                 raise ValueError(f"Page {page_number} is out of range for '{document.display_name}' (1-{doc.page_count}).")
             page = doc.load_page(page_number - 1)
             embedded_image_count = len(page.get_images(full=True))
-            target_dir = self._paths.sandbox_outputs_dir(thread_id) / ".knowledge" / document.id / "pages"
+            outputs_dir = self._paths.sandbox_outputs_dir(thread_id, user_id=user_id)
+            target_dir = outputs_dir / ".knowledge" / document.id / "pages"
             target_dir.mkdir(parents=True, exist_ok=True)
             target_path = target_dir / f"page-{page_number:04d}.png"
             if not target_path.exists() or target_path.stat().st_mtime < pdf_path.stat().st_mtime:
@@ -1371,7 +1381,7 @@ class KnowledgeRepository:
                 pix.save(target_path)
         finally:
             doc.close()
-        relative = target_path.relative_to(self._paths.sandbox_outputs_dir(thread_id))
+        relative = target_path.relative_to(outputs_dir)
         return f"{VIRTUAL_PATH_PREFIX}/outputs/{relative.as_posix()}", embedded_image_count
 
     def ensure_document_page_asset(
@@ -1866,16 +1876,18 @@ class KnowledgeRepository:
     def _materialize_document_image_asset(
         self,
         *,
+        user_id: str,
         thread_id: str,
         document: KnowledgeDocumentRecord,
         source_path: Path,
     ) -> str:
-        target_dir = self._paths.sandbox_outputs_dir(thread_id) / ".knowledge" / document.id / "images"
+        outputs_dir = self._paths.sandbox_outputs_dir(thread_id, user_id=user_id)
+        target_dir = outputs_dir / ".knowledge" / document.id / "images"
         target_dir.mkdir(parents=True, exist_ok=True)
         target_path = target_dir / source_path.name
         if not target_path.exists() or target_path.stat().st_mtime < source_path.stat().st_mtime:
             target_path.write_bytes(source_path.read_bytes())
-        relative = target_path.relative_to(self._paths.sandbox_outputs_dir(thread_id))
+        relative = target_path.relative_to(outputs_dir)
         return f"{VIRTUAL_PATH_PREFIX}/outputs/{relative.as_posix()}"
 
     def _persistent_virtual_asset_path(

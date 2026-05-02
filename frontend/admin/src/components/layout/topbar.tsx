@@ -32,7 +32,7 @@ const ROUTE_LABELS: Record<string, string> = {
   agents: "Agents",
   models: "Models",
   observability: "Observability",
-  threads: "Threads",
+  threads: "Runtime Storage",
 };
 
 function getInitials(name: string): string {

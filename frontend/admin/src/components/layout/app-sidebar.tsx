@@ -54,7 +54,7 @@ const NAV_ITEMS = [
     label: "Monitoring",
     items: [
       { title: "Observability", href: "/observability", icon: Activity },
-      { title: "Threads", href: "/threads", icon: MessagesSquare },
+      { title: "Runtime Storage", href: "/threads", icon: MessagesSquare },
     ],
   },
 ];

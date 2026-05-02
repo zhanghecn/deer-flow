@@ -75,13 +75,17 @@ def get_sandbox_provider(provider_path: str) -> SandboxProvider:
 def build_sandbox_workspace_backend(
     thread_id: str,
     *,
+    user_id: str | None = None,
     user_data_dir: str | None = None,
     shared_tmp_dir: str | None = None,
     skills_mount: tuple[str, str] | None = None,
 ) -> BackendProtocol:
     provider_path = resolve_sandbox_provider()
     provider = get_sandbox_provider(provider_path)
-    sandbox_id = provider.acquire(thread_id)
+    # Sandbox lifecycle state is stored beside the user-scoped thread
+    # directory, so the control plane must receive the same owner identity as
+    # the file backend even though tools still see only `/mnt/user-data/...`.
+    sandbox_id = provider.acquire(thread_id, user_id=user_id)
     sandbox = provider.get(sandbox_id)
     if sandbox is None:
         raise RuntimeError(

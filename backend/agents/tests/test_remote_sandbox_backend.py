@@ -84,9 +84,9 @@ def test_aio_sandbox_provider_builds_thread_runtime_root_for_shared_existing_san
         "shared_data_mount_path": "/openagents",
     }
 
-    runtime_root = AioSandboxProvider._runtime_root_for_thread(provider, "thread-1")
+    runtime_root = AioSandboxProvider._runtime_root_for_thread(provider, "thread-1", user_id="user-1")
 
-    assert runtime_root == "/openagents/threads/thread-1/user-data"
+    assert runtime_root == "/openagents/users/user-1/threads/thread-1/user-data"
 
 
 def test_aio_sandbox_provider_builds_shared_tmp_root_for_shared_existing_sandbox():

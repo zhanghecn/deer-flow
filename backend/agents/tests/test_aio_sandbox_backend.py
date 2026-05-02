@@ -114,15 +114,15 @@ def test_aio_sandbox_execute_rewrites_virtual_paths_into_thread_mount(monkeypatc
     sandbox = aio_sandbox_module.AioSandbox(
         id="sb-4",
         base_url="http://sandbox.test",
-        runtime_root="/openagents/threads/thread-1/user-data",
+        runtime_root="/openagents/users/user-1/threads/thread-1/user-data",
     )
 
     sandbox.execute("python /mnt/user-data/agents/dev/lead_agent/skills/image-generation/scripts/generate.py --output-file /mnt/user-data/outputs/demo.jpg")
 
-    assert sandbox._client.shell.last_call["exec_dir"] == "/openagents/threads/thread-1/user-data"
+    assert sandbox._client.shell.last_call["exec_dir"] == "/openagents/users/user-1/threads/thread-1/user-data"
     command = sandbox._client.shell.last_call["command"]
     assert command.startswith("bwrap ")
-    assert "--bind /openagents/threads/thread-1/user-data /mnt/user-data" in command
+    assert "--bind /openagents/users/user-1/threads/thread-1/user-data /mnt/user-data" in command
     assert "python /mnt/user-data/agents/dev/lead_agent/skills/image-generation/scripts/generate.py" in command
     assert "/mnt/user-data/outputs/demo.jpg" in command
 
@@ -133,7 +133,7 @@ def test_aio_sandbox_execute_binds_shared_tmp_into_jail(monkeypatch):
     sandbox = aio_sandbox_module.AioSandbox(
         id="sb-4tmp",
         base_url="http://sandbox.test",
-        runtime_root="/openagents/threads/thread-1/user-data",
+        runtime_root="/openagents/users/user-1/threads/thread-1/user-data",
         shared_tmp_root="/openagents/runtime/tmp",
     )
 
@@ -153,13 +153,13 @@ def test_aio_sandbox_execute_can_disable_exec_isolation(monkeypatch):
     sandbox = aio_sandbox_module.AioSandbox(
         id="sb-disable",
         base_url="http://sandbox.test",
-        runtime_root="/openagents/threads/thread-9/user-data",
+        runtime_root="/openagents/users/user-1/threads/thread-9/user-data",
     )
 
     sandbox.execute("pwd && ls /workspace")
 
     assert sandbox._client.shell.last_call["command"] == (
-        "pwd && ls /openagents/threads/thread-9/user-data/workspace"
+        "pwd && ls /openagents/users/user-1/threads/thread-9/user-data/workspace"
     )
 
 
@@ -169,13 +169,13 @@ def test_aio_sandbox_file_api_rewrites_virtual_paths_into_thread_mount(monkeypat
     sandbox = aio_sandbox_module.AioSandbox(
         id="sb-5",
         base_url="http://sandbox.test",
-        runtime_root="/openagents/threads/thread-2/user-data",
+        runtime_root="/openagents/users/user-1/threads/thread-2/user-data",
     )
 
     upload_result = sandbox.upload_files([("/mnt/user-data/workspace/demo.txt", b"hello")])
     assert upload_result[0].error is None
     assert upload_result[0].path == "/mnt/user-data/workspace/demo.txt"
-    assert "/openagents/threads/thread-2/user-data/workspace/demo.txt" in sandbox._client.file.uploads
+    assert "/openagents/users/user-1/threads/thread-2/user-data/workspace/demo.txt" in sandbox._client.file.uploads
 
     download_result = sandbox.download_files(["/mnt/user-data/workspace/demo.txt"])
     assert download_result[0].path == "/mnt/user-data/workspace/demo.txt"
@@ -188,7 +188,7 @@ def test_aio_sandbox_file_api_maps_shared_tmp_outside_thread_root(monkeypatch):
     sandbox = aio_sandbox_module.AioSandbox(
         id="sb-5tmp",
         base_url="http://sandbox.test",
-        runtime_root="/openagents/threads/thread-2/user-data",
+        runtime_root="/openagents/users/user-1/threads/thread-2/user-data",
         shared_tmp_root="/openagents/runtime/tmp",
     )
 
@@ -205,7 +205,7 @@ def test_aio_sandbox_transport_logs_execute_upload_and_download(monkeypatch, cap
     sandbox = aio_sandbox_module.AioSandbox(
         id="sb-log",
         base_url="http://sandbox.test",
-        runtime_root="/openagents/threads/thread-log/user-data",
+        runtime_root="/openagents/users/user-1/threads/thread-log/user-data",
     )
 
     sandbox.execute("pwd")
@@ -216,7 +216,7 @@ def test_aio_sandbox_transport_logs_execute_upload_and_download(monkeypatch, cap
     assert "operation=execute" in caplog.text
     assert "operation=upload_files" in caplog.text
     assert "operation=download_files" in caplog.text
-    assert "first_transport_path='/openagents/threads/thread-log/user-data/workspace/demo.txt'" in caplog.text
+    assert "first_transport_path='/openagents/users/user-1/threads/thread-log/user-data/workspace/demo.txt'" in caplog.text
 
 
 def test_aio_sandbox_ls_info_virtualizes_runtime_root_paths(monkeypatch):
@@ -226,7 +226,7 @@ def test_aio_sandbox_ls_info_virtualizes_runtime_root_paths(monkeypatch):
         captured["path"] = path
         return [
             {
-                "path": "/openagents/threads/thread-3/user-data/agents/dev/lead_agent",
+                "path": "/openagents/users/user-1/threads/thread-3/user-data/agents/dev/lead_agent",
                 "is_dir": True,
             }
         ]
@@ -237,7 +237,7 @@ def test_aio_sandbox_ls_info_virtualizes_runtime_root_paths(monkeypatch):
     sandbox = aio_sandbox_module.AioSandbox(
         id="sb-6",
         base_url="http://sandbox.test",
-        runtime_root="/openagents/threads/thread-3/user-data",
+        runtime_root="/openagents/users/user-1/threads/thread-3/user-data",
     )
 
     result = sandbox.ls_info("/")
@@ -265,12 +265,12 @@ def test_aio_sandbox_ls_info_uses_host_paths_when_exec_isolation_disabled(monkey
     sandbox = aio_sandbox_module.AioSandbox(
         id="sb-6b",
         base_url="http://sandbox.test",
-        runtime_root="/openagents/threads/thread-3/user-data",
+        runtime_root="/openagents/users/user-1/threads/thread-3/user-data",
     )
 
     sandbox.ls_info("/")
 
-    assert captured["path"] == "/openagents/threads/thread-3/user-data"
+    assert captured["path"] == "/openagents/users/user-1/threads/thread-3/user-data"
 
 
 def test_aio_sandbox_glob_info_rewrites_virtual_patterns(monkeypatch):
@@ -281,7 +281,7 @@ def test_aio_sandbox_glob_info_rewrites_virtual_patterns(monkeypatch):
         captured["path"] = path
         return [
             {
-                "path": "/openagents/threads/thread-4/user-data/agents/dev/lead_agent/skills/review/SKILL.md",
+                "path": "/openagents/users/user-1/threads/thread-4/user-data/agents/dev/lead_agent/skills/review/SKILL.md",
                 "is_dir": False,
             }
         ]
@@ -292,7 +292,7 @@ def test_aio_sandbox_glob_info_rewrites_virtual_patterns(monkeypatch):
     sandbox = aio_sandbox_module.AioSandbox(
         id="sb-7",
         base_url="http://sandbox.test",
-        runtime_root="/openagents/threads/thread-4/user-data",
+        runtime_root="/openagents/users/user-1/threads/thread-4/user-data",
     )
 
     result = sandbox.glob_info("/mnt/user-data/agents/dev/lead_agent/skills/**/*")
@@ -322,15 +322,15 @@ def test_aio_sandbox_glob_info_uses_host_paths_when_exec_isolation_disabled(monk
     sandbox = aio_sandbox_module.AioSandbox(
         id="sb-7b",
         base_url="http://sandbox.test",
-        runtime_root="/openagents/threads/thread-4/user-data",
+        runtime_root="/openagents/users/user-1/threads/thread-4/user-data",
     )
 
     sandbox.glob_info("/mnt/user-data/agents/dev/lead_agent/skills/**/*")
 
-    assert captured["path"] == "/openagents/threads/thread-4/user-data"
+    assert captured["path"] == "/openagents/users/user-1/threads/thread-4/user-data"
     assert (
         captured["pattern"]
-        == "/openagents/threads/thread-4/user-data/agents/dev/lead_agent/skills/**/*"
+        == "/openagents/users/user-1/threads/thread-4/user-data/agents/dev/lead_agent/skills/**/*"
     )
 
 
@@ -343,7 +343,7 @@ def test_aio_sandbox_grep_raw_virtualizes_result_paths(monkeypatch):
         captured["glob"] = glob
         return [
             {
-                "path": "/openagents/threads/thread-5/user-data/agents/dev/lead_agent/AGENTS.md",
+                "path": "/openagents/users/user-1/threads/thread-5/user-data/agents/dev/lead_agent/AGENTS.md",
                 "line": 7,
                 "text": "contract review",
             }
@@ -355,13 +355,13 @@ def test_aio_sandbox_grep_raw_virtualizes_result_paths(monkeypatch):
     sandbox = aio_sandbox_module.AioSandbox(
         id="sb-8",
         base_url="http://sandbox.test",
-        runtime_root="/openagents/threads/thread-5/user-data",
+        runtime_root="/openagents/users/user-1/threads/thread-5/user-data",
     )
 
     result = sandbox.grep_raw("contract", path="/mnt/user-data/agents/dev", glob="*.md")
 
     assert captured["pattern"] == "contract"
-    assert captured["path"] == "/openagents/threads/thread-5/user-data/agents/dev"
+    assert captured["path"] == "/openagents/users/user-1/threads/thread-5/user-data/agents/dev"
     assert captured["glob"] == "*.md"
     assert result == [
         {

@@ -70,7 +70,7 @@ class _TestManager(ide_sessions_module.SandboxIDESessionManager):
 
 
 def test_open_session_reuses_existing_runtime_session_with_new_folder_query():
-    sandbox = _FakeSandbox("/openagents/threads/thread-1/user-data")
+    sandbox = _FakeSandbox("/openagents/users/user-1/threads/thread-1/user-data")
     manager = _TestManager(sandbox=sandbox)
 
     first = manager.open_session(thread_id="thread-1", target_path="/mnt/user-data/workspace")
@@ -85,7 +85,7 @@ def test_open_session_reuses_existing_runtime_session_with_new_folder_query():
 
 
 def test_open_session_rebases_authoring_targets_inside_visible_root():
-    sandbox = _FakeSandbox("/openagents/threads/thread-2/user-data")
+    sandbox = _FakeSandbox("/openagents/users/user-1/threads/thread-2/user-data")
     manager = _TestManager(sandbox=sandbox)
 
     session = manager.open_session(
@@ -95,11 +95,11 @@ def test_open_session_rebases_authoring_targets_inside_visible_root():
     )
 
     assert "folder=%2Fmnt%2Fuser-data%2Fskills%2Fchecklists" in session.relative_url
-    assert sandbox.launch_calls[0]["bind_source"] == "/openagents/threads/thread-2/user-data/authoring"
+    assert sandbox.launch_calls[0]["bind_source"] == "/openagents/users/user-1/threads/thread-2/user-data/authoring"
 
 
 def test_open_session_rejects_targets_outside_authoring_root():
-    sandbox = _FakeSandbox("/openagents/threads/thread-3/user-data")
+    sandbox = _FakeSandbox("/openagents/users/user-1/threads/thread-3/user-data")
     manager = _TestManager(sandbox=sandbox)
 
     with pytest.raises(ide_sessions_module.SandboxIDEAccessDeniedError):
@@ -114,7 +114,7 @@ def test_expired_session_is_terminated_and_recreated(monkeypatch: pytest.MonkeyP
     now = {"value": 100.0}
     monkeypatch.setattr(ide_sessions_module.time, "time", lambda: now["value"])
 
-    sandbox = _FakeSandbox("/openagents/threads/thread-4/user-data")
+    sandbox = _FakeSandbox("/openagents/users/user-1/threads/thread-4/user-data")
     manager = _TestManager(sandbox=sandbox, ttl_seconds=10)
 
     first = manager.open_session(thread_id="thread-4")
@@ -127,7 +127,7 @@ def test_expired_session_is_terminated_and_recreated(monkeypatch: pytest.MonkeyP
 
 
 def test_resolve_proxy_target_rejects_wrong_owner():
-    sandbox = _FakeSandbox("/openagents/threads/thread-5/user-data")
+    sandbox = _FakeSandbox("/openagents/users/owner-1/threads/thread-5/user-data")
     manager = _TestManager(sandbox=sandbox)
     session = manager.open_session(thread_id="thread-5", user_id="owner-1")
 

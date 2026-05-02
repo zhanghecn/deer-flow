@@ -21,8 +21,9 @@ class _FakePaths:
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = base_dir
 
-    def sandbox_outputs_dir(self, thread_id: str) -> Path:
-        return self.base_dir / "threads" / thread_id / "user-data" / "outputs"
+    def sandbox_outputs_dir(self, thread_id: str, *, user_id: str | None = None) -> Path:
+        assert user_id is not None
+        return self.base_dir / "users" / user_id / "threads" / thread_id / "user-data" / "outputs"
 
 
 def _document(
@@ -70,6 +71,7 @@ def test_materialize_document_preview_prefers_canonical_markdown_for_heading_doc
 
     repository = KnowledgeRepository()
     preview_path = repository.materialize_document_preview(
+        user_id="user-1",
         thread_id="thread-1",
         document=_document(
             locator_type="heading",
@@ -81,6 +83,8 @@ def test_materialize_document_preview_prefers_canonical_markdown_for_heading_doc
     assert preview_path == "/mnt/user-data/outputs/.knowledge/doc-1/canonical.md"
     materialized_path = (
         base_dir
+        / "users"
+        / "user-1"
         / "threads"
         / "thread-1"
         / "user-data"
@@ -106,6 +110,7 @@ def test_materialize_document_preview_prefers_pdf_preview_for_page_docs(
 
     repository = KnowledgeRepository()
     materialized_virtual_path = repository.materialize_document_preview(
+        user_id="user-1",
         thread_id="thread-1",
         document=_document(
             locator_type="page",

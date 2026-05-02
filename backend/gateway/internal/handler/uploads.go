@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+	"github.com/openagents/gateway/internal/middleware"
 	"github.com/openagents/gateway/internal/model"
 	"github.com/openagents/gateway/internal/uploadutil"
 	"github.com/openagents/gateway/pkg/storage"
@@ -58,6 +60,11 @@ func uploadResponseFile(threadID string, name string, size int64, markdownName s
 }
 
 func (h *UploadsHandler) Upload(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	if userID == uuid.Nil {
+		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "unauthorized"})
+		return
+	}
 	threadID := c.Param("id")
 	if threadID == "" {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "missing thread id"})
@@ -70,7 +77,7 @@ func (h *UploadsHandler) Upload(c *gin.Context) {
 		return
 	}
 
-	uploadsDir := filepath.Join(h.fs.ThreadUserDataDir(threadID), "uploads")
+	uploadsDir := filepath.Join(h.fs.ThreadUserDataDirForUser(userID.String(), threadID), "uploads")
 	_ = os.MkdirAll(uploadsDir, 0755)
 
 	files := form.File["files"]
@@ -112,8 +119,13 @@ func (h *UploadsHandler) Upload(c *gin.Context) {
 }
 
 func (h *UploadsHandler) List(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	if userID == uuid.Nil {
+		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "unauthorized"})
+		return
+	}
 	threadID := c.Param("id")
-	uploadsDir := filepath.Join(h.fs.ThreadUserDataDir(threadID), "uploads")
+	uploadsDir := filepath.Join(h.fs.ThreadUserDataDirForUser(userID.String(), threadID), "uploads")
 
 	entries, err := os.ReadDir(uploadsDir)
 	if err != nil {
@@ -161,6 +173,11 @@ func (h *UploadsHandler) List(c *gin.Context) {
 }
 
 func (h *UploadsHandler) Delete(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	if userID == uuid.Nil {
+		c.JSON(http.StatusUnauthorized, model.ErrorResponse{Error: "unauthorized"})
+		return
+	}
 	threadID := c.Param("id")
 	filename := c.Param("filename")
 	if filename == "" {
@@ -174,14 +191,14 @@ func (h *UploadsHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	path := filepath.Join(h.fs.ThreadUserDataDir(threadID), "uploads", filename)
+	path := filepath.Join(h.fs.ThreadUserDataDirForUser(userID.String(), threadID), "uploads", filename)
 	if err := os.Remove(path); err != nil {
 		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "file not found"})
 		return
 	}
 
 	if isMarkdownConvertible(filename) {
-		companionPath := filepath.Join(h.fs.ThreadUserDataDir(threadID), "uploads", markdownCompanionName(filename))
+		companionPath := filepath.Join(h.fs.ThreadUserDataDirForUser(userID.String(), threadID), "uploads", markdownCompanionName(filename))
 		if err := os.Remove(companionPath); err != nil && !os.IsNotExist(err) {
 			log.Printf("uploads: failed to remove markdown companion for %s: %v", filename, err)
 		}

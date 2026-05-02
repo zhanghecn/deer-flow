@@ -124,6 +124,7 @@ class KnowledgeService:
             return f"Error: node_id(s) {', '.join(missing_ids)} were not found in document '{document.display_name}'."
         try:
             result = self._repository_instance().build_node_detail_result(
+                user_id=user_id,
                 thread_id=thread_id,
                 document=document,
                 nodes=nodes,
@@ -161,6 +162,7 @@ class KnowledgeService:
             return f"Error: node_id(s) {', '.join(missing_ids)} were not found in document '{document.display_name}'."
         try:
             result = self._repository_instance().build_document_evidence_result(
+                user_id=user_id,
                 thread_id=thread_id,
                 document=document,
                 nodes=nodes,
@@ -187,6 +189,7 @@ class KnowledgeService:
             return error
         try:
             result = self._repository_instance().build_document_image_result(
+                user_id=user_id,
                 thread_id=thread_id,
                 document=document,
                 page_number=page_number,
