@@ -264,4 +264,12 @@ def _uses_gemini_level_contract(model_name: str) -> bool:
 
 def _is_deepseek_reasoner_model(model_name: str) -> bool:
     normalized = model_name.strip().lower()
-    return "reasoner" in normalized or normalized.startswith("deepseek-r1")
+    if not normalized or normalized.endswith("-none"):
+        return False
+    # New API exposes DeepSeek V4 thinking variants through an OpenAI-compatible
+    # endpoint, but the runtime still has to preserve DeepSeek reasoning state.
+    return (
+        "reasoner" in normalized
+        or normalized.startswith("deepseek-r1")
+        or normalized.startswith("deepseek-v4")
+    )

@@ -281,7 +281,15 @@ func usesGeminiLevelContract(modelName string) bool {
 }
 
 func isDeepSeekReasonerModel(modelName string) bool {
-	return strings.Contains(modelName, "reasoner") || strings.HasPrefix(modelName, "deepseek-r1")
+	normalized := strings.ToLower(strings.TrimSpace(modelName))
+	if normalized == "" || strings.HasSuffix(normalized, "-none") {
+		return false
+	}
+	// New API exposes DeepSeek V4 thinking variants as OpenAI-compatible model
+	// ids; the suffix-less and max variants still need DeepSeek reasoning state.
+	return strings.Contains(normalized, "reasoner") ||
+		strings.HasPrefix(normalized, "deepseek-r1") ||
+		strings.HasPrefix(normalized, "deepseek-v4")
 }
 
 func cloneModelConfigMap(config map[string]interface{}) map[string]interface{} {

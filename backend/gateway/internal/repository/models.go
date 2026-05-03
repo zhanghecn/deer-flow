@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -58,10 +59,73 @@ func (r *ModelRepo) ListAll(ctx context.Context) ([]ModelRecord, error) {
 		ORDER BY created_at ASC, name ASC`)
 }
 
+func (r *ModelRepo) ListPage(ctx context.Context, search string, limit int, offset int) ([]ModelRecord, error) {
+	search = strings.TrimSpace(search)
+	if search == "" {
+		return r.listWithArgs(
+			ctx,
+			`SELECT name, display_name, provider, config_json, enabled, created_at
+			FROM models
+			ORDER BY created_at ASC, name ASC
+			LIMIT $1 OFFSET $2`,
+			limit,
+			offset,
+		)
+	}
+
+	// Keep model-list search inside SQL parameters; admins can search JSON-backed
+	// runtime fields without widening the query into ad hoc string interpolation.
+	pattern := "%" + search + "%"
+	return r.listWithArgs(
+		ctx,
+		`SELECT name, display_name, provider, config_json, enabled, created_at
+		FROM models
+		WHERE name ILIKE $1
+			OR COALESCE(display_name, '') ILIKE $1
+			OR provider ILIKE $1
+			OR COALESCE(config_json->>'model', '') ILIKE $1
+			OR COALESCE(config_json->>'base_url', '') ILIKE $1
+		ORDER BY created_at ASC, name ASC
+		LIMIT $2 OFFSET $3`,
+		pattern,
+		limit,
+		offset,
+	)
+}
+
+func (r *ModelRepo) Count(ctx context.Context, search string) (int, error) {
+	search = strings.TrimSpace(search)
+	if search == "" {
+		var total int
+		err := r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM models`).Scan(&total)
+		return total, err
+	}
+
+	pattern := "%" + search + "%"
+	var total int
+	err := r.pool.QueryRow(
+		ctx,
+		`SELECT COUNT(*)
+		FROM models
+		WHERE name ILIKE $1
+			OR COALESCE(display_name, '') ILIKE $1
+			OR provider ILIKE $1
+			OR COALESCE(config_json->>'model', '') ILIKE $1
+			OR COALESCE(config_json->>'base_url', '') ILIKE $1`,
+		pattern,
+	).Scan(&total)
+	return total, err
+}
+
 func (r *ModelRepo) list(ctx context.Context, query string) ([]ModelRecord, error) {
+	return r.listWithArgs(ctx, query)
+}
+
+func (r *ModelRepo) listWithArgs(ctx context.Context, query string, args ...any) ([]ModelRecord, error) {
 	rows, err := r.pool.Query(
 		ctx,
 		query,
+		args...,
 	)
 	if err != nil {
 		return nil, err

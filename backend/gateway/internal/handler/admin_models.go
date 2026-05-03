@@ -3,7 +3,10 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -30,6 +33,13 @@ type adminModelResponse struct {
 	CreatedAt   string          `json:"created_at"`
 }
 
+type adminModelListQuery struct {
+	Page     int
+	PageSize int
+	Offset   int
+	Search   string
+}
+
 type knownModelProviderDefaults struct {
 	canonicalProvider string
 	runtimeClass      string
@@ -47,9 +57,25 @@ var knownModelProviderMap = map[string]knownModelProviderDefaults{
 }
 
 func (h *AdminHandler) ListModels(c *gin.Context) {
-	rows, err := h.modelRepo.ListAll(c.Request.Context())
+	query, err := parseAdminModelListQuery(c.Request.URL.Query())
+	if err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	rows, err := h.modelRepo.ListPage(
+		c.Request.Context(),
+		query.Search,
+		query.PageSize,
+		query.Offset,
+	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to list models"})
+		return
+	}
+	total, err := h.modelRepo.Count(c.Request.Context(), query.Search)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to count models"})
 		return
 	}
 	if rows == nil {
@@ -60,7 +86,45 @@ func (h *AdminHandler) ListModels(c *gin.Context) {
 	for _, row := range rows {
 		items = append(items, toAdminModelResponse(row))
 	}
-	c.JSON(http.StatusOK, gin.H{"items": items})
+	c.JSON(http.StatusOK, gin.H{
+		"items":     items,
+		"page":      query.Page,
+		"page_size": query.PageSize,
+		"total":     total,
+	})
+}
+
+func parseAdminModelListQuery(values url.Values) (adminModelListQuery, error) {
+	page, err := parsePositiveModelQueryInt(values, "page", 1)
+	if err != nil {
+		return adminModelListQuery{}, err
+	}
+	pageSize, err := parsePositiveModelQueryInt(values, "page_size", 10)
+	if err != nil {
+		return adminModelListQuery{}, err
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	return adminModelListQuery{
+		Page:     page,
+		PageSize: pageSize,
+		Offset:   (page - 1) * pageSize,
+		Search:   strings.TrimSpace(values.Get("search")),
+	}, nil
+}
+
+func parsePositiveModelQueryInt(values url.Values, key string, defaultValue int) (int, error) {
+	raw := strings.TrimSpace(values.Get(key))
+	if raw == "" {
+		return defaultValue, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 1 {
+		return 0, fmt.Errorf("%s must be a positive integer", key)
+	}
+	return value, nil
 }
 
 func (h *AdminHandler) CreateModel(c *gin.Context) {

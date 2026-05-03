@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Cpu, Pencil, Plus, Trash2 } from "lucide-react";
 
 import {
@@ -14,6 +14,13 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -37,37 +44,65 @@ import { toast } from "sonner";
 
 import {
   buildExistingModelPayload,
-  filterModels,
   getModelApiKey,
   getModelCapabilityBadges,
   getRuntimeModelLabel,
 } from "./model-config";
 import { ModelForm } from "./model-form";
+import { NewAPIModelSync } from "./newapi-model-sync";
 
 interface ModelsTableProps {
   models: AdminModel[] | null;
   isLoading: boolean;
+  page: number;
+  pageSize: number;
+  search: string;
+  total: number;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: number) => void;
   onRefetch: () => void;
+  onSearchChange: (search: string) => void;
 }
 
 export function ModelsTable({
   models,
   isLoading,
+  page,
+  pageSize,
+  search,
+  total,
+  onPageChange,
+  onPageSizeChange,
   onRefetch,
+  onSearchChange,
 }: ModelsTableProps) {
-  const [search, setSearch] = useState("");
   const [editModel, setEditModel] = useState<AdminModel | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<AdminModel | null>(null);
+  const [deleteSelectedOpen, setDeleteSelectedOpen] = useState(false);
+  const [selectedNames, setSelectedNames] = useState<string[]>([]);
+  const [isDeletingSelected, setIsDeletingSelected] = useState(false);
 
-  const filteredModels = useMemo(
-    () => filterModels(models, search),
-    [models, search],
+  const visibleModels = models?.length ?? 0;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const pageStart = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const pageEnd = Math.min(page * pageSize, total);
+  const selectedNameSet = useMemo(
+    () => new Set(selectedNames),
+    [selectedNames],
   );
-  // Keep both counts so the toolbar can explain whether the current view is filtered
-  // without forcing operators to infer that from the empty/full table state alone.
-  const totalModels = models?.length ?? 0;
-  const visibleModels = filteredModels?.length ?? 0;
+  const allPageModelsSelected =
+    visibleModels > 0 &&
+    models?.every((model) => selectedNameSet.has(model.name)) === true;
+
+  useEffect(() => {
+    const currentPageNames = new Set(models?.map((model) => model.name) ?? []);
+    // Bulk delete is scoped to the visible page, so hidden selections are
+    // dropped when search or pagination changes.
+    setSelectedNames((current) =>
+      current.filter((name) => currentPageNames.has(name)),
+    );
+  }, [models]);
 
   function openCreateForm() {
     setEditModel(null);
@@ -90,11 +125,75 @@ export function ModelsTable({
       });
       toast.success(t("Model deleted"));
       setDeleteTarget(null);
-      onRefetch();
+      if (visibleModels <= 1 && page > 1) {
+        onPageChange(page - 1);
+      } else {
+        onRefetch();
+      }
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : t("Failed to delete model"),
       );
+    }
+  }
+
+  function toggleModelSelection(name: string, selected: boolean) {
+    setSelectedNames((current) => {
+      if (!selected) {
+        return current.filter((item) => item !== name);
+      }
+      return Array.from(new Set([...current, name]));
+    });
+  }
+
+  function togglePageSelection(selected: boolean) {
+    const pageNames = models?.map((model) => model.name) ?? [];
+    setSelectedNames(selected ? pageNames : []);
+  }
+
+  async function handleDeleteSelected() {
+    if (!selectedNames.length) {
+      return;
+    }
+
+    setIsDeletingSelected(true);
+    try {
+      const results = await Promise.allSettled(
+        selectedNames.map((name) =>
+          api(`/api/admin/models/${encodeURIComponent(name)}`, {
+            method: "DELETE",
+          }),
+        ),
+      );
+      const failed = results.filter((result) => result.status === "rejected");
+      const deleted = results.length - failed.length;
+
+      if (deleted > 0) {
+        toast.success(t("Deleted {count} models", { count: deleted }));
+      }
+      if (failed.length > 0) {
+        toast.error(
+          t("Deleted {deleted} models, failed {failed}", {
+            deleted,
+            failed: failed.length,
+          }),
+        );
+      }
+      setSelectedNames([]);
+      setDeleteSelectedOpen(false);
+      if (deleted >= visibleModels && page > 1) {
+        onPageChange(page - 1);
+      } else {
+        onRefetch();
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("Failed to delete selected models"),
+      );
+    } finally {
+      setIsDeletingSelected(false);
     }
   }
 
@@ -122,21 +221,47 @@ export function ModelsTable({
           <div className="space-y-1">
             <p className="text-sm font-medium text-foreground">{t("Runtime inventory")}</p>
             <p className="text-sm text-muted-foreground">
-              {search.trim()
-                ? t("Showing {visible} of {total} models", {
-                    visible: visibleModels,
-                    total: totalModels,
+              {total > 0
+                ? t("Showing {start}-{end} of {total} models", {
+                    start: pageStart,
+                    end: pageEnd,
+                    total,
                   })
-                : t("{total} models available", { total: totalModels })}
+                : t("{total} models available", { total })}
             </p>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <Input
               className="w-full sm:w-[26rem]"
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) => onSearchChange(event.target.value)}
               placeholder={t("Search by name, provider, or runtime model...")}
               value={search}
             />
+            {selectedNames.length ? (
+              <>
+                <span className="whitespace-nowrap text-sm text-muted-foreground">
+                  {t("{count} models selected", { count: selectedNames.length })}
+                </span>
+                <Button
+                  className="shrink-0"
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setSelectedNames([])}
+                >
+                  {t("Clear selection")}
+                </Button>
+                <Button
+                  className="shrink-0"
+                  type="button"
+                  variant="destructive"
+                  onClick={() => setDeleteSelectedOpen(true)}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  {t("Delete selected models")}
+                </Button>
+              </>
+            ) : null}
+            <NewAPIModelSync onSuccess={onRefetch} />
             <Button className="shrink-0" onClick={openCreateForm}>
               <Plus className="mr-2 h-4 w-4" />
               {t("Add Model")}
@@ -151,7 +276,7 @@ export function ModelsTable({
             <Skeleton key={index} className="h-12 w-full" />
           ))}
         </div>
-      ) : !filteredModels?.length ? (
+      ) : !models?.length ? (
         <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
           <Cpu className="mb-2 h-12 w-12 opacity-40" />
           <p>{t("No models found")}</p>
@@ -164,6 +289,15 @@ export function ModelsTable({
           <Table className="table-fixed min-w-[980px]">
             <TableHeader>
               <TableRow>
+                <TableHead className="w-[3rem]">
+                  <input
+                    aria-label={t("Select all models on this page")}
+                    checked={allPageModelsSelected}
+                    className="h-4 w-4 rounded border-border accent-primary"
+                    type="checkbox"
+                    onChange={(event) => togglePageSelection(event.target.checked)}
+                  />
+                </TableHead>
                 <TableHead className="w-[13rem]">{t("Name")}</TableHead>
                 <TableHead className="w-[6rem]">{t("Provider")}</TableHead>
                 <TableHead className="w-[9rem]">{t("Runtime Model")}</TableHead>
@@ -175,12 +309,14 @@ export function ModelsTable({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredModels.map((model) => (
+              {models.map((model) => (
                 <ModelRow
                   key={model.name}
                   model={model}
+                  selected={selectedNameSet.has(model.name)}
                   onDelete={setDeleteTarget}
                   onEdit={openEditForm}
+                  onSelectionChange={toggleModelSelection}
                   onToggleEnabled={handleToggleEnabled}
                 />
               ))}
@@ -188,6 +324,54 @@ export function ModelsTable({
           </Table>
         </div>
       )}
+
+      {total > 0 ? (
+        <div className="flex flex-col gap-3 rounded-xl border bg-card/70 px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-sm text-muted-foreground">
+            {t("Showing {start}-{end} of {total} models", {
+              start: pageStart,
+              end: pageEnd,
+              total,
+            })}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-muted-foreground">
+              {t("Rows per page")}
+            </span>
+            <Select
+              value={String(pageSize)}
+              onValueChange={(value) => onPageSizeChange(Number(value))}
+            >
+              <SelectTrigger className="w-[88px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[5, 10, 20, 50].map((size) => (
+                  <SelectItem key={size} value={String(size)}>
+                    {size}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              disabled={page <= 1}
+              type="button"
+              variant="outline"
+              onClick={() => onPageChange(Math.max(1, page - 1))}
+            >
+              {t("Prev")}
+            </Button>
+            <Button
+              disabled={page >= pageCount}
+              type="button"
+              variant="outline"
+              onClick={() => onPageChange(Math.min(pageCount, page + 1))}
+            >
+              {t("Next")}
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       <ModelForm
         editModel={editModel}
@@ -223,25 +407,72 @@ export function ModelsTable({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog
+        open={deleteSelectedOpen}
+        onOpenChange={(open) => !open && setDeleteSelectedOpen(false)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("Delete Selected Models")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t(
+                "Are you sure you want to delete {count} models? This will remove them from runtime selection immediately.",
+                { count: selectedNames.length },
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingSelected}>
+              {t("Cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={isDeletingSelected}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDeleteSelected();
+              }}
+            >
+              {isDeletingSelected ? t("Deleting...") : t("Delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
 
 function ModelRow({
   model,
+  selected,
   onEdit,
   onDelete,
+  onSelectionChange,
   onToggleEnabled,
 }: {
   model: AdminModel;
+  selected: boolean;
   onEdit: (model: AdminModel) => void;
   onDelete: (model: AdminModel) => void;
+  onSelectionChange: (name: string, selected: boolean) => void;
   onToggleEnabled: (model: AdminModel) => void;
 }) {
   const capabilities = getModelCapabilityBadges(model);
 
   return (
     <TableRow>
+      <TableCell className="align-top">
+        <input
+          aria-label={t("Select model")}
+          checked={selected}
+          className="h-4 w-4 rounded border-border accent-primary"
+          type="checkbox"
+          onChange={(event) =>
+            onSelectionChange(model.name, event.target.checked)
+          }
+        />
+      </TableCell>
       <TableCell className="pr-3">
         <div className="space-y-1">
           <div className="break-all font-mono text-sm leading-5">{model.name}</div>
