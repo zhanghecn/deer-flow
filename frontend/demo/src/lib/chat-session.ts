@@ -23,6 +23,14 @@ export type ChatActivityStep =
     }
   | {
       id: string;
+      kind: "compact";
+      beforeTokens?: number;
+      afterTokens?: number;
+      maxTokens?: number;
+      summaryCount?: number;
+    }
+  | {
+      id: string;
       kind: "tool";
       tool: ToolCallStep;
     };
@@ -208,6 +216,17 @@ export function createChatSession(params: {
                   id: tool.id,
                   kind: "tool",
                   tool,
+                });
+              }
+
+              if (event.event.type === "context.compacted") {
+                promptParams.onActivity?.({
+                  id: `compact-${event.event.summary_count ?? "latest"}`,
+                  kind: "compact",
+                  beforeTokens: event.event.context_before_tokens,
+                  afterTokens: event.event.context_after_tokens,
+                  maxTokens: event.event.context_max_tokens,
+                  summaryCount: event.event.summary_count,
                 });
               }
             }

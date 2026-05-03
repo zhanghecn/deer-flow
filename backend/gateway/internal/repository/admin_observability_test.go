@@ -2,7 +2,9 @@ package repository
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestExtractInitialUserMessage(t *testing.T) {
@@ -66,5 +68,40 @@ func TestExtractInitialUserMessageSupportsStringifiedMessages(t *testing.T) {
 	}
 	if *got != "给我一个小惊喜吧" {
 		t.Fatalf("expected extracted preview, got %q", *got)
+	}
+}
+
+func TestExtractInitialUserMessageTruncatesUTF8Safely(t *testing.T) {
+	t.Parallel()
+
+	preview := truncatePreview(strings.Repeat("压测中文片段", 40), 140)
+	if !utf8.ValidString(preview) {
+		t.Fatalf("expected valid UTF-8 preview, got %q", preview)
+	}
+	if len([]rune(preview)) > 140 {
+		t.Fatalf("expected preview capped to 140 runes, got %d", len([]rune(preview)))
+	}
+	if !strings.HasSuffix(preview, "...") {
+		t.Fatalf("expected truncated preview to end with ellipsis, got %q", preview)
+	}
+}
+
+func TestNormalizeJSONPayloadOmitsEmptyContextWindow(t *testing.T) {
+	t.Parallel()
+
+	for _, raw := range []json.RawMessage{
+		nil,
+		json.RawMessage(``),
+		json.RawMessage(`null`),
+		json.RawMessage(`{}`),
+	} {
+		if got := normalizeJSONPayload(raw); got != nil {
+			t.Fatalf("expected empty payload %q to be omitted, got %s", string(raw), string(got))
+		}
+	}
+
+	got := normalizeJSONPayload(json.RawMessage(`{"summary_applied":true}`))
+	if string(got) != `{"summary_applied":true}` {
+		t.Fatalf("expected non-empty payload to be preserved, got %s", string(got))
 	}
 }

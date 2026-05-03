@@ -3,6 +3,8 @@ package service
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/openagents/gateway/internal/model"
 )
 
 func TestTurnCollectorDropsHistoricalAssistantAndToolReplay(t *testing.T) {
@@ -378,6 +380,60 @@ func TestTurnCollectorDropsSummarizationChunks(t *testing.T) {
 
 	if len(events) != 0 {
 		t.Fatalf("expected summarization chunks to be hidden, got %#v", events)
+	}
+}
+
+func TestTurnCollectorEmitsCompactionEventWithoutRawSummary(t *testing.T) {
+	t.Parallel()
+
+	collector := newTurnCollector("turn_test")
+	events := collector.consume("values", map[string]any{
+		"values": map[string]any{
+			"context_window": map[string]any{
+				"summary_applied":                   true,
+				"summary_count":                     float64(2),
+				"approx_input_tokens":               float64(215448),
+				"approx_input_tokens_after_summary": float64(40984),
+				"max_input_tokens":                  float64(200000),
+				"last_summary": map[string]any{
+					"summary_preview": "raw summary should remain out of the turn stream",
+				},
+			},
+			"messages": []any{},
+		},
+	})
+
+	if len(events) != 1 {
+		t.Fatalf("expected one compaction event, got %#v", events)
+	}
+	event := events[0]
+	if event.Type != model.TurnEventContextCompacted {
+		t.Fatalf("expected context compaction event, got %q", event.Type)
+	}
+	if event.SummaryCount == nil || *event.SummaryCount != 2 {
+		t.Fatalf("expected summary count 2, got %#v", event.SummaryCount)
+	}
+	if event.ContextBeforeTokens == nil || *event.ContextBeforeTokens != 215448 {
+		t.Fatalf("expected pre-compaction token count, got %#v", event.ContextBeforeTokens)
+	}
+	if event.ContextAfterTokens == nil || *event.ContextAfterTokens != 40984 {
+		t.Fatalf("expected post-compaction token count, got %#v", event.ContextAfterTokens)
+	}
+	if event.Text != "Conversation compacted" {
+		t.Fatalf("expected stable public message, got %q", event.Text)
+	}
+
+	duplicate := collector.consume("values", map[string]any{
+		"values": map[string]any{
+			"context_window": map[string]any{
+				"summary_applied": true,
+				"summary_count":   float64(2),
+			},
+			"messages": []any{},
+		},
+	})
+	if len(duplicate) != 0 {
+		t.Fatalf("expected duplicate summary count to be suppressed, got %#v", duplicate)
 	}
 }
 

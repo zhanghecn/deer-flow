@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,16 +15,18 @@ import (
 )
 
 type turnCollector struct {
-	turnID              string
-	events              []model.TurnEvent
-	sequence            int
-	activeToolCallKeys  map[string]int
-	pendingToolCallKeys map[string]pendingPublicAPIToolCall
-	replayedMessageIDs  map[string]struct{}
-	replayedToolCallIDs map[string]struct{}
-	startedToolCallKeys map[string]struct{}
-	startedAssistantIDs map[string]struct{}
-	assistantStream     assistantStreamAssembler
+	turnID                string
+	events                []model.TurnEvent
+	sequence              int
+	activeToolCallKeys    map[string]int
+	pendingToolCallKeys   map[string]pendingPublicAPIToolCall
+	replayedMessageIDs    map[string]struct{}
+	replayedToolCallIDs   map[string]struct{}
+	startedToolCallKeys   map[string]struct{}
+	startedAssistantIDs   map[string]struct{}
+	assistantStream       assistantStreamAssembler
+	emittedSummaryCounts  map[int]struct{}
+	emittedSummaryNoCount bool
 }
 
 type turnReplayBoundary struct {
@@ -33,15 +36,16 @@ type turnReplayBoundary struct {
 
 func newTurnCollector(turnID string) *turnCollector {
 	return &turnCollector{
-		turnID:              strings.TrimSpace(turnID),
-		events:              make([]model.TurnEvent, 0, 24),
-		activeToolCallKeys:  make(map[string]int),
-		pendingToolCallKeys: make(map[string]pendingPublicAPIToolCall),
-		replayedMessageIDs:  make(map[string]struct{}),
-		replayedToolCallIDs: make(map[string]struct{}),
-		startedToolCallKeys: make(map[string]struct{}),
-		startedAssistantIDs: make(map[string]struct{}),
-		assistantStream:     newAssistantStreamAssembler(),
+		turnID:               strings.TrimSpace(turnID),
+		events:               make([]model.TurnEvent, 0, 24),
+		activeToolCallKeys:   make(map[string]int),
+		pendingToolCallKeys:  make(map[string]pendingPublicAPIToolCall),
+		replayedMessageIDs:   make(map[string]struct{}),
+		replayedToolCallIDs:  make(map[string]struct{}),
+		startedToolCallKeys:  make(map[string]struct{}),
+		startedAssistantIDs:  make(map[string]struct{}),
+		assistantStream:      newAssistantStreamAssembler(),
+		emittedSummaryCounts: make(map[int]struct{}),
 	}
 }
 
@@ -92,11 +96,11 @@ func (c *turnCollector) consume(sourceEvent string, payload any) []model.TurnEve
 }
 
 func (c *turnCollector) consumeValues(values map[string]any) []model.TurnEvent {
+	result := c.consumeContextWindow(values["context_window"])
 	rawMessages, ok := values["messages"].([]any)
 	if !ok {
-		return nil
+		return result
 	}
-	result := make([]model.TurnEvent, 0, 2)
 	for _, rawMessage := range rawMessages {
 		record, ok := rawMessage.(map[string]any)
 		if !ok {
@@ -108,6 +112,52 @@ func (c *turnCollector) consumeValues(values map[string]any) []model.TurnEvent {
 		}
 	}
 	return result
+}
+
+func (c *turnCollector) consumeContextWindow(payload any) []model.TurnEvent {
+	contextWindow, ok := payload.(map[string]any)
+	if !ok || contextWindow["summary_applied"] != true {
+		return nil
+	}
+
+	summaryCount, hasSummaryCount := positiveIntFromAny(contextWindow["summary_count"])
+	if hasSummaryCount {
+		if _, exists := c.emittedSummaryCounts[summaryCount]; exists {
+			return nil
+		}
+		c.emittedSummaryCounts[summaryCount] = struct{}{}
+	} else if c.emittedSummaryNoCount {
+		return nil
+	} else {
+		c.emittedSummaryNoCount = true
+	}
+
+	event := model.TurnEvent{
+		Type: model.TurnEventContextCompacted,
+		Text: "Conversation compacted",
+	}
+	if hasSummaryCount {
+		event.SummaryCount = &summaryCount
+	}
+	if before, ok := positiveInt64FromAny(contextWindow["approx_input_tokens"]); ok {
+		event.ContextBeforeTokens = &before
+	}
+	if after, ok := positiveInt64FromAny(contextWindow["approx_input_tokens_after_summary"]); ok {
+		event.ContextAfterTokens = &after
+	}
+	if maxTokens, ok := positiveInt64FromAny(contextWindow["max_input_tokens"]); ok {
+		event.ContextMaxTokens = &maxTokens
+	}
+
+	return []model.TurnEvent{c.push(event)}
+}
+
+func (c *turnCollector) consumeContextWindowFromState(payload []byte) []model.TurnEvent {
+	values, err := extractStateValues(payload)
+	if err != nil {
+		return nil
+	}
+	return c.consumeContextWindow(values["context_window"])
 }
 
 func (c *turnCollector) consumeInterrupts(payload map[string]any) []model.TurnEvent {
@@ -317,6 +367,40 @@ func extractTurnReplayBoundaryFromState(payload []byte) turnReplayBoundary {
 	return boundary
 }
 
+func positiveIntFromAny(value any) (int, bool) {
+	number, ok := positiveInt64FromAny(value)
+	if !ok || number > int64(^uint(0)>>1) {
+		return 0, false
+	}
+	return int(number), true
+}
+
+func positiveInt64FromAny(value any) (int64, bool) {
+	switch typed := value.(type) {
+	case int:
+		if typed > 0 {
+			return int64(typed), true
+		}
+	case int64:
+		if typed > 0 {
+			return typed, true
+		}
+	case float64:
+		if typed > 0 {
+			return int64(typed), true
+		}
+	case json.Number:
+		if parsed, err := typed.Int64(); err == nil && parsed > 0 {
+			return parsed, true
+		}
+	case string:
+		if parsed, err := strconv.ParseInt(strings.TrimSpace(typed), 10, 64); err == nil && parsed > 0 {
+			return parsed, true
+		}
+	}
+	return 0, false
+}
+
 func translateTurnRequest(request model.TurnCreateRequest) (model.PublicAPIResponsesRequest, error) {
 	prompt := strings.TrimSpace(request.Input.Text)
 	if prompt == "" && len(request.Input.FileIDs) == 0 {
@@ -524,6 +608,14 @@ func (s *PublicAPIService) executeTurn(
 			"",
 			"",
 		)
+	}
+
+	for _, event := range collector.consumeContextWindowFromState(statePayload) {
+		if onEvent != nil {
+			if err := onEvent(event); err != nil {
+				return nil, err
+			}
+		}
 	}
 	outputText, err = normalizeStructuredOutputText(outputText, plan.Request.Text)
 	if err != nil {

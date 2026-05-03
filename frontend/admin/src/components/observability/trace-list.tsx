@@ -25,6 +25,31 @@ function statusColor(status: string) {
   }
 }
 
+function formatCompactCount(value?: number | null) {
+  if (typeof value !== "number" || Number.isNaN(value) || value <= 0) {
+    return null;
+  }
+  return t("Compacted x{count}", { count: value });
+}
+
+function formatContextTokens(trace: TraceItem) {
+  const contextWindow = trace.context_window;
+  if (!contextWindow) return null;
+  const active =
+    contextWindow.approx_input_tokens_after_summary ??
+    contextWindow.approx_input_tokens;
+  if (typeof active !== "number" || Number.isNaN(active)) return null;
+  const max = contextWindow.max_input_tokens;
+  const activeLabel = new Intl.NumberFormat().format(Math.round(active));
+  if (typeof max === "number" && !Number.isNaN(max)) {
+    return t("Active context {used}/{max}", {
+      used: activeLabel,
+      max: new Intl.NumberFormat().format(Math.round(max)),
+    });
+  }
+  return t("Active context {used}", { used: activeLabel });
+}
+
 export function TraceList({
   traces,
   isLoading,
@@ -53,45 +78,65 @@ export function TraceList({
   return (
     <ScrollArea className="h-full">
       <div className="space-y-1 p-2">
-        {traces.map((trace) => (
-          <button
-            key={trace.trace_id}
-            onClick={() => onSelect(trace)}
-            className={cn(
-              "w-full text-left rounded-md border p-3 transition-colors hover:bg-accent",
-              selectedId === trace.trace_id && "bg-accent border-primary",
-            )}
-          >
-            <div className="flex items-center justify-between mb-1">
-              <div className="flex items-center gap-2">
-                <span
-                  className={cn("h-2 w-2 rounded-full", statusColor(trace.status))}
-                />
-                <span className="font-medium text-sm truncate max-w-[140px]">
-                  {trace.agent_name || t("Unknown Agent")}
+        {traces.map((trace) => {
+          const compactLabel = formatCompactCount(
+            trace.context_window?.summary_count,
+          );
+
+          return (
+            <button
+              key={trace.trace_id}
+              onClick={() => onSelect(trace)}
+              className={cn(
+                "w-full text-left rounded-md border p-3 transition-colors hover:bg-accent",
+                selectedId === trace.trace_id && "bg-accent border-primary",
+              )}
+            >
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={cn(
+                      "h-2 w-2 rounded-full",
+                      statusColor(trace.status),
+                    )}
+                  />
+                  <span className="font-medium text-sm truncate max-w-[140px]">
+                    {trace.agent_name || t("Unknown Agent")}
+                  </span>
+                </div>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  {compactLabel && (
+                    <Badge variant="secondary" className="text-xs">
+                      {compactLabel}
+                    </Badge>
+                  )}
+                  <Badge variant="outline" className="text-xs">
+                    {t("Provider {count} tok", { count: trace.total_tokens })}
+                  </Badge>
+                </div>
+              </div>
+              <p className="text-sm text-foreground/85 line-clamp-2">
+                {trace.initial_user_message || t("No user message preview")}
+              </p>
+              <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                <span className="truncate max-w-[120px]">
+                  {trace.thread_id || t("no thread")}
+                </span>
+                <span className="truncate">
+                  {formatDateTime(trace.started_at)}
                 </span>
               </div>
-              <Badge variant="outline" className="text-xs">
-                {t("{count} tok", { count: trace.total_tokens })}
-              </Badge>
-            </div>
-            <p className="text-sm text-foreground/85 line-clamp-2">
-              {trace.initial_user_message || t("No user message preview")}
-            </p>
-            <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
-              <span className="truncate max-w-[120px]">
-                {trace.thread_id || t("no thread")}
-              </span>
-              <span className="truncate">{formatDateTime(trace.started_at)}</span>
-            </div>
-            <div className="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
-              <span className="truncate">
-                {trace.model_name || t("unknown model")}
-              </span>
-              <span>{formatAgo(trace.started_at)}</span>
-            </div>
-          </button>
-        ))}
+              <div className="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                <span className="truncate">
+                  {trace.model_name || t("unknown model")}
+                </span>
+                <span className="truncate text-right">
+                  {formatContextTokens(trace) || formatAgo(trace.started_at)}
+                </span>
+              </div>
+            </button>
+          );
+        })}
       </div>
     </ScrollArea>
   );

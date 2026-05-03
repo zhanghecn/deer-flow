@@ -15,7 +15,7 @@ export function TokenSummary({ trace }: TokenSummaryProps) {
     <div className="rounded-md border p-3 space-y-2">
       <div className="flex items-center gap-2 text-sm font-medium">
         <Zap className="h-4 w-4 text-amber-500" />
-        {t("Token Usage")}
+        {t("Provider Token Usage")}
       </div>
       <div className="flex h-2 rounded-full overflow-hidden bg-muted">
         <div

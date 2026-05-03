@@ -1,4 +1,5 @@
 import {
+  Archive,
   Bot,
   Check,
   FileText,
@@ -512,11 +513,15 @@ function ToolActivityCard({ tool, index }: { tool: ToolCallStep; index: number }
   // event payload directly instead of translating known names into labels.
   const toolArguments = formatToolArguments(tool.arguments);
   const [open, setOpen] = useState(tool.status === "running");
+  const wasRunningRef = useRef(tool.status === "running");
 
   useEffect(() => {
     if (tool.status === "running") {
       setOpen(true);
+    } else if (wasRunningRef.current) {
+      setOpen(false);
     }
+    wasRunningRef.current = tool.status === "running";
   }, [tool.status]);
 
   return (
@@ -550,6 +555,45 @@ function ToolActivityCard({ tool, index }: { tool: ToolCallStep; index: number }
   );
 }
 
+function formatCompactTokenCount(value?: number) {
+  if (typeof value !== "number" || Number.isNaN(value)) return null;
+  if (value >= 1000) {
+    return `${(value / 1000).toFixed(value >= 10000 ? 1 : 2)}K`;
+  }
+  return new Intl.NumberFormat("zh-CN").format(Math.round(value));
+}
+
+function ContextCompactCard({
+  activity,
+}: {
+  activity: Extract<ChatActivityStep, { kind: "compact" }>;
+}) {
+  const before = formatCompactTokenCount(activity.beforeTokens);
+  const after = formatCompactTokenCount(activity.afterTokens);
+  const max = formatCompactTokenCount(activity.maxTokens);
+  const detail =
+    before && after
+      ? max
+        ? `${before} -> ${after} / ${max}`
+        : `${before} -> ${after}`
+      : null;
+
+  return (
+    <div className="mb-2 flex w-full min-w-0 items-center gap-2 rounded-md border border-stone-200 bg-stone-50 px-3 py-2 text-xs text-stone-600">
+      <Archive className="size-3.5 shrink-0 text-stone-400" />
+      <span className="font-medium text-stone-700">对话已自动压缩</span>
+      {activity.summaryCount ? (
+        <span className="text-stone-500">第 {activity.summaryCount} 次</span>
+      ) : null}
+      {detail ? (
+        <span className="min-w-0 truncate font-mono text-[11px] text-stone-500">
+          {detail}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 function ActivityTimeline({
   activities,
   isStreaming,
@@ -576,6 +620,10 @@ function ActivityTimeline({
               }
             />
           );
+        }
+
+        if (activity.kind === "compact") {
+          return <ContextCompactCard key={activity.id} activity={activity} />;
         }
 
         toolIndex += 1;

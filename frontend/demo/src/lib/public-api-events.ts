@@ -56,6 +56,7 @@ function isTurnEventType(value: string): value is PublicAPITurnEventType {
     "assistant.reasoning.delta",
     "tool.call.started",
     "tool.call.completed",
+    "context.compacted",
     "turn.requires_input",
     "assistant.message.completed",
     "turn.completed",

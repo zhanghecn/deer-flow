@@ -12,6 +12,7 @@ const (
 	TurnEventAssistantReasoningDelta   TurnEventType = "assistant.reasoning.delta"
 	TurnEventToolCallStarted           TurnEventType = "tool.call.started"
 	TurnEventToolCallCompleted         TurnEventType = "tool.call.completed"
+	TurnEventContextCompacted          TurnEventType = "context.compacted"
 	TurnEventTurnRequiresInput         TurnEventType = "turn.requires_input"
 	TurnEventAssistantMessageCompleted TurnEventType = "assistant.message.completed"
 	TurnEventTurnCompleted             TurnEventType = "turn.completed"
@@ -74,6 +75,13 @@ type TurnEvent struct {
 	Code          string           `json:"code,omitempty"`
 	ToolArguments any              `json:"tool_arguments,omitempty"`
 	ToolOutput    any              `json:"tool_output,omitempty"`
+	// Context compaction events expose only stable metrics. The raw summary text
+	// remains an observability/debug concern and is intentionally not part of the
+	// public chat stream.
+	ContextBeforeTokens *int64 `json:"context_before_tokens,omitempty"`
+	ContextAfterTokens  *int64 `json:"context_after_tokens,omitempty"`
+	ContextMaxTokens    *int64 `json:"context_max_tokens,omitempty"`
+	SummaryCount        *int   `json:"summary_count,omitempty"`
 }
 
 type TurnSnapshot struct {

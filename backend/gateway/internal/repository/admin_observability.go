@@ -36,6 +36,7 @@ type AgentTraceRecord struct {
 	TotalTokens        int64           `json:"total_tokens"`
 	Error              *string         `json:"error"`
 	Metadata           json.RawMessage `json:"metadata"`
+	ContextWindow      json.RawMessage `json:"context_window,omitempty"`
 	InitialUserMessage *string         `json:"initial_user_message,omitempty"`
 }
 
@@ -95,27 +96,38 @@ func (r *AdminObservabilityRepo) ListTraces(
 			t.started_at,
 			t.finished_at,
 			t.status,
-			t.input_tokens,
-			t.output_tokens,
-			t.total_tokens,
-			t.error,
-			t.metadata,
-			first_event.payload
-		FROM agent_traces t
-		LEFT JOIN LATERAL (
-			SELECT payload
-			FROM agent_trace_events e
-			WHERE e.trace_id = t.trace_id
-			  AND e.event_type = 'start'
-			ORDER BY e.event_index ASC
-			LIMIT 1
-		) first_event ON TRUE
-		WHERE ($1::uuid IS NULL OR t.user_id = $1::uuid)
-		  AND ($2 = '' OR t.agent_name = $2)
-		  AND ($3 = '' OR t.thread_id = $3)
-		ORDER BY t.started_at DESC
-		LIMIT $4 OFFSET $5
-	`
+				t.input_tokens,
+				t.output_tokens,
+				t.total_tokens,
+				t.error,
+				t.metadata,
+				first_event.payload,
+				latest_context.context_window
+			FROM agent_traces t
+			LEFT JOIN LATERAL (
+				SELECT payload
+				FROM agent_trace_events e
+				WHERE e.trace_id = t.trace_id
+				  AND e.event_type = 'start'
+				ORDER BY e.event_index ASC
+				LIMIT 1
+			) first_event ON TRUE
+			LEFT JOIN LATERAL (
+				-- List rows need compact counters, not the raw summary text that
+				-- belongs in the trace-detail/debug payload.
+				SELECT (e.payload->'context_window') #- '{last_summary,summary_preview}' AS context_window
+				FROM agent_trace_events e
+				WHERE e.trace_id = t.trace_id
+				  AND e.payload ? 'context_window'
+				ORDER BY e.event_index DESC
+				LIMIT 1
+			) latest_context ON TRUE
+			WHERE ($1::uuid IS NULL OR t.user_id = $1::uuid)
+			  AND ($2 = '' OR t.agent_name = $2)
+			  AND ($3 = '' OR t.thread_id = $3)
+			ORDER BY t.started_at DESC
+			LIMIT $4 OFFSET $5
+		`
 
 	rows, err := r.pool.Query(ctx, query, userID, agentName, threadID, limit, offset)
 	if err != nil {
@@ -127,6 +139,7 @@ func (r *AdminObservabilityRepo) ListTraces(
 	for rows.Next() {
 		var item AgentTraceRecord
 		var firstPayload json.RawMessage
+		var contextWindow json.RawMessage
 		if err := rows.Scan(
 			&item.TraceID,
 			&item.RootRunID,
@@ -143,10 +156,12 @@ func (r *AdminObservabilityRepo) ListTraces(
 			&item.Error,
 			&item.Metadata,
 			&firstPayload,
+			&contextWindow,
 		); err != nil {
 			return nil, err
 		}
 		item.InitialUserMessage = extractInitialUserMessage(firstPayload)
+		item.ContextWindow = normalizeJSONPayload(contextWindow)
 		items = append(items, item)
 	}
 	return items, nil
@@ -435,6 +450,17 @@ var (
 	hexEscapePattern           = regexp.MustCompile(`\\x([0-9a-fA-F]{2})`)
 )
 
+func normalizeJSONPayload(payload json.RawMessage) json.RawMessage {
+	trimmed := strings.TrimSpace(string(payload))
+	if trimmed == "" || trimmed == "null" || trimmed == "{}" {
+		return nil
+	}
+	// Keep the compact-state shape from the trace payload unchanged, but omit
+	// empty/null rows so API consumers can distinguish "not captured" from an
+	// explicit context-window snapshot.
+	return json.RawMessage(trimmed)
+}
+
 func extractInitialUserMessage(payload json.RawMessage) *string {
 	if len(payload) == 0 {
 		return nil
@@ -600,8 +626,11 @@ func collapseWhitespace(value string) string {
 }
 
 func truncatePreview(value string, maxLen int) string {
-	if len(value) <= maxLen {
+	// Trace previews are displayed in multilingual admin UIs, so truncate by
+	// runes instead of bytes to avoid cutting through UTF-8 code points.
+	runes := []rune(value)
+	if len(runes) <= maxLen {
 		return value
 	}
-	return value[:maxLen-3] + "..."
+	return string(runes[:maxLen-3]) + "..."
 }

@@ -45,6 +45,21 @@ export interface TraceItem {
   error?: string;
   metadata?: Record<string, unknown>;
   initial_user_message?: string;
+  context_window?: TraceContextWindow;
+}
+
+export interface TraceContextWindow {
+  usage_ratio?: number | null;
+  usage_ratio_after_summary?: number | null;
+  approx_input_tokens?: number | null;
+  approx_input_tokens_after_summary?: number | null;
+  max_input_tokens?: number | null;
+  summary_applied?: boolean | null;
+  summary_count?: number | null;
+  last_summary?: {
+    created_at?: string;
+    summary_preview?: string;
+  } | null;
 }
 
 export interface PaginatedResponse<T> {

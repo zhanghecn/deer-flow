@@ -9,7 +9,7 @@ import { formatDate } from "@/lib/format";
 import { EventTree } from "./event-tree";
 import { TokenSummary } from "./token-summary";
 import { useFetch } from "@/hooks/use-fetch";
-import type { TraceItem, TraceEvent } from "@/types";
+import type { TraceItem, TraceEvent, TraceContextWindow } from "@/types";
 import {
   buildTraceRuns,
   extractLatestLLMRequestSettings,
@@ -27,26 +27,12 @@ interface TraceDetailProps {
 type ViewMode = "timeline" | "galaxy";
 type RunFilter = "core" | "all";
 
-type ContextWindowPayload = {
-  usage_ratio?: number | null;
-  usage_ratio_after_summary?: number | null;
-  approx_input_tokens?: number;
-  approx_input_tokens_after_summary?: number | null;
-  max_input_tokens?: number | null;
-  summary_applied?: boolean;
-  summary_count?: number;
-  last_summary?: {
-    created_at?: string;
-    summary_preview?: string;
-  } | null;
-};
-
 const GalaxyTraceView = lazy(async () => {
   const module = await import("./galaxy-trace-view");
   return { default: module.GalaxyTraceView };
 });
 
-function extractLatestContextWindow(runs: TraceRunSummary[]): ContextWindowPayload | null {
+function extractLatestContextWindow(runs: TraceRunSummary[]): TraceContextWindow | null {
   for (let index = runs.length - 1; index >= 0; index -= 1) {
     const run = runs[index];
     if (!run) {
@@ -56,7 +42,7 @@ function extractLatestContextWindow(runs: TraceRunSummary[]): ContextWindowPaylo
     if (!contextWindow) {
       continue;
     }
-    return contextWindow as ContextWindowPayload;
+    return contextWindow as TraceContextWindow;
   }
   return null;
 }
@@ -73,6 +59,39 @@ function formatCount(value?: number | null) {
     return "—";
   }
   return new Intl.NumberFormat(getCurrentLocale()).format(Math.round(value));
+}
+
+function formatCompactionReduction(contextWindow: TraceContextWindow) {
+  const before = contextWindow.approx_input_tokens;
+  const after = contextWindow.approx_input_tokens_after_summary;
+  if (
+    typeof before !== "number" ||
+    Number.isNaN(before) ||
+    typeof after !== "number" ||
+    Number.isNaN(after)
+  ) {
+    return null;
+  }
+  return t("Active context reduced: {before} -> {after}", {
+    before: formatCount(before),
+    after: formatCount(after),
+  });
+}
+
+function getContextWindowDisplay(contextWindow: TraceContextWindow) {
+  const after = contextWindow.approx_input_tokens_after_summary;
+  const hasAfter = typeof after === "number" && !Number.isNaN(after);
+
+  // After a compaction, the operator-facing "active" value is the reduced
+  // context that will be carried forward. The pre-compaction estimate remains
+  // visible as "Before" so the reduction can still be audited.
+  return {
+    activeTokens: hasAfter ? after : contextWindow.approx_input_tokens,
+    activeRatio: hasAfter
+      ? contextWindow.usage_ratio_after_summary
+      : contextWindow.usage_ratio,
+    hasAfter,
+  };
 }
 
 export function TraceDetail({ trace, expanded = false }: TraceDetailProps) {
@@ -128,8 +147,15 @@ function TraceDetailContent({
     [visibleRuns],
   );
   const latestContextWindow = useMemo(
-    () => extractLatestContextWindow(runs),
-    [runs],
+    () => extractLatestContextWindow(runs) ?? trace.context_window ?? null,
+    [runs, trace.context_window],
+  );
+  const latestContextDisplay = useMemo(
+    () =>
+      latestContextWindow
+        ? getContextWindowDisplay(latestContextWindow)
+        : null,
+    [latestContextWindow],
   );
   const latestLLMSettings = useMemo(
     () => extractLatestLLMRequestSettings(runs),
@@ -271,7 +297,7 @@ function TraceDetailContent({
 
         <TokenSummary trace={trace} />
 
-        {latestContextWindow && (
+        {latestContextWindow && latestContextDisplay && (
           <div className="rounded-md border p-3 space-y-2">
             <div className="flex items-center justify-between gap-2 text-sm font-medium">
               <span>{t("Context Window")}</span>
@@ -279,14 +305,17 @@ function TraceDetailContent({
                 <Badge variant="outline">{t("Compacted")}</Badge>
               )}
             </div>
-            {typeof latestContextWindow.usage_ratio === "number" && (
+            {typeof latestContextDisplay.activeRatio === "number" && (
               <div className="flex h-2 overflow-hidden rounded-full bg-muted">
                 <div
                   className="h-full bg-emerald-500 transition-all"
                   style={{
                     width: `${Math.max(
                       0,
-                      Math.min(100, latestContextWindow.usage_ratio * 100),
+                      Math.min(
+                        100,
+                        (latestContextDisplay.activeRatio ?? 0) * 100,
+                      ),
                     )}%`,
                   }}
                 />
@@ -296,18 +325,34 @@ function TraceDetailContent({
               <span>
                 {latestContextWindow.max_input_tokens
                   ? t("Active: {used} / {max}", {
-                      used: formatCount(latestContextWindow.approx_input_tokens),
+                      used: formatCount(latestContextDisplay.activeTokens),
                       max: formatCount(latestContextWindow.max_input_tokens),
                     })
                   : t("Active: {used}", {
-                      used: formatCount(latestContextWindow.approx_input_tokens),
+                      used: formatCount(latestContextDisplay.activeTokens),
                     })}
               </span>
+              {latestContextDisplay.hasAfter && (
+                <span>
+                  {latestContextWindow.max_input_tokens
+                    ? t("Before: {used} / {max}", {
+                        used: formatCount(latestContextWindow.approx_input_tokens),
+                        max: formatCount(latestContextWindow.max_input_tokens),
+                      })
+                    : t("Before: {used}", {
+                        used: formatCount(latestContextWindow.approx_input_tokens),
+                      })}
+                </span>
+              )}
               {formatPercent(latestContextWindow.usage_ratio) && (
                 <span>
-                  {t("{ratio} used", {
-                    ratio: formatPercent(latestContextWindow.usage_ratio),
-                  })}
+                  {latestContextDisplay.hasAfter
+                    ? t("Before compaction: {ratio}", {
+                        ratio: formatPercent(latestContextWindow.usage_ratio),
+                      })
+                    : t("{ratio} used", {
+                        ratio: formatPercent(latestContextWindow.usage_ratio),
+                      })}
                 </span>
               )}
               {formatPercent(latestContextWindow.usage_ratio_after_summary) && (
@@ -325,10 +370,20 @@ function TraceDetailContent({
                 </span>
               )}
             </div>
-            {latestContextWindow.last_summary?.summary_preview && (
-              <p className="text-xs text-muted-foreground">
-                {latestContextWindow.last_summary.summary_preview}
+            {formatCompactionReduction(latestContextWindow) && (
+              <p className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                {formatCompactionReduction(latestContextWindow)}
               </p>
+            )}
+            {latestContextWindow.last_summary?.summary_preview && (
+              <details className="rounded-md border bg-muted/30 px-3 py-2">
+                <summary className="cursor-pointer text-xs text-muted-foreground">
+                  {t("Raw compact summary preview")}
+                </summary>
+                <p className="mt-2 whitespace-pre-wrap text-xs text-muted-foreground">
+                  {latestContextWindow.last_summary.summary_preview}
+                </p>
+              </details>
             )}
           </div>
         )}

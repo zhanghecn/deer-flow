@@ -12,6 +12,7 @@ export type PublicAPITurnEventType =
   | "assistant.reasoning.delta"
   | "tool.call.started"
   | "tool.call.completed"
+  | "context.compacted"
   | "turn.requires_input"
   | "assistant.message.completed"
   | "turn.completed"
@@ -56,6 +57,10 @@ export interface PublicAPITurnEvent {
   code?: string;
   tool_arguments?: unknown;
   tool_output?: unknown;
+  context_before_tokens?: number;
+  context_after_tokens?: number;
+  context_max_tokens?: number;
+  summary_count?: number;
 }
 
 export interface PublicAPITurnRequestBody {
