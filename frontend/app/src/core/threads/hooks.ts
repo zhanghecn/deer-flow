@@ -1109,6 +1109,18 @@ function finalizeExecutionStatus(
     };
   }
   if (previous.terminal) {
+    if (terminalEvent === "failed" && previous.event !== "failed") {
+      // LangGraph can close the stream transport before the terminal task
+      // error is available to the SDK. Let later task-state recovery correct a
+      // premature completed banner instead of freezing the wrong terminal UI.
+      return {
+        ...previous,
+        event: "failed",
+        error: normalizeThreadError(error),
+        error_type: previous.error_type,
+        terminal: true,
+      };
+    }
     return previous;
   }
 
@@ -1365,10 +1377,7 @@ export function useThreadStream({
       error: unknown,
       resolvedThreadId?: string | null,
     ) => {
-      if (terminalStateNotifiedRef.current) {
-        return;
-      }
-
+      const terminalAlreadyNotified = terminalStateNotifiedRef.current;
       terminalStateNotifiedRef.current = true;
       setPendingRecoveryLoading(false);
       setExecutionStatus((current) =>
@@ -1391,8 +1400,10 @@ export function useThreadStream({
         setHistoryEnabled(true);
       }
       notifyThreadError(error);
-      onStop?.(state);
-      void invalidateThreadSearchCaches(queryClient);
+      if (!terminalAlreadyNotified) {
+        onStop?.(state);
+        void invalidateThreadSearchCaches(queryClient);
+      }
     },
     [
       notifyThreadError,
@@ -1453,6 +1464,21 @@ export function useThreadStream({
       }
     },
     onFinish(state) {
+      const taskError = extractLatestTaskError(
+        (state as { tasks?: unknown }).tasks,
+      );
+      if (taskError != null) {
+        // A stream finish callback only means the HTTP stream ended. The final
+        // LangGraph state can still carry a failed task, especially for model
+        // provider errors emitted after tool results were checkpointed.
+        finalizeRecoveredTerminalError(
+          state.values,
+          taskError,
+          streamThreadId ?? threadId ?? null,
+        );
+        return;
+      }
+
       finalizeRecoveredRun(state.values, streamThreadId ?? threadId ?? null);
     },
     onError(error) {

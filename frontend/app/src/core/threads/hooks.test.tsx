@@ -787,6 +787,139 @@ describe("useThreadStream", () => {
     });
   });
 
+  it("treats live finish task errors as failed instead of completed", async () => {
+    const terminalState: AgentThreadState = {
+      title: "Thread",
+      messages: [],
+      artifacts: [],
+    };
+    const onFinish = vi.fn();
+    const onStop = vi.fn();
+    const { result } = renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+          onFinish,
+          onStop,
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    const finishHandler = latestUseStreamOptions?.onFinish;
+    expect(typeof finishHandler).toBe("function");
+    if (typeof finishHandler !== "function") {
+      throw new Error("Expected onFinish callback to be registered.");
+    }
+
+    await act(async () => {
+      finishHandler({
+        values: terminalState,
+        tasks: [
+          {
+            error: 'Error code: 400 - {"message":"provider failed"}',
+          },
+        ],
+      });
+      await Promise.resolve();
+    });
+
+    expect(onFinish).not.toHaveBeenCalled();
+    expect(onStop).toHaveBeenCalledWith(terminalState);
+    expect(result.current[4]).toMatchObject({
+      event: "failed",
+      error: "400 provider failed",
+      terminal: true,
+    });
+    expect(toastError).toHaveBeenCalledWith("400 provider failed", {
+      id: "thread-error:thread-1:400 provider failed",
+    });
+  });
+
+  it("lets persisted task errors correct a premature completed terminal state", async () => {
+    const terminalState: AgentThreadState = {
+      title: "Thread",
+      messages: [],
+      artifacts: [],
+    };
+    const { result } = renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-1",
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    const finishHandler = latestUseStreamOptions?.onFinish;
+    expect(typeof finishHandler).toBe("function");
+    if (typeof finishHandler !== "function") {
+      throw new Error("Expected onFinish callback to be registered.");
+    }
+    const customEventHandler = latestUseStreamOptions?.onCustomEvent;
+    expect(typeof customEventHandler).toBe("function");
+    if (typeof customEventHandler !== "function") {
+      throw new Error("Expected onCustomEvent callback to be registered.");
+    }
+
+    await act(async () => {
+      customEventHandler({
+        type: "execution_event",
+        event: "phase_started",
+        occurred_at: "2026-03-23T12:00:00Z",
+        started_at: "2026-03-23T12:00:00Z",
+        phase: "thinking_initial",
+        phase_kind: "model",
+      });
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      finishHandler({
+        values: terminalState,
+      });
+      await Promise.resolve();
+    });
+    expect(result.current[4]).toMatchObject({
+      event: "completed",
+      terminal: true,
+    });
+
+    act(() => {
+      emitStream({
+        history: [
+          {
+            values: terminalState,
+            tasks: [
+              {
+                error: 'Error code: 400 - {"message":"provider failed"}',
+              },
+            ],
+          } as unknown as ThreadState<AgentThreadState>,
+        ],
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current[4]).toMatchObject({
+        event: "failed",
+        error: "400 provider failed",
+        terminal: true,
+      });
+    });
+    expect(toastError).toHaveBeenCalledWith("400 provider failed", {
+      id: "thread-error:thread-1:400 provider failed",
+    });
+  });
+
   it("surfaces hydrated interrupts from thread state recovery", async () => {
     apiClient.threads.getState.mockResolvedValue({
       values: {
