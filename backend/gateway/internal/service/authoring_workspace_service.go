@@ -34,7 +34,7 @@ func NewAuthoringWorkspaceService(fs *storage.FS) *AuthoringWorkspaceService {
 	}
 }
 
-func (s *AuthoringWorkspaceService) StageAgentDraft(userID string, threadID string, agentName string, agentStatus string) (string, []model.AuthoringFileEntry, error) {
+func (s *AuthoringWorkspaceService) StageAgentDraft(userID string, threadID string, agentName string, agentStatus string, overwrite bool) (string, []model.AuthoringFileEntry, error) {
 	status := normalizeAuthoringAgentStatus(agentStatus)
 	sourceDir := s.fs.AgentDir(agentName, status)
 	if info, err := os.Stat(sourceDir); err != nil || !info.IsDir() {
@@ -44,7 +44,15 @@ func (s *AuthoringWorkspaceService) StageAgentDraft(userID string, threadID stri
 	draftDir := filepath.Join(s.fs.ThreadUserDataDirForUser(userID, threadID), "authoring", "agents", status, agentName)
 	// Drafts are thread-local working copies so browser edits never mutate the
 	// canonical archive until an explicit save action copies them back.
-	if info, err := os.Stat(draftDir); err != nil || !info.IsDir() {
+	if overwrite {
+		// Settings saves are an explicit archive-level update. When the UI asks
+		// to overwrite, keep the same thread-local virtual path but restage it
+		// from the canonical archive so copied skills and config stay aligned.
+		_ = os.RemoveAll(draftDir)
+		if err := s.copyAgentArchiveIntoDraft(sourceDir, draftDir); err != nil {
+			return "", nil, err
+		}
+	} else if info, err := os.Stat(draftDir); err != nil || !info.IsDir() {
 		_ = os.RemoveAll(draftDir)
 		if err := s.copyAgentArchiveIntoDraft(sourceDir, draftDir); err != nil {
 			return "", nil, err
@@ -145,6 +153,20 @@ func (s *AuthoringWorkspaceService) WriteDraftFile(userID string, threadID strin
 		return err
 	}
 	return os.WriteFile(actualPath, []byte(content), 0o644)
+}
+
+func (s *AuthoringWorkspaceService) DeleteDraftPath(userID string, threadID string, virtualPath string) error {
+	actualPath, err := s.resolveDraftVirtualPath(userID, threadID, virtualPath)
+	if err != nil {
+		return err
+	}
+	if err := rejectAuthoringDraftRootDelete(s.fs.ThreadUserDataDirForUser(userID, threadID), actualPath); err != nil {
+		return err
+	}
+	if _, err := os.Stat(actualPath); err != nil {
+		return err
+	}
+	return os.RemoveAll(actualPath)
 }
 
 func (s *AuthoringWorkspaceService) SaveAgentDraft(userID string, threadID string, agentName string, agentStatus string) (string, error) {
@@ -280,6 +302,29 @@ func (s *AuthoringWorkspaceService) virtualAuthoringPath(userID string, threadID
 		return authoringVirtualPathPrefix
 	}
 	return "/mnt/user-data/" + filepath.ToSlash(relativePath)
+}
+
+func rejectAuthoringDraftRootDelete(threadUserDataDir string, actualPath string) error {
+	authoringRoot := filepath.Join(filepath.Clean(threadUserDataDir), "authoring")
+	relativePath, err := filepath.Rel(authoringRoot, actualPath)
+	if err != nil {
+		return err
+	}
+	if relativePath == "." {
+		return fmt.Errorf("cannot delete authoring root")
+	}
+
+	// The workbench may delete files and nested directories, but deleting an
+	// entire authoring group or staged agent/skill root would bypass the
+	// explicit save/discard lifecycle and orphan the source fingerprint metadata.
+	parts := strings.Split(filepath.ToSlash(relativePath), "/")
+	if parts[0] == "agents" && len(parts) <= 3 {
+		return fmt.Errorf("cannot delete agent draft root")
+	}
+	if parts[0] == "skills" && len(parts) <= 2 {
+		return fmt.Errorf("cannot delete skill draft root")
+	}
+	return nil
 }
 
 func normalizeAuthoringAgentStatus(status string) string {

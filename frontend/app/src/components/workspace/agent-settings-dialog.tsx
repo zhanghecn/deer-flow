@@ -47,7 +47,10 @@ import {
 } from "@/core/agents";
 import type { AgentSkillRef } from "@/core/agents";
 import { useAuth } from "@/core/auth/hooks";
-import { buildWorkspaceAgentAuthoringPath } from "@/core/authoring";
+import {
+  buildWorkspaceAgentAuthoringPath,
+  overwriteStoredAgentAuthoringDraft,
+} from "@/core/authoring";
 import { useI18n } from "@/core/i18n/hooks";
 import { useMCPProfiles } from "@/core/mcp/hooks";
 import type { MCPProfile } from "@/core/mcp/types";
@@ -730,6 +733,7 @@ export function AgentSettingsDialog({
       const nextForm = createFormState(updated);
       setForm(nextForm);
       setSavedForm(nextForm);
+      await overwriteStoredAgentAuthoringDraft(updated.name, updated.status);
       toast.success(text.saveSuccess(updated.name, updated.status));
     } catch (saveError) {
       toast.error(
@@ -1587,7 +1591,7 @@ export function AgentSettingsDialog({
                                 {text.loadingMcpProfiles}
                               </p>
                             ) : mcpProfilesError ? (
-                              <p className="text-sm text-destructive">
+                              <p className="text-destructive text-sm">
                                 {mcpProfilesError.message}
                               </p>
                             ) : filteredMCPProfiles.length === 0 ? (
@@ -1601,7 +1605,8 @@ export function AgentSettingsDialog({
                                   if (!ref) {
                                     return null;
                                   }
-                                  const selected = form.mcpServers.includes(ref);
+                                  const selected =
+                                    form.mcpServers.includes(ref);
                                   return (
                                     <button
                                       key={ref}

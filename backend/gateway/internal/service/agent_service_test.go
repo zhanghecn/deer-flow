@@ -746,3 +746,85 @@ func TestAgentServiceUpdatePreservesAgentOwnedSkillRefs(t *testing.T) {
 		t.Fatalf("expected private skill to survive update: %v", err)
 	}
 }
+
+func TestAgentServiceUpdateDropsMissingAgentOwnedSkillWhenArchivedRefSelected(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	customSkillDir := filepath.Join(baseDir, "custom", "skills", "bms-kb-answering")
+	if err := os.MkdirAll(customSkillDir, 0o755); err != nil {
+		t.Fatalf("mkdir custom skill dir: %v", err)
+	}
+	customSkillMD := "---\nname: bms-kb-answering\ndescription: archived kb answering\n---\n\n# archived\n"
+	if err := os.WriteFile(filepath.Join(customSkillDir, "SKILL.md"), []byte(customSkillMD), 0o644); err != nil {
+		t.Fatalf("write custom skill file: %v", err)
+	}
+
+	fsStore := storage.NewFS(baseDir)
+	if err := fsStore.WriteAgentFiles("bms-kb-assistant", "dev", "# BMS KB Assistant", map[string]interface{}{
+		"name":           "bms-kb-assistant",
+		"description":    "KB assistant",
+		"status":         "dev",
+		"agents_md_path": "AGENTS.md",
+		"skill_refs": []model.SkillRef{
+			{
+				Name:             "kb-retrieval-protocol",
+				MaterializedPath: "skills/kb-retrieval-protocol",
+			},
+		},
+		"memory": map[string]interface{}{
+			"enabled":                   false,
+			"debounce_seconds":          30,
+			"max_facts":                 100,
+			"fact_confidence_threshold": 0.7,
+			"injection_enabled":         true,
+			"max_injection_tokens":      2000,
+		},
+	}); err != nil {
+		t.Fatalf("seed agent files: %v", err)
+	}
+
+	svc := NewAgentService(fsStore)
+	agent, err := svc.Update(context.Background(), "bms-kb-assistant", "dev", model.UpdateAgentRequest{
+		SkillRefs: []model.SkillRef{
+			{
+				Name:             "kb-retrieval-protocol",
+				MaterializedPath: "skills/kb-retrieval-protocol",
+			},
+			{
+				Name:       "bms-kb-answering",
+				SourcePath: "custom/skills/bms-kb-answering",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+
+	if len(agent.Skills) != 1 {
+		t.Fatalf("len(agent.Skills) = %d, want 1", len(agent.Skills))
+	}
+	if got := agent.Skills[0].Name; got != "bms-kb-answering" {
+		t.Fatalf("agent.Skills[0].Name = %q, want bms-kb-answering", got)
+	}
+	if got := agent.Skills[0].SourcePath; got != "custom/skills/bms-kb-answering" {
+		t.Fatalf("agent.Skills[0].SourcePath = %q, want custom archive source", got)
+	}
+	copiedSkill := filepath.Join(
+		baseDir,
+		"custom",
+		"agents",
+		"dev",
+		"bms-kb-assistant",
+		"skills",
+		"bms-kb-answering",
+		"SKILL.md",
+	)
+	data, err := os.ReadFile(copiedSkill)
+	if err != nil {
+		t.Fatalf("expected archived skill to rematerialize at %s: %v", copiedSkill, err)
+	}
+	if !strings.Contains(string(data), "# archived") {
+		t.Fatalf("copied skill content = %q, want archived source content", string(data))
+	}
+}

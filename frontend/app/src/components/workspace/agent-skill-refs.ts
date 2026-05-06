@@ -49,7 +49,7 @@ function canonicalizeArchivedSkillSourcePath(
   return normalizedPath;
 }
 
-function removeArchivedVariantsWithSameName(
+function removeExistingVariantsWithSameName(
   skillRefs: AgentSkillRef[],
   nextRef: AgentSkillRef,
 ) {
@@ -58,11 +58,7 @@ function removeArchivedVariantsWithSameName(
   }
 
   return skillRefs.filter(
-    (skillRef) =>
-      !(
-        isArchivedLibrarySkillRef(skillRef) &&
-        skillRefNameKey(skillRef) === skillRefNameKey(nextRef)
-      ),
+    (skillRef) => skillRefNameKey(skillRef) !== skillRefNameKey(nextRef),
   );
 }
 
@@ -155,10 +151,7 @@ export function toggleSkillRefSelection(
     return removeSkillRef(skillRefs, nextRef);
   }
 
-  return [
-    ...removeArchivedVariantsWithSameName(skillRefs, nextRef),
-    nextRef,
-  ];
+  return [...removeExistingVariantsWithSameName(skillRefs, nextRef), nextRef];
 }
 
 function stripSkillSourceScopePrefix(sourcePath: string) {

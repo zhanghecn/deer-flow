@@ -26,6 +26,12 @@ export type AuthoringWorkbenchText = {
   newFilePathPlaceholder: string;
   createFileSubmit: string;
   fileCreated: (path: string) => string;
+  createFileIn: string;
+  deleteFile: string;
+  deleteDirectory: string;
+  fileDeleted: (name: string) => string;
+  confirmDeleteFile: (name: string) => string;
+  confirmDeleteDirectory: (name: string) => string;
   invalidFilePath: string;
   saveHintAgent: string;
   saveHintSkill: string;
@@ -66,6 +72,13 @@ const enUS: AuthoringWorkbenchText = {
   newFilePathPlaceholder: "references/checklist.md",
   createFileSubmit: "Add file",
   fileCreated: (path) => `Created ${path}.`,
+  createFileIn: "New file",
+  deleteFile: "Delete file",
+  deleteDirectory: "Delete folder",
+  fileDeleted: (name) => `Deleted ${name}.`,
+  confirmDeleteFile: (name) => `Delete ${name}?`,
+  confirmDeleteDirectory: (name) =>
+    `Delete folder ${name} and everything inside it?`,
   invalidFilePath: "Enter a relative file path under the current draft root.",
   saveHintAgent:
     "Save copies the draft back into the selected archived agent version.",
@@ -110,6 +123,12 @@ const zhCN: AuthoringWorkbenchText = {
   newFilePathPlaceholder: "references/checklist.md",
   createFileSubmit: "添加文件",
   fileCreated: (path) => `已创建 ${path}。`,
+  createFileIn: "新建文件",
+  deleteFile: "删除文件",
+  deleteDirectory: "删除文件夹",
+  fileDeleted: (name) => `已删除 ${name}。`,
+  confirmDeleteFile: (name) => `删除 ${name}？`,
+  confirmDeleteDirectory: (name) => `删除文件夹 ${name} 及其中所有内容？`,
   invalidFilePath: "请输入当前草稿根目录下的相对文件路径。",
   saveHintAgent: "保存会把当前草稿回写到所选的 agent archive 版本。",
   saveHintSkill: "保存会把草稿写入 `.openagents/custom/skills/<name>`。",

@@ -79,18 +79,18 @@ export function AuthoringActions({
               <dt className="text-muted-foreground text-xs">
                 {text.sourcePath}
               </dt>
-              <dd className="mt-1 break-all font-medium">{sourcePath}</dd>
+              <dd className="mt-1 font-medium break-all">{sourcePath}</dd>
             </div>
           ) : null}
           <div>
             <dt className="text-muted-foreground text-xs">{text.rootPath}</dt>
-            <dd className="mt-1 break-all font-medium">{rootPath}</dd>
+            <dd className="mt-1 font-medium break-all">{rootPath}</dd>
           </div>
           <div>
             <dt className="text-muted-foreground text-xs">
               {text.authoringThread}
             </dt>
-            <dd className="mt-1 break-all font-medium">{threadId}</dd>
+            <dd className="mt-1 font-medium break-all">{threadId}</dd>
           </div>
         </dl>
       </div>
@@ -128,30 +128,28 @@ export function AuthoringActions({
         </div>
       </div>
 
-      {kind === "skill" ? (
-        <div className="bg-background rounded-3xl border p-4">
-          <div className="text-sm font-semibold">{text.createFile}</div>
-          <p className="text-muted-foreground mt-1 text-sm leading-6">
-            {text.createFileDescription}
-          </p>
-          <div className="mt-4 space-y-3">
-            <div className="space-y-2">
-              <div className="text-muted-foreground text-xs">
-                {text.newFilePath}
-              </div>
-              <Input
-                value={newFilePath}
-                placeholder={text.newFilePathPlaceholder}
-                onChange={(event) => onNewFilePathChange(event.target.value)}
-              />
+      <div className="bg-background rounded-3xl border p-4">
+        <div className="text-sm font-semibold">{text.createFile}</div>
+        <p className="text-muted-foreground mt-1 text-sm leading-6">
+          {text.createFileDescription}
+        </p>
+        <div className="mt-4 space-y-3">
+          <div className="space-y-2">
+            <div className="text-muted-foreground text-xs">
+              {text.newFilePath}
             </div>
-            <Button variant="outline" onClick={onCreateFile}>
-              <PlusIcon className="size-4" />
-              {text.createFileSubmit}
-            </Button>
+            <Input
+              value={newFilePath}
+              placeholder={text.newFilePathPlaceholder}
+              onChange={(event) => onNewFilePathChange(event.target.value)}
+            />
           </div>
+          <Button variant="outline" onClick={onCreateFile}>
+            <PlusIcon className="size-4" />
+            {text.createFileSubmit}
+          </Button>
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }

@@ -25,6 +25,7 @@ export async function createAgentAuthoringDraft(
   request: {
     thread_id: string;
     agent_status?: "dev" | "prod";
+    overwrite?: boolean;
   },
 ): Promise<AuthoringDraft> {
   const response = await authFetch(
@@ -126,17 +127,45 @@ export async function writeAuthoringFile(request: {
   path: string;
   content: string;
 }): Promise<void> {
-  const response = await authFetch(`${getBackendBaseURL()}/api/authoring/file`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request),
-  });
+  const response = await authFetch(
+    `${getBackendBaseURL()}/api/authoring/file`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+  );
   if (!response.ok) {
     const err = (await response.json().catch(() => ({}))) as APIErrorShape;
     throw new Error(
       resolveAPIErrorMessage(
         err,
         `Failed to save authoring file: ${response.statusText}`,
+      ),
+    );
+  }
+}
+
+export async function deleteAuthoringFile(
+  threadId: string,
+  path: string,
+): Promise<void> {
+  const params = new URLSearchParams({
+    thread_id: threadId,
+    path,
+  });
+  const response = await authFetch(
+    `${getBackendBaseURL()}/api/authoring/file?${params.toString()}`,
+    {
+      method: "DELETE",
+    },
+  );
+  if (!response.ok) {
+    const err = (await response.json().catch(() => ({}))) as APIErrorShape;
+    throw new Error(
+      resolveAPIErrorMessage(
+        err,
+        `Failed to delete authoring file: ${response.statusText}`,
       ),
     );
   }

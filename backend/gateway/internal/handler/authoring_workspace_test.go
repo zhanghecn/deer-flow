@@ -97,6 +97,30 @@ func createAgentDraft(
 	}
 }
 
+func overwriteAgentDraft(
+	t *testing.T,
+	handler *AuthoringWorkspaceHandler,
+	userID uuid.UUID,
+	threadID string,
+	agentName string,
+	agentStatus string,
+) {
+	t.Helper()
+	context, recorder := newAuthoringAuthedContext(
+		http.MethodPost,
+		"/api/authoring/agents/"+agentName+"/draft",
+		`{"thread_id":"`+threadID+`","agent_status":"`+agentStatus+`","overwrite":true}`,
+		userID,
+	)
+	context.Params = gin.Params{{Key: "name", Value: agentName}}
+
+	handler.CreateAgentDraft(context)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected overwrite draft status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func readAuthoringAgentsMD(t *testing.T, fsStore *storage.FS, userID uuid.UUID, threadID string, agentName string) string {
 	t.Helper()
 	path := filepath.Join(
@@ -263,6 +287,55 @@ func TestAuthoringWorkspaceHandlerCreateAgentDraftPreservesEditedDraftAfterArchi
 	}
 }
 
+func TestAuthoringWorkspaceHandlerCreateAgentDraftOverwriteRestagesEditedDraft(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	fsStore := storage.NewFS(t.TempDir())
+	userID := uuid.New()
+	threadID := "thread-authoring"
+	seedOwnedAgentArchive(t, fsStore, "reviewer", "dev", userID.String())
+
+	handler := NewAuthoringWorkspaceHandler(
+		service.NewAuthoringWorkspaceService(fsStore),
+		fsStore,
+		&stubAuthoringThreadRepo{
+			record: &repository.ThreadRuntimeRecord{ThreadID: threadID},
+		},
+	)
+
+	createAgentDraft(t, handler, userID, threadID, "reviewer", "dev")
+	writeContext, writeRecorder := newAuthoringAuthedContext(
+		http.MethodPut,
+		"/api/authoring/file",
+		`{"thread_id":"`+threadID+`","path":"/mnt/user-data/authoring/agents/dev/reviewer/AGENTS.md","content":"# Agent\n\nLocal draft edit"}`,
+		userID,
+	)
+	handler.WriteFile(writeContext)
+	if writeRecorder.Code != http.StatusOK {
+		t.Fatalf("expected write status 200, got %d body=%s", writeRecorder.Code, writeRecorder.Body.String())
+	}
+	if err := fsStore.WriteAgentFiles("reviewer", "dev", "# Agent\n\nUpdated source", map[string]interface{}{
+		"name":           "reviewer",
+		"description":    "Owned agent",
+		"status":         "dev",
+		"owner_user_id":  userID.String(),
+		"agents_md_path": "AGENTS.md",
+	}); err != nil {
+		t.Fatalf("update agent archive: %v", err)
+	}
+
+	overwriteAgentDraft(t, handler, userID, threadID, "reviewer", "dev")
+
+	data := readAuthoringAgentsMD(t, fsStore, userID, threadID, "reviewer")
+	if !strings.Contains(data, "Updated source") {
+		t.Fatalf("draft AGENTS.md was not overwritten from archive: %s", data)
+	}
+	if strings.Contains(data, "Local draft edit") {
+		t.Fatalf("edited draft survived explicit overwrite: %s", data)
+	}
+}
+
 func TestAuthoringWorkspaceHandlerCreateAgentDraftMigratesLegacyStaleDraft(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
@@ -367,6 +440,95 @@ func TestAuthoringWorkspaceHandlerReadAndWriteRejectPathTraversal(t *testing.T) 
 	}
 	if !strings.Contains(readPayload.Error, "path traversal") {
 		t.Fatalf("read error = %q, want path traversal message", readPayload.Error)
+	}
+}
+
+func TestAuthoringWorkspaceHandlerDeleteFileRemovesNestedDraftFile(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	fsStore := storage.NewFS(t.TempDir())
+	threadID := "thread-authoring"
+	userID := uuid.New()
+	handler := NewAuthoringWorkspaceHandler(
+		service.NewAuthoringWorkspaceService(fsStore),
+		fsStore,
+		&stubAuthoringThreadRepo{
+			record: &repository.ThreadRuntimeRecord{ThreadID: threadID},
+		},
+	)
+
+	writeContext, writeRecorder := newAuthoringAuthedContext(
+		http.MethodPut,
+		"/api/authoring/file",
+		`{"thread_id":"`+threadID+`","path":"/mnt/user-data/authoring/skills/vercel-deploy/references/checklist.md","content":"checklist"}`,
+		userID,
+	)
+	handler.WriteFile(writeContext)
+	if writeRecorder.Code != http.StatusOK {
+		t.Fatalf("expected write status 200, got %d body=%s", writeRecorder.Code, writeRecorder.Body.String())
+	}
+
+	deleteContext, deleteRecorder := newAuthoringAuthedContext(
+		http.MethodDelete,
+		"/api/authoring/file?thread_id="+threadID+"&path=/mnt/user-data/authoring/skills/vercel-deploy/references/checklist.md",
+		"",
+		userID,
+	)
+	handler.DeleteFile(deleteContext)
+	if deleteRecorder.Code != http.StatusOK {
+		t.Fatalf("expected delete status 200, got %d body=%s", deleteRecorder.Code, deleteRecorder.Body.String())
+	}
+
+	deletedPath := filepath.Join(
+		fsStore.ThreadUserDataDirForUser(userID.String(), threadID),
+		"authoring",
+		"skills",
+		"vercel-deploy",
+		"references",
+		"checklist.md",
+	)
+	if _, err := os.Stat(deletedPath); !os.IsNotExist(err) {
+		t.Fatalf("expected draft file to be deleted, stat err=%v", err)
+	}
+}
+
+func TestAuthoringWorkspaceHandlerDeleteRejectsDraftRoots(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	fsStore := storage.NewFS(t.TempDir())
+	threadID := "thread-authoring"
+	userID := uuid.New()
+	handler := NewAuthoringWorkspaceHandler(
+		service.NewAuthoringWorkspaceService(fsStore),
+		fsStore,
+		&stubAuthoringThreadRepo{
+			record: &repository.ThreadRuntimeRecord{ThreadID: threadID},
+		},
+	)
+
+	paths := []string{
+		"/mnt/user-data/authoring/agents",
+		"/mnt/user-data/authoring/agents/dev",
+		"/mnt/user-data/authoring/agents/dev/reviewer",
+		"/mnt/user-data/authoring/skills",
+		"/mnt/user-data/authoring/skills/vercel-deploy",
+	}
+	for _, draftRoot := range paths {
+		deleteContext, deleteRecorder := newAuthoringAuthedContext(
+			http.MethodDelete,
+			"/api/authoring/file?thread_id="+threadID+"&path="+draftRoot,
+			"",
+			userID,
+		)
+		handler.DeleteFile(deleteContext)
+		if deleteRecorder.Code != http.StatusBadRequest {
+			t.Fatalf("expected delete status 400 for %s, got %d body=%s", draftRoot, deleteRecorder.Code, deleteRecorder.Body.String())
+		}
+		if !strings.Contains(deleteRecorder.Body.String(), "draft root") {
+			t.Fatalf("delete root error for %s = %s, want draft root message", draftRoot, deleteRecorder.Body.String())
+		}
 	}
 }
 

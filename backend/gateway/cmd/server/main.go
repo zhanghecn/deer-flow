@@ -273,6 +273,7 @@ func main() {
 		api.GET("/authoring/files", authoringWorkspaceH.ListFiles)
 		api.GET("/authoring/file", authoringWorkspaceH.ReadFile)
 		api.PUT("/authoring/file", authoringWorkspaceH.WriteFile)
+		api.DELETE("/authoring/file", authoringWorkspaceH.DeleteFile)
 		api.POST("/authoring/agents/:name/save", authoringWorkspaceH.SaveAgentDraft)
 		api.POST("/authoring/skills/:name/save", authoringWorkspaceH.SaveSkillDraft)
 

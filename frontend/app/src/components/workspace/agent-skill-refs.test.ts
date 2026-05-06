@@ -202,7 +202,7 @@ describe("agent skill refs", () => {
     expect(selected).toEqual([]);
   });
 
-  it("keeps agent-owned skills when switching archived store variants", () => {
+  it("replaces same-name agent-owned skills when selecting an archived source", () => {
     const selected = toggleSkillRefSelection(
       [
         {
@@ -221,12 +221,6 @@ describe("agent skill refs", () => {
     );
 
     expect(selected).toEqual([
-      {
-        name: "frontend-dev",
-        category: null,
-        source_path: null,
-        materialized_path: "skills/custom/frontend-dev",
-      },
       {
         name: "frontend-dev",
         category: "store/prod",

@@ -17,7 +17,7 @@ from langgraph.prebuilt import ToolRuntime
 from src.agents.thread_state import ThreadState
 from src.config.agent_materialization import validate_skill_refs_for_status
 from src.config.agents_config import AGENT_NAME_PATTERN, AGENTS_MD_FILENAME, AgentConfig, resolve_authored_agent_dir
-from src.config.paths import Paths, VIRTUAL_PATH_PREFIX, get_paths
+from src.config.paths import VIRTUAL_PATH_PREFIX, Paths, get_paths
 from src.skills.parser import parse_skill_file
 from src.utils.runtime_context import runtime_context_value
 
@@ -507,7 +507,11 @@ def resolve_default_agent_source_dir(
     authoring_base = paths.sandbox_authoring_agents_dir(thread_id, user_id=user_id)
     runtime_agents_base = paths.sandbox_agents_dir(thread_id, user_id=user_id)
     candidates = (
-        authoring_base / normalized_agent_name,
+        # Browser and agent authoring drafts are status-scoped. Keep the
+        # default source aligned with the virtual `/mnt/user-data/authoring`
+        # contract so `save_agent_to_store` persists the files the user can see
+        # in the dev workbench instead of looking at a stale flat draft root.
+        authoring_base / "dev" / normalized_agent_name,
         runtime_agents_base / "dev" / normalized_agent_name,
     )
     for candidate in candidates:

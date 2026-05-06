@@ -529,6 +529,7 @@ func (s *AgentService) Update(_ context.Context, name string, status string, req
 			return nil, err
 		}
 	}
+	skillRefs = s.filterMissingAgentOwnedSkillRefs(existing, skillRefs)
 
 	agentsMDContent := existing.AgentsMD
 	if req.AgentsMD != nil {
@@ -594,20 +595,52 @@ func (s *AgentService) resolveSkillRefByName(name string, agentName string, agen
 
 func (s *AgentService) normalizeSkillRefs(refs []model.SkillRef, agentName string, agentStatus string) ([]model.SkillRef, error) {
 	normalized := make([]model.SkillRef, 0, len(refs))
-	seen := make(map[string]struct{}, len(refs))
+	indexByName := make(map[string]int, len(refs))
 	for _, ref := range refs {
 		norm, err := s.normalizeSkillRef(ref, agentName, agentStatus)
 		if err != nil {
 			return nil, err
 		}
 		key := strings.ToLower(norm.Name)
-		if _, ok := seen[key]; ok {
+		if existingIndex, ok := indexByName[key]; ok {
+			if shouldReplaceDuplicateSkillRef(normalized[existingIndex], norm) {
+				normalized[existingIndex] = norm
+			}
 			continue
 		}
 		normalized = append(normalized, norm)
-		seen[key] = struct{}{}
+		indexByName[key] = len(normalized) - 1
 	}
 	return normalized, nil
+}
+
+func shouldReplaceDuplicateSkillRef(existing model.SkillRef, candidate model.SkillRef) bool {
+	// A settings save can include the old agent-owned copied skill ref plus the
+	// newly selected archived source for the same name. Prefer the archived
+	// source because it is self-healing after users delete the copied skills/
+	// directory to force rematerialization.
+	return isAgentOwnedSkillRef(existing) && !isAgentOwnedSkillRef(candidate)
+}
+
+func (s *AgentService) filterMissingAgentOwnedSkillRefs(agent *model.Agent, refs []model.SkillRef) []model.SkillRef {
+	filtered := make([]model.SkillRef, 0, len(refs))
+	for _, ref := range refs {
+		if !isAgentOwnedSkillRef(ref) {
+			filtered = append(filtered, ref)
+			continue
+		}
+		sourceDir := filepath.Join(
+			s.fs.AgentDir(agent.Name, agent.Status),
+			filepath.FromSlash(strings.TrimSpace(ref.MaterializedPath)),
+		)
+		if info, err := os.Stat(sourceDir); err == nil && info.IsDir() {
+			filtered = append(filtered, ref)
+		}
+		// Missing agent-owned copies cannot be rematerialized without inline
+		// content. Drop the stale ref so a settings save can repair the archive
+		// by selecting fresh archived skill sources instead of staying blocked.
+	}
+	return filtered
 }
 
 func (s *AgentService) normalizeSkillRef(ref model.SkillRef, agentName string, agentStatus string) (model.SkillRef, error) {

@@ -1,20 +1,25 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertCircleIcon, FileCodeIcon } from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
-import { buildWorkspaceAgentSettingsPath, publishAgent, type AgentStatus } from "@/core/agents";
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable";
+import {
+  buildWorkspaceAgentSettingsPath,
+  publishAgent,
+  type AgentStatus,
+} from "@/core/agents";
 import {
   createAgentAuthoringDraft,
   createSkillAuthoringDraft,
+  deleteAuthoringFile,
+  getOrCreateAuthoringThreadId,
   listAuthoringFiles,
   readAuthoringFile,
   saveAgentAuthoringDraft,
@@ -24,61 +29,27 @@ import {
   type AuthoringFileEntry,
 } from "@/core/authoring";
 import { useI18n } from "@/core/i18n/hooks";
-import { uuid } from "@/core/utils/uuid";
 
 import { CodeEditor } from "../code-editor";
 
 import { AuthoringActions } from "./authoring-actions";
-import { AuthoringFileTree } from "./authoring-file-tree";
+import {
+  AuthoringFileTree,
+  type AuthoringFileTreeTarget,
+} from "./authoring-file-tree";
 import { getAuthoringWorkbenchText } from "./authoring-workbench.i18n";
-
-const AUTHORING_THREAD_STORAGE_PREFIX = "openagents:authoring-thread:";
 
 type FileBuffer = {
   savedValue: string;
   draftValue: string;
 };
 
-function readStoredAuthoringThreadId(key: string) {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  return window.sessionStorage.getItem(`${AUTHORING_THREAD_STORAGE_PREFIX}${key}`);
-}
-
-function getOrCreateAuthoringThreadId(key: string) {
-  const existing = readStoredAuthoringThreadId(key);
-  if (existing) {
-    return existing;
-  }
-  const nextThreadId = uuid();
-  if (typeof window !== "undefined") {
-    window.sessionStorage.setItem(
-      `${AUTHORING_THREAD_STORAGE_PREFIX}${key}`,
-      nextThreadId,
-    );
-  }
-  return nextThreadId;
-}
-
-function buildAuthoringThreadKey(target: {
-  kind: "agent" | "skill";
-  name: string;
-  agentStatus?: AgentStatus;
-  sourcePath?: string;
-}) {
-  return [
-    target.kind,
-    target.name,
-    target.agentStatus ?? "",
-    target.sourcePath ?? "",
-  ].join(":");
-}
-
 function pickInitialFile(draft: AuthoringDraft) {
   return (
-    draft.files.find((entry) => !entry.is_dir && entry.name === "AGENTS.md")?.path ??
-    draft.files.find((entry) => !entry.is_dir && entry.name === "SKILL.md")?.path ??
+    draft.files.find((entry) => !entry.is_dir && entry.name === "AGENTS.md")
+      ?.path ??
+    draft.files.find((entry) => !entry.is_dir && entry.name === "SKILL.md")
+      ?.path ??
     draft.files.find((entry) => !entry.is_dir)?.path ??
     null
   );
@@ -131,7 +102,9 @@ export function AuthoringWorkbench({
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [draft, setDraft] = useState<AuthoringDraft | null>(null);
-  const [entriesByDir, setEntriesByDir] = useState<Record<string, AuthoringFileEntry[]>>({});
+  const [entriesByDir, setEntriesByDir] = useState<
+    Record<string, AuthoringFileEntry[]>
+  >({});
   const [expandedDirs, setExpandedDirs] = useState<Record<string, boolean>>({});
   const [buffers, setBuffers] = useState<Record<string, FileBuffer>>({});
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -152,14 +125,12 @@ export function AuthoringWorkbench({
     if (explicitThreadId) {
       return explicitThreadId;
     }
-    return getOrCreateAuthoringThreadId(
-      buildAuthoringThreadKey({
-        kind: targetKind,
-        name: targetName,
-        agentStatus: targetStatus,
-        sourcePath: targetSourcePath,
-      }),
-    );
+    return getOrCreateAuthoringThreadId({
+      kind: targetKind,
+      name: targetName,
+      agentStatus: targetStatus,
+      sourcePath: targetSourcePath,
+    });
   }, [searchParams, targetKind, targetName, targetSourcePath, targetStatus]);
 
   const loadDirectory = useCallback(
@@ -231,7 +202,9 @@ export function AuthoringWorkbench({
         }
       } catch (loadError) {
         if (!cancelled) {
-          setError(loadError instanceof Error ? loadError.message : String(loadError));
+          setError(
+            loadError instanceof Error ? loadError.message : String(loadError),
+          );
         }
       } finally {
         if (!cancelled) {
@@ -327,6 +300,60 @@ export function AuthoringWorkbench({
     }
   }, [buffers, threadId]);
 
+  const refreshDirectoriesForFile = useCallback(
+    async (filePath: string) => {
+      if (!draft) {
+        return;
+      }
+      const nextDirectories = directoryChain(draft.root_path, filePath);
+      for (const directory of nextDirectories) {
+        const files = await listAuthoringFiles(threadId, directory);
+        setEntriesByDir((current) => ({ ...current, [directory]: files }));
+      }
+      setExpandedDirs((current) =>
+        nextDirectories.reduce<Record<string, boolean>>(
+          (accumulator, directory) => {
+            accumulator[directory] = true;
+            return accumulator;
+          },
+          { ...current },
+        ),
+      );
+    },
+    [draft, threadId],
+  );
+
+  const createFileAt = useCallback(
+    async (basePath: string, relativePath: string) => {
+      if (!draft) {
+        return;
+      }
+      const normalizedPath = normalizeRelativeFilePath(relativePath);
+      if (!normalizedPath) {
+        toast.error(text.invalidFilePath);
+        return;
+      }
+
+      const fullPath = joinVirtualPath(basePath, normalizedPath);
+      await writeAuthoringFile({
+        thread_id: threadId,
+        path: fullPath,
+        content: "",
+      });
+      await refreshDirectoriesForFile(fullPath);
+      setBuffers((current) => ({
+        ...current,
+        [fullPath]: {
+          savedValue: "",
+          draftValue: "",
+        },
+      }));
+      setSelectedPath(fullPath);
+      toast.success(text.fileCreated(normalizedPath));
+    },
+    [draft, refreshDirectoriesForFile, text, threadId],
+  );
+
   const saveDraftChanges = useCallback(async () => {
     if (!draft) {
       return;
@@ -389,61 +416,119 @@ export function AuthoringWorkbench({
       toast.success(text.publishSuccess(targetName));
     } catch (publishError) {
       toast.error(
-        publishError instanceof Error ? publishError.message : String(publishError),
+        publishError instanceof Error
+          ? publishError.message
+          : String(publishError),
       );
     } finally {
       setIsPublishing(false);
     }
-  }, [queryClient, saveDraftChanges, targetKind, targetName, targetStatus, text]);
+  }, [
+    queryClient,
+    saveDraftChanges,
+    targetKind,
+    targetName,
+    targetStatus,
+    text,
+  ]);
 
   const handleCreateFile = useCallback(async () => {
-    if (targetKind !== "skill" || !draft) {
+    if (!draft) {
       return;
     }
-    const normalizedPath = normalizeRelativeFilePath(newFilePath);
-    if (!normalizedPath) {
-      toast.error(text.invalidFilePath);
-      return;
-    }
-
-    const fullPath = joinVirtualPath(draft.root_path, normalizedPath);
     try {
-      await writeAuthoringFile({
-        thread_id: threadId,
-        path: fullPath,
-        content: "",
-      });
-
-      const nextDirectories = directoryChain(draft.root_path, fullPath);
-      for (const directory of nextDirectories) {
-        const files = await listAuthoringFiles(threadId, directory);
-        setEntriesByDir((current) => ({ ...current, [directory]: files }));
-      }
-      setExpandedDirs((current) =>
-        nextDirectories.reduce<Record<string, boolean>>(
-          (accumulator, directory) => {
-            accumulator[directory] = true;
-            return accumulator;
-          },
-          { ...current },
-        ),
-      );
-      setBuffers((current) => ({
-        ...current,
-        [fullPath]: {
-          savedValue: "",
-          draftValue: "",
-        },
-      }));
-      setSelectedPath(fullPath);
+      await createFileAt(draft.root_path, newFilePath);
       setNewFilePath("");
-      toast.success(text.fileCreated(normalizedPath));
     } catch (createError) {
       toast.error(
-        createError instanceof Error ? createError.message : String(createError),
+        createError instanceof Error
+          ? createError.message
+          : String(createError),
       );
     }
-  }, [draft, newFilePath, targetKind, text, threadId]);
+  }, [createFileAt, draft, newFilePath]);
+
+  const handleCreateFileAt = useCallback(
+    async (targetEntry: AuthoringFileTreeTarget) => {
+      const nextPath = window.prompt(text.newFilePath, "");
+      if (nextPath === null) {
+        return;
+      }
+      const basePath = targetEntry.is_dir
+        ? targetEntry.path
+        : parentDirectory(targetEntry.path);
+      try {
+        await createFileAt(basePath, nextPath);
+      } catch (createError) {
+        toast.error(
+          createError instanceof Error
+            ? createError.message
+            : String(createError),
+        );
+      }
+    },
+    [createFileAt, text.newFilePath],
+  );
+
+  const handleDeletePath = useCallback(
+    async (targetEntry: AuthoringFileTreeTarget) => {
+      if (!draft || targetEntry.is_root) {
+        return;
+      }
+      const confirmed = window.confirm(
+        targetEntry.is_dir
+          ? text.confirmDeleteDirectory(targetEntry.name)
+          : text.confirmDeleteFile(targetEntry.name),
+      );
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        await deleteAuthoringFile(threadId, targetEntry.path);
+        const parentPath = parentDirectory(targetEntry.path);
+        const files = await listAuthoringFiles(threadId, parentPath);
+        setEntriesByDir((current) => {
+          const nextEntries = { ...current, [parentPath]: files };
+          for (const directoryPath of Object.keys(nextEntries)) {
+            if (
+              directoryPath === targetEntry.path ||
+              directoryPath.startsWith(`${targetEntry.path}/`)
+            ) {
+              delete nextEntries[directoryPath];
+            }
+          }
+          return nextEntries;
+        });
+        setBuffers((current) => {
+          const nextBuffers = { ...current };
+          for (const path of Object.keys(nextBuffers)) {
+            if (
+              path === targetEntry.path ||
+              path.startsWith(`${targetEntry.path}/`)
+            ) {
+              delete nextBuffers[path];
+            }
+          }
+          return nextBuffers;
+        });
+        if (
+          selectedPath === targetEntry.path ||
+          selectedPath?.startsWith(`${targetEntry.path}/`)
+        ) {
+          setSelectedPath(null);
+        }
+        toast.success(text.fileDeleted(targetEntry.name));
+      } catch (deleteError) {
+        toast.error(
+          deleteError instanceof Error
+            ? deleteError.message
+            : String(deleteError),
+        );
+      }
+    },
+    [draft, selectedPath, text, threadId],
+  );
 
   const handleBack = useCallback(() => {
     if (hasDirtyChanges && !window.confirm(text.unsavedChanges)) {
@@ -459,7 +544,14 @@ export function AuthoringWorkbench({
       return;
     }
     void navigate("/workspace/agents");
-  }, [hasDirtyChanges, navigate, targetKind, targetName, targetStatus, text.unsavedChanges]);
+  }, [
+    hasDirtyChanges,
+    navigate,
+    targetKind,
+    targetName,
+    targetStatus,
+    text.unsavedChanges,
+  ]);
 
   const handleEditorChange = useCallback(
     (value: string) => {
@@ -485,7 +577,7 @@ export function AuthoringWorkbench({
 
   if (isLoading) {
     return (
-      <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
+      <div className="text-muted-foreground flex h-full w-full items-center justify-center text-sm">
         {text.loading}
       </div>
     );
@@ -507,7 +599,7 @@ export function AuthoringWorkbench({
     <div className="h-full w-full p-4 md:p-6">
       <ResizablePanelGroup
         orientation="horizontal"
-        className="min-h-0 rounded-[28px] border bg-muted/20 p-3"
+        className="bg-muted/20 min-h-0 rounded-[28px] border p-3"
       >
         <ResizablePanel defaultSize={22} minSize={18}>
           <AuthoringFileTree
@@ -516,8 +608,15 @@ export function AuthoringWorkbench({
             entriesByDir={entriesByDir}
             expandedDirs={expandedDirs}
             selectedPath={selectedPath}
+            createFileLabel={text.createFileIn}
+            deleteFileLabel={text.deleteFile}
+            deleteDirectoryLabel={text.deleteDirectory}
             onSelectFile={(path) => void handleSelectFile(path)}
             onToggleDirectory={(path) => void handleToggleDirectory(path)}
+            onCreateFileAt={(targetEntry) =>
+              void handleCreateFileAt(targetEntry)
+            }
+            onDeletePath={(targetEntry) => void handleDeletePath(targetEntry)}
           />
         </ResizablePanel>
         <ResizableHandle withHandle />
@@ -525,7 +624,7 @@ export function AuthoringWorkbench({
           <div className="bg-background flex h-full min-h-0 flex-col rounded-3xl border">
             <div className="border-b px-5 py-4">
               <div className="flex items-center gap-2">
-                <FileCodeIcon className="size-4 text-muted-foreground" />
+                <FileCodeIcon className="text-muted-foreground size-4" />
                 <div className="truncate text-sm font-semibold">
                   {selectedPath ?? targetName}
                 </div>
@@ -540,7 +639,7 @@ export function AuthoringWorkbench({
                   settings={{ lineNumbers: true }}
                 />
               ) : (
-                <div className="flex h-full items-center justify-center px-6 text-sm text-muted-foreground">
+                <div className="text-muted-foreground flex h-full items-center justify-center px-6 text-sm">
                   {text.emptyEditor}
                 </div>
               )}

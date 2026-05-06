@@ -979,6 +979,67 @@ def test_setup_agent_preserves_existing_agent_manifest_fields_when_omitted(monke
     assert calls["subagents"][0].name == "designer-helper"
 
 
+def test_setup_agent_omitted_agents_md_preserves_runtime_edited_prompt(monkeypatch, tmp_path: Path):
+    paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
+    archive_agent_dir = paths.custom_agent_dir("op-design-agent", "dev")
+    archive_agent_dir.mkdir(parents=True, exist_ok=True)
+    (archive_agent_dir / "AGENTS.md").write_text("# Archived Agent\n", encoding="utf-8")
+    (archive_agent_dir / "config.yaml").write_text(
+        yaml.dump(
+            {
+                "name": "op-design-agent",
+                "status": "dev",
+                "description": "Existing description",
+                "agents_md_path": "AGENTS.md",
+                "skill_refs": [],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    runtime_agent_dir = paths.sandbox_agents_dir("thread-1") / "dev" / "op-design-agent"
+    runtime_agent_dir.mkdir(parents=True, exist_ok=True)
+    (runtime_agent_dir / "AGENTS.md").write_text("# Runtime Edited Agent\n", encoding="utf-8")
+
+    calls: dict[str, object] = {}
+
+    def fake_materialize_agent_definition(**kwargs):
+        calls.update(kwargs)
+        return SimpleNamespace(skill_refs=[], name="op-design-agent")
+
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.materialize_agent_definition",
+        fake_materialize_agent_definition,
+    )
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool.get_paths",
+        lambda: paths,
+    )
+    monkeypatch.setattr(
+        "src.tools.builtins.setup_agent_tool._refresh_thread_runtime_materials",
+        lambda **kwargs: None,
+    )
+
+    runtime = SimpleNamespace(
+        context=LeadAgentRuntimeContext(
+            agent_name="op-design-agent",
+            agent_status="dev",
+            runtime_thread_id="thread-1",
+            model_name="kimi-k2.5",
+        ),
+        tool_call_id="tc-preserve-runtime-agents-md",
+    )
+
+    setup_agent.func(
+        runtime=runtime,
+        skills=[],
+    )
+
+    assert calls["agents_md"] == "# Runtime Edited Agent\n"
+    assert calls["description"] == "Existing description"
+
+
 def test_setup_agent_allows_explicit_mcp_binding_override(monkeypatch, tmp_path: Path):
     paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
     agent_dir = paths.custom_agent_dir("support-agent", "dev")

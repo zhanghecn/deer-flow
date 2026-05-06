@@ -106,6 +106,7 @@ type UpdateMCPProfileRequest struct {
 type CreateAgentAuthoringDraftRequest struct {
 	ThreadID    string `json:"thread_id" binding:"required"`
 	AgentStatus string `json:"agent_status"`
+	Overwrite   bool   `json:"overwrite"`
 }
 
 type CreateSkillAuthoringDraftRequest struct {
@@ -127,6 +128,11 @@ type WriteAuthoringFileRequest struct {
 	ThreadID string `json:"thread_id" binding:"required"`
 	Path     string `json:"path" binding:"required"`
 	Content  string `json:"content"`
+}
+
+type DeleteAuthoringFileRequest struct {
+	ThreadID string `form:"thread_id" binding:"required"`
+	Path     string `form:"path" binding:"required"`
 }
 
 type SaveAgentAuthoringDraftRequest struct {

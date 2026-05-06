@@ -82,7 +82,7 @@ func (h *AuthoringWorkspaceHandler) CreateAgentDraft(c *gin.Context) {
 		return
 	}
 
-	rootPath, files, err := h.svc.StageAgentDraft(userID.String(), req.ThreadID, name, req.AgentStatus)
+	rootPath, files, err := h.svc.StageAgentDraft(userID.String(), req.ThreadID, name, req.AgentStatus, req.Overwrite)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return
@@ -164,6 +164,24 @@ func (h *AuthoringWorkspaceHandler) WriteFile(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"path": req.Path, "saved": true})
+}
+
+func (h *AuthoringWorkspaceHandler) DeleteFile(c *gin.Context) {
+	var req model.DeleteAuthoringFileRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
+		return
+	}
+	userID, ok := h.ensureThreadAccess(c, req.ThreadID)
+	if !ok {
+		return
+	}
+
+	if err := h.svc.DeleteDraftPath(userID.String(), req.ThreadID, req.Path); err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"path": req.Path, "deleted": true})
 }
 
 func (h *AuthoringWorkspaceHandler) SaveAgentDraft(c *gin.Context) {

@@ -25,6 +25,7 @@ import {
   useUpdateAgent,
 } from "@/core/agents";
 import { useAuth } from "@/core/auth/hooks";
+import { overwriteStoredAgentAuthoringDraft } from "@/core/authoring";
 import { useI18n } from "@/core/i18n/hooks";
 import { useKnowledgeLibrary } from "@/core/knowledge/hooks";
 import { useMCPProfiles } from "@/core/mcp/hooks";
@@ -32,16 +33,14 @@ import { useModels } from "@/core/models/hooks";
 import { useSkills } from "@/core/skills/hooks";
 import { cn } from "@/lib/utils";
 
-import {
-  createSkillRef,
-  serializeSkillRefForRequest,
-} from "../agent-skill-refs";
+import { serializeSkillRefForRequest } from "../agent-skill-refs";
 import { resolveEffectiveToolNames } from "../agent-tool-selection";
+
 import { BehaviorTab } from "./behavior-tab";
 import { CapabilitiesTab } from "./capabilities-tab";
+import { getAgentSettingsPageText, type AgentSettingsPageText } from "./i18n";
 import { IdentityTab } from "./identity-tab";
 import { IntegrationTab } from "./integration-tab";
-import { getAgentSettingsPageText, type AgentSettingsPageText } from "./i18n";
 import type { AgentSettingsFormState, SettingsTab } from "./types";
 
 interface AgentSettingsPageProps {
@@ -355,6 +354,7 @@ export function AgentSettingsPageView({
       const nextForm = createFormState(updated);
       setForm(nextForm);
       setSavedForm(nextForm);
+      await overwriteStoredAgentAuthoringDraft(updated.name, updated.status);
       toast.success(text.saveSuccess(updated.name, updated.status));
     } catch (saveError) {
       toast.error(

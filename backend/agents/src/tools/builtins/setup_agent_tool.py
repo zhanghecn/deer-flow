@@ -344,6 +344,8 @@ def _resolve_manifest_update_inputs(
     agent_status: str,
     paths: Any,
     owner_user_id: str | None,
+    thread_id: str | None,
+    user_id: str | None,
     agents_md: str | None,
     description: str | None,
     tool_groups: list[str] | None,
@@ -409,10 +411,29 @@ def _resolve_manifest_update_inputs(
             f"setup_agent could not load existing AGENTS.md for '{agent_name}'. "
             "Pass explicit `agents_md` or repair the archived agent definition first."
         )
+    runtime_agents_md = _load_thread_runtime_agents_md(
+        agent_name=agent_name,
+        agent_status=agent_status,
+        thread_id=thread_id,
+        user_id=user_id,
+        paths=paths,
+    )
+    preserved_agents_md = existing_state.agents_md
+    if (
+        explicit_agents_md is None
+        and runtime_agents_md is not None
+        and runtime_agents_md != existing_state.agents_md
+    ):
+        # Self-authoring agents often edit their thread-local runtime copy with
+        # file tools before calling setup_agent. Treat that changed copy as the
+        # preservation source, mirroring the copied-skill preservation behavior
+        # below, so a successful setup_agent call does not silently discard the
+        # edited prompt.
+        preserved_agents_md = runtime_agents_md
     resolved_owner_user_id = existing_state.config.owner_user_id or owner_user_id
     return (
         existing_state,
-        explicit_agents_md if explicit_agents_md is not None else existing_state.agents_md,
+        explicit_agents_md if explicit_agents_md is not None else preserved_agents_md,
         explicit_description if explicit_description is not None else existing_state.config.description,
         resolved_owner_user_id,
         resolved_tool_groups,
@@ -476,6 +497,29 @@ def _resolve_default_setup_agent_skills(
 
 def _runtime_agent_root(*, agent_name: str, agent_status: str) -> str:
     return f"/mnt/user-data/agents/{agent_status}/{agent_name.lower()}"
+
+
+def _load_thread_runtime_agents_md(
+    *,
+    agent_name: str,
+    agent_status: str,
+    thread_id: str | None,
+    user_id: str | None,
+    paths: Any,
+) -> str | None:
+    normalized_thread_id = str(thread_id or "").strip()
+    if not normalized_thread_id or not hasattr(paths, "sandbox_agents_dir"):
+        return None
+
+    runtime_agents_md = (
+        paths.sandbox_agents_dir(normalized_thread_id, user_id=user_id)
+        / agent_status
+        / agent_name.lower()
+        / "AGENTS.md"
+    )
+    if not runtime_agents_md.is_file():
+        return None
+    return runtime_agents_md.read_text(encoding="utf-8")
 
 
 def _runtime_thread_id(runtime: ToolRuntime | None) -> str | None:
@@ -712,6 +756,8 @@ def setup_agent(
             agent_status=agent_status,
             paths=paths,
             owner_user_id=owner_user_id,
+            thread_id=runtime_thread_id,
+            user_id=owner_user_id,
             agents_md=agents_md,
             description=description,
             tool_groups=tool_groups,
