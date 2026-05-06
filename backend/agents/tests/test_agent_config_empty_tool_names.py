@@ -18,6 +18,24 @@ def test_agent_config_preserves_explicit_empty_tool_names() -> None:
     assert config.tool_names == []
 
 
+def test_agent_config_normalizes_knowledge_base_ids() -> None:
+    config = AgentConfig.model_validate(
+        {
+            "name": "support-cases-http-demo",
+            "status": "dev",
+            "knowledge_base_ids": [
+                " 11111111-1111-1111-1111-111111111111 ",
+                "22222222-2222-2222-2222-222222222222",
+            ],
+        }
+    )
+
+    assert config.knowledge_base_ids == [
+        "11111111-1111-1111-1111-111111111111",
+        "22222222-2222-2222-2222-222222222222",
+    ]
+
+
 def test_subagent_defaults_preserve_explicit_empty_tool_names() -> None:
     defaults = AgentSubagentDefaults.model_validate(
         {

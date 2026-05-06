@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   BotIcon,
   CheckIcon,
+  DatabaseIcon,
   Link2Icon,
   Loader2Icon,
   PlusIcon,
@@ -37,6 +38,7 @@ import {
   type AgentStatus,
   type ToolCatalogItem,
 } from "@/core/agents";
+import type { KnowledgeBase } from "@/core/knowledge/types";
 import { discoverMCPProfiles } from "@/core/mcp/api";
 import type { MCPProfile, MCPProfileDiscoveryResult } from "@/core/mcp/types";
 import type { Model } from "@/core/models/types";
@@ -89,6 +91,9 @@ interface CapabilitiesTabProps {
   mcpProfiles: MCPProfile[];
   mcpProfilesLoading: boolean;
   mcpProfilesError: unknown;
+  knowledgeBases: KnowledgeBase[];
+  knowledgeBasesLoading: boolean;
+  knowledgeBasesError: unknown;
   mcpProfileQuery: string;
   onMcpProfileQueryChange: (query: string) => void;
 }
@@ -194,6 +199,9 @@ export function CapabilitiesTab({
   mcpProfiles,
   mcpProfilesLoading,
   mcpProfilesError,
+  knowledgeBases,
+  knowledgeBasesLoading,
+  knowledgeBasesError,
   mcpProfileQuery,
   onMcpProfileQueryChange,
 }: CapabilitiesTabProps) {
@@ -217,6 +225,16 @@ export function CapabilitiesTab({
         allowedSkillScopes={allowedSkillScopes}
         availableSkillCategories={availableSkillCategories}
         locale={locale}
+        text={text}
+        onFormChange={onFormChange}
+      />
+
+      {/* Knowledge Section */}
+      <KnowledgeSection
+        form={form}
+        knowledgeBases={knowledgeBases}
+        knowledgeBasesLoading={knowledgeBasesLoading}
+        knowledgeBasesError={knowledgeBasesError}
         text={text}
         onFormChange={onFormChange}
       />
@@ -283,6 +301,132 @@ export function CapabilitiesTab({
         onFormChange={onFormChange}
       />
     </div>
+  );
+}
+
+// --- Knowledge ---
+function KnowledgeSection({
+  form,
+  knowledgeBases,
+  knowledgeBasesLoading,
+  knowledgeBasesError,
+  text,
+  onFormChange,
+}: {
+  form: AgentSettingsFormState;
+  knowledgeBases: KnowledgeBase[];
+  knowledgeBasesLoading: boolean;
+  knowledgeBasesError: unknown;
+  text: AgentSettingsPageText;
+  onFormChange: (
+    updater: (prev: AgentSettingsFormState) => AgentSettingsFormState | null,
+  ) => void;
+}) {
+  const selectedIds = new Set(form.knowledgeBaseIds);
+  const knownIds = new Set(knowledgeBases.map((base) => base.id));
+  const missingSelectedIds = form.knowledgeBaseIds.filter(
+    (id) => !knownIds.has(id),
+  );
+
+  function toggleKnowledgeBase(id: string) {
+    onFormChange((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        knowledgeBaseIds: current.knowledgeBaseIds.includes(id)
+          ? current.knowledgeBaseIds.filter((value) => value !== id)
+          : [...current.knowledgeBaseIds, id],
+      };
+    });
+  }
+
+  return (
+    <SectionCard
+      eyebrow={<DatabaseIcon className="size-4" />}
+      title={text.knowledgeTitle}
+      description={text.knowledgeDescription}
+      collapsible
+    >
+      {knowledgeBasesLoading ? (
+        <div className="text-muted-foreground flex items-center gap-2 text-sm">
+          <Loader2Icon className="size-4 animate-spin" />
+          {text.loadingKnowledge}
+        </div>
+      ) : knowledgeBasesError ? (
+        <p className="text-destructive text-sm">
+          {knowledgeBasesError instanceof Error
+            ? knowledgeBasesError.message
+            : text.loadKnowledgeFailed}
+        </p>
+      ) : knowledgeBases.length === 0 ? (
+        <p className="text-muted-foreground text-sm">{text.noKnowledgeBases}</p>
+      ) : (
+        <div className="grid gap-3">
+          {knowledgeBases.map((knowledgeBase) => {
+            const selected = selectedIds.has(knowledgeBase.id);
+            return (
+              <button
+                key={knowledgeBase.id}
+                type="button"
+                role="checkbox"
+                aria-checked={selected}
+                onClick={() => toggleKnowledgeBase(knowledgeBase.id)}
+                className={cn(
+                  "flex items-start gap-3 rounded-3xl border px-4 py-3 text-left transition-colors",
+                  selected
+                    ? "border-primary/50 bg-primary/5"
+                    : "border-border/70 bg-background/70 hover:bg-muted/30",
+                )}
+              >
+                <span
+                  className={cn(
+                    "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border",
+                    selected
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border/70 bg-background",
+                  )}
+                >
+                  {selected && <CheckIcon className="size-3.5" />}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium">
+                    {knowledgeBase.name}
+                  </span>
+                  <span className="text-muted-foreground mt-1 block text-xs leading-5">
+                    {knowledgeBase.owner_name} ·{" "}
+                    {text.knowledgeDocumentCount(
+                      knowledgeBase.documents.length,
+                    )}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {missingSelectedIds.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {missingSelectedIds.map((id) => (
+            <button
+              key={id}
+              type="button"
+              className="bg-secondary text-secondary-foreground inline-flex max-w-full items-center gap-2 rounded-full px-2.5 py-1 text-xs"
+              onClick={() => toggleKnowledgeBase(id)}
+            >
+              <span className="truncate">{text.unknownKnowledgeBase(id)}</span>
+              <span className="text-[10px] tracking-[0.12em] uppercase">
+                {text.remove}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <p className="text-muted-foreground text-xs leading-5">
+        {text.knowledgeSelected(form.knowledgeBaseIds.length)}
+      </p>
+    </SectionCard>
   );
 }
 

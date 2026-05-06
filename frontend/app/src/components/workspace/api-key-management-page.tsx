@@ -61,6 +61,7 @@ const FIXED_PUBLIC_API_SCOPES = [
   "responses:create",
   "responses:read",
   "artifacts:read",
+  "knowledge:read",
 ];
 const UNSUPPORTED_GROUP_ID = "__unsupported_contract__";
 const TOKENS_PER_PAGE = 10;
@@ -306,7 +307,9 @@ export function APIKeyManagementPage() {
       return;
     }
 
-    if (!creatableProdAgents.some((agent) => agent.name === selectedCreateAgent)) {
+    if (
+      !creatableProdAgents.some((agent) => agent.name === selectedCreateAgent)
+    ) {
       const firstCreatableAgent = creatableProdAgents[0];
       if (firstCreatableAgent) {
         setSelectedCreateAgent(firstCreatableAgent.name);

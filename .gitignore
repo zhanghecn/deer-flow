@@ -106,6 +106,7 @@ docker/config.yaml
 docker/gateway.yaml
 .playwright-cli-surprise.json
 /.tmp-kb-fixtures/
+/llm-wiki/
 /.tmp/
 /tmp/
 /admin-*.yml

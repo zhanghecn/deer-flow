@@ -250,6 +250,7 @@ func buildPublicAPIAuthContext(c *gin.Context) service.PublicAPIAuthContext {
 	return service.PublicAPIAuthContext{
 		UserID:        middleware.GetUserID(c),
 		APITokenID:    middleware.GetAPITokenID(c),
+		Scopes:        middleware.GetAPITokenScopes(c),
 		AllowedAgents: middleware.GetAPITokenAllowedAgents(c),
 		ClientIP:      clientIPPtr,
 		UserAgent:     userAgentPtr,

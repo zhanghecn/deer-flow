@@ -10,7 +10,7 @@ import {
   Trash2Icon,
   UploadIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -113,6 +113,70 @@ export type KnowledgePreviewFocus = {
 
 const panelLabelClassName =
   "text-muted-foreground text-[11px] font-medium uppercase tracking-[0.22em]";
+
+// URL query params are a navigation source of truth. During a base/document
+// jump, React effects still see the previous selected state for one render, so
+// the URL writer must wait until the reader effect has reconciled selection.
+export function shouldDeferKnowledgeSelectionUrlSync({
+  isLoading,
+  knowledgeBases,
+  ownerGroups,
+  searchParams,
+  selectedOwnerId,
+  selectedBaseId,
+  selectedDocumentId,
+  hasLocalSelectionChange = false,
+}: {
+  isLoading: boolean;
+  knowledgeBases: KnowledgeBase[];
+  ownerGroups: Pick<KnowledgeOwnerGroup, "ownerId">[];
+  searchParams: URLSearchParams;
+  selectedOwnerId: string | null;
+  selectedBaseId: string | null;
+  selectedDocumentId: string | null;
+  hasLocalSelectionChange?: boolean;
+}) {
+  if (hasLocalSelectionChange) {
+    return false;
+  }
+
+  if (isLoading) {
+    return true;
+  }
+
+  const requestedDocumentId = searchParams.get("document");
+  if (
+    requestedDocumentId &&
+    requestedDocumentId !== selectedDocumentId &&
+    knowledgeBases.some((knowledgeBase) =>
+      knowledgeBase.documents.some(
+        (document) => document.id === requestedDocumentId,
+      ),
+    )
+  ) {
+    return true;
+  }
+
+  const requestedBaseId = searchParams.get("base");
+  if (
+    requestedBaseId &&
+    requestedBaseId !== selectedBaseId &&
+    knowledgeBases.some((knowledgeBase) => knowledgeBase.id === requestedBaseId)
+  ) {
+    return true;
+  }
+
+  const requestedOwnerId = searchParams.get("owner");
+  if (
+    requestedOwnerId &&
+    requestedOwnerId !== selectedOwnerId &&
+    ownerGroups.some((group) => group.ownerId === requestedOwnerId)
+  ) {
+    return true;
+  }
+
+  return false;
+}
 
 function statusTone(status: string): "default" | "secondary" | "destructive" {
   switch (status) {
@@ -237,14 +301,22 @@ export function ThreadKnowledgeManagementPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailTab, setDetailTab] = useState("overview");
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
-  const [pendingUploadedBaseId, setPendingUploadedBaseId] =
-    useState<string | null>(null);
+  const [pendingUploadedBaseId, setPendingUploadedBaseId] = useState<
+    string | null
+  >(null);
   const [deleteBaseTarget, setDeleteBaseTarget] =
     useState<KnowledgeBase | null>(null);
   const [deletingBaseId, setDeletingBaseId] = useState<string | null>(null);
   const [clearAllTarget, setClearAllTarget] =
     useState<KnowledgeClearTarget | null>(null);
   const [clearingOwnerId, setClearingOwnerId] = useState<string | null>(null);
+  const localSelectionChangeRef = useRef(false);
+
+  const markLocalSelectionChange = useCallback(() => {
+    // User-driven selection changes must update the query instead of being
+    // pulled back by an already-consumed URL from the previous selection.
+    localSelectionChangeRef.current = true;
+  }, []);
 
   const filteredKnowledgeBases = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -300,6 +372,10 @@ export function ThreadKnowledgeManagementPage() {
   }, [filteredKnowledgeBases]);
 
   useEffect(() => {
+    if (localSelectionChangeRef.current) {
+      return;
+    }
+
     const requestedOwnerId = searchParams.get("owner");
     const requestedBaseId = searchParams.get("base");
     const requestedDocumentId = searchParams.get("document");
@@ -332,8 +408,9 @@ export function ThreadKnowledgeManagementPage() {
 
     if (requestedBaseId) {
       const matchedBase =
-        knowledgeBases.find((knowledgeBase) => knowledgeBase.id === requestedBaseId) ??
-        null;
+        knowledgeBases.find(
+          (knowledgeBase) => knowledgeBase.id === requestedBaseId,
+        ) ?? null;
       if (matchedBase) {
         if (selectedOwnerId !== matchedBase.owner_id) {
           setSelectedOwnerId(matchedBase.owner_id);
@@ -347,7 +424,8 @@ export function ThreadKnowledgeManagementPage() {
 
     if (requestedOwnerId) {
       const matchedOwner =
-        groupedBases.find((group) => group.ownerId === requestedOwnerId) ?? null;
+        groupedBases.find((group) => group.ownerId === requestedOwnerId) ??
+        null;
       if (matchedOwner && selectedOwnerId !== matchedOwner.ownerId) {
         setSelectedOwnerId(matchedOwner.ownerId);
       }
@@ -367,19 +445,36 @@ export function ThreadKnowledgeManagementPage() {
     }
 
     const uploadedBase =
-      knowledgeBases.find((knowledgeBase) => knowledgeBase.id === pendingUploadedBaseId) ??
-      null;
+      knowledgeBases.find(
+        (knowledgeBase) => knowledgeBase.id === pendingUploadedBaseId,
+      ) ?? null;
     if (!uploadedBase) {
       return;
     }
 
+    markLocalSelectionChange();
     setSelectedOwnerId(uploadedBase.owner_id);
     setSelectedBaseId(uploadedBase.id);
     setSelectedDocumentId(uploadedBase.documents[0]?.id ?? null);
     setPendingUploadedBaseId(null);
-  }, [knowledgeBases, pendingUploadedBaseId]);
+  }, [knowledgeBases, markLocalSelectionChange, pendingUploadedBaseId]);
 
   useEffect(() => {
+    if (
+      shouldDeferKnowledgeSelectionUrlSync({
+        isLoading,
+        knowledgeBases,
+        ownerGroups: groupedBases,
+        searchParams,
+        selectedOwnerId,
+        selectedBaseId,
+        selectedDocumentId,
+        hasLocalSelectionChange: localSelectionChangeRef.current,
+      })
+    ) {
+      return;
+    }
+
     const nextParams = new URLSearchParams(searchParams);
 
     if (selectedOwnerId) {
@@ -403,8 +498,12 @@ export function ThreadKnowledgeManagementPage() {
     if (nextParams.toString() !== searchParams.toString()) {
       setSearchParams(nextParams, { replace: true });
     }
+    localSelectionChangeRef.current = false;
   }, [
     detailOpen,
+    groupedBases,
+    isLoading,
+    knowledgeBases,
     searchParams,
     selectedBaseId,
     selectedDocumentId,
@@ -727,18 +826,21 @@ export function ThreadKnowledgeManagementPage() {
   };
 
   const openOwner = (owner: KnowledgeOwnerGroup) => {
+    markLocalSelectionChange();
     setSelectedOwnerId(owner.ownerId);
     setSelectedBaseId(null);
     setSelectedDocumentId(null);
   };
 
   const openBase = (knowledgeBase: KnowledgeBase) => {
+    markLocalSelectionChange();
     setSelectedOwnerId(knowledgeBase.owner_id);
     setSelectedBaseId(knowledgeBase.id);
     setSelectedDocumentId(knowledgeBase.documents[0]?.id ?? null);
   };
 
   const openDocument = (document: LibraryDocumentView) => {
+    markLocalSelectionChange();
     setSelectedOwnerId(document.owner_id);
     setSelectedBaseId(document.knowledge_base_id);
     setSelectedDocumentId(document.id);
@@ -767,6 +869,7 @@ export function ThreadKnowledgeManagementPage() {
       ]);
 
       if (selectedBaseId === deleteBaseTarget.id) {
+        markLocalSelectionChange();
         setSelectedBaseId(null);
         setSelectedDocumentId(null);
         setDetailOpen(false);
@@ -811,6 +914,7 @@ export function ThreadKnowledgeManagementPage() {
         selectedBase?.owner_id === clearAllTarget.ownerId ||
         selectedOwnerGroup?.ownerId === clearAllTarget.ownerId
       ) {
+        markLocalSelectionChange();
         setSelectedOwnerId(null);
         setSelectedBaseId(null);
         setSelectedDocumentId(null);
@@ -874,6 +978,7 @@ export function ThreadKnowledgeManagementPage() {
                       : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
                   )}
                   onClick={() => {
+                    markLocalSelectionChange();
                     setSelectedOwnerId(null);
                     setSelectedBaseId(null);
                     setSelectedDocumentId(null);
@@ -931,7 +1036,7 @@ export function ThreadKnowledgeManagementPage() {
                       </button>
 
                       {selectedOwnerId === group.ownerId ? (
-                        <div className="border-border ml-4 min-w-0 space-y-1 border-l pl-3 pr-1">
+                        <div className="border-border ml-4 min-w-0 space-y-1 border-l pr-1 pl-3">
                           {group.bases.map((knowledgeBase) => {
                             const readyDocuments =
                               knowledgeBase.documents.filter(
@@ -954,10 +1059,10 @@ export function ThreadKnowledgeManagementPage() {
                               >
                                 <FileTextIcon className="text-muted-foreground mt-0.5 size-4 shrink-0" />
                                 <div className="min-w-0 flex-1">
-                                  <div className="line-clamp-2 break-words text-sm font-medium leading-5">
+                                  <div className="line-clamp-2 text-sm leading-5 font-medium break-words">
                                     {knowledgeBase.name}
                                   </div>
-                                  <div className="text-muted-foreground line-clamp-2 break-all text-[11px] leading-4">
+                                  <div className="text-muted-foreground line-clamp-2 text-[11px] leading-4 break-all">
                                     {knowledgeBaseContextLabel(knowledgeBase) ??
                                       t.knowledge.documentCount(
                                         knowledgeBase.documents.length,
@@ -986,6 +1091,7 @@ export function ThreadKnowledgeManagementPage() {
                       type="button"
                       className="hover:text-foreground inline-flex items-center gap-1 transition-colors"
                       onClick={() => {
+                        markLocalSelectionChange();
                         setSelectedOwnerId(null);
                         setSelectedBaseId(null);
                         setSelectedDocumentId(null);
@@ -1001,6 +1107,7 @@ export function ThreadKnowledgeManagementPage() {
                           type="button"
                           className="hover:text-foreground transition-colors"
                           onClick={() => {
+                            markLocalSelectionChange();
                             setSelectedBaseId(null);
                             setSelectedDocumentId(null);
                           }}

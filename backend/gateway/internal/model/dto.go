@@ -43,6 +43,7 @@ type CreateAgentRequest struct {
 	ToolNames          []string                 `json:"tool_names"`
 	RuntimeMiddlewares *AgentRuntimeMiddlewares `json:"runtime_middlewares"`
 	McpServers         []string                 `json:"mcp_servers"` // Stable MCP library refs bound to the agent
+	KnowledgeBaseIDs   []string                 `json:"knowledge_base_ids"`
 	Memory             *AgentMemoryConfig       `json:"memory"`
 	SubagentDefaults   *AgentSubagentDefaults   `json:"subagent_defaults"`
 	Subagents          []AgentSubagent          `json:"subagents"`
@@ -58,6 +59,7 @@ type UpdateAgentRequest struct {
 	ToolNames          []string                 `json:"tool_names"`
 	RuntimeMiddlewares *AgentRuntimeMiddlewares `json:"runtime_middlewares"`
 	McpServers         []string                 `json:"mcp_servers"` // Stable MCP library refs bound to the agent
+	KnowledgeBaseIDs   []string                 `json:"knowledge_base_ids"`
 	Memory             *AgentMemoryConfig       `json:"memory"`
 	SubagentDefaults   *AgentSubagentDefaults   `json:"subagent_defaults"`
 	Subagents          []AgentSubagent          `json:"subagents"`

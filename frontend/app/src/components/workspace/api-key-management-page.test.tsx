@@ -141,7 +141,12 @@ describe("APIKeyManagementPage", () => {
         user_id: "user-1",
         token: null,
         name: "active-reviewer-key",
-        scopes: ["responses:create", "responses:read", "artifacts:read"],
+        scopes: [
+          "responses:create",
+          "responses:read",
+          "artifacts:read",
+          "knowledge:read",
+        ],
         status: "active",
         allowed_agents: ["reviewer"],
         last_used: null,
@@ -153,7 +158,12 @@ describe("APIKeyManagementPage", () => {
         user_id: "user-1",
         token: null,
         name: "revoked-reviewer-key",
-        scopes: ["responses:create", "responses:read", "artifacts:read"],
+        scopes: [
+          "responses:create",
+          "responses:read",
+          "artifacts:read",
+          "knowledge:read",
+        ],
         status: "revoked",
         allowed_agents: ["reviewer"],
         last_used: null,
@@ -165,7 +175,12 @@ describe("APIKeyManagementPage", () => {
         user_id: "user-1",
         token: "df_expired_token",
         name: "expired-reviewer-key",
-        scopes: ["responses:create", "responses:read", "artifacts:read"],
+        scopes: [
+          "responses:create",
+          "responses:read",
+          "artifacts:read",
+          "knowledge:read",
+        ],
         status: "active",
         allowed_agents: ["reviewer"],
         last_used: null,
@@ -351,7 +366,9 @@ describe("APIKeyManagementPage", () => {
 
     renderPage();
 
-    const createButton = await screen.findByRole("button", { name: "Create key" });
+    const createButton = await screen.findByRole("button", {
+      name: "Create key",
+    });
     expect(createButton).toBeEnabled();
 
     await user.type(screen.getByLabelText("Key name"), "admin-foreign-key");

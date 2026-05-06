@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/openagents/gateway/internal/model"
 )
 
@@ -455,6 +456,120 @@ func translateTurnRequest(request model.TurnCreateRequest) (model.PublicAPIRespo
 	}, nil
 }
 
+func normalizeKnowledgeBaseIDs(values []string) ([]string, error) {
+	if values == nil {
+		return nil, nil
+	}
+	if len(values) == 0 {
+		return []string{}, nil
+	}
+
+	seen := make(map[string]struct{}, len(values))
+	normalized := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			return nil, &PublicAPIError{
+				StatusCode: http.StatusBadRequest,
+				Code:       "invalid_knowledge_base_ids",
+				Message:    "knowledge_base_ids cannot contain empty values",
+			}
+		}
+		parsed, err := uuid.Parse(trimmed)
+		if err != nil {
+			return nil, &PublicAPIError{
+				StatusCode: http.StatusBadRequest,
+				Code:       "invalid_knowledge_base_ids",
+				Message:    "knowledge_base_ids must contain valid UUID values",
+			}
+		}
+		id := parsed.String()
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		normalized = append(normalized, id)
+	}
+	return normalized, nil
+}
+
+func normalizeTurnKnowledgeBaseIDs(values []string) ([]string, error) {
+	return normalizeKnowledgeBaseIDs(values)
+}
+
+func mergeKnowledgeBaseIDs(defaultIDs []string, requestIDs []string) ([]string, error) {
+	combined := make([]string, 0, len(defaultIDs)+len(requestIDs))
+	combined = append(combined, defaultIDs...)
+	combined = append(combined, requestIDs...)
+	return normalizeKnowledgeBaseIDs(combined)
+}
+
+func requireTurnKnowledgeScope(auth PublicAPIAuthContext, knowledgeBaseIDs []string) error {
+	if len(knowledgeBaseIDs) == 0 {
+		return nil
+	}
+	if containsNormalizedText(auth.Scopes, "knowledge:read") {
+		return nil
+	}
+	return &PublicAPIError{
+		StatusCode: http.StatusForbidden,
+		Code:       "insufficient_scope",
+		Message:    "api token is missing knowledge:read",
+	}
+}
+
+func (s *PublicAPIService) attachTurnKnowledgeBases(
+	ctx context.Context,
+	auth PublicAPIAuthContext,
+	threadID string,
+	knowledgeBaseIDs []string,
+) error {
+	if len(knowledgeBaseIDs) == 0 {
+		return nil
+	}
+	if s.knowledgeRepo == nil {
+		return &PublicAPIError{
+			StatusCode: http.StatusInternalServerError,
+			Code:       "knowledge_unavailable",
+			Message:    "knowledge base attachments are not configured",
+		}
+	}
+
+	for _, knowledgeBaseID := range knowledgeBaseIDs {
+		// Public SDK turns must reuse the same persisted thread attachment table
+		// as the workspace UI; runtime prompts then see one stable KB contract.
+		if err := s.knowledgeRepo.AttachBaseToThread(ctx, auth.UserID, threadID, knowledgeBaseID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return &PublicAPIError{
+					StatusCode: http.StatusNotFound,
+					Code:       "knowledge_base_not_found",
+					Message:    "knowledge base not found",
+				}
+			}
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *PublicAPIService) attachRunKnowledgeBases(
+	ctx context.Context,
+	plan *publicAPIRunPlan,
+	requestKnowledgeBaseIDs []string,
+) error {
+	knowledgeBaseIDs, err := mergeKnowledgeBaseIDs(
+		plan.AgentKnowledgeBaseIDs,
+		requestKnowledgeBaseIDs,
+	)
+	if err != nil {
+		return err
+	}
+	if err := requireTurnKnowledgeScope(plan.Auth, knowledgeBaseIDs); err != nil {
+		return err
+	}
+	return s.attachTurnKnowledgeBases(ctx, plan.Auth, plan.ThreadID, knowledgeBaseIDs)
+}
+
 func buildTurnSnapshot(
 	invocation *model.PublicAPIInvocation,
 	agentName string,
@@ -725,6 +840,10 @@ func (s *PublicAPIService) CreateTurn(
 	request model.TurnCreateRequest,
 	rawBody json.RawMessage,
 ) (*model.TurnSnapshot, error) {
+	knowledgeBaseIDs, err := normalizeTurnKnowledgeBaseIDs(request.KnowledgeBaseIDs)
+	if err != nil {
+		return nil, err
+	}
 	responsesRequest, err := translateTurnRequest(request)
 	if err != nil {
 		return nil, err
@@ -732,6 +851,14 @@ func (s *PublicAPIService) CreateTurn(
 	plan, err := s.prepareRun(ctx, auth, "turns", responsesRequest, rawBody)
 	if err != nil {
 		return nil, err
+	}
+	if err := s.attachRunKnowledgeBases(ctx, plan, knowledgeBaseIDs); err != nil {
+		return nil, s.finishInvocationWithError(ctx, plan.Invocation, wrapPublicAPITurnFailure(err, publicAPITurnFailureContext{
+			TurnID:         plan.ResponseID,
+			Stage:          model.TurnFailureStagePrepareRun,
+			PreviousTurnID: plan.PreviousResponseID,
+			Metadata:       plan.Metadata,
+		}), nil)
 	}
 	snapshot, err := s.executeTurn(ctx, plan, newTurnCollector(plan.ResponseID), nil)
 	if err != nil {
@@ -750,6 +877,10 @@ func (s *PublicAPIService) StreamTurn(
 	rawBody json.RawMessage,
 	emit func(eventName string, payload any) error,
 ) error {
+	knowledgeBaseIDs, err := normalizeTurnKnowledgeBaseIDs(request.KnowledgeBaseIDs)
+	if err != nil {
+		return err
+	}
 	responsesRequest, err := translateTurnRequest(request)
 	if err != nil {
 		return err
@@ -757,6 +888,14 @@ func (s *PublicAPIService) StreamTurn(
 	plan, err := s.prepareRun(ctx, auth, "turns", responsesRequest, rawBody)
 	if err != nil {
 		return err
+	}
+	if err := s.attachRunKnowledgeBases(ctx, plan, knowledgeBaseIDs); err != nil {
+		return s.finishInvocationWithError(ctx, plan.Invocation, wrapPublicAPITurnFailure(err, publicAPITurnFailureContext{
+			TurnID:         plan.ResponseID,
+			Stage:          model.TurnFailureStagePrepareRun,
+			PreviousTurnID: plan.PreviousResponseID,
+			Metadata:       plan.Metadata,
+		}), nil)
 	}
 	_, err = s.executeTurn(ctx, plan, newTurnCollector(plan.ResponseID), func(event model.TurnEvent) error {
 		if emit == nil {

@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import { ThreadKnowledgeAttachmentStrip } from "./thread-knowledge-attachment-strip";
@@ -73,9 +74,11 @@ describe("ThreadKnowledgeAttachmentStrip", () => {
     const queryClient = new QueryClient();
 
     render(
-      <QueryClientProvider client={queryClient}>
-        <ThreadKnowledgeAttachmentStrip threadId="thread-1" />
-      </QueryClientProvider>,
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <ThreadKnowledgeAttachmentStrip threadId="thread-1" />
+        </QueryClientProvider>
+      </MemoryRouter>,
     );
 
     expect(screen.getByText("1 attached base")).toBeInTheDocument();

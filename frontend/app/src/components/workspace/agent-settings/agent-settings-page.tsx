@@ -26,6 +26,7 @@ import {
 } from "@/core/agents";
 import { useAuth } from "@/core/auth/hooks";
 import { useI18n } from "@/core/i18n/hooks";
+import { useKnowledgeLibrary } from "@/core/knowledge/hooks";
 import { useMCPProfiles } from "@/core/mcp/hooks";
 import { useModels } from "@/core/models/hooks";
 import { useSkills } from "@/core/skills/hooks";
@@ -91,6 +92,7 @@ function createFormState(agent: Agent): AgentSettingsFormState {
     toolNames: agent.tool_names ?? [],
     runtimeMiddlewares: normalizeRuntimeMiddlewares(agent.runtime_middlewares),
     mcpServers: agent.mcp_servers ?? [],
+    knowledgeBaseIds: agent.knowledge_base_ids ?? [],
     skillRefs: agent.skills ?? [],
     agentsMd: agent.agents_md ?? "",
     memoryEnabled: agent.memory?.enabled ?? false,
@@ -165,6 +167,11 @@ export function AgentSettingsPageView({
     isLoading: mcpProfilesLoading,
     error: mcpProfilesError,
   } = useMCPProfiles();
+  const {
+    knowledgeBases,
+    isLoading: knowledgeBasesLoading,
+    error: knowledgeBasesError,
+  } = useKnowledgeLibrary(undefined, { readyOnly: true });
 
   const canLoadExportDoc = agent != null;
   const { models, isLoading: modelsLoading, error: modelsError } = useModels();
@@ -321,6 +328,7 @@ export function AgentSettingsPageView({
             : null,
           runtime_middlewares: form.runtimeMiddlewares,
           mcp_servers: form.mcpServers.length > 0 ? [...form.mcpServers] : null,
+          knowledge_base_ids: [...form.knowledgeBaseIds],
           skill_refs: form.skillRefs.map(serializeSkillRefForRequest),
           agents_md: form.agentsMd,
           subagent_defaults: {
@@ -523,6 +531,9 @@ export function AgentSettingsPageView({
                         mcpProfiles={mcpProfiles}
                         mcpProfilesLoading={mcpProfilesLoading}
                         mcpProfilesError={mcpProfilesError}
+                        knowledgeBases={knowledgeBases}
+                        knowledgeBasesLoading={knowledgeBasesLoading}
+                        knowledgeBasesError={knowledgeBasesError}
                         mcpProfileQuery={mcpProfileQuery}
                         onMcpProfileQueryChange={setMcpProfileQuery}
                       />

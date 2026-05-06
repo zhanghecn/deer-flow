@@ -1,6 +1,10 @@
 import type { AgentRuntimeMiddlewares, AgentSkillRef } from "@/core/agents";
 
-export type SettingsTab = "identity" | "capabilities" | "behavior" | "integration";
+export type SettingsTab =
+  | "identity"
+  | "capabilities"
+  | "behavior"
+  | "integration";
 
 export type AgentSubagentFormState = {
   id: string;
@@ -21,6 +25,7 @@ export type AgentSettingsFormState = {
   toolNames: string[];
   runtimeMiddlewares: AgentRuntimeMiddlewares;
   mcpServers: string[];
+  knowledgeBaseIds: string[];
   skillRefs: AgentSkillRef[];
   agentsMd: string;
   memoryEnabled: boolean;

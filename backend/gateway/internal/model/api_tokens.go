@@ -16,6 +16,7 @@ var defaultPublicAPIScopes = []string{
 	"responses:create",
 	"responses:read",
 	"artifacts:read",
+	"knowledge:read",
 }
 
 // DefaultPublicAPIScopes returns the least-privilege baseline for public API

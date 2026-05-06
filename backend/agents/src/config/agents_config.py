@@ -122,6 +122,7 @@ class AgentConfig(BaseModel):
     tool_groups: list[str] | None = None
     tool_names: list[str] | None = None
     mcp_servers: list[str] | None = None
+    knowledge_base_ids: list[str] | None = None
     status: str = "dev"
     agents_md_path: str = AGENTS_MD_FILENAME
     skill_refs: list["AgentSkillRef"] = Field(default_factory=list)
@@ -142,6 +143,10 @@ class AgentConfig(BaseModel):
             preserve_empty=True,
         )
         self.mcp_servers = _normalize_optional_string_list(self.mcp_servers, field_name="mcp_servers")
+        self.knowledge_base_ids = _normalize_optional_string_list(
+            self.knowledge_base_ids,
+            field_name="knowledge_base_ids",
+        )
         return self
 
 

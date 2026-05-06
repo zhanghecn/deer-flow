@@ -379,6 +379,7 @@ def _write_agent_manifest(
     tool_groups: list[str] | None,
     tool_names: list[str] | None,
     mcp_servers: list[str] | None,
+    knowledge_base_ids: list[str] | None,
     skill_refs: list[AgentSkillRef],
     memory: AgentMemoryConfig | None,
     runtime_middlewares: AgentRuntimeMiddlewares | None,
@@ -406,6 +407,10 @@ def _write_agent_manifest(
         manifest["tool_names"] = tool_names
     if mcp_servers is not None:
         manifest["mcp_servers"] = mcp_servers
+    if knowledge_base_ids is not None:
+        # Agent-level defaults are persisted in the archive so public SDK
+        # callers do not need to know product-specific knowledge-base UUIDs.
+        manifest["knowledge_base_ids"] = knowledge_base_ids
 
     config_file = agent_dir / "config.yaml"
     with open(config_file, "w", encoding="utf-8") as f:
@@ -437,6 +442,7 @@ def materialize_agent_definition(
     tool_groups: list[str] | None = None,
     tool_names: list[str] | None = None,
     mcp_servers: list[str] | None = None,
+    knowledge_base_ids: list[str] | None = None,
     skill_names: list[str] | None = None,
     skill_refs: list[AgentSkillRef | dict[str, str]] | None = None,
     inline_skills: list[dict[str, str]] | None = None,
@@ -506,6 +512,7 @@ def materialize_agent_definition(
             tool_groups=tool_groups,
             tool_names=tool_names,
             mcp_servers=normalized_mcp_servers,
+            knowledge_base_ids=knowledge_base_ids,
             skill_refs=skill_refs,
             memory=memory_config,
             runtime_middlewares=runtime_middlewares_config,
@@ -534,6 +541,7 @@ def materialize_agent_definition(
             tool_groups=tool_groups,
             tool_names=tool_names,
             mcp_servers=normalized_mcp_servers,
+            knowledge_base_ids=knowledge_base_ids,
             status=status,
             agents_md_path=AGENTS_MD_FILENAME,
             skill_refs=skill_refs,

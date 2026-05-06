@@ -287,6 +287,61 @@ func TestAgentServiceCreatePersistsOwnerUserID(t *testing.T) {
 	}
 }
 
+func TestAgentServicePersistsKnowledgeBaseIDs(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	svc := NewAgentService(storage.NewFS(baseDir))
+	firstKnowledgeID := "11111111-1111-1111-1111-111111111111"
+	secondKnowledgeID := "22222222-2222-2222-2222-222222222222"
+
+	agent, err := svc.Create(context.Background(), model.CreateAgentRequest{
+		Name: "research-agent",
+		KnowledgeBaseIDs: []string{
+			" " + firstKnowledgeID + " ",
+			firstKnowledgeID,
+		},
+		AgentsMD: "# Agent",
+	}, uuid.Nil)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if got := agent.KnowledgeBaseIDs; len(got) != 1 || got[0] != firstKnowledgeID {
+		t.Fatalf("agent.KnowledgeBaseIDs = %#v, want normalized ids", got)
+	}
+
+	configPath := filepath.Join(baseDir, "custom", "agents", "dev", "research-agent", "config.yaml")
+	configBytes, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if !strings.Contains(string(configBytes), "knowledge_base_ids:") ||
+		!strings.Contains(string(configBytes), "- "+firstKnowledgeID) {
+		t.Fatalf("config.yaml missing knowledge_base_ids: %s", string(configBytes))
+	}
+
+	description := "Updated without touching knowledge bases"
+	preserved, err := svc.Update(context.Background(), "research-agent", "dev", model.UpdateAgentRequest{
+		Description: &description,
+	})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if got := preserved.KnowledgeBaseIDs; len(got) != 1 || got[0] != firstKnowledgeID {
+		t.Fatalf("preserved.KnowledgeBaseIDs = %#v, want existing ids", got)
+	}
+
+	replaced, err := svc.Update(context.Background(), "research-agent", "dev", model.UpdateAgentRequest{
+		KnowledgeBaseIDs: []string{secondKnowledgeID},
+	})
+	if err != nil {
+		t.Fatalf("Update(replace) error = %v", err)
+	}
+	if got := replaced.KnowledgeBaseIDs; len(got) != 1 || got[0] != secondKnowledgeID {
+		t.Fatalf("replaced.KnowledgeBaseIDs = %#v, want updated ids", got)
+	}
+}
+
 func TestAgentServiceCreateRejectsAmbiguousSkillNames(t *testing.T) {
 	t.Parallel()
 

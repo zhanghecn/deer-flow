@@ -50,6 +50,7 @@ class AgentResponse(BaseModel):
     tool_groups: list[str] | None = Field(default=None, description="Optional tool group whitelist")
     tool_names: list[str] | None = Field(default=None, description="Optional explicit normal-tool whitelist")
     mcp_servers: list[str] | None = Field(default=None, description="Optional MCP library refs selected for this agent")
+    knowledge_base_ids: list[str] | None = Field(default=None, description="Default knowledge-base IDs attached before each agent run")
     status: str | None = Field(default=None, description="Agent status: prod or dev")
     memory: AgentMemoryConfig = Field(default_factory=AgentMemoryConfig, description="Per-agent user-scoped memory policy")
     runtime_middlewares: AgentRuntimeMiddlewares = Field(
@@ -80,6 +81,7 @@ class AgentCreateRequest(BaseModel):
     tool_groups: list[str] | None = Field(default=None, description="Optional tool group whitelist")
     tool_names: list[str] | None = Field(default=None, description="Optional explicit normal-tool whitelist")
     mcp_servers: list[str] | None = Field(default=None, description="Optional MCP library refs selected for this agent")
+    knowledge_base_ids: list[str] | None = Field(default=None, description="Default knowledge-base IDs attached before each agent run")
     memory: AgentMemoryConfig = Field(default_factory=AgentMemoryConfig, description="Per-agent user-scoped memory policy")
     runtime_middlewares: AgentRuntimeMiddlewares = Field(default_factory=AgentRuntimeMiddlewares)
     subagent_defaults: AgentSubagentDefaults = Field(default_factory=AgentSubagentDefaults)
@@ -97,6 +99,7 @@ class AgentUpdateRequest(BaseModel):
     tool_groups: list[str] | None = Field(default=None, description="Updated tool group whitelist")
     tool_names: list[str] | None = Field(default=None, description="Updated explicit normal-tool whitelist")
     mcp_servers: list[str] | None = Field(default=None, description="Updated MCP library refs selected for this agent")
+    knowledge_base_ids: list[str] | None = Field(default=None, description="Updated default knowledge-base IDs attached before each agent run")
     memory: AgentMemoryConfig | None = Field(default=None, description="Updated per-agent user-scoped memory policy")
     runtime_middlewares: AgentRuntimeMiddlewares | None = Field(default=None, description="Updated runtime middleware switches")
     subagent_defaults: AgentSubagentDefaults | None = Field(default=None, description="Updated general-purpose subagent policy")
@@ -166,6 +169,7 @@ def _agent_config_to_response(agent_cfg: AgentConfig, include_agents_md: bool = 
         tool_groups=agent_cfg.tool_groups,
         tool_names=agent_cfg.tool_names,
         mcp_servers=agent_cfg.mcp_servers,
+        knowledge_base_ids=agent_cfg.knowledge_base_ids,
         status=agent_cfg.status,
         memory=agent_cfg.memory,
         runtime_middlewares=agent_cfg.runtime_middlewares,
@@ -311,6 +315,7 @@ async def create_agent_endpoint(request: AgentCreateRequest) -> AgentResponse:
             tool_groups=request.tool_groups,
             tool_names=request.tool_names,
             mcp_servers=request.mcp_servers,
+            knowledge_base_ids=request.knowledge_base_ids,
             memory=request.memory,
             runtime_middlewares=request.runtime_middlewares,
             subagent_defaults=request.subagent_defaults,
@@ -392,6 +397,9 @@ async def update_agent(
             tool_groups=request.tool_groups if "tool_groups" in fields_set else agent_cfg.tool_groups,
             tool_names=request.tool_names if "tool_names" in fields_set else agent_cfg.tool_names,
             mcp_servers=request.mcp_servers if "mcp_servers" in fields_set else agent_cfg.mcp_servers,
+            knowledge_base_ids=(
+                request.knowledge_base_ids if "knowledge_base_ids" in fields_set else agent_cfg.knowledge_base_ids
+            ),
             memory=request.memory if request.memory is not None else agent_cfg.memory,
             runtime_middlewares=(
                 request.runtime_middlewares if request.runtime_middlewares is not None else agent_cfg.runtime_middlewares

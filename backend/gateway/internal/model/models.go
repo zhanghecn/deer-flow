@@ -121,6 +121,7 @@ type Agent struct {
 	// distinguish "no override" from "explicitly no normal tools".
 	ToolNames          []string                 `json:"tool_names"`
 	McpServers         []string                 `json:"mcp_servers"` // Stable MCP library refs selected for this agent
+	KnowledgeBaseIDs   []string                 `json:"knowledge_base_ids,omitempty"`
 	Status             string                   `json:"status"`
 	OwnerUserID        string                   `json:"owner_user_id,omitempty"`
 	OwnerName          string                   `json:"owner_name,omitempty"`

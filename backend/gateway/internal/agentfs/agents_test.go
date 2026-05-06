@@ -242,6 +242,31 @@ func TestLoadAgentReadsRuntimeMiddlewares(t *testing.T) {
 	}
 }
 
+func TestLoadAgentReadsKnowledgeBaseIDs(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	fsStore := storage.NewFS(baseDir)
+	knowledgeBaseID := "11111111-1111-1111-1111-111111111111"
+	if err := fsStore.WriteAgentFiles("contract-reviewer", "dev", "# Contract Reviewer", map[string]interface{}{
+		"name":               "contract-reviewer",
+		"description":        "Contract reviewer",
+		"status":             "dev",
+		"agents_md_path":     "AGENTS.md",
+		"knowledge_base_ids": []string{knowledgeBaseID},
+	}); err != nil {
+		t.Fatalf("write agent files: %v", err)
+	}
+
+	agent, err := LoadAgent(fsStore, "contract-reviewer", "dev", false)
+	if err != nil {
+		t.Fatalf("LoadAgent() error = %v", err)
+	}
+	if agent == nil || len(agent.KnowledgeBaseIDs) != 1 || agent.KnowledgeBaseIDs[0] != knowledgeBaseID {
+		t.Fatalf("agent.KnowledgeBaseIDs = %#v, want configured default", agent)
+	}
+}
+
 func TestSetAgentOwnerClaimsExistingArchives(t *testing.T) {
 	t.Parallel()
 

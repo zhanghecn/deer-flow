@@ -38,11 +38,15 @@ type TurnInput struct {
 }
 
 type TurnCreateRequest struct {
-	Agent          string          `json:"agent" binding:"required"`
-	Input          TurnInput       `json:"input" binding:"required"`
-	PreviousTurnID string          `json:"previous_turn_id,omitempty"`
-	Metadata       json.RawMessage `json:"metadata,omitempty"`
-	Stream         bool            `json:"stream,omitempty"`
+	Agent          string    `json:"agent" binding:"required"`
+	Input          TurnInput `json:"input" binding:"required"`
+	PreviousTurnID string    `json:"previous_turn_id,omitempty"`
+	// External SDK callers can pre-attach existing knowledge bases before the
+	// first runtime turn. The service stores these in the same thread binding
+	// table used by the workspace UI so there is one knowledge attachment truth.
+	KnowledgeBaseIDs []string        `json:"knowledge_base_ids,omitempty"`
+	Metadata         json.RawMessage `json:"metadata,omitempty"`
+	Stream           bool            `json:"stream,omitempty"`
 	// Reuse the existing public text format contract so native `/v1/turns`
 	// keeps structured-output parity with the compatibility surfaces instead of
 	// quietly dropping JSON schema requests in the workspace console or SDKs.

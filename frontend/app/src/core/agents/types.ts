@@ -68,6 +68,7 @@ export interface Agent {
   tool_names?: string[] | null;
   runtime_middlewares?: AgentRuntimeMiddlewares | null;
   mcp_servers?: string[] | null; // Stable MCP library refs bound to this agent
+  knowledge_base_ids?: string[] | null;
   status: AgentStatus;
   owner_user_id?: string | null;
   owner_name?: string | null;
@@ -109,6 +110,7 @@ export interface CreateAgentRequest {
   tool_names?: string[] | null;
   runtime_middlewares?: AgentRuntimeMiddlewares | null;
   mcp_servers?: string[] | null; // Stable MCP library refs selected for this agent
+  knowledge_base_ids?: string[] | null;
   memory?: AgentMemoryConfig;
   subagent_defaults?: AgentSubagentDefaults | null;
   subagents?: AgentSubagent[];
@@ -124,6 +126,7 @@ export interface UpdateAgentRequest {
   tool_names?: string[] | null;
   runtime_middlewares?: AgentRuntimeMiddlewares | null;
   mcp_servers?: string[] | null; // Stable MCP library refs selected for this agent
+  knowledge_base_ids?: string[] | null;
   memory?: AgentMemoryConfig;
   subagent_defaults?: AgentSubagentDefaults | null;
   subagents?: AgentSubagent[];

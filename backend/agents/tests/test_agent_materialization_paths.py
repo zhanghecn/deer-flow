@@ -165,6 +165,26 @@ def test_materialize_agent_definition_persists_owner_user_id(tmp_path: Path):
     assert loaded.owner_user_id == "user-123"
 
 
+def test_materialize_agent_definition_persists_knowledge_base_ids(tmp_path: Path):
+    base_dir = tmp_path / ".openagents"
+    paths = Paths(base_dir=base_dir, skills_dir=base_dir / "skills")
+    knowledge_base_ids = ["11111111-1111-1111-1111-111111111111"]
+
+    config = materialize_agent_definition(
+        name="research-agent",
+        status="dev",
+        agents_md="# Research Agent",
+        description="Uses curated knowledge",
+        knowledge_base_ids=knowledge_base_ids,
+        paths=paths,
+    )
+
+    assert config.knowledge_base_ids == knowledge_base_ids
+    loaded = load_agent_config("research-agent", "dev", paths=paths)
+    assert loaded is not None
+    assert loaded.knowledge_base_ids == knowledge_base_ids
+
+
 def test_materialize_agent_definition_writes_subagent_defaults_and_subagents(tmp_path: Path):
     base_dir = tmp_path / ".openagents"
     paths = Paths(base_dir=base_dir, skills_dir=base_dir / "skills")

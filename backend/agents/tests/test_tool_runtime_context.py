@@ -895,6 +895,7 @@ def test_setup_agent_preserves_existing_agent_manifest_fields_when_omitted(monke
                 "tool_groups": ["design"],
                 "tool_names": ["read_file", "write_file"],
                 "mcp_servers": ["figma"],
+                "knowledge_base_ids": ["11111111-1111-1111-1111-111111111111"],
                 "memory": {
                     "enabled": True,
                     "model_name": "kimi-k2.5",
@@ -970,6 +971,7 @@ def test_setup_agent_preserves_existing_agent_manifest_fields_when_omitted(monke
     assert calls["tool_groups"] == ["design"]
     assert calls["tool_names"] == ["read_file", "write_file"]
     assert calls["mcp_servers"] == ["figma"]
+    assert calls["knowledge_base_ids"] == ["11111111-1111-1111-1111-111111111111"]
     assert calls["memory"].enabled is True
     assert calls["memory"].debounce_seconds == 15
     assert calls["runtime_middlewares"].is_enabled("filesystem") is False

@@ -387,6 +387,10 @@ func (s *AgentService) Create(_ context.Context, req model.CreateAgentRequest, u
 	if err != nil {
 		return nil, err
 	}
+	knowledgeBaseIDs, err := normalizeKnowledgeBaseIDs(req.KnowledgeBaseIDs)
+	if err != nil {
+		return nil, err
+	}
 	mainToolNames, err := s.validateMainToolNames(req.ToolNames, mcpServers)
 	if err != nil {
 		return nil, err
@@ -416,6 +420,7 @@ func (s *AgentService) Create(_ context.Context, req model.CreateAgentRequest, u
 		ToolNames:          mainToolNames,
 		RuntimeMiddlewares: &runtimeMiddlewares,
 		McpServers:         mcpServers,
+		KnowledgeBaseIDs:   knowledgeBaseIDs,
 		Status:             "dev",
 		Memory:             &memoryConfig,
 		SubagentDefaults:   &subagentDefaults,
@@ -457,6 +462,12 @@ func (s *AgentService) Update(_ context.Context, name string, status string, req
 	}
 	if req.ToolNames != nil {
 		existing.ToolNames, err = s.validateMainToolNames(req.ToolNames, effectiveMCPServers)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if req.KnowledgeBaseIDs != nil {
+		existing.KnowledgeBaseIDs, err = normalizeKnowledgeBaseIDs(req.KnowledgeBaseIDs)
 		if err != nil {
 			return nil, err
 		}
@@ -841,6 +852,11 @@ func (s *AgentService) syncAgentFilesystem(agent *model.Agent, agentsMD string, 
 	}
 	if agent.McpServers != nil {
 		config["mcp_servers"] = agent.McpServers
+	}
+	if agent.KnowledgeBaseIDs != nil {
+		// These are agent-level default thread attachments. Public API callers
+		// should not need to know product-specific knowledge-base UUIDs.
+		config["knowledge_base_ids"] = agent.KnowledgeBaseIDs
 	}
 
 	if err := s.fs.WriteAgentFiles(agent.Name, agent.Status, agentsMD, config); err != nil {

@@ -348,11 +348,13 @@ def _resolve_manifest_update_inputs(
     description: str | None,
     tool_groups: list[str] | None,
     mcp_servers: list[str] | None,
+    knowledge_base_ids: list[str] | None,
 ) -> tuple[
     _ExistingAgentUpdateState | None,
     str,
     str,
     str | None,
+    list[str] | None,
     list[str] | None,
     list[str] | None,
     list[str] | None,
@@ -390,6 +392,7 @@ def _resolve_manifest_update_inputs(
             tool_groups,
             None,
             mcp_servers,
+            knowledge_base_ids,
             None,
             None,
             None,
@@ -398,6 +401,9 @@ def _resolve_manifest_update_inputs(
 
     resolved_tool_groups = tool_groups if tool_groups is not None else existing_state.config.tool_groups
     resolved_mcp_servers = mcp_servers if mcp_servers is not None else existing_state.config.mcp_servers
+    resolved_knowledge_base_ids = (
+        knowledge_base_ids if knowledge_base_ids is not None else existing_state.config.knowledge_base_ids
+    )
     if explicit_agents_md is None and existing_state.agents_md is None:
         raise ValueError(
             f"setup_agent could not load existing AGENTS.md for '{agent_name}'. "
@@ -412,6 +418,7 @@ def _resolve_manifest_update_inputs(
         resolved_tool_groups,
         existing_state.config.tool_names,
         resolved_mcp_servers,
+        resolved_knowledge_base_ids,
         existing_state.config.memory,
         existing_state.config.runtime_middlewares,
         existing_state.config.subagent_defaults,
@@ -615,6 +622,7 @@ def setup_agent(
     model: str | None = None,
     tool_groups: list[str] | None = None,
     mcp_servers: list[str] | None = None,
+    knowledge_base_ids: list[str] | None = None,
     mcp_profiles: list[SetupAgentMCPProfileInput] | None = None,
     skills: list[SetupAgentSkillInput] | None = None,
 ) -> Command:
@@ -641,6 +649,9 @@ def setup_agent(
         mcp_servers: Optional list of MCP library refs or legacy MCP names to bind to
             the agent. Canonical refs look like `mcp-profiles/customer-docs.json`.
             When omitted, preserve the existing archived agent MCP bindings.
+        knowledge_base_ids: Optional list of knowledge-base UUIDs to attach by
+            default before this agent runs. When omitted, preserve the existing
+            archived agent knowledge bindings.
         mcp_profiles: Optional global MCP library items to create or update before
             binding. Each entry uses canonical `mcpServers` JSON and is written into
             the global MCP library. Newly written profile refs are automatically bound
@@ -691,6 +702,7 @@ def setup_agent(
             resolved_tool_groups,
             resolved_tool_names,
             resolved_mcp_servers,
+            resolved_knowledge_base_ids,
             resolved_memory,
             resolved_runtime_middlewares,
             resolved_subagent_defaults,
@@ -704,6 +716,7 @@ def setup_agent(
             description=description,
             tool_groups=tool_groups,
             mcp_servers=_merge_mcp_server_bindings(mcp_servers, written_mcp_refs),
+            knowledge_base_ids=knowledge_base_ids,
         )
         if skills is None:
             copied_skill_refs, inline_skills = _resolve_default_setup_agent_skills(
@@ -734,6 +747,7 @@ def setup_agent(
             tool_groups=resolved_tool_groups,
             tool_names=resolved_tool_names,
             mcp_servers=resolved_mcp_servers,
+            knowledge_base_ids=resolved_knowledge_base_ids,
             skill_refs=copied_skill_refs,
             inline_skills=inline_skills,
             memory=resolved_memory,

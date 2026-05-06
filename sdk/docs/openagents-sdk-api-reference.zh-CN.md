@@ -83,7 +83,9 @@ curl -X GET "http://127.0.0.1:8083/v1/models" \
 - 一个请求只发送当前轮输入
 - 通过 `previous_turn_id` 串联会话
 - 支持 SSE 流式事件
-- 支持思考内容、工具调用、结构化输出、文件输入
+- 支持思考内容、工具调用、结构化输出、文件输入、已存在知识库绑定
+- 已发布 agent 可以预设默认知识库；SDK 调用方通常不需要传
+  `knowledge_base_ids`，除非本轮要追加临时知识库
 
 ### 5.1 请求体
 
@@ -95,6 +97,7 @@ curl -X GET "http://127.0.0.1:8083/v1/models" \
     "file_ids": ["file_123"]
   },
   "previous_turn_id": "turn_abc",
+  "knowledge_base_ids": ["11111111-1111-1111-1111-111111111111"],
   "metadata": {
     "ticket_id": "T-1001"
   },
@@ -129,6 +132,7 @@ curl -X GET "http://127.0.0.1:8083/v1/models" \
 | `input.text` | `string` | 是 | 当前轮用户输入文本 |
 | `input.file_ids` | `string[]` | 否 | 之前通过 `/v1/files` 上传得到的 `file_id` |
 | `previous_turn_id` | `string` | 否 | 上一轮 turn ID，用于串联对话 |
+| `knowledge_base_ids` | `string[]` | 否 | 本轮执行前额外绑定到 thread 的知识库 ID。agent 预设的默认知识库会自动绑定。只要本轮存在有效知识库绑定，API key 就需要 token scope `knowledge:read`，且知识库必须属于当前用户或为共享知识库 |
 | `metadata` | `object` | 否 | 调用方自定义元数据 |
 | `stream` | `boolean` | 否 | 是否启用 SSE 流式输出 |
 | `text.format` | `object` | 否 | 结构化输出定义 |
@@ -338,12 +342,14 @@ curl -X POST "http://127.0.0.1:8083/v1/responses" \
 
 ### 403 Forbidden
 
-Token scope 不足。
+Token scope 不足。例如传入 `knowledge_base_ids` 时，API key 必须具备
+`knowledge:read`。
 
 ### 404 Not Found
 
 - agent 不存在
 - turn / response / file 不存在
+- `knowledge_base_ids` 指向不存在或不可访问的知识库
 
 ### 422 / runtime_error
 

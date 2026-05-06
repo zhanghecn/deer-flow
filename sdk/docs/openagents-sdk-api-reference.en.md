@@ -84,7 +84,10 @@ Key properties:
 - send only the current turn input
 - chain turns with `previous_turn_id`
 - supports SSE streaming
-- supports reasoning output, tool calls, structured output, and uploaded files
+- supports reasoning output, tool calls, structured output, uploaded files, and
+  existing knowledge-base attachments
+- published agents may also define default knowledge-base attachments; SDK
+  callers normally omit `knowledge_base_ids` unless they need per-turn extras
 
 ### 5.1 Request Body
 
@@ -96,6 +99,7 @@ Key properties:
     "file_ids": ["file_123"]
   },
   "previous_turn_id": "turn_abc",
+  "knowledge_base_ids": ["11111111-1111-1111-1111-111111111111"],
   "metadata": {
     "ticket_id": "T-1001"
   },
@@ -130,6 +134,7 @@ Key properties:
 | `input.text` | `string` | Yes | Current user text input |
 | `input.file_ids` | `string[]` | No | `file_id` values returned by `/v1/files` |
 | `previous_turn_id` | `string` | No | Previous turn ID for session continuity |
+| `knowledge_base_ids` | `string[]` | No | Extra existing knowledge-base IDs to attach to the thread before this turn runs. Agent-level default knowledge bases are attached automatically. Any effective knowledge attachment requires the `knowledge:read` token scope, and each base must belong to the current user or be shared |
 | `metadata` | `object` | No | Caller-defined metadata |
 | `stream` | `boolean` | No | Enable SSE streaming |
 | `text.format` | `object` | No | Structured output definition |
@@ -339,12 +344,14 @@ or:
 
 ### 403 Forbidden
 
-The token is missing the required scopes.
+The token is missing the required scopes. For example, `knowledge_base_ids`
+requires `knowledge:read`.
 
 ### 404 Not Found
 
 - missing agent
 - missing turn / response / file
+- a `knowledge_base_ids` entry does not exist or is not accessible
 
 ### 422 / `runtime_error`
 

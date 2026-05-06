@@ -53,6 +53,14 @@ export type AgentSettingsPageText = {
   duplicateNameHint: (names: string) => string;
   selectedSkills: string;
   noSelectedSkills: string;
+  knowledgeTitle: string;
+  knowledgeDescription: string;
+  loadingKnowledge: string;
+  loadKnowledgeFailed: string;
+  noKnowledgeBases: string;
+  knowledgeDocumentCount: (count: number) => string;
+  knowledgeSelected: (count: number) => string;
+  unknownKnowledgeBase: (id: string) => string;
   remove: string;
   previousPage: string;
   nextPage: string;
@@ -249,6 +257,16 @@ const enUS: AgentSettingsPageText = {
     `Duplicate skill names: ${names}. Choose the exact source tab you want.`,
   selectedSkills: "Selected skills",
   noSelectedSkills: "No skills selected.",
+  knowledgeTitle: "Knowledge bases",
+  knowledgeDescription:
+    "Bind ready knowledge bases that should be attached before this agent runs.",
+  loadingKnowledge: "Loading knowledge bases...",
+  loadKnowledgeFailed: "Failed to load knowledge bases.",
+  noKnowledgeBases: "No ready knowledge bases available.",
+  knowledgeDocumentCount: (count) =>
+    `${count} document${count === 1 ? "" : "s"}`,
+  knowledgeSelected: (count) => `${count} knowledge base(s) selected`,
+  unknownKnowledgeBase: (id) => `Unknown knowledge base: ${id}`,
   remove: "remove",
   previousPage: "Previous",
   nextPage: "Next",
@@ -457,6 +475,14 @@ const zhCN: AgentSettingsPageText = {
     `多个来源中存在同名技能：${names}。请选择具体版本。`,
   selectedSkills: "已选技能",
   noSelectedSkills: "未选择任何技能。",
+  knowledgeTitle: "知识库",
+  knowledgeDescription: "绑定此智能体运行前应自动挂载的 ready 知识库。",
+  loadingKnowledge: "正在加载知识库...",
+  loadKnowledgeFailed: "知识库加载失败。",
+  noKnowledgeBases: "暂无可用的 ready 知识库。",
+  knowledgeDocumentCount: (count) => `${count} 个文档`,
+  knowledgeSelected: (count) => `已选择 ${count} 个知识库`,
+  unknownKnowledgeBase: (id) => `未知知识库：${id}`,
   remove: "移除",
   previousPage: "上一页",
   nextPage: "下一页",

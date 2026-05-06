@@ -108,6 +108,7 @@ func main() {
 		publicAPIInputFileRepo,
 		publicAPIInvocationRepo,
 		adminObservabilityRepo,
+		knowledgeRepo,
 		cfg.Upstream.LangGraphURL,
 		fs,
 	)

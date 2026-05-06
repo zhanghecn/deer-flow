@@ -22,6 +22,7 @@ func TestTurnsHandlerStreamsStructuredPrepareRunFailure(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		nil,
 		"",
 		storage.NewFS(t.TempDir()),
 	))

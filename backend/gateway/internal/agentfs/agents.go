@@ -30,6 +30,7 @@ type manifest struct {
 	ToolNames          []string                       `yaml:"tool_names"`
 	RuntimeMiddlewares *model.AgentRuntimeMiddlewares `yaml:"runtime_middlewares"`
 	McpServers         []string                       `yaml:"mcp_servers"`
+	KnowledgeBaseIDs   []string                       `yaml:"knowledge_base_ids"`
 	Status             string                         `yaml:"status"`
 	OwnerUserID        string                         `yaml:"owner_user_id,omitempty"`
 	AgentsMD           string                         `yaml:"agents_md_path"`
@@ -154,6 +155,7 @@ func LoadAgent(fsStore *storage.FS, name string, status string, includeMarkdown 
 		ToolNames:          cfg.ToolNames,
 		RuntimeMiddlewares: cfg.RuntimeMiddlewares,
 		McpServers:         cfg.McpServers,
+		KnowledgeBaseIDs:   cfg.KnowledgeBaseIDs,
 		Status:             status,
 		OwnerUserID:        strings.TrimSpace(cfg.OwnerUserID),
 		Memory:             cfg.Memory,

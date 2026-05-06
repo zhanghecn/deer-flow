@@ -1,11 +1,27 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/openagents/gateway/internal/model"
 )
+
+type stubPublicAPIKnowledgeRepo struct {
+	attached []string
+}
+
+func (s *stubPublicAPIKnowledgeRepo) AttachBaseToThread(
+	_ context.Context,
+	_ uuid.UUID,
+	threadID string,
+	knowledgeBaseID string,
+) error {
+	s.attached = append(s.attached, threadID+":"+knowledgeBaseID)
+	return nil
+}
 
 func TestTurnCollectorDropsHistoricalAssistantAndToolReplay(t *testing.T) {
 	t.Parallel()
@@ -471,5 +487,101 @@ func TestExtractTurnReplayBoundaryFromState(t *testing.T) {
 	}
 	if _, ok := boundary.toolCallIDs["call_prev"]; !ok {
 		t.Fatalf("expected tool call id to be captured, got %#v", boundary.toolCallIDs)
+	}
+}
+
+func TestNormalizeTurnKnowledgeBaseIDsValidatesAndDedupesUUIDs(t *testing.T) {
+	t.Parallel()
+
+	first := "11111111-1111-1111-1111-111111111111"
+	second := "22222222-2222-2222-2222-222222222222"
+	ids, err := normalizeTurnKnowledgeBaseIDs([]string{
+		" " + first + " ",
+		first,
+		second,
+	})
+	if err != nil {
+		t.Fatalf("normalizeTurnKnowledgeBaseIDs: %v", err)
+	}
+	if len(ids) != 2 || ids[0] != first || ids[1] != second {
+		t.Fatalf("unexpected normalized ids %#v", ids)
+	}
+
+	if _, err := normalizeTurnKnowledgeBaseIDs([]string{"not-a-uuid"}); err == nil {
+		t.Fatal("expected invalid uuid to fail")
+	}
+}
+
+func TestTurnKnowledgeScopeRequiredOnlyWhenIDsPresent(t *testing.T) {
+	t.Parallel()
+
+	ids := []string{"11111111-1111-1111-1111-111111111111"}
+	if err := requireTurnKnowledgeScope(PublicAPIAuthContext{Scopes: []string{"responses:create"}}, ids); err == nil {
+		t.Fatal("expected missing knowledge:read to fail")
+	}
+	if err := requireTurnKnowledgeScope(PublicAPIAuthContext{Scopes: []string{"responses:create"}}, nil); err != nil {
+		t.Fatalf("unexpected empty knowledge scope error: %v", err)
+	}
+	if err := requireTurnKnowledgeScope(PublicAPIAuthContext{Scopes: []string{"Knowledge:Read"}}, ids); err != nil {
+		t.Fatalf("expected case-insensitive knowledge scope to pass: %v", err)
+	}
+}
+
+func TestAttachTurnKnowledgeBasesUsesThreadBindingRepository(t *testing.T) {
+	t.Parallel()
+
+	repo := &stubPublicAPIKnowledgeRepo{}
+	svc := &PublicAPIService{knowledgeRepo: repo}
+	userID := uuid.MustParse("33333333-3333-3333-3333-333333333333")
+	knowledgeID := "44444444-4444-4444-4444-444444444444"
+
+	if err := svc.attachTurnKnowledgeBases(
+		context.Background(),
+		PublicAPIAuthContext{UserID: userID, Scopes: []string{"knowledge:read"}},
+		"thread-sdk",
+		[]string{knowledgeID},
+	); err != nil {
+		t.Fatalf("attachTurnKnowledgeBases: %v", err)
+	}
+	if len(repo.attached) != 1 || repo.attached[0] != "thread-sdk:"+knowledgeID {
+		t.Fatalf("expected one thread binding attach, got %#v", repo.attached)
+	}
+}
+
+func TestAttachRunKnowledgeBasesMergesAgentDefaultsAndRequestIDs(t *testing.T) {
+	t.Parallel()
+
+	repo := &stubPublicAPIKnowledgeRepo{}
+	svc := &PublicAPIService{knowledgeRepo: repo}
+	defaultKnowledgeID := "11111111-1111-1111-1111-111111111111"
+	requestKnowledgeID := "22222222-2222-2222-2222-222222222222"
+	plan := &publicAPIRunPlan{
+		Auth: PublicAPIAuthContext{
+			UserID: uuid.MustParse("33333333-3333-3333-3333-333333333333"),
+			Scopes: []string{"knowledge:read"},
+		},
+		ThreadID:              "thread-sdk",
+		AgentKnowledgeBaseIDs: []string{defaultKnowledgeID},
+	}
+
+	if err := svc.attachRunKnowledgeBases(
+		context.Background(),
+		plan,
+		[]string{requestKnowledgeID, defaultKnowledgeID},
+	); err != nil {
+		t.Fatalf("attachRunKnowledgeBases: %v", err)
+	}
+
+	want := []string{
+		"thread-sdk:" + defaultKnowledgeID,
+		"thread-sdk:" + requestKnowledgeID,
+	}
+	if len(repo.attached) != len(want) {
+		t.Fatalf("attached = %#v, want %#v", repo.attached, want)
+	}
+	for index := range want {
+		if repo.attached[index] != want[index] {
+			t.Fatalf("attached[%d] = %q, want %q", index, repo.attached[index], want[index])
+		}
 	}
 }

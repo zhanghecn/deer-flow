@@ -35,6 +35,8 @@ import (
 
 const publicAPIAssistantID = "lead_agent"
 
+const publicAPILangGraphTimeout = 30 * time.Minute
+
 var errArtifactNotFound = errors.New("artifact not found")
 
 type PublicAPIError struct {
@@ -50,6 +52,7 @@ func (e *PublicAPIError) Error() string {
 type PublicAPIAuthContext struct {
 	UserID        uuid.UUID
 	APITokenID    uuid.UUID
+	Scopes        []string
 	AllowedAgents []string
 	ClientIP      *string
 	UserAgent     *string
@@ -86,21 +89,22 @@ type publicAPIRuntimeUpload struct {
 }
 
 type publicAPIRunPlan struct {
-	Auth               PublicAPIAuthContext
-	Surface            string
-	Request            model.PublicAPIResponsesRequest
-	RequestJSON        json.RawMessage
-	Invocation         *model.PublicAPIInvocation
-	AgentName          string
-	ModelName          string
-	ThreadID           string
-	ResponseID         string
-	PreviousResponseID string
-	Metadata           map[string]any
-	PromptText         string
-	RuntimeUploads     []publicAPIRuntimeUpload
-	Reasoning          publicAPINormalizedReasoning
-	MaxOutputTokens    *int
+	Auth                  PublicAPIAuthContext
+	Surface               string
+	Request               model.PublicAPIResponsesRequest
+	RequestJSON           json.RawMessage
+	Invocation            *model.PublicAPIInvocation
+	AgentName             string
+	AgentKnowledgeBaseIDs []string
+	ModelName             string
+	ThreadID              string
+	ResponseID            string
+	PreviousResponseID    string
+	Metadata              map[string]any
+	PromptText            string
+	RuntimeUploads        []publicAPIRuntimeUpload
+	Reasoning             publicAPINormalizedReasoning
+	MaxOutputTokens       *int
 }
 
 type publicAPIRunResult struct {
@@ -152,11 +156,16 @@ type publicAPITraceRepository interface {
 	FindLatestByThreadAndUser(ctx context.Context, threadID string, userID uuid.UUID) (*repository.AgentTraceRecord, error)
 }
 
+type publicAPIKnowledgeRepository interface {
+	AttachBaseToThread(ctx context.Context, userID uuid.UUID, threadID string, knowledgeBaseID string) error
+}
+
 type PublicAPIService struct {
 	modelRepo      publicAPIModelRepository
 	inputFileRepo  publicAPIInputFileRepository
 	invocationRepo publicAPIInvocationRepository
 	traceRepo      publicAPITraceRepository
+	knowledgeRepo  publicAPIKnowledgeRepository
 	langGraphURL   string
 	httpClient     *http.Client
 	fs             *storage.FS
@@ -167,6 +176,7 @@ func NewPublicAPIService(
 	inputFileRepo publicAPIInputFileRepository,
 	invocationRepo publicAPIInvocationRepository,
 	traceRepo publicAPITraceRepository,
+	knowledgeRepo publicAPIKnowledgeRepository,
 	langGraphURL string,
 	fs *storage.FS,
 ) *PublicAPIService {
@@ -175,9 +185,14 @@ func NewPublicAPIService(
 		inputFileRepo:  inputFileRepo,
 		invocationRepo: invocationRepo,
 		traceRepo:      traceRepo,
+		knowledgeRepo:  knowledgeRepo,
 		langGraphURL:   strings.TrimRight(langGraphURL, "/"),
-		httpClient:     httpx.NewInternalHTTPClient(10 * time.Minute),
-		fs:             fs,
+		// Public SDK turns may run customer-owned domain agents with long
+		// knowledge lookups and structured report generation. Keep the gateway's
+		// internal LangGraph hop longer than typical client timeouts so the
+		// runtime, not this relay, owns the execution deadline.
+		httpClient: httpx.NewInternalHTTPClient(publicAPILangGraphTimeout),
+		fs:         fs,
 	}
 }
 
@@ -342,6 +357,9 @@ func (s *PublicAPIService) CreateResponse(
 	if err != nil {
 		return nil, err
 	}
+	if err := s.attachRunKnowledgeBases(ctx, plan, nil); err != nil {
+		return nil, s.finishInvocationWithError(ctx, plan.Invocation, err, nil)
+	}
 
 	result, err := s.executeRun(ctx, plan, nil)
 	if err != nil {
@@ -369,6 +387,20 @@ func (s *PublicAPIService) StreamResponse(
 	plan, err := s.prepareRun(ctx, auth, surface, request, requestJSON)
 	if err != nil {
 		return err
+	}
+	if err := s.attachRunKnowledgeBases(ctx, plan, nil); err != nil {
+		failed := model.PublicAPIRunEvent{
+			EventIndex: 1,
+			CreatedAt:  time.Now().UTC().Unix(),
+			Type:       model.PublicAPIRunFailed,
+			ResponseID: plan.ResponseID,
+			Error:      strings.TrimSpace(err.Error()),
+		}
+		if emitErr := emit("response.run_event", buildStreamingRunEventEnvelope(failed)); emitErr != nil {
+			return emitErr
+		}
+		_ = s.finishInvocationWithError(ctx, plan.Invocation, err, []model.PublicAPIRunEvent{failed})
+		return nil
 	}
 	nextEventIndex := 1
 	emittedRunEvents := []model.PublicAPIRunEvent{
@@ -440,6 +472,9 @@ func (s *PublicAPIService) StreamChatCompletions(
 	plan, err := s.prepareRun(ctx, auth, "chat_completions", request, requestJSON)
 	if err != nil {
 		return err
+	}
+	if err := s.attachRunKnowledgeBases(ctx, plan, nil); err != nil {
+		return s.finishInvocationWithError(ctx, plan.Invocation, err, nil)
 	}
 
 	chunkID := "chatcmpl_" + strings.TrimPrefix(plan.ResponseID, "resp_")
@@ -674,21 +709,22 @@ func (s *PublicAPIService) prepareRun(
 	}
 
 	return &publicAPIRunPlan{
-		Auth:               auth,
-		Surface:            surface,
-		Request:            request,
-		RequestJSON:        requestJSON,
-		Invocation:         invocation,
-		AgentName:          agentName,
-		ModelName:          resolvedModelName,
-		ThreadID:           threadID,
-		ResponseID:         responseID,
-		PreviousResponseID: previousResponseID,
-		Metadata:           metadata,
-		PromptText:         promptText,
-		RuntimeUploads:     runtimeUploads,
-		Reasoning:          reasoning,
-		MaxOutputTokens:    request.MaxOutputTokens,
+		Auth:                  auth,
+		Surface:               surface,
+		Request:               request,
+		RequestJSON:           requestJSON,
+		Invocation:            invocation,
+		AgentName:             agentName,
+		AgentKnowledgeBaseIDs: agent.KnowledgeBaseIDs,
+		ModelName:             resolvedModelName,
+		ThreadID:              threadID,
+		ResponseID:            responseID,
+		PreviousResponseID:    previousResponseID,
+		Metadata:              metadata,
+		PromptText:            promptText,
+		RuntimeUploads:        runtimeUploads,
+		Reasoning:             reasoning,
+		MaxOutputTokens:       request.MaxOutputTokens,
 	}, nil
 }
 
