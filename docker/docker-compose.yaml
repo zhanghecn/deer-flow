@@ -284,7 +284,8 @@ services:
       - |
         mkdir -p /openagents-home/dev-cache/demo-mcp-uv-cache
         mkdir -p /openagents-home/dev-cache/demo-mcp-venv
-        mkdir -p /openagents-home/dev-cache/demo-mcp-data/files
+        mkdir -p /workspace/frontend/demo/deploy/data/files
+        mkdir -p /workspace/frontend/demo/deploy/data/document-cache
         export UV_CACHE_DIR=/openagents-home/dev-cache/demo-mcp-uv-cache
         export UV_PROJECT_ENVIRONMENT=/openagents-home/dev-cache/demo-mcp-venv
         export VIRTUAL_ENV=/openagents-home/dev-cache/demo-mcp-venv
@@ -295,7 +296,10 @@ services:
       MCP_WORKBENCH_HOST: 0.0.0.0
       MCP_WORKBENCH_PORT: "8090"
       MCP_WORKBENCH_PUBLIC_BASE_URL: http://127.0.0.1:${OPENAGENTS_DEMO_PORT:-8084}
-      MCP_WORKBENCH_DATA_DIR: /openagents-home/dev-cache/demo-mcp-data/files
+      # The unified Docker demo shares the same persistent corpus as the
+      # standalone demo so uploaded files survive restarts and both stacks agree.
+      MCP_WORKBENCH_DATA_DIR: /workspace/frontend/demo/deploy/data/files
+      MCP_WORKBENCH_CACHE_DIR: /workspace/frontend/demo/deploy/data/document-cache
       MCP_WORKBENCH_ALLOWED_ORIGINS: http://127.0.0.1:${OPENAGENTS_DEMO_PORT:-8084},http://localhost:${OPENAGENTS_DEMO_PORT:-8084},http://127.0.0.1:8084,http://localhost:8084
       PYTHONPATH: /workspace/frontend/demo/mcp-file-service
       PYTHONDONTWRITEBYTECODE: "1"
@@ -319,47 +323,38 @@ services:
     restart: unless-stopped
 
   demo:
-    image: node:22-bookworm
-    working_dir: /workspace/frontend/demo
-    command:
-      - /bin/sh
-      - -lc
-      - |
-        corepack enable
-        pnpm config set store-dir /openagents-home/dev-cache/pnpm-store
-        pnpm install --frozen-lockfile
-        exec pnpm dev
+    # Keep the unified stack's 8084 surface identical to the standalone demo:
+    # nginx serves the built UI and reverse-proxies API/MCP traffic to Python.
+    # A Vite dev server blocks host-gateway MCP URLs before the request reaches
+    # the MCP scanner, which makes container-based agent verification misleading.
+    image: openagents-demo-workbench:dev
+    build:
+      context: ../frontend/demo
+      dockerfile: Dockerfile
+      args:
+        NPM_REGISTRY: ${DEMO_NPM_REGISTRY:-https://registry.npmmirror.com}
+        VITE_DEMO_PUBLIC_API_BASE_URL: ${VITE_DEMO_PUBLIC_API_BASE_URL:-http://127.0.0.1:${OPENAGENTS_APP_PORT:-${OPENAGENTS_APP_DEV_PORT:-8083}}/v1}
+        VITE_DEMO_PUBLIC_API_KEY: ${VITE_DEMO_PUBLIC_API_KEY:-}
+        VITE_DEMO_DEFAULT_AGENT_NAME: ${VITE_DEMO_DEFAULT_AGENT_NAME:-}
+        VITE_DEMO_HTTP_AGENT_NAME: ${VITE_DEMO_HTTP_AGENT_NAME:-}
+        VITE_DEMO_HTTP_API_KEY: ${VITE_DEMO_HTTP_API_KEY:-}
+        VITE_DEMO_WORKBENCH_BASE_URL: ${VITE_DEMO_WORKBENCH_BASE_URL:-http://127.0.0.1:${OPENAGENTS_DEMO_PORT:-8084}}
     depends_on:
       gateway:
         condition: service_healthy
       demo-mcp-file-service:
         condition: service_healthy
-    environment:
-      CHOKIDAR_USEPOLLING: "true"
-      CHOKIDAR_INTERVAL: "300"
-      DEMO_FILE_SERVICE_URL: http://demo-mcp-file-service:8090
-      HOST: 0.0.0.0
-      PORT: "8084"
-      VITE_DEMO_WORKBENCH_BASE_URL: http://127.0.0.1:${OPENAGENTS_DEMO_PORT:-8084}
     ports:
       - "${OPENAGENTS_DEMO_PORT:-8084}:8084"
     healthcheck:
       test:
-        - CMD
-        - node
-        - -e
-        - fetch('http://127.0.0.1:8084/api/health').then((response)=>process.exit(response.ok?0:1)).catch(()=>process.exit(1))
+        - CMD-SHELL
+        - wget -qO- http://127.0.0.1:8084/api/health >/dev/null
       interval: 15s
       timeout: 5s
       retries: 12
       start_period: 45s
     logging: *json_logging
-    volumes:
-      - *repo_mount
-      - *openagents_home_mount
-      - type: bind
-        source: ${OPENAGENTS_DOCKER_HOST_HOME:-../deploy/data/openagents}/dev-cache/demo-node_modules
-        target: /workspace/frontend/demo/node_modules
     restart: unless-stopped
 
   provisioner:

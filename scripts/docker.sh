@@ -13,6 +13,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 DOCKER_DIR="$PROJECT_ROOT/docker"
 ROOT_ENV_FILE="$PROJECT_ROOT/.env"
+DEMO_UI_DEFAULT_ENV_FILE="$PROJECT_ROOT/frontend/demo/.env.defaults"
+DEMO_UI_LOCAL_ENV_FILE="$PROJECT_ROOT/frontend/demo/.env.local"
+DEMO_UI_ENV_FILE="$DEMO_UI_DEFAULT_ENV_FILE"
+if [ -f "$DEMO_UI_LOCAL_ENV_FILE" ]; then
+    DEMO_UI_ENV_FILE="$DEMO_UI_LOCAL_ENV_FILE"
+fi
 DEFAULT_SANDBOX_AIO_IMAGE="enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest"
 DEFAULT_SANDBOX_AIO_PORT="${OPENAGENTS_SANDBOX_PORT:-18080}"
 DEFAULT_ONLYOFFICE_PORT="${OPENAGENTS_ONLYOFFICE_PORT:-8082}"
@@ -26,7 +32,9 @@ DEFAULT_START_TIMEOUT_SECONDS="${OPENAGENTS_DOCKER_START_TIMEOUT_SECONDS:-180}"
 DEFAULT_MODEL_GATEWAY_ALIAS="${MODEL_GATEWAY_ALIAS:-model-gateway}"
 DEFAULT_COMPOSE_PROJECT="${OPENAGENTS_COMPOSE_PROJECT:-openagents}"
 DEFAULT_MODEL_GATEWAY_NETWORK="${OPENAGENTS_MODEL_GATEWAY_NETWORK:-${MODEL_GATEWAY_NETWORK:-${DEFAULT_COMPOSE_PROJECT}_default}}"
-COMPOSE_ARGS=(--env-file "$ROOT_ENV_FILE" -p "$DEFAULT_COMPOSE_PROJECT" -f docker-compose.yaml)
+# The unified stack builds the 8084 demo as a static nginx image, so Vite public
+# values must be available during compose interpolation, not only at runtime.
+COMPOSE_ARGS=(--env-file "$ROOT_ENV_FILE" --env-file "$DEMO_UI_ENV_FILE" -p "$DEFAULT_COMPOSE_PROJECT" -f docker-compose.yaml)
 LEGACY_PROD_COMPOSE_ARGS=(--env-file "$ROOT_ENV_FILE" -p openagents-prod -f docker-compose-prod.yaml)
 
 compose_stack() {
