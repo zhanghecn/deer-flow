@@ -611,6 +611,10 @@ class FileMcpServiceTest(unittest.TestCase):
             payload["source_url"],
             "http://127.0.0.1:8084/api/files/source?path=nested%2Fcontracts%2Fpolicy-alpha.pdf#page=1",
         )
+        self.assertEqual(
+            payload["source_citation"],
+            "[citation:policy-alpha.pdf · page 1](http://127.0.0.1:8084/api/files/source?path=nested%2Fcontracts%2Fpolicy-alpha.pdf#page=1)",
+        )
         self.assertEqual(payload["content"], "# nested/contracts/policy-alpha.pdf\n")
         full_payload = self.service.document_read_payload(
             path="nested/contracts/policy-alpha.pdf",
@@ -697,6 +701,10 @@ class FileMcpServiceTest(unittest.TestCase):
         self.assertEqual(
             read_payload["source_url"],
             "http://127.0.0.1:8084/api/files/source?path=cases%2Fsections.md&locator=4",
+        )
+        self.assertEqual(
+            read_payload["source_citation"],
+            "[citation:sections.md · line 4](http://127.0.0.1:8084/api/files/source?path=cases%2Fsections.md&locator=4)",
         )
         self.assertEqual(read_payload["matched_unit_offset"], 3)
         self.assertGreaterEqual(read_payload["matched_offset"], 3)

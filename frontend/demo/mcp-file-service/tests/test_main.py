@@ -360,6 +360,11 @@ class WorkbenchMainAppTest(unittest.TestCase):
         self.assertIn("1\t# cases/read.md", text)
         self.assertIn("3\tAlpha", text)
         self.assertIn("4\tBeta", text)
+        self.assertIn("<source_citation>", text)
+        self.assertIn(
+            "[citation:read.md](http://127.0.0.1:8084/api/files/source?path=cases%2Fread.md)",
+            text,
+        )
         self.assertNotIn('"content"', text)
         with self.assertRaises(json.JSONDecodeError):
             json.loads(text)

@@ -1130,7 +1130,19 @@ class FileMcpService:
         if locator is None and locator_type == "page":
             locator = int(payload.get("offset") or 0) + 1
         source_url = self.source_url(path, locator=locator, locator_type=locator_type)
+        document_name = PurePosixPath(path).name or path
+        safe_name = document_name.replace("[", "(").replace("]", ")")
+        locator_text = str(locator or "").strip()
+        type_text = locator_type.strip()
+        label = safe_name
+        if locator_text:
+            label = (
+                f"{safe_name} · {type_text} {locator_text}"
+                if type_text
+                else f"{safe_name} · {locator_text}"
+            )
         payload["source_url"] = source_url
+        payload["source_citation"] = f"[citation:{label}]({source_url})"
 
         return payload
 
@@ -1227,6 +1239,16 @@ class FileMcpService:
             str(payload.get("content") or ""),
             offset=payload.get("offset"),
         )
+        source_citation = str(payload.get("source_citation") or "").strip()
+        if source_citation:
+            # The MCP text surface is what the model actually sees. Include one
+            # explicit copyable Markdown citation instead of expecting prompts
+            # to reconstruct source links from hidden JSON metadata.
+            source_block = (
+                "<source_citation>Copy this exact Markdown citation when this "
+                f"read window supports a claim: {source_citation}</source_citation>"
+            )
+            result = f"{result}\n\n{source_block}" if result else source_block
         image_paths = payload.get("image_paths")
         has_inline_images = isinstance(image_paths, list) and bool(image_paths)
         has_returned_image_blocks = bool(payload.get("mcp_images"))
