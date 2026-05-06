@@ -88,9 +88,12 @@ type PublicAPIModelsResponse struct {
 }
 
 type PublicAPIResponseArtifact struct {
-	ID          string  `json:"id"`
-	Object      string  `json:"object"`
-	Filename    string  `json:"filename"`
+	ID       string `json:"id"`
+	Object   string `json:"object"`
+	Filename string `json:"filename"`
+	// virtual_path lets SDK/demo clients resolve model-authored kb:// citations
+	// back to the opaque downloadable file id without exposing storage paths.
+	VirtualPath string  `json:"virtual_path,omitempty"`
 	MimeType    *string `json:"mime_type,omitempty"`
 	Bytes       *int64  `json:"bytes,omitempty"`
 	DownloadURL string  `json:"download_url"`

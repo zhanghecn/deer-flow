@@ -858,6 +858,9 @@ func TestBuildResponseArtifactsDiscoversThreadOutputsWithoutPresentFiles(t *test
 	if responseArtifacts[0].Filename != "summary.md" {
 		t.Fatalf("unexpected filename %#v", responseArtifacts[0])
 	}
+	if responseArtifacts[0].VirtualPath != "/mnt/user-data/outputs/summary.md" {
+		t.Fatalf("unexpected response virtual path %#v", responseArtifacts[0])
+	}
 	if len(ledgerArtifacts) != 1 {
 		t.Fatalf("expected 1 ledger artifact, got %#v", ledgerArtifacts)
 	}

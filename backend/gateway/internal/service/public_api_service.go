@@ -1825,6 +1825,7 @@ func (s *PublicAPIService) buildResponseArtifacts(
 			ID:          fileID,
 			Object:      "file",
 			Filename:    path.Base(virtualPath),
+			VirtualPath: virtualPath,
 			MimeType:    &mimeType,
 			Bytes:       &sizeBytes,
 			DownloadURL: "/v1/files/" + url.PathEscape(fileID) + "/content",

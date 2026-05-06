@@ -243,7 +243,7 @@ Example response:
 | `previous_turn_id` | Previous turn ID |
 | `output_text` | Final assistant answer |
 | `reasoning_text` | Final reasoning text |
-| `artifacts` | Output files |
+| `artifacts` | Output files; each item includes an opaque `id`, `download_url`, and `virtual_path` for resolving answer citations |
 | `usage` | Token usage |
 | `events` | Normalized event list for this turn |
 

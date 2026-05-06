@@ -28,6 +28,7 @@ export interface PublicAPITurnArtifact {
   id: string;
   object: string;
   filename: string;
+  virtual_path?: string;
   mime_type?: string | null;
   bytes?: number | null;
   download_url: string;
@@ -221,7 +222,9 @@ async function handleAPIError(
 ): Promise<never> {
   const error = await extractErrorBody(response);
   throw new Error(
-    error.details ?? error.error ?? `Failed to ${action}: ${response.statusText}`,
+    error.details ??
+      error.error ??
+      `Failed to ${action}: ${response.statusText}`,
   );
 }
 

@@ -240,7 +240,7 @@ data: {"sequence":9,"type":"turn.completed","turn_id":"turn_123"}
 | `previous_turn_id` | 上一轮 turn ID |
 | `output_text` | 最终回答文本 |
 | `reasoning_text` | 最终思考文本 |
-| `artifacts` | 输出文件列表 |
+| `artifacts` | 输出文件列表；每一项包含不透明 `id`、`download_url`，以及用于解析回答引用的 `virtual_path` |
 | `usage` | token 用量 |
 | `events` | 当前 turn 的标准化事件列表 |
 

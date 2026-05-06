@@ -28,6 +28,7 @@ import {
 } from "../lib/chat-session";
 import {
   listRecentPublicAPITurns,
+  type PublicAPITurnArtifact,
   type PublicAPITurnHistoryItem,
   resolvePublicAPIBaseURL,
   uploadPublicAPIFile,
@@ -95,6 +96,7 @@ type ChatMessage = {
   toolCalls?: ToolCallStep[];
   activities?: ChatActivityStep[];
   attachments?: ChatAttachment[];
+  artifacts?: PublicAPITurnArtifact[];
 };
 
 type ChatSettings = {
@@ -108,8 +110,9 @@ type ChatSettings = {
 
 function getDefaultBaseURI(): string {
   return (
-    (import.meta.env.VITE_DEMO_PUBLIC_API_BASE_URL as string | undefined)
-      ?.trim() || ""
+    (
+      import.meta.env.VITE_DEMO_PUBLIC_API_BASE_URL as string | undefined
+    )?.trim() || ""
   );
 }
 
@@ -180,8 +183,9 @@ function getDefaultSessionID(): string {
   const params = new URLSearchParams(window.location.search);
   return (
     params.get("session_id")?.trim() ||
-    (import.meta.env.VITE_DEMO_PUBLIC_API_SESSION_ID as string | undefined)
-      ?.trim() ||
+    (
+      import.meta.env.VITE_DEMO_PUBLIC_API_SESSION_ID as string | undefined
+    )?.trim() ||
     ""
   );
 }
@@ -335,7 +339,13 @@ async function compressImageForUpload(file: File): Promise<{
   if (!context) {
     throw new Error("浏览器无法创建图片压缩画布");
   }
-  context.drawImage(image, 0, 0, scaledDimensions.width, scaledDimensions.height);
+  context.drawImage(
+    image,
+    0,
+    0,
+    scaledDimensions.width,
+    scaledDimensions.height,
+  );
 
   const attempts: Array<{ mimeType: string; quality?: number }> = [];
   if (file.type === "image/png") {
@@ -378,7 +388,9 @@ async function compressImageForUpload(file: File): Promise<{
         ? ".webp"
         : ".jpg";
   const outputName =
-    bestType === file.type ? file.name : replaceFileExtension(file.name, extension);
+    bestType === file.type
+      ? file.name
+      : replaceFileExtension(file.name, extension);
   const compressedFile = new File([bestBlob], outputName, {
     type: bestType,
     lastModified: file.lastModified,
@@ -466,6 +478,7 @@ function createMessagesFromHistoryItem(item: PublicAPITurnHistoryItem) {
       content: item.output_text?.trim() || (failed ? "请求失败" : ""),
       reasoning: item.reasoning_text ?? "",
       status: failed ? "error" : "done",
+      artifacts: item.artifacts ?? [],
     },
   ] satisfies ChatMessage[];
 }
@@ -506,9 +519,7 @@ function StatusDot({ tone }: { tone: "ok" | "warn" | "danger" }) {
     warn: "bg-stone-400",
     danger: "bg-red-500",
   };
-  return (
-    <span className={`inline-block size-2 rounded-full ${map[tone]}`} />
-  );
+  return <span className={`inline-block size-2 rounded-full ${map[tone]}`} />;
 }
 
 function getAttachmentStatusTone(status: AttachmentStatus) {
@@ -614,7 +625,13 @@ function formatToolArguments(argumentsValue: Record<string, unknown>) {
   }
 }
 
-function ToolActivityCard({ tool, index }: { tool: ToolCallStep; index: number }) {
+function ToolActivityCard({
+  tool,
+  index,
+}: {
+  tool: ToolCallStep;
+  index: number;
+}) {
   // Tool names are runtime-owned and may change, so the demo renders the
   // event payload directly instead of translating known names into labels.
   const toolArguments = formatToolArguments(tool.arguments);
@@ -802,7 +819,9 @@ function ConfigurationWarning({
     return <>请在设置中配置 Agent 名称，或在 URL 中指定 ?agent=</>;
   }
   if (baseURLIsDemo) {
-    return <>Base URI 不能留空（否则会请求到 demo 自身导致 404），请在设置中填写</>;
+    return (
+      <>Base URI 不能留空（否则会请求到 demo 自身导致 404），请在设置中填写</>
+    );
   }
   return <>请在右上角设置中填写 API Key</>;
 }
@@ -838,14 +857,19 @@ export function ChatPage() {
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [historyItems, setHistoryItems] = useState<PublicAPITurnHistoryItem[]>([]);
+  const [historyItems, setHistoryItems] = useState<PublicAPITurnHistoryItem[]>(
+    [],
+  );
   const [isLoadingHistoryList, setIsLoadingHistoryList] = useState(false);
   const [isRestoringHistory, setIsRestoringHistory] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const empty = messages.length === 0;
   const isConfigured =
-    agentName != null && agentName.trim() !== "" && apiKeyInput.trim() !== "" && !baseURLIsDemo;
+    agentName != null &&
+    agentName.trim() !== "" &&
+    apiKeyInput.trim() !== "" &&
+    !baseURLIsDemo;
   const sessionConfigKey = buildSessionKey(
     resolvedBaseURL,
     apiKeyInput,
@@ -909,35 +933,32 @@ export function ChatPage() {
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   }, [draft]);
 
-  const createCurrentSession = useCallback(
-    () => {
-      const requestedSessionID = sessionIDInput.trim();
-      sessionRef.current = createChatSession({
-        baseURL: resolvedBaseURL,
-        apiToken: apiKeyInput.trim(),
-        agent: agentName ?? "",
-        sessionId: requestedSessionID || undefined,
-      });
-      const actualSessionID = sessionRef.current.getSessionId();
-      sessionKeyRef.current = buildSessionKey(
-        resolvedBaseURL,
-        apiKeyInput,
-        agentName,
-        actualSessionID,
-      );
-      if (actualSessionID !== requestedSessionID) {
-        persistSessionID(actualSessionID);
-      }
-      return sessionRef.current;
-    },
-    [
-      sessionIDInput,
+  const createCurrentSession = useCallback(() => {
+    const requestedSessionID = sessionIDInput.trim();
+    sessionRef.current = createChatSession({
+      baseURL: resolvedBaseURL,
+      apiToken: apiKeyInput.trim(),
+      agent: agentName ?? "",
+      sessionId: requestedSessionID || undefined,
+    });
+    const actualSessionID = sessionRef.current.getSessionId();
+    sessionKeyRef.current = buildSessionKey(
       resolvedBaseURL,
       apiKeyInput,
       agentName,
-      persistSessionID,
-    ],
-  );
+      actualSessionID,
+    );
+    if (actualSessionID !== requestedSessionID) {
+      persistSessionID(actualSessionID);
+    }
+    return sessionRef.current;
+  }, [
+    sessionIDInput,
+    resolvedBaseURL,
+    apiKeyInput,
+    agentName,
+    persistSessionID,
+  ]);
 
   const ensureSession = useCallback(() => {
     if (!sessionRef.current || sessionKeyRef.current !== sessionConfigKey) {
@@ -1266,7 +1287,9 @@ export function ChatPage() {
               prev.map((m) => {
                 if (m.id !== assistantMessageId) return m;
                 const activities = m.activities ?? [];
-                const existing = activities.find((item) => item.id === activity.id);
+                const existing = activities.find(
+                  (item) => item.id === activity.id,
+                );
                 if (existing) {
                   return {
                     ...m,
@@ -1330,6 +1353,7 @@ export function ChatPage() {
                   ...m,
                   content: result.turn?.output_text?.trim() || m.content,
                   status: finalStatus,
+                  artifacts: result.turn?.artifacts ?? [],
                 }
               : m,
           ),
@@ -1447,11 +1471,7 @@ export function ChatPage() {
             <span className="text-sm font-semibold text-stone-800">
               AI 助手
             </span>
-            {isConfigured ? (
-              <StatusDot tone="ok" />
-            ) : (
-              <StatusDot tone="warn" />
-            )}
+            {isConfigured ? <StatusDot tone="ok" /> : <StatusDot tone="warn" />}
           </div>
         </div>
         <div className="flex items-center gap-1">
@@ -1535,7 +1555,10 @@ export function ChatPage() {
       </header>
 
       {/* Messages */}
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-6 sm:px-5">
+      <div
+        ref={scrollRef}
+        className="min-h-0 flex-1 overflow-y-auto px-3 py-6 sm:px-5"
+      >
         {empty ? (
           <div className="flex flex-col items-center justify-center px-2 pt-16 text-center sm:pt-20">
             <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-xl border border-stone-200 bg-white text-teal-700 sm:h-16 sm:w-16">
@@ -1584,13 +1607,13 @@ export function ChatPage() {
                     {(!msg.activities || msg.activities.length === 0) &&
                       msg.reasoning &&
                       msg.reasoning.trim().length > 0 && (
-                      <div className="mb-1.5 w-full min-w-0">
-                        <ReasoningCard
-                          reasoning={msg.reasoning}
-                          isStreaming={msg.status === "streaming"}
-                        />
-                      </div>
-                    )}
+                        <div className="mb-1.5 w-full min-w-0">
+                          <ReasoningCard
+                            reasoning={msg.reasoning}
+                            isStreaming={msg.status === "streaming"}
+                          />
+                        </div>
+                      )}
 
                     {/* Thinking and tool calls stay in SSE order. */}
                     {msg.activities && msg.activities.length > 0 ? (
@@ -1639,6 +1662,9 @@ export function ChatPage() {
                           <MarkdownRenderer
                             content={msg.content}
                             isStreaming={msg.status === "streaming"}
+                            artifacts={msg.artifacts}
+                            apiToken={apiKeyInput.trim()}
+                            baseURL={resolvedBaseURL}
                           />
                         </div>
                       )}
@@ -1764,15 +1790,14 @@ export function ChatPage() {
                   placeholder="https://api.example.com"
                   className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-800 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
                 />
-                <p className="text-xs text-stone-500">
-                  留空则使用默认地址
-                </p>
+                <p className="text-xs text-stone-500">留空则使用默认地址</p>
                 <p className="text-xs font-mono text-stone-500">
                   解析后: {resolvedBaseURL}
                 </p>
                 {baseURLIsDemo && (
                   <p className="text-xs text-red-500">
-                    解析地址与当前页面同源，会导致请求 404，请填写正确的 API 地址
+                    解析地址与当前页面同源，会导致请求 404，请填写正确的 API
+                    地址
                   </p>
                 )}
               </div>
@@ -1806,11 +1831,13 @@ export function ChatPage() {
                 />
                 {agentNameFromQuery ? (
                   <p className="text-xs text-stone-600">
-                    当前由 URL 参数 ?agent={agentNameFromQuery} 控制，修改设置不会生效
+                    当前由 URL 参数 ?agent={agentNameFromQuery}{" "}
+                    控制，修改设置不会生效
                   </p>
                 ) : (
                   <p className="text-xs text-stone-500">
-                    来源优先级: URL ?agent= &gt; 设置 &gt; VITE_DEMO_DEFAULT_AGENT_NAME
+                    来源优先级: URL ?agent= &gt; 设置 &gt;
+                    VITE_DEMO_DEFAULT_AGENT_NAME
                   </p>
                 )}
               </div>
