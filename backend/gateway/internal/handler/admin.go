@@ -37,6 +37,10 @@ type updateUserRoleRequest struct {
 	Role string `json:"role" binding:"required"`
 }
 
+type deleteTracesRequest struct {
+	TraceIDs []string `json:"trace_ids" binding:"required"`
+}
+
 func (h *AdminHandler) ListUsers(c *gin.Context) {
 	users, err := h.userRepo.List(c.Request.Context())
 	if err != nil {
@@ -140,6 +144,26 @@ func (h *AdminHandler) GetTraceEvents(c *gin.Context) {
 		events = []repository.AgentTraceEventRecord{}
 	}
 	c.JSON(http.StatusOK, gin.H{"items": events})
+}
+
+func (h *AdminHandler) DeleteTraces(c *gin.Context) {
+	var req deleteTracesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	if len(req.TraceIDs) == 0 {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "trace_ids are required"})
+		return
+	}
+
+	deleted, err := h.observabilityRepo.DeleteTraces(c.Request.Context(), req.TraceIDs)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to delete traces"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"deleted": deleted})
 }
 
 func (h *AdminHandler) ListRuntimeThreads(c *gin.Context) {

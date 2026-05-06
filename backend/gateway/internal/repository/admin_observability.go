@@ -310,6 +310,26 @@ func (r *AdminObservabilityRepo) ListTraceEvents(ctx context.Context, traceID st
 	return items, nil
 }
 
+func (r *AdminObservabilityRepo) DeleteTraces(ctx context.Context, traceIDs []string) (int64, error) {
+	if len(traceIDs) == 0 {
+		return 0, nil
+	}
+
+	// Trace events are an observability detail owned by the trace row; the
+	// schema-level ON DELETE CASCADE removes them without touching runtime
+	// threads, messages, checkpoint rows, or public API invocation records.
+	tag, err := r.pool.Exec(
+		ctx,
+		`DELETE FROM agent_traces
+		 WHERE trace_id = ANY($1::varchar[])`,
+		traceIDs,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 func (r *AdminObservabilityRepo) ListRuntimeThreads(ctx context.Context, limit int, offset int) ([]RuntimeThreadRecord, error) {
 	query := `
 		SELECT

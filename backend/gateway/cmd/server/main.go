@@ -349,6 +349,7 @@ func main() {
 			admin.PUT("/models/:name", adminH.UpdateModel)
 			admin.DELETE("/models/:name", adminH.DeleteModel)
 			admin.GET("/traces", adminH.ListTraces)
+			admin.DELETE("/traces", adminH.DeleteTraces)
 			admin.GET("/traces/:trace_id/events", adminH.GetTraceEvents)
 			admin.GET("/runtime/threads", adminH.ListRuntimeThreads)
 			admin.GET("/runtime/checkpoint-status", adminH.GetCheckpointStatus)

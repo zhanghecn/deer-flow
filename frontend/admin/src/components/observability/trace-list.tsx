@@ -10,8 +10,9 @@ import type { TraceItem } from "@/types";
 interface TraceListProps {
   traces: TraceItem[] | null;
   isLoading: boolean;
-  selectedId: string | null;
+  selectedIds: Set<string>;
   onSelect: (trace: TraceItem) => void;
+  onToggleSelect: (traceId: string, selected: boolean) => void;
 }
 
 function statusColor(status: string) {
@@ -53,8 +54,9 @@ function formatContextTokens(trace: TraceItem) {
 export function TraceList({
   traces,
   isLoading,
-  selectedId,
+  selectedIds,
   onSelect,
+  onToggleSelect,
 }: TraceListProps) {
   if (isLoading) {
     return (
@@ -82,59 +84,74 @@ export function TraceList({
           const compactLabel = formatCompactCount(
             trace.context_window?.summary_count,
           );
+          const isSelectedForDelete = selectedIds.has(trace.trace_id);
 
           return (
-            <button
+            <div
               key={trace.trace_id}
-              onClick={() => onSelect(trace)}
               className={cn(
-                "w-full text-left rounded-md border p-3 transition-colors hover:bg-accent",
-                selectedId === trace.trace_id && "bg-accent border-primary",
+                "flex items-start gap-3 rounded-md border p-3 transition-colors hover:bg-accent",
+                isSelectedForDelete && "border-primary/70 bg-accent/50",
               )}
             >
-              <div className="flex items-center justify-between mb-1">
-                <div className="flex items-center gap-2">
-                  <span
-                    className={cn(
-                      "h-2 w-2 rounded-full",
-                      statusColor(trace.status),
+              <input
+                type="checkbox"
+                aria-label={t("Select trace")}
+                checked={isSelectedForDelete}
+                onChange={(event) =>
+                  onToggleSelect(trace.trace_id, event.target.checked)
+                }
+                className="mt-1 h-4 w-4 shrink-0 rounded border-border accent-primary"
+              />
+              <button
+                type="button"
+                onClick={() => onSelect(trace)}
+                className="min-w-0 flex-1 text-left"
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span
+                      className={cn(
+                        "h-2 w-2 shrink-0 rounded-full",
+                        statusColor(trace.status),
+                      )}
+                    />
+                    <span className="truncate text-sm font-medium">
+                      {trace.agent_name || t("Unknown Agent")}
+                    </span>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {compactLabel && (
+                      <Badge variant="secondary" className="text-xs">
+                        {compactLabel}
+                      </Badge>
                     )}
-                  />
-                  <span className="font-medium text-sm truncate max-w-[140px]">
-                    {trace.agent_name || t("Unknown Agent")}
+                    <Badge variant="outline" className="text-xs">
+                      {t("Provider {count} tok", { count: trace.total_tokens })}
+                    </Badge>
+                  </div>
+                </div>
+                <p className="text-sm text-foreground/85 line-clamp-2">
+                  {trace.initial_user_message || t("No user message preview")}
+                </p>
+                <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                  <span className="truncate max-w-[120px]">
+                    {trace.thread_id || t("no thread")}
+                  </span>
+                  <span className="truncate">
+                    {formatDateTime(trace.started_at)}
                   </span>
                 </div>
-                <div className="flex shrink-0 items-center gap-1.5">
-                  {compactLabel && (
-                    <Badge variant="secondary" className="text-xs">
-                      {compactLabel}
-                    </Badge>
-                  )}
-                  <Badge variant="outline" className="text-xs">
-                    {t("Provider {count} tok", { count: trace.total_tokens })}
-                  </Badge>
+                <div className="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                  <span className="truncate">
+                    {trace.model_name || t("unknown model")}
+                  </span>
+                  <span className="truncate text-right">
+                    {formatContextTokens(trace) || formatAgo(trace.started_at)}
+                  </span>
                 </div>
-              </div>
-              <p className="text-sm text-foreground/85 line-clamp-2">
-                {trace.initial_user_message || t("No user message preview")}
-              </p>
-              <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                <span className="truncate max-w-[120px]">
-                  {trace.thread_id || t("no thread")}
-                </span>
-                <span className="truncate">
-                  {formatDateTime(trace.started_at)}
-                </span>
-              </div>
-              <div className="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                <span className="truncate">
-                  {trace.model_name || t("unknown model")}
-                </span>
-                <span className="truncate text-right">
-                  {formatContextTokens(trace) || formatAgo(trace.started_at)}
-                </span>
-              </div>
-            </button>
+              </button>
+            </div>
           );
         })}
       </div>

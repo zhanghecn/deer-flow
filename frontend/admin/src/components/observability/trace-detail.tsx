@@ -13,6 +13,7 @@ import type { TraceItem, TraceEvent, TraceContextWindow } from "@/types";
 import {
   buildTraceRuns,
   extractLatestLLMRequestSettings,
+  extractLatestVisibleAnswer,
   extractRegisteredToolNames,
   extractContextWindowPayload,
   isCoreTraceRun,
@@ -161,6 +162,10 @@ function TraceDetailContent({
     () => extractLatestLLMRequestSettings(runs),
     [runs],
   );
+  const latestVisibleAnswer = useMemo(
+    () => extractLatestVisibleAnswer(runs),
+    [runs],
+  );
 
   return (
     <ScrollArea className={expanded ? "h-[calc(100vh-13rem)]" : "h-[calc(100vh-16rem)]"}>
@@ -286,6 +291,16 @@ function TraceDetailContent({
           {trace.initial_user_message && (
             <div className="rounded-md bg-muted/50 p-2 text-sm">
               {trace.initial_user_message}
+            </div>
+          )}
+          {latestVisibleAnswer && (
+            <div className="rounded-md border bg-emerald-50/60 p-3 text-sm dark:bg-emerald-950/20">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {t("Final Answer")}
+              </p>
+              <p className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap text-foreground">
+                {latestVisibleAnswer}
+              </p>
             </div>
           )}
           {trace.error && (

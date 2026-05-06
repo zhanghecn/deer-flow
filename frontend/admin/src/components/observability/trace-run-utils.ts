@@ -40,10 +40,7 @@ export interface TraceRunSummary {
   defaultTimeoutSeconds?: number;
 }
 
-function compareRunsByStart(
-  a: TraceRunSummary,
-  b: TraceRunSummary,
-): number {
+function compareRunsByStart(a: TraceRunSummary, b: TraceRunSummary): number {
   const aTime = a.startedAt
     ? new Date(a.startedAt).getTime()
     : Number.MAX_SAFE_INTEGER;
@@ -127,7 +124,8 @@ export function collectTaskSessionRuns(
   // delegated subagent session, so the admin UI groups runs on that id.
   const sessionRuns = runs.filter(
     (candidate) =>
-      candidate.runId === taskSessionId || candidate.taskRunId === taskSessionId,
+      candidate.runId === taskSessionId ||
+      candidate.taskRunId === taskSessionId,
   );
 
   return sortTraceRunsForTree(sessionRuns, taskSessionId);
@@ -182,7 +180,9 @@ export function extractContextWindowPayload(
   run: TraceRunSummary,
 ): Record<string, unknown> | null {
   const endPayload = toRecord(run.endEvent?.payload ?? run.errorEvent?.payload);
-  const directPayload = toRecord(normalizeTraceValue(endPayload?.context_window));
+  const directPayload = toRecord(
+    normalizeTraceValue(endPayload?.context_window),
+  );
   if (directPayload) {
     return directPayload;
   }
@@ -238,9 +238,7 @@ export function extractLatestLLMRequestSettings(
     const settings = toRecord(request?.settings);
 
     const effort =
-      typeof settings?.effort === "string"
-        ? settings.effort.trim()
-        : "";
+      typeof settings?.effort === "string" ? settings.effort.trim() : "";
     const reasoningEffort =
       typeof settings?.reasoning_effort === "string"
         ? settings.reasoning_effort.trim()
@@ -268,7 +266,9 @@ export function extractLatestLLMRequestSettings(
     const provider =
       typeof request?.provider === "string" ? request.provider.trim() : "";
     const maxTokens =
-      typeof settings?.max_tokens === "number" ? settings.max_tokens : undefined;
+      typeof settings?.max_tokens === "number"
+        ? settings.max_tokens
+        : undefined;
     const temperature =
       typeof settings?.temperature === "number"
         ? settings.temperature
@@ -379,6 +379,123 @@ function normalizeTraceValue(value: unknown): unknown {
   return normalized;
 }
 
+const NON_VISIBLE_CONTENT_TYPES = new Set([
+  "thinking",
+  "reasoning",
+  "tool_call",
+  "tool_use",
+  "server_tool_call",
+  "tool_result",
+]);
+
+const ASSISTANT_MESSAGE_ROLES = new Set(["assistant", "ai", "model"]);
+
+function messageRole(message: Record<string, unknown>): string {
+  return String(message.role ?? message.type ?? "").toLowerCase();
+}
+
+function extractVisibleText(value: unknown, depth = 0): string {
+  if (depth > 8 || value == null) return "";
+  const normalized = normalizeTraceValue(value);
+  if (normalized !== value) {
+    return extractVisibleText(normalized, depth);
+  }
+
+  if (typeof value === "string") return value.trim();
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => extractVisibleText(item, depth + 1))
+      .filter((item) => item.length > 0)
+      .join("\n\n");
+  }
+
+  const payload = toRecord(value);
+  if (!payload) return "";
+
+  const blockType =
+    typeof payload.type === "string" ? payload.type.toLowerCase() : "";
+  // Provider responses can mix hidden reasoning/tool blocks with the visible
+  // answer in one content array; summaries and answer panels must not choose
+  // those internal blocks as the assistant-facing response.
+  if (NON_VISIBLE_CONTENT_TYPES.has(blockType)) {
+    return "";
+  }
+
+  if (blockType === "text" && typeof payload.text === "string") {
+    return payload.text.trim();
+  }
+
+  for (const key of [
+    "content",
+    "text",
+    "message",
+    "output",
+    "response",
+    "final",
+  ] as const) {
+    if (!(key in payload)) continue;
+    const text = extractVisibleText(payload[key], depth + 1);
+    if (text) return text;
+  }
+
+  return "";
+}
+
+function extractVisibleMessageText(
+  messages: unknown,
+  options: { assistantOnly?: boolean } = {},
+): string {
+  const normalizedMessages = normalizeMessageCollection(messages);
+  for (const message of [...normalizedMessages].reverse()) {
+    const role = messageRole(message);
+    if (role === "system" || role === "tool" || role === "function") {
+      continue;
+    }
+    if (options.assistantOnly && role && !ASSISTANT_MESSAGE_ROLES.has(role)) {
+      continue;
+    }
+
+    const text = extractVisibleText(message.content);
+    if (text) return text;
+  }
+  return "";
+}
+
+export function extractLatestVisibleAnswer(runs: TraceRunSummary[]): string {
+  for (let index = runs.length - 1; index >= 0; index -= 1) {
+    const run = runs[index];
+    if (!run) {
+      continue;
+    }
+
+    if (run.runType === "llm") {
+      const endPayload = toRecord(
+        run.endEvent?.payload ?? run.errorEvent?.payload,
+      );
+      const modelResponse = toRecord(
+        normalizeTraceValue(endPayload?.model_response),
+      );
+      const text = extractVisibleMessageText(modelResponse?.messages, {
+        assistantOnly: true,
+      });
+      if (text) return text;
+    }
+
+    if (run.runType === "chain") {
+      const endPayload = toRecord(
+        run.endEvent?.payload ?? run.errorEvent?.payload,
+      );
+      const outputs = toRecord(normalizeTraceValue(endPayload?.outputs));
+      const text = extractVisibleMessageText(outputs?.messages, {
+        assistantOnly: true,
+      });
+      if (text) return text;
+    }
+  }
+  return "";
+}
+
 export function summarizeValue(value: unknown, depth = 0): string {
   if (depth > 3 || value == null) return "";
   const normalized = normalizeTraceValue(value);
@@ -430,6 +547,9 @@ export function summarizeValue(value: unknown, depth = 0): string {
 function summarizeMessages(messages: unknown): string {
   if (!Array.isArray(messages) || messages.length === 0) return "";
 
+  const visibleText = extractVisibleMessageText(messages);
+  if (visibleText) return truncateText(visibleText, 96);
+
   const candidates = [...messages].reverse();
   for (const candidate of candidates) {
     const normalizedCandidate = normalizeTraceValue(candidate);
@@ -476,9 +596,7 @@ function extractToolNames(rawTools: unknown): string[] {
     .filter((name) => name.trim().length > 0);
 }
 
-export function extractRegisteredToolNames(
-  runs: TraceRunSummary[],
-): string[] {
+export function extractRegisteredToolNames(runs: TraceRunSummary[]): string[] {
   const seen = new Set<string>();
   const registeredToolNames: string[] = [];
 
@@ -507,7 +625,9 @@ export function extractRegisteredToolNames(
   return registeredToolNames;
 }
 
-function normalizeMessageCollection(messages: unknown): Record<string, unknown>[] {
+function normalizeMessageCollection(
+  messages: unknown,
+): Record<string, unknown>[] {
   if (!Array.isArray(messages)) return [];
 
   return messages
@@ -517,8 +637,12 @@ function normalizeMessageCollection(messages: unknown): Record<string, unknown>[
         return {
           ...rawMessage,
           content: normalizeReadableValue(rawMessage.content),
-          additional_kwargs: normalizeReadableValue(rawMessage.additional_kwargs),
-          response_metadata: normalizeReadableValue(rawMessage.response_metadata),
+          additional_kwargs: normalizeReadableValue(
+            rawMessage.additional_kwargs,
+          ),
+          response_metadata: normalizeReadableValue(
+            rawMessage.response_metadata,
+          ),
         };
       }
 
@@ -756,13 +880,18 @@ function resolveDelegationMetadata(run: TraceRunSummary): {
   launchFailureClass?: string;
   anomalyFlags: string[];
 } {
-  const payload = toTrimmedRecord(run.startEvent?.payload && toRecord(run.startEvent.payload)?.delegation);
+  const payload = toTrimmedRecord(
+    run.startEvent?.payload && toRecord(run.startEvent.payload)?.delegation,
+  );
   if (!payload) {
     return { anomalyFlags: [] };
   }
 
   const rawFlags = Array.isArray(payload.anomaly_flags)
-    ? payload.anomaly_flags.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    ? payload.anomaly_flags.filter(
+        (item): item is string =>
+          typeof item === "string" && item.trim().length > 0,
+      )
     : [];
 
   return {
@@ -771,9 +900,7 @@ function resolveDelegationMetadata(run: TraceRunSummary): {
         ? payload.effective_agent_name
         : undefined,
     delegatedDescription:
-      typeof payload.description === "string"
-        ? payload.description
-        : undefined,
+      typeof payload.description === "string" ? payload.description : undefined,
     promptPreview:
       typeof payload.prompt_preview === "string"
         ? payload.prompt_preview
@@ -796,13 +923,18 @@ function resolveExecutionMetadata(run: TraceRunSummary): {
 } {
   const startPayload = toRecord(run.startEvent?.payload);
   const endPayload = toRecord(run.endEvent?.payload ?? run.errorEvent?.payload);
-  const payload = toTrimmedRecord(startPayload?.execution ?? endPayload?.execution);
+  const payload = toTrimmedRecord(
+    startPayload?.execution ?? endPayload?.execution,
+  );
   if (!payload) {
     return { anomalyFlags: [] };
   }
 
   const rawFlags = Array.isArray(payload.anomaly_flags)
-    ? payload.anomaly_flags.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    ? payload.anomaly_flags.filter(
+        (item): item is string =>
+          typeof item === "string" && item.trim().length > 0,
+      )
     : [];
 
   return {
@@ -810,9 +942,13 @@ function resolveExecutionMetadata(run: TraceRunSummary): {
       typeof payload.execution_backend === "string"
         ? payload.execution_backend
         : undefined,
-    requestedTimeoutSeconds: parseIntegerField(payload.requested_timeout_seconds),
+    requestedTimeoutSeconds: parseIntegerField(
+      payload.requested_timeout_seconds,
+    ),
     maxTimeoutSeconds: parseIntegerField(payload.max_timeout_seconds),
-    defaultTimeoutSeconds: parseIntegerField(payload.default_timeout_seconds_hint),
+    defaultTimeoutSeconds: parseIntegerField(
+      payload.default_timeout_seconds_hint,
+    ),
     launchFailureClass:
       typeof payload.launch_failure_class === "string"
         ? payload.launch_failure_class
@@ -824,12 +960,17 @@ function resolveExecutionMetadata(run: TraceRunSummary): {
 function resolveLineageMetadata(run: TraceRunSummary): {
   anomalyFlags: string[];
 } {
-  const payload = toTrimmedRecord(run.startEvent?.payload && toRecord(run.startEvent.payload)?.lineage);
+  const payload = toTrimmedRecord(
+    run.startEvent?.payload && toRecord(run.startEvent.payload)?.lineage,
+  );
   if (!payload) {
     return { anomalyFlags: [] };
   }
   const rawFlags = Array.isArray(payload.anomaly_flags)
-    ? payload.anomaly_flags.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    ? payload.anomaly_flags.filter(
+        (item): item is string =>
+          typeof item === "string" && item.trim().length > 0,
+      )
     : [];
   return { anomalyFlags: rawFlags };
 }
@@ -874,10 +1015,16 @@ const TOOL_PATH_KEYS = [
 const TOOL_COMMAND_KEYS = ["command", "cmd"] as const;
 const TOOL_QUERY_KEYS = ["query", "pattern"] as const;
 
-function extractStringAssignment(text: string, keys: readonly string[]): string {
+function extractStringAssignment(
+  text: string,
+  keys: readonly string[],
+): string {
   for (const key of keys) {
     const match = text.match(
-      new RegExp(`(?:['"]${key}['"]|\\b${key}\\b)\\s*(?::|=)\\s*(['"])(.*?)\\1`, "s"),
+      new RegExp(
+        `(?:['"]${key}['"]|\\b${key}\\b)\\s*(?::|=)\\s*(['"])(.*?)\\1`,
+        "s",
+      ),
     );
     const value = match?.[2]?.trim();
     if (value) {
@@ -1061,9 +1208,14 @@ function summarizeToolRun(run: TraceRunSummary): string {
     extractToolField(toolResponse, TOOL_PATH_KEYS);
   if (
     path &&
-    ["write_file", "edit_file", "str_replace", "read_file", "ls", "glob"].includes(
-      toolName,
-    )
+    [
+      "write_file",
+      "edit_file",
+      "str_replace",
+      "read_file",
+      "ls",
+      "glob",
+    ].includes(toolName)
   ) {
     return truncateText(sanitizeVirtualPath(path), 140);
   }
@@ -1327,18 +1479,21 @@ export function buildTraceRuns(
     run.delegatedDescription = delegationMetadata.delegatedDescription;
     run.promptPreview = delegationMetadata.promptPreview;
     run.launchFailureClass =
-      delegationMetadata.launchFailureClass ?? executionMetadata.launchFailureClass;
+      delegationMetadata.launchFailureClass ??
+      executionMetadata.launchFailureClass;
     run.executionBackend = executionMetadata.executionBackend;
     run.requestedTimeoutSeconds = executionMetadata.requestedTimeoutSeconds;
     run.maxTimeoutSeconds = executionMetadata.maxTimeoutSeconds;
     run.defaultTimeoutSeconds = executionMetadata.defaultTimeoutSeconds;
     // Multiple payload sections can report the same anomaly flag, so dedupe
     // before surfacing badges and summary text in the admin UI.
-    run.anomalyFlags = [...new Set([
-      ...delegationMetadata.anomalyFlags,
-      ...executionMetadata.anomalyFlags,
-      ...lineageMetadata.anomalyFlags,
-    ])];
+    run.anomalyFlags = [
+      ...new Set([
+        ...delegationMetadata.anomalyFlags,
+        ...executionMetadata.anomalyFlags,
+        ...lineageMetadata.anomalyFlags,
+      ]),
+    ];
     run.label = resolveRunLabel(run);
     run.summary = resolveRunSummary(run);
     run.reasoningPreview = resolveRunReasoningPreview(run) || undefined;
@@ -1421,7 +1576,9 @@ export function extractRunSections(
         makeSection(
           "request-config",
           t("Request Config"),
-          t("Resolved model, tool-choice, and inference settings for this call."),
+          t(
+            "Resolved model, tool-choice, and inference settings for this call.",
+          ),
           "config",
           filteredRequestConfig,
         ),

@@ -33,6 +33,7 @@ const MARKDOWN_KEYS = [
 ];
 
 const VIRTUAL_PATH_PATTERN = /\/mnt\/user-data\/[^\s'",)]+/g;
+const NON_VISIBLE_CONTENT_TYPES = new Set(["thinking", "reasoning"]);
 
 export function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -415,7 +416,17 @@ export function extractMarkdownSource(
 
   if (Array.isArray(value)) {
     const parts = value
-      .map((item) => extractMarkdownSource(item, depth + 1))
+      .map((item) => {
+        const block = isObject(item) ? item : null;
+        const blockType =
+          typeof block?.type === "string" ? block.type.toLowerCase() : "";
+        // Message cards render reasoning in a dedicated panel; the markdown
+        // body should stay focused on the visible assistant answer.
+        if (NON_VISIBLE_CONTENT_TYPES.has(blockType)) {
+          return null;
+        }
+        return extractMarkdownSource(item, depth + 1);
+      })
       .filter((item): item is string => !!item && item.trim().length > 0);
     if (parts.length > 0) {
       return parts.join("\n\n");
@@ -424,6 +435,11 @@ export function extractMarkdownSource(
   }
 
   if (isObject(value)) {
+    const blockType =
+      typeof value.type === "string" ? value.type.toLowerCase() : "";
+    if (NON_VISIBLE_CONTENT_TYPES.has(blockType)) {
+      return null;
+    }
     if (value.type === "text" && typeof value.text === "string") {
       return value.text;
     }
