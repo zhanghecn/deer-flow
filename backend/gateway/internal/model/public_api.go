@@ -12,6 +12,7 @@ import (
 type PublicAPIResponsesRequest struct {
 	Model              string                `json:"model" binding:"required"`
 	Input              json.RawMessage       `json:"input" binding:"required"`
+	SessionID          string                `json:"session_id,omitempty"`
 	PreviousResponseID string                `json:"previous_response_id,omitempty"`
 	Metadata           json.RawMessage       `json:"metadata,omitempty"`
 	Stream             bool                  `json:"stream,omitempty"`
@@ -148,6 +149,7 @@ type PublicAPIResponseReasoning struct {
 }
 
 type PublicAPIResponseOpenAgents struct {
+	SessionID          string              `json:"session_id,omitempty"`
 	ThreadID           string              `json:"thread_id"`
 	TraceID            string              `json:"trace_id,omitempty"`
 	PreviousResponseID string              `json:"previous_response_id,omitempty"`
@@ -155,8 +157,11 @@ type PublicAPIResponseOpenAgents struct {
 }
 
 type PublicAPIInvocationFilter struct {
-	APITokenID *uuid.UUID
-	AgentName  string
-	Limit      int
-	Offset     int
+	APITokenID   *uuid.UUID
+	AgentName    string
+	ThreadID     string
+	Surface      string
+	FinishedOnly bool
+	Limit        int
+	Offset       int
 }

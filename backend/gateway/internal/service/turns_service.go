@@ -447,6 +447,7 @@ func translateTurnRequest(request model.TurnCreateRequest) (model.PublicAPIRespo
 	return model.PublicAPIResponsesRequest{
 		Model:              strings.TrimSpace(request.Agent),
 		Input:              input,
+		SessionID:          strings.TrimSpace(request.SessionID),
 		PreviousResponseID: strings.TrimSpace(request.PreviousTurnID),
 		Metadata:           request.Metadata,
 		Stream:             request.Stream,
@@ -573,6 +574,7 @@ func (s *PublicAPIService) attachRunKnowledgeBases(
 func buildTurnSnapshot(
 	invocation *model.PublicAPIInvocation,
 	agentName string,
+	sessionID string,
 	previousTurnID string,
 	outputText string,
 	reasoningText string,
@@ -585,6 +587,7 @@ func buildTurnSnapshot(
 		Object:        "turn",
 		Status:        invocation.Status,
 		Agent:         agentName,
+		SessionID:     strings.TrimSpace(sessionID),
 		ThreadID:      invocation.ThreadID,
 		OutputText:    outputText,
 		ReasoningText: reasoningText,
@@ -625,6 +628,7 @@ func (s *PublicAPIService) failTurnExecution(
 	failed := collector.push(BuildPublicTurnFailureEvent(plan.ResponseID, stage, cause))
 	finalErr := s.finishInvocationWithError(ctx, plan.Invocation, wrapPublicAPITurnFailure(cause, publicAPITurnFailureContext{
 		TurnID:         plan.ResponseID,
+		SessionID:      plan.SessionID,
 		Stage:          stage,
 		Events:         collector.events,
 		PreviousTurnID: plan.PreviousResponseID,
@@ -804,6 +808,7 @@ func (s *PublicAPIService) executeTurn(
 	snapshot := buildTurnSnapshot(
 		plan.Invocation,
 		plan.AgentName,
+		plan.SessionID,
 		plan.PreviousResponseID,
 		outputText,
 		reasoningText,
@@ -855,6 +860,7 @@ func (s *PublicAPIService) CreateTurn(
 	if err := s.attachRunKnowledgeBases(ctx, plan, knowledgeBaseIDs); err != nil {
 		return nil, s.finishInvocationWithError(ctx, plan.Invocation, wrapPublicAPITurnFailure(err, publicAPITurnFailureContext{
 			TurnID:         plan.ResponseID,
+			SessionID:      plan.SessionID,
 			Stage:          model.TurnFailureStagePrepareRun,
 			PreviousTurnID: plan.PreviousResponseID,
 			Metadata:       plan.Metadata,
@@ -892,6 +898,7 @@ func (s *PublicAPIService) StreamTurn(
 	if err := s.attachRunKnowledgeBases(ctx, plan, knowledgeBaseIDs); err != nil {
 		return s.finishInvocationWithError(ctx, plan.Invocation, wrapPublicAPITurnFailure(err, publicAPITurnFailureContext{
 			TurnID:         plan.ResponseID,
+			SessionID:      plan.SessionID,
 			Stage:          model.TurnFailureStagePrepareRun,
 			PreviousTurnID: plan.PreviousResponseID,
 			Metadata:       plan.Metadata,
@@ -941,4 +948,221 @@ func (s *PublicAPIService) GetTurn(
 		}
 	}
 	return &snapshot, nil
+}
+
+func (s *PublicAPIService) ListRecentTurns(
+	ctx context.Context,
+	auth PublicAPIAuthContext,
+	agentName string,
+	sessionID string,
+	limit int,
+) (*model.TurnListResponse, error) {
+	normalizedAgentName := strings.ToLower(strings.TrimSpace(agentName))
+	if normalizedAgentName == "" {
+		return nil, &PublicAPIError{
+			StatusCode: http.StatusBadRequest,
+			Code:       "invalid_agent",
+			Message:    "agent is required",
+		}
+	}
+	if auth.UserID == uuid.Nil || auth.APITokenID == uuid.Nil {
+		return nil, &PublicAPIError{
+			StatusCode: http.StatusUnauthorized,
+			Code:       "unauthorized",
+			Message:    "api token is required",
+		}
+	}
+	if len(auth.AllowedAgents) > 0 && !containsNormalizedText(auth.AllowedAgents, normalizedAgentName) {
+		return nil, &PublicAPIError{
+			StatusCode: http.StatusForbidden,
+			Code:       "agent_not_allowed",
+			Message:    "api token is not allowed to access this agent",
+		}
+	}
+	normalizedSessionID, err := normalizePublicAPISessionID(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if normalizedSessionID == "" {
+		return s.listRecentTurnSessions(ctx, auth, normalizedAgentName, limit)
+	}
+
+	normalizedLimit := normalizeRecentTurnLimit(limit)
+	tokenID := auth.APITokenID
+	invocations, err := s.invocationRepo.ListByUser(ctx, auth.UserID, model.PublicAPIInvocationFilter{
+		APITokenID:   &tokenID,
+		AgentName:    normalizedAgentName,
+		ThreadID:     publicAPISessionThreadID(auth.APITokenID, normalizedAgentName, normalizedSessionID),
+		Surface:      "turns",
+		FinishedOnly: true,
+		Limit:        normalizedLimit,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]model.TurnHistoryItem, 0, len(invocations))
+	for _, invocation := range invocations {
+		var snapshot model.TurnSnapshot
+		if err := json.Unmarshal(invocation.ResponseJSON, &snapshot); err != nil {
+			return nil, &PublicAPIError{
+				StatusCode: http.StatusInternalServerError,
+				Code:       "invalid_turn_snapshot",
+				Message:    "stored turn snapshot is invalid",
+			}
+		}
+		if strings.TrimSpace(snapshot.SessionID) == "" {
+			snapshot.SessionID = normalizedSessionID
+		}
+		items = append(items, model.TurnHistoryItem{
+			TurnSnapshot: snapshot,
+			Input:        extractTurnInputFromRequestJSON(invocation.RequestJSON),
+		})
+	}
+
+	return &model.TurnListResponse{
+		Object: "list",
+		Data:   items,
+	}, nil
+}
+
+func (s *PublicAPIService) listRecentTurnSessions(
+	ctx context.Context,
+	auth PublicAPIAuthContext,
+	agentName string,
+	limit int,
+) (*model.TurnListResponse, error) {
+	normalizedLimit := normalizeRecentTurnLimit(limit)
+	tokenID := auth.APITokenID
+	invocations, err := s.invocationRepo.ListByUser(ctx, auth.UserID, model.PublicAPIInvocationFilter{
+		APITokenID:   &tokenID,
+		AgentName:    agentName,
+		Surface:      "turns",
+		FinishedOnly: true,
+		// Pull a wider turn window because multiple recent turns can belong to
+		// the same SDK session; the response is limited after session grouping.
+		Limit: 200,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	type sessionSummary struct {
+		sessionID  string
+		latest     model.PublicAPIInvocation
+		firstInput model.TurnInput
+	}
+	summaries := make([]sessionSummary, 0, normalizedLimit)
+	indexBySession := make(map[string]int)
+	for _, invocation := range invocations {
+		sessionID := strings.TrimSpace(extractSessionIDFromRequestJSON(invocation.RequestJSON))
+		if sessionID == "" {
+			sessionID = strings.TrimSpace(extractSessionIDFromResponseJSON(invocation.ResponseJSON))
+		}
+		if sessionID == "" {
+			continue
+		}
+		input := extractTurnInputFromRequestJSON(invocation.RequestJSON)
+		if existingIndex, ok := indexBySession[sessionID]; ok {
+			// Repository rows are newest-first, so every later match is older.
+			// Keep overwriting the label input so the final summary shows the
+			// first visible user question for that session.
+			summaries[existingIndex].firstInput = input
+			continue
+		}
+		if len(summaries) >= normalizedLimit {
+			continue
+		}
+		indexBySession[sessionID] = len(summaries)
+		summaries = append(summaries, sessionSummary{
+			sessionID:  sessionID,
+			latest:     invocation,
+			firstInput: input,
+		})
+	}
+
+	items := make([]model.TurnHistoryItem, 0, len(summaries))
+	for _, summary := range summaries {
+		var snapshot model.TurnSnapshot
+		if err := json.Unmarshal(summary.latest.ResponseJSON, &snapshot); err != nil {
+			return nil, &PublicAPIError{
+				StatusCode: http.StatusInternalServerError,
+				Code:       "invalid_turn_snapshot",
+				Message:    "stored turn snapshot is invalid",
+			}
+		}
+		if strings.TrimSpace(snapshot.SessionID) == "" {
+			snapshot.SessionID = summary.sessionID
+		}
+		items = append(items, model.TurnHistoryItem{
+			TurnSnapshot: snapshot,
+			Input:        summary.firstInput,
+		})
+	}
+
+	return &model.TurnListResponse{
+		Object: "list",
+		Data:   items,
+	}, nil
+}
+
+func normalizeRecentTurnLimit(limit int) int {
+	if limit <= 0 {
+		return 10
+	}
+	if limit > 50 {
+		return 50
+	}
+	return limit
+}
+
+func extractTurnInputFromRequestJSON(requestJSON json.RawMessage) model.TurnInput {
+	var request model.TurnCreateRequest
+	if err := json.Unmarshal(requestJSON, &request); err != nil {
+		return model.TurnInput{}
+	}
+	// Request JSON is the public northbound ledger; trimming here keeps the
+	// history payload consistent with the text that originally seeded the run.
+	return model.TurnInput{
+		Text:    strings.TrimSpace(request.Input.Text),
+		FileIDs: request.Input.FileIDs,
+	}
+}
+
+func extractSessionIDFromRequestJSON(requestJSON json.RawMessage) string {
+	var turnRequest model.TurnCreateRequest
+	if err := json.Unmarshal(requestJSON, &turnRequest); err == nil && strings.TrimSpace(turnRequest.SessionID) != "" {
+		return strings.TrimSpace(turnRequest.SessionID)
+	}
+	var responseRequest model.PublicAPIResponsesRequest
+	if err := json.Unmarshal(requestJSON, &responseRequest); err == nil && strings.TrimSpace(responseRequest.SessionID) != "" {
+		return strings.TrimSpace(responseRequest.SessionID)
+	}
+	return ""
+}
+
+func extractSessionIDFromResponseJSON(responseJSON json.RawMessage) string {
+	var response struct {
+		SessionID string `json:"session_id"`
+		Metadata  struct {
+			OpenAgents struct {
+				SessionID string `json:"session_id"`
+			} `json:"openagents"`
+		} `json:"metadata"`
+		OpenAgents struct {
+			SessionID string `json:"session_id"`
+		} `json:"openagents"`
+	}
+	if err := json.Unmarshal(responseJSON, &response); err != nil {
+		return ""
+	}
+	// Response-compatibility snapshots store SDK session metadata under
+	// openagents; turns store it at the top level and are handled before this.
+	if strings.TrimSpace(response.SessionID) != "" {
+		return strings.TrimSpace(response.SessionID)
+	}
+	if strings.TrimSpace(response.OpenAgents.SessionID) != "" {
+		return strings.TrimSpace(response.OpenAgents.SessionID)
+	}
+	return strings.TrimSpace(response.Metadata.OpenAgents.SessionID)
 }

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -25,6 +26,8 @@ type stubPublicAPIModelRepo struct {
 
 type stubPublicAPIInvocationRepo struct {
 	byResponseID map[string]*model.PublicAPIInvocation
+	listItems    []model.PublicAPIInvocation
+	lastFilter   model.PublicAPIInvocationFilter
 }
 
 func (s stubPublicAPIModelRepo) FindEnabledByName(
@@ -95,9 +98,12 @@ func (s *stubPublicAPIInvocationRepo) GetArtifactByFileID(
 func (s *stubPublicAPIInvocationRepo) ListByUser(
 	_ context.Context,
 	_ uuid.UUID,
-	_ model.PublicAPIInvocationFilter,
+	filter model.PublicAPIInvocationFilter,
 ) ([]model.PublicAPIInvocation, error) {
-	return nil, nil
+	s.lastFilter = filter
+	items := make([]model.PublicAPIInvocation, len(s.listItems))
+	copy(items, s.listItems)
+	return items, nil
 }
 
 func TestFetchThreadStatePassesRuntimeHeaders(t *testing.T) {
@@ -144,6 +150,303 @@ func TestFetchThreadStatePassesRuntimeHeaders(t *testing.T) {
 	}
 	if seenHistoryCall {
 		t.Fatal("did not expect history fallback for non-empty state values")
+	}
+}
+
+func TestListRecentTurnsReturnsStoredInputAndUsesTokenFilter(t *testing.T) {
+	t.Parallel()
+
+	userID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	tokenID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	sessionID := "customer-session-1"
+	threadID := publicAPISessionThreadID(tokenID, "support-cases-http-demo", sessionID)
+	snapshotBody, err := json.Marshal(model.TurnSnapshot{
+		ID:          "turn_latest",
+		Object:      "turn",
+		Status:      "completed",
+		Agent:       "support-cases-http-demo",
+		SessionID:   sessionID,
+		ThreadID:    threadID,
+		OutputText:  "已读取历史",
+		Usage:       model.TurnUsage{},
+		Events:      []model.TurnEvent{},
+		CreatedAt:   time.Now().Unix(),
+		CompletedAt: time.Now().Unix(),
+	})
+	if err != nil {
+		t.Fatalf("marshal snapshot: %v", err)
+	}
+	requestBody, err := json.Marshal(model.TurnCreateRequest{
+		Agent:     "support-cases-http-demo",
+		SessionID: sessionID,
+		Input: model.TurnInput{
+			Text:    "上一轮问题",
+			FileIDs: []string{"file_1"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	invocationRepo := &stubPublicAPIInvocationRepo{
+		listItems: []model.PublicAPIInvocation{
+			{
+				ResponseID:   "turn_latest",
+				Surface:      "turns",
+				APITokenID:   tokenID,
+				UserID:       userID,
+				AgentName:    "support-cases-http-demo",
+				ThreadID:     threadID,
+				RequestJSON:  requestBody,
+				ResponseJSON: snapshotBody,
+				CreatedAt:    time.Now(),
+			},
+		},
+	}
+	svc := &PublicAPIService{invocationRepo: invocationRepo}
+
+	result, err := svc.ListRecentTurns(context.Background(), PublicAPIAuthContext{
+		UserID:     userID,
+		APITokenID: tokenID,
+	}, "support-cases-http-demo", sessionID, 1)
+	if err != nil {
+		t.Fatalf("ListRecentTurns: %v", err)
+	}
+
+	if result.Object != "list" || len(result.Data) != 1 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	if result.Data[0].ID != "turn_latest" {
+		t.Fatalf("expected latest turn id, got %q", result.Data[0].ID)
+	}
+	if result.Data[0].Input.Text != "上一轮问题" {
+		t.Fatalf("expected restored input text, got %q", result.Data[0].Input.Text)
+	}
+	if len(result.Data[0].Input.FileIDs) != 1 || result.Data[0].Input.FileIDs[0] != "file_1" {
+		t.Fatalf("expected restored file ids, got %#v", result.Data[0].Input.FileIDs)
+	}
+	if invocationRepo.lastFilter.APITokenID == nil || *invocationRepo.lastFilter.APITokenID != tokenID {
+		t.Fatalf("expected api token filter, got %#v", invocationRepo.lastFilter.APITokenID)
+	}
+	if invocationRepo.lastFilter.AgentName != "support-cases-http-demo" {
+		t.Fatalf("expected agent filter, got %q", invocationRepo.lastFilter.AgentName)
+	}
+	if invocationRepo.lastFilter.ThreadID != threadID {
+		t.Fatalf("expected session-derived thread filter, got %q", invocationRepo.lastFilter.ThreadID)
+	}
+	if invocationRepo.lastFilter.Surface != "turns" {
+		t.Fatalf("expected turns surface filter, got %q", invocationRepo.lastFilter.Surface)
+	}
+	if !invocationRepo.lastFilter.FinishedOnly {
+		t.Fatal("expected recent turn list to request finished invocations only")
+	}
+}
+
+func TestListRecentTurnsWithoutSessionReturnsSessionSummaries(t *testing.T) {
+	t.Parallel()
+
+	userID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	tokenID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	agentName := "support-cases-http-demo"
+	now := time.Now()
+
+	marshalTurn := func(turnID string, sessionID string, inputText string, createdAt time.Time) model.PublicAPIInvocation {
+		threadID := publicAPISessionThreadID(tokenID, agentName, sessionID)
+		snapshotBody, err := json.Marshal(model.TurnSnapshot{
+			ID:          turnID,
+			Object:      "turn",
+			Status:      "completed",
+			Agent:       agentName,
+			SessionID:   sessionID,
+			ThreadID:    threadID,
+			OutputText:  "answer",
+			Usage:       model.TurnUsage{},
+			Events:      []model.TurnEvent{},
+			CreatedAt:   createdAt.Unix(),
+			CompletedAt: createdAt.Unix(),
+		})
+		if err != nil {
+			t.Fatalf("marshal snapshot: %v", err)
+		}
+		requestBody, err := json.Marshal(model.TurnCreateRequest{
+			Agent:     agentName,
+			SessionID: sessionID,
+			Input: model.TurnInput{
+				Text: inputText,
+			},
+		})
+		if err != nil {
+			t.Fatalf("marshal request: %v", err)
+		}
+		return model.PublicAPIInvocation{
+			ResponseID:   turnID,
+			Surface:      "turns",
+			APITokenID:   tokenID,
+			UserID:       userID,
+			AgentName:    agentName,
+			ThreadID:     threadID,
+			RequestJSON:  requestBody,
+			ResponseJSON: snapshotBody,
+			CreatedAt:    createdAt,
+			FinishedAt:   &createdAt,
+		}
+	}
+
+	invocationRepo := &stubPublicAPIInvocationRepo{
+		listItems: []model.PublicAPIInvocation{
+			marshalTurn("turn-a2", "session-a", "followup question a", now),
+			marshalTurn("turn-b1", "session-b", "only question b", now.Add(-time.Minute)),
+			marshalTurn("turn-a1", "session-a", "first question a", now.Add(-2*time.Minute)),
+		},
+	}
+	svc := &PublicAPIService{invocationRepo: invocationRepo}
+
+	result, err := svc.ListRecentTurns(context.Background(), PublicAPIAuthContext{
+		UserID:     userID,
+		APITokenID: tokenID,
+	}, agentName, "", 10)
+	if err != nil {
+		t.Fatalf("ListRecentTurns: %v", err)
+	}
+
+	if result.Object != "list" || len(result.Data) != 2 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	if result.Data[0].SessionID != "session-a" || result.Data[0].ID != "turn-a2" {
+		t.Fatalf("first summary = session %q turn %q, want session-a turn-a2", result.Data[0].SessionID, result.Data[0].ID)
+	}
+	if result.Data[0].Input.Text != "first question a" {
+		t.Fatalf("first summary label = %q, want first question", result.Data[0].Input.Text)
+	}
+	if result.Data[1].SessionID != "session-b" || result.Data[1].Input.Text != "only question b" {
+		t.Fatalf("second summary = %#v", result.Data[1])
+	}
+	if invocationRepo.lastFilter.ThreadID != "" {
+		t.Fatalf("session summary list should not filter one thread, got %q", invocationRepo.lastFilter.ThreadID)
+	}
+	if invocationRepo.lastFilter.Limit != 200 {
+		t.Fatalf("session summary list should request a wide window, got limit %d", invocationRepo.lastFilter.Limit)
+	}
+}
+
+func TestResolveThreadIDUsesTokenScopedSessionID(t *testing.T) {
+	t.Parallel()
+
+	tokenID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	otherTokenID := uuid.MustParse("33333333-3333-3333-3333-333333333333")
+	svc := &PublicAPIService{}
+
+	threadID, sessionID, previousID, err := svc.resolveThreadID(
+		context.Background(),
+		"",
+		"customer-session-1",
+		"support-cases-http-demo",
+		tokenID,
+	)
+	if err != nil {
+		t.Fatalf("resolveThreadID: %v", err)
+	}
+	if sessionID != "customer-session-1" || previousID != "" {
+		t.Fatalf("unexpected session/previous ids: session=%q previous=%q", sessionID, previousID)
+	}
+	expected := publicAPISessionThreadID(tokenID, "support-cases-http-demo", "customer-session-1")
+	if threadID != expected {
+		t.Fatalf("thread id = %q, want %q", threadID, expected)
+	}
+	if _, err := uuid.Parse(threadID); err != nil {
+		t.Fatalf("session-derived thread id must be a UUID, got %q: %v", threadID, err)
+	}
+	if threadID == publicAPISessionThreadID(otherTokenID, "support-cases-http-demo", "customer-session-1") {
+		t.Fatal("expected session thread id to be scoped by api token")
+	}
+}
+
+func TestResolveThreadIDRejectsPreviousSessionMismatch(t *testing.T) {
+	t.Parallel()
+
+	tokenID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	previousSnapshot, err := json.Marshal(model.TurnSnapshot{
+		ID:        "turn_prev",
+		Object:    "turn",
+		Status:    "completed",
+		Agent:     "support-cases-http-demo",
+		SessionID: "customer-session-a",
+		ThreadID:  publicAPISessionThreadID(tokenID, "support-cases-http-demo", "customer-session-a"),
+		Usage:     model.TurnUsage{},
+	})
+	if err != nil {
+		t.Fatalf("marshal previous snapshot: %v", err)
+	}
+	svc := &PublicAPIService{
+		invocationRepo: &stubPublicAPIInvocationRepo{
+			byResponseID: map[string]*model.PublicAPIInvocation{
+				"turn_prev": {
+					ResponseID:   "turn_prev",
+					AgentName:    "support-cases-http-demo",
+					ThreadID:     publicAPISessionThreadID(tokenID, "support-cases-http-demo", "customer-session-a"),
+					ResponseJSON: previousSnapshot,
+				},
+			},
+		},
+	}
+
+	_, _, _, err = svc.resolveThreadID(
+		context.Background(),
+		"turn_prev",
+		"customer-session-b",
+		"support-cases-http-demo",
+		tokenID,
+	)
+	var publicErr *PublicAPIError
+	if !errors.As(err, &publicErr) || publicErr.Code != "session_mismatch" {
+		t.Fatalf("expected session_mismatch, got %v", err)
+	}
+}
+
+func TestResolveThreadIDReadsSessionFromResponseEnvelope(t *testing.T) {
+	t.Parallel()
+
+	tokenID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	threadID := publicAPISessionThreadID(tokenID, "support-cases-http-demo", "customer-session-a")
+	responseEnvelope, err := json.Marshal(map[string]any{
+		"id":     "resp_prev",
+		"object": "response",
+		"openagents": map[string]any{
+			"session_id": "customer-session-a",
+			"thread_id":  threadID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal response envelope: %v", err)
+	}
+	svc := &PublicAPIService{
+		invocationRepo: &stubPublicAPIInvocationRepo{
+			byResponseID: map[string]*model.PublicAPIInvocation{
+				"resp_prev": {
+					ResponseID:   "resp_prev",
+					AgentName:    "support-cases-http-demo",
+					ThreadID:     threadID,
+					ResponseJSON: responseEnvelope,
+				},
+			},
+		},
+	}
+
+	resolvedThreadID, sessionID, previousID, err := svc.resolveThreadID(
+		context.Background(),
+		"resp_prev",
+		"",
+		"support-cases-http-demo",
+		tokenID,
+	)
+	if err != nil {
+		t.Fatalf("resolveThreadID: %v", err)
+	}
+	if resolvedThreadID != threadID {
+		t.Fatalf("thread id = %q, want %q", resolvedThreadID, threadID)
+	}
+	if sessionID != "customer-session-a" || previousID != "resp_prev" {
+		t.Fatalf("unexpected session/previous ids: session=%q previous=%q", sessionID, previousID)
 	}
 }
 

@@ -97,6 +97,7 @@ type publicAPIRunPlan struct {
 	AgentName             string
 	AgentKnowledgeBaseIDs []string
 	ModelName             string
+	SessionID             string
 	ThreadID              string
 	ResponseID            string
 	PreviousResponseID    string
@@ -622,7 +623,13 @@ func (s *PublicAPIService) prepareRun(
 		}
 	}
 
-	threadID, previousResponseID, err := s.resolveThreadID(ctx, request.PreviousResponseID, agentName, auth.APITokenID)
+	threadID, sessionID, previousResponseID, err := s.resolveThreadID(
+		ctx,
+		request.PreviousResponseID,
+		request.SessionID,
+		agentName,
+		auth.APITokenID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -678,6 +685,7 @@ func (s *PublicAPIService) prepareRun(
 	if err := s.fs.EnsureThreadDirsForUser(auth.UserID.String(), threadID); err != nil {
 		return nil, s.finishInvocationWithError(ctx, invocation, wrapPublicAPITurnFailure(err, publicAPITurnFailureContext{
 			TurnID:         responseID,
+			SessionID:      sessionID,
 			Stage:          model.TurnFailureStagePrepareRun,
 			PreviousTurnID: previousResponseID,
 			Metadata:       metadata,
@@ -686,6 +694,7 @@ func (s *PublicAPIService) prepareRun(
 	if err := s.ensureLangGraphThread(ctx, auth.UserID, threadID); err != nil {
 		return nil, s.finishInvocationWithError(ctx, invocation, wrapPublicAPITurnFailure(err, publicAPITurnFailureContext{
 			TurnID:         responseID,
+			SessionID:      sessionID,
 			Stage:          model.TurnFailureStagePrepareRun,
 			PreviousTurnID: previousResponseID,
 			Metadata:       metadata,
@@ -702,6 +711,7 @@ func (s *PublicAPIService) prepareRun(
 	if err != nil {
 		return nil, s.finishInvocationWithError(ctx, invocation, wrapPublicAPITurnFailure(err, publicAPITurnFailureContext{
 			TurnID:         responseID,
+			SessionID:      sessionID,
 			Stage:          model.TurnFailureStagePrepareRun,
 			PreviousTurnID: previousResponseID,
 			Metadata:       metadata,
@@ -717,6 +727,7 @@ func (s *PublicAPIService) prepareRun(
 		AgentName:             agentName,
 		AgentKnowledgeBaseIDs: agent.KnowledgeBaseIDs,
 		ModelName:             resolvedModelName,
+		SessionID:             sessionID,
 		ThreadID:              threadID,
 		ResponseID:            responseID,
 		PreviousResponseID:    previousResponseID,
@@ -827,6 +838,7 @@ func (s *PublicAPIService) finishIncompleteRun(
 	plan.Invocation.FinishedAt = &finishedAt
 	responseObject := buildResponseEnvelope(
 		plan.Invocation,
+		plan.SessionID,
 		"",
 		"",
 		[]model.PublicAPIResponseArtifact{},
@@ -866,6 +878,7 @@ func (s *PublicAPIService) finishCompletedRun(
 	plan.Invocation.FinishedAt = &finishedAt
 	responseObject := buildResponseEnvelope(
 		plan.Invocation,
+		plan.SessionID,
 		outputText,
 		reasoningText,
 		responseArtifacts,
@@ -1361,33 +1374,112 @@ func (s *PublicAPIService) resolveModelName(ctx context.Context, agent *model.Ag
 func (s *PublicAPIService) resolveThreadID(
 	ctx context.Context,
 	previousResponseID string,
+	sessionID string,
 	agentName string,
 	apiTokenID uuid.UUID,
-) (string, string, error) {
+) (string, string, string, error) {
+	normalizedSessionID, err := normalizePublicAPISessionID(sessionID)
+	if err != nil {
+		return "", "", "", err
+	}
 	trimmedPrevious := strings.TrimSpace(previousResponseID)
 	if trimmedPrevious == "" {
-		return uuid.NewString(), "", nil
+		if normalizedSessionID == "" {
+			normalizedSessionID = uuid.NewString()
+		}
+		return publicAPISessionThreadID(apiTokenID, agentName, normalizedSessionID), normalizedSessionID, "", nil
 	}
 
 	invocation, err := s.invocationRepo.GetByResponseID(ctx, trimmedPrevious, apiTokenID)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	if invocation == nil {
-		return "", "", &PublicAPIError{
+		return "", "", "", &PublicAPIError{
 			StatusCode: http.StatusNotFound,
 			Code:       "previous_response_not_found",
 			Message:    "previous_response_id was not found for this api token",
 		}
 	}
 	if invocation.AgentName != agentName {
-		return "", "", &PublicAPIError{
+		return "", "", "", &PublicAPIError{
 			StatusCode: http.StatusBadRequest,
 			Code:       "model_mismatch",
 			Message:    "previous_response_id belongs to a different model",
 		}
 	}
-	return invocation.ThreadID, invocation.ResponseID, nil
+	previousSessionID := sessionIDFromInvocation(invocation)
+	if normalizedSessionID != "" && previousSessionID != "" && normalizedSessionID != previousSessionID {
+		return "", "", "", &PublicAPIError{
+			StatusCode: http.StatusBadRequest,
+			Code:       "session_mismatch",
+			Message:    "session_id does not match previous_response_id",
+		}
+	}
+	if normalizedSessionID == "" {
+		normalizedSessionID = previousSessionID
+	}
+	return invocation.ThreadID, normalizedSessionID, invocation.ResponseID, nil
+}
+
+func normalizePublicAPISessionID(value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "", nil
+	}
+	if len(trimmed) > 128 {
+		return "", &PublicAPIError{
+			StatusCode: http.StatusBadRequest,
+			Code:       "invalid_session_id",
+			Message:    "session_id must be at most 128 characters",
+		}
+	}
+	for _, r := range trimmed {
+		if (r >= 'a' && r <= 'z') ||
+			(r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') ||
+			r == '_' ||
+			r == '-' ||
+			r == '.' {
+			continue
+		}
+		return "", &PublicAPIError{
+			StatusCode: http.StatusBadRequest,
+			Code:       "invalid_session_id",
+			Message:    "session_id may only contain letters, numbers, dots, hyphens, or underscores",
+		}
+	}
+	return trimmed, nil
+}
+
+func publicAPISessionThreadID(apiTokenID uuid.UUID, agentName string, sessionID string) string {
+	// External session ids are operator/user-owned handles. LangGraph still
+	// requires thread ids to be UUIDs, so derive a deterministic UUID that stays
+	// isolated across API tokens and agents without exposing the visible session.
+	key := strings.Join([]string{
+		"openagents-public-api-session-v1",
+		apiTokenID.String(),
+		strings.ToLower(strings.TrimSpace(agentName)),
+		strings.TrimSpace(sessionID),
+	}, "\x00")
+	return uuid.NewSHA1(uuid.NameSpaceURL, []byte(key)).String()
+}
+
+func sessionIDFromInvocation(invocation *model.PublicAPIInvocation) string {
+	if invocation == nil {
+		return ""
+	}
+	var snapshot model.TurnSnapshot
+	if err := json.Unmarshal(invocation.ResponseJSON, &snapshot); err == nil && strings.TrimSpace(snapshot.SessionID) != "" {
+		return strings.TrimSpace(snapshot.SessionID)
+	}
+	if sessionID := extractSessionIDFromResponseJSON(invocation.ResponseJSON); sessionID != "" {
+		return sessionID
+	}
+	if sessionID := extractSessionIDFromRequestJSON(invocation.RequestJSON); sessionID != "" {
+		return sessionID
+	}
+	return ""
 }
 
 func (s *PublicAPIService) ensureLangGraphThread(ctx context.Context, userID uuid.UUID, threadID string) error {
@@ -2056,6 +2148,7 @@ func copyFile(sourcePath string, targetPath string) error {
 
 func buildResponseEnvelope(
 	invocation *model.PublicAPIInvocation,
+	sessionID string,
 	outputText string,
 	reasoningText string,
 	artifacts []model.PublicAPIResponseArtifact,
@@ -2068,8 +2161,12 @@ func buildResponseEnvelope(
 	for key, value := range requestMetadata {
 		metadata[key] = value
 	}
+	trimmedSessionID := strings.TrimSpace(sessionID)
 	openagentsMetadata := map[string]any{
 		"thread_id": invocation.ThreadID,
+	}
+	if trimmedSessionID != "" {
+		openagentsMetadata["session_id"] = trimmedSessionID
 	}
 	if invocation.TraceID != nil && strings.TrimSpace(*invocation.TraceID) != "" {
 		openagentsMetadata["trace_id"] = strings.TrimSpace(*invocation.TraceID)
@@ -2107,6 +2204,9 @@ func buildResponseEnvelope(
 	openagentsExtension := map[string]any{
 		"thread_id":  invocation.ThreadID,
 		"run_events": events,
+	}
+	if trimmedSessionID != "" {
+		openagentsExtension["session_id"] = trimmedSessionID
 	}
 	if invocation.TraceID != nil && strings.TrimSpace(*invocation.TraceID) != "" {
 		openagentsExtension["trace_id"] = strings.TrimSpace(*invocation.TraceID)

@@ -60,7 +60,9 @@ export type ChatSession = {
   prompt: (
     params: ChatSessionPromptParams,
   ) => Promise<ChatSessionPromptResult>;
+  resumeFromTurn: (turnId: string) => void;
   reset: () => void;
+  getSessionId: () => string;
   getPreviousTurnId: () => string;
 };
 
@@ -105,12 +107,14 @@ export function createChatSession(params: {
   baseURL: string;
   apiToken: string;
   agent: string;
+  sessionId?: string;
   previousTurnId?: string;
 }): ChatSession {
   const session = createPublicAPISession({
     baseURL: params.baseURL,
     apiToken: params.apiToken,
     agent: params.agent,
+    sessionId: params.sessionId,
     previousTurnId: params.previousTurnId,
   });
 
@@ -266,11 +270,17 @@ export function createChatSession(params: {
         throw error;
       }
     },
+    resumeFromTurn(turnId) {
+      session.resumeFromTurn(turnId);
+    },
     reset() {
       session.reset();
     },
     getPreviousTurnId() {
       return session.getPreviousTurnId();
+    },
+    getSessionId() {
+      return session.getSessionId();
     },
   };
 }

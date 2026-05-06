@@ -40,6 +40,7 @@ type TurnInput struct {
 type TurnCreateRequest struct {
 	Agent          string    `json:"agent" binding:"required"`
 	Input          TurnInput `json:"input" binding:"required"`
+	SessionID      string    `json:"session_id,omitempty"`
 	PreviousTurnID string    `json:"previous_turn_id,omitempty"`
 	// External SDK callers can pre-attach existing knowledge bases before the
 	// first runtime turn. The service stores these in the same thread binding
@@ -93,6 +94,7 @@ type TurnSnapshot struct {
 	Object         string                      `json:"object"`
 	Status         string                      `json:"status"`
 	Agent          string                      `json:"agent"`
+	SessionID      string                      `json:"session_id,omitempty"`
 	ThreadID       string                      `json:"thread_id"`
 	TraceID        string                      `json:"trace_id,omitempty"`
 	PreviousTurnID string                      `json:"previous_turn_id,omitempty"`
@@ -104,4 +106,16 @@ type TurnSnapshot struct {
 	Events         []TurnEvent                 `json:"events"`
 	CreatedAt      int64                       `json:"created_at"`
 	CompletedAt    int64                       `json:"completed_at,omitempty"`
+}
+
+type TurnHistoryItem struct {
+	TurnSnapshot
+	// Input is recovered from the stored request ledger so external SDK demos
+	// can rebuild visible chat history without storing message bodies locally.
+	Input TurnInput `json:"input"`
+}
+
+type TurnListResponse struct {
+	Object string            `json:"object"`
+	Data   []TurnHistoryItem `json:"data"`
 }

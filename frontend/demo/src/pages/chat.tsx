@@ -3,6 +3,7 @@ import {
   Bot,
   Check,
   FileText,
+  History,
   Loader2,
   Paperclip,
   Send,
@@ -25,7 +26,12 @@ import {
   type ChatActivityStep,
   type ToolCallStep,
 } from "../lib/chat-session";
-import { resolvePublicAPIBaseURL, uploadPublicAPIFile } from "../lib/public-api";
+import {
+  listRecentPublicAPITurns,
+  type PublicAPITurnHistoryItem,
+  resolvePublicAPIBaseURL,
+  uploadPublicAPIFile,
+} from "../lib/public-api";
 import { createDemoId } from "../lib/uid";
 
 const SETTINGS_KEY = "demo_chat_settings";
@@ -95,6 +101,7 @@ type ChatSettings = {
   baseURI: string;
   apiKey: string;
   agentName: string;
+  sessionID: string;
 };
 
 /* ─── Settings helpers ──────────────────────────────────── */
@@ -120,9 +127,11 @@ function getDefaultSettings(): ChatSettings {
     apiKey: getDefaultAPIKey(),
     agentName:
       getDefaultAgentName() ||
-      (import.meta.env.VITE_DEMO_HTTP_AGENT_NAME as string | undefined)
-        ?.trim() ||
+      (
+        import.meta.env.VITE_DEMO_HTTP_AGENT_NAME as string | undefined
+      )?.trim() ||
       "",
+    sessionID: getDefaultSessionID(),
   };
 }
 
@@ -131,9 +140,14 @@ function loadSettings(): ChatSettings {
   try {
     const raw = sessionStorage.getItem(SETTINGS_KEY);
     if (raw) {
+      const saved = JSON.parse(raw) as Partial<ChatSettings>;
       return {
         ...defaults,
-        ...(JSON.parse(raw) as Partial<ChatSettings>),
+        ...saved,
+        // A fresh demo page must start a fresh SDK conversation unless the URL
+        // or build-time env explicitly pins a session_id. Conversation history
+        // is restored through the history list, not by reusing hidden storage.
+        sessionID: getDefaultSessionID() || defaults.sessionID,
       };
     }
   } catch {
@@ -143,7 +157,33 @@ function loadSettings(): ChatSettings {
 }
 
 function saveSettings(settings: ChatSettings) {
-  sessionStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  sessionStorage.setItem(
+    SETTINGS_KEY,
+    JSON.stringify({
+      baseURI: settings.baseURI,
+      apiKey: settings.apiKey,
+      agentName: settings.agentName,
+    }),
+  );
+}
+
+function buildSessionKey(
+  baseURL: string,
+  apiKey: string,
+  agentName: string | null,
+  sessionID: string,
+) {
+  return [baseURL, apiKey.trim(), agentName ?? "", sessionID.trim()].join("\n");
+}
+
+function getDefaultSessionID(): string {
+  const params = new URLSearchParams(window.location.search);
+  return (
+    params.get("session_id")?.trim() ||
+    (import.meta.env.VITE_DEMO_PUBLIC_API_SESSION_ID as string | undefined)
+      ?.trim() ||
+    ""
+  );
 }
 
 /* ─── Agent resolution ──────────────────────────────────── */
@@ -390,6 +430,72 @@ function isDemoOrigin(url: string): boolean {
 
 function getErrorMessage(error: unknown): string {
   return normalizeThreadError(error);
+}
+
+function formatRestoredUserContent(item: PublicAPITurnHistoryItem) {
+  const text = item.input?.text?.trim() ?? "";
+  const fileIds = item.input?.file_ids ?? [];
+  if (text && fileIds.length > 0) {
+    return `${text}\n\nSDK 文件: ${fileIds.join(", ")}`;
+  }
+  if (text) {
+    return text;
+  }
+  if (fileIds.length > 0) {
+    return `已发送 ${fileIds.length} 个 SDK 文件: ${fileIds.join(", ")}`;
+  }
+  return "已恢复最近一轮输入";
+}
+
+function createMessagesFromHistoryItem(item: PublicAPITurnHistoryItem) {
+  const failed = item.status === "failed";
+
+  // The browser keeps no local message ledger; this projection is rebuilt from
+  // session-scoped `/v1/turns/recent` so recovery exercises SDK history.
+  return [
+    {
+      id: `history-user-${item.id}`,
+      role: "user",
+      content: formatRestoredUserContent(item),
+      reasoning: "",
+      status: "done",
+    },
+    {
+      id: `history-assistant-${item.id}`,
+      role: "assistant",
+      content: item.output_text?.trim() || (failed ? "请求失败" : ""),
+      reasoning: item.reasoning_text ?? "",
+      status: failed ? "error" : "done",
+    },
+  ] satisfies ChatMessage[];
+}
+
+function createMessagesFromHistoryItems(items: PublicAPITurnHistoryItem[]) {
+  return items.flatMap(createMessagesFromHistoryItem);
+}
+
+function getHistoryTitle(item: PublicAPITurnHistoryItem) {
+  const text = item.input?.text?.trim();
+  if (text) {
+    return text.length > 48 ? `${text.slice(0, 48)}...` : text;
+  }
+  const fileCount = item.input?.file_ids?.length ?? 0;
+  if (fileCount > 0) {
+    return `包含 ${fileCount} 个 SDK 文件的会话`;
+  }
+  return "未命名会话";
+}
+
+function formatHistoryTime(timestamp: number) {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) {
+    return "";
+  }
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(timestamp * 1000));
 }
 
 /* ─── Components ────────────────────────────────────────── */
@@ -723,6 +829,7 @@ export function ChatPage() {
   const [agentNameInput, setAgentNameInput] = useState(
     settings.agentName || getDefaultAgentName() || "",
   );
+  const [sessionIDInput, setSessionIDInput] = useState(settings.sessionID);
 
   const resolvedBaseURL = resolvePublicAPIBaseURL(baseURIInput || null);
   const baseURLIsDemo = isDemoOrigin(resolvedBaseURL);
@@ -730,15 +837,30 @@ export function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyItems, setHistoryItems] = useState<PublicAPITurnHistoryItem[]>([]);
+  const [isLoadingHistoryList, setIsLoadingHistoryList] = useState(false);
+  const [isRestoringHistory, setIsRestoringHistory] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const empty = messages.length === 0;
   const isConfigured =
     agentName != null && agentName.trim() !== "" && apiKeyInput.trim() !== "" && !baseURLIsDemo;
+  const sessionConfigKey = buildSessionKey(
+    resolvedBaseURL,
+    apiKeyInput,
+    agentName,
+    sessionIDInput,
+  );
   const canSend =
     (draft.trim().length > 0 || attachments.length > 0) &&
     !isStreaming &&
     isConfigured;
+  const canLoadHistory =
+    isConfigured &&
+    !isStreaming &&
+    !isLoadingHistoryList &&
+    !isRestoringHistory;
 
   /* The demo chat owns a light surface while the workbench keeps dark globals. */
   useEffect(() => {
@@ -756,8 +878,20 @@ export function ChatPage() {
       setBaseURIInput(settings.baseURI);
       setApiKeyInput(settings.apiKey);
       setAgentNameInput(settings.agentName || getDefaultAgentName() || "");
+      setSessionIDInput(settings.sessionID);
     }
   }, [settingsOpen, settings]);
+
+  const persistSessionID = useCallback((sessionID: string) => {
+    setSessionIDInput(sessionID);
+    setSettingsState((prev) => {
+      if (prev.sessionID === sessionID) {
+        return prev;
+      }
+      const next = { ...prev, sessionID };
+      return next;
+    });
+  }, []);
 
   /* Auto-scroll */
   useEffect(() => {
@@ -775,18 +909,42 @@ export function ChatPage() {
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   }, [draft]);
 
-  const ensureSession = useCallback(() => {
-    const configKey = `${resolvedBaseURL}\n${apiKeyInput.trim()}\n${agentName ?? ""}`;
-    if (!sessionRef.current || sessionKeyRef.current !== configKey) {
+  const createCurrentSession = useCallback(
+    () => {
+      const requestedSessionID = sessionIDInput.trim();
       sessionRef.current = createChatSession({
         baseURL: resolvedBaseURL,
         apiToken: apiKeyInput.trim(),
         agent: agentName ?? "",
+        sessionId: requestedSessionID || undefined,
       });
-      sessionKeyRef.current = configKey;
+      const actualSessionID = sessionRef.current.getSessionId();
+      sessionKeyRef.current = buildSessionKey(
+        resolvedBaseURL,
+        apiKeyInput,
+        agentName,
+        actualSessionID,
+      );
+      if (actualSessionID !== requestedSessionID) {
+        persistSessionID(actualSessionID);
+      }
+      return sessionRef.current;
+    },
+    [
+      sessionIDInput,
+      resolvedBaseURL,
+      apiKeyInput,
+      agentName,
+      persistSessionID,
+    ],
+  );
+
+  const ensureSession = useCallback(() => {
+    if (!sessionRef.current || sessionKeyRef.current !== sessionConfigKey) {
+      return createCurrentSession();
     }
     return sessionRef.current;
-  }, [resolvedBaseURL, apiKeyInput, agentName]);
+  }, [createCurrentSession, sessionConfigKey]);
 
   const handleFilesSelected = useCallback((fileList: FileList | null) => {
     const selectedFiles = Array.from(fileList ?? []);
@@ -809,6 +967,120 @@ export function ChatPage() {
   const handleRemoveAttachment = useCallback((id: string) => {
     setAttachments((prev) => prev.filter((attachment) => attachment.id !== id));
   }, []);
+
+  const handleLoadHistoryList = useCallback(() => {
+    if (!canLoadHistory || !agentName) {
+      return;
+    }
+
+    const abortController = new AbortController();
+    abortRef.current = abortController;
+    setHistoryOpen(true);
+    setIsLoadingHistoryList(true);
+    setError(null);
+
+    void (async () => {
+      try {
+        const recent = await listRecentPublicAPITurns({
+          baseURL: resolvedBaseURL,
+          apiToken: apiKeyInput.trim(),
+          agent: agentName,
+          limit: 20,
+          signal: abortController.signal,
+        });
+        setHistoryItems(recent.data);
+        if (recent.data.length === 0) {
+          toast.info("暂无历史会话");
+        }
+      } catch (err) {
+        if (shouldIgnoreThreadError(err)) {
+          return;
+        }
+        const detail = getErrorMessage(err);
+        setError(detail);
+        toast.error(detail);
+      } finally {
+        if (abortRef.current === abortController) {
+          abortRef.current = null;
+        }
+        setIsLoadingHistoryList(false);
+      }
+    })();
+  }, [agentName, apiKeyInput, canLoadHistory, resolvedBaseURL]);
+
+  const handleRestoreHistory = useCallback(
+    (item: PublicAPITurnHistoryItem) => {
+      const sessionID = item.session_id?.trim();
+      if (!sessionID || !agentName || isStreaming || isRestoringHistory) {
+        return;
+      }
+
+      const abortController = new AbortController();
+      abortRef.current = abortController;
+      setIsRestoringHistory(true);
+      setError(null);
+
+      void (async () => {
+        try {
+          const recent = await listRecentPublicAPITurns({
+            baseURL: resolvedBaseURL,
+            apiToken: apiKeyInput.trim(),
+            agent: agentName,
+            sessionId: sessionID,
+            limit: 50,
+            signal: abortController.signal,
+          });
+          const chronologicalTurns = [...recent.data].reverse();
+          if (chronologicalTurns.length === 0) {
+            toast.info("这个会话没有可恢复消息");
+            return;
+          }
+
+          const session = createChatSession({
+            baseURL: resolvedBaseURL,
+            apiToken: apiKeyInput.trim(),
+            agent: agentName,
+            sessionId: sessionID,
+          });
+          const latestTurn = recent.data[0];
+          session.resumeFromTurn(latestTurn.id);
+          sessionRef.current = session;
+          sessionKeyRef.current = buildSessionKey(
+            resolvedBaseURL,
+            apiKeyInput,
+            agentName,
+            sessionID,
+          );
+          persistSessionID(sessionID);
+          setMessages(createMessagesFromHistoryItems(chronologicalTurns));
+          setAttachments([]);
+          setDraft("");
+          setHistoryOpen(false);
+          toast.success("已恢复历史会话");
+        } catch (err) {
+          if (shouldIgnoreThreadError(err)) {
+            return;
+          }
+          const detail = getErrorMessage(err);
+          setError(detail);
+          toast.error(detail);
+        } finally {
+          if (abortRef.current === abortController) {
+            abortRef.current = null;
+          }
+          setIsRestoringHistory(false);
+        }
+      })();
+    },
+    [
+      agentName,
+      apiKeyInput,
+      isRestoringHistory,
+      isStreaming,
+      persistSessionID,
+      resolvedBaseURL,
+    ],
+  );
 
   const handleSend = useCallback(() => {
     const text = draft.trim();
@@ -1126,23 +1398,40 @@ export function ChatPage() {
       baseURI: baseURIInput.trim(),
       apiKey: apiKeyInput.trim(),
       agentName: agentNameInput.trim(),
+      sessionID: sessionIDInput.trim(),
     };
     setSettingsState(next);
     saveSettings(next);
     setSettingsOpen(false);
     toast.success("设置已保存");
-  }, [baseURIInput, apiKeyInput, agentNameInput]);
+  }, [baseURIInput, apiKeyInput, agentNameInput, sessionIDInput]);
 
   const handleResetChat = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
     sessionRef.current?.reset();
+    if (sessionRef.current) {
+      const nextSessionID = sessionRef.current.getSessionId();
+      persistSessionID(nextSessionID);
+      sessionKeyRef.current = buildSessionKey(
+        resolvedBaseURL,
+        apiKeyInput,
+        agentName,
+        nextSessionID,
+      );
+    } else {
+      persistSessionID("");
+      sessionKeyRef.current = "";
+    }
     setMessages([]);
     setAttachments([]);
     setIsStreaming(false);
+    setHistoryOpen(false);
+    setIsLoadingHistoryList(false);
+    setIsRestoringHistory(false);
     setError(null);
     setSettingsOpen(false);
-  }, []);
+  }, [resolvedBaseURL, apiKeyInput, agentName, persistSessionID]);
 
   /* ─── Render ────────────────────────────────────────────── */
 
@@ -1166,6 +1455,74 @@ export function ChatPage() {
           </div>
         </div>
         <div className="flex items-center gap-1">
+          <div className="relative">
+            <button
+              type="button"
+              onClick={handleLoadHistoryList}
+              disabled={!canLoadHistory}
+              className="rounded-lg p-2 text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-800 disabled:cursor-not-allowed disabled:opacity-40"
+              title="历史会话"
+            >
+              {isLoadingHistoryList || isRestoringHistory ? (
+                <Loader2 className="size-5 animate-spin" />
+              ) : (
+                <History className="size-5" />
+              )}
+            </button>
+            {historyOpen && (
+              <div className="absolute right-0 top-11 z-30 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-stone-200 bg-white p-2 text-left shadow-xl">
+                <div className="flex items-center justify-between px-2 py-1.5">
+                  <div className="text-sm font-semibold text-stone-800">
+                    历史会话
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setHistoryOpen(false)}
+                    className="rounded-md p-1 text-stone-400 hover:bg-stone-100 hover:text-stone-700"
+                    title="关闭历史"
+                  >
+                    <X className="size-4" />
+                  </button>
+                </div>
+                <div className="max-h-80 overflow-y-auto">
+                  {isLoadingHistoryList ? (
+                    <div className="flex items-center gap-2 px-2 py-3 text-sm text-stone-500">
+                      <Loader2 className="size-4 animate-spin" />
+                      正在加载历史...
+                    </div>
+                  ) : historyItems.length === 0 ? (
+                    <div className="px-2 py-3 text-sm text-stone-500">
+                      暂无历史会话
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      {historyItems.map((item) => (
+                        <button
+                          key={`${item.session_id ?? ""}-${item.id}`}
+                          type="button"
+                          onClick={() => handleRestoreHistory(item)}
+                          disabled={isRestoringHistory}
+                          className="w-full rounded-lg px-2 py-2 text-left transition-colors hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <div className="line-clamp-2 text-sm font-medium leading-5 text-stone-800">
+                            {getHistoryTitle(item)}
+                          </div>
+                          <div className="mt-1 flex items-center justify-between gap-2 text-xs text-stone-500">
+                            <span className="truncate font-mono">
+                              {item.session_id}
+                            </span>
+                            <span className="shrink-0">
+                              {formatHistoryTime(item.created_at)}
+                            </span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
           <button
             type="button"
             onClick={() => setSettingsOpen(true)}
@@ -1456,6 +1813,22 @@ export function ChatPage() {
                     来源优先级: URL ?agent= &gt; 设置 &gt; VITE_DEMO_DEFAULT_AGENT_NAME
                   </p>
                 )}
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-stone-700">
+                  Session ID
+                </label>
+                <input
+                  type="text"
+                  value={sessionIDInput}
+                  onChange={(e) => setSessionIDInput(e.target.value)}
+                  placeholder="留空则 SDK 自动生成"
+                  className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2 font-mono text-sm text-stone-800 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                />
+                <p className="break-all text-xs text-stone-500">
+                  当前会话: {sessionIDInput || "未生成"}
+                </p>
               </div>
 
               <div className="flex gap-2 pt-2">

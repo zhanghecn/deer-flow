@@ -305,6 +305,8 @@ func (r *PublicAPIInvocationRepo) ListByUser(
 	}
 
 	agentName := strings.TrimSpace(filter.AgentName)
+	threadID := strings.TrimSpace(filter.ThreadID)
+	surface := strings.TrimSpace(filter.Surface)
 	rows, err := r.pool.Query(
 		ctx,
 		`SELECT
@@ -332,11 +334,17 @@ func (r *PublicAPIInvocationRepo) ListByUser(
 		WHERE user_id = $1
 		  AND ($2::uuid IS NULL OR api_token_id = $2::uuid)
 		  AND ($3 = '' OR agent_name = $3)
+		  AND ($4 = '' OR thread_id = $4)
+		  AND ($5 = '' OR surface = $5)
+		  AND ($6::boolean = false OR finished_at IS NOT NULL)
 		ORDER BY created_at DESC
-		LIMIT $4 OFFSET $5`,
+		LIMIT $7 OFFSET $8`,
 		userID,
 		filter.APITokenID,
 		agentName,
+		threadID,
+		surface,
+		filter.FinishedOnly,
 		limit,
 		offset,
 	)

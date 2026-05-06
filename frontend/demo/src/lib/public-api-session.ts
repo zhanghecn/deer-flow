@@ -39,9 +39,19 @@ export type PublicAPISession = {
   prompt: (
     params: PublicAPISessionPromptParams,
   ) => Promise<PublicAPISessionPromptResult>;
+  resumeFromTurn: (turnId: string) => void;
   reset: () => void;
+  getSessionId: () => string;
   getPreviousTurnId: () => string;
 };
+
+export function createPublicAPISessionID(): string {
+  const cryptoAPI = globalThis.crypto;
+  if (typeof cryptoAPI?.randomUUID === "function") {
+    return cryptoAPI.randomUUID();
+  }
+  return `sdk_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
 
 function normalizeThinkingRequest(
   thinking: PublicAPISessionPromptParams["thinking"],
@@ -60,6 +70,7 @@ function normalizeThinkingRequest(
 
 function buildSessionTurnRequestBody(params: {
   agent: string;
+  sessionId: string;
   previousTurnId: string;
   prompt: PublicAPISessionPromptParams;
 }): PublicAPITurnRequestBody {
@@ -69,8 +80,9 @@ function buildSessionTurnRequestBody(params: {
       text: params.prompt.text,
       file_ids: params.prompt.fileIds,
     },
-    // The runtime owns conversation state; the standalone demo only carries the
-    // public API continuation id between `/v1/turns` calls.
+    // The SDK-owned session id is the durable handle an integrator can bind to
+    // its own user record; the backend maps it to an isolated runtime thread.
+    session_id: params.sessionId,
     previous_turn_id: params.previousTurnId || undefined,
     stream: params.prompt.stream ?? true,
     metadata: params.prompt.metadata,
@@ -84,14 +96,17 @@ export function createPublicAPISession(params: {
   baseURL: string;
   apiToken: string;
   agent: string;
+  sessionId?: string;
   previousTurnId?: string;
 }): PublicAPISession {
+  let sessionId = params.sessionId?.trim() || createPublicAPISessionID();
   let previousTurnId = params.previousTurnId?.trim() ?? "";
 
   return {
     async prompt(prompt) {
       const requestBody = buildSessionTurnRequestBody({
         agent: params.agent,
+        sessionId,
         previousTurnId,
         prompt,
       });
@@ -132,8 +147,17 @@ export function createPublicAPISession(params: {
         turn: result.turn,
       };
     },
+    resumeFromTurn(turnId) {
+      // Recovery seeds only the opaque continuation id; full message bodies stay
+      // in the public API ledger and are fetched again when needed.
+      previousTurnId = turnId.trim();
+    },
     reset() {
+      sessionId = createPublicAPISessionID();
       previousTurnId = "";
+    },
+    getSessionId() {
+      return sessionId;
     },
     getPreviousTurnId() {
       return previousTurnId;

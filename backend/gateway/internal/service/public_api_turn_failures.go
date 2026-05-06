@@ -11,6 +11,7 @@ import (
 
 type publicAPITurnFailureContext struct {
 	TurnID         string
+	SessionID      string
 	Stage          model.TurnFailureStage
 	Events         []model.TurnEvent
 	PreviousTurnID string
@@ -162,10 +163,15 @@ func buildFailedTurnSnapshotEnvelope(
 		metadata = context.Metadata
 		previousTurnID = context.PreviousTurnID
 	}
+	sessionID := context.SessionID
+	if strings.TrimSpace(sessionID) == "" {
+		sessionID = sessionIDFromInvocation(invocation)
+	}
 
 	snapshot := buildTurnSnapshot(
 		invocation,
 		invocation.AgentName,
+		sessionID,
 		previousTurnID,
 		outputText,
 		reasoningText,

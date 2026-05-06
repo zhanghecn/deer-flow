@@ -5,6 +5,7 @@ Environment variables:
   OPENAGENTS_BASE_URL   e.g. http://127.0.0.1:8083 or http://127.0.0.1:8083/v1
   OPENAGENTS_API_KEY    bearer key for the published agent
   OPENAGENTS_AGENT      published agent name
+  OPENAGENTS_SESSION_ID optional stable SDK session id
   OPENAGENTS_PROMPT     optional prompt text
   OPENAGENTS_STREAM     set to 1 to use SSE streaming
 """
@@ -17,6 +18,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 
 
 def resolve_base_url(raw: str) -> str:
@@ -91,6 +93,9 @@ def main() -> int:
     raw_base_url = os.environ.get("OPENAGENTS_BASE_URL", "http://127.0.0.1:8083")
     api_key = os.environ.get("OPENAGENTS_API_KEY", "").strip()
     agent = os.environ.get("OPENAGENTS_AGENT", "").strip()
+    session_id = os.environ.get("OPENAGENTS_SESSION_ID", "").strip() or str(
+        uuid.uuid4()
+    )
     prompt = os.environ.get(
         "OPENAGENTS_PROMPT",
         "请总结当前客服问题，并告诉我下一步怎么处理。",
@@ -107,11 +112,13 @@ def main() -> int:
     base_url = resolve_base_url(raw_base_url)
     payload = {
         "agent": agent,
+        "session_id": session_id,
         "input": {"text": prompt},
         "thinking": {"enabled": True, "effort": "medium"},
     }
 
     try:
+        print(f"[session_id] {session_id}")
         if stream:
             turn_id = stream_turn(base_url, api_key, payload)
             if turn_id:

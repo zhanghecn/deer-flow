@@ -59,6 +59,21 @@ func (h *TurnsHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusOK, snapshot)
 }
 
+func (h *TurnsHandler) ListRecent(c *gin.Context) {
+	response, err := h.svc.ListRecentTurns(
+		c.Request.Context(),
+		buildPublicAPIAuthContext(c),
+		c.Query("agent"),
+		c.Query("session_id"),
+		parseQueryInt(c.Query("limit"), 10),
+	)
+	if err != nil {
+		writePublicAPIError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, response)
+}
+
 func (h *TurnsHandler) Get(c *gin.Context) {
 	snapshot, err := h.svc.GetTurn(
 		c.Request.Context(),

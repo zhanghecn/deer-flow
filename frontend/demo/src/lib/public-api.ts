@@ -69,6 +69,7 @@ export interface PublicAPITurnRequestBody {
     text: string;
     file_ids?: string[];
   };
+  session_id?: string;
   previous_turn_id?: string;
   stream?: boolean;
   text?: {
@@ -92,6 +93,7 @@ export interface PublicAPITurnSnapshot {
   object: "turn";
   status: string;
   agent: string;
+  session_id?: string;
   thread_id: string;
   trace_id?: string;
   previous_turn_id?: string;
@@ -103,6 +105,18 @@ export interface PublicAPITurnSnapshot {
   events: PublicAPITurnEvent[];
   created_at: number;
   completed_at?: number;
+}
+
+export interface PublicAPITurnHistoryItem extends PublicAPITurnSnapshot {
+  input: {
+    text: string;
+    file_ids?: string[];
+  };
+}
+
+export interface PublicAPITurnListResponse {
+  object: "list";
+  data: PublicAPITurnHistoryItem[];
 }
 
 export interface PublicAPITurnStreamEvent {
@@ -365,4 +379,32 @@ export async function getPublicAPITurn(params: {
     return handleAPIError(response, "fetch turn");
   }
   return response.json() as Promise<PublicAPITurnSnapshot>;
+}
+
+export async function listRecentPublicAPITurns(params: {
+  baseURL: string;
+  apiToken: string;
+  agent: string;
+  sessionId?: string;
+  limit?: number;
+  signal?: AbortSignal;
+}): Promise<PublicAPITurnListResponse> {
+  const searchParams = new URLSearchParams();
+  searchParams.set("agent", params.agent);
+  if (params.sessionId?.trim()) {
+    searchParams.set("session_id", params.sessionId.trim());
+  }
+  if (params.limit) {
+    searchParams.set("limit", String(params.limit));
+  }
+  const response = await publicAPIFetch(
+    params.baseURL,
+    params.apiToken,
+    `./turns/recent?${searchParams.toString()}`,
+    { method: "GET", signal: params.signal },
+  );
+  if (!response.ok) {
+    return handleAPIError(response, "fetch recent turns");
+  }
+  return response.json() as Promise<PublicAPITurnListResponse>;
 }

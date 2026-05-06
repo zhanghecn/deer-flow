@@ -13,8 +13,10 @@
 
 1. `GET /v1/models`
 2. `POST /v1/turns`
-3. `GET /v1/turns/{id}`
-4. 如需上传文件，再使用 `POST /v1/files`
+3. 为每个终端用户会话创建并保存 `session_id`
+4. `GET /v1/turns/{id}`
+5. 用 `GET /v1/turns/recent?agent=<agent>` 展示会话列表，再加 `session_id=<session>` 恢复某个会话
+6. 如需上传文件，再使用 `POST /v1/files`
 
 兼容接口：
 
@@ -40,6 +42,7 @@ Content-Type: application/json
 | `GET` | `/v1/files/{id}/content` | 下载响应产出的文件内容 |
 | `POST` | `/v1/turns` | 推荐的原生对话接口 |
 | `GET` | `/v1/turns/{id}` | 获取 turn 快照，适合恢复和重放 |
+| `GET` | `/v1/turns/recent` | 获取最近会话摘要，或获取指定 `session_id` 的 turns |
 | `POST` | `/v1/responses` | OpenAI Responses 兼容层 |
 | `GET` | `/v1/responses/{id}` | 获取历史 response |
 | `POST` | `/v1/chat/completions` | Chat Completions 兼容层 |
@@ -81,7 +84,7 @@ curl -X GET "http://127.0.0.1:8083/v1/models" \
 特点：
 
 - 一个请求只发送当前轮输入
-- 通过 `previous_turn_id` 串联会话
+- 通过 `session_id` 绑定外部用户会话；可选用 `previous_turn_id` 指定上一轮
 - 支持 SSE 流式事件
 - 支持思考内容、工具调用、结构化输出、文件输入、已存在知识库绑定
 - 已发布 agent 可以预设默认知识库；SDK 调用方通常不需要传
@@ -96,6 +99,7 @@ curl -X GET "http://127.0.0.1:8083/v1/models" \
     "text": "请总结这份文件的重点",
     "file_ids": ["file_123"]
   },
+  "session_id": "sess_customer_001",
   "previous_turn_id": "turn_abc",
   "knowledge_base_ids": ["11111111-1111-1111-1111-111111111111"],
   "metadata": {
@@ -131,7 +135,8 @@ curl -X GET "http://127.0.0.1:8083/v1/models" \
 | `agent` | `string` | 是 | 已发布 `prod` agent 名称 |
 | `input.text` | `string` | 是 | 当前轮用户输入文本 |
 | `input.file_ids` | `string[]` | 否 | 之前通过 `/v1/files` 上传得到的 `file_id` |
-| `previous_turn_id` | `string` | 否 | 上一轮 turn ID，用于串联对话 |
+| `session_id` | `string` | 否 | 外部 SDK 会话 ID。建议集成方为每个终端用户会话创建并保存；未传时服务端会生成并在响应中返回 |
+| `previous_turn_id` | `string` | 否 | 上一轮 turn ID。传了 `session_id` 时，服务端会校验二者属于同一会话 |
 | `knowledge_base_ids` | `string[]` | 否 | 本轮执行前额外绑定到 thread 的知识库 ID。agent 预设的默认知识库会自动绑定。只要本轮存在有效知识库绑定，API key 就需要 token scope `knowledge:read`，且知识库必须属于当前用户或为共享知识库 |
 | `metadata` | `object` | 否 | 调用方自定义元数据 |
 | `stream` | `boolean` | 否 | 是否启用 SSE 流式输出 |
@@ -201,6 +206,7 @@ data: {"sequence":9,"type":"turn.completed","turn_id":"turn_123"}
   "object": "turn",
   "status": "completed",
   "agent": "support-cases-http-demo",
+  "session_id": "sess_customer_001",
   "thread_id": "thread_456",
   "trace_id": "trace_789",
   "previous_turn_id": "turn_prev",
@@ -228,6 +234,7 @@ data: {"sequence":9,"type":"turn.completed","turn_id":"turn_123"}
 | `id` | 当前 turn ID |
 | `status` | 常见值：`completed` / `failed` / `incomplete` |
 | `agent` | agent 名称 |
+| `session_id` | 外部 SDK 会话 ID |
 | `thread_id` | 后端运行线程 ID |
 | `trace_id` | 观测 trace ID |
 | `previous_turn_id` | 上一轮 turn ID |
@@ -237,7 +244,54 @@ data: {"sequence":9,"type":"turn.completed","turn_id":"turn_123"}
 | `usage` | token 用量 |
 | `events` | 当前 turn 的标准化事件列表 |
 
-## 8. 文件上传
+## 8. 获取最近 Turns
+
+### `GET /v1/turns/recent?agent=<agent_name>&limit=20`
+
+用于前端不保存消息列表、需要展示可点击会话列表的场景。不带
+`session_id` 时，该接口返回当前 API Token 可见、指定 agent 的最近会话
+摘要。每个摘要用最新 turn 排序，但 `input` 字段使用该会话第一条可见用户
+输入，方便 UI 用第一句问题作为列表标题。
+
+响应中的每个 item 是 turn 快照加上原始 `input`：
+
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "turn_123",
+      "object": "turn",
+      "status": "completed",
+      "agent": "support-cases-http-demo",
+      "session_id": "sess_customer_001",
+      "thread_id": "thread_456",
+      "output_text": "这是最终答案",
+      "reasoning_text": "",
+      "usage": {
+        "input_tokens": 120,
+        "output_tokens": 80,
+        "total_tokens": 200
+      },
+      "events": [],
+      "created_at": 1710000000,
+      "completed_at": 1710000005,
+      "input": {
+        "text": "上一轮问题",
+        "file_ids": ["file_123"]
+      }
+    }
+  ]
+}
+```
+
+恢复某个会话时，调用
+`GET /v1/turns/recent?agent=<agent_name>&session_id=<session_id>&limit=50`。
+这个响应返回所选会话的最近 turns。前端用这些 item 重建可见消息，继续使用
+同一个 `session_id`，并把最新 item 的 `id` 作为下一轮
+`previous_turn_id`。
+
+## 9. 文件上传
 
 ### `POST /v1/files`
 
@@ -283,7 +337,7 @@ curl -X POST "http://127.0.0.1:8083/v1/files" \
 }
 ```
 
-## 9. Responses 兼容层
+## 10. Responses 兼容层
 
 ### `POST /v1/responses`
 
@@ -310,7 +364,7 @@ curl -X POST "http://127.0.0.1:8083/v1/responses" \
   }'
 ```
 
-## 10. Chat Completions 兼容层
+## 11. Chat Completions 兼容层
 
 ### `POST /v1/chat/completions`
 
@@ -322,7 +376,7 @@ curl -X POST "http://127.0.0.1:8083/v1/responses" \
 - Gateway 会把该请求转换到统一的 responses / runtime 流程
 - 不建议新项目优先接这个接口
 
-## 11. 常见错误
+## 12. 常见错误
 
 ### 401 Unauthorized
 
@@ -360,9 +414,9 @@ event: turn.failed
 data: {"type":"turn.failed","error":"..."}
 ```
 
-## 12. 最小集成示例
+## 13. 最小集成示例
 
-### 12.1 同步调用
+### 13.1 同步调用
 
 ```python
 import requests
@@ -386,7 +440,7 @@ resp.raise_for_status()
 print(resp.json())
 ```
 
-### 12.2 流式调用
+### 13.2 流式调用
 
 ```python
 import requests
@@ -412,15 +466,15 @@ for line in resp.iter_lines(decode_unicode=True):
         print(line)
 ```
 
-## 13. 集成建议
+## 14. 集成建议
 
 - 新接入优先使用 `/v1/turns`
-- 客户端内部只保存 `previous_turn_id`，不要每轮重传完整 `messages[]`
-- 需要恢复状态时使用 `GET /v1/turns/{id}`
+- 客户端内部保存 `session_id`，不要每轮重传完整 `messages[]`
+- 已有 turn id 时使用 `GET /v1/turns/{id}` 恢复；会话列表使用 `GET /v1/turns/recent?agent=<agent_name>`，恢复某个会话时再加 `session_id=<session_id>`
 - 工具调用展示请直接基于标准事件，不要自己解析底层 trace
 - 如果需要上传知识附件，先调用 `/v1/files`
 
-## 14. 文档状态
+## 15. 文档状态
 
 - 状态：当前仓库实现对应的接口文档
 - 适用范围：OpenAgents Public API / SDK 外部调用

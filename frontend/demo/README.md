@@ -73,6 +73,7 @@ The nginx service keeps all browser-visible traffic on `8084`:
 - workbench-only full MCP at `http://127.0.0.1:8084/mcp-http/mcp`
 - manual tool execution at
   `http://127.0.0.1:8084/api/tools/{tool_name}/invoke`
+- SDK chat demo at `http://127.0.0.1:8084/chat`
 
 Canonical document tools:
 
@@ -95,3 +96,18 @@ MCP demo and caches normalized packages under `deploy/data/document-cache`.
 5. Use the Explorer tree to select a file or folder-like category.
 6. Execute `document_list`, `document_search`, or `document_read` and inspect
    arguments, output, and invocation history on the right.
+
+## SDK Chat Recovery
+
+The `/chat` page keeps message history only in memory. The demo session SDK
+creates a fresh `session_id` for each new chat and sends it on every
+`/v1/turns` call. The browser does not store the message ledger or hide a saved
+session id in settings, so a new page load starts empty unless the URL
+explicitly provides `?session_id=...`.
+
+Use the header history button to ask the SDK for
+`GET /v1/turns/recent?agent=<agent>&limit=20`. That response is a recent session
+list, labelled by each session's first user input. Clicking a session then asks
+for `GET /v1/turns/recent?agent=<agent>&session_id=<session>&limit=50`, rebuilds
+the visible messages from the session-scoped items, and seeds the next turn with
+the latest item `id` as `previous_turn_id`.

@@ -13,8 +13,10 @@ Recommended integration order:
 
 1. `GET /v1/models`
 2. `POST /v1/turns`
-3. `GET /v1/turns/{id}`
-4. `POST /v1/files` if you need input file uploads
+3. Create and persist a `session_id` for each end-user conversation
+4. `GET /v1/turns/{id}`
+5. `GET /v1/turns/recent?agent=<agent>` for a session list, then add `session_id=<session>` to restore one session
+6. `POST /v1/files` if you need input file uploads
 
 Compatibility surfaces:
 
@@ -40,6 +42,7 @@ Content-Type: application/json
 | `GET` | `/v1/files/{id}/content` | Download response artifact content |
 | `POST` | `/v1/turns` | Recommended native turn-based API |
 | `GET` | `/v1/turns/{id}` | Fetch a turn snapshot for recovery and replay |
+| `GET` | `/v1/turns/recent` | Fetch recent session summaries, or turns for a specific `session_id` |
 | `POST` | `/v1/responses` | OpenAI Responses compatibility layer |
 | `GET` | `/v1/responses/{id}` | Fetch a historical response |
 | `POST` | `/v1/chat/completions` | Chat Completions compatibility layer |
@@ -82,7 +85,8 @@ This is the **recommended primary API**.
 Key properties:
 
 - send only the current turn input
-- chain turns with `previous_turn_id`
+- bind an external user conversation with `session_id`; optionally include
+  `previous_turn_id` for the exact previous turn
 - supports SSE streaming
 - supports reasoning output, tool calls, structured output, uploaded files, and
   existing knowledge-base attachments
@@ -98,6 +102,7 @@ Key properties:
     "text": "Summarize this file",
     "file_ids": ["file_123"]
   },
+  "session_id": "sess_customer_001",
   "previous_turn_id": "turn_abc",
   "knowledge_base_ids": ["11111111-1111-1111-1111-111111111111"],
   "metadata": {
@@ -133,7 +138,8 @@ Key properties:
 | `agent` | `string` | Yes | Published `prod` agent name |
 | `input.text` | `string` | Yes | Current user text input |
 | `input.file_ids` | `string[]` | No | `file_id` values returned by `/v1/files` |
-| `previous_turn_id` | `string` | No | Previous turn ID for session continuity |
+| `session_id` | `string` | No | External SDK session ID. Integrations should create and persist one per end-user conversation; if omitted, the server generates one and returns it |
+| `previous_turn_id` | `string` | No | Previous turn ID. When `session_id` is also supplied, the server verifies both point to the same session |
 | `knowledge_base_ids` | `string[]` | No | Extra existing knowledge-base IDs to attach to the thread before this turn runs. Agent-level default knowledge bases are attached automatically. Any effective knowledge attachment requires the `knowledge:read` token scope, and each base must belong to the current user or be shared |
 | `metadata` | `object` | No | Caller-defined metadata |
 | `stream` | `boolean` | No | Enable SSE streaming |
@@ -203,6 +209,7 @@ Example response:
   "object": "turn",
   "status": "completed",
   "agent": "support-cases-http-demo",
+  "session_id": "sess_customer_001",
   "thread_id": "thread_456",
   "trace_id": "trace_789",
   "previous_turn_id": "turn_prev",
@@ -230,6 +237,7 @@ Example response:
 | `id` | Current turn ID |
 | `status` | Common values: `completed`, `failed`, `incomplete` |
 | `agent` | Agent name |
+| `session_id` | External SDK session ID |
 | `thread_id` | Backend execution thread ID |
 | `trace_id` | Observability trace ID |
 | `previous_turn_id` | Previous turn ID |
@@ -239,7 +247,55 @@ Example response:
 | `usage` | Token usage |
 | `events` | Normalized event list for this turn |
 
-## 8. File Uploads
+## 8. Fetch Recent Turns
+
+### `GET /v1/turns/recent?agent=<agent_name>&limit=20`
+
+Use this when the frontend does not store message history and needs a clickable
+conversation list. Without `session_id`, the endpoint returns recent session
+summaries visible to the current API token for the requested agent. Each summary
+uses the latest turn snapshot for ordering, and the `input` field is the first
+visible user input for that session so the UI can label the row.
+
+Each item is a turn snapshot plus the original `input`:
+
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "turn_123",
+      "object": "turn",
+      "status": "completed",
+      "agent": "support-cases-http-demo",
+      "session_id": "sess_customer_001",
+      "thread_id": "thread_456",
+      "output_text": "This is the final answer",
+      "reasoning_text": "",
+      "usage": {
+        "input_tokens": 120,
+        "output_tokens": 80,
+        "total_tokens": 200
+      },
+      "events": [],
+      "created_at": 1710000000,
+      "completed_at": 1710000005,
+      "input": {
+        "text": "Previous question",
+        "file_ids": ["file_123"]
+      }
+    }
+  ]
+}
+```
+
+To restore one conversation, call
+`GET /v1/turns/recent?agent=<agent_name>&session_id=<session_id>&limit=50`.
+That response returns recent turns for the selected session. Rebuild the visible
+messages from those items, keep using the same `session_id`, and pass the latest
+item `id` as the next `previous_turn_id`.
+
+## 9. File Uploads
 
 ### `POST /v1/files`
 
@@ -285,7 +341,7 @@ Then include that ID in the turn request:
 }
 ```
 
-## 9. Responses Compatibility Layer
+## 10. Responses Compatibility Layer
 
 ### `POST /v1/responses`
 
@@ -312,7 +368,7 @@ curl -X POST "http://127.0.0.1:8083/v1/responses" \
   }'
 ```
 
-## 10. Chat Completions Compatibility Layer
+## 11. Chat Completions Compatibility Layer
 
 ### `POST /v1/chat/completions`
 
@@ -324,7 +380,7 @@ Key points:
 - the gateway translates it into the canonical responses/runtime flow
 - not recommended as the default surface for new integrations
 
-## 11. Common Errors
+## 12. Common Errors
 
 ### 401 Unauthorized
 
@@ -362,9 +418,9 @@ event: turn.failed
 data: {"type":"turn.failed","error":"..."}
 ```
 
-## 12. Minimal Integration Examples
+## 13. Minimal Integration Examples
 
-### 12.1 Blocking Call
+### 13.1 Blocking Call
 
 ```python
 import requests
@@ -388,7 +444,7 @@ resp.raise_for_status()
 print(resp.json())
 ```
 
-### 12.2 Streaming Call
+### 13.2 Streaming Call
 
 ```python
 import requests
@@ -414,15 +470,15 @@ for line in resp.iter_lines(decode_unicode=True):
         print(line)
 ```
 
-## 13. Integration Recommendations
+## 14. Integration Recommendations
 
 - Prefer `/v1/turns` for new integrations
-- Store only `previous_turn_id` on the client side; do not resend full `messages[]` every turn
-- Use `GET /v1/turns/{id}` for recovery and reopen flows
+- Store `session_id` on the client/application side; do not resend full `messages[]` every turn
+- Use `GET /v1/turns/{id}` when you already have a turn id; use `GET /v1/turns/recent?agent=<agent_name>` for a clickable session list and add `session_id=<session_id>` to restore one session
 - Build tool-call UI from the normalized turn events, not from raw traces
 - Upload files through `/v1/files` before calling a turn
 
-## 14. Document Status
+## 15. Document Status
 
 - Status: aligned with the current repository implementation
 - Scope: OpenAgents external Public API / SDK usage
