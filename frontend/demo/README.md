@@ -59,7 +59,7 @@ Relevant environment variables:
 - `MCP_WORKBENCH_OCR_LANGUAGES`
 - `MCP_WORKBENCH_TESSERACT_BIN`
 - `MCP_WORKBENCH_CACHE_DIR`
-- `VITE_DEMO_MESSAGE_TRACE_DISPLAY_MODE` controls `/chat` trace display:
+- `VITE_DEMO_MESSAGE_TRACE_DISPLAY_MODE` controls the chat trace display:
   `debug` shows tool names and arguments, `user` shows user-friendly lookup
   steps.
 - `DEMO_NPM_REGISTRY` defaults to `https://registry.npmmirror.com`.
@@ -76,7 +76,8 @@ The nginx service keeps all browser-visible traffic on `8084`:
 - workbench-only full MCP at `http://127.0.0.1:8084/mcp-http/mcp`
 - manual tool execution at
   `http://127.0.0.1:8084/api/tools/{tool_name}/invoke`
-- SDK chat demo at `http://127.0.0.1:8084/chat`
+- SDK chat demo at `http://127.0.0.1:8084/`
+- MCP file workbench at `http://127.0.0.1:8084/mcp`
 
 Canonical document tools:
 
@@ -90,7 +91,7 @@ MCP demo and caches normalized packages under `deploy/data/document-cache`.
 
 ## Typical Flow
 
-1. Open `http://127.0.0.1:8084`.
+1. Open `http://127.0.0.1:8084/mcp`.
 2. Drag files or an entire folder into the Explorer panel, or use `上传目录` /
    `上传文件`.
 3. Confirm the directory chips keep the first folder segment, for example
@@ -102,7 +103,8 @@ MCP demo and caches normalized packages under `deploy/data/document-cache`.
 
 ## SDK Chat Recovery
 
-The `/chat` page keeps message history only in memory. The demo session SDK
+The chat page (`/`, with `/chat` kept as a compatibility alias) keeps message
+history only in memory. The demo session SDK
 creates a fresh `session_id` for each new chat and sends it on every
 `/v1/turns` call. The browser does not store the message ledger or hide a saved
 session id in settings, so a new page load starts empty unless the URL

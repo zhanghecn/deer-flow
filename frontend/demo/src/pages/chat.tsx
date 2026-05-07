@@ -10,6 +10,7 @@ import {
   Settings,
   Sparkles,
   Square,
+  Wrench,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -1561,6 +1562,14 @@ export function ChatPage() {
           </div>
         </div>
         <div className="flex items-center gap-1">
+          <a
+            href="/mcp"
+            className="rounded-lg p-2 text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-800"
+            title="MCP 文件调试台"
+            aria-label="MCP 文件调试台"
+          >
+            <Wrench className="size-5" />
+          </a>
           <TraceDisplayModeToggle
             value={traceDisplayMode}
             onChange={setTraceDisplayMode}

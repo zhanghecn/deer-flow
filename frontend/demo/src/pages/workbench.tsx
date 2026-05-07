@@ -956,7 +956,7 @@ export function WorkbenchPage() {
               复制 MCP URL
             </GhostButton>
             <a
-              href="/chat"
+              href="/"
               className="inline-flex items-center gap-2 rounded-md border border-[var(--border-strong)] px-3 py-2 text-xs text-[var(--text-soft)] transition hover:border-zinc-600 hover:bg-zinc-800"
             >
               <MessageSquare className="size-3.5" />
