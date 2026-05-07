@@ -208,6 +208,7 @@ services:
       VITE_BACKEND_BASE_URL: http://gateway:8001
       VITE_ONLYOFFICE_DEV_SERVER_URL: http://onlyoffice:8000
       VITE_OPENPENCIL_DEV_SERVER_URL: http://openpencil:3001
+      VITE_MESSAGE_TRACE_DISPLAY_MODE: ${OPENAGENTS_MESSAGE_TRACE_DISPLAY_MODE:-debug}
     ports:
       - "${OPENAGENTS_APP_PORT:-${OPENAGENTS_APP_DEV_PORT:-8083}}:3000"
     healthcheck:

@@ -461,6 +461,10 @@ export interface Translations {
 
   // Tool calls
   toolCalls: {
+    traceDisplayMode: string;
+    debugMode: string;
+    userMode: string;
+    searchMaterials: string;
     moreSteps: (count: number) => string;
     lessSteps: string;
     executeCommand: string;

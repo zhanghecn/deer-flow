@@ -87,6 +87,10 @@ VITE_BACKEND_BASE_URL="http://localhost:8001"
 # can keep using same-origin /onlyoffice while the dev server forwards them to
 # the local Document Server.
 VITE_ONLYOFFICE_DEV_SERVER_URL="http://localhost:8082"
+
+# Optional. `debug` shows tool details; `user` hides tool details behind
+# user-friendly status labels.
+VITE_MESSAGE_TRACE_DISPLAY_MODE="debug"
 ```
 
 In local Vite development, the dev server now proxies:

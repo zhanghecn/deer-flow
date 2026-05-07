@@ -543,6 +543,10 @@ export const zhCN: Translations = {
 
   // Tool calls
   toolCalls: {
+    traceDisplayMode: "过程显示模式",
+    debugMode: "调试",
+    userMode: "用户",
+    searchMaterials: "查找资料",
     moreSteps: (count: number) => `查看其他 ${count} 个步骤`,
     lessSteps: "隐藏步骤",
     executeCommand: "执行命令",

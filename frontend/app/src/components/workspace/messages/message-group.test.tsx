@@ -8,6 +8,10 @@ vi.mock("@/core/i18n/hooks", () => ({
     t: {
       common: { thinking: "Thinking" },
       toolCalls: {
+        traceDisplayMode: "Trace display mode",
+        debugMode: "Debug",
+        userMode: "User",
+        searchMaterials: "Looking up resources",
         lessSteps: "Less steps",
         moreSteps: (count: number) => `${count} more steps`,
         searchForRelatedInfo: "Search for related info",
@@ -69,6 +73,102 @@ describe("shouldShowTrailingReasoning", () => {
 });
 
 describe("MessageGroup tool display", () => {
+  it("uses the debug trace mode by default", () => {
+    render(
+      <MessageGroup
+        messages={[
+          {
+            id: "ai-1",
+            type: "ai",
+            content: "",
+            tool_calls: [
+              {
+                id: "tool-1",
+                name: "execute",
+                args: {
+                  command: "whoami",
+                },
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Debug" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByText("whoami")).toBeInTheDocument();
+  });
+
+  it("can start in user trace mode and hide tool details", () => {
+    render(
+      <MessageGroup
+        defaultTraceDisplayMode="user"
+        messages={[
+          {
+            id: "ai-1",
+            type: "ai",
+            content: [
+              {
+                type: "thinking",
+                thinking: "I should inspect the docs first.",
+              },
+            ],
+            tool_calls: [
+              {
+                id: "tool-1",
+                name: "mcp__kb__query",
+                args: {
+                  collection: "payroll",
+                  query: "allowance policy",
+                },
+              },
+            ],
+          },
+        ] as never}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "User" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByText("Looking up resources")).toBeInTheDocument();
+    expect(screen.getByText(/inspect the docs/)).toBeInTheDocument();
+    expect(screen.queryByText(/mcp__kb__query/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/allowance policy/)).not.toBeInTheDocument();
+  });
+
+  it("toggles user trace mode back to debug details", () => {
+    render(
+      <MessageGroup
+        defaultTraceDisplayMode="user"
+        messages={[
+          {
+            id: "ai-1",
+            type: "ai",
+            content: "",
+            tool_calls: [
+              {
+                id: "tool-1",
+                name: "execute",
+                args: {
+                  command: "pwd",
+                },
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.queryByText("pwd")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Debug" }));
+    expect(screen.getByText("pwd")).toBeInTheDocument();
+  });
+
   it("shows the full runtime path for read_file tool calls", () => {
     render(
       <MessageGroup

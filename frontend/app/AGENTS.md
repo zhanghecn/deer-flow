@@ -127,6 +127,7 @@ Optional override:
 
 ```bash
 VITE_BACKEND_BASE_URL=http://localhost:8001
+VITE_MESSAGE_TRACE_DISPLAY_MODE=debug
 ```
 
 Requires Node.js 22+ and pnpm 10.26.2+.
