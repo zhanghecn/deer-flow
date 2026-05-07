@@ -1,7 +1,5 @@
 @import "tailwindcss";
 
-@source "../node_modules/streamdown/dist/index.js";
-
 :root {
   color-scheme: dark;
   --canvas: #09090b;
@@ -125,15 +123,29 @@ samp,
 }
 
 .markdown-body :where(h1, h2, h3, h4) {
-  margin-top: 1rem;
-  margin-bottom: 0.5rem;
+  margin-top: 1.25rem;
+  margin-bottom: 0.625rem;
   color: #292524;
   font-weight: 700;
-  line-height: 1.35;
+  line-height: 1.3;
 }
 
 .markdown-body :where(h1, h2, h3, h4):first-child {
   margin-top: 0;
+}
+
+.markdown-body :where(h1) {
+  border-bottom: 1px solid #e7e5e4;
+  padding-bottom: 0.4rem;
+  font-size: 1.35rem;
+}
+
+.markdown-body :where(h2) {
+  font-size: 1.15rem;
+}
+
+.markdown-body :where(h3, h4) {
+  font-size: 1rem;
 }
 
 .markdown-body :where(ul, ol) {
@@ -167,6 +179,14 @@ samp,
   overflow-x: auto;
   border-radius: 0.5rem;
   border: 1px solid #e7e5e4;
+  background: #fafaf9;
+  padding: 0.75rem 1rem;
+  color: #44403c;
+}
+
+.markdown-body :where(pre code) {
+  display: block;
+  white-space: pre;
 }
 
 .markdown-body :where(blockquote) {
@@ -179,8 +199,19 @@ samp,
 .markdown-body :where(table) {
   width: 100%;
   border-collapse: collapse;
-  overflow: hidden;
   font-size: 0.875rem;
+}
+
+.markdown-body .markdown-table-wrap {
+  margin-bottom: 0.75rem;
+  overflow-x: auto;
+  border: 1px solid #e7e5e4;
+  border-radius: 0.5rem;
+  background: white;
+}
+
+.markdown-body .markdown-table-wrap :where(table) {
+  margin: 0;
 }
 
 .markdown-body :where(th, td) {
@@ -195,10 +226,22 @@ samp,
   font-weight: 700;
 }
 
-.markdown-body :where(.katex-display) {
+.markdown-body .markdown-table-wrap :where(tr:last-child td) {
+  border-bottom: 0;
+}
+
+.markdown-body :where(.mermaid) {
+  margin-bottom: 0.75rem;
   overflow-x: auto;
-  overflow-y: hidden;
-  padding-block: 0.25rem;
+  border: 1px solid #e7e5e4;
+  border-radius: 0.5rem;
+  background: white;
+  padding: 1rem;
+}
+
+.markdown-body :where(.mermaid svg) {
+  max-width: 100%;
+  height: auto;
 }
 
 ::-webkit-scrollbar {

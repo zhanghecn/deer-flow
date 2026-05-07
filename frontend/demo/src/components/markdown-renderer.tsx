@@ -1,10 +1,9 @@
+import { ComarkClient } from "@comark/react";
+import security from "@comark/react/plugins/security";
+import mermaid from "comark/plugins/mermaid";
 import {
-  defaultRehypePlugins,
-  Streamdown,
-  type MermaidConfig,
-  type StreamdownProps,
-} from "streamdown";
-import {
+  Suspense,
+  lazy,
   useEffect,
   useMemo,
   useState,
@@ -23,8 +22,27 @@ interface MarkdownRendererProps {
   baseURL?: string;
 }
 
-const safeProtocol = /^(https?|ircs?|mailto|xmpp)$/i;
+const safeProtocol = /^(https?|ircs?|mailto|xmpp):/i;
+const explicitScheme = /^[a-z][a-z\d+.-]*:/i;
 const THREAD_ROOT_PREFIX = "/mnt/user-data";
+// Assistant text is untrusted. Keep Comark's heavier plugins optional, but
+// always strip active content and data images before custom link handling runs.
+const comarkPlugins = [
+  security({
+    allowDataImages: false,
+    blockedTags: ["script", "style", "iframe", "object", "embed"],
+  }),
+  mermaid({
+    theme: "tokyo-night-light",
+    themeDark: "tokyo-night",
+  }),
+];
+
+const MermaidBlock = lazy(() =>
+  import("@comark/react/components/Mermaid").then(({ Mermaid }) => ({
+    default: Mermaid,
+  })),
+);
 
 type KnowledgeCitationTarget = {
   kind: "citation" | "asset";
@@ -33,65 +51,27 @@ type KnowledgeCitationTarget = {
   locatorLabel?: string;
 };
 
-const defaultHardenPlugin = defaultRehypePlugins.harden as [
-  unknown,
-  Record<string, unknown>,
-];
-
-// Demo chat must preserve app-owned kb:// links so public API answers render
-// the same citation surface as the 8083 workspace while keeping Streamdown's
-// normal hardening for unrelated links and images.
-const demoRehypePlugins = [
-  [
-    defaultHardenPlugin[0],
-    {
-      ...defaultHardenPlugin[1],
-      allowedProtocols: ["kb:"],
-      // Let harden resolve explicit same-origin resource hrefs such as
-      // `管理规范/...` before it decides whether a link is safe.
-      defaultOrigin:
-        typeof window === "undefined" ? undefined : window.location.origin,
-    },
-  ],
-  defaultRehypePlugins.raw,
-  defaultRehypePlugins.katex,
-] as StreamdownProps["rehypePlugins"];
-
-function streamdownUrlTransform(url: string) {
-  if (url.startsWith("kb://")) {
-    return url;
+function normalizeMarkdownURL(url: string | null | undefined) {
+  const value = url?.trim();
+  if (!value) {
+    return undefined;
   }
 
-  const colon = url.indexOf(":");
-  const questionMark = url.indexOf("?");
-  const numberSign = url.indexOf("#");
-  const slash = url.indexOf("/");
-  const hasExplicitScheme =
-    colon !== -1 &&
-    (slash === -1 || colon < slash) &&
-    (questionMark === -1 || colon < questionMark) &&
-    (numberSign === -1 || colon < numberSign);
-
-  if (!hasExplicitScheme) {
-    // Keep explicit Markdown links to operator-owned relative resources
-    // clickable as origin-relative URLs without prose-level path inference.
-    if (
-      url.startsWith("#") ||
-      url.startsWith("?") ||
-      url.startsWith("/") ||
-      url.startsWith("./") ||
-      url.startsWith("../")
-    ) {
-      return url;
-    }
-    return `/${url.replace(/^\/+/, "")}`;
+  if (value.startsWith("kb://") || safeProtocol.test(value)) {
+    return value;
   }
-
-  if (safeProtocol.test(url.slice(0, colon))) {
-    return url;
+  if (explicitScheme.test(value)) {
+    return "";
   }
-
-  return "";
+  // Operator-owned relative resources should stay clickable without relying on
+  // model prose inference. Bare paths become origin-relative links.
+  return value.startsWith("#") ||
+    value.startsWith("?") ||
+    value.startsWith("/") ||
+    value.startsWith("./") ||
+    value.startsWith("../")
+    ? value
+    : `/${value.replace(/^\/+/, "")}`;
 }
 
 function parseKnowledgeCitationHref(
@@ -207,10 +187,11 @@ function KnowledgeAwareLink({
   const knowledgeTarget = parseKnowledgeCitationHref(href);
   const artifact = findArtifactForKnowledgeTarget(knowledgeTarget, artifacts);
   const canOpenArtifact = Boolean(artifact && apiToken && baseURL);
+  const normalizedHref = normalizeMarkdownURL(href);
   const resolvedHref =
     artifact && baseURL
       ? resolvePublicAPIDownloadURL(baseURL, artifact.download_url)
-      : href;
+      : normalizedHref;
 
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {
     onClick?.(event);
@@ -236,7 +217,7 @@ function KnowledgeAwareLink({
 
   if (!knowledgeTarget) {
     return (
-      <a {...props} href={href} onClick={onClick}>
+      <a {...props} href={normalizedHref} onClick={onClick}>
         {children}
       </a>
     );
@@ -275,7 +256,8 @@ function KnowledgeAwareImage({
   apiToken?: string;
   baseURL?: string;
 }) {
-  const knowledgeTarget = parseKnowledgeCitationHref(src);
+  const normalizedSrc = normalizeMarkdownURL(src);
+  const knowledgeTarget = parseKnowledgeCitationHref(normalizedSrc);
   const artifact =
     knowledgeTarget?.kind === "asset"
       ? findArtifactForKnowledgeTarget(knowledgeTarget, artifacts)
@@ -319,22 +301,24 @@ function KnowledgeAwareImage({
     );
   }
 
-  return <img {...props} src={objectURL || src} alt={alt} />;
+  return <img {...props} src={objectURL || normalizedSrc} alt={alt} />;
 }
 
-const mermaidConfig = {
-  theme: "base",
-  themeVariables: {
-    primaryColor: "#e0f2fe",
-    primaryTextColor: "#0f172a",
-    primaryBorderColor: "#38bdf8",
-    lineColor: "#64748b",
-    secondaryColor: "#ecfdf5",
-    tertiaryColor: "#f8fafc",
-    fontFamily:
-      "IBM Plex Mono, IBM Plex Sans, PingFang SC, Microsoft YaHei, sans-serif",
-  },
-} satisfies MermaidConfig;
+function MarkdownTable(props: ComponentProps<"table">) {
+  return (
+    <div className="markdown-table-wrap">
+      <table {...props} />
+    </div>
+  );
+}
+
+function MarkdownMermaid(props: ComponentProps<typeof MermaidBlock>) {
+  return (
+    <Suspense fallback={<div className="mermaid">Rendering diagram...</div>}>
+      <MermaidBlock {...props} />
+    </Suspense>
+  );
+}
 
 export function MarkdownRenderer({
   content,
@@ -362,6 +346,8 @@ export function MarkdownRenderer({
           baseURL={baseURL}
         />
       ),
+      mermaid: MarkdownMermaid,
+      table: MarkdownTable,
     }),
     [apiToken, artifacts, baseURL],
   );
@@ -371,17 +357,15 @@ export function MarkdownRenderer({
   }
 
   return (
-    <Streamdown
+    <ComarkClient
       className={`markdown-body ${className}`}
-      // Keep demo chat behavior aligned with the 8083 workspace renderer:
-      // Streamdown owns Mermaid, math, syntax highlighting, and partial blocks.
+      // Keep the demo renderer lean: Comark handles streaming-safe Markdown,
+      // while heavier syntax/diagram plugins can be added explicitly later.
       components={components}
-      rehypePlugins={demoRehypePlugins}
-      mermaidConfig={mermaidConfig}
-      isAnimating={isStreaming}
-      urlTransform={streamdownUrlTransform}
+      plugins={comarkPlugins}
+      streaming={isStreaming}
     >
       {content}
-    </Streamdown>
+    </ComarkClient>
   );
 }
