@@ -1,5 +1,6 @@
 import { ComarkClient } from "@comark/react";
 import security from "@comark/react/plugins/security";
+import type { RenderOptions } from "beautiful-mermaid";
 import mermaid from "comark/plugins/mermaid";
 import {
   Suspense,
@@ -32,10 +33,7 @@ const comarkPlugins = [
     allowDataImages: false,
     blockedTags: ["script", "style", "iframe", "object", "embed"],
   }),
-  mermaid({
-    theme: "tokyo-night-light",
-    themeDark: "tokyo-night",
-  }),
+  mermaid(),
 ];
 
 const MermaidBlock = lazy(() =>
@@ -43,6 +41,33 @@ const MermaidBlock = lazy(() =>
     default: Mermaid,
   })),
 );
+type MermaidThemeProp = ComponentProps<typeof MermaidBlock>["theme"];
+
+const readableMermaidTheme: RenderOptions = {
+  bg: "#ffffff",
+  fg: "#292524",
+  line: "#78716c",
+  accent: "#0f766e",
+  muted: "#57534e",
+  surface: "#f5f5f4",
+  border: "#d6d3d1",
+  padding: 16,
+  layerSpacing: 28,
+  nodeSpacing: 28,
+};
+
+const readableMermaidDarkTheme: RenderOptions = {
+  bg: "#18181b",
+  fg: "#f4f4f5",
+  line: "#a1a1aa",
+  accent: "#2dd4bf",
+  muted: "#d4d4d8",
+  surface: "#27272a",
+  border: "#52525b",
+  padding: 16,
+  layerSpacing: 28,
+  nodeSpacing: 28,
+};
 
 type KnowledgeCitationTarget = {
   kind: "citation" | "asset";
@@ -315,7 +340,13 @@ function MarkdownTable(props: ComponentProps<"table">) {
 function MarkdownMermaid(props: ComponentProps<typeof MermaidBlock>) {
   return (
     <Suspense fallback={<div className="mermaid">Rendering diagram...</div>}>
-      <MermaidBlock {...props} />
+      <MermaidBlock
+        {...props}
+        // The React component type exposes colors, but beautiful-mermaid also
+        // accepts spacing options at runtime; keep diagrams compact and legible.
+        theme={readableMermaidTheme as MermaidThemeProp}
+        themeDark={readableMermaidDarkTheme as MermaidThemeProp}
+      />
     </Suspense>
   );
 }

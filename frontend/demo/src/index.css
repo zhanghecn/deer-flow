@@ -110,6 +110,8 @@ samp,
 
 .markdown-body {
   color: inherit;
+  font-size: 1rem;
+  line-height: 1.75;
 }
 
 .demo-chat-shell {
@@ -136,16 +138,16 @@ samp,
 
 .markdown-body :where(h1) {
   border-bottom: 1px solid #e7e5e4;
-  padding-bottom: 0.4rem;
-  font-size: 1.35rem;
+  padding-bottom: 0.5rem;
+  font-size: 1.6rem;
 }
 
 .markdown-body :where(h2) {
-  font-size: 1.15rem;
+  font-size: 1.35rem;
 }
 
 .markdown-body :where(h3, h4) {
-  font-size: 1rem;
+  font-size: 1.1rem;
 }
 
 .markdown-body :where(ul, ol) {
@@ -182,6 +184,7 @@ samp,
   background: #fafaf9;
   padding: 0.75rem 1rem;
   color: #44403c;
+  font-size: 0.92rem;
 }
 
 .markdown-body :where(pre code) {
@@ -199,7 +202,7 @@ samp,
 .markdown-body :where(table) {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.875rem;
+  font-size: 1rem;
 }
 
 .markdown-body .markdown-table-wrap {
@@ -216,7 +219,7 @@ samp,
 
 .markdown-body :where(th, td) {
   border-bottom: 1px solid #e7e5e4;
-  padding: 0.5rem 0.75rem;
+  padding: 0.65rem 0.85rem;
   text-align: left;
 }
 
@@ -232,7 +235,8 @@ samp,
 
 .markdown-body :where(.mermaid) {
   margin-bottom: 0.75rem;
-  overflow-x: auto;
+  max-height: 620px;
+  overflow: auto;
   border: 1px solid #e7e5e4;
   border-radius: 0.5rem;
   background: white;
@@ -240,8 +244,10 @@ samp,
 }
 
 .markdown-body :where(.mermaid svg) {
-  max-width: 100%;
+  display: block;
+  width: min(480px, 100%);
   height: auto;
+  margin-inline: auto;
 }
 
 ::-webkit-scrollbar {
