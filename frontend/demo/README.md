@@ -59,6 +59,9 @@ Relevant environment variables:
 - `MCP_WORKBENCH_OCR_LANGUAGES`
 - `MCP_WORKBENCH_TESSERACT_BIN`
 - `MCP_WORKBENCH_CACHE_DIR`
+- `VITE_DEMO_MESSAGE_TRACE_DISPLAY_MODE` controls `/chat` trace display:
+  `debug` shows tool names and arguments, `user` shows user-friendly lookup
+  steps.
 - `DEMO_NPM_REGISTRY` defaults to `https://registry.npmmirror.com`.
 - `DEMO_PYTHON_INDEX_URL` defaults to `https://mirrors.aliyun.com/pypi/simple/`.
 - `DEMO_APT_DEBIAN_MIRROR` defaults to `http://mirrors.aliyun.com/debian`.

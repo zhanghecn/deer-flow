@@ -106,7 +106,24 @@ type ChatSettings = {
   sessionID: string;
 };
 
+type ChatTraceDisplayMode = "debug" | "user";
+
+const TRACE_DISPLAY_MODES: ChatTraceDisplayMode[] = ["debug", "user"];
+
 /* ─── Settings helpers ──────────────────────────────────── */
+
+function normalizeTraceDisplayMode(value?: string): ChatTraceDisplayMode {
+  return value?.trim().toLowerCase() === "user" ? "user" : "debug";
+}
+
+function getDefaultTraceDisplayMode(): ChatTraceDisplayMode {
+  // Demo deployments can use the demo-specific variable, while unified Docker
+  // uses the shared variable so 8083 and 8084 can be configured together.
+  return normalizeTraceDisplayMode(
+    import.meta.env.VITE_DEMO_MESSAGE_TRACE_DISPLAY_MODE ??
+      import.meta.env.VITE_MESSAGE_TRACE_DISPLAY_MODE,
+  );
+}
 
 function getDefaultBaseURI(): string {
   return (
@@ -628,6 +645,22 @@ function formatToolArguments(argumentsValue: Record<string, unknown>) {
 function ToolActivityCard({
   tool,
   index,
+  traceDisplayMode,
+}: {
+  tool: ToolCallStep;
+  index: number;
+  traceDisplayMode: ChatTraceDisplayMode;
+}) {
+  if (traceDisplayMode === "user") {
+    return <UserToolActivityCard tool={tool} />;
+  }
+
+  return <DebugToolActivityCard tool={tool} index={index} />;
+}
+
+function DebugToolActivityCard({
+  tool,
+  index,
 }: {
   tool: ToolCallStep;
   index: number;
@@ -678,6 +711,22 @@ function ToolActivityCard({
   );
 }
 
+function UserToolActivityCard({ tool }: { tool: ToolCallStep }) {
+  return (
+    <div className="mb-2 flex w-full min-w-0 items-center gap-2 rounded-lg border border-stone-200 bg-white/80 px-3 py-2 text-left text-xs font-medium text-stone-600">
+      <FileText className="size-3.5 shrink-0 text-stone-400" />
+      <span className="min-w-0 flex-1 truncate">查找资料</span>
+      {tool.status === "running" ? (
+        <Loader2 className="size-3.5 shrink-0 animate-spin text-teal-600" />
+      ) : tool.status === "error" ? (
+        <X className="size-3.5 shrink-0 text-red-500" />
+      ) : (
+        <Check className="size-3.5 shrink-0 text-teal-600" />
+      )}
+    </div>
+  );
+}
+
 function formatCompactTokenCount(value?: number) {
   if (typeof value !== "number" || Number.isNaN(value)) return null;
   if (value >= 1000) {
@@ -720,9 +769,11 @@ function ContextCompactCard({
 function ActivityTimeline({
   activities,
   isStreaming,
+  traceDisplayMode,
 }: {
   activities: ChatActivityStep[];
   isStreaming: boolean;
+  traceDisplayMode: ChatTraceDisplayMode;
 }) {
   if (activities.length === 0) return null;
 
@@ -755,9 +806,42 @@ function ActivityTimeline({
             key={activity.id}
             tool={activity.tool}
             index={toolIndex}
+            traceDisplayMode={traceDisplayMode}
           />
         );
       })}
+    </div>
+  );
+}
+
+function TraceDisplayModeToggle({
+  value,
+  onChange,
+}: {
+  value: ChatTraceDisplayMode;
+  onChange: (mode: ChatTraceDisplayMode) => void;
+}) {
+  return (
+    <div
+      className="mr-1 inline-flex rounded-lg border border-stone-200 bg-stone-100 p-0.5"
+      aria-label="过程显示模式"
+      role="group"
+    >
+      {TRACE_DISPLAY_MODES.map((mode) => (
+        <button
+          key={mode}
+          type="button"
+          aria-pressed={value === mode}
+          onClick={() => onChange(mode)}
+          className={`h-7 rounded-md px-2.5 text-xs font-medium transition-colors ${
+            value === mode
+              ? "bg-white text-stone-800 shadow-sm"
+              : "text-stone-500 hover:text-stone-800"
+          }`}
+        >
+          {mode === "debug" ? "调试" : "用户"}
+        </button>
+      ))}
     </div>
   );
 }
@@ -841,6 +925,8 @@ export function ChatPage() {
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [draft, setDraft] = useState("");
+  const [traceDisplayMode, setTraceDisplayMode] =
+    useState<ChatTraceDisplayMode>(getDefaultTraceDisplayMode);
 
   const [settings, setSettingsState] = useState<ChatSettings>(loadSettings);
   const [baseURIInput, setBaseURIInput] = useState(settings.baseURI);
@@ -1475,6 +1561,10 @@ export function ChatPage() {
           </div>
         </div>
         <div className="flex items-center gap-1">
+          <TraceDisplayModeToggle
+            value={traceDisplayMode}
+            onChange={setTraceDisplayMode}
+          />
           <div className="relative">
             <button
               type="button"
@@ -1620,6 +1710,7 @@ export function ChatPage() {
                       <ActivityTimeline
                         activities={msg.activities}
                         isStreaming={msg.status === "streaming"}
+                        traceDisplayMode={traceDisplayMode}
                       />
                     ) : (
                       msg.toolCalls &&
@@ -1630,6 +1721,7 @@ export function ChatPage() {
                               key={tool.id}
                               tool={tool}
                               index={index + 1}
+                              traceDisplayMode={traceDisplayMode}
                             />
                           ))}
                         </div>
