@@ -33,13 +33,6 @@ type KnowledgeCitationTarget = {
   locatorLabel?: string;
 };
 
-type StreamdownElementNode = {
-  type?: string;
-  tagName?: string;
-  properties?: Record<string, unknown>;
-  children?: StreamdownElementNode[];
-};
-
 const defaultHardenPlugin = defaultRehypePlugins.harden as [
   unknown,
   Record<string, unknown>,
@@ -49,19 +42,22 @@ const defaultHardenPlugin = defaultRehypePlugins.harden as [
 // the same citation surface as the 8083 workspace while keeping Streamdown's
 // normal hardening for unrelated links and images.
 const demoRehypePlugins = [
-  rehypeNormalizeRelativeResourceLinks,
   [
     defaultHardenPlugin[0],
     {
       ...defaultHardenPlugin[1],
       allowedProtocols: ["kb:"],
+      // Let harden resolve explicit same-origin resource hrefs such as
+      // `管理规范/...` before it decides whether a link is safe.
+      defaultOrigin:
+        typeof window === "undefined" ? undefined : window.location.origin,
     },
   ],
   defaultRehypePlugins.raw,
   defaultRehypePlugins.katex,
 ] as StreamdownProps["rehypePlugins"];
 
-function normalizeStreamdownUrl(url: string) {
+function streamdownUrlTransform(url: string) {
   if (url.startsWith("kb://")) {
     return url;
   }
@@ -96,31 +92,6 @@ function normalizeStreamdownUrl(url: string) {
   }
 
   return "";
-}
-
-function streamdownUrlTransform(url: string) {
-  return normalizeStreamdownUrl(url);
-}
-
-function rehypeNormalizeRelativeResourceLinks() {
-  return (tree: StreamdownElementNode) => {
-    const visitNode = (node: StreamdownElementNode) => {
-      if (node.type === "element" && node.tagName === "a") {
-        const href = node.properties?.href;
-        if (typeof href === "string") {
-          node.properties = {
-            ...node.properties,
-            href: normalizeStreamdownUrl(href),
-          };
-        }
-      }
-      for (const child of node.children ?? []) {
-        visitNode(child);
-      }
-    };
-
-    visitNode(tree);
-  };
 }
 
 function parseKnowledgeCitationHref(

@@ -6,10 +6,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  rehypeNormalizeRelativeResourceLinks,
-  streamdownUrlTransform,
-} from "@/core/streamdown/plugins";
+import { streamdownUrlTransform } from "@/core/streamdown/plugins";
 import { cn } from "@/lib/utils";
 import type { FileUIPart, UIMessage } from "ai";
 import {
@@ -310,9 +307,24 @@ export const MessageBranchPage = ({
 
 export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 
+const defaultHardenPlugin = defaultRehypePlugins.harden as [
+  unknown,
+  Record<string, unknown>,
+];
+
 const defaultMessageRehypePlugins = [
-  rehypeNormalizeRelativeResourceLinks,
-  ...Object.values(defaultRehypePlugins),
+  [
+    defaultHardenPlugin[0],
+    {
+      ...defaultHardenPlugin[1],
+      // `管理规范/...` is an explicit Markdown href, not prose inference. Giving
+      // harden the browser origin lets it resolve these same-origin resources.
+      defaultOrigin:
+        typeof window === "undefined" ? undefined : window.location.origin,
+    },
+  ],
+  defaultRehypePlugins.raw,
+  defaultRehypePlugins.katex,
 ] as StreamdownProps["rehypePlugins"];
 
 export const MessageResponse = memo(
