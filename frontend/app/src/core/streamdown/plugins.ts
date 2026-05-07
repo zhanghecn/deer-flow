@@ -6,7 +6,14 @@ import type { StreamdownProps } from "streamdown";
 
 const safeProtocol = /^(https?|ircs?|mailto|xmpp)$/i;
 
-export function streamdownUrlTransform(url: string) {
+type StreamdownElementNode = {
+  type?: string;
+  tagName?: string;
+  properties?: Record<string, unknown>;
+  children?: StreamdownElementNode[];
+};
+
+export function normalizeStreamdownUrl(url: string) {
   if (url.startsWith("kb://")) {
     return url;
   }
@@ -44,12 +51,38 @@ export function streamdownUrlTransform(url: string) {
   return "";
 }
 
+export function streamdownUrlTransform(url: string) {
+  return normalizeStreamdownUrl(url);
+}
+
+export function rehypeNormalizeRelativeResourceLinks() {
+  return (tree: StreamdownElementNode) => {
+    const visitNode = (node: StreamdownElementNode) => {
+      if (node.type === "element" && node.tagName === "a") {
+        const href = node.properties?.href;
+        if (typeof href === "string") {
+          node.properties = {
+            ...node.properties,
+            href: normalizeStreamdownUrl(href),
+          };
+        }
+      }
+      for (const child of node.children ?? []) {
+        visitNode(child);
+      }
+    };
+
+    visitNode(tree);
+  };
+}
+
 export const streamdownPlugins = {
   remarkPlugins: [
     remarkGfm,
     [remarkMath, { singleDollarTextMath: false }],
   ] as StreamdownProps["remarkPlugins"],
   rehypePlugins: [
+    rehypeNormalizeRelativeResourceLinks,
     rehypeRaw,
     [rehypeKatex, { output: "html" }],
   ] as StreamdownProps["rehypePlugins"],
@@ -57,6 +90,7 @@ export const streamdownPlugins = {
 };
 
 export const workspaceMessageRehypePlugins = [
+  rehypeNormalizeRelativeResourceLinks,
   [rehypeKatex, { output: "html" }],
 ] as StreamdownProps["rehypePlugins"];
 

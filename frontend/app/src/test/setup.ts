@@ -33,6 +33,11 @@ if (!("scrollIntoView" in Element.prototype)) {
 
 vi.mock("katex/dist/katex.min.css", () => ({}));
 vi.mock("streamdown", () => ({
+  defaultRehypePlugins: {
+    harden: () => undefined,
+    katex: () => undefined,
+    raw: () => undefined,
+  },
   Streamdown: ({
     children,
     ...props

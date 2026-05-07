@@ -6,7 +6,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { streamdownUrlTransform } from "@/core/streamdown/plugins";
+import {
+  rehypeNormalizeRelativeResourceLinks,
+  streamdownUrlTransform,
+} from "@/core/streamdown/plugins";
 import { cn } from "@/lib/utils";
 import type { FileUIPart, UIMessage } from "ai";
 import {
@@ -17,7 +20,11 @@ import {
 } from "lucide-react";
 import type { ComponentProps, HTMLAttributes, ReactElement } from "react";
 import { createContext, memo, useContext, useEffect, useState } from "react";
-import { Streamdown } from "streamdown";
+import {
+  defaultRehypePlugins,
+  Streamdown,
+  type StreamdownProps,
+} from "streamdown";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: UIMessage["role"];
@@ -303,13 +310,24 @@ export const MessageBranchPage = ({
 
 export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 
+const defaultMessageRehypePlugins = [
+  rehypeNormalizeRelativeResourceLinks,
+  ...Object.values(defaultRehypePlugins),
+] as StreamdownProps["rehypePlugins"];
+
 export const MessageResponse = memo(
-  ({ className, urlTransform, ...props }: MessageResponseProps) => (
+  ({
+    className,
+    rehypePlugins,
+    urlTransform,
+    ...props
+  }: MessageResponseProps) => (
     <Streamdown
       className={cn(
         "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         className,
       )}
+      rehypePlugins={rehypePlugins ?? defaultMessageRehypePlugins}
       urlTransform={urlTransform ?? streamdownUrlTransform}
       {...props}
     />

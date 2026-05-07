@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   humanMessagePlugins,
+  rehypeNormalizeRelativeResourceLinks,
   streamdownPlugins,
   streamdownUrlTransform,
 } from "./plugins";
@@ -65,6 +66,31 @@ describe("streamdown url transform", () => {
     ).toBe("/%E7%AE%A1%E7%90%86%E8%A7%84%E8%8C%83/%E4%BA%BA%E5%8A%9B");
     expect(streamdownUrlTransform("./管理规范/人力资源/各种补贴标准")).toBe(
       "./管理规范/人力资源/各种补贴标准",
+    );
+  });
+});
+
+describe("relative resource rehype plugin", () => {
+  it("normalizes hrefs before hardening can block them", () => {
+    const tree = {
+      type: "root",
+      children: [
+        {
+          type: "element",
+          tagName: "a",
+          properties: {
+            href: "%E7%AE%A1%E7%90%86%E8%A7%84%E8%8C%83/%E4%BA%BA%E5%8A%9B",
+          },
+          children: [{ type: "text", value: "resource" }],
+        },
+      ],
+    };
+
+    rehypeNormalizeRelativeResourceLinks()(tree);
+    const link = tree.children[0];
+
+    expect(link?.properties.href).toBe(
+      "/%E7%AE%A1%E7%90%86%E8%A7%84%E8%8C%83/%E4%BA%BA%E5%8A%9B",
     );
   });
 });
