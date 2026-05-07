@@ -15,14 +15,29 @@ export function streamdownUrlTransform(url: string) {
   const questionMark = url.indexOf("?");
   const numberSign = url.indexOf("#");
   const slash = url.indexOf("/");
+  const hasExplicitScheme =
+    colon !== -1 &&
+    (slash === -1 || colon < slash) &&
+    (questionMark === -1 || colon < questionMark) &&
+    (numberSign === -1 || colon < numberSign);
 
-  if (
-    colon === -1 ||
-    (slash !== -1 && colon > slash) ||
-    (questionMark !== -1 && colon > questionMark) ||
-    (numberSign !== -1 && colon > numberSign) ||
-    safeProtocol.test(url.slice(0, colon))
-  ) {
+  if (!hasExplicitScheme) {
+    // Markdown links may carry operator-owned resource paths like
+    // `管理规范/...`. Normalize explicit link syntax to an origin-relative URL
+    // so rehype-harden keeps it clickable without scanning prose.
+    if (
+      url.startsWith("#") ||
+      url.startsWith("?") ||
+      url.startsWith("/") ||
+      url.startsWith("./") ||
+      url.startsWith("../")
+    ) {
+      return url;
+    }
+    return `/${url.replace(/^\/+/, "")}`;
+  }
+
+  if (safeProtocol.test(url.slice(0, colon))) {
     return url;
   }
 

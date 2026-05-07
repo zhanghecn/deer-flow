@@ -62,14 +62,28 @@ function streamdownUrlTransform(url: string) {
   const questionMark = url.indexOf("?");
   const numberSign = url.indexOf("#");
   const slash = url.indexOf("/");
+  const hasExplicitScheme =
+    colon !== -1 &&
+    (slash === -1 || colon < slash) &&
+    (questionMark === -1 || colon < questionMark) &&
+    (numberSign === -1 || colon < numberSign);
 
-  if (
-    colon === -1 ||
-    (slash !== -1 && colon > slash) ||
-    (questionMark !== -1 && colon > questionMark) ||
-    (numberSign !== -1 && colon > numberSign) ||
-    safeProtocol.test(url.slice(0, colon))
-  ) {
+  if (!hasExplicitScheme) {
+    // Keep explicit Markdown links to operator-owned relative resources
+    // clickable as origin-relative URLs without prose-level path inference.
+    if (
+      url.startsWith("#") ||
+      url.startsWith("?") ||
+      url.startsWith("/") ||
+      url.startsWith("./") ||
+      url.startsWith("../")
+    ) {
+      return url;
+    }
+    return `/${url.replace(/^\/+/, "")}`;
+  }
+
+  if (safeProtocol.test(url.slice(0, colon))) {
     return url;
   }
 

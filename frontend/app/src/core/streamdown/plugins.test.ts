@@ -53,4 +53,18 @@ describe("streamdown url transform", () => {
     );
     expect(streamdownUrlTransform("javascript:alert(1)")).toBe("");
   });
+
+  it("normalizes bare relative resource paths so hardening keeps links clickable", () => {
+    expect(streamdownUrlTransform("管理规范/人力资源/各种补贴标准")).toBe(
+      "/管理规范/人力资源/各种补贴标准",
+    );
+    expect(
+      streamdownUrlTransform(
+        "%E7%AE%A1%E7%90%86%E8%A7%84%E8%8C%83/%E4%BA%BA%E5%8A%9B",
+      ),
+    ).toBe("/%E7%AE%A1%E7%90%86%E8%A7%84%E8%8C%83/%E4%BA%BA%E5%8A%9B");
+    expect(streamdownUrlTransform("./管理规范/人力资源/各种补贴标准")).toBe(
+      "./管理规范/人力资源/各种补贴标准",
+    );
+  });
 });
