@@ -198,7 +198,6 @@ def write_demo_env(
     base_url: str,
     http_agent: str,
     http_token: str,
-    workbench_base_url: str,
 ) -> None:
     ensure_parent(path)
     content = "\n".join(
@@ -206,9 +205,6 @@ def write_demo_env(
             f"VITE_DEMO_PUBLIC_API_BASE_URL={base_url.rstrip('/')}/v1",
             f"VITE_DEMO_PUBLIC_API_KEY={http_token}",
             f"VITE_DEMO_DEFAULT_AGENT_NAME={http_agent}",
-            f"VITE_DEMO_HTTP_AGENT_NAME={http_agent}",
-            f"VITE_DEMO_HTTP_API_KEY={http_token}",
-            f"VITE_DEMO_WORKBENCH_BASE_URL={workbench_base_url}",
             "",
         ]
     )
@@ -242,7 +238,6 @@ def main() -> int:
         base_url=base_url,
         http_agent=http_agent,
         http_token=token_by_agent[http_agent]["token"],
-        workbench_base_url="http://127.0.0.1:8084",
     )
 
     runtime_summary = {

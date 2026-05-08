@@ -65,10 +65,9 @@ type InvocationRecord = {
 };
 
 const DEFAULT_WORKBENCH_BASE_URL =
-  import.meta.env.VITE_DEMO_WORKBENCH_BASE_URL?.trim() ||
-  (typeof window !== "undefined"
+  typeof window !== "undefined"
     ? window.location.origin
-    : "http://127.0.0.1:8084");
+    : "http://127.0.0.1:8084";
 
 const TOOL_PRESETS: Record<
   string,

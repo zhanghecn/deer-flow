@@ -137,7 +137,6 @@ function getDefaultBaseURI(): string {
 function getDefaultAPIKey(): string {
   return (
     (import.meta.env.VITE_DEMO_PUBLIC_API_KEY as string | undefined)?.trim() ||
-    (import.meta.env.VITE_DEMO_HTTP_API_KEY as string | undefined)?.trim() ||
     ""
   );
 }
@@ -146,12 +145,7 @@ function getDefaultSettings(): ChatSettings {
   return {
     baseURI: getDefaultBaseURI(),
     apiKey: getDefaultAPIKey(),
-    agentName:
-      getDefaultAgentName() ||
-      (
-        import.meta.env.VITE_DEMO_HTTP_AGENT_NAME as string | undefined
-      )?.trim() ||
-      "",
+    agentName: getDefaultAgentName() || "",
     sessionID: getDefaultSessionID(),
   };
 }
