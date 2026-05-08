@@ -11,8 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 DEMO_PROJECT_DIR="$PROJECT_ROOT/frontend/demo"
 DEMO_COMPOSE_FILE="$DEMO_PROJECT_DIR/compose.yaml"
-DEMO_UI_DEFAULT_ENV_FILE="$DEMO_PROJECT_DIR/.env.defaults"
-DEMO_UI_LOCAL_ENV_FILE="$DEMO_PROJECT_DIR/.env.local"
+DEMO_UI_ENV_FILE="$DEMO_PROJECT_DIR/.env"
 DEMO_DATA_DIR="$DEMO_PROJECT_DIR/deploy/data"
 DEMO_HEALTH_URL="http://127.0.0.1:8084/api/health"
 DEFAULT_START_TIMEOUT_SECONDS="${DEMO_DOCKER_START_TIMEOUT_SECONDS:-180}"
@@ -22,20 +21,8 @@ DEMO_PYTHON_INDEX_URL="${DEMO_PYTHON_INDEX_URL:-${UV_DEFAULT_INDEX:-https://mirr
 DEMO_APT_DEBIAN_MIRROR="${DEMO_APT_DEBIAN_MIRROR:-http://mirrors.aliyun.com/debian}"
 DEMO_APT_SECURITY_MIRROR="${DEMO_APT_SECURITY_MIRROR:-http://mirrors.aliyun.com/debian-security}"
 
-demo_env_file() {
-    if [ -f "$DEMO_UI_LOCAL_ENV_FILE" ]; then
-        echo "$DEMO_UI_LOCAL_ENV_FILE"
-        return
-    fi
-
-    echo "$DEMO_UI_DEFAULT_ENV_FILE"
-}
-
 compose() {
-    local ui_env_file
-
-    ui_env_file="$(demo_env_file)"
-    # Compose interpolation happens before containers exist. Pass the selected
+    # Compose interpolation happens before containers exist. Pass the canonical
     # UI env file to docker compose so Vite public values become build args for
     # the static nginx image instead of runtime-only container variables.
     DEMO_NPM_REGISTRY="$DEMO_NPM_REGISTRY" \
@@ -44,7 +31,7 @@ compose() {
     DEMO_APT_SECURITY_MIRROR="$DEMO_APT_SECURITY_MIRROR" \
         docker compose \
             --project-directory "$DEMO_PROJECT_DIR" \
-            --env-file "$ui_env_file" \
+            --env-file "$DEMO_UI_ENV_FILE" \
             -f "$DEMO_COMPOSE_FILE" \
             "$@"
 }
@@ -148,8 +135,7 @@ help() {
     echo "  $DEMO_DATA_DIR"
     echo ""
     echo "Env selection:"
-    echo "  - Uses frontend/demo/.env.local when present"
-    echo "  - Otherwise falls back to tracked frontend/demo/.env.defaults"
+    echo "  - Uses tracked frontend/demo/.env for Vite public defaults"
     echo ""
     echo "Dependency mirrors:"
     echo "  - DEMO_NPM_REGISTRY=$DEMO_NPM_REGISTRY"

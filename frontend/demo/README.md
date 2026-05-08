@@ -46,9 +46,9 @@ the main OpenAgents web app.
 
 ## Configuration
 
-`make demo-start` uses `frontend/demo/.env.local` when present and otherwise
-falls back to the tracked `frontend/demo/.env.defaults`. Vite public values are
-baked into the static frontend image during build.
+`make demo-start` uses the tracked `frontend/demo/.env`. Vite public values are
+baked into the static frontend image during build, so rerun `make demo-start`
+after changing this file.
 
 Relevant environment variables:
 

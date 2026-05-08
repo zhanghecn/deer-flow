@@ -8,7 +8,7 @@ calls instead of depending on ignored local state. It:
 - upserts the standalone demo HTTP MCP profile
 - upserts and publishes the support agent
 - creates or reuses a scoped public API key
-- writes `frontend/demo/.env.local`
+- writes `frontend/demo/.env`
 - writes a fresh runtime summary for browser/e2e verification
 """
 
@@ -28,7 +28,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BASE_URL = "http://127.0.0.1:8083"
 DEFAULT_SUMMARY = REPO_ROOT / "docs/testing/results/2026-04-17-support-sdk-demo-runtime/setup-summary.json"
 DEFAULT_RUNTIME_SUMMARY = REPO_ROOT / "docs/testing/results/2026-04-17-support-sdk-demo-runtime/setup-summary.runtime.json"
-DEFAULT_DEMO_ENV = REPO_ROOT / "frontend/demo/.env.local"
+DEFAULT_DEMO_ENV = REPO_ROOT / "frontend/demo/.env"
 
 
 class APIError(RuntimeError):

@@ -43,7 +43,7 @@
    - upsert 独立 demo 使用的 HTTP MCP profile
    - upsert 并 publish 客服 agent
    - 复用或创建 scoped API key
-   - 写出本地 `.env.local` 供 demo workbench 复用
+   - 写出 tracked `.env` 供 demo workbench 复用
    - 严格校验 fixture 不会再把 `support-cases-http-demo` 绑定回旧的 full MCP URL
 4. 然后运行真实浏览器验收：
    - `node frontend/app/e2e/public-integration-real-browser.mjs`
