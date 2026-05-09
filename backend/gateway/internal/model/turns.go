@@ -38,10 +38,12 @@ type TurnInput struct {
 }
 
 type TurnCreateRequest struct {
-	Agent          string    `json:"agent" binding:"required"`
-	Input          TurnInput `json:"input" binding:"required"`
-	SessionID      string    `json:"session_id,omitempty"`
-	PreviousTurnID string    `json:"previous_turn_id,omitempty"`
+	Agent     string    `json:"agent" binding:"required"`
+	Input     TurnInput `json:"input" binding:"required"`
+	SessionID string    `json:"session_id,omitempty"`
+	// HistoryScope is intentionally raw so the service can return the stable
+	// invalid_history_scope error for nested objects, arrays, and blank values.
+	HistoryScope json.RawMessage `json:"history_scope,omitempty"`
 	// External SDK callers can pre-attach existing knowledge bases before the
 	// first runtime turn. The service stores these in the same thread binding
 	// table used by the workspace UI so there is one knowledge attachment truth.
@@ -90,22 +92,22 @@ type TurnEvent struct {
 }
 
 type TurnSnapshot struct {
-	ID             string                      `json:"id"`
-	Object         string                      `json:"object"`
-	Status         string                      `json:"status"`
-	Agent          string                      `json:"agent"`
-	SessionID      string                      `json:"session_id,omitempty"`
-	ThreadID       string                      `json:"thread_id"`
-	TraceID        string                      `json:"trace_id,omitempty"`
-	PreviousTurnID string                      `json:"previous_turn_id,omitempty"`
-	OutputText     string                      `json:"output_text"`
-	ReasoningText  string                      `json:"reasoning_text"`
-	Artifacts      []PublicAPIResponseArtifact `json:"artifacts,omitempty"`
-	Usage          TurnUsage                   `json:"usage"`
-	Metadata       map[string]any              `json:"metadata,omitempty"`
-	Events         []TurnEvent                 `json:"events"`
-	CreatedAt      int64                       `json:"created_at"`
-	CompletedAt    int64                       `json:"completed_at,omitempty"`
+	ID            string                      `json:"id"`
+	Object        string                      `json:"object"`
+	Status        string                      `json:"status"`
+	Agent         string                      `json:"agent"`
+	SessionID     string                      `json:"session_id,omitempty"`
+	HistoryScope  map[string]string           `json:"history_scope"`
+	ThreadID      string                      `json:"thread_id"`
+	TraceID       string                      `json:"trace_id,omitempty"`
+	OutputText    string                      `json:"output_text"`
+	ReasoningText string                      `json:"reasoning_text"`
+	Artifacts     []PublicAPIResponseArtifact `json:"artifacts,omitempty"`
+	Usage         TurnUsage                   `json:"usage"`
+	Metadata      map[string]any              `json:"metadata,omitempty"`
+	Events        []TurnEvent                 `json:"events"`
+	CreatedAt     int64                       `json:"created_at"`
+	CompletedAt   int64                       `json:"completed_at,omitempty"`
 }
 
 type TurnHistoryItem struct {

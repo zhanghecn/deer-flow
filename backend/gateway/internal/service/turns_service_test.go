@@ -3,10 +3,16 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/openagents/gateway/internal/model"
+	"github.com/openagents/gateway/pkg/storage"
 )
 
 type stubPublicAPIKnowledgeRepo struct {
@@ -101,6 +107,96 @@ func TestTurnCollectorDropsHistoricalAssistantAndToolReplay(t *testing.T) {
 	})
 	if len(current) != 4 {
 		t.Fatalf("expected current assistant stream to emit start/text/reasoning/tool events, got %#v", current)
+	}
+}
+
+func TestExecuteTurnPrimesReplayBoundaryFromSessionThreadState(t *testing.T) {
+	t.Parallel()
+
+	userID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	stateCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/threads/thread-1/state":
+			stateCalls++
+			w.Header().Set("Content-Type", "application/json")
+			if stateCalls == 1 {
+				_, _ = io.WriteString(w, `{"values":{"messages":[{"type":"ai","id":"msg_old","content":[{"type":"text","text":"old answer"}]}]}}`)
+				return
+			}
+			_, _ = io.WriteString(w, `{"values":{"messages":[{"type":"ai","id":"msg_old","content":[{"type":"text","text":"old answer"}]},{"type":"ai","id":"msg_new","content":[{"type":"text","text":"new answer"}]}]}}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/threads/thread-1/runs/stream":
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(w, "event: messages\ndata: [{\"type\":\"AIMessageChunk\",\"id\":\"msg_old\",\"content\":[{\"type\":\"text\",\"text\":\"old answer\"}]}]\n\n")
+			_, _ = io.WriteString(w, "event: messages\ndata: [{\"type\":\"AIMessageChunk\",\"id\":\"msg_new\",\"content\":[{\"type\":\"text\",\"text\":\"new answer\"}]}]\n\n")
+			_, _ = io.WriteString(w, "event: end\ndata: {}\n\n")
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	invocationRepo := &stubPublicAPIInvocationRepo{}
+	svc := &PublicAPIService{
+		langGraphURL:   server.URL,
+		httpClient:     server.Client(),
+		invocationRepo: invocationRepo,
+		fs:             storage.NewFS(t.TempDir()),
+	}
+	invocation := &model.PublicAPIInvocation{
+		ID:           uuid.New(),
+		ResponseID:   "turn_session_only",
+		Surface:      "turns",
+		APITokenID:   uuid.New(),
+		UserID:       userID,
+		AgentName:    "demo-agent",
+		ThreadID:     "thread-1",
+		RequestModel: "demo-agent",
+		Status:       "in_progress",
+		CreatedAt:    time.Unix(42, 0).UTC(),
+	}
+
+	events := make([]model.TurnEvent, 0)
+	snapshot, err := svc.executeTurn(
+		context.Background(),
+		&publicAPIRunPlan{
+			Auth: PublicAPIAuthContext{
+				UserID: userID,
+			},
+			Request:    model.PublicAPIResponsesRequest{},
+			Invocation: invocation,
+			AgentName:  "demo-agent",
+			ModelName:  "model",
+			SessionID:  "session-1",
+			ThreadID:   "thread-1",
+			ResponseID: "turn_session_only",
+			PromptText: "hello",
+		},
+		newTurnCollector("turn_session_only"),
+		func(event model.TurnEvent) error {
+			events = append(events, event)
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("executeTurn: %v", err)
+	}
+	if snapshot.OutputText != "new answer" {
+		t.Fatalf("snapshot output = %q, want new answer", snapshot.OutputText)
+	}
+
+	textDeltas := make([]string, 0)
+	for _, event := range events {
+		if event.Type == model.TurnEventAssistantTextDelta {
+			textDeltas = append(textDeltas, event.Delta)
+		}
+	}
+	joined := strings.Join(textDeltas, "")
+	if strings.Contains(joined, "old answer") {
+		t.Fatalf("historical replay leaked into text deltas: %#v", textDeltas)
+	}
+	if !strings.Contains(joined, "new answer") {
+		t.Fatalf("current assistant delta missing from text deltas: %#v", textDeltas)
 	}
 }
 

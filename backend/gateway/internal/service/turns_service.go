@@ -445,16 +445,85 @@ func translateTurnRequest(request model.TurnCreateRequest) (model.PublicAPIRespo
 	}
 
 	return model.PublicAPIResponsesRequest{
-		Model:              strings.TrimSpace(request.Agent),
-		Input:              input,
-		SessionID:          strings.TrimSpace(request.SessionID),
-		PreviousResponseID: strings.TrimSpace(request.PreviousTurnID),
-		Metadata:           request.Metadata,
-		Stream:             request.Stream,
-		Text:               request.Text,
-		Reasoning:          reasoning,
-		MaxOutputTokens:    request.MaxOutputTokens,
+		Model:           strings.TrimSpace(request.Agent),
+		Input:           input,
+		SessionID:       strings.TrimSpace(request.SessionID),
+		Metadata:        request.Metadata,
+		Stream:          request.Stream,
+		Text:            request.Text,
+		Reasoning:       reasoning,
+		MaxOutputTokens: request.MaxOutputTokens,
 	}, nil
+}
+
+func normalizeHistoryScope(raw json.RawMessage) (map[string]string, error) {
+	if len(raw) == 0 {
+		return map[string]string{}, nil
+	}
+	return parseHistoryScopeJSON(raw)
+}
+
+func normalizeHistoryScopeQuery(value string) (map[string]string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return map[string]string{}, nil
+	}
+	return parseHistoryScopeJSON([]byte(trimmed))
+}
+
+func parseHistoryScopeJSON(raw []byte) (map[string]string, error) {
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, &PublicAPIError{
+			StatusCode: http.StatusBadRequest,
+			Code:       "invalid_history_scope",
+			Message:    "history_scope must be a flat JSON object with string values",
+		}
+	}
+	if payload == nil {
+		return nil, &PublicAPIError{
+			StatusCode: http.StatusBadRequest,
+			Code:       "invalid_history_scope",
+			Message:    "history_scope must be a flat JSON object with string values",
+		}
+	}
+
+	normalized := make(map[string]string, len(payload))
+	for rawKey, rawValue := range payload {
+		key := strings.TrimSpace(rawKey)
+		if key == "" {
+			return nil, &PublicAPIError{
+				StatusCode: http.StatusBadRequest,
+				Code:       "invalid_history_scope",
+				Message:    "history_scope keys cannot be empty",
+			}
+		}
+		if _, exists := normalized[key]; exists {
+			return nil, &PublicAPIError{
+				StatusCode: http.StatusBadRequest,
+				Code:       "invalid_history_scope",
+				Message:    "history_scope keys must be unique after trimming",
+			}
+		}
+		var value string
+		if err := json.Unmarshal(rawValue, &value); err != nil {
+			return nil, &PublicAPIError{
+				StatusCode: http.StatusBadRequest,
+				Code:       "invalid_history_scope",
+				Message:    "history_scope values must be strings",
+			}
+		}
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return nil, &PublicAPIError{
+				StatusCode: http.StatusBadRequest,
+				Code:       "invalid_history_scope",
+				Message:    "history_scope values cannot be empty",
+			}
+		}
+		normalized[key] = value
+	}
+	return normalized, nil
 }
 
 func normalizeKnowledgeBaseIDs(values []string) ([]string, error) {
@@ -575,7 +644,6 @@ func buildTurnSnapshot(
 	invocation *model.PublicAPIInvocation,
 	agentName string,
 	sessionID string,
-	previousTurnID string,
 	outputText string,
 	reasoningText string,
 	artifacts []model.PublicAPIResponseArtifact,
@@ -588,6 +656,7 @@ func buildTurnSnapshot(
 		Status:        invocation.Status,
 		Agent:         agentName,
 		SessionID:     strings.TrimSpace(sessionID),
+		HistoryScope:  cloneHistoryScope(invocation.HistoryScope),
 		ThreadID:      invocation.ThreadID,
 		OutputText:    outputText,
 		ReasoningText: reasoningText,
@@ -605,9 +674,6 @@ func buildTurnSnapshot(
 	}
 	if invocation.FinishedAt != nil {
 		snapshot.CompletedAt = invocation.FinishedAt.UTC().Unix()
-	}
-	if strings.TrimSpace(previousTurnID) != "" {
-		snapshot.PreviousTurnID = strings.TrimSpace(previousTurnID)
 	}
 	if len(metadata) > 0 {
 		snapshot.Metadata = metadata
@@ -627,14 +693,13 @@ func (s *PublicAPIService) failTurnExecution(
 ) error {
 	failed := collector.push(BuildPublicTurnFailureEvent(plan.ResponseID, stage, cause))
 	finalErr := s.finishInvocationWithError(ctx, plan.Invocation, wrapPublicAPITurnFailure(cause, publicAPITurnFailureContext{
-		TurnID:         plan.ResponseID,
-		SessionID:      plan.SessionID,
-		Stage:          stage,
-		Events:         collector.events,
-		PreviousTurnID: plan.PreviousResponseID,
-		Metadata:       plan.Metadata,
-		OutputText:     outputText,
-		ReasoningText:  reasoningText,
+		TurnID:        plan.ResponseID,
+		SessionID:     plan.SessionID,
+		Stage:         stage,
+		Events:        collector.events,
+		Metadata:      plan.Metadata,
+		OutputText:    outputText,
+		ReasoningText: reasoningText,
 	}), nil)
 	if onEvent != nil {
 		if err := onEvent(failed); err != nil {
@@ -650,19 +715,17 @@ func (s *PublicAPIService) executeTurn(
 	collector *turnCollector,
 	onEvent func(event model.TurnEvent) error,
 ) (*model.TurnSnapshot, error) {
-	if strings.TrimSpace(plan.PreviousResponseID) != "" {
-		// Seed the collector with the thread's pre-run message/tool identifiers so
-		// a history replay from LangGraph does not leak the previous answer into
-		// the new `/v1/turns` SSE stream.
-		if statePayload, err := s.fetchThreadState(
-			ctx,
-			plan.Auth.UserID,
-			plan.ThreadID,
-			plan.AgentName,
-			plan.ModelName,
-		); err == nil {
-			collector.primeReplayBoundary(extractTurnReplayBoundaryFromState(statePayload))
-		}
+	// Public SDK callers should only need the durable session/scope identity.
+	// Prime from the current thread state before every run so replay filtering is
+	// internal to the server instead of forcing clients to manage turn cursors.
+	if statePayload, err := s.fetchThreadState(
+		ctx,
+		plan.Auth.UserID,
+		plan.ThreadID,
+		plan.AgentName,
+		plan.ModelName,
+	); err == nil {
+		collector.primeReplayBoundary(extractTurnReplayBoundaryFromState(statePayload))
 	}
 
 	started := collector.push(model.TurnEvent{Type: model.TurnEventTurnStarted})
@@ -809,7 +872,6 @@ func (s *PublicAPIService) executeTurn(
 		plan.Invocation,
 		plan.AgentName,
 		plan.SessionID,
-		plan.PreviousResponseID,
 		outputText,
 		reasoningText,
 		responseArtifacts,
@@ -849,21 +911,24 @@ func (s *PublicAPIService) CreateTurn(
 	if err != nil {
 		return nil, err
 	}
+	historyScope, err := normalizeHistoryScope(request.HistoryScope)
+	if err != nil {
+		return nil, err
+	}
 	responsesRequest, err := translateTurnRequest(request)
 	if err != nil {
 		return nil, err
 	}
-	plan, err := s.prepareRun(ctx, auth, "turns", responsesRequest, rawBody)
+	plan, err := s.prepareRun(ctx, auth, "turns", responsesRequest, rawBody, historyScope)
 	if err != nil {
 		return nil, err
 	}
 	if err := s.attachRunKnowledgeBases(ctx, plan, knowledgeBaseIDs); err != nil {
 		return nil, s.finishInvocationWithError(ctx, plan.Invocation, wrapPublicAPITurnFailure(err, publicAPITurnFailureContext{
-			TurnID:         plan.ResponseID,
-			SessionID:      plan.SessionID,
-			Stage:          model.TurnFailureStagePrepareRun,
-			PreviousTurnID: plan.PreviousResponseID,
-			Metadata:       plan.Metadata,
+			TurnID:    plan.ResponseID,
+			SessionID: plan.SessionID,
+			Stage:     model.TurnFailureStagePrepareRun,
+			Metadata:  plan.Metadata,
 		}), nil)
 	}
 	snapshot, err := s.executeTurn(ctx, plan, newTurnCollector(plan.ResponseID), nil)
@@ -887,21 +952,24 @@ func (s *PublicAPIService) StreamTurn(
 	if err != nil {
 		return err
 	}
+	historyScope, err := normalizeHistoryScope(request.HistoryScope)
+	if err != nil {
+		return err
+	}
 	responsesRequest, err := translateTurnRequest(request)
 	if err != nil {
 		return err
 	}
-	plan, err := s.prepareRun(ctx, auth, "turns", responsesRequest, rawBody)
+	plan, err := s.prepareRun(ctx, auth, "turns", responsesRequest, rawBody, historyScope)
 	if err != nil {
 		return err
 	}
 	if err := s.attachRunKnowledgeBases(ctx, plan, knowledgeBaseIDs); err != nil {
 		return s.finishInvocationWithError(ctx, plan.Invocation, wrapPublicAPITurnFailure(err, publicAPITurnFailureContext{
-			TurnID:         plan.ResponseID,
-			SessionID:      plan.SessionID,
-			Stage:          model.TurnFailureStagePrepareRun,
-			PreviousTurnID: plan.PreviousResponseID,
-			Metadata:       plan.Metadata,
+			TurnID:    plan.ResponseID,
+			SessionID: plan.SessionID,
+			Stage:     model.TurnFailureStagePrepareRun,
+			Metadata:  plan.Metadata,
 		}), nil)
 	}
 	_, err = s.executeTurn(ctx, plan, newTurnCollector(plan.ResponseID), func(event model.TurnEvent) error {
@@ -947,6 +1015,7 @@ func (s *PublicAPIService) GetTurn(
 			Message:    "stored turn snapshot is invalid",
 		}
 	}
+	snapshot.HistoryScope = historyScopeFromInvocation(invocation)
 	return &snapshot, nil
 }
 
@@ -955,6 +1024,7 @@ func (s *PublicAPIService) ListRecentTurns(
 	auth PublicAPIAuthContext,
 	agentName string,
 	sessionID string,
+	historyScopeRaw string,
 	limit int,
 ) (*model.TurnListResponse, error) {
 	normalizedAgentName := strings.ToLower(strings.TrimSpace(agentName))
@@ -983,16 +1053,28 @@ func (s *PublicAPIService) ListRecentTurns(
 	if err != nil {
 		return nil, err
 	}
+	historyScope, err := normalizeHistoryScopeQuery(historyScopeRaw)
+	if err != nil {
+		return nil, err
+	}
 	if normalizedSessionID == "" {
-		return s.listRecentTurnSessions(ctx, auth, normalizedAgentName, limit)
+		return s.listRecentTurnSessions(ctx, auth, normalizedAgentName, historyScope, limit)
 	}
 
 	normalizedLimit := normalizeRecentTurnLimit(limit)
 	tokenID := auth.APITokenID
+	threadID := ""
+	sessionIDFilter := normalizedSessionID
+	if len(historyScope) == 0 {
+		threadID = publicAPISessionThreadID(auth.APITokenID, normalizedAgentName, normalizedSessionID)
+		sessionIDFilter = ""
+	}
 	invocations, err := s.invocationRepo.ListByUser(ctx, auth.UserID, model.PublicAPIInvocationFilter{
 		APITokenID:   &tokenID,
 		AgentName:    normalizedAgentName,
-		ThreadID:     publicAPISessionThreadID(auth.APITokenID, normalizedAgentName, normalizedSessionID),
+		ThreadID:     threadID,
+		SessionID:    sessionIDFilter,
+		HistoryScope: historyScope,
 		Surface:      "turns",
 		FinishedOnly: true,
 		Limit:        normalizedLimit,
@@ -1014,6 +1096,7 @@ func (s *PublicAPIService) ListRecentTurns(
 		if strings.TrimSpace(snapshot.SessionID) == "" {
 			snapshot.SessionID = normalizedSessionID
 		}
+		snapshot.HistoryScope = historyScopeFromInvocation(&invocation)
 		items = append(items, model.TurnHistoryItem{
 			TurnSnapshot: snapshot,
 			Input:        extractTurnInputFromRequestJSON(invocation.RequestJSON),
@@ -1030,6 +1113,7 @@ func (s *PublicAPIService) listRecentTurnSessions(
 	ctx context.Context,
 	auth PublicAPIAuthContext,
 	agentName string,
+	historyScope map[string]string,
 	limit int,
 ) (*model.TurnListResponse, error) {
 	normalizedLimit := normalizeRecentTurnLimit(limit)
@@ -1037,6 +1121,7 @@ func (s *PublicAPIService) listRecentTurnSessions(
 	invocations, err := s.invocationRepo.ListByUser(ctx, auth.UserID, model.PublicAPIInvocationFilter{
 		APITokenID:   &tokenID,
 		AgentName:    agentName,
+		HistoryScope: historyScope,
 		Surface:      "turns",
 		FinishedOnly: true,
 		// Pull a wider turn window because multiple recent turns can belong to
@@ -1094,6 +1179,7 @@ func (s *PublicAPIService) listRecentTurnSessions(
 		if strings.TrimSpace(snapshot.SessionID) == "" {
 			snapshot.SessionID = summary.sessionID
 		}
+		snapshot.HistoryScope = historyScopeFromInvocation(&summary.latest)
 		items = append(items, model.TurnHistoryItem{
 			TurnSnapshot: snapshot,
 			Input:        summary.firstInput,

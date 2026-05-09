@@ -197,6 +197,7 @@ function FieldLabel({
 
 function buildTurnRequestBody(params: {
   agentName: string;
+  sessionID: string;
   message: string;
   uploadedFiles: PublicAPIFileObject[];
   responseMode: ResponseMode;
@@ -204,7 +205,6 @@ function buildTurnRequestBody(params: {
   schemaBody: string;
   reasoningEnabled: boolean;
   reasoningEffort: ReasoningEffort;
-  previousTurnID: string;
   maxOutputTokens: string;
 }): PublicAPITurnRequestBody {
   const fileIDs = params.uploadedFiles.map((file) => file.id);
@@ -214,15 +214,13 @@ function buildTurnRequestBody(params: {
       text: params.message.trim(),
       file_ids: fileIDs.length > 0 ? fileIDs : undefined,
     },
+    session_id: params.sessionID,
     metadata: {
       source: "workspace_public_api_playground",
       surface: "playground_page",
     },
   };
 
-  if (params.previousTurnID.trim()) {
-    requestBody.previous_turn_id = params.previousTurnID.trim();
-  }
   if (params.reasoningEnabled) {
     requestBody.thinking = {
       enabled: true,
@@ -254,6 +252,14 @@ function buildTurnRequestBody(params: {
   }
 
   return requestBody;
+}
+
+function createPublicAPIPlaygroundSessionID(): string {
+  const cryptoAPI = globalThis.crypto;
+  if (typeof cryptoAPI?.randomUUID === "function") {
+    return cryptoAPI.randomUUID();
+  }
+  return `playground_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function responseModeLabel(
@@ -403,7 +409,6 @@ export function PublicAPIPlaygroundPanel({
   // verification target the same labels real users rely on.
   const baseURLInputID = useId();
   const apiTokenInputID = useId();
-  const previousTurnInputID = useId();
   const messageInputID = useId();
   const fileInputID = useId();
   const maxOutputTokensInputID = useId();
@@ -425,7 +430,7 @@ export function PublicAPIPlaygroundPanel({
   const [reasoningEnabled, setReasoningEnabled] = useState(false);
   const [reasoningEffort, setReasoningEffort] =
     useState<ReasoningEffort>("high");
-  const [previousTurnID, setPreviousTurnID] = useState("");
+  const [sessionID] = useState(createPublicAPIPlaygroundSessionID);
   const [maxOutputTokens, setMaxOutputTokens] = useState("");
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [traceFilter, setTraceFilter] = useState<TraceFilter>("all");
@@ -502,7 +507,6 @@ export function PublicAPIPlaygroundPanel({
         turnId,
       });
       setTurn(payload);
-      setPreviousTurnID(payload.id);
       setLiveOutput(payload.output_text);
       setLiveReasoning(payload.reasoning_text);
     } catch (error) {
@@ -603,9 +607,6 @@ export function PublicAPIPlaygroundPanel({
     for (const normalizedEvent of normalizePublicAPIStreamEvent(event)) {
       if (normalizedEvent.kind === "turn_started") {
         setResultStatusFallback("running");
-        if (normalizedEvent.turnId) {
-          setPreviousTurnID(normalizedEvent.turnId);
-        }
         appendTrace({
           stage: "run",
           tone: "system",
@@ -706,6 +707,7 @@ export function PublicAPIPlaygroundPanel({
       const uploadedFiles = await uploadQueuedFiles(trimmedToken);
       const requestBody = buildTurnRequestBody({
         agentName,
+        sessionID,
         message,
         uploadedFiles,
         responseMode,
@@ -713,7 +715,6 @@ export function PublicAPIPlaygroundPanel({
         schemaBody,
         reasoningEnabled,
         reasoningEffort,
-        previousTurnID,
         maxOutputTokens,
       });
 
@@ -731,7 +732,6 @@ export function PublicAPIPlaygroundPanel({
           body: requestBody,
         });
         setTurn(payload);
-        setPreviousTurnID(payload.id);
         setLiveOutput(payload.output_text);
         setLiveReasoning(payload.reasoning_text);
         setResultStatusFallback(
@@ -1170,37 +1170,6 @@ export function PublicAPIPlaygroundPanel({
                             </SelectContent>
                           </Select>
                         </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <FieldLabel
-                          htmlFor={previousTurnInputID}
-                          action={
-                            turn?.id ? (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="rounded-full px-2"
-                                onClick={() => setPreviousTurnID(turn.id)}
-                              >
-                                {text.useLatestResponse}
-                              </Button>
-                            ) : null
-                          }
-                        >
-                          {text.previousResponse}
-                        </FieldLabel>
-                        <Input
-                          id={previousTurnInputID}
-                          aria-label={text.previousResponse}
-                          value={previousTurnID}
-                          onChange={(event) => setPreviousTurnID(event.target.value)}
-                          className="h-10 rounded-xl font-mono"
-                        />
-                        <p className="text-muted-foreground text-xs leading-5">
-                          {text.previousResponseHint}
-                        </p>
                       </div>
 
                       <div className="space-y-2">

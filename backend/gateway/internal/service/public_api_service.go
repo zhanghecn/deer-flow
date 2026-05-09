@@ -98,6 +98,7 @@ type publicAPIRunPlan struct {
 	AgentKnowledgeBaseIDs []string
 	ModelName             string
 	SessionID             string
+	HistoryScope          map[string]string
 	ThreadID              string
 	ResponseID            string
 	PreviousResponseID    string
@@ -354,7 +355,7 @@ func (s *PublicAPIService) CreateResponse(
 	request model.PublicAPIResponsesRequest,
 	requestJSON json.RawMessage,
 ) (*PublicAPIResponseResult, error) {
-	plan, err := s.prepareRun(ctx, auth, surface, request, requestJSON)
+	plan, err := s.prepareRun(ctx, auth, surface, request, requestJSON, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -385,7 +386,7 @@ func (s *PublicAPIService) StreamResponse(
 	requestJSON json.RawMessage,
 	emit func(eventName string, payload any) error,
 ) error {
-	plan, err := s.prepareRun(ctx, auth, surface, request, requestJSON)
+	plan, err := s.prepareRun(ctx, auth, surface, request, requestJSON, nil)
 	if err != nil {
 		return err
 	}
@@ -470,7 +471,7 @@ func (s *PublicAPIService) StreamChatCompletions(
 	includeUsage bool,
 	emit func(eventName string, payload any) error,
 ) error {
-	plan, err := s.prepareRun(ctx, auth, "chat_completions", request, requestJSON)
+	plan, err := s.prepareRun(ctx, auth, "chat_completions", request, requestJSON, nil)
 	if err != nil {
 		return err
 	}
@@ -569,6 +570,7 @@ func (s *PublicAPIService) prepareRun(
 	surface string,
 	request model.PublicAPIResponsesRequest,
 	requestJSON json.RawMessage,
+	historyScope map[string]string,
 ) (*publicAPIRunPlan, error) {
 	agentName := strings.ToLower(strings.TrimSpace(request.Model))
 	if agentName == "" {
@@ -629,6 +631,7 @@ func (s *PublicAPIService) prepareRun(
 		request.SessionID,
 		agentName,
 		auth.APITokenID,
+		historyScope,
 	)
 	if err != nil {
 		return nil, err
@@ -671,6 +674,7 @@ func (s *PublicAPIService) prepareRun(
 		AgentName:    agentName,
 		ThreadID:     threadID,
 		RequestModel: agentName,
+		HistoryScope: cloneHistoryScope(historyScope),
 		Status:       "in_progress",
 		RequestJSON:  requestJSON,
 		ResponseJSON: json.RawMessage(`{}`),
@@ -684,20 +688,18 @@ func (s *PublicAPIService) prepareRun(
 
 	if err := s.fs.EnsureThreadDirsForUser(auth.UserID.String(), threadID); err != nil {
 		return nil, s.finishInvocationWithError(ctx, invocation, wrapPublicAPITurnFailure(err, publicAPITurnFailureContext{
-			TurnID:         responseID,
-			SessionID:      sessionID,
-			Stage:          model.TurnFailureStagePrepareRun,
-			PreviousTurnID: previousResponseID,
-			Metadata:       metadata,
+			TurnID:    responseID,
+			SessionID: sessionID,
+			Stage:     model.TurnFailureStagePrepareRun,
+			Metadata:  metadata,
 		}), nil)
 	}
 	if err := s.ensureLangGraphThread(ctx, auth.UserID, threadID); err != nil {
 		return nil, s.finishInvocationWithError(ctx, invocation, wrapPublicAPITurnFailure(err, publicAPITurnFailureContext{
-			TurnID:         responseID,
-			SessionID:      sessionID,
-			Stage:          model.TurnFailureStagePrepareRun,
-			PreviousTurnID: previousResponseID,
-			Metadata:       metadata,
+			TurnID:    responseID,
+			SessionID: sessionID,
+			Stage:     model.TurnFailureStagePrepareRun,
+			Metadata:  metadata,
 		}), nil)
 	}
 
@@ -710,11 +712,10 @@ func (s *PublicAPIService) prepareRun(
 	)
 	if err != nil {
 		return nil, s.finishInvocationWithError(ctx, invocation, wrapPublicAPITurnFailure(err, publicAPITurnFailureContext{
-			TurnID:         responseID,
-			SessionID:      sessionID,
-			Stage:          model.TurnFailureStagePrepareRun,
-			PreviousTurnID: previousResponseID,
-			Metadata:       metadata,
+			TurnID:    responseID,
+			SessionID: sessionID,
+			Stage:     model.TurnFailureStagePrepareRun,
+			Metadata:  metadata,
 		}), nil)
 	}
 
@@ -728,6 +729,7 @@ func (s *PublicAPIService) prepareRun(
 		AgentKnowledgeBaseIDs: agent.KnowledgeBaseIDs,
 		ModelName:             resolvedModelName,
 		SessionID:             sessionID,
+		HistoryScope:          cloneHistoryScope(historyScope),
 		ThreadID:              threadID,
 		ResponseID:            responseID,
 		PreviousResponseID:    previousResponseID,
@@ -1377,6 +1379,7 @@ func (s *PublicAPIService) resolveThreadID(
 	sessionID string,
 	agentName string,
 	apiTokenID uuid.UUID,
+	historyScope map[string]string,
 ) (string, string, string, error) {
 	normalizedSessionID, err := normalizePublicAPISessionID(sessionID)
 	if err != nil {
@@ -1387,7 +1390,7 @@ func (s *PublicAPIService) resolveThreadID(
 		if normalizedSessionID == "" {
 			normalizedSessionID = uuid.NewString()
 		}
-		return publicAPISessionThreadID(apiTokenID, agentName, normalizedSessionID), normalizedSessionID, "", nil
+		return publicAPISessionThreadIDForScope(apiTokenID, agentName, normalizedSessionID, historyScope), normalizedSessionID, "", nil
 	}
 
 	invocation, err := s.invocationRepo.GetByResponseID(ctx, trimmedPrevious, apiTokenID)
@@ -1406,6 +1409,13 @@ func (s *PublicAPIService) resolveThreadID(
 			StatusCode: http.StatusBadRequest,
 			Code:       "model_mismatch",
 			Message:    "previous_response_id belongs to a different model",
+		}
+	}
+	if !historyScopesEqual(historyScope, historyScopeFromInvocation(invocation)) {
+		return "", "", "", &PublicAPIError{
+			StatusCode: http.StatusBadRequest,
+			Code:       "history_scope_mismatch",
+			Message:    "history_scope does not match previous_response_id",
 		}
 	}
 	previousSessionID := sessionIDFromInvocation(invocation)
@@ -1453,16 +1463,69 @@ func normalizePublicAPISessionID(value string) (string, error) {
 }
 
 func publicAPISessionThreadID(apiTokenID uuid.UUID, agentName string, sessionID string) string {
+	return publicAPISessionThreadIDForScope(apiTokenID, agentName, sessionID, nil)
+}
+
+func publicAPISessionThreadIDForScope(
+	apiTokenID uuid.UUID,
+	agentName string,
+	sessionID string,
+	historyScope map[string]string,
+) string {
 	// External session ids are operator/user-owned handles. LangGraph still
 	// requires thread ids to be UUIDs, so derive a deterministic UUID that stays
 	// isolated across API tokens and agents without exposing the visible session.
-	key := strings.Join([]string{
+	// Non-empty history_scope is part of the isolation key; the empty scope keeps
+	// the original no-scope derivation so existing SDK sessions remain restorable.
+	parts := []string{
 		"openagents-public-api-session-v1",
 		apiTokenID.String(),
 		strings.ToLower(strings.TrimSpace(agentName)),
 		strings.TrimSpace(sessionID),
-	}, "\x00")
+	}
+	if len(historyScope) > 0 {
+		parts = append(parts, canonicalHistoryScopeKey(historyScope))
+	}
+	key := strings.Join(parts, "\x00")
 	return uuid.NewSHA1(uuid.NameSpaceURL, []byte(key)).String()
+}
+
+func canonicalHistoryScopeKey(scope map[string]string) string {
+	if len(scope) == 0 {
+		return "{}"
+	}
+	encoded, _ := json.Marshal(scope)
+	return string(encoded)
+}
+
+func cloneHistoryScope(scope map[string]string) map[string]string {
+	if len(scope) == 0 {
+		return map[string]string{}
+	}
+	cloned := make(map[string]string, len(scope))
+	for key, value := range scope {
+		cloned[key] = value
+	}
+	return cloned
+}
+
+func historyScopesEqual(left map[string]string, right map[string]string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for key, leftValue := range left {
+		if right[key] != leftValue {
+			return false
+		}
+	}
+	return true
+}
+
+func historyScopeFromInvocation(invocation *model.PublicAPIInvocation) map[string]string {
+	if invocation == nil {
+		return map[string]string{}
+	}
+	return cloneHistoryScope(invocation.HistoryScope)
 }
 
 func sessionIDFromInvocation(invocation *model.PublicAPIInvocation) string {

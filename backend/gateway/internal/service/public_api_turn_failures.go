@@ -10,14 +10,13 @@ import (
 )
 
 type publicAPITurnFailureContext struct {
-	TurnID         string
-	SessionID      string
-	Stage          model.TurnFailureStage
-	Events         []model.TurnEvent
-	PreviousTurnID string
-	Metadata       map[string]any
-	OutputText     string
-	ReasoningText  string
+	TurnID        string
+	SessionID     string
+	Stage         model.TurnFailureStage
+	Events        []model.TurnEvent
+	Metadata      map[string]any
+	OutputText    string
+	ReasoningText string
 }
 
 type publicAPITurnFailureError struct {
@@ -156,12 +155,10 @@ func buildFailedTurnSnapshotEnvelope(
 	outputText := ""
 	reasoningText := ""
 	metadata := map[string]any(nil)
-	previousTurnID := ""
 	if hasContext {
 		outputText = context.OutputText
 		reasoningText = context.ReasoningText
 		metadata = context.Metadata
-		previousTurnID = context.PreviousTurnID
 	}
 	sessionID := context.SessionID
 	if strings.TrimSpace(sessionID) == "" {
@@ -172,7 +169,6 @@ func buildFailedTurnSnapshotEnvelope(
 		invocation,
 		invocation.AgentName,
 		sessionID,
-		previousTurnID,
 		outputText,
 		reasoningText,
 		nil,

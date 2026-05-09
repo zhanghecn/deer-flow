@@ -81,7 +81,8 @@ export interface PublicAPITurnRequestBody {
     text: string;
     file_ids?: string[];
   };
-  previous_turn_id?: string;
+  session_id?: string;
+  history_scope?: Record<string, string>;
   stream?: boolean;
   text?: {
     format?: {
@@ -104,9 +105,10 @@ export interface PublicAPITurnSnapshot {
   object: "turn";
   status: string;
   agent: string;
+  session_id?: string;
+  history_scope?: Record<string, string>;
   thread_id: string;
   trace_id?: string;
-  previous_turn_id?: string;
   output_text: string;
   reasoning_text: string;
   artifacts?: PublicAPITurnArtifact[];

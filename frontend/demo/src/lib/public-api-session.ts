@@ -39,10 +39,8 @@ export type PublicAPISession = {
   prompt: (
     params: PublicAPISessionPromptParams,
   ) => Promise<PublicAPISessionPromptResult>;
-  resumeFromTurn: (turnId: string) => void;
   reset: () => void;
   getSessionId: () => string;
-  getPreviousTurnId: () => string;
 };
 
 export function createPublicAPISessionID(): string {
@@ -71,9 +69,13 @@ function normalizeThinkingRequest(
 function buildSessionTurnRequestBody(params: {
   agent: string;
   sessionId: string;
-  previousTurnId: string;
+  historyScope?: Record<string, string>;
   prompt: PublicAPISessionPromptParams;
 }): PublicAPITurnRequestBody {
+  const historyScope =
+    params.historyScope && Object.keys(params.historyScope).length > 0
+      ? params.historyScope
+      : undefined;
   return {
     agent: params.agent,
     input: {
@@ -83,7 +85,9 @@ function buildSessionTurnRequestBody(params: {
     // The SDK-owned session id is the durable handle an integrator can bind to
     // its own user record; the backend maps it to an isolated runtime thread.
     session_id: params.sessionId,
-    previous_turn_id: params.previousTurnId || undefined,
+    // history_scope is caller-defined partition metadata. Supplying it keeps
+    // continuation and restore calls bound to the same tenant/user slice.
+    history_scope: historyScope,
     stream: params.prompt.stream ?? true,
     metadata: params.prompt.metadata,
     thinking: normalizeThinkingRequest(params.prompt.thinking),
@@ -97,17 +101,16 @@ export function createPublicAPISession(params: {
   apiToken: string;
   agent: string;
   sessionId?: string;
-  previousTurnId?: string;
+  historyScope?: Record<string, string>;
 }): PublicAPISession {
   let sessionId = params.sessionId?.trim() || createPublicAPISessionID();
-  let previousTurnId = params.previousTurnId?.trim() ?? "";
 
   return {
     async prompt(prompt) {
       const requestBody = buildSessionTurnRequestBody({
         agent: params.agent,
         sessionId,
-        previousTurnId,
+        historyScope: params.historyScope,
         prompt,
       });
 
@@ -123,7 +126,6 @@ export function createPublicAPISession(params: {
           current: readModel,
           turn,
         });
-        previousTurnId = turn.id;
         return {
           requestBody,
           readModel,
@@ -138,29 +140,17 @@ export function createPublicAPISession(params: {
         signal: prompt.signal,
         onUpdate: prompt.onUpdate,
       });
-      if (result.turn) {
-        previousTurnId = result.turn.id;
-      }
       return {
         requestBody,
         readModel: result.readModel,
         turn: result.turn,
       };
     },
-    resumeFromTurn(turnId) {
-      // Recovery seeds only the opaque continuation id; full message bodies stay
-      // in the public API ledger and are fetched again when needed.
-      previousTurnId = turnId.trim();
-    },
     reset() {
       sessionId = createPublicAPISessionID();
-      previousTurnId = "";
     },
     getSessionId() {
       return sessionId;
-    },
-    getPreviousTurnId() {
-      return previousTurnId;
     },
   };
 }

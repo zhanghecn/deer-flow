@@ -51,6 +51,7 @@ CREATE TABLE public_api_invocations (
     thread_id VARCHAR(128) NOT NULL,
     trace_id VARCHAR(64),
     request_model VARCHAR(128) NOT NULL,
+    history_scope JSONB NOT NULL DEFAULT '{}'::jsonb,
     status VARCHAR(32) NOT NULL,
     input_tokens BIGINT NOT NULL DEFAULT 0,
     output_tokens BIGINT NOT NULL DEFAULT 0,
@@ -72,6 +73,8 @@ CREATE INDEX idx_public_api_invocations_agent_created
     ON public_api_invocations(agent_name, created_at DESC);
 CREATE INDEX idx_public_api_invocations_thread_created
     ON public_api_invocations(thread_id, created_at DESC);
+CREATE INDEX idx_public_api_invocations_history_scope
+    ON public_api_invocations USING GIN(history_scope);
 
 CREATE TABLE public_api_artifacts (
     id UUID PRIMARY KEY,

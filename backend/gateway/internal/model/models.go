@@ -54,26 +54,30 @@ type APIToken struct {
 // externally queryable audit unit keyed by API token, surface, and response ID,
 // while `agent_traces` remains the runtime execution trace store.
 type PublicAPIInvocation struct {
-	ID           uuid.UUID       `json:"id" db:"id"`
-	ResponseID   string          `json:"response_id" db:"response_id"`
-	Surface      string          `json:"surface" db:"surface"`
-	APITokenID   uuid.UUID       `json:"api_token_id" db:"api_token_id"`
-	UserID       uuid.UUID       `json:"user_id" db:"user_id"`
-	AgentName    string          `json:"agent_name" db:"agent_name"`
-	ThreadID     string          `json:"thread_id" db:"thread_id"`
-	TraceID      *string         `json:"trace_id,omitempty" db:"trace_id"`
-	RequestModel string          `json:"request_model" db:"request_model"`
-	Status       string          `json:"status" db:"status"`
-	InputTokens  int64           `json:"input_tokens" db:"input_tokens"`
-	OutputTokens int64           `json:"output_tokens" db:"output_tokens"`
-	TotalTokens  int64           `json:"total_tokens" db:"total_tokens"`
-	Error        *string         `json:"error,omitempty" db:"error"`
-	RequestJSON  json.RawMessage `json:"request_json" db:"request_json"`
-	ResponseJSON json.RawMessage `json:"response_json" db:"response_json"`
-	ClientIP     *string         `json:"client_ip,omitempty" db:"client_ip"`
-	UserAgent    *string         `json:"user_agent,omitempty" db:"user_agent"`
-	CreatedAt    time.Time       `json:"created_at" db:"created_at"`
-	FinishedAt   *time.Time      `json:"finished_at,omitempty" db:"finished_at"`
+	ID           uuid.UUID `json:"id" db:"id"`
+	ResponseID   string    `json:"response_id" db:"response_id"`
+	Surface      string    `json:"surface" db:"surface"`
+	APITokenID   uuid.UUID `json:"api_token_id" db:"api_token_id"`
+	UserID       uuid.UUID `json:"user_id" db:"user_id"`
+	AgentName    string    `json:"agent_name" db:"agent_name"`
+	ThreadID     string    `json:"thread_id" db:"thread_id"`
+	TraceID      *string   `json:"trace_id,omitempty" db:"trace_id"`
+	RequestModel string    `json:"request_model" db:"request_model"`
+	// HistoryScope is the caller-owned structured history partition for native
+	// `/v1/turns`. It is not derived from metadata so no hidden fallback can
+	// widen a scoped history query.
+	HistoryScope map[string]string `json:"history_scope" db:"history_scope"`
+	Status       string            `json:"status" db:"status"`
+	InputTokens  int64             `json:"input_tokens" db:"input_tokens"`
+	OutputTokens int64             `json:"output_tokens" db:"output_tokens"`
+	TotalTokens  int64             `json:"total_tokens" db:"total_tokens"`
+	Error        *string           `json:"error,omitempty" db:"error"`
+	RequestJSON  json.RawMessage   `json:"request_json" db:"request_json"`
+	ResponseJSON json.RawMessage   `json:"response_json" db:"response_json"`
+	ClientIP     *string           `json:"client_ip,omitempty" db:"client_ip"`
+	UserAgent    *string           `json:"user_agent,omitempty" db:"user_agent"`
+	CreatedAt    time.Time         `json:"created_at" db:"created_at"`
+	FinishedAt   *time.Time        `json:"finished_at,omitempty" db:"finished_at"`
 }
 
 // PublicAPIArtifact stores the public-facing file index for a completed

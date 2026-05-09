@@ -101,9 +101,23 @@ func (s *stubPublicAPIInvocationRepo) ListByUser(
 	filter model.PublicAPIInvocationFilter,
 ) ([]model.PublicAPIInvocation, error) {
 	s.lastFilter = filter
-	items := make([]model.PublicAPIInvocation, len(s.listItems))
-	copy(items, s.listItems)
+	items := make([]model.PublicAPIInvocation, 0, len(s.listItems))
+	for _, item := range s.listItems {
+		if len(filter.HistoryScope) > 0 && !testHistoryScopeContains(item.HistoryScope, filter.HistoryScope) {
+			continue
+		}
+		items = append(items, item)
+	}
 	return items, nil
+}
+
+func testHistoryScopeContains(stored map[string]string, requested map[string]string) bool {
+	for key, value := range requested {
+		if stored[key] != value {
+			return false
+		}
+	}
+	return true
 }
 
 func TestFetchThreadStatePassesRuntimeHeaders(t *testing.T) {
@@ -208,7 +222,7 @@ func TestListRecentTurnsReturnsStoredInputAndUsesTokenFilter(t *testing.T) {
 	result, err := svc.ListRecentTurns(context.Background(), PublicAPIAuthContext{
 		UserID:     userID,
 		APITokenID: tokenID,
-	}, "support-cases-http-demo", sessionID, 1)
+	}, "support-cases-http-demo", sessionID, "", 1)
 	if err != nil {
 		t.Fatalf("ListRecentTurns: %v", err)
 	}
@@ -304,7 +318,7 @@ func TestListRecentTurnsWithoutSessionReturnsSessionSummaries(t *testing.T) {
 	result, err := svc.ListRecentTurns(context.Background(), PublicAPIAuthContext{
 		UserID:     userID,
 		APITokenID: tokenID,
-	}, agentName, "", 10)
+	}, agentName, "", "", 10)
 	if err != nil {
 		t.Fatalf("ListRecentTurns: %v", err)
 	}
@@ -329,6 +343,158 @@ func TestListRecentTurnsWithoutSessionReturnsSessionSummaries(t *testing.T) {
 	}
 }
 
+func TestListRecentTurnsFiltersByHistoryScope(t *testing.T) {
+	t.Parallel()
+
+	userID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	tokenID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	agentName := "support-cases-http-demo"
+	now := time.Now()
+
+	marshalScopedTurn := func(turnID string, sessionID string, scope map[string]string, createdAt time.Time) model.PublicAPIInvocation {
+		snapshotBody, err := json.Marshal(model.TurnSnapshot{
+			ID:           turnID,
+			Object:       "turn",
+			Status:       "completed",
+			Agent:        agentName,
+			SessionID:    sessionID,
+			HistoryScope: cloneHistoryScope(scope),
+			ThreadID:     publicAPISessionThreadIDForScope(tokenID, agentName, sessionID, scope),
+			OutputText:   "answer",
+			Usage:        model.TurnUsage{},
+			Events:       []model.TurnEvent{},
+			CreatedAt:    createdAt.Unix(),
+			CompletedAt:  createdAt.Unix(),
+		})
+		if err != nil {
+			t.Fatalf("marshal snapshot: %v", err)
+		}
+		requestBody, err := json.Marshal(model.TurnCreateRequest{
+			Agent:     agentName,
+			SessionID: sessionID,
+			Input:     model.TurnInput{Text: "question " + sessionID},
+		})
+		if err != nil {
+			t.Fatalf("marshal request: %v", err)
+		}
+		return model.PublicAPIInvocation{
+			ResponseID:   turnID,
+			Surface:      "turns",
+			APITokenID:   tokenID,
+			UserID:       userID,
+			AgentName:    agentName,
+			ThreadID:     publicAPISessionThreadIDForScope(tokenID, agentName, sessionID, scope),
+			HistoryScope: scope,
+			RequestJSON:  requestBody,
+			ResponseJSON: snapshotBody,
+			CreatedAt:    createdAt,
+			FinishedAt:   &createdAt,
+		}
+	}
+
+	invocationRepo := &stubPublicAPIInvocationRepo{
+		listItems: []model.PublicAPIInvocation{
+			marshalScopedTurn("turn-acme", "session-a", map[string]string{
+				"tenant_id": "acme",
+				"user_id":   "u_123",
+			}, now),
+			marshalScopedTurn("turn-other", "session-b", map[string]string{
+				"tenant_id": "other",
+			}, now.Add(-time.Minute)),
+			marshalScopedTurn("turn-old-empty", "session-c", map[string]string{}, now.Add(-2*time.Minute)),
+		},
+	}
+	svc := &PublicAPIService{invocationRepo: invocationRepo}
+
+	result, err := svc.ListRecentTurns(context.Background(), PublicAPIAuthContext{
+		UserID:     userID,
+		APITokenID: tokenID,
+	}, agentName, "", `{"tenant_id":" acme "}`, 10)
+	if err != nil {
+		t.Fatalf("ListRecentTurns: %v", err)
+	}
+
+	if len(result.Data) != 1 || result.Data[0].ID != "turn-acme" {
+		t.Fatalf("expected only scoped acme turn, got %#v", result.Data)
+	}
+	if result.Data[0].HistoryScope["tenant_id"] != "acme" || result.Data[0].HistoryScope["user_id"] != "u_123" {
+		t.Fatalf("expected stored full history_scope, got %#v", result.Data[0].HistoryScope)
+	}
+	if invocationRepo.lastFilter.HistoryScope["tenant_id"] != "acme" {
+		t.Fatalf("expected trimmed scope filter, got %#v", invocationRepo.lastFilter.HistoryScope)
+	}
+}
+
+func TestListRecentTurnsWithScopedSessionUsesSessionFilter(t *testing.T) {
+	t.Parallel()
+
+	userID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	tokenID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	agentName := "support-cases-http-demo"
+	scope := map[string]string{"tenant_id": "acme", "user_id": "u_123"}
+	now := time.Now()
+	snapshotBody, err := json.Marshal(model.TurnSnapshot{
+		ID:           "turn_scoped",
+		Object:       "turn",
+		Status:       "completed",
+		Agent:        agentName,
+		SessionID:    "shared-session",
+		HistoryScope: cloneHistoryScope(scope),
+		ThreadID:     publicAPISessionThreadIDForScope(tokenID, agentName, "shared-session", scope),
+		Usage:        model.TurnUsage{},
+		Events:       []model.TurnEvent{},
+		CreatedAt:    now.Unix(),
+		CompletedAt:  now.Unix(),
+	})
+	if err != nil {
+		t.Fatalf("marshal snapshot: %v", err)
+	}
+	requestBody, err := json.Marshal(model.TurnCreateRequest{
+		Agent:     agentName,
+		SessionID: "shared-session",
+		Input:     model.TurnInput{Text: "scoped question"},
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	invocationRepo := &stubPublicAPIInvocationRepo{
+		listItems: []model.PublicAPIInvocation{
+			{
+				ResponseID:   "turn_scoped",
+				Surface:      "turns",
+				APITokenID:   tokenID,
+				UserID:       userID,
+				AgentName:    agentName,
+				ThreadID:     publicAPISessionThreadIDForScope(tokenID, agentName, "shared-session", scope),
+				HistoryScope: scope,
+				RequestJSON:  requestBody,
+				ResponseJSON: snapshotBody,
+				CreatedAt:    now,
+				FinishedAt:   &now,
+			},
+		},
+	}
+	svc := &PublicAPIService{invocationRepo: invocationRepo}
+
+	result, err := svc.ListRecentTurns(context.Background(), PublicAPIAuthContext{
+		UserID:     userID,
+		APITokenID: tokenID,
+	}, agentName, "shared-session", `{"tenant_id":"acme"}`, 50)
+	if err != nil {
+		t.Fatalf("ListRecentTurns: %v", err)
+	}
+
+	if len(result.Data) != 1 || result.Data[0].ID != "turn_scoped" {
+		t.Fatalf("expected scoped session turn, got %#v", result.Data)
+	}
+	if invocationRepo.lastFilter.ThreadID != "" {
+		t.Fatalf("partial scope restore must not derive a thread id, got %q", invocationRepo.lastFilter.ThreadID)
+	}
+	if invocationRepo.lastFilter.SessionID != "shared-session" {
+		t.Fatalf("expected explicit session filter, got %q", invocationRepo.lastFilter.SessionID)
+	}
+}
+
 func TestResolveThreadIDUsesTokenScopedSessionID(t *testing.T) {
 	t.Parallel()
 
@@ -342,6 +508,7 @@ func TestResolveThreadIDUsesTokenScopedSessionID(t *testing.T) {
 		"customer-session-1",
 		"support-cases-http-demo",
 		tokenID,
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("resolveThreadID: %v", err)
@@ -358,6 +525,35 @@ func TestResolveThreadIDUsesTokenScopedSessionID(t *testing.T) {
 	}
 	if threadID == publicAPISessionThreadID(otherTokenID, "support-cases-http-demo", "customer-session-1") {
 		t.Fatal("expected session thread id to be scoped by api token")
+	}
+}
+
+func TestPublicAPISessionThreadIDIncludesHistoryScope(t *testing.T) {
+	t.Parallel()
+
+	tokenID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	noScope := publicAPISessionThreadID(tokenID, "support-cases-http-demo", "customer-session-1")
+	scoped := publicAPISessionThreadIDForScope(tokenID, "support-cases-http-demo", "customer-session-1", map[string]string{
+		"tenant_id": "acme",
+		"user_id":   "u_123",
+	})
+	reordered := publicAPISessionThreadIDForScope(tokenID, "support-cases-http-demo", "customer-session-1", map[string]string{
+		"user_id":   "u_123",
+		"tenant_id": "acme",
+	})
+	otherScope := publicAPISessionThreadIDForScope(tokenID, "support-cases-http-demo", "customer-session-1", map[string]string{
+		"tenant_id": "other",
+		"user_id":   "u_123",
+	})
+
+	if noScope == scoped {
+		t.Fatal("expected non-empty history_scope to isolate the thread id")
+	}
+	if scoped != reordered {
+		t.Fatalf("expected canonical scope ordering, got %q and %q", scoped, reordered)
+	}
+	if scoped == otherScope {
+		t.Fatal("expected different history_scope values to derive different thread ids")
 	}
 }
 
@@ -396,10 +592,77 @@ func TestResolveThreadIDRejectsPreviousSessionMismatch(t *testing.T) {
 		"customer-session-b",
 		"support-cases-http-demo",
 		tokenID,
+		nil,
 	)
 	var publicErr *PublicAPIError
 	if !errors.As(err, &publicErr) || publicErr.Code != "session_mismatch" {
 		t.Fatalf("expected session_mismatch, got %v", err)
+	}
+}
+
+func TestResolveThreadIDRejectsPreviousHistoryScopeMismatch(t *testing.T) {
+	t.Parallel()
+
+	tokenID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	previousScope := map[string]string{"tenant_id": "acme", "user_id": "u_123"}
+	previousSnapshot, err := json.Marshal(model.TurnSnapshot{
+		ID:           "turn_prev",
+		Object:       "turn",
+		Status:       "completed",
+		Agent:        "support-cases-http-demo",
+		SessionID:    "customer-session-a",
+		HistoryScope: cloneHistoryScope(previousScope),
+		ThreadID:     publicAPISessionThreadIDForScope(tokenID, "support-cases-http-demo", "customer-session-a", previousScope),
+		Usage:        model.TurnUsage{},
+	})
+	if err != nil {
+		t.Fatalf("marshal previous snapshot: %v", err)
+	}
+	svc := &PublicAPIService{
+		invocationRepo: &stubPublicAPIInvocationRepo{
+			byResponseID: map[string]*model.PublicAPIInvocation{
+				"turn_prev": {
+					ResponseID:   "turn_prev",
+					AgentName:    "support-cases-http-demo",
+					ThreadID:     publicAPISessionThreadIDForScope(tokenID, "support-cases-http-demo", "customer-session-a", previousScope),
+					HistoryScope: previousScope,
+					ResponseJSON: previousSnapshot,
+				},
+			},
+		},
+	}
+
+	_, _, _, err = svc.resolveThreadID(
+		context.Background(),
+		"turn_prev",
+		"customer-session-a",
+		"support-cases-http-demo",
+		tokenID,
+		map[string]string{"tenant_id": "acme"},
+	)
+	var publicErr *PublicAPIError
+	if !errors.As(err, &publicErr) || publicErr.Code != "history_scope_mismatch" {
+		t.Fatalf("expected history_scope_mismatch, got %v", err)
+	}
+}
+
+func TestNormalizeHistoryScopeRejectsInvalidShapes(t *testing.T) {
+	t.Parallel()
+
+	cases := []string{
+		`null`,
+		`[]`,
+		`{"tenant_id":""}`,
+		`{" tenant_id ":" acme ","tenant_id":"acme"}`,
+		`{"tenant_id":{"nested":"acme"}}`,
+		`{"tenant_id":["acme"]}`,
+	}
+	for _, tc := range cases {
+		_, err := normalizeHistoryScope(json.RawMessage(tc))
+		var publicErr *PublicAPIError
+		if !errors.As(err, &publicErr) || publicErr.Code != "invalid_history_scope" {
+			t.Fatalf("normalizeHistoryScope(%s) error = %v, want invalid_history_scope", tc, err)
+		}
 	}
 }
 
@@ -438,6 +701,7 @@ func TestResolveThreadIDReadsSessionFromResponseEnvelope(t *testing.T) {
 		"",
 		"support-cases-http-demo",
 		tokenID,
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("resolveThreadID: %v", err)
@@ -620,9 +884,8 @@ func TestFinishInvocationWithErrorStoresFailedTurnSnapshotForTurnsSurface(t *tes
 		Code:       "runtime_error",
 		Message:    "state lookup exploded",
 	}, publicAPITurnFailureContext{
-		Stage:          model.TurnFailureStageStateFetch,
-		PreviousTurnID: "turn_prev",
-		Metadata:       map[string]any{"source": "test"},
+		Stage:    model.TurnFailureStageStateFetch,
+		Metadata: map[string]any{"source": "test"},
 	})
 
 	err := svc.finishInvocationWithError(context.Background(), invocation, cause, nil)
@@ -636,9 +899,6 @@ func TestFinishInvocationWithErrorStoresFailedTurnSnapshotForTurnsSurface(t *tes
 	}
 	if snapshot.Object != "turn" || snapshot.Status != "failed" {
 		t.Fatalf("unexpected turn snapshot %#v", snapshot)
-	}
-	if snapshot.PreviousTurnID != "turn_prev" {
-		t.Fatalf("expected previous turn id to be preserved, got %#v", snapshot.PreviousTurnID)
 	}
 	if len(snapshot.Events) != 1 {
 		t.Fatalf("expected 1 terminal event, got %#v", snapshot.Events)

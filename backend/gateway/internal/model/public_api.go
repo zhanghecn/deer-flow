@@ -163,6 +163,8 @@ type PublicAPIInvocationFilter struct {
 	APITokenID   *uuid.UUID
 	AgentName    string
 	ThreadID     string
+	SessionID    string
+	HistoryScope map[string]string
 	Surface      string
 	FinishedOnly bool
 	Limit        int

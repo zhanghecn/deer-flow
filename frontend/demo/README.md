@@ -106,13 +106,17 @@ MCP demo and caches normalized packages under `deploy/data/document-cache`.
 The chat page (`/`, with `/chat` kept as a compatibility alias) keeps message
 history only in memory. The demo session SDK
 creates a fresh `session_id` for each new chat and sends it on every
-`/v1/turns` call. The browser does not store the message ledger or hide a saved
-session id in settings, so a new page load starts empty unless the URL
-explicitly provides `?session_id=...`.
+`/v1/turns` call. A caller-defined History Scope JSON object can be entered in
+settings and is sent as `history_scope` on turns and history requests. The
+browser does not store the message ledger or hide a saved session id in
+settings, so a new page load starts empty unless the URL explicitly provides
+`?session_id=...`.
 
 Use the header history button to ask the SDK for
-`GET /v1/turns/recent?agent=<agent>&limit=20`. That response is a recent session
-list, labelled by each session's first user input. Clicking a session then asks
-for `GET /v1/turns/recent?agent=<agent>&session_id=<session>&limit=50`, rebuilds
-the visible messages from the session-scoped items, and seeds the next turn with
-the latest item `id` as `previous_turn_id`.
+`GET /v1/turns/recent?agent=<agent>&limit=20` with the current scope when one is
+configured. That response is a recent session list, labelled by each session's
+first user input. Clicking a session, or entering a `session_id` in the history
+popover, asks for
+`GET /v1/turns/recent?agent=<agent>&session_id=<session>&limit=50` with the same
+scope, rebuilds the visible messages from the session-scoped items, and keeps
+the next turn on the same `session_id` plus `history_scope`.

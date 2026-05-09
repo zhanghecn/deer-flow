@@ -35,7 +35,7 @@ const traceText = {
 };
 
 describe("createPublicAPISession", () => {
-  it("threads previous_turn_id internally across streamed prompts", async () => {
+  it("keeps one session_id across streamed prompts", async () => {
     runStreamedPublicAPITurnMock
       .mockResolvedValueOnce({
         readModel: {
@@ -53,6 +53,7 @@ describe("createPublicAPISession", () => {
           object: "turn",
           status: "completed",
           agent: "support-demo",
+          session_id: "session_demo",
           thread_id: "thread_1",
           output_text: "first",
           reasoning_text: "",
@@ -81,8 +82,8 @@ describe("createPublicAPISession", () => {
           object: "turn",
           status: "completed",
           agent: "support-demo",
+          session_id: "session_demo",
           thread_id: "thread_1",
-          previous_turn_id: "turn_1",
           output_text: "second",
           reasoning_text: "",
           usage: {
@@ -100,18 +101,19 @@ describe("createPublicAPISession", () => {
       apiToken: "token",
       agent: "support-demo",
       traceText,
+      sessionId: "session_demo",
     });
 
     const first = await session.prompt({ text: "first question" });
     const second = await session.prompt({ text: "second question" });
 
-    expect(first.requestBody.previous_turn_id).toBeUndefined();
-    expect(second.requestBody.previous_turn_id).toBe("turn_1");
-    expect(session.getPreviousTurnId()).toBe("turn_2");
+    expect(first.requestBody.session_id).toBe("session_demo");
+    expect(second.requestBody.session_id).toBe("session_demo");
+    expect(session.getSessionId()).toBe("session_demo");
     expect(session.getLastTurn()?.id).toBe("turn_2");
   });
 
-  it("supports seeded continuation ids without forcing callers to resend history", async () => {
+  it("supports seeded session ids without forcing callers to resend history", async () => {
     runStreamedPublicAPITurnMock.mockResolvedValueOnce({
       readModel: {
         liveOutput: "continued",
@@ -128,8 +130,8 @@ describe("createPublicAPISession", () => {
         object: "turn",
         status: "completed",
         agent: "support-demo",
+        session_id: "session_seed",
         thread_id: "thread_1",
-        previous_turn_id: "turn_seed",
         output_text: "continued",
         reasoning_text: "",
         usage: {
@@ -147,16 +149,16 @@ describe("createPublicAPISession", () => {
       apiToken: "token",
       agent: "support-demo",
       traceText,
-      previousTurnId: "turn_seed",
+      sessionId: "session_seed",
     });
 
     const result = await session.prompt({ text: "continue" });
 
-    expect(result.requestBody.previous_turn_id).toBe("turn_seed");
-    expect(session.getPreviousTurnId()).toBe("turn_9");
+    expect(result.requestBody.session_id).toBe("session_seed");
+    expect(session.getLastTurn()?.id).toBe("turn_9");
   });
 
-  it("clears continuation state on reset", async () => {
+  it("creates a new session id on reset", async () => {
     runStreamedPublicAPITurnMock.mockResolvedValueOnce({
       readModel: {
         liveOutput: "first",
@@ -191,16 +193,17 @@ describe("createPublicAPISession", () => {
       apiToken: "token",
       agent: "support-demo",
       traceText,
+      sessionId: "session_before_reset",
     });
 
     await session.prompt({ text: "first question" });
     session.reset();
 
-    expect(session.getPreviousTurnId()).toBe("");
+    expect(session.getSessionId()).not.toBe("session_before_reset");
     expect(session.getLastTurn()).toBeNull();
   });
 
-  it("supports blocking prompts and still advances the session pointer", async () => {
+  it("supports blocking prompts and keeps the session id", async () => {
     createPublicAPITurnMock.mockResolvedValueOnce({
       id: "turn_blocking",
       object: "turn",
@@ -223,6 +226,7 @@ describe("createPublicAPISession", () => {
       apiToken: "token",
       agent: "support-demo",
       traceText,
+      sessionId: "session_blocking",
     });
 
     const result = await session.prompt({
@@ -233,13 +237,13 @@ describe("createPublicAPISession", () => {
     expect(createPublicAPITurnMock).toHaveBeenCalledWith(
       expect.objectContaining({
         body: expect.objectContaining({
+          session_id: "session_blocking",
           stream: false,
-          previous_turn_id: undefined,
         }),
       }),
     );
     expect(result.turn?.id).toBe("turn_blocking");
-    expect(session.getPreviousTurnId()).toBe("turn_blocking");
+    expect(session.getSessionId()).toBe("session_blocking");
   });
 
   it("drops effort when reasoning is explicitly disabled", () => {

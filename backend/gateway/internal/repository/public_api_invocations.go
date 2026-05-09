@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 
 	"github.com/google/uuid"
@@ -19,7 +20,11 @@ func NewPublicAPIInvocationRepo(pool *pgxpool.Pool) *PublicAPIInvocationRepo {
 }
 
 func (r *PublicAPIInvocationRepo) Create(ctx context.Context, invocation *model.PublicAPIInvocation) error {
-	_, err := r.pool.Exec(
+	historyScopeJSON, err := json.Marshal(emptyHistoryScopeIfNil(invocation.HistoryScope))
+	if err != nil {
+		return err
+	}
+	_, err = r.pool.Exec(
 		ctx,
 		`INSERT INTO public_api_invocations (
 			id,
@@ -31,6 +36,7 @@ func (r *PublicAPIInvocationRepo) Create(ctx context.Context, invocation *model.
 			thread_id,
 			trace_id,
 			request_model,
+			history_scope,
 			status,
 			input_tokens,
 			output_tokens,
@@ -44,8 +50,9 @@ func (r *PublicAPIInvocationRepo) Create(ctx context.Context, invocation *model.
 			finished_at
 		)
 		VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-			$11, $12, $13, $14, $15, $16, $17, $18, $19, $20
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb,
+			$11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+			$21
 		)`,
 		invocation.ID,
 		invocation.ResponseID,
@@ -56,6 +63,7 @@ func (r *PublicAPIInvocationRepo) Create(ctx context.Context, invocation *model.
 		invocation.ThreadID,
 		invocation.TraceID,
 		invocation.RequestModel,
+		string(historyScopeJSON),
 		invocation.Status,
 		invocation.InputTokens,
 		invocation.OutputTokens,
@@ -149,6 +157,7 @@ func (r *PublicAPIInvocationRepo) GetByResponseID(
 			thread_id,
 			trace_id,
 			request_model,
+			history_scope,
 			status,
 			input_tokens,
 			output_tokens,
@@ -178,6 +187,7 @@ func (r *PublicAPIInvocationRepo) GetByResponseID(
 		&item.ThreadID,
 		&item.TraceID,
 		&item.RequestModel,
+		&item.HistoryScope,
 		&item.Status,
 		&item.InputTokens,
 		&item.OutputTokens,
@@ -225,6 +235,7 @@ func (r *PublicAPIInvocationRepo) GetArtifactByFileID(
 			i.thread_id,
 			i.trace_id,
 			i.request_model,
+			i.history_scope,
 			i.status,
 			i.input_tokens,
 			i.output_tokens,
@@ -266,6 +277,7 @@ func (r *PublicAPIInvocationRepo) GetArtifactByFileID(
 		&invocation.ThreadID,
 		&invocation.TraceID,
 		&invocation.RequestModel,
+		&invocation.HistoryScope,
 		&invocation.Status,
 		&invocation.InputTokens,
 		&invocation.OutputTokens,
@@ -306,7 +318,13 @@ func (r *PublicAPIInvocationRepo) ListByUser(
 
 	agentName := strings.TrimSpace(filter.AgentName)
 	threadID := strings.TrimSpace(filter.ThreadID)
+	sessionID := strings.TrimSpace(filter.SessionID)
 	surface := strings.TrimSpace(filter.Surface)
+	historyScopeJSON, err := json.Marshal(emptyHistoryScopeIfNil(filter.HistoryScope))
+	if err != nil {
+		return nil, err
+	}
+	hasHistoryScope := len(filter.HistoryScope) > 0
 	rows, err := r.pool.Query(
 		ctx,
 		`SELECT
@@ -319,6 +337,7 @@ func (r *PublicAPIInvocationRepo) ListByUser(
 			thread_id,
 			trace_id,
 			request_model,
+			history_scope,
 			status,
 			input_tokens,
 			output_tokens,
@@ -337,14 +356,19 @@ func (r *PublicAPIInvocationRepo) ListByUser(
 		  AND ($4 = '' OR thread_id = $4)
 		  AND ($5 = '' OR surface = $5)
 		  AND ($6::boolean = false OR finished_at IS NOT NULL)
+		  AND ($7 = '' OR request_json->>'session_id' = $7 OR response_json->>'session_id' = $7 OR response_json->'openagents'->>'session_id' = $7 OR response_json->'metadata'->'openagents'->>'session_id' = $7)
+		  AND ($8::boolean = false OR history_scope @> $9::jsonb)
 		ORDER BY created_at DESC
-		LIMIT $7 OFFSET $8`,
+		LIMIT $10 OFFSET $11`,
 		userID,
 		filter.APITokenID,
 		agentName,
 		threadID,
 		surface,
 		filter.FinishedOnly,
+		sessionID,
+		hasHistoryScope,
+		string(historyScopeJSON),
 		limit,
 		offset,
 	)
@@ -366,6 +390,7 @@ func (r *PublicAPIInvocationRepo) ListByUser(
 			&item.ThreadID,
 			&item.TraceID,
 			&item.RequestModel,
+			&item.HistoryScope,
 			&item.Status,
 			&item.InputTokens,
 			&item.OutputTokens,
@@ -383,4 +408,11 @@ func (r *PublicAPIInvocationRepo) ListByUser(
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func emptyHistoryScopeIfNil(scope map[string]string) map[string]string {
+	if scope == nil {
+		return map[string]string{}
+	}
+	return scope
 }

@@ -47,7 +47,6 @@ describe("PublicAPIPlaygroundPanel", () => {
     const prompt = screen.getByLabelText("Prompt");
 
     expect(baseURL).toHaveValue("http://127.0.0.1:8083/v1");
-    expect(screen.queryByLabelText("Previous turn ID")).not.toBeInTheDocument();
     expect(
       screen.queryByLabelText("Max output tokens"),
     ).not.toBeInTheDocument();
@@ -62,7 +61,6 @@ describe("PublicAPIPlaygroundPanel", () => {
       screen.getByRole("button", { name: /Advanced controls/i }),
     );
 
-    expect(screen.getByLabelText("Previous turn ID")).toHaveValue("");
     expect(screen.getByLabelText("Max output tokens")).toHaveValue("");
   });
 

@@ -530,7 +530,6 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
   const [showDebug, setShowDebug] = useState(true);
 
   const apiBaseURL = defaultBaseURL ?? "";
-  const previousTurnIdRef = useRef("");
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -561,7 +560,6 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
     abortRef.current?.abort();
     abortRef.current = null;
     sessionRef.current?.reset();
-    previousTurnIdRef.current = "";
     setMessages([]);
     setQueuedFiles([]);
     setRunState("ready");
@@ -767,7 +765,6 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
         return;
       }
       setDebugSnapshot(finalized);
-      previousTurnIdRef.current = session.getPreviousTurnId();
 
       const finalStatus =
         finalized.status === "completed" || finalized.status === "requires_input"
@@ -865,11 +862,6 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
           )}
         </div>
         <div className="flex items-center gap-1.5">
-          {previousTurnIdRef.current && (
-            <span className="hidden font-mono text-[10px] text-zinc-600 sm:inline">
-              prev: {previousTurnIdRef.current.slice(0, 12)}…
-            </span>
-          )}
           <button
             type="button"
             onClick={() => setShowDebug(!showDebug)}

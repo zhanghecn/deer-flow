@@ -6,6 +6,12 @@
   `/v1/turns` with SSE plus `GET /v1/turns/{id}` for final state convergence.
 - TS/Python/Java helpers should stay thin wrappers around that contract and must
   not define a second event semantics layer.
+- Native `/v1/turns` history partitioning is caller-owned `history_scope`, a
+  flat string map. Omitted scope means the API-token + agent history view;
+  supplied scope is strict for lookup and continuation and must not fall back to
+  unscoped turns.
+- SDK callers should continue with `session_id` plus optional `history_scope`;
+  turn ids are retrieval/audit handles, not the normal continuation mechanism.
 - Source: migrated from `.omx/project-memory.json`;
   [docs/testing/README.md](/root/project/ai/deer-flow/docs/testing/README.md).
 

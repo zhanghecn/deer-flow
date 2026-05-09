@@ -65,6 +65,7 @@ func (h *TurnsHandler) ListRecent(c *gin.Context) {
 		buildPublicAPIAuthContext(c),
 		c.Query("agent"),
 		c.Query("session_id"),
+		c.Query("history_scope"),
 		parseQueryInt(c.Query("limit"), 10),
 	)
 	if err != nil {

@@ -24,9 +24,6 @@ type PublicAPIPlaygroundText = {
   reasoningLabel: string;
   reasoningDescription: string;
   reasoningEffort: string;
-  previousResponse: string;
-  previousResponseHint: string;
-  useLatestResponse: string;
   message: string;
   messagePlaceholder: string;
   files: string;
@@ -147,10 +144,6 @@ const enUS: PublicAPIPlaygroundText = {
   reasoningDescription:
     "Thinking stays opt-in at the control level. The runtime still exposes the resulting events and files.",
   reasoningEffort: "Effort",
-  previousResponse: "Previous turn ID",
-  previousResponseHint:
-    "Reuse the last turn ID to continue the same public conversation thread.",
-  useLatestResponse: "Use latest turn",
   message: "Prompt",
   messagePlaceholder:
     "Ask for a report, workflow, transformation, or strict JSON result.",
@@ -280,10 +273,6 @@ const zhCN: PublicAPIPlaygroundText = {
   reasoningDescription:
     "思考能力仍然是显式选项，但最终产生的事件和文件会继续完整暴露。",
   reasoningEffort: "思考强度",
-  previousResponse: "上一轮 turn ID",
-  previousResponseHint:
-    "复用上一轮 turn ID，可以继续同一个 public thread。",
-  useLatestResponse: "使用上一轮 turn",
   message: "提示词",
   messagePlaceholder: "可以要求报告、流程、转换，也可以要求严格返回 JSON。",
   files: "文件",

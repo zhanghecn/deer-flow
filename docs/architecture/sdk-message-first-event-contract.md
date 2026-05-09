@@ -107,7 +107,7 @@ Claude Code alignment matters at the public SDK shape, not at the wire format.
 - OpenAgents should do the same on top of native `/v1/turns`:
   - caller creates a session helper
   - caller invokes `session.prompt({ text, ... })`
-  - helper stores `previous_turn_id` internally
+  - helper keeps the same `session_id` and optional `history_scope`
   - helper streams SSE from `/v1/turns`
   - helper finalizes from `GET /v1/turns/{id}`
 

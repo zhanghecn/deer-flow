@@ -71,7 +71,7 @@ export interface PublicAPITurnRequestBody {
     file_ids?: string[];
   };
   session_id?: string;
-  previous_turn_id?: string;
+  history_scope?: Record<string, string>;
   stream?: boolean;
   text?: {
     format?: {
@@ -95,9 +95,9 @@ export interface PublicAPITurnSnapshot {
   status: string;
   agent: string;
   session_id?: string;
+  history_scope: Record<string, string>;
   thread_id: string;
   trace_id?: string;
-  previous_turn_id?: string;
   output_text: string;
   reasoning_text: string;
   artifacts?: PublicAPITurnArtifact[];
@@ -389,6 +389,7 @@ export async function listRecentPublicAPITurns(params: {
   apiToken: string;
   agent: string;
   sessionId?: string;
+  historyScope?: Record<string, string>;
   limit?: number;
   signal?: AbortSignal;
 }): Promise<PublicAPITurnListResponse> {
@@ -396,6 +397,9 @@ export async function listRecentPublicAPITurns(params: {
   searchParams.set("agent", params.agent);
   if (params.sessionId?.trim()) {
     searchParams.set("session_id", params.sessionId.trim());
+  }
+  if (params.historyScope && Object.keys(params.historyScope).length > 0) {
+    searchParams.set("history_scope", JSON.stringify(params.historyScope));
   }
   if (params.limit) {
     searchParams.set("limit", String(params.limit));

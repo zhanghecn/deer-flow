@@ -6,6 +6,7 @@ Environment variables:
   OPENAGENTS_API_KEY    bearer key for the published agent
   OPENAGENTS_AGENT      published agent name
   OPENAGENTS_SESSION_ID optional stable SDK session id
+  OPENAGENTS_HISTORY_SCOPE optional flat JSON object, e.g. {"tenant_id":"acme"}
   OPENAGENTS_PROMPT     optional prompt text
   OPENAGENTS_STREAM     set to 1 to use SSE streaming
 """
@@ -89,6 +90,32 @@ def get_turn(base_url: str, api_key: str, turn_id: str) -> dict:
         return json.loads(response.read().decode("utf-8"))
 
 
+def parse_history_scope(raw: str) -> dict[str, str]:
+    trimmed = raw.strip()
+    if not trimmed:
+        return {}
+    parsed = json.loads(trimmed)
+    if not isinstance(parsed, dict):
+        raise ValueError("OPENAGENTS_HISTORY_SCOPE must be a JSON object")
+
+    scope: dict[str, str] = {}
+    for key, value in parsed.items():
+        normalized_key = str(key).strip()
+        if not normalized_key:
+            raise ValueError("OPENAGENTS_HISTORY_SCOPE cannot contain empty keys")
+        if not isinstance(value, str):
+            raise ValueError("OPENAGENTS_HISTORY_SCOPE values must be strings")
+        normalized_value = value.strip()
+        if not normalized_value:
+            raise ValueError("OPENAGENTS_HISTORY_SCOPE cannot contain empty values")
+        # Mirror the server contract so the demo fails before sending ambiguous
+        # duplicate keys produced by client-side trimming.
+        if normalized_key in scope:
+            raise ValueError("OPENAGENTS_HISTORY_SCOPE keys must be unique after trimming")
+        scope[normalized_key] = normalized_value
+    return scope
+
+
 def main() -> int:
     raw_base_url = os.environ.get("OPENAGENTS_BASE_URL", "http://127.0.0.1:8083")
     api_key = os.environ.get("OPENAGENTS_API_KEY", "").strip()
@@ -100,6 +127,11 @@ def main() -> int:
         "OPENAGENTS_PROMPT",
         "请总结当前客服问题，并告诉我下一步怎么处理。",
     ).strip()
+    try:
+        history_scope = parse_history_scope(os.environ.get("OPENAGENTS_HISTORY_SCOPE", ""))
+    except (json.JSONDecodeError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     stream = os.environ.get("OPENAGENTS_STREAM", "").strip() == "1"
 
     if not api_key or not agent:
@@ -116,9 +148,13 @@ def main() -> int:
         "input": {"text": prompt},
         "thinking": {"enabled": True, "effort": "medium"},
     }
+    if history_scope:
+        payload["history_scope"] = history_scope
 
     try:
         print(f"[session_id] {session_id}")
+        if history_scope:
+            print(f"[history_scope] {json.dumps(history_scope, ensure_ascii=False)}")
         if stream:
             turn_id = stream_turn(base_url, api_key, payload)
             if turn_id:

@@ -85,8 +85,8 @@ This is the **recommended primary API**.
 Key properties:
 
 - send only the current turn input
-- bind an external user conversation with `session_id`; optionally include
-  `previous_turn_id` for the exact previous turn
+- bind an external user conversation with `session_id`; the server continues
+  the matching runtime thread without making callers manage turn cursors
 - supports SSE streaming
 - supports reasoning output, tool calls, structured output, uploaded files, and
   existing knowledge-base attachments
@@ -103,7 +103,10 @@ Key properties:
     "file_ids": ["file_123"]
   },
   "session_id": "sess_customer_001",
-  "previous_turn_id": "turn_abc",
+  "history_scope": {
+    "tenant_id": "acme",
+    "user_id": "u_123"
+  },
   "knowledge_base_ids": ["11111111-1111-1111-1111-111111111111"],
   "metadata": {
     "ticket_id": "T-1001"
@@ -139,7 +142,7 @@ Key properties:
 | `input.text` | `string` | Yes | Current user text input |
 | `input.file_ids` | `string[]` | No | `file_id` values returned by `/v1/files` |
 | `session_id` | `string` | No | External SDK session ID. Integrations should create and persist one per end-user conversation; if omitted, the server generates one and returns it |
-| `previous_turn_id` | `string` | No | Previous turn ID. When `session_id` is also supplied, the server verifies both point to the same session |
+| `history_scope` | `object` | No | Caller-defined flat string map used to partition history, for example `tenant_id` or `user_id`. Keys and values are trimmed; empty keys, empty values, arrays, and nested objects are rejected as `invalid_history_scope` |
 | `knowledge_base_ids` | `string[]` | No | Extra existing knowledge-base IDs to attach to the thread before this turn runs. Agent-level default knowledge bases are attached automatically. Any effective knowledge attachment requires the `knowledge:read` token scope, and each base must belong to the current user or be shared |
 | `metadata` | `object` | No | Caller-defined metadata |
 | `stream` | `boolean` | No | Enable SSE streaming |
@@ -210,9 +213,12 @@ Example response:
   "status": "completed",
   "agent": "support-cases-http-demo",
   "session_id": "sess_customer_001",
+  "history_scope": {
+    "tenant_id": "acme",
+    "user_id": "u_123"
+  },
   "thread_id": "thread_456",
   "trace_id": "trace_789",
-  "previous_turn_id": "turn_prev",
   "output_text": "This is the final answer",
   "reasoning_text": "This is the reasoning text",
   "artifacts": [],
@@ -238,9 +244,9 @@ Example response:
 | `status` | Common values: `completed`, `failed`, `incomplete` |
 | `agent` | Agent name |
 | `session_id` | External SDK session ID |
+| `history_scope` | Caller-defined history partition fields stored with this turn |
 | `thread_id` | Backend execution thread ID |
 | `trace_id` | Observability trace ID |
-| `previous_turn_id` | Previous turn ID |
 | `output_text` | Final assistant answer |
 | `reasoning_text` | Final reasoning text |
 | `artifacts` | Output files; each item includes an opaque `id`, `download_url`, and `virtual_path` for resolving answer citations |
@@ -257,6 +263,14 @@ summaries visible to the current API token for the requested agent. Each summary
 uses the latest turn snapshot for ordering, and the `input` field is the first
 visible user input for that session so the UI can label the row.
 
+Omitting `history_scope` is an explicit request for the API-token + agent
+history view. To filter by caller-defined fields, pass URL-encoded JSON:
+`GET /v1/turns/recent?agent=<agent_name>&history_scope=%7B%22tenant_id%22%3A%22acme%22%7D`.
+Scope filtering uses JSON containment semantics, so a query for
+`{"tenant_id":"acme"}` matches turns stored with additional scope fields such as
+`{"tenant_id":"acme","user_id":"u_123"}`. If no scoped rows match, the endpoint
+returns an empty list; it never falls back to unscoped turns.
+
 Each item is a turn snapshot plus the original `input`:
 
 ```json
@@ -269,6 +283,10 @@ Each item is a turn snapshot plus the original `input`:
       "status": "completed",
       "agent": "support-cases-http-demo",
       "session_id": "sess_customer_001",
+      "history_scope": {
+        "tenant_id": "acme",
+        "user_id": "u_123"
+      },
       "thread_id": "thread_456",
       "output_text": "This is the final answer",
       "reasoning_text": "",
@@ -292,8 +310,12 @@ Each item is a turn snapshot plus the original `input`:
 To restore one conversation, call
 `GET /v1/turns/recent?agent=<agent_name>&session_id=<session_id>&limit=50`.
 That response returns recent turns for the selected session. Rebuild the visible
-messages from those items, keep using the same `session_id`, and pass the latest
-item `id` as the next `previous_turn_id`.
+messages from those items, then keep using the same `session_id` and optional
+`history_scope` for the next turn. Callers do not need to pass a turn id back to
+continue the session.
+
+When restoring a scoped conversation, include the same current scope filter:
+`GET /v1/turns/recent?agent=<agent_name>&session_id=<session_id>&history_scope=<urlencoded-json>&limit=50`.
 
 ## 9. File Uploads
 

@@ -60,10 +60,8 @@ export type ChatSession = {
   prompt: (
     params: ChatSessionPromptParams,
   ) => Promise<ChatSessionPromptResult>;
-  resumeFromTurn: (turnId: string) => void;
   reset: () => void;
   getSessionId: () => string;
-  getPreviousTurnId: () => string;
 };
 
 function normalizeToolOutput(output: unknown): Array<{
@@ -108,14 +106,14 @@ export function createChatSession(params: {
   apiToken: string;
   agent: string;
   sessionId?: string;
-  previousTurnId?: string;
+  historyScope?: Record<string, string>;
 }): ChatSession {
   const session = createPublicAPISession({
     baseURL: params.baseURL,
     apiToken: params.apiToken,
     agent: params.agent,
     sessionId: params.sessionId,
-    previousTurnId: params.previousTurnId,
+    historyScope: params.historyScope,
   });
 
   return {
@@ -270,14 +268,8 @@ export function createChatSession(params: {
         throw error;
       }
     },
-    resumeFromTurn(turnId) {
-      session.resumeFromTurn(turnId);
-    },
     reset() {
       session.reset();
-    },
-    getPreviousTurnId() {
-      return session.getPreviousTurnId();
     },
     getSessionId() {
       return session.getSessionId();

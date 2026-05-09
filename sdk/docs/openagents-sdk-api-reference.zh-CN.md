@@ -84,7 +84,8 @@ curl -X GET "http://127.0.0.1:8083/v1/models" \
 特点：
 
 - 一个请求只发送当前轮输入
-- 通过 `session_id` 绑定外部用户会话；可选用 `previous_turn_id` 指定上一轮
+- 通过 `session_id` 绑定外部用户会话；服务端会续写匹配的运行线程，
+  调用方不需要管理 turn 游标
 - 支持 SSE 流式事件
 - 支持思考内容、工具调用、结构化输出、文件输入、已存在知识库绑定
 - 已发布 agent 可以预设默认知识库；SDK 调用方通常不需要传
@@ -100,7 +101,10 @@ curl -X GET "http://127.0.0.1:8083/v1/models" \
     "file_ids": ["file_123"]
   },
   "session_id": "sess_customer_001",
-  "previous_turn_id": "turn_abc",
+  "history_scope": {
+    "tenant_id": "acme",
+    "user_id": "u_123"
+  },
   "knowledge_base_ids": ["11111111-1111-1111-1111-111111111111"],
   "metadata": {
     "ticket_id": "T-1001"
@@ -136,7 +140,7 @@ curl -X GET "http://127.0.0.1:8083/v1/models" \
 | `input.text` | `string` | 是 | 当前轮用户输入文本 |
 | `input.file_ids` | `string[]` | 否 | 之前通过 `/v1/files` 上传得到的 `file_id` |
 | `session_id` | `string` | 否 | 外部 SDK 会话 ID。建议集成方为每个终端用户会话创建并保存；未传时服务端会生成并在响应中返回 |
-| `previous_turn_id` | `string` | 否 | 上一轮 turn ID。传了 `session_id` 时，服务端会校验二者属于同一会话 |
+| `history_scope` | `object` | 否 | 调用方自定义的扁平字符串 map，用于在 API key、agent、session 之外分区历史，例如 `tenant_id` 或 `user_id`。key/value 会 trim；空 key、空 value、数组、嵌套对象会以 `invalid_history_scope` 拒绝 |
 | `knowledge_base_ids` | `string[]` | 否 | 本轮执行前额外绑定到 thread 的知识库 ID。agent 预设的默认知识库会自动绑定。只要本轮存在有效知识库绑定，API key 就需要 token scope `knowledge:read`，且知识库必须属于当前用户或为共享知识库 |
 | `metadata` | `object` | 否 | 调用方自定义元数据 |
 | `stream` | `boolean` | 否 | 是否启用 SSE 流式输出 |
@@ -207,9 +211,12 @@ data: {"sequence":9,"type":"turn.completed","turn_id":"turn_123"}
   "status": "completed",
   "agent": "support-cases-http-demo",
   "session_id": "sess_customer_001",
+  "history_scope": {
+    "tenant_id": "acme",
+    "user_id": "u_123"
+  },
   "thread_id": "thread_456",
   "trace_id": "trace_789",
-  "previous_turn_id": "turn_prev",
   "output_text": "这是最终答案",
   "reasoning_text": "这是思考内容",
   "artifacts": [],
@@ -235,9 +242,9 @@ data: {"sequence":9,"type":"turn.completed","turn_id":"turn_123"}
 | `status` | 常见值：`completed` / `failed` / `incomplete` |
 | `agent` | agent 名称 |
 | `session_id` | 外部 SDK 会话 ID |
+| `history_scope` | 随该 turn 保存的调用方自定义历史分区字段 |
 | `thread_id` | 后端运行线程 ID |
 | `trace_id` | 观测 trace ID |
-| `previous_turn_id` | 上一轮 turn ID |
 | `output_text` | 最终回答文本 |
 | `reasoning_text` | 最终思考文本 |
 | `artifacts` | 输出文件列表；每一项包含不透明 `id`、`download_url`，以及用于解析回答引用的 `virtual_path` |
@@ -253,6 +260,13 @@ data: {"sequence":9,"type":"turn.completed","turn_id":"turn_123"}
 摘要。每个摘要用最新 turn 排序，但 `input` 字段使用该会话第一条可见用户
 输入，方便 UI 用第一句问题作为列表标题。
 
+不传 `history_scope` 表示显式选择 API key + agent 的历史视图。需要按调用方
+字段过滤时，传 URL 编码后的 JSON：
+`GET /v1/turns/recent?agent=<agent_name>&history_scope=%7B%22tenant_id%22%3A%22acme%22%7D`。
+scope 过滤使用 JSON containment 语义，因此查询 `{"tenant_id":"acme"}` 可以
+匹配存储为 `{"tenant_id":"acme","user_id":"u_123"}` 的 turns。带 scope
+查询没有结果时返回空列表，不会回退到无 scope 历史。
+
 响应中的每个 item 是 turn 快照加上原始 `input`：
 
 ```json
@@ -265,6 +279,10 @@ data: {"sequence":9,"type":"turn.completed","turn_id":"turn_123"}
       "status": "completed",
       "agent": "support-cases-http-demo",
       "session_id": "sess_customer_001",
+      "history_scope": {
+        "tenant_id": "acme",
+        "user_id": "u_123"
+      },
       "thread_id": "thread_456",
       "output_text": "这是最终答案",
       "reasoning_text": "",
@@ -288,8 +306,11 @@ data: {"sequence":9,"type":"turn.completed","turn_id":"turn_123"}
 恢复某个会话时，调用
 `GET /v1/turns/recent?agent=<agent_name>&session_id=<session_id>&limit=50`。
 这个响应返回所选会话的最近 turns。前端用这些 item 重建可见消息，继续使用
-同一个 `session_id`，并把最新 item 的 `id` 作为下一轮
-`previous_turn_id`。
+同一个 `session_id` 和可选 `history_scope` 发起下一轮；调用方不需要把
+turn id 再传回服务端。
+
+恢复带 scope 的会话时，需要带上当前 scope：
+`GET /v1/turns/recent?agent=<agent_name>&session_id=<session_id>&history_scope=<urlencoded-json>&limit=50`。
 
 ## 9. 文件上传
 

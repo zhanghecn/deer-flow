@@ -41,10 +41,17 @@ export type PublicAPISession = {
     params: PublicAPISessionPromptParams,
   ) => Promise<PublicAPISessionPromptResult>;
   reset: () => void;
-  seed: (turn: Pick<PublicAPITurnSnapshot, "id"> | string) => void;
-  getPreviousTurnId: () => string;
+  getSessionId: () => string;
   getLastTurn: () => PublicAPITurnSnapshot | null;
 };
+
+export function createPublicAPISessionID(): string {
+  const cryptoAPI = globalThis.crypto;
+  if (typeof cryptoAPI?.randomUUID === "function") {
+    return cryptoAPI.randomUUID();
+  }
+  return `sdk_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
 
 function normalizeThinkingRequest(
   thinking: PublicAPISessionPromptParams["thinking"],
@@ -64,7 +71,7 @@ function normalizeThinkingRequest(
 
 function buildSessionTurnRequestBody(params: {
   agent: string;
-  previousTurnId: string;
+  sessionId: string;
   prompt: PublicAPISessionPromptParams;
 }): PublicAPITurnRequestBody {
   return {
@@ -75,8 +82,8 @@ function buildSessionTurnRequestBody(params: {
     },
     // Claude Code's public SDK accepts prompt/session input while the runtime
     // carries conversation history internally. This helper mirrors that shape
-    // on top of `/v1/turns` by owning the continuation turn id locally.
-    previous_turn_id: params.previousTurnId || undefined,
+    // on top of `/v1/turns` by keeping one durable session id per chat.
+    session_id: params.sessionId,
     stream: params.prompt.stream ?? true,
     metadata: params.prompt.metadata,
     thinking: normalizeThinkingRequest(params.prompt.thinking),
@@ -99,16 +106,16 @@ export function createPublicAPISession(params: {
     turnWaiting: string;
     turnFailed: string;
   };
-  previousTurnId?: string;
+  sessionId?: string;
 }): PublicAPISession {
-  let previousTurnId = params.previousTurnId?.trim() ?? "";
+  let sessionId = params.sessionId?.trim() || createPublicAPISessionID();
   let lastTurn: PublicAPITurnSnapshot | null = null;
 
   return {
     previewRequest(prompt) {
       return buildSessionTurnRequestBody({
         agent: params.agent,
-        previousTurnId,
+        sessionId,
         prompt,
       });
     },
@@ -128,7 +135,6 @@ export function createPublicAPISession(params: {
           turn,
           traceText: params.traceText,
         });
-        previousTurnId = turn.id;
         lastTurn = turn;
         return {
           requestBody,
@@ -146,7 +152,6 @@ export function createPublicAPISession(params: {
         onUpdate: prompt.onUpdate,
       });
       if (result.turn) {
-        previousTurnId = result.turn.id;
         lastTurn = result.turn;
       }
       return {
@@ -156,14 +161,11 @@ export function createPublicAPISession(params: {
       };
     },
     reset() {
-      previousTurnId = "";
+      sessionId = createPublicAPISessionID();
       lastTurn = null;
     },
-    seed(turn) {
-      previousTurnId = typeof turn === "string" ? turn.trim() : turn.id.trim();
-    },
-    getPreviousTurnId() {
-      return previousTurnId;
+    getSessionId() {
+      return sessionId;
     },
     getLastTurn() {
       return lastTurn;
