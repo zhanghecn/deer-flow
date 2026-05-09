@@ -34,3 +34,10 @@
   - a real published `/v1/turns` run
   - `8081/observability` evidence for the same run
   - a product or demo UI surface that displays or uses the result
+- When validating the MCP workbench demo on `http://127.0.0.1:8084`, remember
+  it is a Docker-built static nginx bundle from `frontend/demo/compose.yaml`,
+  not a live view of local source. Rebuild/restart it before claiming current
+  code was tested:
+  `docker compose -f frontend/demo/compose.yaml up -d --build mcp-workbench`.
+  Then verify the served JS bundle and capture the actual `/v1/turns` request
+  body; a local Vite/dev-server browser test does not prove 8084 is current.
