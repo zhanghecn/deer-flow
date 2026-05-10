@@ -19,6 +19,7 @@ MODEL_GATEWAY_CONTAINER="${MODEL_GATEWAY_CONTAINER:-}"
 MODEL_GATEWAY_ALIAS="${MODEL_GATEWAY_ALIAS:-model-gateway}"
 AUTO_ATTACH_MODEL_GATEWAY="${OPENAGENTS_AUTO_ATTACH_MODEL_GATEWAY:-1}"
 PULL_IMAGES="${OPENAGENTS_PULL_IMAGES:-1}"
+BUILD_MISSING_IMAGES="${OPENAGENTS_BUILD_MISSING_IMAGES:-1}"
 
 info() { echo -e "${BLUE}[INFO]${NC} $*"; }
 success() { echo -e "${GREEN}[OK]${NC} $*"; }
@@ -39,6 +40,8 @@ Prepares and starts the self-contained production deploy directory:
 The default behavior starts the production stack. Use --prepare-only when a
 release script only needs to refresh generated deploy assets.
 Set OPENAGENTS_PULL_IMAGES=0 to skip pulling images before startup.
+Set OPENAGENTS_BUILD_MISSING_IMAGES=0 to require registry images and fail when
+the OpenAgents release images are not already available locally.
 
 To make an existing New API container reachable from OpenAgents:
   MODEL_GATEWAY_CONTAINER=1Panel-new-api-6d1F scripts/docker-deploy.sh
@@ -73,6 +76,17 @@ env_value() {
     printf '%s\n' "${line#*=}"
 }
 
+setting_value() {
+    local key="$1"
+    local default="$2"
+    local value="${!key:-}"
+
+    if [ -z "$value" ]; then
+        value="$(env_value "$key" || true)"
+    fi
+    printf '%s\n' "${value:-$default}"
+}
+
 ensure_env_value() {
     local key="$1"
     local value="$2"
@@ -80,6 +94,15 @@ ensure_env_value() {
         return
     fi
     replace_env "$key" "$value"
+}
+
+replace_env_from_process_if_set() {
+    local key="$1"
+    local value="${!key:-}"
+
+    if [ -n "$value" ]; then
+        replace_env "$key" "$value"
+    fi
 }
 
 normalize_existing_env() {
@@ -94,6 +117,12 @@ normalize_existing_env() {
     ensure_env_value "OPENAGENTS_VERSION" "${old_tag:-latest}"
     ensure_env_value "OPENAGENTS_MIGRATIONS_DIR" "./migrations"
     ensure_env_value "OPENAGENTS_DOCKER_NETWORK" "$DOCKER_NETWORK"
+    # Explicit process-level image identity is an operator decision for this
+    # deploy directory, not just a one-shot compose interpolation override.
+    replace_env_from_process_if_set "OPENAGENTS_IMAGE_REGISTRY"
+    replace_env_from_process_if_set "OPENAGENTS_IMAGE_PREFIX"
+    replace_env_from_process_if_set "OPENAGENTS_VERSION"
+    replace_env_from_process_if_set "OPENAGENTS_DOCKER_NETWORK"
 
     # Existing deploy env files are preserved to avoid rotating production
     # secrets. Add newly supported optional media keys as empty operator
@@ -168,6 +197,71 @@ directory_has_files() {
 
 compose() {
     (cd "$DEPLOY_DIR" && docker compose -f docker-compose.yml "$@")
+}
+
+release_identity_args() {
+    printf '%s\0' \
+        "--registry" "$(setting_value OPENAGENTS_IMAGE_REGISTRY docker.io)" \
+        "--prefix" "$(setting_value OPENAGENTS_IMAGE_PREFIX zhangxuan2/openagents)" \
+        "--version" "$(setting_value OPENAGENTS_VERSION latest)"
+}
+
+release_image_prefix() {
+    local registry prefix
+
+    registry="$(setting_value OPENAGENTS_IMAGE_REGISTRY docker.io)"
+    prefix="$(setting_value OPENAGENTS_IMAGE_PREFIX zhangxuan2/openagents)"
+    registry="${registry#https://}"
+    registry="${registry#http://}"
+    registry="${registry%/}"
+    prefix="${prefix#docker.io/}"
+    prefix="${prefix#registry-1.docker.io/}"
+    prefix="${prefix%/}"
+    printf '%s/%s-' "$registry" "$prefix"
+}
+
+missing_release_images() {
+    local expected_prefix image missing=0
+
+    expected_prefix="$(release_image_prefix)"
+    while IFS= read -r image; do
+        [ -n "$image" ] || continue
+        case "$image" in
+            "$expected_prefix"*)
+                if ! docker image inspect "$image" >/dev/null 2>&1; then
+                    printf '%s\n' "$image"
+                    missing=1
+                fi
+                ;;
+        esac
+    done < <(compose config --images)
+
+    return "$missing"
+}
+
+ensure_release_images_available() {
+    local missing_images=()
+    local release_args=()
+
+    mapfile -t missing_images < <(missing_release_images)
+    if [ "${#missing_images[@]}" -eq 0 ]; then
+        return
+    fi
+
+    if [ "$BUILD_MISSING_IMAGES" = "0" ]; then
+        printf '%s\n' "${missing_images[@]}" >&2
+        fail "Missing OpenAgents release images. Push them first or rerun without OPENAGENTS_BUILD_MISSING_IMAGES=0 to build from this source tree."
+    fi
+
+    warn "OpenAgents release images are missing locally; building them from the current source tree."
+    printf '  %s\n' "${missing_images[@]}"
+    # This fallback preserves the one-command source checkout path when a
+    # registry tag has not been published yet. Operators that require a strict
+    # pull-only deploy can set OPENAGENTS_BUILD_MISSING_IMAGES=0.
+    while IFS= read -r -d '' arg; do
+        release_args+=("$arg")
+    done < <(release_identity_args)
+    "$PROJECT_ROOT/scripts/docker-release.sh" build --scope all "${release_args[@]}"
 }
 
 ensure_docker_network() {
@@ -324,6 +418,7 @@ main() {
             # Operators using unpublished local images can set OPENAGENTS_PULL_IMAGES=0.
             compose pull || warn "Image pull failed; continuing with local images."
         fi
+        ensure_release_images_available
         compose up -d
         success "Production stack is started; the migrate service gates gateway/langgraph startup"
         echo ""

@@ -48,6 +48,7 @@ Options:
   -h, --help             Show this help.
 
 Examples:
+  scripts/docker-release.sh push --scope all --version 1.2.3
   scripts/docker-release.sh push --scope app --version 1.2.3
   scripts/docker-release.sh deploy --scope gateway --version 1.2.3
   scripts/docker-release.sh deploy --scope all --version 1.2.3

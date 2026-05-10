@@ -49,7 +49,13 @@ git pull
 
 ## 发版
 
-构建并推送应用镜像：
+第一次发布到一个新的镜像仓库或版本时，先推完整栈：
+
+```bash
+./scripts/docker-release.sh push --scope all --version 1.2.3
+```
+
+后续只改应用代码时，推应用镜像：
 
 ```bash
 ./scripts/docker-release.sh push --scope app --version 1.2.3
@@ -71,6 +77,13 @@ all       发布全栈镜像，包括 sandbox 和 ONLYOFFICE
 ```
 
 生产环境建议固定版本号；`latest` 只适合个人自托管或临时使用。
+
+如果当前源码部署时 registry 里还没有对应镜像，`./scripts/docker-deploy.sh`
+会自动从当前源码补建缺失的 OpenAgents 镜像。严格要求只拉远程镜像时设置：
+
+```bash
+OPENAGENTS_BUILD_MISSING_IMAGES=0 ./scripts/docker-deploy.sh
+```
 
 ## New API
 

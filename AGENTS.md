@@ -101,6 +101,7 @@ Repository-wide testing index:
 - For deploy-stack verification after local code changes, rebuild the affected image scope and start the deploy stack without pulling remote images:
   - `OPENAGENTS_PULL_IMAGES=0 ./scripts/docker-deploy.sh` after a local build.
   - Use `./scripts/docker-release.sh build --scope frontend|gateway|app|all --version latest` according to the touched surface.
+- For a real release simulation, use a local registry, push `--scope all`, remove local OpenAgents images and deploy by pulling that registry version; details live in `memory/operations/development-testing.md`.
 - When the user asks for a "real test" or production/current-code browser verification, default to `deploy/docker-compose.yml` via `./scripts/docker-deploy.sh`.
 - Use `docker/docker-compose.yaml` only when the task is specifically about the source-mounted local development stack.
 - Use the correct prod entrypoint for the surface under test:

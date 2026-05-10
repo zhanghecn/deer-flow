@@ -30,6 +30,28 @@ Use a narrower scope when obvious:
 `OPENAGENTS_PULL_IMAGES=0` is required for local current-code testing because
 the deploy script normally pulls published images for production usage.
 
+## Release Simulation
+
+When validating the real release path without external registry credentials,
+use a local Docker registry and prove this sequence end to end:
+
+```bash
+docker run -d --name openagents-local-registry -p 5000:5000 registry:2
+./scripts/docker-release.sh push --scope all --registry localhost:5000 --prefix openagents --version e2e
+```
+
+Then remove the local OpenAgents images and deploy from the pushed registry:
+
+```bash
+OPENAGENTS_IMAGE_REGISTRY=localhost:5000 \
+OPENAGENTS_IMAGE_PREFIX=openagents \
+OPENAGENTS_VERSION=e2e \
+./scripts/docker-deploy.sh --force
+```
+
+This is the closest local proof of a real release because deploy must pull
+images from the registry after local copies are removed.
+
 ## Browser Evidence
 
 Verify user-facing behavior on:
