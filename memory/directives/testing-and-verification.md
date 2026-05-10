@@ -20,10 +20,10 @@
 - After local code changes that must be verified in containers, rebuild the
   affected deploy image scope, then start the deploy stack without pulling
   remote images:
-  - frontend change: `./scripts/docker-release.sh build --scope frontend --version latest`
-  - gateway change: `./scripts/docker-release.sh build --scope gateway --version latest`
-  - app/runtime change: `./scripts/docker-release.sh build --scope app --version latest`
-  - full stack image change: `./scripts/docker-release.sh build --scope all --version latest`
+  - frontend change: `./scripts/docker-release.sh build --scope frontend`
+  - gateway change: `./scripts/docker-release.sh build --scope gateway`
+  - app/runtime change: `./scripts/docker-release.sh build --scope app`
+  - full stack image change: `./scripts/docker-release.sh build --scope all`
   - deploy local build: `OPENAGENTS_PULL_IMAGES=0 ./scripts/docker-deploy.sh`
 - For production or self-host current-code container verification, default to
   `deploy/docker-compose.yml` via `./scripts/docker-deploy.sh`.

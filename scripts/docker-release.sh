@@ -29,7 +29,7 @@ Usage:
   scripts/docker-release.sh [push|build|pull|deploy|config|images] --scope <scope> [options]
 
 Commands:
-  push      Build release images and push them to the registry (default)
+  push      Build release images and push git-derived + latest tags (default)
   build     Build release images only
   pull      Pull release images using deploy/docker-compose.yml
   deploy    Pull, run reviewed migrations, then restart the selected services
@@ -37,10 +37,6 @@ Commands:
   images    Print the image refs that will be used
 
 Options:
-  --prefix <prefix>      Image name prefix. Defaults to zhangxuan2/openagents.
-                         gateway => <registry>/<prefix>-gateway:<version>
-  --version <version>    Image version tag. Defaults to latest.
-  --registry <host>      Registry host. Defaults to docker.io.
   --scope <scope>        frontend, gateway, app, or all.
                          frontend=web/nginx; gateway=gateway; app=web+gateway+langgraph.
   --no-build             For push: skip build and only push existing local images.
@@ -48,10 +44,10 @@ Options:
   -h, --help             Show this help.
 
 Examples:
-  scripts/docker-release.sh push --scope all --version 1.2.3
-  scripts/docker-release.sh push --scope app --version 1.2.3
-  scripts/docker-release.sh deploy --scope gateway --version 1.2.3
-  scripts/docker-release.sh deploy --scope all --version 1.2.3
+  scripts/docker-release.sh push --scope all
+  scripts/docker-release.sh push --scope app
+  scripts/docker-release.sh deploy --scope app
+  scripts/docker-release.sh images --scope app
 EOF
 }
 
@@ -74,21 +70,6 @@ parse_args() {
             push|build|pull|deploy|config|images)
                 COMMAND="$1"
                 shift
-                ;;
-            --prefix)
-                [ "$#" -ge 2 ] || fail "$1 requires a value"
-                IMAGE_PREFIX="$2"
-                shift 2
-                ;;
-            --version)
-                [ "$#" -ge 2 ] || fail "$1 requires a value"
-                IMAGE_VERSION="$2"
-                shift 2
-                ;;
-            --registry)
-                [ "$#" -ge 2 ] || fail "--registry requires a value"
-                IMAGE_REGISTRY="$2"
-                shift 2
                 ;;
             --scope)
                 [ "$#" -ge 2 ] || fail "--scope requires a value"
@@ -143,6 +124,42 @@ validate_release_scope() {
     esac
 }
 
+git_release_version() {
+    local tag sha
+
+    tag="$(git -C "$PROJECT_ROOT" describe --tags --exact-match 2>/dev/null || true)"
+    if [ -n "$tag" ]; then
+        printf '%s\n' "${tag#v}"
+        return
+    fi
+
+    sha="$(git -C "$PROJECT_ROOT" rev-parse --short=12 HEAD 2>/dev/null || true)"
+    if [ -n "$sha" ]; then
+        printf 'git-%s\n' "$sha"
+        return
+    fi
+
+    printf '%s\n' "$DEFAULT_VERSION"
+}
+
+default_release_version() {
+    local configured_version
+
+    case "$COMMAND" in
+        push)
+            # A release push creates an immutable git-derived tag and also
+            # refreshes `latest`, matching the Sub2API release convention.
+            git_release_version
+            ;;
+        *)
+            # Runtime-facing commands follow deploy/.env and therefore default
+            # to `latest`; users should not have to remember release tags.
+            configured_version="$(deploy_env_value OPENAGENTS_VERSION || true)"
+            printf '%s\n' "${configured_version:-$DEFAULT_VERSION}"
+            ;;
+    esac
+}
+
 resolve_release_identity() {
     if [ -z "$IMAGE_REGISTRY" ]; then
         IMAGE_REGISTRY="$(deploy_env_value OPENAGENTS_IMAGE_REGISTRY || true)"
@@ -167,10 +184,10 @@ resolve_release_identity() {
     IMAGE_PREFIX="${IMAGE_PREFIX%/}"
 
     if [ -z "$IMAGE_VERSION" ]; then
-        IMAGE_VERSION="$(deploy_env_value OPENAGENTS_VERSION || true)"
-    fi
-    if [ -z "$IMAGE_VERSION" ]; then
-        IMAGE_VERSION="$DEFAULT_VERSION"
+        # Release users should not have to remember or pass version tags.
+        # Pushes get an immutable git-derived tag; runtime commands follow
+        # deploy/.env and normally resolve to latest.
+        IMAGE_VERSION="$(default_release_version)"
     fi
 }
 
@@ -222,6 +239,14 @@ image_ref() {
     echo "${IMAGE_REGISTRY}/${IMAGE_PREFIX}-${suffix}:${IMAGE_VERSION}"
 }
 
+latest_image_ref() {
+    local service="$1"
+    local suffix
+
+    suffix="$(image_suffix "$service")"
+    echo "${IMAGE_REGISTRY}/${IMAGE_PREFIX}-${suffix}:latest"
+}
+
 print_release_summary() {
     local service
 
@@ -237,6 +262,9 @@ print_release_summary() {
         while IFS= read -r service; do
             [ -n "$service" ] || continue
             echo "  $(image_ref "$service")"
+            if [ "$COMMAND" = "push" ] && [ "$IMAGE_VERSION" != "$DEFAULT_VERSION" ]; then
+                echo "  $(latest_image_ref "$service")"
+            fi
         done < <(selected_services)
     fi
     echo ""
@@ -315,6 +343,28 @@ push_service() {
     run_cmd docker push "$(image_ref "$service")"
 }
 
+tag_latest_service() {
+    local service="$1"
+
+    if [ "$IMAGE_VERSION" = "$DEFAULT_VERSION" ]; then
+        return
+    fi
+
+    # Release pushes always refresh the mutable `latest` tag so self-hosted
+    # deploys can update with a pull/up flow like Sub2API.
+    run_cmd docker tag "$(image_ref "$service")" "$(latest_image_ref "$service")"
+}
+
+push_latest_service() {
+    local service="$1"
+
+    if [ "$IMAGE_VERSION" = "$DEFAULT_VERSION" ]; then
+        return
+    fi
+
+    run_cmd docker push "$(latest_image_ref "$service")"
+}
+
 compose_base() {
     OPENAGENTS_IMAGE_REGISTRY="$IMAGE_REGISTRY" \
     OPENAGENTS_IMAGE_PREFIX="$IMAGE_PREFIX" \
@@ -340,11 +390,15 @@ run_compose_base() {
 
 sync_deploy_assets() {
     if [ "$DRY_RUN" -eq 1 ]; then
-        printf '+ %q --prepare-only\n' "$PROJECT_ROOT/scripts/docker-deploy.sh"
+        printf '+ OPENAGENTS_IMAGE_REGISTRY=%q OPENAGENTS_IMAGE_PREFIX=%q OPENAGENTS_VERSION=%q %q --prepare-only\n' \
+            "$IMAGE_REGISTRY" "$IMAGE_PREFIX" "$IMAGE_VERSION" "$PROJECT_ROOT/scripts/docker-deploy.sh"
         return
     fi
 
-    "$PROJECT_ROOT/scripts/docker-deploy.sh" --prepare-only
+    OPENAGENTS_IMAGE_REGISTRY="$IMAGE_REGISTRY" \
+    OPENAGENTS_IMAGE_PREFIX="$IMAGE_PREFIX" \
+    OPENAGENTS_VERSION="$IMAGE_VERSION" \
+        "$PROJECT_ROOT/scripts/docker-deploy.sh" --prepare-only
 }
 
 scope_needs_migrations() {
@@ -384,10 +438,16 @@ release_push() {
     if [ "$BUILD_BEFORE_PUSH" -eq 1 ]; then
         for service in "${services[@]}"; do
             build_service "$service"
+            tag_latest_service "$service"
+        done
+    else
+        for service in "${services[@]}"; do
+            tag_latest_service "$service"
         done
     fi
     for service in "${services[@]}"; do
         push_service "$service"
+        push_latest_service "$service"
     done
 }
 

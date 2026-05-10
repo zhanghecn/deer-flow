@@ -49,22 +49,22 @@ git pull
 
 ## 发版
 
-第一次发布到一个新的镜像仓库或版本时，先推完整栈：
+正式发版对齐 Sub2API：推送 `v*` git tag 后由 GitHub Actions 构建镜像，
+同时发布不可变版本 tag 和 `latest`。配置了 DockerHub secrets 时会发布到
+`deploy/.env` 默认使用的 DockerHub 仓库，同时也会发布 GHCR 备份镜像。
+如果 DockerHub 命名空间不是 `<DOCKERHUB_USERNAME>/openagents`，只需要在
+仓库变量里配置一次 `DOCKERHUB_IMAGE_PREFIX`。
+
+需要在本机手动发镜像时，第一次发布到一个新的镜像仓库先推完整栈：
 
 ```bash
-./scripts/docker-release.sh push --scope all --version 1.2.3
+./scripts/docker-release.sh push --scope all
 ```
 
 后续只改应用代码时，推应用镜像：
 
 ```bash
-./scripts/docker-release.sh push --scope app --version 1.2.3
-```
-
-服务器部署指定版本：
-
-```bash
-./scripts/docker-release.sh deploy --scope app --version 1.2.3
+./scripts/docker-release.sh push --scope app
 ```
 
 scope：
@@ -76,7 +76,14 @@ app       发布 web + gateway + langgraph
 all       发布全栈镜像，包括 sandbox 和 ONLYOFFICE
 ```
 
-生产环境建议固定版本号；`latest` 只适合个人自托管或临时使用。
+版本号由脚本从当前 git tag 或 commit 自动生成，并同时刷新 `latest`。
+用户不需要手写或记忆版本号；服务器更新仍然使用：
+
+```bash
+./scripts/docker-deploy.sh
+```
+
+镜像仓库信息只在 `deploy/.env` 里配置，不要在日常命令里反复传参数。
 
 如果当前源码部署时 registry 里还没有对应镜像，`./scripts/docker-deploy.sh`
 会自动从当前源码补建缺失的 OpenAgents 镜像。严格要求只拉远程镜像时设置：

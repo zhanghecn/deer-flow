@@ -36,8 +36,11 @@
   second production template under `docker/`.
 - `deploy/.env` carries deployment variables and secrets. Root `.env` is for
   local/dev workflows.
-- Versioned release images use names such as `openagents-gateway:1.2.3`; the
-  single operator-controlled tag is `OPENAGENTS_VERSION`.
+- Release pushes use service-specific image names, derive an immutable tag from
+  the current git tag or commit, and also refresh `latest`. The GitHub workflow
+  publishes DockerHub when credentials are configured and always publishes GHCR.
+  Deploy/update commands default to `latest` so operators do not have to
+  remember a version string.
 
 ## Historical Host-Run Dev Stack
 

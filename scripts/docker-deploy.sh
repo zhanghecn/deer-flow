@@ -199,13 +199,6 @@ compose() {
     (cd "$DEPLOY_DIR" && docker compose -f docker-compose.yml "$@")
 }
 
-release_identity_args() {
-    printf '%s\0' \
-        "--registry" "$(setting_value OPENAGENTS_IMAGE_REGISTRY docker.io)" \
-        "--prefix" "$(setting_value OPENAGENTS_IMAGE_PREFIX zhangxuan2/openagents)" \
-        "--version" "$(setting_value OPENAGENTS_VERSION latest)"
-}
-
 release_image_prefix() {
     local registry prefix
 
@@ -241,7 +234,6 @@ missing_release_images() {
 
 ensure_release_images_available() {
     local missing_images=()
-    local release_args=()
 
     mapfile -t missing_images < <(missing_release_images)
     if [ "${#missing_images[@]}" -eq 0 ]; then
@@ -258,10 +250,10 @@ ensure_release_images_available() {
     # This fallback preserves the one-command source checkout path when a
     # registry tag has not been published yet. Operators that require a strict
     # pull-only deploy can set OPENAGENTS_BUILD_MISSING_IMAGES=0.
-    while IFS= read -r -d '' arg; do
-        release_args+=("$arg")
-    done < <(release_identity_args)
-    "$PROJECT_ROOT/scripts/docker-release.sh" build --scope all "${release_args[@]}"
+    OPENAGENTS_IMAGE_REGISTRY="$(setting_value OPENAGENTS_IMAGE_REGISTRY docker.io)" \
+    OPENAGENTS_IMAGE_PREFIX="$(setting_value OPENAGENTS_IMAGE_PREFIX zhangxuan2/openagents)" \
+    OPENAGENTS_VERSION="$(setting_value OPENAGENTS_VERSION latest)" \
+        "$PROJECT_ROOT/scripts/docker-release.sh" build --scope all
 }
 
 ensure_docker_network() {
