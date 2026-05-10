@@ -14,6 +14,17 @@
 
 ## Canonical Docker Verification
 
+- Development is testing: when a coding agent changes code, it owns the
+  current-code verification loop. Do not ask the user to choose between
+  dev/test/prod lanes.
+- After local code changes that must be verified in containers, rebuild the
+  affected deploy image scope, then start the deploy stack without pulling
+  remote images:
+  - frontend change: `./scripts/docker-release.sh build --scope frontend --version latest`
+  - gateway change: `./scripts/docker-release.sh build --scope gateway --version latest`
+  - app/runtime change: `./scripts/docker-release.sh build --scope app --version latest`
+  - full stack image change: `./scripts/docker-release.sh build --scope all --version latest`
+  - deploy local build: `OPENAGENTS_PULL_IMAGES=0 ./scripts/docker-deploy.sh`
 - For production or self-host current-code container verification, default to
   `deploy/docker-compose.yml` via `./scripts/docker-deploy.sh`.
 - Use `docker/docker-compose.yaml` only when the task is specifically about the

@@ -37,9 +37,9 @@ For contributor workflow:
 1. `../CONTRIBUTING.md`
 2. `testing/README.md`
 
-For deployment, release, testing, and operations:
+For production usage, release, and migration:
 
-1. `../OPERATIONS.md`
+1. `../DEPLOY.md`
 
 ## Source-Of-Truth Rule
 
@@ -49,7 +49,7 @@ When someone asks whether the "project docs" match the code, default to:
 - `guides/`
 - `testing/`
 - top-level `README.md`
-- top-level `OPERATIONS.md`
+- top-level `DEPLOY.md`
 - top-level `CONTRIBUTING.md`
 - relevant `AGENTS.md`
 

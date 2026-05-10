@@ -27,7 +27,7 @@ help:
 	@echo "  make host-dev      - Start host-run debugging processes"
 	@echo "  make host-stop     - Stop host-run debugging processes"
 	@echo "  make docker-infra-start / docker-infra-stop - Start only sandbox + ONLYOFFICE"
-	@echo "  Current operations workflow: OPERATIONS.md"
+	@echo "  Production usage and updates: DEPLOY.md"
 
 config:
 	@if [ -f config.yaml ] || [ -f config.yml ] || [ -f configure.yml ]; then \

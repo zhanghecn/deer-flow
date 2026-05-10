@@ -35,10 +35,11 @@ recorded verification documents.
 For broad repo work, read:
 
 1. `directives/testing-and-verification.md`
-2. `directives/runtime-boundaries.md`
-3. `integrations/mcp.md`
-4. `integrations/public-api.md`
-5. `operations/current-stack.md`
+2. `operations/development-testing.md`
+3. `directives/runtime-boundaries.md`
+4. `integrations/mcp.md`
+5. `integrations/public-api.md`
+6. `operations/current-stack.md`
 
 For historical context, read files under `archive/` only after the current docs
 and directives above.

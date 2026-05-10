@@ -74,8 +74,7 @@ make dev
 Open: `http://localhost:8083`
 
 Docker development uses `deploy/data/openagents` for runtime data and caches.
-Deployment, testing, release, and data-directory rules are in
-[Operations](OPERATIONS.md).
+Production usage, release, and migration rules are in [Deploy](DEPLOY.md).
 
 ### 3. Host debugging
 
@@ -139,7 +138,7 @@ See [`backend/agents/src/client.py`](backend/agents/src/client.py) and [`backend
 ## Documentation
 
 - [Docs Index](docs/README.md)
-- [Operations](OPERATIONS.md)
+- [Deploy](DEPLOY.md)
 - [Contributing Guide](CONTRIBUTING.md)
 - [Testing Guide](docs/testing/README.md)
 - [Agents Architecture](backend/agents/README.md)
