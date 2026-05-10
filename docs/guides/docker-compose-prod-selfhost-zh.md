@@ -12,18 +12,44 @@
 `docker/` 只保留 Dockerfile 和本地开发 compose；不要再用
 `docker/docker-compose-prod.yaml`，这个生产模板已经删除。
 
-## 速查
+## 一行部署
+
+开源用户不需要理解内部脚本、网络和迁移细节，直接执行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bytedance/openagents/main/scripts/install.sh | bash
+```
+
+如果已经有 New API 容器，也仍然是一行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bytedance/openagents/main/scripts/install.sh | env MODEL_GATEWAY_CONTAINER=1Panel-new-api-6d1F bash
+```
+
+如果用户已经 clone 了源码，在仓库根目录执行：
+
+```bash
+./scripts/docker-deploy.sh
+```
+
+脚本默认会生成 secrets、同步配置和 SQL、创建 `openagents` 网络、尝试自动识别
+New API 容器、启动生产栈。启动后访问：
+
+```text
+管理后台: http://127.0.0.1:8081
+用户前台: http://127.0.0.1:8083
+默认管理员: admin / admin123
+New API 同步地址: http://model-gateway:3000
+```
+
+下面内容只给维护者和需要排障的用户看。
+
+## 常用命令
 
 首次部署：
 
 ```bash
-./scripts/docker-deploy.sh --start
-```
-
-已有 New API 容器时，首次准备部署顺手接入同一网络：
-
-```bash
-MODEL_GATEWAY_CONTAINER=1Panel-new-api-6d1F ./scripts/docker-deploy.sh --start
+./scripts/docker-deploy.sh
 ```
 
 后续升级：
@@ -50,10 +76,11 @@ openagents
 ```
 
 `deploy/docker-compose.yml` 把这个网络声明为 external。这样做是为了让已有的
-New API 容器也能挂到同一个网络，并提供稳定 DNS：
+New API 容器也能挂到同一个网络，并提供稳定 DNS。`scripts/docker-deploy.sh`
+会在只有一个明显 New API 容器时自动接入；识别不出来时再手动指定：
 
 ```bash
-make docker-model-gateway-attach MODEL_GATEWAY_CONTAINER=1Panel-new-api-6d1F
+MODEL_GATEWAY_CONTAINER=1Panel-new-api-6d1F ./scripts/docker-deploy.sh
 ```
 
 或者直接用 Docker：
@@ -104,7 +131,7 @@ Git tag 生成版本号，操作者不需要记 `gateway-v0.1.0` 这种服务前
 从仓库根目录执行：
 
 ```bash
-./scripts/docker-deploy.sh --start
+./scripts/docker-deploy.sh
 ```
 
 脚本会做这些事：
@@ -114,7 +141,7 @@ Git tag 生成版本号，操作者不需要记 `gateway-v0.1.0` 这种服务前
 - 同步 `.openagents/commands` 和 `.openagents/system` 到 `deploy/data/openagents`。
 - 同步根目录 `migrations/*.up.sql` 和 `migrations/run.sh` 到 `deploy/migrations`。
 - 创建固定网络 `openagents`。
-- 如果传入 `MODEL_GATEWAY_CONTAINER`，把 New API 接入 `openagents` 并设置 `model-gateway` alias。
+- 如果传入 `MODEL_GATEWAY_CONTAINER`，或脚本只发现一个 New API 容器，把它接入 `openagents` 并设置 `model-gateway` alias。
 - 启动 `deploy/docker-compose.yml`。
 
 首次空库初始化由 compose 内的 `migrate` 服务完成。`gateway` 和 `langgraph` 都等待
@@ -135,9 +162,6 @@ docker compose up -d
 ```bash
 git pull
 ./scripts/docker-deploy.sh
-cd deploy
-docker compose pull
-docker compose up -d
 ```
 
 如果用仓库脚本构建和发布镜像：

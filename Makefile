@@ -26,7 +26,7 @@ help:
 	@echo "  make docker-stop   - Same as make stop"
 	@echo "  make docker-init   - Pull the shared sandbox image"
 	@echo "  make docker-model-gateway-attach MODEL_GATEWAY_CONTAINER=<container>"
-	@echo "  make docker-deploy-prepare ARGS='--start' - First production deploy"
+	@echo "  make docker-prod-start - Prepare and start production deploy"
 	@echo "  make docker-release-push ARGS='--scope app --version <version>'"
 	@echo "  make docker-release-deploy ARGS='--scope app --version <version>'"
 	@echo ""
@@ -399,7 +399,7 @@ docker-prod-build:
 	@./scripts/docker-release.sh build $(ARGS)
 
 docker-deploy-prepare:
-	@./scripts/docker-deploy.sh $(ARGS)
+	@./scripts/docker-deploy.sh --prepare-only $(ARGS)
 
 docker-release-build:
 	@./scripts/docker-release.sh build $(ARGS)
@@ -411,7 +411,7 @@ docker-release-deploy:
 	@./scripts/docker-release.sh deploy $(ARGS)
 
 docker-prod-start:
-	@./scripts/docker-deploy.sh --start
+	@./scripts/docker-deploy.sh
 
 docker-prod-stop:
 	@cd deploy && docker compose -f docker-compose.yml down

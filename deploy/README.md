@@ -4,6 +4,18 @@
 `deploy/docker-compose.yml` and `deploy/.env.example` as the deploy contract;
 `docker/` only contains Dockerfiles and the local development compose file.
 
+One-line self-host install:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bytedance/openagents/main/scripts/install.sh | bash
+```
+
+From an existing source checkout:
+
+```bash
+./scripts/docker-deploy.sh
+```
+
 Current Docker development, release, deploy, data-directory, and troubleshooting
 instructions live in:
 

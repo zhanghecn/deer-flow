@@ -356,11 +356,11 @@ run_compose_base() {
 
 sync_deploy_assets() {
     if [ "$DRY_RUN" -eq 1 ]; then
-        printf '+ %q\n' "$PROJECT_ROOT/scripts/docker-deploy.sh"
+        printf '+ %q --prepare-only\n' "$PROJECT_ROOT/scripts/docker-deploy.sh"
         return
     fi
 
-    "$PROJECT_ROOT/scripts/docker-deploy.sh"
+    "$PROJECT_ROOT/scripts/docker-deploy.sh" --prepare-only
 }
 
 scope_needs_migrations() {

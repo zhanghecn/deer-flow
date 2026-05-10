@@ -19,7 +19,24 @@ OpenAgents is an open-source agent runtime built around:
 
 ## Quick Start
 
-### 1. Clone and configure
+### Self-host with Docker
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bytedance/openagents/main/scripts/install.sh | bash
+```
+
+Open:
+
+- Admin console: `http://localhost:8081`
+- Workspace app: `http://localhost:8083`
+
+If you already cloned the source:
+
+```bash
+./scripts/docker-deploy.sh
+```
+
+### 1. Development checkout
 
 ```bash
 git clone https://github.com/bytedance/openagents.git

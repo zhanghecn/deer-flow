@@ -13,10 +13,12 @@ DEPLOY_DIR="$PROJECT_ROOT/deploy"
 ENV_EXAMPLE="$DEPLOY_DIR/.env.example"
 ENV_FILE="$DEPLOY_DIR/.env"
 FORCE=0
-START=0
+START=1
 DOCKER_NETWORK="${OPENAGENTS_DOCKER_NETWORK:-openagents}"
 MODEL_GATEWAY_CONTAINER="${MODEL_GATEWAY_CONTAINER:-}"
 MODEL_GATEWAY_ALIAS="${MODEL_GATEWAY_ALIAS:-model-gateway}"
+AUTO_ATTACH_MODEL_GATEWAY="${OPENAGENTS_AUTO_ATTACH_MODEL_GATEWAY:-1}"
+PULL_IMAGES="${OPENAGENTS_PULL_IMAGES:-1}"
 
 info() { echo -e "${BLUE}[INFO]${NC} $*"; }
 success() { echo -e "${GREEN}[OK]${NC} $*"; }
@@ -26,23 +28,26 @@ fail() { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
 usage() {
     cat <<'EOF'
 Usage:
-  scripts/docker-deploy.sh [--force] [--start]
+  scripts/docker-deploy.sh [--force] [--start] [--prepare-only]
 
-Prepares the self-contained production deploy directory:
+Prepares and starts the self-contained production deploy directory:
   - deploy/.env with generated secrets
   - deploy/config.yaml and deploy/gateway.yaml deployment copies
   - deploy/migrations copied from reviewed root SQL
   - deploy/data/openagents, deploy/data/postgres, deploy/data/minio
 
-Then start with:
-  cd deploy
-  docker compose -f docker-compose.yml up -d
+The default behavior starts the production stack. Use --prepare-only when a
+release script only needs to refresh generated deploy assets.
+Set OPENAGENTS_PULL_IMAGES=0 to skip pulling images before startup.
 
-Or let the script perform the first-run-safe startup sequence:
+Equivalent explicit startup:
   scripts/docker-deploy.sh --start
 
 To make an existing New API container reachable from OpenAgents:
   MODEL_GATEWAY_CONTAINER=1Panel-new-api-6d1F scripts/docker-deploy.sh
+
+If MODEL_GATEWAY_CONTAINER is omitted, the script tries to auto-detect exactly
+one running container whose name or image looks like New API.
 EOF
 }
 
@@ -180,7 +185,43 @@ ensure_docker_network() {
     docker network create "$DOCKER_NETWORK" >/dev/null
 }
 
+discover_model_gateway_if_possible() {
+    local matches match_count
+
+    if [ -n "$MODEL_GATEWAY_CONTAINER" ] || [ "$AUTO_ATTACH_MODEL_GATEWAY" = "0" ]; then
+        return
+    fi
+
+    # Keep New API outside this compose file, but remove the common first-run
+    # friction by auto-attaching it when there is exactly one obvious candidate.
+    mapfile -t matches < <(
+        docker ps --format '{{.ID}}\t{{.Names}}\t{{.Image}}' \
+            | grep -Ei 'new[-_]?api|newapi' \
+            | awk '{print $1}' \
+            || true
+    )
+
+    match_count="${#matches[@]}"
+    if [ "$match_count" -eq 1 ]; then
+        MODEL_GATEWAY_CONTAINER="${matches[0]}"
+        info "Auto-detected New API container: $MODEL_GATEWAY_CONTAINER"
+        return
+    fi
+
+    if [ "$match_count" -gt 1 ]; then
+        warn "Multiple New API-like containers found; set MODEL_GATEWAY_CONTAINER=<container> to attach one."
+    fi
+}
+
+container_network_aliases() {
+    docker inspect "$MODEL_GATEWAY_CONTAINER" \
+        --format "{{with index .NetworkSettings.Networks \"$DOCKER_NETWORK\"}}{{range .Aliases}}{{println .}}{{end}}{{end}}" \
+        2>/dev/null || true
+}
+
 attach_model_gateway_if_requested() {
+    local aliases
+
     if [ -z "$MODEL_GATEWAY_CONTAINER" ]; then
         return
     fi
@@ -188,8 +229,17 @@ attach_model_gateway_if_requested() {
     docker inspect "$MODEL_GATEWAY_CONTAINER" >/dev/null 2>&1 || fail "Model gateway container not found: $MODEL_GATEWAY_CONTAINER"
 
     if docker inspect "$MODEL_GATEWAY_CONTAINER" --format '{{json .NetworkSettings.Networks}}' | grep -q "\"$DOCKER_NETWORK\""; then
-        info "Model gateway is already attached to $DOCKER_NETWORK"
-        return
+        aliases="$(container_network_aliases)"
+        if printf '%s\n' "$aliases" | grep -qx "$MODEL_GATEWAY_ALIAS"; then
+            info "Model gateway is already attached to $DOCKER_NETWORK as $MODEL_GATEWAY_ALIAS"
+            return
+        fi
+
+        # Docker cannot add a network alias to an existing endpoint in place.
+        # Reconnect only this external gateway so the documented in-cluster URL
+        # stays stable instead of leaking container-name details into model rows.
+        warn "Model gateway is on $DOCKER_NETWORK but missing alias $MODEL_GATEWAY_ALIAS; reconnecting it once."
+        docker network disconnect "$DOCKER_NETWORK" "$MODEL_GATEWAY_CONTAINER"
     fi
 
     # New API remains outside this compose file; this attach step gives the
@@ -208,6 +258,10 @@ parse_args() {
                 ;;
             --start)
                 START=1
+                shift
+                ;;
+            --prepare-only)
+                START=0
                 shift
                 ;;
             -h|--help)
@@ -256,22 +310,33 @@ main() {
     sync_migrations
     refresh_env_backed_settings
     ensure_docker_network
+    discover_model_gateway_if_possible
     attach_model_gateway_if_requested
 
     success "Created deploy/data/openagents, deploy/data/postgres, deploy/data/minio"
     success "Synced .openagents/commands and .openagents/system into deploy/data/openagents"
     success "Synced reviewed SQL migrations into deploy/migrations"
     echo ""
-    echo "Next steps:"
-    echo "  cd deploy"
-    echo "  docker compose -f docker-compose.yml up -d"
-    echo "  # New API sync URL inside containers: http://${MODEL_GATEWAY_ALIAS}:3000"
+    echo "New API sync URL inside containers: http://${MODEL_GATEWAY_ALIAS}:3000"
 
     if [ "$START" -eq 1 ]; then
         echo ""
         info "Starting production stack from deploy/docker-compose.yml"
+        if [ "$PULL_IMAGES" != "0" ]; then
+            # Self-hosted installs and upgrades should converge with one command.
+            # Operators using unpublished local images can set OPENAGENTS_PULL_IMAGES=0.
+            compose pull || warn "Image pull failed; continuing with local images."
+        fi
         compose up -d
         success "Production stack is started; the migrate service gates gateway/langgraph startup"
+        echo ""
+        echo "Open:"
+        echo "  Admin: http://127.0.0.1:$(env_value OPENAGENTS_ADMIN_PORT || echo 8081)"
+        echo "  App:   http://127.0.0.1:$(env_value OPENAGENTS_APP_PORT || echo 8083)"
+    else
+        echo ""
+        echo "Prepared only. Start later with:"
+        echo "  cd deploy && docker compose -f docker-compose.yml up -d"
     fi
 }
 
