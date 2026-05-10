@@ -20,6 +20,7 @@ import signal
 import threading
 import time
 import uuid
+from pathlib import Path
 
 from src.config import get_app_config
 from src.config.paths import VIRTUAL_PATH_PREFIX, get_paths
@@ -297,6 +298,53 @@ class AioSandboxProvider(SandboxProvider):
             return f"{shared_mount}/runtime/tmp"
         return f"{VIRTUAL_PATH_PREFIX}/tmp"
 
+    def _sandbox_visible_skills_mount(self) -> tuple[str, str] | None:
+        """Return the skills archive mount visible from inside sandbox-aio.
+
+        The LangGraph container and sandbox container can see the same
+        OPENAGENTS_HOME volume at different paths (`/openagents-home` vs
+        `/openagents`). File tools use a server-side read-only route, but shell
+        execution runs inside sandbox-aio's bwrap jail, so it needs the
+        sandbox-visible source path explicitly.
+        """
+
+        skills_mount = self._get_skills_mount()
+        if not skills_mount:
+            return None
+
+        host_path, container_path, _read_only = skills_mount
+        source_path = str(host_path).strip()
+        target_path = str(container_path).strip().rstrip("/")
+
+        base_url = str(self._config.get("base_url", "")).strip()
+        shared_mount = str(self._config.get("shared_data_mount_path", "")).strip().rstrip("/")
+        if base_url and shared_mount:
+            try:
+                base_dir = get_paths().base_dir.resolve()
+                skills_path = Path(source_path).resolve()
+                relative_path = skills_path.relative_to(base_dir)
+                if str(relative_path) == ".":
+                    source_path = shared_mount
+                else:
+                    source_path = f"{shared_mount}/{relative_path.as_posix()}"
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Could not derive sandbox-visible skills mount from %s; using %s: %s",
+                    source_path,
+                    target_path,
+                    exc,
+                )
+                source_path = target_path
+        else:
+            # Locally provisioned sandbox containers receive the configured
+            # skills archive at `container_path`; bwrap must re-bind that
+            # in-container path because it starts with an otherwise empty root.
+            source_path = target_path
+
+        if not source_path or not target_path:
+            return None
+        return source_path.rstrip("/"), target_path
+
     def _build_sandbox_instance(
         self,
         sandbox_id: str,
@@ -310,6 +358,11 @@ class AioSandboxProvider(SandboxProvider):
             runtime_root=self._runtime_root_for_thread(thread_id, user_id=user_id),
             shared_tmp_root=self._shared_tmp_root(),
             environment=self._config.get("environment") or {},
+            read_only_mounts=[
+                mount
+                for mount in [self._sandbox_visible_skills_mount()]
+                if mount is not None
+            ],
         )
 
     # ── Idle timeout management ──────────────────────────────────────────

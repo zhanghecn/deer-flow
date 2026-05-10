@@ -68,6 +68,7 @@ class AioSandbox(Sandbox):
         runtime_root: str | None = None,
         shared_tmp_root: str | None = None,
         environment: dict[str, str] | None = None,
+        read_only_mounts: list[tuple[str, str]] | None = None,
     ):
         super().__init__(sandbox_id=id)
         self._base_url = base_url
@@ -83,6 +84,7 @@ class AioSandbox(Sandbox):
         )
         self._default_timeout = 600
         self._environment = self._normalize_environment(environment or {})
+        self._read_only_mounts = self._normalize_read_only_mounts(read_only_mounts or [])
 
     @property
     def base_url(self) -> str:
@@ -258,6 +260,38 @@ class AioSandbox(Sandbox):
         for key in sorted(self._environment):
             argv.extend(["--setenv", key, self._environment[key]])
 
+    @staticmethod
+    def _normalize_read_only_mounts(mounts: list[tuple[str, str]]) -> list[tuple[str, str]]:
+        """Keep exec-jail mounts absolute and deterministic.
+
+        These mounts are visible only to shell execution. File APIs keep their
+        own routed backend, so this list exists to preserve the same virtual
+        path contract for commands without granting write access to archives.
+        """
+
+        normalized: list[tuple[str, str]] = []
+        seen_targets: set[str] = set()
+        for raw_source, raw_target in mounts:
+            source = str(raw_source).strip().rstrip("/")
+            target = str(raw_target).strip().rstrip("/")
+            if not source or not target:
+                continue
+            if not source.startswith("/") or not target.startswith("/"):
+                logger.warning("Skipping non-absolute sandbox read-only mount: %s -> %s", source, target)
+                continue
+            if target in seen_targets:
+                logger.warning("Skipping duplicate sandbox read-only mount target: %s", target)
+                continue
+            normalized.append((source, target))
+            seen_targets.add(target)
+        return normalized
+
+    def _append_read_only_mounts(self, argv: list[str]) -> None:
+        """Bind read-only archive/discovery roots into the bwrap command jail."""
+
+        for source, target in self._read_only_mounts:
+            argv.extend(["--ro-bind", source, target])
+
     def _build_exec_jail_command(self, command: str) -> str:
         runtime_command = self._rewrite_command_paths(command, target_root=VIRTUAL_PATH_PREFIX)
 
@@ -316,6 +350,7 @@ class AioSandbox(Sandbox):
         # starts from a minimal environment. Operators opt in to per-command
         # secret exposure through `sandbox.environment`.
         self._append_configured_environment(argv)
+        self._append_read_only_mounts(argv)
         for directory in READ_ONLY_BIND_DIRS:
             if os.path.exists(directory):
                 argv.extend(["--ro-bind", directory, directory])

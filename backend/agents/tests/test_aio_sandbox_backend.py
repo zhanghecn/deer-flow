@@ -146,6 +146,23 @@ def test_aio_sandbox_execute_binds_shared_tmp_into_jail(monkeypatch):
     assert "/mnt/user-data/tmp/cache" in command
 
 
+def test_aio_sandbox_execute_binds_read_only_mounts_into_jail(monkeypatch):
+    monkeypatch.setattr(aio_sandbox_module, "AioSandboxClient", _DummyClient)
+
+    sandbox = aio_sandbox_module.AioSandbox(
+        id="sb-skills",
+        base_url="http://sandbox.test",
+        runtime_root="/openagents/users/user-1/threads/thread-skills/user-data",
+        read_only_mounts=[("/openagents", "/mnt/skills")],
+    )
+
+    sandbox.execute("python /mnt/skills/system/skills/skill-creator/scripts/init_skill.py")
+
+    command = sandbox._client.shell.last_call["command"]
+    assert "--ro-bind /openagents /mnt/skills" in command
+    assert "python /mnt/skills/system/skills/skill-creator/scripts/init_skill.py" in command
+
+
 def test_aio_sandbox_execute_injects_configured_environment(monkeypatch, caplog):
     monkeypatch.setattr(aio_sandbox_module, "AioSandboxClient", _DummyClient)
     caplog.set_level(logging.WARNING, logger=aio_sandbox_module.__name__)
