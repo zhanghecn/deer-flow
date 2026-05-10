@@ -138,6 +138,7 @@ function renderChatBoxShell({
 
 describe("ChatBox", () => {
   beforeEach(() => {
+    localStorage.clear();
     useThreadOutputArtifactsMock.mockReset();
     useThreadOutputArtifactsMock.mockImplementation(
       defaultThreadOutputArtifactsResult,
@@ -247,6 +248,57 @@ describe("ChatBox", () => {
     await waitFor(() => {
       expect(screen.queryByTestId("artifact-detail")).not.toBeInTheDocument();
     });
+  });
+
+  it("restores a remembered preview selection after thread hydration", async () => {
+    const artifactPath = "/mnt/user-data/outputs/spring-whisper/index.html";
+    localStorage.setItem(
+      "openagents.workspace-thread-hints",
+      JSON.stringify({
+        "thread-1": {
+          surface: "preview",
+          artifact_path: artifactPath,
+          updated_at: "2026-05-10T12:52:01.612Z",
+        },
+      }),
+    );
+    localStorage.setItem(
+      "openagents.local-settings",
+      JSON.stringify({
+        layout: {
+          workspace_dock_open: true,
+          workspace_dock_active_surface: "preview",
+        },
+      }),
+    );
+
+    const thread = {
+      messages: [],
+      isLoading: false,
+      values: {
+        artifacts: [artifactPath],
+        messages: [],
+      },
+    } as unknown as { values: AgentThreadState };
+    const queryClient = createQueryClient();
+
+    render(
+      renderChatBoxShell({
+        queryClient,
+        thread,
+        isMock: true,
+        threadId: "thread-1",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("artifact-detail")).toHaveTextContent(
+        "index.html",
+      );
+    });
+    expect(
+      screen.queryByRole("heading", { name: "No preview selected" }),
+    ).not.toBeInTheDocument();
   });
 
   it("keeps artifact refresh keys stable when a thread flips into loading", () => {

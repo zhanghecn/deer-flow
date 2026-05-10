@@ -86,4 +86,28 @@ describe("NewChatSender", () => {
       expect(sendMessage).toHaveBeenCalledTimes(1);
     });
   });
+
+  it("reports submission errors that happen before stream start", async () => {
+    const sendMessage = vi
+      .fn()
+      .mockRejectedValue(new Error("No model is configured."));
+    useThreadStreamMock.mockReturnValue([null, sendMessage, null, true]);
+
+    const onError = vi.fn();
+
+    renderWithProviders(
+      <NewChatSender
+        threadId="thread-prestream-error"
+        message={{ text: "hello", files: [] }}
+        context={DEFAULT_LOCAL_SETTINGS.context}
+        isMock={false}
+        onStartedThread={vi.fn()}
+        onError={onError}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(onError).toHaveBeenCalledWith("No model is configured.");
+    });
+  });
 });

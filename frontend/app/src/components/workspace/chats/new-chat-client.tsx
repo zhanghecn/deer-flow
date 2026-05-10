@@ -1,6 +1,7 @@
 import { lazy } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { toast } from "sonner";
 
 import { type PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import { AgentSwitcherDialog } from "@/components/workspace/agent-switcher-dialog";
@@ -40,6 +41,9 @@ export default function NewChatClient() {
   const [pendingExtraContext, setPendingExtraContext] = useState<
     Record<string, unknown> | undefined
   >(undefined);
+  const [retryInputValue, setRetryInputValue] = useState<string | undefined>(
+    undefined,
+  );
   const { threadId: draftThreadId } = useThreadChat();
   const isMock = searchParams.get("mock") === "true";
   const runtimeSelection = useMemo(
@@ -123,6 +127,9 @@ export default function NewChatClient() {
     promise: Promise<void>;
   } | null>(null);
   const inputInitialValue = useMemo(() => {
+    if (retryInputValue) {
+      return retryInputValue;
+    }
     const prefill = searchParams.get("prefill")?.trim();
     if (prefill) {
       return prefill;
@@ -131,10 +138,11 @@ export default function NewChatClient() {
       return "/create-skill ";
     }
     return undefined;
-  }, [searchParams]);
+  }, [retryInputValue, searchParams]);
 
   const handleSubmit = useCallback(
     (message: PromptInputMessage, extraContext?: Record<string, unknown>) => {
+      setRetryInputValue(undefined);
       setPendingThreadId(draftThreadId);
       setPendingMessage(message);
       setPendingExtraContext(extraContext);
@@ -292,7 +300,14 @@ export default function NewChatClient() {
         extraContext={pendingExtraContext}
         context={runtimeContext}
         isMock={isMock}
-        onError={() => {
+        onError={(message) => {
+          toast.error(message);
+          const failedText = pendingMessage.text.trim();
+          if (failedText) {
+            // InputBox clears immediately after submit. Restore the draft only
+            // for failures that happen before streaming starts.
+            setRetryInputValue(failedText);
+          }
           setPendingThreadId(null);
           setPendingMessage(null);
           setPendingExtraContext(undefined);

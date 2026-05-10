@@ -1877,6 +1877,35 @@ describe("useThreadStream", () => {
     expect(apiClient.threads.getState).not.toHaveBeenCalled();
   });
 
+  it("ensures a pending owned thread exists before recovery polling after runtime restart", async () => {
+    window.sessionStorage.setItem(
+      "openagents:stream-owner:thread-recovered",
+      "1",
+    );
+
+    renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-recovered",
+          skipInitialHistory: true,
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    await waitFor(() => {
+      expect(apiClient.threads.create).toHaveBeenCalledWith({
+        threadId: "thread-recovered",
+        ifExists: "do_nothing",
+        graphId: "lead_agent",
+      });
+    });
+  });
+
   it("does not re-fetch thread state on unrelated stream rerenders", async () => {
     apiClient.threads.create.mockImplementation(() => createPendingPromise());
 
@@ -2626,5 +2655,47 @@ describe("useThreadStream", () => {
     });
 
     expect(streamState.submit).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-ensures an existing thread before every submit so runtime restarts recover", async () => {
+    const { result } = renderHook(
+      () =>
+        useThreadStream({
+          threadId: "thread-existing",
+          skipInitialHistory: true,
+          context: {
+            model_name: "kimi-k2.5",
+            mode: "pro",
+            agent_status: "dev",
+          },
+        }),
+      { wrapper: createWrapper() },
+    );
+
+    await waitFor(() => {
+      expect(apiClient.threads.create).toHaveBeenCalledTimes(1);
+    });
+
+    apiClient.threads.create.mockClear();
+    streamState.submit.mockClear();
+
+    await act(async () => {
+      await result.current[1]("thread-existing", {
+        text: "after restart",
+        files: [],
+      });
+    });
+
+    expect(apiClient.threads.create).toHaveBeenCalledWith({
+      threadId: "thread-existing",
+      ifExists: "do_nothing",
+      graphId: "lead_agent",
+    });
+    expect(streamState.submit).toHaveBeenCalledTimes(1);
+    const ensureOrder = apiClient.threads.create.mock.invocationCallOrder[0];
+    const submitOrder = streamState.submit.mock.invocationCallOrder[0];
+    expect(ensureOrder).toBeDefined();
+    expect(submitOrder).toBeDefined();
+    expect(ensureOrder as number).toBeLessThan(submitOrder as number);
   });
 });

@@ -219,6 +219,34 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
   }, [syncThread, threadId]);
 
   useEffect(() => {
+    const threadHint = workspaceSurface.threadHint;
+    if (
+      !threadHint ||
+      threadHint.surface !== "preview" ||
+      !threadHint.artifact_path ||
+      !visibleArtifacts.includes(threadHint.artifact_path)
+    ) {
+      return;
+    }
+
+    const previewArtifact = threadHint.artifact_path;
+    if (selectedArtifact === previewArtifact) {
+      return;
+    }
+
+    // Thread hints are persisted separately from live artifact selection, so a
+    // page reload must rehydrate the selected preview once discovery confirms
+    // the remembered file still belongs to the current thread.
+    selectArtifact(previewArtifact, true);
+  }, [
+    selectArtifact,
+    selectedArtifact,
+    threadId,
+    visibleArtifacts,
+    workspaceSurface.threadHint,
+  ]);
+
+  useEffect(() => {
     const previousArtifacts = previousVisibleArtifactsRef.current;
     previousVisibleArtifactsRef.current = visibleArtifacts;
 

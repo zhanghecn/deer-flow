@@ -346,7 +346,9 @@ function requireModelName(context: ThreadContext) {
   const modelName =
     typeof context.model_name === "string" ? context.model_name : "";
   if (!modelName) {
-    throw new Error("Model is required before submitting a run.");
+    throw new Error(
+      "No model is configured. Add or select a model before starting a chat.",
+    );
   }
   return modelName;
 }
@@ -1240,6 +1242,38 @@ export function useThreadStream({
         : buildPassthroughThreadHistory<AgentThreadState>(),
     [historyEnabled, streamThreadId, threadId],
   );
+  const ensureThreadExists = useCallback(
+    (targetThreadId: string) => {
+      if (
+        ensureRequestedThreadIdRef.current === targetThreadId &&
+        ensureThreadPromiseRef.current
+      ) {
+        return ensureThreadPromiseRef.current;
+      }
+
+      ensureRequestedThreadIdRef.current = targetThreadId;
+      ensuredThreadIdRef.current = null;
+      const ensurePromise = apiClient.threads
+        .create({
+          threadId: targetThreadId,
+          ifExists: "do_nothing",
+          graphId: LEAD_AGENT_ID,
+        })
+        .then(() => {
+          if (ensureRequestedThreadIdRef.current === targetThreadId) {
+            ensuredThreadIdRef.current = targetThreadId;
+          }
+        })
+        .finally(() => {
+          if (ensureThreadPromiseRef.current === ensurePromise) {
+            ensureThreadPromiseRef.current = null;
+          }
+        });
+      ensureThreadPromiseRef.current = ensurePromise;
+      return ensurePromise;
+    },
+    [apiClient],
+  );
 
   useEffect(() => {
     const previousThreadId = previousThreadIdRef.current;
@@ -1265,34 +1299,22 @@ export function useThreadStream({
     }
 
     setStreamThreadId(threadId);
-    if (
-      createdThreadDuringCurrentSession ||
-      (skipInitialHistory && hasLocalActiveRunOwnership(threadId))
-    ) {
+    if (createdThreadDuringCurrentSession) {
       return;
     }
 
-    ensureRequestedThreadIdRef.current = threadId;
-    ensuredThreadIdRef.current = null;
-    const ensurePromise = apiClient.threads
-      .create({
-        threadId,
-        ifExists: "do_nothing",
-        graphId: LEAD_AGENT_ID,
-      })
-      .then(() => {
-        if (ensureRequestedThreadIdRef.current === threadId) {
-          ensuredThreadIdRef.current = threadId;
-        }
-      });
-    ensureThreadPromiseRef.current = ensurePromise;
+    const ensurePromise = ensureThreadExists(threadId);
     void ensurePromise.catch((error) => {
       console.warn(
         `Failed to ensure thread exists before loading history (${threadId}):`,
         error,
       );
     });
-  }, [threadId, authenticated, apiClient, skipInitialHistory]);
+
+    if (skipInitialHistory && hasLocalActiveRunOwnership(threadId)) {
+      return;
+    }
+  }, [threadId, authenticated, ensureThreadExists, skipInitialHistory]);
 
   const queryClient = useQueryClient();
   const updateSubtask = useUpdateSubtask();
@@ -1975,13 +1997,11 @@ export function useThreadStream({
           extraContext,
           text,
         );
-        if (
-          ensureRequestedThreadIdRef.current === runThreadId &&
-          ensuredThreadIdRef.current !== runThreadId &&
-          ensureThreadPromiseRef.current
-        ) {
-          await ensureThreadPromiseRef.current;
-        }
+        // LangGraph's in-memory runtime can lose thread registrations across a
+        // service restart even when checkpoint state still exists in Postgres.
+        // Re-create idempotently before every run so reopened threads keep
+        // working after deploy/restart.
+        await ensureThreadExists(runThreadId);
         await thread.submit(
           buildSubmissionPayload(text, uploadedFiles),
           buildSubmitOptions(
@@ -2008,6 +2028,7 @@ export function useThreadStream({
       notifyThreadError,
       queryClient,
       resolvedContext,
+      ensureThreadExists,
     ],
   );
 
@@ -2041,6 +2062,7 @@ export function useThreadStream({
       markLocalActiveRunOwnership(runThreadId);
 
       try {
+        await ensureThreadExists(runThreadId);
         await thread.submit(null, {
           ...buildSubmitOptions(
             runThreadId,
@@ -2065,6 +2087,7 @@ export function useThreadStream({
       notifyThreadError,
       queryClient,
       resolvedContext,
+      ensureThreadExists,
       thread,
     ],
   );

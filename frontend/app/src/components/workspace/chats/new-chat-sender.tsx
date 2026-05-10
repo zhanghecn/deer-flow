@@ -5,6 +5,7 @@ import type { LocalSettings } from "@/core/settings";
 import { useThreadStream } from "@/core/threads/hooks";
 
 const activeThreadSubmissions = new Set<string>();
+const DEFAULT_SUBMISSION_ERROR = "Failed to start conversation.";
 
 function claimThreadSubmission(threadId: string) {
   if (activeThreadSubmissions.has(threadId)) {
@@ -17,6 +18,16 @@ function claimThreadSubmission(threadId: string) {
 
 function releaseThreadSubmission(threadId: string) {
   activeThreadSubmissions.delete(threadId);
+}
+
+function formatSubmissionError(error: unknown) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
+  }
+  if (typeof error === "string" && error.trim()) {
+    return error.trim();
+  }
+  return DEFAULT_SUBMISSION_ERROR;
 }
 
 export default function NewChatSender({
@@ -34,7 +45,7 @@ export default function NewChatSender({
   context: LocalSettings["context"];
   isMock: boolean;
   onStartedThread: (threadId: string) => void;
-  onError: () => void;
+  onError: (message: string) => void;
 }) {
   const startedRef = useRef(false);
 
@@ -67,8 +78,12 @@ export default function NewChatSender({
     }
 
     const sendPromise = sendMessage(threadId, message, extraContext).catch(
-      () => {
-        onError();
+      (error) => {
+        if (!startedRef.current) {
+          // Pre-stream failures, such as a missing model, never reach the
+          // thread page error boundary. Surface them on the new-chat screen.
+          onError(formatSubmissionError(error));
+        }
         releaseThreadSubmission(threadId);
       },
     );
