@@ -14,7 +14,10 @@
 
 ## Canonical Docker Verification
 
-- For current-code container verification, default to `docker/docker-compose.yaml`.
+- For production or self-host current-code container verification, default to
+  `deploy/docker-compose.yml` via `./scripts/docker-deploy.sh`.
+- Use `docker/docker-compose.yaml` only when the task is specifically about the
+  source-mounted local development stack.
 - Verify public ports after startup or restart:
   - `8081` admin console
   - `8083` product app

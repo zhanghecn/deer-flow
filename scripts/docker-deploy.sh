@@ -28,7 +28,7 @@ fail() { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
 usage() {
     cat <<'EOF'
 Usage:
-  scripts/docker-deploy.sh [--force] [--start] [--prepare-only]
+  scripts/docker-deploy.sh [--force] [--prepare-only]
 
 Prepares and starts the self-contained production deploy directory:
   - deploy/.env with generated secrets
@@ -39,9 +39,6 @@ Prepares and starts the self-contained production deploy directory:
 The default behavior starts the production stack. Use --prepare-only when a
 release script only needs to refresh generated deploy assets.
 Set OPENAGENTS_PULL_IMAGES=0 to skip pulling images before startup.
-
-Equivalent explicit startup:
-  scripts/docker-deploy.sh --start
 
 To make an existing New API container reachable from OpenAgents:
   MODEL_GATEWAY_CONTAINER=1Panel-new-api-6d1F scripts/docker-deploy.sh

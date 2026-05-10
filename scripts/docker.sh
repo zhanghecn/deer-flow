@@ -38,13 +38,7 @@ compose_legacy_dev() {
     cd "$DOCKER_DIR" && docker compose --env-file "$ROOT_ENV_FILE" -p openagents-dev -f docker-compose.yaml "$@"
 }
 
-# Keep the historical helper names as compatibility shims now that both
-# previous labels point at the same canonical compose file.
 compose_dev() {
-    compose_stack "$@"
-}
-
-compose_prod() {
     compose_stack "$@"
 }
 
@@ -558,30 +552,6 @@ restart() {
     echo ""
 }
 
-prod_status() {
-    echo -e "${BLUE}prod-status is now a compatibility alias for the unified Docker stack.${NC}"
-    echo ""
-    status
-}
-
-prod_verify() {
-    echo -e "${BLUE}prod-verify is now a compatibility alias for the unified Docker stack.${NC}"
-    echo ""
-    verify
-}
-
-prod_start() {
-    echo -e "${BLUE}prod-start is now a compatibility alias for the unified Docker stack.${NC}"
-    echo ""
-    start
-}
-
-prod_restart() {
-    echo -e "${BLUE}prod-restart is now a compatibility alias for the unified Docker stack.${NC}"
-    echo ""
-    restart
-}
-
 # Show help
 help() {
     echo "OpenAgents Docker Management Script"
@@ -644,18 +614,6 @@ main() {
             ;;
         infra-stop)
             infra_stop
-            ;;
-        prod-start)
-            prod_start
-            ;;
-        prod-status)
-            prod_status
-            ;;
-        prod-verify)
-            prod_verify
-            ;;
-        prod-restart)
-            prod_restart
             ;;
         *)
             echo -e "${YELLOW}Unknown command: $1${NC}"

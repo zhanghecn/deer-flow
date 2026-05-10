@@ -55,9 +55,7 @@ New API 同步地址: http://model-gateway:3000
 后续升级：
 
 ```bash
-cd deploy
-docker compose pull
-docker compose up -d
+./scripts/docker-deploy.sh
 ```
 
 按影响范围构建、推送、部署镜像：
@@ -149,12 +147,10 @@ Git tag 生成版本号，操作者不需要记 `gateway-v0.1.0` 这种服务前
 
 ## 后续升级
 
-如果只是使用已经发布的镜像：
+如果只是使用已经发布的镜像，仍然执行同一个入口：
 
 ```bash
-cd deploy
-docker compose pull
-docker compose up -d
+./scripts/docker-deploy.sh
 ```
 
 如果服务器上也更新了仓库代码，先同步部署资产：

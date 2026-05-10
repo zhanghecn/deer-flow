@@ -16,14 +16,16 @@ In short:
 
 ## Development Environment Setup
 
-We offer two development environments. **Docker is recommended** when you want
-the same compose stack locally and in release-style verification.
+We offer two development environments. **Docker is recommended** for normal
+local work. The local stack lives under `docker/`; the production self-host
+surface lives under `deploy/`.
 
 ### Option 1: Docker Compose (Recommended)
 
 Docker provides a consistent, isolated environment with all dependencies
-pre-configured. This repository now uses one production-style compose file for
-both local Docker runs and release-style deployment checks.
+pre-configured. Use this stack for source-mounted development and fast local
+verification. Use `./scripts/docker-deploy.sh` when you need to test the
+production self-host path.
 
 #### Prerequisites
 
@@ -74,8 +76,6 @@ make docker-start
 make docker-stop
 # View Docker logs
 make docker-logs
-# View Docker nginx logs
-make docker-logs-nginx
 # View Docker gateway logs
 make docker-logs-gateway
 ```
@@ -191,14 +191,20 @@ openagents/
 ├── extensions_config.example.json # MCP and Skills configuration template
 ├── Makefile                      # Build and development commands
 ├── scripts/
+│   ├── install.sh                # One-line self-host installer
+│   ├── docker-deploy.sh          # Production deploy directory preparation/start
+│   ├── docker-release.sh         # Versioned image build/push/deploy helper
 │   ├── docker.sh                 # Docker management script
 │   └── cleanup-containers.sh     # Sandbox container cleanup
 ├── docker/
-│   ├── docker-compose.yaml       # Unified Docker Compose configuration
+│   ├── docker-compose.yaml       # Local Docker development stack
 │   ├── nginx/
 │   │   ├── nginx.conf            # Nginx config for Docker
 │   │   └── nginx.local.conf      # Nginx config for local dev
 │   └── provisioner/              # Sandbox provisioner (K8s mode)
+├── deploy/
+│   ├── docker-compose.yml        # Production self-host compose file
+│   └── .env.example              # Production env template
 ├── backend/
 │   ├── agents/                   # Python LangGraph runtime
 │   │   ├── src/                  # Agents, tools, sandbox, community integrations

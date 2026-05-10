@@ -1,15 +1,9 @@
 # OpenAgents - Unified Development Environment
 
-.PHONY: help config check install dev host-dev stop host-stop clean docker-init docker-start docker-infra-start docker-stop docker-infra-stop docker-status docker-verify docker-logs docker-logs-nginx docker-logs-gateway docker-deploy-prepare docker-release-build docker-release-push docker-release-deploy docker-prod-config docker-prod-build docker-prod-start docker-prod-stop docker-prod-restart docker-prod-status docker-prod-verify docker-prod-logs docker-model-gateway-attach gateway-build docker-prod-preflight demo-start demo-stop demo-status
+.PHONY: help config check install dev host-dev stop host-stop clean docker-init docker-start docker-infra-start docker-stop docker-infra-stop docker-status docker-verify docker-logs docker-logs-gateway gateway-build demo-start demo-stop demo-status
 
 GO_TOOLCHAIN ?= auto
 HOST_LOG_DIR := $(CURDIR)/.openagents/host-logs
-# External model gateways live outside the OpenAgents compose file. Operators
-# can attach one existing container to the shared bridge network and keep a
-# stable in-cluster DNS name for model records such as `http://model-gateway:3000`.
-MODEL_GATEWAY_CONTAINER ?=
-MODEL_GATEWAY_NETWORK ?= openagents
-MODEL_GATEWAY_ALIAS ?= model-gateway
 
 help:
 	@echo "OpenAgents Common Commands:"
@@ -25,10 +19,6 @@ help:
 	@echo "  make docker-start  - Same as make dev"
 	@echo "  make docker-stop   - Same as make stop"
 	@echo "  make docker-init   - Pull the shared sandbox image"
-	@echo "  make docker-model-gateway-attach MODEL_GATEWAY_CONTAINER=<container>"
-	@echo "  make docker-prod-start - Prepare and start production deploy"
-	@echo "  make docker-release-push ARGS='--scope app --version <version>'"
-	@echo "  make docker-release-deploy ARGS='--scope app --version <version>'"
 	@echo ""
 	@echo "Advanced host-debug helpers:"
 	@echo "  make check         - Check host tooling for non-Docker workflows"
@@ -360,74 +350,8 @@ docker-verify:
 docker-logs:
 	@./scripts/docker.sh logs
 
-# View Docker nginx logs
-docker-logs-nginx:
-	@echo "Unified compose no longer runs a separate nginx container. Use 'make docker-logs' or 'make docker-logs-gateway'."
 docker-logs-gateway:
 	@cd docker && docker compose --env-file ../.env -p openagents -f docker-compose.yaml logs -f gateway
-
-# External model gateways are managed outside this repo, so the attach step
-# stays explicit instead of hiding docker-socket mutations inside compose.
-docker-model-gateway-attach:
-	@if [ -z "$(MODEL_GATEWAY_CONTAINER)" ]; then \
-		echo "MODEL_GATEWAY_CONTAINER is required, e.g. make docker-model-gateway-attach MODEL_GATEWAY_CONTAINER=1Panel-new-api-6d1F"; \
-		exit 1; \
-	fi
-	@if ! docker inspect "$(MODEL_GATEWAY_CONTAINER)" >/dev/null 2>&1; then \
-		echo "Container not found: $(MODEL_GATEWAY_CONTAINER)"; \
-		exit 1; \
-	fi
-	@if ! docker network inspect "$(MODEL_GATEWAY_NETWORK)" >/dev/null 2>&1; then \
-		echo "Creating shared model gateway network: $(MODEL_GATEWAY_NETWORK)"; \
-		docker network create "$(MODEL_GATEWAY_NETWORK)" >/dev/null; \
-	fi
-	@if docker inspect "$(MODEL_GATEWAY_CONTAINER)" --format '{{json .NetworkSettings.Networks}}' | grep -q '"$(MODEL_GATEWAY_NETWORK)"'; then \
-		echo "Container $(MODEL_GATEWAY_CONTAINER) is already attached to $(MODEL_GATEWAY_NETWORK)."; \
-	else \
-		docker network connect --alias "$(MODEL_GATEWAY_ALIAS)" "$(MODEL_GATEWAY_NETWORK)" "$(MODEL_GATEWAY_CONTAINER)"; \
-		echo "Attached $(MODEL_GATEWAY_CONTAINER) to $(MODEL_GATEWAY_NETWORK) with alias $(MODEL_GATEWAY_ALIAS)."; \
-	fi
-	@echo "Model records should use base_url=http://$(MODEL_GATEWAY_ALIAS):3000"
-
-docker-prod-config:
-	@./scripts/docker-release.sh config
-
-docker-prod-preflight:
-	@cd deploy && docker compose -f docker-compose.yml config --quiet
-
-docker-prod-build:
-	@./scripts/docker-release.sh build $(ARGS)
-
-docker-deploy-prepare:
-	@./scripts/docker-deploy.sh --prepare-only $(ARGS)
-
-docker-release-build:
-	@./scripts/docker-release.sh build $(ARGS)
-
-docker-release-push:
-	@./scripts/docker-release.sh push $(ARGS)
-
-docker-release-deploy:
-	@./scripts/docker-release.sh deploy $(ARGS)
-
-docker-prod-start:
-	@./scripts/docker-deploy.sh
-
-docker-prod-stop:
-	@cd deploy && docker compose -f docker-compose.yml down
-
-docker-prod-restart:
-	@cd deploy && docker compose -f docker-compose.yml restart
-
-docker-prod-status:
-	@cd deploy && docker compose -f docker-compose.yml ps
-
-docker-prod-verify:
-	@curl -fsS http://127.0.0.1:$${OPENAGENTS_APP_PORT:-8083}/health >/dev/null
-	@curl -fsS http://127.0.0.1:$${OPENAGENTS_ADMIN_PORT:-8081}/ >/dev/null
-
-docker-prod-logs:
-	@cd deploy && docker compose -f docker-compose.yml logs -f
 
 demo-start:
 	@./scripts/demo.sh start

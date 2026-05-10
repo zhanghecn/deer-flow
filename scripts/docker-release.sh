@@ -39,10 +39,7 @@ Commands:
 Options:
   --prefix <prefix>      Image name prefix. Defaults to zhangxuan2/openagents.
                          gateway => <registry>/<prefix>-gateway:<version>
-  --repository <prefix>  Compatibility alias for --prefix.
-  --namespace <name>     Compatibility alias for --prefix <name>/openagents.
   --version <version>    Image version tag. Defaults to latest.
-  --tag <version>        Compatibility alias for --version.
   --registry <host>      Registry host. Defaults to docker.io.
   --scope <scope>        frontend, gateway, app, or all.
                          frontend=web/nginx; gateway=gateway; app=web+gateway+langgraph.
@@ -77,17 +74,12 @@ parse_args() {
                 COMMAND="$1"
                 shift
                 ;;
-            --prefix|--repository)
+            --prefix)
                 [ "$#" -ge 2 ] || fail "$1 requires a value"
                 IMAGE_PREFIX="$2"
                 shift 2
                 ;;
-            --namespace)
-                [ "$#" -ge 2 ] || fail "--namespace requires a value"
-                IMAGE_PREFIX="$2/openagents"
-                shift 2
-                ;;
-            --version|--tag)
+            --version)
                 [ "$#" -ge 2 ] || fail "$1 requires a value"
                 IMAGE_VERSION="$2"
                 shift 2
@@ -101,15 +93,6 @@ parse_args() {
                 [ "$#" -ge 2 ] || fail "--scope requires a value"
                 SCOPE="$2"
                 shift 2
-                ;;
-            --service)
-                fail "--service has been replaced by --scope frontend|gateway|app|all"
-                ;;
-            --all)
-                fail "--all has been replaced by --scope all"
-                ;;
-            --no-deps)
-                fail "--no-deps is automatic for deploy with --scope frontend|gateway|app"
                 ;;
             --no-build)
                 BUILD_BEFORE_PUSH=0
