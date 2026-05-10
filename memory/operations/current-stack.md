@@ -41,6 +41,10 @@
   publishes DockerHub when credentials are configured and always publishes GHCR.
   Deploy/update commands default to `latest` so operators do not have to
   remember a version string.
+- The initial SQL baseline is intentionally two files: `001_init.up.sql`
+  for schema and `002_data.up.sql` for deterministic seed/repair data. Keep
+  deploy docs user-facing; keep local registry and dirty-worktree test details
+  in coding-agent memory.
 
 ## Historical Host-Run Dev Stack
 

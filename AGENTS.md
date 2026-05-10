@@ -101,6 +101,7 @@ Repository-wide testing index:
 - For deploy-stack verification after local code changes, rebuild the affected image scope and start the deploy stack without pulling remote images:
   - `OPENAGENTS_PULL_IMAGES=0 ./scripts/docker-deploy.sh` after a local build.
   - Use `./scripts/docker-release.sh build --scope frontend|gateway|app|all` according to the touched surface.
+- SQL baseline is currently two files only: `migrations/001_init.up.sql` for schema and `migrations/002_data.up.sql` for deterministic/idempotent data. Do not split pre-release baseline repair SQL into extra baseline files.
 - For a real release simulation, use a local registry internally, push `--scope all`, remove local OpenAgents images and deploy by pulling that registry version; do not surface registry/prefix/version flags as user instructions. Details live in `memory/operations/development-testing.md`.
 - When the user asks for a "real test" or production/current-code browser verification, default to `deploy/docker-compose.yml` via `./scripts/docker-deploy.sh`.
 - Use `docker/docker-compose.yaml` only when the task is specifically about the source-mounted local development stack.

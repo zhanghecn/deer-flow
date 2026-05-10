@@ -43,6 +43,11 @@ Options:
   --dry-run              Print commands without executing them.
   -h, --help             Show this help.
 
+Versioning:
+  push derives the immutable image tag from the current git tag. If the commit
+  is not tagged, it uses git-<shortsha>. In both cases push also refreshes
+  latest so deploy updates stay one-command.
+
 Examples:
   scripts/docker-release.sh push --scope all
   scripts/docker-release.sh push --scope app

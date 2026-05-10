@@ -27,6 +27,9 @@
   - deploy local build: `OPENAGENTS_PULL_IMAGES=0 ./scripts/docker-deploy.sh`
 - For production or self-host current-code container verification, default to
   `deploy/docker-compose.yml` via `./scripts/docker-deploy.sh`.
+- SQL first-run verification should prove that the two-file baseline
+  (`001_init.up.sql`, `002_data.up.sql`) initializes an empty database and that
+  later deploys do not require a separate seed/migration command.
 - Use `docker/docker-compose.yaml` only when the task is specifically about the
   source-mounted local development stack.
 - Verify public ports after startup or restart:

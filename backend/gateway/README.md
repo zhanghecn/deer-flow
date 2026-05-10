@@ -56,7 +56,7 @@ cd ../../deploy && docker compose run --rm migrate
 
 # 纯 host-run 调试也可以直接使用 psql 执行 reviewed SQL
 # psql "$DATABASE_URI" -f migrations/001_init.up.sql
-# psql "$DATABASE_URI" -f migrations/002_seed_data.up.sql
+# psql "$DATABASE_URI" -f migrations/002_data.up.sql
 ```
 
 ### 2. 配置

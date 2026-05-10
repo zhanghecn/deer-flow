@@ -46,7 +46,7 @@ SQL
 }
 
 adopt_existing_baseline_if_needed() {
-    ledger_rows="$(psql_scalar "SELECT COUNT(*) FROM openagents_schema_migrations WHERE version IN ('001_init.up.sql', '002_seed_data.up.sql');")"
+    ledger_rows="$(psql_scalar "SELECT COUNT(*) FROM openagents_schema_migrations WHERE version IN ('001_init.up.sql', '002_data.up.sql', '002_seed_data.up.sql');")"
     if [ "$ledger_rows" != "0" ]; then
         return
     fi
@@ -57,16 +57,15 @@ adopt_existing_baseline_if_needed() {
             return
             ;;
         3)
-            # Older deploys applied the two baseline files before the migration
-            # ledger existed. Adopt only the complete baseline; a partial schema
-            # must be inspected by an operator instead of guessed through.
-            for file in "$MIGRATIONS_DIR"/001_init.up.sql "$MIGRATIONS_DIR"/002_seed_data.up.sql; do
-                [ -f "$file" ] || {
-                    echo "Missing baseline file needed for adoption: $file" >&2
-                    exit 1
-                }
-                record_migration "$(basename "$file")" "$(checksum_file "$file")"
-            done
+            # Older deploys may already have the schema without the migration
+            # ledger. Adopt only the schema file, then let the current data SQL
+            # run normally so idempotent seed/repair statements still converge.
+            file="$MIGRATIONS_DIR"/001_init.up.sql
+            [ -f "$file" ] || {
+                echo "Missing baseline file needed for adoption: $file" >&2
+                exit 1
+            }
+            record_migration "$(basename "$file")" "$(checksum_file "$file")"
             echo "Adopted existing baseline schema into openagents_schema_migrations"
             ;;
         *)

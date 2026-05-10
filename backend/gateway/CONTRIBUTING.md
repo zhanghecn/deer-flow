@@ -29,7 +29,7 @@ export JWT_SECRET=dev-secret-change-me
 #    cd ../../deploy && docker compose run --rm migrate
 #    纯 host-run 调试可从仓库根目录直接执行：
 #    psql "$DATABASE_URI" -f migrations/001_init.up.sql
-#    psql "$DATABASE_URI" -f migrations/002_seed_data.up.sql
+#    psql "$DATABASE_URI" -f migrations/002_data.up.sql
 
 # 5. 启动
 make run
@@ -99,7 +99,7 @@ Handler → Service → Repository → Database
 ### 数据库迁移
 
 - 迁移文件放在项目根目录 `migrations/` 目录
-- 根基线是 `001_init.up.sql`（结构）和 `002_seed_data.up.sql`（数据）
+- 根基线是 `001_init.up.sql`（结构）和 `002_data.up.sql`（数据）
 - 新的结构或数据变更追加 `NNN_name.up.sql`，不要修改已经执行过的 SQL
 - 每个迁移文件包裹在 `BEGIN; ... COMMIT;` 事务中
 - 使用 `IF NOT EXISTS` 保证幂等性

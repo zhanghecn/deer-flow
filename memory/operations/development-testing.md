@@ -30,6 +30,20 @@ Use a narrower scope when obvious:
 `OPENAGENTS_PULL_IMAGES=0` is required for local current-code testing because
 the deploy script normally pulls published images for production usage.
 
+## SQL Baseline Test
+
+The pre-release SQL baseline should remain two files:
+
+```text
+migrations/001_init.up.sql
+migrations/002_data.up.sql
+```
+
+For a clean first-run test, remove the deploy data directory and OpenAgents
+containers, then run `./scripts/docker-deploy.sh`. The migrate service should
+apply both baseline SQL files and seed the default admin account without a
+separate command.
+
 ## Release Simulation
 
 When validating the real release path without external registry credentials,

@@ -26,15 +26,16 @@ func TestRootMigrationsKeepOrderedUpSQLContract(t *testing.T) {
 
 	slices.Sort(sqlFiles)
 
-	// Deploy uses a migration ledger now, so future reviewed SQL changes may be
-	// appended. The first two files remain the immutable empty-database baseline.
+	// The first public baseline is intentionally small: schema initialization
+	// plus deterministic/idempotent data initialization. Future post-release
+	// migrations may append new files after this two-file baseline.
 	if len(sqlFiles) < 2 {
-		t.Fatalf("expected at least baseline migrations, got %v", sqlFiles)
+		t.Fatalf("expected baseline migrations, got %v", sqlFiles)
 	}
 
 	wantPrefix := []string{
 		"001_init.up.sql",
-		"002_seed_data.up.sql",
+		"002_data.up.sql",
 	}
 	if !slices.Equal(sqlFiles[:2], wantPrefix) {
 		t.Fatalf("unexpected baseline migration prefix: got %v want %v", sqlFiles[:2], wantPrefix)

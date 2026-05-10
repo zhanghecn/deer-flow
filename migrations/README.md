@@ -7,10 +7,7 @@ to run migrations; `deploy/docker-compose.yml` runs the dedicated one-shot
 Current baseline:
 
 - `001_init.up.sql` — gateway-owned schema plus the migration ledger table.
-- `002_seed_data.up.sql` — deterministic bootstrap data.
-- `003_newapi_deepseek_anthropic_transport.up.sql` — converts previously
-  synced New API DeepSeek thinking models to the Anthropic transport required
-  for signed thinking-block replay after tool calls.
+- `002_data.up.sql` — deterministic bootstrap data plus idempotent data repair.
 - `run.sh` — idempotent runner used by the compose `migrate` service.
 
 `001_init.up.sql` covers gateway-owned tables such as:
@@ -29,7 +26,7 @@ Intentionally absent:
 Agent and skill definitions remain filesystem archives under `.openagents/`,
 not database rows.
 
-`002_seed_data.up.sql` seeds only the default administrator:
+`002_data.up.sql` seeds the default administrator:
 
 ```text
 account: admin
@@ -45,6 +42,10 @@ deploy network, sync models from the admin console with:
 http://model-gateway:3000
 ```
 
+The same data SQL also contains safe repair statements for historical New API
+rows, so a deploy can converge old synced model rows without keeping a third
+baseline SQL file.
+
 ## Adding A Migration
 
 1. Add a new reviewed SQL file named `NNN_short_name.up.sql`.
@@ -55,6 +56,9 @@ http://model-gateway:3000
 5. Apply it with `cd deploy && docker compose run --rm migrate`, or let
    `scripts/docker-release.sh deploy --scope gateway|app|all` run it.
 
-The runner can adopt older databases that already contain the complete baseline
-but lack `openagents_schema_migrations`. Partial schemas fail loudly and must be
-inspected manually.
+The runner can adopt older databases that already contain the complete schema
+but lack `openagents_schema_migrations`. It records only `001_init.up.sql`,
+then lets `002_data.up.sql` run so idempotent seed/repair statements still
+converge. It also recognizes the older `002_seed_data.up.sql` ledger name so
+existing internal deploys can move to the two-file baseline. Partial schemas
+fail loudly and must be inspected manually.
