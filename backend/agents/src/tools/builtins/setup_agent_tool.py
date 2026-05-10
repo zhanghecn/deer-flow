@@ -8,7 +8,7 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.config.agent_materialization import materialize_agent_definition
 from src.config.agent_runtime_seed import runtime_seed_targets
@@ -53,6 +53,8 @@ class _NormalizedSetupAgentSkillEntry:
 class SetupAgentSkillInput(BaseModel):
     """Single skill entry for setup_agent."""
 
+    model_config = ConfigDict(json_schema_extra={"required": []})
+
     name: str | None = Field(
         default=None,
         description=(
@@ -94,6 +96,92 @@ class SetupAgentMCPProfileInput(BaseModel):
             "shape. The payload must define exactly one server entry."
         ),
     )
+
+
+class SetupAgentToolArgs(BaseModel):
+    """Model-visible setup_agent parameters, excluding LangGraph's injected runtime."""
+
+    # Strict OpenAI-compatible gateways reject object schemas whose root
+    # `required` is absent or normalized to null. Every setup_agent argument is
+    # optional at the transport boundary, so the explicit contract is an empty
+    # required list while runtime validation still enforces create/update rules.
+    model_config = ConfigDict(json_schema_extra={"required": []})
+
+    agents_md: str | None = Field(
+        default=None,
+        description=(
+            "Full AGENTS.md markdown content for the target agent. Pass the actual "
+            "file body, not a path or a partial diff. Required when creating a new "
+            "agent. When updating an existing archived agent and AGENTS.md is "
+            "unchanged, omit this field to preserve the current archived content."
+        ),
+    )
+    description: str | None = Field(
+        default=None,
+        description=(
+            "One-line summary of what the agent does. Required when creating a new "
+            "agent. When updating an existing archived agent and the description is "
+            "unchanged, omit this field to preserve the current archived value."
+        ),
+    )
+    agent_name: str | None = Field(
+        default=None,
+        description=(
+            "Explicit target agent archive name. Required when the current runtime "
+            "agent is `lead_agent`. When creating a new agent, choose a short "
+            "kebab-case archive name such as `pr-review-agent`. If the user did "
+            "not provide one, `lead_agent` must still choose one explicitly instead "
+            "of omitting the field. Only a non-`lead_agent` runtime may omit this "
+            "field to update itself."
+        ),
+    )
+    model: str | None = Field(
+        default=None,
+        description=(
+            'Optional model override for the agent (e.g. "openai/gpt-4o"). '
+            "When omitted, setup_agent persists the current runtime model selection."
+        ),
+    )
+    tool_groups: list[str] | None = Field(
+        default=None,
+        description="Optional list of runtime tool groups to enable for the agent.",
+    )
+    mcp_servers: list[str] | None = Field(
+        default=None,
+        description=(
+            "Optional list of MCP library refs or legacy MCP names to bind to the "
+            "agent. Canonical refs look like `mcp-profiles/customer-docs.json`. "
+            "When omitted, preserve the existing archived agent MCP bindings."
+        ),
+    )
+    knowledge_base_ids: list[str] | None = Field(
+        default=None,
+        description=(
+            "Optional list of knowledge-base UUIDs to attach by default before this "
+            "agent runs. When omitted, preserve the existing archived agent knowledge "
+            "bindings."
+        ),
+    )
+    mcp_profiles: list[SetupAgentMCPProfileInput] | None = Field(
+        default=None,
+        description=(
+            "Optional global MCP library items to create or update before binding. "
+            "Each entry uses canonical `mcpServers` JSON and is written into the "
+            "global MCP library. Newly written profile refs are automatically bound "
+            "to the target agent for this call."
+        ),
+    )
+    skills: list[SetupAgentSkillInput] | None = Field(
+        default=None,
+        description=(
+            "Optional list of skill entries. Use a skill `source_path` or existing "
+            "skill `name` to copy an archived skill. Use both a new skill `name` "
+            "and full `content` to create or replace an agent-owned skill."
+        ),
+    )
+
+
+SETUP_AGENT_TOOL_ARGS_SCHEMA = SetupAgentToolArgs.model_json_schema()
 
 
 def _skill_entry_field(skill_entry: SetupAgentSkillInput | dict[str, Any], key: str) -> Any:
@@ -657,7 +745,7 @@ def _refresh_thread_runtime_materials(
         raise RuntimeError(f"Failed to refresh target agent runtime files: {', '.join(errors)}")
 
 
-@tool("setup_agent", parse_docstring=True)
+@tool("setup_agent", args_schema=SETUP_AGENT_TOOL_ARGS_SCHEMA)
 def setup_agent(
     runtime: ToolRuntime,
     agents_md: str | None = None,

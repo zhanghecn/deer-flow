@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 import yaml
 from langchain_core.messages import HumanMessage
+from langchain_core.utils.function_calling import convert_to_openai_tool
 
 from src.agents.lead_agent.agent import LeadAgentRuntimeContext
 from src.config.paths import Paths
@@ -179,6 +180,18 @@ def test_setup_agent_tool_exposes_docstring_arg_descriptions():
     assert "Required when the current runtime" in schema["agent_name"]["description"]
     assert "must still choose one explicitly" in schema["agent_name"]["description"]
     assert "source_path" in schema["skills"]["description"]
+
+
+def test_setup_agent_tool_schema_has_explicit_empty_required_for_strict_gateways():
+    """New API/OpenAI-compatible gateways validate `required` as an array."""
+
+    schema = setup_agent.tool_call_schema
+    openai_tool = convert_to_openai_tool(setup_agent)
+
+    assert isinstance(schema, dict)
+    assert schema["required"] == []
+    assert openai_tool["function"]["parameters"]["required"] == []
+    assert SetupAgentSkillInput.model_json_schema()["required"] == []
 
 
 def test_setup_agent_accepts_typed_runtime_context(monkeypatch):
