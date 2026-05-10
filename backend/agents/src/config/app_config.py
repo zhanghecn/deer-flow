@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Self
@@ -28,6 +29,7 @@ DEFAULT_SHARED_SKILLS_PATHS = (
     DEFAULT_OPENAGENTS_HOME,
     f"{DEFAULT_OPENAGENTS_HOME}/skills",
 )
+OPTIONAL_ENV_PATTERN = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\:-(.*)\}$")
 
 
 class AppConfig(BaseModel):
@@ -203,6 +205,12 @@ class AppConfig(BaseModel):
             The config with environment variables resolved.
         """
         if isinstance(config, str):
+            optional_match = OPTIONAL_ENV_PATTERN.match(config)
+            if optional_match:
+                # `$VAR` remains strict. `${VAR:-default}` is the explicit
+                # opt-in for optional deploy knobs such as media provider keys.
+                env_name, default_value = optional_match.groups()
+                return os.getenv(env_name, default_value)
             if config.startswith("$"):
                 env_value = os.getenv(config[1:])
                 if env_value is None:

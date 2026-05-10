@@ -28,6 +28,7 @@ VIRTUAL_WORKSPACE = f"{VIRTUAL_PATH_PREFIX}/workspace"
 SHELL_PATH = "/usr/bin/bash"
 DEFAULT_EXEC_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 READ_ONLY_BIND_DIRS = ("/usr", "/etc", "/bin", "/lib", "/lib64", "/sbin", "/opt")
+ENV_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def _preview_log_text(value: object, *, max_chars: int = MAX_LOG_TEXT_LENGTH) -> str:
@@ -66,6 +67,7 @@ class AioSandbox(Sandbox):
         home_dir: str | None = None,
         runtime_root: str | None = None,
         shared_tmp_root: str | None = None,
+        environment: dict[str, str] | None = None,
     ):
         super().__init__(sandbox_id=id)
         self._base_url = base_url
@@ -80,6 +82,7 @@ class AioSandbox(Sandbox):
             else f"{VIRTUAL_PATH_PREFIX}/tmp"
         )
         self._default_timeout = 600
+        self._environment = self._normalize_environment(environment or {})
 
     @property
     def base_url(self) -> str:
@@ -236,6 +239,25 @@ class AioSandbox(Sandbox):
     def _quote_command(argv: list[str]) -> str:
         return " ".join(shlex.quote(part) for part in argv)
 
+    @staticmethod
+    def _normalize_environment(environment: dict[str, str]) -> dict[str, str]:
+        """Keep sandbox env injection explicit and valid for bwrap --setenv."""
+
+        normalized: dict[str, str] = {}
+        for raw_key, raw_value in environment.items():
+            key = str(raw_key).strip()
+            if not ENV_NAME_PATTERN.match(key):
+                logger.warning("Skipping invalid sandbox environment variable name: %s", key)
+                continue
+            normalized[key] = str(raw_value)
+        return normalized
+
+    def _append_configured_environment(self, argv: list[str]) -> None:
+        """Inject only sandbox.environment values into the isolated command jail."""
+
+        for key in sorted(self._environment):
+            argv.extend(["--setenv", key, self._environment[key]])
+
     def _build_exec_jail_command(self, command: str) -> str:
         runtime_command = self._rewrite_command_paths(command, target_root=VIRTUAL_PATH_PREFIX)
 
@@ -290,6 +312,10 @@ class AioSandbox(Sandbox):
             "--chdir",
             VIRTUAL_WORKSPACE,
         ]
+        # The outer sandbox service receives deploy env, but bwrap intentionally
+        # starts from a minimal environment. Operators opt in to per-command
+        # secret exposure through `sandbox.environment`.
+        self._append_configured_environment(argv)
         for directory in READ_ONLY_BIND_DIRS:
             if os.path.exists(directory):
                 argv.extend(["--ro-bind", directory, directory])
@@ -361,6 +387,9 @@ class AioSandbox(Sandbox):
             "--chdir",
             visible_workdir,
         ]
+        # Keep IDE sessions aligned with normal shell execution: configured
+        # sandbox env is explicit, while the host process env is never inherited.
+        self._append_configured_environment(argv)
         for directory in READ_ONLY_BIND_DIRS:
             if os.path.exists(directory):
                 argv.extend(["--ro-bind", directory, directory])

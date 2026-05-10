@@ -58,6 +58,23 @@ def test_extensions_config_from_file_tolerates_missing_env_override(monkeypatch,
     assert config.skills == {}
 
 
+def test_app_config_optional_env_expression_uses_default_when_missing(monkeypatch):
+    monkeypatch.delenv("OPTIONAL_MEDIA_KEY", raising=False)
+
+    resolved = AppConfig.resolve_env_variables(
+        {"sandbox": {"environment": {"OPTIONAL_MEDIA_KEY": "${OPTIONAL_MEDIA_KEY:-}"}}}
+    )
+
+    assert resolved["sandbox"]["environment"]["OPTIONAL_MEDIA_KEY"] == ""
+
+
+def test_app_config_plain_env_expression_remains_strict(monkeypatch):
+    monkeypatch.delenv("REQUIRED_MEDIA_KEY", raising=False)
+
+    with pytest.raises(ValueError, match="REQUIRED_MEDIA_KEY"):
+        AppConfig.resolve_env_variables("$REQUIRED_MEDIA_KEY")
+
+
 def test_get_paths_resolves_storage_and_skills_relative_to_config_file(monkeypatch, tmp_path: Path):
     project_root = tmp_path / "repo"
     working_dir = project_root / "backend" / "agents"

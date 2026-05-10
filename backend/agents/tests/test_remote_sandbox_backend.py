@@ -77,6 +77,25 @@ def test_aio_sandbox_provider_uses_existing_backend_for_base_url():
     assert backend.base_url == "http://sandbox.internal:8080"
 
 
+def test_aio_sandbox_provider_passes_environment_to_existing_sandbox_instance():
+    provider = object.__new__(AioSandboxProvider)
+    provider._config = {
+        "base_url": "http://sandbox.internal:8080",
+        "shared_data_mount_path": "/openagents",
+        "environment": {"ARK_API_KEY": "secret"},
+    }
+
+    sandbox = AioSandboxProvider._build_sandbox_instance(
+        provider,
+        "sandbox-1",
+        "http://sandbox.internal:8080",
+        "thread-1",
+        "user-1",
+    )
+
+    assert sandbox._environment == {"ARK_API_KEY": "secret"}
+
+
 def test_aio_sandbox_provider_builds_thread_runtime_root_for_shared_existing_sandbox():
     provider = object.__new__(AioSandboxProvider)
     provider._config = {

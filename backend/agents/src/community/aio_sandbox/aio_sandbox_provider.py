@@ -309,6 +309,7 @@ class AioSandboxProvider(SandboxProvider):
             base_url=sandbox_url,
             runtime_root=self._runtime_root_for_thread(thread_id, user_id=user_id),
             shared_tmp_root=self._shared_tmp_root(),
+            environment=self._config.get("environment") or {},
         )
 
     # ── Idle timeout management ──────────────────────────────────────────

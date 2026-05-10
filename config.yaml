@@ -16,6 +16,20 @@ sandbox:
   base_url: http://127.0.0.1:18080
   shared_data_mount_path: /openagents
   auto_start: false
+  # Command execution runs inside a minimal bwrap environment; expose only the
+  # media-generation secrets that copied skills explicitly require.
+  environment:
+    ARK_API_KEY: ${ARK_API_KEY:-}
+    ARK_API_BASE_URL: ${ARK_API_BASE_URL:-}
+    ARK_IMAGE_MODEL: ${ARK_IMAGE_MODEL:-}
+    ARK_IMAGE_SIZE: ${ARK_IMAGE_SIZE:-}
+    VOLCENGINE_API_KEY: ${VOLCENGINE_API_KEY:-}
+    VOLCENGINE_API_BASE_URL: ${VOLCENGINE_API_BASE_URL:-}
+    VOLCENGINE_IMAGE_MODEL: ${VOLCENGINE_IMAGE_MODEL:-}
+    VOLCENGINE_IMAGE_SIZE: ${VOLCENGINE_IMAGE_SIZE:-}
+    VOLCENGINE_TTS_APPID: ${VOLCENGINE_TTS_APPID:-}
+    VOLCENGINE_TTS_ACCESS_TOKEN: ${VOLCENGINE_TTS_ACCESS_TOKEN:-}
+    VOLCENGINE_TTS_CLUSTER: ${VOLCENGINE_TTS_CLUSTER:-}
 
 storage:
   base_dir: .openagents

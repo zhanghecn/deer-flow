@@ -146,6 +146,30 @@ def test_aio_sandbox_execute_binds_shared_tmp_into_jail(monkeypatch):
     assert "/mnt/user-data/tmp/cache" in command
 
 
+def test_aio_sandbox_execute_injects_configured_environment(monkeypatch, caplog):
+    monkeypatch.setattr(aio_sandbox_module, "AioSandboxClient", _DummyClient)
+    caplog.set_level(logging.WARNING, logger=aio_sandbox_module.__name__)
+
+    sandbox = aio_sandbox_module.AioSandbox(
+        id="sb-env",
+        base_url="http://sandbox.test",
+        runtime_root="/openagents/users/user-1/threads/thread-env/user-data",
+        environment={
+            "ARK_API_KEY": "test-ark-key",
+            "VOLCENGINE_IMAGE_MODEL": "seedream-test",
+            "BAD-NAME": "ignored",
+        },
+    )
+
+    sandbox.execute("env")
+
+    command = sandbox._client.shell.last_call["command"]
+    assert "--setenv ARK_API_KEY test-ark-key" in command
+    assert "--setenv VOLCENGINE_IMAGE_MODEL seedream-test" in command
+    assert "BAD-NAME" not in command
+    assert "Skipping invalid sandbox environment variable name: BAD-NAME" in caplog.text
+
+
 def test_aio_sandbox_execute_can_disable_exec_isolation(monkeypatch):
     monkeypatch.setattr(aio_sandbox_module, "AioSandboxClient", _DummyClient)
     monkeypatch.setenv("OPENAGENTS_SANDBOX_EXEC_ISOLATION", "off")
