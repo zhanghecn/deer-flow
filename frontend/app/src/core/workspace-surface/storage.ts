@@ -113,7 +113,7 @@ export function persistWorkspaceDockState(
   nextState: Partial<WorkspaceDockState>,
 ): void {
   const settings = getLocalSettings();
-  // Persist only layout preferences here. Thread-specific design/runtime state
+  // Persist only layout preferences here. Thread-specific runtime state
   // must stay ephemeral so switching threads does not leak stale selections.
   saveLocalSettings({
     ...settings,
@@ -152,7 +152,7 @@ export function persistThreadWorkbenchHint(
     return null;
   }
 
-  // Persist only a lightweight routing hint. The live design/runtime sessions
+  // Persist only a lightweight routing hint. Live runtime sessions
   // stay ephemeral so a refresh never revives a stale worker/browser binding.
   const nextHint: WorkspaceThreadHint = {
     surface: hint.surface,

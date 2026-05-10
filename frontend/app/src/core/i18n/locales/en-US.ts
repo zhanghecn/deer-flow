@@ -120,8 +120,10 @@ export const enUS: Translations = {
     executionRetryFailed: "Retry failed",
     executionCompleted: (elapsed) =>
       elapsed ? `Completed in ${elapsed}` : "Completed",
-    executionFailed: (elapsed) => (elapsed ? `Failed after ${elapsed}` : "Failed"),
-    executionStopped: (elapsed) => (elapsed ? `Stopped after ${elapsed}` : "Stopped"),
+    executionFailed: (elapsed) =>
+      elapsed ? `Failed after ${elapsed}` : "Failed",
+    executionStopped: (elapsed) =>
+      elapsed ? `Stopped after ${elapsed}` : "Stopped",
     suggestions: [
       {
         suggestion: "Write",
@@ -178,7 +180,6 @@ export const enUS: Translations = {
     newChat: "New chat",
     workspaceDock: "Workspace",
     runtimeWorkspace: "Runtime workspace",
-    designBoard: "Design board",
     chats: "Chats",
     recentChats: "Recent chats",
     demoChats: "Demo chats",
@@ -203,8 +204,7 @@ export const enUS: Translations = {
     deleteConfirm:
       "Are you sure you want to delete this agent? This action cannot be undone.",
     deleteSuccess: "Agent deleted",
-    deleteArchiveTitle: (agentName: string) =>
-      `Delete "${agentName}" archives`,
+    deleteArchiveTitle: (agentName: string) => `Delete "${agentName}" archives`,
     deleteArchiveDescription: (agentName: string) =>
       `Choose which archived copy of "${agentName}" to remove. Deleting all archives removes both draft and published versions.`,
     deleteDraft: "Delete draft",
@@ -293,7 +293,6 @@ export const enUS: Translations = {
     toggleSidebar: "Toggle Sidebar",
     artifactsPanelTitle: "Artifacts",
     filesSurfaceTitle: "Files",
-    designSurfaceTitle: "Design",
     runtimeSurfaceTitle: "Runtime",
     closeWorkspaceDock: "Close workspace dock",
     noArtifactSelectedTitle: "No artifact selected",
@@ -301,51 +300,20 @@ export const enUS: Translations = {
     noPreviewSelectedTitle: "No preview selected",
     noPreviewSelectedDescription:
       "Select a file from Files or reveal an artifact to preview it here.",
-    noDesignSurfaceTitle: "No design session yet",
-    noDesignSurfaceDescription:
-      "Open the design editor to inspect or modify the thread's OpenPencil document.",
     noRuntimeSurfaceTitle: "No runtime session yet",
     noRuntimeSurfaceDescription:
       "Open the runtime workspace to inspect the active environment in a full tab.",
     noTargetFile: "No target file",
-    designSurfaceDescription:
-      "Design editing stays in a full OpenPencil tab. This dock keeps the current target file, selection, and sync state visible next to chat.",
     runtimeSurfaceDescription:
       "Runtime inspection stays in a full workspace tab. This dock keeps the current session status visible next to chat.",
-    openDesignEditor: "Open design editor",
-    reopenDesignEditor: "Reopen editor tab",
     openRuntimeSurface: "Open runtime workspace",
     reopenRuntimeSurface: "Reopen runtime tab",
-    selectedNodesLabel: "Selected nodes",
-    designStatusIdle: "Idle",
-    designStatusLoading: "Loading",
-    designStatusReady: "Ready",
-    designStatusDirty: "Dirty",
-    designStatusSaving: "Saving",
-    designStatusSynced: "Synced",
-    designStatusConflict: "Conflict",
-    designStatusError: "Error",
-    designPopupBlockedDescription:
-      "The browser blocked the automatic design tab open. Use the button below to open the editor manually.",
-    designSessionExpiredDescription:
-      "The design session expired. Reopen the editor to resume syncing with Deer Flow.",
-    designOpenFailedDescription:
-      "Deer Flow could not reopen the design editor just now. Try opening it again from this panel.",
-    designSyncFailedDescription:
-      "The open design tab hit a save or sync failure. Keep the editor open and retry the action after checking the error above.",
-    designRevisionLabel: "Revision",
-    designRevisionUnavailable: "Waiting for first sync",
-    designLastActivityLabel: "Last activity",
-    designLastActivityUnavailable: "No activity yet",
     runtimeStatusIdle: "Idle",
     runtimeStatusOpening: "Opening",
     runtimeStatusActive: "Active",
     runtimeStatusFailed: "Failed",
-    eventDesignSaved: "Design saved",
     eventRuntimeOpened: "Runtime opened",
     eventPreviewUpdated: "Preview updated",
-    eventSelectedNodesCount: (count: number) =>
-      `${count} selected node${count === 1 ? "" : "s"}`,
     officePreviewDialogDescription:
       "Preview and edit the selected office document.",
     todoListTitle: "To-dos",
@@ -674,7 +642,7 @@ export const enUS: Translations = {
       profileConfig: "Canonical mcpServers JSON",
       useDemoTemplate: "Use demo template",
       profileTemplateHint:
-        "HTTP MCP profiles should use type \"http\" and a container-reachable URL. The local demo template targets mcp-file-service on the active Docker network.",
+        'HTTP MCP profiles should use type "http" and a container-reachable URL. The local demo template targets mcp-file-service on the active Docker network.',
       saveProfile: "Save MCP profile",
       closeProfile: "Close",
       saveError: "Failed to save MCP profile",
@@ -691,7 +659,9 @@ export const enUS: Translations = {
       downloadSkill: "Download .skill",
       downloadSuccess: (filename: string) => `Downloaded ${filename}`,
       downloadFailed: (message: string) =>
-        message ? `Failed to download skill: ${message}` : "Failed to download skill",
+        message
+          ? `Failed to download skill: ${message}`
+          : "Failed to download skill",
       emptyTitle: "No agent skill yet",
       emptyDescription:
         "Create skills in `.openagents/custom/skills`, iterate in the workbench, then export or attach them when ready.",

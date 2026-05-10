@@ -90,7 +90,6 @@ func main() {
 	skillSvc := service.NewSkillService(fs)
 	mcpProfileSvc := service.NewMCPProfileService(fs)
 	authoringWorkspaceSvc := service.NewAuthoringWorkspaceService(fs)
-	designBoardSvc := service.NewDesignBoardService(fs)
 	runtimeStorageSvc := service.NewRuntimeStorageService(
 		runtimeStorageRepo,
 		threadRepo,
@@ -119,7 +118,6 @@ func main() {
 	skillH := handler.NewSkillHandler(skillSvc, fs, extensionsConfigPath)
 	mcpProfileH := handler.NewMCPProfileHandler(mcpProfileSvc)
 	authoringWorkspaceH := handler.NewAuthoringWorkspaceHandler(authoringWorkspaceSvc, fs, threadRepo)
-	designBoardH := handler.NewDesignBoardHandler(threadRepo, designBoardSvc, cfg.JWT.Secret, "")
 	modelH := handler.NewModelHandler(modelRepo)
 	memoryH := handler.NewMemoryHandler(fs)
 	mcpH := handler.NewMCPHandler(extensionsConfigPath)
@@ -228,14 +226,6 @@ func main() {
 		openDocs.GET("/agents/:name/openapi.json", agentH.PublicOpenAPISpec)
 	}
 
-	designAPI := r.Group("/api/design")
-	{
-		// Design board document traffic comes from the proxied OpenPencil app,
-		// which receives a short-lived scoped token instead of the user's JWT.
-		designAPI.GET("/document", designBoardH.ReadDocument)
-		designAPI.PUT("/document", designBoardH.WriteDocument)
-	}
-
 	// Protected API routes (JWT)
 	api := r.Group("/api")
 	api.Use(middleware.JWTAuth(jwtMgr))
@@ -299,7 +289,6 @@ func main() {
 		api.DELETE("/threads/:id", threadsH.Delete)
 		api.GET("/threads/:id/runtime", threadsH.GetRuntime)
 		api.POST("/threads/:id/runtime-workspace/open", runtimeWorkspaceH.Open)
-		api.POST("/threads/:id/design-board/open", designBoardH.Open)
 		api.PATCH("/threads/:id/title", threadsH.UpdateTitle)
 
 		// Uploads

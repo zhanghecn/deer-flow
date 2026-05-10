@@ -12,14 +12,14 @@ describe("workspace surface storage", () => {
 
   it("persists a lightweight thread workbench hint for refresh recovery", () => {
     persistThreadWorkbenchHint(" thread-1 ", {
-      surface: "design",
-      target_path: " /mnt/user-data/outputs/designs/canvas.op ",
+      surface: "runtime",
+      target_path: " /mnt/user-data/workspace ",
     });
 
     expect(getStoredThreadWorkbenchHint("thread-1")).toEqual({
-      surface: "design",
+      surface: "runtime",
       artifact_path: undefined,
-      target_path: "/mnt/user-data/outputs/designs/canvas.op",
+      target_path: "/mnt/user-data/workspace",
       updated_at: expect.any(String),
     });
   });
@@ -30,7 +30,7 @@ describe("workspace surface storage", () => {
       JSON.stringify({
         "thread-1": {
           surface: "not-a-surface",
-          target_path: "/mnt/user-data/outputs/designs/canvas.op",
+          target_path: "/mnt/user-data/workspace",
           updated_at: "2026-04-13T00:00:00.000Z",
         },
       }),

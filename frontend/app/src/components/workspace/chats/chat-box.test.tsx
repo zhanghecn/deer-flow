@@ -15,7 +15,6 @@ import type { AgentThreadState } from "@/core/threads";
 import { WorkspaceSurfaceProvider } from "@/core/workspace-surface/context";
 
 import { ChatBox } from "./chat-box";
-import { resolveDesignRefreshOpenIssue } from "./chat-box";
 
 type ThreadOutputArtifactsHookArgs = {
   refreshKey?: string;
@@ -304,12 +303,6 @@ describe("ChatBox", () => {
       expect(args?.refreshKey).toBe(initialRefreshKey);
     }
     expect(rerenderCalls.at(-1)?.[0]?.refetchIntervalMs).toBe(5000);
-  });
-
-  it("classifies non-expiry design refresh failures as sync issues", () => {
-    expect(resolveDesignRefreshOpenIssue(new Error("temporary failure"))).toBe(
-      "sync_failed",
-    );
   });
 
   it("backs off artifact polling after repeated identical discovery scans", async () => {

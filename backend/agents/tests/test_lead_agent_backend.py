@@ -132,22 +132,6 @@ def test_build_backend_default_agent_seeds_archived_agent_tree_into_thread_runti
     assert b"surprise-me" not in responses[1].content
 
 
-def test_build_backend_does_not_seed_default_design_document_into_thread_runtime(tmp_path):
-    base_dir = tmp_path / ".openagents"
-    _write_archived_skill(base_dir, "bootstrap", body="bootstrap")
-    paths = _make_paths(base_dir)
-
-    with patch("src.agents.lead_agent.agent.get_paths", return_value=paths):
-        backend = lead_agent_module.build_backend("thread-1", agent_name=None, user_id="user-1")
-
-    response = backend.download_files(["/mnt/user-data/outputs/designs/canvas.op"])[0]
-
-    # Generic lead-agent threads should not be polluted with design artifacts.
-    # The canonical `.op` file is created lazily either by the design skill when
-    # it explicitly needs one or by the gateway design-board open flow.
-    assert response.error == "file_not_found"
-
-
 def test_build_backend_routes_shared_skills_into_local_debug_backend(tmp_path):
     base_dir = tmp_path / ".openagents"
     _write_archived_skill(base_dir, "bootstrap", body="bootstrap")

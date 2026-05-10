@@ -172,7 +172,7 @@ they can leave a session present but missing recoverability or runtime context.
   explorer, scheduled whole-session delete settings, thread detail drawer,
   delete preview, and delete job status
 - Thread-level debug flows may escalate from trace review into runtime workspace
-  or design-board inspection while still honoring the original thread owner
+  inspection while still honoring the original thread owner
 - `管理账号`: grant/revoke admin role
 
 ## Context Window Semantics

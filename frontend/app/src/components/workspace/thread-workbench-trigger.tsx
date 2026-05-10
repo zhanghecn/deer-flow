@@ -3,7 +3,6 @@ import {
   EyeIcon,
   FilesIcon,
   PanelRightIcon,
-  PaletteIcon,
   PlaySquareIcon,
 } from "lucide-react";
 import { useCallback, useMemo } from "react";
@@ -11,7 +10,6 @@ import { useCallback, useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/workspace/tooltip";
-import { isDesignDocumentPath } from "@/core/design-board/paths";
 import { useI18n } from "@/core/i18n/hooks";
 import { isRuntimeSurfaceBusy } from "@/core/runtime-workspaces/state";
 import type { AgentThreadState } from "@/core/threads";
@@ -19,7 +17,7 @@ import { cn } from "@/lib/utils";
 
 import { useWorkbenchActions } from "./surfaces/use-workbench-actions";
 
-type WorkbenchMode = "workspace" | "design" | "files" | "runtime";
+type WorkbenchMode = "workspace" | "files" | "runtime";
 
 export function ThreadWorkbenchTrigger({
   className,
@@ -33,11 +31,8 @@ export function ThreadWorkbenchTrigger({
   const { t } = useI18n();
   const {
     artifacts,
-    designState,
-    isOpeningDesign,
     isOpeningRuntime,
     openArtifactWorkspace,
-    openDesignWorkbench,
     openRuntimeWorkbench,
     runtimeState,
     threadHint,
@@ -51,15 +46,6 @@ export function ThreadWorkbenchTrigger({
       threadHint?.artifact_path && artifacts.includes(threadHint.artifact_path)
         ? threadHint.artifact_path
         : undefined;
-    const hintedDesignArtifact =
-      threadHint?.artifact_path && isDesignDocumentPath(threadHint.artifact_path)
-        ? threadHint.artifact_path
-        : undefined;
-    const hasDesignContext =
-      designState.session !== null ||
-      designState.status !== "idle" ||
-      threadHint?.surface === "design";
-
     if (hasRuntimeContext) {
       return {
         icon: PlaySquareIcon,
@@ -87,19 +73,6 @@ export function ThreadWorkbenchTrigger({
       };
     }
 
-    if (hasDesignContext) {
-      return {
-        icon: PaletteIcon,
-        mode: "design" as WorkbenchMode,
-        artifactPath:
-          designState.target_path ??
-          designState.session?.target_path ??
-          hintedDesignArtifact,
-        badgeLabel: null,
-        label: t.workspace.designSurfaceTitle,
-      };
-    }
-
     if (fileCount > 0) {
       return {
         icon:
@@ -116,10 +89,7 @@ export function ThreadWorkbenchTrigger({
       };
     }
 
-    if (
-      threadHint?.surface === "preview" ||
-      threadHint?.surface === "files"
-    ) {
+    if (threadHint?.surface === "preview" || threadHint?.surface === "files") {
       const hintSurface =
         threadHint.surface === "preview" ? "preview" : "files";
       return {
@@ -144,9 +114,6 @@ export function ThreadWorkbenchTrigger({
   }, [
     runtimeState.session,
     runtimeState.status,
-    designState.session,
-    designState.status,
-    designState.target_path,
     artifacts,
     threadHint,
     t.common.preview,
@@ -164,17 +131,9 @@ export function ThreadWorkbenchTrigger({
       void openRuntimeWorkbench();
       return;
     }
-    if (workbenchState.mode === "design") {
-      void openDesignWorkbench({
-        revealInDock: true,
-        targetPath: workbenchState.artifactPath,
-      });
-      return;
-    }
     openArtifactWorkspace(workbenchState.artifactPath);
   }, [
     openArtifactWorkspace,
-    openDesignWorkbench,
     openRuntimeWorkbench,
     workbenchState.artifactPath,
     workbenchState.mode,
@@ -191,11 +150,7 @@ export function ThreadWorkbenchTrigger({
           "border-border/70 bg-background/88 hover:bg-background h-9 gap-2 rounded-full px-3",
           className,
         )}
-        disabled={
-          isOpeningDesign ||
-          isOpeningRuntime ||
-          isRuntimeSurfaceBusy(runtimeState.status)
-        }
+        disabled={isOpeningRuntime || isRuntimeSurfaceBusy(runtimeState.status)}
         onClick={handleOpenWorkbench}
       >
         <Icon className="size-4" />

@@ -8,7 +8,6 @@ import { mockApiPlugin } from "./src/mock-server/plugin";
 
 const DEFAULT_GATEWAY_BASE_URL = "http://localhost:8001";
 const DEFAULT_ONLYOFFICE_DEV_SERVER_URL = "http://localhost:8082";
-const DEFAULT_OPENPENCIL_DEV_SERVER_URL = "http://localhost:3001";
 
 type ProxyReqHook = {
   on: (
@@ -24,11 +23,6 @@ function getGatewayBaseURL(rawURL?: string): string {
 
 function getOnlyOfficeDevServerURL(rawURL?: string): string {
   const url = rawURL ?? DEFAULT_ONLYOFFICE_DEV_SERVER_URL;
-  return url.replace(/\/+$/, "");
-}
-
-function getOpenPencilDevServerURL(rawURL?: string): string {
-  const url = rawURL ?? DEFAULT_OPENPENCIL_DEV_SERVER_URL;
   return url.replace(/\/+$/, "");
 }
 
@@ -73,7 +67,6 @@ function createForwardedGatewayProxy(target: string) {
 function createGatewayProxy(
   target: string,
   onlyOfficeTarget: string,
-  openPencilTarget: string,
 ) {
   return {
     // Keep the first-party `/v1/*` contract reachable from the app dev origin
@@ -95,14 +88,6 @@ function createGatewayProxy(
       ws: true,
       rewrite: (path) => path.replace(/^\/onlyoffice/, ""),
     },
-    // Keep OpenPencil under the same-origin `/openpencil` prefix so the
-    // external design board can call back into `/api/design/*` without CORS.
-    "/openpencil": {
-      target: openPencilTarget,
-      changeOrigin: true,
-      ws: true,
-      rewrite: (path) => path.replace(/^\/openpencil/, ""),
-    },
   };
 }
 
@@ -117,11 +102,6 @@ export default defineConfig(({ mode }) => {
     process.env.VITE_ONLYOFFICE_DEV_SERVER_URL ??
       env.VITE_ONLYOFFICE_DEV_SERVER_URL,
   );
-  const openPencilDevServerURL = getOpenPencilDevServerURL(
-    process.env.VITE_OPENPENCIL_DEV_SERVER_URL ??
-      env.VITE_OPENPENCIL_DEV_SERVER_URL,
-  );
-
   return {
     plugins: [react(), mockApiPlugin()],
     resolve: {
@@ -160,7 +140,6 @@ export default defineConfig(({ mode }) => {
       proxy: createGatewayProxy(
         gatewayBaseURL,
         onlyOfficeDevServerURL,
-        openPencilDevServerURL,
       ),
     },
     build: {

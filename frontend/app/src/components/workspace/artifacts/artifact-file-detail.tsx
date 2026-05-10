@@ -57,7 +57,6 @@ import {
 import { setPdfPreviewPage } from "@/core/artifacts/pdf";
 import { resolveThreadScopedPath } from "@/core/artifacts/preview-resolver";
 import { urlOfArtifact } from "@/core/artifacts/utils";
-import { isDesignDocumentPath } from "@/core/design-board/paths";
 import { useI18n } from "@/core/i18n/hooks";
 import { parseKnowledgeCitationHref } from "@/core/knowledge/citations";
 import { installSkill } from "@/core/skills/api";
@@ -73,7 +72,6 @@ import { cn } from "@/lib/utils";
 
 import { CitationLink } from "../citations/citation-link";
 import { useThread } from "../messages/context";
-import { useWorkbenchActions } from "../surfaces/use-workbench-actions";
 import { Tooltip } from "../tooltip";
 
 import { useArtifacts } from "./context";
@@ -103,7 +101,6 @@ export function ArtifactFileDetail({
 }) {
   const { t } = useI18n();
   const { artifacts, setOpen, select, previewTarget } = useArtifacts();
-  const { openDesignWorkbench } = useWorkbenchActions(threadId);
   const isWriteFile = useMemo(() => {
     return filepathFromProps.startsWith("write-file:");
   }, [filepathFromProps]);
@@ -213,11 +210,6 @@ export function ArtifactFileDetail({
 
     setIsOpeningArtifact(true);
     try {
-      if (isDesignDocumentPath(filepath)) {
-        await openDesignWorkbench({ targetPath: filepath });
-        return;
-      }
-
       try {
         await openArtifactInNewWindow({
           filepath,
@@ -244,7 +236,6 @@ export function ArtifactFileDetail({
   }, [
     filepath,
     isMock,
-    openDesignWorkbench,
     isOpeningArtifact,
     isWriteFile,
     officePreviewUrl,

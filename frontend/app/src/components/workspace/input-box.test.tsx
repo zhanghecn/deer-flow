@@ -7,8 +7,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import { PromptInputProvider } from "@/components/ai-elements/prompt-input";
 import type {
-  DesignSelectionContext,
-  DesignSurfaceState,
   RuntimeSurfaceState,
   WorkspaceDockState,
 } from "@/core/workspace-surface/types";
@@ -17,20 +15,9 @@ import { InputBox } from "./input-box";
 
 const mockWorkspaceSurface = vi.hoisted(
   (): {
-    designSelection: DesignSelectionContext | null;
-    designState: DesignSurfaceState;
     dockState: WorkspaceDockState;
     runtimeState: RuntimeSurfaceState;
-    clearDesignSelection: ReturnType<typeof vi.fn>;
   } => ({
-    designSelection: null,
-    designState: {
-      session: null,
-      status: "idle",
-      target_path: undefined,
-      revision: null,
-      last_error: null,
-    },
     dockState: {
       open: false,
       activeSurface: "preview",
@@ -42,7 +29,6 @@ const mockWorkspaceSurface = vi.hoisted(
       target_path: undefined,
       last_error: null,
     },
-    clearDesignSelection: vi.fn(),
   }),
 );
 
@@ -413,25 +399,13 @@ describe("InputBox", () => {
     expect(screen.getByText("Completed in 9.6s")).toBeInTheDocument();
   });
 
-  it("submits explicit surface and selection context from the design workspace", async () => {
+  it("submits explicit surface context from the runtime workspace", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn();
     const queryClient = new QueryClient();
 
-    mockWorkspaceSurface.designSelection = {
-      surface: "design",
-      target_path: "/mnt/user-data/outputs/designs/canvas.op",
-      selected_node_ids: ["hero", "cta"],
-      active_node_id: "hero",
-      selected_nodes: [
-        { id: "hero", label: "Hero" },
-        { id: "cta", label: "Primary CTA" },
-      ],
-      selection_summary: "Hero, Primary CTA",
-    };
-    mockWorkspaceSurface.dockState.activeSurface = "design";
-    mockWorkspaceSurface.designState.target_path =
-      "/mnt/user-data/outputs/designs/canvas.op";
+    mockWorkspaceSurface.dockState.activeSurface = "runtime";
+    mockWorkspaceSurface.runtimeState.target_path = "/mnt/user-data/workspace";
 
     render(
       <MemoryRouter>
@@ -463,19 +437,13 @@ describe("InputBox", () => {
       },
       expect.objectContaining({
         surface_context: {
-          surface: "design",
-          target_path: "/mnt/user-data/outputs/designs/canvas.op",
+          surface: "runtime",
+          target_path: "/mnt/user-data/workspace",
         },
-        selection_context: expect.objectContaining({
-          selected_node_ids: ["hero", "cta"],
-          active_node_id: "hero",
-          selection_summary: "Hero, Primary CTA",
-        }),
       }),
     );
 
-    mockWorkspaceSurface.designSelection = null;
-    mockWorkspaceSurface.designState.target_path = undefined;
+    mockWorkspaceSurface.runtimeState.target_path = undefined;
     mockWorkspaceSurface.dockState.activeSurface = "preview";
   });
 });

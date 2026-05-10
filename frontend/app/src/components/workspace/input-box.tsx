@@ -65,10 +65,7 @@ import {
   type ThreadEffort,
 } from "@/core/threads/mode";
 import { useWorkspaceSurface } from "@/core/workspace-surface/context";
-import type {
-  DesignSelectionContext,
-  SurfaceContextPayload,
-} from "@/core/workspace-surface/types";
+import type { SurfaceContextPayload } from "@/core/workspace-surface/types";
 import { cn } from "@/lib/utils";
 
 import {
@@ -165,16 +162,23 @@ function ExecutionStatusBadge({
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [executionStatus.event, executionStatus.finished_at, executionStatus.terminal]);
+  }, [
+    executionStatus.event,
+    executionStatus.finished_at,
+    executionStatus.terminal,
+  ]);
 
   const startedAt = new Date(executionStatus.started_at);
   const finishedAt = executionStatus.finished_at
     ? new Date(executionStatus.finished_at)
     : null;
   const liveDurationMs =
-    executionStatus.terminal && typeof executionStatus.total_duration_ms === "number"
+    executionStatus.terminal &&
+    typeof executionStatus.total_duration_ms === "number"
       ? executionStatus.total_duration_ms
-      : finishedAt && !Number.isNaN(finishedAt.getTime()) && !Number.isNaN(startedAt.getTime())
+      : finishedAt &&
+          !Number.isNaN(finishedAt.getTime()) &&
+          !Number.isNaN(startedAt.getTime())
         ? Math.max(0, finishedAt.getTime() - startedAt.getTime())
         : !Number.isNaN(startedAt.getTime())
           ? Math.max(0, nowMs - startedAt.getTime())
@@ -183,10 +187,7 @@ function ExecutionStatusBadge({
     typeof liveDurationMs === "number"
       ? formatExecutionDuration(liveDurationMs, locale)
       : null;
-  const timeLabel = formatRetryTime(
-    executionStatus.started_at,
-    locale,
-  );
+  const timeLabel = formatRetryTime(executionStatus.started_at, locale);
   const label =
     executionStatus.event === "retrying"
       ? executionStatus.tool_name
@@ -227,7 +228,8 @@ function ExecutionStatusBadge({
       : null;
   const badgeClassName = cn(
     "text-muted-foreground flex min-w-0 items-center gap-2 overflow-hidden rounded-full border px-3 py-1 text-xs",
-    executionStatus.event === "failed" || executionStatus.event === "retry_failed"
+    executionStatus.event === "failed" ||
+      executionStatus.event === "retry_failed"
       ? "border-red-500/20 bg-red-500/10"
       : executionStatus.event === "completed"
         ? "border-emerald-500/20 bg-emerald-500/10"
@@ -243,9 +245,7 @@ function ExecutionStatusBadge({
       <div className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-current" />
       <span className="truncate">{label}</span>
       {delayLabel ? (
-        <span className="truncate text-[11px]">
-          {delayLabel}
-        </span>
+        <span className="truncate text-[11px]">{delayLabel}</span>
       ) : null}
     </div>
   );
@@ -345,7 +345,7 @@ export function InputBox({
   const { t, locale } = useI18n();
   const [searchParams] = useSearchParams();
   const { selectedArtifact } = useArtifacts();
-  const { designSelection, dockState, runtimeState } = useWorkspaceSurface();
+  const { dockState, runtimeState } = useWorkspaceSurface();
   const [modelDialogOpen, setModelDialogOpen] = useState(false);
   const { models } = useModels();
   const promptInputController = usePromptInputController();
@@ -451,14 +451,9 @@ export function InputBox({
     [onContextChange, context, selectedModel],
   );
 
-  const buildSurfaceContext = useCallback((): SurfaceContextPayload | undefined => {
-    if (designSelection && designSelection.selected_node_ids.length > 0) {
-      return {
-        surface: "design",
-        target_path: designSelection.target_path,
-      };
-    }
-
+  const buildSurfaceContext = useCallback(():
+    | SurfaceContextPayload
+    | undefined => {
     switch (dockState.activeSurface) {
       case "runtime":
         return runtimeState.target_path
@@ -478,19 +473,7 @@ export function InputBox({
       default:
         return undefined;
     }
-  }, [
-    designSelection,
-    dockState.activeSurface,
-    runtimeState.target_path,
-    selectedArtifact,
-  ]);
-
-  const buildSelectionContext = useCallback((): DesignSelectionContext | undefined => {
-    if (!designSelection || designSelection.selected_node_ids.length === 0) {
-      return undefined;
-    }
-    return designSelection;
-  }, [designSelection]);
+  }, [dockState.activeSurface, runtimeState.target_path, selectedArtifact]);
 
   const submitMessage = useCallback(
     (message: PromptInputMessage) => {
@@ -509,9 +492,6 @@ export function InputBox({
         ...(buildSurfaceContext()
           ? { surface_context: buildSurfaceContext() }
           : {}),
-        ...(buildSelectionContext()
-          ? { selection_context: buildSelectionContext() }
-          : {}),
       } as Record<string, unknown>;
 
       onSubmit?.(
@@ -525,14 +505,7 @@ export function InputBox({
       );
       promptInputController.textInput.clear();
     },
-    [
-      buildSelectionContext,
-      buildSurfaceContext,
-      onSubmit,
-      onStop,
-      promptInputController,
-      status,
-    ],
+    [buildSurfaceContext, onSubmit, onStop, promptInputController, status],
   );
 
   const handleSubmit = useCallback(
@@ -699,7 +672,7 @@ export function InputBox({
         /* Cleaner border: stronger in light, subtle in dark. No glass/blur overload. */
         "border-border bg-background rounded-xl border shadow-sm transition-all duration-200 ease-out *:data-[slot='input-group']:rounded-xl",
         "dark:border-white/10 dark:bg-[#0c1220]/80",
-        "focus-within:border-ring focus-within:shadow-md focus-within:ring-1 focus-within:ring-ring/20",
+        "focus-within:border-ring focus-within:ring-ring/20 focus-within:shadow-md focus-within:ring-1",
         className,
       )}
       disabled={disabled}
@@ -732,7 +705,7 @@ export function InputBox({
       <PromptInputBody className="absolute top-0 right-0 left-0 z-3">
         <PromptInputTextarea
           className={cn(
-            "size-full placeholder:text-muted-foreground/50",
+            "placeholder:text-muted-foreground/50 size-full",
             "dark:placeholder:text-white/20",
           )}
           disabled={disabled}
@@ -745,10 +718,10 @@ export function InputBox({
       <PromptInputFooter className="flex items-center px-2 py-1.5">
         <PromptInputTools className="gap-0.5">
           {/* Secondary controls: smaller, ghost style, muted colors */}
-          <AddAttachmentsButton className="h-7 w-7 p-0 text-muted-foreground/70 hover:text-foreground" />
+          <AddAttachmentsButton className="text-muted-foreground/70 hover:text-foreground h-7 w-7 p-0" />
           <Tooltip content={t.knowledge.uploadButton}>
             <PromptInputButton
-              className="h-7 w-7 p-0 text-muted-foreground/70 hover:text-foreground"
+              className="text-muted-foreground/70 hover:text-foreground h-7 w-7 p-0"
               disabled={disabled}
               onClick={() => setKnowledgeUploadOpen(true)}
             >
@@ -816,7 +789,7 @@ export function InputBox({
             onOpenChange={setModelDialogOpen}
           >
             <ModelSelectorTrigger asChild>
-              <PromptInputButton className="h-7 px-2 text-[11px] text-muted-foreground/60 hover:text-foreground">
+              <PromptInputButton className="text-muted-foreground/60 hover:text-foreground h-7 px-2 text-[11px]">
                 <ModelSelectorName className="font-normal">
                   {selectedModel?.display_name}
                 </ModelSelectorName>
@@ -849,7 +822,7 @@ export function InputBox({
             className={cn(
               "h-8 w-8 rounded-lg",
               status === "streaming"
-                ? "px-3 w-auto gap-1.5"
+                ? "w-auto gap-1.5 px-3"
                 : "bg-primary text-primary-foreground hover:bg-primary/90 border-0",
             )}
             disabled={disabled}
@@ -929,7 +902,7 @@ function SuggestionList({
     /* Tighter, more compact suggestion row */
     <Suggestions className="min-h-10 w-fit items-center gap-1.5">
       <button
-        className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-muted-foreground/25 px-3 py-1 text-xs text-muted-foreground/70 transition-colors hover:border-muted-foreground/40 hover:text-foreground"
+        className="border-muted-foreground/25 text-muted-foreground/70 hover:border-muted-foreground/40 hover:text-foreground inline-flex items-center gap-1.5 rounded-full border border-dashed px-3 py-1 text-xs transition-colors"
         onClick={() =>
           handleSuggestionClick(t.inputBox.surpriseMePrompt, { submit: true })
         }
@@ -947,7 +920,7 @@ function SuggestionList({
       ))}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-muted-foreground/25 px-3 py-1 text-xs text-muted-foreground/70 transition-colors hover:border-muted-foreground/40 hover:text-foreground">
+          <button className="border-muted-foreground/25 text-muted-foreground/70 hover:border-muted-foreground/40 hover:text-foreground inline-flex items-center gap-1.5 rounded-full border border-dashed px-3 py-1 text-xs transition-colors">
             <PlusIcon className="size-3" />
             {t.common.create}
           </button>
@@ -963,7 +936,9 @@ function SuggestionList({
                     key={suggestion.suggestion}
                     onClick={() => handleSuggestionClick(suggestion.prompt)}
                   >
-                    {suggestion.icon && <suggestion.icon className="size-3.5 mr-1.5" />}
+                    {suggestion.icon && (
+                      <suggestion.icon className="mr-1.5 size-3.5" />
+                    )}
                     {suggestion.suggestion}
                   </DropdownMenuItem>
                 )

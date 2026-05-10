@@ -55,11 +55,6 @@ sandbox_image_cache.tar
 
 # ignore the legacy `web` folder
 web/
-# The vendored OpenPencil production build now lives under openpencil/apps/web,
-# so keep that subtree tracked even though its leaf directory is also named
-# `web`.
-!openpencil/apps/web/
-!openpencil/apps/web/**
 # Keep the nginx runtime-workspace `vsda` shim tracked even though its leaf
 # directory is named `web`, which would otherwise match the legacy ignore.
 !docker/nginx/static/vsda/rust/web/
@@ -90,12 +85,12 @@ dist
 .openagents/knowledge/
 
 # Generated deployment state lives under deploy/ so docker/ can stay a clean
-# source directory for compose templates and Dockerfiles.
+# source directory for Dockerfiles and the local development compose file.
 deploy/.env
-deploy/docker-compose.yml
 deploy/config.yaml
 deploy/gateway.yaml
 deploy/data/
+deploy/migrations/
 
 # Legacy generated locations from the old production deploy script. Current
 # scripts do not write here, but keep them ignored so existing local data is

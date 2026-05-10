@@ -17,15 +17,6 @@ import {
   filterLegacyPptPreviewArtifacts,
   mergeVisibleArtifacts,
 } from "@/core/artifacts/utils";
-import {
-  DesignBoardDocumentReadError,
-  readDesignBoardDocument,
-} from "@/core/design-board/api";
-import {
-  clearDesignBoardAutoOpened,
-  publishDesignBoardRemoteMessage,
-} from "@/core/design-board/embed";
-import { isDesignDocumentPath } from "@/core/design-board/paths";
 import { useI18n } from "@/core/i18n/hooks";
 import { getUserVisibleRuntimePath } from "@/core/utils/files";
 import { useWorkspaceSurface } from "@/core/workspace-surface/context";
@@ -34,13 +25,11 @@ import { cn } from "@/lib/utils";
 
 import { ArtifactFileDetail, useArtifacts } from "../artifacts";
 import { useThread } from "../messages/context";
-import { useWorkbenchActions } from "../surfaces/use-workbench-actions";
 import { WorkspaceSurfaceDock } from "../surfaces/workspace-surface-dock";
 
 const CLOSE_MODE = { chat: 100, artifacts: 0 };
 const OPEN_MODE = { chat: 60, artifacts: 40 };
 const FAST_ARTIFACT_DISCOVERY_POLL_MS = 5000;
-const DESIGN_REVISION_SYNC_POLL_MS = 2000;
 const MEDIUM_ARTIFACT_DISCOVERY_POLL_MS = 15000;
 const SLOW_ARTIFACT_DISCOVERY_POLL_MS = 30000;
 const STABLE_DISCOVERY_POLLS_FOR_MEDIUM = 2;
@@ -69,13 +58,6 @@ function getArtifactDiscoveryPollInterval(
   return FAST_ARTIFACT_DISCOVERY_POLL_MS;
 }
 
-export function resolveDesignRefreshOpenIssue(error: unknown) {
-  return error instanceof DesignBoardDocumentReadError &&
-    (error.statusCode === 401 || error.statusCode === 403)
-    ? "session_expired"
-    : "sync_failed";
-}
-
 const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
   children,
   threadId,
@@ -93,7 +75,6 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
     selectedArtifact,
   } = useArtifacts();
   const workspaceSurface = useWorkspaceSurface();
-  const { openDesignWorkbench } = useWorkbenchActions(threadId);
   const previousVisibleArtifactsRef = useRef<string[] | null>(null);
 
   const [autoSelectFirstArtifact, setAutoSelectFirstArtifact] = useState(true);
@@ -254,92 +235,10 @@ const ChatBox: React.FC<{ children: React.ReactNode; threadId: string }> = ({
       return;
     }
 
-    const newlyDiscoveredDesignArtifact = newlyDiscoveredArtifacts.find(
-      isDesignDocumentPath,
-    );
-    if (newlyDiscoveredDesignArtifact) {
-      void openDesignWorkbench({
-        autoOpen: true,
-        targetPath: newlyDiscoveredDesignArtifact,
-      });
-    }
-
     // Preview cards should reflect artifacts discovered during the active run,
     // not the initial thread hydration of older outputs.
-    workspaceSurface.notePreviewArtifacts(
-      newlyDiscoveredArtifacts.filter(
-        (artifactPath) => !isDesignDocumentPath(artifactPath),
-      ),
-    );
-  }, [openDesignWorkbench, thread.isLoading, visibleArtifacts, workspaceSurface]);
-
-  useEffect(() => {
-    if (!thread.isLoading || !workspaceSurface.designState.session) {
-      return;
-    }
-
-    let cancelled = false;
-    const session = workspaceSurface.designState.session;
-
-    const syncRevision = async () => {
-      try {
-        const payload = await readDesignBoardDocument(session);
-        if (cancelled) {
-          return;
-        }
-        if (payload.revision === workspaceSurface.designState.revision) {
-          return;
-        }
-
-        workspaceSurface.setDesignStatus("saving", {
-          revision: payload.revision,
-          targetPath: payload.target_path,
-        });
-        publishDesignBoardRemoteMessage(session, {
-          type: "design.remote.revision-available",
-          revision: payload.revision,
-        });
-      } catch (error) {
-        if (cancelled) {
-          return;
-        }
-
-        const openIssue = resolveDesignRefreshOpenIssue(error);
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Failed to refresh design document";
-        workspaceSurface.setDesignStatus("error", {
-          error: message,
-          targetPath: session.target_path,
-          openIssue,
-        });
-        if (openIssue === "session_expired") {
-          clearDesignBoardAutoOpened(threadId);
-          publishDesignBoardRemoteMessage(session, {
-            type: "design.remote.session-expired",
-            revision: workspaceSurface.designState.revision ?? null,
-          });
-        }
-      }
-    };
-
-    void syncRevision();
-    const timer = window.setInterval(() => {
-      void syncRevision();
-    }, DESIGN_REVISION_SYNC_POLL_MS);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [
-    thread.isLoading,
-    threadId,
-    workspaceSurface,
-    workspaceSurface.designState.revision,
-    workspaceSurface.designState.session,
-  ]);
+    workspaceSurface.notePreviewArtifacts(newlyDiscoveredArtifacts);
+  }, [thread.isLoading, visibleArtifacts, workspaceSurface]);
 
   const artifactPanelOpen = useMemo(() => {
     return workspaceSurface.dockState.open;

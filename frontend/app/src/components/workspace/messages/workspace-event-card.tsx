@@ -1,6 +1,5 @@
 import {
   ChevronRightIcon,
-  CheckCircle2Icon,
   EyeIcon,
   type LucideIcon,
   PlaySquareIcon,
@@ -78,25 +77,6 @@ export function WorkspaceEventCard({
   const { openArtifactWorkspace, openRuntimeWorkbench } =
     useWorkbenchActions(threadId);
   const timeLabel = formatEventTime(event.created_at, locale);
-
-  if (event.kind === "design-saved") {
-    return (
-      <WorkspaceEventActionCard
-        actionLabel={t.workspace.openDesignEditor}
-        icon={CheckCircle2Icon}
-        iconClassName="rounded-xl bg-emerald-500/10 p-2 text-emerald-600 dark:text-emerald-300"
-        onClick={() => {
-          openArtifactWorkspace(event.target_path);
-        }}
-        timeLabel={timeLabel}
-        title={t.workspace.eventDesignSaved}
-      >
-        <div className="text-muted-foreground truncate text-xs">
-          {getUserVisibleRuntimePath(event.target_path)}
-        </div>
-      </WorkspaceEventActionCard>
-    );
-  }
 
   if (event.kind === "runtime-opened") {
     return (

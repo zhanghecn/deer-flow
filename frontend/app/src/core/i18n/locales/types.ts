@@ -95,7 +95,10 @@ export interface Translations {
     retryingToolGeneric: (current: number, max: number, time: string) => string;
     retryDelay: (seconds: string) => string;
     executionThinking: (elapsed?: string) => string;
-    executionRunningTool: (toolName: string | undefined, elapsed?: string) => string;
+    executionRunningTool: (
+      toolName: string | undefined,
+      elapsed?: string,
+    ) => string;
     executionFinalizing: (elapsed?: string) => string;
     executionRetryCompleted: string;
     executionRetryFailed: string;
@@ -125,7 +128,6 @@ export interface Translations {
     newChat: string;
     workspaceDock: string;
     runtimeWorkspace: string;
-    designBoard: string;
     chats: string;
     demoChats: string;
     agents: string;
@@ -138,11 +140,7 @@ export interface Translations {
     newAgent: string;
     emptyTitle: string;
     emptyDescription: string;
-    gallerySummary: (
-      total: number,
-      published: number,
-      draft: number,
-    ) => string;
+    gallerySummary: (total: number, published: number, draft: number) => string;
     galleryEmptySearchDescription: string;
     chat: string;
     copyUrl: string;
@@ -226,49 +224,24 @@ export interface Translations {
     toggleSidebar: string;
     artifactsPanelTitle: string;
     filesSurfaceTitle: string;
-    designSurfaceTitle: string;
     runtimeSurfaceTitle: string;
     closeWorkspaceDock: string;
     noArtifactSelectedTitle: string;
     noArtifactSelectedDescription: string;
     noPreviewSelectedTitle: string;
     noPreviewSelectedDescription: string;
-    noDesignSurfaceTitle: string;
-    noDesignSurfaceDescription: string;
     noRuntimeSurfaceTitle: string;
     noRuntimeSurfaceDescription: string;
     noTargetFile: string;
-    designSurfaceDescription: string;
     runtimeSurfaceDescription: string;
-    openDesignEditor: string;
-    reopenDesignEditor: string;
     openRuntimeSurface: string;
     reopenRuntimeSurface: string;
-    selectedNodesLabel: string;
-    designStatusIdle: string;
-    designStatusLoading: string;
-    designStatusReady: string;
-    designStatusDirty: string;
-    designStatusSaving: string;
-    designStatusSynced: string;
-    designStatusConflict: string;
-    designStatusError: string;
-    designPopupBlockedDescription: string;
-    designSessionExpiredDescription: string;
-    designOpenFailedDescription: string;
-    designSyncFailedDescription: string;
-    designRevisionLabel: string;
-    designRevisionUnavailable: string;
-    designLastActivityLabel: string;
-    designLastActivityUnavailable: string;
     runtimeStatusIdle: string;
     runtimeStatusOpening: string;
     runtimeStatusActive: string;
     runtimeStatusFailed: string;
-    eventDesignSaved: string;
     eventRuntimeOpened: string;
     eventPreviewUpdated: string;
-    eventSelectedNodesCount: (count: number) => string;
     officePreviewDialogDescription: string;
     todoListTitle: string;
   };
@@ -409,7 +382,11 @@ export interface Translations {
     emptyPageDescription: string;
     noResultsTitle: string;
     noResultsDescription: string;
-    pageLabel: (page: number, totalPages: number, totalThreads: number) => string;
+    pageLabel: (
+      page: number,
+      totalPages: number,
+      totalThreads: number,
+    ) => string;
     newerPage: string;
     olderPage: string;
   };

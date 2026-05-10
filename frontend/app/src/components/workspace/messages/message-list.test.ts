@@ -15,10 +15,9 @@ vi.mock("@/core/workspace-surface/context", () => ({
     events: [
       {
         id: "event-1",
-        kind: "design-saved",
+        kind: "preview-updated",
         created_at: "2026-04-12T10:20:00.000Z",
-        target_path: "/mnt/user-data/outputs/designs/canvas.op",
-        revision: "rev-2",
+        artifact_path: "/mnt/user-data/outputs/report.md",
       },
     ],
   }),
@@ -27,7 +26,6 @@ vi.mock("@/core/workspace-surface/context", () => ({
 vi.mock("@/components/workspace/surfaces/use-workbench-actions", () => ({
   useWorkbenchActions: () => ({
     openArtifactWorkspace: vi.fn(),
-    openDesignWorkbench: vi.fn(),
     openRuntimeWorkbench: vi.fn(),
   }),
 }));
@@ -47,16 +45,17 @@ vi.mock("@/core/i18n/hooks", () => ({
   useI18n: () => ({
     locale: "en-US",
     t: {
+      common: {
+        preview: "Preview",
+      },
       subtasks: {
         executing: (count: number) => `正在执行 ${count} 个子任务`,
         completedGroup: (count: number) => `已完成 ${count} 个子任务`,
         failedGroup: (count: number) => `${count} 个子任务执行失败`,
       },
       workspace: {
-        eventDesignSaved: "Design saved",
         eventRuntimeOpened: "Runtime opened",
         eventPreviewUpdated: "Preview updated",
-        eventSelectedNodesCount: (count: number) => `${count} selected nodes`,
       },
     },
   }),
@@ -139,8 +138,8 @@ describe("subtask aggregate state", () => {
       }),
     );
 
-    expect(screen.getByText("Design saved")).toBeInTheDocument();
-    expect(screen.getByText("canvas.op")).toBeInTheDocument();
+    expect(screen.getByText("Preview updated")).toBeInTheDocument();
+    expect(screen.getByText("report.md")).toBeInTheDocument();
   });
 
   it("renders the inline execution status row when a normalized run status is present", () => {
@@ -193,7 +192,9 @@ describe("subtask aggregate state", () => {
 
     expect(screen.getByText("Run failed")).toBeInTheDocument();
     expect(
-      screen.getByText("网络错误，错误id：202604162004385dab114c4ec9494e，请稍后重试"),
+      screen.getByText(
+        "网络错误，错误id：202604162004385dab114c4ec9494e，请稍后重试",
+      ),
     ).toBeInTheDocument();
   });
 
@@ -237,6 +238,8 @@ describe("subtask aggregate state", () => {
     );
 
     expect(screen.queryByText("Run completed")).not.toBeInTheDocument();
-    expect(screen.queryByText("(Interrupt(value={...}),)")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("(Interrupt(value={...}),)"),
+    ).not.toBeInTheDocument();
   });
 });

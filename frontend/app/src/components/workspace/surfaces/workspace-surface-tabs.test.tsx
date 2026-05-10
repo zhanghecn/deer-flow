@@ -13,15 +13,6 @@ vi.mock("@/core/i18n/hooks", () => ({
       },
       workspace: {
         closeWorkspaceDock: "Close workspace",
-        designSurfaceTitle: "Design",
-        designStatusIdle: "Idle",
-        designStatusLoading: "Loading",
-        designStatusReady: "Ready",
-        designStatusDirty: "Dirty",
-        designStatusSaving: "Saving",
-        designStatusSynced: "Synced",
-        designStatusConflict: "Conflict",
-        designStatusError: "Error",
         filesSurfaceTitle: "Files",
         runtimeSurfaceTitle: "Runtime",
         runtimeStatusIdle: "Idle",
@@ -34,20 +25,23 @@ vi.mock("@/core/i18n/hooks", () => ({
 }));
 
 describe("WorkspaceSurfaceTabs", () => {
-  it("keeps the Design surface visible with its own status badge", () => {
+  it("shows file count and runtime status without the retired design tab", () => {
     render(
-      <Tabs value="design">
+      <Tabs value="files">
         <WorkspaceSurfaceTabs
-          designStatus="conflict"
           visibleArtifactCount={2}
-          runtimeStatus="idle"
+          runtimeStatus="active"
           onSelectSurface={vi.fn()}
           onClose={vi.fn()}
         />
       </Tabs>,
     );
 
-    expect(screen.getByRole("tab", { name: /Design/i })).toBeInTheDocument();
-    expect(screen.getByText("Conflict")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("tab", { name: /Design/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Files/i })).toBeInTheDocument();
+    expect(screen.getByText("2")).toBeInTheDocument();
+    expect(screen.getByText("Active")).toBeInTheDocument();
   });
 });

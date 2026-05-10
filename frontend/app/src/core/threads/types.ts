@@ -1,10 +1,7 @@
 import type { Interrupt, Message, Thread } from "@langchain/langgraph-sdk";
 
 import type { Todo } from "../todos";
-import type {
-  DesignSelectionContext,
-  SurfaceContextPayload,
-} from "../workspace-surface/types";
+import type { SurfaceContextPayload } from "../workspace-surface/types";
 
 export interface ContextWindowThreshold {
   type?: string;
@@ -146,5 +143,3 @@ export interface AgentThreadContext extends Record<string, unknown> {
 }
 
 export type ThreadSurfaceContext = SurfaceContextPayload;
-
-export type ThreadSelectionContext = DesignSelectionContext;

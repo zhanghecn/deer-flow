@@ -462,11 +462,11 @@ def test_setup_agent_invalid_source_path_suggests_exact_available_source(monkeyp
     )
     monkeypatch.setattr(
         "src.tools.builtins.setup_agent_tool.load_skills",
-        lambda **kwargs: [SimpleNamespace(name="openpencil-design")],
+        lambda **kwargs: [SimpleNamespace(name="ui-layout-review")],
     )
     monkeypatch.setattr(
         "src.tools.builtins.setup_agent_tool.skill_source_path",
-        lambda skill: "custom/skills/openpencil-design",
+        lambda skill: "custom/skills/ui-layout-review",
     )
 
     runtime = SimpleNamespace(
@@ -479,16 +479,16 @@ def test_setup_agent_invalid_source_path_suggests_exact_available_source(monkeyp
     )
 
     command = setup_agent.func(
-        agents_md="# OpenPencil Design Agent\n",
-        description="Creates OpenPencil design drafts",
+        agents_md="# UI Layout Agent\n",
+        description="Creates UI layout drafts",
         runtime=runtime,
-        agent_name="openpencil-design-agent",
-        skills=[{"source_path": "system/skills/openpencil-design"}],
+        agent_name="ui-layout-review-agent",
+        skills=[{"source_path": "system/skills/ui-layout-review"}],
     )
 
     message = command.update["messages"][0].content
-    assert "system/skills/openpencil-design" in message
-    assert "custom/skills/openpencil-design" in message
+    assert "system/skills/ui-layout-review" in message
+    assert "custom/skills/ui-layout-review" in message
     assert "Retry with one of those exact values." in message
 
 
@@ -568,10 +568,10 @@ def test_setup_agent_preserves_existing_agent_owned_skill_from_thread_runtime(mo
 def test_setup_agent_name_only_skill_preserves_existing_source_path(monkeypatch, tmp_path: Path):
     paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
     archive_agent_dir = paths.custom_agent_dir("op-design-agent", "dev")
-    archive_skill_dir = archive_agent_dir / "skills" / "openpencil-design"
+    archive_skill_dir = archive_agent_dir / "skills" / "ui-layout-review"
     archive_skill_dir.mkdir(parents=True, exist_ok=True)
     (archive_skill_dir / "SKILL.md").write_text(
-        "---\nname: openpencil-design\ndescription: Copied OpenPencil workflow.\n---\n\n# openpencil-design\n",
+        "---\nname: ui-layout-review\ndescription: Copied UI layout workflow.\n---\n\n# ui-layout-review\n",
         encoding="utf-8",
     )
     (archive_agent_dir / "config.yaml").write_text(
@@ -582,8 +582,8 @@ def test_setup_agent_name_only_skill_preserves_existing_source_path(monkeypatch,
                 "agents_md_path": "AGENTS.md",
                 "skill_refs": [
                     {
-                        "name": "openpencil-design",
-                        "source_path": "custom/skills/openpencil-design",
+                        "name": "ui-layout-review",
+                        "source_path": "custom/skills/ui-layout-review",
                     }
                 ],
             },
@@ -622,17 +622,17 @@ def test_setup_agent_name_only_skill_preserves_existing_source_path(monkeypatch,
     )
 
     setup_agent.func(
-        agents_md="# OpenPencil Design Agent\n",
+        agents_md="# UI Layout Agent\n",
         description="Creates design drafts",
         runtime=runtime,
         agent_name="op-design-agent",
-        skills=[{"name": "openpencil-design"}],
+        skills=[{"name": "ui-layout-review"}],
     )
 
     assert calls["skill_refs"] == [
         {
-            "name": "openpencil-design",
-            "source_path": "custom/skills/openpencil-design",
+            "name": "ui-layout-review",
+            "source_path": "custom/skills/ui-layout-review",
         }
     ]
     assert calls["inline_skills"] == []
@@ -641,10 +641,10 @@ def test_setup_agent_name_only_skill_preserves_existing_source_path(monkeypatch,
 def test_setup_agent_matching_source_path_preserves_runtime_edited_copied_skill(monkeypatch, tmp_path: Path):
     paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
     archive_agent_dir = paths.custom_agent_dir("op-design-agent", "dev")
-    archive_skill_dir = archive_agent_dir / "skills" / "openpencil-design"
+    archive_skill_dir = archive_agent_dir / "skills" / "ui-layout-review"
     archive_skill_dir.mkdir(parents=True, exist_ok=True)
     archived_content = (
-        "---\nname: openpencil-design\ndescription: Copied OpenPencil workflow.\n---\n\n# archived-openpencil-design\n"
+        "---\nname: ui-layout-review\ndescription: Copied UI layout workflow.\n---\n\n# archived-ui-layout-review\n"
     )
     (archive_skill_dir / "SKILL.md").write_text(archived_content, encoding="utf-8")
     config_payload = {
@@ -653,8 +653,8 @@ def test_setup_agent_matching_source_path_preserves_runtime_edited_copied_skill(
         "agents_md_path": "AGENTS.md",
         "skill_refs": [
             {
-                "name": "openpencil-design",
-                "source_path": "custom/skills/openpencil-design",
+                "name": "ui-layout-review",
+                "source_path": "custom/skills/ui-layout-review",
             }
         ],
     }
@@ -664,10 +664,10 @@ def test_setup_agent_matching_source_path_preserves_runtime_edited_copied_skill(
     )
 
     runtime_agent_dir = paths.sandbox_agents_dir("thread-1") / "dev" / "op-design-agent"
-    runtime_skill_dir = runtime_agent_dir / "skills" / "openpencil-design"
+    runtime_skill_dir = runtime_agent_dir / "skills" / "ui-layout-review"
     runtime_skill_dir.mkdir(parents=True, exist_ok=True)
     edited_content = (
-        "---\nname: openpencil-design\ndescription: Copied OpenPencil workflow.\n---\n\n# edited-openpencil-design\n"
+        "---\nname: ui-layout-review\ndescription: Copied UI layout workflow.\n---\n\n# edited-ui-layout-review\n"
     )
     (runtime_skill_dir / "SKILL.md").write_text(edited_content, encoding="utf-8")
     (runtime_agent_dir / "config.yaml").write_text(
@@ -705,17 +705,17 @@ def test_setup_agent_matching_source_path_preserves_runtime_edited_copied_skill(
     )
 
     setup_agent.func(
-        agents_md="# OpenPencil Design Agent\n",
+        agents_md="# UI Layout Agent\n",
         description="Creates design drafts",
         runtime=runtime,
         agent_name="op-design-agent",
-        skills=[{"name": "openpencil-design", "source_path": "custom/skills/openpencil-design"}],
+        skills=[{"name": "ui-layout-review", "source_path": "custom/skills/ui-layout-review"}],
     )
 
     assert calls["skill_refs"] == []
     assert calls["inline_skills"] == [
         {
-            "name": "openpencil-design",
+            "name": "ui-layout-review",
             "content": edited_content,
         }
     ]
@@ -724,10 +724,10 @@ def test_setup_agent_matching_source_path_preserves_runtime_edited_copied_skill(
 def test_setup_agent_duplicate_skill_entries_preserve_runtime_edited_copied_skill(monkeypatch, tmp_path: Path):
     paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
     archive_agent_dir = paths.custom_agent_dir("op-design-agent", "dev")
-    archive_skill_dir = archive_agent_dir / "skills" / "openpencil-design"
+    archive_skill_dir = archive_agent_dir / "skills" / "ui-layout-review"
     archive_skill_dir.mkdir(parents=True, exist_ok=True)
     archived_content = (
-        "---\nname: openpencil-design\ndescription: Copied OpenPencil workflow.\n---\n\n# archived-openpencil-design\n"
+        "---\nname: ui-layout-review\ndescription: Copied UI layout workflow.\n---\n\n# archived-ui-layout-review\n"
     )
     (archive_skill_dir / "SKILL.md").write_text(archived_content, encoding="utf-8")
     config_payload = {
@@ -736,8 +736,8 @@ def test_setup_agent_duplicate_skill_entries_preserve_runtime_edited_copied_skil
         "agents_md_path": "AGENTS.md",
         "skill_refs": [
             {
-                "name": "openpencil-design",
-                "source_path": "custom/skills/openpencil-design",
+                "name": "ui-layout-review",
+                "source_path": "custom/skills/ui-layout-review",
             }
         ],
     }
@@ -747,10 +747,10 @@ def test_setup_agent_duplicate_skill_entries_preserve_runtime_edited_copied_skil
     )
 
     runtime_agent_dir = paths.sandbox_agents_dir("thread-1") / "dev" / "op-design-agent"
-    runtime_skill_dir = runtime_agent_dir / "skills" / "openpencil-design"
+    runtime_skill_dir = runtime_agent_dir / "skills" / "ui-layout-review"
     runtime_skill_dir.mkdir(parents=True, exist_ok=True)
     edited_content = (
-        "---\nname: openpencil-design\ndescription: Copied OpenPencil workflow.\n---\n\n# edited-openpencil-design\n"
+        "---\nname: ui-layout-review\ndescription: Copied UI layout workflow.\n---\n\n# edited-ui-layout-review\n"
     )
     (runtime_skill_dir / "SKILL.md").write_text(edited_content, encoding="utf-8")
     (runtime_agent_dir / "config.yaml").write_text(
@@ -788,20 +788,20 @@ def test_setup_agent_duplicate_skill_entries_preserve_runtime_edited_copied_skil
     )
 
     setup_agent.func(
-        agents_md="# OpenPencil Design Agent\n",
+        agents_md="# UI Layout Agent\n",
         description="Creates design drafts",
         runtime=runtime,
         agent_name="op-design-agent",
         skills=[
-            {"name": "openpencil-design", "source_path": "custom/skills/openpencil-design"},
-            {"name": "openpencil-design"},
+            {"name": "ui-layout-review", "source_path": "custom/skills/ui-layout-review"},
+            {"name": "ui-layout-review"},
         ],
     )
 
     assert calls["skill_refs"] == []
     assert calls["inline_skills"] == [
         {
-            "name": "openpencil-design",
+            "name": "ui-layout-review",
             "content": edited_content,
         }
     ]
@@ -810,10 +810,10 @@ def test_setup_agent_duplicate_skill_entries_preserve_runtime_edited_copied_skil
 def test_setup_agent_uses_config_thread_id_for_runtime_edited_copied_skill(monkeypatch, tmp_path: Path):
     paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
     archive_agent_dir = paths.custom_agent_dir("op-design-agent", "dev")
-    archive_skill_dir = archive_agent_dir / "skills" / "openpencil-design"
+    archive_skill_dir = archive_agent_dir / "skills" / "ui-layout-review"
     archive_skill_dir.mkdir(parents=True, exist_ok=True)
     archived_content = (
-        "---\nname: openpencil-design\ndescription: Copied OpenPencil workflow.\n---\n\n# archived-openpencil-design\n"
+        "---\nname: ui-layout-review\ndescription: Copied UI layout workflow.\n---\n\n# archived-ui-layout-review\n"
     )
     (archive_skill_dir / "SKILL.md").write_text(archived_content, encoding="utf-8")
     config_payload = {
@@ -822,8 +822,8 @@ def test_setup_agent_uses_config_thread_id_for_runtime_edited_copied_skill(monke
         "agents_md_path": "AGENTS.md",
         "skill_refs": [
             {
-                "name": "openpencil-design",
-                "source_path": "custom/skills/openpencil-design",
+                "name": "ui-layout-review",
+                "source_path": "custom/skills/ui-layout-review",
             }
         ],
     }
@@ -833,10 +833,10 @@ def test_setup_agent_uses_config_thread_id_for_runtime_edited_copied_skill(monke
     )
 
     runtime_agent_dir = paths.sandbox_agents_dir("thread-from-config") / "dev" / "op-design-agent"
-    runtime_skill_dir = runtime_agent_dir / "skills" / "openpencil-design"
+    runtime_skill_dir = runtime_agent_dir / "skills" / "ui-layout-review"
     runtime_skill_dir.mkdir(parents=True, exist_ok=True)
     edited_content = (
-        "---\nname: openpencil-design\ndescription: Copied OpenPencil workflow.\n---\n\n# edited-openpencil-design\n"
+        "---\nname: ui-layout-review\ndescription: Copied UI layout workflow.\n---\n\n# edited-ui-layout-review\n"
     )
     (runtime_skill_dir / "SKILL.md").write_text(edited_content, encoding="utf-8")
     (runtime_agent_dir / "config.yaml").write_text(
@@ -874,20 +874,20 @@ def test_setup_agent_uses_config_thread_id_for_runtime_edited_copied_skill(monke
     )
 
     setup_agent.func(
-        agents_md="# OpenPencil Design Agent\n",
+        agents_md="# UI Layout Agent\n",
         description="Creates design drafts",
         runtime=runtime,
         agent_name="op-design-agent",
         skills=[
-            {"name": "openpencil-design", "source_path": "custom/skills/openpencil-design"},
-            {"name": "openpencil-design", "source_path": "custom/skills/openpencil-design"},
+            {"name": "ui-layout-review", "source_path": "custom/skills/ui-layout-review"},
+            {"name": "ui-layout-review", "source_path": "custom/skills/ui-layout-review"},
         ],
     )
 
     assert calls["skill_refs"] == []
     assert calls["inline_skills"] == [
         {
-            "name": "openpencil-design",
+            "name": "ui-layout-review",
             "content": edited_content,
         }
     ]
@@ -1442,10 +1442,10 @@ def test_setup_agent_omitted_skills_preserves_existing_archive_skills(monkeypatc
 def test_setup_agent_omitted_skills_preserves_runtime_edited_copied_skill(monkeypatch, tmp_path: Path):
     paths = Paths(base_dir=tmp_path / ".openagents", skills_dir=tmp_path / ".openagents" / "skills")
     archive_agent_dir = paths.custom_agent_dir("op-design-agent", "dev")
-    archive_skill_dir = archive_agent_dir / "skills" / "openpencil-design"
+    archive_skill_dir = archive_agent_dir / "skills" / "ui-layout-review"
     archive_skill_dir.mkdir(parents=True, exist_ok=True)
     archived_content = (
-        "---\nname: openpencil-design\ndescription: Copied OpenPencil workflow.\n---\n\n# archived-openpencil-design\n"
+        "---\nname: ui-layout-review\ndescription: Copied UI layout workflow.\n---\n\n# archived-ui-layout-review\n"
     )
     (archive_skill_dir / "SKILL.md").write_text(archived_content, encoding="utf-8")
     config_payload = {
@@ -1454,8 +1454,8 @@ def test_setup_agent_omitted_skills_preserves_runtime_edited_copied_skill(monkey
         "agents_md_path": "AGENTS.md",
         "skill_refs": [
             {
-                "name": "openpencil-design",
-                "source_path": "custom/skills/openpencil-design",
+                "name": "ui-layout-review",
+                "source_path": "custom/skills/ui-layout-review",
             }
         ],
     }
@@ -1465,10 +1465,10 @@ def test_setup_agent_omitted_skills_preserves_runtime_edited_copied_skill(monkey
     )
 
     runtime_agent_dir = paths.sandbox_agents_dir("thread-1") / "dev" / "op-design-agent"
-    runtime_skill_dir = runtime_agent_dir / "skills" / "openpencil-design"
+    runtime_skill_dir = runtime_agent_dir / "skills" / "ui-layout-review"
     runtime_skill_dir.mkdir(parents=True, exist_ok=True)
     edited_content = (
-        "---\nname: openpencil-design\ndescription: Copied OpenPencil workflow.\n---\n\n# edited-openpencil-design\n"
+        "---\nname: ui-layout-review\ndescription: Copied UI layout workflow.\n---\n\n# edited-ui-layout-review\n"
     )
     (runtime_skill_dir / "SKILL.md").write_text(edited_content, encoding="utf-8")
     (runtime_agent_dir / "config.yaml").write_text(
@@ -1502,7 +1502,7 @@ def test_setup_agent_omitted_skills_preserves_runtime_edited_copied_skill(monkey
     )
 
     setup_agent.func(
-        agents_md="# OpenPencil Design Agent\n\nPreserve edited copied skill.\n",
+        agents_md="# UI Layout Agent\n\nPreserve edited copied skill.\n",
         description="Creates design drafts",
         runtime=runtime,
         agent_name="op-design-agent",
@@ -1511,7 +1511,7 @@ def test_setup_agent_omitted_skills_preserves_runtime_edited_copied_skill(monkey
     assert calls["skill_refs"] == []
     assert calls["inline_skills"] == [
         {
-            "name": "openpencil-design",
+            "name": "ui-layout-review",
             "content": edited_content,
         }
     ]

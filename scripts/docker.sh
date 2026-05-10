@@ -21,7 +21,6 @@ DEFAULT_LANGGRAPH_PORT="${OPENAGENTS_LANGGRAPH_PORT:-2024}"
 DEFAULT_GATEWAY_PORT="${OPENAGENTS_GATEWAY_PORT:-8001}"
 DEFAULT_APP_PORT="${OPENAGENTS_APP_PORT:-${OPENAGENTS_APP_DEV_PORT:-8083}}"
 DEFAULT_ADMIN_PORT="${OPENAGENTS_ADMIN_PORT:-${OPENAGENTS_ADMIN_DEV_PORT:-8081}}"
-DEFAULT_OPENPENCIL_PORT="${OPENAGENTS_OPENPENCIL_PORT:-3001}"
 DEFAULT_DEMO_PORT="${OPENAGENTS_DEMO_PORT:-8084}"
 DEFAULT_START_TIMEOUT_SECONDS="${OPENAGENTS_DOCKER_START_TIMEOUT_SECONDS:-180}"
 DEFAULT_MODEL_GATEWAY_ALIAS="${MODEL_GATEWAY_ALIAS:-model-gateway}"
@@ -30,7 +29,6 @@ DEFAULT_MODEL_GATEWAY_NETWORK="${OPENAGENTS_MODEL_GATEWAY_NETWORK:-${MODEL_GATEW
 # The unified stack builds the 8084 demo as a static nginx image, so Vite public
 # values come from the canonical demo env file during compose interpolation.
 COMPOSE_ARGS=(--env-file "$ROOT_ENV_FILE" --env-file "$DEMO_UI_ENV_FILE" -p "$DEFAULT_COMPOSE_PROJECT" -f docker-compose.yaml)
-LEGACY_PROD_COMPOSE_ARGS=(--env-file "$ROOT_ENV_FILE" -p openagents-prod -f docker-compose-prod.yaml)
 
 compose_stack() {
     cd "$DOCKER_DIR" && docker compose "${COMPOSE_ARGS[@]}" "$@"
@@ -38,10 +36,6 @@ compose_stack() {
 
 compose_legacy_dev() {
     cd "$DOCKER_DIR" && docker compose --env-file "$ROOT_ENV_FILE" -p openagents-dev -f docker-compose.yaml "$@"
-}
-
-compose_legacy_prod() {
-    cd "$DOCKER_DIR" && docker compose "${LEGACY_PROD_COMPOSE_ARGS[@]}" "$@"
 }
 
 # Keep the historical helper names as compatibility shims now that both
@@ -146,25 +140,6 @@ stop_repo_managed_port_conflicts() {
     if docker ps --format '{{.Names}}' | grep -Eq '^openagents-(dev|prod)-'; then
         echo -e "${BLUE}Stopping legacy split compose stacks before starting the unified stack...${NC}"
         compose_legacy_dev down >/dev/null 2>&1 || true
-        compose_legacy_prod down >/dev/null 2>&1 || true
-    fi
-}
-
-require_vendored_openpencil_tree() {
-    local openpencil_root="$PROJECT_ROOT/openpencil"
-
-    # The prod compose file builds OpenPencil from the vendored repo copy.
-    # Validate the expected tree up front so operators get a direct fix path
-    # instead of a late Docker COPY checksum failure.
-    if [ ! -f "$openpencil_root/Dockerfile" ]; then
-        echo -e "${RED}Missing vendored OpenPencil Dockerfile: $openpencil_root/Dockerfile${NC}"
-        exit 1
-    fi
-
-    if [ ! -f "$openpencil_root/apps/web/package.json" ]; then
-        echo -e "${RED}Vendored OpenPencil tree is incomplete: $openpencil_root/apps/web/package.json${NC}"
-        echo -e "${YELLOW}Sync the committed openpencil/ directory before running the prod stack.${NC}"
-        exit 1
     fi
 }
 
@@ -266,7 +241,7 @@ list_managed_services() {
 
     sandbox_mode="$(detect_sandbox_mode)"
     if [ "$sandbox_mode" = "provisioner" ]; then
-        echo "sandbox-aio onlyoffice langgraph gateway openpencil app admin demo-mcp-file-service demo provisioner"
+        echo "sandbox-aio onlyoffice langgraph gateway app admin demo-mcp-file-service demo provisioner"
         return
     fi
 
@@ -276,7 +251,7 @@ list_managed_services() {
 list_dev_services() {
     # The writable dev compose owns every runtime service so a clean checkout
     # can run entirely inside Docker without host-installed Node/uv/Go tooling.
-    echo "sandbox-aio onlyoffice langgraph gateway openpencil app admin demo-mcp-file-service demo"
+    echo "sandbox-aio onlyoffice langgraph gateway app admin demo-mcp-file-service demo"
 }
 
 wait_for_service_ready() {
@@ -363,7 +338,6 @@ verify_dev_stack() {
     wait_for_http_url "http://127.0.0.1:${DEFAULT_ONLYOFFICE_PORT}/healthcheck" "ONLYOFFICE endpoint" "$timeout_seconds" || return 1
     wait_for_http_url "http://127.0.0.1:${DEFAULT_LANGGRAPH_PORT}/docs" "LangGraph API docs endpoint" "$timeout_seconds" || return 1
     wait_for_http_url "http://127.0.0.1:${DEFAULT_GATEWAY_PORT}/health" "gateway health endpoint" "$timeout_seconds" || return 1
-    wait_for_http_url "http://127.0.0.1:${DEFAULT_OPENPENCIL_PORT}/openpencil/editor" "OpenPencil endpoint" "$timeout_seconds" || return 1
     wait_for_http_url "http://127.0.0.1:${DEFAULT_APP_PORT}/" "app entrypoint" "$timeout_seconds" || return 1
     wait_for_http_url "http://127.0.0.1:${DEFAULT_ADMIN_PORT}/" "admin entrypoint" "$timeout_seconds" || return 1
     wait_for_http_url "http://127.0.0.1:${DEFAULT_DEMO_PORT}/api/health" "demo dev workbench API" "$timeout_seconds" || return 1
@@ -446,7 +420,6 @@ start() {
     echo ""
 
     stop_repo_managed_port_conflicts
-
     echo "Building and starting containers..."
     compose_dev up --build -d --remove-orphans
     attach_optional_model_gateway
@@ -461,7 +434,6 @@ start() {
     echo "  🌐 App:         http://127.0.0.1:${DEFAULT_APP_PORT}"
     echo "  🛠 Admin:       http://127.0.0.1:${DEFAULT_ADMIN_PORT}"
     echo "  🧪 Demo:        http://127.0.0.1:${DEFAULT_DEMO_PORT}"
-    echo "  ✏️ OpenPencil:  http://127.0.0.1:${DEFAULT_OPENPENCIL_PORT}/openpencil/editor"
     echo "  📡 Gateway:     http://127.0.0.1:${DEFAULT_GATEWAY_PORT}"
     echo "  🤖 LangGraph:   http://127.0.0.1:${DEFAULT_LANGGRAPH_PORT}"
     echo "  📦 Sandbox UI:  http://127.0.0.1:${DEFAULT_SANDBOX_AIO_PORT}"
@@ -530,16 +502,12 @@ logs() {
             service="demo"
             echo -e "${BLUE}Viewing demo logs...${NC}"
             ;;
-        --openpencil)
-            service="openpencil"
-            echo -e "${BLUE}Viewing OpenPencil logs...${NC}"
-            ;;
         "")
             echo -e "${BLUE}Viewing all Docker dev stack logs...${NC}"
             ;;
         *)
             echo -e "${YELLOW}Unknown option: $1${NC}"
-            echo "Usage: $0 logs [--sandbox-aio|--onlyoffice|--gateway|--langgraph|--app|--admin|--demo|--openpencil]"
+            echo "Usage: $0 logs [--sandbox-aio|--onlyoffice|--gateway|--langgraph|--app|--admin|--demo]"
             exit 1
             ;;
     esac
@@ -584,7 +552,6 @@ restart() {
     echo "  🌐 App:         http://127.0.0.1:${DEFAULT_APP_PORT}"
     echo "  🛠 Admin:       http://127.0.0.1:${DEFAULT_ADMIN_PORT}"
     echo "  🧪 Demo:        http://127.0.0.1:${DEFAULT_DEMO_PORT}"
-    echo "  ✏️ OpenPencil:  http://127.0.0.1:${DEFAULT_OPENPENCIL_PORT}/openpencil/editor"
     echo "  📦 Sandbox UI:  http://127.0.0.1:${DEFAULT_SANDBOX_AIO_PORT}"
     echo "  📝 ONLYOFFICE:  http://127.0.0.1:${DEFAULT_ONLYOFFICE_PORT}"
     echo "  📋 View logs: make docker-logs"
@@ -629,7 +596,7 @@ help() {
     echo "  verify          - Verify containers and HTTP entrypoints"
     echo "  logs [service]  - Follow logs"
     echo "                    --gateway | --langgraph | --app | --admin | --demo"
-    echo "                    --sandbox-aio | --onlyoffice | --openpencil"
+    echo "                    --sandbox-aio | --onlyoffice"
     echo ""
     echo "Setup / advanced:"
     echo "  init            - Pull the sandbox image"

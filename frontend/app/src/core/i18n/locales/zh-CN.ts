@@ -116,8 +116,7 @@ export const zhCN: Translations = {
       `收尾处理中${elapsed ? ` ${elapsed}` : ""}`,
     executionRetryCompleted: "重试完成",
     executionRetryFailed: "重试失败",
-    executionCompleted: (elapsed) =>
-      elapsed ? `${elapsed} 内完成` : "已完成",
+    executionCompleted: (elapsed) => (elapsed ? `${elapsed} 内完成` : "已完成"),
     executionFailed: (elapsed) => (elapsed ? `${elapsed} 后失败` : "执行失败"),
     executionStopped: (elapsed) => (elapsed ? `${elapsed} 后停止` : "已停止"),
     suggestions: [
@@ -175,7 +174,6 @@ export const zhCN: Translations = {
     newChat: "新对话",
     workspaceDock: "工作台",
     runtimeWorkspace: "运行空间",
-    designBoard: "设计画板",
     chats: "对话",
     recentChats: "最近的对话",
     demoChats: "演示对话",
@@ -203,8 +201,7 @@ export const zhCN: Translations = {
     deleteDraft: "删除草稿版",
     deletePublished: "删除已发布版",
     deleteAllArchives: "删除全部归档",
-    deleteDraftSuccess: (agentName: string) =>
-      `已删除“${agentName}”的草稿归档`,
+    deleteDraftSuccess: (agentName: string) => `已删除“${agentName}”的草稿归档`,
     deletePublishedSuccess: (agentName: string) =>
       `已删除“${agentName}”的已发布归档`,
     deleteAllArchivesSuccess: (agentName: string) =>
@@ -282,7 +279,6 @@ export const zhCN: Translations = {
     toggleSidebar: "切换侧边栏",
     artifactsPanelTitle: "文件",
     filesSurfaceTitle: "文件",
-    designSurfaceTitle: "设计",
     runtimeSurfaceTitle: "运行",
     closeWorkspaceDock: "关闭工作台",
     noArtifactSelectedTitle: "尚未选择文件",
@@ -290,50 +286,20 @@ export const zhCN: Translations = {
     noPreviewSelectedTitle: "尚未选择预览",
     noPreviewSelectedDescription:
       "先在文件列表里选中文件，或通过引用打开预览。",
-    noDesignSurfaceTitle: "还没有设计会话",
-    noDesignSurfaceDescription:
-      "打开设计编辑器后，这里会持续显示当前设计稿、选区和同步状态。",
     noRuntimeSurfaceTitle: "还没有运行会话",
     noRuntimeSurfaceDescription:
       "打开运行空间后，这里会持续显示当前运行状态和目标环境。",
     noTargetFile: "还没有目标文件",
-    designSurfaceDescription:
-      "完整设计编辑仍在新的 OpenPencil 标签页中进行；这里保留目标文件、选区和同步状态，方便边聊边改。",
     runtimeSurfaceDescription:
       "完整运行空间仍在新标签页中打开；这里保留会话状态，避免聊天与运行环境脱节。",
-    openDesignEditor: "打开设计编辑器",
-    reopenDesignEditor: "重新打开设计标签",
     openRuntimeSurface: "打开运行空间",
     reopenRuntimeSurface: "重新打开运行标签",
-    selectedNodesLabel: "已选节点",
-    designStatusIdle: "空闲",
-    designStatusLoading: "加载中",
-    designStatusReady: "已就绪",
-    designStatusDirty: "未保存",
-    designStatusSaving: "保存中",
-    designStatusSynced: "已同步",
-    designStatusConflict: "冲突",
-    designStatusError: "错误",
-    designPopupBlockedDescription:
-      "浏览器拦截了自动打开设计标签页，请使用下方按钮手动打开设计编辑器。",
-    designSessionExpiredDescription:
-      "设计会话已过期，请重新打开编辑器以继续和 Deer Flow 同步。",
-    designOpenFailedDescription:
-      "这次重新打开设计编辑器失败了，请在当前面板中再次尝试。",
-    designSyncFailedDescription:
-      "当前设计标签页在保存或同步时失败了，请保留编辑器并根据上方错误信息重试。",
-    designRevisionLabel: "修订版本",
-    designRevisionUnavailable: "等待首次同步",
-    designLastActivityLabel: "最近活动",
-    designLastActivityUnavailable: "还没有活动",
     runtimeStatusIdle: "空闲",
     runtimeStatusOpening: "打开中",
     runtimeStatusActive: "运行中",
     runtimeStatusFailed: "失败",
-    eventDesignSaved: "设计稿已保存",
     eventRuntimeOpened: "运行空间已打开",
     eventPreviewUpdated: "预览已更新",
-    eventSelectedNodesCount: (count: number) => `已选 ${count} 个节点`,
     officePreviewDialogDescription: "预览并编辑当前选中的 Office 文档。",
     todoListTitle: "待办事项",
   },
@@ -486,7 +452,8 @@ export const zhCN: Translations = {
     emptyDescription: "从一个新对话开始，之后这里会沉淀你的历史记录。",
     emptyAction: "开始新对话",
     emptyPageTitle: "这一页没有对话",
-    emptyPageDescription: "你已经翻到了没有记录的页码，可以返回更新的一页继续查看。",
+    emptyPageDescription:
+      "你已经翻到了没有记录的页码，可以返回更新的一页继续查看。",
     noResultsTitle: "没有匹配的对话",
     noResultsDescription: "试试其他标题关键词，或清空当前筛选条件。",
     pageLabel: (page: number, totalPages: number, totalThreads: number) =>
@@ -639,7 +606,7 @@ export const zhCN: Translations = {
       profileConfig: "标准 mcpServers JSON",
       useDemoTemplate: "使用 demo 模板",
       profileTemplateHint:
-        "HTTP MCP Profile 应使用 type: \"http\" 和容器可访问的 URL。本地 demo 模板指向当前 Docker 网络内的 mcp-file-service。",
+        'HTTP MCP Profile 应使用 type: "http" 和容器可访问的 URL。本地 demo 模板指向当前 Docker 网络内的 mcp-file-service。',
       saveProfile: "保存 MCP Profile",
       closeProfile: "关闭",
       saveError: "保存 MCP Profile 失败",

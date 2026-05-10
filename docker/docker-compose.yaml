@@ -1,5 +1,11 @@
 name: openagents
 
+networks:
+  default:
+    # Keep the dev bridge name explicit so operators can distinguish it from
+    # production while preserving Compose's historical default name.
+    name: ${OPENAGENTS_DOCKER_NETWORK:-openagents_default}
+
 x-openagents-env-file: &openagents_env_file
   - ${OPENAGENTS_ENV_FILE:-../.env}
 
@@ -200,14 +206,11 @@ services:
         condition: service_healthy
       onlyoffice:
         condition: service_healthy
-      openpencil:
-        condition: service_healthy
     environment:
       CHOKIDAR_USEPOLLING: "true"
       CHOKIDAR_INTERVAL: "300"
       VITE_BACKEND_BASE_URL: http://gateway:8001
       VITE_ONLYOFFICE_DEV_SERVER_URL: http://onlyoffice:8000
-      VITE_OPENPENCIL_DEV_SERVER_URL: http://openpencil:3001
       VITE_MESSAGE_TRACE_DISPLAY_MODE: ${OPENAGENTS_MESSAGE_TRACE_DISPLAY_MODE:-debug}
     ports:
       - "${OPENAGENTS_APP_PORT:-${OPENAGENTS_APP_DEV_PORT:-8083}}:3000"
@@ -382,39 +385,4 @@ services:
       retries: 6
       start_period: 15s
     logging: *json_logging
-    restart: unless-stopped
-
-  openpencil:
-    image: oven/bun:1.3.10
-    working_dir: /workspace/openpencil
-    command:
-      - /bin/sh
-      - -lc
-      - |
-        export BUN_INSTALL_CACHE_DIR=/openagents-home/dev-cache/bun-install
-        bun install
-        exec bun run dev -- --host 0.0.0.0
-    environment:
-      CHOKIDAR_USEPOLLING: "true"
-      CHOKIDAR_INTERVAL: "300"
-      OPENPENCIL_BASE_PATH: /openpencil
-    ports:
-      - "${OPENAGENTS_OPENPENCIL_PORT:-3001}:3001"
-    healthcheck:
-      test:
-        - CMD
-        - bun
-        - -e
-        - fetch('http://127.0.0.1:3001/openpencil/').then((response)=>process.exit(response.ok?0:1)).catch(()=>process.exit(1))
-      interval: 15s
-      timeout: 10s
-      retries: 12
-      start_period: 90s
-    logging: *json_logging
-    volumes:
-      - *repo_mount
-      - *openagents_home_mount
-      - type: bind
-        source: ${OPENAGENTS_DOCKER_HOST_HOME:-../deploy/data/openagents}/dev-cache/openpencil-node_modules
-        target: /workspace/openpencil/node_modules
     restart: unless-stopped

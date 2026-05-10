@@ -9,7 +9,6 @@ import {
 import { useI18n } from "@/core/i18n/hooks";
 import { useWorkspaceSurface } from "@/core/workspace-surface/context";
 
-import { DesignSurfacePanel } from "./design-surface-panel";
 import { RuntimeSurfacePanel } from "./runtime-surface-panel";
 import { WorkspaceSurfaceEmpty } from "./workspace-surface-empty";
 import { WorkspaceSurfaceTabs } from "./workspace-surface-tabs";
@@ -23,7 +22,7 @@ export function WorkspaceSurfaceDock({
 }) {
   const { t } = useI18n();
   const { selectedArtifact } = useArtifacts();
-  const { designState, dockState, runtimeState, setActiveSurface, setDockOpen } =
+  const { dockState, runtimeState, setActiveSurface, setDockOpen } =
     useWorkspaceSurface();
   const activeSurface = dockState.activeSurface;
 
@@ -34,7 +33,6 @@ export function WorkspaceSurfaceDock({
       className="flex size-full flex-col gap-0"
     >
       <WorkspaceSurfaceTabs
-        designStatus={designState.status}
         visibleArtifactCount={visibleArtifacts.length}
         runtimeStatus={runtimeState.status}
         onSelectSurface={setActiveSurface}
@@ -67,9 +65,6 @@ export function WorkspaceSurfaceDock({
             description={t.workspace.noArtifactSelectedDescription}
           />
         )}
-      </TabsContent>
-      <TabsContent value="design" className="min-h-0">
-        <DesignSurfacePanel threadId={threadId} />
       </TabsContent>
       <TabsContent value="runtime" className="min-h-0">
         <RuntimeSurfacePanel threadId={threadId} />
