@@ -439,12 +439,6 @@ func buildNewAPIImportedModelRecord(
 		"max_input_tokens": newAPIImportedModelMaxInputTokens,
 		"supports_vision":  true,
 	}
-	if normalizedProvider == newAPIProviderDeepSeek {
-		// ChatDeepSeek names its OpenAI-compatible endpoint setting `api_base`,
-		// while the admin import machinery keeps `base_url` for matching and
-		// stored-key reuse across providers.
-		configJSON["api_base"] = runtimeBaseURL
-	}
 	if reasoning := newAPIImportedReasoningConfig(normalizedProvider, modelID); reasoning != nil {
 		configJSON["reasoning"] = reasoning
 	}
@@ -717,14 +711,14 @@ func newAPIRuntimeBaseURLWithHostAlias(rawBaseURL string, provider string, useHo
 		return "", err
 	}
 	switch provider {
-	case newAPIProviderOpenAI, newAPIProviderDeepSeek:
+	case newAPIProviderOpenAI:
 		openAIBase := cloneURL(base)
 		openAIBase.Path = ensureURLPathSuffix(openAIBase.Path, "/v1")
 		if !useHostAlias {
 			return openAIBase.String(), nil
 		}
 		return newAPIRuntimeReachableURL(openAIBase.String()), nil
-	case newAPIProviderAnthropic:
+	case newAPIProviderAnthropic, newAPIProviderDeepSeek:
 		anthropicBase := cloneURL(base)
 		anthropicBase.Path = stripTerminalURLPathSegment(anthropicBase.Path, "v1")
 		if !useHostAlias {
@@ -860,7 +854,11 @@ func newAPIImportProviderRuntime(provider string) string {
 		return "langchain_anthropic:ChatAnthropic"
 	}
 	if provider == newAPIProviderDeepSeek {
-		return "langchain_deepseek:ChatDeepSeek"
+		// New API's DeepSeek V4/R1 thinking channels require Anthropic
+		// `content[].thinking` blocks to be replayed after tool calls. The
+		// OpenAI-compatible DeepSeek adapter only sees `reasoning_content` and
+		// cannot preserve the signed thinking block needed by the next request.
+		return "langchain_anthropic:ChatAnthropic"
 	}
 	return "langchain_openai:ChatOpenAI"
 }
@@ -876,11 +874,11 @@ func newAPIImportedReasoningConfig(provider string, modelID string) map[string]i
 		if !isNewAPIDeepSeekReasoningModel(modelID) {
 			return nil
 		}
-		// DeepSeek reasoning is selected by the model variant itself; sending a
-		// generic max-effort payload would use the wrong provider contract.
+		// DeepSeek is imported through New API's Anthropic-compatible transport
+		// so signed thinking blocks survive multi-turn tool-call loops.
 		return map[string]interface{}{
-			"contract":      model.ReasoningContractDeepSeek,
-			"default_level": "auto",
+			"contract":      model.ReasoningContractAnthropic,
+			"default_level": "max",
 		}
 	default:
 		return map[string]interface{}{

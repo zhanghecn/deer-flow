@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestRootMigrationsStayAsTwoBaselineSQLFiles(t *testing.T) {
+func TestRootMigrationsKeepOrderedUpSQLContract(t *testing.T) {
 	t.Parallel()
 
 	migrationsDir := filepath.Join(RepoRootDir(), "migrations")
@@ -26,12 +26,23 @@ func TestRootMigrationsStayAsTwoBaselineSQLFiles(t *testing.T) {
 
 	slices.Sort(sqlFiles)
 
-	// Keep the manual bootstrap contract stable: one schema SQL and one data SQL.
-	want := []string{
+	// Deploy uses a migration ledger now, so future reviewed SQL changes may be
+	// appended. The first two files remain the immutable empty-database baseline.
+	if len(sqlFiles) < 2 {
+		t.Fatalf("expected at least baseline migrations, got %v", sqlFiles)
+	}
+
+	wantPrefix := []string{
 		"001_init.up.sql",
 		"002_seed_data.up.sql",
 	}
-	if !slices.Equal(sqlFiles, want) {
-		t.Fatalf("unexpected root migration SQL files: got %v want %v", sqlFiles, want)
+	if !slices.Equal(sqlFiles[:2], wantPrefix) {
+		t.Fatalf("unexpected baseline migration prefix: got %v want %v", sqlFiles[:2], wantPrefix)
+	}
+
+	for _, file := range sqlFiles {
+		if filepath.Ext(file) != ".sql" || len(file) < len("001_x.up.sql") || file[len(file)-len(".up.sql"):] != ".up.sql" {
+			t.Fatalf("migration file must use the reviewed *.up.sql contract: %s", file)
+		}
 	}
 }

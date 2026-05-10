@@ -608,21 +608,21 @@ func TestBuildNewAPIImportedModelRecordUsesProviderBaseURLContracts(t *testing.T
 	if deepSeekRecord.Name != "deepseek-v4-pro" {
 		t.Fatalf("expected deepseek import to preserve model id as row name, got %q", deepSeekRecord.Name)
 	}
-	if deepSeekConfig["use"] != "langchain_deepseek:ChatDeepSeek" {
+	if deepSeekConfig["use"] != "langchain_anthropic:ChatAnthropic" {
 		t.Fatalf("expected deepseek runtime, got %#v", deepSeekConfig["use"])
 	}
-	if deepSeekConfig["base_url"] != "http://host.docker.internal:13000/v1" {
-		t.Fatalf("expected deepseek /v1 base URL, got %#v", deepSeekConfig["base_url"])
+	if deepSeekConfig["base_url"] != "http://host.docker.internal:13000" {
+		t.Fatalf("expected deepseek Anthropic root base URL, got %#v", deepSeekConfig["base_url"])
 	}
-	if deepSeekConfig["api_base"] != "http://host.docker.internal:13000/v1" {
-		t.Fatalf("expected deepseek api_base for ChatDeepSeek, got %#v", deepSeekConfig["api_base"])
+	if _, ok := deepSeekConfig["api_base"]; ok {
+		t.Fatalf("expected deepseek Anthropic transport to omit api_base, got %#v", deepSeekConfig["api_base"])
 	}
 	deepSeekReasoning, ok := deepSeekConfig["reasoning"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected deepseek reasoning object, got %#v", deepSeekConfig["reasoning"])
 	}
-	if deepSeekReasoning["contract"] != "deepseek_reasoner" || deepSeekReasoning["default_level"] != "auto" {
-		t.Fatalf("expected auto deepseek reasoning, got %#v", deepSeekReasoning)
+	if deepSeekReasoning["contract"] != "anthropic_thinking" || deepSeekReasoning["default_level"] != "max" {
+		t.Fatalf("expected max Anthropic thinking for New API deepseek, got %#v", deepSeekReasoning)
 	}
 
 	deepSeekNoneRecord, err := buildNewAPIImportedModelRecord(
@@ -661,7 +661,7 @@ func TestBuildNewAPIImportedModelRecordUsesWSLGatewayAlias(t *testing.T) {
 	if err := json.Unmarshal(record.ConfigJSON, &config); err != nil {
 		t.Fatalf("decode config: %v", err)
 	}
-	if config["base_url"] != "http://host.docker.internal:13000/v1" {
+	if config["base_url"] != "http://host.docker.internal:13000" {
 		t.Fatalf("expected docker host alias base URL, got %#v", config["base_url"])
 	}
 }
