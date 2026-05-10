@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
@@ -16,6 +17,10 @@ import (
 )
 
 type contextKey string
+
+type jwtUserRepository interface {
+	FindByID(ctx context.Context, userID uuid.UUID) (*model.User, error)
+}
 
 const (
 	UserIDKey         contextKey = "user_id"
@@ -99,7 +104,7 @@ func APITokenAllowsAgent(c *gin.Context, agentName string) bool {
 }
 
 // JWTAuth middleware validates JWT tokens from Authorization header.
-func JWTAuth(jwtMgr *jwt.Manager) gin.HandlerFunc {
+func JWTAuth(jwtMgr *jwt.Manager, userRepo jwtUserRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := ExtractBearerToken(c.Request)
 		if token == "" {
@@ -113,8 +118,21 @@ func JWTAuth(jwtMgr *jwt.Manager) gin.HandlerFunc {
 			return
 		}
 
+		// A valid signature is not enough after a database reset or user delete:
+		// the runtime persists foreign-keyed rows with this user id, so reject
+		// stale sessions at the gateway before they can reach LangGraph.
+		user, err := userRepo.FindByID(c.Request.Context(), claims.UserID)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to validate session"})
+			return
+		}
+		if user == nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "session user no longer exists"})
+			return
+		}
+
 		c.Set(string(UserIDKey), claims.UserID)
-		c.Set(string(RoleKey), claims.Role)
+		c.Set(string(RoleKey), user.Role)
 		c.Next()
 	}
 }

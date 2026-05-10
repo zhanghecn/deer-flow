@@ -228,7 +228,7 @@ func main() {
 
 	// Protected API routes (JWT)
 	api := r.Group("/api")
-	api.Use(middleware.JWTAuth(jwtMgr))
+	api.Use(middleware.JWTAuth(jwtMgr, userRepo))
 	{
 		// Token management
 		api.GET("/auth/session", authH.GetSession)
@@ -371,13 +371,13 @@ func main() {
 			if isLangGraphRoute {
 				r.Any(
 					route.Prefix()+"/*path",
-					middleware.JWTAuth(jwtMgr),
+					middleware.JWTAuth(jwtMgr, userRepo),
 					langGraphRuntimeH.InjectRuntimeConfig(),
 					route.Handler(),
 				)
 			} else {
 				// Register under the JWT-protected api group
-				r.Any(route.Prefix()+"/*path", middleware.JWTAuth(jwtMgr), route.Handler())
+				r.Any(route.Prefix()+"/*path", middleware.JWTAuth(jwtMgr, userRepo), route.Handler())
 			}
 		case "token":
 			r.Any(route.Prefix()+"/*path", middleware.APITokenAuth(tokenRepo), route.Handler())
