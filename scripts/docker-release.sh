@@ -3,25 +3,22 @@ set -euo pipefail
 
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
-YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-DOCKER_DIR="$PROJECT_ROOT/docker"
 DEPLOY_DIR="$PROJECT_ROOT/deploy"
 PROD_COMPOSE_FILE="docker-compose.yml"
-DEFAULT_SERVICES=(nginx gateway langgraph sandbox-aio onlyoffice openpencil)
-DEFAULT_IMAGE_REPOSITORY="zhangxuan2/openagents"
-DEFAULT_IMAGE_TAG="latest"
-DEFAULT_DOCKER_NETWORK="openagents-prod_openagents"
+DEFAULT_SERVICES=(nginx gateway langgraph sandbox-aio onlyoffice)
+DEFAULT_IMAGE_PREFIX="zhangxuan2/openagents"
+DEFAULT_VERSION="latest"
+DEFAULT_DOCKER_NETWORK="openagents"
 
 COMMAND="push"
-IMAGE_REGISTRY="${OPENAGENTS_IMAGE_REGISTRY:-docker.io}"
-IMAGE_NAMESPACE="${OPENAGENTS_IMAGE_NAMESPACE:-${DOCKERHUB_NAMESPACE:-}}"
-IMAGE_REPOSITORY="${OPENAGENTS_IMAGE_REPOSITORY:-${DOCKERHUB_REPOSITORY:-}}"
-IMAGE_TAG="${OPENAGENTS_IMAGE_TAG:-}"
+IMAGE_REGISTRY="${OPENAGENTS_IMAGE_REGISTRY:-}"
+IMAGE_PREFIX="${OPENAGENTS_IMAGE_PREFIX:-}"
+IMAGE_VERSION="${OPENAGENTS_VERSION:-}"
 DRY_RUN=0
 BUILD_BEFORE_PUSH=1
 SCOPE=""
@@ -35,30 +32,28 @@ Commands:
   push      Build release images and push them to the registry (default)
   build     Build release images only
   pull      Pull release images using deploy/docker-compose.yml
-  deploy    Pull release images and run docker compose up -d from deploy/.
-            Requires --scope. Non-all scopes deploy with --no-deps.
+  deploy    Pull, run reviewed migrations, then restart the selected services
   config    Print the resolved deploy compose config
   images    Print the image refs that will be used
 
 Options:
-  --repository <repo>  Docker repository, e.g. zhangxuan2/openagents.
-                       Defaults to zhangxuan2/openagents.
-  --namespace <name>   Compatibility alias for --repository <name>/openagents.
-  --tag <tag>          Base tag. Defaults to latest.
-                       Final tags are service-tag pairs, e.g. nginx-latest.
-  --registry <host>    Registry host. Defaults to docker.io.
-  --scope <scope>      Release scope: frontend, gateway, app, or all.
-                       frontend=nginx; gateway=gateway; app=nginx+gateway+langgraph.
-                       all is explicit full-stack/full-image reconciliation.
-  --no-build           For push: skip build and only push existing local images.
-  --dry-run            Print commands without executing them.
-  -h, --help           Show this help.
+  --prefix <prefix>      Image name prefix. Defaults to zhangxuan2/openagents.
+                         gateway => <registry>/<prefix>-gateway:<version>
+  --repository <prefix>  Compatibility alias for --prefix.
+  --namespace <name>     Compatibility alias for --prefix <name>/openagents.
+  --version <version>    Image version tag. Defaults to latest.
+  --tag <version>        Compatibility alias for --version.
+  --registry <host>      Registry host. Defaults to docker.io.
+  --scope <scope>        frontend, gateway, app, or all.
+                         frontend=web/nginx; gateway=gateway; app=web+gateway+langgraph.
+  --no-build             For push: skip build and only push existing local images.
+  --dry-run              Print commands without executing them.
+  -h, --help             Show this help.
 
 Examples:
-  scripts/docker-release.sh push --scope app
-  scripts/docker-release.sh push --scope app --repository zhangxuan2/openagents --tag v0.1.0
-  scripts/docker-release.sh deploy --scope gateway --tag v0.1.0
-  scripts/docker-release.sh deploy --scope all --tag v0.1.0
+  scripts/docker-release.sh push --scope app --version 1.2.3
+  scripts/docker-release.sh deploy --scope gateway --version 1.2.3
+  scripts/docker-release.sh deploy --scope all --version 1.2.3
 EOF
 }
 
@@ -82,20 +77,19 @@ parse_args() {
                 COMMAND="$1"
                 shift
                 ;;
+            --prefix|--repository)
+                [ "$#" -ge 2 ] || fail "$1 requires a value"
+                IMAGE_PREFIX="$2"
+                shift 2
+                ;;
             --namespace)
                 [ "$#" -ge 2 ] || fail "--namespace requires a value"
-                IMAGE_NAMESPACE="$2"
-                IMAGE_REPOSITORY=""
+                IMAGE_PREFIX="$2/openagents"
                 shift 2
                 ;;
-            --repository)
-                [ "$#" -ge 2 ] || fail "--repository requires a value"
-                IMAGE_REPOSITORY="$2"
-                shift 2
-                ;;
-            --tag)
-                [ "$#" -ge 2 ] || fail "--tag requires a value"
-                IMAGE_TAG="$2"
+            --version|--tag)
+                [ "$#" -ge 2 ] || fail "$1 requires a value"
+                IMAGE_VERSION="$2"
                 shift 2
                 ;;
             --registry)
@@ -166,24 +160,33 @@ validate_release_scope() {
 }
 
 resolve_release_identity() {
-    if [ -n "$IMAGE_REPOSITORY" ]; then
-        IMAGE_REPOSITORY="${IMAGE_REPOSITORY#docker.io/}"
-        IMAGE_REPOSITORY="${IMAGE_REPOSITORY#https://}"
-        IMAGE_REPOSITORY="${IMAGE_REPOSITORY#http://}"
-        IMAGE_REPOSITORY="${IMAGE_REPOSITORY#registry-1.docker.io/}"
+    if [ -z "$IMAGE_REGISTRY" ]; then
+        IMAGE_REGISTRY="$(deploy_env_value OPENAGENTS_IMAGE_REGISTRY || true)"
+        IMAGE_REGISTRY="${IMAGE_REGISTRY:-docker.io}"
     fi
 
-    if [ -z "$IMAGE_REPOSITORY" ] && [ -n "$IMAGE_NAMESPACE" ]; then
-        IMAGE_REPOSITORY="${IMAGE_NAMESPACE}/openagents"
+    IMAGE_REGISTRY="${IMAGE_REGISTRY#https://}"
+    IMAGE_REGISTRY="${IMAGE_REGISTRY#http://}"
+    IMAGE_REGISTRY="${IMAGE_REGISTRY%/}"
+
+    if [ -z "$IMAGE_PREFIX" ]; then
+        IMAGE_PREFIX="$(deploy_env_value OPENAGENTS_IMAGE_PREFIX || true)"
     fi
-    if [ -z "$IMAGE_REPOSITORY" ]; then
-        # Keep the repository/tag default explicit so this repo's normal publish
-        # path is one command while still allowing --repository/--tag overrides.
-        IMAGE_REPOSITORY="$DEFAULT_IMAGE_REPOSITORY"
+    if [ -z "$IMAGE_PREFIX" ]; then
+        # One prefix plus one version matches the deploy/.env contract and keeps
+        # service identity in the image name instead of in tags like gateway-v1.
+        IMAGE_PREFIX="$DEFAULT_IMAGE_PREFIX"
     fi
 
-    if [ -z "$IMAGE_TAG" ]; then
-        IMAGE_TAG="$DEFAULT_IMAGE_TAG"
+    IMAGE_PREFIX="${IMAGE_PREFIX#docker.io/}"
+    IMAGE_PREFIX="${IMAGE_PREFIX#registry-1.docker.io/}"
+    IMAGE_PREFIX="${IMAGE_PREFIX%/}"
+
+    if [ -z "$IMAGE_VERSION" ]; then
+        IMAGE_VERSION="$(deploy_env_value OPENAGENTS_VERSION || true)"
+    fi
+    if [ -z "$IMAGE_VERSION" ]; then
+        IMAGE_VERSION="$DEFAULT_VERSION"
     fi
 }
 
@@ -196,9 +199,6 @@ selected_services() {
             printf '%s\n' gateway
             ;;
         app)
-            # The app scope is application code only. It deliberately excludes
-            # stateful and heavyweight dependencies such as PostgreSQL, MinIO,
-            # ONLYOFFICE, sandbox-aio, and OpenPencil.
             printf '%s\n' nginx gateway langgraph
             ;;
         all)
@@ -211,9 +211,7 @@ selected_services() {
 }
 
 scope_services_csv() {
-    local service
-    local separator=""
-
+    local service separator=""
     while IFS= read -r service; do
         [ -n "$service" ] || continue
         printf '%s%s' "$separator" "$service"
@@ -221,66 +219,43 @@ scope_services_csv() {
     done < <(selected_services)
 }
 
+image_suffix() {
+    case "$1" in
+        nginx) echo "web" ;;
+        gateway) echo "gateway" ;;
+        langgraph) echo "langgraph" ;;
+        sandbox-aio) echo "sandbox-aio" ;;
+        onlyoffice) echo "onlyoffice" ;;
+        *) fail "Unknown release service: $1" ;;
+    esac
+}
+
+image_ref() {
+    local service="$1"
+    local suffix
+
+    suffix="$(image_suffix "$service")"
+    echo "${IMAGE_REGISTRY}/${IMAGE_PREFIX}-${suffix}:${IMAGE_VERSION}"
+}
+
 print_release_summary() {
     local service
 
     info "Release image settings:"
-    echo "  registry:  $IMAGE_REGISTRY"
-    echo "  repository: $IMAGE_REPOSITORY"
-    echo "  base tag:   $IMAGE_TAG"
+    echo "  registry: $IMAGE_REGISTRY"
+    echo "  prefix:   $IMAGE_PREFIX"
+    echo "  version:  $IMAGE_VERSION"
     if command_requires_scope; then
-        echo "  scope:      $SCOPE"
-        if [ "$SCOPE" = "all" ] && { [ "$COMMAND" = "deploy" ] || [ "$COMMAND" = "pull" ]; }; then
-            echo "  compose:    full stack"
-            echo "  images:     $(scope_services_csv)"
-        else
-            echo "  services:   $(scope_services_csv)"
-        fi
+        echo "  scope:    $SCOPE"
+        echo "  services: $(scope_services_csv)"
         echo ""
         info "Images:"
         while IFS= read -r service; do
             [ -n "$service" ] || continue
             echo "  $(image_ref "$service")"
         done < <(selected_services)
-
-        if [ "$COMMAND" = "deploy" ]; then
-            echo ""
-            if [ "$SCOPE" = "all" ]; then
-                # Full-stack deploys intentionally reconcile infrastructure services
-                # such as PostgreSQL, MinIO, and ONLYOFFICE; require scope=all so this is
-                # never an accidental side effect of a routine gateway/frontend release.
-                echo "Deploy scope: full compose stack"
-            else
-                echo "Deploy scope: selected release services"
-                echo "Compose up:   --no-deps (automatic)"
-            fi
-        fi
     fi
     echo ""
-}
-
-image_ref() {
-    local service="$1"
-    local env_var=""
-    local override=""
-
-    case "$service" in
-        nginx) env_var="OPENAGENTS_NGINX_IMAGE" ;;
-        gateway) env_var="OPENAGENTS_GATEWAY_IMAGE" ;;
-        langgraph) env_var="OPENAGENTS_LANGGRAPH_IMAGE" ;;
-        sandbox-aio) env_var="OPENAGENTS_SANDBOX_AIO_IMAGE" ;;
-        onlyoffice) env_var="OPENAGENTS_ONLYOFFICE_IMAGE" ;;
-        openpencil) env_var="OPENAGENTS_OPENPENCIL_IMAGE" ;;
-        *) fail "Unknown release service: $service" ;;
-    esac
-
-    override="${!env_var:-}"
-    if [ -n "$override" ]; then
-        echo "$override"
-        return
-    fi
-
-    echo "${IMAGE_REGISTRY}/${IMAGE_REPOSITORY}:${service}-${IMAGE_TAG}"
 }
 
 run_cmd() {
@@ -294,13 +269,29 @@ run_cmd() {
     "$@"
 }
 
+deploy_env_value() {
+    local key="$1"
+    local env_file="$DEPLOY_DIR/.env"
+    local line=""
+    [ -f "$env_file" ] || return
+    line="$(grep "^${key}=" "$env_file" | tail -n 1 || true)"
+    [ -n "$line" ] || return
+    printf '%s\n' "${line#*=}"
+}
+
 ensure_docker_network() {
-    local network="${OPENAGENTS_DOCKER_NETWORK:-$DEFAULT_DOCKER_NETWORK}"
+    local network="${OPENAGENTS_DOCKER_NETWORK:-}"
+    if [ -z "$network" ]; then
+        network="$(deploy_env_value OPENAGENTS_DOCKER_NETWORK || true)"
+    fi
+    network="${network:-$DEFAULT_DOCKER_NETWORK}"
 
     if docker network inspect "$network" >/dev/null 2>&1; then
         return
     fi
 
+    # The deploy compose marks the bridge external so a New API container can
+    # keep a stable `model-gateway` alias across OpenAgents upgrades.
     run_cmd docker network create "$network"
 }
 
@@ -324,13 +315,10 @@ build_service() {
                 --build-arg "BASE_IMAGE=${OPENAGENTS_SANDBOX_BASE_IMAGE:-enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest}" \
                 -t "$image" \
                 -f "$PROJECT_ROOT/docker/sandbox-aio/Dockerfile" \
-                "$DOCKER_DIR"
+                "$PROJECT_ROOT/docker"
             ;;
         onlyoffice)
-            run_cmd docker build -t "$image" -f "$PROJECT_ROOT/docker/onlyoffice/Dockerfile" "$DOCKER_DIR"
-            ;;
-        openpencil)
-            run_cmd docker build -t "$image" -f "$PROJECT_ROOT/openpencil/Dockerfile" "$PROJECT_ROOT/openpencil"
+            run_cmd docker build -t "$image" -f "$PROJECT_ROOT/docker/onlyoffice/Dockerfile" "$PROJECT_ROOT/docker"
             ;;
         *)
             fail "Unknown release service: $service"
@@ -345,28 +333,57 @@ push_service() {
 
 compose_base() {
     OPENAGENTS_IMAGE_REGISTRY="$IMAGE_REGISTRY" \
-    OPENAGENTS_IMAGE_REPOSITORY="$IMAGE_REPOSITORY" \
-    OPENAGENTS_IMAGE_TAG="$IMAGE_TAG" \
+    OPENAGENTS_IMAGE_PREFIX="$IMAGE_PREFIX" \
+    OPENAGENTS_VERSION="$IMAGE_VERSION" \
         docker compose -f "$PROD_COMPOSE_FILE" "$@"
 }
 
 run_compose_base() {
-    # Compose runtime commands intentionally use the generated deploy directory:
-    # docker/ remains source-controlled templates, while deploy/ owns local
-    # secrets, copied configs, and bind-mounted data paths.
     if [ ! -f "$DEPLOY_DIR/$PROD_COMPOSE_FILE" ]; then
-        fail "Missing deploy compose: $DEPLOY_DIR/$PROD_COMPOSE_FILE. Run scripts/docker-deploy.sh first."
+        fail "Missing deploy compose: $DEPLOY_DIR/$PROD_COMPOSE_FILE"
     fi
 
     cd "$DEPLOY_DIR"
     if [ "$DRY_RUN" -eq 1 ]; then
-        printf '+ OPENAGENTS_IMAGE_REGISTRY=%q OPENAGENTS_IMAGE_REPOSITORY=%q OPENAGENTS_IMAGE_TAG=%q docker compose -f %q' \
-            "$IMAGE_REGISTRY" "$IMAGE_REPOSITORY" "$IMAGE_TAG" "$PROD_COMPOSE_FILE"
+        printf '+ OPENAGENTS_IMAGE_REGISTRY=%q OPENAGENTS_IMAGE_PREFIX=%q OPENAGENTS_VERSION=%q docker compose -f %q' \
+            "$IMAGE_REGISTRY" "$IMAGE_PREFIX" "$IMAGE_VERSION" "$PROD_COMPOSE_FILE"
         printf ' %q' "$@"
         printf '\n'
         return 0
     fi
     compose_base "$@"
+}
+
+sync_deploy_assets() {
+    if [ "$DRY_RUN" -eq 1 ]; then
+        printf '+ %q\n' "$PROJECT_ROOT/scripts/docker-deploy.sh"
+        return
+    fi
+
+    "$PROJECT_ROOT/scripts/docker-deploy.sh"
+}
+
+scope_needs_migrations() {
+    case "$SCOPE" in
+        gateway|app|all)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+run_migrations_if_needed() {
+    if ! scope_needs_migrations; then
+        return
+    fi
+
+    # Run the idempotent migration service explicitly before no-deps service
+    # restarts; Compose dependency conditions are not re-run for unchanged
+    # one-shot containers.
+    run_compose_base up -d postgres
+    run_compose_base run --rm migrate
 }
 
 release_build() {
@@ -404,14 +421,17 @@ release_pull() {
 release_deploy() {
     local services
 
+    sync_deploy_assets
+    ensure_docker_network
+    release_pull
+    run_migrations_if_needed
+
     if [ "$SCOPE" != "all" ]; then
         mapfile -t services < <(selected_services)
-        run_compose_base pull "${services[@]}"
         run_compose_base up -d --no-deps "${services[@]}"
         return
     fi
 
-    run_compose_base pull
     run_compose_base up -d
 }
 
@@ -419,7 +439,9 @@ main() {
     parse_args "$@"
     validate_release_scope
     resolve_release_identity
-    print_release_summary
+    if [ "$COMMAND" != "config" ]; then
+        print_release_summary
+    fi
 
     case "$COMMAND" in
         images)
@@ -438,7 +460,6 @@ main() {
             release_pull
             ;;
         deploy)
-            ensure_docker_network
             release_deploy
             ;;
         *)

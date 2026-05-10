@@ -1,52 +1,60 @@
-# Migration Baseline
+# OpenAgents SQL Migrations
 
-These SQL files are applied manually.
-Gateway and docker compose no longer execute repository migrations automatically.
+`migrations/` is the reviewed SQL source. Production deploys do not ask gateway
+to run migrations; `deploy/docker-compose.yml` runs the dedicated one-shot
+`migrate` service before `gateway` and `langgraph` start.
 
-The active baseline is intentionally squashed into two files:
+Current baseline:
 
-- `001_init.up.sql`
-- `002_seed_data.up.sql`
+- `001_init.up.sql` — gateway-owned schema plus the migration ledger table.
+- `002_seed_data.up.sql` — deterministic bootstrap data.
+- `003_newapi_deepseek_anthropic_transport.up.sql` — converts previously
+  synced New API DeepSeek thinking models to the Anthropic transport required
+  for signed thinking-block replay after tool calls.
+- `run.sh` — idempotent runner used by the compose `migrate` service.
 
-`001_init.up.sql` contains the full current gateway-owned schema:
+`001_init.up.sql` covers gateway-owned tables such as:
 
-- `users`
-- `api_tokens`
-- `public_api_invocations`
-- `public_api_artifacts`
-- `public_api_input_files`
-- `models`
+- `users`, `api_tokens`, `models`
 - `thread_bindings`
-- `agent_traces`
-- `agent_trace_events`
-- `admin_runtime_cleanup_policies`
-- `knowledge_bases`
-- `knowledge_documents`
-- `knowledge_document_nodes`
-- `knowledge_thread_bindings`
-- `knowledge_build_jobs`
-- `knowledge_build_events`
+- `agent_traces`, `agent_trace_events`
+- knowledge-base tables and build-event tables
+- public API invocation/artifact/input-file tables
 
-Intentionally absent by design:
+Intentionally absent:
 
-- runtime checkpoint tables such as `checkpoints`, `checkpoint_blobs`, and related runtime-owned state
+- runtime checkpoint tables such as `checkpoints` and `checkpoint_blobs`
 - legacy `agents`, `skills`, and `agent_skills` tables
 
 Agent and skill definitions remain filesystem archives under `.openagents/`,
 not database rows.
 
-`002_seed_data.up.sql` contains only deterministic bootstrap data:
+`002_seed_data.up.sql` seeds only the default administrator:
 
-- the current `models` catalog, synchronized from the live `openagents` database
-- the default admin user:
-  - account: `admin`
-  - password: `admin123`
-  - email: `admin@163.com`
+```text
+account: admin
+password: admin123
+email: admin@163.com
+```
 
-Runtime/user-generated rows in `users`, thread tables, observability tables, and
-knowledge-base tables are intentionally excluded from migrations.
+Model rows are not seeded with repository SQL because the correct model catalog
+belongs to the operator's New API gateway. After New API is attached to the
+deploy network, sync models from the admin console with:
 
-Historical stepwise migrations have been squashed into the current `001` / `002`
-pair. Databases that were created from the historical chain should be kept as-is
-or rebuilt before re-bootstrap; do not expect the new baseline files to backfill
-a partially migrated older database.
+```text
+http://model-gateway:3000
+```
+
+## Adding A Migration
+
+1. Add a new reviewed SQL file named `NNN_short_name.up.sql`.
+2. Wrap the SQL in `BEGIN; ... COMMIT;`.
+3. Do not edit a migration that has already run in production; the runner checks
+   `openagents_schema_migrations.checksum` and fails on drift.
+4. Run `./scripts/docker-deploy.sh` so `deploy/migrations/` receives the new SQL.
+5. Apply it with `cd deploy && docker compose run --rm migrate`, or let
+   `scripts/docker-release.sh deploy --scope gateway|app|all` run it.
+
+The runner can adopt older databases that already contain the complete baseline
+but lack `openagents_schema_migrations`. Partial schemas fail loudly and must be
+inspected manually.

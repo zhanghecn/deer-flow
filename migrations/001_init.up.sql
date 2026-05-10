@@ -5,6 +5,14 @@
 
 BEGIN;
 
+-- The deploy `migrate` service owns this ledger. Keeping it in the baseline
+-- makes restored databases self-describing even when SQL is applied manually.
+CREATE TABLE IF NOT EXISTS openagents_schema_migrations (
+    version TEXT PRIMARY KEY,
+    checksum TEXT NOT NULL,
+    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email VARCHAR(255) UNIQUE NOT NULL,

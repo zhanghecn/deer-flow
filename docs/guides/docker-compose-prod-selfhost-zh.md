@@ -1,160 +1,191 @@
-# OpenAgents Docker 开发与发版流程
+# OpenAgents Docker 部署与发版流程
 
-这是当前唯一的 Docker 操作文档。正式环境不要再把 `.env`、配置或数据写到 `docker/`，也不要直接用 `docker/docker-compose-prod.yaml` 起服务。
+这份文档是 Docker 部署的主入口。生产环境以 `deploy/` 为准：
+
+- `deploy/docker-compose.yml`：正式 compose，提交到仓库。
+- `deploy/.env.example`：正式环境变量模板，提交到仓库。
+- `deploy/.env`：本机 secrets，由脚本生成，不提交。
+- `deploy/config.yaml`、`deploy/gateway.yaml`：本机配置副本，由脚本生成，不提交。
+- `deploy/migrations/`：从根目录 `migrations/` 同步出来的发布 SQL，不提交。
+- `deploy/data/`：PostgreSQL、MinIO、OpenAgents runtime 数据，不提交。
+
+`docker/` 只保留 Dockerfile 和本地开发 compose；不要再用
+`docker/docker-compose-prod.yaml`，这个生产模板已经删除。
 
 ## 速查
 
-开发环境：
-
-```bash
-make dev
-make stop
-make docker-status
-make docker-verify
-make docker-logs
-```
-
-首次正式部署或全新测试环境：
+首次部署：
 
 ```bash
 ./scripts/docker-deploy.sh --start
 ```
 
-后续发版：
+已有 New API 容器时，首次准备部署顺手接入同一网络：
 
 ```bash
-./scripts/docker-release.sh push --scope app
-./scripts/docker-release.sh deploy --scope app
+MODEL_GATEWAY_CONTAINER=1Panel-new-api-6d1F ./scripts/docker-deploy.sh --start
 ```
 
-指定版本或全栈：
+后续升级：
 
 ```bash
-./scripts/docker-release.sh push --scope gateway --tag v0.1.0
-./scripts/docker-release.sh deploy --scope gateway --tag v0.1.0
-./scripts/docker-release.sh deploy --scope all --tag v0.1.0
+cd deploy
+docker compose pull
+docker compose up -d
 ```
 
-默认镜像仓库是 `zhangxuan2/openagents`，默认 tag 是 `latest`。实际镜像 tag 形如 `gateway-latest`、`nginx-v0.1.0`。
+按影响范围构建、推送、部署镜像：
 
-## 目录
+```bash
+./scripts/docker-release.sh push --scope app --version 1.2.3
+./scripts/docker-release.sh deploy --scope app --version 1.2.3
+```
 
-源码目录：
+## 网络
 
-- `docker/docker-compose.yaml`：开发环境 compose，给 `make dev` 使用。
-- `docker/docker-compose-prod.yaml`：正式环境 compose 模板，只给部署脚本复制。
-
-生成部署目录：
-
-- `deploy/docker-compose.yml`：实际正式部署 compose。
-- `deploy/.env`：正式环境 secrets。
-- `deploy/config.yaml`、`deploy/gateway.yaml`：正式环境配置副本。
-- `deploy/data/openagents`：runtime、commands、system、threads 等文件数据。
-- `deploy/data/postgres`：PostgreSQL 数据。
-- `deploy/data/minio`：MinIO 对象数据。
-
-`deploy/.env`、`deploy/docker-compose.yml`、`deploy/config.yaml`、`deploy/gateway.yaml`、`deploy/data/` 都被 git ignore。迁移机器时保留 `deploy/.env` 和整个 `deploy/data/`。
-
-## 开发环境
-
-日常开发只用 `make dev`。它会挂载源码，并默认把 runtime 和依赖缓存放在：
+生产 compose 只使用一个固定 Docker 网络：
 
 ```text
-deploy/data/openagents
+openagents
 ```
 
-本地入口：
+`deploy/docker-compose.yml` 把这个网络声明为 external。这样做是为了让已有的
+New API 容器也能挂到同一个网络，并提供稳定 DNS：
 
-- 用户前台：`http://127.0.0.1:8083`
-- 管理后台：`http://127.0.0.1:8081`
-- demo：`http://127.0.0.1:8084`
-- gateway：`http://127.0.0.1:8001`
-- langgraph：`http://127.0.0.1:2024`
-- sandbox：`http://127.0.0.1:18080`
-- onlyoffice：`http://127.0.0.1:8082`
+```bash
+make docker-model-gateway-attach MODEL_GATEWAY_CONTAINER=1Panel-new-api-6d1F
+```
 
-## 首次正式部署
+或者直接用 Docker：
 
-新机器只执行：
+```bash
+docker network create openagents 2>/dev/null || true
+docker network connect --alias model-gateway openagents 1Panel-new-api-6d1F
+```
+
+管理后台同步 New API 模型时，地址写：
+
+```text
+http://model-gateway:3000
+```
+
+浏览器能访问宿主机端口，不代表容器能用同一个宿主机 IP 访问。容器间访问应优先走
+同一个 Docker bridge 网络上的服务名或 network alias。这里的 `model-gateway` 就是
+给已有 New API 容器定义的别名。
+
+## 镜像版本
+
+发布只需要记一个版本号：
+
+```text
+OPENAGENTS_VERSION=1.2.3
+```
+
+默认前缀：
+
+```text
+OPENAGENTS_IMAGE_REGISTRY=docker.io
+OPENAGENTS_IMAGE_PREFIX=zhangxuan2/openagents
+```
+
+最终镜像形如：
+
+```text
+docker.io/zhangxuan2/openagents-web:1.2.3
+docker.io/zhangxuan2/openagents-gateway:1.2.3
+docker.io/zhangxuan2/openagents-langgraph:1.2.3
+```
+
+`latest` 适合个人自托管；生产环境建议固定 `OPENAGENTS_VERSION`。CI/tag 发布时应由
+Git tag 生成版本号，操作者不需要记 `gateway-v0.1.0` 这种服务前缀 tag。
+
+## 首次部署
+
+从仓库根目录执行：
 
 ```bash
 ./scripts/docker-deploy.sh --start
 ```
 
-脚本会生成 `deploy/` 配置和数据目录，先启动 PostgreSQL，空库时自动执行：
+脚本会做这些事：
 
-```text
-migrations/001_init.up.sql
-migrations/002_seed_data.up.sql
-```
+- 生成或保留 `deploy/.env`。
+- 复制 `config.yaml` 和 `backend/gateway/gateway.yaml` 到 `deploy/`。
+- 同步 `.openagents/commands` 和 `.openagents/system` 到 `deploy/data/openagents`。
+- 同步根目录 `migrations/*.up.sql` 和 `migrations/run.sh` 到 `deploy/migrations`。
+- 创建固定网络 `openagents`。
+- 如果传入 `MODEL_GATEWAY_CONTAINER`，把 New API 接入 `openagents` 并设置 `model-gateway` alias。
+- 启动 `deploy/docker-compose.yml`。
 
-然后再启动完整正式栈。不要在首次部署时直接 `cd deploy && docker compose up -d`，因为空库会让 gateway 在 SQL baseline 之前失败。
+首次空库初始化由 compose 内的 `migrate` 服务完成。`gateway` 和 `langgraph` 都等待
+`migrate` 成功后才启动。
 
-## 后续发版
+## 后续升级
 
-后续发版不要再跑 `docker-deploy.sh --start`，除非你删除了 `deploy/` 或明确要重建全新环境。
-
-如果只发布新镜像，按本次变更影响的 scope 发版。日常发布 gateway、用户前台、管理后台、agents runtime 时，不要跑全栈 deploy。
-
-常见影响范围：
-
-- `--scope frontend`：发布 `nginx`，用于 `frontend/app/**`、`frontend/admin/**`、`docker/nginx/**`。
-- `--scope gateway`：发布 `gateway`，用于 `backend/gateway/**`。
-- `--scope app`：发布 `nginx`、`gateway`、`langgraph`，用于常规应用代码一起发。
-
-例如只发 gateway：
+如果只是使用已经发布的镜像：
 
 ```bash
-./scripts/docker-release.sh push --scope gateway
-./scripts/docker-release.sh deploy --scope gateway
+cd deploy
+docker compose pull
+docker compose up -d
 ```
 
-例如常规应用代码一起发：
-
-```bash
-./scripts/docker-release.sh push --scope app
-./scripts/docker-release.sh deploy --scope app
-```
-
-`deploy --scope frontend|gateway|app` 会自动让 Compose 只重建/重启 scope 内服务，不主动启动或 reconcile PostgreSQL、MinIO、ONLYOFFICE 等依赖服务。
-
-如果确实要全栈 reconcile，必须显式写 `--scope all`：
-
-```bash
-./scripts/docker-release.sh push --scope all --tag v0.1.0
-./scripts/docker-release.sh deploy --scope all --tag v0.1.0
-```
-
-如果这次发版也改了脚本或文档，服务器先更新代码后再按影响 scope 发布：
-
-```bash
-git pull
-./scripts/docker-release.sh deploy --scope gateway
-```
-
-如果改了 `docker/docker-compose-prod.yaml` 模板，先刷新生成的 `deploy/docker-compose.yml`，再按影响范围发布：
+如果服务器上也更新了仓库代码，先同步部署资产：
 
 ```bash
 git pull
 ./scripts/docker-deploy.sh
-./scripts/docker-release.sh deploy --scope gateway
+cd deploy
+docker compose pull
+docker compose up -d
 ```
 
-只有 compose-wide 或基础设施变更才使用全栈：
+如果用仓库脚本构建和发布镜像：
 
 ```bash
-./scripts/docker-release.sh deploy --scope all --tag v0.1.0
+./scripts/docker-release.sh push --scope gateway --version 1.2.3
+./scripts/docker-release.sh deploy --scope gateway --version 1.2.3
 ```
 
-推到其他仓库：
+scope 约定：
+
+- `frontend`：只发布 `openagents-web`，对应用户前台、管理后台和 nginx 配置。
+- `gateway`：只发布 `openagents-gateway`。
+- `app`：发布 `openagents-web`、`openagents-gateway`、`openagents-langgraph`。
+- `all`：发布并 reconcile 全栈镜像，包括 sandbox、ONLYOFFICE。
+
+`deploy` 命令会在需要时先运行 idempotent 的 `migrate` 服务，再用 `--no-deps`
+重启非全栈 scope，避免普通应用发布误动 PostgreSQL、MinIO 等依赖。
+
+## SQL 初始化与迁移
+
+根目录 `migrations/` 是 SQL 的代码审阅来源：
+
+- `001_init.up.sql`：空库结构 baseline。
+- `002_seed_data.up.sql`：确定性启动数据，目前只包含默认管理员。
+- `run.sh`：compose `migrate` 服务使用的迁移 runner。
+
+默认管理员：
+
+```text
+account: admin
+password: admin123
+```
+
+后续新增 SQL 时追加 `NNN_name.up.sql`，不要改已经在生产库执行过的文件。
+`migrate` 服务会把版本和 checksum 写入 `openagents_schema_migrations`，如果已执行文件
+内容发生变化会直接失败，避免静默漂移。
+
+手工验证迁移：
 
 ```bash
-./scripts/docker-release.sh push --scope app --repository <namespace>/openagents --tag v0.1.0
+cd deploy
+docker compose run --rm migrate
 ```
 
 ## 配置和数据
 
-修改正式配置：
+生产环境只改这些文件：
 
 ```text
 deploy/.env
@@ -162,44 +193,34 @@ deploy/config.yaml
 deploy/gateway.yaml
 ```
 
-配置变更后按影响范围重启：
-
-```bash
-cd deploy
-docker compose -f docker-compose.yml restart gateway langgraph
-```
-
-如果要自定义数据目录，优先改 `deploy/.env`：
+常用端口：
 
 ```text
-OPENAGENTS_DOCKER_HOST_HOME=/srv/openagents/runtime
-OPENAGENTS_POSTGRES_DATA_DIR=/srv/openagents/postgres
-OPENAGENTS_MINIO_DATA_DIR=/srv/openagents/minio
+OPENAGENTS_APP_PORT=8083
+OPENAGENTS_ADMIN_PORT=8081
+OPENAGENTS_POSTGRES_PORT=15432
+OPENAGENTS_ONLYOFFICE_PORT=8082
+OPENAGENTS_SANDBOX_PORT=18080
 ```
 
-PostgreSQL 默认绑定 `0.0.0.0:${OPENAGENTS_POSTGRES_PORT:-15432}`，方便局域网内运维连接。只想允许服务器本机访问时，改成：
+持久化目录：
 
 ```text
-OPENAGENTS_POSTGRES_BIND_HOST=127.0.0.1
+OPENAGENTS_DOCKER_HOST_HOME=./data/openagents
+OPENAGENTS_POSTGRES_DATA_DIR=./data/postgres
+OPENAGENTS_MINIO_DATA_DIR=./data/minio
 ```
 
-不要直接改 `deploy/docker-compose.yml`；它下次运行 `docker-deploy.sh` 会被模板覆盖。
+迁移机器时至少保留：
 
-## SQL 迁移
-
-首次空库 baseline 由 `docker-deploy.sh --start` 自动执行。
-
-后续发版如果新增 SQL 文件，必须先人工审阅，再在变更窗口手工执行。不要让 gateway 或 compose 在已有正式库上自动跑非 baseline 迁移。
-
-从仓库根目录执行 SQL：
-
-```bash
-docker exec -i openagents-prod-postgres-1 psql -U openagents -d openagents -v ON_ERROR_STOP=1 < migrations/<file>.sql
+```text
+deploy/.env
+deploy/config.yaml
+deploy/gateway.yaml
+deploy/data/
 ```
 
-如果已经 `cd deploy`，路径才写成 `../migrations/<file>.sql`。
-
-## 正式环境运维
+## 运维命令
 
 查看最终 compose：
 
@@ -211,8 +232,8 @@ docker exec -i openagents-prod-postgres-1 psql -U openagents -d openagents -v ON
 
 ```bash
 cd deploy
-docker compose -f docker-compose.yml ps
-docker compose -f docker-compose.yml logs -f
+docker compose ps
+docker compose logs -f
 ```
 
 健康检查：
@@ -227,59 +248,28 @@ curl -fsS http://127.0.0.1:8081/
 
 ```bash
 cd deploy
-docker compose -f docker-compose.yml down
+docker compose down
 ```
 
-清空测试环境：
+测试环境清空：
 
 ```bash
 cd deploy
-docker compose -f docker-compose.yml down -v --remove-orphans
+docker compose down -v --remove-orphans
 cd ..
-rm -rf deploy/.env deploy/config.yaml deploy/gateway.yaml deploy/docker-compose.yml deploy/data
+rm -rf deploy/.env deploy/config.yaml deploy/gateway.yaml deploy/migrations deploy/data
 ```
 
-这会删除 PostgreSQL、MinIO 和 OpenAgents runtime 数据，只适合测试环境或明确要重建的机器。
+## 本地开发
 
-## 外部模型网关
-
-外部模型网关不放进 OpenAgents 正式 compose。把已有网关容器接入 OpenAgents 网络：
+开发环境仍然使用：
 
 ```bash
-make docker-model-gateway-attach MODEL_GATEWAY_CONTAINER=1Panel-new-api-6d1F MODEL_GATEWAY_NETWORK=openagents-prod_openagents
+make dev
+make docker-verify
+make stop
 ```
 
-模型记录里的 `base_url` 使用：
-
-```text
-http://model-gateway:3000
-```
-
-`openagents-prod_openagents` 是脚本管理的 external network。这样服务器上如果已经有同名网络，Compose 会直接复用它，不会因为旧 compose label 不一致而启动失败。
-
-## 备份和回滚
-
-发版前至少备份：
-
-```text
-deploy/.env
-deploy/data/
-```
-
-回滚镜像：
-
-```bash
-./scripts/docker-release.sh deploy --scope gateway --tag <previous-tag>
-# 或确认要全栈回滚时：
-./scripts/docker-release.sh deploy --scope all --tag <previous-tag>
-```
-
-如果发版涉及数据库结构变更，数据库回滚要单独处理，不能只靠镜像回滚。
-
-## 废弃做法
-
-- 不把正式 `.env`、`config.yaml`、`gateway.yaml` 写到 `docker/`。
-- 不把默认持久化数据写到 `docker/data`。
-- 不直接用 `docker/docker-compose-prod.yaml` 启动正式环境。
-- 不要求日常发版手动 `export OPENAGENTS_IMAGE_NAMESPACE` 或 `OPENAGENTS_IMAGE_TAG`。
-- 不把首次空库 SQL 作为必须手工执行的步骤；使用 `./scripts/docker-deploy.sh --start`。
+开发 compose 的默认网络是 `openagents_default`，生产网络是 `openagents`。这不是两套
+New API 网关；同一个 New API 容器可以按需同时接入两个网络并使用同一个
+`model-gateway` alias。

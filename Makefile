@@ -4,14 +4,11 @@
 
 GO_TOOLCHAIN ?= auto
 HOST_LOG_DIR := $(CURDIR)/.openagents/host-logs
-# OpenPencil now lives inside this repository so local dev and Docker builds
-# use the same source tree instead of drifting from a sibling checkout.
-OPENPENCIL_DIR := $(abspath $(CURDIR)/openpencil)
 # External model gateways live outside the OpenAgents compose file. Operators
 # can attach one existing container to the shared bridge network and keep a
 # stable in-cluster DNS name for model records such as `http://model-gateway:3000`.
 MODEL_GATEWAY_CONTAINER ?=
-MODEL_GATEWAY_NETWORK ?= openagents_default
+MODEL_GATEWAY_NETWORK ?= openagents
 MODEL_GATEWAY_ALIAS ?= model-gateway
 
 help:
@@ -30,8 +27,8 @@ help:
 	@echo "  make docker-init   - Pull the shared sandbox image"
 	@echo "  make docker-model-gateway-attach MODEL_GATEWAY_CONTAINER=<container>"
 	@echo "  make docker-deploy-prepare ARGS='--start' - First production deploy"
-	@echo "  make docker-release-push ARGS='--tag <tag>'"
-	@echo "  make docker-release-deploy ARGS='--scope app --tag <tag>'"
+	@echo "  make docker-release-push ARGS='--scope app --version <version>'"
+	@echo "  make docker-release-deploy ARGS='--scope app --version <version>'"
 	@echo ""
 	@echo "Advanced host-debug helpers:"
 	@echo "  make check         - Check host tooling for non-Docker workflows"
@@ -195,8 +192,6 @@ setup-sandbox:
 dev: docker-start
 
 # Start all services on the host for debugging the pre-Docker workflow.
-# OpenPencil is vendored into this repository and must bind 3001 in host-run
-# development so nginx preserves the same-origin `/openpencil` bridge contract.
 host-dev:
 	@echo "Stopping existing services if any..."
 	@-pkill -f "langgraph dev" 2>/dev/null || true
@@ -206,7 +201,6 @@ host-dev:
 	@-sh -c 'frontend_pids=$$(lsof -ti :3000 2>/dev/null); [ -z "$$frontend_pids" ] || kill $$frontend_pids 2>/dev/null || true'
 	@-sh -c 'admin_pids=$$(lsof -ti :5173 2>/dev/null); [ -z "$$admin_pids" ] || kill $$admin_pids 2>/dev/null || true'
 	@-sh -c 'demo_pids=$$(lsof -ti :8084 2>/dev/null); [ -z "$$demo_pids" ] || kill $$demo_pids 2>/dev/null || true'
-	@-sh -c 'openpencil_pids=$$(lsof -ti :3001 2>/dev/null); [ -z "$$openpencil_pids" ] || kill $$openpencil_pids 2>/dev/null || true'
 	@-nginx -c $(PWD)/docker/nginx/nginx.local.conf -p $(PWD) -s quit 2>/dev/null || true
 	@sleep 1
 	@-pkill -9 nginx 2>/dev/null || true
@@ -221,7 +215,6 @@ host-dev:
 	@echo "  → Backend: LangGraph Server"
 	@echo "  → Gateway: Go Gateway"
 	@echo "  → Frontend: Vite"
-	@echo "  → OpenPencil: Vite (vendored project)"
 	@echo "  → Nginx: Reverse Proxy"
 	@echo ""
 	@cleanup() { \
@@ -235,7 +228,6 @@ host-dev:
 		frontend_pids=$$(lsof -ti :3000 2>/dev/null); [ -z "$$frontend_pids" ] || kill $$frontend_pids 2>/dev/null || true; \
 		admin_pids=$$(lsof -ti :5173 2>/dev/null); [ -z "$$admin_pids" ] || kill $$admin_pids 2>/dev/null || true; \
 		demo_pids=$$(lsof -ti :8084 2>/dev/null); [ -z "$$demo_pids" ] || kill $$demo_pids 2>/dev/null || true; \
-		openpencil_pids=$$(lsof -ti :3001 2>/dev/null); [ -z "$$openpencil_pids" ] || kill $$openpencil_pids 2>/dev/null || true; \
 		nginx -c $(PWD)/docker/nginx/nginx.local.conf -p $(PWD) -s quit 2>/dev/null || true; \
 		sleep 1; \
 		pkill -9 nginx 2>/dev/null || true; \
@@ -270,30 +262,6 @@ host-dev:
 	cd $(PWD)/frontend/app && pnpm run dev > $(HOST_LOG_DIR)/frontend.log 2>&1 & \
 	sleep 3; \
 	echo "✓ Frontend started on localhost:3000"; \
-	if [ -d "$(OPENPENCIL_DIR)" ]; then \
-		if command -v bun >/dev/null 2>&1; then \
-			echo "Starting OpenPencil..."; \
-			cd $(OPENPENCIL_DIR) && bun run dev > $(HOST_LOG_DIR)/openpencil.log 2>&1 & \
-			openpencil_started=0; \
-			for _ in 1 2 3 4 5 6; do \
-				sleep 2; \
-				if lsof -i :3001 -sTCP:LISTEN -t >/dev/null 2>&1; then \
-					openpencil_started=1; \
-					break; \
-				fi; \
-			done; \
-			if [ $$openpencil_started -eq 1 ]; then \
-				echo "✓ OpenPencil started on localhost:3001"; \
-			else \
-				echo "! OpenPencil did not start on localhost:3001. See $(HOST_LOG_DIR)/openpencil.log"; \
-				tail -30 $(HOST_LOG_DIR)/openpencil.log 2>/dev/null || true; \
-			fi; \
-		else \
-			echo "! bun not found, skipping vendored OpenPencil dev server"; \
-		fi; \
-	else \
-		echo "! $(OPENPENCIL_DIR) not found, vendored OpenPencil copy is missing"; \
-	fi; \
 	if command -v nginx >/dev/null 2>&1; then \
 		echo "Starting Nginx reverse proxy..."; \
 		mkdir -p $(HOST_LOG_DIR) && nginx -g 'daemon off;' -c $(PWD)/docker/nginx/nginx.local.conf -p $(PWD) > $(HOST_LOG_DIR)/nginx.log 2>&1 & \
@@ -321,9 +289,6 @@ host-dev:
 	echo "     - LangGraph: $(HOST_LOG_DIR)/langgraph.log"; \
 	echo "     - Gateway:   $(HOST_LOG_DIR)/gateway.log"; \
 	echo "     - Frontend:  $(HOST_LOG_DIR)/frontend.log"; \
-	if [ -f "$(HOST_LOG_DIR)/openpencil.log" ]; then \
-		echo "     - OpenPencil: $(HOST_LOG_DIR)/openpencil.log"; \
-	fi; \
 	if command -v nginx >/dev/null 2>&1; then \
 		echo "     - Nginx:     $(HOST_LOG_DIR)/nginx.log"; \
 	fi; \
@@ -344,7 +309,6 @@ host-stop:
 	@-sh -c 'frontend_pids=$$(lsof -ti :3000 2>/dev/null); [ -z "$$frontend_pids" ] || kill $$frontend_pids 2>/dev/null || true'
 	@-sh -c 'admin_pids=$$(lsof -ti :5173 2>/dev/null); [ -z "$$admin_pids" ] || kill $$admin_pids 2>/dev/null || true'
 	@-sh -c 'demo_pids=$$(lsof -ti :8084 2>/dev/null); [ -z "$$demo_pids" ] || kill $$demo_pids 2>/dev/null || true'
-	@-sh -c 'openpencil_pids=$$(lsof -ti :3001 2>/dev/null); [ -z "$$openpencil_pids" ] || kill $$openpencil_pids 2>/dev/null || true'
 	@-nginx -c $(PWD)/docker/nginx/nginx.local.conf -p $(PWD) -s quit 2>/dev/null || true
 	@sleep 1
 	@-pkill -9 nginx 2>/dev/null || true
@@ -414,8 +378,8 @@ docker-model-gateway-attach:
 		exit 1; \
 	fi
 	@if ! docker network inspect "$(MODEL_GATEWAY_NETWORK)" >/dev/null 2>&1; then \
-		echo "Docker network not found: $(MODEL_GATEWAY_NETWORK)"; \
-		exit 1; \
+		echo "Creating shared model gateway network: $(MODEL_GATEWAY_NETWORK)"; \
+		docker network create "$(MODEL_GATEWAY_NETWORK)" >/dev/null; \
 	fi
 	@if docker inspect "$(MODEL_GATEWAY_CONTAINER)" --format '{{json .NetworkSettings.Networks}}' | grep -q '"$(MODEL_GATEWAY_NETWORK)"'; then \
 		echo "Container $(MODEL_GATEWAY_CONTAINER) is already attached to $(MODEL_GATEWAY_NETWORK)."; \
@@ -426,17 +390,13 @@ docker-model-gateway-attach:
 	@echo "Model records should use base_url=http://$(MODEL_GATEWAY_ALIAS):3000"
 
 docker-prod-config:
-	@cd docker && docker compose --env-file ../.env -p openagents -f docker-compose.yaml config
+	@./scripts/docker-release.sh config
 
 docker-prod-preflight:
-	@# The vendored OpenPencil tree is now part of the default prod stack, so
-	@# fail early with a concrete message instead of letting Docker error out on
-	@# a missing COPY source deep inside the image build.
-	@test -f openpencil/Dockerfile || (echo "Missing vendored OpenPencil Dockerfile: openpencil/Dockerfile"; exit 1)
-	@test -f openpencil/apps/web/package.json || (echo "Missing vendored OpenPencil web app entry: openpencil/apps/web/package.json"; exit 1)
+	@cd deploy && docker compose -f docker-compose.yml config --quiet
 
 docker-prod-build:
-	@cd docker && docker compose --env-file ../.env -p openagents -f docker-compose.yaml build
+	@./scripts/docker-release.sh build $(ARGS)
 
 docker-deploy-prepare:
 	@./scripts/docker-deploy.sh $(ARGS)
@@ -451,22 +411,23 @@ docker-release-deploy:
 	@./scripts/docker-release.sh deploy $(ARGS)
 
 docker-prod-start:
-	@./scripts/docker.sh prod-start
+	@./scripts/docker-deploy.sh --start
 
 docker-prod-stop:
-	@./scripts/docker.sh stop
+	@cd deploy && docker compose -f docker-compose.yml down
 
 docker-prod-restart:
-	@./scripts/docker.sh prod-restart
+	@cd deploy && docker compose -f docker-compose.yml restart
 
 docker-prod-status:
-	@./scripts/docker.sh prod-status
+	@cd deploy && docker compose -f docker-compose.yml ps
 
 docker-prod-verify:
-	@./scripts/docker.sh prod-verify
+	@curl -fsS http://127.0.0.1:$${OPENAGENTS_APP_PORT:-8083}/health >/dev/null
+	@curl -fsS http://127.0.0.1:$${OPENAGENTS_ADMIN_PORT:-8081}/ >/dev/null
 
 docker-prod-logs:
-	@cd docker && docker compose --env-file ../.env -p openagents -f docker-compose.yaml logs -f
+	@cd deploy && docker compose -f docker-compose.yml logs -f
 
 demo-start:
 	@./scripts/demo.sh start

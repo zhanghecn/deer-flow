@@ -51,10 +51,12 @@ Nginx (:2026)
 # 创建数据库
 createdb openagents
 
-# 手工执行项目根目录 migrations/ 下的 SQL
-# Gateway 不再内置自动迁移命令
-psql "$DATABASE_URI" -f migrations/001_init.up.sql
-psql "$DATABASE_URI" -f migrations/002_seed_data.up.sql
+# Docker deploy 路径推荐使用专用迁移服务；Gateway 自身不跑迁移
+cd ../../deploy && docker compose run --rm migrate
+
+# 纯 host-run 调试也可以直接使用 psql 执行 reviewed SQL
+# psql "$DATABASE_URI" -f migrations/001_init.up.sql
+# psql "$DATABASE_URI" -f migrations/002_seed_data.up.sql
 ```
 
 ### 2. 配置

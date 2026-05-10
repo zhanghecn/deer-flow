@@ -1,39 +1,38 @@
-name: openagents-prod
+name: openagents
 
 networks:
   default:
-    # Treat the production bridge as an operator-owned shared network. This
-    # avoids Compose label conflicts when an existing model-gateway container
-    # already uses the stable network name from an older deployment.
+    # Production uses one stable operator-owned bridge. Attach an existing
+    # New API container to this network with alias `model-gateway`; model rows
+    # should then use base_url=http://model-gateway:3000.
     external: true
-    name: ${OPENAGENTS_DOCKER_NETWORK:-openagents-prod_openagents}
+    name: ${OPENAGENTS_DOCKER_NETWORK:-openagents}
 
 x-openagents-env-file: &openagents_env_file
-  # Production deployments should keep secrets next to the generated deploy
-  # compose file. The file is optional so operators can still pass environment
-  # variables directly in CI or during local verification.
+  # Deploy secrets live next to this compose file. The file is optional so CI
+  # can still render config with process environment variables only.
   - path: ${OPENAGENTS_ENV_FILE:-.env}
     required: false
 
 x-json-logging: &json_logging
-  # Keep production logs in Docker's normal stdout/stderr path while bounding
-  # local disk growth on single-node deployments.
+  # Bound single-node log growth while keeping normal `docker compose logs`
+  # behavior for operators.
   driver: json-file
   options:
     max-size: "20m"
     max-file: "5"
 
 x-openagents-home-mount: &openagents_home_mount
-  # This is the authoritative runtime data root. Moving OpenAgents to another
-  # machine should primarily mean copying this directory plus the PostgreSQL and
-  # MinIO data directories configured below.
+  # This directory is the movable runtime data root: archived agents, skills,
+  # user thread files, commands, and runtime-generated state live here.
   type: bind
   source: ${OPENAGENTS_DOCKER_HOST_HOME:-./data/openagents}
   target: /openagents-home
 
 x-openagents-sandbox-mount: &openagents_sandbox_mount
-  # Sandbox-visible data intentionally uses a stable in-container path so
-  # /mnt/user-data/... rewrites never depend on the host directory layout.
+  # The sandbox service sees the same bytes at /openagents so runtime path
+  # rewrites can preserve the /mnt/user-data/... contract independent of host
+  # filesystem layout.
   type: bind
   source: ${OPENAGENTS_DOCKER_HOST_HOME:-./data/openagents}
   target: /openagents
@@ -42,15 +41,13 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      # Pin PGDATA to the bind-mounted directory so future image default changes
-      # cannot silently initialize the database under an anonymous image volume.
+      # Keep PGDATA explicit so a future image default cannot initialize a
+      # second database under an anonymous Docker volume.
       PGDATA: /var/lib/postgresql/data
       POSTGRES_DB: ${OPENAGENTS_POSTGRES_DB:-openagents}
       POSTGRES_USER: ${OPENAGENTS_POSTGRES_USER:-openagents}
       POSTGRES_PASSWORD: ${OPENAGENTS_POSTGRES_PASSWORD:?OPENAGENTS_POSTGRES_PASSWORD is required; run scripts/docker-deploy.sh}
     ports:
-      # Bind host is configurable so LAN deployments can expose PostgreSQL for
-      # operator access while still allowing a loopback-only override in .env.
       - "${OPENAGENTS_POSTGRES_BIND_HOST:-0.0.0.0}:${OPENAGENTS_POSTGRES_PORT:-15432}:5432"
     healthcheck:
       test:
@@ -62,12 +59,36 @@ services:
       start_period: 20s
     volumes:
       - type: bind
-        # Keep database bytes outside Docker's anonymous volume store so backup
-        # and migration are explicit filesystem operations.
+        # PostgreSQL bytes stay in deploy/data for simple rsync/tar migration.
         source: ${OPENAGENTS_POSTGRES_DATA_DIR:-./data/postgres}
         target: /var/lib/postgresql/data
     logging: *json_logging
     restart: unless-stopped
+
+  migrate:
+    image: postgres:16-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # The migration runner uses libpq environment variables so the exact same
+      # script can run as a one-shot compose service or through `compose run`.
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: ${OPENAGENTS_POSTGRES_DB:-openagents}
+      PGUSER: ${OPENAGENTS_POSTGRES_USER:-openagents}
+      PGPASSWORD: ${OPENAGENTS_POSTGRES_PASSWORD:?OPENAGENTS_POSTGRES_PASSWORD is required; run scripts/docker-deploy.sh}
+      MIGRATIONS_DIR: /migrations
+    volumes:
+      - type: bind
+        # scripts/docker-deploy.sh syncs reviewed root migrations into deploy/
+        # so the runtime deploy package can apply SQL without reading docker/.
+        source: ${OPENAGENTS_MIGRATIONS_DIR:-./migrations}
+        target: /migrations
+        read_only: true
+    entrypoint: ["/bin/sh", "/migrations/run.sh"]
+    logging: *json_logging
+    restart: "no"
 
   minio:
     image: minio/minio:latest
@@ -76,15 +97,13 @@ services:
       MINIO_ROOT_USER: ${OPENAGENTS_MINIO_ROOT_USER:-openagents}
       MINIO_ROOT_PASSWORD: ${OPENAGENTS_MINIO_ROOT_PASSWORD:?OPENAGENTS_MINIO_ROOT_PASSWORD is required; run scripts/docker-deploy.sh}
     ports:
-      # MinIO stays loopback-only by default because the application talks to it
-      # over the compose network; expose it through a real reverse proxy if the
-      # object store must be administered remotely.
+      # The app talks to MinIO over the deploy network. Host exposure stays
+      # loopback-only unless an operator deliberately places a proxy in front.
       - "127.0.0.1:${OPENAGENTS_MINIO_API_PORT:-19000}:9000"
       - "127.0.0.1:${OPENAGENTS_MINIO_CONSOLE_PORT:-19001}:9001"
     volumes:
       - type: bind
-        # Knowledge-base binaries live here when KNOWLEDGE_OBJECT_STORE=minio.
-        # Copy this directory with PostgreSQL rows to preserve storage_refs.
+        # Knowledge-base binary assets live here when KNOWLEDGE_OBJECT_STORE=minio.
         source: ${OPENAGENTS_MINIO_DATA_DIR:-./data/minio}
         target: /data
     logging: *json_logging
@@ -98,22 +117,20 @@ services:
       MINIO_ROOT_USER: ${OPENAGENTS_MINIO_ROOT_USER:-openagents}
       MINIO_ROOT_PASSWORD: ${OPENAGENTS_MINIO_ROOT_PASSWORD:?OPENAGENTS_MINIO_ROOT_PASSWORD is required; run scripts/docker-deploy.sh}
       KNOWLEDGE_S3_BUCKET: ${KNOWLEDGE_S3_BUCKET:-openagents-knowledge}
-    # The mc image entrypoint is the `mc` binary, so override it before running
-    # shell logic for wait-and-create initialization.
     entrypoint: ["/bin/sh", "-lc"]
     command:
       - |
         until mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"; do
           sleep 2
         done
-        # Bucket creation is idempotent so redeploys do not mutate existing
-        # objects or require a separate first-run script.
+        # Bucket creation is idempotent; redeploys must not mutate existing
+        # document objects or require a separate first-run command.
         mc mb --ignore-existing "local/$${KNOWLEDGE_S3_BUCKET}"
     logging: *json_logging
     restart: "no"
 
   sandbox-aio:
-    image: ${OPENAGENTS_SANDBOX_AIO_IMAGE:-${OPENAGENTS_IMAGE_REGISTRY:-docker.io}/${OPENAGENTS_IMAGE_REPOSITORY:-zhangxuan2/openagents}:sandbox-aio-${OPENAGENTS_IMAGE_TAG:-latest}}
+    image: ${OPENAGENTS_SANDBOX_AIO_IMAGE:-${OPENAGENTS_IMAGE_REGISTRY:-docker.io}/${OPENAGENTS_IMAGE_PREFIX:-zhangxuan2/openagents}-sandbox-aio:${OPENAGENTS_VERSION:-latest}}
     env_file: *openagents_env_file
     ports:
       - "${OPENAGENTS_SANDBOX_PORT:-18080}:8080"
@@ -134,7 +151,7 @@ services:
     restart: unless-stopped
 
   onlyoffice:
-    image: ${OPENAGENTS_ONLYOFFICE_IMAGE:-${OPENAGENTS_IMAGE_REGISTRY:-docker.io}/${OPENAGENTS_IMAGE_REPOSITORY:-zhangxuan2/openagents}:onlyoffice-${OPENAGENTS_IMAGE_TAG:-latest}}
+    image: ${OPENAGENTS_ONLYOFFICE_IMAGE:-${OPENAGENTS_IMAGE_REGISTRY:-docker.io}/${OPENAGENTS_IMAGE_PREFIX:-zhangxuan2/openagents}-onlyoffice:${OPENAGENTS_VERSION:-latest}}
     env_file: *openagents_env_file
     environment:
       JWT_ENABLED: "true"
@@ -149,31 +166,13 @@ services:
     logging: *json_logging
     restart: unless-stopped
 
-  openpencil:
-    image: ${OPENAGENTS_OPENPENCIL_IMAGE:-${OPENAGENTS_IMAGE_REGISTRY:-docker.io}/${OPENAGENTS_IMAGE_REPOSITORY:-zhangxuan2/openagents}:openpencil-${OPENAGENTS_IMAGE_TAG:-latest}}
-    environment:
-      NODE_ENV: production
-      NITRO_HOST: 0.0.0.0
-      NITRO_PORT: "3000"
-      OPENPENCIL_BASE_PATH: /openpencil
-    healthcheck:
-      test:
-        - CMD
-        - bun
-        - -e
-        - fetch('http://127.0.0.1:3000/openpencil/').then((response)=>process.exit(response.ok?0:1)).catch(()=>process.exit(1))
-      interval: 15s
-      timeout: 10s
-      retries: 12
-      start_period: 90s
-    logging: *json_logging
-    restart: unless-stopped
-
   langgraph:
-    image: ${OPENAGENTS_LANGGRAPH_IMAGE:-${OPENAGENTS_IMAGE_REGISTRY:-docker.io}/${OPENAGENTS_IMAGE_REPOSITORY:-zhangxuan2/openagents}:langgraph-${OPENAGENTS_IMAGE_TAG:-latest}}
+    image: ${OPENAGENTS_LANGGRAPH_IMAGE:-${OPENAGENTS_IMAGE_REGISTRY:-docker.io}/${OPENAGENTS_IMAGE_PREFIX:-zhangxuan2/openagents}-langgraph:${OPENAGENTS_VERSION:-latest}}
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       minio-init:
         condition: service_completed_successfully
       sandbox-aio:
@@ -197,8 +196,7 @@ services:
     volumes:
       - *openagents_home_mount
       - type: bind
-        # Keep deployment config external to the image so the same Docker Hub
-        # tag can run in different environments without rebuilding.
+        # Root runtime config is operator-owned; image tags carry code only.
         source: ${OPENAGENTS_CONFIG_FILE:-./config.yaml}
         target: /app/config.yaml
         read_only: true
@@ -212,11 +210,11 @@ services:
     restart: unless-stopped
 
   gateway:
-    image: ${OPENAGENTS_GATEWAY_IMAGE:-${OPENAGENTS_IMAGE_REGISTRY:-docker.io}/${OPENAGENTS_IMAGE_REPOSITORY:-zhangxuan2/openagents}:gateway-${OPENAGENTS_IMAGE_TAG:-latest}}
+    image: ${OPENAGENTS_GATEWAY_IMAGE:-${OPENAGENTS_IMAGE_REGISTRY:-docker.io}/${OPENAGENTS_IMAGE_PREFIX:-zhangxuan2/openagents}-gateway:${OPENAGENTS_VERSION:-latest}}
     depends_on:
       postgres:
         condition: service_healthy
-      minio-init:
+      migrate:
         condition: service_completed_successfully
       langgraph:
         condition: service_healthy
@@ -243,13 +241,12 @@ services:
     volumes:
       - *openagents_home_mount
       - type: bind
-        # Root config remains operator-owned; the image carries code only.
+        # Keep config files outside images so the same version can be promoted
+        # across environments without a rebuild.
         source: ${OPENAGENTS_CONFIG_FILE:-./config.yaml}
         target: /app/config.yaml
         read_only: true
       - type: bind
-        # Gateway routing/auth config is likewise external so deployments can
-        # tune upstreams and logging without producing a private image.
         source: ${OPENAGENTS_GATEWAY_CONFIG_FILE:-./gateway.yaml}
         target: /app/backend/gateway/gateway.yaml
         read_only: true
@@ -263,13 +260,11 @@ services:
     restart: unless-stopped
 
   nginx:
-    image: ${OPENAGENTS_NGINX_IMAGE:-${OPENAGENTS_IMAGE_REGISTRY:-docker.io}/${OPENAGENTS_IMAGE_REPOSITORY:-zhangxuan2/openagents}:nginx-${OPENAGENTS_IMAGE_TAG:-latest}}
+    image: ${OPENAGENTS_WEB_IMAGE:-${OPENAGENTS_IMAGE_REGISTRY:-docker.io}/${OPENAGENTS_IMAGE_PREFIX:-zhangxuan2/openagents}-web:${OPENAGENTS_VERSION:-latest}}
     depends_on:
       gateway:
         condition: service_healthy
       onlyoffice:
-        condition: service_healthy
-      openpencil:
         condition: service_healthy
     ports:
       - "${OPENAGENTS_APP_PORT:-8083}:80"

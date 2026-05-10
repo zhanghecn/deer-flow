@@ -234,19 +234,19 @@ For local development we now separate Docker lifecycle from Python runtime:
 
 Concrete host/container contract:
 
-- Compose host mount override: `OPENAGENTS_DOCKER_HOST_HOME` (default `../.openagents`)
+- Compose host mount override: `OPENAGENTS_DOCKER_HOST_HOME` (deploy default `./data/openagents`)
 - App-container runtime path: fixed `/openagents-home`
 - Shared sandbox mount inside `sandbox-aio`: `/openagents`
-- Fixed compose project name: `openagents-prod`
-- Shared app secrets file: repo `.env`
-- `gateway` and `langgraph` both mount the same root `.env` as `/app/.env`
-- Non-secret runtime config stays in `config.yaml` / `gateway.yaml`
+- Fixed production compose project name: `openagents`
+- Fixed production Docker network: external bridge `openagents`
+- Shared app secrets file: `deploy/.env`
+- Non-secret runtime config is copied into `deploy/config.yaml` / `deploy/gateway.yaml`
 - Compose injects the few container-only fixed URLs inline
-- The same compose file is used for local Docker runs and release-style verification
+- `deploy/docker-compose.yml` is the production surface; `docker/docker-compose.yaml` remains local development only
 - Browser-facing URLs such as `ONLYOFFICE_SERVER_URL` stay host-view because the browser, not the container, dereferences them
 
-This keeps `docker compose` usable directly from the `docker/` directory without
-requiring a pre-exported absolute `OPENAGENTS_HOME`.
+This keeps release operation centered on `deploy/` while preserving the runtime
+path contract inside app and sandbox containers.
 
 The fixed compose project name is operationally important. If different compose
 invocations create different project names, `gateway` and `langgraph` can land

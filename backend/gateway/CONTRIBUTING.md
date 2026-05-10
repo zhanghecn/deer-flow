@@ -24,9 +24,10 @@ createdb openagents
 export DATABASE_URI=postgresql://root:zhangxuan66@localhost:5432/openagents?sslmode=disable
 export JWT_SECRET=dev-secret-change-me
 
-# 4. 手工执行项目根目录 migrations/ 下的 SQL
-#    Gateway 不再内置自动迁移命令
-#    例如在仓库根目录执行：
+# 4. 执行项目根目录 migrations/ 下的 SQL
+#    Gateway 不内置迁移命令；Docker deploy 使用专用 migrate 服务：
+#    cd ../../deploy && docker compose run --rm migrate
+#    纯 host-run 调试可从仓库根目录直接执行：
 #    psql "$DATABASE_URI" -f migrations/001_init.up.sql
 #    psql "$DATABASE_URI" -f migrations/002_seed_data.up.sql
 
@@ -98,11 +99,11 @@ Handler → Service → Repository → Database
 ### 数据库迁移
 
 - 迁移文件放在项目根目录 `migrations/` 目录
-- 根基线固定为两份 SQL：`001_init.up.sql`（结构）和 `002_seed_data.up.sql`（数据）
-- 新的结构或数据变更应直接折叠回这两份基线文件，而不是继续追加根目录 stepwise SQL
+- 根基线是 `001_init.up.sql`（结构）和 `002_seed_data.up.sql`（数据）
+- 新的结构或数据变更追加 `NNN_name.up.sql`，不要修改已经执行过的 SQL
 - 每个迁移文件包裹在 `BEGIN; ... COMMIT;` 事务中
 - 使用 `IF NOT EXISTS` 保证幂等性
-- 不要通过 Gateway 服务或启动脚本自动执行这些 SQL
+- 不要通过 Gateway 服务执行这些 SQL；deploy `migrate` 服务负责启动前迁移
 
 ### 认证
 

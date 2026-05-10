@@ -21,10 +21,23 @@
 
 - External model gateway container used in recent Docker verification:
   `1Panel-new-api-6d1F`.
-- It has been attached as `model-gateway` for Docker-stack model calls.
+- Production deploy uses one fixed external Docker network named `openagents`.
+- Attach the existing New API container to that network as `model-gateway`; the
+  admin New API sync URL inside containers is `http://model-gateway:3000`.
 - Before assuming model calls work inside Docker, verify network attachment and
   DNS resolution from the LangGraph/container network.
-- Source: migrated from `.omx/project-memory.json` and `.omx/notepad.md`.
+- Source: migrated from `.omx/project-memory.json` / `.omx/notepad.md` and
+  updated by the deploy-first Docker refactor.
+
+## Production Deploy Surface
+
+- `deploy/docker-compose.yml` is the production compose contract.
+- `docker/docker-compose.yaml` is local development only; do not recreate a
+  second production template under `docker/`.
+- `deploy/.env` carries deployment variables and secrets. Root `.env` is for
+  local/dev workflows.
+- Versioned release images use names such as `openagents-gateway:1.2.3`; the
+  single operator-controlled tag is `OPENAGENTS_VERSION`.
 
 ## Historical Host-Run Dev Stack
 
@@ -32,7 +45,6 @@
   - `make dev` on `localhost:3000`
   - gateway `8001`
   - LangGraph `2024`
-  - OpenPencil `3001`
 - Treat this as historical context. When the task asks for current-code
   container verification, prefer the canonical Docker guidance in
   [memory/directives/testing-and-verification.md](/root/project/ai/deer-flow/memory/directives/testing-and-verification.md).

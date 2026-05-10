@@ -85,7 +85,7 @@ When the frontend or lead agent creates a new domain agent, slash commands shoul
 - Keep `/api/langgraph/*` policy minimal: pass payload through, inject authenticated identity, leave runtime resolution to Python.
 - Internal Gateway -> LangGraph and Gateway -> sandbox IDE hops are trusted service-to-service calls. They must bypass host `HTTP_PROXY` / `HTTPS_PROXY` so private bridge-network addresses are reached directly.
 - Do not keep legacy fallback execution paths in Gateway once Python owns a business flow. Gateway should proxy or reject, not silently fall back to older subprocess or duplicate-logic branches.
-- Gateway must not execute repository SQL migrations. Schema changes are reviewed and applied manually outside service startup.
+- Gateway must not execute repository SQL migrations. The deploy `migrate` service applies reviewed SQL before gateway/langgraph startup.
 - Preserve the archive-definition-to-runtime-materialization contract.
 - When extending agent-owned assets, add them under `agents/{status}/{name}/...`, copy them during create and publish, and rely on Python startup to seed them into the runtime view.
 - Public API execution should surface LangGraph run failures directly. Do not collapse a concrete runtime error into a vague “missing output” response when history/tasks already explain the failure.
