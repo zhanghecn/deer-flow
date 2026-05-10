@@ -1,0 +1,8 @@
+{
+  "en-US": {
+    "description": "Helps users integrate published OpenAgents agents through the native HTTP contract instead of a product-specific SDK. Use this whenever the task is about connecting a website, support chat, backend service, mobile app, automation script, or customer system to an OpenAgents agent with `/v1/turns`; designing the request and streaming flow; handling `previous_turn_id`; explaining supported features such as blocking calls, SSE, files, structured output, and artifacts; recommending production-safe integration patterns; or generating a small working project that demonstrates the HTTP integration end to end."
+  },
+  "zh-CN": {
+    "description": "帮助用户通过原生 HTTP 协议而不是产品私有 SDK，把已发布的 OpenAgents 智能体接入到网站、客服聊天、后端服务、移动端或客户系统中。凡是涉及 `/v1/turns` 接入、请求与流式事件设计、`previous_turn_id` 多轮会话、阻塞调用、SSE、文件、结构化输出、产物下载、生产集成建议，或需要生成一个可直接运行的 HTTP 接入示例项目，都应优先使用这个 skill。"
+  }
+}

@@ -228,6 +228,53 @@ async function handleAPIError(
   );
 }
 
+function normalizeDownloadFilename(value: string) {
+  const filename = value.trim().split(/[\\/]/).pop()?.trim() ?? "";
+  return filename || null;
+}
+
+function triggerBrowserDownload(blob: Blob, filename: string) {
+  const objectURL = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectURL;
+  anchor.download = filename;
+  anchor.rel = "noopener noreferrer";
+
+  // The temporary DOM attachment keeps downloads reliable in Safari while the
+  // object URL preserves the Authorization-bearing fetch boundary.
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectURL), 60_000);
+}
+
+export async function downloadPublicAPIArtifact(params: {
+  baseURL: string;
+  apiToken: string;
+  artifact: PublicAPITurnArtifact;
+  signal?: AbortSignal;
+}): Promise<void> {
+  const response = await publicAPIFetch(
+    params.baseURL,
+    params.apiToken,
+    params.artifact.download_url,
+    {
+      method: "GET",
+      signal: params.signal,
+    },
+  );
+  if (!response.ok) {
+    return handleAPIError(response, "download artifact");
+  }
+
+  const blob = await response.blob();
+  const filename =
+    normalizeDownloadFilename(params.artifact.filename) ||
+    params.artifact.id ||
+    "artifact";
+  triggerBrowserDownload(blob, filename);
+}
+
 export async function uploadPublicAPIFile(params: {
   baseURL: string;
   apiToken: string;

@@ -2,6 +2,7 @@ import {
   Archive,
   Bot,
   Check,
+  Download,
   FileText,
   History,
   Loader2,
@@ -30,6 +31,7 @@ import {
   type ToolCallStep,
 } from "../lib/chat-session";
 import {
+  downloadPublicAPIArtifact,
   listRecentPublicAPITurns,
   type PublicAPITurnArtifact,
   type PublicAPITurnHistoryItem,
@@ -719,6 +721,100 @@ function AttachmentList({
   );
 }
 
+function formatArtifactDetail(artifact: PublicAPITurnArtifact) {
+  const details = [
+    artifact.bytes == null ? "大小未知" : formatBytes(artifact.bytes),
+    artifact.mime_type?.trim() || "未知类型",
+    artifact.virtual_path?.trim(),
+  ].filter(Boolean);
+  return details.join(" · ");
+}
+
+function GeneratedArtifactList({
+  artifacts,
+  apiToken,
+  baseURL,
+}: {
+  artifacts: PublicAPITurnArtifact[];
+  apiToken: string;
+  baseURL: string;
+}) {
+  const [downloadingArtifactId, setDownloadingArtifactId] = useState("");
+
+  if (artifacts.length === 0) {
+    return null;
+  }
+
+  async function handleDownload(artifact: PublicAPITurnArtifact) {
+    if (!apiToken || downloadingArtifactId) {
+      return;
+    }
+
+    setDownloadingArtifactId(artifact.id);
+    try {
+      await downloadPublicAPIArtifact({
+        baseURL,
+        apiToken,
+        artifact,
+      });
+    } catch (downloadError) {
+      toast.error(getErrorMessage(downloadError));
+    } finally {
+      setDownloadingArtifactId("");
+    }
+  }
+
+  return (
+    <div
+      className="mt-3 border-t border-stone-100 pt-3"
+      data-testid="generated-artifact-list"
+    >
+      <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-stone-700">
+        <FileText className="size-3.5 shrink-0 text-stone-400" />
+        <span>生成文件</span>
+      </div>
+      <ul className="space-y-2">
+        {artifacts.map((artifact) => {
+          const isDownloading = downloadingArtifactId === artifact.id;
+          return (
+            <li
+              key={artifact.id}
+              className="flex min-w-0 items-center gap-3 border-t border-stone-100 pt-2 first:border-t-0 first:pt-0"
+            >
+              <FileText className="size-4 shrink-0 text-stone-400" />
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-medium text-stone-800">
+                  {artifact.filename}
+                </div>
+                <div
+                  className="mt-0.5 truncate text-xs text-stone-500"
+                  title={formatArtifactDetail(artifact)}
+                >
+                  {formatArtifactDetail(artifact)}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleDownload(artifact)}
+                disabled={!apiToken || Boolean(downloadingArtifactId)}
+                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-stone-200 px-2.5 text-xs font-medium text-stone-600 transition-colors hover:bg-stone-50 hover:text-stone-900 disabled:cursor-not-allowed disabled:opacity-45"
+                title={apiToken ? "下载文件" : "请先配置 API Key"}
+              >
+                {isDownloading ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <Download className="size-3.5" />
+                )}
+                下载
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 function formatToolArguments(argumentsValue: Record<string, unknown>) {
   if (Object.keys(argumentsValue).length === 0) return "{}";
 
@@ -741,7 +837,7 @@ function ToolActivityCard({
   traceDisplayMode: ChatTraceDisplayMode;
 }) {
   if (traceDisplayMode === "user") {
-    return <UserToolActivityCard tool={tool} />;
+    return <UserToolActivityGroupCard tools={[tool]} />;
   }
 
   return <DebugToolActivityCard tool={tool} index={index} />;
@@ -773,6 +869,7 @@ function DebugToolActivityCard({
     <details
       open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
+      data-testid="debug-tool-activity-card"
       className="mb-2 w-full min-w-0 rounded-lg border border-stone-200 bg-white/80 text-left"
     >
       <summary className="flex min-w-0 cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs font-medium text-stone-600 [&::-webkit-details-marker]:hidden">
@@ -800,14 +897,44 @@ function DebugToolActivityCard({
   );
 }
 
-function UserToolActivityCard({ tool }: { tool: ToolCallStep }) {
+function getUserToolActivityGroupState(tools: ToolCallStep[]) {
+  if (tools.some((tool) => tool.status === "running")) {
+    return "running";
+  }
+  if (tools.some((tool) => tool.status === "error")) {
+    return "error";
+  }
+  return "done";
+}
+
+function UserToolActivityGroupCard({ tools }: { tools: ToolCallStep[] }) {
+  if (tools.length === 0) {
+    return null;
+  }
+
+  const state = getUserToolActivityGroupState(tools);
+  const label =
+    state === "running"
+      ? "正在查找资料"
+      : state === "error"
+        ? "资料查询遇到问题"
+        : "已查找资料";
+
   return (
-    <div className="mb-2 flex w-full min-w-0 items-center gap-2 rounded-lg border border-stone-200 bg-white/80 px-3 py-2 text-left text-xs font-medium text-stone-600">
+    <div
+      className="mb-2 flex w-full min-w-0 items-center gap-2 rounded-lg border border-stone-200 bg-white/80 px-3 py-2 text-left text-xs font-medium text-stone-600"
+      data-testid="user-tool-activity-group"
+    >
       <FileText className="size-3.5 shrink-0 text-stone-400" />
-      <span className="min-w-0 flex-1 truncate">查找资料</span>
-      {tool.status === "running" ? (
+      <span className="min-w-0 flex-1 truncate">
+        {label}
+        {tools.length > 1 ? (
+          <span className="ml-1 text-stone-400">· {tools.length} 项</span>
+        ) : null}
+      </span>
+      {state === "running" ? (
         <Loader2 className="size-3.5 shrink-0 animate-spin text-teal-600" />
-      ) : tool.status === "error" ? (
+      ) : state === "error" ? (
         <X className="size-3.5 shrink-0 text-red-500" />
       ) : (
         <Check className="size-3.5 shrink-0 text-teal-600" />
@@ -855,6 +982,51 @@ function ContextCompactCard({
   );
 }
 
+type UserActivityTimelineItem =
+  | Exclude<ChatActivityStep, { kind: "tool" }>
+  | {
+      kind: "tool-group";
+      id: string;
+      tools: ToolCallStep[];
+    };
+
+function createUserActivityTimeline(
+  activities: ChatActivityStep[],
+): UserActivityTimelineItem[] {
+  const timeline: UserActivityTimelineItem[] = [];
+  let pendingTools: ToolCallStep[] = [];
+  let pendingGroupId = "";
+
+  const flushToolGroup = () => {
+    if (pendingTools.length === 0) {
+      return;
+    }
+    timeline.push({
+      kind: "tool-group",
+      id: `tool-group-${pendingGroupId}`,
+      tools: pendingTools,
+    });
+    pendingTools = [];
+    pendingGroupId = "";
+  };
+
+  for (const activity of activities) {
+    if (activity.kind === "tool") {
+      // User mode intentionally compresses only adjacent tool rows; reasoning
+      // and compaction events below flush the group so timeline order remains clear.
+      pendingGroupId ||= activity.id;
+      pendingTools.push(activity.tool);
+      continue;
+    }
+
+    flushToolGroup();
+    timeline.push(activity);
+  }
+
+  flushToolGroup();
+  return timeline;
+}
+
 function ActivityTimeline({
   activities,
   isStreaming,
@@ -867,6 +1039,39 @@ function ActivityTimeline({
   if (activities.length === 0) return null;
 
   let toolIndex = 0;
+  if (traceDisplayMode === "user") {
+    const timeline = createUserActivityTimeline(activities);
+    return (
+      <div className="mb-1.5 w-full min-w-0">
+        {timeline.map((activity, index) => {
+          if (activity.kind === "reasoning") {
+            return (
+              <ReasoningCard
+                key={activity.id}
+                reasoning={activity.text}
+                isStreaming={
+                  isStreaming &&
+                  index === timeline.length - 1 &&
+                  activity.status === "running"
+                }
+              />
+            );
+          }
+
+          if (activity.kind === "compact") {
+            return <ContextCompactCard key={activity.id} activity={activity} />;
+          }
+
+          return (
+            <UserToolActivityGroupCard
+              key={activity.id}
+              tools={activity.tools}
+            />
+          );
+        })}
+      </div>
+    );
+  }
 
   return (
     <div className="mb-1.5 w-full min-w-0">
@@ -1919,14 +2124,18 @@ export function ChatPage() {
                       msg.toolCalls &&
                       msg.toolCalls.length > 0 && (
                         <div className="mb-1.5 w-full min-w-0">
-                          {msg.toolCalls.map((tool, index) => (
-                            <ToolActivityCard
-                              key={tool.id}
-                              tool={tool}
-                              index={index + 1}
-                              traceDisplayMode={traceDisplayMode}
-                            />
-                          ))}
+                          {traceDisplayMode === "user" ? (
+                            <UserToolActivityGroupCard tools={msg.toolCalls} />
+                          ) : (
+                            msg.toolCalls.map((tool, index) => (
+                              <ToolActivityCard
+                                key={tool.id}
+                                tool={tool}
+                                index={index + 1}
+                                traceDisplayMode={traceDisplayMode}
+                              />
+                            ))
+                          )}
                         </div>
                       )
                     )}
@@ -1958,6 +2167,11 @@ export function ChatPage() {
                             content={msg.content}
                             isStreaming={msg.status === "streaming"}
                             artifacts={msg.artifacts}
+                            apiToken={apiKeyInput.trim()}
+                            baseURL={resolvedBaseURL}
+                          />
+                          <GeneratedArtifactList
+                            artifacts={msg.artifacts ?? []}
                             apiToken={apiKeyInput.trim()}
                             baseURL={resolvedBaseURL}
                           />
