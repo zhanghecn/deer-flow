@@ -572,7 +572,7 @@ help() {
     echo "  init            - Pull the sandbox image"
     echo "  infra-start     - Start only sandbox-aio + ONLYOFFICE"
     echo "  infra-stop      - Stop only sandbox-aio + ONLYOFFICE"
-    echo "  docker workflow - See docs/guides/docker-compose-prod-selfhost-zh.md"
+    echo "  docker workflow - See OPERATIONS.md"
     echo ""
 }
 

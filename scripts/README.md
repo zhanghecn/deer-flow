@@ -11,9 +11,9 @@ Generated files such as `__pycache__/` do not belong here.
 - `docker-release.sh` - builds, pushes, pulls, and deploys versioned release images.
 - `cleanup-containers.sh` - removes sandbox containers left by local runtime tests.
 
-Current Docker development and release workflow:
+Current deploy, release, testing, and operations workflow:
 
-- `../docs/guides/docker-compose-prod-selfhost-zh.md`
+- `../OPERATIONS.md`
 
 ## Demo Helpers
 

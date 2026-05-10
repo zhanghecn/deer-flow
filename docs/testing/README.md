@@ -3,6 +3,10 @@
 This directory is the repository-level index for manual, browser, and
 audit-oriented testing.
 
+For the normal operator checklist, including production Docker verification,
+start from [Operations](../../OPERATIONS.md). This file keeps specialist test
+expectations and pitfalls.
+
 Use it when:
 
 - knowledge-base flow changes
