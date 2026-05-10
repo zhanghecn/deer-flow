@@ -236,6 +236,57 @@ func (h *AgentHandler) Publish(c *gin.Context) {
 	c.JSON(http.StatusOK, h.decorateAgentAccess(c, agent))
 }
 
+func (h *AgentHandler) ExportPackage(c *gin.Context) {
+	name := c.Param("name")
+	status := c.DefaultQuery("status", "dev")
+	agent, err := agentfs.LoadAgent(h.fs, name, status, false)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
+		return
+	}
+	if agent == nil {
+		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "agent not found"})
+		return
+	}
+	if !canManageAgent(c, agent) {
+		writeManageAgentForbidden(c)
+		return
+	}
+
+	pkg, err := h.svc.ExportPackage(c.Request.Context(), name, status)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
+		return
+	}
+	filename := fmt.Sprintf("%s-%s.openagents-agent.json", pkg.Agent.Name, pkg.Agent.Status)
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	c.JSON(http.StatusOK, pkg)
+}
+
+func (h *AgentHandler) ImportPackage(c *gin.Context) {
+	var pkg model.AgentPackage
+	if err := c.ShouldBindJSON(&pkg); err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	agent, err := h.svc.ImportPackage(c.Request.Context(), pkg, service.ImportAgentPackageOptions{
+		TargetName: c.Query("target_name"),
+		Status:     c.Query("status"),
+		Overwrite:  strings.EqualFold(c.Query("overwrite"), "true"),
+		UserID:     middleware.GetUserID(c),
+	})
+	if err != nil {
+		statusCode := http.StatusBadRequest
+		if strings.Contains(err.Error(), "already exists") {
+			statusCode = http.StatusConflict
+		}
+		c.JSON(statusCode, model.ErrorResponse{Error: err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, h.decorateAgentAccess(c, agent))
+}
+
 func (h *AgentHandler) CheckName(c *gin.Context) {
 	name := c.Query("name")
 	if name == "" {

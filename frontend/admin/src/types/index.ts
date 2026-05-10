@@ -326,6 +326,9 @@ export interface Agent {
   tool_groups?: string[];
   mcp_servers?: string[];
   status: AgentStatus;
+  owner_user_id?: string;
+  owner_name?: string;
+  can_manage?: boolean;
   memory?: AgentMemoryConfig | null;
   agents_md: string;
   skills?: Array<{
@@ -335,4 +338,19 @@ export interface Agent {
     source_path?: string;
     materialized_path?: string;
   }>;
+}
+
+export interface AgentPackageFile {
+  path: string;
+  content_base64: string;
+  size_bytes: number;
+  sha256?: string;
+}
+
+export interface AgentPackage {
+  schema_version: number;
+  kind: string;
+  exported_at: string;
+  agent: Agent;
+  files: AgentPackageFile[];
 }

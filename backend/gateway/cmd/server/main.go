@@ -241,10 +241,12 @@ func main() {
 		api.GET("/tools/catalog", agentH.ListToolCatalog)
 		api.GET("/agents/check", agentH.CheckName)
 		api.POST("/agents", agentH.Create)
+		api.POST("/agents/import", agentH.ImportPackage)
 		api.GET("/agents/:name", agentH.Get)
 		api.PUT("/agents/:name", agentH.Update)
 		api.DELETE("/agents/:name", agentH.Delete)
 		api.POST("/agents/:name/publish", agentH.Publish)
+		api.GET("/agents/:name/package", agentH.ExportPackage)
 		api.GET("/agents/:name/export", agentH.Export)
 
 		// Skills

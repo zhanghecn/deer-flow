@@ -287,6 +287,102 @@ func TestAgentServiceCreatePersistsOwnerUserID(t *testing.T) {
 	}
 }
 
+func TestAgentServiceExportImportPackagePreservesCopiedSkills(t *testing.T) {
+	t.Parallel()
+
+	sourceBaseDir := filepath.Join(t.TempDir(), ".openagents")
+	sourceSkillDir := filepath.Join(sourceBaseDir, "skills", "store", "dev", "bootstrap")
+	if err := os.MkdirAll(sourceSkillDir, 0o755); err != nil {
+		t.Fatalf("mkdir source skill dir: %v", err)
+	}
+	skillMD := "---\nname: bootstrap\ndescription: portable bootstrap\n---\n\n# portable"
+	if err := os.WriteFile(filepath.Join(sourceSkillDir, "SKILL.md"), []byte(skillMD), 0o644); err != nil {
+		t.Fatalf("write source skill: %v", err)
+	}
+
+	sourceSvc := NewAgentService(storage.NewFS(sourceBaseDir))
+	if _, err := sourceSvc.Create(context.Background(), model.CreateAgentRequest{
+		Name:        "contract-review",
+		Description: "Review contracts",
+		Skills:      []string{"bootstrap"},
+		AgentsMD:    "# Contract Review",
+	}, uuid.New()); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	pkg, err := sourceSvc.ExportPackage(context.Background(), "contract-review", "dev")
+	if err != nil {
+		t.Fatalf("ExportPackage() error = %v", err)
+	}
+
+	targetBaseDir := filepath.Join(t.TempDir(), ".openagents")
+	targetSvc := NewAgentService(storage.NewFS(targetBaseDir))
+	targetOwnerID := uuid.New()
+	imported, err := targetSvc.ImportPackage(context.Background(), *pkg, ImportAgentPackageOptions{
+		TargetName: "imported-review",
+		UserID:     targetOwnerID,
+	})
+	if err != nil {
+		t.Fatalf("ImportPackage() error = %v", err)
+	}
+
+	if imported.Name != "imported-review" {
+		t.Fatalf("imported.Name = %q, want imported-review", imported.Name)
+	}
+	if imported.OwnerUserID != targetOwnerID.String() {
+		t.Fatalf("imported.OwnerUserID = %q, want %q", imported.OwnerUserID, targetOwnerID.String())
+	}
+	if len(imported.Skills) != 1 {
+		t.Fatalf("len(imported.Skills) = %d, want 1", len(imported.Skills))
+	}
+	if imported.Skills[0].SourcePath != "" || imported.Skills[0].Category != "" {
+		t.Fatalf("imported skill = %#v, want agent-owned copied skill ref", imported.Skills[0])
+	}
+
+	copiedSkill := filepath.Join(targetBaseDir, "custom", "agents", "dev", "imported-review", "skills", "bootstrap", "SKILL.md")
+	copiedBytes, err := os.ReadFile(copiedSkill)
+	if err != nil {
+		t.Fatalf("read copied skill: %v", err)
+	}
+	if !strings.Contains(string(copiedBytes), "# portable") {
+		t.Fatalf("copied skill content = %q, want package bytes", string(copiedBytes))
+	}
+
+	description := "Updated after import"
+	updated, err := targetSvc.Update(context.Background(), "imported-review", "dev", model.UpdateAgentRequest{
+		Description: &description,
+	})
+	if err != nil {
+		t.Fatalf("Update(imported) error = %v", err)
+	}
+	if updated.Description != description {
+		t.Fatalf("updated.Description = %q, want %q", updated.Description, description)
+	}
+}
+
+func TestAgentServiceImportPackageRejectsTraversalFilePath(t *testing.T) {
+	t.Parallel()
+
+	svc := NewAgentService(storage.NewFS(filepath.Join(t.TempDir(), ".openagents")))
+	_, err := svc.ImportPackage(context.Background(), model.AgentPackage{
+		SchemaVersion: agentPackageSchemaVersion,
+		Kind:          agentPackageKind,
+		Agent: model.Agent{
+			Name:   "evil",
+			Status: "dev",
+		},
+		Files: []model.AgentPackageFile{
+			{
+				Path:          "../config.yaml",
+				ContentBase64: "e30=",
+			},
+		},
+	}, ImportAgentPackageOptions{UserID: uuid.New()})
+	if err == nil || !strings.Contains(err.Error(), "stay inside the agent archive") {
+		t.Fatalf("ImportPackage() error = %v, want traversal rejection", err)
+	}
+}
+
 func TestAgentServicePersistsKnowledgeBaseIDs(t *testing.T) {
 	t.Parallel()
 

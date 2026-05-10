@@ -68,6 +68,21 @@ type UpdateAgentRequest struct {
 	AgentsMD           *string                  `json:"agents_md"`
 }
 
+type AgentPackageFile struct {
+	Path          string `json:"path"`
+	ContentBase64 string `json:"content_base64"`
+	SizeBytes     int64  `json:"size_bytes"`
+	SHA256        string `json:"sha256,omitempty"`
+}
+
+type AgentPackage struct {
+	SchemaVersion int                `json:"schema_version"`
+	Kind          string             `json:"kind"`
+	ExportedAt    time.Time          `json:"exported_at"`
+	Agent         Agent              `json:"agent"`
+	Files         []AgentPackageFile `json:"files"`
+}
+
 type SkillRef struct {
 	ID               uuid.UUID `json:"id" yaml:"-"`
 	Name             string    `json:"name" yaml:"name"`

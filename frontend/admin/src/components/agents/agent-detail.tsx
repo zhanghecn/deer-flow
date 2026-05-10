@@ -1,4 +1,11 @@
-import { CopyIcon, ExternalLinkIcon, Loader2, RocketIcon, SaveIcon } from "lucide-react";
+import {
+  CopyIcon,
+  DownloadIcon,
+  ExternalLinkIcon,
+  Loader2,
+  RocketIcon,
+  SaveIcon,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -29,6 +36,7 @@ interface AgentDetailProps {
   availableStatuses: AgentStatus[];
   onOpenChange: (open: boolean) => void;
   onSaved?: () => void;
+  onExportPackage?: (agent: Agent) => void;
 }
 
 type AgentFormState = {
@@ -114,6 +122,7 @@ export function AgentDetail({
   availableStatuses,
   onOpenChange,
   onSaved,
+  onExportPackage,
 }: AgentDetailProps) {
   const [detail, setDetail] = useState<Agent | null>(null);
   const [form, setForm] = useState<AgentFormState | null>(null);
@@ -191,7 +200,7 @@ export function AgentDetail({
           model: form.model.trim() ? form.model.trim() : null,
           tool_groups: parseCSV(form.toolGroups),
           mcp_servers: parseCSV(form.mcpServers),
-          skills: detail.skills?.map((skill) => skill.name) ?? [],
+          skill_refs: detail.skills ?? [],
           agents_md: form.agentsMD,
           memory: {
             enabled: form.memoryEnabled,
@@ -503,6 +512,16 @@ export function AgentDetail({
         </ScrollArea>
 
         <DialogFooter className="gap-2">
+          {detail && onExportPackage && (
+            <Button
+              variant="outline"
+              onClick={() => onExportPackage(detail)}
+              disabled={isLoading}
+            >
+              <DownloadIcon className="h-4 w-4" />
+              {t("Export package")}
+            </Button>
+          )}
           {detail?.status === "dev" && (
             <Button
               variant="outline"

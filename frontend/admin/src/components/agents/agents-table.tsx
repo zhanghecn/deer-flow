@@ -1,4 +1,4 @@
-import { Bot, Eye, Rocket } from "lucide-react";
+import { Bot, DownloadIcon, Eye, Loader2, Rocket } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -17,20 +17,25 @@ import {
   type AgentRecord,
 } from "@/lib/agents";
 import { api } from "@/lib/api";
+import type { Agent } from "@/types";
 import { toast } from "sonner";
 
 interface AgentsTableProps {
   agents: AgentRecord[] | null;
   isLoading: boolean;
+  exportingKey: string | null;
   onRefetch: () => void;
   onViewDetail: (agent: AgentRecord) => void;
+  onExportPackage: (agent: Agent) => void;
 }
 
 export function AgentsTable({
   agents,
   isLoading,
+  exportingKey,
   onRefetch,
   onViewDetail,
+  onExportPackage,
 }: AgentsTableProps) {
   async function handlePublish(agent: AgentRecord) {
     if (!agent.draft) {
@@ -76,12 +81,18 @@ export function AgentsTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {agents.map((agent) => (
-            <TableRow
-              key={agent.name}
-              className="cursor-pointer"
-              onClick={() => onViewDetail(agent)}
-            >
+          {agents.map((agent) => {
+            const primaryAgent = getPrimaryAgent(agent);
+            const primaryKey = primaryAgent
+              ? `${primaryAgent.name}:${primaryAgent.status}`
+              : null;
+
+            return (
+              <TableRow
+                key={agent.name}
+                className="cursor-pointer"
+                onClick={() => onViewDetail(agent)}
+              >
               <TableCell className="align-top">
                 <div className="space-y-1">
                   <button
@@ -113,6 +124,24 @@ export function AgentsTable({
               </TableCell>
               <TableCell className="text-right">
                 <div className="flex items-center justify-end gap-1">
+                  {primaryAgent && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={exportingKey === primaryKey}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onExportPackage(primaryAgent);
+                      }}
+                    >
+                      {exportingKey === primaryKey ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <DownloadIcon className="h-4 w-4" />
+                      )}
+                      {t("Export package")}
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     size="sm"
@@ -139,8 +168,9 @@ export function AgentsTable({
                   )}
                 </div>
               </TableCell>
-            </TableRow>
-          ))}
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
     </div>

@@ -128,6 +128,26 @@ func TestAgentHandlerPublishRejectsNonOwner(t *testing.T) {
 	}
 }
 
+func TestAgentHandlerExportPackageRejectsNonOwner(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	fsStore := storage.NewFS(t.TempDir())
+	ownerUserID := uuid.New()
+	viewerUserID := uuid.New()
+	seedOwnedAgentArchive(t, fsStore, "reviewer", "dev", ownerUserID.String())
+
+	handler := NewAgentHandler(service.NewAgentService(fsStore), fsStore, nil)
+	context, recorder := newAuthedAgentContext(http.MethodGet, "/api/agents/reviewer/package?status=dev", viewerUserID, "user")
+	context.Params = gin.Params{{Key: "name", Value: "reviewer"}}
+
+	handler.ExportPackage(context)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected status 403, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestAgentHandlerGetMarksLegacyOwnerlessAgentReadOnly(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
