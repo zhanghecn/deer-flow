@@ -130,11 +130,16 @@ validate_release_scope() {
 }
 
 git_release_version() {
-    local tag
+    local head last_tag tag
 
     tag="$(git -C "$PROJECT_ROOT" describe --tags --exact-match 2>/dev/null || true)"
     if [ -z "$tag" ]; then
-        fail "Current commit has no release tag. Create one first: git tag v1.2.3 && git push origin v1.2.3"
+        head="$(git -C "$PROJECT_ROOT" rev-parse --short=12 HEAD 2>/dev/null || true)"
+        last_tag="$(git -C "$PROJECT_ROOT" describe --tags --abbrev=0 2>/dev/null || true)"
+        if [ -n "$last_tag" ]; then
+            fail "Current commit ${head:-unknown} has no exact release tag. Latest reachable tag is ${last_tag}, but older tags do not release new commits. Create a new tag on HEAD first: git tag v1.2.3"
+        fi
+        fail "Current commit ${head:-unknown} has no exact release tag. Create one on HEAD first: git tag v1.2.3"
     fi
     if [[ "$tag" != v* ]]; then
         fail "Release tag must start with v, got $tag"

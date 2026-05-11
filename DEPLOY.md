@@ -100,6 +100,14 @@ git tag v1.2.3
 ./scripts/docker-release.sh push --scope all
 ```
 
+注意：tag 必须精确打在当前要发布的 commit 上。`git ls-remote --tags origin`
+只能说明远程仓库有某个 tag；如果这个 tag 指向旧 commit，当前新代码仍然不能发布。
+检查当前 commit 上有没有 tag：
+
+```bash
+git tag --points-at HEAD
+```
+
 镜像会发布 `1.2.3` 并同时刷新 `latest`。用户不需要在命令里手写或记忆镜像版本号；
 服务器更新仍然使用：
 
