@@ -19,7 +19,9 @@ MODEL_GATEWAY_CONTAINER="${MODEL_GATEWAY_CONTAINER:-}"
 MODEL_GATEWAY_ALIAS="${MODEL_GATEWAY_ALIAS:-model-gateway}"
 AUTO_ATTACH_MODEL_GATEWAY="${OPENAGENTS_AUTO_ATTACH_MODEL_GATEWAY:-1}"
 PULL_IMAGES="${OPENAGENTS_PULL_IMAGES:-1}"
+PULL_INFRA_IMAGES="${OPENAGENTS_PULL_INFRA_IMAGES:-0}"
 BUILD_MISSING_IMAGES="${OPENAGENTS_BUILD_MISSING_IMAGES:-1}"
+OPENAGENTS_RUNTIME_SERVICES=(nginx gateway langgraph sandbox-aio onlyoffice)
 
 info() { echo -e "${BLUE}[INFO]${NC} $*"; }
 success() { echo -e "${GREEN}[OK]${NC} $*"; }
@@ -48,6 +50,9 @@ Prepares and starts the self-contained production deploy directory:
 The default behavior starts the production stack. Use --prepare-only when a
 release script only needs to refresh generated deploy assets.
 Set OPENAGENTS_PULL_IMAGES=0 to skip pulling images before startup.
+By default, image pulls are limited to OpenAgents runtime services so Postgres
+and MinIO are not upgraded/recreated during normal app updates. Set
+OPENAGENTS_PULL_INFRA_IMAGES=1 to pull every compose image, including infra.
 Set OPENAGENTS_BUILD_MISSING_IMAGES=0 to require registry images and fail when
 the OpenAgents release images are not already available locally.
 
@@ -193,6 +198,20 @@ directory_has_files() {
 
 compose() {
     (cd "$DEPLOY_DIR" && docker compose -f docker-compose.yml "$@")
+}
+
+pull_configured_images() {
+    if [ "$PULL_INFRA_IMAGES" = "1" ]; then
+        warn "Pulling all compose images, including Postgres and MinIO. This may recreate infra containers if their tags changed."
+        compose pull || warn "Image pull failed; continuing with local images."
+        return
+    fi
+
+    # Normal production updates should refresh OpenAgents code images without
+    # proactively moving stateful infrastructure tags such as postgres/minio.
+    # Missing infra images on a first install are still pulled by compose up.
+    info "Pulling OpenAgents runtime images only; infra image upgrades are skipped by default."
+    compose pull "${OPENAGENTS_RUNTIME_SERVICES[@]}" || warn "OpenAgents image pull failed; continuing with local images."
 }
 
 release_image_prefix() {
@@ -404,9 +423,10 @@ main() {
         info "Starting production stack from deploy/docker-compose.yml"
         info "This run will pull configured images, apply reviewed SQL migrations, and restart services."
         if [ "$PULL_IMAGES" != "0" ]; then
-            # Self-hosted installs and upgrades should converge with one command.
+            # Self-hosted installs and upgrades should converge with one command,
+            # while stateful infra images stay stable unless explicitly requested.
             # Operators using unpublished local images can set OPENAGENTS_PULL_IMAGES=0.
-            compose pull || warn "Image pull failed; continuing with local images."
+            pull_configured_images
         fi
         ensure_release_images_available
         compose up -d

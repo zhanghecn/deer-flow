@@ -46,6 +46,15 @@ New API 同步地址: http://model-gateway:3000
 这和首次安装是同一条命令：已有 `deploy/.env` 时会保留生产密钥，只刷新部署资产、
 拉取配置中的镜像、执行新增 SQL，并重启服务。
 
+普通更新默认只主动拉取 OpenAgents 运行镜像，不主动升级 Postgres/MinIO 这类有状态
+基础服务镜像。首次安装缺镜像时 compose 仍会自动拉取。需要显式升级基础服务镜像时再运行：
+
+```bash
+OPENAGENTS_PULL_INFRA_IMAGES=1 ./scripts/docker-deploy.sh
+```
+
+当前生产 compose 不包含 Redis。
+
 如果服务器是源码部署，先更新源码再部署：
 
 ```bash
