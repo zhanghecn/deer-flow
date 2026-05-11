@@ -36,11 +36,11 @@
   second production template under `docker/`.
 - `deploy/.env` carries deployment variables and secrets. Root `.env` is for
   local/dev workflows.
-- Release pushes use service-specific image names, derive an immutable tag from
-  the current git tag or commit, and also refresh `latest`. The GitHub workflow
-  publishes DockerHub when credentials are configured and always publishes GHCR.
-  Deploy/update commands default to `latest` so operators do not have to
-  remember a version string.
+- Release pushes use service-specific image names and require the current commit
+  to have an exact `v*` git tag; no-tag commits must fail before build/push.
+  The GitHub workflow publishes DockerHub when credentials are configured and
+  always publishes GHCR. Deploy/update commands default to `latest` so operators
+  do not have to remember a version string.
 - The initial SQL baseline is intentionally two files: `001_init.up.sql`
   for schema and `002_data.up.sql` for deterministic seed/repair data. Keep
   deploy docs user-facing; keep local registry and dirty-worktree test details

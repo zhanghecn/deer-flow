@@ -92,9 +92,16 @@ app       发布 web + gateway + langgraph
 all       发布全栈镜像，包括 sandbox 和 ONLYOFFICE
 ```
 
-本机手动 `push` 时，版本号由脚本从当前 git tag 自动生成；如果当前 commit
-没有 tag，则生成 `git-<shortsha>` 作为临时镜像 tag，并同时刷新 `latest`。
-用户不需要手写或记忆版本号；服务器更新仍然使用：
+本机手动 `push` 时，版本号由脚本从当前 `v*` git tag 自动生成。当前 commit
+没有 tag 会直接报错；先创建版本 tag 再发镜像：
+
+```bash
+git tag v1.2.3
+./scripts/docker-release.sh push --scope all
+```
+
+镜像会发布 `1.2.3` 并同时刷新 `latest`。用户不需要在命令里手写或记忆镜像版本号；
+服务器更新仍然使用：
 
 ```bash
 ./scripts/docker-deploy.sh

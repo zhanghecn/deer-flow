@@ -44,9 +44,9 @@ Options:
   -h, --help             Show this help.
 
 Versioning:
-  push derives the immutable image tag from the current git tag. If the commit
-  is not tagged, it uses git-<shortsha>. In both cases push also refreshes
-  latest so deploy updates stay one-command.
+  push requires the current commit to have an exact v* git tag. The script turns
+  v1.2.3 into image tag 1.2.3 and also refreshes latest so deploy updates stay
+  one-command.
 
 Examples:
   scripts/docker-release.sh push --scope all
@@ -130,21 +130,19 @@ validate_release_scope() {
 }
 
 git_release_version() {
-    local tag sha
+    local tag
 
     tag="$(git -C "$PROJECT_ROOT" describe --tags --exact-match 2>/dev/null || true)"
-    if [ -n "$tag" ]; then
-        printf '%s\n' "${tag#v}"
-        return
+    if [ -z "$tag" ]; then
+        fail "Current commit has no release tag. Create one first: git tag v1.2.3 && git push origin v1.2.3"
+    fi
+    if [[ "$tag" != v* ]]; then
+        fail "Release tag must start with v, got $tag"
     fi
 
-    sha="$(git -C "$PROJECT_ROOT" rev-parse --short=12 HEAD 2>/dev/null || true)"
-    if [ -n "$sha" ]; then
-        printf 'git-%s\n' "$sha"
-        return
-    fi
-
-    printf '%s\n' "$DEFAULT_VERSION"
+    # Release pushes are intentionally tag-gated so unpublished commits cannot
+    # silently become mutable production images.
+    printf '%s\n' "${tag#v}"
 }
 
 default_release_version() {
