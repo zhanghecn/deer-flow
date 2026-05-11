@@ -336,10 +336,22 @@ func TestInferNewAPIImportProviderUsesEndpointTypes(t *testing.T) {
 			want:          newAPIProviderAnthropic,
 		},
 		{
+			name:          "deepseek model with anthropic endpoint",
+			modelID:       "deepseek-v4-pro",
+			endpointTypes: []string{"anthropic", "openai"},
+			want:          newAPIProviderAnthropic,
+		},
+		{
 			name:          "deepseek model with openai endpoint",
 			modelID:       "deepseek-v4-pro",
 			endpointTypes: []string{"openai"},
-			want:          newAPIProviderDeepSeek,
+			want:          newAPIProviderOpenAI,
+		},
+		{
+			name:    "deepseek model without endpoint metadata",
+			modelID: "deepseek-v4-pro",
+			owner:   "deepseek",
+			want:    newAPIProviderOpenAI,
 		},
 		{
 			name:    "unknown compatible model",
@@ -356,6 +368,28 @@ func TestInferNewAPIImportProviderUsesEndpointTypes(t *testing.T) {
 				t.Fatalf("inferNewAPIImportProvider(%q, %q, %#v) = %q, want %q", tt.modelID, tt.owner, tt.endpointTypes, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestNormalizeNewAPIModelCandidatesEndpointTypesOverrideSubmittedProvider(t *testing.T) {
+	t.Parallel()
+
+	items, err := normalizeNewAPIModelCandidates([]adminNewAPIModelCandidate{
+		{
+			ID:            "deepseek-v4-pro",
+			Owner:         "deepseek",
+			Provider:      newAPIProviderDeepSeek,
+			EndpointTypes: []string{"anthropic", "openai"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("normalize candidates: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected one normalized candidate, got %#v", items)
+	}
+	if items[0].Provider != newAPIProviderAnthropic {
+		t.Fatalf("expected endpoint metadata to override stale provider, got %#v", items[0])
 	}
 }
 
@@ -388,8 +422,50 @@ func TestParseNewAPIModelCandidatesSupportsAdminModelEnvelope(t *testing.T) {
 	if items[1].ID != "kimi-k2.6" || items[1].Provider != newAPIProviderAnthropic {
 		t.Fatalf("expected kimi to use anthropic endpoint, got %#v", items[1])
 	}
-	if items[0].ID != "deepseek-v4-pro" || items[0].Provider != newAPIProviderDeepSeek {
-		t.Fatalf("expected deepseek to use deepseek runtime, got %#v", items[0])
+	if items[0].ID != "deepseek-v4-pro" || items[0].Provider != newAPIProviderOpenAI {
+		t.Fatalf("expected deepseek openai endpoint to use openai-compatible runtime, got %#v", items[0])
+	}
+}
+
+func TestBuildNewAPIImportedModelRecordKeepsStableNameWhenEndpointReclassifies(t *testing.T) {
+	t.Parallel()
+
+	oldRecord, err := buildNewAPIImportedModelRecord(
+		newAPIProviderDeepSeek,
+		"deepseek-v4-pro",
+		"http://model-gateway:3000",
+		"test-token",
+		true,
+	)
+	if err != nil {
+		t.Fatalf("build old deepseek record: %v", err)
+	}
+	newRecord, err := buildNewAPIImportedModelRecord(
+		newAPIProviderAnthropic,
+		"deepseek-v4-pro",
+		"http://model-gateway:3000",
+		"test-token",
+		true,
+	)
+	if err != nil {
+		t.Fatalf("build reclassified anthropic record: %v", err)
+	}
+	if oldRecord.Name != "deepseek-v4-pro" || newRecord.Name != oldRecord.Name {
+		t.Fatalf("expected provider reclassification to reuse the same row name, old=%q new=%q", oldRecord.Name, newRecord.Name)
+	}
+	if newRecord.Provider != newAPIProviderAnthropic {
+		t.Fatalf("expected reclassified provider to be persisted, got %q", newRecord.Provider)
+	}
+
+	var config map[string]any
+	if err := json.Unmarshal(newRecord.ConfigJSON, &config); err != nil {
+		t.Fatalf("decode reclassified config: %v", err)
+	}
+	if config["use"] != "langchain_anthropic:ChatAnthropic" {
+		t.Fatalf("expected re-scan to overwrite runtime config from endpoint metadata, got %#v", config["use"])
+	}
+	if config["base_url"] != "http://model-gateway:3000" {
+		t.Fatalf("expected anthropic New API base URL without /v1, got %#v", config["base_url"])
 	}
 }
 
@@ -608,21 +684,21 @@ func TestBuildNewAPIImportedModelRecordUsesProviderBaseURLContracts(t *testing.T
 	if deepSeekRecord.Name != "deepseek-v4-pro" {
 		t.Fatalf("expected deepseek import to preserve model id as row name, got %q", deepSeekRecord.Name)
 	}
-	if deepSeekConfig["use"] != "langchain_anthropic:ChatAnthropic" {
+	if deepSeekConfig["use"] != "langchain_deepseek:ChatDeepSeek" {
 		t.Fatalf("expected deepseek runtime, got %#v", deepSeekConfig["use"])
 	}
-	if deepSeekConfig["base_url"] != "http://host.docker.internal:13000" {
-		t.Fatalf("expected deepseek Anthropic root base URL, got %#v", deepSeekConfig["base_url"])
+	if deepSeekConfig["base_url"] != "http://host.docker.internal:13000/v1" {
+		t.Fatalf("expected deepseek /v1 base URL, got %#v", deepSeekConfig["base_url"])
 	}
 	if _, ok := deepSeekConfig["api_base"]; ok {
-		t.Fatalf("expected deepseek Anthropic transport to omit api_base, got %#v", deepSeekConfig["api_base"])
+		t.Fatalf("expected deepseek transport to omit api_base, got %#v", deepSeekConfig["api_base"])
 	}
 	deepSeekReasoning, ok := deepSeekConfig["reasoning"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected deepseek reasoning object, got %#v", deepSeekConfig["reasoning"])
 	}
-	if deepSeekReasoning["contract"] != "anthropic_thinking" || deepSeekReasoning["default_level"] != "max" {
-		t.Fatalf("expected max Anthropic thinking for New API deepseek, got %#v", deepSeekReasoning)
+	if deepSeekReasoning["contract"] != "deepseek_reasoner" || deepSeekReasoning["default_level"] != "auto" {
+		t.Fatalf("expected DeepSeek reasoner contract, got %#v", deepSeekReasoning)
 	}
 
 	deepSeekNoneRecord, err := buildNewAPIImportedModelRecord(
@@ -661,7 +737,7 @@ func TestBuildNewAPIImportedModelRecordUsesWSLGatewayAlias(t *testing.T) {
 	if err := json.Unmarshal(record.ConfigJSON, &config); err != nil {
 		t.Fatalf("decode config: %v", err)
 	}
-	if config["base_url"] != "http://host.docker.internal:13000" {
+	if config["base_url"] != "http://host.docker.internal:13000/v1" {
 		t.Fatalf("expected docker host alias base URL, got %#v", config["base_url"])
 	}
 }

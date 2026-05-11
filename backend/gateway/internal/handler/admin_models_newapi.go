@@ -711,14 +711,14 @@ func newAPIRuntimeBaseURLWithHostAlias(rawBaseURL string, provider string, useHo
 		return "", err
 	}
 	switch provider {
-	case newAPIProviderOpenAI:
+	case newAPIProviderOpenAI, newAPIProviderDeepSeek:
 		openAIBase := cloneURL(base)
 		openAIBase.Path = ensureURLPathSuffix(openAIBase.Path, "/v1")
 		if !useHostAlias {
 			return openAIBase.String(), nil
 		}
 		return newAPIRuntimeReachableURL(openAIBase.String()), nil
-	case newAPIProviderAnthropic, newAPIProviderDeepSeek:
+	case newAPIProviderAnthropic:
 		anthropicBase := cloneURL(base)
 		anthropicBase.Path = stripTerminalURLPathSegment(anthropicBase.Path, "v1")
 		if !useHostAlias {
@@ -854,11 +854,7 @@ func newAPIImportProviderRuntime(provider string) string {
 		return "langchain_anthropic:ChatAnthropic"
 	}
 	if provider == newAPIProviderDeepSeek {
-		// New API's DeepSeek V4/R1 thinking channels require Anthropic
-		// `content[].thinking` blocks to be replayed after tool calls. The
-		// OpenAI-compatible DeepSeek adapter only sees `reasoning_content` and
-		// cannot preserve the signed thinking block needed by the next request.
-		return "langchain_anthropic:ChatAnthropic"
+		return "langchain_deepseek:ChatDeepSeek"
 	}
 	return "langchain_openai:ChatOpenAI"
 }
@@ -874,11 +870,9 @@ func newAPIImportedReasoningConfig(provider string, modelID string) map[string]i
 		if !isNewAPIDeepSeekReasoningModel(modelID) {
 			return nil
 		}
-		// DeepSeek is imported through New API's Anthropic-compatible transport
-		// so signed thinking blocks survive multi-turn tool-call loops.
 		return map[string]interface{}{
-			"contract":      model.ReasoningContractAnthropic,
-			"default_level": "max",
+			"contract":      model.ReasoningContractDeepSeek,
+			"default_level": "auto",
 		}
 	default:
 		return map[string]interface{}{
@@ -914,7 +908,12 @@ func normalizeNewAPIModelCandidates(candidates []adminNewAPIModelCandidate) ([]a
 
 		endpointTypes := normalizeNewAPIEndpointTypes(candidate.EndpointTypes)
 		provider := strings.TrimSpace(candidate.Provider)
-		if provider == "" {
+		if len(endpointTypes) > 0 {
+			// Endpoint metadata comes from New API's model list response and is
+			// authoritative; client-submitted provider labels may be stale after
+			// a backend import-rule change.
+			provider = inferNewAPIImportProvider(id, candidate.Owner, endpointTypes)
+		} else if provider == "" {
 			provider = inferNewAPIImportProvider(id, candidate.Owner, endpointTypes)
 		} else if normalized, err := normalizeNewAPIImportProvider(provider); err == nil {
 			provider = normalized
@@ -1023,17 +1022,21 @@ func hasNewAPIAnthropicChannel(channels []struct {
 
 func inferNewAPIImportProvider(modelID string, owner string, endpointTypes []string) string {
 	lookup := strings.ToLower(strings.TrimSpace(owner) + " " + strings.TrimSpace(modelID))
-	if strings.Contains(lookup, "deepseek") {
-		// DeepSeek is often exposed through New API's OpenAI-compatible endpoint,
-		// but its reasoning messages still require DeepSeek-specific round trips.
-		return newAPIProviderDeepSeek
-	}
 
+	// New API can expose one model through several compatible protocol
+	// endpoints. Treat that endpoint metadata as the source of truth instead of
+	// guessing from vendor-like model names such as "deepseek-v4".
 	for _, endpointType := range endpointTypes {
 		switch normalizeProviderLookupKey(endpointType) {
 		case "anthropic":
 			return newAPIProviderAnthropic
-		case "openai", "openai-response":
+		}
+	}
+	for _, endpointType := range endpointTypes {
+		switch normalizeProviderLookupKey(endpointType) {
+		case "deepseek", "deepseek-compatible":
+			return newAPIProviderDeepSeek
+		case "openai", "openai-response", "openai-compatible":
 			return newAPIProviderOpenAI
 		}
 	}
