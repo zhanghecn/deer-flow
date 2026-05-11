@@ -20,7 +20,6 @@ MODEL_GATEWAY_ALIAS="${MODEL_GATEWAY_ALIAS:-model-gateway}"
 AUTO_ATTACH_MODEL_GATEWAY="${OPENAGENTS_AUTO_ATTACH_MODEL_GATEWAY:-1}"
 PULL_IMAGES="${OPENAGENTS_PULL_IMAGES:-1}"
 PULL_INFRA_IMAGES="${OPENAGENTS_PULL_INFRA_IMAGES:-0}"
-BUILD_MISSING_IMAGES="${OPENAGENTS_BUILD_MISSING_IMAGES:-1}"
 OPENAGENTS_RUNTIME_SERVICES=(nginx gateway langgraph sandbox-aio onlyoffice)
 
 info() { echo -e "${BLUE}[INFO]${NC} $*"; }
@@ -53,8 +52,8 @@ Set OPENAGENTS_PULL_IMAGES=0 to skip pulling images before startup.
 By default, image pulls are limited to OpenAgents runtime services so Postgres
 and MinIO are not upgraded/recreated during normal app updates. Set
 OPENAGENTS_PULL_INFRA_IMAGES=1 to pull every compose image, including infra.
-Set OPENAGENTS_BUILD_MISSING_IMAGES=0 to require registry images and fail when
-the OpenAgents release images are not already available locally.
+Deploy never builds images. Build or publish images explicitly with
+scripts/docker-release.sh before running production deploy.
 
 To make an existing New API container reachable from OpenAgents:
   MODEL_GATEWAY_CONTAINER=1Panel-new-api-6d1F scripts/docker-deploy.sh
@@ -87,17 +86,6 @@ env_value() {
     line="$(grep "^${key}=" "$ENV_FILE" | tail -n 1 || true)"
     [ -n "$line" ] || return
     printf '%s\n' "${line#*=}"
-}
-
-setting_value() {
-    local key="$1"
-    local default="$2"
-    local value="${!key:-}"
-
-    if [ -z "$value" ]; then
-        value="$(env_value "$key" || true)"
-    fi
-    printf '%s\n' "${value:-$default}"
 }
 
 ensure_env_value() {
@@ -206,7 +194,7 @@ compose() {
 pull_configured_images() {
     if [ "$PULL_INFRA_IMAGES" = "1" ]; then
         warn "Pulling all compose images, including Postgres and MinIO. This may recreate infra containers if their tags changed."
-        compose pull || warn "Image pull failed; continuing with local images."
+        compose pull || fail "Image pull failed. Publish/fix the configured images before deploying."
         return
     fi
 
@@ -214,64 +202,7 @@ pull_configured_images() {
     # proactively moving stateful infrastructure tags such as postgres/minio.
     # Missing infra images on a first install are still pulled by compose up.
     info "Pulling OpenAgents runtime images only; infra image upgrades are skipped by default."
-    compose pull "${OPENAGENTS_RUNTIME_SERVICES[@]}" || warn "OpenAgents image pull failed; continuing with local images."
-}
-
-release_image_prefix() {
-    local registry prefix
-
-    registry="$(setting_value OPENAGENTS_IMAGE_REGISTRY docker.io)"
-    prefix="$(setting_value OPENAGENTS_IMAGE_PREFIX zhangxuan2/openagents)"
-    registry="${registry#https://}"
-    registry="${registry#http://}"
-    registry="${registry%/}"
-    prefix="${prefix#docker.io/}"
-    prefix="${prefix#registry-1.docker.io/}"
-    prefix="${prefix%/}"
-    printf '%s/%s-' "$registry" "$prefix"
-}
-
-missing_release_images() {
-    local expected_prefix image missing=0
-
-    expected_prefix="$(release_image_prefix)"
-    while IFS= read -r image; do
-        [ -n "$image" ] || continue
-        case "$image" in
-            "$expected_prefix"*)
-                if ! docker image inspect "$image" >/dev/null 2>&1; then
-                    printf '%s\n' "$image"
-                    missing=1
-                fi
-                ;;
-        esac
-    done < <(compose config --images)
-
-    return "$missing"
-}
-
-ensure_release_images_available() {
-    local missing_images=()
-
-    mapfile -t missing_images < <(missing_release_images)
-    if [ "${#missing_images[@]}" -eq 0 ]; then
-        return
-    fi
-
-    if [ "$BUILD_MISSING_IMAGES" = "0" ]; then
-        printf '%s\n' "${missing_images[@]}" >&2
-        fail "Missing OpenAgents release images. Push them first or rerun without OPENAGENTS_BUILD_MISSING_IMAGES=0 to build from this source tree."
-    fi
-
-    warn "OpenAgents release images are missing locally; building them from the current source tree."
-    printf '  %s\n' "${missing_images[@]}"
-    # This fallback preserves the one-command source checkout path when a
-    # registry tag has not been published yet. Operators that require a strict
-    # pull-only deploy can set OPENAGENTS_BUILD_MISSING_IMAGES=0.
-    OPENAGENTS_IMAGE_REGISTRY="$(setting_value OPENAGENTS_IMAGE_REGISTRY docker.io)" \
-    OPENAGENTS_IMAGE_PREFIX="$(setting_value OPENAGENTS_IMAGE_PREFIX zhangxuan2/openagents)" \
-    OPENAGENTS_VERSION="$(setting_value OPENAGENTS_VERSION latest)" \
-        "$PROJECT_ROOT/scripts/docker-release.sh" build --scope all
+    compose pull "${OPENAGENTS_RUNTIME_SERVICES[@]}" || fail "OpenAgents runtime image pull failed. Run scripts/docker-release.sh push --scope ... or fix deploy/.env image settings first."
 }
 
 ensure_docker_network() {
@@ -426,13 +357,15 @@ main() {
         info "Starting production stack from deploy/docker-compose.yml"
         info "This run will pull configured images, apply reviewed SQL migrations, and restart services."
         if [ "$PULL_IMAGES" != "0" ]; then
-            # Self-hosted installs and upgrades should converge with one command,
-            # while stateful infra images stay stable unless explicitly requested.
-            # Operators using unpublished local images can set OPENAGENTS_PULL_IMAGES=0.
+            # Production deploy is pull-only for OpenAgents images. Building is
+            # an explicit release step owned by scripts/docker-release.sh.
             pull_configured_images
         fi
-        ensure_release_images_available
-        compose up -d
+        if [ "$PULL_IMAGES" = "0" ]; then
+            compose up --pull never -d
+        else
+            compose up -d
+        fi
         success "Production stack is started; the migrate service gates gateway/langgraph startup"
         echo ""
         echo "Open:"

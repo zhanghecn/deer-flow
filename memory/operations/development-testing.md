@@ -66,12 +66,15 @@ Then remove the local OpenAgents images and deploy from the pushed registry:
 ```bash
 OPENAGENTS_IMAGE_REGISTRY=localhost:5000 \
 OPENAGENTS_IMAGE_PREFIX=openagents \
-OPENAGENTS_BUILD_MISSING_IMAGES=0 \
 ./scripts/docker-deploy.sh
 ```
 
 This is the closest local proof of a real release because deploy must pull
 images from the registry after local copies are removed.
+
+Deploy is intentionally pull-only. It must not build missing OpenAgents images
+or continue after runtime image pull failures; use `scripts/docker-release.sh`
+for all image builds.
 
 ## Browser Evidence
 

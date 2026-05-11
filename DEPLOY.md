@@ -132,11 +132,17 @@ git tag --points-at HEAD
 
 镜像仓库信息只在 `deploy/.env` 里配置，不要在日常命令里反复传参数。
 
-如果当前源码部署时 registry 里还没有对应镜像，`./scripts/docker-deploy.sh`
-会自动从当前源码补建缺失的 OpenAgents 镜像。严格要求只拉远程镜像时设置：
+`./scripts/docker-deploy.sh` 不会构建镜像，也不会在拉取失败后继续使用旧本地镜像。
+如果镜像不存在或 DockerHub/代理拉取失败，部署会直接报错。先发布镜像：
 
 ```bash
-OPENAGENTS_BUILD_MISSING_IMAGES=0 ./scripts/docker-deploy.sh
+./scripts/docker-release.sh push --scope app
+```
+
+然后再部署：
+
+```bash
+./scripts/docker-deploy.sh
 ```
 
 ## New API
