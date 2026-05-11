@@ -198,6 +198,7 @@ func main() {
 		r.Use(gin.Logger())
 	}
 	r.Use(gin.Recovery())
+	r.Use(middleware.RequestErrorLogger())
 	r.Use(middleware.CORS())
 	log.Printf(
 		"Gateway logging: level=%s access_log=%v proxy_debug=%v proxy_log_headers=%v",

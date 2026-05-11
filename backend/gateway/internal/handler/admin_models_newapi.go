@@ -1238,6 +1238,7 @@ func mapNewAPIModelWriteError(err error, fallback string) error {
 }
 
 func handleAdminNewAPIModelSyncError(c *gin.Context, err error) {
+	c.Error(err)
 	var syncErr adminNewAPIModelSyncError
 	if errors.As(err, &syncErr) {
 		c.JSON(syncErr.status, model.ErrorResponse{Error: syncErr.message})
