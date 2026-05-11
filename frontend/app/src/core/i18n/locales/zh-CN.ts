@@ -510,7 +510,6 @@ export const zhCN: Translations = {
 
   // Tool calls
   toolCalls: {
-    searchMaterials: "查找资料",
     moreSteps: (count: number) => `查看其他 ${count} 个步骤`,
     lessSteps: "隐藏步骤",
     executeCommand: "执行命令",

@@ -438,7 +438,6 @@ export interface Translations {
 
   // Tool calls
   toolCalls: {
-    searchMaterials: string;
     moreSteps: (count: number) => string;
     lessSteps: string;
     executeCommand: string;

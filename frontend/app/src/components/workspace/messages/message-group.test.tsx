@@ -8,7 +8,6 @@ vi.mock("@/core/i18n/hooks", () => ({
     t: {
       common: { thinking: "Thinking" },
       toolCalls: {
-        searchMaterials: "Looking up resources",
         lessSteps: "Less steps",
         moreSteps: (count: number) => `${count} more steps`,
         searchForRelatedInfo: "Search for related info",

@@ -541,7 +541,6 @@ export const enUS: Translations = {
 
   // Tool calls
   toolCalls: {
-    searchMaterials: "Looking up resources",
     moreSteps: (count: number) => `${count} more step${count === 1 ? "" : "s"}`,
     lessSteps: "Less steps",
     executeCommand: "Execute command",
