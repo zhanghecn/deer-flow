@@ -22,6 +22,7 @@ IMAGE_VERSION="${OPENAGENTS_VERSION:-}"
 DRY_RUN=0
 BUILD_BEFORE_PUSH=1
 SCOPE=""
+PUSH_RETRIES="${OPENAGENTS_PUSH_RETRIES:-3}"
 
 usage() {
     cat <<'EOF'
@@ -289,6 +290,27 @@ run_cmd() {
     "$@"
 }
 
+run_cmd_with_retries() {
+    local attempt=1
+
+    if [ "$DRY_RUN" -eq 1 ]; then
+        run_cmd "$@"
+        return
+    fi
+
+    while true; do
+        if "$@"; then
+            return
+        fi
+        if [ "$attempt" -ge "$PUSH_RETRIES" ]; then
+            return 1
+        fi
+        info "Command failed; retrying ($attempt/$PUSH_RETRIES): $*"
+        sleep $((attempt * 5))
+        attempt=$((attempt + 1))
+    done
+}
+
 registry_host() {
     printf '%s\n' "${IMAGE_REGISTRY%%/*}"
 }
@@ -382,7 +404,7 @@ build_service() {
 
 push_service() {
     local service="$1"
-    run_cmd docker push "$(image_ref "$service")"
+    run_cmd_with_retries docker push "$(image_ref "$service")"
 }
 
 tag_latest_service() {
@@ -404,7 +426,7 @@ push_latest_service() {
         return
     fi
 
-    run_cmd docker push "$(latest_image_ref "$service")"
+    run_cmd_with_retries docker push "$(latest_image_ref "$service")"
 }
 
 compose_base() {

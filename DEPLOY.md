@@ -246,3 +246,16 @@ curl -fsS http://127.0.0.1:8081/
 cd deploy
 docker compose exec langgraph getent hosts model-gateway
 ```
+
+DockerHub push 超时：
+
+```bash
+docker info | grep -A3 'Proxy'
+curl -I https://registry-1.docker.io/v2/
+```
+
+`docker push` 走 Docker daemon 的代理配置，不只看当前 shell 的
+`HTTP_PROXY`。如果 `docker info` 里没有 `HTTP Proxy` / `HTTPS Proxy`，
+需要配置 Docker daemon 代理后重启 Docker。偶发 `TLS handshake timeout`
+通常是 DockerHub 或代理链路抖动，`scripts/docker-release.sh push` 会自动
+重试 3 次；需要调整时设置 `OPENAGENTS_PUSH_RETRIES=5`。
