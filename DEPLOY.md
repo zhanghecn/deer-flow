@@ -23,6 +23,9 @@ curl -fsSL https://raw.githubusercontent.com/bytedance/openagents/main/scripts/i
 ./scripts/docker-deploy.sh
 ```
 
+这条命令既用于第一次初始化，也用于后续生产更新。它不负责发镜像；发镜像使用
+`./scripts/docker-release.sh push --scope ...` 或推送 `v*` tag 触发 GitHub Actions。
+
 启动后访问：
 
 ```text
@@ -39,6 +42,9 @@ New API 同步地址: http://model-gateway:3000
 ```bash
 ./scripts/docker-deploy.sh
 ```
+
+这和首次安装是同一条命令：已有 `deploy/.env` 时会保留生产密钥，只刷新部署资产、
+拉取配置中的镜像、执行新增 SQL，并重启服务。
 
 如果服务器是源码部署，先更新源码再部署：
 

@@ -31,6 +31,14 @@ usage() {
 Usage:
   scripts/docker-deploy.sh [--force] [--prepare-only]
 
+Purpose:
+  - First install: generate deploy/.env secrets, prepare data directories,
+    run SQL migrations through the compose migrate service, and start the stack.
+  - Production update: refresh deploy assets, pull the configured images,
+    run any new SQL migrations, and restart the stack.
+  - Image publishing is separate: use scripts/docker-release.sh push --scope ...
+    or push a v* tag for GitHub Actions.
+
 Prepares and starts the self-contained production deploy directory:
   - deploy/.env with generated secrets
   - deploy/config.yaml and deploy/gateway.yaml deployment copies
@@ -351,6 +359,7 @@ main() {
 
     command -v openssl >/dev/null 2>&1 || fail "openssl is required to generate secrets"
 
+    info "Purpose: first install and production update. Image publishing uses scripts/docker-release.sh or GitHub Actions."
     info "Preparing deploy production directory"
     mkdir -p "$DEPLOY_DIR/data/openagents" "$DEPLOY_DIR/data/postgres" "$DEPLOY_DIR/data/minio"
     [ -f "$DEPLOY_DIR/docker-compose.yml" ] || fail "Missing canonical deploy compose: $DEPLOY_DIR/docker-compose.yml"
@@ -393,6 +402,7 @@ main() {
     if [ "$START" -eq 1 ]; then
         echo ""
         info "Starting production stack from deploy/docker-compose.yml"
+        info "This run will pull configured images, apply reviewed SQL migrations, and restart services."
         if [ "$PULL_IMAGES" != "0" ]; then
             # Self-hosted installs and upgrades should converge with one command.
             # Operators using unpublished local images can set OPENAGENTS_PULL_IMAGES=0.
