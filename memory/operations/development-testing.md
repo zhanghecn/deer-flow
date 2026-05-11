@@ -49,15 +49,16 @@ separate command.
 When validating the real release path without external registry credentials,
 use a local Docker registry and prove this sequence end to end. These registry,
 prefix, and version overrides are test-harness internals; do not present them
-as user-facing production commands.
+as user-facing production commands and do not write them into `deploy/.env`.
 
 ```bash
 docker run -d --name openagents-local-registry -p 5000:5000 registry:2
-RELEASE_VERSION="e2e-$(git rev-parse --short=12 HEAD)"
+TAG="v0.0.0-e2e-$(date +%Y%m%d%H%M%S)"
+git tag "$TAG"
 OPENAGENTS_IMAGE_REGISTRY=localhost:5000 \
 OPENAGENTS_IMAGE_PREFIX=openagents \
-OPENAGENTS_VERSION="$RELEASE_VERSION" \
 ./scripts/docker-release.sh push --scope all
+git tag -d "$TAG"
 ```
 
 Then remove the local OpenAgents images and deploy from the pushed registry:
@@ -65,8 +66,8 @@ Then remove the local OpenAgents images and deploy from the pushed registry:
 ```bash
 OPENAGENTS_IMAGE_REGISTRY=localhost:5000 \
 OPENAGENTS_IMAGE_PREFIX=openagents \
-OPENAGENTS_VERSION="$RELEASE_VERSION" \
-./scripts/docker-deploy.sh --force
+OPENAGENTS_BUILD_MISSING_IMAGES=0 \
+./scripts/docker-deploy.sh
 ```
 
 This is the closest local proof of a real release because deploy must pull

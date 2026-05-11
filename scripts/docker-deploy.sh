@@ -96,15 +96,6 @@ ensure_env_value() {
     replace_env "$key" "$value"
 }
 
-replace_env_from_process_if_set() {
-    local key="$1"
-    local value="${!key:-}"
-
-    if [ -n "$value" ]; then
-        replace_env "$key" "$value"
-    fi
-}
-
 normalize_existing_env() {
     local old_repository old_tag
 
@@ -117,12 +108,9 @@ normalize_existing_env() {
     ensure_env_value "OPENAGENTS_VERSION" "${old_tag:-latest}"
     ensure_env_value "OPENAGENTS_MIGRATIONS_DIR" "./migrations"
     ensure_env_value "OPENAGENTS_DOCKER_NETWORK" "$DOCKER_NETWORK"
-    # Explicit process-level image identity is an operator decision for this
-    # deploy directory, not just a one-shot compose interpolation override.
-    replace_env_from_process_if_set "OPENAGENTS_IMAGE_REGISTRY"
-    replace_env_from_process_if_set "OPENAGENTS_IMAGE_PREFIX"
-    replace_env_from_process_if_set "OPENAGENTS_VERSION"
-    replace_env_from_process_if_set "OPENAGENTS_DOCKER_NETWORK"
+    # Process environment values are one-run overrides for compose and helper
+    # checks. Do not write them back into deploy/.env; local registry tests must
+    # not silently become the operator's permanent production image source.
 
     # Existing deploy env files are preserved to avoid rotating production
     # secrets. Add newly supported optional media keys as empty operator

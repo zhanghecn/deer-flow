@@ -284,6 +284,40 @@ run_cmd() {
     "$@"
 }
 
+registry_host() {
+    printf '%s\n' "${IMAGE_REGISTRY%%/*}"
+}
+
+is_loopback_registry() {
+    case "$1" in
+        localhost|localhost:*|127.*|0.0.0.0|0.0.0.0:*|\[::1\]|\[::1\]:*)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+preflight_push_registry() {
+    local host
+
+    if [ "$DRY_RUN" -eq 1 ]; then
+        return
+    fi
+
+    host="$(registry_host)"
+    if ! is_loopback_registry "$host"; then
+        return
+    fi
+
+    # A loopback registry is only valid for explicit local release simulation.
+    # Fail before expensive builds so a stale deploy/.env value is obvious.
+    if ! curl -fsS "http://${host}/v2/" >/dev/null 2>&1; then
+        fail "Local image registry ${host} is not reachable. Start it with 'docker run -d --name openagents-local-registry -p 5000:5000 registry:2', or edit deploy/.env to use docker.io / your real registry."
+    fi
+}
+
 deploy_env_value() {
     local key="$1"
     local env_file="$DEPLOY_DIR/.env"
@@ -438,6 +472,7 @@ release_build() {
 release_push() {
     local services service
     mapfile -t services < <(selected_services)
+    preflight_push_registry
     if [ "$BUILD_BEFORE_PUSH" -eq 1 ]; then
         for service in "${services[@]}"; do
             build_service "$service"
