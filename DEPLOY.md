@@ -165,6 +165,17 @@ MODEL_GATEWAY_CONTAINER=1Panel-new-api-6d1F ./scripts/docker-deploy.sh
 http://model-gateway:3000
 ```
 
+部署脚本默认会给 New API 容器同时添加两个网络别名：
+
+```text
+model-gateway
+new-api
+```
+
+所以 `http://new-api:3000` 也能访问。推荐文档和生产配置使用
+`model-gateway`，因为它表示“模型网关”这个角色；`new-api` 是为了和现有 New API
+容器名习惯兼容。
+
 不要填 `127.0.0.1` 或宿主机 IP。容器之间应走 Docker 网络里的服务名或 alias。
 
 ## 数据和迁移

@@ -17,6 +17,7 @@ START=1
 DOCKER_NETWORK="${OPENAGENTS_DOCKER_NETWORK:-openagents}"
 MODEL_GATEWAY_CONTAINER="${MODEL_GATEWAY_CONTAINER:-}"
 MODEL_GATEWAY_ALIAS="${MODEL_GATEWAY_ALIAS:-model-gateway}"
+MODEL_GATEWAY_ALIASES="${MODEL_GATEWAY_ALIASES:-${MODEL_GATEWAY_ALIAS},new-api}"
 AUTO_ATTACH_MODEL_GATEWAY="${OPENAGENTS_AUTO_ATTACH_MODEL_GATEWAY:-1}"
 PULL_IMAGES="${OPENAGENTS_PULL_IMAGES:-1}"
 PULL_INFRA_IMAGES="${OPENAGENTS_PULL_INFRA_IMAGES:-0}"
@@ -57,6 +58,9 @@ scripts/docker-release.sh before running production deploy.
 
 To make an existing New API container reachable from OpenAgents:
   MODEL_GATEWAY_CONTAINER=1Panel-new-api-6d1F scripts/docker-deploy.sh
+
+The container is attached to the OpenAgents network with aliases from
+MODEL_GATEWAY_ALIASES, defaulting to: model-gateway,new-api.
 
 If MODEL_GATEWAY_CONTAINER is omitted, the script tries to auto-detect exactly
 one running container whose name or image looks like New API.
@@ -251,34 +255,76 @@ container_network_aliases() {
         2>/dev/null || true
 }
 
+desired_model_gateway_aliases() {
+    local alias raw seen=""
+
+    raw="${MODEL_GATEWAY_ALIASES//,/ }"
+    for alias in $raw; do
+        [ -n "$alias" ] || continue
+        case " $seen " in
+            *" $alias "*)
+                ;;
+            *)
+                printf '%s\n' "$alias"
+                seen="$seen $alias"
+                ;;
+        esac
+    done
+}
+
+join_aliases() {
+    local joined="" alias
+    for alias in "$@"; do
+        if [ -z "$joined" ]; then
+            joined="$alias"
+        else
+            joined="$joined,$alias"
+        fi
+    done
+    printf '%s\n' "$joined"
+}
+
 attach_model_gateway_if_requested() {
-    local aliases
+    local alias aliases missing_alias=0
+    local desired_aliases=()
+    local connect_args=()
 
     if [ -z "$MODEL_GATEWAY_CONTAINER" ]; then
         return
     fi
 
+    mapfile -t desired_aliases < <(desired_model_gateway_aliases)
+    [ "${#desired_aliases[@]}" -gt 0 ] || fail "MODEL_GATEWAY_ALIASES must include at least one alias"
+
     docker inspect "$MODEL_GATEWAY_CONTAINER" >/dev/null 2>&1 || fail "Model gateway container not found: $MODEL_GATEWAY_CONTAINER"
 
     if docker inspect "$MODEL_GATEWAY_CONTAINER" --format '{{json .NetworkSettings.Networks}}' | grep -q "\"$DOCKER_NETWORK\""; then
         aliases="$(container_network_aliases)"
-        if printf '%s\n' "$aliases" | grep -qx "$MODEL_GATEWAY_ALIAS"; then
-            info "Model gateway is already attached to $DOCKER_NETWORK as $MODEL_GATEWAY_ALIAS"
+        for alias in "${desired_aliases[@]}"; do
+            if ! printf '%s\n' "$aliases" | grep -qx "$alias"; then
+                missing_alias=1
+            fi
+        done
+        if [ "$missing_alias" -eq 0 ]; then
+            info "Model gateway is already attached to $DOCKER_NETWORK as $(join_aliases "${desired_aliases[@]}")"
             return
         fi
 
-        # Docker cannot add a network alias to an existing endpoint in place.
-        # Reconnect only this external gateway so the documented in-cluster URL
-        # stays stable instead of leaking container-name details into model rows.
-        warn "Model gateway is on $DOCKER_NETWORK but missing alias $MODEL_GATEWAY_ALIAS; reconnecting it once."
+        # Docker cannot add aliases to an existing endpoint in place. Reconnect
+        # only this external New API container so both the role alias
+        # (`model-gateway`) and the familiar product alias (`new-api`) resolve.
+        warn "Model gateway is on $DOCKER_NETWORK but missing alias from $(join_aliases "${desired_aliases[@]}"); reconnecting it once."
         docker network disconnect "$DOCKER_NETWORK" "$MODEL_GATEWAY_CONTAINER"
     fi
 
     # New API remains outside this compose file; this attach step gives the
-    # OpenAgents deploy network a stable DNS name without starting another
-    # gateway container.
-    docker network connect --alias "$MODEL_GATEWAY_ALIAS" "$DOCKER_NETWORK" "$MODEL_GATEWAY_CONTAINER"
-    success "Attached $MODEL_GATEWAY_CONTAINER to $DOCKER_NETWORK as $MODEL_GATEWAY_ALIAS"
+    # OpenAgents deploy network stable DNS names without starting another
+    # gateway container or relying on the 1Panel-generated container name.
+    for alias in "${desired_aliases[@]}"; do
+        connect_args+=(--alias "$alias")
+    done
+    docker network connect "${connect_args[@]}" "$DOCKER_NETWORK" "$MODEL_GATEWAY_CONTAINER"
+    success "Attached $MODEL_GATEWAY_CONTAINER to $DOCKER_NETWORK as $(join_aliases "${desired_aliases[@]}")"
 }
 
 parse_args() {
