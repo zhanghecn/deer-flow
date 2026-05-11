@@ -29,6 +29,7 @@ Open:
 
 - Admin console: `http://localhost:8081`
 - Workspace app: `http://localhost:8083`
+- Logs: `./scripts/docker-logs.sh`
 
 If you already cloned the source:
 

@@ -89,3 +89,19 @@ http://127.0.0.1:8081
 
 Use `docker/docker-compose.yaml` only when the task specifically targets the
 source-mounted local development stack.
+
+## Deploy Logs
+
+Production deploy logs are Docker compose logs, not files under `deploy/logs/`.
+Use the helper from the repository root during verification:
+
+```bash
+./scripts/docker-logs.sh --no-follow
+./scripts/docker-logs.sh gateway --no-follow
+./scripts/docker-logs.sh langgraph --no-follow
+./scripts/docker-logs.sh migrate --no-follow
+```
+
+The helper reads `deploy/docker-compose.yml`, where services use Docker's
+`json-file` log driver with rotation. Do not add a second file-log contract
+unless the product explicitly needs exported log archives.

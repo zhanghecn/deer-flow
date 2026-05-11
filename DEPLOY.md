@@ -244,9 +244,15 @@ docker compose ps
 看日志：
 
 ```bash
-cd deploy
-docker compose logs -f
+./scripts/docker-logs.sh
+./scripts/docker-logs.sh gateway
+./scripts/docker-logs.sh langgraph --tail 500
+./scripts/docker-logs.sh migrate --no-follow
 ```
+
+OpenAgents 和 Sub2API 一样，生产日志默认走 Docker compose logs，不写入
+`deploy/logs/` 目录。`deploy/docker-compose.yml` 已配置 Docker `json-file`
+日志驱动轮转，避免单机日志无限增长。
 
 健康检查：
 

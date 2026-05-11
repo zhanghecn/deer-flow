@@ -435,10 +435,16 @@ main() {
         echo "Open:"
         echo "  Admin: http://127.0.0.1:$(env_value OPENAGENTS_ADMIN_PORT || echo 8081)"
         echo "  App:   http://127.0.0.1:$(env_value OPENAGENTS_APP_PORT || echo 8083)"
+        echo ""
+        echo "Logs:"
+        echo "  ./scripts/docker-logs.sh"
+        echo "  ./scripts/docker-logs.sh gateway"
+        echo "  ./scripts/docker-logs.sh migrate --no-follow"
     else
         echo ""
         echo "Prepared only. Start later with:"
         echo "  cd deploy && docker compose -f docker-compose.yml up -d"
+        echo "  ./scripts/docker-logs.sh"
     fi
 }
 
