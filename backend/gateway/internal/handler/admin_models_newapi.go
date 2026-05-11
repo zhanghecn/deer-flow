@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -519,15 +520,18 @@ func requestNewAPIModels(
 
 	resp, err := client.Do(req)
 	if err != nil {
+		reason := formatNewAPITransportError(err)
+		log.Printf("newapi model scan: request failed url=%s err=%s", modelsURL, reason)
 		return nil, adminNewAPIModelSyncError{
 			status:  http.StatusBadGateway,
-			message: "failed to reach New API models endpoint",
+			message: fmt.Sprintf("failed to reach New API models endpoint: %s", reason),
 		}
 	}
 	defer resp.Body.Close()
 
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, newAPIModelsResponseLimit))
 	if readErr != nil {
+		log.Printf("newapi model scan: failed to read response url=%s status=%s err=%v", modelsURL, resp.Status, readErr)
 		return nil, adminNewAPIModelSyncError{
 			status:  http.StatusBadGateway,
 			message: "failed to read New API models response",
@@ -536,6 +540,7 @@ func requestNewAPIModels(
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		message := extractNewAPIErrorMessage(body, resp.Status)
+		log.Printf("newapi model scan: upstream rejected request url=%s status=%s message=%q", modelsURL, resp.Status, message)
 		return nil, adminNewAPIUpstreamStatusError{adminNewAPIModelSyncError{
 			status:  http.StatusBadGateway,
 			message: message,
@@ -543,6 +548,17 @@ func requestNewAPIModels(
 	}
 
 	return body, nil
+}
+
+func formatNewAPITransportError(err error) string {
+	var urlErr *url.Error
+	// url.Error includes the full URL in Error(); unwrap it so logs and admin
+	// responses explain the network failure without duplicating request details
+	// or accidentally expanding future URL fields into the message.
+	if errors.As(err, &urlErr) && urlErr.Err != nil {
+		return strings.TrimSpace(urlErr.Err.Error())
+	}
+	return strings.TrimSpace(err.Error())
 }
 
 func parseNewAPIModelCandidates(body []byte) ([]adminNewAPIModelCandidate, error) {

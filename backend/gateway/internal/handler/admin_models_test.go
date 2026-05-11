@@ -3,13 +3,21 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/openagents/gateway/internal/repository"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
+}
 
 func TestBuildAdminModelRecordNormalizesFields(t *testing.T) {
 	t.Parallel()
@@ -305,6 +313,36 @@ func TestScanNewAPIModelsUsesOpenAICompatibleListEndpoint(t *testing.T) {
 	}
 	if items[2].Provider != newAPIProviderOpenAI {
 		t.Fatalf("expected gpt model to import as openai, got %q", items[2].Provider)
+	}
+}
+
+func TestRequestNewAPIModelsReportsTransportReason(t *testing.T) {
+	t.Parallel()
+
+	client := &http.Client{
+		Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, errors.New("dial tcp: lookup model-gateway: no such host")
+		}),
+	}
+
+	_, err := requestNewAPIModels(
+		context.Background(),
+		client,
+		"http://model-gateway:3000/v1/models",
+		"test-token",
+	)
+	if err == nil {
+		t.Fatalf("expected transport error")
+	}
+	var syncErr adminNewAPIModelSyncError
+	if !errors.As(err, &syncErr) {
+		t.Fatalf("expected sync error, got %T", err)
+	}
+	if !strings.Contains(syncErr.message, "lookup model-gateway: no such host") {
+		t.Fatalf("expected transport reason in admin error, got %q", syncErr.message)
+	}
+	if strings.Contains(syncErr.message, "test-token") {
+		t.Fatalf("admin error leaked api key: %q", syncErr.message)
 	}
 }
 
