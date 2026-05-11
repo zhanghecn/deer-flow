@@ -59,8 +59,8 @@ main() {
     clone_or_update_repo
 
     # The repository deploy script owns secret generation, migrations, network
-    # setup, optional New API attachment, and startup. This wrapper exists only
-    # to make the public self-hosting entrypoint one command.
+    # setup, optional model gateway attachment, and startup. This wrapper exists
+    # only to make the public self-hosting entrypoint one command.
     "$INSTALL_DIR/scripts/docker-deploy.sh"
 
     echo ""
@@ -68,7 +68,7 @@ main() {
     echo "  Admin: http://127.0.0.1:8081"
     echo "  App:   http://127.0.0.1:8083"
     echo "  Default admin: admin / admin123"
-    echo "  New API sync URL: http://model-gateway:3000"
+    echo "  Model gateway sync URL: http://model-gateway:3000"
     echo "  File logs: $INSTALL_DIR/deploy/data/logs"
     echo "  Live logs: $INSTALL_DIR/scripts/docker-logs.sh"
     echo ""

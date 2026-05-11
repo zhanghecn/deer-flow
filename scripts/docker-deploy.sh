@@ -15,10 +15,10 @@ ENV_FILE="$DEPLOY_DIR/.env"
 FORCE=0
 START=1
 DOCKER_NETWORK="${OPENAGENTS_DOCKER_NETWORK:-openagents}"
+MODEL_GATEWAY_CONTAINER_FROM_ENV="${MODEL_GATEWAY_CONTAINER+x}"
+MODEL_GATEWAY_ALIASES_FROM_ENV="${MODEL_GATEWAY_ALIASES+x}"
 MODEL_GATEWAY_CONTAINER="${MODEL_GATEWAY_CONTAINER:-}"
-MODEL_GATEWAY_ALIAS="${MODEL_GATEWAY_ALIAS:-model-gateway}"
-MODEL_GATEWAY_ALIASES="${MODEL_GATEWAY_ALIASES:-${MODEL_GATEWAY_ALIAS},new-api}"
-AUTO_ATTACH_MODEL_GATEWAY="${OPENAGENTS_AUTO_ATTACH_MODEL_GATEWAY:-1}"
+MODEL_GATEWAY_ALIASES="${MODEL_GATEWAY_ALIASES:-model-gateway}"
 PULL_IMAGES="${OPENAGENTS_PULL_IMAGES:-1}"
 PULL_INFRA_IMAGES="${OPENAGENTS_PULL_INFRA_IMAGES:-0}"
 OPENAGENTS_RUNTIME_SERVICES=(nginx gateway langgraph sandbox-aio onlyoffice)
@@ -56,14 +56,13 @@ OPENAGENTS_PULL_INFRA_IMAGES=1 to pull every compose image, including infra.
 Deploy never builds images. Build or publish images explicitly with
 scripts/docker-release.sh before running production deploy.
 
-To make an existing New API container reachable from OpenAgents:
+To make an existing OpenAI-compatible model gateway container reachable from OpenAgents:
   MODEL_GATEWAY_CONTAINER=1Panel-new-api-6d1F scripts/docker-deploy.sh
 
-The container is attached to the OpenAgents network with aliases from
-MODEL_GATEWAY_ALIASES, defaulting to: model-gateway,new-api.
-
-If MODEL_GATEWAY_CONTAINER is omitted, the script tries to auto-detect exactly
-one running container whose name or image looks like New API.
+Model gateway integration is explicit. If MODEL_GATEWAY_CONTAINER is omitted,
+deploy does not search for or mutate external gateway containers. The container
+is attached to the OpenAgents network with aliases from MODEL_GATEWAY_ALIASES,
+defaulting to: model-gateway.
 EOF
 }
 
@@ -116,6 +115,8 @@ normalize_existing_env() {
     ensure_env_value "OPENAGENTS_LOG_DIR" "./data/logs"
     ensure_env_value "OPENAGENTS_LOG_MAX_SIZE_MB" "100"
     ensure_env_value "OPENAGENTS_LOG_MAX_BACKUPS" "10"
+    ensure_env_value "MODEL_GATEWAY_CONTAINER" ""
+    ensure_env_value "MODEL_GATEWAY_ALIASES" "model-gateway"
     # Process environment values are one-run overrides for compose and helper
     # checks. Do not write them back into deploy/.env; local registry tests must
     # not silently become the operator's permanent production image source.
@@ -137,13 +138,26 @@ normalize_existing_env() {
 }
 
 refresh_env_backed_settings() {
-    local configured_network
+    local configured_aliases configured_container configured_network
 
     configured_network="$(env_value OPENAGENTS_DOCKER_NETWORK || true)"
     if [ -n "$configured_network" ]; then
         # Compose reads deploy/.env, so the helper must create/attach the same
         # external network that compose will later require.
         DOCKER_NETWORK="$configured_network"
+    fi
+
+    configured_container="$(env_value MODEL_GATEWAY_CONTAINER || true)"
+    configured_aliases="$(env_value MODEL_GATEWAY_ALIASES || true)"
+
+    # The external model gateway is an operator-owned dependency. Process
+    # environment wins for one-off maintenance, then deploy/.env provides the
+    # visible production setting; the script never guesses a container.
+    if [ -z "$MODEL_GATEWAY_CONTAINER_FROM_ENV" ] && [ -n "$configured_container" ]; then
+        MODEL_GATEWAY_CONTAINER="$configured_container"
+    fi
+    if [ -z "$MODEL_GATEWAY_ALIASES_FROM_ENV" ] && [ -n "$configured_aliases" ]; then
+        MODEL_GATEWAY_ALIASES="$configured_aliases"
     fi
 }
 
@@ -212,41 +226,13 @@ pull_configured_images() {
 ensure_docker_network() {
     if docker network inspect "$DOCKER_NETWORK" >/dev/null 2>&1; then
         # deploy/docker-compose.yml declares the bridge as external so the same
-        # network can also hold a pre-existing New API container alias.
+        # network can also hold a pre-existing model gateway container alias.
         info "Using existing Docker network: $DOCKER_NETWORK"
         return
     fi
 
     info "Creating Docker network: $DOCKER_NETWORK"
     docker network create "$DOCKER_NETWORK" >/dev/null
-}
-
-discover_model_gateway_if_possible() {
-    local matches match_count
-
-    if [ -n "$MODEL_GATEWAY_CONTAINER" ] || [ "$AUTO_ATTACH_MODEL_GATEWAY" = "0" ]; then
-        return
-    fi
-
-    # Keep New API outside this compose file, but remove the common first-run
-    # friction by auto-attaching it when there is exactly one obvious candidate.
-    mapfile -t matches < <(
-        docker ps --format '{{.ID}}\t{{.Names}}\t{{.Image}}' \
-            | grep -Ei 'new[-_]?api|newapi' \
-            | awk '{print $1}' \
-            || true
-    )
-
-    match_count="${#matches[@]}"
-    if [ "$match_count" -eq 1 ]; then
-        MODEL_GATEWAY_CONTAINER="${matches[0]}"
-        info "Auto-detected New API container: $MODEL_GATEWAY_CONTAINER"
-        return
-    fi
-
-    if [ "$match_count" -gt 1 ]; then
-        warn "Multiple New API-like containers found; set MODEL_GATEWAY_CONTAINER=<container> to attach one."
-    fi
 }
 
 container_network_aliases() {
@@ -284,6 +270,12 @@ join_aliases() {
     printf '%s\n' "$joined"
 }
 
+primary_model_gateway_alias() {
+    local alias
+    alias="$(desired_model_gateway_aliases | head -n 1 || true)"
+    printf '%s\n' "${alias:-model-gateway}"
+}
+
 attach_model_gateway_if_requested() {
     local alias aliases missing_alias=0
     local desired_aliases=()
@@ -311,15 +303,15 @@ attach_model_gateway_if_requested() {
         fi
 
         # Docker cannot add aliases to an existing endpoint in place. Reconnect
-        # only this external New API container so both the role alias
-        # (`model-gateway`) and the familiar product alias (`new-api`) resolve.
+        # only the explicitly configured external model gateway; deploy never
+        # guesses which third-party gateway container should be mutated.
         warn "Model gateway is on $DOCKER_NETWORK but missing alias from $(join_aliases "${desired_aliases[@]}"); reconnecting it once."
         docker network disconnect "$DOCKER_NETWORK" "$MODEL_GATEWAY_CONTAINER"
     fi
 
-    # New API remains outside this compose file; this attach step gives the
-    # OpenAgents deploy network stable DNS names without starting another
-    # gateway container or relying on the 1Panel-generated container name.
+    # The model gateway remains outside this compose file; this explicit attach
+    # step gives OpenAgents a stable DNS name without starting another gateway
+    # container or relying on a panel-generated container name.
     for alias in "${desired_aliases[@]}"; do
         connect_args+=(--alias "$alias")
     done
@@ -389,14 +381,16 @@ main() {
     sync_migrations
     refresh_env_backed_settings
     ensure_docker_network
-    discover_model_gateway_if_possible
     attach_model_gateway_if_requested
 
     success "Created deploy/data/openagents, deploy/data/postgres, deploy/data/minio, deploy/data/logs"
     success "Synced .openagents/commands and .openagents/system into deploy/data/openagents"
     success "Synced reviewed SQL migrations into deploy/migrations"
     echo ""
-    echo "New API sync URL inside containers: http://${MODEL_GATEWAY_ALIAS}:3000"
+    if [ -z "$MODEL_GATEWAY_CONTAINER" ]; then
+        echo "Model gateway container is not configured; deploy did not attach or modify any external gateway."
+    fi
+    echo "Model gateway URL inside containers when alias exists: http://$(primary_model_gateway_alias):3000"
 
     if [ "$START" -eq 1 ]; then
         echo ""

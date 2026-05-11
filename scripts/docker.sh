@@ -42,39 +42,12 @@ compose_dev() {
     compose_stack "$@"
 }
 
-detect_model_gateway_container() {
-    local configured="${MODEL_GATEWAY_CONTAINER:-}"
-    local name=""
-
-    if [ -n "$configured" ]; then
-        echo "$configured"
-        return 0
-    fi
-
-    # Unified compose still needs to reuse an external model gateway when
-    # operators keep `new-api` outside this repository. Prefer containers that
-    # already advertise the canonical `model-gateway` alias on any legacy
-    # bridge, then fall back to common container names.
-    while IFS= read -r name; do
-        [ -n "$name" ] || continue
-        if docker inspect "$name" --format '{{json .NetworkSettings.Networks}}' 2>/dev/null | grep -q "\"$DEFAULT_MODEL_GATEWAY_ALIAS\""; then
-            echo "$name"
-            return 0
-        fi
-    done < <(docker ps --format '{{.Names}}')
-
-    docker ps --format '{{.Names}}' | grep -E '(^|-)new-api($|-)|(^|-)model-gateway($|-)' | head -n 1 || true
-}
-
 attach_optional_model_gateway() {
-    local gateway_container=""
+    local gateway_container="${MODEL_GATEWAY_CONTAINER:-}"
 
-    gateway_container="$(detect_model_gateway_container)"
-
-    # Many local deployments keep the model gateway outside this repository.
-    # Auto-detect the common external gateway container so the unified stack can
-    # keep the canonical
-    # `http://model-gateway:3000` base URL in both dev and prod.
+    # External model gateways are operator-owned containers. Only attach the
+    # container when MODEL_GATEWAY_CONTAINER is explicit; guessing from names
+    # would be unsafe once operators use gateways other than New API.
     if [ -z "$gateway_container" ]; then
         return 0
     fi
@@ -92,10 +65,6 @@ attach_optional_model_gateway() {
     if docker inspect "$gateway_container" --format '{{json .NetworkSettings.Networks}}' | grep -q "\"$DEFAULT_MODEL_GATEWAY_NETWORK\""; then
         echo -e "${GREEN}✓ External model gateway already attached to $DEFAULT_MODEL_GATEWAY_NETWORK${NC}"
         return 0
-    fi
-
-    if [ -z "${MODEL_GATEWAY_CONTAINER:-}" ]; then
-        echo -e "${BLUE}Auto-detected external model gateway container: $gateway_container${NC}"
     fi
 
     docker network connect --alias "$DEFAULT_MODEL_GATEWAY_ALIAS" "$DEFAULT_MODEL_GATEWAY_NETWORK" "$gateway_container"
@@ -534,8 +503,8 @@ restart() {
     resolve_openagents_home
     echo -e "${BLUE}Restarting containers...${NC}"
     compose_dev restart
-    # Keep restart semantics aligned with start: a user who only ever restarts
-    # the unified stack should still recover the external model gateway alias.
+    # Keep restart semantics aligned with start: if the operator explicitly
+    # configured an external gateway container, restore its network alias.
     attach_optional_model_gateway
     echo ""
     verify_dev_stack "$DEFAULT_START_TIMEOUT_SECONDS"

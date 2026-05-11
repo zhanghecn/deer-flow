@@ -11,7 +11,7 @@
 curl -fsSL https://raw.githubusercontent.com/bytedance/openagents/main/scripts/install.sh | bash
 ```
 
-已有 New API 容器：
+已有外部模型网关容器，并希望部署脚本显式帮你接入 OpenAgents 网络：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/bytedance/openagents/main/scripts/install.sh | env MODEL_GATEWAY_CONTAINER=1Panel-new-api-6d1F bash
@@ -32,7 +32,7 @@ curl -fsSL https://raw.githubusercontent.com/bytedance/openagents/main/scripts/i
 管理后台: http://127.0.0.1:8081
 用户前台: http://127.0.0.1:8083
 默认管理员: admin / admin123
-New API 同步地址: http://model-gateway:3000
+模型网关同步地址: http://model-gateway:3000
 ```
 
 ## 更新
@@ -145,38 +145,88 @@ git tag --points-at HEAD
 ./scripts/docker-deploy.sh
 ```
 
-## New API
+## 模型网关 / New API
 
-生产 compose 使用固定 Docker 网络：
+生产 compose 使用固定 Docker 网络 `openagents`。OpenAgents 不内置 New API，也不会
+默认启动第二套模型网关；把你已有的 New API / One API / LiteLLM 等容器加入这个网络即可。
+
+推荐在 1Panel 面板里操作：
 
 ```text
-openagents
+把模型网关容器加入 openagents 网络
 ```
 
-部署脚本会自动尝试接入唯一的 New API 容器。识别不出来时手动指定：
-
-```bash
-MODEL_GATEWAY_CONTAINER=1Panel-new-api-6d1F ./scripts/docker-deploy.sh
-```
-
-后台同步 New API 模型时填写：
+如果面板支持 alias，给它加 `model-gateway`，后台同步模型时填写：
 
 ```text
 http://model-gateway:3000
 ```
 
-部署脚本默认会给 New API 容器同时添加两个网络别名：
+如果面板只能加入网络、不能设置 alias，先用面板里的容器名：
 
 ```text
-model-gateway
-new-api
+http://1Panel-new-api-6d1F:3000
 ```
 
-所以 `http://new-api:3000` 也能访问。推荐文档和生产配置使用
-`model-gateway`，因为它表示“模型网关”这个角色；`new-api` 是为了和现有 New API
-容器名习惯兼容。
+容器名重建后可能变化，长期生产建议固定 alias。也可以让部署脚本显式接入一次：
+
+```bash
+MODEL_GATEWAY_CONTAINER=1Panel-new-api-6d1F ./scripts/docker-deploy.sh
+```
+
+部署脚本不会自动猜哪个容器是模型网关，也不会默认修改外部模型网关网络。只有你明确
+设置 `MODEL_GATEWAY_CONTAINER` 时才会操作该容器。默认 alias 只有 `model-gateway`；
+如果确认需要 `new-api` 这个别名，显式写：
+
+```bash
+MODEL_GATEWAY_CONTAINER=1Panel-new-api-6d1F MODEL_GATEWAY_ALIASES=model-gateway,new-api ./scripts/docker-deploy.sh
+```
+
+也可以把配置写进 `deploy/.env`：
+
+```dotenv
+MODEL_GATEWAY_CONTAINER=1Panel-new-api-6d1F
+MODEL_GATEWAY_ALIASES=model-gateway
+```
 
 不要填 `127.0.0.1` 或宿主机 IP。容器之间应走 Docker 网络里的服务名或 alias。
+
+### 模型网关网络排查
+
+看网络里的容器和 IP：
+
+```bash
+docker network inspect openagents --format '{{range $id,$c := .Containers}}{{println $c.Name $c.IPv4Address}}{{end}}'
+```
+
+看每个容器在 `openagents` 里的 alias：
+
+```bash
+docker network inspect openagents -f '{{range $id,$_ := .Containers}}{{println $id}}{{end}}' \
+| xargs -r docker inspect -f '{{.Name}} {{range $name,$net := .NetworkSettings.Networks}}{{if eq $name "openagents"}}aliases={{$net.Aliases}} ip={{$net.IPAddress}}{{end}}{{end}}' \
+| sed 's#^/##'
+```
+
+从 OpenAgents 容器里验证：
+
+```bash
+docker exec openagents-gateway-1 getent hosts model-gateway
+docker exec openagents-gateway-1 curl -sS -o /dev/null -w '%{http_code}\n' http://model-gateway:3000/
+```
+
+没有 alias 时先验证容器名：
+
+```bash
+docker exec openagents-gateway-1 getent hosts 1Panel-new-api-6d1F
+docker exec openagents-gateway-1 curl -sS -o /dev/null -w '%{http_code}\n' http://1Panel-new-api-6d1F:3000/
+```
+
+手动重接 alias：
+
+```bash
+docker network disconnect openagents 1Panel-new-api-6d1F || true
+docker network connect --alias model-gateway openagents 1Panel-new-api-6d1F
+```
 
 ## 数据和迁移
 
@@ -291,7 +341,7 @@ curl -fsS http://127.0.0.1:8083/health
 curl -fsS http://127.0.0.1:8081/
 ```
 
-确认 New API DNS：
+确认模型网关 DNS：
 
 ```bash
 cd deploy

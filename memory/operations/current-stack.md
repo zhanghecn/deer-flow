@@ -22,10 +22,29 @@
 - External model gateway container used in recent Docker verification:
   `1Panel-new-api-6d1F`.
 - Production deploy uses one fixed external Docker network named `openagents`.
-- Attach the existing New API container to that network as `model-gateway`; the
-  admin New API sync URL inside containers is `http://model-gateway:3000`.
+- Model gateway integration is explicit and gateway-product neutral. Do not
+  auto-detect or auto-attach a container just because its name/image looks like
+  New API; future deployments may use New API, One API, LiteLLM, or another
+  OpenAI-compatible gateway.
+- Preferred stable in-network URL is `http://model-gateway:3000` after the
+  operator has attached the gateway container to `openagents` with alias
+  `model-gateway`. If 1Panel only attaches the network and cannot set alias,
+  the panel-generated container name can be used temporarily.
+- `scripts/docker-deploy.sh` may attach aliases only when
+  `MODEL_GATEWAY_CONTAINER` is explicitly set in process env or `deploy/.env`.
+  Default alias list is now only `model-gateway`; add `new-api` explicitly only
+  for a real New API container.
 - Before assuming model calls work inside Docker, verify network attachment and
   DNS resolution from the LangGraph/container network.
+- New API model sync must treat returned endpoint metadata as the protocol
+  source of truth. Do not force `deepseek-*` model names onto Anthropic or
+  DeepSeek transports; this host's scan returned `endpoint_types:
+  ["anthropic","openai"]` for `deepseek-v4-*`, so the Anthropic endpoint should
+  win because New API reported it, not because of the model name.
+- On this host, `docker network inspect openagents` shows network membership but
+  not all aliases. To inspect aliases, inspect each container attached to the
+  network, for example:
+  `docker network inspect openagents -f '{{range $id,$_ := .Containers}}{{println $id}}{{end}}' | xargs -r docker inspect -f '{{.Name}} {{range $name,$net := .NetworkSettings.Networks}}{{if eq $name "openagents"}}aliases={{$net.Aliases}} ip={{$net.IPAddress}}{{end}}{{end}}' | sed 's#^/##'`.
 - Source: migrated from `.omx/project-memory.json` / `.omx/notepad.md` and
   updated by the deploy-first Docker refactor.
 

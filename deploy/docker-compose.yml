@@ -3,8 +3,9 @@ name: openagents
 networks:
   default:
     # Production uses one stable operator-owned bridge. Attach an existing
-    # New API container to this network with alias `model-gateway`; model rows
-    # should then use base_url=http://model-gateway:3000.
+    # OpenAI-compatible model gateway to this network with alias
+    # `model-gateway`; model rows should then use
+    # base_url=http://model-gateway:3000.
     external: true
     name: ${OPENAGENTS_DOCKER_NETWORK:-openagents}
 
