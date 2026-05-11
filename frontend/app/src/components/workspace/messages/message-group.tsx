@@ -32,7 +32,6 @@ import { workspaceMessageRehypePlugins } from "@/core/streamdown";
 import { extractQuestionRequestFromArgs } from "@/core/threads/interrupts";
 import { getUserVisibleRuntimePathWithOptions } from "@/core/utils/files";
 import { extractTitleFromMarkdown } from "@/core/utils/markdown";
-import { env } from "@/env";
 import { cn } from "@/lib/utils";
 
 import { useArtifacts } from "../artifacts";
@@ -40,10 +39,6 @@ import { FlipDisplay } from "../flip-display";
 import { Tooltip } from "../tooltip";
 
 import { MarkdownContent } from "./markdown-content";
-
-type MessageTraceDisplayMode = "debug" | "user";
-
-const messageTraceDisplayModes: MessageTraceDisplayMode[] = ["debug", "user"];
 
 function getStringArg(args: Record<string, unknown>, ...keys: string[]) {
   for (const key of keys) {
@@ -120,19 +115,14 @@ export function MessageGroup({
   messages,
   isLoading = false,
   showTrailingReasoning = true,
-  defaultTraceDisplayMode = env.VITE_MESSAGE_TRACE_DISPLAY_MODE,
 }: {
   className?: string;
   messages: Message[];
   isLoading?: boolean;
   showTrailingReasoning?: boolean;
-  defaultTraceDisplayMode?: MessageTraceDisplayMode;
 }) {
   const { t } = useI18n();
   const [showAbove, setShowAbove] = useState(true);
-  const [traceDisplayMode, setTraceDisplayMode] = useState(
-    defaultTraceDisplayMode,
-  );
   const steps = useMemo(() => convertToSteps(messages), [messages]);
   const lastToolCallStep = useMemo(() => {
     const filteredSteps = steps.filter((step) => step.type === "toolCall");
@@ -201,31 +191,6 @@ export function MessageGroup({
           ></ChainOfThoughtStep>
         </Button>
       )}
-      <div className="flex justify-end border-b px-3 py-2">
-        <div
-          className="inline-flex rounded-md border bg-muted/30 p-0.5"
-          aria-label={t.toolCalls.traceDisplayMode}
-          role="group"
-        >
-          {messageTraceDisplayModes.map((mode) => (
-            <Button
-              key={mode}
-              aria-pressed={traceDisplayMode === mode}
-              className={cn(
-                "h-7 rounded-[5px] px-2.5 text-xs shadow-none",
-                traceDisplayMode === mode
-                  ? "bg-background text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              size="sm"
-              variant="ghost"
-              onClick={() => setTraceDisplayMode(mode)}
-            >
-              {mode === "debug" ? t.toolCalls.debugMode : t.toolCalls.userMode}
-            </Button>
-          ))}
-        </div>
-      </div>
       <ChainOfThoughtContent className="px-4 py-3">
         {/* Keep completed steps visible by default so reopened threads and long
             tool chains still preserve their full reasoning trail unless the
@@ -243,24 +208,18 @@ export function MessageGroup({
                   />
                 }
               ></ChainOfThoughtStep>
-            ) : traceDisplayMode === "user" ? (
-              <UserToolCall key={step.id} id={step.id} />
             ) : (
               <ToolCall key={step.id} {...step} isLoading={isLoading} />
             ),
           )}
         {lastToolCallStep && (
           <FlipDisplay uniqueKey={lastToolCallStep.id ?? ""}>
-            {traceDisplayMode === "user" ? (
-              <UserToolCall key={lastToolCallStep.id} id={lastToolCallStep.id} />
-            ) : (
-              <ToolCall
-                key={lastToolCallStep.id}
-                {...lastToolCallStep}
-                isLast={true}
-                isLoading={isLoading}
-              />
-            )}
+            <ToolCall
+              key={lastToolCallStep.id}
+              {...lastToolCallStep}
+              isLast={true}
+              isLoading={isLoading}
+            />
           </FlipDisplay>
         )}
         {visibleLastReasoningStep && (
@@ -279,18 +238,6 @@ export function MessageGroup({
         )}
       </ChainOfThoughtContent>
     </ChainOfThought>
-  );
-}
-
-function UserToolCall({ id }: { id?: string }) {
-  const { t } = useI18n();
-
-  return (
-    <ChainOfThoughtStep
-      key={id}
-      label={t.toolCalls.searchMaterials}
-      icon={SearchIcon}
-    ></ChainOfThoughtStep>
   );
 }
 

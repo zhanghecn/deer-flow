@@ -541,9 +541,6 @@ export const enUS: Translations = {
 
   // Tool calls
   toolCalls: {
-    traceDisplayMode: "Trace display mode",
-    debugMode: "Debug",
-    userMode: "User",
     searchMaterials: "Looking up resources",
     moreSteps: (count: number) => `${count} more step${count === 1 ? "" : "s"}`,
     lessSteps: "Less steps",

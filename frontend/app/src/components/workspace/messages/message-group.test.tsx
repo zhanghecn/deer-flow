@@ -8,9 +8,6 @@ vi.mock("@/core/i18n/hooks", () => ({
     t: {
       common: { thinking: "Thinking" },
       toolCalls: {
-        traceDisplayMode: "Trace display mode",
-        debugMode: "Debug",
-        userMode: "User",
         searchMaterials: "Looking up resources",
         lessSteps: "Less steps",
         moreSteps: (count: number) => `${count} more steps`,
@@ -73,7 +70,7 @@ describe("shouldShowTrailingReasoning", () => {
 });
 
 describe("MessageGroup tool display", () => {
-  it("uses the debug trace mode by default", () => {
+  it("always shows debug tool details without a display-mode toggle", () => {
     render(
       <MessageGroup
         messages={[
@@ -95,17 +92,13 @@ describe("MessageGroup tool display", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Debug" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    expect(screen.queryByRole("group")).not.toBeInTheDocument();
     expect(screen.getByText("whoami")).toBeInTheDocument();
   });
 
-  it("can start in user trace mode and hide tool details", () => {
+  it("keeps tool details visible for knowledge tools", () => {
     render(
       <MessageGroup
-        defaultTraceDisplayMode="user"
         messages={[
           {
             id: "ai-1",
@@ -131,42 +124,9 @@ describe("MessageGroup tool display", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "User" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    expect(screen.getByText("Looking up resources")).toBeInTheDocument();
     expect(screen.getByText(/inspect the docs/)).toBeInTheDocument();
-    expect(screen.queryByText(/mcp__kb__query/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/allowance policy/)).not.toBeInTheDocument();
-  });
-
-  it("toggles user trace mode back to debug details", () => {
-    render(
-      <MessageGroup
-        defaultTraceDisplayMode="user"
-        messages={[
-          {
-            id: "ai-1",
-            type: "ai",
-            content: "",
-            tool_calls: [
-              {
-                id: "tool-1",
-                name: "execute",
-                args: {
-                  command: "pwd",
-                },
-              },
-            ],
-          },
-        ]}
-      />,
-    );
-
-    expect(screen.queryByText("pwd")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Debug" }));
-    expect(screen.getByText("pwd")).toBeInTheDocument();
+    expect(screen.getByText(/mcp__kb__query/)).toBeInTheDocument();
+    expect(screen.getByText(/allowance policy/)).toBeInTheDocument();
   });
 
   it("shows the full runtime path for read_file tool calls", () => {
