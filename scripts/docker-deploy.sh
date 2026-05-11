@@ -121,6 +121,9 @@ normalize_existing_env() {
     ensure_env_value "OPENAGENTS_VERSION" "${old_tag:-latest}"
     ensure_env_value "OPENAGENTS_MIGRATIONS_DIR" "./migrations"
     ensure_env_value "OPENAGENTS_DOCKER_NETWORK" "$DOCKER_NETWORK"
+    ensure_env_value "OPENAGENTS_LOG_DIR" "./data/logs"
+    ensure_env_value "OPENAGENTS_LOG_MAX_SIZE_MB" "100"
+    ensure_env_value "OPENAGENTS_LOG_MAX_BACKUPS" "10"
     # Process environment values are one-run overrides for compose and helper
     # checks. Do not write them back into deploy/.env; local registry tests must
     # not silently become the operator's permanent production image source.
@@ -380,7 +383,7 @@ main() {
 
     info "Purpose: first install and production update. Image publishing uses scripts/docker-release.sh or GitHub Actions."
     info "Preparing deploy production directory"
-    mkdir -p "$DEPLOY_DIR/data/openagents" "$DEPLOY_DIR/data/postgres" "$DEPLOY_DIR/data/minio"
+    mkdir -p "$DEPLOY_DIR/data/openagents" "$DEPLOY_DIR/data/postgres" "$DEPLOY_DIR/data/minio" "$DEPLOY_DIR/data/logs"
     [ -f "$DEPLOY_DIR/docker-compose.yml" ] || fail "Missing canonical deploy compose: $DEPLOY_DIR/docker-compose.yml"
 
     [ -f "$ENV_EXAMPLE" ] || fail "Missing template: $ENV_EXAMPLE"
@@ -412,7 +415,7 @@ main() {
     discover_model_gateway_if_possible
     attach_model_gateway_if_requested
 
-    success "Created deploy/data/openagents, deploy/data/postgres, deploy/data/minio"
+    success "Created deploy/data/openagents, deploy/data/postgres, deploy/data/minio, deploy/data/logs"
     success "Synced .openagents/commands and .openagents/system into deploy/data/openagents"
     success "Synced reviewed SQL migrations into deploy/migrations"
     echo ""
@@ -437,6 +440,8 @@ main() {
         echo "  App:   http://127.0.0.1:$(env_value OPENAGENTS_APP_PORT || echo 8083)"
         echo ""
         echo "Logs:"
+        echo "  tail -f deploy/data/logs/gateway.log"
+        echo "  tail -f deploy/data/logs/langgraph.log"
         echo "  ./scripts/docker-logs.sh"
         echo "  ./scripts/docker-logs.sh gateway"
         echo "  ./scripts/docker-logs.sh migrate --no-follow"
@@ -444,6 +449,7 @@ main() {
         echo ""
         echo "Prepared only. Start later with:"
         echo "  cd deploy && docker compose -f docker-compose.yml up -d"
+        echo "  tail -f deploy/data/logs/gateway.log"
         echo "  ./scripts/docker-logs.sh"
     fi
 }

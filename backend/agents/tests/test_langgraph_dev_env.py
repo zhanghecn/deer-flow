@@ -1,4 +1,5 @@
 import json
+import logging
 
 from src import langgraph_dev
 
@@ -44,7 +45,10 @@ def test_main_passes_merged_runtime_env_to_run_server(tmp_path, monkeypatch):
         captured.update(kwargs)
 
     monkeypatch.setattr(langgraph_dev, "run_server", fake_run_server)
+    monkeypatch.setattr(langgraph_dev, "get_paths", lambda: object())
+    monkeypatch.setattr(langgraph_dev, "migrate_legacy_mcp_profile_layout", lambda *args, **kwargs: None)
     monkeypatch.setattr(langgraph_dev, "ensure_builtin_agent_archive", lambda *args, **kwargs: None)
+    monkeypatch.setattr(langgraph_dev, "prime_lead_agent_read_graph_cache", lambda: None)
     monkeypatch.setattr(langgraph_dev, "start_remote_relay_sidecar", lambda: None)
     monkeypatch.setattr(langgraph_dev, "start_knowledge_worker_thread", lambda: None)
 
@@ -88,3 +92,19 @@ def test_jobs_per_worker_prefers_environment_override(tmp_path, monkeypatch):
     monkeypatch.setenv("N_JOBS_PER_WORKER", "2")
 
     assert langgraph_dev._resolve_jobs_per_worker() == 8
+
+
+def test_configure_file_logging_writes_to_env_path(tmp_path, monkeypatch):
+    log_path = tmp_path / "logs" / "langgraph.log"
+    monkeypatch.setenv("OPENAGENTS_LANGGRAPH_LOG_FILE", str(log_path))
+    monkeypatch.setenv("OPENAGENTS_LOG_MAX_SIZE_MB", "1")
+    monkeypatch.setenv("OPENAGENTS_LOG_MAX_BACKUPS", "2")
+
+    langgraph_dev._configure_file_logging()
+    logger = logging.getLogger("openagents.test.filelog")
+    logger.warning("persistent file log check")
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+
+    content = log_path.read_text(encoding="utf-8")
+    assert "persistent file log check" in content

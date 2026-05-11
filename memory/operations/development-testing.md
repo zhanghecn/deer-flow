@@ -92,16 +92,22 @@ source-mounted local development stack.
 
 ## Deploy Logs
 
-Production deploy logs are Docker compose logs, not files under `deploy/logs/`.
-Use the helper from the repository root during verification:
+Production deploy has two log surfaces:
+
+- Persistent application files under `deploy/data/logs/`
+- Docker compose live logs through `./scripts/docker-logs.sh`
+
+Use both during verification:
 
 ```bash
+tail -n 100 deploy/data/logs/gateway.log
+tail -n 100 deploy/data/logs/langgraph.log
 ./scripts/docker-logs.sh --no-follow
 ./scripts/docker-logs.sh gateway --no-follow
 ./scripts/docker-logs.sh langgraph --no-follow
 ./scripts/docker-logs.sh migrate --no-follow
 ```
 
-The helper reads `deploy/docker-compose.yml`, where services use Docker's
-`json-file` log driver with rotation. Do not add a second file-log contract
-unless the product explicitly needs exported log archives.
+The helper reads `deploy/docker-compose.yml`, where services also use Docker's
+`json-file` log driver with rotation. Keep app file logs in `deploy/data/logs`
+instead of adding a parallel `deploy/logs` path.

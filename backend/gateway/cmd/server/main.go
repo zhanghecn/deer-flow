@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/openagents/gateway/internal/applog"
 	"github.com/openagents/gateway/internal/bootstrap"
 	"github.com/openagents/gateway/internal/config"
 	"github.com/openagents/gateway/internal/handler"
@@ -31,6 +32,16 @@ func main() {
 			"Note: root .env file not found at %s; using environment variables",
 			bootstrap.SharedEnvPath(),
 		)
+	}
+	closeLogFile, err := applog.ConfigureFromEnv()
+	if err != nil {
+		log.Printf("Gateway file logging disabled: %v", err)
+	} else {
+		defer func() {
+			if err := closeLogFile(); err != nil {
+				log.Printf("Gateway file logging close failed: %v", err)
+			}
+		}()
 	}
 
 	// Load gateway config

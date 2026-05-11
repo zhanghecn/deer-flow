@@ -27,8 +27,8 @@ Service aliases:
   office|onlyoffice, db|postgres, minio, minio-init, migrate
 
 OpenAgents production logs are Docker compose logs. They are stored by Docker's
-json-file log driver with rotation from deploy/docker-compose.yml, not in a
-deploy/logs directory.
+json-file log driver with rotation from deploy/docker-compose.yml. Persistent
+application log files are also written under deploy/data/logs.
 EOF
 }
 

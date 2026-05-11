@@ -37,6 +37,13 @@ x-openagents-sandbox-mount: &openagents_sandbox_mount
   source: ${OPENAGENTS_DOCKER_HOST_HOME:-./data/openagents}
   target: /openagents
 
+x-openagents-logs-mount: &openagents_logs_mount
+  # Application services mirror production logs here while stdout/stderr still
+  # feed Docker's own compose logs for live troubleshooting.
+  type: bind
+  source: ${OPENAGENTS_LOG_DIR:-./data/logs}
+  target: /openagents-logs
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -186,6 +193,9 @@ services:
       OPENAGENTS_EXTENSIONS_CONFIG_PATH: /openagents-home/extensions_config.json
       OPENAGENTS_SANDBOX_BASE_URL: http://sandbox-aio:8080
       OPENAGENTS_SANDBOX_SHARED_DATA_MOUNT_PATH: /openagents
+      OPENAGENTS_LANGGRAPH_LOG_FILE: ${OPENAGENTS_LANGGRAPH_LOG_FILE:-/openagents-logs/langgraph.log}
+      OPENAGENTS_LOG_MAX_SIZE_MB: ${OPENAGENTS_LOG_MAX_SIZE_MB:-100}
+      OPENAGENTS_LOG_MAX_BACKUPS: ${OPENAGENTS_LOG_MAX_BACKUPS:-10}
       KNOWLEDGE_OBJECT_STORE: ${KNOWLEDGE_OBJECT_STORE:-minio}
       KNOWLEDGE_S3_ENDPOINT: ${KNOWLEDGE_S3_ENDPOINT:-http://minio:9000}
       KNOWLEDGE_S3_ACCESS_KEY: ${KNOWLEDGE_S3_ACCESS_KEY:-${OPENAGENTS_MINIO_ROOT_USER:-openagents}}
@@ -195,6 +205,7 @@ services:
       PYTHONDONTWRITEBYTECODE: "1"
     volumes:
       - *openagents_home_mount
+      - *openagents_logs_mount
       - type: bind
         # Root runtime config is operator-owned; image tags carry code only.
         source: ${OPENAGENTS_CONFIG_FILE:-./config.yaml}
@@ -228,6 +239,9 @@ services:
       GATEWAY_CONFIG_PATH: /app/backend/gateway/gateway.yaml
       OPENAGENTS_CONFIG_PATH: /app/config.yaml
       LANGGRAPH_URL: http://langgraph:2024
+      OPENAGENTS_GATEWAY_LOG_FILE: ${OPENAGENTS_GATEWAY_LOG_FILE:-/openagents-logs/gateway.log}
+      OPENAGENTS_LOG_MAX_SIZE_MB: ${OPENAGENTS_LOG_MAX_SIZE_MB:-100}
+      OPENAGENTS_LOG_MAX_BACKUPS: ${OPENAGENTS_LOG_MAX_BACKUPS:-10}
       ONLYOFFICE_SERVER_URL: /onlyoffice
       ONLYOFFICE_INTERNAL_SERVER_URL: http://onlyoffice:80
       ONLYOFFICE_PUBLIC_APP_URL: http://gateway:8001
@@ -240,6 +254,7 @@ services:
       KNOWLEDGE_S3_BUCKET: ${KNOWLEDGE_S3_BUCKET:-openagents-knowledge}
     volumes:
       - *openagents_home_mount
+      - *openagents_logs_mount
       - type: bind
         # Keep config files outside images so the same version can be promoted
         # across environments without a rebuild.
@@ -269,6 +284,8 @@ services:
     ports:
       - "${OPENAGENTS_APP_PORT:-8083}:80"
       - "${OPENAGENTS_ADMIN_PORT:-8081}:8081"
+    volumes:
+      - *openagents_logs_mount
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health >/dev/null"]
       interval: 15s

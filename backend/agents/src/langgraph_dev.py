@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import logging
 import os
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
+import yaml
 from dotenv import dotenv_values
 from langgraph_api.cli import run_server
-import yaml
 
 from src.agents.lead_agent.agent import prime_lead_agent_read_graph_cache
 from src.config.builtin_agents import ensure_builtin_agent_archive
@@ -20,6 +22,8 @@ from src.remote.server import start_remote_relay_sidecar
 
 ALLOWED_RUNTIME_EDITIONS = {"inmem", "postgres", "community"}
 DEFAULT_LANGGRAPH_JOBS_PER_WORKER = 4
+DEFAULT_LOG_MAX_SIZE_MB = 100
+DEFAULT_LOG_BACKUPS = 10
 
 
 def _load_config(config_path: Path) -> dict[str, Any]:
@@ -81,11 +85,70 @@ def _parse_non_negative_int(raw: str, *, source_name: str) -> int:
     return value
 
 
+def _positive_int_env(var_name: str, default: int) -> int:
+    raw = os.getenv(var_name, str(default)).strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    if value <= 0:
+        return default
+    return value
+
+
 def _required_env(var_name: str) -> str:
     value = os.getenv(var_name, "").strip()
     if value:
         return value
     raise RuntimeError(f"Missing required env: {var_name}")
+
+
+def _has_file_handler(logger: logging.Logger, log_path: Path) -> bool:
+    resolved = log_path.resolve()
+    for handler in logger.handlers:
+        if isinstance(handler, RotatingFileHandler) and Path(handler.baseFilename).resolve() == resolved:
+            return True
+    return False
+
+
+def _configure_file_logging() -> None:
+    log_file = os.getenv("OPENAGENTS_LANGGRAPH_LOG_FILE", "").strip() or os.getenv("OPENAGENTS_LOG_FILE", "").strip()
+    if not log_file:
+        return
+
+    log_path = Path(log_file).expanduser()
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    max_bytes = _positive_int_env("OPENAGENTS_LOG_MAX_SIZE_MB", DEFAULT_LOG_MAX_SIZE_MB) * 1024 * 1024
+    backup_count = _positive_int_env("OPENAGENTS_LOG_MAX_BACKUPS", DEFAULT_LOG_BACKUPS)
+    log_level = os.getenv("OPENAGENTS_LOG_LEVEL", "INFO").strip().upper() or "INFO"
+
+    handler = RotatingFileHandler(
+        log_path,
+        maxBytes=max_bytes,
+        backupCount=backup_count,
+        encoding="utf-8",
+    )
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s")
+    )
+    handler.setLevel(log_level)
+
+    # Most OpenAgents modules use standard child loggers and propagate to root.
+    # Keep one root file handler so messages do not get duplicated through the
+    # logger hierarchy while still preserving existing console handlers.
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+    if _has_file_handler(root_logger, log_path):
+        handler.close()
+    else:
+        root_logger.addHandler(handler)
+
+    logging.getLogger(__name__).info(
+        "LangGraph file logging enabled: path=%s max_size_mb=%s max_backups=%s",
+        log_path,
+        _positive_int_env("OPENAGENTS_LOG_MAX_SIZE_MB", DEFAULT_LOG_MAX_SIZE_MB),
+        backup_count,
+    )
 
 
 def _resolve_config_path() -> Path:
@@ -169,6 +232,7 @@ def main() -> None:
     config_path = _resolve_config_path()
     config_data = _load_config(config_path)
     runtime_env = _load_env_from_config(config_path, config_data)
+    _configure_file_logging()
 
     runtime_edition = _resolve_runtime_edition()
     jobs_per_worker = _resolve_jobs_per_worker()

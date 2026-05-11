@@ -241,7 +241,20 @@ cd deploy
 docker compose ps
 ```
 
-看日志：
+文件日志：
+
+```bash
+ls -lah deploy/data/logs
+tail -f deploy/data/logs/gateway.log
+tail -f deploy/data/logs/langgraph.log
+tail -f deploy/data/logs/nginx-access.log
+```
+
+OpenAgents 对齐 Sub2API 的生产习惯：应用服务会把持久日志写到
+`deploy/data/logs/`。`gateway` 和 `langgraph` 默认按 100MB 单文件、10 个历史
+文件轮转；`nginx` 同时写访问日志和错误日志。
+
+实时容器日志：
 
 ```bash
 ./scripts/docker-logs.sh
@@ -250,9 +263,9 @@ docker compose ps
 ./scripts/docker-logs.sh migrate --no-follow
 ```
 
-OpenAgents 和 Sub2API 一样，生产日志默认走 Docker compose logs，不写入
-`deploy/logs/` 目录。`deploy/docker-compose.yml` 已配置 Docker `json-file`
-日志驱动轮转，避免单机日志无限增长。
+Docker compose 日志仍然保留，用于看容器启动、健康检查和基础服务输出。
+`deploy/docker-compose.yml` 也配置了 Docker `json-file` 日志驱动轮转，避免
+Docker 自己的日志无限增长。
 
 健康检查：
 
