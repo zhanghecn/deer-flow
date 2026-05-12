@@ -483,7 +483,7 @@ func (s *PublicAPIService) StreamChatCompletions(
 	sentRole := false
 	result, err := s.executeRun(ctx, plan, func(record publicAPIRuntimeEventRecord) error {
 		textDelta := assistantDeltaFromRunEvents(record.RunEvents)
-		if strings.TrimSpace(textDelta) == "" {
+		if textDelta == "" {
 			return nil
 		}
 
@@ -954,7 +954,7 @@ func (c *publicAPIRunCollector) consume(sourceEvent string, payload any) publicA
 				events = append(events, toolEvents...)
 			}
 			messageID := assistantMessageID(record)
-			if textDelta := c.assistantStream.textDelta(messageID, record["content"]); strings.TrimSpace(textDelta) != "" {
+			if textDelta := c.assistantStream.textDelta(messageID, record["content"]); textDelta != "" {
 				events = append(events, c.pushEvent(model.PublicAPIRunEvent{
 					Type:  model.PublicAPIAssistantDelta,
 					Delta: textDelta,
@@ -2377,7 +2377,7 @@ func lastRunEventIndex(events []model.PublicAPIRunEvent) int {
 func assistantDeltaFromRunEvents(events []model.PublicAPIRunEvent) string {
 	segments := make([]string, 0, len(events))
 	for _, event := range events {
-		if event.Type == model.PublicAPIAssistantDelta && strings.TrimSpace(event.Delta) != "" {
+		if event.Type == model.PublicAPIAssistantDelta && event.Delta != "" {
 			segments = append(segments, event.Delta)
 		}
 	}

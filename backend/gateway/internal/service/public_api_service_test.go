@@ -1160,6 +1160,45 @@ func TestPublicAPIRunCollectorExtractsTextDeltaFromMessagesEvent(t *testing.T) {
 	}
 }
 
+func TestPublicAPIRunCollectorPreservesWhitespaceOnlyDeltas(t *testing.T) {
+	t.Parallel()
+
+	collector := newPublicAPIRunCollector(1)
+	collector.consume("messages", []any{
+		map[string]any{
+			"type": "AIMessageChunk",
+			"id":   "msg_current",
+			"content": []any{
+				map[string]any{
+					"type": "text",
+					"text": "Hello",
+				},
+			},
+			"tool_calls": []any{},
+		},
+	})
+
+	record := collector.consume("messages", []any{
+		map[string]any{
+			"type": "AIMessageChunk",
+			"id":   "msg_current",
+			"content": []any{
+				map[string]any{
+					"type": "text",
+					"text": "Hello\n",
+				},
+			},
+			"tool_calls": []any{},
+		},
+	})
+	if len(record.RunEvents) != 1 {
+		t.Fatalf("expected whitespace delta event, got %#v", record.RunEvents)
+	}
+	if record.RunEvents[0].Delta != "\n" {
+		t.Fatalf("expected newline delta to be preserved, got %q", record.RunEvents[0].Delta)
+	}
+}
+
 func TestPublicAPIRunCollectorConvertsCumulativeTextSnapshotsToDeltas(t *testing.T) {
 	t.Parallel()
 

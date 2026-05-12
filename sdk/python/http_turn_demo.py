@@ -9,6 +9,7 @@ Environment variables:
   OPENAGENTS_HISTORY_SCOPE optional flat JSON object, e.g. {"tenant_id":"acme"}
   OPENAGENTS_PROMPT     optional prompt text
   OPENAGENTS_STREAM     set to 1 to use SSE streaming
+  OPENAGENTS_INCLUDE_PARTIALS set to 1 to print raw stream_event SDK messages
 """
 
 from __future__ import annotations
@@ -48,7 +49,145 @@ def create_turn(base_url: str, api_key: str, payload: dict) -> dict:
         return json.loads(response.read().decode("utf-8"))
 
 
-def stream_turn(base_url: str, api_key: str, payload: dict) -> str | None:
+def assistant_content(text: str, reasoning: str) -> list[dict]:
+    content: list[dict] = []
+    if reasoning:
+        content.append({"type": "thinking", "thinking": reasoning})
+    if text:
+        content.append({"type": "text", "text": text})
+    return content
+
+
+def sdk_messages_from_turn_event(
+    event: dict,
+    *,
+    session_id: str,
+    include_partials: bool,
+) -> list[dict]:
+    turn_id = event.get("turn_id")
+    base = {
+        "session_id": session_id,
+        **({"turn_id": turn_id} if turn_id else {}),
+    }
+    messages: list[dict] = []
+    if include_partials:
+        messages.append({**base, "type": "stream_event", "event": event})
+
+    event_type = event.get("type")
+    if event_type == "tool.call.started":
+        messages.append(
+            {
+                **base,
+                "type": "tool_call",
+                "tool_call_id": event.get("tool_call_id", ""),
+                "tool_name": event.get("tool_name", "unknown"),
+                "tool_arguments": event.get("tool_arguments", {}),
+            }
+        )
+    elif event_type == "tool.call.completed":
+        messages.append(
+            {
+                **base,
+                "type": "tool_result",
+                "tool_call_id": event.get("tool_call_id", ""),
+                "tool_name": event.get("tool_name", "unknown"),
+                "tool_output": event.get("tool_output"),
+            }
+        )
+    elif event_type == "context.compacted":
+        messages.append(
+            {
+                **base,
+                "type": "system",
+                "subtype": "context_compacted",
+                "context_before_tokens": event.get("context_before_tokens"),
+                "context_after_tokens": event.get("context_after_tokens"),
+                "context_max_tokens": event.get("context_max_tokens"),
+                "summary_count": event.get("summary_count"),
+            }
+        )
+    elif event_type == "turn.failed":
+        messages.append(
+            {
+                **base,
+                "type": "result",
+                "subtype": "error",
+                "error": event.get("error") or event.get("status") or "Turn failed",
+            }
+        )
+    return messages
+
+
+def sdk_assistant_from_turn(
+    turn: dict,
+    *,
+    session_id: str,
+    agent: str,
+) -> dict | None:
+    content = assistant_content(
+        turn.get("output_text", ""),
+        turn.get("reasoning_text", ""),
+    )
+    if not content:
+        return None
+    return {
+        "type": "assistant",
+        "session_id": session_id,
+        "turn_id": turn.get("id"),
+        "message": {
+            "type": "message",
+            "role": "assistant",
+            "model": agent,
+            "content": content,
+            "usage": turn.get("usage"),
+        },
+    }
+
+
+def sdk_result_from_turn(turn: dict, *, session_id: str, agent: str) -> dict:
+    base = {
+        "session_id": session_id,
+        "turn_id": turn.get("id"),
+    }
+    if turn.get("status") == "failed":
+        failed = next(
+            (
+                event
+                for event in turn.get("events", [])
+                if event.get("type") == "turn.failed"
+            ),
+            {},
+        )
+        return {
+            **base,
+            "type": "result",
+            "subtype": "error",
+            "error": failed.get("error") or "Turn failed",
+            "usage": turn.get("usage"),
+        }
+    return {
+        **base,
+        "type": "result",
+        "subtype": "success",
+        "output_text": turn.get("output_text", ""),
+        "reasoning_text": turn.get("reasoning_text", ""),
+        "usage": turn.get("usage"),
+        "artifacts": turn.get("artifacts", []),
+        "agent": agent,
+    }
+
+
+def print_sdk_message(message: dict) -> None:
+    print(f"[sdk:{message['type']}] {json.dumps(message, ensure_ascii=False)}")
+
+
+def stream_turn(
+    base_url: str,
+    api_key: str,
+    payload: dict,
+    *,
+    include_partials: bool,
+) -> str | None:
     request = urllib.request.Request(
         f"{base_url}/turns",
         data=json.dumps({**payload, "stream": True}).encode("utf-8"),
@@ -66,7 +205,12 @@ def stream_turn(base_url: str, api_key: str, payload: dict) -> str | None:
                 if data_lines and event_name != "done":
                     event = json.loads("\n".join(data_lines))
                     turn_id = event.get("turn_id") or turn_id
-                    print(f"[{event_name}] {json.dumps(event, ensure_ascii=False)}")
+                    for message in sdk_messages_from_turn_event(
+                        event,
+                        session_id=str(payload["session_id"]),
+                        include_partials=include_partials,
+                    ):
+                        print_sdk_message(message)
                 event_name = "message"
                 data_lines = []
                 continue
@@ -133,6 +277,7 @@ def main() -> int:
         print(str(exc), file=sys.stderr)
         return 2
     stream = os.environ.get("OPENAGENTS_STREAM", "").strip() == "1"
+    include_partials = os.environ.get("OPENAGENTS_INCLUDE_PARTIALS", "").strip() == "1"
 
     if not api_key or not agent:
         print(
@@ -156,14 +301,42 @@ def main() -> int:
         if history_scope:
             print(f"[history_scope] {json.dumps(history_scope, ensure_ascii=False)}")
         if stream:
-            turn_id = stream_turn(base_url, api_key, payload)
+            turn_id = stream_turn(
+                base_url,
+                api_key,
+                payload,
+                include_partials=include_partials,
+            )
             if turn_id:
                 final_turn = get_turn(base_url, api_key, turn_id)
+                assistant_message = sdk_assistant_from_turn(
+                    final_turn,
+                    session_id=session_id,
+                    agent=agent,
+                )
+                if assistant_message:
+                    print_sdk_message(assistant_message)
+                print_sdk_message(
+                    sdk_result_from_turn(
+                        final_turn,
+                        session_id=session_id,
+                        agent=agent,
+                    )
+                )
                 print("\n[final-turn]")
                 print(json.dumps(final_turn, indent=2, ensure_ascii=False))
             return 0
 
         turn = create_turn(base_url, api_key, payload)
+        assistant_message = sdk_assistant_from_turn(
+            turn,
+            session_id=session_id,
+            agent=agent,
+        )
+        if assistant_message:
+            print_sdk_message(assistant_message)
+        print_sdk_message(sdk_result_from_turn(turn, session_id=session_id, agent=agent))
+        print("\n[final-turn]")
         print(json.dumps(turn, indent=2, ensure_ascii=False))
         return 0
     except urllib.error.HTTPError as exc:

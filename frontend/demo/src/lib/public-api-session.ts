@@ -13,6 +13,11 @@ import {
   runStreamedPublicAPITurn,
   type PublicAPITurnStreamUpdate,
 } from "./public-api-turn-runner";
+import {
+  createPublicAPISDKMessageProjector,
+  type PublicAPISDKMessage,
+  type PublicAPISDKMessageUpdate,
+} from "./public-api-sdk-messages";
 
 export type PublicAPISessionPromptParams = {
   text: string;
@@ -26,13 +31,16 @@ export type PublicAPISessionPromptParams = {
   textOptions?: PublicAPITurnRequestBody["text"];
   maxOutputTokens?: number;
   signal?: AbortSignal;
+  includePartialMessages?: boolean;
   onUpdate?: (update: PublicAPITurnStreamUpdate) => void;
+  onMessage?: (update: PublicAPISDKMessageUpdate) => void;
 };
 
 export type PublicAPISessionPromptResult = {
   requestBody: PublicAPITurnRequestBody;
   readModel: PublicAPIRunReadModel;
   turn: PublicAPITurnSnapshot | null;
+  messages: PublicAPISDKMessage[];
 };
 
 export type PublicAPISession = {
@@ -113,6 +121,12 @@ export function createPublicAPISession(params: {
         historyScope: params.historyScope,
         prompt,
       });
+      const projector = createPublicAPISDKMessageProjector({
+        agent: params.agent,
+        sessionId,
+        includePartialMessages: prompt.includePartialMessages,
+        onMessage: prompt.onMessage,
+      });
 
       if (requestBody.stream === false) {
         const turn = await createPublicAPITurn({
@@ -126,10 +140,12 @@ export function createPublicAPISession(params: {
           current: readModel,
           turn,
         });
+        projector.finalizeTurn(turn, readModel);
         return {
           requestBody,
           readModel,
           turn,
+          messages: projector.messages,
         };
       }
 
@@ -138,12 +154,17 @@ export function createPublicAPISession(params: {
         apiToken: params.apiToken,
         body: requestBody,
         signal: prompt.signal,
-        onUpdate: prompt.onUpdate,
+        onUpdate: (update) => {
+          projector.consume(update);
+          prompt.onUpdate?.(update);
+        },
       });
+      projector.finalizeTurn(result.turn, result.readModel);
       return {
         requestBody,
         readModel: result.readModel,
         turn: result.turn,
+        messages: projector.messages,
       };
     },
     reset() {

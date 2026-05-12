@@ -13,6 +13,11 @@ import {
   runStreamedPublicAPITurn,
   type PublicAPITurnStreamUpdate,
 } from "./turn-runner";
+import {
+  createPublicAPISDKMessageProjector,
+  type PublicAPISDKMessage,
+  type PublicAPISDKMessageUpdate,
+} from "./sdk-messages";
 
 export type PublicAPISessionPromptParams = {
   text: string;
@@ -26,17 +31,22 @@ export type PublicAPISessionPromptParams = {
   textOptions?: PublicAPITurnRequestBody["text"];
   maxOutputTokens?: number;
   signal?: AbortSignal;
+  includePartialMessages?: boolean;
   onUpdate?: (update: PublicAPITurnStreamUpdate) => void;
+  onMessage?: (update: PublicAPISDKMessageUpdate) => void;
 };
 
 export type PublicAPISessionPromptResult = {
   requestBody: PublicAPITurnRequestBody;
   readModel: PublicAPIRunReadModel;
   turn: PublicAPITurnSnapshot | null;
+  messages: PublicAPISDKMessage[];
 };
 
 export type PublicAPISession = {
-  previewRequest: (params: PublicAPISessionPromptParams) => PublicAPITurnRequestBody;
+  previewRequest: (
+    params: PublicAPISessionPromptParams,
+  ) => PublicAPITurnRequestBody;
   prompt: (
     params: PublicAPISessionPromptParams,
   ) => Promise<PublicAPISessionPromptResult>;
@@ -121,6 +131,12 @@ export function createPublicAPISession(params: {
     },
     async prompt(prompt) {
       const requestBody = this.previewRequest(prompt);
+      const projector = createPublicAPISDKMessageProjector({
+        agent: params.agent,
+        sessionId,
+        includePartialMessages: prompt.includePartialMessages,
+        onMessage: prompt.onMessage,
+      });
 
       if (requestBody.stream === false) {
         const turn = await createPublicAPITurn({
@@ -135,11 +151,13 @@ export function createPublicAPISession(params: {
           turn,
           traceText: params.traceText,
         });
+        projector.finalizeTurn(turn, readModel);
         lastTurn = turn;
         return {
           requestBody,
           readModel,
           turn,
+          messages: projector.messages,
         };
       }
 
@@ -149,8 +167,12 @@ export function createPublicAPISession(params: {
         body: requestBody,
         traceText: params.traceText,
         signal: prompt.signal,
-        onUpdate: prompt.onUpdate,
+        onUpdate: (update) => {
+          projector.consume(update);
+          prompt.onUpdate?.(update);
+        },
       });
+      projector.finalizeTurn(result.turn, result.readModel);
       if (result.turn) {
         lastTurn = result.turn;
       }
@@ -158,6 +180,7 @@ export function createPublicAPISession(params: {
         requestBody,
         readModel: result.readModel,
         turn: result.turn,
+        messages: projector.messages,
       };
     },
     reset() {

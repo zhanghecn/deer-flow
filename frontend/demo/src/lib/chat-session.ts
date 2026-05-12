@@ -1,10 +1,7 @@
 import type { PublicAPITurnSnapshot } from "./public-api";
 import { mergeStreamingText } from "./public-api-run-session";
 import { createPublicAPISession } from "./public-api-session";
-import {
-  normalizeThreadError,
-  shouldIgnoreThreadError,
-} from "./thread-error";
+import { normalizeThreadError, shouldIgnoreThreadError } from "./thread-error";
 
 export type ToolCallStep = {
   id: string;
@@ -57,9 +54,7 @@ export type ChatSessionPromptResult = {
 };
 
 export type ChatSession = {
-  prompt: (
-    params: ChatSessionPromptParams,
-  ) => Promise<ChatSessionPromptResult>;
+  prompt: (params: ChatSessionPromptParams) => Promise<ChatSessionPromptResult>;
   reset: () => void;
   getSessionId: () => string;
 };
@@ -74,8 +69,7 @@ function normalizeToolOutput(output: unknown): Array<{
       if (!item || typeof item !== "object") {
         return {
           type: typeof item === "string" ? "text" : "json",
-          text:
-            typeof item === "string" ? item : JSON.stringify(item, null, 2),
+          text: typeof item === "string" ? item : JSON.stringify(item, null, 2),
         };
       }
       const record = item as Record<string, unknown>;
@@ -140,16 +134,21 @@ export function createChatSession(params: {
           metadata: promptParams.metadata,
           signal: promptParams.signal,
           thinking: { enabled: true, effort: "high" },
-          onUpdate: ({ event, readModel }) => {
+          includePartialMessages: true,
+          onMessage: ({ message, readModel }) => {
             latestText = readModel.liveOutput;
             latestReasoning = readModel.liveReasoning;
             latestTurnId = readModel.turnId;
 
-            if (event.kind === "turn_failed") {
-              latestError = normalizeThreadError(event.raw);
+            if (message.type === "result" && message.subtype === "error") {
+              latestError = message.error;
             }
 
-            if (event.kind === "assistant_reasoning_delta" && event.delta) {
+            if (
+              message.type === "stream_event" &&
+              message.event.type === "assistant.reasoning.delta" &&
+              message.event.delta
+            ) {
               if (!currentReasoningActivityId) {
                 currentReasoningActivityId = nextActivityId("reasoning");
               }
@@ -157,7 +156,7 @@ export function createChatSession(params: {
                 reasoningSegments.get(currentReasoningActivityId) ?? "";
               const nextSegment = mergeStreamingText(
                 previousSegment,
-                event.delta,
+                message.event.delta,
               );
               reasoningSegments.set(currentReasoningActivityId, nextSegment);
               promptParams.onActivity?.({
@@ -168,69 +167,59 @@ export function createChatSession(params: {
               });
             }
 
-            if (event.kind === "ledger_event") {
-              if (event.event.type === "turn.failed") {
-                latestError = normalizeThreadError(event.event);
-              }
+            if (message.type === "tool_call" && message.tool_call_id) {
+              const tool: ToolCallStep = {
+                id: message.tool_call_id,
+                name: message.tool_name,
+                arguments:
+                  message.tool_arguments &&
+                  typeof message.tool_arguments === "object"
+                    ? (message.tool_arguments as Record<string, unknown>)
+                    : {},
+                status: "running",
+              };
+              toolCalls.set(tool.id, tool);
+              // A tool boundary closes the current visible reasoning segment so
+              // later thinking appears after the tool, matching SDK message order.
+              currentReasoningActivityId = "";
+              promptParams.onToolCall?.(tool);
+              promptParams.onActivity?.({
+                id: tool.id,
+                kind: "tool",
+                tool,
+              });
+            }
 
-              if (
-                event.event.type === "tool.call.started" &&
-                event.event.tool_call_id &&
-                event.event.tool_name
-              ) {
-                const tool: ToolCallStep = {
-                  id: event.event.tool_call_id,
-                  name: event.event.tool_name,
-                  arguments:
-                    event.event.tool_arguments &&
-                    typeof event.event.tool_arguments === "object"
-                      ? (event.event.tool_arguments as Record<string, unknown>)
-                      : {},
-                  status: "running",
-                };
-                toolCalls.set(tool.id, tool);
-                // A tool boundary closes the current visible reasoning segment
-                // so later thinking appears after the tool, matching SSE order.
-                currentReasoningActivityId = "";
-                promptParams.onToolCall?.(tool);
-                promptParams.onActivity?.({
-                  id: tool.id,
-                  kind: "tool",
-                  tool,
-                });
-              }
+            if (message.type === "tool_result" && message.tool_call_id) {
+              const existing = toolCalls.get(message.tool_call_id);
+              const tool: ToolCallStep = {
+                id: message.tool_call_id,
+                name: existing?.name ?? message.tool_name ?? "unknown",
+                arguments: existing?.arguments ?? {},
+                output: normalizeToolOutput(message.tool_output),
+                status: "done",
+              };
+              toolCalls.set(tool.id, tool);
+              promptParams.onToolCall?.(tool);
+              promptParams.onActivity?.({
+                id: tool.id,
+                kind: "tool",
+                tool,
+              });
+            }
 
-              if (
-                event.event.type === "tool.call.completed" &&
-                event.event.tool_call_id
-              ) {
-                const existing = toolCalls.get(event.event.tool_call_id);
-                const tool: ToolCallStep = {
-                  id: event.event.tool_call_id,
-                  name: existing?.name ?? event.event.tool_name ?? "unknown",
-                  arguments: existing?.arguments ?? {},
-                  output: normalizeToolOutput(event.event.tool_output),
-                  status: "done",
-                };
-                toolCalls.set(tool.id, tool);
-                promptParams.onToolCall?.(tool);
-                promptParams.onActivity?.({
-                  id: tool.id,
-                  kind: "tool",
-                  tool,
-                });
-              }
-
-              if (event.event.type === "context.compacted") {
-                promptParams.onActivity?.({
-                  id: `compact-${event.event.summary_count ?? "latest"}`,
-                  kind: "compact",
-                  beforeTokens: event.event.context_before_tokens,
-                  afterTokens: event.event.context_after_tokens,
-                  maxTokens: event.event.context_max_tokens,
-                  summaryCount: event.event.summary_count,
-                });
-              }
+            if (
+              message.type === "system" &&
+              message.subtype === "context_compacted"
+            ) {
+              promptParams.onActivity?.({
+                id: `compact-${message.summary_count ?? "latest"}`,
+                kind: "compact",
+                beforeTokens: message.context_before_tokens,
+                afterTokens: message.context_after_tokens,
+                maxTokens: message.context_max_tokens,
+                summaryCount: message.summary_count,
+              });
             }
 
             promptParams.onUpdate?.({

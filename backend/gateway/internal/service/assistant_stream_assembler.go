@@ -42,7 +42,7 @@ func (a *assistantStreamAssembler) reasoningDelta(messageID string, content any)
 }
 
 func (a *assistantStreamAssembler) deltaForMessage(state map[string]string, messageID string, current string) string {
-	if strings.TrimSpace(current) == "" {
+	if current == "" {
 		return ""
 	}
 	previous := state[messageID]
@@ -86,9 +86,15 @@ func (a *assistantStreamAssembler) deltaForMessage(state map[string]string, mess
 }
 
 func (a *assistantStreamAssembler) filterReasoningDelta(delta string) string {
+	if delta == "" {
+		return ""
+	}
 	trimmed := strings.TrimSpace(delta)
 	if trimmed == "" {
-		return ""
+		// Whitespace-only reasoning chunks still carry stream fidelity: callers
+		// use them to preserve line breaks and spacing between thinking tokens.
+		a.emittedReasoningText += delta
+		return delta
 	}
 	// Reasoning is frequently replayed under a fresh LangGraph message id after
 	// tool boundaries. Keep small token deltas, but suppress repeated paragraph
@@ -152,7 +158,7 @@ func extractReasoningFromContentBlocks(content any) string {
 			block["reasoning_content"],
 			block["text"],
 		)
-		if strings.TrimSpace(text) != "" {
+		if text != "" {
 			segments = append(segments, text)
 		}
 	}

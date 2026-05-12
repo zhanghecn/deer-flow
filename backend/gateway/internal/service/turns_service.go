@@ -225,7 +225,7 @@ func (c *turnCollector) consumeAssistantRecord(record map[string]any) []model.Tu
 		}))
 	}
 
-	if textDelta := c.assistantStream.textDelta(messageID, record["content"]); strings.TrimSpace(textDelta) != "" {
+	if textDelta := c.assistantStream.textDelta(messageID, record["content"]); textDelta != "" {
 		events = append(events, c.push(model.TurnEvent{
 			Type:      model.TurnEventAssistantTextDelta,
 			MessageID: messageID,
@@ -233,7 +233,7 @@ func (c *turnCollector) consumeAssistantRecord(record map[string]any) []model.Tu
 		}))
 	}
 
-	if reasoningDelta := c.assistantStream.reasoningDelta(messageID, record["content"]); strings.TrimSpace(reasoningDelta) != "" {
+	if reasoningDelta := c.assistantStream.reasoningDelta(messageID, record["content"]); reasoningDelta != "" {
 		events = append(events, c.push(model.TurnEvent{
 			Type:      model.TurnEventAssistantReasoningDelta,
 			MessageID: messageID,

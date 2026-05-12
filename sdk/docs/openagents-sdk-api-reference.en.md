@@ -35,17 +35,17 @@ Content-Type: application/json
 
 ## 3. Endpoint Summary
 
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/v1/models` | List published agents visible to the current API token |
-| `POST` | `/v1/files` | Upload an input file and get a `file_id` |
-| `GET` | `/v1/files/{id}/content` | Download response artifact content |
-| `POST` | `/v1/turns` | Recommended native turn-based API |
-| `GET` | `/v1/turns/{id}` | Fetch a turn snapshot for recovery and replay |
-| `GET` | `/v1/turns/recent` | Fetch recent session summaries, or turns for a specific `session_id` |
-| `POST` | `/v1/responses` | OpenAI Responses compatibility layer |
-| `GET` | `/v1/responses/{id}` | Fetch a historical response |
-| `POST` | `/v1/chat/completions` | Chat Completions compatibility layer |
+| Method | Path                     | Purpose                                                              |
+| ------ | ------------------------ | -------------------------------------------------------------------- |
+| `GET`  | `/v1/models`             | List published agents visible to the current API token               |
+| `POST` | `/v1/files`              | Upload an input file and get a `file_id`                             |
+| `GET`  | `/v1/files/{id}/content` | Download response artifact content                                   |
+| `POST` | `/v1/turns`              | Recommended native turn-based API                                    |
+| `GET`  | `/v1/turns/{id}`         | Fetch a turn snapshot for recovery and replay                        |
+| `GET`  | `/v1/turns/recent`       | Fetch recent session summaries, or turns for a specific `session_id` |
+| `POST` | `/v1/responses`          | OpenAI Responses compatibility layer                                 |
+| `GET`  | `/v1/responses/{id}`     | Fetch a historical response                                          |
+| `POST` | `/v1/chat/completions`   | Chat Completions compatibility layer                                 |
 
 ## 4. List Available Agents
 
@@ -136,20 +136,20 @@ Key properties:
 
 ### 5.2 Field Reference
 
-| Field | Type | Required | Description |
-|---|---|---:|---|
-| `agent` | `string` | Yes | Published `prod` agent name |
-| `input.text` | `string` | Yes | Current user text input |
-| `input.file_ids` | `string[]` | No | `file_id` values returned by `/v1/files` |
-| `session_id` | `string` | No | External SDK session ID. Integrations should create and persist one per end-user conversation; if omitted, the server generates one and returns it |
-| `history_scope` | `object` | No | Caller-defined flat string map used to partition history, for example `tenant_id` or `user_id`. Keys and values are trimmed; empty keys, empty values, arrays, and nested objects are rejected as `invalid_history_scope` |
-| `knowledge_base_ids` | `string[]` | No | Extra existing knowledge-base IDs to attach to the thread before this turn runs. Agent-level default knowledge bases are attached automatically. Any effective knowledge attachment requires the `knowledge:read` token scope, and each base must belong to the current user or be shared |
-| `metadata` | `object` | No | Caller-defined metadata |
-| `stream` | `boolean` | No | Enable SSE streaming |
-| `text.format` | `object` | No | Structured output definition |
-| `thinking.enabled` | `boolean` | No | Enable reasoning output |
-| `thinking.effort` | `string` | No | Reasoning effort, commonly `low` / `medium` / `high` |
-| `max_output_tokens` | `integer` | No | Maximum output token budget |
+| Field                | Type       | Required | Description                                                                                                                                                                                                                                                                               |
+| -------------------- | ---------- | -------: | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent`              | `string`   |      Yes | Published `prod` agent name                                                                                                                                                                                                                                                               |
+| `input.text`         | `string`   |      Yes | Current user text input                                                                                                                                                                                                                                                                   |
+| `input.file_ids`     | `string[]` |       No | `file_id` values returned by `/v1/files`                                                                                                                                                                                                                                                  |
+| `session_id`         | `string`   |       No | External SDK session ID. Integrations should create and persist one per end-user conversation; if omitted, the server generates one and returns it                                                                                                                                        |
+| `history_scope`      | `object`   |       No | Caller-defined flat string map used to partition history, for example `tenant_id` or `user_id`. Keys and values are trimmed; empty keys, empty values, arrays, and nested objects are rejected as `invalid_history_scope`                                                                 |
+| `knowledge_base_ids` | `string[]` |       No | Extra existing knowledge-base IDs to attach to the thread before this turn runs. Agent-level default knowledge bases are attached automatically. Any effective knowledge attachment requires the `knowledge:read` token scope, and each base must belong to the current user or be shared |
+| `metadata`           | `object`   |       No | Caller-defined metadata                                                                                                                                                                                                                                                                   |
+| `stream`             | `boolean`  |       No | Enable SSE streaming                                                                                                                                                                                                                                                                      |
+| `text.format`        | `object`   |       No | Structured output definition                                                                                                                                                                                                                                                              |
+| `thinking.enabled`   | `boolean`  |       No | Enable reasoning output                                                                                                                                                                                                                                                                   |
+| `thinking.effort`    | `string`   |       No | Reasoning effort, commonly `low` / `medium` / `high`                                                                                                                                                                                                                                      |
+| `max_output_tokens`  | `integer`  |       No | Maximum output token budget                                                                                                                                                                                                                                                               |
 
 ## 6. Turn SSE Events
 
@@ -193,6 +193,67 @@ data: {"sequence":9,"type":"turn.completed","turn_id":"turn_123"}
   - tool name
   - tool arguments
   - tool output
+
+### 6.3 SDK Message Layer
+
+The `/v1/turns` wire protocol remains the SSE events and final turn snapshot
+above. SDK/demo clients can project that protocol into a higher-level message
+stream closer to the Claude Code SDK shape. Prefer `onMessage` / `messages` for
+UI and business integration code; inspect raw `stream_event` values only for
+debug panels, logs, or event replay.
+
+Default SDK message types:
+
+- `system` / `init`: SDK session start for this turn
+- `system` / `context_compacted`: context compaction happened
+- `tool_call`: tool call start with `tool_call_id`, `tool_name`, and `tool_arguments`
+- `tool_result`: tool call completion with `tool_call_id` and `tool_output`
+- `assistant`: complete assistant message; content may include `thinking` and `text`
+- `result` / `success`: final turn output, usage, and artifacts
+- `result` / `error`: failed turn
+
+`includePartialMessages` is disabled by default. When enabled, the SDK also
+yields:
+
+- `stream_event`: the raw turn event, useful for realtime token UI, debug, or replay
+
+TypeScript consumption example:
+
+```ts
+const session = createPublicAPISession({
+  baseURL: "http://127.0.0.1:8083/v1",
+  apiToken: "df_xxx",
+  agent: "support-cases-http-demo",
+});
+
+const result = await session.prompt({
+  text: "Search and summarize the cases",
+  includePartialMessages: true,
+  onMessage: ({ message, readModel }) => {
+    if (message.type === "tool_call") {
+      renderToolCall(
+        message.tool_call_id,
+        message.tool_name,
+        message.tool_arguments,
+      );
+    }
+    if (message.type === "tool_result") {
+      renderToolResult(message.tool_call_id, message.tool_output);
+    }
+    if (
+      message.type === "stream_event" &&
+      message.event.type === "assistant.text.delta"
+    ) {
+      renderAssistantText(readModel.liveOutput);
+    }
+    if (message.type === "result" && message.subtype === "success") {
+      renderFinalAnswer(message.output_text);
+    }
+  },
+});
+
+console.log(result.messages);
+```
 
 ## 7. Fetch a Turn Snapshot
 
@@ -238,20 +299,20 @@ Example response:
 
 ### 7.1 Snapshot Fields
 
-| Field | Description |
-|---|---|
-| `id` | Current turn ID |
-| `status` | Common values: `completed`, `failed`, `incomplete` |
-| `agent` | Agent name |
-| `session_id` | External SDK session ID |
-| `history_scope` | Caller-defined history partition fields stored with this turn |
-| `thread_id` | Backend execution thread ID |
-| `trace_id` | Observability trace ID |
-| `output_text` | Final assistant answer |
-| `reasoning_text` | Final reasoning text |
-| `artifacts` | Output files; each item includes an opaque `id`, `download_url`, and `virtual_path` for resolving answer citations |
-| `usage` | Token usage |
-| `events` | Normalized event list for this turn |
+| Field            | Description                                                                                                        |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `id`             | Current turn ID                                                                                                    |
+| `status`         | Common values: `completed`, `failed`, `incomplete`                                                                 |
+| `agent`          | Agent name                                                                                                         |
+| `session_id`     | External SDK session ID                                                                                            |
+| `history_scope`  | Caller-defined history partition fields stored with this turn                                                      |
+| `thread_id`      | Backend execution thread ID                                                                                        |
+| `trace_id`       | Observability trace ID                                                                                             |
+| `output_text`    | Final assistant answer                                                                                             |
+| `reasoning_text` | Final reasoning text                                                                                               |
+| `artifacts`      | Output files; each item includes an opaque `id`, `download_url`, and `virtual_path` for resolving answer citations |
+| `usage`          | Token usage                                                                                                        |
+| `events`         | Normalized event list for this turn                                                                                |
 
 ## 8. Fetch Recent Turns
 

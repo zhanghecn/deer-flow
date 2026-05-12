@@ -115,6 +115,9 @@ That means:
 
 - canonical wire contract: `/v1/turns`
 - canonical helper shape: `session.prompt(...)`
+- optional helper projection: `onMessage` / `messages` may expose Claude
+  Code-style SDK messages, but those messages are derived from `/v1/turns`
+  events and snapshots rather than a second wire protocol.
 - explicit non-goal: public `messages[]` replay as the primary integration path
 
 ## Rendering Rules

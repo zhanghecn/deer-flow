@@ -260,6 +260,68 @@ func TestTurnCollectorConvertsCumulativeAssistantTextToDeltas(t *testing.T) {
 	}
 }
 
+func TestTurnCollectorPreservesWhitespaceOnlyDeltas(t *testing.T) {
+	t.Parallel()
+
+	collector := newTurnCollector("turn_test")
+
+	collector.consume("messages", []any{
+		map[string]any{
+			"type": "AIMessageChunk",
+			"id":   "msg_current",
+			"content": []any{
+				map[string]any{
+					"type": "text",
+					"text": "Hello",
+				},
+			},
+		},
+	})
+	textEvents := collector.consume("messages", []any{
+		map[string]any{
+			"type": "AIMessageChunk",
+			"id":   "msg_current",
+			"content": []any{
+				map[string]any{
+					"type": "text",
+					"text": "Hello ",
+				},
+			},
+		},
+	})
+	if len(textEvents) != 1 || textEvents[0].Delta != " " {
+		t.Fatalf("expected whitespace text delta to be preserved, got %#v", textEvents)
+	}
+
+	collector.consume("messages", []any{
+		map[string]any{
+			"type": "AIMessageChunk",
+			"id":   "reasoning_current",
+			"content": []any{
+				map[string]any{
+					"type":      "reasoning",
+					"reasoning": "First line",
+				},
+			},
+		},
+	})
+	reasoningEvents := collector.consume("messages", []any{
+		map[string]any{
+			"type": "AIMessageChunk",
+			"id":   "reasoning_current",
+			"content": []any{
+				map[string]any{
+					"type":      "reasoning",
+					"reasoning": "First line\n",
+				},
+			},
+		},
+	})
+	if len(reasoningEvents) != 1 || reasoningEvents[0].Delta != "\n" {
+		t.Fatalf("expected whitespace reasoning delta to be preserved, got %#v", reasoningEvents)
+	}
+}
+
 func TestTurnCollectorSuppressesCumulativeReplayAfterTokenDeltas(t *testing.T) {
 	t.Parallel()
 

@@ -35,17 +35,17 @@ Content-Type: application/json
 
 ## 3. 接口总览
 
-| 方法 | 路径 | 用途 |
-|---|---|---|
-| `GET` | `/v1/models` | 列出当前 API Token 可见的已发布 Agent |
-| `POST` | `/v1/files` | 上传输入文件，返回 `file_id` |
-| `GET` | `/v1/files/{id}/content` | 下载响应产出的文件内容 |
-| `POST` | `/v1/turns` | 推荐的原生对话接口 |
-| `GET` | `/v1/turns/{id}` | 获取 turn 快照，适合恢复和重放 |
-| `GET` | `/v1/turns/recent` | 获取最近会话摘要，或获取指定 `session_id` 的 turns |
-| `POST` | `/v1/responses` | OpenAI Responses 兼容层 |
-| `GET` | `/v1/responses/{id}` | 获取历史 response |
-| `POST` | `/v1/chat/completions` | Chat Completions 兼容层 |
+| 方法   | 路径                     | 用途                                               |
+| ------ | ------------------------ | -------------------------------------------------- |
+| `GET`  | `/v1/models`             | 列出当前 API Token 可见的已发布 Agent              |
+| `POST` | `/v1/files`              | 上传输入文件，返回 `file_id`                       |
+| `GET`  | `/v1/files/{id}/content` | 下载响应产出的文件内容                             |
+| `POST` | `/v1/turns`              | 推荐的原生对话接口                                 |
+| `GET`  | `/v1/turns/{id}`         | 获取 turn 快照，适合恢复和重放                     |
+| `GET`  | `/v1/turns/recent`       | 获取最近会话摘要，或获取指定 `session_id` 的 turns |
+| `POST` | `/v1/responses`          | OpenAI Responses 兼容层                            |
+| `GET`  | `/v1/responses/{id}`     | 获取历史 response                                  |
+| `POST` | `/v1/chat/completions`   | Chat Completions 兼容层                            |
 
 ## 4. 获取可调用 Agent
 
@@ -134,20 +134,20 @@ curl -X GET "http://127.0.0.1:8083/v1/models" \
 
 ### 5.2 字段说明
 
-| 字段 | 类型 | 必填 | 说明 |
-|---|---|---:|---|
-| `agent` | `string` | 是 | 已发布 `prod` agent 名称 |
-| `input.text` | `string` | 是 | 当前轮用户输入文本 |
-| `input.file_ids` | `string[]` | 否 | 之前通过 `/v1/files` 上传得到的 `file_id` |
-| `session_id` | `string` | 否 | 外部 SDK 会话 ID。建议集成方为每个终端用户会话创建并保存；未传时服务端会生成并在响应中返回 |
-| `history_scope` | `object` | 否 | 调用方自定义的扁平字符串 map，用于在 API key、agent、session 之外分区历史，例如 `tenant_id` 或 `user_id`。key/value 会 trim；空 key、空 value、数组、嵌套对象会以 `invalid_history_scope` 拒绝 |
-| `knowledge_base_ids` | `string[]` | 否 | 本轮执行前额外绑定到 thread 的知识库 ID。agent 预设的默认知识库会自动绑定。只要本轮存在有效知识库绑定，API key 就需要 token scope `knowledge:read`，且知识库必须属于当前用户或为共享知识库 |
-| `metadata` | `object` | 否 | 调用方自定义元数据 |
-| `stream` | `boolean` | 否 | 是否启用 SSE 流式输出 |
-| `text.format` | `object` | 否 | 结构化输出定义 |
-| `thinking.enabled` | `boolean` | 否 | 是否开启思考输出 |
-| `thinking.effort` | `string` | 否 | 推理强度，常用值：`low` / `medium` / `high` |
-| `max_output_tokens` | `integer` | 否 | 最大输出 token 数 |
+| 字段                 | 类型       | 必填 | 说明                                                                                                                                                                                           |
+| -------------------- | ---------- | ---: | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent`              | `string`   |   是 | 已发布 `prod` agent 名称                                                                                                                                                                       |
+| `input.text`         | `string`   |   是 | 当前轮用户输入文本                                                                                                                                                                             |
+| `input.file_ids`     | `string[]` |   否 | 之前通过 `/v1/files` 上传得到的 `file_id`                                                                                                                                                      |
+| `session_id`         | `string`   |   否 | 外部 SDK 会话 ID。建议集成方为每个终端用户会话创建并保存；未传时服务端会生成并在响应中返回                                                                                                     |
+| `history_scope`      | `object`   |   否 | 调用方自定义的扁平字符串 map，用于在 API key、agent、session 之外分区历史，例如 `tenant_id` 或 `user_id`。key/value 会 trim；空 key、空 value、数组、嵌套对象会以 `invalid_history_scope` 拒绝 |
+| `knowledge_base_ids` | `string[]` |   否 | 本轮执行前额外绑定到 thread 的知识库 ID。agent 预设的默认知识库会自动绑定。只要本轮存在有效知识库绑定，API key 就需要 token scope `knowledge:read`，且知识库必须属于当前用户或为共享知识库     |
+| `metadata`           | `object`   |   否 | 调用方自定义元数据                                                                                                                                                                             |
+| `stream`             | `boolean`  |   否 | 是否启用 SSE 流式输出                                                                                                                                                                          |
+| `text.format`        | `object`   |   否 | 结构化输出定义                                                                                                                                                                                 |
+| `thinking.enabled`   | `boolean`  |   否 | 是否开启思考输出                                                                                                                                                                               |
+| `thinking.effort`    | `string`   |   否 | 推理强度，常用值：`low` / `medium` / `high`                                                                                                                                                    |
+| `max_output_tokens`  | `integer`  |   否 | 最大输出 token 数                                                                                                                                                                              |
 
 ## 6. Turn SSE 事件
 
@@ -191,6 +191,65 @@ data: {"sequence":9,"type":"turn.completed","turn_id":"turn_123"}
   - 工具名称
   - 调用参数
   - 返回结果
+
+### 6.3 SDK Message 层
+
+`/v1/turns` 的线协议仍然是上面的 SSE 事件和最终 turn 快照；SDK/demo
+消费层可以把它投影成更接近 Claude Code SDK 的高层消息流。推荐 UI 和业务
+集成消费 `onMessage` / `messages`，只在调试面板或日志中直接查看原始
+`stream_event`。
+
+默认 SDK 消息类型：
+
+- `system` / `init`：本轮 SDK 会话开始
+- `system` / `context_compacted`：上下文被压缩
+- `tool_call`：工具调用开始，包含 `tool_call_id`、`tool_name`、`tool_arguments`
+- `tool_result`：工具调用完成，包含 `tool_call_id` 和 `tool_output`
+- `assistant`：完整 assistant message，content 中可能包含 `thinking` 和 `text`
+- `result` / `success`：本轮最终结果、usage、artifacts
+- `result` / `error`：本轮失败
+
+`includePartialMessages` 默认为关闭。开启后才会额外 yield：
+
+- `stream_event`：原始 turn event，适合实时 token UI、debug、或事件回放
+
+TypeScript 消费示例：
+
+```ts
+const session = createPublicAPISession({
+  baseURL: "http://127.0.0.1:8083/v1",
+  apiToken: "df_xxx",
+  agent: "support-cases-http-demo",
+});
+
+const result = await session.prompt({
+  text: "请检索并总结案例",
+  includePartialMessages: true,
+  onMessage: ({ message, readModel }) => {
+    if (message.type === "tool_call") {
+      renderToolCall(
+        message.tool_call_id,
+        message.tool_name,
+        message.tool_arguments,
+      );
+    }
+    if (message.type === "tool_result") {
+      renderToolResult(message.tool_call_id, message.tool_output);
+    }
+    if (
+      message.type === "stream_event" &&
+      message.event.type === "assistant.text.delta"
+    ) {
+      renderAssistantText(readModel.liveOutput);
+    }
+    if (message.type === "result" && message.subtype === "success") {
+      renderFinalAnswer(message.output_text);
+    }
+  },
+});
+
+console.log(result.messages);
+```
 
 ## 7. 获取 Turn 快照
 
@@ -236,20 +295,20 @@ data: {"sequence":9,"type":"turn.completed","turn_id":"turn_123"}
 
 ### 7.1 快照字段说明
 
-| 字段 | 说明 |
-|---|---|
-| `id` | 当前 turn ID |
-| `status` | 常见值：`completed` / `failed` / `incomplete` |
-| `agent` | agent 名称 |
-| `session_id` | 外部 SDK 会话 ID |
-| `history_scope` | 随该 turn 保存的调用方自定义历史分区字段 |
-| `thread_id` | 后端运行线程 ID |
-| `trace_id` | 观测 trace ID |
-| `output_text` | 最终回答文本 |
-| `reasoning_text` | 最终思考文本 |
-| `artifacts` | 输出文件列表；每一项包含不透明 `id`、`download_url`，以及用于解析回答引用的 `virtual_path` |
-| `usage` | token 用量 |
-| `events` | 当前 turn 的标准化事件列表 |
+| 字段             | 说明                                                                                       |
+| ---------------- | ------------------------------------------------------------------------------------------ |
+| `id`             | 当前 turn ID                                                                               |
+| `status`         | 常见值：`completed` / `failed` / `incomplete`                                              |
+| `agent`          | agent 名称                                                                                 |
+| `session_id`     | 外部 SDK 会话 ID                                                                           |
+| `history_scope`  | 随该 turn 保存的调用方自定义历史分区字段                                                   |
+| `thread_id`      | 后端运行线程 ID                                                                            |
+| `trace_id`       | 观测 trace ID                                                                              |
+| `output_text`    | 最终回答文本                                                                               |
+| `reasoning_text` | 最终思考文本                                                                               |
+| `artifacts`      | 输出文件列表；每一项包含不透明 `id`、`download_url`，以及用于解析回答引用的 `virtual_path` |
+| `usage`          | token 用量                                                                                 |
+| `events`         | 当前 turn 的标准化事件列表                                                                 |
 
 ## 8. 获取最近 Turns
 

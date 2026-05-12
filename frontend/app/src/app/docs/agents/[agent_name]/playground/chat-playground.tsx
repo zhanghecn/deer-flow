@@ -47,6 +47,7 @@ type ContentBlock =
   | { type: "text"; content: string }
   | {
       type: "tool_call";
+      id?: string;
       name: string;
       arguments?: unknown;
       output?: unknown;
@@ -130,7 +131,11 @@ function StatusDot({ phase }: { phase: RunPhase }) {
   );
 }
 
-function ToolCallCard({ call }: { call: Extract<ContentBlock, { type: "tool_call" }> }) {
+function ToolCallCard({
+  call,
+}: {
+  call: Extract<ContentBlock, { type: "tool_call" }>;
+}) {
   const [open, setOpen] = useState(false);
   const done = call.completedAt != null;
   return (
@@ -138,7 +143,7 @@ function ToolCallCard({ call }: { call: Extract<ContentBlock, { type: "tool_call
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-amber-500/10 transition-colors"
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-amber-500/10"
       >
         {open ? (
           <ChevronDown className="size-3.5 shrink-0 text-amber-400" />
@@ -146,23 +151,29 @@ function ToolCallCard({ call }: { call: Extract<ContentBlock, { type: "tool_call
           <ChevronRight className="size-3.5 shrink-0 text-amber-400" />
         )}
         <Wrench className="size-3.5 shrink-0 text-amber-400" />
-        <span className="font-mono text-amber-300 text-xs">{call.name}</span>
-        {!done && <Loader2 className="ml-auto size-3 animate-spin text-amber-400" />}
+        <span className="font-mono text-xs text-amber-300">{call.name}</span>
+        {!done && (
+          <Loader2 className="ml-auto size-3 animate-spin text-amber-400" />
+        )}
       </button>
       {open && (
         <div className="space-y-2 border-t border-amber-500/10 px-3 py-2">
           {call.arguments !== undefined && (
             <div>
-              <p className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">Args</p>
-              <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded bg-zinc-900/60 p-2 font-mono text-xs text-zinc-300">
+              <p className="mb-1 text-[10px] tracking-wider text-zinc-500 uppercase">
+                Args
+              </p>
+              <pre className="overflow-x-auto rounded bg-zinc-900/60 p-2 font-mono text-xs break-all whitespace-pre-wrap text-zinc-300">
                 {fmtJSON(call.arguments, 500)}
               </pre>
             </div>
           )}
           {call.output !== undefined && (
             <div>
-              <p className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">Output</p>
-              <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded bg-zinc-900/60 p-2 font-mono text-xs text-zinc-300">
+              <p className="mb-1 text-[10px] tracking-wider text-zinc-500 uppercase">
+                Output
+              </p>
+              <pre className="overflow-x-auto rounded bg-zinc-900/60 p-2 font-mono text-xs break-all whitespace-pre-wrap text-zinc-300">
                 {fmtJSON(call.output, 500)}
               </pre>
             </div>
@@ -234,21 +245,31 @@ function DebugPanel({
             {request ? (
               <>
                 <div>
-                  <p className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">Endpoint</p>
+                  <p className="mb-1 text-[10px] tracking-wider text-zinc-500 uppercase">
+                    Endpoint
+                  </p>
                   <div className="flex items-center gap-2">
-                    <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[10px] text-emerald-400">POST</span>
-                    <code className="text-xs text-zinc-300 break-all">{request.url}</code>
+                    <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[10px] text-emerald-400">
+                      POST
+                    </span>
+                    <code className="text-xs break-all text-zinc-300">
+                      {request.url}
+                    </code>
                   </div>
                 </div>
                 <div>
-                  <p className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">Body</p>
-                  <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded bg-zinc-900/60 p-2 font-mono text-xs text-zinc-300">
+                  <p className="mb-1 text-[10px] tracking-wider text-zinc-500 uppercase">
+                    Body
+                  </p>
+                  <pre className="overflow-x-auto rounded bg-zinc-900/60 p-2 font-mono text-xs break-all whitespace-pre-wrap text-zinc-300">
                     {fmtJSON(request.body, 3000)}
                   </pre>
                 </div>
               </>
             ) : (
-              <p className="py-8 text-center text-sm text-zinc-600">Send a message to see the request</p>
+              <p className="py-8 text-center text-sm text-zinc-600">
+                Send a message to see the request
+              </p>
             )}
           </div>
         )}
@@ -256,7 +277,9 @@ function DebugPanel({
         {activeTab === "events" && (
           <div ref={eventsRef} className="space-y-0.5 font-mono text-xs">
             {events.length === 0 ? (
-              <p className="py-8 text-center text-sm text-zinc-600">SSE events appear here in real time</p>
+              <p className="py-8 text-center text-sm text-zinc-600">
+                SSE events appear here in real time
+              </p>
             ) : (
               events.map((entry, i) => (
                 <div
@@ -266,9 +289,13 @@ function DebugPanel({
                   <span className="shrink-0 text-zinc-600">
                     {formatTraceTime(entry.timestamp)}
                   </span>
-                  <span className={`shrink-0 ${eventAccent(entry.type)}`}>{entry.type}</span>
+                  <span className={`shrink-0 ${eventAccent(entry.type)}`}>
+                    {entry.type}
+                  </span>
                   {entry.summary && (
-                    <span className="truncate text-zinc-500">{entry.summary}</span>
+                    <span className="truncate text-zinc-500">
+                      {entry.summary}
+                    </span>
                   )}
                 </div>
               ))
@@ -281,39 +308,64 @@ function DebugPanel({
             {snapshot ? (
               <>
                 <div className="grid grid-cols-2 gap-2">
-                  {([
-                    ["Turn ID", snapshot.id],
-                    ["Status", snapshot.status],
-                    ["Agent", snapshot.agent],
-                    ["Tokens", snapshot.usage ? String(snapshot.usage.total_tokens) : "—"],
-                  ] as const).map(([k, v]) => (
-                    <div key={k} className="rounded border border-zinc-800 bg-zinc-900/40 px-3 py-2">
-                      <p className="text-[10px] uppercase tracking-wider text-zinc-500">{k}</p>
-                      <p className="truncate font-mono text-xs text-zinc-300">{v ?? "—"}</p>
+                  {(
+                    [
+                      ["Turn ID", snapshot.id],
+                      ["Status", snapshot.status],
+                      ["Agent", snapshot.agent],
+                      [
+                        "Tokens",
+                        snapshot.usage
+                          ? String(snapshot.usage.total_tokens)
+                          : "—",
+                      ],
+                    ] as const
+                  ).map(([k, v]) => (
+                    <div
+                      key={k}
+                      className="rounded border border-zinc-800 bg-zinc-900/40 px-3 py-2"
+                    >
+                      <p className="text-[10px] tracking-wider text-zinc-500 uppercase">
+                        {k}
+                      </p>
+                      <p className="truncate font-mono text-xs text-zinc-300">
+                        {v ?? "—"}
+                      </p>
                     </div>
                   ))}
                 </div>
 
                 {snapshot.artifacts && snapshot.artifacts.length > 0 && (
                   <div>
-                    <p className="mb-1.5 text-[10px] uppercase tracking-wider text-zinc-500">Artifacts</p>
+                    <p className="mb-1.5 text-[10px] tracking-wider text-zinc-500 uppercase">
+                      Artifacts
+                    </p>
                     <div className="space-y-1">
                       {snapshot.artifacts.map((a) => (
-                        <ArtifactRow key={a.id} artifact={a} baseURL={apiBaseURL} apiToken={apiToken} />
+                        <ArtifactRow
+                          key={a.id}
+                          artifact={a}
+                          baseURL={apiBaseURL}
+                          apiToken={apiToken}
+                        />
                       ))}
                     </div>
                   </div>
                 )}
 
                 <div>
-                  <p className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">Full Response</p>
-                  <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded bg-zinc-900/60 p-2 font-mono text-[11px] text-zinc-400">
+                  <p className="mb-1 text-[10px] tracking-wider text-zinc-500 uppercase">
+                    Full Response
+                  </p>
+                  <pre className="overflow-x-auto rounded bg-zinc-900/60 p-2 font-mono text-[11px] break-all whitespace-pre-wrap text-zinc-400">
                     {fmtJSON(snapshot, 8000)}
                   </pre>
                 </div>
               </>
             ) : (
-              <p className="py-8 text-center text-sm text-zinc-600">Response appears after the run completes</p>
+              <p className="py-8 text-center text-sm text-zinc-600">
+                Response appears after the run completes
+              </p>
             )}
           </div>
         )}
@@ -322,13 +374,25 @@ function DebugPanel({
   );
 }
 
-function ArtifactRow({ artifact, baseURL, apiToken }: { artifact: PublicAPITurnArtifact; baseURL: string; apiToken: string }) {
+function ArtifactRow({
+  artifact,
+  baseURL,
+  apiToken,
+}: {
+  artifact: PublicAPITurnArtifact;
+  baseURL: string;
+  apiToken: string;
+}) {
   const [downloading, setDownloading] = useState(false);
 
   async function handleDownload() {
     setDownloading(true);
     try {
-      const filename = await downloadPublicAPIArtifact({ baseURL, apiToken, artifact });
+      const filename = await downloadPublicAPIArtifact({
+        baseURL,
+        apiToken,
+        artifact,
+      });
       toast.success(`Downloaded ${filename}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Download failed");
@@ -340,7 +404,9 @@ function ArtifactRow({ artifact, baseURL, apiToken }: { artifact: PublicAPITurnA
   return (
     <div className="flex items-center justify-between rounded border border-zinc-800 bg-zinc-900/40 px-3 py-1.5">
       <div className="min-w-0">
-        <p className="truncate text-xs font-medium text-zinc-300">{artifact.filename}</p>
+        <p className="truncate text-xs font-medium text-zinc-300">
+          {artifact.filename}
+        </p>
       </div>
       <button
         type="button"
@@ -348,7 +414,11 @@ function ArtifactRow({ artifact, baseURL, apiToken }: { artifact: PublicAPITurnA
         disabled={downloading}
         className="shrink-0 rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300 disabled:opacity-50"
       >
-        {downloading ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+        {downloading ? (
+          <Loader2 className="size-3.5 animate-spin" />
+        ) : (
+          <Download className="size-3.5" />
+        )}
       </button>
     </div>
   );
@@ -389,8 +459,11 @@ function ConfigDrawer({
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <aside className="fixed right-0 top-0 z-50 flex h-full w-72 flex-col border-l border-zinc-700/50 bg-zinc-900">
+      <div
+        className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      <aside className="fixed top-0 right-0 z-50 flex h-full w-72 flex-col border-l border-zinc-700/50 bg-zinc-900">
         <div className="flex items-center justify-between border-b border-zinc-700/50 px-4 py-3">
           <h2 className="text-sm font-semibold text-zinc-100">Settings</h2>
           <button
@@ -455,7 +528,9 @@ function ConfigDrawer({
             <select
               value={reasoningEffort}
               disabled={!reasoningEnabled}
-              onChange={(e) => setReasoningEffort(e.target.value as ReasoningEffort)}
+              onChange={(e) =>
+                setReasoningEffort(e.target.value as ReasoningEffort)
+              }
               className="w-full rounded border border-zinc-700 bg-zinc-800 px-3 py-2 text-xs text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <option value="low">low</option>
@@ -477,16 +552,22 @@ interface ChatPlaygroundProps {
   defaultBaseURL?: string | null;
 }
 
-export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProps) {
+export function ChatPlayground({
+  agentName,
+  defaultBaseURL,
+}: ChatPlaygroundProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const sessionRef = useRef<ReturnType<typeof createPublicAPISession> | null>(null);
+  const sessionRef = useRef<ReturnType<typeof createPublicAPISession> | null>(
+    null,
+  );
   const sessionConfigKeyRef = useRef("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [apiKey, setAPIKey] = useState("");
   const [reasoningEnabled, setReasoningEnabled] = useState(true);
-  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("high");
+  const [reasoningEffort, setReasoningEffort] =
+    useState<ReasoningEffort>("high");
 
   // Key auto-fetch
   const { authenticated } = useAuth();
@@ -522,7 +603,8 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
   // Debug
   const [debugReq, setDebugReq] = useState<StoredRequest | null>(null);
   const [debugEvents, setDebugEvents] = useState<DebugEntry[]>([]);
-  const [debugSnapshot, setDebugSnapshot] = useState<PublicAPITurnSnapshot | null>(null);
+  const [debugSnapshot, setDebugSnapshot] =
+    useState<PublicAPITurnSnapshot | null>(null);
   const [debugTab, setDebugTab] = useState<DebugTab>("events");
 
   // UI
@@ -535,15 +617,14 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages]);
 
-  const updateMsg = useCallback(
-    (id: string, fn: (m: Message) => Message) => {
-      setMessages((prev) => prev.map((m) => (m.id === id ? fn(m) : m)));
-    },
-    [],
-  );
+  const updateMsg = useCallback((id: string, fn: (m: Message) => Message) => {
+    setMessages((prev) => prev.map((m) => (m.id === id ? fn(m) : m)));
+  }, []);
 
   function ensureSession() {
-    const configKey = [apiBaseURL.trim(), apiKey.trim(), agentName.trim()].join("\n");
+    const configKey = [apiBaseURL.trim(), apiKey.trim(), agentName.trim()].join(
+      "\n",
+    );
     if (!sessionRef.current || sessionConfigKeyRef.current !== configKey) {
       sessionRef.current = createPublicAPISession({
         baseURL: apiBaseURL,
@@ -572,7 +653,9 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
     if (!files) return;
     const incoming = Array.from(files);
     setQueuedFiles((current) => {
-      const seen = new Set(current.map((f) => `${f.name}:${f.size}:${f.lastModified}`));
+      const seen = new Set(
+        current.map((f) => `${f.name}:${f.size}:${f.lastModified}`),
+      );
       const next = [...current];
       for (const file of incoming) {
         const sig = `${file.name}:${file.size}:${file.lastModified}`;
@@ -645,7 +728,10 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
       metadata: { source: "docs_playground" },
     });
 
-    setDebugReq({ url: `${apiBaseURL.replace(/\/+$/, "").replace(/\/v1$/, "")}/v1/turns`, body: requestBody });
+    setDebugReq({
+      url: `${apiBaseURL.replace(/\/+$/, "").replace(/\/v1$/, "")}/v1/turns`,
+      body: requestBody,
+    });
 
     setMessages((prev) => [
       ...prev,
@@ -654,7 +740,14 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
         role: "user",
         blocks: [
           { type: "text", content: prompt },
-          ...(fileIds.length > 0 ? [{ type: "text" as const, content: `[${fileIds.length} file(s) attached]` }] : []),
+          ...(fileIds.length > 0
+            ? [
+                {
+                  type: "text" as const,
+                  content: `[${fileIds.length} file(s) attached]`,
+                },
+              ]
+            : []),
         ],
         status: "done",
       },
@@ -674,8 +767,10 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
         thinking: { enabled: reasoningEnabled, effort: reasoningEffort },
         metadata: { source: "docs_playground" },
         signal: ctrl.signal,
+        includePartialMessages: true,
+        // The debug panel can show normalized/raw runner events, but the
+        // conversation UI below is driven by SDK messages like external demos.
         onUpdate: ({ event, readModel }) => {
-          // Debug events
           if (event.kind === "ledger_event") {
             const ledgerEvt = event.event;
             // Runtime traces are not yet perfectly uniform across deployments.
@@ -691,54 +786,91 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
               },
             ]);
           } else if (event.kind === "turn_started") {
-            setDebugEvents((prev) => [...prev, { type: "turn.started", timestamp: Date.now(), summary: event.turnId }]);
+            setDebugEvents((prev) => [
+              ...prev,
+              {
+                type: "turn.started",
+                timestamp: Date.now(),
+                summary: event.turnId,
+              },
+            ]);
           } else if (event.kind === "turn_completed") {
-            setDebugEvents((prev) => [...prev, { type: "turn.completed", timestamp: Date.now(), summary: event.turnId }]);
+            setDebugEvents((prev) => [
+              ...prev,
+              {
+                type: "turn.completed",
+                timestamp: Date.now(),
+                summary: event.turnId,
+              },
+            ]);
           } else if (event.kind === "turn_failed") {
-            setDebugEvents((prev) => [...prev, { type: "turn.failed", timestamp: Date.now(), summary: event.detail }]);
+            setDebugEvents((prev) => [
+              ...prev,
+              {
+                type: "turn.failed",
+                timestamp: Date.now(),
+                summary: event.detail,
+              },
+            ]);
           }
 
+          if (readModel.phase === "failed") setRunState("failed");
+          else if (readModel.phase === "waiting") setRunState("waiting");
+        },
+        onMessage: ({ message, readModel }) => {
           updateMsg(asstId, (m) => {
             const blocks = [...m.blocks];
 
-            if (event.kind === "assistant_text_delta") {
+            if (
+              message.type === "stream_event" &&
+              message.event.type === "assistant.text.delta"
+            ) {
               const last = blocks[blocks.length - 1];
               if (last?.type === "text") {
-                blocks[blocks.length - 1] = { ...last, content: readModel.liveOutput };
+                blocks[blocks.length - 1] = {
+                  ...last,
+                  content: readModel.liveOutput,
+                };
               } else {
                 blocks.push({ type: "text", content: readModel.liveOutput });
               }
-            } else if (
-              event.kind === "ledger_event" &&
-              event.event.type === "tool.call.started"
-            ) {
-              const startedAt = coerceTimestampMs(event.event.created_at) ?? Date.now();
+            } else if (message.type === "tool_call" && message.tool_call_id) {
               blocks.push({
                 type: "tool_call",
-                name: event.event.tool_name ?? "unknown",
-                arguments: event.event.tool_arguments,
-                startedAt,
+                id: message.tool_call_id,
+                name: message.tool_name,
+                arguments: message.tool_arguments,
+                startedAt: Date.now(),
               });
-            } else if (
-              event.kind === "ledger_event" &&
-              event.event.type === "tool.call.completed"
-            ) {
-              const completedAt = coerceTimestampMs(event.event.created_at) ?? Date.now();
+            } else if (message.type === "tool_result" && message.tool_call_id) {
+              const completedAt = Date.now();
               for (let i = blocks.length - 1; i >= 0; i--) {
                 const block = blocks[i]!;
-                if (
+                const matchesToolID =
                   block.type === "tool_call" &&
-                  block.name === (event.event.tool_name ?? "unknown") &&
+                  block.id === message.tool_call_id;
+                const matchesFallbackName =
+                  block.type === "tool_call" &&
+                  !block.id &&
+                  block.name === (message.tool_name ?? "unknown");
+                if (
+                  (matchesToolID || matchesFallbackName) &&
                   !block.completedAt
                 ) {
                   blocks[i] = {
                     ...block,
-                    output: event.event.tool_output,
+                    output: message.tool_output,
                     completedAt,
                   };
                   break;
                 }
               }
+            } else if (
+              message.type === "result" &&
+              message.subtype === "error" &&
+              blocks.length === 0
+            ) {
+              blocks.push({ type: "text", content: `Error: ${message.error}` });
             }
 
             return {
@@ -749,15 +881,16 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
               status: readModel.phase === "failed" ? "error" : m.status,
             };
           });
-
-          if (readModel.phase === "failed") setRunState("failed");
-          else if (readModel.phase === "waiting") setRunState("waiting");
         },
       });
 
       const finalized = result.turn;
       if (!finalized) {
-        setRunState(result.readModel.phase === "failed" ? "failed" : result.readModel.phase);
+        setRunState(
+          result.readModel.phase === "failed"
+            ? "failed"
+            : result.readModel.phase,
+        );
         updateMsg(asstId, (m) => ({
           ...m,
           status: result.readModel.phase === "failed" ? "error" : m.status,
@@ -767,9 +900,10 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
       setDebugSnapshot(finalized);
 
       const finalStatus =
-        finalized.status === "completed" || finalized.status === "requires_input"
-          ? "done" as const
-          : "error" as const;
+        finalized.status === "completed" ||
+        finalized.status === "requires_input"
+          ? ("done" as const)
+          : ("error" as const);
 
       updateMsg(asstId, (m) => {
         const finalText = finalized.output_text?.trim();
@@ -779,14 +913,16 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
             blocks: mergeFinalAssistantText(m.blocks, finalText),
             status: finalStatus,
             turnId: finalized.id,
-            reasoningText: result.readModel.liveReasoning || finalized.reasoning_text,
+            reasoningText:
+              result.readModel.liveReasoning || finalized.reasoning_text,
           };
         }
         return {
           ...m,
           status: finalStatus,
           turnId: finalized.id,
-          reasoningText: result.readModel.liveReasoning || finalized.reasoning_text,
+          reasoningText:
+            result.readModel.liveReasoning || finalized.reasoning_text,
         };
       });
 
@@ -794,7 +930,7 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
         setRunState("waiting");
         return;
       }
-      setRunState("ready");
+      setRunState(finalized.status === "failed" ? "failed" : "ready");
     } catch (err) {
       if (shouldIgnoreThreadError(err)) {
         setRunState("ready");
@@ -845,8 +981,10 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
       <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-2.5">
         <div className="flex items-center gap-2.5">
           <StatusDot phase={runState} />
-          <span className="text-[13px] font-medium text-zinc-200">{agentName}</span>
-          <span className="hidden text-[10px] uppercase tracking-wider text-zinc-500 sm:inline">
+          <span className="text-[13px] font-medium text-zinc-200">
+            {agentName}
+          </span>
+          <span className="hidden text-[10px] tracking-wider text-zinc-500 uppercase sm:inline">
             Dev Console
           </span>
           {apiKey && matchingTokens.length > 0 && (
@@ -900,7 +1038,9 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
             {empty ? (
               <div className="flex h-full min-h-[380px] items-center justify-center">
                 <div className="max-w-sm space-y-4 text-center">
-                  <p className="text-[15px] font-medium text-zinc-300">Try the agent</p>
+                  <p className="text-[15px] font-medium text-zinc-300">
+                    Try the agent
+                  </p>
                   <p className="text-[13px] leading-6 text-zinc-500">
                     Send a message to test the{" "}
                     <code className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-xs text-cyan-400">
@@ -918,7 +1058,9 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
                       <div className="max-w-[70%] rounded-lg bg-indigo-600 px-4 py-2.5 text-sm text-white">
                         {msg.blocks.map((block, i) =>
                           block.type === "text" ? (
-                            <p key={i} className="whitespace-pre-wrap">{block.content}</p>
+                            <p key={i} className="whitespace-pre-wrap">
+                              {block.content}
+                            </p>
                           ) : null,
                         )}
                       </div>
@@ -927,12 +1069,16 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
                     <div key={msg.id} className="max-w-[85%]">
                       <div className="rounded-lg border border-zinc-800 bg-zinc-900/70 px-4 py-3">
                         <div className="mb-2 flex items-center gap-2">
-                          <span className="text-[10px] uppercase tracking-wider text-zinc-500">Assistant</span>
+                          <span className="text-[10px] tracking-wider text-zinc-500 uppercase">
+                            Assistant
+                          </span>
                           {msg.status === "streaming" && (
                             <Loader2 className="size-3 animate-spin text-cyan-400" />
                           )}
                           {msg.status === "error" && (
-                            <span className="text-[10px] text-rose-400">failed</span>
+                            <span className="text-[10px] text-rose-400">
+                              failed
+                            </span>
                           )}
                           {msg.turnId && (
                             <span className="ml-auto font-mono text-[10px] text-zinc-600">
@@ -941,7 +1087,8 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
                           )}
                         </div>
 
-                        {msg.blocks.length === 0 && !msg.reasoningText?.trim() ? (
+                        {msg.blocks.length === 0 &&
+                        !msg.reasoningText?.trim() ? (
                           <p className="text-sm text-zinc-500">Processing…</p>
                         ) : (
                           <div className="space-y-3">
@@ -955,7 +1102,7 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
                                   Reasoning
                                 </summary>
                                 <div className="border-t border-violet-500/10 px-3 py-2">
-                                  <pre className="whitespace-pre-wrap break-words text-xs text-violet-300/80">
+                                  <pre className="text-xs break-words whitespace-pre-wrap text-violet-300/80">
                                     {msg.reasoningText}
                                   </pre>
                                 </div>
@@ -964,7 +1111,10 @@ export function ChatPlayground({ agentName, defaultBaseURL }: ChatPlaygroundProp
                             {msg.blocks.map((block, i) =>
                               block.type === "text" ? (
                                 block.content ? (
-                                  <div key={`t-${i}`} className="whitespace-pre-wrap break-words text-sm text-zinc-200">
+                                  <div
+                                    key={`t-${i}`}
+                                    className="text-sm break-words whitespace-pre-wrap text-zinc-200"
+                                  >
                                     {block.content}
                                   </div>
                                 ) : null
