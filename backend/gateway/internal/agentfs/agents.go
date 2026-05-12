@@ -377,16 +377,26 @@ func PublishAgent(fsStore *storage.FS, name string) (*model.Agent, error) {
 }
 
 func SetAgentOwner(fsStore *storage.FS, name string, ownerUserID string) error {
+	_, err := setAgentOwner(fsStore, name, ownerUserID, false)
+	return err
+}
+
+func AssignAgentOwner(fsStore *storage.FS, name string, ownerUserID string) ([]model.Agent, error) {
+	return setAgentOwner(fsStore, name, ownerUserID, true)
+}
+
+func setAgentOwner(fsStore *storage.FS, name string, ownerUserID string, allowReassignment bool) ([]model.Agent, error) {
 	if isBuiltinLeadAgent(name) {
-		return fmt.Errorf("agent %q is reserved and cannot be claimed", builtinLeadAgentName)
+		return nil, fmt.Errorf("agent %q is reserved and cannot be claimed", builtinLeadAgentName)
 	}
 
 	trimmedOwnerUserID := strings.TrimSpace(ownerUserID)
 	if trimmedOwnerUserID == "" {
-		return fmt.Errorf("owner user id is required")
+		return nil, fmt.Errorf("owner user id is required")
 	}
 
 	found := false
+	updatedAgents := []model.Agent{}
 	// Claim both archives together so a legacy custom agent cannot keep a
 	// split-brain ownerless prod/dev pair after the first explicit ownership
 	// assignment.
@@ -397,37 +407,51 @@ func SetAgentOwner(fsStore *storage.FS, name string, ownerUserID string) error {
 			if os.IsNotExist(err) {
 				continue
 			}
-			return err
+			return nil, err
 		}
 		found = true
 
 		var payload map[string]any
 		if err := yaml.Unmarshal(data, &payload); err != nil {
-			return err
+			return nil, err
 		}
 		existingOwnerUserID := strings.TrimSpace(fmt.Sprint(payload["owner_user_id"]))
 		switch {
-		case existingOwnerUserID == "" || existingOwnerUserID == "<nil>":
+		case allowReassignment || existingOwnerUserID == "" || existingOwnerUserID == "<nil>":
 			payload["owner_user_id"] = trimmedOwnerUserID
 		case existingOwnerUserID == trimmedOwnerUserID:
+			agent, err := LoadAgent(fsStore, name, status, false)
+			if err != nil {
+				return nil, err
+			}
+			if agent != nil {
+				updatedAgents = append(updatedAgents, *agent)
+			}
 			continue
 		default:
-			return ErrAgentAlreadyOwned
+			return nil, ErrAgentAlreadyOwned
 		}
 
 		updated, err := yaml.Marshal(payload)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if err := os.WriteFile(configFile, updated, 0o644); err != nil {
-			return err
+			return nil, err
+		}
+		agent, err := LoadAgent(fsStore, name, status, false)
+		if err != nil {
+			return nil, err
+		}
+		if agent != nil {
+			updatedAgents = append(updatedAgents, *agent)
 		}
 	}
 
 	if !found {
-		return fmt.Errorf("agent %q not found", name)
+		return nil, fmt.Errorf("agent %q not found", name)
 	}
-	return nil
+	return updatedAgents, nil
 }
 
 func DeleteAgent(fsStore *storage.FS, name string, status string) error {

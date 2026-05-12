@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -12,11 +13,20 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/openagents/gateway/internal/agentfs"
 	"github.com/openagents/gateway/internal/middleware"
 	"github.com/openagents/gateway/internal/model"
 	"github.com/openagents/gateway/internal/service"
 	"github.com/openagents/gateway/pkg/storage"
 )
+
+type stubAgentUserRepo struct {
+	users map[uuid.UUID]*model.User
+}
+
+func (s stubAgentUserRepo) FindByID(_ context.Context, userID uuid.UUID) (*model.User, error) {
+	return s.users[userID], nil
+}
 
 func seedOwnedAgentArchive(t *testing.T, fsStore *storage.FS, name string, status string, ownerUserID string) {
 	t.Helper()
@@ -251,6 +261,94 @@ func TestAgentHandlerAdminImportPackagePreservesArchiveStatus(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(fsStore.AgentDir("portable", "prod"), "config.yaml")); err != nil {
 		t.Fatalf("expected prod import archive: %v", err)
+	}
+}
+
+func TestAgentHandlerAdminSetOwnerReassignsAllArchiveVersions(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	fsStore := storage.NewFS(t.TempDir())
+	adminID := uuid.New()
+	previousOwnerID := uuid.New()
+	targetOwnerID := uuid.New()
+	for _, status := range []string{"dev", "prod"} {
+		seedOwnedAgentArchive(t, fsStore, "reviewer", status, previousOwnerID.String())
+	}
+	body := []byte(`{"owner_user_id":"` + targetOwnerID.String() + `"}`)
+	handler := NewAgentHandler(
+		service.NewAgentService(fsStore),
+		fsStore,
+		stubAgentUserRepo{
+			users: map[uuid.UUID]*model.User{
+				targetOwnerID: {
+					ID:   targetOwnerID,
+					Name: "target-owner",
+				},
+			},
+		},
+	)
+	context, recorder := newAuthedAgentContext(http.MethodPatch, "/api/admin/agents/reviewer/owner", adminID, "admin")
+	context.Params = gin.Params{{Key: "name", Value: "reviewer"}}
+	context.Request = httptest.NewRequest(http.MethodPatch, "/api/admin/agents/reviewer/owner", bytes.NewReader(body))
+	context.Request.Header.Set("Content-Type", "application/json")
+
+	handler.SetOwnerAdmin(context)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var payload struct {
+		Agents []model.Agent `json:"agents"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(payload.Agents) != 2 {
+		t.Fatalf("len(payload.Agents) = %d, want 2", len(payload.Agents))
+	}
+	for _, status := range []string{"dev", "prod"} {
+		agent, err := agentfs.LoadAgent(fsStore, "reviewer", status, false)
+		if err != nil {
+			t.Fatalf("LoadAgent(%s) error = %v", status, err)
+		}
+		if agent.OwnerUserID != targetOwnerID.String() {
+			t.Fatalf("%s agent.OwnerUserID = %q, want %q", status, agent.OwnerUserID, targetOwnerID.String())
+		}
+	}
+}
+
+func TestAgentHandlerAdminSetOwnerRejectsUnknownUser(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	fsStore := storage.NewFS(t.TempDir())
+	adminID := uuid.New()
+	previousOwnerID := uuid.New()
+	targetOwnerID := uuid.New()
+	seedOwnedAgentArchive(t, fsStore, "reviewer", "dev", previousOwnerID.String())
+	body := []byte(`{"owner_user_id":"` + targetOwnerID.String() + `"}`)
+	handler := NewAgentHandler(
+		service.NewAgentService(fsStore),
+		fsStore,
+		stubAgentUserRepo{users: map[uuid.UUID]*model.User{}},
+	)
+	context, recorder := newAuthedAgentContext(http.MethodPatch, "/api/admin/agents/reviewer/owner", adminID, "admin")
+	context.Params = gin.Params{{Key: "name", Value: "reviewer"}}
+	context.Request = httptest.NewRequest(http.MethodPatch, "/api/admin/agents/reviewer/owner", bytes.NewReader(body))
+	context.Request.Header.Set("Content-Type", "application/json")
+
+	handler.SetOwnerAdmin(context)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("expected status 404, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+	agent, err := agentfs.LoadAgent(fsStore, "reviewer", "dev", false)
+	if err != nil {
+		t.Fatalf("LoadAgent() error = %v", err)
+	}
+	if agent.OwnerUserID != previousOwnerID.String() {
+		t.Fatalf("agent.OwnerUserID = %q, want unchanged %q", agent.OwnerUserID, previousOwnerID.String())
 	}
 }
 

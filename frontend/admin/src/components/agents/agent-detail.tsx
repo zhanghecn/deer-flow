@@ -22,12 +22,19 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { t } from "@/i18n";
 import { api } from "@/lib/api";
-import type { Agent, AgentStatus } from "@/types";
+import type { AdminUser, Agent, AgentStatus } from "@/types";
 
 interface AgentDetailProps {
   agentName: string | null;
@@ -129,6 +136,9 @@ export function AgentDetail({
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [isSavingOwner, setIsSavingOwner] = useState(false);
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [ownerUserID, setOwnerUserID] = useState("");
   const [selectedStatus, setSelectedStatus] = useState<AgentStatus>(initialStatus);
   const [versionOptions, setVersionOptions] = useState<AgentStatus[]>(availableStatuses);
 
@@ -160,6 +170,7 @@ export function AgentDetail({
         }
         setDetail(payload);
         setForm(createFormState(payload));
+        setOwnerUserID(payload.owner_user_id ?? "");
       })
       .catch((error) => {
         toast.error(
@@ -176,6 +187,29 @@ export function AgentDetail({
       cancelled = true;
     };
   }, [agentName, open, selectedStatus, versionOptions]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    let cancelled = false;
+    void api<{ users: AdminUser[] }>("/api/admin/users")
+      .then((payload) => {
+        if (!cancelled) {
+          setUsers(payload.users ?? []);
+        }
+      })
+      .catch((error) => {
+        toast.error(
+          error instanceof Error ? error.message : t("Failed to load users"),
+        );
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   const demoURL = useMemo(() => {
     if (!detail) {
@@ -247,6 +281,44 @@ export function AgentDetail({
     }
   }
 
+  async function handleSaveOwner() {
+    if (!detail || !ownerUserID) {
+      return;
+    }
+
+    setIsSavingOwner(true);
+    try {
+      const payload = await api<{ agents: Agent[] }>(
+        `/api/admin/agents/${encodeURIComponent(detail.name)}/owner`,
+        {
+          method: "PATCH",
+          body: {
+            owner_user_id: ownerUserID,
+          },
+        },
+      );
+      const updatedAgents = payload.agents ?? [];
+      const currentVersion =
+        updatedAgents.find((agent) => agent.status === detail.status) ??
+        updatedAgents[0];
+      if (currentVersion) {
+        setDetail(currentVersion);
+        setOwnerUserID(currentVersion.owner_user_id ?? "");
+      }
+      setVersionOptions(
+        updatedAgents.length > 0
+          ? updatedAgents.map((agent) => agent.status)
+          : versionOptions,
+      );
+      toast.success(t("Owner updated"));
+      onSaved?.();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("Failed to update owner"));
+    } finally {
+      setIsSavingOwner(false);
+    }
+  }
+
   async function handleCopyDemoURL() {
     try {
       await navigator.clipboard.writeText(demoURL);
@@ -307,6 +379,43 @@ export function AgentDetail({
                 <div className="space-y-2">
                   <Label>{t("Name")}</Label>
                   <Input value={detail.name} disabled />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t("Owner")}</Label>
+                  <div className="flex gap-2">
+                    <Select value={ownerUserID} onValueChange={setOwnerUserID}>
+                      <SelectTrigger>
+                        <SelectValue placeholder={t("Select owner")} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {users.map((user) => (
+                          <SelectItem key={user.id} value={user.id}>
+                            {user.name || user.email || user.id}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={
+                        isSavingOwner ||
+                        !ownerUserID ||
+                        ownerUserID === (detail.owner_user_id ?? "")
+                      }
+                      onClick={() => void handleSaveOwner()}
+                    >
+                      {isSavingOwner ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <SaveIcon className="h-4 w-4" />
+                      )}
+                      {t("Set owner")}
+                    </Button>
+                  </div>
+                  <p className="text-muted-foreground text-xs">
+                    {detail.owner_name || detail.owner_user_id || t("No owner")}
+                  </p>
                 </div>
                 <div className="space-y-2">
                   <Label>{t("Versions")}</Label>

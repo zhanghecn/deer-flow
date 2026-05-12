@@ -347,6 +347,7 @@ func main() {
 			admin.POST("/users/:id/tokens", authH.CreateToken)
 			admin.DELETE("/users/:id/tokens/:token_id", authH.DeleteToken)
 			admin.POST("/agents/import", agentH.ImportPackageAdmin)
+			admin.PATCH("/agents/:name/owner", agentH.SetOwnerAdmin)
 			admin.GET("/stats", adminH.GetStats)
 			admin.POST("/models/newapi/scan", adminH.ScanNewAPIModels)
 			admin.POST("/models/newapi/import", adminH.ImportNewAPIModels)

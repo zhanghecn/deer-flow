@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -12,7 +13,6 @@ import (
 	"github.com/openagents/gateway/internal/agentfs"
 	"github.com/openagents/gateway/internal/middleware"
 	"github.com/openagents/gateway/internal/model"
-	"github.com/openagents/gateway/internal/repository"
 	"github.com/openagents/gateway/internal/service"
 	"github.com/openagents/gateway/pkg/storage"
 )
@@ -20,7 +20,11 @@ import (
 type AgentHandler struct {
 	svc      *service.AgentService
 	fs       *storage.FS
-	userRepo *repository.UserRepo
+	userRepo agentUserRepository
+}
+
+type agentUserRepository interface {
+	FindByID(ctx context.Context, userID uuid.UUID) (*model.User, error)
 }
 
 const manageAgentForbiddenDetail = "you do not have permission to manage this agent"
@@ -28,7 +32,7 @@ const manageAgentForbiddenDetail = "you do not have permission to manage this ag
 func NewAgentHandler(
 	svc *service.AgentService,
 	fs *storage.FS,
-	userRepo *repository.UserRepo,
+	userRepo agentUserRepository,
 ) *AgentHandler {
 	return &AgentHandler{svc: svc, fs: fs, userRepo: userRepo}
 }
@@ -87,6 +91,51 @@ func writeManageAgentForbidden(c *gin.Context) {
 		Error:   "forbidden",
 		Details: manageAgentForbiddenDetail,
 	})
+}
+
+func (h *AgentHandler) SetOwnerAdmin(c *gin.Context) {
+	name := strings.TrimSpace(c.Param("name"))
+	var req model.UpdateAgentOwnerRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
+		return
+	}
+	ownerUserID, err := uuid.Parse(strings.TrimSpace(req.OwnerUserID))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "invalid owner_user_id"})
+		return
+	}
+	if h.userRepo == nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "user repository is not configured"})
+		return
+	}
+	owner, err := h.userRepo.FindByID(c.Request.Context(), ownerUserID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: "failed to resolve owner user"})
+		return
+	}
+	if owner == nil {
+		c.JSON(http.StatusNotFound, model.ErrorResponse{Error: "owner user not found"})
+		return
+	}
+
+	// Ownership is a logical-agent policy, not a per-archive preference. Admin
+	// reassignment updates every existing archive version together so dev/prod
+	// management permissions cannot diverge accidentally.
+	agents, err := agentfs.AssignAgentOwner(h.fs, name, ownerUserID.String())
+	if err != nil {
+		statusCode := http.StatusBadRequest
+		if strings.Contains(err.Error(), "not found") {
+			statusCode = http.StatusNotFound
+		}
+		c.JSON(statusCode, model.ErrorResponse{Error: err.Error()})
+		return
+	}
+	for i := range agents {
+		agents[i].CanManage = true
+		agents[i].OwnerName = owner.Name
+	}
+	c.JSON(http.StatusOK, gin.H{"agents": agents})
 }
 
 func (h *AgentHandler) List(c *gin.Context) {

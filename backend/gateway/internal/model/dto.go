@@ -68,6 +68,10 @@ type UpdateAgentRequest struct {
 	AgentsMD           *string                  `json:"agents_md"`
 }
 
+type UpdateAgentOwnerRequest struct {
+	OwnerUserID string `json:"owner_user_id" binding:"required"`
+}
+
 type AgentPackageFile struct {
 	Path          string `json:"path"`
 	ContentBase64 string `json:"content_base64"`
