@@ -16,6 +16,13 @@ import (
 	"github.com/openagents/gateway/internal/model"
 )
 
+const (
+	// Public API history powers SDK/demo restore flows, so the default should
+	// cover ordinary multi-turn chats while the hard cap keeps reads bounded.
+	defaultRecentTurnLimit = 50
+	maxRecentTurnLimit     = 200
+)
+
 type turnCollector struct {
 	turnID                string
 	events                []model.TurnEvent
@@ -1230,7 +1237,7 @@ func (s *PublicAPIService) listRecentTurnSessions(
 		FinishedOnly: true,
 		// Pull a wider turn window because multiple recent turns can belong to
 		// the same SDK session; the response is limited after session grouping.
-		Limit: 200,
+		Limit: maxRecentTurnLimit,
 	})
 	if err != nil {
 		return nil, err
@@ -1298,10 +1305,10 @@ func (s *PublicAPIService) listRecentTurnSessions(
 
 func normalizeRecentTurnLimit(limit int) int {
 	if limit <= 0 {
-		return 10
+		return defaultRecentTurnLimit
 	}
-	if limit > 50 {
-		return 50
+	if limit > maxRecentTurnLimit {
+		return maxRecentTurnLimit
 	}
 	return limit
 }

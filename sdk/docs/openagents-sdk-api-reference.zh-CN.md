@@ -327,7 +327,7 @@ console.log(result.messages);
 
 ## 8. 获取最近 Turns
 
-### `GET /v1/turns/recent?agent=<agent_name>&limit=20`
+### `GET /v1/turns/recent?agent=<agent_name>&limit=50`
 
 用于前端不保存消息列表、需要展示可点击会话列表的场景。不带
 `session_id` 时，该接口返回当前 API Token 可见、指定 agent 的最近会话
@@ -378,13 +378,13 @@ scope 过滤使用 JSON containment 语义，因此查询 `{"tenant_id":"acme"}`
 ```
 
 恢复某个会话时，调用
-`GET /v1/turns/recent?agent=<agent_name>&session_id=<session_id>&limit=50`。
+`GET /v1/turns/recent?agent=<agent_name>&session_id=<session_id>&limit=200`。
 这个响应返回所选会话的最近 turns。前端用这些 item 重建可见消息，继续使用
 同一个 `session_id` 和可选 `history_scope` 发起下一轮；调用方不需要把
 turn id 再传回服务端。
 
 恢复带 scope 的会话时，需要带上当前 scope：
-`GET /v1/turns/recent?agent=<agent_name>&session_id=<session_id>&history_scope=<urlencoded-json>&limit=50`。
+`GET /v1/turns/recent?agent=<agent_name>&session_id=<session_id>&history_scope=<urlencoded-json>&limit=200`。
 
 ## 9. 文件上传
 

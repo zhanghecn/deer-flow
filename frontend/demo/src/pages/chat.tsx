@@ -44,6 +44,10 @@ import {
 import { createDemoId } from "../lib/uid";
 
 const SETTINGS_KEY = "demo_chat_settings";
+// Keep demo history explicit so browser restore does not depend on changing
+// server defaults, while still respecting the public API's bounded max window.
+const HISTORY_SESSION_LIST_LIMIT = 50;
+const HISTORY_SESSION_RESTORE_LIMIT = 200;
 const API_IMAGE_MAX_BASE64_SIZE = 5 * 1024 * 1024;
 const IMAGE_TARGET_RAW_SIZE = Math.floor((API_IMAGE_MAX_BASE64_SIZE * 3) / 4);
 const IMAGE_MAX_DIMENSION = 2000;
@@ -1446,7 +1450,7 @@ export function ChatPage() {
           apiToken: apiKeyInput.trim(),
           agent: agentName,
           historyScope: historyScopeState.scope,
-          limit: 20,
+          limit: HISTORY_SESSION_LIST_LIMIT,
           signal: abortController.signal,
         });
         setHistoryItems(recent.data);
@@ -1495,7 +1499,7 @@ export function ChatPage() {
             agent: agentName,
             sessionId: sessionID,
             historyScope: historyScopeState.scope,
-            limit: 50,
+            limit: HISTORY_SESSION_RESTORE_LIMIT,
             signal: abortController.signal,
           });
           const chronologicalTurns = [...recent.data].reverse();

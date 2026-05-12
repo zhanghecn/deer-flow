@@ -331,7 +331,7 @@ the same snapshot shape as `GET /v1/turns/{id}`.
 
 ## 8. Fetch Recent Turns
 
-### `GET /v1/turns/recent?agent=<agent_name>&limit=20`
+### `GET /v1/turns/recent?agent=<agent_name>&limit=50`
 
 Use this when the frontend does not store message history and needs a clickable
 conversation list. Without `session_id`, the endpoint returns recent session
@@ -384,14 +384,14 @@ Each item is a turn snapshot plus the original `input`:
 ```
 
 To restore one conversation, call
-`GET /v1/turns/recent?agent=<agent_name>&session_id=<session_id>&limit=50`.
+`GET /v1/turns/recent?agent=<agent_name>&session_id=<session_id>&limit=200`.
 That response returns recent turns for the selected session. Rebuild the visible
 messages from those items, then keep using the same `session_id` and optional
 `history_scope` for the next turn. Callers do not need to pass a turn id back to
 continue the session.
 
 When restoring a scoped conversation, include the same current scope filter:
-`GET /v1/turns/recent?agent=<agent_name>&session_id=<session_id>&history_scope=<urlencoded-json>&limit=50`.
+`GET /v1/turns/recent?agent=<agent_name>&session_id=<session_id>&history_scope=<urlencoded-json>&limit=200`.
 
 ## 9. File Uploads
 

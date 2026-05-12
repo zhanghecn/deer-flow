@@ -495,6 +495,37 @@ func TestListRecentTurnsWithScopedSessionUsesSessionFilter(t *testing.T) {
 	}
 }
 
+func TestListRecentTurnsNormalizesHistoryLimit(t *testing.T) {
+	t.Parallel()
+
+	userID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	tokenID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	invocationRepo := &stubPublicAPIInvocationRepo{}
+	svc := &PublicAPIService{invocationRepo: invocationRepo}
+
+	_, err := svc.ListRecentTurns(context.Background(), PublicAPIAuthContext{
+		UserID:     userID,
+		APITokenID: tokenID,
+	}, "support-cases-http-demo", "session-default", "", 0)
+	if err != nil {
+		t.Fatalf("ListRecentTurns default limit: %v", err)
+	}
+	if invocationRepo.lastFilter.Limit != defaultRecentTurnLimit {
+		t.Fatalf("default limit = %d, want %d", invocationRepo.lastFilter.Limit, defaultRecentTurnLimit)
+	}
+
+	_, err = svc.ListRecentTurns(context.Background(), PublicAPIAuthContext{
+		UserID:     userID,
+		APITokenID: tokenID,
+	}, "support-cases-http-demo", "session-clamped", "", 999)
+	if err != nil {
+		t.Fatalf("ListRecentTurns max limit: %v", err)
+	}
+	if invocationRepo.lastFilter.Limit != maxRecentTurnLimit {
+		t.Fatalf("max limit = %d, want %d", invocationRepo.lastFilter.Limit, maxRecentTurnLimit)
+	}
+}
+
 func TestResolveThreadIDUsesTokenScopedSessionID(t *testing.T) {
 	t.Parallel()
 
