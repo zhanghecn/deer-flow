@@ -32,6 +32,7 @@ import {
   type ToolCallStep,
 } from "../lib/chat-session";
 import {
+  cancelPublicAPITurn,
   downloadPublicAPIArtifact,
   listRecentPublicAPITurns,
   openPublicAPIArtifact,
@@ -1255,6 +1256,8 @@ export function ChatPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const activeTurnIdRef = useRef("");
+  const stopPromiseRef = useRef<Promise<void> | null>(null);
   const sessionRef = useRef<ReturnType<typeof createChatSession> | null>(null);
   const sessionKeyRef = useRef("");
 
@@ -1576,6 +1579,8 @@ export function ChatPage() {
     const assistantMessageId = createMessageId();
     const abortController = new AbortController();
     abortRef.current = abortController;
+    activeTurnIdRef.current = "";
+    stopPromiseRef.current = null;
 
     setDraft("");
     setAttachments([]);
@@ -1704,9 +1709,13 @@ export function ChatPage() {
           onUpdate: ({
             text: liveText,
             reasoning: liveReasoning,
+            turnId,
             phase,
             error: liveError,
           }) => {
+            if (turnId) {
+              activeTurnIdRef.current = turnId;
+            }
             latestPhase = phase;
             latestError = liveError ?? latestError;
             setMessages((prev) =>
@@ -1803,6 +1812,8 @@ export function ChatPage() {
           result.turn.status === "completed" ||
           result.turn.status === "requires_input"
             ? "done"
+            : result.turn.status === "canceled"
+              ? "interrupted"
             : "error";
         setMessages((prev) =>
           prev.map((m) =>
@@ -1846,8 +1857,14 @@ export function ChatPage() {
           );
         }
       } finally {
+        const stopPromise = stopPromiseRef.current;
+        if (stopPromise) {
+          await Promise.resolve(stopPromise);
+        }
         setIsStreaming(false);
         abortRef.current = null;
+        activeTurnIdRef.current = "";
+        stopPromiseRef.current = null;
       }
     })();
   }, [
@@ -1871,9 +1888,27 @@ export function ChatPage() {
   );
 
   const handleStop = useCallback(() => {
+    const turnId = activeTurnIdRef.current;
+    if (turnId && !stopPromiseRef.current) {
+      // Stop is a server-side run lifecycle operation; the fetch abort below is
+      // only the local stream teardown so the UI can release immediately after
+      // the gateway has persisted a canceled turn snapshot.
+      stopPromiseRef.current = cancelPublicAPITurn({
+        baseURL: resolvedBaseURL,
+        apiToken: apiKeyInput.trim(),
+        turnId,
+      }).then(
+        () => undefined,
+        (err) => {
+          const detail = getErrorMessage(err);
+          setError(detail);
+          toast.error(detail);
+        },
+      );
+    }
     abortRef.current?.abort();
     abortRef.current = null;
-  }, []);
+  }, [apiKeyInput, resolvedBaseURL]);
 
   const handleSaveSettings = useCallback(() => {
     if (historyScopeState.error) {
@@ -1907,6 +1942,8 @@ export function ChatPage() {
     }
     abortRef.current?.abort();
     abortRef.current = null;
+    activeTurnIdRef.current = "";
+    stopPromiseRef.current = null;
     const session = createChatSession({
       baseURL: resolvedBaseURL,
       apiToken: apiKeyInput.trim(),

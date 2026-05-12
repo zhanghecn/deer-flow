@@ -42,6 +42,7 @@ Content-Type: application/json
 | `GET`  | `/v1/files/{id}/content` | Download response artifact content                                   |
 | `POST` | `/v1/turns`              | Recommended native turn-based API                                    |
 | `GET`  | `/v1/turns/{id}`         | Fetch a turn snapshot for recovery and replay                        |
+| `POST` | `/v1/turns/{id}/cancel`  | Cancel an in-progress public API turn                                |
 | `GET`  | `/v1/turns/recent`       | Fetch recent session summaries, or turns for a specific `session_id` |
 | `POST` | `/v1/responses`          | OpenAI Responses compatibility layer                                 |
 | `GET`  | `/v1/responses/{id}`     | Fetch a historical response                                          |
@@ -166,6 +167,7 @@ Stable event budget:
 - `turn.requires_input`
 - `assistant.message.completed`
 - `turn.completed`
+- `turn.canceled`
 - `turn.failed`
 
 ### 6.1 SSE Example
@@ -182,6 +184,9 @@ data: {"sequence":5,"type":"tool.call.completed","turn_id":"turn_123","tool_call
 
 event: turn.completed
 data: {"sequence":9,"type":"turn.completed","turn_id":"turn_123"}
+
+event: turn.canceled
+data: {"sequence":10,"type":"turn.canceled","turn_id":"turn_123","status":"canceled"}
 ```
 
 ### 6.2 Client Handling Guidance
@@ -189,6 +194,7 @@ data: {"sequence":9,"type":"turn.completed","turn_id":"turn_123"}
 - Preserve incoming whitespace; do not trim deltas before merging
 - Merge `assistant.text.delta` and `assistant.reasoning.delta` incrementally
 - Treat `assistant.message.completed` or `GET /v1/turns/{id}` as the final source of truth
+- Treat `turn.canceled` as a terminal interrupted state, not as a retryable transport error
 - For tool call UIs, display:
   - tool name
   - tool arguments
@@ -302,7 +308,7 @@ Example response:
 | Field            | Description                                                                                                        |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `id`             | Current turn ID                                                                                                    |
-| `status`         | Common values: `completed`, `failed`, `incomplete`                                                                 |
+| `status`         | Common values: `completed`, `requires_input`, `canceled`, `failed`                                                  |
 | `agent`          | Agent name                                                                                                         |
 | `session_id`     | External SDK session ID                                                                                            |
 | `history_scope`  | Caller-defined history partition fields stored with this turn                                                      |
@@ -313,6 +319,15 @@ Example response:
 | `artifacts`      | Output files; each item includes an opaque `id`, `download_url`, and `virtual_path` for resolving answer citations |
 | `usage`          | Token usage                                                                                                        |
 | `events`         | Normalized event list for this turn                                                                                |
+
+### `POST /v1/turns/{id}/cancel`
+
+Cancels an in-progress public API turn. Use this for user-visible stop buttons;
+do not rely on closing the browser stream as the only cancellation signal.
+
+The server resolves active LangGraph runs for the turn thread, interrupts them,
+and stores a terminal `canceled` turn snapshot. A successful response returns
+the same snapshot shape as `GET /v1/turns/{id}`.
 
 ## 8. Fetch Recent Turns
 

@@ -49,6 +49,7 @@ export type PublicAPITurnEventType =
   | "turn.requires_input"
   | "assistant.message.completed"
   | "turn.completed"
+  | "turn.canceled"
   | "turn.failed";
 
 export type PublicAPITurnFailureStage =
@@ -274,6 +275,28 @@ export async function getPublicAPITurn(params: {
       .catch(() => ({}))) as PublicAPIErrorShape;
     throw new Error(
       extractErrorMessage(error, `Failed to fetch turn: ${response.statusText}`),
+    );
+  }
+  return response.json() as Promise<PublicAPITurnSnapshot>;
+}
+
+export async function cancelPublicAPITurn(params: {
+  baseURL: string;
+  apiToken: string;
+  turnId: string;
+}): Promise<PublicAPITurnSnapshot> {
+  const response = await publicAPIFetch(
+    params.baseURL,
+    params.apiToken,
+    `./turns/${encodeURIComponent(params.turnId)}/cancel`,
+    { method: "POST" },
+  );
+  if (!response.ok) {
+    const error = (await response
+      .json()
+      .catch(() => ({}))) as PublicAPIErrorShape;
+    throw new Error(
+      extractErrorMessage(error, `Failed to cancel turn: ${response.statusText}`),
     );
   }
   return response.json() as Promise<PublicAPITurnSnapshot>;

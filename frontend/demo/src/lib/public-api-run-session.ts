@@ -1,7 +1,12 @@
 import type { PublicAPITurnSnapshot } from "./public-api";
 import type { PublicAPINormalizedRunEvent } from "./public-api-events";
 
-export type PublicAPIRunPhase = "ready" | "streaming" | "failed" | "waiting";
+export type PublicAPIRunPhase =
+  | "ready"
+  | "streaming"
+  | "failed"
+  | "waiting"
+  | "interrupted";
 
 export type PublicAPIRunReadModel = {
   liveOutput: string;
@@ -148,6 +153,8 @@ export function applyNormalizedPublicAPIRunEvent(params: {
         phase = "waiting";
       } else if (event.event.type === "turn.failed") {
         phase = "failed";
+      } else if (event.event.type === "turn.canceled") {
+        phase = "interrupted";
       } else if (event.event.type === "turn.completed") {
         phase = "ready";
       }
@@ -192,6 +199,8 @@ export function applyPublicAPITurnSnapshot(params: {
     phase:
       params.turn.status === "requires_input"
         ? "waiting"
+        : params.turn.status === "canceled"
+          ? "interrupted"
         : params.turn.status === "failed"
           ? "failed"
           : "ready",

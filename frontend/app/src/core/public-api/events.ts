@@ -1,10 +1,11 @@
+import { normalizeThreadError } from "../threads/error";
+
 import type {
   PublicAPITurnEvent,
   PublicAPITurnEventType,
   PublicAPITurnSnapshot,
   PublicAPITurnStreamEvent,
 } from "./api";
-import { normalizeThreadError } from "../threads/error";
 
 export type PublicAPINormalizedRunEvent =
   | {
@@ -138,6 +139,7 @@ function isTurnEventType(value: string): value is PublicAPITurnEventType {
     "turn.requires_input",
     "assistant.message.completed",
     "turn.completed",
+    "turn.canceled",
     "turn.failed",
   ].includes(value);
 }
@@ -220,7 +222,7 @@ export function buildTraceFromRunEvent(
         stage: "assistant",
         tone: "assistant",
         title: text.assistantMessage,
-        detail: asString(event.text || event.delta),
+        detail: asString(event.text ?? event.delta),
         timestamp: event.created_at * 1000,
         raw: event,
       };
@@ -229,7 +231,7 @@ export function buildTraceFromRunEvent(
         stage: "assistant",
         tone: "assistant",
         title: text.assistantThinking,
-        detail: asString(event.reasoning || event.delta),
+        detail: asString(event.reasoning ?? event.delta),
         timestamp: event.created_at * 1000,
         raw: event,
       };
@@ -285,7 +287,7 @@ export function buildTraceFromRunEvent(
         stage: "run",
         tone: "system",
         title: text.turnWaiting,
-        detail: asString(event.text || event.message_id),
+        detail: asString(event.text ?? event.message_id),
         timestamp: event.created_at * 1000,
         raw: event,
       };

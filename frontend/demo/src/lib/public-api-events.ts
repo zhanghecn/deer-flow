@@ -60,6 +60,7 @@ function isTurnEventType(value: string): value is PublicAPITurnEventType {
     "turn.requires_input",
     "assistant.message.completed",
     "turn.completed",
+    "turn.canceled",
     "turn.failed",
   ].includes(value);
 }

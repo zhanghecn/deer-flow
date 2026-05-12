@@ -87,3 +87,16 @@ func (h *TurnsHandler) Get(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, snapshot)
 }
+
+func (h *TurnsHandler) Cancel(c *gin.Context) {
+	snapshot, err := h.svc.CancelTurn(
+		c.Request.Context(),
+		c.Param("id"),
+		middleware.GetAPITokenID(c),
+	)
+	if err != nil {
+		writePublicAPIError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, snapshot)
+}

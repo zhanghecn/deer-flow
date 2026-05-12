@@ -16,6 +16,7 @@ const (
 	TurnEventTurnRequiresInput         TurnEventType = "turn.requires_input"
 	TurnEventAssistantMessageCompleted TurnEventType = "assistant.message.completed"
 	TurnEventTurnCompleted             TurnEventType = "turn.completed"
+	TurnEventTurnCanceled              TurnEventType = "turn.canceled"
 	TurnEventTurnFailed                TurnEventType = "turn.failed"
 
 	TurnFailureStagePrepareRun      TurnFailureStage = "prepare_run"

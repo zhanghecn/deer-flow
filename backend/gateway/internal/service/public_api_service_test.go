@@ -861,6 +861,149 @@ func TestRunAgentTurnForwardsRuntimeUploadMimeType(t *testing.T) {
 	if got := file["mime_type"]; got != "image/png" {
 		t.Fatalf("mime_type = %#v, want image/png", got)
 	}
+	if got := requestPayload["on_disconnect"]; got != "cancel" {
+		t.Fatalf("on_disconnect = %#v, want cancel", got)
+	}
+	if got := requestPayload["multitask_strategy"]; got != "interrupt" {
+		t.Fatalf("multitask_strategy = %#v, want interrupt", got)
+	}
+}
+
+func TestCancelTurnCancelsLangGraphRunAndStoresCanceledSnapshot(t *testing.T) {
+	t.Parallel()
+
+	userID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	tokenID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	invocationRepo := &stubPublicAPIInvocationRepo{
+		byResponseID: map[string]*model.PublicAPIInvocation{
+			"turn_cancel": {
+				ID:           uuid.New(),
+				ResponseID:   "turn_cancel",
+				Surface:      "turns",
+				APITokenID:   tokenID,
+				UserID:       userID,
+				AgentName:    "demo-agent",
+				ThreadID:     "thread-1",
+				RequestModel: "kimi-k2.5",
+				Status:       "in_progress",
+				RequestJSON:  json.RawMessage(`{"agent":"demo-agent","input":{"text":"stop me"},"session_id":"session-1","metadata":{"source":"test"}}`),
+				ResponseJSON: json.RawMessage(`{}`),
+				CreatedAt:    time.Unix(42, 0).UTC(),
+			},
+		},
+	}
+
+	var listedStatuses []string
+	var cancelPath string
+	var cancelAction string
+	var cancelWait string
+	var seenUserID string
+	var seenAgentName string
+	var seenModelName string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenUserID = r.Header.Get("X-User-ID")
+		seenAgentName = r.Header.Get("X-Agent-Name")
+		seenModelName = r.Header.Get("X-Model-Name")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/threads/thread-1/runs":
+			status := r.URL.Query().Get("status")
+			listedStatuses = append(listedStatuses, status)
+			if status == "running" {
+				_, _ = io.WriteString(w, `[{"run_id":"run-1","status":"running"}]`)
+				return
+			}
+			_, _ = io.WriteString(w, `[]`)
+		case r.Method == http.MethodPost && r.URL.Path == "/threads/thread-1/runs/run-1/cancel":
+			cancelPath = r.URL.Path
+			cancelAction = r.URL.Query().Get("action")
+			cancelWait = r.URL.Query().Get("wait")
+			_, _ = io.WriteString(w, `{}`)
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	svc := &PublicAPIService{
+		invocationRepo: invocationRepo,
+		langGraphURL:   server.URL,
+		httpClient:     server.Client(),
+	}
+
+	snapshot, err := svc.CancelTurn(context.Background(), "turn_cancel", tokenID)
+	if err != nil {
+		t.Fatalf("CancelTurn: %v", err)
+	}
+	if snapshot.Status != "canceled" {
+		t.Fatalf("expected canceled snapshot, got %#v", snapshot)
+	}
+	if len(snapshot.Events) != 2 || snapshot.Events[1].Type != model.TurnEventTurnCanceled {
+		t.Fatalf("expected started+canceled events, got %#v", snapshot.Events)
+	}
+	if snapshot.Metadata["source"] != "test" {
+		t.Fatalf("expected metadata to be preserved, got %#v", snapshot.Metadata)
+	}
+	if cancelPath != "/threads/thread-1/runs/run-1/cancel" || cancelAction != "interrupt" || cancelWait != "true" {
+		t.Fatalf("unexpected cancel request path=%q action=%q wait=%q", cancelPath, cancelAction, cancelWait)
+	}
+	if strings.Join(listedStatuses, ",") != "running,pending" {
+		t.Fatalf("expected running,pending list calls, got %#v", listedStatuses)
+	}
+	if seenUserID != userID.String() || seenAgentName != "demo-agent" || seenModelName != "kimi-k2.5" {
+		t.Fatalf("runtime headers user=%q agent=%q model=%q", seenUserID, seenAgentName, seenModelName)
+	}
+	stored := invocationRepo.byResponseID["turn_cancel"]
+	if stored.Status != "canceled" || stored.Error == nil || *stored.Error != "turn canceled" {
+		t.Fatalf("stored invocation not canceled: %#v", stored)
+	}
+}
+
+func TestExecuteTurnStoresCanceledSnapshotWhenClientContextCancels(t *testing.T) {
+	t.Parallel()
+
+	invocationRepo := &stubPublicAPIInvocationRepo{}
+	svc := &PublicAPIService{
+		invocationRepo: invocationRepo,
+		langGraphURL:   "http://127.0.0.1:1",
+		httpClient:     http.DefaultClient,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	plan := &publicAPIRunPlan{
+		Auth: PublicAPIAuthContext{
+			UserID:     uuid.MustParse("11111111-1111-1111-1111-111111111111"),
+			APITokenID: uuid.MustParse("22222222-2222-2222-2222-222222222222"),
+		},
+		Invocation: &model.PublicAPIInvocation{
+			ID:           uuid.New(),
+			ResponseID:   "turn_abort",
+			Surface:      "turns",
+			AgentName:    "demo-agent",
+			ThreadID:     "thread-1",
+			RequestModel: "kimi-k2.5",
+			Status:       "in_progress",
+			RequestJSON:  json.RawMessage(`{"agent":"demo-agent","input":{"text":"stop me"}}`),
+			ResponseJSON: json.RawMessage(`{}`),
+			CreatedAt:    time.Unix(42, 0).UTC(),
+		},
+		AgentName:  "demo-agent",
+		ModelName:  "kimi-k2.5",
+		ThreadID:   "thread-1",
+		ResponseID: "turn_abort",
+		PromptText: "stop me",
+	}
+
+	snapshot, err := svc.executeTurn(ctx, plan, newTurnCollector("turn_abort"), nil)
+	if err != nil {
+		t.Fatalf("executeTurn: %v", err)
+	}
+	if snapshot.Status != "canceled" {
+		t.Fatalf("expected canceled snapshot, got %#v", snapshot)
+	}
+	stored := invocationRepo.byResponseID["turn_abort"]
+	if stored == nil || stored.Status != "canceled" {
+		t.Fatalf("expected stored canceled invocation, got %#v", stored)
+	}
 }
 
 func TestFinishInvocationWithErrorStoresFailedTurnSnapshotForTurnsSurface(t *testing.T) {

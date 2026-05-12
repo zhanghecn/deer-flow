@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/core/auth/hooks";
 import { listAPITokens, type APITokenRecord } from "@/core/auth/tokens";
 import {
+  cancelPublicAPITurn,
   type PublicAPITurnArtifact,
   type PublicAPITurnEvent,
   type PublicAPITurnSnapshot,
@@ -40,7 +41,7 @@ import {
 } from "./chat-playground-utils";
 
 type ReasoningEffort = "low" | "medium" | "high" | "max";
-type RunPhase = "ready" | "streaming" | "failed" | "waiting";
+type RunPhase = "ready" | "streaming" | "failed" | "waiting" | "interrupted";
 type DebugTab = "request" | "events" | "snapshot";
 
 type ContentBlock =
@@ -59,7 +60,7 @@ interface Message {
   id: string;
   role: "user" | "assistant";
   blocks: ContentBlock[];
-  status: "streaming" | "done" | "error";
+  status: "streaming" | "done" | "error" | "interrupted";
   turnId?: string;
   reasoningText?: string;
 }
@@ -116,12 +117,14 @@ function StatusDot({ phase }: { phase: RunPhase }) {
     streaming: "bg-cyan-400 animate-pulse",
     failed: "bg-rose-400",
     waiting: "bg-amber-400",
+    interrupted: "bg-zinc-500",
   };
   const label: Record<RunPhase, string> = {
     ready: "Ready",
     streaming: "Streaming",
     failed: "Failed",
     waiting: "Waiting",
+    interrupted: "Interrupted",
   };
   return (
     <span className="inline-flex items-center gap-1.5 text-xs text-zinc-400">
@@ -558,6 +561,8 @@ export function ChatPlayground({
 }: ChatPlaygroundProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const activeTurnIdRef = useRef("");
+  const stopPromiseRef = useRef<Promise<void> | null>(null);
   const sessionRef = useRef<ReturnType<typeof createPublicAPISession> | null>(
     null,
   );
@@ -640,6 +645,8 @@ export function ChatPlayground({
   function resetSession() {
     abortRef.current?.abort();
     abortRef.current = null;
+    activeTurnIdRef.current = "";
+    stopPromiseRef.current = null;
     sessionRef.current?.reset();
     setMessages([]);
     setQueuedFiles([]);
@@ -700,6 +707,8 @@ export function ChatPlayground({
     const asstId = uid();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
+    activeTurnIdRef.current = "";
+    stopPromiseRef.current = null;
 
     setDraft("");
     setRunState("streaming");
@@ -771,6 +780,9 @@ export function ChatPlayground({
         // The debug panel can show normalized/raw runner events, but the
         // conversation UI below is driven by SDK messages like external demos.
         onUpdate: ({ event, readModel }) => {
+          if (readModel.turnId) {
+            activeTurnIdRef.current = readModel.turnId;
+          }
           if (event.kind === "ledger_event") {
             const ledgerEvt = event.event;
             // Runtime traces are not yet perfectly uniform across deployments.
@@ -816,6 +828,8 @@ export function ChatPlayground({
 
           if (readModel.phase === "failed") setRunState("failed");
           else if (readModel.phase === "waiting") setRunState("waiting");
+          else if (readModel.phase === "interrupted")
+            setRunState("interrupted");
         },
         onMessage: ({ message, readModel }) => {
           updateMsg(asstId, (m) => {
@@ -878,7 +892,12 @@ export function ChatPlayground({
               blocks,
               reasoningText: readModel.liveReasoning || m.reasoningText,
               turnId: readModel.turnId || m.turnId,
-              status: readModel.phase === "failed" ? "error" : m.status,
+              status:
+                readModel.phase === "failed"
+                  ? "error"
+                  : readModel.phase === "interrupted"
+                    ? "interrupted"
+                    : m.status,
             };
           });
         },
@@ -893,7 +912,12 @@ export function ChatPlayground({
         );
         updateMsg(asstId, (m) => ({
           ...m,
-          status: result.readModel.phase === "failed" ? "error" : m.status,
+          status:
+            result.readModel.phase === "failed"
+              ? "error"
+              : result.readModel.phase === "interrupted"
+                ? "interrupted"
+                : m.status,
         }));
         return;
       }
@@ -903,6 +927,8 @@ export function ChatPlayground({
         finalized.status === "completed" ||
         finalized.status === "requires_input"
           ? ("done" as const)
+          : finalized.status === "canceled"
+            ? ("interrupted" as const)
           : ("error" as const);
 
       updateMsg(asstId, (m) => {
@@ -930,10 +956,17 @@ export function ChatPlayground({
         setRunState("waiting");
         return;
       }
-      setRunState(finalized.status === "failed" ? "failed" : "ready");
+      setRunState(
+        finalized.status === "failed"
+          ? "failed"
+          : finalized.status === "canceled"
+            ? "interrupted"
+            : "ready",
+      );
     } catch (err) {
       if (shouldIgnoreThreadError(err)) {
-        setRunState("ready");
+        setRunState("interrupted");
+        updateMsg(asstId, (m) => ({ ...m, status: "interrupted" }));
         return;
       }
       const detail = normalizeThreadError(err);
@@ -948,8 +981,35 @@ export function ChatPlayground({
             : [{ type: "text" as const, content: `Error: ${detail}` }],
       }));
     } finally {
+      const stopPromise = stopPromiseRef.current;
+      if (stopPromise) {
+        await Promise.resolve(stopPromise);
+      }
       abortRef.current = null;
+      activeTurnIdRef.current = "";
+      stopPromiseRef.current = null;
     }
+  }
+
+  function handleStop() {
+    const turnId = activeTurnIdRef.current;
+    if (turnId && !stopPromiseRef.current) {
+      // Server-side cancel is the authoritative public API stop; aborting the
+      // local fetch only tears down the browser stream after the cancel request
+      // has been sent through the same `/v1/turns` contract.
+      stopPromiseRef.current = cancelPublicAPITurn({
+        baseURL: apiBaseURL,
+        apiToken: apiKey.trim(),
+        turnId,
+      }).then(
+        () => undefined,
+        (err) => {
+          toast.error(normalizeThreadError(err));
+        },
+      );
+    }
+    abortRef.current?.abort();
+    abortRef.current = null;
   }
 
   function summarizeEvent(e: PublicAPITurnEvent): string {
@@ -966,6 +1026,8 @@ export function ChatPlayground({
         return e.tool_name ?? "";
       case "turn.completed":
         return "completed";
+      case "turn.canceled":
+        return "canceled";
       case "turn.failed":
         return e.error ?? "error";
       default:
@@ -1080,6 +1142,11 @@ export function ChatPlayground({
                               failed
                             </span>
                           )}
+                          {msg.status === "interrupted" && (
+                            <span className="text-[10px] text-zinc-500">
+                              interrupted
+                            </span>
+                          )}
                           {msg.turnId && (
                             <span className="ml-auto font-mono text-[10px] text-zinc-600">
                               {msg.turnId.slice(0, 16)}…
@@ -1188,7 +1255,7 @@ export function ChatPlayground({
                 {runState === "streaming" ? (
                   <button
                     type="button"
-                    onClick={() => abortRef.current?.abort()}
+                    onClick={handleStop}
                     className="flex items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-300 transition-colors hover:bg-zinc-700"
                   >
                     <Square className="size-4" />

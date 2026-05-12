@@ -121,6 +121,11 @@ type publicAPIRuntimeEventRecord struct {
 	RunEvents []model.PublicAPIRunEvent
 }
 
+type langGraphRunRecord struct {
+	RunID  string `json:"run_id"`
+	Status string `json:"status"`
+}
+
 type pendingPublicAPIToolCall struct {
 	ToolName string
 	ToolArgs any
@@ -196,6 +201,32 @@ func NewPublicAPIService(
 		httpClient: httpx.NewInternalHTTPClient(publicAPILangGraphTimeout),
 		fs:         fs,
 	}
+}
+
+func detachedPublicAPIPersistenceContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return context.WithoutCancel(ctx)
+}
+
+func isPublicAPITurnCancelError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) {
+		return true
+	}
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	if message == "" {
+		return false
+	}
+	return strings.Contains(message, "context canceled") ||
+		strings.Contains(message, "cancelled") ||
+		strings.Contains(message, "canceled") ||
+		strings.Contains(message, "cancellederror") ||
+		strings.Contains(message, "cancelederror") ||
+		strings.Contains(message, "interrupted")
 }
 
 func (s *PublicAPIService) ListModels(ctx context.Context, allowedAgents []string) (*model.PublicAPIModelsResponse, error) {
@@ -1640,6 +1671,15 @@ func (s *PublicAPIService) runAgentTurnStream(
 		// signals can enter the same canonical run-event collector instead of
 		// forcing the gateway to infer question state from snapshots later.
 		"stream_mode": []string{"values", "messages-tuple", "custom", "updates"},
+		// Public API clients use HTTP disconnect/AbortController as the stop
+		// signal. LangGraph defaults to continuing after disconnect, so make the
+		// cancel-on-disconnect contract explicit to release the session/thread
+		// before the caller sends the next turn.
+		"on_disconnect": "cancel",
+		// Public `/v1/turns` sessions are single-active-turn chat lanes. If a
+		// stale run survived a client disconnect, the next explicit turn should
+		// interrupt it instead of waiting behind an invisible queue.
+		"multitask_strategy": "interrupt",
 	}
 	configurableMap := requestPayload["config"].(map[string]any)["configurable"].(map[string]any)
 	if strings.TrimSpace(plan.Reasoning.Effort) != "" {
@@ -1723,6 +1763,111 @@ func (s *PublicAPIService) runAgentTurnStream(
 		}
 		return nil
 	})
+}
+
+func (s *PublicAPIService) cancelLangGraphRunsForThread(
+	ctx context.Context,
+	invocation *model.PublicAPIInvocation,
+) error {
+	// Public cancel mirrors the workspace stop contract: resolve the active
+	// LangGraph runs by explicit thread id, then ask LangGraph to interrupt and
+	// wait so the thread is settled before `/v1/turns` accepts the next message.
+	activeRuns := make([]langGraphRunRecord, 0, 2)
+	for _, status := range []string{"running", "pending"} {
+		runs, err := s.listLangGraphRuns(ctx, invocation, status)
+		if err != nil {
+			return err
+		}
+		activeRuns = append(activeRuns, runs...)
+	}
+
+	for _, run := range activeRuns {
+		runID := strings.TrimSpace(run.RunID)
+		if runID == "" {
+			continue
+		}
+		if err := s.cancelLangGraphRun(ctx, invocation, runID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *PublicAPIService) listLangGraphRuns(
+	ctx context.Context,
+	invocation *model.PublicAPIInvocation,
+	status string,
+) ([]langGraphRunRecord, error) {
+	query := url.Values{}
+	query.Set("status", status)
+	query.Set("select", "run_id")
+	query.Add("select", "status")
+	endpoint := s.langGraphURL + "/threads/" + url.PathEscape(invocation.ThreadID) + "/runs?" + query.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	applyLangGraphRuntimeHeaders(req, invocation.UserID, invocation.AgentName, invocation.RequestModel)
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("langgraph run list failed: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var runs []langGraphRunRecord
+	if err := json.Unmarshal(body, &runs); err != nil {
+		return nil, err
+	}
+	return runs, nil
+}
+
+func (s *PublicAPIService) cancelLangGraphRun(
+	ctx context.Context,
+	invocation *model.PublicAPIInvocation,
+	runID string,
+) error {
+	query := url.Values{}
+	query.Set("wait", "true")
+	query.Set("action", "interrupt")
+	endpoint := s.langGraphURL +
+		"/threads/" + url.PathEscape(invocation.ThreadID) +
+		"/runs/" + url.PathEscape(runID) +
+		"/cancel?" + query.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, nil)
+	if err != nil {
+		return err
+	}
+	applyLangGraphRuntimeHeaders(req, invocation.UserID, invocation.AgentName, invocation.RequestModel)
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("langgraph run cancel failed: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return nil
 }
 
 func (s *PublicAPIService) fetchThreadState(

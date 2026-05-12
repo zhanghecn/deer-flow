@@ -42,6 +42,7 @@ Content-Type: application/json
 | `GET`  | `/v1/files/{id}/content` | 下载响应产出的文件内容                             |
 | `POST` | `/v1/turns`              | 推荐的原生对话接口                                 |
 | `GET`  | `/v1/turns/{id}`         | 获取 turn 快照，适合恢复和重放                     |
+| `POST` | `/v1/turns/{id}/cancel`  | 取消正在执行的 public API turn                     |
 | `GET`  | `/v1/turns/recent`       | 获取最近会话摘要，或获取指定 `session_id` 的 turns |
 | `POST` | `/v1/responses`          | OpenAI Responses 兼容层                            |
 | `GET`  | `/v1/responses/{id}`     | 获取历史 response                                  |
@@ -164,6 +165,7 @@ curl -X GET "http://127.0.0.1:8083/v1/models" \
 - `turn.requires_input`
 - `assistant.message.completed`
 - `turn.completed`
+- `turn.canceled`
 - `turn.failed`
 
 ### 6.1 SSE 示例
@@ -180,6 +182,9 @@ data: {"sequence":5,"type":"tool.call.completed","turn_id":"turn_123","tool_call
 
 event: turn.completed
 data: {"sequence":9,"type":"turn.completed","turn_id":"turn_123"}
+
+event: turn.canceled
+data: {"sequence":10,"type":"turn.canceled","turn_id":"turn_123","status":"canceled"}
 ```
 
 ### 6.2 客户端处理建议
@@ -187,6 +192,7 @@ data: {"sequence":9,"type":"turn.completed","turn_id":"turn_123"}
 - 保留 delta 原始空白字符，不要先 `trim()`
 - 对 `assistant.text.delta` 和 `assistant.reasoning.delta` 做增量合并
 - 最终以 `assistant.message.completed` 或 `GET /v1/turns/{id}` 快照为准
+- 将 `turn.canceled` 当作终态中断状态处理，不要当成可重试的传输错误
 - 工具调用 UI 建议显示：
   - 工具名称
   - 调用参数
@@ -298,7 +304,7 @@ console.log(result.messages);
 | 字段             | 说明                                                                                       |
 | ---------------- | ------------------------------------------------------------------------------------------ |
 | `id`             | 当前 turn ID                                                                               |
-| `status`         | 常见值：`completed` / `failed` / `incomplete`                                              |
+| `status`         | 常见值：`completed` / `requires_input` / `canceled` / `failed`                             |
 | `agent`          | agent 名称                                                                                 |
 | `session_id`     | 外部 SDK 会话 ID                                                                           |
 | `history_scope`  | 随该 turn 保存的调用方自定义历史分区字段                                                   |
@@ -309,6 +315,15 @@ console.log(result.messages);
 | `artifacts`      | 输出文件列表；每一项包含不透明 `id`、`download_url`，以及用于解析回答引用的 `virtual_path` |
 | `usage`          | token 用量                                                                                 |
 | `events`         | 当前 turn 的标准化事件列表                                                                 |
+
+### `POST /v1/turns/{id}/cancel`
+
+取消一个正在执行的 public API turn。用户可见的“停止”按钮应调用这个接口，
+不要只依赖关闭浏览器流式连接来表达取消。
+
+服务端会根据 turn 所属 thread 查找活跃的 LangGraph run，执行 interrupt，
+并写入终态为 `canceled` 的 turn 快照。成功响应与 `GET /v1/turns/{id}` 的
+快照结构一致。
 
 ## 8. 获取最近 Turns
 

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -692,7 +693,11 @@ func (s *PublicAPIService) failTurnExecution(
 	reasoningText string,
 ) error {
 	failed := collector.push(BuildPublicTurnFailureEvent(plan.ResponseID, stage, cause))
-	finalErr := s.finishInvocationWithError(ctx, plan.Invocation, wrapPublicAPITurnFailure(cause, publicAPITurnFailureContext{
+	// A browser/SSE disconnect cancels the request context before the gateway
+	// can write the public ledger row. Persist terminal turn state on a
+	// context that keeps values but drops cancellation so `/v1/turns/{id}` and
+	// the next SDK turn do not see an orphaned in-progress invocation.
+	finalErr := s.finishInvocationWithError(detachedPublicAPIPersistenceContext(ctx), plan.Invocation, wrapPublicAPITurnFailure(cause, publicAPITurnFailureContext{
 		TurnID:        plan.ResponseID,
 		SessionID:     plan.SessionID,
 		Stage:         stage,
@@ -707,6 +712,49 @@ func (s *PublicAPIService) failTurnExecution(
 		}
 	}
 	return wrapHandledTurnExecutionError(finalErr)
+}
+
+func (s *PublicAPIService) finishCanceledTurn(
+	ctx context.Context,
+	plan *publicAPIRunPlan,
+	collector *turnCollector,
+	onEvent func(event model.TurnEvent) error,
+) (*model.TurnSnapshot, error) {
+	plan.Invocation.Status = "canceled"
+	message := "turn canceled"
+	plan.Invocation.Error = &message
+	finishedAt := time.Now().UTC()
+	plan.Invocation.FinishedAt = &finishedAt
+
+	canceled := collector.push(model.TurnEvent{
+		Type:   model.TurnEventTurnCanceled,
+		Status: "canceled",
+		Text:   message,
+	})
+	snapshot := buildTurnSnapshot(
+		plan.Invocation,
+		plan.AgentName,
+		plan.SessionID,
+		"",
+		"",
+		nil,
+		collector.events,
+		plan.Metadata,
+	)
+	responseBody, err := json.Marshal(snapshot)
+	if err != nil {
+		return nil, err
+	}
+	plan.Invocation.ResponseJSON = responseBody
+	if err := s.invocationRepo.Finish(detachedPublicAPIPersistenceContext(ctx), plan.Invocation); err != nil {
+		return nil, err
+	}
+	if onEvent != nil {
+		if err := onEvent(canceled); err != nil && !isPublicAPITurnCancelError(err) {
+			return nil, err
+		}
+	}
+	return snapshot, nil
 }
 
 func (s *PublicAPIService) executeTurn(
@@ -746,6 +794,9 @@ func (s *PublicAPIService) executeTurn(
 		return nil
 	})
 	if streamErr != nil {
+		if isPublicAPITurnCancelError(streamErr) {
+			return s.finishCanceledTurn(ctx, plan, collector, onEvent)
+		}
 		return nil, s.failTurnExecution(
 			ctx,
 			plan,
@@ -1019,6 +1070,59 @@ func (s *PublicAPIService) GetTurn(
 	return &snapshot, nil
 }
 
+func (s *PublicAPIService) CancelTurn(
+	ctx context.Context,
+	turnID string,
+	apiTokenID uuid.UUID,
+) (*model.TurnSnapshot, error) {
+	invocation, err := s.invocationRepo.GetByResponseID(ctx, strings.TrimSpace(turnID), apiTokenID)
+	if err != nil {
+		return nil, err
+	}
+	if invocation == nil || invocation.Surface != "turns" {
+		return nil, &PublicAPIError{
+			StatusCode: http.StatusNotFound,
+			Code:       "turn_not_found",
+			Message:    "turn was not found for this api token",
+		}
+	}
+	if invocation.Status != "in_progress" {
+		var snapshot model.TurnSnapshot
+		if err := json.Unmarshal(invocation.ResponseJSON, &snapshot); err != nil {
+			return nil, &PublicAPIError{
+				StatusCode: http.StatusInternalServerError,
+				Code:       "invalid_turn_snapshot",
+				Message:    "stored turn snapshot is invalid",
+			}
+		}
+		snapshot.HistoryScope = historyScopeFromInvocation(invocation)
+		return &snapshot, nil
+	}
+
+	if err := s.cancelLangGraphRunsForThread(ctx, invocation); err != nil {
+		return nil, err
+	}
+
+	collector := newTurnCollector(invocation.ResponseID)
+	collector.push(model.TurnEvent{Type: model.TurnEventTurnStarted})
+	plan := &publicAPIRunPlan{
+		Auth: PublicAPIAuthContext{
+			UserID:     invocation.UserID,
+			APITokenID: invocation.APITokenID,
+		},
+		Surface:      invocation.Surface,
+		Invocation:   invocation,
+		AgentName:    invocation.AgentName,
+		ModelName:    invocation.RequestModel,
+		SessionID:    sessionIDFromInvocation(invocation),
+		HistoryScope: historyScopeFromInvocation(invocation),
+		ThreadID:     invocation.ThreadID,
+		ResponseID:   invocation.ResponseID,
+		Metadata:     extractMetadataFromRequestJSON(invocation.RequestJSON),
+	}
+	return s.finishCanceledTurn(ctx, plan, collector, nil)
+}
+
 func (s *PublicAPIService) ListRecentTurns(
 	ctx context.Context,
 	auth PublicAPIAuthContext,
@@ -1213,6 +1317,22 @@ func extractTurnInputFromRequestJSON(requestJSON json.RawMessage) model.TurnInpu
 		Text:    strings.TrimSpace(request.Input.Text),
 		FileIDs: request.Input.FileIDs,
 	}
+}
+
+func extractMetadataFromRequestJSON(requestJSON json.RawMessage) map[string]any {
+	var turnRequest model.TurnCreateRequest
+	if err := json.Unmarshal(requestJSON, &turnRequest); err == nil && len(bytes.TrimSpace(turnRequest.Metadata)) > 0 {
+		if metadata, err := normalizeJSONObject(turnRequest.Metadata); err == nil {
+			return metadata
+		}
+	}
+	var responseRequest model.PublicAPIResponsesRequest
+	if err := json.Unmarshal(requestJSON, &responseRequest); err == nil && len(bytes.TrimSpace(responseRequest.Metadata)) > 0 {
+		if metadata, err := normalizeJSONObject(responseRequest.Metadata); err == nil {
+			return metadata
+		}
+	}
+	return map[string]any{}
 }
 
 func extractSessionIDFromRequestJSON(requestJSON json.RawMessage) string {

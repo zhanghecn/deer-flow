@@ -411,6 +411,7 @@ func main() {
 		open.POST("/files", middleware.RequireAPITokenScopes("responses:create"), publicAPIH.CreateFile)
 		open.GET("/files/:id", middleware.RequireAPITokenScopes("artifacts:read"), publicAPIH.GetFile)
 		open.POST("/turns", middleware.RequireAPITokenScopes("responses:create"), turnsH.Create)
+		open.POST("/turns/:id/cancel", middleware.RequireAPITokenScopes("responses:create"), turnsH.Cancel)
 		open.GET("/turns/recent", middleware.RequireAPITokenScopes("responses:read"), turnsH.ListRecent)
 		open.GET("/turns/:id", middleware.RequireAPITokenScopes("responses:read"), turnsH.Get)
 		open.POST("/responses", middleware.RequireAPITokenScopes("responses:create"), publicAPIH.CreateResponse)
