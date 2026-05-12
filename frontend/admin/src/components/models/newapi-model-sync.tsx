@@ -51,9 +51,9 @@ interface NewAPIModelSyncProps {
 const NEW_API_RECENT_STORAGE_KEY = "openagents.admin.newapi.recent";
 const NEW_API_RECENT_LIMIT = 50;
 const NEW_API_RECENT_PAGE_SIZE = 5;
-// The gateway calls this URL from inside the deploy Docker network; browsers
-// only submit the value and should not use a host-loopback New API address.
-const NEW_API_DOCKER_PLACEHOLDER = "http://model-gateway:3000/";
+// Gateway and LangGraph both consume this persisted URL from containers, so a
+// host/LAN address is easier to verify than a third-party container alias.
+const NEW_API_DOCKER_PLACEHOLDER = "http://<host-lan-ip>:13000/";
 
 function getRecentPageCount(totalItems: number) {
   return Math.max(1, Math.ceil(totalItems / NEW_API_RECENT_PAGE_SIZE));

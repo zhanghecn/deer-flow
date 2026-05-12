@@ -56,7 +56,12 @@ OPENAGENTS_PULL_INFRA_IMAGES=1 to pull every compose image, including infra.
 Deploy never builds images. Build or publish images explicitly with
 scripts/docker-release.sh before running production deploy.
 
-To make an existing OpenAI-compatible model gateway container reachable from OpenAgents:
+Recommended model gateway setup:
+  - If an external gateway is published on the host, sync models in the admin
+    console with a host/LAN URL such as http://<host-lan-ip>:13000.
+  - To make an existing OpenAI-compatible gateway container reachable through
+    an OpenAgents network alias instead:
+
   MODEL_GATEWAY_CONTAINER=1Panel-new-api-6d1F scripts/docker-deploy.sh
 
 Model gateway integration is explicit. If MODEL_GATEWAY_CONTAINER is omitted,
@@ -390,6 +395,7 @@ main() {
     if [ -z "$MODEL_GATEWAY_CONTAINER" ]; then
         echo "Model gateway container is not configured; deploy did not attach or modify any external gateway."
     fi
+    echo "Model gateway URL for host-published gateways: http://<host-lan-ip>:<published-port>"
     echo "Model gateway URL inside containers when alias exists: http://$(primary_model_gateway_alias):3000"
 
     if [ "$START" -eq 1 ]; then

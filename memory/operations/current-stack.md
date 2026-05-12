@@ -26,16 +26,19 @@
   auto-detect or auto-attach a container just because its name/image looks like
   New API; future deployments may use New API, One API, LiteLLM, or another
   OpenAI-compatible gateway.
-- Preferred stable in-network URL is `http://model-gateway:3000` after the
-  operator has attached the gateway container to `openagents` with alias
-  `model-gateway`. If 1Panel only attaches the network and cannot set alias,
-  the panel-generated container name can be used temporarily.
+- Preferred URL for a host-published external gateway is an explicit host/LAN
+  address such as `http://172.31.18.247:13000`, because Gateway and LangGraph
+  containers can both test it with normal curl/TCP diagnostics.
+- A stable in-network alias such as `http://model-gateway:3000` is still a
+  supported optional mode after the operator attaches the gateway container to
+  `openagents` with that alias. Avoid persisting panel-generated container names
+  such as `1Panel-new-api-6d1F` in model rows when a host/LAN URL is available.
 - `scripts/docker-deploy.sh` may attach aliases only when
   `MODEL_GATEWAY_CONTAINER` is explicitly set in process env or `deploy/.env`.
   Default alias list is now only `model-gateway`; add `new-api` explicitly only
   for a real New API container.
-- Before assuming model calls work inside Docker, verify network attachment and
-  DNS resolution from the LangGraph/container network.
+- Before assuming model calls work inside Docker, verify the exact persisted
+  model `base_url` from the LangGraph/container network.
 - New API model sync must treat returned endpoint metadata as the protocol
   source of truth. Do not force `deepseek-*` model names onto Anthropic or
   DeepSeek transports; this host's scan returned `endpoint_types:

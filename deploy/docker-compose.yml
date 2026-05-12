@@ -2,10 +2,10 @@ name: openagents
 
 networks:
   default:
-    # Production uses one stable operator-owned bridge. Attach an existing
-    # OpenAI-compatible model gateway to this network with alias
-    # `model-gateway`; model rows should then use
-    # base_url=http://model-gateway:3000.
+    # Production uses one stable operator-owned bridge for OpenAgents services.
+    # External model gateways are usually easier to operate through an explicit
+    # host/LAN URL such as http://<host-lan-ip>:13000; attaching a gateway
+    # container to this bridge with alias model-gateway is optional.
     external: true
     name: ${OPENAGENTS_DOCKER_NETWORK:-openagents}
 
