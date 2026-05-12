@@ -1,6 +1,13 @@
 import type { Command } from "@langchain/langgraph-sdk";
 import { ArrowLeftIcon, BotIcon, CheckCircleIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate } from "react-router-dom";
 
 import {
@@ -25,11 +32,21 @@ import {
 import { useI18n } from "@/core/i18n/hooks";
 import { useModels } from "@/core/models/hooks";
 import { useLocalSettings } from "@/core/settings";
-import { useThreadStream } from "@/core/threads/hooks";
+import {
+  type ThreadStreamOptions,
+  useThreadStream,
+} from "@/core/threads/hooks";
 import { uuid } from "@/core/utils/uuid";
 import { cn } from "@/lib/utils";
 
 type Step = "name" | "chat";
+
+type NewAgentChatStepProps = {
+  header: ReactNode;
+  threadId: string;
+  agentName: string;
+  context: ThreadStreamOptions["context"];
+};
 
 const NAME_RE = /^[A-Za-z0-9-]+$/;
 const NEW_AGENT_NAME_DRAFT_KEY = "openagents.new-agent-name-draft";
@@ -89,8 +106,6 @@ export default function NewAgentPage() {
   const [nameError, setNameError] = useState("");
   const [isCheckingName, setIsCheckingName] = useState(false);
   const [agentName, setAgentName] = useState("");
-  const [agent, setAgent] = useState<Agent | null>(null);
-  // ── Step 2: chat ───────────────────────────────────────────────────────────
 
   useEffect(() => {
     const draft = readAgentNameDraft();
@@ -100,26 +115,9 @@ export default function NewAgentPage() {
     setNameInput(draft);
   }, []);
 
-  // Stable thread ID — all turns belong to the same thread
+  // Preallocate once so the create-agent handoff and follow-up questions stay
+  // on one conversation while the chat component can bind the SDK before submit.
   const threadId = useMemo(() => uuid(), []);
-
-  const [thread, sendMessage, resumeInterrupt, , executionStatus] = useThreadStream({
-    context: resolvedContext,
-    skipInitialHistory: true,
-    onToolEnd({ name }) {
-      if (
-        !["setup_agent", "save_agent_to_store"].includes(name) ||
-        !agentName
-      ) {
-        return;
-      }
-      getAgent(agentName)
-        .then((fetched) => setAgent(fetched))
-        .catch(() => {
-          // agent write may not be flushed yet — ignore silently
-        });
-    },
-  });
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
@@ -147,27 +145,8 @@ export default function NewAgentPage() {
     writeAgentNameDraft("");
     setAgentName(trimmed);
     setStep("chat");
-    const initialText = `/create-agent 请帮我创建一个名为 ${trimmed} 的智能体，并先从需求澄清开始。`;
-    const createCommand =
-      buildPromptExtraContext(initialText) ??
-      (() => {
-        throw new Error("Missing create-agent prompt context");
-      })();
-    await sendMessage(
-      threadId,
-      {
-        text: initialText,
-        files: [],
-      },
-      {
-        target_agent_name: trimmed,
-        ...createCommand,
-      },
-    );
   }, [
     nameInput,
-    sendMessage,
-    threadId,
     t.agents.nameStepInvalidError,
     t.agents.nameStepAlreadyExistsError,
     t.agents.nameStepCheckError,
@@ -179,51 +158,6 @@ export default function NewAgentPage() {
       void handleConfirmName();
     }
   };
-
-  const handleChatSubmit = useCallback(
-    async (text: string) => {
-      const trimmed = text.trim();
-      if (!trimmed || thread.isLoading) return;
-      const extraContext = buildCreateAgentFlowExtraContext(trimmed, agentName);
-      await sendMessage(
-        threadId,
-        {
-          text: trimmed,
-          files: [],
-        },
-        extraContext,
-      );
-    },
-    [thread.isLoading, sendMessage, threadId, agentName],
-  );
-  const handleAgentSendMessage = useCallback(
-    async (
-      message: PromptInputMessage,
-      extraContext?: Record<string, unknown>,
-    ) => {
-      const nextContext = {
-        ...(buildCreateAgentFlowExtraContext(message.text ?? "", agentName) ??
-          {}),
-        ...(extraContext ?? {}),
-      };
-      await sendMessage(threadId, message, {
-        ...nextContext,
-      });
-    },
-    [agentName, sendMessage, threadId],
-  );
-  const handleResumeInterrupt = useCallback(
-    async (command: Command, extraContext?: Record<string, unknown>) => {
-      const nextContext = {
-        ...(buildCreateAgentFlowExtraContext("", agentName) ?? {}),
-        ...(extraContext ?? {}),
-      };
-      await resumeInterrupt(threadId, command, {
-        ...nextContext,
-      });
-    },
-    [agentName, resumeInterrupt, threadId],
-  );
 
   // ── Shared header ──────────────────────────────────────────────────────────
 
@@ -294,6 +228,118 @@ export default function NewAgentPage() {
   }
 
   // ── Step 2: chat ───────────────────────────────────────────────────────────
+
+  return (
+    <NewAgentChatStep
+      header={header}
+      threadId={threadId}
+      agentName={agentName}
+      context={resolvedContext}
+    />
+  );
+}
+
+function NewAgentChatStep({
+  header,
+  threadId,
+  agentName,
+  context,
+}: NewAgentChatStepProps) {
+  const { t } = useI18n();
+  const navigate = useNavigate();
+  const [agent, setAgent] = useState<Agent | null>(null);
+  const autoSubmitRef = useRef(false);
+  const [thread, sendMessage, resumeInterrupt, , executionStatus] =
+    useThreadStream({
+      threadId,
+      context,
+      skipInitialHistory: true,
+      onToolEnd({ name }) {
+        if (!["setup_agent", "save_agent_to_store"].includes(name)) {
+          return;
+        }
+        getAgent(agentName)
+          .then((fetched) => setAgent(fetched))
+          .catch(() => {
+            // Agent writes can be visible to LangGraph before the API read model
+            // refreshes, so the next tool-end or manual refresh can observe it.
+          });
+      },
+    });
+
+  useEffect(() => {
+    if (autoSubmitRef.current) {
+      return;
+    }
+
+    autoSubmitRef.current = true;
+    const initialText = `/create-agent 请帮我创建一个名为 ${agentName} 的智能体，并先从需求澄清开始。`;
+    const createCommand =
+      buildPromptExtraContext(initialText) ??
+      (() => {
+        throw new Error("Missing create-agent prompt context");
+      })();
+
+    // The stream is mounted with `threadId` before this effect runs. That keeps
+    // the SDK from auto-creating the same preallocated thread after our
+    // idempotent ensure call, which LangGraph rejects as a duplicate.
+    void sendMessage(
+      threadId,
+      {
+        text: initialText,
+        files: [],
+      },
+      {
+        target_agent_name: agentName,
+        ...createCommand,
+      },
+    );
+  }, [agentName, sendMessage, threadId]);
+
+  const handleChatSubmit = useCallback(
+    async (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed || thread.isLoading) return;
+      const extraContext = buildCreateAgentFlowExtraContext(trimmed, agentName);
+      await sendMessage(
+        threadId,
+        {
+          text: trimmed,
+          files: [],
+        },
+        extraContext,
+      );
+    },
+    [thread.isLoading, sendMessage, threadId, agentName],
+  );
+  const handleAgentSendMessage = useCallback(
+    async (
+      message: PromptInputMessage,
+      extraContext?: Record<string, unknown>,
+    ) => {
+      const nextContext = {
+        ...(buildCreateAgentFlowExtraContext(message.text ?? "", agentName) ??
+          {}),
+        ...(extraContext ?? {}),
+      };
+      await sendMessage(threadId, message, {
+        ...nextContext,
+      });
+    },
+    [agentName, sendMessage, threadId],
+  );
+  const handleResumeInterrupt = useCallback(
+    async (command: Command, extraContext?: Record<string, unknown>) => {
+      const nextContext = {
+        ...(buildCreateAgentFlowExtraContext("", agentName) ?? {}),
+        ...(extraContext ?? {}),
+      };
+      await resumeInterrupt(threadId, command, {
+        ...nextContext,
+      });
+    },
+    [agentName, resumeInterrupt, threadId],
+  );
 
   return (
     <ThreadContext.Provider
