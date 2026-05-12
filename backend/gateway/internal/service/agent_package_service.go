@@ -27,7 +27,6 @@ const (
 type ImportAgentPackageOptions struct {
 	TargetName string
 	Status     string
-	Overwrite  bool
 	UserID     uuid.UUID
 }
 
@@ -102,12 +101,10 @@ func (s *AgentService) ImportPackage(_ context.Context, pkg model.AgentPackage, 
 	decodedFiles["config.yaml"] = rewrittenConfig
 
 	targetDir := s.fs.AgentDir(normalizedName, normalizedStatus)
-	if !opts.Overwrite {
-		if info, err := os.Stat(targetDir); err == nil && info.IsDir() {
-			return nil, fmt.Errorf("agent %q (%s) already exists", normalizedName, normalizedStatus)
-		} else if err != nil && !os.IsNotExist(err) {
-			return nil, err
-		}
+	if info, err := os.Stat(targetDir); err == nil && info.IsDir() {
+		return nil, fmt.Errorf("agent %q (%s) already exists", normalizedName, normalizedStatus)
+	} else if err != nil && !os.IsNotExist(err) {
+		return nil, err
 	}
 
 	parentDir := filepath.Dir(targetDir)
@@ -129,11 +126,6 @@ func (s *AgentService) ImportPackage(_ context.Context, pkg model.AgentPackage, 
 	// leaves a half-imported archive at the canonical agent path.
 	if err := writeDecodedAgentPackageFiles(stageDir, decodedFiles); err != nil {
 		return nil, err
-	}
-	if opts.Overwrite {
-		if err := os.RemoveAll(targetDir); err != nil {
-			return nil, err
-		}
 	}
 	if err := os.Rename(stageDir, targetDir); err != nil {
 		return nil, err

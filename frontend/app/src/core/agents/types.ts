@@ -102,6 +102,21 @@ export interface AgentExportDoc {
   documentation_json_url?: string;
 }
 
+export interface AgentPackageFile {
+  path: string;
+  content_base64: string;
+  size_bytes: number;
+  sha256?: string;
+}
+
+export interface AgentPackage {
+  schema_version: number;
+  kind: string;
+  exported_at: string;
+  agent: Agent;
+  files: AgentPackageFile[];
+}
+
 export interface CreateAgentRequest {
   name: string;
   description?: string;

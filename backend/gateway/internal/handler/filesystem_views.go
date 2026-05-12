@@ -1,11 +1,10 @@
 package handler
 
 import (
-	"archive/zip"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -13,6 +12,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/openagents/gateway/internal/service"
 	"github.com/openagents/gateway/internal/skillfs"
 	"github.com/openagents/gateway/pkg/storage"
 )
@@ -211,34 +211,7 @@ func resolveThreadVirtualPath(fsStore *storage.FS, userID string, threadID strin
 	return actual, nil
 }
 
-func copyFileFromZip(targetPath string, file *zip.File) error {
-	if file.FileInfo().IsDir() {
-		return os.MkdirAll(targetPath, 0755)
-	}
-	if file.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("unsafe symlink in archive: %s", file.Name)
-	}
-
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
-		return err
-	}
-	reader, err := file.Open()
-	if err != nil {
-		return err
-	}
-	defer reader.Close()
-
-	writer, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, file.Mode())
-	if err != nil {
-		return err
-	}
-	defer writer.Close()
-
-	_, err = io.Copy(writer, reader)
-	return err
-}
-
-func installSkillArchive(fsStore *storage.FS, userID string, threadID string, virtualPath string) (string, error) {
+func installSkillArchive(ctx context.Context, fsStore *storage.FS, userID string, threadID string, virtualPath string) (string, error) {
 	archivePath, err := resolveThreadVirtualPath(fsStore, userID, threadID, virtualPath)
 	if err != nil {
 		return "", err
@@ -255,57 +228,19 @@ func installSkillArchive(fsStore *storage.FS, userID string, threadID string, vi
 		return "", errors.New("file must have .skill extension")
 	}
 
-	reader, err := zip.OpenReader(archivePath)
-	if err != nil {
-		return "", fmt.Errorf("invalid skill archive: %w", err)
-	}
-	defer reader.Close()
-
-	tempDir, err := os.MkdirTemp("", "openagents-skill-install-*")
+	data, err := os.ReadFile(archivePath)
 	if err != nil {
 		return "", err
 	}
-	defer os.RemoveAll(tempDir)
-
-	var totalSize uint64
-	for _, file := range reader.File {
-		totalSize += file.UncompressedSize64
-		if totalSize > 100*1024*1024 {
-			return "", errors.New("skill archive too large when extracted (>100MB)")
-		}
-		cleanName := filepath.Clean(file.Name)
-		if filepath.IsAbs(cleanName) || strings.HasPrefix(cleanName, "..") || strings.Contains(cleanName, "../") {
-			return "", fmt.Errorf("unsafe path in archive: %s", file.Name)
-		}
-		if err := copyFileFromZip(filepath.Join(tempDir, cleanName), file); err != nil {
-			return "", err
-		}
-	}
-
-	items, err := os.ReadDir(tempDir)
+	// Thread-file installation and direct upload import share one archive
+	// validator so both paths preserve the same custom-skill storage contract.
+	skill, err := service.NewSkillService(fsStore).ImportArchive(
+		ctx,
+		filepath.Base(archivePath),
+		data,
+	)
 	if err != nil {
 		return "", err
 	}
-	if len(items) == 0 {
-		return "", errors.New("skill archive is empty")
-	}
-
-	skillDir := tempDir
-	if len(items) == 1 && items[0].IsDir() {
-		skillDir = filepath.Join(tempDir, items[0].Name())
-	}
-
-	meta, err := skillfs.ParseFrontmatterFile(filepath.Join(skillDir, "SKILL.md"))
-	if err != nil {
-		return "", err
-	}
-
-	targetDir := fsStore.GlobalSkillDir("custom", meta.Name)
-	if info, err := os.Stat(targetDir); err == nil && info.IsDir() {
-		return "", fmt.Errorf("skill %q already exists", meta.Name)
-	}
-	if err := fsStore.CopyDir(skillDir, targetDir); err != nil {
-		return "", err
-	}
-	return meta.Name, nil
+	return skill.Name, nil
 }

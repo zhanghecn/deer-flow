@@ -5,9 +5,11 @@ import { useAuth } from "@/core/auth/hooks";
 import {
   createAgent,
   deleteAgent,
+  downloadAgentPackage,
   getAgent,
   getAgentExportDoc,
   getPublicAgentExportDoc,
+  importAgentPackage,
   listAgents,
   listToolCatalog,
   publishAgent,
@@ -15,6 +17,7 @@ import {
 } from "./api";
 import type {
   AgentExportDoc,
+  AgentPackage,
   AgentStatus,
   CreateAgentRequest,
   ToolCatalogItem,
@@ -90,6 +93,26 @@ export function useCreateAgent() {
   });
 }
 
+export function useImportAgentPackage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (pkg: AgentPackage) => importAgentPackage(pkg),
+    onSuccess: (data) => {
+      void queryClient.invalidateQueries({ queryKey: ["agents"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["agents", data.name, data.status],
+      });
+    },
+  });
+}
+
+export function useDownloadAgentPackage() {
+  return useMutation({
+    mutationFn: ({ name, status }: { name: string; status?: AgentStatus }) =>
+      downloadAgentPackage(name, status),
+  });
+}
+
 export function useUpdateAgent() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -122,13 +145,8 @@ export function usePublishAgent() {
 export function useDeleteAgent() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({
-      name,
-      status,
-    }: {
-      name: string;
-      status?: AgentStatus;
-    }) => deleteAgent(name, status),
+    mutationFn: ({ name, status }: { name: string; status?: AgentStatus }) =>
+      deleteAgent(name, status),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["agents"] });
     },

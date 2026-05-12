@@ -71,7 +71,7 @@ export function AgentsPage() {
     setIsImporting(true);
     try {
       const payload = JSON.parse(await file.text()) as AgentPackage;
-      const imported = await api<Agent>("/api/agents/import", {
+      const imported = await api<Agent>("/api/admin/agents/import", {
         method: "POST",
         body: payload,
       });

@@ -185,6 +185,16 @@ export const zhCN: Translations = {
     title: "智能体",
     description: "创建和管理具有专属 Prompt 与能力的自定义智能体。",
     newAgent: "新建智能体",
+    importAgent: "导入智能体",
+    importingAgent: "正在导入...",
+    importSuccess: (agentName: string) => `已导入智能体“${agentName}”`,
+    importFailed: (message: string) =>
+      message ? `导入智能体失败：${message}` : "导入智能体失败",
+    importInvalidType: "请选择 OpenAgents 智能体 JSON 包。",
+    exportPackage: "导出包",
+    exportSuccess: (filename: string) => `已导出 ${filename}`,
+    exportFailed: (message: string) =>
+      message ? `导出智能体包失败：${message}` : "导出智能体包失败",
     emptyTitle: "还没有自定义智能体",
     emptyDescription: "创建你的第一个自定义智能体，设置专属系统提示词。",
     gallerySummary: (total, published, draft) =>
@@ -615,6 +625,12 @@ export const zhCN: Translations = {
       loadError: (message: string) =>
         message ? `加载技能失败：${message}` : "加载技能失败",
       createSkill: "新建技能",
+      importSkill: "导入 .skill",
+      importingSkill: "正在导入...",
+      importSuccess: (skillName: string) => `已导入 ${skillName}`,
+      importFailed: (message: string) =>
+        message ? `导入技能失败：${message}` : "导入技能失败",
+      importInvalidType: "请选择 .skill 归档文件。",
       downloadSkill: "下载 .skill",
       downloadSuccess: (filename: string) => `已下载 ${filename}`,
       downloadFailed: (message: string) =>

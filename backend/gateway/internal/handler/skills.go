@@ -3,7 +3,10 @@ package handler
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"path/filepath"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -76,6 +79,47 @@ func (h *SkillHandler) Download(c *gin.Context) {
 	c.Header("Content-Type", "application/zip")
 	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 	c.Data(http.StatusOK, "application/zip", data)
+}
+
+func (h *SkillHandler) Import(c *gin.Context) {
+	// Direct uploads support workspace migration without requiring the archive
+	// to first exist inside a thread-local `/mnt/user-data` runtime directory.
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 110*1024*1024)
+
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "skill archive file is required"})
+		return
+	}
+	if !strings.EqualFold(filepath.Ext(fileHeader.Filename), ".skill") {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "file must have .skill extension"})
+		return
+	}
+
+	file, err := fileHeader.Open()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
+		return
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	skill, err := h.svc.ImportArchive(c.Request.Context(), fileHeader.Filename, data)
+	if err != nil {
+		statusCode := http.StatusBadRequest
+		if strings.Contains(err.Error(), "already exists") {
+			statusCode = http.StatusConflict
+		}
+		c.JSON(statusCode, model.ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, skill)
 }
 
 func (h *SkillHandler) Create(c *gin.Context) {
@@ -170,7 +214,7 @@ func (h *SkillHandler) Install(c *gin.Context) {
 		return
 	}
 
-	skillName, err := installSkillArchive(h.fs, userID.String(), req.ThreadID, req.Path)
+	skillName, err := installSkillArchive(c.Request.Context(), h.fs, userID.String(), req.ThreadID, req.Path)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return

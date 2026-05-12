@@ -1,5 +1,12 @@
-import { DownloadIcon, ExternalLinkIcon, SparklesIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  DownloadIcon,
+  ExternalLinkIcon,
+  Loader2Icon,
+  SparklesIcon,
+  UploadIcon,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ChangeEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -35,7 +42,11 @@ import { buildWorkspaceSkillAuthoringPath } from "@/core/authoring";
 import { useI18n } from "@/core/i18n/hooks";
 import { getLocalizedSkillDescription } from "@/core/skills";
 import { downloadSkill } from "@/core/skills/api";
-import { useEnableSkill, useSkills } from "@/core/skills/hooks";
+import {
+  useEnableSkill,
+  useImportSkillArchive,
+  useSkills,
+} from "@/core/skills/hooks";
 import {
   DEFAULT_SKILL_SCOPE,
   filterSkillsByScope,
@@ -80,7 +91,9 @@ function SkillSettingsList({
   const [filter, setFilter] = useState<SkillScope>(DEFAULT_SKILL_SCOPE);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [newSkillName, setNewSkillName] = useState("");
+  const importInputRef = useRef<HTMLInputElement | null>(null);
   const { mutate: enableSkill } = useEnableSkill();
+  const importSkillMutation = useImportSkillArchive();
   const workbenchText = getAuthoringWorkbenchText(locale);
   const filteredSkills = useMemo(
     () => filterSkillsByScope(skills, filter),
@@ -90,6 +103,33 @@ function SkillSettingsList({
   const handleCreateSkill = () => {
     setCreateDialogOpen(true);
   };
+
+  const handleImportSkill = () => {
+    importInputRef.current?.click();
+  };
+
+  const handleImportSkillFile = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.currentTarget.files?.[0] ?? null;
+      event.currentTarget.value = "";
+      if (!file) return;
+      if (!file.name.toLowerCase().endsWith(".skill")) {
+        toast.error(
+          t.settings.skills.importFailed(t.settings.skills.importInvalidType),
+        );
+        return;
+      }
+
+      try {
+        const imported = await importSkillMutation.mutateAsync(file);
+        toast.success(t.settings.skills.importSuccess(imported.name));
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : "";
+        toast.error(t.settings.skills.importFailed(detail));
+      }
+    },
+    [importSkillMutation, t.settings.skills],
+  );
 
   const handleOpenWorkbench = useCallback(
     (skillName: string, sourcePath?: string | null) => {
@@ -123,18 +163,21 @@ function SkillSettingsList({
     );
   }, [navigate, newSkillName, onClose]);
 
-  const handleDownloadSkill = useCallback(async (skill: Skill) => {
-    try {
-      const filename = await downloadSkill({
-        skillName: skill.name,
-        sourcePath: skill.source_path ?? undefined,
-      });
-      toast.success(t.settings.skills.downloadSuccess(filename));
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : "";
-      toast.error(t.settings.skills.downloadFailed(detail));
-    }
-  }, [t.settings.skills]);
+  const handleDownloadSkill = useCallback(
+    async (skill: Skill) => {
+      try {
+        const filename = await downloadSkill({
+          skillName: skill.name,
+          sourcePath: skill.source_path ?? undefined,
+        });
+        toast.success(t.settings.skills.downloadSuccess(filename));
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : "";
+        toast.error(t.settings.skills.downloadFailed(detail));
+      }
+    },
+    [t.settings.skills],
+  );
 
   const categoryLabel = useCallback(
     (category: SkillScope) => formatSkillScopeLabel(category, locale),
@@ -166,7 +209,29 @@ function SkillSettingsList({
               </TabsList>
             </Tabs>
           </div>
-          <div>
+          <div className="flex items-center gap-2">
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".skill,application/zip"
+              className="hidden"
+              onChange={(event) => void handleImportSkillFile(event)}
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={importSkillMutation.isPending}
+              onClick={handleImportSkill}
+            >
+              {importSkillMutation.isPending ? (
+                <Loader2Icon className="size-4 animate-spin" />
+              ) : (
+                <UploadIcon className="size-4" />
+              )}
+              {importSkillMutation.isPending
+                ? t.settings.skills.importingSkill
+                : t.settings.skills.importSkill}
+            </Button>
             <Button size="sm" onClick={handleCreateSkill}>
               <SparklesIcon className="size-4" />
               {t.settings.skills.createSkill}
@@ -196,7 +261,10 @@ function SkillSettingsList({
                   size="sm"
                   variant="outline"
                   onClick={() =>
-                    handleOpenWorkbench(skill.name, skill.source_path ?? undefined)
+                    handleOpenWorkbench(
+                      skill.name,
+                      skill.source_path ?? undefined,
+                    )
                   }
                 >
                   <ExternalLinkIcon className="size-4" />
@@ -227,8 +295,8 @@ function SkillSettingsList({
           <DialogHeader>
             <DialogTitle>{t.settings.skills.createSkill}</DialogTitle>
             <DialogDescription>
-              Choose a skill name and open the full workbench to edit `SKILL.md`,
-              references, scripts, and assets.
+              Choose a skill name and open the full workbench to edit
+              `SKILL.md`, references, scripts, and assets.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
@@ -240,10 +308,16 @@ function SkillSettingsList({
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setCreateDialogOpen(false)}
+            >
               {t.common.cancel}
             </Button>
-            <Button onClick={handleCreateWorkbench} disabled={!newSkillName.trim()}>
+            <Button
+              onClick={handleCreateWorkbench}
+              disabled={!newSkillName.trim()}
+            >
               {workbenchText.openWorkbench}
             </Button>
           </DialogFooter>

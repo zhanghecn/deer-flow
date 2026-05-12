@@ -2,7 +2,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useAuth } from "@/core/auth/hooks";
 
-import { createSkill, enableSkill, getSkill, updateSkill } from "./api";
+import {
+  createSkill,
+  enableSkill,
+  getSkill,
+  importSkillArchive,
+  updateSkill,
+} from "./api";
 import type { CreateSkillRequest, UpdateSkillRequest } from "./type";
 
 import { loadSkills } from ".";
@@ -35,6 +41,19 @@ export function useCreateSkill() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (request: CreateSkillRequest) => createSkill(request),
+    onSuccess: (data) => {
+      void queryClient.invalidateQueries({ queryKey: ["skills"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["skills", data.name, data.source_path ?? ""],
+      });
+    },
+  });
+}
+
+export function useImportSkillArchive() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) => importSkillArchive(file),
     onSuccess: (data) => {
       void queryClient.invalidateQueries({ queryKey: ["skills"] });
       void queryClient.invalidateQueries({

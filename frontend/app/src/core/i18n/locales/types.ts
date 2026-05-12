@@ -138,6 +138,14 @@ export interface Translations {
     title: string;
     description: string;
     newAgent: string;
+    importAgent: string;
+    importingAgent: string;
+    importSuccess: (agentName: string) => string;
+    importFailed: (message: string) => string;
+    importInvalidType: string;
+    exportPackage: string;
+    exportSuccess: (filename: string) => string;
+    exportFailed: (message: string) => string;
     emptyTitle: string;
     emptyDescription: string;
     gallerySummary: (total: number, published: number, draft: number) => string;
@@ -539,6 +547,11 @@ export interface Translations {
       description: string;
       loadError: (message: string) => string;
       createSkill: string;
+      importSkill: string;
+      importingSkill: string;
+      importSuccess: (skillName: string) => string;
+      importFailed: (message: string) => string;
+      importInvalidType: string;
       downloadSkill: string;
       downloadSuccess: (filename: string) => string;
       downloadFailed: (message: string) => string;

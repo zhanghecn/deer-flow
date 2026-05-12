@@ -1,9 +1,13 @@
 package handler
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -35,6 +39,37 @@ func newAuthedAgentContext(method string, target string, userID uuid.UUID, role 
 	context.Set(string(middleware.UserIDKey), userID)
 	context.Set(string(middleware.RoleKey), role)
 	return context, recorder
+}
+
+func marshalPortableAgentPackage(t *testing.T, status string) []byte {
+	t.Helper()
+
+	config := "name: portable\nstatus: " + status + "\ndescription: Portable\nagents_md_path: AGENTS.md\n"
+	pkg := model.AgentPackage{
+		SchemaVersion: 1,
+		Kind:          "openagents.agent.package",
+		Agent: model.Agent{
+			Name:   "portable",
+			Status: status,
+		},
+		Files: []model.AgentPackageFile{
+			{
+				Path:          "config.yaml",
+				ContentBase64: base64.StdEncoding.EncodeToString([]byte(config)),
+				SizeBytes:     int64(len(config)),
+			},
+			{
+				Path:          "AGENTS.md",
+				ContentBase64: base64.StdEncoding.EncodeToString([]byte("# Portable")),
+				SizeBytes:     int64(len("# Portable")),
+			},
+		},
+	}
+	body, err := json.Marshal(pkg)
+	if err != nil {
+		t.Fatalf("marshal package: %v", err)
+	}
+	return body
 }
 
 func TestAgentHandlerGetAllowsUsageButMarksNonOwnerAsReadOnly(t *testing.T) {
@@ -145,6 +180,77 @@ func TestAgentHandlerExportPackageRejectsNonOwner(t *testing.T) {
 
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("expected status 403, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestAgentHandlerImportPackageCreatesUserOwnedDraft(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	fsStore := storage.NewFS(t.TempDir())
+	userID := uuid.New()
+	body := marshalPortableAgentPackage(t, "prod")
+
+	handler := NewAgentHandler(service.NewAgentService(fsStore), fsStore, nil)
+	context, recorder := newAuthedAgentContext(http.MethodPost, "/api/agents/import?status=prod", userID, "user")
+	context.Request = httptest.NewRequest(http.MethodPost, "/api/agents/import?status=prod", bytes.NewReader(body))
+	context.Request.Header.Set("Content-Type", "application/json")
+
+	handler.ImportPackage(context)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var payload model.Agent
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if payload.Status != "dev" {
+		t.Fatalf("payload.Status = %q, want dev", payload.Status)
+	}
+	if payload.OwnerUserID != userID.String() {
+		t.Fatalf("payload.OwnerUserID = %q, want %q", payload.OwnerUserID, userID.String())
+	}
+	if _, err := os.Stat(filepath.Join(fsStore.AgentDir("portable", "dev"), "config.yaml")); err != nil {
+		t.Fatalf("expected dev import archive: %v", err)
+	}
+	if _, err := os.Stat(fsStore.AgentDir("portable", "prod")); !os.IsNotExist(err) {
+		t.Fatalf("expected no prod import archive, stat err = %v", err)
+	}
+}
+
+func TestAgentHandlerAdminImportPackagePreservesArchiveStatus(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	fsStore := storage.NewFS(t.TempDir())
+	adminID := uuid.New()
+	body := marshalPortableAgentPackage(t, "prod")
+
+	handler := NewAgentHandler(service.NewAgentService(fsStore), fsStore, nil)
+	context, recorder := newAuthedAgentContext(http.MethodPost, "/api/admin/agents/import", adminID, "admin")
+	context.Request = httptest.NewRequest(http.MethodPost, "/api/admin/agents/import", bytes.NewReader(body))
+	context.Request.Header.Set("Content-Type", "application/json")
+
+	handler.ImportPackageAdmin(context)
+
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var payload model.Agent
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if payload.Status != "prod" {
+		t.Fatalf("payload.Status = %q, want prod", payload.Status)
+	}
+	if payload.OwnerUserID != adminID.String() {
+		t.Fatalf("payload.OwnerUserID = %q, want %q", payload.OwnerUserID, adminID.String())
+	}
+	if _, err := os.Stat(filepath.Join(fsStore.AgentDir("portable", "prod"), "config.yaml")); err != nil {
+		t.Fatalf("expected prod import archive: %v", err)
 	}
 }
 

@@ -264,6 +264,18 @@ func (h *AgentHandler) ExportPackage(c *gin.Context) {
 }
 
 func (h *AgentHandler) ImportPackage(c *gin.Context) {
+	// User-facing package import always materializes a draft owned by the
+	// authenticated user. Published/admin promotion remains a separate action.
+	h.importPackage(c, "dev")
+}
+
+func (h *AgentHandler) ImportPackageAdmin(c *gin.Context) {
+	// Admin import is the governance surface: an empty status keeps the package
+	// archive status, while an explicit query can force dev/prod.
+	h.importPackage(c, c.Query("status"))
+}
+
+func (h *AgentHandler) importPackage(c *gin.Context, status string) {
 	var pkg model.AgentPackage
 	if err := c.ShouldBindJSON(&pkg); err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
@@ -272,8 +284,7 @@ func (h *AgentHandler) ImportPackage(c *gin.Context) {
 
 	agent, err := h.svc.ImportPackage(c.Request.Context(), pkg, service.ImportAgentPackageOptions{
 		TargetName: c.Query("target_name"),
-		Status:     c.Query("status"),
-		Overwrite:  strings.EqualFold(c.Query("overwrite"), "true"),
+		Status:     status,
 		UserID:     middleware.GetUserID(c),
 	})
 	if err != nil {

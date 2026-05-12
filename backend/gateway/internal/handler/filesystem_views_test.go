@@ -2,6 +2,7 @@ package handler
 
 import (
 	"archive/zip"
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -255,7 +256,7 @@ func TestInstallSkillArchiveWritesToCanonicalCustomSkillsRoot(t *testing.T) {
 		t.Fatalf("close archive file: %v", err)
 	}
 
-	skillName, err := installSkillArchive(fsStore, userID, threadID, "/mnt/user-data/uploads/imported.skill")
+	skillName, err := installSkillArchive(context.Background(), fsStore, userID, threadID, "/mnt/user-data/uploads/imported.skill")
 	if err != nil {
 		t.Fatalf("installSkillArchive() error = %v", err)
 	}

@@ -192,6 +192,18 @@ export const enUS: Translations = {
     description:
       "Create and manage custom agents with specialized prompts and capabilities.",
     newAgent: "New Agent",
+    importAgent: "Import agent",
+    importingAgent: "Importing...",
+    importSuccess: (agentName: string) => `Imported agent "${agentName}"`,
+    importFailed: (message: string) =>
+      message ? `Failed to import agent: ${message}` : "Failed to import agent",
+    importInvalidType: "Choose an OpenAgents agent JSON package.",
+    exportPackage: "Export package",
+    exportSuccess: (filename: string) => `Exported ${filename}`,
+    exportFailed: (message: string) =>
+      message
+        ? `Failed to export agent package: ${message}`
+        : "Failed to export agent package",
     emptyTitle: "No custom agents yet",
     emptyDescription:
       "Create your first custom agent with a specialized system prompt.",
@@ -652,6 +664,14 @@ export const enUS: Translations = {
       loadError: (message: string) =>
         message ? `Failed to load skills: ${message}` : "Failed to load skills",
       createSkill: "Create skill",
+      importSkill: "Import .skill",
+      importingSkill: "Importing...",
+      importSuccess: (skillName: string) => `Imported ${skillName}`,
+      importFailed: (message: string) =>
+        message
+          ? `Failed to import skill: ${message}`
+          : "Failed to import skill",
+      importInvalidType: "Choose a .skill archive.",
       downloadSkill: "Download .skill",
       downloadSuccess: (filename: string) => `Downloaded ${filename}`,
       downloadFailed: (message: string) =>

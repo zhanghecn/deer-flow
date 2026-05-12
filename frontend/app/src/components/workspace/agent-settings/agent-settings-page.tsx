@@ -2,6 +2,7 @@ import {
   ArrowLeftIcon,
   BotIcon,
   BrainIcon,
+  DownloadIcon,
   Link2Icon,
   Loader2Icon,
   SaveIcon,
@@ -21,6 +22,7 @@ import {
   type AgentStatus,
   useAgent,
   useAgentExportDoc,
+  useDownloadAgentPackage,
   useToolCatalog,
   useUpdateAgent,
 } from "@/core/agents";
@@ -191,6 +193,7 @@ export function AgentSettingsPageView({
   } = useToolCatalog();
 
   const updateAgentMutation = useUpdateAgent();
+  const downloadAgentPackageMutation = useDownloadAgentPackage();
 
   const [activeTab, setActiveTab] = useState<SettingsTab>("identity");
   const [form, setForm] = useState<AgentSettingsFormState | null>(null);
@@ -367,6 +370,19 @@ export function AgentSettingsPageView({
     if (savedForm) setForm(savedForm);
   }
 
+  async function handleDownloadPackage() {
+    try {
+      const filename = await downloadAgentPackageMutation.mutateAsync({
+        name: agentName,
+        status: agentStatus,
+      });
+      toast.success(t.agents.exportSuccess(filename));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "";
+      toast.error(t.agents.exportFailed(detail));
+    }
+  }
+
   const launchPath = `/workspace/agents/${agentName}?agent_status=${agentStatus}`;
 
   const launchURL = useMemo(() => {
@@ -406,6 +422,20 @@ export function AgentSettingsPageView({
                 {canManage ? text.appliesToArchive(agentStatus) : text.readOnly}
               </p>
             </div>
+            <Button
+              variant="ghost"
+              disabled={
+                !agent || !canManage || downloadAgentPackageMutation.isPending
+              }
+              onClick={() => void handleDownloadPackage()}
+            >
+              {downloadAgentPackageMutation.isPending ? (
+                <Loader2Icon className="size-4 animate-spin" />
+              ) : (
+                <DownloadIcon className="size-4" />
+              )}
+              {t.agents.exportPackage}
+            </Button>
             <Button
               variant="ghost"
               disabled={!isDirty || !form || updateAgentMutation.isPending}

@@ -1,9 +1,14 @@
 import { authFetch } from "@/core/auth/fetch";
 import { getBackendBaseURL, getLangGraphBaseURL } from "@/core/config";
+import {
+  extractFilenameFromContentDisposition,
+  triggerBrowserDownload,
+} from "@/core/downloads";
 
 import type {
   Agent,
   AgentExportDoc,
+  AgentPackage,
   AgentStatus,
   CreateAgentRequest,
   ToolCatalogItem,
@@ -179,6 +184,50 @@ export async function getPublicAgentExportDoc(
     );
   }
   return res.json() as Promise<AgentExportDoc>;
+}
+
+export async function downloadAgentPackage(
+  name: string,
+  status: AgentStatus = "dev",
+): Promise<string> {
+  const res = await authFetch(
+    `${getBackendBaseURL()}/api/agents/${encodeURIComponent(name)}/package?status=${encodeURIComponent(status)}`,
+  );
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as APIErrorShape;
+    throw new Error(
+      resolveAPIErrorMessage(
+        err,
+        `Failed to export agent package: ${res.statusText}`,
+      ),
+    );
+  }
+
+  const blob = await res.blob();
+  const filename =
+    extractFilenameFromContentDisposition(
+      res.headers.get("Content-Disposition"),
+    ) ?? `${name}-${status}.openagents-agent.json`;
+  triggerBrowserDownload(blob, filename);
+  return filename;
+}
+
+export async function importAgentPackage(pkg: AgentPackage): Promise<Agent> {
+  const res = await authFetch(`${getBackendBaseURL()}/api/agents/import`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(pkg),
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as APIErrorShape;
+    throw new Error(
+      resolveAPIErrorMessage(
+        err,
+        `Failed to import agent package: ${res.statusText}`,
+      ),
+    );
+  }
+  return res.json() as Promise<Agent>;
 }
 
 export { UNPUBLISHED_PUBLIC_AGENT_DOCS_MESSAGE };

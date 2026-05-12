@@ -6,11 +6,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
-	"sort"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/google/uuid"
@@ -27,6 +29,8 @@ type SkillService struct {
 var ErrSkillReadOnly = errors.New("skill is read-only")
 var ErrSkillAmbiguous = errors.New("skill is ambiguous")
 var ErrSkillInvalidSourcePath = errors.New("invalid skill source path")
+
+const maxSkillArchiveExtractedBytes uint64 = 100 * 1024 * 1024
 
 type skillLocation struct {
 	scope       string
@@ -182,6 +186,56 @@ func (s *SkillService) Export(_ context.Context, name string, sourcePath string)
 		return "", nil, err
 	}
 	return archiveRoot + ".skill", data, nil
+}
+
+func (s *SkillService) ImportArchive(_ context.Context, filename string, data []byte) (*model.Skill, error) {
+	if strings.TrimSpace(filename) != "" && !strings.EqualFold(filepath.Ext(filename), ".skill") {
+		return nil, fmt.Errorf("file must have .skill extension")
+	}
+
+	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil, fmt.Errorf("invalid skill archive: %w", err)
+	}
+
+	tempDir, err := os.MkdirTemp("", "openagents-skill-import-*")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(tempDir)
+
+	if err := extractSkillArchive(reader, tempDir); err != nil {
+		return nil, err
+	}
+
+	skillDir, err := resolveExtractedSkillDir(tempDir)
+	if err != nil {
+		return nil, err
+	}
+	meta, err := skillfs.ParseFrontmatterFile(filepath.Join(skillDir, "SKILL.md"))
+	if err != nil {
+		return nil, err
+	}
+	importedName, err := normalizeImportedSkillName(meta.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	if scopes := s.findSkillScopes(importedName); len(scopes) > 0 {
+		return nil, fmt.Errorf("skill %q already exists in %s", importedName, strings.Join(scopes, ", "))
+	}
+
+	targetDir := s.fs.GlobalSkillDir("custom", importedName)
+	if err := os.MkdirAll(filepath.Dir(targetDir), 0o755); err != nil {
+		return nil, err
+	}
+	// Imported archives always become user-editable custom skills; store/system
+	// archives remain governed by their existing release/admin flows.
+	if err := s.fs.CopyDir(skillDir, targetDir); err != nil {
+		return nil, err
+	}
+
+	return s.loadSkillFromLocation(skillLocation{scope: "custom", relativeDir: importedName})
 }
 
 func (s *SkillService) findSkillScopes(name string) []string {
@@ -442,6 +496,20 @@ func exportArchiveBaseName(name string) string {
 	return strings.Trim(strings.TrimSpace(normalized), "-")
 }
 
+func normalizeImportedSkillName(raw string) (string, error) {
+	name := strings.TrimSpace(raw)
+	if name == "" {
+		return "", fmt.Errorf("skill archive name is required")
+	}
+	if len(name) > 64 {
+		return "", fmt.Errorf("skill archive name must be at most 64 characters")
+	}
+	if strings.ContainsAny(name, `/\`) || path.Clean(name) != name || strings.HasPrefix(name, ".") {
+		return "", fmt.Errorf("skill archive name must be a single safe path segment")
+	}
+	return name, nil
+}
+
 func packageSkillArchive(skillDir string, archiveRoot string) ([]byte, error) {
 	var buffer bytes.Buffer
 	writer := zip.NewWriter(&buffer)
@@ -497,6 +565,83 @@ func packageSkillArchive(skillDir string, archiveRoot string) ([]byte, error) {
 		return nil, err
 	}
 	return buffer.Bytes(), nil
+}
+
+func extractSkillArchive(reader *zip.Reader, tempDir string) error {
+	var totalSize uint64
+	for _, file := range reader.File {
+		totalSize += file.UncompressedSize64
+		if totalSize > maxSkillArchiveExtractedBytes {
+			return errors.New("skill archive too large when extracted (>100MB)")
+		}
+
+		cleanName := filepath.Clean(file.Name)
+		if cleanName == "." {
+			continue
+		}
+		// Archive entries are untrusted user input. Keep extraction inside the
+		// temporary directory so `.skill` import cannot write outside custom skills.
+		if filepath.IsAbs(cleanName) || strings.HasPrefix(cleanName, "..") || strings.Contains(cleanName, "../") {
+			return fmt.Errorf("unsafe path in archive: %s", file.Name)
+		}
+		targetPath := filepath.Join(tempDir, cleanName)
+		if err := copySkillArchiveFile(targetPath, file); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func copySkillArchiveFile(targetPath string, file *zip.File) error {
+	if file.FileInfo().IsDir() {
+		return os.MkdirAll(targetPath, 0o755)
+	}
+	if file.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("unsafe symlink in archive: %s", file.Name)
+	}
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		return err
+	}
+	reader, err := file.Open()
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+
+	mode := file.Mode().Perm()
+	if mode == 0 {
+		mode = 0o644
+	}
+	writer, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	if err != nil {
+		return err
+	}
+	defer writer.Close()
+
+	_, err = io.Copy(writer, reader)
+	return err
+}
+
+func resolveExtractedSkillDir(tempDir string) (string, error) {
+	items, err := os.ReadDir(tempDir)
+	if err != nil {
+		return "", err
+	}
+	if len(items) == 0 {
+		return "", errors.New("skill archive is empty")
+	}
+
+	skillDir := tempDir
+	if len(items) == 1 && items[0].IsDir() {
+		skillDir = filepath.Join(tempDir, items[0].Name())
+	}
+	if _, err := os.Stat(filepath.Join(skillDir, "SKILL.md")); err != nil {
+		if os.IsNotExist(err) {
+			return "", errors.New("skill archive is missing SKILL.md")
+		}
+		return "", err
+	}
+	return skillDir, nil
 }
 
 func splitSkillFrontmatter(skillMD string) (map[string]interface{}, string, bool, error) {

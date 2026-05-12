@@ -323,3 +323,103 @@ func TestSkillServiceExportPackagesSkillDirectory(t *testing.T) {
 		}
 	}
 }
+
+func TestSkillServiceImportArchiveCopiesSkillDirectoryToCustomScope(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	svc := NewSkillService(storage.NewFS(baseDir))
+
+	archive := buildSkillArchive(t, map[string]string{
+		"portable-skill/SKILL.md":            "---\nname: portable-skill\ndescription: Portable\n---\n\nbody",
+		"portable-skill/references/guide.md": "guide",
+		"portable-skill/scripts/validate.sh": "#!/bin/sh\necho ok\n",
+	})
+
+	skill, err := svc.ImportArchive(context.Background(), "portable-skill.skill", archive)
+	if err != nil {
+		t.Fatalf("ImportArchive() error = %v", err)
+	}
+
+	if skill.Name != "portable-skill" {
+		t.Fatalf("skill.Name = %q, want portable-skill", skill.Name)
+	}
+	if skill.Category != "custom" || !skill.CanEdit {
+		t.Fatalf("skill category/editability = %q/%v, want custom/true", skill.Category, skill.CanEdit)
+	}
+	if skill.SourcePath != "custom/skills/portable-skill" {
+		t.Fatalf("skill.SourcePath = %q, want custom/skills/portable-skill", skill.SourcePath)
+	}
+
+	for _, expected := range []string{
+		filepath.Join(baseDir, "custom", "skills", "portable-skill", "SKILL.md"),
+		filepath.Join(baseDir, "custom", "skills", "portable-skill", "references", "guide.md"),
+		filepath.Join(baseDir, "custom", "skills", "portable-skill", "scripts", "validate.sh"),
+	} {
+		if _, err := os.Stat(expected); err != nil {
+			t.Fatalf("expected imported file at %s: %v", expected, err)
+		}
+	}
+}
+
+func TestSkillServiceImportArchiveRejectsDuplicateVisibleName(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	existingDir := filepath.Join(baseDir, "skills", "store", "prod", "portable-skill")
+	if err := os.MkdirAll(existingDir, 0o755); err != nil {
+		t.Fatalf("mkdir existing skill: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(existingDir, "SKILL.md"),
+		[]byte("---\nname: portable-skill\ndescription: Existing\n---\n\nbody"),
+		0o644,
+	); err != nil {
+		t.Fatalf("write existing skill: %v", err)
+	}
+
+	svc := NewSkillService(storage.NewFS(baseDir))
+	archive := buildSkillArchive(t, map[string]string{
+		"portable-skill/SKILL.md": "---\nname: portable-skill\ndescription: Portable\n---\n\nbody",
+	})
+
+	_, err := svc.ImportArchive(context.Background(), "portable-skill.skill", archive)
+	if err == nil || !strings.Contains(err.Error(), "already exists in store/prod") {
+		t.Fatalf("ImportArchive() error = %v, want duplicate visible-name rejection", err)
+	}
+}
+
+func TestSkillServiceImportArchiveRejectsTraversalEntry(t *testing.T) {
+	t.Parallel()
+
+	baseDir := filepath.Join(t.TempDir(), ".openagents")
+	svc := NewSkillService(storage.NewFS(baseDir))
+	archive := buildSkillArchive(t, map[string]string{
+		"../SKILL.md": "---\nname: evil\ndescription: Evil\n---\n\nbody",
+	})
+
+	_, err := svc.ImportArchive(context.Background(), "evil.skill", archive)
+	if err == nil || !strings.Contains(err.Error(), "unsafe path in archive") {
+		t.Fatalf("ImportArchive() error = %v, want unsafe path rejection", err)
+	}
+}
+
+func buildSkillArchive(t *testing.T, entries map[string]string) []byte {
+	t.Helper()
+
+	var buffer bytes.Buffer
+	writer := zip.NewWriter(&buffer)
+	for name, content := range entries {
+		entryWriter, err := writer.Create(name)
+		if err != nil {
+			t.Fatalf("create zip entry %s: %v", name, err)
+		}
+		if _, err := entryWriter.Write([]byte(content)); err != nil {
+			t.Fatalf("write zip entry %s: %v", name, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close zip writer: %v", err)
+	}
+	return buffer.Bytes()
+}
