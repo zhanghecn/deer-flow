@@ -248,12 +248,12 @@ function triggerBrowserDownload(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(objectURL), 60_000);
 }
 
-export async function downloadPublicAPIArtifact(params: {
+async function fetchPublicAPIArtifactBlob(params: {
   baseURL: string;
   apiToken: string;
   artifact: PublicAPITurnArtifact;
   signal?: AbortSignal;
-}): Promise<void> {
+}): Promise<Blob> {
   const response = await publicAPIFetch(
     params.baseURL,
     params.apiToken,
@@ -264,10 +264,48 @@ export async function downloadPublicAPIArtifact(params: {
     },
   );
   if (!response.ok) {
-    return handleAPIError(response, "download artifact");
+    return handleAPIError(response, "load artifact");
+  }
+  return response.blob();
+}
+
+export async function openPublicAPIArtifact(params: {
+  baseURL: string;
+  apiToken: string;
+  artifact: PublicAPITurnArtifact;
+  signal?: AbortSignal;
+}): Promise<void> {
+  const openedWindow = window.open("about:blank", "_blank");
+  if (openedWindow) {
+    // Reserve the browsing context while the click activation is still live;
+    // otherwise browsers may block the preview after the authenticated fetch.
+    openedWindow.opener = null;
   }
 
-  const blob = await response.blob();
+  try {
+    const blob = await fetchPublicAPIArtifactBlob(params);
+    const objectURL = URL.createObjectURL(blob);
+    if (openedWindow && !openedWindow.closed) {
+      openedWindow.location.replace(objectURL);
+    } else {
+      window.location.assign(objectURL);
+    }
+    window.setTimeout(() => URL.revokeObjectURL(objectURL), 60_000);
+  } catch (error) {
+    if (openedWindow && !openedWindow.closed) {
+      openedWindow.close();
+    }
+    throw error;
+  }
+}
+
+export async function downloadPublicAPIArtifact(params: {
+  baseURL: string;
+  apiToken: string;
+  artifact: PublicAPITurnArtifact;
+  signal?: AbortSignal;
+}): Promise<void> {
+  const blob = await fetchPublicAPIArtifactBlob(params);
   const filename =
     normalizeDownloadFilename(params.artifact.filename) ||
     params.artifact.id ||

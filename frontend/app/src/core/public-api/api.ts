@@ -20,6 +20,7 @@ export interface PublicAPITurnArtifact {
   id: string;
   object: string;
   filename: string;
+  virtual_path?: string;
   mime_type?: string | null;
   bytes?: number | null;
   download_url: string;

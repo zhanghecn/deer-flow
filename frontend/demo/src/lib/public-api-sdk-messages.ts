@@ -20,6 +20,15 @@ export type PublicAPISDKAssistantContentBlock =
   | {
       type: "text";
       text: string;
+    }
+  | {
+      type: "output_file";
+      file_id: string;
+      filename: string;
+      mime_type?: string | null;
+      bytes?: number | null;
+      download_url: string;
+      virtual_path?: string;
     };
 
 export type PublicAPISDKMessage =
@@ -102,6 +111,7 @@ function createSDKMessageID() {
 function buildAssistantContent(params: {
   text: string;
   reasoning: string;
+  artifacts?: PublicAPITurnSnapshot["artifacts"];
 }): PublicAPISDKAssistantContentBlock[] {
   const content: PublicAPISDKAssistantContentBlock[] = [];
   if (params.reasoning) {
@@ -114,6 +124,20 @@ function buildAssistantContent(params: {
     content.push({
       type: "text",
       text: params.text,
+    });
+  }
+  for (const artifact of params.artifacts ?? []) {
+    // Generated files are first-class assistant output, not only metadata on
+    // the terminal result. Keeping an output_file block lets SDK consumers
+    // render attachments without inspecting OpenAgents-specific extensions.
+    content.push({
+      type: "output_file",
+      file_id: artifact.id,
+      filename: artifact.filename,
+      mime_type: artifact.mime_type,
+      bytes: artifact.bytes,
+      download_url: artifact.download_url,
+      virtual_path: artifact.virtual_path,
     });
   }
   return content;
@@ -169,7 +193,7 @@ export function createPublicAPISDKMessageProjector(params: {
     readModel: PublicAPIRunReadModel,
     turn: PublicAPITurnSnapshot,
   ) => {
-    if (!turn.output_text && !turn.reasoning_text) {
+    if (!turn.output_text && !turn.reasoning_text && !turn.artifacts?.length) {
       return;
     }
     emit(
@@ -184,6 +208,7 @@ export function createPublicAPISDKMessageProjector(params: {
           content: buildAssistantContent({
             text: turn.output_text,
             reasoning: turn.reasoning_text,
+            artifacts: turn.artifacts,
           }),
           usage: turn.usage,
         },

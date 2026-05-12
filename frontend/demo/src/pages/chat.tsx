@@ -3,6 +3,7 @@ import {
   Bot,
   Check,
   Download,
+  ExternalLink,
   FileText,
   History,
   Loader2,
@@ -33,6 +34,7 @@ import {
 import {
   downloadPublicAPIArtifact,
   listRecentPublicAPITurns,
+  openPublicAPIArtifact,
   type PublicAPITurnArtifact,
   type PublicAPITurnHistoryItem,
   resolvePublicAPIBaseURL,
@@ -739,18 +741,40 @@ function GeneratedArtifactList({
   apiToken: string;
   baseURL: string;
 }) {
-  const [downloadingArtifactId, setDownloadingArtifactId] = useState("");
+  const [activeArtifactAction, setActiveArtifactAction] = useState<{
+    id: string;
+    action: "open" | "download";
+  } | null>(null);
 
   if (artifacts.length === 0) {
     return null;
   }
 
-  async function handleDownload(artifact: PublicAPITurnArtifact) {
-    if (!apiToken || downloadingArtifactId) {
+  async function handleOpen(artifact: PublicAPITurnArtifact) {
+    if (!apiToken || activeArtifactAction) {
       return;
     }
 
-    setDownloadingArtifactId(artifact.id);
+    setActiveArtifactAction({ id: artifact.id, action: "open" });
+    try {
+      await openPublicAPIArtifact({
+        baseURL,
+        apiToken,
+        artifact,
+      });
+    } catch (openError) {
+      toast.error(getErrorMessage(openError));
+    } finally {
+      setActiveArtifactAction(null);
+    }
+  }
+
+  async function handleDownload(artifact: PublicAPITurnArtifact) {
+    if (!apiToken || activeArtifactAction) {
+      return;
+    }
+
+    setActiveArtifactAction({ id: artifact.id, action: "download" });
     try {
       await downloadPublicAPIArtifact({
         baseURL,
@@ -760,7 +784,7 @@ function GeneratedArtifactList({
     } catch (downloadError) {
       toast.error(getErrorMessage(downloadError));
     } finally {
-      setDownloadingArtifactId("");
+      setActiveArtifactAction(null);
     }
   }
 
@@ -775,7 +799,10 @@ function GeneratedArtifactList({
       </div>
       <ul className="space-y-2">
         {artifacts.map((artifact) => {
-          const isDownloading = downloadingArtifactId === artifact.id;
+          const activeAction =
+            activeArtifactAction?.id === artifact.id
+              ? activeArtifactAction.action
+              : null;
           return (
             <li
               key={artifact.id}
@@ -795,12 +822,26 @@ function GeneratedArtifactList({
               </div>
               <button
                 type="button"
+                onClick={() => void handleOpen(artifact)}
+                disabled={!apiToken || Boolean(activeArtifactAction)}
+                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-stone-200 px-2.5 text-xs font-medium text-stone-600 transition-colors hover:bg-stone-50 hover:text-stone-900 disabled:cursor-not-allowed disabled:opacity-45"
+                title={apiToken ? "打开文件" : "请先配置 API Key"}
+              >
+                {activeAction === "open" ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <ExternalLink className="size-3.5" />
+                )}
+                打开
+              </button>
+              <button
+                type="button"
                 onClick={() => void handleDownload(artifact)}
-                disabled={!apiToken || Boolean(downloadingArtifactId)}
+                disabled={!apiToken || Boolean(activeArtifactAction)}
                 className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-stone-200 px-2.5 text-xs font-medium text-stone-600 transition-colors hover:bg-stone-50 hover:text-stone-900 disabled:cursor-not-allowed disabled:opacity-45"
                 title={apiToken ? "下载文件" : "请先配置 API Key"}
               >
-                {isDownloading ? (
+                {activeAction === "download" ? (
                   <Loader2 className="size-3.5 animate-spin" />
                 ) : (
                   <Download className="size-3.5" />

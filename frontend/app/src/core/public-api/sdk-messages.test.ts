@@ -63,6 +63,17 @@ describe("createPublicAPISDKMessageProjector", () => {
         thread_id: "thread-1",
         output_text: "done",
         reasoning_text: "looked up the case",
+        artifacts: [
+          {
+            id: "file_1",
+            object: "file",
+            filename: "result.txt",
+            virtual_path: "/mnt/user-data/outputs/result.txt",
+            mime_type: "text/plain",
+            bytes: 12,
+            download_url: "/v1/files/file_1/content",
+          },
+        ],
         usage: {
           input_tokens: 1,
           output_tokens: 2,
@@ -95,7 +106,85 @@ describe("createPublicAPISDKMessageProjector", () => {
       subtype: "success",
       output_text: "done",
     });
+    expect(
+      projector.messages.find((message) => message.type === "assistant"),
+    ).toMatchObject({
+      message: {
+        content: [
+          { type: "thinking" },
+          { type: "text", text: "done" },
+          {
+            type: "output_file",
+            file_id: "file_1",
+            filename: "result.txt",
+            download_url: "/v1/files/file_1/content",
+          },
+        ],
+      },
+    });
     expect(onMessage).toHaveBeenCalledTimes(projector.messages.length);
+  });
+
+  it("emits assistant output for file-only turns", () => {
+    const projector = createPublicAPISDKMessageProjector({
+      agent: "demo-agent",
+      sessionId: "session-1",
+    });
+    const readModel = {
+      ...createPublicAPIRunReadModel(),
+      turnId: "turn-file",
+      phase: "ready" as const,
+    };
+
+    projector.finalizeTurn(
+      {
+        id: "turn-file",
+        object: "turn",
+        status: "completed",
+        agent: "demo-agent",
+        thread_id: "thread-1",
+        output_text: "",
+        reasoning_text: "",
+        artifacts: [
+          {
+            id: "file_1",
+            object: "file",
+            filename: "result.txt",
+            virtual_path: "/mnt/user-data/outputs/result.txt",
+            mime_type: "text/plain",
+            bytes: 12,
+            download_url: "/v1/files/file_1/content",
+          },
+        ],
+        usage: {
+          input_tokens: 1,
+          output_tokens: 0,
+          total_tokens: 1,
+        },
+        events: [],
+        created_at: 1,
+        completed_at: 2,
+      } as PublicAPITurnSnapshot,
+      readModel,
+    );
+
+    expect(projector.messages.map((message) => message.type)).toEqual([
+      "system",
+      "assistant",
+      "result",
+    ]);
+    expect(projector.messages[1]).toMatchObject({
+      type: "assistant",
+      message: {
+        content: [
+          {
+            type: "output_file",
+            file_id: "file_1",
+            filename: "result.txt",
+          },
+        ],
+      },
+    });
   });
 
   it("emits one error result for failed turns", () => {

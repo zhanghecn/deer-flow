@@ -76,6 +76,11 @@ type KnowledgeCitationTarget = {
   locatorLabel?: string;
 };
 
+type ArtifactPathTarget = {
+  kind: "artifact_path";
+  artifactPath: string;
+};
+
 function normalizeMarkdownURL(url: string | null | undefined) {
   const value = url?.trim();
   if (!value) {
@@ -123,6 +128,58 @@ function parseKnowledgeCitationHref(
   }
 }
 
+function stripURLSuffixes(value: string) {
+  return value.split("#", 1)[0].split("?", 1)[0];
+}
+
+function decodeMaybeURIComponent(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function parseArtifactPathHref(
+  href: string | null | undefined,
+): ArtifactPathTarget | null {
+  const value = href?.trim();
+  if (!value || value.startsWith("kb://") || safeProtocol.test(value)) {
+    return null;
+  }
+
+  let candidate = value;
+  if (explicitScheme.test(value)) {
+    try {
+      const url = new URL(value);
+      if (!["artifact:", "sandbox:", "file:"].includes(url.protocol)) {
+        return null;
+      }
+      candidate = `${url.pathname}${url.search}${url.hash}`;
+    } catch {
+      return null;
+    }
+  }
+
+  const pathCandidate = stripURLSuffixes(
+    decodeMaybeURIComponent(candidate).replace(/\\/g, "/"),
+  );
+  const normalizedCandidate = pathCandidate.replace(/^\.\//, "");
+  const isRuntimeArtifactPath =
+    normalizedCandidate.startsWith("/mnt/user-data/outputs/") ||
+    normalizedCandidate.startsWith("mnt/user-data/outputs/") ||
+    normalizedCandidate.startsWith("/outputs/") ||
+    normalizedCandidate.startsWith("outputs/");
+  if (!isRuntimeArtifactPath) {
+    return null;
+  }
+
+  return {
+    kind: "artifact_path",
+    artifactPath: normalizedCandidate,
+  };
+}
+
 function normalizeVirtualPath(value: string | null | undefined) {
   const trimmed = value?.trim().replace(/\\/g, "/");
   if (!trimmed) {
@@ -151,6 +208,27 @@ function findArtifactForKnowledgeTarget(
     artifacts.find(
       (artifact) =>
         normalizeVirtualPath(artifact.virtual_path) === normalizedPreferredPath,
+    ) ?? null
+  );
+}
+
+function findArtifactForPathTarget(
+  target: ArtifactPathTarget | null,
+  artifacts: PublicAPITurnArtifact[],
+) {
+  if (!target) {
+    return null;
+  }
+
+  const normalizedTargetPath = normalizeVirtualPath(target.artifactPath);
+  if (!normalizedTargetPath) {
+    return null;
+  }
+
+  return (
+    artifacts.find(
+      (artifact) =>
+        normalizeVirtualPath(artifact.virtual_path) === normalizedTargetPath,
     ) ?? null
   );
 }
@@ -187,13 +265,28 @@ async function openPublicArtifact(params: {
   apiToken: string;
   baseURL: string;
 }) {
-  const blob = await fetchPublicArtifactBlob(params);
-  const objectURL = URL.createObjectURL(blob);
-  const openedWindow = window.open(objectURL, "_blank", "noopener,noreferrer");
-  if (!openedWindow) {
-    window.location.assign(objectURL);
+  const openedWindow = window.open("about:blank", "_blank");
+  if (openedWindow) {
+    // The artifact fetch needs an Authorization header, so reserve a tab during
+    // the trusted click and fill it with the fetched blob once it arrives.
+    openedWindow.opener = null;
   }
-  window.setTimeout(() => URL.revokeObjectURL(objectURL), 60_000);
+
+  try {
+    const blob = await fetchPublicArtifactBlob(params);
+    const objectURL = URL.createObjectURL(blob);
+    if (openedWindow && !openedWindow.closed) {
+      openedWindow.location.replace(objectURL);
+    } else {
+      window.location.assign(objectURL);
+    }
+    window.setTimeout(() => URL.revokeObjectURL(objectURL), 60_000);
+  } catch (error) {
+    if (openedWindow && !openedWindow.closed) {
+      openedWindow.close();
+    }
+    throw error;
+  }
 }
 
 function KnowledgeAwareLink({
@@ -210,7 +303,10 @@ function KnowledgeAwareLink({
   baseURL?: string;
 }) {
   const knowledgeTarget = parseKnowledgeCitationHref(href);
-  const artifact = findArtifactForKnowledgeTarget(knowledgeTarget, artifacts);
+  const artifactPathTarget = parseArtifactPathHref(href);
+  const artifact =
+    findArtifactForKnowledgeTarget(knowledgeTarget, artifacts) ??
+    findArtifactForPathTarget(artifactPathTarget, artifacts);
   const canOpenArtifact = Boolean(artifact && apiToken && baseURL);
   const normalizedHref = normalizeMarkdownURL(href);
   const resolvedHref =
@@ -220,13 +316,13 @@ function KnowledgeAwareLink({
 
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {
     onClick?.(event);
-    if (event.defaultPrevented || !knowledgeTarget) {
+    if (event.defaultPrevented || (!knowledgeTarget && !artifactPathTarget)) {
       return;
     }
 
     if (!artifact || !apiToken || !baseURL) {
       event.preventDefault();
-      console.warn("Knowledge citation artifact is unavailable in this demo.");
+      console.warn("Referenced artifact is unavailable in this demo.");
       return;
     }
 
@@ -240,7 +336,7 @@ function KnowledgeAwareLink({
     });
   }
 
-  if (!knowledgeTarget) {
+  if (!knowledgeTarget && !artifactPathTarget) {
     return (
       <a {...props} href={normalizedHref} onClick={onClick}>
         {children}
@@ -255,11 +351,12 @@ function KnowledgeAwareLink({
       target="_blank"
       rel="noopener noreferrer"
       aria-disabled={!canOpenArtifact ? true : undefined}
-      data-kb-citation={knowledgeTarget.kind}
+      data-kb-citation={knowledgeTarget?.kind}
+      data-artifact-path={artifactPathTarget?.kind}
       data-kb-resolution={canOpenArtifact ? "resolved" : "missing"}
       title={
         !canOpenArtifact
-          ? "Source artifact is not available in this public API response."
+          ? "Artifact is not available in this public API response."
           : props.title
       }
       onClick={handleClick}
@@ -281,12 +378,13 @@ function KnowledgeAwareImage({
   apiToken?: string;
   baseURL?: string;
 }) {
+  const knowledgeTarget = parseKnowledgeCitationHref(src);
+  const artifactPathTarget = parseArtifactPathHref(src);
   const normalizedSrc = normalizeMarkdownURL(src);
-  const knowledgeTarget = parseKnowledgeCitationHref(normalizedSrc);
   const artifact =
     knowledgeTarget?.kind === "asset"
       ? findArtifactForKnowledgeTarget(knowledgeTarget, artifacts)
-      : null;
+      : findArtifactForPathTarget(artifactPathTarget, artifacts);
   const [objectURL, setObjectURL] = useState("");
 
   useEffect(() => {
@@ -318,10 +416,15 @@ function KnowledgeAwareImage({
     };
   }, [apiToken, artifact, baseURL]);
 
-  if (knowledgeTarget?.kind === "asset" && !objectURL) {
+  if ((knowledgeTarget?.kind === "asset" || artifactPathTarget) && !objectURL) {
     return (
-      <span data-kb-citation="asset" data-kb-resolution="missing">
-        [Image unavailable: {alt || knowledgeTarget.locatorLabel || "source"}]
+      <span
+        data-kb-citation={knowledgeTarget?.kind}
+        data-artifact-path={artifactPathTarget?.kind}
+        data-kb-resolution="missing"
+      >
+        [Image unavailable:{" "}
+        {alt || knowledgeTarget?.locatorLabel || artifactPathTarget?.artifactPath || "source"}]
       </span>
     );
   }
