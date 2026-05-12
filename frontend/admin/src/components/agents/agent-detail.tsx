@@ -136,7 +136,6 @@ export function AgentDetail({
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
-  const [isSavingOwner, setIsSavingOwner] = useState(false);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [ownerUserID, setOwnerUserID] = useState("");
   const [selectedStatus, setSelectedStatus] = useState<AgentStatus>(initialStatus);
@@ -227,7 +226,7 @@ export function AgentDetail({
 
     setIsSaving(true);
     try {
-      const updated = await api<Agent>(`/api/agents/${detail.name}?status=${detail.status}`, {
+      let updated = await api<Agent>(`/api/agents/${detail.name}?status=${detail.status}`, {
         method: "PUT",
         body: {
           description: form.description,
@@ -247,7 +246,38 @@ export function AgentDetail({
           },
         },
       });
+      if (ownerUserID && ownerUserID !== (updated.owner_user_id ?? "")) {
+        const ownerPayload = await api<{ agents: Agent[] }>(
+          `/api/admin/agents/${encodeURIComponent(updated.name)}/owner`,
+          {
+            method: "PATCH",
+            body: {
+              owner_user_id: ownerUserID,
+            },
+          },
+        );
+        const ownerVersion =
+          ownerPayload.agents.find((agent) => agent.status === updated.status) ??
+          ownerPayload.agents[0];
+        if (ownerVersion) {
+          // The owner endpoint intentionally returns lightweight archives, so
+          // preserve the just-saved editable fields while applying governance
+          // metadata from the canonical archive update.
+          updated = {
+            ...updated,
+            owner_user_id: ownerVersion.owner_user_id,
+            owner_name: ownerVersion.owner_name,
+            can_manage: ownerVersion.can_manage,
+          };
+          setVersionOptions(
+            ownerPayload.agents.length > 0
+              ? ownerPayload.agents.map((agent) => agent.status)
+              : versionOptions,
+          );
+        }
+      }
       setDetail(updated);
+      setOwnerUserID(updated.owner_user_id ?? "");
       setForm(createFormState(updated));
       toast.success(t("{name} saved", { name: updated.name }));
       onSaved?.();
@@ -278,44 +308,6 @@ export function AgentDetail({
       );
     } finally {
       setIsPublishing(false);
-    }
-  }
-
-  async function handleSaveOwner() {
-    if (!detail || !ownerUserID) {
-      return;
-    }
-
-    setIsSavingOwner(true);
-    try {
-      const payload = await api<{ agents: Agent[] }>(
-        `/api/admin/agents/${encodeURIComponent(detail.name)}/owner`,
-        {
-          method: "PATCH",
-          body: {
-            owner_user_id: ownerUserID,
-          },
-        },
-      );
-      const updatedAgents = payload.agents ?? [];
-      const currentVersion =
-        updatedAgents.find((agent) => agent.status === detail.status) ??
-        updatedAgents[0];
-      if (currentVersion) {
-        setDetail(currentVersion);
-        setOwnerUserID(currentVersion.owner_user_id ?? "");
-      }
-      setVersionOptions(
-        updatedAgents.length > 0
-          ? updatedAgents.map((agent) => agent.status)
-          : versionOptions,
-      );
-      toast.success(t("Owner updated"));
-      onSaved?.();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("Failed to update owner"));
-    } finally {
-      setIsSavingOwner(false);
     }
   }
 
@@ -382,37 +374,18 @@ export function AgentDetail({
                 </div>
                 <div className="space-y-2">
                   <Label>{t("Owner")}</Label>
-                  <div className="flex gap-2">
-                    <Select value={ownerUserID} onValueChange={setOwnerUserID}>
-                      <SelectTrigger>
-                        <SelectValue placeholder={t("Select owner")} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {users.map((user) => (
-                          <SelectItem key={user.id} value={user.id}>
-                            {user.name || user.email || user.id}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={
-                        isSavingOwner ||
-                        !ownerUserID ||
-                        ownerUserID === (detail.owner_user_id ?? "")
-                      }
-                      onClick={() => void handleSaveOwner()}
-                    >
-                      {isSavingOwner ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <SaveIcon className="h-4 w-4" />
-                      )}
-                      {t("Set owner")}
-                    </Button>
-                  </div>
+                  <Select value={ownerUserID} onValueChange={setOwnerUserID}>
+                    <SelectTrigger>
+                      <SelectValue placeholder={t("Select owner")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {users.map((user) => (
+                        <SelectItem key={user.id} value={user.id}>
+                          {user.name || user.email || user.id}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <p className="text-muted-foreground text-xs">
                     {detail.owner_name || detail.owner_user_id || t("No owner")}
                   </p>
