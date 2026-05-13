@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import asyncio
 import ast
+import asyncio
 import errno
 import json
 import logging
@@ -1069,7 +1069,8 @@ def build_tool_retry_middleware(
     return StreamingToolRetryMiddleware(
         max_retries=max_retries,
         retry_on=should_retry,
-        on_failure="error",
+        # Keep tool failures model-visible so the agent can try another strategy.
+        on_failure="continue",
         initial_delay=DEFAULT_RETRY_INITIAL_DELAY,
         max_delay=DEFAULT_RETRY_MAX_DELAY,
     )

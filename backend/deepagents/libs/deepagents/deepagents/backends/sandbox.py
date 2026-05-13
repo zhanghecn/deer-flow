@@ -435,6 +435,8 @@ except PermissionError:
         output = result.output.rstrip()
         if not output:
             return []
+        if result.exit_code not in (None, 0):
+            return f"Error running grep (exit code {result.exit_code}):\n{output}"
 
         # Parse grep output into GrepMatch objects
         matches: list[GrepMatch] = []
@@ -442,10 +444,16 @@ except PermissionError:
             # Format is: path:line_number:text
             parts = line.split(":", 2)
             if len(parts) >= 3:  # noqa: PLR2004  # Grep output field count
+                try:
+                    line_number = int(parts[1])
+                except ValueError:
+                    # Transport failures can be returned before grep starts;
+                    # preserve the raw output so the model can recover.
+                    return f"Error running grep:\n{output}"
                 matches.append(
                     {
                         "path": parts[0],
-                        "line": int(parts[1]),
+                        "line": line_number,
                         "text": parts[2],
                     }
                 )

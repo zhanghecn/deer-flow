@@ -118,6 +118,28 @@ def test_tool_retry_middleware_emits_retry_progress_events():
     assert events[4]["duration_ms"] >= 0
 
 
+def test_tool_retry_middleware_returns_error_message_after_tool_failure():
+    events: list[dict[str, object]] = []
+    middleware = build_tool_retry_middleware(max_retries=0)
+    request = ToolCallRequest(
+        tool_call={"id": "tool-1", "name": "grep", "args": {}},
+        tool=SimpleNamespace(name="grep"),
+        state={"messages": []},
+        runtime=SimpleNamespace(stream_writer=events.append),
+    )
+
+    def handler(_request: ToolCallRequest) -> ToolMessage:
+        raise ValueError("invalid literal for int() with base 10: ' setting up uid map'")
+
+    response = middleware.wrap_tool_call(request, handler)
+
+    assert isinstance(response, ToolMessage)
+    assert response.status == "error"
+    assert response.tool_call_id == "tool-1"
+    assert "Tool 'grep' failed" in str(response.content)
+    assert "setting up uid map" in str(response.content)
+
+
 def test_provider_retry_tracking_emits_custom_events_for_internal_http_retries():
     events: list[dict[str, object]] = []
     runtime = Runtime(context=None, store=None, stream_writer=events.append)

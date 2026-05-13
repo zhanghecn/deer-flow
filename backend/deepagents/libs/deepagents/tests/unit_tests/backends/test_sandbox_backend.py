@@ -188,3 +188,28 @@ def test_sandbox_grep_literal_search() -> None:
     # Verify the command uses grep -rHnF for literal search (combined flags)
     assert sandbox.last_command is not None
     assert "grep -rHnF" in sandbox.last_command
+
+
+def test_sandbox_grep_reports_transport_output_instead_of_raising() -> None:
+    """Malformed sandbox startup output should become a grep error string."""
+    sandbox = MockSandbox()
+
+    def mock_execute(command: str) -> ExecuteResponse:
+        sandbox.last_command = command
+        return ExecuteResponse(
+            output=(
+                "bwrap: setting up uid map: write to uid_map failed\n"
+                "hint: user namespaces are disabled for this sandbox"
+            ),
+            exit_code=0,
+            truncated=False,
+        )
+
+    sandbox.execute = mock_execute
+
+    result = sandbox.grep_raw("needle", path="/test")
+
+    assert isinstance(result, str)
+    assert result.startswith("Error running grep:")
+    assert "setting up uid map" in result
+    assert "user namespaces are disabled" in result
