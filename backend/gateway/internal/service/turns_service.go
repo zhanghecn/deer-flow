@@ -764,6 +764,19 @@ func (s *PublicAPIService) executeTurn(
 	); err == nil {
 		collector.primeReplayBoundary(extractTurnReplayBoundaryFromState(statePayload))
 	}
+	baselineArtifacts, err := s.captureOutputArtifactSnapshot(plan.Invocation)
+	if err != nil {
+		return nil, s.failTurnExecution(
+			ctx,
+			plan,
+			collector,
+			onEvent,
+			model.TurnFailureStageSnapshotBuild,
+			err,
+			"",
+			"",
+		)
+	}
 
 	started := collector.push(model.TurnEvent{Type: model.TurnEventTurnStarted})
 	if onEvent != nil {
@@ -866,7 +879,7 @@ func (s *PublicAPIService) executeTurn(
 		)
 	}
 
-	responseArtifacts, ledgerArtifacts, err := s.buildResponseArtifacts(plan.Invocation, artifactPaths)
+	responseArtifacts, ledgerArtifacts, err := s.buildResponseArtifacts(plan.Invocation, artifactPaths, baselineArtifacts)
 	if err != nil {
 		return nil, s.failTurnExecution(
 			ctx,

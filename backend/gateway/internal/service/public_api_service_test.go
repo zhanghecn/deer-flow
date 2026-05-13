@@ -997,18 +997,21 @@ func TestExecuteTurnStoresCanceledSnapshotWhenClientContextCancels(t *testing.T)
 		invocationRepo: invocationRepo,
 		langGraphURL:   "http://127.0.0.1:1",
 		httpClient:     http.DefaultClient,
+		fs:             storage.NewFS(t.TempDir()),
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
+	userID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
 	plan := &publicAPIRunPlan{
 		Auth: PublicAPIAuthContext{
-			UserID:     uuid.MustParse("11111111-1111-1111-1111-111111111111"),
+			UserID:     userID,
 			APITokenID: uuid.MustParse("22222222-2222-2222-2222-222222222222"),
 		},
 		Invocation: &model.PublicAPIInvocation{
 			ID:           uuid.New(),
 			ResponseID:   "turn_abort",
 			Surface:      "turns",
+			UserID:       userID,
 			AgentName:    "demo-agent",
 			ThreadID:     "thread-1",
 			RequestModel: "kimi-k2.5",
@@ -1282,7 +1285,7 @@ func TestBuildResponseArtifactsDiscoversThreadOutputsWithoutPresentFiles(t *test
 		ThreadID:   threadID,
 	}
 
-	responseArtifacts, ledgerArtifacts, err := svc.buildResponseArtifacts(invocation, nil)
+	responseArtifacts, ledgerArtifacts, err := svc.buildResponseArtifacts(invocation, nil, nil)
 	if err != nil {
 		t.Fatalf("buildResponseArtifacts: %v", err)
 	}
@@ -1300,6 +1303,112 @@ func TestBuildResponseArtifactsDiscoversThreadOutputsWithoutPresentFiles(t *test
 	}
 	if ledgerArtifacts[0].VirtualPath != "/mnt/user-data/outputs/summary.md" {
 		t.Fatalf("unexpected virtual path %#v", ledgerArtifacts[0])
+	}
+}
+
+func TestBuildResponseArtifactsSkipsUnchangedOutputArtifacts(t *testing.T) {
+	t.Parallel()
+
+	baseDir := t.TempDir()
+	fsStore := storage.NewFS(baseDir)
+	userID := uuid.New()
+	threadID := "thread-output-baseline"
+	outputPath := filepath.Join(
+		fsStore.ThreadUserDataDirForUser(userID.String(), threadID),
+		"outputs",
+		"summary.md",
+	)
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+		t.Fatalf("mkdir output dir: %v", err)
+	}
+	if err := os.WriteFile(outputPath, []byte("# summary"), 0o644); err != nil {
+		t.Fatalf("write output file: %v", err)
+	}
+	oldTime := time.Unix(1700000000, 0)
+	if err := os.Chtimes(outputPath, oldTime, oldTime); err != nil {
+		t.Fatalf("set output mtime: %v", err)
+	}
+
+	svc := &PublicAPIService{fs: fsStore}
+	invocation := &model.PublicAPIInvocation{
+		ID:         uuid.New(),
+		ResponseID: "resp_test",
+		UserID:     userID,
+		ThreadID:   threadID,
+	}
+	baseline, err := svc.captureOutputArtifactSnapshot(invocation)
+	if err != nil {
+		t.Fatalf("captureOutputArtifactSnapshot: %v", err)
+	}
+
+	responseArtifacts, ledgerArtifacts, err := svc.buildResponseArtifacts(
+		invocation,
+		[]string{"/mnt/user-data/outputs/summary.md"},
+		baseline,
+	)
+	if err != nil {
+		t.Fatalf("buildResponseArtifacts: %v", err)
+	}
+	if len(responseArtifacts) != 0 || len(ledgerArtifacts) != 0 {
+		t.Fatalf("expected unchanged historical artifact to be skipped, got response=%#v ledger=%#v", responseArtifacts, ledgerArtifacts)
+	}
+}
+
+func TestBuildResponseArtifactsIncludesChangedOutputArtifacts(t *testing.T) {
+	t.Parallel()
+
+	baseDir := t.TempDir()
+	fsStore := storage.NewFS(baseDir)
+	userID := uuid.New()
+	threadID := "thread-output-changed"
+	outputPath := filepath.Join(
+		fsStore.ThreadUserDataDirForUser(userID.String(), threadID),
+		"outputs",
+		"summary.md",
+	)
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+		t.Fatalf("mkdir output dir: %v", err)
+	}
+	if err := os.WriteFile(outputPath, []byte("# old"), 0o644); err != nil {
+		t.Fatalf("write old output file: %v", err)
+	}
+	oldTime := time.Unix(1700000000, 0)
+	if err := os.Chtimes(outputPath, oldTime, oldTime); err != nil {
+		t.Fatalf("set old output mtime: %v", err)
+	}
+
+	svc := &PublicAPIService{fs: fsStore}
+	invocation := &model.PublicAPIInvocation{
+		ID:         uuid.New(),
+		ResponseID: "resp_test",
+		UserID:     userID,
+		ThreadID:   threadID,
+	}
+	baseline, err := svc.captureOutputArtifactSnapshot(invocation)
+	if err != nil {
+		t.Fatalf("captureOutputArtifactSnapshot: %v", err)
+	}
+	if err := os.WriteFile(outputPath, []byte("# new"), 0o644); err != nil {
+		t.Fatalf("write changed output file: %v", err)
+	}
+	newTime := time.Unix(1700000100, 0)
+	if err := os.Chtimes(outputPath, newTime, newTime); err != nil {
+		t.Fatalf("set changed output mtime: %v", err)
+	}
+
+	responseArtifacts, ledgerArtifacts, err := svc.buildResponseArtifacts(
+		invocation,
+		[]string{"/mnt/user-data/outputs/summary.md"},
+		baseline,
+	)
+	if err != nil {
+		t.Fatalf("buildResponseArtifacts: %v", err)
+	}
+	if len(responseArtifacts) != 1 || responseArtifacts[0].VirtualPath != "/mnt/user-data/outputs/summary.md" {
+		t.Fatalf("expected changed artifact in response, got %#v", responseArtifacts)
+	}
+	if len(ledgerArtifacts) != 1 || ledgerArtifacts[0].VirtualPath != "/mnt/user-data/outputs/summary.md" {
+		t.Fatalf("expected changed artifact in ledger, got %#v", ledgerArtifacts)
 	}
 }
 

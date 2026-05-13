@@ -774,6 +774,10 @@ func (s *PublicAPIService) executeRun(
 	// Event index 1 is reserved for `run_started`, which is synthesized from the
 	// invocation envelope before runtime stream events begin.
 	collector := newPublicAPIRunCollector(1)
+	baselineArtifacts, err := s.captureOutputArtifactSnapshot(plan.Invocation)
+	if err != nil {
+		return nil, err
+	}
 	if err := s.runAgentTurnStream(ctx, plan, func(sourceEvent string, payload any) error {
 		record := collector.consume(sourceEvent, payload)
 		if onRuntimeEvent == nil {
@@ -812,7 +816,7 @@ func (s *PublicAPIService) executeRun(
 		return nil, err
 	}
 
-	responseArtifacts, ledgerArtifacts, err := s.buildResponseArtifacts(plan.Invocation, artifactPaths)
+	responseArtifacts, ledgerArtifacts, err := s.buildResponseArtifacts(plan.Invocation, artifactPaths, baselineArtifacts)
 	if err != nil {
 		return nil, err
 	}
@@ -1929,9 +1933,65 @@ func (s *PublicAPIService) lookupLatestTrace(
 	return s.traceRepo.FindLatestByThreadAndUser(ctx, threadID, userID)
 }
 
+type outputArtifactSignature struct {
+	sizeBytes   int64
+	modTimeNano int64
+}
+
+// captureOutputArtifactSnapshot records the output files that already belong to
+// the thread before the model runs. Runtime graph state stores artifacts
+// cumulatively, while public response artifacts are scoped to one turn.
+func (s *PublicAPIService) captureOutputArtifactSnapshot(
+	invocation *model.PublicAPIInvocation,
+) (map[string]outputArtifactSignature, error) {
+	discoveredOutputs, err := threadartifacts.ListOutputArtifacts(s.fs, invocation.UserID.String(), invocation.ThreadID)
+	if err != nil {
+		return nil, err
+	}
+	snapshot := make(map[string]outputArtifactSignature, len(discoveredOutputs))
+	for _, artifactPath := range discoveredOutputs {
+		virtualPath := strings.TrimSpace(artifactPath)
+		if virtualPath == "" {
+			continue
+		}
+		_, filePath, err := s.resolveStorageRef(invocation.UserID.String(), invocation.ThreadID, virtualPath)
+		if err != nil {
+			continue
+		}
+		info, err := os.Stat(filePath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, err
+		}
+		snapshot[virtualPath] = outputArtifactSignature{
+			sizeBytes:   info.Size(),
+			modTimeNano: info.ModTime().UnixNano(),
+		}
+	}
+	return snapshot, nil
+}
+
+func isUnchangedOutputArtifact(
+	virtualPath string,
+	info os.FileInfo,
+	baseline map[string]outputArtifactSignature,
+) bool {
+	if baseline == nil {
+		return false
+	}
+	signature, exists := baseline[strings.TrimSpace(virtualPath)]
+	if !exists {
+		return false
+	}
+	return signature.sizeBytes == info.Size() && signature.modTimeNano == info.ModTime().UnixNano()
+}
+
 func (s *PublicAPIService) buildResponseArtifacts(
 	invocation *model.PublicAPIInvocation,
 	artifactPaths []string,
+	baseline map[string]outputArtifactSignature,
 ) ([]model.PublicAPIResponseArtifact, []model.PublicAPIArtifact, error) {
 	// Public API callers should see the same persisted output files that the
 	// first-party workspace can discover, even when the model wrote into
@@ -1969,6 +2029,13 @@ func (s *PublicAPIService) buildResponseArtifacts(
 				continue
 			}
 			return nil, nil, err
+		}
+		if isUnchangedOutputArtifact(virtualPath, info, baseline) {
+			// LangGraph state keeps a cumulative artifact list for the whole
+			// thread. Public response artifacts are per-turn, so unchanged output
+			// files that existed before this run must not be re-issued with a new
+			// file id on every follow-up message.
+			continue
 		}
 
 		fileID := newPublicFileID()
