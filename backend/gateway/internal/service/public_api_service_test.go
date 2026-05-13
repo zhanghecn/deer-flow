@@ -1620,7 +1620,7 @@ func TestPublicAPIRunCollectorRecoversToolArgumentsFromToolUsePartialJSON(t *tes
 	}
 }
 
-func TestPublicAPIRunCollectorDefersEmptyToolArgsUntilValuesSnapshot(t *testing.T) {
+func TestPublicAPIRunCollectorEmitsEmptyToolArgsImmediately(t *testing.T) {
 	t.Parallel()
 
 	collector := newPublicAPIRunCollector(1)
@@ -1644,8 +1644,14 @@ func TestPublicAPIRunCollectorDefersEmptyToolArgsUntilValuesSnapshot(t *testing.
 			},
 		},
 	})
-	if len(startRecord.RunEvents) != 0 {
-		t.Fatalf("expected no tool-start event before values snapshot, got %#v", startRecord.RunEvents)
+	if len(startRecord.RunEvents) != 1 {
+		t.Fatalf("expected immediate tool-start event, got %#v", startRecord.RunEvents)
+	}
+	if startRecord.RunEvents[0].Type != model.PublicAPIToolStarted {
+		t.Fatalf("unexpected tool-start event %#v", startRecord.RunEvents[0])
+	}
+	if args, ok := startRecord.RunEvents[0].ToolArgs.(map[string]any); !ok || len(args) != 0 {
+		t.Fatalf("expected empty tool args to be emitted as-is, got %#v", startRecord.RunEvents[0].ToolArgs)
 	}
 
 	valuesRecord := collector.consume("values", map[string]any{
@@ -1666,15 +1672,20 @@ func TestPublicAPIRunCollectorDefersEmptyToolArgsUntilValuesSnapshot(t *testing.
 			},
 		},
 	})
-	if len(valuesRecord.RunEvents) != 1 {
-		t.Fatalf("expected values snapshot to emit tool-start event, got %#v", valuesRecord.RunEvents)
+	if len(valuesRecord.RunEvents) != 0 {
+		t.Fatalf("expected richer values snapshot to be treated as duplicate, got %#v", valuesRecord.RunEvents)
 	}
-	args, ok := valuesRecord.RunEvents[0].ToolArgs.(map[string]any)
-	if !ok {
-		t.Fatalf("expected recovered values tool args map, got %#v", valuesRecord.RunEvents[0].ToolArgs)
-	}
-	if fmt.Sprint(args["pattern"]) != "夏仲奇" || fmt.Sprint(args["limit"]) != "50" {
-		t.Fatalf("unexpected values tool args %#v", valuesRecord.RunEvents[0].ToolArgs)
+
+	finishRecord := collector.consume("messages", []any{
+		map[string]any{
+			"type":         "tool",
+			"name":         "grep_files",
+			"tool_call_id": "call_789",
+			"content":      "done",
+		},
+	})
+	if len(finishRecord.RunEvents) != 1 || finishRecord.RunEvents[0].Type != model.PublicAPIToolFinished {
+		t.Fatalf("expected matching tool finish after immediate start, got %#v", finishRecord.RunEvents)
 	}
 }
 

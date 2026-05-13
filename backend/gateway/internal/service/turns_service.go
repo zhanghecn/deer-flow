@@ -28,7 +28,6 @@ type turnCollector struct {
 	events                []model.TurnEvent
 	sequence              int
 	activeToolCallKeys    map[string]int
-	pendingToolCallKeys   map[string]pendingPublicAPIToolCall
 	replayedMessageIDs    map[string]struct{}
 	replayedToolCallIDs   map[string]struct{}
 	startedToolCallKeys   map[string]struct{}
@@ -48,7 +47,6 @@ func newTurnCollector(turnID string) *turnCollector {
 		turnID:               strings.TrimSpace(turnID),
 		events:               make([]model.TurnEvent, 0, 24),
 		activeToolCallKeys:   make(map[string]int),
-		pendingToolCallKeys:  make(map[string]pendingPublicAPIToolCall),
 		replayedMessageIDs:   make(map[string]struct{}),
 		replayedToolCallIDs:  make(map[string]struct{}),
 		startedToolCallKeys:  make(map[string]struct{}),
@@ -271,18 +269,15 @@ func (c *turnCollector) consumeAssistantRecord(record map[string]any) []model.Tu
 		}
 		toolArgs := firstNonNil(call["args"], call["arguments"])
 		if isEmptyStructuredValue(toolArgs) {
-			toolArgs = extractToolArgsFromContent(record["content"], toolName, toolKey)
-		}
-		if isEmptyStructuredValue(toolArgs) {
-			c.pendingToolCallKeys[toolKey] = pendingPublicAPIToolCall{
-				ToolName: toolName,
-				ToolArgs: toolArgs,
+			if recoveredArgs := extractToolArgsFromContent(record["content"], toolName, toolKey); !isEmptyStructuredValue(recoveredArgs) {
+				toolArgs = recoveredArgs
 			}
-			continue
 		}
 		if toolKey != "" {
+			// Start is a timing contract for streaming SDKs. Emit it as soon as
+			// the runtime exposes a tool call; later values snapshots are only
+			// duplicate state and must not delay the visible activity indicator.
 			c.startedToolCallKeys[toolKey] = struct{}{}
-			delete(c.pendingToolCallKeys, toolKey)
 		}
 		c.activeToolCallKeys[toolKey] = 1
 		events = append(events, c.push(model.TurnEvent{
@@ -306,31 +301,18 @@ func (c *turnCollector) consumeToolRecord(record map[string]any) []model.TurnEve
 	if _, isHistorical := c.replayedToolCallIDs[toolKey]; isHistorical {
 		return nil
 	}
-	events := make([]model.TurnEvent, 0, 2)
-	if pending, ok := c.pendingToolCallKeys[toolKey]; ok {
-		delete(c.pendingToolCallKeys, toolKey)
-		c.startedToolCallKeys[toolKey] = struct{}{}
-		c.activeToolCallKeys[toolKey] = 1
-		events = append(events, c.push(model.TurnEvent{
-			Type:          model.TurnEventToolCallStarted,
-			ToolCallID:    toolKey,
-			ToolName:      pending.ToolName,
-			ToolArguments: pending.ToolArgs,
-		}))
-	}
 	if toolKey != "" && c.activeToolCallKeys[toolKey] <= 0 {
-		return events
+		return nil
 	}
 	if toolKey != "" {
 		c.activeToolCallKeys[toolKey]--
 	}
-	events = append(events, c.push(model.TurnEvent{
+	return []model.TurnEvent{c.push(model.TurnEvent{
 		Type:       model.TurnEventToolCallCompleted,
 		ToolCallID: toolKey,
 		ToolName:   toolName,
 		ToolOutput: record["content"],
-	}))
-	return events
+	})}
 }
 
 func extractTurnReplayBoundaryFromState(payload []byte) turnReplayBoundary {

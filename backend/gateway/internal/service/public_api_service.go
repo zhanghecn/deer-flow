@@ -126,17 +126,11 @@ type langGraphRunRecord struct {
 	Status string `json:"status"`
 }
 
-type pendingPublicAPIToolCall struct {
-	ToolName string
-	ToolArgs any
-}
-
 type publicAPIRunCollector struct {
 	events                []model.PublicAPIRunEvent
 	sequence              int
 	activeToolPhaseCounts map[string]int
 	activeToolCallKeys    map[string]int
-	pendingToolCallKeys   map[string]pendingPublicAPIToolCall
 	startedToolCallKeys   map[string]struct{}
 	assistantStream       assistantStreamAssembler
 }
@@ -944,7 +938,6 @@ func newPublicAPIRunCollector(startIndex int) *publicAPIRunCollector {
 		sequence:              startIndex,
 		activeToolPhaseCounts: make(map[string]int),
 		activeToolCallKeys:    make(map[string]int),
-		pendingToolCallKeys:   make(map[string]pendingPublicAPIToolCall),
 		startedToolCallKeys:   make(map[string]struct{}),
 		assistantStream:       newAssistantStreamAssembler(),
 	}
@@ -992,9 +985,6 @@ func (c *publicAPIRunCollector) consume(sourceEvent string, payload any) publicA
 				}))
 			}
 		case messageType == "tool":
-			if pendingStart := c.flushPendingToolCallFromResult(record); pendingStart != nil {
-				events = append(events, *pendingStart)
-			}
 			if toolEvent := c.extractToolResultEventFromMessage(record); toolEvent != nil {
 				events = append(events, *toolEvent)
 			}
@@ -1082,22 +1072,14 @@ func (c *publicAPIRunCollector) extractToolCallEventsFromMessage(record map[stri
 			// while the top-level `tool_calls[].args` placeholder remains `{}`.
 			// Recover the public SDK-facing arguments from that richer block so the
 			// customer timeline shows the actual MCP call parameters.
-			toolArgs = extractToolArgsFromContent(record["content"], toolName, toolKey)
-		}
-		if isEmptyStructuredValue(toolArgs) {
-			// The chunk-level tool-call placeholder often arrives before the richer
-			// `values` snapshot that contains parsed arguments. Defer emission until
-			// that snapshot lands so streaming clients see real parameters instead
-			// of `{}`. If no richer snapshot appears, the pending start is flushed
-			// right before the matching tool result.
-			c.pendingToolCallKeys[toolKey] = pendingPublicAPIToolCall{
-				ToolName: toolName,
-				ToolArgs: toolArgs,
+			if recoveredArgs := extractToolArgsFromContent(record["content"], toolName, toolKey); !isEmptyStructuredValue(recoveredArgs) {
+				toolArgs = recoveredArgs
 			}
-			continue
 		}
 		if toolKey != "" {
-			delete(c.pendingToolCallKeys, toolKey)
+			// Public streaming clients key off this event to show live tool
+			// activity. Do not wait for a later values snapshot just to improve
+			// arguments; that would make "started" arrive at completion time.
 			c.startedToolCallKeys[toolKey] = struct{}{}
 		}
 		c.activeToolCallKeys[toolKey] = 1
@@ -1157,31 +1139,6 @@ func (c *publicAPIRunCollector) extractToolCallEventsFromValues(payload any) []m
 		}
 	}
 	return events
-}
-
-func (c *publicAPIRunCollector) flushPendingToolCallFromResult(record map[string]any) *model.PublicAPIRunEvent {
-	toolName := strings.TrimSpace(fmt.Sprint(record["name"]))
-	if toolName == "" {
-		return nil
-	}
-	toolKey := strings.TrimSpace(fmt.Sprint(firstNonNil(record["tool_call_id"], record["id"], toolName)))
-	if toolKey == "" {
-		return nil
-	}
-
-	pending, ok := c.pendingToolCallKeys[toolKey]
-	if !ok {
-		return nil
-	}
-	delete(c.pendingToolCallKeys, toolKey)
-	c.startedToolCallKeys[toolKey] = struct{}{}
-	c.activeToolCallKeys[toolKey] = 1
-	event := c.pushEvent(model.PublicAPIRunEvent{
-		Type:     model.PublicAPIToolStarted,
-		ToolName: pending.ToolName,
-		ToolArgs: pending.ToolArgs,
-	})
-	return &event
 }
 
 func (c *publicAPIRunCollector) extractInterruptEvents(payload map[string]any) []model.PublicAPIRunEvent {

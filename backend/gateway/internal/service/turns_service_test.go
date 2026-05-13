@@ -110,6 +110,79 @@ func TestTurnCollectorDropsHistoricalAssistantAndToolReplay(t *testing.T) {
 	}
 }
 
+func TestTurnCollectorEmitsEmptyToolArgsImmediately(t *testing.T) {
+	t.Parallel()
+
+	collector := newTurnCollector("turn_test")
+	start := collector.consume("messages", []any{
+		map[string]any{
+			"type": "AIMessageChunk",
+			"id":   "msg_tool",
+			"content": []any{
+				map[string]any{
+					"type":  "tool_use",
+					"id":    "call_789",
+					"name":  "grep_files",
+					"input": map[string]any{},
+				},
+			},
+			"tool_calls": []any{
+				map[string]any{
+					"id":   "call_789",
+					"name": "grep_files",
+					"args": map[string]any{},
+				},
+			},
+		},
+	})
+	if len(start) != 2 {
+		t.Fatalf("expected assistant start plus immediate tool start, got %#v", start)
+	}
+	if start[1].Type != model.TurnEventToolCallStarted {
+		t.Fatalf("expected immediate tool start, got %#v", start[1])
+	}
+	if args, ok := start[1].ToolArguments.(map[string]any); !ok || len(args) != 0 {
+		t.Fatalf("expected empty tool args to be emitted as-is, got %#v", start[1].ToolArguments)
+	}
+
+	values := collector.consume("values", map[string]any{
+		"messages": []any{
+			map[string]any{
+				"type": "ai",
+				"id":   "msg_tool",
+				"tool_calls": []any{
+					map[string]any{
+						"id":   "call_789",
+						"name": "grep_files",
+						"args": map[string]any{
+							"pattern": "夏仲奇",
+							"limit":   50,
+						},
+					},
+				},
+			},
+		},
+	})
+	if len(values) != 0 {
+		t.Fatalf("expected richer values snapshot to be treated as duplicate, got %#v", values)
+	}
+
+	finish := collector.consume("messages", []any{
+		map[string]any{
+			"type":         "tool",
+			"name":         "grep_files",
+			"tool_call_id": "call_789",
+			"content":      "done",
+		},
+	})
+	if len(finish) != 1 || finish[0].Type != model.TurnEventToolCallCompleted {
+		t.Fatalf("expected matching tool completion after immediate start, got %#v", finish)
+	}
+	if start[1].Sequence >= finish[0].Sequence {
+		t.Fatalf("expected tool start to be sequenced before completion, got start=%d finish=%d", start[1].Sequence, finish[0].Sequence)
+	}
+}
+
 func TestExecuteTurnPrimesReplayBoundaryFromSessionThreadState(t *testing.T) {
 	t.Parallel()
 
