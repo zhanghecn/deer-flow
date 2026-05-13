@@ -423,6 +423,7 @@ main() {
         echo "  tail -f deploy/data/logs/langgraph.log"
         echo "  ./scripts/docker-logs.sh"
         echo "  ./scripts/docker-logs.sh gateway"
+        echo "  ./scripts/docker-logs.sh nginx"
         echo "  ./scripts/docker-logs.sh migrate --no-follow"
     else
         echo ""

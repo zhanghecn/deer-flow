@@ -97,7 +97,7 @@ source-mounted local development stack.
 
 Production deploy has two log surfaces:
 
-- Persistent application files under `deploy/data/logs/`
+- Persistent gateway/LangGraph application files under `deploy/data/logs/`
 - Docker compose live logs through `./scripts/docker-logs.sh`
 
 Use both during verification:
@@ -108,9 +108,11 @@ tail -n 100 deploy/data/logs/langgraph.log
 ./scripts/docker-logs.sh --no-follow
 ./scripts/docker-logs.sh gateway --no-follow
 ./scripts/docker-logs.sh langgraph --no-follow
+./scripts/docker-logs.sh nginx --no-follow
 ./scripts/docker-logs.sh migrate --no-follow
 ```
 
 The helper reads `deploy/docker-compose.yml`, where services also use Docker's
-`json-file` log driver with rotation. Keep app file logs in `deploy/data/logs`
-instead of adding a parallel `deploy/logs` path.
+`json-file` log driver with rotation. Keep gateway/LangGraph app file logs in
+`deploy/data/logs` instead of adding a parallel `deploy/logs` path; nginx stays
+on Docker logs so access/error logs do not grow as unbounded bind-mounted files.

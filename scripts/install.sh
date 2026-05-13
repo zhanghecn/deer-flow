@@ -69,7 +69,7 @@ main() {
     echo "  App:   http://127.0.0.1:8083"
     echo "  Default admin: admin / admin123"
     echo "  Model gateway sync URL: http://model-gateway:3000"
-    echo "  File logs: $INSTALL_DIR/deploy/data/logs"
+    echo "  App file logs: $INSTALL_DIR/deploy/data/logs"
     echo "  Live logs: $INSTALL_DIR/scripts/docker-logs.sh"
     echo ""
     warn "Keep $INSTALL_DIR/deploy/.env and $INSTALL_DIR/deploy/data/ when backing up or migrating."

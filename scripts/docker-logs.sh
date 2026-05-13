@@ -26,9 +26,9 @@ Service aliases:
   web|nginx, api|gateway, agent|langgraph, sandbox|sandbox-aio,
   office|onlyoffice, db|postgres, minio, minio-init, migrate
 
-OpenAgents production logs are Docker compose logs. They are stored by Docker's
-json-file log driver with rotation from deploy/docker-compose.yml. Persistent
-application log files are also written under deploy/data/logs.
+OpenAgents production container logs use Docker's json-file rotation from
+deploy/docker-compose.yml. Gateway and LangGraph also write rotated app files
+under deploy/data/logs; nginx stays on Docker logs to avoid unbounded files.
 EOF
 }
 

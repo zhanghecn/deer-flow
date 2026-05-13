@@ -285,8 +285,6 @@ services:
     ports:
       - "${OPENAGENTS_APP_PORT:-8083}:80"
       - "${OPENAGENTS_ADMIN_PORT:-8081}:8081"
-    volumes:
-      - *openagents_logs_mount
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health >/dev/null"]
       interval: 15s

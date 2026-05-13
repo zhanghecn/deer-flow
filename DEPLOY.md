@@ -314,12 +314,11 @@ docker compose ps
 ls -lah deploy/data/logs
 tail -f deploy/data/logs/gateway.log
 tail -f deploy/data/logs/langgraph.log
-tail -f deploy/data/logs/nginx-access.log
 ```
 
 OpenAgents 对齐 Sub2API 的生产习惯：应用服务会把持久日志写到
 `deploy/data/logs/`。`gateway` 和 `langgraph` 默认按 100MB 单文件、10 个历史
-文件轮转；`nginx` 同时写访问日志和错误日志。
+文件轮转；`nginx` 访问日志和错误日志走 Docker 日志轮转，避免额外文件无限增长。
 
 实时容器日志：
 

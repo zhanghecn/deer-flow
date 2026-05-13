@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"log"
 	"net/http"
 	"slices"
 	"strings"
@@ -140,8 +141,9 @@ func JWTAuth(jwtMgr *jwt.Manager, userRepo jwtUserRepository) gin.HandlerFunc {
 // APITokenAuth middleware validates API tokens (for open API endpoints).
 func APITokenAuth(tokenRepo *repository.APITokenRepo) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		token := ExtractBearerToken(c.Request)
+		token, credential := extractAPIBearerToken(c.Request)
 		if token == "" {
+			logAPITokenAuthFailure(c, http.StatusUnauthorized, "missing", credential, "")
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing api token"})
 			return
 		}
@@ -149,19 +151,23 @@ func APITokenAuth(tokenRepo *repository.APITokenRepo) gin.HandlerFunc {
 		hash := hashToken(token)
 		apiToken, err := tokenRepo.FindByHash(c.Request.Context(), hash)
 		if err != nil || apiToken == nil {
+			logAPITokenAuthFailure(c, http.StatusUnauthorized, "invalid", credential, token)
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid api token"})
 			return
 		}
 
 		if !strings.EqualFold(strings.TrimSpace(apiToken.Status), model.APITokenStatusActive) {
+			logAPITokenAuthFailure(c, http.StatusUnauthorized, "disabled", credential, token)
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "api token is disabled"})
 			return
 		}
 		if apiToken.RevokedAt != nil {
+			logAPITokenAuthFailure(c, http.StatusUnauthorized, "revoked", credential, token)
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "api token is revoked"})
 			return
 		}
 		if apiToken.ExpiresAt != nil && apiToken.ExpiresAt.Before(time.Now().UTC()) {
+			logAPITokenAuthFailure(c, http.StatusUnauthorized, "expired", credential, token)
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "api token is expired"})
 			return
 		}
@@ -193,6 +199,36 @@ func RequireAPITokenScopes(required ...string) gin.HandlerFunc {
 	}
 }
 
+type apiBearerCredential struct {
+	AuthorizationHeader bool
+	BearerScheme        bool
+	CookiePresent       bool
+}
+
+// extractAPIBearerToken keeps the external `/v1` contract strict: SDK callers
+// must send Authorization: Bearer <api-token>. Browser session cookies remain
+// valid for JWT middleware only, so a missing SDK header is diagnosable as
+// `missing api token` instead of being misread as an invalid API key.
+func extractAPIBearerToken(r *http.Request) (string, apiBearerCredential) {
+	credential := apiBearerCredential{}
+	auth := strings.TrimSpace(r.Header.Get("Authorization"))
+	if auth != "" {
+		credential.AuthorizationHeader = true
+		fields := strings.Fields(auth)
+		if len(fields) >= 1 && strings.EqualFold(fields[0], "Bearer") {
+			credential.BearerScheme = true
+			if len(fields) == 2 {
+				return strings.TrimSpace(fields[1]), credential
+			}
+		}
+	}
+
+	if cookie, err := r.Cookie(AuthCookieName); err == nil && strings.TrimSpace(cookie.Value) != "" {
+		credential.CookiePresent = true
+	}
+	return "", credential
+}
+
 // ExtractBearerToken preserves one auth contract for both browser and API
 // callers: prefer the explicit Authorization header, then fall back to the
 // browser session cookie when the request is initiated by the UI.
@@ -217,4 +253,72 @@ func ExtractBearerToken(r *http.Request) string {
 func hashToken(token string) string {
 	h := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(h[:])
+}
+
+func logAPITokenAuthFailure(
+	c *gin.Context,
+	status int,
+	reason string,
+	credential apiBearerCredential,
+	token string,
+) {
+	route := c.FullPath()
+	if route == "" {
+		// Preserve the path-only contract here; query strings often carry secrets
+		// from broken client integrations and must not be persisted to logs.
+		route = c.Request.URL.Path
+	}
+
+	if token != "" {
+		tokenHashPrefix := hashToken(token)
+		if len(tokenHashPrefix) > 12 {
+			tokenHashPrefix = tokenHashPrefix[:12]
+		}
+		// The preview gives operators enough visual context for customer support
+		// while keeping retained logs from becoming directly reusable credentials.
+		tokenPreview := maskAPITokenForLog(token)
+		log.Printf(
+			"public_api_auth_failure reason=%s method=%s route=%s status=%d client_ip=%s auth_header=%v bearer=%v cookie_present=%v token_len=%d token_preview=%s token_hash_prefix=%s user_agent=%q",
+			reason,
+			c.Request.Method,
+			route,
+			status,
+			c.ClientIP(),
+			credential.AuthorizationHeader,
+			credential.BearerScheme,
+			credential.CookiePresent,
+			len(token),
+			tokenPreview,
+			tokenHashPrefix,
+			c.Request.UserAgent(),
+		)
+		return
+	}
+
+	log.Printf(
+		"public_api_auth_failure reason=%s method=%s route=%s status=%d client_ip=%s auth_header=%v bearer=%v cookie_present=%v user_agent=%q",
+		reason,
+		c.Request.Method,
+		route,
+		status,
+		c.ClientIP(),
+		credential.AuthorizationHeader,
+		credential.BearerScheme,
+		credential.CookiePresent,
+		c.Request.UserAgent(),
+	)
+}
+
+func maskAPITokenForLog(token string) string {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return ""
+	}
+	if len(token) <= 8 {
+		return strings.Repeat("*", len(token))
+	}
+	if len(token) <= 16 {
+		return token[:3] + "..." + token[len(token)-3:]
+	}
+	return token[:6] + "..." + token[len(token)-4:]
 }
