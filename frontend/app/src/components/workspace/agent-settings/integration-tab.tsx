@@ -2,6 +2,7 @@ import {
   CopyIcon,
   DownloadIcon,
   ExternalLinkIcon,
+  KeyRoundIcon,
   Link2Icon,
   Loader2Icon,
   PlayIcon,
@@ -11,9 +12,11 @@ import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 
 import type { AgentSettingsPageText } from "./i18n";
 import { FieldLabel, SectionCard } from "./shared";
+import type { AgentSettingsFormState } from "./types";
 
 interface IntegrationTabProps {
   agentStatus: string;
@@ -28,7 +31,11 @@ interface IntegrationTabProps {
   exportDocError: unknown;
   exportDocMissing: boolean;
   isProdArchive: boolean;
+  form: AgentSettingsFormState;
   text: AgentSettingsPageText;
+  onFormChange: (
+    updater: (prev: AgentSettingsFormState) => AgentSettingsFormState | null,
+  ) => void;
 }
 
 export function IntegrationTab({
@@ -41,7 +48,9 @@ export function IntegrationTab({
   exportDocError,
   exportDocMissing,
   isProdArchive,
+  form,
   text,
+  onFormChange,
 }: IntegrationTabProps) {
   async function handleCopyText(value: string, successMessage: string) {
     try {
@@ -81,6 +90,47 @@ export function IntegrationTab({
             <CopyIcon className="size-3.5" />
             {text.copyUrl}
           </Button>
+        </div>
+      </SectionCard>
+
+      {/* Public API Auth */}
+      <SectionCard
+        eyebrow={<KeyRoundIcon className="size-4" />}
+        title={text.publicApiAuthTitle}
+        description={text.publicApiAuthDescription}
+      >
+        <div className="border-border/70 bg-muted/20 flex items-start justify-between gap-4 rounded-2xl border px-4 py-4">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-medium">
+                {form.publicApiAuthMode === "trusted_external"
+                  ? text.publicApiTrustedExternal
+                  : text.publicApiKeyRequired}
+              </p>
+              <Badge variant="outline">
+                {form.publicApiAuthMode === "trusted_external"
+                  ? text.publicApiTrustedBadge
+                  : text.publicApiKeyBadge}
+              </Badge>
+            </div>
+            <p className="text-muted-foreground mt-2 text-sm leading-6">
+              {form.publicApiAuthMode === "trusted_external"
+                ? text.publicApiTrustedExternalDescription
+                : text.publicApiKeyRequiredDescription}
+            </p>
+          </div>
+          <Switch
+            checked={form.publicApiAuthMode === "trusted_external"}
+            aria-label={text.publicApiAuthTitle}
+            onCheckedChange={(checked) =>
+              onFormChange((current) => ({
+                ...current,
+                publicApiAuthMode: checked
+                  ? "trusted_external"
+                  : "api_key_required",
+              }))
+            }
+          />
         </div>
       </SectionCard>
 

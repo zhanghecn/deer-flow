@@ -403,21 +403,29 @@ func main() {
 		}
 	}
 
-	// Public API routes (API Token auth)
+	// Public API routes. Create/list surfaces with an explicit agent can opt into
+	// agent-owned trusted-external auth; generic file/model routes still require
+	// a caller-supplied API key because they do not carry a target agent.
 	open := r.Group("/v1")
-	open.Use(middleware.APITokenAuth(tokenRepo))
 	{
-		open.GET("/models", middleware.RequireAPITokenScopes("responses:read"), publicAPIH.ListModels)
-		open.POST("/files", middleware.RequireAPITokenScopes("responses:create"), publicAPIH.CreateFile)
-		open.GET("/files/:id", middleware.RequireAPITokenScopes("artifacts:read"), publicAPIH.GetFile)
-		open.POST("/turns", middleware.RequireAPITokenScopes("responses:create"), turnsH.Create)
-		open.POST("/turns/:id/cancel", middleware.RequireAPITokenScopes("responses:create"), turnsH.Cancel)
-		open.GET("/turns/recent", middleware.RequireAPITokenScopes("responses:read"), turnsH.ListRecent)
-		open.GET("/turns/:id", middleware.RequireAPITokenScopes("responses:read"), turnsH.Get)
-		open.POST("/responses", middleware.RequireAPITokenScopes("responses:create"), publicAPIH.CreateResponse)
-		open.GET("/responses/:id", middleware.RequireAPITokenScopes("responses:read"), publicAPIH.GetResponse)
-		open.POST("/chat/completions", middleware.RequireAPITokenScopes("responses:create"), publicAPIH.ChatCompletions)
-		open.GET("/files/:id/content", middleware.RequireAPITokenScopes("artifacts:read"), publicAPIH.GetFileContent)
+		apiTokenAuth := middleware.APITokenAuth(tokenRepo)
+		turnAgentAuth := middleware.PublicAPIAgentAuth(tokenRepo, fs, middleware.PublicAPIBodyAgentField("agent"))
+		modelAgentAuth := middleware.PublicAPIAgentAuth(tokenRepo, fs, middleware.PublicAPIBodyAgentField("model"))
+		queryAgentAuth := middleware.PublicAPIAgentAuth(tokenRepo, fs, middleware.PublicAPIQueryAgent("agent"))
+		responseAgentAuth := middleware.PublicAPIAgentAuth(tokenRepo, fs, middleware.PublicAPIResponseIDAgent(publicAPIInvocationRepo, "id"))
+		artifactAgentAuth := middleware.PublicAPIAgentAuth(tokenRepo, fs, middleware.PublicAPIArtifactFileAgent(publicAPIInvocationRepo, "id"))
+
+		open.GET("/models", apiTokenAuth, middleware.RequireAPITokenScopes("responses:read"), publicAPIH.ListModels)
+		open.POST("/files", apiTokenAuth, middleware.RequireAPITokenScopes("responses:create"), publicAPIH.CreateFile)
+		open.GET("/files/:id", artifactAgentAuth, middleware.RequireAPITokenScopes("artifacts:read"), publicAPIH.GetFile)
+		open.POST("/turns", turnAgentAuth, middleware.RequireAPITokenScopes("responses:create"), turnsH.Create)
+		open.POST("/turns/:id/cancel", responseAgentAuth, middleware.RequireAPITokenScopes("responses:create"), turnsH.Cancel)
+		open.GET("/turns/recent", queryAgentAuth, middleware.RequireAPITokenScopes("responses:read"), turnsH.ListRecent)
+		open.GET("/turns/:id", responseAgentAuth, middleware.RequireAPITokenScopes("responses:read"), turnsH.Get)
+		open.POST("/responses", modelAgentAuth, middleware.RequireAPITokenScopes("responses:create"), publicAPIH.CreateResponse)
+		open.GET("/responses/:id", responseAgentAuth, middleware.RequireAPITokenScopes("responses:read"), publicAPIH.GetResponse)
+		open.POST("/chat/completions", modelAgentAuth, middleware.RequireAPITokenScopes("responses:create"), publicAPIH.ChatCompletions)
+		open.GET("/files/:id/content", artifactAgentAuth, middleware.RequireAPITokenScopes("artifacts:read"), publicAPIH.GetFileContent)
 	}
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

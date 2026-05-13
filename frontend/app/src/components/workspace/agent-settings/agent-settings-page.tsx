@@ -92,6 +92,7 @@ function createFormState(agent: Agent): AgentSettingsFormState {
     toolSelectionEnabled: agent.tool_names != null,
     toolNames: agent.tool_names ?? [],
     runtimeMiddlewares: normalizeRuntimeMiddlewares(agent.runtime_middlewares),
+    publicApiAuthMode: agent.public_api_auth_mode ?? "api_key_required",
     mcpServers: agent.mcp_servers ?? [],
     knowledgeBaseIds: agent.knowledge_base_ids ?? [],
     skillRefs: agent.skills ?? [],
@@ -329,6 +330,7 @@ export function AgentSettingsPageView({
             ? [...effectiveMainToolNames]
             : null,
           runtime_middlewares: form.runtimeMiddlewares,
+          public_api_auth_mode: form.publicApiAuthMode,
           mcp_servers: form.mcpServers.length > 0 ? [...form.mcpServers] : null,
           knowledge_base_ids: [...form.knowledgeBaseIds],
           skill_refs: form.skillRefs.map(serializeSkillRefForRequest),
@@ -592,7 +594,9 @@ export function AgentSettingsPageView({
                         exportDocError={exportDocError}
                         exportDocMissing={exportDocMissing}
                         isProdArchive={agentStatus === "prod"}
+                        form={form}
                         text={text}
+                        onFormChange={handleFormChange}
                       />
                     )}
                   </>

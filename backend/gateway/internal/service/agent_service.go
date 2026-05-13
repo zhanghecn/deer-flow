@@ -396,6 +396,10 @@ func (s *AgentService) Create(_ context.Context, req model.CreateAgentRequest, u
 		return nil, err
 	}
 	runtimeMiddlewares := normalizeAgentRuntimeMiddlewares(req.RuntimeMiddlewares)
+	publicAPIAuthMode, err := model.NormalizeAgentPublicAPIAuthMode(req.PublicAPIAuthMode)
+	if err != nil {
+		return nil, err
+	}
 	subagentDefaults := normalizeAgentSubagentDefaults(req.SubagentDefaults)
 	subagentDefaults.ToolNames, err = s.validateSubagentToolNames(subagentDefaults.ToolNames, mcpServers)
 	if err != nil {
@@ -422,6 +426,7 @@ func (s *AgentService) Create(_ context.Context, req model.CreateAgentRequest, u
 		McpServers:         mcpServers,
 		KnowledgeBaseIDs:   knowledgeBaseIDs,
 		Status:             "dev",
+		PublicAPIAuthMode:  publicAPIAuthMode,
 		Memory:             &memoryConfig,
 		SubagentDefaults:   &subagentDefaults,
 		Subagents:          subagents,
@@ -479,6 +484,13 @@ func (s *AgentService) Update(_ context.Context, name string, status string, req
 	if req.RuntimeMiddlewares != nil {
 		normalizedRuntimeMiddlewares := normalizeAgentRuntimeMiddlewares(req.RuntimeMiddlewares)
 		existing.RuntimeMiddlewares = &normalizedRuntimeMiddlewares
+	}
+	if req.PublicAPIAuthMode != nil {
+		publicAPIAuthMode, err := model.NormalizeAgentPublicAPIAuthMode(*req.PublicAPIAuthMode)
+		if err != nil {
+			return nil, err
+		}
+		existing.PublicAPIAuthMode = publicAPIAuthMode
 	}
 	existing.McpServers = effectiveMCPServers
 	if req.Memory != nil {
@@ -849,6 +861,11 @@ func (s *AgentService) resolveSkillTargetDir(agent *model.Agent, ref model.Skill
 }
 
 func (s *AgentService) syncAgentFilesystem(agent *model.Agent, agentsMD string, skillRefs []model.SkillRef) error {
+	publicAPIAuthMode, err := model.NormalizeAgentPublicAPIAuthMode(agent.PublicAPIAuthMode)
+	if err != nil {
+		return err
+	}
+	agent.PublicAPIAuthMode = publicAPIAuthMode
 	stagedAgentSkills, cleanupDirs, err := s.stageAgentOwnedSkillSources(agent, skillRefs)
 	if err != nil {
 		return err
@@ -860,14 +877,15 @@ func (s *AgentService) syncAgentFilesystem(agent *model.Agent, agentsMD string, 
 	}()
 
 	config := map[string]interface{}{
-		"name":                agent.Name,
-		"description":         agent.Description,
-		"status":              agent.Status,
-		"agents_md_path":      "AGENTS.md",
-		"skill_refs":          skillRefs,
-		"memory":              agentMemoryPayload(agent.Memory),
-		"runtime_middlewares": agentRuntimeMiddlewaresPayload(agent.RuntimeMiddlewares),
-		"subagent_defaults":   agentSubagentDefaultsPayload(agent.SubagentDefaults),
+		"name":                 agent.Name,
+		"description":          agent.Description,
+		"status":               agent.Status,
+		"agents_md_path":       "AGENTS.md",
+		"skill_refs":           skillRefs,
+		"memory":               agentMemoryPayload(agent.Memory),
+		"runtime_middlewares":  agentRuntimeMiddlewaresPayload(agent.RuntimeMiddlewares),
+		"public_api_auth_mode": publicAPIAuthMode,
+		"subagent_defaults":    agentSubagentDefaultsPayload(agent.SubagentDefaults),
 	}
 	// Newly authored agents persist an explicit owner so downstream management
 	// and API-key issuance can follow one owner-of-record contract.

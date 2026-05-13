@@ -1,4 +1,5 @@
 export type AgentStatus = "prod" | "dev";
+export type AgentPublicAPIAuthMode = "api_key_required" | "trusted_external";
 
 export interface AgentMemoryConfig {
   enabled: boolean;
@@ -73,6 +74,7 @@ export interface Agent {
   owner_user_id?: string | null;
   owner_name?: string | null;
   can_manage?: boolean;
+  public_api_auth_mode?: AgentPublicAPIAuthMode | null;
   memory?: AgentMemoryConfig | null;
   subagent_defaults?: AgentSubagentDefaults | null;
   subagents?: AgentSubagent[];
@@ -94,6 +96,7 @@ export interface AgentExportDoc {
   gateway_base_url?: string;
   api_base_url: string;
   model?: string;
+  public_api_auth_mode?: AgentPublicAPIAuthMode | null;
   endpoints: Record<string, AgentExportEndpoint>;
   documentation_url: string;
   reference_url?: string;
@@ -124,6 +127,7 @@ export interface CreateAgentRequest {
   tool_groups?: string[] | null;
   tool_names?: string[] | null;
   runtime_middlewares?: AgentRuntimeMiddlewares | null;
+  public_api_auth_mode?: AgentPublicAPIAuthMode | null;
   mcp_servers?: string[] | null; // Stable MCP library refs selected for this agent
   knowledge_base_ids?: string[] | null;
   memory?: AgentMemoryConfig;
@@ -140,6 +144,7 @@ export interface UpdateAgentRequest {
   tool_groups?: string[] | null;
   tool_names?: string[] | null;
   runtime_middlewares?: AgentRuntimeMiddlewares | null;
+  public_api_auth_mode?: AgentPublicAPIAuthMode | null;
   mcp_servers?: string[] | null; // Stable MCP library refs selected for this agent
   knowledge_base_ids?: string[] | null;
   memory?: AgentMemoryConfig;

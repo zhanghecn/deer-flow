@@ -1,9 +1,15 @@
 package middleware
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"slices"
@@ -12,15 +18,35 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/openagents/gateway/internal/agentfs"
 	"github.com/openagents/gateway/internal/model"
-	"github.com/openagents/gateway/internal/repository"
 	"github.com/openagents/gateway/pkg/jwt"
+	"github.com/openagents/gateway/pkg/storage"
 )
 
 type contextKey string
 
 type jwtUserRepository interface {
 	FindByID(ctx context.Context, userID uuid.UUID) (*model.User, error)
+}
+
+type apiTokenVerifier interface {
+	FindByHash(ctx context.Context, hash string) (*model.APIToken, error)
+	UpdateLastUsed(ctx context.Context, id uuid.UUID) error
+}
+
+type trustedExternalTokenRepository interface {
+	apiTokenVerifier
+	Create(ctx context.Context, token *model.APIToken) error
+	FindTrustedExternalManaged(ctx context.Context, userID uuid.UUID, agentName string) (*model.APIToken, error)
+}
+
+type publicAPIResponseAgentRepository interface {
+	FindAgentNameByResponseID(ctx context.Context, responseID string) (string, error)
+}
+
+type publicAPIArtifactAgentRepository interface {
+	FindAgentNameByArtifactFileID(ctx context.Context, fileID string) (string, error)
 }
 
 const (
@@ -139,7 +165,7 @@ func JWTAuth(jwtMgr *jwt.Manager, userRepo jwtUserRepository) gin.HandlerFunc {
 }
 
 // APITokenAuth middleware validates API tokens (for open API endpoints).
-func APITokenAuth(tokenRepo *repository.APITokenRepo) gin.HandlerFunc {
+func APITokenAuth(tokenRepo apiTokenVerifier) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token, credential := extractAPIBearerToken(c.Request)
 		if token == "" {
@@ -148,41 +174,282 @@ func APITokenAuth(tokenRepo *repository.APITokenRepo) gin.HandlerFunc {
 			return
 		}
 
-		hash := hashToken(token)
-		apiToken, err := tokenRepo.FindByHash(c.Request.Context(), hash)
-		if err != nil || apiToken == nil {
-			logAPITokenAuthFailure(c, http.StatusUnauthorized, "invalid", credential, token)
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid api token"})
+		if !authenticateAPIToken(c, tokenRepo, token, credential) {
 			return
 		}
-
-		if !strings.EqualFold(strings.TrimSpace(apiToken.Status), model.APITokenStatusActive) {
-			logAPITokenAuthFailure(c, http.StatusUnauthorized, "disabled", credential, token)
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "api token is disabled"})
-			return
-		}
-		if apiToken.RevokedAt != nil {
-			logAPITokenAuthFailure(c, http.StatusUnauthorized, "revoked", credential, token)
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "api token is revoked"})
-			return
-		}
-		if apiToken.ExpiresAt != nil && apiToken.ExpiresAt.Before(time.Now().UTC()) {
-			logAPITokenAuthFailure(c, http.StatusUnauthorized, "expired", credential, token)
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "api token is expired"})
-			return
-		}
-
-		// `last_used` is an audit hint, not part of the auth decision, so request
-		// handling should continue even if the best-effort update fails.
-		_ = tokenRepo.UpdateLastUsed(c.Request.Context(), apiToken.ID)
-
-		c.Set(string(UserIDKey), apiToken.UserID)
-		c.Set(string(RoleKey), "api")
-		c.Set(string(APITokenIDKey), apiToken.ID)
-		c.Set(string(APITokenScopesKey), slices.Clone(apiToken.Scopes))
-		c.Set(string(APITokenAgentsKey), slices.Clone(apiToken.AllowedAgents))
 		c.Next()
 	}
+}
+
+type PublicAPIAgentResolver func(c *gin.Context) (string, error)
+
+func PublicAPIAgentAuth(
+	tokenRepo trustedExternalTokenRepository,
+	fsStore *storage.FS,
+	resolveAgent PublicAPIAgentResolver,
+) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token, credential := extractAPIBearerToken(c.Request)
+		if token != "" {
+			if !authenticateAPIToken(c, tokenRepo, token, credential) {
+				return
+			}
+			c.Next()
+			return
+		}
+		if credential.AuthorizationHeader {
+			logAPITokenAuthFailure(c, http.StatusUnauthorized, "missing", credential, "")
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing api token"})
+			return
+		}
+
+		agentName, err := resolveAgent(c)
+		if err != nil {
+			statusCode := http.StatusBadRequest
+			message := err.Error()
+			var resolveErr *publicAPIAgentResolveError
+			if errors.As(err, &resolveErr) {
+				statusCode = resolveErr.statusCode
+				message = resolveErr.message
+			}
+			c.AbortWithStatusJSON(statusCode, gin.H{"error": message})
+			return
+		}
+		apiToken, ok := resolveTrustedExternalManagedToken(c, tokenRepo, fsStore, agentName, credential)
+		if !ok {
+			return
+		}
+		setAPITokenContext(c, apiToken)
+		_ = tokenRepo.UpdateLastUsed(c.Request.Context(), apiToken.ID)
+		c.Next()
+	}
+}
+
+func PublicAPIBodyAgentField(field string) PublicAPIAgentResolver {
+	return func(c *gin.Context) (string, error) {
+		body, err := io.ReadAll(c.Request.Body)
+		if err != nil {
+			return "", fmt.Errorf("failed to read request body")
+		}
+		c.Request.Body = io.NopCloser(bytes.NewReader(body))
+		if len(bytes.TrimSpace(body)) == 0 {
+			return "", nil
+		}
+
+		var payload map[string]json.RawMessage
+		if err := json.Unmarshal(body, &payload); err != nil {
+			return "", nil
+		}
+		var agentName string
+		if err := json.Unmarshal(payload[field], &agentName); err != nil {
+			return "", nil
+		}
+		return strings.TrimSpace(agentName), nil
+	}
+}
+
+func PublicAPIQueryAgent(param string) PublicAPIAgentResolver {
+	return func(c *gin.Context) (string, error) {
+		return strings.TrimSpace(c.Query(param)), nil
+	}
+}
+
+// PublicAPIResponseIDAgent lets trusted-external follow-up requests authorize
+// against the original invocation's agent without exposing a public API key.
+func PublicAPIResponseIDAgent(repo publicAPIResponseAgentRepository, param string) PublicAPIAgentResolver {
+	return func(c *gin.Context) (string, error) {
+		responseID := strings.TrimSpace(c.Param(param))
+		if responseID == "" || repo == nil {
+			return "", nil
+		}
+		agentName, err := repo.FindAgentNameByResponseID(c.Request.Context(), responseID)
+		if err != nil {
+			return "", newPublicAPIAgentResolveError(http.StatusInternalServerError, "failed to resolve response agent")
+		}
+		return strings.TrimSpace(agentName), nil
+	}
+}
+
+// PublicAPIArtifactFileAgent keeps generated artifact downloads in the same
+// agent-owned auth boundary as the response that produced the artifact.
+func PublicAPIArtifactFileAgent(repo publicAPIArtifactAgentRepository, param string) PublicAPIAgentResolver {
+	return func(c *gin.Context) (string, error) {
+		fileID := strings.TrimSpace(c.Param(param))
+		if fileID == "" || repo == nil {
+			return "", nil
+		}
+		agentName, err := repo.FindAgentNameByArtifactFileID(c.Request.Context(), fileID)
+		if err != nil {
+			return "", newPublicAPIAgentResolveError(http.StatusInternalServerError, "failed to resolve artifact agent")
+		}
+		return strings.TrimSpace(agentName), nil
+	}
+}
+
+type publicAPIAgentResolveError struct {
+	statusCode int
+	message    string
+}
+
+func newPublicAPIAgentResolveError(statusCode int, message string) *publicAPIAgentResolveError {
+	return &publicAPIAgentResolveError{statusCode: statusCode, message: message}
+}
+
+func (e *publicAPIAgentResolveError) Error() string {
+	return e.message
+}
+
+func authenticateAPIToken(
+	c *gin.Context,
+	tokenRepo apiTokenVerifier,
+	token string,
+	credential apiBearerCredential,
+) bool {
+	hash := hashToken(token)
+	apiToken, err := tokenRepo.FindByHash(c.Request.Context(), hash)
+	if err != nil || apiToken == nil {
+		logAPITokenAuthFailure(c, http.StatusUnauthorized, "invalid", credential, token)
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid api token"})
+		return false
+	}
+
+	if !strings.EqualFold(strings.TrimSpace(apiToken.Status), model.APITokenStatusActive) {
+		logAPITokenAuthFailure(c, http.StatusUnauthorized, "disabled", credential, token)
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "api token is disabled"})
+		return false
+	}
+	if apiToken.RevokedAt != nil {
+		logAPITokenAuthFailure(c, http.StatusUnauthorized, "revoked", credential, token)
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "api token is revoked"})
+		return false
+	}
+	if apiToken.ExpiresAt != nil && apiToken.ExpiresAt.Before(time.Now().UTC()) {
+		logAPITokenAuthFailure(c, http.StatusUnauthorized, "expired", credential, token)
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "api token is expired"})
+		return false
+	}
+
+	setAPITokenContext(c, apiToken)
+	// `last_used` is an audit hint, not part of the auth decision, so request
+	// handling should continue even if the best-effort update fails.
+	_ = tokenRepo.UpdateLastUsed(c.Request.Context(), apiToken.ID)
+	return true
+}
+
+func setAPITokenContext(c *gin.Context, apiToken *model.APIToken) {
+	c.Set(string(UserIDKey), apiToken.UserID)
+	c.Set(string(RoleKey), "api")
+	c.Set(string(APITokenIDKey), apiToken.ID)
+	c.Set(string(APITokenScopesKey), slices.Clone(apiToken.Scopes))
+	c.Set(string(APITokenAgentsKey), slices.Clone(apiToken.AllowedAgents))
+}
+
+func resolveTrustedExternalManagedToken(
+	c *gin.Context,
+	tokenRepo trustedExternalTokenRepository,
+	fsStore *storage.FS,
+	agentName string,
+	credential apiBearerCredential,
+) (*model.APIToken, bool) {
+	normalizedAgentName := strings.ToLower(strings.TrimSpace(agentName))
+	if normalizedAgentName == "" {
+		logAPITokenAuthFailure(c, http.StatusUnauthorized, "missing", credential, "")
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing api token"})
+		return nil, false
+	}
+
+	agent, err := agentfs.LoadAgent(fsStore, normalizedAgentName, "prod", false)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to load agent auth mode"})
+		return nil, false
+	}
+	if agent == nil || agent.PublicAPIAuthMode != model.PublicAPIAuthModeTrustedExternal {
+		logAPITokenAuthFailure(c, http.StatusUnauthorized, "missing", credential, "")
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing api token"})
+		return nil, false
+	}
+
+	ownerUserID, err := uuid.Parse(strings.TrimSpace(agent.OwnerUserID))
+	if err != nil || ownerUserID == uuid.Nil {
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "trusted external auth requires an agent owner"})
+		return nil, false
+	}
+
+	// Trusted-external mode still materializes a real API token row so existing
+	// invocation history, file ownership, and audit joins keep their API-token
+	// isolation contract without exposing a reusable key to the caller.
+	apiToken, err := tokenRepo.FindTrustedExternalManaged(c.Request.Context(), ownerUserID, normalizedAgentName)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to load trusted external key"})
+		return nil, false
+	}
+	if apiToken != nil {
+		return apiToken, true
+	}
+
+	apiToken, err = newTrustedExternalManagedToken(ownerUserID, normalizedAgentName)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to create trusted external key"})
+		return nil, false
+	}
+	if err := tokenRepo.Create(c.Request.Context(), apiToken); err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to create trusted external key"})
+		return nil, false
+	}
+	log.Printf(
+		"trusted_external_managed_key_created agent=%s user_id=%s token_id=%s",
+		normalizedAgentName,
+		ownerUserID,
+		apiToken.ID,
+	)
+	return apiToken, true
+}
+
+func newTrustedExternalManagedToken(userID uuid.UUID, agentName string) (*model.APIToken, error) {
+	plainToken, err := generateManagedAPIToken()
+	if err != nil {
+		return nil, err
+	}
+	metadata, err := json.Marshal(map[string]any{
+		"source":     "trusted_external_managed_key",
+		"agent_name": agentName,
+		"managed":    true,
+		"auth_mode":  model.PublicAPIAuthModeTrustedExternal,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &model.APIToken{
+		ID:            uuid.New(),
+		UserID:        userID,
+		TokenHash:     hashToken(plainToken),
+		TokenPrefix:   tokenPrefixFromToken(plainToken),
+		Name:          fmt.Sprintf("Managed trusted external key for %s", agentName),
+		Scopes:        model.DefaultPublicAPIScopes(),
+		Status:        model.APITokenStatusActive,
+		AllowedAgents: []string{agentName},
+		Metadata:      metadata,
+		CreatedAt:     time.Now().UTC(),
+	}, nil
+}
+
+func generateManagedAPIToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return "df_" + hex.EncodeToString(b), nil
+}
+
+func tokenPrefixFromToken(token string) string {
+	trimmed := strings.TrimSpace(token)
+	if len(trimmed) <= 15 {
+		return trimmed
+	}
+	// The prefix is safe to store because it gives operators a non-secret handle
+	// while the gateway never exposes the managed key plaintext.
+	return fmt.Sprintf("%s...", trimmed[:15])
 }
 
 func RequireAPITokenScopes(required ...string) gin.HandlerFunc {

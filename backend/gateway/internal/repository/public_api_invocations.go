@@ -208,6 +208,50 @@ func (r *PublicAPIInvocationRepo) GetByResponseID(
 	return &item, nil
 }
 
+// FindAgentNameByResponseID is used before trusted-external auth has an API
+// token context, so it returns only the agent name and leaves row access checks
+// to the managed token that middleware materializes afterward.
+func (r *PublicAPIInvocationRepo) FindAgentNameByResponseID(
+	ctx context.Context,
+	responseID string,
+) (string, error) {
+	var agentName string
+	err := r.pool.QueryRow(
+		ctx,
+		`SELECT agent_name
+		 FROM public_api_invocations
+		 WHERE response_id = $1
+		 LIMIT 1`,
+		strings.TrimSpace(responseID),
+	).Scan(&agentName)
+	if err == pgx.ErrNoRows {
+		return "", nil
+	}
+	return strings.TrimSpace(agentName), err
+}
+
+// FindAgentNameByArtifactFileID maps generated artifacts back to their agent so
+// no-key artifact downloads can reuse the same managed-key boundary as the run.
+func (r *PublicAPIInvocationRepo) FindAgentNameByArtifactFileID(
+	ctx context.Context,
+	fileID string,
+) (string, error) {
+	var agentName string
+	err := r.pool.QueryRow(
+		ctx,
+		`SELECT i.agent_name
+		 FROM public_api_artifacts a
+		 JOIN public_api_invocations i ON i.id = a.invocation_id
+		 WHERE a.file_id = $1
+		 LIMIT 1`,
+		strings.TrimSpace(fileID),
+	).Scan(&agentName)
+	if err == pgx.ErrNoRows {
+		return "", nil
+	}
+	return strings.TrimSpace(agentName), err
+}
+
 func (r *PublicAPIInvocationRepo) GetArtifactByFileID(
 	ctx context.Context,
 	fileID string,

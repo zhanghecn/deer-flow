@@ -3,6 +3,7 @@ package middleware
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/openagents/gateway/internal/model"
 	"github.com/openagents/gateway/pkg/jwt"
+	"github.com/openagents/gateway/pkg/storage"
 )
 
 type stubJWTUserRepo struct {
@@ -21,6 +23,45 @@ type stubJWTUserRepo struct {
 
 func (s stubJWTUserRepo) FindByID(_ context.Context, userID uuid.UUID) (*model.User, error) {
 	return s.users[userID], nil
+}
+
+type stubTrustedExternalTokenRepo struct {
+	tokenByHash map[string]*model.APIToken
+	managed     *model.APIToken
+	created     []*model.APIToken
+	lastUsed    []uuid.UUID
+}
+
+func (s *stubTrustedExternalTokenRepo) FindByHash(_ context.Context, hash string) (*model.APIToken, error) {
+	return s.tokenByHash[hash], nil
+}
+
+func (s *stubTrustedExternalTokenRepo) UpdateLastUsed(_ context.Context, id uuid.UUID) error {
+	s.lastUsed = append(s.lastUsed, id)
+	return nil
+}
+
+func (s *stubTrustedExternalTokenRepo) Create(_ context.Context, token *model.APIToken) error {
+	s.created = append(s.created, token)
+	s.managed = token
+	return nil
+}
+
+func (s *stubTrustedExternalTokenRepo) FindTrustedExternalManaged(_ context.Context, _ uuid.UUID, _ string) (*model.APIToken, error) {
+	return s.managed, nil
+}
+
+type stubPublicAPIAgentLookupRepo struct {
+	responseAgents map[string]string
+	artifactAgents map[string]string
+}
+
+func (s stubPublicAPIAgentLookupRepo) FindAgentNameByResponseID(_ context.Context, responseID string) (string, error) {
+	return s.responseAgents[strings.TrimSpace(responseID)], nil
+}
+
+func (s stubPublicAPIAgentLookupRepo) FindAgentNameByArtifactFileID(_ context.Context, fileID string) (string, error) {
+	return s.artifactAgents[strings.TrimSpace(fileID)], nil
 }
 
 func TestExtractBearerTokenPrefersAuthorizationHeader(t *testing.T) {
@@ -192,6 +233,233 @@ func TestAPITokenAuthFailureLogUsesTokenHashPrefix(t *testing.T) {
 	}
 	if strings.Contains(output, "secret-token") {
 		t.Fatalf("auth failure log leaked raw token: %q", output)
+	}
+}
+
+func TestPublicAPIAgentAuthCreatesManagedKeyForTrustedExternalAgent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	ownerID := uuid.New()
+	fsStore := storage.NewFS(t.TempDir())
+	if err := fsStore.WriteAgentFiles("support", "prod", "test", map[string]interface{}{
+		"name":                 "support",
+		"status":               "prod",
+		"owner_user_id":        ownerID.String(),
+		"public_api_auth_mode": model.PublicAPIAuthModeTrustedExternal,
+	}); err != nil {
+		t.Fatalf("write agent: %v", err)
+	}
+
+	repo := &stubTrustedExternalTokenRepo{tokenByHash: map[string]*model.APIToken{}}
+	router := gin.New()
+	router.POST(
+		"/v1/turns",
+		PublicAPIAgentAuth(repo, fsStore, PublicAPIBodyAgentField("agent")),
+		RequireAPITokenScopes("responses:create"),
+		func(c *gin.Context) {
+			if got := GetUserID(c); got != ownerID {
+				t.Fatalf("expected owner user id %s, got %s", ownerID, got)
+			}
+			if GetAPITokenID(c) == uuid.Nil {
+				t.Fatal("expected managed token id in context")
+			}
+			var payload struct {
+				Agent string `json:"agent"`
+			}
+			if err := c.ShouldBindJSON(&payload); err != nil {
+				t.Fatalf("body was not restored for handler binding: %v", err)
+			}
+			if payload.Agent != "support" {
+				t.Fatalf("expected request body agent to survive middleware, got %q", payload.Agent)
+			}
+			c.Status(http.StatusNoContent)
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/turns", strings.NewReader(`{"agent":"support"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(repo.created) != 1 {
+		t.Fatalf("expected one managed key creation, got %d", len(repo.created))
+	}
+	created := repo.created[0]
+	if created.UserID != ownerID {
+		t.Fatalf("expected managed key owner %s, got %s", ownerID, created.UserID)
+	}
+	if len(created.AllowedAgents) != 1 || created.AllowedAgents[0] != "support" {
+		t.Fatalf("unexpected allowed agents: %#v", created.AllowedAgents)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(created.Metadata, &metadata); err != nil {
+		t.Fatalf("managed key metadata is invalid: %v", err)
+	}
+	if metadata["source"] != "trusted_external_managed_key" || metadata["agent_name"] != "support" {
+		t.Fatalf("unexpected managed key metadata: %#v", metadata)
+	}
+	if len(repo.lastUsed) != 1 || repo.lastUsed[0] != created.ID {
+		t.Fatalf("expected managed key last_used update, got %#v", repo.lastUsed)
+	}
+}
+
+func TestPublicAPIAgentAuthResolvesTrustedExternalAgentFromResponseAndArtifactIDs(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	ownerID := uuid.New()
+	fsStore := storage.NewFS(t.TempDir())
+	if err := fsStore.WriteAgentFiles("support", "prod", "test", map[string]interface{}{
+		"name":                 "support",
+		"status":               "prod",
+		"owner_user_id":        ownerID.String(),
+		"public_api_auth_mode": model.PublicAPIAuthModeTrustedExternal,
+	}); err != nil {
+		t.Fatalf("write agent: %v", err)
+	}
+
+	tokenRepo := &stubTrustedExternalTokenRepo{tokenByHash: map[string]*model.APIToken{}}
+	lookupRepo := stubPublicAPIAgentLookupRepo{
+		responseAgents: map[string]string{"resp_123": "support"},
+		artifactAgents: map[string]string{"file_123": "support"},
+	}
+	router := gin.New()
+	router.GET(
+		"/v1/turns/:id",
+		PublicAPIAgentAuth(tokenRepo, fsStore, PublicAPIResponseIDAgent(lookupRepo, "id")),
+		RequireAPITokenScopes("responses:read"),
+		func(c *gin.Context) {
+			if got := GetUserID(c); got != ownerID {
+				t.Fatalf("expected owner user id %s, got %s", ownerID, got)
+			}
+			if GetAPITokenID(c) == uuid.Nil {
+				t.Fatal("expected managed token id for response lookup")
+			}
+			c.Status(http.StatusNoContent)
+		},
+	)
+	router.GET(
+		"/v1/files/:id/content",
+		PublicAPIAgentAuth(tokenRepo, fsStore, PublicAPIArtifactFileAgent(lookupRepo, "id")),
+		RequireAPITokenScopes("artifacts:read"),
+		func(c *gin.Context) {
+			if got := GetUserID(c); got != ownerID {
+				t.Fatalf("expected owner user id %s, got %s", ownerID, got)
+			}
+			if GetAPITokenID(c) == uuid.Nil {
+				t.Fatal("expected managed token id for artifact lookup")
+			}
+			c.Status(http.StatusNoContent)
+		},
+	)
+
+	for _, path := range []string{"/v1/turns/resp_123", "/v1/files/file_123/content"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("expected 204 for %s, got %d body=%s", path, rec.Code, rec.Body.String())
+		}
+	}
+	if len(tokenRepo.created) != 1 {
+		t.Fatalf("expected one managed key shared by response and artifact lookups, got %d", len(tokenRepo.created))
+	}
+	if len(tokenRepo.lastUsed) != 2 {
+		t.Fatalf("expected managed key last_used update for both lookups, got %#v", tokenRepo.lastUsed)
+	}
+}
+
+func TestPublicAPIAgentAuthStillRequiresTokenForDefaultAgent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	ownerID := uuid.New()
+	fsStore := storage.NewFS(t.TempDir())
+	if err := fsStore.WriteAgentFiles("support", "prod", "test", map[string]interface{}{
+		"name":          "support",
+		"status":        "prod",
+		"owner_user_id": ownerID.String(),
+	}); err != nil {
+		t.Fatalf("write agent: %v", err)
+	}
+
+	repo := &stubTrustedExternalTokenRepo{tokenByHash: map[string]*model.APIToken{}}
+	router := gin.New()
+	router.POST(
+		"/v1/turns",
+		PublicAPIAgentAuth(repo, fsStore, PublicAPIBodyAgentField("agent")),
+		func(c *gin.Context) {
+			t.Fatal("handler should not run for api_key_required agent without token")
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/turns", strings.NewReader(`{"agent":"support"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(repo.created) != 0 {
+		t.Fatalf("expected no managed key creation for default auth mode, got %d", len(repo.created))
+	}
+}
+
+func TestPublicAPIAgentAuthPrefersExplicitBearerToken(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	ownerID := uuid.New()
+	tokenID := uuid.New()
+	fsStore := storage.NewFS(t.TempDir())
+	if err := fsStore.WriteAgentFiles("support", "prod", "test", map[string]interface{}{
+		"name":                 "support",
+		"status":               "prod",
+		"owner_user_id":        ownerID.String(),
+		"public_api_auth_mode": model.PublicAPIAuthModeTrustedExternal,
+	}); err != nil {
+		t.Fatalf("write agent: %v", err)
+	}
+
+	explicitToken := "real-token"
+	repo := &stubTrustedExternalTokenRepo{tokenByHash: map[string]*model.APIToken{
+		hashToken(explicitToken): {
+			ID:            tokenID,
+			UserID:        ownerID,
+			Status:        model.APITokenStatusActive,
+			Scopes:        model.DefaultPublicAPIScopes(),
+			AllowedAgents: []string{"support"},
+		},
+	}}
+	router := gin.New()
+	router.POST(
+		"/v1/turns",
+		PublicAPIAgentAuth(repo, fsStore, PublicAPIBodyAgentField("agent")),
+		func(c *gin.Context) {
+			if got := GetAPITokenID(c); got != tokenID {
+				t.Fatalf("expected explicit token id %s, got %s", tokenID, got)
+			}
+			c.Status(http.StatusNoContent)
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/turns", strings.NewReader(`{"agent":"support"}`))
+	req.Header.Set("Authorization", "Bearer "+explicitToken)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(repo.created) != 0 {
+		t.Fatalf("expected no managed key creation when bearer token is present, got %d", len(repo.created))
 	}
 }
 

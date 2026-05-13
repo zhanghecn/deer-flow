@@ -113,6 +113,24 @@ type PublicAPIInputFile struct {
 	CreatedAt  time.Time `json:"created_at" db:"created_at"`
 }
 
+const (
+	PublicAPIAuthModeAPIKeyRequired  = "api_key_required"
+	PublicAPIAuthModeTrustedExternal = "trusted_external"
+)
+
+func NormalizeAgentPublicAPIAuthMode(value string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == "" {
+		return PublicAPIAuthModeAPIKeyRequired, nil
+	}
+	switch normalized {
+	case PublicAPIAuthModeAPIKeyRequired, PublicAPIAuthModeTrustedExternal:
+		return normalized, nil
+	default:
+		return "", fmt.Errorf("public_api_auth_mode must be %q or %q", PublicAPIAuthModeAPIKeyRequired, PublicAPIAuthModeTrustedExternal)
+	}
+}
+
 // Agent is a filesystem-backed authored definition stored under either
 // `.openagents/system/agents/{status}/{name}/` for reserved built-ins or
 // `.openagents/custom/agents/{status}/{name}/` for custom agents.
@@ -130,6 +148,7 @@ type Agent struct {
 	OwnerUserID        string                   `json:"owner_user_id,omitempty"`
 	OwnerName          string                   `json:"owner_name,omitempty"`
 	CanManage          bool                     `json:"can_manage"`
+	PublicAPIAuthMode  string                   `json:"public_api_auth_mode"`
 	Memory             *AgentMemoryConfig       `json:"memory,omitempty"`
 	RuntimeMiddlewares *AgentRuntimeMiddlewares `json:"runtime_middlewares,omitempty"`
 	SubagentDefaults   *AgentSubagentDefaults   `json:"subagent_defaults,omitempty"`

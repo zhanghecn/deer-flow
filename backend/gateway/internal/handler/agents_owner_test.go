@@ -431,7 +431,10 @@ func TestBuildExportDocumentUsesPublicDocsAndV1BaseURL(t *testing.T) {
 	context.Request.Header.Set("X-Forwarded-Host", "127.0.0.1:8083")
 
 	handler := NewAgentHandler(nil, nil, nil)
-	doc := handler.buildExportDocument(context, "reviewer")
+	doc := handler.buildExportDocument(context, &model.Agent{
+		Name:              "reviewer",
+		PublicAPIAuthMode: model.PublicAPIAuthModeAPIKeyRequired,
+	})
 
 	if got := doc["gateway_base_url"]; got != "http://127.0.0.1:8083" {
 		t.Fatalf("gateway_base_url = %v, want %q", got, "http://127.0.0.1:8083")
@@ -467,7 +470,10 @@ func TestBuildOpenAPIDocumentUsesPublishedV1ServerAndExamples(t *testing.T) {
 	context.Request.Header.Set("X-Forwarded-Host", "127.0.0.1:8083")
 
 	handler := NewAgentHandler(nil, nil, nil)
-	doc := handler.buildOpenAPIDocument(context, "reviewer")
+	doc := handler.buildOpenAPIDocument(context, &model.Agent{
+		Name:              "reviewer",
+		PublicAPIAuthMode: model.PublicAPIAuthModeAPIKeyRequired,
+	})
 
 	if got := doc["openapi"]; got != "3.1.0" {
 		t.Fatalf("openapi = %v, want %q", got, "3.1.0")

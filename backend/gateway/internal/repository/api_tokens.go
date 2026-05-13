@@ -52,6 +52,8 @@ func (r *APITokenRepo) Create(ctx context.Context, t *model.APIToken) error {
 }
 
 func (r *APITokenRepo) ListByUser(ctx context.Context, userID uuid.UUID) ([]model.APIToken, error) {
+	// Managed trusted-external rows are internal auth principals, not
+	// user-copyable credentials, so the self-service key inventory hides them.
 	rows, err := r.pool.Query(ctx,
 		`SELECT
 			id,
@@ -67,7 +69,10 @@ func (r *APITokenRepo) ListByUser(ctx context.Context, userID uuid.UUID) ([]mode
 			expires_at,
 			revoked_at,
 			created_at
-		 FROM api_tokens WHERE user_id = $1 ORDER BY created_at DESC`, userID,
+		 FROM api_tokens
+		 WHERE user_id = $1
+		   AND COALESCE(metadata->>'source', '') <> 'trusted_external_managed_key'
+		 ORDER BY created_at DESC`, userID,
 	)
 	if err != nil {
 		return nil, err
@@ -118,6 +123,61 @@ func (r *APITokenRepo) FindByHash(ctx context.Context, hash string) (*model.APIT
 			revoked_at,
 			created_at
 		 FROM api_tokens WHERE token_hash = $1`, hash,
+	).Scan(
+		&t.ID,
+		&t.UserID,
+		&t.TokenHash,
+		&t.TokenCiphertext,
+		&t.TokenPrefix,
+		&t.Name,
+		&t.Scopes,
+		&t.Status,
+		&t.AllowedAgents,
+		&t.Metadata,
+		&t.LastUsed,
+		&t.ExpiresAt,
+		&t.RevokedAt,
+		&t.CreatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	return t, err
+}
+
+func (r *APITokenRepo) FindTrustedExternalManaged(
+	ctx context.Context,
+	userID uuid.UUID,
+	agentName string,
+) (*model.APIToken, error) {
+	t := &model.APIToken{}
+	err := r.pool.QueryRow(ctx,
+		`SELECT
+			id,
+			user_id,
+			token_hash,
+			token_ciphertext,
+			token_prefix,
+			name,
+			scopes,
+			status,
+			allowed_agents,
+			metadata,
+			last_used,
+			expires_at,
+			revoked_at,
+			created_at
+		 FROM api_tokens
+		 WHERE user_id = $1
+		   AND metadata->>'source' = 'trusted_external_managed_key'
+		   AND metadata->>'agent_name' = $2
+		   AND status = $3
+		   AND revoked_at IS NULL
+		 ORDER BY created_at DESC
+		 LIMIT 1`,
+		userID,
+		agentName,
+		model.APITokenStatusActive,
 	).Scan(
 		&t.ID,
 		&t.UserID,

@@ -162,6 +162,14 @@ export type AgentSettingsPageText = {
   launchDescription: string;
   launchUrl: string;
   copyUrl: string;
+  publicApiAuthTitle: string;
+  publicApiAuthDescription: string;
+  publicApiKeyRequired: string;
+  publicApiKeyRequiredDescription: string;
+  publicApiTrustedExternal: string;
+  publicApiTrustedExternalDescription: string;
+  publicApiKeyBadge: string;
+  publicApiTrustedBadge: string;
   apiDocTitle: string;
   apiDocDescription: string;
   loadingExportDoc: string;
@@ -379,6 +387,17 @@ const enUS: AgentSettingsPageText = {
   launchDescription: "Access this agent's workspace.",
   launchUrl: "Launch URL",
   copyUrl: "Copy URL",
+  publicApiAuthTitle: "Public API authentication",
+  publicApiAuthDescription:
+    "Choose how external `/v1` callers authenticate to this published agent.",
+  publicApiKeyRequired: "Require API key",
+  publicApiKeyRequiredDescription:
+    "External callers must send `Authorization: Bearer <api-key>`.",
+  publicApiTrustedExternal: "Trusted external caller",
+  publicApiTrustedExternalDescription:
+    "Calls without an API key use this agent's managed internal key for audit and history isolation.",
+  publicApiKeyBadge: "API key",
+  publicApiTrustedBadge: "Managed key",
   apiDocTitle: "API Documentation",
   apiDocDescription: "OpenAPI specification for this agent.",
   loadingExportDoc: "Loading API documentation...",
@@ -588,6 +607,16 @@ const zhCN: AgentSettingsPageText = {
   launchDescription: "访问此智能体的工作区。",
   launchUrl: "启动链接",
   copyUrl: "复制链接",
+  publicApiAuthTitle: "Public API 鉴权",
+  publicApiAuthDescription: "选择外部 `/v1` 调用方如何访问这个已发布智能体。",
+  publicApiKeyRequired: "要求 API Key",
+  publicApiKeyRequiredDescription:
+    "外部调用方必须发送 `Authorization: Bearer <api-key>`。",
+  publicApiTrustedExternal: "可信外部调用方",
+  publicApiTrustedExternalDescription:
+    "未传 API Key 的调用会使用此智能体的内部托管 key，以保留审计和历史隔离。",
+  publicApiKeyBadge: "API Key",
+  publicApiTrustedBadge: "托管 key",
   apiDocTitle: "API 文档",
   apiDocDescription: "此智能体的 OpenAPI 规范。",
   loadingExportDoc: "正在加载 API 文档...",

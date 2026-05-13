@@ -33,6 +33,7 @@ type manifest struct {
 	KnowledgeBaseIDs   []string                       `yaml:"knowledge_base_ids"`
 	Status             string                         `yaml:"status"`
 	OwnerUserID        string                         `yaml:"owner_user_id,omitempty"`
+	PublicAPIAuthMode  string                         `yaml:"public_api_auth_mode"`
 	AgentsMD           string                         `yaml:"agents_md_path"`
 	Memory             *model.AgentMemoryConfig       `yaml:"memory"`
 	SkillRefs          []model.SkillRef               `yaml:"skill_refs"`
@@ -146,6 +147,10 @@ func LoadAgent(fsStore *storage.FS, name string, status string, includeMarkdown 
 	if agentName == "" {
 		agentName = name
 	}
+	publicAPIAuthMode, err := model.NormalizeAgentPublicAPIAuthMode(cfg.PublicAPIAuthMode)
+	if err != nil {
+		return nil, err
+	}
 
 	agent := &model.Agent{
 		Name:               agentName,
@@ -158,6 +163,7 @@ func LoadAgent(fsStore *storage.FS, name string, status string, includeMarkdown 
 		KnowledgeBaseIDs:   cfg.KnowledgeBaseIDs,
 		Status:             status,
 		OwnerUserID:        strings.TrimSpace(cfg.OwnerUserID),
+		PublicAPIAuthMode:  publicAPIAuthMode,
 		Memory:             cfg.Memory,
 		Skills:             cfg.SkillRefs,
 		SubagentDefaults:   cfg.SubagentDefaults,

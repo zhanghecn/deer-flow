@@ -1,4 +1,8 @@
-import type { AgentRuntimeMiddlewares, AgentSkillRef } from "@/core/agents";
+import type {
+  AgentPublicAPIAuthMode,
+  AgentRuntimeMiddlewares,
+  AgentSkillRef,
+} from "@/core/agents";
 
 export type SettingsTab =
   | "identity"
@@ -24,6 +28,7 @@ export type AgentSettingsFormState = {
   toolSelectionEnabled: boolean;
   toolNames: string[];
   runtimeMiddlewares: AgentRuntimeMiddlewares;
+  publicApiAuthMode: AgentPublicAPIAuthMode;
   mcpServers: string[];
   knowledgeBaseIds: string[];
   skillRefs: AgentSkillRef[];

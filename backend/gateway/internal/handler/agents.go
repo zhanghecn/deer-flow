@@ -373,7 +373,7 @@ func (h *AgentHandler) Export(c *gin.Context) {
 		return
 	}
 
-	doc := h.buildExportDocument(c, agent.Name)
+	doc := h.buildExportDocument(c, agent)
 	c.JSON(http.StatusOK, doc)
 }
 
@@ -389,7 +389,7 @@ func (h *AgentHandler) PublicExport(c *gin.Context) {
 	// northbound contract metadata. It lets external integrators retrieve the
 	// docs page and machine-readable export without exposing any workspace-only
 	// management APIs or draft archives.
-	doc := h.buildExportDocument(c, agent.Name)
+	doc := h.buildExportDocument(c, agent)
 	c.JSON(http.StatusOK, doc)
 }
 
@@ -405,11 +405,12 @@ func (h *AgentHandler) PublicOpenAPISpec(c *gin.Context) {
 	// integrators. UI pages can change freely, but the OpenAPI document must stay
 	// stable and environment-aware so SDK users always receive the live `/v1`
 	// contract for the published agent.
-	spec := h.buildOpenAPIDocument(c, agent.Name)
+	spec := h.buildOpenAPIDocument(c, agent)
 	c.JSON(http.StatusOK, spec)
 }
 
-func (h *AgentHandler) buildExportDocument(c *gin.Context, agentName string) gin.H {
+func (h *AgentHandler) buildExportDocument(c *gin.Context, agent *model.Agent) gin.H {
+	agentName := agent.Name
 	baseURL := resolvePublicGatewayBaseURL(c)
 	apiBaseURL := fmt.Sprintf("%s/v1", baseURL)
 	publicDocsURL := fmt.Sprintf("%s/docs/agents/%s", baseURL, agentName)
@@ -423,6 +424,7 @@ func (h *AgentHandler) buildExportDocument(c *gin.Context, agentName string) gin
 		"gateway_base_url":       baseURL,
 		"api_base_url":           apiBaseURL,
 		"model":                  agentName,
+		"public_api_auth_mode":   agent.PublicAPIAuthMode,
 		"documentation_url":      publicDocsURL,
 		"reference_url":          publicReferenceURL,
 		"playground_url":         publicPlaygroundURL,
@@ -534,7 +536,8 @@ func (h *AgentHandler) buildExportDocument(c *gin.Context, agentName string) gin
 	}
 }
 
-func (h *AgentHandler) buildOpenAPIDocument(c *gin.Context, agentName string) gin.H {
+func (h *AgentHandler) buildOpenAPIDocument(c *gin.Context, agent *model.Agent) gin.H {
+	agentName := agent.Name
 	baseURL := resolvePublicGatewayBaseURL(c)
 	apiBaseURL := fmt.Sprintf("%s/v1", baseURL)
 	publicDocsURL := fmt.Sprintf("%s/docs/agents/%s", baseURL, agentName)
