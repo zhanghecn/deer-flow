@@ -14,6 +14,9 @@ export type AgentSettingsPageText = {
   readOnly: string;
   reset: string;
   save: string;
+  publish: string;
+  saveAndPublish: string;
+  publishFailed: string;
   // Loading / error
   loading: string;
   loadError: string;
@@ -168,6 +171,7 @@ export type AgentSettingsPageText = {
   publicApiKeyRequiredDescription: string;
   publicApiTrustedExternal: string;
   publicApiTrustedExternalDescription: string;
+  publicApiDraftNotice: string;
   publicApiKeyBadge: string;
   publicApiTrustedBadge: string;
   apiDocTitle: string;
@@ -222,6 +226,9 @@ const enUS: AgentSettingsPageText = {
   readOnly: "Read only",
   reset: "Reset",
   save: "Save",
+  publish: "Publish",
+  saveAndPublish: "Save & Publish",
+  publishFailed: "Publish failed",
   loading: "Loading agent settings...",
   loadError: "Failed to load agent.",
   noAgent: "No agent selected.",
@@ -396,6 +403,8 @@ const enUS: AgentSettingsPageText = {
   publicApiTrustedExternal: "Trusted external caller",
   publicApiTrustedExternalDescription:
     "Calls without an API key use this agent's managed internal key for audit and history isolation.",
+  publicApiDraftNotice:
+    "`/v1` uses the published prod archive. Save and publish this draft before testing Public API auth changes.",
   publicApiKeyBadge: "API key",
   publicApiTrustedBadge: "Managed key",
   apiDocTitle: "API Documentation",
@@ -455,6 +464,9 @@ const zhCN: AgentSettingsPageText = {
   readOnly: "只读",
   reset: "重置",
   save: "保存",
+  publish: "发布",
+  saveAndPublish: "保存并发布",
+  publishFailed: "发布失败",
   loading: "正在加载智能体设置...",
   loadError: "加载智能体失败。",
   noAgent: "未选择智能体。",
@@ -615,6 +627,8 @@ const zhCN: AgentSettingsPageText = {
   publicApiTrustedExternal: "可信外部调用方",
   publicApiTrustedExternalDescription:
     "未传 API Key 的调用会使用此智能体的内部托管 key，以保留审计和历史隔离。",
+  publicApiDraftNotice:
+    "`/v1` 只读取已发布的 prod 归档。测试 Public API 鉴权改动前，请先保存并发布当前草稿。",
   publicApiKeyBadge: "API Key",
   publicApiTrustedBadge: "托管 key",
   apiDocTitle: "API 文档",

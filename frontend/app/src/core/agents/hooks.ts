@@ -136,8 +136,14 @@ export function usePublishAgent() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (name: string) => publishAgent(name),
-    onSuccess: () => {
+    onSuccess: (_data, name) => {
       void queryClient.invalidateQueries({ queryKey: ["agents"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["agents", name, "export-doc"],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["public-agents", name, "export-doc"],
+      });
     },
   });
 }

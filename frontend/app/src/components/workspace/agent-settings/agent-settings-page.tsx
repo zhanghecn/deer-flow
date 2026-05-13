@@ -8,6 +8,7 @@ import {
   SaveIcon,
   Settings2Icon,
   SparklesIcon,
+  UploadCloudIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -23,6 +24,7 @@ import {
   useAgent,
   useAgentExportDoc,
   useDownloadAgentPackage,
+  usePublishAgent,
   useToolCatalog,
   useUpdateAgent,
 } from "@/core/agents";
@@ -194,6 +196,7 @@ export function AgentSettingsPageView({
   } = useToolCatalog();
 
   const updateAgentMutation = useUpdateAgent();
+  const publishAgentMutation = usePublishAgent();
   const downloadAgentPackageMutation = useDownloadAgentPackage();
 
   const [activeTab, setActiveTab] = useState<SettingsTab>("identity");
@@ -270,8 +273,8 @@ export function AgentSettingsPageView({
     setForm((current) => (current ? (updater(current) ?? current) : current));
   }
 
-  async function handleSave() {
-    if (!form) return;
+  async function saveSettings(showToast = true): Promise<Agent | null> {
+    if (!form) return null;
 
     try {
       const normalizedSubagentNames = new Set<string>();
@@ -360,10 +363,34 @@ export function AgentSettingsPageView({
       setForm(nextForm);
       setSavedForm(nextForm);
       await overwriteStoredAgentAuthoringDraft(updated.name, updated.status);
-      toast.success(text.saveSuccess(updated.name, updated.status));
+      if (showToast) {
+        toast.success(text.saveSuccess(updated.name, updated.status));
+      }
+      return updated;
     } catch (saveError) {
       toast.error(
         saveError instanceof Error ? saveError.message : text.saveFailed,
+      );
+      return null;
+    }
+  }
+
+  async function handleSave() {
+    await saveSettings(true);
+  }
+
+  async function handlePublishDraft() {
+    if (isDirty) {
+      const updated = await saveSettings(false);
+      if (!updated) return;
+    }
+
+    try {
+      await publishAgentMutation.mutateAsync(agentName);
+      toast.success(t.agents.publishSuccess(agentName));
+    } catch (publishError) {
+      toast.error(
+        publishError instanceof Error ? publishError.message : text.publishFailed,
       );
     }
   }
@@ -445,6 +472,25 @@ export function AgentSettingsPageView({
             >
               {text.reset}
             </Button>
+            {agentStatus === "dev" && (
+              <Button
+                variant="secondary"
+                disabled={
+                  !canManage ||
+                  !form ||
+                  updateAgentMutation.isPending ||
+                  publishAgentMutation.isPending
+                }
+                onClick={() => void handlePublishDraft()}
+              >
+                {publishAgentMutation.isPending ? (
+                  <Loader2Icon className="size-4 animate-spin" />
+                ) : (
+                  <UploadCloudIcon className="size-4" />
+                )}
+                {isDirty ? text.saveAndPublish : text.publish}
+              </Button>
+            )}
             <Button
               disabled={
                 !canManage || !isDirty || !form || updateAgentMutation.isPending

@@ -99,6 +99,11 @@ export function IntegrationTab({
         title={text.publicApiAuthTitle}
         description={text.publicApiAuthDescription}
       >
+        {!isProdArchive && (
+          <div className="border-border/70 bg-muted/20 rounded-2xl border px-4 py-3 text-sm leading-6">
+            {text.publicApiDraftNotice}
+          </div>
+        )}
         <div className="border-border/70 bg-muted/20 flex items-start justify-between gap-4 rounded-2xl border px-4 py-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
