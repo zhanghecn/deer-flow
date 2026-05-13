@@ -190,19 +190,6 @@ func PublicAPIAgentAuth(
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token, credential := extractAPIBearerToken(c.Request)
-		if token != "" {
-			if !authenticateAPIToken(c, tokenRepo, token, credential) {
-				return
-			}
-			c.Next()
-			return
-		}
-		if credential.AuthorizationHeader {
-			logAPITokenAuthFailure(c, http.StatusUnauthorized, "missing", credential, "")
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing api token"})
-			return
-		}
-
 		agentName, err := resolveAgent(c)
 		if err != nil {
 			statusCode := http.StatusBadRequest
@@ -215,13 +202,31 @@ func PublicAPIAgentAuth(
 			c.AbortWithStatusJSON(statusCode, gin.H{"error": message})
 			return
 		}
-		apiToken, ok := resolveTrustedExternalManagedToken(c, tokenRepo, fsStore, agentName, credential)
+
+		apiToken, trustedExternal, ok := resolveTrustedExternalManagedTokenIfEnabled(c, tokenRepo, fsStore, agentName)
 		if !ok {
 			return
 		}
-		setAPITokenContext(c, apiToken)
-		_ = tokenRepo.UpdateLastUsed(c.Request.Context(), apiToken.ID)
-		c.Next()
+		if trustedExternal {
+			// Trusted-external means the deployer trusts an upstream boundary, so
+			// request-supplied API keys are ignored to keep history under the
+			// agent-owned managed key even when SDK samples still send a key.
+			setAPITokenContext(c, apiToken)
+			_ = tokenRepo.UpdateLastUsed(c.Request.Context(), apiToken.ID)
+			c.Next()
+			return
+		}
+
+		if token != "" {
+			if !authenticateAPIToken(c, tokenRepo, token, credential) {
+				return
+			}
+			c.Next()
+			return
+		}
+
+		logAPITokenAuthFailure(c, http.StatusUnauthorized, "missing", credential, "")
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing api token"})
 	}
 }
 
@@ -344,35 +349,30 @@ func setAPITokenContext(c *gin.Context, apiToken *model.APIToken) {
 	c.Set(string(APITokenAgentsKey), slices.Clone(apiToken.AllowedAgents))
 }
 
-func resolveTrustedExternalManagedToken(
+func resolveTrustedExternalManagedTokenIfEnabled(
 	c *gin.Context,
 	tokenRepo trustedExternalTokenRepository,
 	fsStore *storage.FS,
 	agentName string,
-	credential apiBearerCredential,
-) (*model.APIToken, bool) {
+) (*model.APIToken, bool, bool) {
 	normalizedAgentName := strings.ToLower(strings.TrimSpace(agentName))
 	if normalizedAgentName == "" {
-		logAPITokenAuthFailure(c, http.StatusUnauthorized, "missing", credential, "")
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing api token"})
-		return nil, false
+		return nil, false, true
 	}
 
 	agent, err := agentfs.LoadAgent(fsStore, normalizedAgentName, "prod", false)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to load agent auth mode"})
-		return nil, false
+		return nil, false, false
 	}
 	if agent == nil || agent.PublicAPIAuthMode != model.PublicAPIAuthModeTrustedExternal {
-		logAPITokenAuthFailure(c, http.StatusUnauthorized, "missing", credential, "")
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing api token"})
-		return nil, false
+		return nil, false, true
 	}
 
 	ownerUserID, err := uuid.Parse(strings.TrimSpace(agent.OwnerUserID))
 	if err != nil || ownerUserID == uuid.Nil {
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "trusted external auth requires an agent owner"})
-		return nil, false
+		return nil, false, false
 	}
 
 	// Trusted-external mode still materializes a real API token row so existing
@@ -381,20 +381,20 @@ func resolveTrustedExternalManagedToken(
 	apiToken, err := tokenRepo.FindTrustedExternalManaged(c.Request.Context(), ownerUserID, normalizedAgentName)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to load trusted external key"})
-		return nil, false
+		return nil, false, false
 	}
 	if apiToken != nil {
-		return apiToken, true
+		return apiToken, true, true
 	}
 
 	apiToken, err = newTrustedExternalManagedToken(ownerUserID, normalizedAgentName)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to create trusted external key"})
-		return nil, false
+		return nil, false, false
 	}
 	if err := tokenRepo.Create(c.Request.Context(), apiToken); err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to create trusted external key"})
-		return nil, false
+		return nil, false, false
 	}
 	log.Printf(
 		"trusted_external_managed_key_created agent=%s user_id=%s token_id=%s",
@@ -402,7 +402,7 @@ func resolveTrustedExternalManagedToken(
 		ownerUserID,
 		apiToken.ID,
 	)
-	return apiToken, true
+	return apiToken, true, true
 }
 
 func newTrustedExternalManagedToken(userID uuid.UUID, agentName string) (*model.APIToken, error) {

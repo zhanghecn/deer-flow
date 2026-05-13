@@ -411,17 +411,62 @@ func TestPublicAPIAgentAuthStillRequiresTokenForDefaultAgent(t *testing.T) {
 	}
 }
 
-func TestPublicAPIAgentAuthPrefersExplicitBearerToken(t *testing.T) {
+func TestPublicAPIAgentAuthUsesManagedKeyForTrustedExternalEvenWithBearerToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	ownerID := uuid.New()
-	tokenID := uuid.New()
 	fsStore := storage.NewFS(t.TempDir())
 	if err := fsStore.WriteAgentFiles("support", "prod", "test", map[string]interface{}{
 		"name":                 "support",
 		"status":               "prod",
 		"owner_user_id":        ownerID.String(),
 		"public_api_auth_mode": model.PublicAPIAuthModeTrustedExternal,
+	}); err != nil {
+		t.Fatalf("write agent: %v", err)
+	}
+
+	explicitToken := "customer-random-token"
+	repo := &stubTrustedExternalTokenRepo{tokenByHash: map[string]*model.APIToken{}}
+	router := gin.New()
+	router.POST(
+		"/v1/turns",
+		PublicAPIAgentAuth(repo, fsStore, PublicAPIBodyAgentField("agent")),
+		func(c *gin.Context) {
+			if got := GetAPITokenID(c); got == uuid.Nil {
+				t.Fatal("expected managed token id instead of rejecting caller-supplied bearer token")
+			}
+			c.Status(http.StatusNoContent)
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/turns", strings.NewReader(`{"agent":"support"}`))
+	req.Header.Set("Authorization", "Bearer "+explicitToken)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(repo.created) != 1 {
+		t.Fatalf("expected managed key creation even when bearer token is present, got %d", len(repo.created))
+	}
+	if len(repo.lastUsed) != 1 || repo.lastUsed[0] != repo.created[0].ID {
+		t.Fatalf("expected managed key last_used update, got %#v", repo.lastUsed)
+	}
+}
+
+func TestPublicAPIAgentAuthUsesExplicitBearerTokenForAPIKeyRequiredAgent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	ownerID := uuid.New()
+	tokenID := uuid.New()
+	fsStore := storage.NewFS(t.TempDir())
+	if err := fsStore.WriteAgentFiles("support", "prod", "test", map[string]interface{}{
+		"name":          "support",
+		"status":        "prod",
+		"owner_user_id": ownerID.String(),
 	}); err != nil {
 		t.Fatalf("write agent: %v", err)
 	}
@@ -459,7 +504,7 @@ func TestPublicAPIAgentAuthPrefersExplicitBearerToken(t *testing.T) {
 		t.Fatalf("expected 204, got %d body=%s", rec.Code, rec.Body.String())
 	}
 	if len(repo.created) != 0 {
-		t.Fatalf("expected no managed key creation when bearer token is present, got %d", len(repo.created))
+		t.Fatalf("expected no managed key creation for api_key_required agent, got %d", len(repo.created))
 	}
 }
 
