@@ -12,7 +12,10 @@ import {
   type MouseEvent,
 } from "react";
 
-import type { PublicAPITurnArtifact } from "../lib/public-api";
+import {
+  resolvePublicAPIURL,
+  type PublicAPITurnArtifact,
+} from "../lib/public-api";
 
 interface MarkdownRendererProps {
   content: string;
@@ -233,21 +236,13 @@ function findArtifactForPathTarget(
   );
 }
 
-function resolvePublicAPIDownloadURL(baseURL: string, downloadURL: string) {
-  const trimmedBaseURL = baseURL.trim().replace(/\/+$/, "");
-  const normalizedBaseURL = trimmedBaseURL.endsWith("/v1")
-    ? `${trimmedBaseURL}/`
-    : `${trimmedBaseURL}/v1/`;
-  return new URL(downloadURL, normalizedBaseURL).toString();
-}
-
 async function fetchPublicArtifactBlob(params: {
   artifact: PublicAPITurnArtifact;
   apiToken: string;
   baseURL: string;
 }) {
   const response = await fetch(
-    resolvePublicAPIDownloadURL(params.baseURL, params.artifact.download_url),
+    resolvePublicAPIURL(params.baseURL, params.artifact.download_url),
     {
       headers: {
         Authorization: `Bearer ${params.apiToken}`,
@@ -311,7 +306,7 @@ function KnowledgeAwareLink({
   const normalizedHref = normalizeMarkdownURL(href);
   const resolvedHref =
     artifact && baseURL
-      ? resolvePublicAPIDownloadURL(baseURL, artifact.download_url)
+      ? resolvePublicAPIURL(baseURL, artifact.download_url)
       : normalizedHref;
 
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {

@@ -2036,7 +2036,9 @@ func (s *PublicAPIService) buildResponseArtifacts(
 			VirtualPath: virtualPath,
 			MimeType:    &mimeType,
 			Bytes:       &sizeBytes,
-			DownloadURL: "/v1/files/" + url.PathEscape(fileID) + "/content",
+			// Keep artifact links as API-base suffixes so path-prefix reverse
+			// proxies preserve their mount when clients append to their base URL.
+			DownloadURL: "/files/" + url.PathEscape(fileID) + "/content",
 		})
 	}
 	return responseArtifacts, ledgerArtifacts, nil

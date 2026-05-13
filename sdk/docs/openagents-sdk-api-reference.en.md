@@ -316,7 +316,7 @@ Example response:
 | `trace_id`       | Observability trace ID                                                                                             |
 | `output_text`    | Final assistant answer                                                                                             |
 | `reasoning_text` | Final reasoning text                                                                                               |
-| `artifacts`      | Output files; each item includes an opaque `id`, `download_url`, and `virtual_path` for resolving answer citations |
+| `artifacts`      | Output files; each item includes an opaque `id`, `virtual_path`, and `download_url`; `download_url` is an API-base suffix such as `/files/{id}/content` and should be appended to your configured `/v1` base URL |
 | `usage`          | Token usage                                                                                                        |
 | `events`         | Normalized event list for this turn                                                                                |
 

@@ -135,6 +135,15 @@ function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, "");
 }
 
+export function resolvePublicAPIURL(baseURL: string, path: string) {
+  const resolvedBaseURL =
+    trimTrailingSlash(baseURL.trim()) || `${getBackendBaseURL()}/v1`;
+  const apiRoot = resolvedBaseURL.endsWith("/v1")
+    ? resolvedBaseURL
+    : `${resolvedBaseURL}/v1`;
+  return `${apiRoot}${path.trim()}`;
+}
+
 function extractErrorMessage(
   payload: PublicAPIErrorShape,
   fallback: string,
@@ -176,14 +185,7 @@ function publicAPIFetch(
   path: string,
   init?: RequestInit,
 ) {
-  const resolvedBaseURL =
-    trimTrailingSlash(baseURL) || `${getBackendBaseURL()}/v1`;
-  const url = new URL(
-    path,
-    resolvedBaseURL.endsWith("/v1")
-      ? `${resolvedBaseURL}/`
-      : `${resolvedBaseURL}/v1/`,
-  );
+  const url = resolvePublicAPIURL(baseURL, path);
   const headers = new Headers(init?.headers);
   headers.set("Authorization", `Bearer ${apiToken}`);
   return fetch(url, { ...init, headers });
@@ -211,7 +213,7 @@ export async function uploadPublicAPIFile(params: {
   const response = await publicAPIFetch(
     params.baseURL,
     params.apiToken,
-    "./files",
+    "/files",
     {
       method: "POST",
       body: formData,
@@ -237,7 +239,7 @@ export async function createPublicAPITurn(params: {
   body: PublicAPITurnRequestBody;
   signal?: AbortSignal;
 }): Promise<PublicAPITurnSnapshot> {
-  const response = await publicAPIFetch(params.baseURL, params.apiToken, "./turns", {
+  const response = await publicAPIFetch(params.baseURL, params.apiToken, "/turns", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(params.body),
@@ -263,7 +265,7 @@ export async function getPublicAPITurn(params: {
   const response = await publicAPIFetch(
     params.baseURL,
     params.apiToken,
-    `./turns/${encodeURIComponent(params.turnId)}`,
+    `/turns/${encodeURIComponent(params.turnId)}`,
     {
       method: "GET",
       signal: params.signal,
@@ -288,7 +290,7 @@ export async function cancelPublicAPITurn(params: {
   const response = await publicAPIFetch(
     params.baseURL,
     params.apiToken,
-    `./turns/${encodeURIComponent(params.turnId)}/cancel`,
+    `/turns/${encodeURIComponent(params.turnId)}/cancel`,
     { method: "POST" },
   );
   if (!response.ok) {
@@ -309,7 +311,7 @@ export async function streamPublicAPITurn(params: {
   onEvent: (event: PublicAPITurnStreamEvent) => void;
   signal?: AbortSignal;
 }): Promise<void> {
-  const response = await publicAPIFetch(params.baseURL, params.apiToken, "./turns", {
+  const response = await publicAPIFetch(params.baseURL, params.apiToken, "/turns", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

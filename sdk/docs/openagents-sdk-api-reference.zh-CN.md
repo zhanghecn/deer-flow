@@ -312,7 +312,7 @@ console.log(result.messages);
 | `trace_id`       | 观测 trace ID                                                                              |
 | `output_text`    | 最终回答文本                                                                               |
 | `reasoning_text` | 最终思考文本                                                                               |
-| `artifacts`      | 输出文件列表；每一项包含不透明 `id`、`download_url`，以及用于解析回答引用的 `virtual_path` |
+| `artifacts`      | 输出文件列表；每一项包含不透明 `id`、`virtual_path` 和 `download_url`；`download_url` 是类似 `/files/{id}/content` 的 API-base 后缀，需要追加到你配置的 `/v1` Base URL 后 |
 | `usage`          | token 用量                                                                                 |
 | `events`         | 当前 turn 的标准化事件列表                                                                 |
 

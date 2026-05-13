@@ -162,6 +162,14 @@ function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, "");
 }
 
+export function resolvePublicAPIURL(baseURL: string, path: string) {
+  const resolvedBaseURL = trimTrailingSlash(baseURL.trim());
+  const apiRoot = resolvedBaseURL.endsWith("/v1")
+    ? resolvedBaseURL
+    : `${resolvedBaseURL}/v1`;
+  return `${apiRoot}${path.trim()}`;
+}
+
 /**
  * Resolve a public API base URL from an explicit override or environment default.
  * Guarantees the result ends with `/v1` so downstream fetch paths stay relative.
@@ -194,13 +202,7 @@ function publicAPIFetch(
   path: string,
   init?: RequestInit,
 ) {
-  const resolvedBaseURL = trimTrailingSlash(baseURL);
-  const url = new URL(
-    path,
-    resolvedBaseURL.endsWith("/v1")
-      ? `${resolvedBaseURL}/`
-      : `${resolvedBaseURL}/v1/`,
-  );
+  const url = resolvePublicAPIURL(baseURL, path);
   const headers = new Headers(init?.headers);
   headers.set("Authorization", `Bearer ${apiToken}`);
   return fetch(url, { ...init, headers });
@@ -328,7 +330,7 @@ export async function uploadPublicAPIFile(params: {
   const response = await publicAPIFetch(
     params.baseURL,
     params.apiToken,
-    "./files",
+    "/files",
     {
       method: "POST",
       body: formData,
@@ -350,7 +352,7 @@ export async function createPublicAPITurn(params: {
   const response = await publicAPIFetch(
     params.baseURL,
     params.apiToken,
-    "./turns",
+    "/turns",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -374,7 +376,7 @@ export async function streamPublicAPITurn(params: {
   const response = await publicAPIFetch(
     params.baseURL,
     params.apiToken,
-    "./turns",
+    "/turns",
     {
       method: "POST",
       headers: {
@@ -461,7 +463,7 @@ export async function getPublicAPITurn(params: {
   const response = await publicAPIFetch(
     params.baseURL,
     params.apiToken,
-    `./turns/${encodeURIComponent(params.turnId)}`,
+    `/turns/${encodeURIComponent(params.turnId)}`,
     { method: "GET", signal: params.signal },
   );
   if (!response.ok) {
@@ -478,7 +480,7 @@ export async function cancelPublicAPITurn(params: {
   const response = await publicAPIFetch(
     params.baseURL,
     params.apiToken,
-    `./turns/${encodeURIComponent(params.turnId)}/cancel`,
+    `/turns/${encodeURIComponent(params.turnId)}/cancel`,
     { method: "POST" },
   );
   if (!response.ok) {
@@ -510,7 +512,7 @@ export async function listRecentPublicAPITurns(params: {
   const response = await publicAPIFetch(
     params.baseURL,
     params.apiToken,
-    `./turns/recent?${searchParams.toString()}`,
+    `/turns/recent?${searchParams.toString()}`,
     { method: "GET", signal: params.signal },
   );
   if (!response.ok) {

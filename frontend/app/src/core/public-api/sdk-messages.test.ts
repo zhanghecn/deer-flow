@@ -71,7 +71,7 @@ describe("createPublicAPISDKMessageProjector", () => {
             virtual_path: "/mnt/user-data/outputs/result.txt",
             mime_type: "text/plain",
             bytes: 12,
-            download_url: "/v1/files/file_1/content",
+            download_url: "/files/file_1/content",
           },
         ],
         usage: {
@@ -117,7 +117,7 @@ describe("createPublicAPISDKMessageProjector", () => {
             type: "output_file",
             file_id: "file_1",
             filename: "result.txt",
-            download_url: "/v1/files/file_1/content",
+            download_url: "/files/file_1/content",
           },
         ],
       },
@@ -153,7 +153,7 @@ describe("createPublicAPISDKMessageProjector", () => {
             virtual_path: "/mnt/user-data/outputs/result.txt",
             mime_type: "text/plain",
             bytes: 12,
-            download_url: "/v1/files/file_1/content",
+            download_url: "/files/file_1/content",
           },
         ],
         usage: {
