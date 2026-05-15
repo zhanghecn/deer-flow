@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -213,6 +214,34 @@ func TestFilterKnowledgeBasesForReadyDocuments(t *testing.T) {
 			filtered[0].Documents[1].ID,
 			"doc-ready-degraded",
 		)
+	}
+}
+
+func TestPreferredKnowledgeCompileModelNameUsesFlashKeyword(t *testing.T) {
+	displayName := "Vendor Flash"
+	records := []repository.ModelRecord{
+		{
+			Name:       "kimi-k2.6",
+			Provider:   "anthropic",
+			ConfigJSON: json.RawMessage(`{"model":"kimi-k2.6"}`),
+		},
+		{
+			Name:        "vendor-fast",
+			DisplayName: &displayName,
+			Provider:    "anthropic",
+			ConfigJSON:  json.RawMessage(`{"model":"vendor-fast"}`),
+		},
+		{
+			Name:       "deepseek-v4-flash",
+			Provider:   "anthropic",
+			ConfigJSON: json.RawMessage(`{"model":"deepseek-v4-flash"}`),
+		},
+	}
+
+	got := preferredKnowledgeCompileModelName(records)
+
+	if got != "deepseek-v4-flash" {
+		t.Fatalf("preferredKnowledgeCompileModelName() = %q, want DeepSeek flash priority", got)
 	}
 }
 

@@ -54,6 +54,11 @@ vi.mock("@/core/models/hooks", () => ({
   useModels: () => ({
     models: [
       {
+        id: "model-flash",
+        name: "deepseek-v4-flash",
+        display_name: "DeepSeek Flash",
+      },
+      {
         id: "model-1",
         name: "kimi-k2.5",
         display_name: "Kimi K2.5",
@@ -96,10 +101,10 @@ beforeAll(() => {
     HTMLElement.prototype.hasPointerCapture = () => false;
   }
   if (!HTMLElement.prototype.setPointerCapture) {
-    HTMLElement.prototype.setPointerCapture = () => {};
+    HTMLElement.prototype.setPointerCapture = () => undefined;
   }
   if (!HTMLElement.prototype.releasePointerCapture) {
-    HTMLElement.prototype.releasePointerCapture = () => {};
+    HTMLElement.prototype.releasePointerCapture = () => undefined;
   }
 });
 
@@ -137,7 +142,7 @@ describe("KnowledgeBaseUploadDialog", () => {
       </QueryClientProvider>,
     );
 
-    await screen.findByText("Kimi K2.5");
+    await screen.findByText("DeepSeek Flash");
 
     await user.click(screen.getByRole("combobox"));
     await user.click(await screen.findByRole("option", { name: "Qwen Max" }));
@@ -180,5 +185,56 @@ describe("KnowledgeBaseUploadDialog", () => {
       throw new Error("Expected both ensure and create calls to be recorded.");
     }
     expect(ensureCallOrder).toBeLessThan(createCallOrder);
+  });
+
+  it("prefers the DeepSeek flash model for knowledge compilation", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+        },
+      },
+    });
+
+    createKnowledgeBase.mockResolvedValue({
+      knowledge_base_id: "kb-library",
+      thread_id: "",
+      status: "queued",
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <KnowledgeBaseUploadDialog
+          open
+          onOpenChange={vi.fn()}
+          defaultModelName="kimi-k2.5"
+        />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByText("DeepSeek Flash");
+
+    const fileInput =
+      document.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(fileInput).not.toBeNull();
+
+    await user.upload(
+      fileInput!,
+      new File(["contract text"], "contract.md", {
+        type: "text/markdown",
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => {
+      expect(createKnowledgeBase).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "contract",
+          modelName: "deepseek-v4-flash",
+        }),
+      );
+    });
   });
 });

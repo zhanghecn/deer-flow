@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { LoaderIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -40,6 +40,14 @@ const SUPPORTED_KNOWLEDGE_EXTENSIONS = new Set([
   ".md",
   ".markdown",
 ]);
+const KNOWLEDGE_COMPILE_MODEL_PREFERENCES = [
+  "deepseek-flash",
+  "deepseek-v4-flash",
+];
+type KnowledgeCompileModelOption = {
+  name: string;
+  display_name?: string;
+};
 
 function stripFileExtension(filename: string) {
   return filename.replace(/\.[^.]+$/, "").trim();
@@ -92,15 +100,42 @@ function resolveKnowledgeBaseName(
 function resolveInitialModelName(
   currentModelName: string,
   defaultModelName: string | undefined,
-  models: { name: string }[],
+  models: KnowledgeCompileModelOption[],
 ) {
+  const flashModelNames = preferredKnowledgeCompileModelNames(models);
   const configuredModelName = findAvailableModelName(
     models,
     currentModelName,
+    ...flashModelNames,
+    ...KNOWLEDGE_COMPILE_MODEL_PREFERENCES,
     defaultModelName,
     getLocalSettings().context.model_name,
   );
   return (normalizeModelName(configuredModelName) || models[0]?.name) ?? "";
+}
+
+function preferredKnowledgeCompileModelNames(
+  models: KnowledgeCompileModelOption[],
+) {
+  return [...models]
+    .sort(
+      (left, right) =>
+        knowledgeCompileModelPriority(left) -
+        knowledgeCompileModelPriority(right),
+    )
+    .filter((model) => knowledgeCompileModelPriority(model) < 100)
+    .map((model) => model.name);
+}
+
+function knowledgeCompileModelPriority(model: KnowledgeCompileModelOption) {
+  const haystack = `${model.name} ${model.display_name ?? ""}`.toLowerCase();
+  if (!haystack.includes("flash")) {
+    return 100;
+  }
+  if (haystack.includes("deepseek")) {
+    return 0;
+  }
+  return 10;
 }
 
 export function KnowledgeBaseUploadDialog({
@@ -130,6 +165,15 @@ export function KnowledgeBaseUploadDialog({
   const [rejectedFiles, setRejectedFiles] = useState<File[]>([]);
   const [selectedModelName, setSelectedModelName] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const orderedModels = useMemo(
+    () =>
+      [...models].sort(
+        (left, right) =>
+          knowledgeCompileModelPriority(left) -
+          knowledgeCompileModelPriority(right),
+      ),
+    [models],
+  );
 
   useEffect(() => {
     if (open) {
@@ -253,7 +297,7 @@ export function KnowledgeBaseUploadDialog({
                 />
               </SelectTrigger>
               <SelectContent>
-                {models.map((model) => (
+                {orderedModels.map((model) => (
                   <SelectItem key={model.name} value={model.name}>
                     {model.display_name}
                   </SelectItem>

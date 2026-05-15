@@ -37,6 +37,8 @@ type KnowledgeHandler struct {
 	assetStore *knowledgeasset.Store
 }
 
+var knowledgeCompileModelAliases = []string{"deepseek-flash", "deepseek-v4-flash"}
+
 type knowledgeCreateResponse struct {
 	KnowledgeBases []repository.KnowledgeBaseRecord `json:"knowledge_bases"`
 }
@@ -781,8 +783,8 @@ func (h *KnowledgeHandler) queueKnowledgeBaseCreate(
 		}
 	}
 	description := strings.TrimSpace(c.PostForm("description"))
-	modelName := strings.TrimSpace(c.PostForm("model_name"))
-	if err := h.requireEnabledModel(c.Request.Context(), modelName); err != nil {
+	modelName, err := h.resolveKnowledgeCompileModel(c.Request.Context(), c.PostForm("model_name"))
+	if err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return
 	}
@@ -1025,7 +1027,8 @@ func (h *KnowledgeHandler) IndexUploaded(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: "filenames are required"})
 		return
 	}
-	if err := h.requireEnabledModel(c.Request.Context(), strings.TrimSpace(req.ModelName)); err != nil {
+	modelName, err := h.resolveKnowledgeCompileModel(c.Request.Context(), req.ModelName)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, model.ErrorResponse{Error: err.Error()})
 		return
 	}
@@ -1059,7 +1062,7 @@ func (h *KnowledgeHandler) IndexUploaded(c *gin.Context) {
 		strings.TrimSpace(req.Description),
 		"command",
 		"knowledge-add",
-		strings.TrimSpace(req.ModelName),
+		modelName,
 		pendingDocuments,
 	); err != nil {
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse{Error: err.Error()})
@@ -1084,19 +1087,136 @@ func (h *KnowledgeHandler) respondWithThreadKnowledgeBases(c *gin.Context, userI
 	c.JSON(http.StatusOK, knowledgeCreateResponse{KnowledgeBases: items})
 }
 
-func (h *KnowledgeHandler) requireEnabledModel(ctx context.Context, modelName string) error {
-	normalized := strings.TrimSpace(modelName)
+func (h *KnowledgeHandler) resolveKnowledgeCompileModel(ctx context.Context, requested string) (string, error) {
+	normalized := strings.TrimSpace(requested)
+	if normalized != "" {
+		if modelName, err := h.resolveEnabledCompileModelCandidate(ctx, normalized); err != nil {
+			return "", err
+		} else if modelName != "" {
+			return modelName, nil
+		}
+		if !isKnowledgeCompileModelAlias(normalized) {
+			return "", fmt.Errorf("model_name %q is not enabled", normalized)
+		}
+	}
+
 	if normalized == "" {
-		return fmt.Errorf("model_name is required")
+		modelName, err := h.resolvePreferredKnowledgeCompileModel(ctx)
+		if err != nil {
+			return "", err
+		}
+		if modelName != "" {
+			return modelName, nil
+		}
+	}
+
+	for _, candidate := range knowledgeCompileModelAliases {
+		if normalized == candidate {
+			continue
+		}
+		if modelName, err := h.resolveEnabledCompileModelCandidate(ctx, candidate); err != nil {
+			return "", err
+		} else if modelName != "" {
+			return modelName, nil
+		}
+	}
+
+	if normalized == "" {
+		return "", fmt.Errorf("knowledge compile model requires an enabled flash model")
+	}
+	return "", fmt.Errorf("model_name %q is not enabled", normalized)
+}
+
+func isKnowledgeCompileModelAlias(modelName string) bool {
+	normalized := strings.TrimSpace(modelName)
+	for _, candidate := range knowledgeCompileModelAliases {
+		if normalized == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *KnowledgeHandler) resolvePreferredKnowledgeCompileModel(ctx context.Context) (string, error) {
+	records, err := h.modelRepo.ListEnabled(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to validate model_name: %w", err)
+	}
+	return preferredKnowledgeCompileModelName(records), nil
+}
+
+func preferredKnowledgeCompileModelName(records []repository.ModelRecord) string {
+	bestName := ""
+	bestPriority := 100
+	for _, record := range records {
+		priority := knowledgeCompileModelPriority(record)
+		if priority >= bestPriority {
+			continue
+		}
+		bestPriority = priority
+		bestName = record.Name
+	}
+	if bestPriority >= 100 {
+		return ""
+	}
+	return bestName
+}
+
+func knowledgeCompileModelPriority(record repository.ModelRecord) int {
+	haystack := strings.ToLower(strings.Join([]string{
+		record.Name,
+		optionalStringValue(record.DisplayName),
+		record.Provider,
+		modelConfigStringValue(record.ConfigJSON, "model"),
+	}, " "))
+	if !strings.Contains(haystack, "flash") {
+		return 100
+	}
+	if strings.Contains(haystack, "deepseek") {
+		return 0
+	}
+	return 10
+}
+
+func (h *KnowledgeHandler) resolveEnabledCompileModelCandidate(ctx context.Context, candidate string) (string, error) {
+	normalized := strings.TrimSpace(candidate)
+	if normalized == "" {
+		return "", nil
 	}
 	record, err := h.modelRepo.FindEnabledByName(ctx, normalized)
 	if err != nil {
-		return fmt.Errorf("failed to validate model_name: %w", err)
+		return "", fmt.Errorf("failed to validate model_name: %w", err)
 	}
-	if record == nil {
-		return fmt.Errorf("model_name %q is not enabled", normalized)
+	if record != nil {
+		return normalized, nil
 	}
-	return nil
+
+	// Operators may expose the same fast compile model under a synced provider
+	// name while product copy calls it `deepseek-flash`; persist the enabled
+	// database name so workers can load it.
+	if normalized == "deepseek-flash" {
+		if modelName, err := h.resolveEnabledCompileModelCandidate(ctx, "deepseek-v4-flash"); err != nil || modelName != "" {
+			return modelName, err
+		}
+		return h.resolvePreferredKnowledgeCompileModel(ctx)
+	}
+	return "", nil
+}
+
+func optionalStringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func modelConfigStringValue(raw json.RawMessage, key string) string {
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return ""
+	}
+	value, _ := payload[key].(string)
+	return strings.TrimSpace(value)
 }
 
 func firstNonEmptyRef(values ...*string) string {
