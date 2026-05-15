@@ -231,3 +231,126 @@ OPENAGENTS_PULL_IMAGES=0 ./scripts/docker-deploy.sh
   - `zhangxuan2/openagents-web:latest` `c3618dda4505`
   - `zhangxuan2/openagents-gateway:latest` `be9372af26c1`
   - `zhangxuan2/openagents-langgraph:latest` `53f25e7a541a`
+
+## r5 完整 64 文件知识库 E2E
+
+日期：2026-05-15 20:24-23:42 Asia/Shanghai
+
+### 修正点
+
+r4 只上传了 `盲派真实案例/壬寅柱/cases.md` 单文件，适合验证 graph/related 修复，但不能代表真实多文件知识库。本轮重新从浏览器上传完整目录：
+
+`/root/project/ai/ai-numerology/backend/agents/examples/案例大全`
+
+### 上传与编译
+
+- Knowledge base：`bazi-cases-full-llm-wiki-e2e-20260515-r5`
+- Knowledge base id：`115eea70-52e5-48a6-9fa7-bb0a34cb35fe`
+- 上传方式：8083 知识库页面通过目录选择上传 `.playwright-cli/案例大全`，浏览器 `webkitRelativePath` 保留为 `案例大全/...`。
+- 文档数：64 个 Markdown 文件全部进入同一个知识库。
+- 编译模型：`deepseek-v4-flash`
+- DB 最终状态：
+  - `knowledge_documents`：64 `ready`
+  - `knowledge_build_jobs`：64 `ready`
+- 旧单文件 r4 知识库已删除，当前库表仅保留 r5 full KB：64 documents / 64 ready。
+
+### UI 问题与修复
+
+真实目录上传暴露上传弹窗问题：64 个文件列表会把弹窗撑出视口，导致 `Create` 按钮鼠标不可达。
+
+已修复：
+
+- 上传弹窗增加 `Choose folder` 目录选择入口。
+- 对目录 input 设置 `webkitdirectory` / `directory`，保留重复 `cases.md` 文件的相对路径身份。
+- 已选文件列表使用相对路径显示，并增加滚动上限，64 文件时 `Create` 按钮仍可点击。
+
+验证：
+
+- `corepack pnpm --dir frontend/app typecheck`：passed
+- `corepack pnpm --dir frontend/app exec vitest run src/components/workspace/knowledge/knowledge-base-upload-dialog.test.tsx`：2 passed
+- 目标文件 eslint：passed
+- `./scripts/docker-release.sh build --scope frontend`：passed
+- `OPENAGENTS_PULL_IMAGES=0 ./scripts/docker-deploy.sh`：passed
+
+### Wiki Workspace 与 Graph
+
+浏览器打开 full KB 详情页确认：
+
+- UI 显示：64 documents / 64 ready
+- Workspace tree API：
+  - total files：332
+  - raw caches：64
+  - source pages：66
+- Graph API：
+  - nodes：263
+  - edges：714
+- Graph UI：
+  - 263 graph nodes
+  - 260 / 263 pages
+  - 409 / 714 edges rendered
+  - 可见 `壬寅日柱案例集（巾箱秘术）` 社区，不是空图或纯 index 星型图。
+
+已抽检 `wiki/sources/案例大全-盲派真实案例-辛卯柱-cases-6be34587.md`：内容包含 frontmatter、raw cache、source 摘要与案例结构摘录，不是单纯路径清单。
+
+### Agent 绑定与问答
+
+线程：
+
+`ee14957c-6f5b-48f6-928a-895544ad7229`
+
+绑定结果：
+
+- DB `knowledge_thread_bindings` 仅绑定 `115eea70-52e5-48a6-9fa7-bb0a34cb35fe`
+- UI 显示 `bazi-cases-full-llm-wiki-e2e-20260515-r5`、Ready、64 documents
+
+提问：
+
+> 请只基于当前已绑定的完整案例大全知识库 bazi-cases-full-llm-wiki-e2e-20260515-r5，检索并回答：壬寅日主丑月出生的案例有哪些？请列出案例编号、四柱、性别、关键断语，并说明你引用的 wiki/source 路径。不要使用未绑定知识库，不要使用旧的 get_document_tree。
+
+观察到工具链：
+
+- `search_knowledge_workspace`
+  - query：`壬寅日元丑月生 斗牛箕星`
+  - workspace：`115eea70-52e5-48a6-9fa7-bb0a34cb35fe`
+- `get_wiki_page`
+  - `wiki/sources/案例大全-盲派真实案例-壬寅柱-cases-017d4d7e.md`
+- `get_wiki_page`
+  - `wiki/synthesis/壬寅日柱案例集（巾箱秘术）.md`
+- `get_source_evidence`
+  - query：`案例35 壬寅 丑月 勾陈碰己`
+- `get_source_evidence`
+  - query：`例153 坤1969 大寒之后 己酉 丁丑 壬寅 戊申`
+- `get_wiki_page`
+  - `wiki/concepts/《巾箱秘术》断语汇编（壬寅日柱篇）.md`
+
+未观察到旧工具 `get_document_tree`。
+
+回答结果：
+
+- 案例35（例153）：`己酉 丁丑 壬寅 戊申`，女（坤造）。关键断语包含“壬寅日元丑月生，斗牛箕星论壬命；勾陈碰己大不吉，婚姻几重多晦气。”
+- 案例36（例154）：`壬戌 癸丑 壬寅 辛亥`，女（坤造）。关键断语包含“壬寅日元丑月生，斗牛箕星说壬命；水星叠叠克六亲，几经磨难无需论。”
+- 案例37（例155）：`庚寅 己丑 壬寅 辛亥`，男（乾造）。关键断语包含“壬寅日元丑月生，斗牛箕星说壬命；双寅入局生性灵，金水相涵学问通。”
+
+引用路径：
+
+- Source wiki：`wiki/sources/案例大全-盲派真实案例-壬寅柱-cases-017d4d7e.md`
+- Synthesis：`wiki/synthesis/壬寅日柱案例集（巾箱秘术）.md`
+- Concept：`wiki/concepts/《巾箱秘术》断语汇编（壬寅日柱篇）.md`
+- Raw cache：`raw/sources/.cache/案例大全-盲派真实案例-壬寅柱-cases-017d4d7e.txt`
+- 源文档：`案例大全/盲派真实案例/壬寅柱/cases.md`
+
+### Admin Audit
+
+8081 Observability 真实浏览器审计：
+
+- Trace ID：`dce668e0-7ef8-4d48-ad7a-1232c311a353`
+- status：completed
+- agent：`bazi-mingli-e2e-20260515`
+- thread：`ee14957c-6f5b-48f6-928a-895544ad7229`
+- model：`deepseek-v4-flash`
+- Registered Tools 包含：
+  - `search_knowledge_workspace`
+  - `get_wiki_page`
+  - `get_source_evidence`
+- Events 包含 full workspace id `115eea70-52e5-48a6-9fa7-bb0a34cb35fe`
+- 未出现 `get_document_tree`

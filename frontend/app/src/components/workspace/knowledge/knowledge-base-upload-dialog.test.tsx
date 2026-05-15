@@ -38,6 +38,8 @@ vi.mock("@/core/i18n/hooks", () => ({
         modelPlaceholder: "Select a model",
         namePlaceholder: "Knowledge base name",
         descriptionPlaceholder: "Optional description for the agent",
+        chooseFilesLabel: "Choose files",
+        chooseFolderLabel: "Choose folder",
         selectedFileCount: (count: number) => `${count} files selected`,
         rejectedFileCount: (count: number) => `${count} files rejected`,
         unsupportedFilesSelected: (count: number) =>

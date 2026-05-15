@@ -334,6 +334,8 @@ export const zhCN: Translations = {
     modelPlaceholder: "选择一个模型",
     namePlaceholder: "知识库名称",
     descriptionPlaceholder: "给 agent 的可选描述",
+    chooseFilesLabel: "选择文件",
+    chooseFolderLabel: "选择文件夹",
     supportedFormatsHint: "支持的格式：PDF、DOC、DOCX、MD、Markdown。",
     unsupportedFilesSelected: (count: number) =>
       `${count} 个已选文件不支持知识库索引。`,

@@ -272,6 +272,8 @@ export interface Translations {
     modelPlaceholder: string;
     namePlaceholder: string;
     descriptionPlaceholder: string;
+    chooseFilesLabel: string;
+    chooseFolderLabel: string;
     supportedFormatsHint: string;
     unsupportedFilesSelected: (count: number) => string;
     selectedFileCount: (count: number) => string;

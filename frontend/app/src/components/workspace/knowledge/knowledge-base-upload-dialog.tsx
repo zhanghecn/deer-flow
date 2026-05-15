@@ -48,6 +48,13 @@ type KnowledgeCompileModelOption = {
   name: string;
   display_name?: string;
 };
+type DirectoryInputElement = HTMLInputElement & {
+  webkitdirectory?: boolean;
+  directory?: boolean;
+};
+type KnowledgeFileWithRelativePath = File & {
+  webkitRelativePath?: string;
+};
 
 function stripFileExtension(filename: string) {
   return filename.replace(/\.[^.]+$/, "").trim();
@@ -72,6 +79,27 @@ function splitKnowledgeFiles(files: File[]) {
   });
 
   return { acceptedFiles, rejectedFiles };
+}
+
+function knowledgeFileDisplayName(file: File) {
+  const relativePath = (file as KnowledgeFileWithRelativePath)
+    .webkitRelativePath?.trim();
+  return relativePath && relativePath.length > 0 ? relativePath : file.name;
+}
+
+function configureDirectoryInput(node: HTMLInputElement | null) {
+  if (!node) {
+    return;
+  }
+
+  // React's input typings do not expose the Chromium directory picker flags,
+  // but the backend relies on webkitRelativePath to preserve source identity
+  // for folder imports with repeated names such as many `cases.md` files.
+  const directoryInput = node as DirectoryInputElement;
+  directoryInput.webkitdirectory = true;
+  directoryInput.directory = true;
+  node.setAttribute("webkitdirectory", "");
+  node.setAttribute("directory", "");
 }
 
 function resolveKnowledgeBaseName(
@@ -174,6 +202,22 @@ export function KnowledgeBaseUploadDialog({
       ),
     [models],
   );
+
+  const handleSelectedFiles = (nextFiles: File[]) => {
+    const { acceptedFiles, rejectedFiles: nextRejectedFiles } =
+      splitKnowledgeFiles(nextFiles);
+
+    // Browser accept filters are only advisory; keep a client-side guard so
+    // unsupported files fail early with actionable feedback.
+    setFiles(acceptedFiles);
+    setRejectedFiles(nextRejectedFiles);
+
+    if (nextRejectedFiles.length > 0) {
+      toast.error(
+        t.knowledge.unsupportedFilesSelected(nextRejectedFiles.length),
+      );
+    }
+  };
 
   useEffect(() => {
     if (open) {
@@ -316,43 +360,51 @@ export function KnowledgeBaseUploadDialog({
             placeholder={t.knowledge.descriptionPlaceholder}
             rows={4}
           />
-          <Input
-            type="file"
-            multiple
-            accept=".pdf,.doc,.docx,.md,.markdown"
-            onChange={(event) => {
-              const nextFiles = Array.from(event.target.files ?? []);
-              const { acceptedFiles, rejectedFiles: nextRejectedFiles } =
-                splitKnowledgeFiles(nextFiles);
-
-              // Browser accept filters are only advisory; keep a client-side
-              // guard so unsupported files fail early with actionable feedback.
-              setFiles(acceptedFiles);
-              setRejectedFiles(nextRejectedFiles);
-
-              if (nextRejectedFiles.length > 0) {
-                toast.error(
-                  t.knowledge.unsupportedFilesSelected(
-                    nextRejectedFiles.length,
-                  ),
-                );
-              }
-            }}
-          />
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="space-y-1">
+              <div className="text-muted-foreground text-xs font-medium">
+                {t.knowledge.chooseFilesLabel}
+              </div>
+              <Input
+                aria-label={t.knowledge.chooseFilesLabel}
+                type="file"
+                multiple
+                accept=".pdf,.doc,.docx,.md,.markdown"
+                onChange={(event) =>
+                  handleSelectedFiles(Array.from(event.target.files ?? []))
+                }
+              />
+            </div>
+            <div className="space-y-1">
+              <div className="text-muted-foreground text-xs font-medium">
+                {t.knowledge.chooseFolderLabel}
+              </div>
+              <Input
+                ref={configureDirectoryInput}
+                aria-label={t.knowledge.chooseFolderLabel}
+                type="file"
+                multiple
+                accept=".pdf,.doc,.docx,.md,.markdown"
+                onChange={(event) =>
+                  handleSelectedFiles(Array.from(event.target.files ?? []))
+                }
+              />
+            </div>
+          </div>
           <p className="text-muted-foreground text-xs leading-5">
             {t.knowledge.supportedFormatsHint}
           </p>
           {files.length > 0 ? (
-            <div className="space-y-1 rounded-lg border px-3 py-2 text-xs">
+            <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border px-3 py-2 pr-1 text-xs">
               <div className="font-medium">
                 {t.knowledge.selectedFileCount(files.length)}
               </div>
               {files.map((file) => (
                 <div
-                  key={`${file.name}:${file.size}`}
+                  key={`${knowledgeFileDisplayName(file)}:${file.size}:${file.lastModified}`}
                   className="text-muted-foreground truncate"
                 >
-                  {file.name}
+                  {knowledgeFileDisplayName(file)}
                 </div>
               ))}
             </div>

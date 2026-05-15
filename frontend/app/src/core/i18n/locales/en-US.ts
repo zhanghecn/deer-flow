@@ -352,6 +352,8 @@ export const enUS: Translations = {
     modelPlaceholder: "Select a model",
     namePlaceholder: "Knowledge base name",
     descriptionPlaceholder: "Optional description for the agent",
+    chooseFilesLabel: "Choose files",
+    chooseFolderLabel: "Choose folder",
     supportedFormatsHint:
       "Supported formats: PDF, DOC, DOCX, MD, and Markdown.",
     unsupportedFilesSelected: (count: number) =>
